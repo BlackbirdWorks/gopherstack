@@ -38,15 +38,28 @@ var errScanFallback = errors.New("scan fallback required")
 // treat this as a signal to fall back to Scan; UPDATE/DELETE treat it as an error.
 var errNoKeyCondition = errors.New("no key condition in WHERE clause")
 
-// fromClauseRegex extracts the table name from a SELECT/DELETE ... FROM "tableName" statement.
-// Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
-var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
+// partiqlFromRe extracts the table name and optional index name from a
+// SELECT/DELETE ... FROM "tableName"[."indexName"] clause. Supports DynamoDB
+// table/index names: alphanumeric, hyphen, dot, and underscore.
+//
+// Grammar (DynamoDB PartiQL SELECT reference):
+//
+//	FROM {{table}}[.{{index}}]
+//	"You must add double quotation marks to the table name and index name
+//	when querying an index."
+//
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.select.html
+// INSERT/UPDATE/DELETE have no such [.{{index}}] in their grammar -- writes
+// against an index are not part of the language.
+var partiqlFromRe = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
-// partiqlInsertTableRe extracts the table name from INSERT INTO "tableName" statements.
-var partiqlInsertTableRe = regexp.MustCompile(`(?i)INTO\s+"([\w.\-]+)"`)
+// partiqlInsertTableRe extracts the table name from INSERT INTO "tableName" statements,
+// and an optional dotted index component so it can be rejected explicitly.
+var partiqlInsertTableRe = regexp.MustCompile(`(?i)INTO\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
-// partiqlUpdateTableRe extracts the table name from UPDATE "tableName" statements.
-var partiqlUpdateTableRe = regexp.MustCompile(`(?i)^\s*UPDATE\s+"([\w.\-]+)"`)
+// partiqlUpdateTableRe extracts the table name from UPDATE "tableName" statements,
+// and an optional dotted index component so it can be rejected explicitly.
+var partiqlUpdateTableRe = regexp.MustCompile(`(?i)^\s*UPDATE\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
 // Statement type detection regexes.
 var (
@@ -83,6 +96,11 @@ var (
 
 // minRegexMatch is the minimum number of submatches expected from a regex with one capture group.
 const minRegexMatch = 2
+
+// minFromMatch is the minimum number of submatches expected from partiqlFromRe,
+// partiqlInsertTableRe, or partiqlUpdateTableRe: full match, table, index (index
+// is "" when the optional dotted-index group did not participate).
+const minFromMatch = 3
 
 // executeStatementRequest is the wire format for ExecuteStatement.
 //
@@ -186,6 +204,49 @@ func (r *partiQLRunner) lookupKeySchema(
 	}
 
 	return models.FromSDKKeySchema(descOut.Table.KeySchema), nil
+}
+
+// getIndexKeySchemaForPartiQL returns the key schema for indexName on
+// tableName. Reuses extractKeySchema (item_ops_query.go), which the direct
+// Query API already uses for the identical resolution: ResourceNotFoundException
+// for an unknown index, ValidationException for ConsistentRead=true on a GSI.
+func (db *InMemoryDB) getIndexKeySchemaForPartiQL(
+	ctx context.Context,
+	tableName, indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	gsis, lsis := copySecondaryIndexDefsRLocked(table)
+
+	keySchema, _, err := db.extractKeySchema(
+		&Table{GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis},
+		indexName,
+		consistentRead,
+	)
+
+	return keySchema, err
+}
+
+// copySecondaryIndexDefsRLocked returns copies of a table's GSI/LSI
+// definitions under a defer-protected RLock, following the same
+// clone-before-return convention as copyKeySchemaRLocked (item_ops.go).
+func copySecondaryIndexDefsRLocked(
+	table *Table,
+) ([]models.GlobalSecondaryIndex, []models.LocalSecondaryIndex) {
+	table.mu.RLock("getIndexKeySchemaForPartiQL")
+	defer table.mu.RUnlock()
+
+	gsis := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsis, table.GlobalSecondaryIndexes)
+
+	lsis := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsis, table.LocalSecondaryIndexes)
+
+	return gsis, lsis
 }
 
 // executeStatement dispatches a single PartiQL statement to the appropriate handler.
@@ -388,7 +449,7 @@ func (r *partiQLRunner) executePartiQLSelect(
 		return nil, err
 	}
 
-	tableName, err := extractTableNameFromStatement(substituted)
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
 	if err != nil {
 		return nil, err
 	}
@@ -404,11 +465,13 @@ func (r *partiQLRunner) executePartiQLSelect(
 	colList := partiqlExtractColumns(substituted)
 	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
-	// Try to use Query if the partition key is present in the WHERE clause.
+	// Try to use Query if the partition key (the index's own partition key,
+	// when one is named) is present in the WHERE clause.
 	out, queryErr := r.tryQueryOptimization(
 		ctx,
 		req,
 		tableName,
+		indexName,
 		whereClause,
 		filterExpr,
 		eav,
@@ -427,46 +490,38 @@ func (r *partiQLRunner) executePartiQLSelect(
 	logger.Load(ctx).DebugContext(
 		ctx, "PartiQL SELECT falling back to Scan",
 		slog.String("table", tableName),
+		slog.String("index", indexName),
 		slog.String("where", whereClause),
 	)
 
-	return r.executeScanSelect(ctx, req, tableName, filterExpr, eav, colList, limit)
+	return r.executeScanSelect(ctx, req, tableName, indexName, filterExpr, eav, colList, limit)
 }
 
 // tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
 // when the partition key is present. Returns (nil, nil) when scan should be used instead,
 // or (result, nil) on success, or (nil, err) when a definitive error occurred.
 //
+// When indexName is set, the WHERE clause is evaluated against the NAMED
+// INDEX's key schema, not the table's -- a WHERE on the index's partition key
+// queries the index; anything else falls back to a Scan against the index
+// (executeScanSelect), never a full-table scan. An unresolvable index name is
+// a real error (errScanFallback is never returned for it): silently scanning
+// the base table would ignore what the statement explicitly asked to query.
+//
 // Key schema lookups are performed via getKeySchemaForPartiQL, which caches results
 // in the expression cache to avoid repeated global-lock acquisitions on hot paths.
 func (r *partiQLRunner) tryQueryOptimization(
 	ctx context.Context,
 	req executeStatementRequest,
-	tableName, whereClause, filterExpr string,
+	tableName, indexName, whereClause, filterExpr string,
 	eav map[string]any,
 	colList string,
 	limit int,
 	scanIndexForward bool,
 ) (*executeStatementResponse, error) {
-	var keySchema []models.KeySchemaElement
-
-	if db, ok := r.backend.(*InMemoryDB); ok {
-		ks, err := db.getKeySchemaForPartiQL(ctx, tableName)
-		if err != nil {
-			return nil, errScanFallback
-		}
-
-		keySchema = ks
-	} else {
-		// Fallback for alternative backends that don't implement the cache.
-		descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-			TableName: aws.String(tableName),
-		})
-		if descErr != nil {
-			return nil, errScanFallback
-		}
-
-		keySchema = models.FromSDKKeySchema(descOut.Table.KeySchema)
+	keySchema, err := r.resolveQueryKeySchema(ctx, tableName, indexName, req.ConsistentRead)
+	if err != nil {
+		return nil, err
 	}
 
 	keyAttrs := make(map[string]bool, len(keySchema))
@@ -480,7 +535,8 @@ func (r *partiQLRunner) tryQueryOptimization(
 			// A real validation error (e.g., missing placeholder): propagate it.
 			return nil, err
 		}
-		// No PK equality condition found in WHERE; fall back to full scan.
+		// No PK equality condition found in WHERE; fall back to a scan
+		// (of the named index, when one was given).
 		return nil, errScanFallback
 	}
 
@@ -493,6 +549,7 @@ func (r *partiQLRunner) tryQueryOptimization(
 	queryInput, err := r.buildQueryInput(
 		req,
 		tableName,
+		indexName,
 		whereClause,
 		filterExpr,
 		eav,
@@ -522,11 +579,92 @@ func (r *partiQLRunner) tryQueryOptimization(
 	}, nil
 }
 
+// resolveQueryKeySchema returns the key schema to evaluate the WHERE clause
+// against: the table's own primary key when indexName is empty, or the named
+// GSI/LSI's key schema when set. A (nil, nil) result signals "fall back to a
+// full Scan" -- reserved for the base-table lookup itself failing (e.g. table
+// not found), letting the subsequent Scan surface the real error, matching
+// prior behavior. A named index that cannot be resolved returns a real error:
+// see the doc comment on tryQueryOptimization.
+func (r *partiQLRunner) resolveQueryKeySchema(
+	ctx context.Context,
+	tableName, indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	if indexName == "" {
+		if db, ok := r.backend.(*InMemoryDB); ok {
+			ks, err := db.getKeySchemaForPartiQL(ctx, tableName)
+			if err != nil {
+				return nil, errScanFallback
+			}
+
+			return ks, nil
+		}
+
+		descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+		if descErr != nil {
+			return nil, errScanFallback
+		}
+
+		return models.FromSDKKeySchema(descOut.Table.KeySchema), nil
+	}
+
+	if db, ok := r.backend.(*InMemoryDB); ok {
+		return db.getIndexKeySchemaForPartiQL(ctx, tableName, indexName, consistentRead)
+	}
+
+	descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if descErr != nil {
+		return nil, descErr
+	}
+
+	return resolveSDKIndexKeySchema(descOut.Table, indexName, consistentRead)
+}
+
+// resolveSDKIndexKeySchema resolves indexName's key schema from a
+// DescribeTable-shaped TableDescription. Mirrors extractKeySchema's rule for
+// the direct Query API (item_ops_query.go): ConsistentRead=true on a GSI is a
+// ValidationException, and an index absent from both lists is a
+// ResourceNotFoundException -- per the DynamoDB Query API Errors reference
+// ("The operation tried to access a nonexistent table or index."),
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Query.html.
+func resolveSDKIndexKeySchema(
+	table *types.TableDescription,
+	indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	for _, gsi := range table.GlobalSecondaryIndexes {
+		if aws.ToString(gsi.IndexName) != indexName {
+			continue
+		}
+
+		if consistentRead {
+			return nil, NewValidationException(
+				"Consistent reads are not supported on global secondary indexes",
+			)
+		}
+
+		return models.FromSDKKeySchema(gsi.KeySchema), nil
+	}
+
+	for _, lsi := range table.LocalSecondaryIndexes {
+		if aws.ToString(lsi.IndexName) == indexName {
+			return models.FromSDKKeySchema(lsi.KeySchema), nil
+		}
+	}
+
+	return nil, NewResourceNotFoundException(fmt.Sprintf("Index: %s not found", indexName))
+}
+
 // buildQueryInput constructs a QueryInput from the parsed PartiQL components.
 // ConsistentRead from the original statement request is forwarded.
 func (r *partiQLRunner) buildQueryInput(
 	req executeStatementRequest,
-	tableName, whereClause, filterExpr string,
+	tableName, indexName, whereClause, filterExpr string,
 	eav map[string]any,
 	pkAttr, colList string,
 	limit int,
@@ -543,6 +681,10 @@ func (r *partiQLRunner) buildQueryInput(
 		ExpressionAttributeValues: sdkEAV,
 		KeyConditionExpression:    aws.String(keyCond),
 		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
+	}
+
+	if indexName != "" {
+		queryInput.IndexName = aws.String(indexName)
 	}
 
 	if req.ConsistentRead {
@@ -573,7 +715,7 @@ func (r *partiQLRunner) buildQueryInput(
 func (r *partiQLRunner) executeScanSelect(
 	ctx context.Context,
 	req executeStatementRequest,
-	tableName, filterExpr string,
+	tableName, indexName, filterExpr string,
 	eav map[string]any,
 	colList string,
 	limit int,
@@ -581,6 +723,10 @@ func (r *partiQLRunner) executeScanSelect(
 	scanInput := &dynamodb.ScanInput{
 		TableName:              aws.String(tableName),
 		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+	}
+
+	if indexName != "" {
+		scanInput.IndexName = aws.String(indexName)
 	}
 
 	if req.ConsistentRead {
@@ -704,11 +850,17 @@ func (r *partiQLRunner) executePartiQLInsert(
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
 	matches := partiqlInsertTableRe.FindStringSubmatch(req.Statement)
-	if len(matches) < minRegexMatch {
+	if len(matches) < minFromMatch {
 		return nil, fmt.Errorf("%w: cannot extract table name from INSERT", ErrInvalidStatement)
 	}
 
 	tableName := matches[1]
+	if matches[2] != "" {
+		return nil, fmt.Errorf(
+			"%w: INSERT does not support an index target (INTO %q.%q)",
+			ErrInvalidStatement, tableName, matches[2],
+		)
+	}
 
 	valueMatches := partiqlValueRe.FindStringSubmatch(req.Statement)
 	if len(valueMatches) < minRegexMatch {
@@ -786,11 +938,17 @@ type partiqlUpdateParsed struct {
 // parsePartiQLUpdateClauses extracts table name, SET/REMOVE/WHERE clauses, and substitutes params.
 func parsePartiQLUpdateClauses(req executeStatementRequest) (*partiqlUpdateParsed, error) {
 	matches := partiqlUpdateTableRe.FindStringSubmatch(req.Statement)
-	if len(matches) < minRegexMatch {
+	if len(matches) < minFromMatch {
 		return nil, fmt.Errorf("%w: cannot extract table name from UPDATE", ErrInvalidStatement)
 	}
 
 	tableName := matches[1]
+	if matches[2] != "" {
+		return nil, fmt.Errorf(
+			"%w: UPDATE does not support an index target (UPDATE %q.%q)",
+			ErrInvalidStatement, tableName, matches[2],
+		)
+	}
 
 	substituted, eav, err := partiqlSubstituteParams(req.Statement, req.Parameters)
 	if err != nil {
@@ -907,9 +1065,16 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, err
 	}
 
-	tableName, err := extractTableNameFromStatement(substituted)
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
 	if err != nil {
 		return nil, err
+	}
+
+	if indexName != "" {
+		return nil, fmt.Errorf(
+			"%w: DELETE does not support an index target (FROM %q.%q)",
+			ErrInvalidStatement, tableName, indexName,
+		)
 	}
 
 	whereClause := partiqlExtractWhere(substituted)
@@ -954,22 +1119,22 @@ func (r *partiQLRunner) executePartiQLDelete(
 	}, nil
 }
 
-// extractTableNameFromStatement extracts the table name from a SELECT/DELETE PartiQL statement.
-func extractTableNameFromStatement(statement string) (string, error) {
-	const minMatchLen = 2 // full match + first capture group
-
-	matches := fromClauseRegex.FindStringSubmatch(statement)
-	if len(matches) < minMatchLen {
-		return "", fmt.Errorf("%w: %q", ErrInvalidStatement, statement)
+// extractTableAndIndexFromStatement extracts the table name and optional
+// dotted index name from a SELECT/DELETE ... FROM "table"[."index"] statement.
+// index is "" when no index was named.
+func extractTableAndIndexFromStatement(statement string) (string, string, error) {
+	matches := partiqlFromRe.FindStringSubmatch(statement)
+	if len(matches) < minFromMatch {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidStatement, statement)
 	}
 
-	return matches[1], nil
+	return matches[1], matches[2], nil
 }
 
 // extractPartiQLTableName returns the table name from any PartiQL DML statement.
 // Returns empty string when the statement type or table name cannot be determined.
 func extractPartiQLTableName(stmt string) string {
-	if m := fromClauseRegex.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
+	if m := partiqlFromRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
 		return m[1]
 	}
 	if m := partiqlInsertTableRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
