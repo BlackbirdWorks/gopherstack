@@ -148,6 +148,13 @@ func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID stri
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "verified-access-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.VerifiedAccessEndpointID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVerifiedAccessEndpointResponse{
 		RequestID:              reqID,
 		VerifiedAccessEndpoint: h.toVerifiedAccessEndpointItem(ep),
@@ -217,6 +224,13 @@ func (h *Handler) handleCreateVerifiedAccessGroup(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "verified-access-group")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{grp.VerifiedAccessGroupID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVerifiedAccessGroupResponse{
 		RequestID:           reqID,
 		VerifiedAccessGroup: h.toVerifiedAccessGroupItem(grp),
@@ -263,6 +277,13 @@ func (h *Handler) handleCreateVerifiedAccessInstance(vals url.Values, reqID stri
 	inst, err := h.Backend.CreateVerifiedAccessInstance(description)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "verified-access-instance")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{inst.VerifiedAccessInstanceID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createVerifiedAccessInstanceResponse{
@@ -312,6 +333,13 @@ func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID
 	tp, err := h.Backend.CreateVerifiedAccessTrustProvider(providerType, description)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "verified-access-trust-provider")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{tp.VerifiedAccessTrustProviderID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createVerifiedAccessTrustProviderResponse{

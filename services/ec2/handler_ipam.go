@@ -33,6 +33,13 @@ func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ipam.IpamID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -92,6 +99,13 @@ func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, err
 	scope, err := h.Backend.CreateIpamScope(vals.Get("IpamId"), vals.Get("Description"))
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "ipam-scope")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{scope.IpamScopeID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createIpamScopeResponse{
@@ -215,6 +229,13 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "ipam-pool")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pool.IpamPoolID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createIpamPoolResponse{
@@ -435,7 +456,7 @@ func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID s
 
 	for _, d := range discoveries {
 		resp.IpamResourceDiscoverySet.Items = append(
-			resp.IpamResourceDiscoverySet.Items, toIpamResourceDiscoveryItem(d),
+			resp.IpamResourceDiscoverySet.Items, h.toIpamResourceDiscoveryItem(d),
 		)
 	}
 

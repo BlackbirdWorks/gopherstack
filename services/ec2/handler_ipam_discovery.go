@@ -174,7 +174,7 @@ func parseOptionalBool(vals url.Values, key string) *bool {
 
 // toIpamResourceDiscoveryItem builds the full wire representation of a resource discovery,
 // including its operating regions. Shared by the Create/Delete/Modify/Describe handlers.
-func toIpamResourceDiscoveryItem(d *IpamResourceDiscovery) ipamResourceDiscoveryItem {
+func (h *Handler) toIpamResourceDiscoveryItem(d *IpamResourceDiscovery) ipamResourceDiscoveryItem {
 	item := ipamResourceDiscoveryItem{
 		IpamResourceDiscoveryID:     d.IpamResourceDiscoveryID,
 		OwnerID:                     d.OwnerID,
@@ -183,6 +183,7 @@ func toIpamResourceDiscoveryItem(d *IpamResourceDiscovery) ipamResourceDiscovery
 		State:                       d.State,
 		Description:                 d.Description,
 		IsDefault:                   d.IsDefault,
+		TagSet:                      tagItemsFromMap(h.Backend.TagsForResource(d.IpamResourceDiscoveryID)),
 	}
 
 	for _, r := range d.OperatingRegions {
@@ -335,19 +336,20 @@ type disassociateIpamByoasnResponse struct {
 // ---- XML response types: External Resource Verification Tokens ----
 
 type ipamExternalResourceVerificationTokenItem struct {
-	IpamExternalResourceVerificationTokenID  string `xml:"ipamExternalResourceVerificationTokenId,omitempty"`
-	IpamExternalResourceVerificationTokenARN string `xml:"ipamExternalResourceVerificationTokenArn,omitempty"`
-	IpamID                                   string `xml:"ipamId,omitempty"`
-	IpamARN                                  string `xml:"ipamArn,omitempty"`
-	IpamRegion                               string `xml:"ipamRegion,omitempty"`
-	State                                    string `xml:"state,omitempty"`
-	Status                                   string `xml:"status,omitempty"`
-	TokenName                                string `xml:"tokenName,omitempty"`
-	TokenValue                               string `xml:"tokenValue,omitempty"`
-	NotAfter                                 string `xml:"notAfter,omitempty"`
+	IpamExternalResourceVerificationTokenID  string          `xml:"ipamExternalResourceVerificationTokenId,omitempty"`
+	IpamExternalResourceVerificationTokenARN string          `xml:"ipamExternalResourceVerificationTokenArn,omitempty"`
+	IpamID                                   string          `xml:"ipamId,omitempty"`
+	IpamARN                                  string          `xml:"ipamArn,omitempty"`
+	IpamRegion                               string          `xml:"ipamRegion,omitempty"`
+	State                                    string          `xml:"state,omitempty"`
+	Status                                   string          `xml:"status,omitempty"`
+	TokenName                                string          `xml:"tokenName,omitempty"`
+	TokenValue                               string          `xml:"tokenValue,omitempty"`
+	NotAfter                                 string          `xml:"notAfter,omitempty"`
+	TagSet                                   []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toIpamExternalResourceVerificationTokenItem(
+func (h *Handler) toIpamExternalResourceVerificationTokenItem(
 	t *IpamExternalResourceVerificationToken,
 ) ipamExternalResourceVerificationTokenItem {
 	item := ipamExternalResourceVerificationTokenItem{
@@ -360,6 +362,9 @@ func toIpamExternalResourceVerificationTokenItem(
 		Status:                                   t.Status,
 		TokenName:                                t.TokenName,
 		TokenValue:                               t.TokenValue,
+		TagSet: tagItemsFromMap(
+			h.Backend.TagsForResource(t.IpamExternalResourceVerificationTokenID),
+		),
 	}
 	if !t.NotAfter.IsZero() {
 		item.NotAfter = t.NotAfter.Format(time.RFC3339)
@@ -428,20 +433,21 @@ func toIpamPrefixListResolverRuleItem(r IpamPrefixListResolverRule) ipamPrefixLi
 }
 
 type ipamPrefixListResolverItem struct {
-	IpamPrefixListResolverID         string `xml:"ipamPrefixListResolverId,omitempty"`
-	IpamPrefixListResolverARN        string `xml:"ipamPrefixListResolverArn,omitempty"`
-	IpamID                           string `xml:"ipamId,omitempty"`
-	IpamARN                          string `xml:"ipamArn,omitempty"`
-	IpamRegion                       string `xml:"ipamRegion,omitempty"`
-	OwnerID                          string `xml:"ownerId,omitempty"`
-	AddressFamily                    string `xml:"addressFamily,omitempty"`
-	Description                      string `xml:"description,omitempty"`
-	State                            string `xml:"state,omitempty"`
-	LastVersionCreationStatus        string `xml:"lastVersionCreationStatus,omitempty"`
-	LastVersionCreationStatusMessage string `xml:"lastVersionCreationStatusMessage,omitempty"`
+	IpamPrefixListResolverID         string          `xml:"ipamPrefixListResolverId,omitempty"`
+	IpamPrefixListResolverARN        string          `xml:"ipamPrefixListResolverArn,omitempty"`
+	IpamID                           string          `xml:"ipamId,omitempty"`
+	IpamARN                          string          `xml:"ipamArn,omitempty"`
+	IpamRegion                       string          `xml:"ipamRegion,omitempty"`
+	OwnerID                          string          `xml:"ownerId,omitempty"`
+	AddressFamily                    string          `xml:"addressFamily,omitempty"`
+	Description                      string          `xml:"description,omitempty"`
+	State                            string          `xml:"state,omitempty"`
+	LastVersionCreationStatus        string          `xml:"lastVersionCreationStatus,omitempty"`
+	LastVersionCreationStatusMessage string          `xml:"lastVersionCreationStatusMessage,omitempty"`
+	TagSet                           []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toIpamPrefixListResolverItem(r *IpamPrefixListResolver) ipamPrefixListResolverItem {
+func (h *Handler) toIpamPrefixListResolverItem(r *IpamPrefixListResolver) ipamPrefixListResolverItem {
 	return ipamPrefixListResolverItem{
 		IpamPrefixListResolverID:         r.IpamPrefixListResolverID,
 		IpamPrefixListResolverARN:        r.IpamPrefixListResolverARN,
@@ -454,6 +460,7 @@ func toIpamPrefixListResolverItem(r *IpamPrefixListResolver) ipamPrefixListResol
 		State:                            r.State,
 		LastVersionCreationStatus:        r.LastVersionCreationStatus,
 		LastVersionCreationStatusMessage: r.LastVersionCreationStatusMessage,
+		TagSet:                           tagItemsFromMap(h.Backend.TagsForResource(r.IpamPrefixListResolverID)),
 	}
 }
 
@@ -525,20 +532,23 @@ type getIpamPrefixListResolverVersionEntriesResponse struct {
 // ---- XML response types: Prefix List Resolver Targets ----
 
 type ipamPrefixListResolverTargetItem struct {
-	IpamPrefixListResolverTargetID  string `xml:"ipamPrefixListResolverTargetId,omitempty"`
-	IpamPrefixListResolverTargetARN string `xml:"ipamPrefixListResolverTargetArn,omitempty"`
-	IpamPrefixListResolverID        string `xml:"ipamPrefixListResolverId,omitempty"`
-	OwnerID                         string `xml:"ownerId,omitempty"`
-	PrefixListID                    string `xml:"prefixListId,omitempty"`
-	PrefixListRegion                string `xml:"prefixListRegion,omitempty"`
-	State                           string `xml:"state,omitempty"`
-	StateMessage                    string `xml:"stateMessage,omitempty"`
-	DesiredVersion                  int64  `xml:"desiredVersion,omitempty"`
-	LastSyncedVersion               int64  `xml:"lastSyncedVersion,omitempty"`
-	TrackLatestVersion              bool   `xml:"trackLatestVersion"`
+	IpamPrefixListResolverTargetID  string          `xml:"ipamPrefixListResolverTargetId,omitempty"`
+	IpamPrefixListResolverTargetARN string          `xml:"ipamPrefixListResolverTargetArn,omitempty"`
+	IpamPrefixListResolverID        string          `xml:"ipamPrefixListResolverId,omitempty"`
+	OwnerID                         string          `xml:"ownerId,omitempty"`
+	PrefixListID                    string          `xml:"prefixListId,omitempty"`
+	PrefixListRegion                string          `xml:"prefixListRegion,omitempty"`
+	State                           string          `xml:"state,omitempty"`
+	StateMessage                    string          `xml:"stateMessage,omitempty"`
+	TagSet                          []simpleTagItem `xml:"tagSet>item"`
+	DesiredVersion                  int64           `xml:"desiredVersion,omitempty"`
+	LastSyncedVersion               int64           `xml:"lastSyncedVersion,omitempty"`
+	TrackLatestVersion              bool            `xml:"trackLatestVersion"`
 }
 
-func toIpamPrefixListResolverTargetItem(t *IpamPrefixListResolverTarget) ipamPrefixListResolverTargetItem {
+func (h *Handler) toIpamPrefixListResolverTargetItem(
+	t *IpamPrefixListResolverTarget,
+) ipamPrefixListResolverTargetItem {
 	item := ipamPrefixListResolverTargetItem{
 		IpamPrefixListResolverTargetID:  t.IpamPrefixListResolverTargetID,
 		IpamPrefixListResolverTargetARN: t.IpamPrefixListResolverTargetARN,
@@ -549,6 +559,7 @@ func toIpamPrefixListResolverTargetItem(t *IpamPrefixListResolverTarget) ipamPre
 		TrackLatestVersion:              t.TrackLatestVersion,
 		State:                           t.State,
 		StateMessage:                    t.StateMessage,
+		TagSet:                          tagItemsFromMap(h.Backend.TagsForResource(t.IpamPrefixListResolverTargetID)),
 	}
 	if t.DesiredVersion != nil {
 		item.DesiredVersion = *t.DesiredVersion
@@ -601,8 +612,15 @@ func (h *Handler) handleCreateIpamResourceDiscovery(vals url.Values, reqID strin
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-resource-discovery")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{d.IpamResourceDiscoveryID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamResourceDiscoveryResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: toIpamResourceDiscoveryItem(d),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: h.toIpamResourceDiscoveryItem(d),
 	}, nil
 }
 
@@ -613,7 +631,7 @@ func (h *Handler) handleDeleteIpamResourceDiscovery(vals url.Values, reqID strin
 	}
 
 	return &deleteIpamResourceDiscoveryResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: toIpamResourceDiscoveryItem(d),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: h.toIpamResourceDiscoveryItem(d),
 	}, nil
 }
 
@@ -655,7 +673,7 @@ func (h *Handler) handleModifyIpamResourceDiscovery(vals url.Values, reqID strin
 	}
 
 	return &modifyIpamResourceDiscoveryResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: toIpamResourceDiscoveryItem(d),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamResourceDiscovery: h.toIpamResourceDiscoveryItem(d),
 	}, nil
 }
 
@@ -758,9 +776,16 @@ func (h *Handler) handleCreateIpamExternalResourceVerificationToken(vals url.Val
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-external-resource-verification-token")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{t.IpamExternalResourceVerificationTokenID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamExternalResourceVerificationTokenResponse{
 		Xmlns: ec2XMLNS, RequestID: reqID,
-		Token: toIpamExternalResourceVerificationTokenItem(t),
+		Token: h.toIpamExternalResourceVerificationTokenItem(t),
 	}, nil
 }
 
@@ -774,7 +799,7 @@ func (h *Handler) handleDeleteIpamExternalResourceVerificationToken(vals url.Val
 
 	return &deleteIpamExternalResourceVerificationTokenResponse{
 		Xmlns: ec2XMLNS, RequestID: reqID,
-		Token: toIpamExternalResourceVerificationTokenItem(t),
+		Token: h.toIpamExternalResourceVerificationTokenItem(t),
 	}, nil
 }
 
@@ -786,7 +811,7 @@ func (h *Handler) handleDescribeIpamExternalResourceVerificationTokens(vals url.
 	for _, t := range tokens {
 		resp.IpamExternalResourceVerificationTokenSet.Items = append(
 			resp.IpamExternalResourceVerificationTokenSet.Items,
-			toIpamExternalResourceVerificationTokenItem(t),
+			h.toIpamExternalResourceVerificationTokenItem(t),
 		)
 	}
 
@@ -805,8 +830,15 @@ func (h *Handler) handleCreateIpamPrefixListResolver(vals url.Values, reqID stri
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-prefix-list-resolver")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{r.IpamPrefixListResolverID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamPrefixListResolverResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: toIpamPrefixListResolverItem(r),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: h.toIpamPrefixListResolverItem(r),
 	}, nil
 }
 
@@ -817,7 +849,7 @@ func (h *Handler) handleDeleteIpamPrefixListResolver(vals url.Values, reqID stri
 	}
 
 	return &deleteIpamPrefixListResolverResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: toIpamPrefixListResolverItem(r),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: h.toIpamPrefixListResolverItem(r),
 	}, nil
 }
 
@@ -828,7 +860,7 @@ func (h *Handler) handleDescribeIpamPrefixListResolvers(vals url.Values, reqID s
 	resp := &describeIpamPrefixListResolversResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, r := range resolvers {
 		resp.IpamPrefixListResolverSet.Items = append(
-			resp.IpamPrefixListResolverSet.Items, toIpamPrefixListResolverItem(r),
+			resp.IpamPrefixListResolverSet.Items, h.toIpamPrefixListResolverItem(r),
 		)
 	}
 
@@ -846,7 +878,7 @@ func (h *Handler) handleModifyIpamPrefixListResolver(vals url.Values, reqID stri
 	}
 
 	return &modifyIpamPrefixListResolverResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: toIpamPrefixListResolverItem(r),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolver: h.toIpamPrefixListResolverItem(r),
 	}, nil
 }
 
@@ -910,8 +942,15 @@ func (h *Handler) handleCreateIpamPrefixListResolverTarget(vals url.Values, reqI
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-prefix-list-resolver-target")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{t.IpamPrefixListResolverTargetID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamPrefixListResolverTargetResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: toIpamPrefixListResolverTargetItem(t),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: h.toIpamPrefixListResolverTargetItem(t),
 	}, nil
 }
 
@@ -922,7 +961,7 @@ func (h *Handler) handleDeleteIpamPrefixListResolverTarget(vals url.Values, reqI
 	}
 
 	return &deleteIpamPrefixListResolverTargetResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: toIpamPrefixListResolverTargetItem(t),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: h.toIpamPrefixListResolverTargetItem(t),
 	}, nil
 }
 
@@ -933,7 +972,7 @@ func (h *Handler) handleDescribeIpamPrefixListResolverTargets(vals url.Values, r
 	resp := &describeIpamPrefixListResolverTargetsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, t := range targets {
 		resp.IpamPrefixListResolverTargetSet.Items = append(
-			resp.IpamPrefixListResolverTargetSet.Items, toIpamPrefixListResolverTargetItem(t),
+			resp.IpamPrefixListResolverTargetSet.Items, h.toIpamPrefixListResolverTargetItem(t),
 		)
 	}
 
@@ -951,6 +990,6 @@ func (h *Handler) handleModifyIpamPrefixListResolverTarget(vals url.Values, reqI
 	}
 
 	return &modifyIpamPrefixListResolverTargetResponse{
-		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: toIpamPrefixListResolverTargetItem(t),
+		Xmlns: ec2XMLNS, RequestID: reqID, IpamPrefixListResolverTarget: h.toIpamPrefixListResolverTargetItem(t),
 	}, nil
 }

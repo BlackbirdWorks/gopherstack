@@ -72,16 +72,17 @@ func toIpamPolicyAllocationRuleItem(r IpamPolicyAllocationRule) ipamPolicyAlloca
 }
 
 type ipamPolicyItem struct {
-	IpamID           string `xml:"ipamId,omitempty"`
-	IpamPolicyARN    string `xml:"ipamPolicyArn,omitempty"`
-	IpamPolicyID     string `xml:"ipamPolicyId,omitempty"`
-	IpamPolicyRegion string `xml:"ipamPolicyRegion,omitempty"`
-	OwnerID          string `xml:"ownerId,omitempty"`
-	State            string `xml:"state,omitempty"`
-	StateMessage     string `xml:"stateMessage,omitempty"`
+	IpamID           string          `xml:"ipamId,omitempty"`
+	IpamPolicyARN    string          `xml:"ipamPolicyArn,omitempty"`
+	IpamPolicyID     string          `xml:"ipamPolicyId,omitempty"`
+	IpamPolicyRegion string          `xml:"ipamPolicyRegion,omitempty"`
+	OwnerID          string          `xml:"ownerId,omitempty"`
+	State            string          `xml:"state,omitempty"`
+	StateMessage     string          `xml:"stateMessage,omitempty"`
+	TagSet           []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toIpamPolicyItem(p *IpamPolicy) ipamPolicyItem {
+func (h *Handler) toIpamPolicyItem(p *IpamPolicy) ipamPolicyItem {
 	return ipamPolicyItem{
 		IpamID:           p.IpamID,
 		IpamPolicyARN:    p.IpamPolicyARN,
@@ -90,6 +91,7 @@ func toIpamPolicyItem(p *IpamPolicy) ipamPolicyItem {
 		OwnerID:          p.OwnerID,
 		State:            p.State,
 		StateMessage:     p.StateMessage,
+		TagSet:           tagItemsFromMap(h.Backend.TagsForResource(p.IpamPolicyID)),
 	}
 }
 
@@ -220,7 +222,14 @@ func (h *Handler) handleCreateIpamPolicy(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
-	return &createIpamPolicyResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPolicy: toIpamPolicyItem(p)}, nil
+	tags := parseTagSpecification(vals, "ipam-policy")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{p.IpamPolicyID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
+	return &createIpamPolicyResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPolicy: h.toIpamPolicyItem(p)}, nil
 }
 
 func (h *Handler) handleDeleteIpamPolicy(vals url.Values, reqID string) (any, error) {
@@ -229,7 +238,7 @@ func (h *Handler) handleDeleteIpamPolicy(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
-	return &deleteIpamPolicyResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPolicy: toIpamPolicyItem(p)}, nil
+	return &deleteIpamPolicyResponse{Xmlns: ec2XMLNS, RequestID: reqID, IpamPolicy: h.toIpamPolicyItem(p)}, nil
 }
 
 func (h *Handler) handleDescribeIpamPolicies(vals url.Values, reqID string) (any, error) {
@@ -238,7 +247,7 @@ func (h *Handler) handleDescribeIpamPolicies(vals url.Values, reqID string) (any
 
 	resp := &describeIpamPoliciesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range policies {
-		resp.IpamPolicySet.Items = append(resp.IpamPolicySet.Items, toIpamPolicyItem(p))
+		resp.IpamPolicySet.Items = append(resp.IpamPolicySet.Items, h.toIpamPolicyItem(p))
 	}
 
 	return resp, nil

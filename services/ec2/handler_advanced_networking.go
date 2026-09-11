@@ -785,7 +785,8 @@ type ipamResourceDiscoveryItem struct {
 	OperatingRegionSet          struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
 	} `xml:"operatingRegionSet"`
-	IsDefault bool `xml:"isDefault"`
+	TagSet    []simpleTagItem `xml:"tagSet>item"`
+	IsDefault bool            `xml:"isDefault"`
 }
 
 type describeIpamResourceDiscoveriesResponse struct {
