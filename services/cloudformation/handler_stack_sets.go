@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -525,30 +526,32 @@ func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) err
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetID           string `xml:"StackSetId,omitempty"`
-		StackID              string `xml:"StackId,omitempty"`
-		Account              string `xml:"Account,omitempty"`
-		Region               string `xml:"Region,omitempty"`
-		Status               string `xml:"Status,omitempty"`
-		StatusReason         string `xml:"StatusReason,omitempty"`
-		DriftStatus          string `xml:"DriftStatus,omitempty"`
-		LastOperationID      string `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
+		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string     `xml:"StackSetId,omitempty"`
+		StackID                 string     `xml:"StackId,omitempty"`
+		Account                 string     `xml:"Account,omitempty"`
+		Region                  string     `xml:"Region,omitempty"`
+		Status                  string     `xml:"Status,omitempty"`
+		StatusReason            string     `xml:"StatusReason,omitempty"`
+		DriftStatus             string     `xml:"DriftStatus,omitempty"`
+		LastOperationID         string     `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
 	for _, i := range p.Data {
 		members = append(
 			members,
 			instXML{
-				StackSetID:           i.StackSetID,
-				StackID:              i.StackID,
-				Account:              i.Account,
-				Region:               i.Region,
-				Status:               i.Status,
-				StatusReason:         i.StatusReason,
-				DriftStatus:          i.DriftStatus,
-				LastOperationID:      i.LastOperationID,
-				OrganizationalUnitID: i.OrganizationalUnitID,
+				StackSetID:              i.StackSetID,
+				StackID:                 i.StackID,
+				Account:                 i.Account,
+				Region:                  i.Region,
+				Status:                  i.Status,
+				StatusReason:            i.StatusReason,
+				DriftStatus:             i.DriftStatus,
+				LastOperationID:         i.LastOperationID,
+				OrganizationalUnitID:    i.OrganizationalUnitID,
+				LastDriftCheckTimestamp: i.LastDriftCheckTimestamp,
 			},
 		)
 	}
@@ -586,15 +589,16 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetID           string `xml:"StackSetId,omitempty"`
-		StackID              string `xml:"StackId,omitempty"`
-		Account              string `xml:"Account,omitempty"`
-		Region               string `xml:"Region,omitempty"`
-		Status               string `xml:"Status,omitempty"`
-		StatusReason         string `xml:"StatusReason,omitempty"`
-		DriftStatus          string `xml:"DriftStatus,omitempty"`
-		LastOperationID      string `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
+		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string     `xml:"StackSetId,omitempty"`
+		StackID                 string     `xml:"StackId,omitempty"`
+		Account                 string     `xml:"Account,omitempty"`
+		Region                  string     `xml:"Region,omitempty"`
+		Status                  string     `xml:"Status,omitempty"`
+		StatusReason            string     `xml:"StatusReason,omitempty"`
+		DriftStatus             string     `xml:"DriftStatus,omitempty"`
+		LastOperationID         string     `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
 		StackInstance instXML `xml:"StackInstance"`
@@ -610,15 +614,16 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		Xmlns: cfnNS,
 		Result: result{
 			StackInstance: instXML{
-				StackSetID:           inst.StackSetID,
-				StackID:              inst.StackID,
-				Account:              inst.Account,
-				Region:               inst.Region,
-				Status:               inst.Status,
-				StatusReason:         inst.StatusReason,
-				DriftStatus:          inst.DriftStatus,
-				LastOperationID:      inst.LastOperationID,
-				OrganizationalUnitID: inst.OrganizationalUnitID,
+				StackSetID:              inst.StackSetID,
+				StackID:                 inst.StackID,
+				Account:                 inst.Account,
+				Region:                  inst.Region,
+				Status:                  inst.Status,
+				StatusReason:            inst.StatusReason,
+				DriftStatus:             inst.DriftStatus,
+				LastOperationID:         inst.LastOperationID,
+				OrganizationalUnitID:    inst.OrganizationalUnitID,
+				LastDriftCheckTimestamp: inst.LastDriftCheckTimestamp,
 			},
 		},
 		RequestID: uuid.New().String(),

@@ -960,12 +960,38 @@ handlers). Not a sibling disagreement — both operations shared the identical
 wrong local type. Fixed by rewriting both `instXML`s in handler_stack_sets.go
 to match the model (StackSetID/StackID/Account/Region/Status/StatusReason/
 DriftStatus/LastOperationID/OrganizationalUnitID). `StackInstanceStatus`
-(the nested detailed-status structure) and `LastDriftCheckTimestamp` remain
-unemitted — genuine gaps, no state tracked for either. Test:
+(the nested detailed-status structure) and `LastDriftCheckTimestamp` remained
+unemitted at the time — genuine gaps, no state tracked for either. Test:
 `TestStackInstance_ItemFields_RealClient`, creates a stack set and a stack
 instance via the real client, asserts `StackSetId` and `StackId` through
 both `ListStackInstances` and `DescribeStackInstance`. Verified failing
 pre-fix (`StackSetId` empty on both).
+
+**Update (gopherstack-eamp): `LastDriftCheckTimestamp` is now modelled.**
+`detectStackInstanceDrift` (stack_sets.go) sets it on every instance whose
+provisioned stack it actually compares, leaving it nil for instances it
+could not check (no provisioned stack found) — matching the real "NULL if
+drift detection hasn't been performed" semantics (types.go:2058-2061).
+`StackInstanceStatus`/`StackInstanceComprehensiveStatus.DetailedStatus`
+remains genuinely unmodelled: this backend has no per-operation lifecycle
+distinct from `Status` (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/
+SKIPPED_SUSPENDED_ACCOUNT don't map onto CURRENT/OUTDATED/INOPERABLE — see
+the existing `ListStackInstancesFilter` doc comment, stack_instances.go:295,
+making the same point for the DETAILED_STATUS filter). Left out of the wire
+(no field emitted) rather than faked.
+
+**Documented, not fixed: `ChangeSetSummary`'s `ImportExistingResources`,
+`IncludeNestedStacks`, `ParentChangeSetId`, `RootChangeSetId`
+(types.go:257-304) are absent from the wire.** None are accepted as
+`CreateChangeSet` input anywhere in this service, let alone stored per
+change set — `ImportExistingResources`/`IncludeNestedStacks` describe
+CreateChangeSet request options this backend doesn't model at all, and
+`ParentChangeSetId`/`RootChangeSetId` only have meaning for nested-stack
+change sets, which this backend doesn't emulate. Not cheaply derivable from
+existing state (unlike `ExecutionStatus`/`StatusReason`, fixed above, which
+the backend already tracked). Left absent from the wire (omitempty/unset)
+rather than emitting a fabricated value; a real fix needs `CreateChangeSet`
+to accept and persist these first.
 
 **BUG (fixed): `ListTypes` dropped `DefaultVersionId` and `IsActivated`.**
 `types.TypeSummary` carries both; `DescribeType` (the singular sibling)

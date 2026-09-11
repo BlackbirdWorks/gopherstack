@@ -286,15 +286,20 @@ type StackSetSummary struct {
 
 // StackInstance represents an instance of a StackSet in a specific account/region.
 type StackInstance struct {
-	StackSetID      string `xml:"StackSetId,omitempty"      json:"stackSetID,omitempty"`
-	StackSetName    string `xml:"StackSetName,omitempty"    json:"stackSetName,omitempty"`
-	StackID         string `xml:"StackId,omitempty"         json:"stackID,omitempty"`
-	Account         string `xml:"Account,omitempty"         json:"account,omitempty"`
-	Region          string `xml:"Region,omitempty"          json:"region,omitempty"`
-	Status          string `xml:"Status,omitempty"          json:"status,omitempty"`
-	StatusReason    string `xml:"StatusReason,omitempty"    json:"statusReason,omitempty"`
-	DriftStatus     string `xml:"DriftStatus,omitempty"     json:"driftStatus,omitempty"`
-	LastOperationID string `xml:"LastOperationId,omitempty" json:"lastOperationID,omitempty"`
+	// LastDriftCheckTimestamp is set by DetectStackSetDrift (types.go:1862 on
+	// both StackInstance and StackInstanceSummary); nil until a drift check
+	// has run for this instance, matching the real "NULL if never checked"
+	// semantics.
+	LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty" json:"lastDriftCheckTimestamp,omitempty"`
+	StackSetID              string     `xml:"StackSetId,omitempty"              json:"stackSetID,omitempty"`
+	StackSetName            string     `xml:"StackSetName,omitempty"            json:"stackSetName,omitempty"`
+	StackID                 string     `xml:"StackId,omitempty"                 json:"stackID,omitempty"`
+	Account                 string     `xml:"Account,omitempty"                 json:"account,omitempty"`
+	Region                  string     `xml:"Region,omitempty"                  json:"region,omitempty"`
+	Status                  string     `xml:"Status,omitempty"                  json:"status,omitempty"`
+	StatusReason            string     `xml:"StatusReason,omitempty"            json:"statusReason,omitempty"`
+	DriftStatus             string     `xml:"DriftStatus,omitempty"             json:"driftStatus,omitempty"`
+	LastOperationID         string     `xml:"LastOperationId,omitempty"         json:"lastOperationID,omitempty"`
 	// OrganizationalUnitID is set only for SERVICE_MANAGED instances created
 	// via a DeploymentTargets OU expansion (types.go:1836+ OrganizationalUnitId).
 	OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty" json:"organizationalUnitID,omitempty"`

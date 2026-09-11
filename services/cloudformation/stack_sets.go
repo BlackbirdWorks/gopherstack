@@ -239,6 +239,7 @@ func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, erro
 // actual per-instance drift diff never ran). Caller must hold b.mu.Lock.
 func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
 	instances := b.stackInstances[stackSetName]
+	now := time.Now()
 	for i := range instances {
 		stackName, ok := b.stackIDIndex[instances[i].StackID]
 		if !ok {
@@ -261,6 +262,7 @@ func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
 				break
 			}
 		}
+		instances[i].LastDriftCheckTimestamp = &now
 	}
 }
 
