@@ -216,7 +216,12 @@ func verifyTerraformTableRoundTrip(ctx context.Context, t *testing.T) {
 
 	tableClient := service.NewClient(azureStorageDataPlaneTableName)
 
-	entity := aztables.EDMEntity{
+	// golangci-lint 2.13.2's modernize/embedlit wants this flattened to promoted-field
+	// syntax (EDMEntity{PartitionKey: .., RowKey: .., Properties: ..}), but that syntax
+	// requires go1.27+ (verified: fails to compile with "requires go1.27 or later" under
+	// this repo's go.mod `go 1.26.6`) -- a false positive, not gated on the module's
+	// actual language version. Do not apply the suggested fix.
+	entity := aztables.EDMEntity{ //nolint:modernize // embedlit false positive, see comment above
 		Entity:     aztables.Entity{PartitionKey: "m8", RowKey: "1"},
 		Properties: map[string]any{"Message": "hello from the go sdk, m8 table round-trip"},
 	}
