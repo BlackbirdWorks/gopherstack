@@ -447,13 +447,23 @@ type Cancellation struct {
 
 // Update represents an EKS update record. NodegroupName is backend-internal
 // (not part of the real Update wire shape) -- it exists only so ListUpdates
-// can honor ListUpdatesInput.NodegroupName.
+// can honor ListUpdatesInput.NodegroupName. It carries a real json tag
+// (gopherstack-34g03): verified against the pinned SDK
+// (aws-sdk-go-v2/service/eks@v1.98.0 types/types.go:3257-3282) that real
+// types.Update has no such member, and updateToJSON (handler_updates.go) --
+// the actual wire converter for DescribeUpdate/ListUpdates -- builds the
+// response map by hand and never includes it, so a real tag changes nothing
+// about the wire. b.updates is registered directly on b.registry
+// (store_setup.go) and Snapshot/Restore marshal Update as-is, so json:"-"
+// here only dropped the field from persistence, leaving it empty on every
+// restored Update and emptying the nodegroupName filter
+// (handler_updates.go:286) for any pre-restart update.
 type Update struct {
 	CreatedAt     time.Time     `json:"createdAt"`
 	Cancellation  *Cancellation `json:"cancellation,omitempty"`
 	ID            string        `json:"id"`
 	ClusterName   string        `json:"clusterName"`
-	NodegroupName string        `json:"-"`
+	NodegroupName string        `json:"nodegroupName,omitempty"`
 	Status        string        `json:"status"`
 	Type          string        `json:"type"`
 	Params        []UpdateParam `json:"params,omitempty"`

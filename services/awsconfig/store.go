@@ -81,7 +81,10 @@ type InMemoryBackend struct {
 	// "<ruleName>|<resourceType>\x1f<resourceID>" with a "byRule" index
 	// answering "every execution for this rule" (used by
 	// DescribeRemediationExecutionStatus), mirroring ruleResourceEvals'
-	// composite-key pattern.
+	// composite-key pattern. RuleName is a hidden json:"-" identity field
+	// (not on the real wire shape, see models.go), so this table is
+	// deliberately NOT on b.registry -- persistence.go round-trips it through
+	// its own DTO twin instead (gopherstack-ltj0d).
 	remediationExecutions       *store.Table[RemediationExecutionStatusEntry]
 	remediationExecutionsByRule *store.Index[RemediationExecutionStatusEntry]
 	// remediationExceptions is a slice-valued map (rule name → exceptions) --
@@ -142,6 +145,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.remediationExecutions.Reset()
 	b.ruleEvaluations = make(map[string]string)
 	b.resourceHistory = make(map[string][]ResourceConfigItem)
 	b.resourceEvalCounter = 0

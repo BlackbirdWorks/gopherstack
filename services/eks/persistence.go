@@ -21,7 +21,10 @@ import (
 // ElasticLoadBalancing onto KubernetesNetworkConfig: a v1 snapshot's
 // Cluster.NetworkingConfig.ElasticLoadBalancing would silently vanish on
 // restore into the new shape instead of erroring, so it must not decode as
-// v2.
+// v2. gopherstack-34g03 gave Update.NodegroupName (models.go) a real json tag
+// so it survives Snapshot/Restore; this is purely additive (an old snapshot
+// simply decodes the field as "", the same lossy behavior the bug already
+// produced), so it does not bump the version.
 const eksSnapshotVersion = 2
 
 type backendSnapshot struct {

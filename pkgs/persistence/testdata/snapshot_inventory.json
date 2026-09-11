@@ -2506,7 +2506,8 @@
       "StoredQuery.QueryArn string `json:\"QueryArn,omitempty\"`",
       "StoredQuery.QueryID string `json:\"QueryId,omitempty\"`",
       "StoredQuery.QueryName string `json:\"QueryName\"`",
-      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`"
+      "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
+      "remediationExecutionSnapshot.RuleName string `json:\"ruleName\"`"
     ],
     "version": 4
   },
@@ -10569,7 +10570,7 @@
       "Update.CreatedAt time.Time `json:\"createdAt\"`",
       "Update.Errors []UpdateError `json:\"errors,omitempty\"`",
       "Update.ID string `json:\"id\"`",
-      "Update.NodegroupName string `json:\"-\"`",
+      "Update.NodegroupName string `json:\"nodegroupName,omitempty\"`",
       "Update.Params []UpdateParam `json:\"params,omitempty\"`",
       "Update.Status string `json:\"status\"`",
       "Update.Type string `json:\"type\"`",

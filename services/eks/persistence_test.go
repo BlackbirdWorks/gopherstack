@@ -1,6 +1,7 @@
 package eks_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -332,4 +333,41 @@ func TestPersistenceRoundTrip_ClusterAndNodegroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, names, 1)
 	assert.Equal(t, "ng1", names[0])
+}
+
+// TestPersistenceRoundTrip_UpdateNodegroupNameFilter covers gopherstack-34g03:
+// Update.NodegroupName carried json:"-" with no DTO twin, so
+// Snapshot/Restore (Update is registered directly on b.registry,
+// store_setup.go) dropped it, and the documented nodegroupName filter
+// (handler_updates.go:286) returned nothing for any pre-restart update.
+func TestPersistenceRoundTrip_UpdateNodegroupNameFilter(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	mustCreateClusterNoVpc(t, b, "upd-ng-filter-cluster")
+
+	b.StoreUpdate(&eks.Update{
+		ID:            "upd-1",
+		ClusterName:   "upd-ng-filter-cluster",
+		NodegroupName: "ng-1",
+		Status:        "Successful",
+		Type:          "ConfigUpdate",
+	})
+
+	h := eks.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	h2 := eks.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec := doREST(t, h2, http.MethodGet, "/clusters/upd-ng-filter-cluster/updates?nodegroupName=ng-1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	ids, ok := resp["updateIds"].([]any)
+	require.True(t, ok)
+	require.Len(t, ids, 1)
+	assert.Equal(t, "upd-1", ids[0])
 }

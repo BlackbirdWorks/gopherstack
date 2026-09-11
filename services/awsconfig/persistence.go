@@ -7,6 +7,7 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
+	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
 // awsconfigSnapshotVersion identifies the shape of [backendSnapshot]. It must
@@ -31,7 +32,71 @@ import (
 // names for these store.Table-backed types, so a v3 snapshot holds the old
 // keys and would decode into the corrected structs as empty strings --
 // silent data loss, not a compatible extension.
+// Version 5 is not a field addition either: gopherstack-ltj0d took
+// remediationExecutions off b.registry (RuleName is a hidden json:"-")
+// identity field, a component of remediationExecutionKeyFn/
+// remediationExecutionRuleIndexKeyFn, that Registry.SnapshotAll silently
+// dropped) and round-trips it through remediationExecutionSnapshot instead.
+// This is purely additive to the on-disk shape (the new DTO adds a
+// "ruleName" field an old snapshot lacks, decoding as "" -- the same lossy
+// behavior the bug already produced, not new corruption), so the version
+// constant does not change; see remediationExecutionSnapshot's doc comment
+// below for the fix itself.
 const awsconfigSnapshotVersion = 4
+
+// remediationExecutionSnapshot is RemediationExecutionStatusEntry's persisted
+// twin (gopherstack-ltj0d), the same wire/persisted conflation lambda's
+// functionConfigurationSnapshot fixed (gopherstack-rluhj, commit
+// dc4d95c5a). RuleName is a component of remediationExecutionKeyFn and
+// remediationExecutionRuleIndexKeyFn (store_setup.go) but carries json:"-"
+// on the live type: verified against the pinned SDK
+// (aws-sdk-go-v2/service/configservice@v1.68.4 types/types.go:3187-3206)
+// that real types.RemediationExecutionStatus has no rule-name member --
+// DescribeRemediationExecutionStatus scopes its results by the required
+// ConfigRuleName request parameter instead
+// (api_op_DescribeRemediationExecutionStatus.go:34-37) -- so that tag is
+// correct for the wire and stays.
+//
+// b.remediationExecutions was registered directly on b.registry with no DTO,
+// so SnapshotAll honored the tag and dropped RuleName from persistence too:
+// every entry decoded with RuleName == "", re-keying the whole table (and its
+// "byRule" index) under the empty string. Two entries from different rules
+// on the same resource key then collided under the same primary key
+// ("|<resourceType>\x1f<resourceID>") and silently overwrote each other, and
+// DescribeRemediationExecutionStatus/the cascade-delete at
+// remediation.go:122-123 could no longer find anything under any real rule
+// name.
+//
+// Embedding RemediationExecutionStatusEntry and redeclaring RuleName at depth
+// 0 shadows the embedded json:"-" copy for Go field access (v.RuleName
+// unambiguously means the outer field, since Go embedding always prefers the
+// shallower depth) -- so every other field flows through unmodified without
+// hand duplication.
+type remediationExecutionSnapshot struct {
+	RuleName string `json:"ruleName"`
+	RemediationExecutionStatusEntry
+}
+
+// remediationExecutionSnapshotKey mirrors remediationExecutionKeyFn
+// (store_setup.go) exactly, so the DTO table's Snapshot/Restore build is
+// keyed identically to the live b.remediationExecutions table.
+func remediationExecutionSnapshotKey(v *remediationExecutionSnapshot) string {
+	return remediationExecutionKey(v.RuleName, v.ResourceKey.ResourceType, v.ResourceKey.ResourceID)
+}
+
+func toRemediationExecutionSnapshot(e *RemediationExecutionStatusEntry) *remediationExecutionSnapshot {
+	return &remediationExecutionSnapshot{
+		RuleName:                        e.RuleName,
+		RemediationExecutionStatusEntry: *e,
+	}
+}
+
+func fromRemediationExecutionSnapshot(v *remediationExecutionSnapshot) *RemediationExecutionStatusEntry {
+	e := v.RemediationExecutionStatusEntry
+	e.RuleName = v.RuleName
+
+	return &e
+}
 
 // backendSnapshot is the top-level on-disk shape for the AWS Config backend.
 //
@@ -39,10 +104,14 @@ const awsconfigSnapshotVersion = 4
 // store_setup.go's registerAllTables): recorders, serviceLinkedRecorders,
 // channels, connectors, aggregationAuths, configRules, aggregators,
 // conformancePacks, conformancePackRules, orgConfigRules, orgConformancePacks,
-// storedQueries, retentionConfigs, remediationConfigs, remediationExecutions,
-// resourceEvaluations, resourceConfigs, and ruleResourceEvals. Most were
-// already persisted pre-Phase-3.3 (as individual named map fields) or became
-// persisted as a natural consequence of the store.Table conversion;
+// storedQueries, retentionConfigs, remediationConfigs, resourceEvaluations,
+// resourceConfigs, and ruleResourceEvals, PLUS a "remediationExecutions"
+// entry built separately from remediationExecutionSnapshot DTOs (see
+// Snapshot/Restore below) -- b.remediationExecutions itself is not
+// registered on b.registry (gopherstack-ltj0d, see store_setup.go's package
+// doc and remediationExecutionSnapshot above). Most of the registered tables
+// were already persisted pre-Phase-3.3 (as individual named map fields) or
+// became persisted as a natural consequence of the store.Table conversion;
 // conformancePackRules/remediationExecutions/serviceLinkedRecorders were added
 // by the 2026-07 parity pass, and connectors (plus the recorders table's new
 // "byServicePrincipal" index, which rides the same table and needs no
@@ -73,6 +142,25 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 		return nil
 	}
+
+	// b.remediationExecutions is not on b.registry (gopherstack-ltj0d, see
+	// store_setup.go's package doc and remediationExecutionSnapshot above),
+	// so it is snapshotted separately through its own DTO registry.
+	remDTOReg := store.NewRegistry()
+	remDTOs := store.Register(remDTOReg, "remediationExecutions", store.New(remediationExecutionSnapshotKey))
+
+	for _, e := range b.remediationExecutions.Snapshot() {
+		remDTOs.Put(toRemediationExecutionSnapshot(e))
+	}
+
+	remTables, err := remDTOReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "awsconfig: snapshot remediationExecutions marshal failed", "error", err)
+
+		return nil
+	}
+
+	tables["remediationExecutions"] = remTables["remediationExecutions"]
 
 	snap := backendSnapshot{
 		Version: awsconfigSnapshotVersion,
@@ -106,6 +194,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			"gotVersion", snap.Version, "wantVersion", awsconfigSnapshotVersion)
 
 		b.registry.ResetAll()
+		b.remediationExecutions.Reset()
 		b.ruleEvaluations = make(map[string]string)
 		b.resourceHistory = make(map[string][]ResourceConfigItem)
 		b.resourceTags = make(map[string][]Tag)
@@ -119,6 +208,32 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("awsconfig: restore snapshot tables: %w", err)
 	}
+
+	if err := b.restoreRemediationExecutionsFromDTO(snap.Tables); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// restoreRemediationExecutionsFromDTO restores b.remediationExecutions from
+// its "remediationExecutions" DTO entry in tables (gopherstack-ltj0d;
+// b.remediationExecutions is not on b.registry, see store_setup.go's package
+// doc and remediationExecutionSnapshot above).
+func (b *InMemoryBackend) restoreRemediationExecutionsFromDTO(tables map[string]json.RawMessage) error {
+	remDTOReg := store.NewRegistry()
+	remDTOs := store.Register(remDTOReg, "remediationExecutions", store.New(remediationExecutionSnapshotKey))
+
+	if err := remDTOReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("awsconfig: restore snapshot remediationExecutions: %w", err)
+	}
+
+	liveExecutions := make([]*RemediationExecutionStatusEntry, 0, remDTOs.Len())
+	for _, v := range remDTOs.All() {
+		liveExecutions = append(liveExecutions, fromRemediationExecutionSnapshot(v))
+	}
+
+	b.remediationExecutions.Restore(liveExecutions)
 
 	return nil
 }

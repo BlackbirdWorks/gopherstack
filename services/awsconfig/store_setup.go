@@ -7,11 +7,16 @@ package awsconfig
 // Every identity used below is a real, wire-visible field already present on
 // the value type (or, for StoredEvaluation, a field added purely for internal
 // bookkeeping -- see its own doc comment in evaluation.go -- since that type
-// is never itself returned on the wire). None of the tables below need
-// codecommit's "dirty"/DTO treatment: unlike CodeCommit's File/PullRequestApprovalRule,
-// nothing here needs a hidden json:"-" identity field, so every table is
-// registered directly on b.registry and rides Registry.SnapshotAll/RestoreAll
-// with no ephemeral DTO registry required.
+// is never itself returned on the wire), with one exception:
+// RemediationExecutionStatusEntry.RuleName is a hidden json:"-" identity
+// field (a component of remediationExecutionKeyFn/remediationExecutionRuleIndexKeyFn
+// below), the same "dirty struct" case CodeCommit's File/PullRequestApprovalRule
+// need DTO treatment for. b.remediationExecutions is therefore constructed
+// here but deliberately kept off b.registry, with its own DTO twin in
+// persistence.go (gopherstack-ltj0d) -- see that file's
+// remediationExecutionSnapshot doc comment. Every other table below needs no
+// such treatment and is registered directly on b.registry, riding
+// Registry.SnapshotAll/RestoreAll with no ephemeral DTO registry required.
 //
 // Two collections were previously nested maps (map[string]map[string]*T):
 //
@@ -212,9 +217,10 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.remediationConfigs = store.Register(b.registry, "remediationConfigs", store.New(remediationConfigKeyFn))
 	},
 	func(b *InMemoryBackend) {
-		b.remediationExecutions = store.Register(
-			b.registry, "remediationExecutions", store.New(remediationExecutionKeyFn),
-		)
+		// Not store.Register'd on b.registry: RuleName is a hidden json:"-"
+		// identity field, so persistence.go handles Snapshot/Restore through
+		// its own DTO twin (remediationExecutionSnapshot, gopherstack-ltj0d).
+		b.remediationExecutions = store.New(remediationExecutionKeyFn)
 		b.remediationExecutionsByRule = b.remediationExecutions.AddIndex("byRule", remediationExecutionRuleIndexKeyFn)
 	},
 	func(b *InMemoryBackend) {
