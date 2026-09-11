@@ -55,7 +55,7 @@ type StorageBackend interface {
 	DescribeResource(orgID, entityID string) (*Resource, error)
 	UpdateResource(
 		orgID, entityID, name, description string,
-		hiddenFromGAL bool,
+		hiddenFromGAL *bool,
 		bookingOptions *BookingOptions,
 	) error
 	DeleteResource(orgID, entityID string) error
@@ -422,9 +422,9 @@ type Resource struct {
 	// backend.go); carried through persistence via orgDTO.
 	orgID string
 	// HiddenFromGlobalAddressList mirrors aws-sdk-go-v2/service/workmail's
-	// DescribeResourceOutput.HiddenFromGlobalAddressList / real
-	// UpdateResourceInput.HiddenFromGlobalAddressList -- unlike users/groups
-	// it is not settable on create, only via UpdateResource.
+	// DescribeResourceOutput.HiddenFromGlobalAddressList, settable via
+	// CreateResourceInput (bool) and UpdateResourceInput (*bool, so an
+	// omitted update leaves it unchanged -- see UpdateResource).
 	HiddenFromGlobalAddressList bool
 }
 

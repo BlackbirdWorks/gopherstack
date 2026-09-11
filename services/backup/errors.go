@@ -34,7 +34,6 @@ var (
 	errScanJobNotFound           = errors.New("scan job not found")
 	errLegalHoldNotFound         = errors.New("legal hold not found")
 	errBackupJobNotFound         = errors.New("backup job not found")
-	errBackupPlanNotFoundB1      = errors.New("backup plan not found")
 )
 
 var errInvalidRequest = errors.New("invalid request")
