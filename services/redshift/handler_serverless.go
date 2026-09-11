@@ -107,6 +107,11 @@ func (h *ServerlessHandler) GetSupportedOperations() []string {
 		"ListTracks",
 		"UpdateLakehouseConfiguration",
 		opGetIdentityCenterAuthToken,
+		"CreateReservation",
+		"GetReservation",
+		"GetReservationOffering",
+		"ListReservationOfferings",
+		"ListReservations",
 	}
 }
 
@@ -137,6 +142,7 @@ func (h *ServerlessHandler) Reset() {
 	h.Backend.slTableRestoreStatuses.Reset()
 	h.Backend.slEndpointAccesses.Reset()
 	h.Backend.slLakehouseConfig.Reset()
+	h.Backend.slReservations.Reset()
 	h.Backend.resetServerlessIndexes()
 }
 
@@ -290,6 +296,12 @@ var slDispatchTable = map[string]func(*ServerlessHandler, *echo.Context, []byte)
 	"ListTracks":                   (*ServerlessHandler).handleListTracks,
 	"UpdateLakehouseConfiguration": (*ServerlessHandler).handleUpdateLakehouseConfiguration,
 	opGetIdentityCenterAuthToken:   (*ServerlessHandler).handleGetIdentityCenterAuthTokenSL,
+
+	"CreateReservation":        (*ServerlessHandler).handleCreateReservation,
+	"GetReservation":           (*ServerlessHandler).handleGetReservation,
+	"GetReservationOffering":   (*ServerlessHandler).handleGetReservationOffering,
+	"ListReservationOfferings": (*ServerlessHandler).handleListReservationOfferings,
+	"ListReservations":         (*ServerlessHandler).handleListReservations,
 }
 
 // ---------------------------------------------------------------------------
@@ -1144,19 +1156,125 @@ func (h *ServerlessHandler) handleGetIdentityCenterAuthTokenSL(c *echo.Context, 
 }
 
 // ---------------------------------------------------------------------------
+// Capacity reservation handlers
+// ---------------------------------------------------------------------------
+
+func (h *ServerlessHandler) handleCreateReservation(c *echo.Context, body []byte) error {
+	var req struct {
+		OfferingID string `json:"offeringId"`
+		// ClientToken is idempotency-only on the real API (auto-filled by the
+		// SDK if omitted); accepted for wire compatibility but has no
+		// observable effect on this backend.
+		ClientToken string `json:"clientToken"`
+		Capacity    int32  `json:"capacity"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	res, err := h.Backend.CreateReservation(req.Capacity, req.OfferingID)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespReservation: res})
+}
+
+func (h *ServerlessHandler) handleGetReservation(c *echo.Context, body []byte) error {
+	var req struct {
+		ReservationID string `json:"reservationId"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	res, err := h.Backend.GetReservation(req.ReservationID)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespReservation: res})
+}
+
+func (h *ServerlessHandler) handleListReservations(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
+		}
+	}
+
+	list, outToken := h.Backend.ListReservations(req.MaxResults, req.NextToken)
+	resp := map[string]any{"reservationsList": list}
+
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+func (h *ServerlessHandler) handleGetReservationOffering(c *echo.Context, body []byte) error {
+	var req struct {
+		OfferingID string `json:"offeringId"`
+	}
+
+	if err := json.Unmarshal(body, &req); err != nil {
+		return slBadRequest(c, "invalid request body")
+	}
+
+	off, err := h.Backend.GetReservationOffering(req.OfferingID)
+	if err != nil {
+		return slHandleErr(c, err)
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{slRespReservationOffering: off})
+}
+
+func (h *ServerlessHandler) handleListReservationOfferings(c *echo.Context, body []byte) error {
+	var req struct {
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
+	}
+
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return slBadRequest(c, "invalid request body")
+		}
+	}
+
+	list, outToken := h.Backend.ListReservationOfferings(req.MaxResults, req.NextToken)
+	resp := map[string]any{"reservationOfferingsList": list}
+
+	if outToken != "" {
+		resp["nextToken"] = outToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// ---------------------------------------------------------------------------
 // Response envelope keys and error helpers
 // ---------------------------------------------------------------------------
 
 const (
-	slRespNamespace          = "namespace"
-	slRespWorkgroup          = "workgroup"
-	slRespSnapshot           = "snapshot"
-	slRespUsageLimit         = "usageLimit"
-	slRespScheduledAction    = "scheduledAction"
-	slRespSnapshotCopyConfig = "snapshotCopyConfiguration"
-	slRespRecoveryPoint      = "recoveryPoint"
-	slRespTableRestoreStatus = "tableRestoreStatus"
-	slRespEndpoint           = "endpoint"
+	slRespNamespace           = "namespace"
+	slRespWorkgroup           = "workgroup"
+	slRespSnapshot            = "snapshot"
+	slRespUsageLimit          = "usageLimit"
+	slRespScheduledAction     = "scheduledAction"
+	slRespSnapshotCopyConfig  = "snapshotCopyConfiguration"
+	slRespRecoveryPoint       = "recoveryPoint"
+	slRespTableRestoreStatus  = "tableRestoreStatus"
+	slRespEndpoint            = "endpoint"
+	slRespReservation         = "reservation"
+	slRespReservationOffering = "reservationOffering"
 )
 
 func slErrorResponse(code, msg string) map[string]any {
@@ -1190,7 +1308,9 @@ func slHandleErr(c *echo.Context, err error) error {
 		errors.Is(err, ErrRecoveryPointNotFound),
 		errors.Is(err, ErrTableRestoreSLNotFound),
 		errors.Is(err, ErrEndpointAccessSLNotFound),
-		errors.Is(err, ErrServerlessTrackNotFound):
+		errors.Is(err, ErrServerlessTrackNotFound),
+		errors.Is(err, ErrReservationSLNotFound),
+		errors.Is(err, ErrReservationOfferingSLNotFound):
 		return c.JSON(http.StatusBadRequest, slErrorResponse("ResourceNotFoundException", err.Error()))
 	case errors.Is(err, ErrNamespaceAlreadyExists),
 		errors.Is(err, ErrWorkgroupAlreadyExists),
