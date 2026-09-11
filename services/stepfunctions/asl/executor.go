@@ -331,29 +331,30 @@ func (c *jsonPathCache) store(path string, parts []string) {
 
 // Executor runs an ASL state machine.
 type Executor struct {
-	s3             S3Reader
-	s3w            S3Writer
-	callback       TaskTokenCallbackInvoker
-	sqs            SQSIntegration
-	sns            SNSIntegration
-	dynamodb       DynamoDBIntegration
-	ecs            ECSIntegration
-	ecsSyncWaiter  ECSSyncWaiter
-	glue           GlueIntegration
-	glueSyncWaiter GlueSyncWaiter
-	eventbridge    EventBridgeIntegration
-	history        HistoryRecorder
-	mapRunNotifier MapRunNotifier
-	lambda         LambdaInvoker
-	activity       ActivityInvoker
-	mapItemValue   any
-	execSem        *semaphore.Weighted
-	jsonPathCache  *jsonPathCache
-	sm             *StateMachine
-	execMeta       executionMeta
-	branchName     string
-	mapItemIdx     int
-	inMapItem      bool
+	s3                   S3Reader
+	s3w                  S3Writer
+	callback             TaskTokenCallbackInvoker
+	sqs                  SQSIntegration
+	sns                  SNSIntegration
+	dynamodb             DynamoDBIntegration
+	ecs                  ECSIntegration
+	ecsSyncWaiter        ECSSyncWaiter
+	glue                 GlueIntegration
+	glueSyncWaiter       GlueSyncWaiter
+	eventbridge          EventBridgeIntegration
+	history              HistoryRecorder
+	mapRunNotifier       MapRunNotifier
+	distributedMapRunner DistributedMapRunner
+	lambda               LambdaInvoker
+	activity             ActivityInvoker
+	mapItemValue         any
+	execSem              *semaphore.Weighted
+	jsonPathCache        *jsonPathCache
+	sm                   *StateMachine
+	execMeta             executionMeta
+	branchName           string
+	mapItemIdx           int
+	inMapItem            bool
 }
 
 // executionMeta is the subset of context object data that ASL exposes via `$$`.
@@ -397,29 +398,30 @@ func NewExecutor(sm *StateMachine, lambda LambdaInvoker, history HistoryRecorder
 // newSubExecutor creates a sub-executor sharing this executor's semaphore and integrations.
 func (e *Executor) newSubExecutor(sm *StateMachine) *Executor {
 	return &Executor{
-		sm:             sm,
-		lambda:         e.lambda,
-		sqs:            e.sqs,
-		sns:            e.sns,
-		dynamodb:       e.dynamodb,
-		ecs:            e.ecs,
-		ecsSyncWaiter:  e.ecsSyncWaiter,
-		glue:           e.glue,
-		glueSyncWaiter: e.glueSyncWaiter,
-		eventbridge:    e.eventbridge,
-		history:        e.history,
-		activity:       e.activity,
-		callback:       e.callback,
-		s3:             e.s3,
-		s3w:            e.s3w,
-		execSem:        e.execSem,
-		jsonPathCache:  e.jsonPathCache,
-		execMeta:       e.execMeta,
-		branchName:     e.branchName,
-		mapRunNotifier: e.mapRunNotifier,
-		inMapItem:      e.inMapItem,
-		mapItemIdx:     e.mapItemIdx,
-		mapItemValue:   e.mapItemValue,
+		sm:                   sm,
+		lambda:               e.lambda,
+		sqs:                  e.sqs,
+		sns:                  e.sns,
+		dynamodb:             e.dynamodb,
+		ecs:                  e.ecs,
+		ecsSyncWaiter:        e.ecsSyncWaiter,
+		glue:                 e.glue,
+		glueSyncWaiter:       e.glueSyncWaiter,
+		eventbridge:          e.eventbridge,
+		history:              e.history,
+		activity:             e.activity,
+		callback:             e.callback,
+		s3:                   e.s3,
+		s3w:                  e.s3w,
+		execSem:              e.execSem,
+		jsonPathCache:        e.jsonPathCache,
+		execMeta:             e.execMeta,
+		branchName:           e.branchName,
+		mapRunNotifier:       e.mapRunNotifier,
+		distributedMapRunner: e.distributedMapRunner,
+		inMapItem:            e.inMapItem,
+		mapItemIdx:           e.mapItemIdx,
+		mapItemValue:         e.mapItemValue,
 	}
 }
 
@@ -1901,7 +1903,11 @@ func (e *Executor) runMapItemsAndFinalize(
 		mapRunARN = e.mapRunNotifier.OnMapRunStart(executionARN, stateName, maxConcurrency, len(items))
 	}
 
-	e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
+	if isDistributedMapIterator(iterator) && e.distributedMapRunner != nil {
+		e.runDistributedMapTasks(ctx, executionARN, mapRunARN, stateName, iterator, items, results, errs, concurrency)
+	} else {
+		e.runMapTasks(ctx, executionARN, iterator, items, results, errs, concurrency)
+	}
 
 	out, finalErr := e.finalizeMap(ctx, state, mapInput, results, errs)
 

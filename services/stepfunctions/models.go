@@ -100,6 +100,13 @@ type Execution struct {
 	history              []*HistoryEvent `json:"-"`
 	StartDate            float64         `json:"startDate"`
 	RedriveCount         int             `json:"redriveCount,omitempty"`
+	// ItemCount is the number of Distributed Map items this execution
+	// processed (>1 only when ItemBatcher grouped several items into this
+	// child's input). Zero for a non-child execution. Not part of
+	// DescribeExecutionOutput's wire shape (json:"-") -- AWS documents
+	// itemCount only on ExecutionListItem, returned solely when
+	// ListExecutions is queried by mapRunArn (sfn@v1.49.0 types.go:308-313).
+	ItemCount int `json:"-"`
 }
 
 // HistoryEvent represents a single event in execution history.

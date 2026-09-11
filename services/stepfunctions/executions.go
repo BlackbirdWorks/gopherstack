@@ -151,6 +151,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	executor.SetMapRunNotifier(
 		&syncMapRunNotifier{backend: b, execARN: execARN, smARN: baseSMArn},
 	)
+	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	executor.SetExecutionContext(
 		execARN,
 		name,
@@ -434,6 +435,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
+	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	b.applyExecutorContext(executor, execARN)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
@@ -615,6 +617,54 @@ func (b *InMemoryBackend) ListExecutions(
 	all := make([]Execution, 0, len(execs))
 	b.historyMu.RLock()
 	for _, exec := range execs {
+		// Distributed Map child executions share their parent's
+		// StateMachineArn (AWS's ItemProcessor is nested ASL, not a
+		// separately registered state machine), but AWS only surfaces them
+		// via ListExecutions(mapRunArn=...), never in the default
+		// stateMachineArn-scoped listing -- see ListExecutionsByMapRun.
+		if exec.MapRunArn != "" {
+			continue
+		}
+
+		all = append(all, *exec)
+	}
+	b.historyMu.RUnlock()
+
+	sort.Slice(all, func(i, j int) bool { return all[i].StartDate > all[j].StartDate })
+
+	page, token := paginate(all, nextToken, maxResults)
+
+	return page, token, nil
+}
+
+// ListExecutionsByMapRun returns the Distributed Map child executions
+// attributed to mapRunARN via Execution.MapRunArn -- the AWS
+// ListExecutions(mapRunArn=...) query mode (mutually exclusive with
+// stateMachineArn; see handleListExecutions). An unknown mapRunARN models
+// MapRunDoesNotExist, matching DescribeMapRun's error for the same
+// condition.
+func (b *InMemoryBackend) ListExecutionsByMapRun(
+	mapRunARN, statusFilter, nextToken string, maxResults int,
+) ([]Execution, string, error) {
+	b.mu.RLock("ListExecutionsByMapRun")
+	defer b.mu.RUnlock()
+
+	if !b.mapRuns.Has(mapRunARN) {
+		return nil, "", fmt.Errorf("%w: %s", ErrMapRunDoesNotExist, mapRunARN)
+	}
+
+	execs := b.executionsByMapRun.Get(mapRunARN)
+
+	// See the comment in DescribeExecution: whole-struct copies of *Execution
+	// touch history, which appendHistory writes under historyMu rather than
+	// b.mu's write lock, so copying it here needs the same guard.
+	all := make([]Execution, 0, len(execs))
+	b.historyMu.RLock()
+	for _, exec := range execs {
+		if statusFilter != "" && exec.Status != statusFilter {
+			continue
+		}
+
 		all = append(all, *exec)
 	}
 	b.historyMu.RUnlock()
