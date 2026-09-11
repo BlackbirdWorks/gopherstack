@@ -124,6 +124,19 @@ gaps:
   - "SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)"
   - "StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION filtering and AccountsUrl are not implemented — only the unset/NONE case (union of Accounts and OU-resolved accounts) is honoured; other AccountFilterType values are now rejected explicitly with ValidationError (fixed gopherstack-nirx; previously silently dropped despite being documented as rejected — bd: gopherstack-g7b5, gopherstack-nirx)"
   - "ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work"
+  - "StackSetOperations complete synchronously as SUCCEEDED the instant recordStackSetOperation
+    creates them (stack_sets.go) — RUNNING/STOPPING are therefore unreachable through any public
+    API. DELIBERATE, not accidental (2026-09-11, gopherstack-b3pm): cloudformation has no
+    clock/janitor-driven lifecycle anywhere in this package — CreateStack's CREATE_IN_PROGRESS ->
+    CREATE_COMPLETE, change sets' EXECUTE_IN_PROGRESS -> EXECUTE_COMPLETE/FAILED, and every
+    stack-instance/stack-set operation all resolve inside the same handler call, no
+    goroutine/ticker ever revisits a status later — so giving stack-set operations alone an async
+    lifecycle would be inconsistent with the rest of the service. StopStackSetOperation on an
+    already-SUCCEEDED (i.e. every) operation already returns the correct InvalidOperationException
+    (verified against cloudformation@v1.76.1 deserializers.go's 3-way modeled error switch for this
+    op: InvalidOperationException/OperationNotFoundException/StackSetNotFoundException) — this was
+    pre-existing correct behavior, not a bug. See families: stacksets and the dated note at the end
+    of this file for the full writeup and tests."
   - "Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
@@ -1327,3 +1340,83 @@ caller only). All pre-existing `nolint:lll` directives in files this pass
 touched (models.go, handler_stack_sets.go) remain in active use — confirmed
 by `golangci-lint`'s 0-issues result, which would have flagged any now-stale
 suppression via `nolintlint`.
+
+**DECISION (2026-09-11, gopherstack-b3pm): stack-set operations complete
+synchronously, by design — recorded so this isn't re-discovered a third
+time.** `gopherstack-101r`'s sweep found `StopStackSetOperation`'s success
+path could only be reached by white-box-seeding a `RUNNING` operation,
+because `recordStackSetOperation` (`stack_sets.go`) writes every operation as
+`SUCCEEDED` the instant it's created — `RUNNING` is unreachable, so nothing
+can ever be observed in progress or stopped. That issue asked which of two
+things is true: either cloudformation has a clock/janitor lifecycle
+elsewhere that stack sets should share, or the service is synchronous
+throughout and the gap should be recorded rather than half-fixed on one
+resource type.
+
+It's the second one. Grepping the whole package for `Janitor`, `SweepOnce`,
+`SetClock`, `reconcile`, `ReadyAt` turns up nothing (the one `reconcile` hit
+is a doc-comment word, not a mechanism). `CreateStack` (`stacks.go`) writes
+`CREATE_IN_PROGRESS`, calls `createStackFromTemplate` inline, and flips to
+`CREATE_COMPLETE` three lines later in the same function call — no
+goroutine, no ticker, nothing to advance the status after the handler
+returns. Change sets (`change_sets.go`), drift detection
+(`drift_detection.go`), stack refactors (`stack_refactors.go`), and every
+existing stack-set operation (`ImportStacksToStackSet`, `UpdateStackSet`,
+`DetectStackSetDrift`, `CreateStackInstances`/`DeleteStackInstances` via
+`recordOpResults`) follow the identical pattern: `*_IN_PROGRESS` and
+`*_COMPLETE`/`SUCCEEDED` are both written before the call returns. This is
+categorically different from the async patterns this session gave
+`services/codebuild` (`9963c5e52`, a janitor-tick-driven build-batch
+lifecycle) and `services/rds` (`lifecycle.go`, a `readyAt` timestamp plus
+ticker) — both of those services already had a clock-driven lifecycle
+mechanism to extend; cloudformation has none, anywhere, for any resource.
+Bolting an async `RUNNING`/`STOPPING` lifecycle onto stack-set operations
+alone, in an otherwise wall-to-wall-synchronous service, would be
+inconsistent and would invite exactly the `time.Sleep`/flake class this
+session already hit standing up rds's ticker (see
+`.claude/memories/no-time-sleep-in-tests.md`) — for one resource family
+whose sibling resources (plain stacks, change sets, drift, refactors) will
+never get the same treatment. So: **synchronous completion is kept, on
+purpose, for all of cloudformation, not just stack sets.**
+
+`StackSetOperationStatus`'s real enum (cloudformation@v1.76.1
+`types/enums.go:1736-1746`) is `RUNNING`/`SUCCEEDED`/`FAILED`/`STOPPING`/
+`STOPPED`/`QUEUED` — this backend only ever produces `SUCCEEDED` (or
+`FAILED`, from `DeleteStackInstances`' per-pair teardown failures, see
+`stack_instances.go:210-213`), so `RUNNING`/`STOPPING`/`QUEUED` are
+unreachable, by design. `StopStackSetOperation`'s real modeled error set
+(`cloudformation@v1.76.1` `deserializers.go`,
+`awsAwsquery_deserializeOpErrorStopStackSetOperation`) is exactly three
+cases: `InvalidOperationException`, `OperationNotFoundException`,
+`StackSetNotFoundException` — no fourth generic fallback in practice for a
+known op. Read the case: since every operation this backend records is born
+`SUCCEEDED`, the only reachable outcome of a real `StopStackSetOperation`
+call (besides unknown-name/unknown-ID) is "stop a non-`RUNNING` operation",
+and `handleStopStackSetOperation` (`handler_stack_sets.go:732-750`) already
+maps that (`ErrOperationNotRunning`, from `op.Status != "RUNNING"` in
+`StopStackSetOperation`, `stack_sets.go:397-414`) to
+`InvalidOperationException` — matching `types.InvalidOperationException`'s
+doc comment ("The specified operation isn't valid",
+`types/errors.go:253-261`). **This was already correct before this pass; no
+code fix was needed for it.** What was missing was a test reaching it
+through the real client instead of the white-box map-seed, and the
+decision comment this entry now provides. `recordStackSetOperation` now
+carries a one-line `// SUCCEEDED synchronously, deliberately` marker citing
+this entry.
+
+`stopstacksetoperation_whitebox_test.go`'s `TestStopStackSetOperation_RealClient`
+is kept as-is — it is still the only way to exercise Stop's *success*
+envelope (there being no reachable `RUNNING` operation to stop for real),
+and its own comment already explained why. Added
+`TestStopStackSetOperation_AlreadySucceeded_RealClient`
+(`stopstacksetoperation_whitebox_test.go`) alongside it: creates a stack set, runs
+`UpdateStackSet` to produce a real (`SUCCEEDED`) operation ID through the
+public API, then calls `StopStackSetOperation` through the real SDK client
+and asserts `InvalidOperationException` comes back — the reachable path
+the gap identified, now covered without white-boxing anything. No snapshot
+shape changed: `StackSetOperation.Status` already persisted as a plain
+string field before this pass.
+
+Gates (gopherstack-b3pm): `go build ./...` (whole module) clean, `go vet
+./...` clean, `go test -count=1 ./services/cloudformation/... ./pkgs/persistence/...`
+pass, `golangci-lint run ./services/cloudformation/...` 0 issues.

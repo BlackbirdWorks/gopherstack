@@ -277,8 +277,10 @@ func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) s
 		OperationID:  opID,
 		StackSetName: stackSetName,
 		Action:       action,
-		Status:       "SUCCEEDED",
-		CreatedAt:    time.Now(),
+		// SUCCEEDED synchronously, deliberately: cloudformation has no
+		// clock/janitor lifecycle anywhere (see PARITY.md, gopherstack-b3pm).
+		Status:    "SUCCEEDED",
+		CreatedAt: time.Now(),
 	}
 	if b.stackSetOpResults[stackSetName] == nil {
 		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
