@@ -40,4 +40,11 @@ var (
 	// sending has been paused via UpdateAccountSendingEnabled(false), matching
 	// real AWS SES's AccountSendingPausedException.
 	ErrAccountSendingPaused = errors.New("AccountSendingPausedException")
+	// ErrThrottling is returned by send operations when the simulated
+	// per-second MaxSendRate (GetSendQuota) is exceeded. The classic SES
+	// query-protocol API has no typed exception for this (confirmed absent
+	// from aws-sdk-go-v2/service/ses@v1.37.4/types/errors.go) -- error code
+	// "Throttling", message "Maximum sending rate exceeded." per
+	// https://docs.aws.amazon.com/ses/latest/dg/manage-sending-quotas.html.
+	ErrThrottling = errors.New("Throttling")
 )

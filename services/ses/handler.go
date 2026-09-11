@@ -620,6 +620,8 @@ func sesErrorCode(opErr error) (string, int) {
 		return "ConfigurationSetAlreadyExists", status
 	case errors.Is(opErr, ErrAccountSendingPaused):
 		return "AccountSendingPausedException", status
+	case errors.Is(opErr, ErrThrottling):
+		return "Throttling", status
 	case errors.Is(opErr, ErrValidation):
 		return "ValidationError", status
 	}

@@ -9,16 +9,24 @@ import (
 // maxSendQuota24Hours is the simulated 24-hour send quota returned by GetSendQuota.
 const maxSendQuota24Hours = 200
 
-// maxSendRate is the simulated max send rate (emails/second) returned by GetSendQuota.
+// maxSendRate is the simulated max send rate (emails/second) returned by
+// GetSendQuota and enforced by checkSendingAllowedLocked -- both read this
+// same constant so the advertised and enforced rate can never drift
+// (gopherstack-a6y).
 const maxSendRate = 1
 
-// sentLast24HoursLocked returns the count of emails sent within the past 24
-// hours. b.emails is append-ordered by increasing Timestamp, so iterating
-// backward lets us stop at the first entry older than the cutoff.
+// sendQuotaWindow is the rolling window Max24HourSend is measured over.
+const sendQuotaWindow = 24 * time.Hour
+
+// sentInWindowLocked returns the count of emails whose Timestamp falls
+// within window of now. b.emails is append-ordered by increasing Timestamp,
+// so iterating backward lets us stop at the first entry older than the
+// cutoff. Shared by the 24-hour (Max24HourSend) and per-second (MaxSendRate)
+// quota checks.
 //
 // The caller MUST hold b.mu for reading or writing.
-func (b *InMemoryBackend) sentLast24HoursLocked() int {
-	cutoff := time.Now().UTC().Add(-24 * time.Hour)
+func (b *InMemoryBackend) sentInWindowLocked(window time.Duration) int {
+	cutoff := time.Now().UTC().Add(-window)
 	sent := 0
 
 	for _, v := range slices.Backward(b.emails) {
@@ -30,6 +38,20 @@ func (b *InMemoryBackend) sentLast24HoursLocked() int {
 	}
 
 	return sent
+}
+
+// sentLast24HoursLocked returns the count of emails sent within the past 24 hours.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) sentLast24HoursLocked() int {
+	return b.sentInWindowLocked(sendQuotaWindow)
+}
+
+// sentLastSecondLocked returns the count of emails sent within the past second.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) sentLastSecondLocked() int {
+	return b.sentInWindowLocked(time.Second)
 }
 
 // GetSendQuota returns simulated quota values.

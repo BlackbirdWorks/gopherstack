@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -286,6 +287,12 @@ func TestSendEmail_SearchByFrom(t *testing.T) {
 		Subject: "A", BodyText: "a",
 	})
 	require.NoError(t, err)
+
+	// Back the first send out of the 1-second MaxSendRate window
+	// (gopherstack-a6y) so the second isn't throttled -- this test is about
+	// SearchEmails, not the rate limiter.
+	b.BackdateEmailForTest(0, time.Now().Add(-2*time.Second))
+
 	_, err = b.SendEmail(ses.SendEmailInput{
 		From: "bob@example.com", To: []string{"x@example.com"},
 		Subject: "B", BodyText: "b",
@@ -525,6 +532,11 @@ func TestSendEmail_MessageIDUnique(t *testing.T) {
 		require.NotEmpty(t, msgID)
 		assert.False(t, seen[msgID], "MessageId must be unique across sends, got duplicate: %q", msgID)
 		seen[msgID] = true
+
+		// Back the just-sent email out of the 1-second MaxSendRate window
+		// (gopherstack-a6y) so the next iteration isn't throttled -- this
+		// test is about MessageId uniqueness, not the rate limiter.
+		h.Backend.(*ses.InMemoryBackend).BackdateEmailForTest(i, time.Now().Add(-2*time.Second))
 	}
 }
 

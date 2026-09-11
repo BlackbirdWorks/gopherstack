@@ -54,17 +54,32 @@ func allRecipients(to, cc, bcc []string) []string {
 	return out
 }
 
-// checkSendingAllowedLocked validates the account-level, quota, and
-// configuration-set preconditions shared by every send operation (SendEmail,
-// SendRawEmail via SendEmail, SendTemplatedEmail, SendBulkTemplatedEmail):
-// sending must not be paused account-wide, matching real AWS SES's
-// AccountSendingPausedException; the simulated 24-hour send quota
-// (GetSendQuota's Max24HourSend) must not already be exhausted, matching
-// MessageRejected; and a non-empty ConfigurationSetName must reference an
-// existing configuration set, matching ConfigurationSetDoesNotExist.
+// checkSendingAllowedLocked validates every precondition shared by a direct
+// send call (SendEmail, SendRawEmail via SendEmail, SendTemplatedEmail): the
+// account/quota/configuration-set checks (checkAccountAndQuotaLocked) plus
+// the simulated per-second send rate (checkSendRateLocked). SendBulkTemplatedEmail
+// deliberately does NOT call this per destination -- see its own doc comment.
 //
 // The caller MUST hold b.mu for writing.
 func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string) error {
+	if err := b.checkAccountAndQuotaLocked(configurationSetName); err != nil {
+		return err
+	}
+
+	return b.checkSendRateLocked()
+}
+
+// checkAccountAndQuotaLocked validates the account-level, 24-hour-quota, and
+// configuration-set preconditions shared by every send operation, including
+// each destination of SendBulkTemplatedEmail: sending must not be paused
+// account-wide, matching real AWS SES's AccountSendingPausedException; the
+// simulated 24-hour send quota (GetSendQuota's Max24HourSend) must not
+// already be exhausted, matching MessageRejected; and a non-empty
+// ConfigurationSetName must reference an existing configuration set,
+// matching ConfigurationSetDoesNotExist.
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) checkAccountAndQuotaLocked(configurationSetName string) error {
 	if !b.accountSendingEnabled {
 		return fmt.Errorf("%w: account-level sending is currently paused", ErrAccountSendingPaused)
 	}
@@ -80,6 +95,20 @@ func (b *InMemoryBackend) checkSendingAllowedLocked(configurationSetName string)
 		if !b.configSets.Has(configurationSetName) {
 			return fmt.Errorf("%w: %s", ErrConfigSetNotFound, configurationSetName)
 		}
+	}
+
+	return nil
+}
+
+// checkSendRateLocked enforces the simulated per-second send rate
+// (GetSendQuota's MaxSendRate), matching real AWS SES's Throttling error
+// (gopherstack-a6y).
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) checkSendRateLocked() error {
+	if float64(b.sentLastSecondLocked()) >= maxSendRate {
+		//nolint:revive,staticcheck // wire message must match the SES dev guide verbatim, trailing period included
+		return fmt.Errorf("%w: Maximum sending rate exceeded.", ErrThrottling)
 	}
 
 	return nil
@@ -196,6 +225,14 @@ func (b *InMemoryBackend) sendEmailLocked(in SendEmailInput) (string, Email, ses
 // The source address must be a verified identity or from a verified domain.
 // The template must already exist; ErrTemplateNotFound is returned otherwise.
 func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string, error) {
+	return b.sendTemplatedEmailChecked(in, true)
+}
+
+// sendTemplatedEmailChecked is SendTemplatedEmail's implementation,
+// parameterized on whether the per-second send-rate check runs.
+// SendBulkTemplatedEmail calls this directly with checkRate=false for each
+// of its destinations -- see its own doc comment for why.
+func (b *InMemoryBackend) sendTemplatedEmailChecked(in SendTemplatedEmailInput, checkRate bool) (string, error) {
 	if in.From == "" {
 		return "", fmt.Errorf("%w: Source is required", ErrInvalidParameter)
 	}
@@ -214,7 +251,7 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 		)
 	}
 
-	msgID, email, targets, err := b.sendTemplatedEmailLocked(in, vars)
+	msgID, email, targets, err := b.sendTemplatedEmailLocked(in, vars, checkRate)
 	if err != nil {
 		return "", err
 	}
@@ -228,13 +265,19 @@ func (b *InMemoryBackend) SendTemplatedEmail(in SendTemplatedEmailInput) (string
 // sendEmailLocked's doc comment for why notification publishing happens
 // after this returns, unlocked.
 func (b *InMemoryBackend) sendTemplatedEmailLocked(
-	in SendTemplatedEmailInput, vars map[string]string,
+	in SendTemplatedEmailInput, vars map[string]string, checkRate bool,
 ) (string, Email, sesNotificationTargets, error) {
 	b.mu.Lock("SendTemplatedEmail")
 	defer b.mu.Unlock()
 
-	if sendErr := b.checkSendingAllowedLocked(in.ConfigurationSetName); sendErr != nil {
+	if sendErr := b.checkAccountAndQuotaLocked(in.ConfigurationSetName); sendErr != nil {
 		return "", Email{}, sesNotificationTargets{}, sendErr
+	}
+
+	if checkRate {
+		if sendErr := b.checkSendRateLocked(); sendErr != nil {
+			return "", Email{}, sesNotificationTargets{}, sendErr
+		}
 	}
 
 	if !b.isVerifiedLocked(in.From) {
@@ -366,6 +409,20 @@ func (b *InMemoryBackend) SendBounce(originalMsgID, bounceSender string, recipie
 // override pattern as template data: a destination's ReplacementTags, when
 // non-empty, is used in place of (not merged with) the request-level
 // DefaultTags for that destination's stored Email record.
+// SendBulkTemplatedEmail sends a templated email to each of in.Destinations.
+// The per-second send-rate check (checkSendRateLocked) runs ONCE for the
+// whole call, not once per destination: MaxSendRate throttles the rate of
+// send *requests* this backend accepts, and a single SendBulkTemplatedEmail
+// call -- like a single SendEmail/SendTemplatedEmail call -- is one such
+// request, regardless of how many of its up-to-50 destinations it fans out
+// to (real AWS returns a per-destination BulkEmailStatus, including a
+// dedicated AccountThrottled value, rather than failing an entire bulk
+// request over one rate-limited destination -- types.go:56-67 in the pinned
+// SDK -- but this backend's SendBulkTemplatedEmailOutput doesn't model that
+// per-destination status shape, a pre-existing gap tracked separately in
+// PARITY.md, not introduced by gopherstack-a6y). Each destination still
+// separately consumes the 24-hour quota (checkAccountAndQuotaLocked,
+// unchanged), matching how Max24HourSend was already enforced per email.
 func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput) ([]string, error) {
 	if strings.TrimSpace(in.Source) == "" {
 		return nil, fmt.Errorf("%w: Source is required", ErrInvalidParameter)
@@ -395,6 +452,14 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput)
 		}
 	}
 
+	b.mu.Lock("SendBulkTemplatedEmail")
+	rateErr := b.checkSendRateLocked()
+	b.mu.Unlock()
+
+	if rateErr != nil {
+		return nil, rateErr
+	}
+
 	msgIDs := make([]string, 0, len(in.Destinations))
 
 	for _, d := range in.Destinations {
@@ -416,7 +481,7 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput)
 			tags = d.ReplacementTags
 		}
 
-		msgID, err := b.SendTemplatedEmail(SendTemplatedEmailInput{
+		msgID, err := b.sendTemplatedEmailChecked(SendTemplatedEmailInput{
 			From:                 in.Source,
 			To:                   d.To,
 			Cc:                   d.Cc,
@@ -429,7 +494,7 @@ func (b *InMemoryBackend) SendBulkTemplatedEmail(in SendBulkTemplatedEmailInput)
 			ReturnPath:           in.ReturnPath,
 			ReturnPathArn:        in.ReturnPathArn,
 			SourceArn:            in.SourceArn,
-		})
+		}, false)
 		if err != nil {
 			return nil, err
 		}

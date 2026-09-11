@@ -228,7 +228,7 @@ func (b *InMemoryBackend) startRunLocked(input StartRunInput) *Run {
 		StorageType:         input.StorageType,
 		WorkflowType:        input.WorkflowType,
 		WorkflowVersionName: input.WorkflowVersionName,
-		UUID:                newID(),
+		UUID:                newUUID(),
 		Params:              input.Params,
 		Tags:                copyTags(input.Tags),
 		Status:              statusPending,

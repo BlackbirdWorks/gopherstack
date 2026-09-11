@@ -147,13 +147,13 @@ func TestSESBackend_SnapshotIsolation(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	// Mutate original after snapshot.
+	// Mutate original after snapshot. Uses AppendEmailForTest (bypassing
+	// SendEmail's business-rule preconditions, including the per-second
+	// MaxSendRate gopherstack-a6y added) since this test's intent is
+	// snapshot isolation, not send-rate enforcement -- back-to-back real
+	// SendEmail calls this close together would otherwise throttle.
 	require.NoError(t, b.VerifyEmailIdentity("after@test.com"))
-
-	_, err = b.SendEmail(ses.SendEmailInput{
-		From: "snap@test.com", To: []string{"to@test.com"}, Subject: "Test2", BodyText: "body2",
-	})
-	require.NoError(t, err)
+	b.AppendEmailForTest("snap@test.com", []string{"to@test.com"})
 
 	// Restore into a fresh backend.
 	fresh := ses.NewInMemoryBackend()
@@ -182,15 +182,14 @@ func TestSESBackend_ConcurrentAccess(t *testing.T) {
 
 	assert.Equal(t, 50, b.IdentityCount())
 
-	// Concurrent send + list.
+	// Concurrent send + list. Uses AppendEmailForTest, not SendEmail: this
+	// test proves the store's concurrent-access safety (map/slice mutation
+	// under b.mu), not SendEmail's business rules -- 50 real concurrent
+	// SendEmail calls would legitimately throttle against each other under
+	// gopherstack-a6y's per-second MaxSendRate enforcement.
 	for i := range 50 {
 		wg.Go(func() {
-			_, _ = b.SendEmail(ses.SendEmailInput{
-				From:     fmt.Sprintf("user%d@test.com", i),
-				To:       []string{"to@test.com"},
-				Subject:  fmt.Sprintf("Subject %d", i),
-				BodyText: "body",
-			})
+			_ = b.AppendEmailForTest(fmt.Sprintf("user%d@test.com", i), []string{"to@test.com"})
 		})
 
 		wg.Go(func() {

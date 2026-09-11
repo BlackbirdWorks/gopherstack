@@ -150,6 +150,12 @@ func TestGetSendQuota_SentLast24HoursTracked(t *testing.T) {
 					"Message.Body.Text.Data":           {"body"},
 				}.Encode())
 				require.Equal(t, http.StatusOK, rec.Code, "send %d must succeed", i)
+
+				// Back the just-sent email's Timestamp out of the 1-second
+				// MaxSendRate window (gopherstack-a6y) so the next iteration's
+				// send isn't throttled -- this test is about the 24-hour
+				// quota's tracking, not the per-second rate limiter.
+				h.Backend.(*ses.InMemoryBackend).BackdateEmailForTest(i, time.Now().Add(-2*time.Second))
 			}
 
 			rec := postForm(t, h, url.Values{
@@ -186,7 +192,6 @@ func TestGetSendStatistics_PopulatedAfterSend(t *testing.T) {
 
 	h := newHandler()
 	sesVerifyAndSend(t, h, "s@example.com", "t@example.com")
-	sesVerifyAndSend(t, h, "s@example.com", "t2@example.com")
 
 	rec := postForm(t, h, url.Values{
 		"Action":  {"GetSendStatistics"},
@@ -195,7 +200,7 @@ func TestGetSendStatistics_PopulatedAfterSend(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	body := rec.Body.String()
-	assert.Contains(t, body, "<member>", "must have at least one SendDataPoints member after sends")
+	assert.Contains(t, body, "<member>", "must have at least one SendDataPoints member after send")
 	assert.Contains(t, body, "<DeliveryAttempts>", "member must contain DeliveryAttempts")
 }
 
@@ -221,20 +226,15 @@ func TestGetSendStatistics_AggregatesIntoHourlyBuckets(t *testing.T) {
 	t.Parallel()
 
 	b := ses.NewInMemoryBackend()
-	h := ses.NewHandler(b)
 	require.NoError(t, b.VerifyEmailIdentity("s@example.com"))
 
-	// Send 3 emails
+	// Seed 3 emails via AppendEmailForTest, not real SendEmail: this test
+	// proves GetSendStatistics' hourly bucketing given N stored emails, not
+	// SendEmail's business rules -- 3 back-to-back real SendEmail calls
+	// would legitimately throttle under gopherstack-a6y's per-second
+	// MaxSendRate enforcement.
 	for range 3 {
-		rec := postForm(t, h, url.Values{
-			"Action":                           {"SendEmail"},
-			"Version":                          {"2010-12-01"},
-			"Source":                           {"s@example.com"},
-			"Destination.ToAddresses.member.1": {"t@example.com"},
-			"Message.Subject.Data":             {"subj"},
-			"Message.Body.Text.Data":           {"body"},
-		}.Encode())
-		require.Equal(t, http.StatusOK, rec.Code)
+		b.AppendEmailForTest("s@example.com", []string{"t@example.com"})
 	}
 
 	stats := b.GetSendStatistics()
@@ -428,7 +428,7 @@ func TestGetSendQuotaTracksSends(t *testing.T) {
 			backend := ses.NewInMemoryBackend()
 			require.NoError(t, backend.VerifyEmailIdentity("sender@example.com"))
 
-			for range tt.sendCount {
+			for i := range tt.sendCount {
 				_, err := backend.SendEmail(ses.SendEmailInput{
 					From:     "sender@example.com",
 					To:       []string{"to@example.com"},
@@ -436,6 +436,11 @@ func TestGetSendQuotaTracksSends(t *testing.T) {
 					BodyText: "body",
 				})
 				require.NoError(t, err)
+
+				// Back the just-sent email out of the 1-second MaxSendRate
+				// window (gopherstack-a6y) so the next iteration isn't
+				// throttled -- this test is about 24-hour quota tracking.
+				backend.BackdateEmailForTest(i, time.Now().Add(-2*time.Second))
 			}
 
 			quota := backend.GetSendQuota()

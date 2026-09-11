@@ -505,14 +505,6 @@ func TestSESBackend_SendTemplatedEmail(t *testing.T) {
 func TestSESHandler_SendTemplatedEmail(t *testing.T) {
 	t.Parallel()
 
-	h := newHandler()
-	require.NoError(t, h.Backend.VerifyEmailIdentity("sender@example.com"))
-	require.NoError(t, h.Backend.CreateTemplate(ses.EmailTemplate{
-		TemplateName: "mytemplate",
-		SubjectPart:  "Hello",
-		HTMLPart:     "<b>Hello</b>",
-	}))
-
 	tests := []struct {
 		body         url.Values
 		name         string
@@ -560,6 +552,18 @@ func TestSESHandler_SendTemplatedEmail(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+
+			// Each subtest gets its own handler/backend: sharing one across
+			// subtests would let an earlier subtest's send trip the next
+			// one's per-second MaxSendRate check (gopherstack-a6y) before it
+			// ever reaches the error path under test.
+			h := newHandler()
+			require.NoError(t, h.Backend.VerifyEmailIdentity("sender@example.com"))
+			require.NoError(t, h.Backend.CreateTemplate(ses.EmailTemplate{
+				TemplateName: "mytemplate",
+				SubjectPart:  "Hello",
+				HTMLPart:     "<b>Hello</b>",
+			}))
 
 			rec := postForm(t, h, tt.body.Encode())
 			assert.Equal(t, tt.wantCode, rec.Code)
