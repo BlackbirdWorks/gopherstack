@@ -58,6 +58,7 @@ type backendSnapshot struct {
 	SessionStatements         map[string][]*Statement                   `json:"sessionStatements"`
 	CrawlHistory              map[string][]*CrawlHistoryEntry           `json:"crawlHistory"`
 	SchemaVersionMetadata     map[string]map[string]string              `json:"schemaVersionMetadata"`
+	ResourceTags              map[string]map[string]string              `json:"resourceTags"`
 	IterableFormItems         iterableFormItemsMap                      `json:"iterableFormItems"`
 	GlueIdentityCenterConfig  *IdentityCenterConfig                     `json:"glueIdentityCenterConfig,omitempty"`
 	DataCatalogExportConfig   *DataCatalogExportConfiguration           `json:"dataCatalogExportConfig,omitempty"`
@@ -95,6 +96,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SessionStatements:         b.sessionStatements,
 		CrawlHistory:              b.crawlHistory,
 		SchemaVersionMetadata:     b.schemaVersionMetadata,
+		ResourceTags:              b.resourceTagsSnapshot(),
 		GlueIdentityCenterConfig:  b.glueIdentityCenterConfig,
 		DataCatalogExportConfig:   b.dataCatalogExportConfig,
 		IterableFormItems:         b.iterableFormItems,
@@ -135,6 +137,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	initSnapshotDefaults(&snap)
 	b.restoreFromSnapshot(snap)
+	b.restoreResourceTags(snap.ResourceTags)
 
 	return nil
 }
@@ -187,6 +190,9 @@ func initSnapshotListDefaults(snap *backendSnapshot) {
 	}
 	if snap.SchemaVersionMetadata == nil {
 		snap.SchemaVersionMetadata = make(map[string]map[string]string)
+	}
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string]map[string]string)
 	}
 	if snap.IterableFormItems == nil {
 		snap.IterableFormItems = make(iterableFormItemsMap)

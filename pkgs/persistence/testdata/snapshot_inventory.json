@@ -12908,6 +12908,7 @@
       "backendSnapshot.PartitionColumnStats map[string]*ColumnStatistics `json:\"partitionColumnStats\"`",
       "backendSnapshot.PartitionIndexes map[string]*PartitionIndex `json:\"partitionIndexes\"`",
       "backendSnapshot.ResourcePolicies map[string]*resourcePolicyEntry `json:\"resourcePolicies\"`",
+      "backendSnapshot.ResourceTags map[string]map[string]string `json:\"resourceTags\"`",
       "backendSnapshot.SchemaVersionMetadata map[string]map[string]string `json:\"schemaVersionMetadata\"`",
       "backendSnapshot.SchemaVersions map[string][]*SchemaVersion `json:\"schemaVersions\"`",
       "backendSnapshot.SessionStatements map[string][]*Statement `json:\"sessionStatements\"`",
