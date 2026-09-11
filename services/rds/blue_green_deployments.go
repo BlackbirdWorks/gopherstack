@@ -1,6 +1,10 @@
 package rds
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"slices"
+)
 
 // CreateBlueGreenDeployment creates a new Blue/Green Deployment.
 func (b *InMemoryBackend) CreateBlueGreenDeployment(
@@ -58,8 +62,85 @@ func (b *InMemoryBackend) DescribeBlueGreenDeployments(id string) ([]BlueGreenDe
 	for _, d := range b.blueGreenDeployments.All() {
 		result = append(result, *d)
 	}
+	slices.SortFunc(result, func(a, b BlueGreenDeployment) int {
+		if a.BlueGreenDeploymentIdentifier < b.BlueGreenDeploymentIdentifier {
+			return -1
+		}
+		if a.BlueGreenDeploymentIdentifier > b.BlueGreenDeploymentIdentifier {
+			return 1
+		}
+
+		return 0
+	})
 
 	return result, nil
+}
+
+// isKnownBlueGreenDeploymentFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeBlueGreenDeployments
+// (rds@v1.124.1 api_op_DescribeBlueGreenDeployments.go:46-64).
+func isKnownBlueGreenDeploymentFilterName(name string) bool {
+	switch name {
+	case filterNameBlueGreenDeploymentIdentifier, filterNameBlueGreenDeploymentName,
+		filterNameSource, filterNameTarget:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyBlueGreenDeploymentFilters narrows deployments per the AWS
+// DescribeBlueGreenDeployments Filters contract: each filter ANDs together,
+// and a filter's Values list is OR-matched against the corresponding
+// deployment field. An unrecognized filter name returns
+// InvalidParameterValue, matching real AWS.
+func applyBlueGreenDeploymentFilters(
+	vals url.Values, deployments []BlueGreenDeployment,
+) ([]BlueGreenDeployment, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return deployments, nil
+	}
+
+	for name := range filters {
+		if !isKnownBlueGreenDeploymentFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]BlueGreenDeployment, 0, len(deployments))
+	for _, d := range deployments {
+		if matchesAllBlueGreenDeploymentFilters(d, filters) {
+			filtered = append(filtered, d)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllBlueGreenDeploymentFilters(d BlueGreenDeployment, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameBlueGreenDeploymentIdentifier:
+			if !slices.Contains(values, d.BlueGreenDeploymentIdentifier) {
+				return false
+			}
+		case filterNameBlueGreenDeploymentName:
+			if !slices.Contains(values, d.BlueGreenDeploymentName) {
+				return false
+			}
+		case filterNameSource:
+			if !slices.Contains(values, d.Source) {
+				return false
+			}
+		case filterNameTarget:
+			if !slices.Contains(values, d.Target) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // DeleteBlueGreenDeployment deletes the named blue/green deployment.

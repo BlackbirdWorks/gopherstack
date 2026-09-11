@@ -798,6 +798,15 @@ func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBClus
 }
 
 // DescribeDBClusterBacktracks returns backtracks for a DB cluster.
+//
+// BacktrackDBCluster returns a DBClusterBacktrack to its caller but this
+// backend has no store to persist it into, so this always returns an empty
+// slice -- a completeness gap of its own (gopherstack-vl4m), same shape as
+// DescribePendingMaintenanceActions's. applyDBClusterBacktrackFilters below
+// still validates and narrows the Filters contract for wire correctness (and
+// is ready the moment that gap is fixed), but with no data ever populated,
+// only its unrecognized-filter-name rejection is observable through the
+// real API today.
 func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClusterBacktrack, error) {
 	b.mu.RLock("DescribeDBClusterBacktracks")
 	defer b.mu.RUnlock()
@@ -806,6 +815,64 @@ func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClu
 	}
 
 	return []DBClusterBacktrack{}, nil
+}
+
+// isKnownDBClusterBacktrackFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeDBClusterBacktracks
+// (rds@v1.124.1 api_op_DescribeDBClusterBacktracks.go:66-85).
+func isKnownDBClusterBacktrackFilterName(name string) bool {
+	switch name {
+	case filterNameDBClusterBacktrackID, filterNameDBClusterBacktrackStatus:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterBacktrackFilters narrows backtracks per the AWS
+// DescribeDBClusterBacktracks Filters contract: each filter ANDs together,
+// and a filter's Values list is OR-matched against the corresponding
+// backtrack field. An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBClusterBacktrackFilters(
+	vals url.Values, backtracks []DBClusterBacktrack,
+) ([]DBClusterBacktrack, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return backtracks, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterBacktrackFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBClusterBacktrack, 0, len(backtracks))
+	for _, bt := range backtracks {
+		if matchesAllDBClusterBacktrackFilters(bt, filters) {
+			filtered = append(filtered, bt)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterBacktrackFilters(bt DBClusterBacktrack, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterBacktrackID:
+			if !slices.Contains(values, bt.BacktrackIdentifier) {
+				return false
+			}
+		case filterNameDBClusterBacktrackStatus:
+			if !slices.Contains(values, bt.Status) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // ModifyCurrentDBClusterCapacity modifies the serverless capacity of a DB cluster.

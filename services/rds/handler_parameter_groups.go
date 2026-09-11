@@ -241,6 +241,10 @@ type describeEngineDefaultParametersResponse struct {
 func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	params := h.Backend.DescribeEngineDefaultParameters(family)
+	params, err := applyDBParameterFilters(vals, params)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBParameter, 0, len(params))
 	for _, p := range params {
 		members = append(members, xmlDBParameter{

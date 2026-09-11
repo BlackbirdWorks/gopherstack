@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 )
@@ -106,6 +107,67 @@ func (b *InMemoryBackend) DescribeTenantDatabases(
 	return result, nil
 }
 
+// isKnownTenantDatabaseFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeTenantDatabases
+// (rds@v1.124.1 api_op_DescribeTenantDatabases.go:42-53).
+// "tenant-database-resource-id" is accepted (to avoid rejecting an
+// otherwise-valid client request) but TenantDatabase carries no such
+// attribute, so it is not implemented as a match predicate, matching the
+// existing DescribeDBInstances "domain" precedent (db_instances.go).
+func isKnownTenantDatabaseFilterName(name string) bool {
+	switch name {
+	case filterNameTenantDBName, filterNameTenantDatabaseResourceID, filterNameDbiResourceID:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyTenantDatabaseFilters narrows tdbs per the AWS DescribeTenantDatabases
+// Filters contract: each filter ANDs together, and a filter's Values list is
+// OR-matched against the corresponding tenant database field. An
+// unrecognized filter name returns InvalidParameterValue, matching real AWS.
+func applyTenantDatabaseFilters(vals url.Values, tdbs []TenantDatabase) ([]TenantDatabase, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return tdbs, nil
+	}
+
+	for name := range filters {
+		if !isKnownTenantDatabaseFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]TenantDatabase, 0, len(tdbs))
+	for _, tdb := range tdbs {
+		if matchesAllTenantDatabaseFilters(tdb, filters) {
+			filtered = append(filtered, tdb)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllTenantDatabaseFilters(tdb TenantDatabase, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameTenantDBName:
+			if !slices.Contains(values, tdb.TenantDBName) {
+				return false
+			}
+		case filterNameDbiResourceID:
+			if !slices.Contains(values, tdb.DbiResourceID) {
+				return false
+			}
+		case filterNameTenantDatabaseResourceID:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
+}
+
 // ModifyTenantDatabase modifies a tenant database (e.g. master password).
 func (b *InMemoryBackend) ModifyTenantDatabase(
 	instanceID, tenantDBName string,
@@ -125,7 +187,10 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 }
 
 // AddDBSnapshotTenantDatabase records a tenant database within a snapshot.
-// Called internally when creating snapshots from instances with tenant databases.
+// No CreateDBSnapshot path in this backend actually calls this (grepped) --
+// it is a test-only seam (gopherstack-vl4m completeness gap): a real client's
+// CreateDBSnapshot of a multi-tenant instance never populates
+// DescribeDBSnapshotTenantDatabases data.
 func (b *InMemoryBackend) AddDBSnapshotTenantDatabase(
 	snapshotID, instanceID, tenantDBName, engine string,
 ) {
@@ -176,6 +241,79 @@ func (b *InMemoryBackend) DescribeDBSnapshotTenantDatabases(
 	})
 
 	return result
+}
+
+// isKnownDBSnapshotTenantDatabaseFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for
+// DescribeDBSnapshotTenantDatabases (rds@v1.124.1
+// api_op_DescribeDBSnapshotTenantDatabases.go:59-79).
+// "tenant-database-resource-id", "dbi-resource-id", and "snapshot-type" are
+// accepted (to avoid rejecting an otherwise-valid client request) but
+// DBSnapshotTenantDatabase carries none of those attributes, so they are not
+// implemented as match predicates, matching the existing DescribeDBInstances
+// "domain" precedent (db_instances.go).
+func isKnownDBSnapshotTenantDatabaseFilterName(name string) bool {
+	switch name {
+	case filterNameTenantDBName, filterNameTenantDatabaseResourceID, filterNameDbiResourceID,
+		filterNameDBInstanceID, filterNameDBSnapshotID, filterNameSnapshotType:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBSnapshotTenantDatabaseFilters narrows entries per the AWS
+// DescribeDBSnapshotTenantDatabases Filters contract: each filter ANDs
+// together, and a filter's Values list is OR-matched against the
+// corresponding entry field. db-instance-id accepts identifiers or ARNs per
+// this op's own doc comment (api_op:74-75); db-snapshot-id accepts plain
+// identifiers only (api_op:77). An unrecognized filter name returns
+// InvalidParameterValue, matching real AWS.
+func applyDBSnapshotTenantDatabaseFilters(
+	vals url.Values, entries []DBSnapshotTenantDatabase,
+) ([]DBSnapshotTenantDatabase, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return entries, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBSnapshotTenantDatabaseFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBSnapshotTenantDatabase, 0, len(entries))
+	for _, e := range entries {
+		if matchesAllDBSnapshotTenantDatabaseFilters(e, filters) {
+			filtered = append(filtered, e)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBSnapshotTenantDatabaseFilters(e DBSnapshotTenantDatabase, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameTenantDBName:
+			if !slices.Contains(values, e.TenantDatabaseName) {
+				return false
+			}
+		case filterNameDBInstanceID:
+			if !containsFoldIDOrARN(values, e.DBInstanceIdentifier) {
+				return false
+			}
+		case filterNameDBSnapshotID:
+			if !containsFold(values, e.DBSnapshotIdentifier) {
+				return false
+			}
+		case filterNameTenantDatabaseResourceID, filterNameDbiResourceID, filterNameSnapshotType:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
 }
 
 const (

@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -48,8 +49,84 @@ func (b *InMemoryBackend) DescribeDBInstanceAutomatedBackups(instanceID string) 
 		}
 		result = append(result, *ab)
 	}
+	slices.SortFunc(result, func(a, b DBInstanceAutomatedBackup) int {
+		if a.DBInstanceIdentifier < b.DBInstanceIdentifier {
+			return -1
+		}
+		if a.DBInstanceIdentifier > b.DBInstanceIdentifier {
+			return 1
+		}
+
+		return 0
+	})
 
 	return result
+}
+
+// isKnownDBInstanceAutomatedBackupFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for
+// DescribeDBInstanceAutomatedBackups (rds@v1.124.1
+// api_op_DescribeDBInstanceAutomatedBackups.go:55-79).
+func isKnownDBInstanceAutomatedBackupFilterName(name string) bool {
+	switch name {
+	case filterNameStatus, filterNameDBInstanceID, filterNameDbiResourceID:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBInstanceAutomatedBackupFilters narrows backups per the AWS
+// DescribeDBInstanceAutomatedBackups Filters contract: each filter ANDs
+// together, and a filter's Values list is OR-matched against the
+// corresponding backup field. Both db-instance-id and dbi-resource-id accept
+// identifiers or ARNs per this op's own doc comment (api_op:69-75) — unlike
+// the plain-identifier dbi-resource-id treatment on DescribeDBInstances and
+// DescribeDBSnapshots. An unrecognized filter name returns
+// InvalidParameterValue, matching real AWS.
+func applyDBInstanceAutomatedBackupFilters(
+	vals url.Values, backups []DBInstanceAutomatedBackup,
+) ([]DBInstanceAutomatedBackup, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return backups, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBInstanceAutomatedBackupFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBInstanceAutomatedBackup, 0, len(backups))
+	for _, ab := range backups {
+		if matchesAllDBInstanceAutomatedBackupFilters(ab, filters) {
+			filtered = append(filtered, ab)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBInstanceAutomatedBackupFilters(ab DBInstanceAutomatedBackup, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameStatus:
+			if !slices.Contains(values, ab.Status) {
+				return false
+			}
+		case filterNameDBInstanceID:
+			if !containsFoldIDOrARN(values, ab.DBInstanceIdentifier) {
+				return false
+			}
+		case filterNameDbiResourceID:
+			if !containsFoldIDOrARN(values, ab.DbiResourceID) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // CreateDBClusterAutomatedBackup records an automated backup for a cluster.
@@ -126,6 +203,71 @@ func (b *InMemoryBackend) DescribeDBClusterAutomatedBackups(
 	})
 
 	return result
+}
+
+// isKnownDBClusterAutomatedBackupFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for
+// DescribeDBClusterAutomatedBackups (rds@v1.124.1
+// api_op_DescribeDBClusterAutomatedBackups.go:46-64).
+func isKnownDBClusterAutomatedBackupFilterName(name string) bool {
+	switch name {
+	case filterNameStatus, filterNameDBClusterID, filterNameDBClusterResourceID:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterAutomatedBackupFilters narrows backups per the AWS
+// DescribeDBClusterAutomatedBackups Filters contract: each filter ANDs
+// together, and a filter's Values list is OR-matched against the
+// corresponding backup field. Both db-cluster-id and db-cluster-resource-id
+// accept identifiers or ARNs per this op's own doc comment (api_op:54-61).
+// An unrecognized filter name returns InvalidParameterValue, matching real
+// AWS.
+func applyDBClusterAutomatedBackupFilters(
+	vals url.Values, backups []DBClusterAutomatedBackup,
+) ([]DBClusterAutomatedBackup, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return backups, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterAutomatedBackupFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBClusterAutomatedBackup, 0, len(backups))
+	for _, ab := range backups {
+		if matchesAllDBClusterAutomatedBackupFilters(ab, filters) {
+			filtered = append(filtered, ab)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterAutomatedBackupFilters(ab DBClusterAutomatedBackup, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameStatus:
+			if !slices.Contains(values, ab.Status) {
+				return false
+			}
+		case filterNameDBClusterID:
+			if !containsFoldIDOrARN(values, ab.DBClusterIdentifier) {
+				return false
+			}
+		case filterNameDBClusterResourceID:
+			if !containsFoldIDOrARN(values, ab.DBClusterResourceID) {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 // DeleteDBInstanceAutomatedBackup marks an automated backup as deleted.

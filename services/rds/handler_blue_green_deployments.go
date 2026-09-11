@@ -52,6 +52,10 @@ func (h *Handler) handleDescribeBlueGreenDeployments(vals url.Values) (any, erro
 	if err != nil {
 		return nil, err
 	}
+	deployments, err = applyBlueGreenDeploymentFilters(vals, deployments)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlBlueGreenDeployment, 0, len(deployments))
 	for i := range deployments {
 		members = append(members, toXMLBlueGreenDeployment(&deployments[i]))

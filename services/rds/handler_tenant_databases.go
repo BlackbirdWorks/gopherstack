@@ -111,6 +111,10 @@ func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	tdbs, err = applyTenantDatabaseFilters(vals, tdbs)
+	if err != nil {
+		return nil, err
+	}
 
 	members, marker, err := paginateDescribe(
 		vals, tdbs,
@@ -164,6 +168,10 @@ func (h *Handler) handleDescribeDBSnapshotTenantDatabases(vals url.Values) (any,
 	instanceID := vals.Get("DBInstanceIdentifier")
 
 	entries := h.Backend.DescribeDBSnapshotTenantDatabases(snapshotID, instanceID)
+	entries, err := applyDBSnapshotTenantDatabaseFilters(vals, entries)
+	if err != nil {
+		return nil, err
+	}
 
 	members := make([]xmlDBSnapshotTenantDatabase, 0, len(entries))
 	for _, e := range entries {

@@ -88,6 +88,67 @@ const (
 	// filterNameSourceArn is the Filters.Filter.N.Name value for narrowing
 	// DescribeExportTasks by the exported resource's ARN.
 	filterNameSourceArn = "source-arn"
+	// filterNameDBClusterResourceID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterAutomatedBackups by DB cluster resource ID.
+	// Its own doc comment (api_op_DescribeDBClusterAutomatedBackups.go:59-61)
+	// says it "Accepts DB resource identifiers and Amazon Resource Names
+	// (ARNs)", unlike DescribeDBClusters' plain-match "db-cluster-resource-id"
+	// (db_clusters.go).
+	filterNameDBClusterResourceID = "db-cluster-resource-id"
+	// filterNameDBClusterBacktrackID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterBacktracks by backtrack identifier.
+	filterNameDBClusterBacktrackID = "db-cluster-backtrack-id"
+	// filterNameDBClusterBacktrackStatus is the Filters.Filter.N.Name value
+	// for narrowing DescribeDBClusterBacktracks by backtrack status.
+	filterNameDBClusterBacktrackStatus = "db-cluster-backtrack-status"
+	// filterNameRecommendationID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by recommendation identifier.
+	filterNameRecommendationID = "recommendation-id"
+	// filterNameSeverity is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by recommendation severity.
+	filterNameSeverity = "severity"
+	// filterNameTypeID is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by recommendation type identifier.
+	filterNameTypeID = "type-id"
+	// filterNameClusterResourceID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by cluster resource ID. Accepted
+	// but not modeled — DBRecommendation carries only a generic ResourceARN,
+	// not a cluster-resource-id-typed field.
+	filterNameClusterResourceID = "cluster-resource-id"
+	// filterNamePgArn is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by parameter group ARN. Accepted but not
+	// modeled — see filterNameClusterResourceID.
+	filterNamePgArn = "pg-arn"
+	// filterNameClusterPgArn is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by cluster parameter group ARN.
+	// Accepted but not modeled — see filterNameClusterResourceID.
+	filterNameClusterPgArn = "cluster-pg-arn"
+	// filterNameBlueGreenDeploymentIdentifier is the Filters.Filter.N.Name
+	// value for narrowing DescribeBlueGreenDeployments by deployment
+	// identifier.
+	filterNameBlueGreenDeploymentIdentifier = "blue-green-deployment-identifier"
+	// filterNameBlueGreenDeploymentName is the Filters.Filter.N.Name value
+	// for narrowing DescribeBlueGreenDeployments by deployment name.
+	filterNameBlueGreenDeploymentName = "blue-green-deployment-name"
+	// filterNameSource is the Filters.Filter.N.Name value for narrowing
+	// DescribeBlueGreenDeployments by source database.
+	filterNameSource = "source"
+	// filterNameTarget is the Filters.Filter.N.Name value for narrowing
+	// DescribeBlueGreenDeployments by target database.
+	filterNameTarget = "target"
+	// filterNameTenantDBName is the Filters.Filter.N.Name value for
+	// narrowing DescribeTenantDatabases and DescribeDBSnapshotTenantDatabases
+	// by tenant database name.
+	filterNameTenantDBName = "tenant-db-name"
+	// filterNameTenantDatabaseResourceID is the Filters.Filter.N.Name value
+	// for narrowing DescribeTenantDatabases and
+	// DescribeDBSnapshotTenantDatabases by tenant database resource
+	// identifier. Accepted but not modeled — TenantDatabase and
+	// DBSnapshotTenantDatabase carry no such attribute.
+	filterNameTenantDatabaseResourceID = "tenant-database-resource-id"
+	// filterNameDBSnapshotID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBSnapshotTenantDatabases by DB snapshot identifier.
+	filterNameDBSnapshotID = "db-snapshot-id"
 	// snapshotTypeManual is the SnapshotType value AWS assigns to
 	// user-initiated (as opposed to automated) DB and DB cluster snapshots.
 	snapshotTypeManual = "manual"

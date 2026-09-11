@@ -706,6 +706,10 @@ func (h *Handler) handleDescribeDBClusterBacktracks(vals url.Values) (any, error
 	if err != nil {
 		return nil, err
 	}
+	backtracks, err = applyDBClusterBacktrackFilters(vals, backtracks)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBClusterBacktrack, 0, len(backtracks))
 	for _, bt := range backtracks {
 		members = append(members, xmlDBClusterBacktrack(bt))

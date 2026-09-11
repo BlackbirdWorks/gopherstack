@@ -209,7 +209,17 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 	return &cp, nil
 }
 
-// DescribeEngineDefaultParameters returns default parameters for an engine family.
+// DescribeEngineDefaultParameters returns default parameters for an engine
+// family. This backend never generates default-parameter data for any
+// family, so this always returns an empty slice -- a completeness gap of its
+// own (gopherstack-vl4m), same shape as DescribePendingMaintenanceActions's.
+// Its Filters contract ("The only supported filter is parameter-name",
+// api_op_DescribeEngineDefaultParameters.go:97-98) is the same contract
+// DescribeDBParameters and DescribeDBClusterParameters share, so
+// applyDBParameterFilters (shared.go) is wired into its handler to validate
+// and narrow it for wire correctness -- but with no data ever populated,
+// only its unrecognized-filter-name rejection is observable through the real
+// API today.
 func (b *InMemoryBackend) DescribeEngineDefaultParameters(_ string) []DBParameter {
 	return []DBParameter{}
 }
