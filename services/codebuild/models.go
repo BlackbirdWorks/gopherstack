@@ -245,24 +245,28 @@ type AutoRetryConfig struct {
 // the same way Artifacts/EncryptionKey already do -- StartBuild copies them
 // from the project at build time.
 type Build struct {
-	Source                  *ProjectSource         `json:"source,omitempty"`
-	Tags                    wireTags               `json:"tags,omitempty"`
-	Logs                    *BuildLogs             `json:"logs,omitempty"`
-	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
-	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
-	Cache                   *ProjectCache          `json:"cache,omitempty"`
-	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
-	AutoRetryConfig         *AutoRetryConfig       `json:"autoRetryConfig,omitempty"`
-	CurrentPhase            string                 `json:"currentPhase,omitempty"`
-	Initiator               string                 `json:"initiator,omitempty"`
-	Arn                     string                 `json:"arn"`
-	ProjectName             string                 `json:"projectName"`
-	BuildStatus             string                 `json:"buildStatus"`
-	ServiceRole             string                 `json:"serviceRole,omitempty"`
-	ResolvedSourceVersion   string                 `json:"resolvedSourceVersion,omitempty"`
-	SourceVersion           string                 `json:"sourceVersion,omitempty"`
-	ID                      string                 `json:"id"`
-	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
+	Source                *ProjectSource      `json:"source,omitempty"`
+	Tags                  wireTags            `json:"tags,omitempty"`
+	Logs                  *BuildLogs          `json:"logs,omitempty"`
+	Artifacts             *ProjectArtifacts   `json:"artifacts,omitempty"`
+	Environment           *ProjectEnvironment `json:"environment,omitempty"`
+	Cache                 *ProjectCache       `json:"cache,omitempty"`
+	VpcConfig             *VpcConfig          `json:"vpcConfig,omitempty"`
+	AutoRetryConfig       *AutoRetryConfig    `json:"autoRetryConfig,omitempty"`
+	CurrentPhase          string              `json:"currentPhase,omitempty"`
+	Initiator             string              `json:"initiator,omitempty"`
+	Arn                   string              `json:"arn"`
+	ProjectName           string              `json:"projectName"`
+	BuildStatus           string              `json:"buildStatus"`
+	ServiceRole           string              `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion string              `json:"resolvedSourceVersion,omitempty"`
+	SourceVersion         string              `json:"sourceVersion,omitempty"`
+	ID                    string              `json:"id"`
+	EncryptionKey         string              `json:"encryptionKey,omitempty"`
+	// BuildBatchArn is set on a build started as one BuildGroup's child of a
+	// BuildBatch (aws-sdk-go-v2/service/codebuild/types.Build.BuildBatchArn,
+	// types/types.go:67).
+	BuildBatchArn           string                 `json:"buildBatchArn,omitempty"`
 	Phases                  []BuildPhase           `json:"phases,omitempty"`
 	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
 	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
@@ -388,15 +392,91 @@ type Fleet struct {
 	LastModified         float64               `json:"lastModified,omitempty"`
 }
 
-// BuildBatch represents an in-memory AWS CodeBuild build batch.
+// ResolvedArtifact identifies a build group's resolved primary or secondary
+// artifact (aws-sdk-go-v2/service/codebuild/types.ResolvedArtifact,
+// types/types.go:2468).
+type ResolvedArtifact struct {
+	Identifier string `json:"identifier,omitempty"`
+	Location   string `json:"location,omitempty"`
+	Type       string `json:"type,omitempty"`
+}
+
+// BuildSummary summarizes one BuildGroup's current or a prior build
+// (aws-sdk-go-v2/service/codebuild/types.BuildSummary, types/types.go:650).
+type BuildSummary struct {
+	PrimaryArtifact    *ResolvedArtifact  `json:"primaryArtifact,omitempty"`
+	Arn                string             `json:"arn,omitempty"`
+	BuildStatus        string             `json:"buildStatus,omitempty"`
+	SecondaryArtifacts []ResolvedArtifact `json:"secondaryArtifacts,omitempty"`
+	RequestedOn        float64            `json:"requestedOn,omitempty"`
+}
+
+// BuildGroup is one node of a batch build's definition (one buildspec
+// `batch:` build-list/build-graph entry) and its current/prior builds
+// (aws-sdk-go-v2/service/codebuild/types.BuildGroup, types/types.go:519).
+type BuildGroup struct {
+	CurrentBuildSummary   *BuildSummary  `json:"currentBuildSummary,omitempty"`
+	Identifier            string         `json:"identifier,omitempty"`
+	DependsOn             []string       `json:"dependsOn,omitempty"`
+	PriorBuildSummaryList []BuildSummary `json:"priorBuildSummaryList,omitempty"`
+	IgnoreFailure         bool           `json:"ignoreFailure,omitempty"`
+}
+
+// BuildBatchPhase is one phase of a batch build
+// (aws-sdk-go-v2/service/codebuild/types.BuildBatchPhase, types/types.go:464).
+type BuildBatchPhase struct {
+	PhaseType         string              `json:"phaseType,omitempty"`
+	PhaseStatus       string              `json:"phaseStatus,omitempty"`
+	Contexts          []BuildPhaseContext `json:"contexts,omitempty"`
+	StartTime         float64             `json:"startTime,omitempty"`
+	EndTime           float64             `json:"endTime,omitempty"`
+	DurationInSeconds float64             `json:"durationInSeconds,omitempty"`
+}
+
+// BuildBatch represents an in-memory AWS CodeBuild build batch, modeled on
+// aws-sdk-go-v2/service/codebuild@v1.72.4's types.BuildBatch
+// (types/types.go:302). A batch build is a project's buildspec `batch:`
+// section (build-list or build-graph, see batchspec.go) resolved into
+// BuildGroups, each backed by a real child Build (Build.BuildBatchArn set,
+// started through the same construction StartBuild uses -- see
+// startBatchChildBuild in build_batches.go). Environment/Source/Artifacts/
+// Cache default to the project's and can diverge via StartBuildBatch's
+// *Override input fields, exactly as StartBuild already does for a plain
+// build (StartBuildConfig, builds.go) -- a batch's environment is therefore
+// not necessarily its project's.
 type BuildBatch struct {
-	Tags             wireTags `json:"tags,omitempty"`
-	ID               string   `json:"id"`
-	Arn              string   `json:"arn"`
-	ProjectName      string   `json:"projectName"`
-	BuildBatchStatus string   `json:"buildBatchStatus"`
-	StartTime        float64  `json:"startTime,omitempty"`
-	EndTime          float64  `json:"endTime,omitempty"`
+	Environment             *ProjectEnvironment    `json:"environment,omitempty"`
+	Source                  *ProjectSource         `json:"source,omitempty"`
+	Artifacts               *ProjectArtifacts      `json:"artifacts,omitempty"`
+	Cache                   *ProjectCache          `json:"cache,omitempty"`
+	LogConfig               *LogsConfig            `json:"logConfig,omitempty"`
+	VpcConfig               *VpcConfig             `json:"vpcConfig,omitempty"`
+	BuildBatchConfig        *BuildBatchConfig      `json:"buildBatchConfig,omitempty"`
+	Tags                    wireTags               `json:"tags,omitempty"`
+	Initiator               string                 `json:"initiator,omitempty"`
+	BuildBatchStatus        string                 `json:"buildBatchStatus"`
+	EncryptionKey           string                 `json:"encryptionKey,omitempty"`
+	ServiceRole             string                 `json:"serviceRole,omitempty"`
+	ResolvedSourceVersion   string                 `json:"resolvedSourceVersion,omitempty"`
+	SourceVersion           string                 `json:"sourceVersion,omitempty"`
+	CurrentPhase            string                 `json:"currentPhase,omitempty"`
+	ID                      string                 `json:"id"`
+	Arn                     string                 `json:"arn"`
+	ProjectName             string                 `json:"projectName"`
+	ReportArns              []string               `json:"reportArns,omitempty"`
+	SecondarySourceVersions []ProjectSourceVersion `json:"secondarySourceVersions,omitempty"`
+	Phases                  []BuildBatchPhase      `json:"phases,omitempty"`
+	BuildGroups             []BuildGroup           `json:"buildGroups,omitempty"`
+	FileSystemLocations     []FileSystemLocation   `json:"fileSystemLocations,omitempty"`
+	SecondaryArtifacts      []ProjectArtifacts     `json:"secondaryArtifacts,omitempty"`
+	SecondarySources        []ProjectSource        `json:"secondarySources,omitempty"`
+	StartTime               float64                `json:"startTime,omitempty"`
+	EndTime                 float64                `json:"endTime,omitempty"`
+	BuildBatchNumber        int64                  `json:"buildBatchNumber,omitempty"`
+	BuildTimeoutInMinutes   int32                  `json:"buildTimeoutInMinutes,omitempty"`
+	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
+	Complete                bool                   `json:"complete,omitempty"`
+	DebugSessionEnabled     bool                   `json:"debugSessionEnabled,omitempty"`
 }
 
 // CommandExecution represents an in-memory AWS CodeBuild command execution.

@@ -175,8 +175,12 @@ func (j *Janitor) collectInProgressIDs() ([]string, []string) {
 	return buildIDs, batchIDs
 }
 
-// advanceBuildsLocked transitions the given builds and build batches to
-// SUCCEEDED, under the backend write lock.
+// advanceBuildsLocked transitions the given plain builds to SUCCEEDED (batch
+// child builds included -- they're ordinary Build records too), then
+// reconciles each given build batch: reconcileBatch picks up children that
+// just went terminal above, starts any build-graph dependents now eligible,
+// and recomputes the batch's derived status (see build_batches.go). Called
+// under the backend write lock.
 func (j *Janitor) advanceBuildsLocked(buildIDs, batchIDs []string, now float64) {
 	j.Backend.mu.Lock("CodeBuildJanitorAdvance")
 	defer j.Backend.mu.Unlock()
@@ -191,9 +195,20 @@ func (j *Janitor) advanceBuildsLocked(buildIDs, batchIDs []string, now float64) 
 	}
 
 	for _, id := range batchIDs {
-		if batch, ok := j.Backend.buildBatches.Get(id); ok && batch.BuildBatchStatus == buildStatusInProgress {
-			batch.BuildBatchStatus = buildStatusSucceeded
-			batch.EndTime = now
+		batch, ok := j.Backend.buildBatches.Get(id)
+		if !ok || batch.BuildBatchStatus != buildStatusInProgress {
+			continue
 		}
+
+		def, err := parseBatchDefinition(sourceBuildspec(batch.Source))
+		if err != nil {
+			// StartBuildBatch already validated this batch's buildspec; an
+			// error here would mean the persisted Source.Buildspec was
+			// corrupted after the fact. Leave the batch as-is rather than
+			// panic or silently force a terminal status.
+			continue
+		}
+
+		j.Backend.reconcileBatch(batch, def, now)
 	}
 }

@@ -220,7 +220,7 @@ func TestJanitor_AdvanceInProgressBuilds(t *testing.T) {
 
 	backend := newTestBackend(t)
 
-	src := codebuild.ProjectSource{Type: "NO_SOURCE"}
+	src := codebuild.ProjectSource{Type: "NO_SOURCE", Buildspec: testSingleNodeBatchSpec}
 	arts := codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"}
 	env := codebuild.ProjectEnvironment{
 		Type:        "LINUX_CONTAINER",
@@ -239,7 +239,7 @@ func TestJanitor_AdvanceInProgressBuilds(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "IN_PROGRESS", build.BuildStatus)
 
-	batch, err := backend.StartBuildBatch("advance-proj")
+	batch, err := backend.StartBuildBatch("advance-proj", codebuild.StartBuildBatchConfig{})
 	require.NoError(t, err)
 	require.Equal(t, "IN_PROGRESS", batch.BuildBatchStatus)
 
