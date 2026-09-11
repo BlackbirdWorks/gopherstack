@@ -55,7 +55,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err := b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(
@@ -72,7 +72,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "IN_SYNC", instances.Data[0].DriftStatus)
@@ -87,7 +87,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "DRIFTED", instances.Data[0].DriftStatus)
@@ -114,7 +114,7 @@ func TestStackSetOperationList(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	p, err := b.ListStackSetOperations("op-list-ss", "")
+	p, err := b.ListStackSetOperations("op-list-ss", 0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 }
@@ -161,7 +161,7 @@ func TestGeneratedTemplate_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, body)
 
-	list, err := b.ListGeneratedTemplates("")
+	list, err := b.ListGeneratedTemplates(0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, list.Data)
 
@@ -187,7 +187,7 @@ func TestResourceScan_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", scan.Status)
 
-	scans, err := b.ListResourceScans("")
+	scans, err := b.ListResourceScans(0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, scans.Data)
 

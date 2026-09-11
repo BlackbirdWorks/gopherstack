@@ -181,7 +181,18 @@ func (b *InMemoryBackend) StackSetRegions(name string) []string {
 	return regions
 }
 
-func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error) {
+// cfnListMaxPageSize caps StackSet list operations at 100, matching the
+// documented maximum of ListGeneratedTemplates/ListResourceScans. The pinned
+// SDK's ListStackSets/ListStackSetOperations/ListStackInstances doc comments
+// (cloudformation@v1.76.1 api_op_ListStackSets.go:66-69 etc.) state a
+// MaxResults field exists but give no numeric default or maximum, so this
+// repo's existing 100-item convention (cfnDefaultPageSize) is reused for
+// both rather than inventing an unverified number.
+const cfnListMaxPageSize = cfnDefaultPageSize
+
+func (b *InMemoryBackend) ListStackSets(
+	maxResults int, nextToken, status string,
+) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
 	result := make([]StackSetSummary, 0, b.stackSets.Len())
@@ -202,7 +213,9 @@ func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[Sta
 		func(i, j int) bool { return result[i].StackSetName < result[j].StackSetName },
 	)
 
-	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnListMaxPageSize)
+
+	return page.New(result, nextToken, limit, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, error) {
@@ -299,7 +312,7 @@ func (b *InMemoryBackend) recordOpResults(
 const maxOpsPerStackSet = 1000
 
 func (b *InMemoryBackend) ListStackSetOperations(
-	stackSetName, nextToken string,
+	stackSetName string, maxResults int, nextToken string,
 ) (page.Page[StackSetOperationSummary], error) {
 	b.mu.RLock("ListStackSetOperations")
 	defer b.mu.RUnlock()
@@ -325,7 +338,9 @@ func (b *InMemoryBackend) ListStackSetOperations(
 		})
 	}
 
-	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnListMaxPageSize)
+
+	return page.New(summaries, nextToken, limit, cfnDefaultPageSize), nil
 }
 
 // trimStackSetOperations evicts the oldest entries when a stack set exceeds maxOpsPerStackSet.

@@ -333,16 +333,15 @@ func TestDescribeMaintenanceWindowExecutionTasks_Filters(t *testing.T) {
 		t.Parallel()
 
 		// Real AWS's MaintenanceWindowExecutionStatus enum value is "SUCCESS"
-		// (enums.go:1223); this backend's commandStatusSuccess constant emits
-		// "Success" for every op that shares it, a pre-existing wire-case bug
-		// out of scope for this filter fix (gopherstack-tz6z) -- tracked
-		// separately (bd: ssm status casing).
+		// (enums.go:1223), fixed in gopherstack-yqrl5 (this backend used to
+		// emit Title-case "Success" via the CommandStatus-typed
+		// commandStatusSuccess constant).
 		got, err := client.DescribeMaintenanceWindowExecutionTasks(
 			ctx,
 			&ssmsdk.DescribeMaintenanceWindowExecutionTasksInput{
 				WindowExecutionId: aws.String(execID),
 				Filters: []ssmtypes.MaintenanceWindowFilter{
-					{Key: aws.String("STATUS"), Values: []string{"Success"}},
+					{Key: aws.String("STATUS"), Values: []string{"SUCCESS"}},
 				},
 			},
 		)

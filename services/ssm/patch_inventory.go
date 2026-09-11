@@ -57,10 +57,12 @@ const patchClassificationSecurityUpdates = "SecurityUpdates"
 
 // patchComplianceStateMissing/Installed are the PatchComplianceData.State
 // values this emulator produces for a patch that has not yet been installed
-// versus one an Install operation has applied.
+// versus one an Install operation has applied. PatchComplianceDataState is
+// screaming case (ssm@v1.73.4 types/enums.go:1938,1942:
+// PatchComplianceDataStateInstalled="INSTALLED", ...Missing="MISSING").
 const (
-	patchComplianceStateMissing   = "Missing"
-	patchComplianceStateInstalled = "Installed"
+	patchComplianceStateMissing   = "MISSING"
+	patchComplianceStateInstalled = "INSTALLED"
 )
 
 // defaultAgentVersionSSM is the SSM Agent version reported for managed

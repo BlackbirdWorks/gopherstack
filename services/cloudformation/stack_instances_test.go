@@ -27,7 +27,7 @@ func TestCreateStackInstances_ProvisionsChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("prov-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err := b.ListStackInstances("prov-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 2)
 
@@ -56,7 +56,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("teardown-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err := b.ListStackInstances("teardown-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	childID := instances.Data[0].StackID
@@ -66,7 +66,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	remaining, err := b.ListStackInstances("teardown-ss", "", cloudformation.ListStackInstancesFilter{})
+	remaining, err := b.ListStackInstances("teardown-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, remaining.Data)
 

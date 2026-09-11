@@ -65,7 +65,7 @@ type StorageBackend interface {
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	StackSetRegions(name string) []string
-	ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error)
+	ListStackSets(maxResults int, nextToken, status string) (page.Page[StackSetSummary], error)
 	CreateStackInstances(
 		ctx context.Context,
 		stackSetName string,
@@ -78,12 +78,12 @@ type StorageBackend interface {
 	) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
 	ListStackInstances(
-		stackSetName, nextToken string, filter ListStackInstancesFilter,
+		stackSetName string, maxResults int, nextToken string, filter ListStackInstancesFilter,
 	) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
 	ListStackSetOperations(
-		stackSetName, nextToken string,
+		stackSetName string, maxResults int, nextToken string,
 	) (page.Page[StackSetOperationSummary], error)
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
@@ -103,11 +103,11 @@ type StorageBackend interface {
 	DeleteGeneratedTemplate(id string) error
 	DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error)
 	GetGeneratedTemplate(id string) (string, error)
-	ListGeneratedTemplates(nextToken string) (page.Page[GeneratedTemplate], error)
+	ListGeneratedTemplates(maxResults int, nextToken string) (page.Page[GeneratedTemplate], error)
 	// Resource scans
 	StartResourceScan() (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
-	ListResourceScans(nextToken string) (page.Page[ResourceScan], error)
+	ListResourceScans(maxResults int, nextToken string) (page.Page[ResourceScan], error)
 	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management

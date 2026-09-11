@@ -181,7 +181,7 @@ func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListGeneratedTemplates(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListGeneratedTemplates(form.Get("NextToken"))
+	p, _ := h.Backend.ListGeneratedTemplates(parseFormMaxResults(form), form.Get("NextToken"))
 	type gtXML struct {
 		GeneratedTemplateID   string `xml:"GeneratedTemplateId"`
 		GeneratedTemplateName string `xml:"GeneratedTemplateName"`
@@ -269,7 +269,7 @@ func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListResourceScans(form.Get("NextToken"))
+	p, _ := h.Backend.ListResourceScans(parseFormMaxResults(form), form.Get("NextToken"))
 	type scanXML struct {
 		ResourceScanID string `xml:"ResourceScanId"`
 		Status         string `xml:"Status"`

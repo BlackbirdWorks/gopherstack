@@ -63,7 +63,7 @@ func TestEpochSecondsWireShape_MaintenanceWindowExecution(t *testing.T) {
 	t.Parallel()
 
 	body, err := json.Marshal(ssm.MaintenanceWindowExecution{
-		WindowID: "mw-1", WindowExecutionID: "mwexec-1", Status: "Success",
+		WindowID: "mw-1", WindowExecutionID: "mwexec-1", Status: "SUCCESS",
 		StartTime: 1_700_000_000, EndTime: 1_700_003_600,
 	})
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestEpochSecondsWireShape_PatchComplianceData(t *testing.T) {
 	t.Parallel()
 
 	body, err := json.Marshal(ssm.PatchComplianceData{
-		Title: "KB123", State: "Installed", InstalledTime: 1_700_000_000,
+		Title: "KB123", State: "INSTALLED", InstalledTime: 1_700_000_000,
 	})
 	require.NoError(t, err)
 	numericJSONField(t, body, "InstalledTime")

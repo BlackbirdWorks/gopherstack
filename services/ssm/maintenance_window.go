@@ -116,6 +116,11 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 
 const mwExecIDPrefix = "mwexec-"
 
+// mwExecutionStatusSuccess is MaintenanceWindowExecutionStatus's Success
+// value -- screaming case, unlike CommandStatus's "Success" (ssm@v1.73.4
+// types/enums.go:1223: MaintenanceWindowExecutionStatusSuccess = "SUCCESS").
+const mwExecutionStatusSuccess = "SUCCESS"
+
 // mwExecID builds a deterministic execution ID from a window ID.
 // mwToIdentity projects a stored MaintenanceWindow onto the narrower
 // MaintenanceWindowIdentity listing shape (DescribeMaintenanceWindows,
@@ -193,7 +198,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 			{
 				WindowID:          win.WindowID,
 				WindowExecutionID: mwExecID(win.WindowID),
-				Status:            commandStatusSuccess,
+				Status:            mwExecutionStatusSuccess,
 				StartTime:         UnixTimeFloat(execTime),
 				EndTime:           UnixTimeFloat(endTime),
 			},
@@ -234,7 +239,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 			WindowExecutionID: input.WindowExecutionID,
 			TaskExecutionID:   "taskexec-" + task.WindowTaskID,
 			TaskARN:           task.TaskArn,
-			Status:            commandStatusSuccess,
+			Status:            mwExecutionStatusSuccess,
 			StartTime:         UnixTimeFloat(time.Now()),
 		})
 	}
@@ -315,7 +320,7 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 				WindowExecutionID: input.WindowExecutionID,
 				TaskExecutionID:   input.TaskID,
 				InvocationID:      "inv-" + input.WindowExecutionID,
-				Status:            commandStatusSuccess,
+				Status:            mwExecutionStatusSuccess,
 				StartTime:         UnixTimeFloat(time.Now()),
 			},
 		},
@@ -397,7 +402,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecution(
 	return &GetMaintenanceWindowExecutionOutputFull{
 		WindowID:          windowID,
 		WindowExecutionID: execID,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "WindowExecution Succeeded",
 		StartTime:         UnixTimeFloat(startTime),
 		EndTime:           UnixTimeFloat(endTime),
@@ -438,7 +443,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 				TaskExecutionID:   taskExecID,
 				TaskARN:           task.TaskArn,
 				TaskType:          task.TaskType,
-				Status:            commandStatusSuccess,
+				Status:            mwExecutionStatusSuccess,
 				StatusDetails:     "Task Succeeded",
 				Priority:          task.Priority,
 				MaxConcurrency:    task.MaxConcurrency,
@@ -455,7 +460,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 	return &GetMaintenanceWindowExecutionTaskOutputFull{
 		WindowExecutionID: input.WindowExecutionID,
 		TaskExecutionID:   taskExecID,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "Task Succeeded",
 		StartTime:         UnixTimeFloat(startTime),
 		EndTime:           UnixTimeFloat(endTime),
@@ -501,7 +506,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 		ExecutionID:       input.InvocationID,
 		TaskType:          "RUN_COMMAND",
 		OwnerInformation:  ownerInfo,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "InvocationSucceeded",
 		WindowTargetID:    windowTargetID,
 		StartTime:         UnixTimeFloat(startTime),

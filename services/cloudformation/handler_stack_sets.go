@@ -348,7 +348,7 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListStackSets(form.Get("NextToken"), form.Get("Status"))
+	p, err := h.Backend.ListStackSets(parseFormMaxResults(form), form.Get("NextToken"), form.Get("Status"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -518,7 +518,9 @@ func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"), parseStackInstanceFilters(form))
+	p, err := h.Backend.ListStackInstances(
+		name, parseFormMaxResults(form), form.Get("NextToken"), parseStackInstanceFilters(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
@@ -647,7 +649,7 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 
 func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, _ := h.Backend.ListStackSetOperations(name, form.Get("NextToken"))
+	p, _ := h.Backend.ListStackSetOperations(name, parseFormMaxResults(form), form.Get("NextToken"))
 	type opXML struct {
 		OperationID       string `xml:"OperationId"`
 		Action            string `xml:"Action"`

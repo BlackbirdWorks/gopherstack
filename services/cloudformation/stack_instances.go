@@ -329,7 +329,7 @@ func matchesStackInstanceFilter(inst *StackInstance, filter ListStackInstancesFi
 }
 
 func (b *InMemoryBackend) ListStackInstances(
-	stackSetName, nextToken string,
+	stackSetName string, maxResults int, nextToken string,
 	filter ListStackInstancesFilter,
 ) (page.Page[StackInstance], error) {
 	b.mu.RLock("ListStackInstances")
@@ -343,7 +343,9 @@ func (b *InMemoryBackend) ListStackInstances(
 		}
 	}
 
-	return page.New(instances, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnListMaxPageSize)
+
+	return page.New(instances, nextToken, limit, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) DescribeStackInstance(

@@ -390,7 +390,7 @@ func TestDeleteStackSet_ClearsOperationHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ops, err := b.ListStackSetOperations(name, "")
+	ops, err := b.ListStackSetOperations(name, 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, ops.Data,
 		"recreated StackSet must not inherit the deleted StackSet's operation history")
@@ -790,9 +790,8 @@ func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
 
 	b := newBackend()
 
-	// ListStackSetOperations hardcodes cfnDefaultPageSize (100) as its page
-	// size -- it takes no maxResults param -- so total must exceed 100 to
-	// force a page boundary at all.
+	// ListStackSetOperations defaults to cfnDefaultPageSize (100) when
+	// maxResults is 0 -- total must exceed 100 to force a page boundary.
 	const total = 110
 
 	tied := time.Now()
@@ -818,7 +817,7 @@ func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
 
 		token := ""
 		for range total/pageSize + 2 {
-			p, err := b.ListStackSetOperations("my-stack-set", token)
+			p, err := b.ListStackSetOperations("my-stack-set", 0, token)
 			require.NoError(t, err)
 
 			for _, op := range p.Data {
