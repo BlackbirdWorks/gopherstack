@@ -212,7 +212,7 @@ func TestListStackRefactors_Pagination(t *testing.T) {
 	ids := make([]string, 0, 3)
 
 	for _, desc := range []string{"refactor-a", "refactor-b", "refactor-c"} {
-		id, err := backend.CreateStackRefactor(desc, nil, false)
+		id, err := backend.CreateStackRefactor(desc, nil, nil, false)
 		require.NoError(t, err)
 		ids = append(ids, id)
 	}
@@ -270,7 +270,7 @@ func TestListStackRefactorActions_Pagination(t *testing.T) {
 			Destination: cloudformation.ResourceLocation{StackName: "dst", LogicalResourceID: "ResC"},
 		},
 	}
-	refactorID, err := backend.CreateStackRefactor("actions-refactor", mappings, false)
+	refactorID, err := backend.CreateStackRefactor("actions-refactor", nil, mappings, false)
 	require.NoError(t, err)
 
 	page1, err := client.ListStackRefactorActions(ctx, &cfnsdk.ListStackRefactorActionsInput{

@@ -75,6 +75,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
+		retainStacks bool,
 	) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
 	ListStackInstances(
@@ -134,11 +135,12 @@ type StorageBackend interface {
 	// Stack refactor
 	CreateStackRefactor(
 		description string,
+		stackDefinitions []StackDefinition,
 		resourceMappings []ResourceMapping,
 		enableStackCreation bool,
 	) (string, error)
 	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
-	ExecuteStackRefactor(stackRefactorID string) error
+	ExecuteStackRefactor(ctx context.Context, stackRefactorID string) error
 	ListStackRefactors(maxResults int, nextToken string) (page.Page[StackRefactorSummary], error)
 	ListStackRefactorActions(
 		stackRefactorID string, maxResults int, nextToken string,

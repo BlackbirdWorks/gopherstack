@@ -410,7 +410,7 @@ func TestStackRefactor_CRUD(t *testing.T) {
 
 	b := newBackend()
 
-	refactorID, err := b.CreateStackRefactor("my refactor", nil, false)
+	refactorID, err := b.CreateStackRefactor("my refactor", nil, nil, false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, refactorID)
 
@@ -426,7 +426,7 @@ func TestStackRefactor_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, actions.Data)
 
-	err = b.ExecuteStackRefactor(refactorID)
+	err = b.ExecuteStackRefactor(t.Context(), refactorID)
 	require.NoError(t, err)
 }
 

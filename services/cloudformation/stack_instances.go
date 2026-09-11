@@ -169,7 +169,7 @@ type stackInstanceTeardownFailure struct {
 // DeleteStackInstances operation has failed and left the stack in an
 // unstable state"). Must be called with b.mu held.
 func (b *InMemoryBackend) deleteMatchingStackInstances(
-	ctx context.Context, stackSetName string, accounts, regions []string,
+	ctx context.Context, stackSetName string, accounts, regions []string, retainStacks bool,
 ) []stackInstanceTeardownFailure {
 	instances := b.stackInstances[stackSetName]
 	filtered := make([]StackInstance, 0, len(instances))
@@ -186,6 +186,11 @@ func (b *InMemoryBackend) deleteMatchingStackInstances(
 		if keep {
 			filtered = append(filtered, inst)
 
+			continue
+		}
+		// RetainStacks: drop the stack-instance association only -- the
+		// child stack itself is left in place, un-managed by the set.
+		if retainStacks {
 			continue
 		}
 		if childName, teardownOK := b.stackIDIndex[inst.StackID]; teardownOK {
@@ -244,6 +249,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 	ctx context.Context,
 	stackSetName string,
 	accounts, ouIDs, regions []string,
+	retainStacks bool,
 ) (string, error) {
 	b.mu.Lock("DeleteStackInstances")
 	defer b.mu.Unlock()
@@ -260,7 +266,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 			accounts = append(accounts, t.account)
 		}
 	}
-	failed := b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions)
+	failed := b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions, retainStacks)
 	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
 	b.recordStackInstanceDeleteResults(stackSetName, opID, accounts, regions, failed)
 

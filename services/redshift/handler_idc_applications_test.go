@@ -813,33 +813,44 @@ func TestHandler_Qev2IdcApplication_Lifecycle(t *testing.T) {
 
 // ---- GetIdentityCenterAuthToken ----
 
+// TestHandler_GetIdentityCenterAuthToken locks in
+// GetIdentityCenterAuthTokenInput's real shape (redshift@v1.65.4
+// api_op_GetIdentityCenterAuthToken.go): the request is scoped by
+// ClusterIds.ClusterIdentifier.N, not an IdentityCenterApplicationArn (no
+// such member exists on the real input at all), and the response carries
+// Token/ExpirationTime under GetIdentityCenterAuthTokenResult, not
+// AuthToken/AuthTokenExpiration. Before this fix the handler read a
+// fabricated ARN parameter and emitted fabricated response element names,
+// so a real SDK client's ClusterIds was silently discarded and its Token/
+// ExpirationTime fields were always left nil.
 func TestHandler_GetIdentityCenterAuthToken(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name         string
+		setupBody    string
 		body         string
 		wantContains []string
 		wantCode     int
 	}{
 		{
-			name:     "missing_arn_returns_400",
+			name:     "missing_cluster_ids_returns_400",
 			body:     "Action=GetIdentityCenterAuthToken&Version=2012-12-01",
 			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "with_arn_returns_token",
+			name: "unknown_cluster_returns_400",
 			body: "Action=GetIdentityCenterAuthToken&Version=2012-12-01" +
-				"&IdentityCenterApplicationArn=arn:aws:sso::123:application/app-abc",
-			wantCode:     http.StatusOK,
-			wantContains: []string{"<AuthToken>ict-", "<AuthTokenExpiration>"},
+				"&ClusterIds.ClusterIdentifier.1=no-such-cluster",
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "different_arn_returns_different_token",
+			name:      "with_cluster_ids_returns_token",
+			setupBody: "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=idc-token-cluster",
 			body: "Action=GetIdentityCenterAuthToken&Version=2012-12-01" +
-				"&IdentityCenterApplicationArn=arn:aws:sso::456:application/app-xyz",
+				"&ClusterIds.ClusterIdentifier.1=idc-token-cluster",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"<AuthToken>ict-"},
+			wantContains: []string{"<Token>ict-", "<ExpirationTime>"},
 		},
 	}
 
@@ -848,6 +859,9 @@ func TestHandler_GetIdentityCenterAuthToken(t *testing.T) {
 			t.Parallel()
 
 			h := newRedshiftHandler()
+			if tc.setupBody != "" {
+				postRedshiftForm(t, h, tc.setupBody)
+			}
 			rec := postRedshiftForm(t, h, tc.body)
 			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
 
@@ -856,4 +870,24 @@ func TestHandler_GetIdentityCenterAuthToken(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_GetIdentityCenterAuthToken_DifferentClustersDifferentTokens
+// verifies the token is actually scoped to the requested ClusterIds.
+func TestHandler_GetIdentityCenterAuthToken_DifferentClustersDifferentTokens(t *testing.T) {
+	t.Parallel()
+
+	h := newRedshiftHandler()
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=idc-cluster-a")
+	postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=idc-cluster-b")
+
+	recA := postRedshiftForm(t, h, "Action=GetIdentityCenterAuthToken&Version=2012-12-01"+
+		"&ClusterIds.ClusterIdentifier.1=idc-cluster-a")
+	require.Equal(t, http.StatusOK, recA.Code, recA.Body.String())
+
+	recB := postRedshiftForm(t, h, "Action=GetIdentityCenterAuthToken&Version=2012-12-01"+
+		"&ClusterIds.ClusterIdentifier.1=idc-cluster-b")
+	require.Equal(t, http.StatusOK, recB.Code, recB.Body.String())
+
+	assert.NotEqual(t, recA.Body.String(), recB.Body.String())
 }

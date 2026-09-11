@@ -6,6 +6,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -142,29 +143,47 @@ func (h *Handler) handleModifyIdcApplication(vals url.Values) (any, error) {
 	}, nil
 }
 
+// identityCenterAuthTokenResponse's Result members (Token/ExpirationTime) and
+// ClusterIds.ClusterIdentifier.N wire shape are verified against
+// redshift@v1.65.4 api_op_GetIdentityCenterAuthToken.go and
+// serializers.go:13846-13858,10217-10225 (ClusterIdentifierList's member name
+// is "ClusterIdentifier", not "member") and
+// deserializers.go:52369-52390. The real operation scopes a token to
+// ClusterIds, not an application ARN -- there is no IdentityCenterApplicationArn
+// member on this input at all.
 type identityCenterAuthTokenResponse struct {
 	XMLName xml.Name `xml:"GetIdentityCenterAuthTokenResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
-		AuthToken           string `xml:"AuthToken"`
-		AuthTokenExpiration string `xml:"AuthTokenExpiration"`
+		Token          string `xml:"Token"`
+		ExpirationTime string `xml:"ExpirationTime"`
 	} `xml:"GetIdentityCenterAuthTokenResult"`
 }
 
 func (h *Handler) handleGetIdentityCenterAuthToken(params url.Values) (any, error) {
-	appArn := params.Get("IdentityCenterApplicationArn")
-	if appArn == "" {
-		return nil, fmt.Errorf("%w: IdentityCenterApplicationArn is required", ErrInvalidParameter)
+	clusterIDs := parseStringList(params, "ClusterIds.ClusterIdentifier.")
+	if len(clusterIDs) == 0 {
+		return nil, fmt.Errorf("%w: ClusterIds is required", ErrInvalidParameter)
+	}
+
+	for _, id := range clusterIDs {
+		clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		if len(clusters) == 0 {
+			return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, id)
+		}
 	}
 
 	expiry := time.Now().UTC().Add(identityCenterTokenExpiryMinutes * time.Minute)
 
-	hash := sha256.Sum256([]byte(appArn + expiry.Format(time.RFC3339)))
+	hash := sha256.Sum256([]byte(strings.Join(clusterIDs, ",") + expiry.Format(time.RFC3339)))
 	token := "ict-" + hex.EncodeToString(hash[:16])
 
 	resp := &identityCenterAuthTokenResponse{Xmlns: redshiftXMLNS}
-	resp.Result.AuthToken = token
-	resp.Result.AuthTokenExpiration = expiry.Format(time.RFC3339)
+	resp.Result.Token = token
+	resp.Result.ExpirationTime = expiry.Format(time.RFC3339)
 
 	return resp, nil
 }

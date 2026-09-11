@@ -453,9 +453,16 @@ func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) error {
-	return h.handleStackInstancesOp(
-		form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", h.Backend.DeleteStackInstances,
-	)
+	retainStr := form.Get("RetainStacks")
+	if retainStr == "" {
+		return h.xmlError(c, "ValidationError", "RetainStacks is required")
+	}
+	retainStacks := retainStr == boolTrue
+	op := func(ctx context.Context, stackSetName string, accounts, ouIDs, regions []string) (string, error) {
+		return h.Backend.DeleteStackInstances(ctx, stackSetName, accounts, ouIDs, regions, retainStacks)
+	}
+
+	return h.handleStackInstancesOp(form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", op)
 }
 
 func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) error {

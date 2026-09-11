@@ -894,3 +894,41 @@ func TestHandler_FailoverPrimaryCompute(t *testing.T) {
 		})
 	}
 }
+
+// TestRedshiftHandler_ModifyClusterDBRevision_RequiresRevisionTarget locks
+// in RevisionTarget (required, api_op_ModifyClusterDbRevision.go). Before
+// this fix the field was read by nothing -- a request omitting it succeeded
+// identically to one carrying a real value.
+func TestRedshiftHandler_ModifyClusterDBRevision_RequiresRevisionTarget(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		body     string
+		wantCode int
+	}{
+		{
+			name:     "missing_revision_target",
+			body:     "Action=ModifyClusterDbRevision&Version=2012-12-01&ClusterIdentifier=mcdr-cluster",
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "revision_target_present",
+			body: "Action=ModifyClusterDbRevision&Version=2012-12-01" +
+				"&ClusterIdentifier=mcdr-cluster&RevisionTarget=1",
+			wantCode: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newRedshiftHandler()
+			postRedshiftForm(t, h, "Action=CreateCluster&Version=2012-12-01&ClusterIdentifier=mcdr-cluster")
+
+			rec := postRedshiftForm(t, h, tt.body)
+			assert.Equal(t, tt.wantCode, rec.Code, rec.Body.String())
+		})
+	}
+}

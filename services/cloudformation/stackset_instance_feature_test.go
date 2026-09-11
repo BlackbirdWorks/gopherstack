@@ -286,7 +286,7 @@ func TestDeleteStackInstances_Selective(t *testing.T) {
 			_, err = b.CreateStackInstances(t.Context(), "del-sel-ss", tc.createAccounts, nil, tc.createRegions)
 			require.NoError(t, err)
 
-			_, err = b.DeleteStackInstances(t.Context(), "del-sel-ss", tc.deleteAccounts, nil, tc.deleteRegions)
+			_, err = b.DeleteStackInstances(t.Context(), "del-sel-ss", tc.deleteAccounts, nil, tc.deleteRegions, false)
 			require.NoError(t, err)
 
 			remaining, err := b.ListStackInstances("del-sel-ss", 0, "", cloudformation.ListStackInstancesFilter{})

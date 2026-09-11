@@ -374,7 +374,18 @@ type StackRefactor struct {
 	Description         string
 	Status              string // CREATE_IN_PROGRESS / CREATE_COMPLETE / EXECUTE_IN_PROGRESS / EXECUTE_COMPLETE
 	ResourceMappings    []ResourceMapping
+	StackDefinitions    []StackDefinition
 	EnableStackCreation bool
+}
+
+// StackDefinition is a stack being refactored, keyed by StackName
+// (types.StackDefinition, cloudformation@v1.76.1 types/types.go). When
+// EnableStackCreation is set, ExecuteStackRefactor creates any mapping
+// destination stack that doesn't already exist from its TemplateBody here.
+type StackDefinition struct {
+	StackName    string
+	TemplateBody string
+	TemplateURL  string
 }
 
 // ResourceLocation identifies a resource by stack and logical ID

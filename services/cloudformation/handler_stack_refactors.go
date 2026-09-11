@@ -53,10 +53,30 @@ func parseResourceMappings(form url.Values, prefix string) []ResourceMapping {
 	}
 }
 
+// parseStackDefinitions parses the StackDefinitions.member.N list (verified
+// against serializers.go:awsAwsquery_serializeDocumentStackDefinition --
+// each member has StackName, TemplateBody, TemplateURL).
+func parseStackDefinitions(form url.Values, prefix string) []StackDefinition {
+	var result []StackDefinition
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("%s%d.", prefix, i)
+		name := form.Get(p + "StackName")
+		if name == "" {
+			return result
+		}
+		result = append(result, StackDefinition{
+			StackName:    name,
+			TemplateBody: form.Get(p + "TemplateBody"),
+			TemplateURL:  form.Get(p + "TemplateURL"),
+		})
+	}
+}
+
 func (h *Handler) handleCreateStackRefactor(form url.Values, c *echo.Context) error {
 	mappings := parseResourceMappings(form, "ResourceMappings.member.")
+	stackDefs := parseStackDefinitions(form, "StackDefinitions.member.")
 	enableStackCreation := form.Get("EnableStackCreation") == "true"
-	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), mappings, enableStackCreation)
+	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), stackDefs, mappings, enableStackCreation)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -108,7 +128,7 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) error {
-	if err := h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId")); err != nil {
+	if err := h.Backend.ExecuteStackRefactor(c.Request().Context(), form.Get("StackRefactorId")); err != nil {
 		// ExecuteStackRefactor's own awsAwsquery_deserializeOpError switch
 		// declares no typed exceptions at all -- not StackRefactorNotFoundException
 		// (that's DescribeStackRefactor's), not anything else -- so every failure,

@@ -62,7 +62,7 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	childID := instances.Data[0].StackID
 
 	_, err = b.DeleteStackInstances(
-		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+		t.Context(), "teardown-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, false,
 	)
 	require.NoError(t, err)
 
@@ -75,4 +75,36 @@ func TestDeleteStackInstances_TearsDownChildStacks(t *testing.T) {
 	if derr == nil {
 		assert.Equal(t, "DELETE_COMPLETE", child.StackStatus)
 	}
+}
+
+func TestDeleteStackInstances_RetainStacksKeepsChildStack(t *testing.T) {
+	t.Parallel()
+
+	b := newBackend()
+	_, err := b.CreateStackSet("retain-ss", "desc", simpleTemplate, cloudformation.StackSetOptions{})
+	require.NoError(t, err)
+
+	_, err = b.CreateStackInstances(
+		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"},
+	)
+	require.NoError(t, err)
+
+	instances, err := b.ListStackInstances("retain-ss", 0, "", cloudformation.ListStackInstancesFilter{})
+	require.NoError(t, err)
+	require.Len(t, instances.Data, 1)
+	childID := instances.Data[0].StackID
+
+	_, err = b.DeleteStackInstances(
+		t.Context(), "retain-ss", []string{"111111111111"}, nil, []string{"us-east-1"}, true,
+	)
+	require.NoError(t, err)
+
+	remaining, err := b.ListStackInstances("retain-ss", 0, "", cloudformation.ListStackInstancesFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, remaining.Data, "stack instance association must be removed")
+
+	// RetainStacks=true must leave the underlying child stack alive.
+	child, derr := b.DescribeStack(childID)
+	require.NoError(t, derr, "child stack %s must survive a retained delete", childID)
+	assert.Equal(t, "CREATE_COMPLETE", child.StackStatus)
 }

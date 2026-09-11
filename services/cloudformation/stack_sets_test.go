@@ -214,6 +214,7 @@ func TestStackInstances_OperationId(t *testing.T) {
 			extraFields: url.Values{
 				"Accounts.member.1": {"111111111111"},
 				"Regions.member.1":  {"us-east-1"},
+				"RetainStacks":      {"false"},
 			},
 		},
 		{
@@ -742,6 +743,7 @@ func TestStackSetOperations(t *testing.T) {
 		"StackSetName":      []string{"ops-test-set"},
 		"Accounts.member.1": []string{"111111111111"},
 		"Regions.member.1":  []string{"us-east-1"},
+		"RetainStacks":      []string{"false"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 }

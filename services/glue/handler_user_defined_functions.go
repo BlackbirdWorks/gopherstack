@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"fmt"
 )
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
@@ -57,8 +58,13 @@ func (h *Handler) handleGetUserDefinedFunction(
 }
 
 // getUserDefinedFunctionsInput holds input for GetUserDefinedFunctions.
+// Pattern is marked "This member is required" by the pinned SDK
+// (api_op_GetUserDefinedFunctions.go, validators.go:validateOpGetUserDefinedFunctionsInput)
+// despite its own doc comment calling it "optional" -- the client-side
+// validator enforces it regardless, so a real SDK call never omits it.
 type getUserDefinedFunctionsInput struct {
 	DatabaseName string `json:"DatabaseName,omitempty"`
+	Pattern      string `json:"Pattern"`
 }
 
 // getUserDefinedFunctionsOutput holds the result for GetUserDefinedFunctions.
@@ -70,12 +76,25 @@ func (h *Handler) handleGetUserDefinedFunctions(
 	_ context.Context,
 	in *getUserDefinedFunctionsInput,
 ) (*getUserDefinedFunctionsOutput, error) {
-	udfs := h.Backend.GetUserDefinedFunctions(in.DatabaseName)
-	if udfs == nil {
-		udfs = []*UserDefinedFunction{}
+	if in.Pattern == "" {
+		return nil, fmt.Errorf("%w: Pattern is required", ErrValidation)
 	}
 
-	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: udfs}, nil
+	re, err := tableNameRegexp(in.Pattern)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Pattern: %w", ErrValidation, err)
+	}
+
+	udfs := h.Backend.GetUserDefinedFunctions(in.DatabaseName)
+
+	filtered := make([]*UserDefinedFunction, 0, len(udfs))
+	for _, u := range udfs {
+		if re.MatchString(u.FunctionName) {
+			filtered = append(filtered, u)
+		}
+	}
+
+	return &getUserDefinedFunctionsOutput{UserDefinedFunctions: filtered}, nil
 }
 
 // updateUserDefinedFunctionInput holds input for UpdateUserDefinedFunction.
