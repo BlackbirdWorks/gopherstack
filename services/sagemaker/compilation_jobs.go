@@ -31,27 +31,42 @@ const (
 // ---------------------------------------------------------------------------
 
 // CompilationInputConfig specifies the model source for a Neo compilation job.
+//
+// S3Uri is "This member is required" on the real InputConfig
+// (validateInputConfig, validators.go, *string nil-checked only) -- a
+// conformant client can send an empty string, which omitempty would have
+// silently dropped.
 type CompilationInputConfig struct {
-	S3Uri            string `json:"S3Uri,omitempty"`
+	S3Uri            string `json:"S3Uri"`
 	DataInputConfig  string `json:"DataInputConfig,omitempty"`
 	Framework        string `json:"Framework,omitempty"`
 	FrameworkVersion string `json:"FrameworkVersion,omitempty"`
 }
 
 // CompilationOutputConfig specifies the output destination for a Neo compilation job.
+//
+// S3OutputLocation is "This member is required" on the real OutputConfig
+// (validateOutputConfig, validators.go, *string nil-checked only) -- same
+// omitempty class as CompilationInputConfig.S3Uri above.
 type CompilationOutputConfig struct {
-	S3OutputLocation string `json:"S3OutputLocation,omitempty"`
+	S3OutputLocation string `json:"S3OutputLocation"`
 	TargetDevice     string `json:"TargetDevice,omitempty"`
 	KmsKeyID         string `json:"KmsKeyId,omitempty"`
 }
 
 // CompilationJob represents a SageMaker Neo compilation job.
 type CompilationJob struct {
-	CreationTime         time.Time                `json:"CreationTime"`
-	LastModifiedTime     time.Time                `json:"LastModifiedTime"`
-	CompilationStartTime *time.Time               `json:"CompilationStartTime,omitempty"`
-	CompilationEndTime   *time.Time               `json:"CompilationEndTime,omitempty"`
-	Tags                 map[string]string        `json:"Tags,omitempty"`
+	CreationTime         time.Time         `json:"CreationTime"`
+	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
+	CompilationStartTime *time.Time        `json:"CompilationStartTime,omitempty"`
+	CompilationEndTime   *time.Time        `json:"CompilationEndTime,omitempty"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	// InputConfig is "This member is required" on
+	// DescribeCompilationJobOutput even when the job was created via
+	// ModelPackageVersionArn instead of InputConfig -- real AWS derives it
+	// server-side from the referenced model package's (opaque here)
+	// InferenceSpecification in that case. Disclosed gap: a job created via
+	// ModelPackageVersionArn only will have this field absent.
 	InputConfig          *CompilationInputConfig  `json:"InputConfig,omitempty"`
 	OutputConfig         *CompilationOutputConfig `json:"OutputConfig,omitempty"`
 	StoppingCondition    *StoppingCondition       `json:"StoppingCondition,omitempty"`

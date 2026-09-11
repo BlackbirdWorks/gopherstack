@@ -34,6 +34,12 @@ type ModelCardSecurityConfig struct {
 }
 
 // ModelCard represents a SageMaker model card.
+// ModelCard represents a SageMaker model card.
+//
+// CreatedBy (types.UserContext) is "This member is required" on
+// DescribeModelCardOutput but is disclosed absent, not fabricated -- this
+// backend has no IAM-identity model to honestly derive it from, the same
+// class of gap as ModelPackageGroup.CreatedBy (model_packages.go).
 type ModelCard struct {
 	CreationTime     time.Time                `json:"CreationTime"`
 	LastModifiedTime time.Time                `json:"LastModifiedTime"`

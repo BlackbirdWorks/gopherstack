@@ -672,10 +672,14 @@ func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([
 // ListClusterNodes call saw every summary missing it, even though
 // DescribeClusterNode always populated ClusterNodeDetails.LaunchTime's
 // equivalent for the same node.
+// InstanceGroupName/InstanceId/InstanceType are all "This member is
+// required" on the real ClusterNodeSummary (types/types.go:5398-5423) --
+// always populated by a node's owning instance group in practice, but
+// carried no omitempty for wire-accuracy regardless.
 type clusterNodeSummary struct {
-	InstanceGroupName string                       `json:"InstanceGroupName,omitempty"`
-	InstanceID        string                       `json:"InstanceId,omitempty"`
-	InstanceType      string                       `json:"InstanceType,omitempty"`
+	InstanceGroupName string                       `json:"InstanceGroupName"`
+	InstanceID        string                       `json:"InstanceId"`
+	InstanceType      string                       `json:"InstanceType"`
 	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
 	LaunchTime        float64                      `json:"LaunchTime"`
 }

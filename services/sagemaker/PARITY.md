@@ -51,15 +51,97 @@ last_audit_date: 2026-08-08
                        # was silently losing ModelVariants (decoding looked for the never-actually-
                        # written "ModelVariantConfigs" key). Renamed the tag to match reality
                        # ("ModelVariants"), fixing the restore path.
-                       # NOT hand-verified this pass (SageMaker): the remaining ~55 flat Describe*/
-                       # Create* candidates, all 245 nested candidates, ~90 other-verb (Update/Stop/
-                       # etc.) candidates, and ~100 List* op candidates. Pattern established across
-                       # the ~40 checked is a >90% false-positive rate from the same handful of
-                       # causes above; no reason to expect the unchecked remainder differs
-                       # systematically, but it has not been read. Full raw candidate list preserved
-                       # at /tmp/claude-1000/-home-agbishop-gopherstack/e76c49e1-1353-4ada-bf09-684bbb7eaed4/
-                       # scratchpad/respsweep/ec2_sagemaker_candidates.json (session-scoped scratch,
-                       # may not survive to a future session) for a future pass to pick up.
+                       # 2026-09-11 (gopherstack-td6yy, follow-up batch): hand-verified the entire
+                       # remaining flat bucket end to end (459/459 flat candidates now fully read,
+                       # not just the ~40 from the prior batch): the ~55 unread Describe*/Create*
+                       # candidates, all ~90 other-verb (Update/Stop/Delete/Get/Batch*) candidates,
+                       # and all ~100 List* candidates (List's own required member is always the
+                       # summary-list field itself, uniformly emitted via a shared listResp() helper
+                       # or an unconditional map literal -- confirmed by reading every op's handler,
+                       # not assumed). Six more real fixes found and fixed on the flat pass: (1)
+                       # TrainingJob.ModelArtifacts had the same "computed only on completion" bug as
+                       # CompilationJob's earlier fix -- now computed synchronously from
+                       # OutputDataConfig.S3OutputPath at Create; CreateTrainingJob also gained
+                       # RoleArn/OutputDataConfig.S3OutputPath validation (both required on the real
+                       # input, previously unchecked). (2) CreateInferenceExperiment never validated
+                       # Type (required on both the real input and DescribeInferenceExperimentOutput).
+                       # (3) CreateWorkteam never validated MemberDefinitions/Description (both
+                       # required on the real input); Workteam.Description/.MemberDefinitions also
+                       # carried `omitempty` despite being required whenever present. (4)
+                       # CreateCompilationJob never enforced "provide either InputConfig or
+                       # ModelPackageVersionArn, not both" (api_op_CreateCompilationJob.go:105-110);
+                       # DescribeCompilationJobOutput.InputConfig is disclosed absent (documented on
+                       # CompilationJob.InputConfig in compilation_jobs.go) when a job was created via
+                       # ModelPackageVersionArn only -- real AWS derives it server-side from the
+                       # referenced model package, which this backend's opaque
+                       # (json.RawMessage) InferenceSpecification storage can't reproduce; out of
+                       # proportion to derive for this sweep. (5)
+                       # CompilationInputConfig.S3Uri/CompilationOutputConfig.S3OutputLocation and
+                       # AutoMLChannel.TargetAttributeName/AutoMLOutputDataConfig.S3OutputPath all
+                       # carried `omitempty` on a *string field that's nil-checked-only client-side
+                       # (validateInputConfig/validateOutputConfig/validateAutoMLChannel/
+                       # validateAutoMLOutputDataConfig, validators.go). (6) batchDescribeModelPackageError
+                       # used the wire key "ErrorMessage" where the real deserializer reads
+                       # "ErrorResponse" (deserializers.go:51081-51125) -- a real SDK client's
+                       # ErrorResponse field was always empty.
+                       #
+                       # The nested bucket (245 candidates) was worked via automated construction-site
+                       # resolution (case-insensitive Go-type lookup + json-tag matching across all
+                       # non-test .go files), fully resolving 149/245: 90 clean, 10 needing a fix (all
+                       # fixed below), 2 with a member genuinely absent from the local type (both
+                       # false positives -- BatchDescribeModelPackageError's real bug was the wire-key
+                       # rename above, not a missing Go field; TrainingPlanOffering has no json tags
+                       # at all, built via a separate map-literal), 143 where no struct declaration
+                       # matched by name (SageMaker builds most List summaries and Describe nested
+                       # blocks as anonymous map[string]any literals or dedicated per-op wrapper
+                       # types with unrelated Go names, not structs named after the SDK type). Of
+                       # those 143, 47 were individually hand-read against their construction site
+                       # (Tag/Key/Value's map-key-driven pattern across AddTags/ListTags; the four
+                       # monitoring-job-definition types' shared Config-map passthrough; Algorithm/
+                       # ModelPackage/CompilationJob/OptimizationJob's json.RawMessage opaque-spec
+                       # fields; DescribeCluster.AutoScaling/RestrictedInstanceGroupsConfig per
+                       # gopherstack-i359's already-complete fix; BatchDescribeModelPackage's own
+                       # wire-key fix; 18 fields that appear nowhere in the codebase by name, each
+                       # confirmed to be a legitimately-optional real SDK field (no "This member is
+                       # required" comment) whose *nested* type happens to carry required-when-present
+                       # members -- DescribeTrainingJob's DebugHookConfig/RetryStrategy/etc. family,
+                       # DescribeModel.DeploymentRecommendation, DescribeMonitoringSchedule.
+                       # LastMonitoringExecutionSummary, DescribeClusterEvent.EventDetails,
+                       # DescribeEdgePackagingJob.PresetDeploymentOutput,
+                       # DescribeInferenceRecommendationsJob.EndpointPerformances -- all disclosed
+                       # not-implemented optional sub-features, out of scope for a *required*-output
+                       # sweep since the outer field's own absence is valid). Real fixes found on the
+                       # nested pass (7, beyond the flat-bucket six above): VpcConfig.SecurityGroupIds/
+                       # .Subnets (shared by Cluster/EndpointConfig/Model/TrainingJob) carried
+                       # `omitempty` on required-when-present slices (validateVpcConfig, nil-checked
+                       # only); DataCaptureConfig.CaptureOptions ([]types.CaptureOption) was never
+                       # modeled at all (accepted-and-dropped on decode, added the field + CaptureOption
+                       # type); DataCaptureConfig.InitialSamplingPercentage, ParallelismConfiguration.
+                       # MaxParallelExecutionSteps, and ProcessingOutputConfig.Outputs all carried
+                       # `omitempty` on a required-when-present zero-legitimate value (nil-checked-only
+                       # client-side); HyperParameterTrainingJobSummary.TunedHyperParameters similarly;
+                       # clusterNodeSummary.InstanceGroupName/.InstanceId/.InstanceType fixed
+                       # defensively (always populated in practice, same standard as this struct's
+                       # earlier LaunchTime fix). All proven via wire_field_fixes_respsweep2_test.go,
+                       # table-driven where more than one case, with a real aws-sdk-go-v2 client round
+                       # trip for the DataCaptureConfig/BatchDescribeModelPackage families (the typed
+                       # client can't distinguish "key absent" from "key present as []" for
+                       # VpcConfig's slices, so that one case is asserted at the raw-JSON level
+                       # instead, matching the CompilationJob precedent above).
+                       # pkgs/persistence/testdata/snapshot_inventory.json updated via -update:
+                       # purely additive (one new CaptureOption row, the rest are tag-only changes
+                       # from dropping `,omitempty` on an existing field -- decode-safe, same JSON key)
+                       # against sagemaker rows only. sagemakerSnapshotVersion NOT bumped.
+                       #
+                       # REMAINING, NOT hand-verified: 96 of the 143 unresolved-type nested
+                       # candidates -- overwhelmingly List* summary types (Arn/Name/CreationTime/
+                       # Status fields on locally-scoped, lowercase per-op summary structs) and a
+                       # handful of Describe* nested sub-objects, all following the same
+                       # unconditional-construction pattern confirmed dozens of times this session,
+                       # but not individually read. Full list (op/field/nestedType/nestedRequired)
+                       # preserved at /tmp/claude-1000/-home-agbishop-gopherstack/e76c49e1-1353-4ada-bf09-684bbb7eaed4/
+                       # scratchpad/respsweep/nested_remainder_td6yy.json (96 entries, session-scoped
+                       # scratch, may not survive to a future session) for a future pass to pick up.
                        # ---- prior pass's note follows ----
                        # parity-6: fixed the actual gopherstack-e39w gap. parity-5's own note
                        # ("AutoMLJobInputDataConfig ... does not exist anywhere in

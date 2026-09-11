@@ -125,12 +125,24 @@ type ProductionVariant struct {
 }
 
 // DataCaptureConfig specifies real-time data capture for an endpoint config.
+// CaptureOptions/InitialSamplingPercentage/DestinationS3Uri are all "This
+// member is required" (validateDataCaptureConfig, validators.go) --
+// CaptureOptions was never modeled at all (silently dropped on decode, then
+// on encode), and InitialSamplingPercentage carried omitempty despite 0 (no
+// sampling) being a legitimate client-sent value.
 type DataCaptureConfig struct {
-	DestinationS3Uri          string `json:"DestinationS3Uri"`
-	CaptureMode               string `json:"CaptureMode,omitempty"`
-	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
-	InitialSamplingPercentage int32  `json:"InitialSamplingPercentage,omitempty"`
-	EnableCapture             bool   `json:"EnableCapture,omitempty"`
+	DestinationS3Uri          string          `json:"DestinationS3Uri"`
+	CaptureMode               string          `json:"CaptureMode,omitempty"`
+	KmsKeyID                  string          `json:"KmsKeyId,omitempty"`
+	CaptureOptions            []CaptureOption `json:"CaptureOptions"`
+	InitialSamplingPercentage int32           `json:"InitialSamplingPercentage"`
+	EnableCapture             bool            `json:"EnableCapture,omitempty"`
+}
+
+// CaptureOption mirrors types.CaptureOption (types/types.go:3857-3865).
+// CaptureMode is its sole, required member.
+type CaptureOption struct {
+	CaptureMode string `json:"CaptureMode"`
 }
 
 // AsyncInferenceConfig configures asynchronous inference for an endpoint.

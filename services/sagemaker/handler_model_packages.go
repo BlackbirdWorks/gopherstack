@@ -492,10 +492,15 @@ type modelPackageSummary struct {
 	CreationTime          float64 `json:"CreationTime"`
 }
 
-// batchDescribeModelPackageError holds an error entry for BatchDescribeModelPackage.
+// batchDescribeModelPackageError holds an error entry for
+// BatchDescribeModelPackage. The wire key for the message is "ErrorResponse",
+// not "ErrorMessage" (deserializers.go:51081-51125,
+// awsAwsjson11_deserializeDocumentBatchDescribeModelPackageError) -- both
+// members are "This member is required" on the real
+// BatchDescribeModelPackageError type.
 type batchDescribeModelPackageError struct {
-	ErrorCode    string `json:"ErrorCode"`
-	ErrorMessage string `json:"ErrorMessage"`
+	ErrorCode     string `json:"ErrorCode"`
+	ErrorResponse string `json:"ErrorResponse"`
 }
 
 func (h *Handler) handleBatchDescribeModelPackage(ctx context.Context, body []byte) ([]byte, error) {
@@ -512,8 +517,8 @@ func (h *Handler) handleBatchDescribeModelPackage(ctx context.Context, body []by
 	for arnStr, result := range results {
 		if result.ErrorCode != "" {
 			errorsMap[arnStr] = batchDescribeModelPackageError{
-				ErrorCode:    result.ErrorCode,
-				ErrorMessage: result.ErrorMessage,
+				ErrorCode:     result.ErrorCode,
+				ErrorResponse: result.ErrorMessage,
 			}
 
 			continue

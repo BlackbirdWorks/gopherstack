@@ -351,9 +351,12 @@ func TestCreateOpsWithTags_RoundTrip(t *testing.T) {
 				out, err := client.CreateCompilationJob(t.Context(), &sagemakersdk.CreateCompilationJobInput{
 					CompilationJobName: aws.String("tagged-compilation-job"),
 					RoleArn:            aws.String("arn:aws:iam::000000000000:role/access"),
-					OutputConfig:       &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
-					StoppingCondition:  &smtypes.StoppingCondition{},
-					Tags:               []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
+					InputConfig: &smtypes.InputConfig{
+						S3Uri: aws.String("s3://bucket/model.tar.gz"), Framework: smtypes.FrameworkTensorflow,
+					},
+					OutputConfig:      &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+					StoppingCondition: &smtypes.StoppingCondition{},
+					Tags:              []smtypes.Tag{{Key: aws.String("env"), Value: aws.String("test")}},
 				})
 				require.NoError(t, err)
 

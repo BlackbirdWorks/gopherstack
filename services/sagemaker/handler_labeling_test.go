@@ -553,9 +553,10 @@ func TestHandler_DeleteWorkforce_ResourceInUse(t *testing.T) {
 
 	doSageMakerRequest(t, h, "CreateWorkforce", map[string]any{"WorkforceName": "wf-inuse"})
 	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName":  "team-blocking",
-		"Description":   "blocks deletion",
-		"WorkforceName": "wf-inuse",
+		"WorkteamName":      "team-blocking",
+		"Description":       "blocks deletion",
+		"WorkforceName":     "wf-inuse",
+		"MemberDefinitions": defaultMemberDefinitions(),
 	})
 
 	rec := doSageMakerRequest(t, h, "DeleteWorkforce", map[string]any{"WorkforceName": "wf-inuse"})
@@ -613,8 +614,10 @@ func TestHandler_CreateWorkteam_WithWorkforceName(t *testing.T) {
 
 	doSageMakerRequest(t, h, "CreateWorkforce", map[string]any{"WorkforceName": "wf-link"})
 	rec := doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName":  "team-link",
-		"WorkforceName": "wf-link",
+		"WorkteamName":      "team-link",
+		"WorkforceName":     "wf-link",
+		"Description":       "desc",
+		"MemberDefinitions": defaultMemberDefinitions(),
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -633,8 +636,10 @@ func TestHandler_CreateWorkteam_UnknownWorkforceName(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName":  "team-orphan",
-		"WorkforceName": "does-not-exist",
+		"WorkteamName":      "team-orphan",
+		"WorkforceName":     "does-not-exist",
+		"Description":       "desc",
+		"MemberDefinitions": defaultMemberDefinitions(),
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
@@ -645,8 +650,9 @@ func TestHandler_UpdateWorkteam(t *testing.T) {
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName": "team-update",
-		"Description":  "before",
+		"WorkteamName":      "team-update",
+		"Description":       "before",
+		"MemberDefinitions": defaultMemberDefinitions(),
 	})
 
 	rec := doSageMakerRequest(t, h, "UpdateWorkteam", map[string]any{
@@ -676,7 +682,9 @@ func TestHandler_DeleteWorkteam_ReturnsSuccess(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-success"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-success", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 	rec := doSageMakerRequest(t, h, "DeleteWorkteam", map[string]any{"WorkteamName": "team-success"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -743,8 +751,10 @@ func TestLabelingFamily_SnapshotRestore(t *testing.T) {
 	)
 	require.Equal(t, http.StatusOK,
 		doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-			"WorkteamName":  "persist-team",
-			"WorkforceName": "persist-wf",
+			"WorkteamName":      "persist-team",
+			"WorkforceName":     "persist-wf",
+			"Description":       "desc",
+			"MemberDefinitions": defaultMemberDefinitions(),
 		}).Code,
 	)
 	require.Equal(t, http.StatusOK,

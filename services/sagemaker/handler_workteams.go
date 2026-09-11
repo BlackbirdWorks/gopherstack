@@ -67,6 +67,17 @@ func (h *Handler) handleCreateWorkteam(ctx context.Context, body []byte) ([]byte
 		return nil, fmt.Errorf("%w: WorkteamName is required", errInvalidRequest)
 	}
 
+	// MemberDefinitions/Description are both "This member is required" on
+	// CreateWorkteamInput (validateOpCreateWorkteamInput, validators.go) --
+	// previously neither was enforced.
+	if len(req.MemberDefinitions) == 0 {
+		return nil, fmt.Errorf("%w: MemberDefinitions is required", errInvalidRequest)
+	}
+
+	if req.Description == "" {
+		return nil, fmt.Errorf("%w: Description is required", errInvalidRequest)
+	}
+
 	result, err := h.Backend.CreateWorkteam(ctx, CreateWorkteamOptions{
 		Name:                      req.WorkteamName,
 		Description:               req.Description,
