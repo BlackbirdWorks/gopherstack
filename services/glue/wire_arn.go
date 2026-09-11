@@ -137,8 +137,9 @@ func toDatabaseWireList(dbs []*Database) []*databaseWire {
 // nested Trigger instead.
 type workflowWire struct {
 	*Workflow
-	Graph *workflowGraphWire `json:"Graph,omitempty"`
-	ARN   string             `json:"Arn,omitempty"`
+	Graph   *workflowGraphWire `json:"Graph,omitempty"`
+	LastRun *workflowRunWire   `json:"LastRun,omitempty"`
+	ARN     string             `json:"Arn,omitempty"`
 }
 
 func toWorkflowWire(w *Workflow) *workflowWire {
@@ -146,13 +147,58 @@ func toWorkflowWire(w *Workflow) *workflowWire {
 		return nil
 	}
 
-	return &workflowWire{Workflow: w, Graph: toWorkflowGraphWire(w.Graph)}
+	return &workflowWire{Workflow: w, Graph: toWorkflowGraphWire(w.Graph), LastRun: toWorkflowRunWire(w.LastRun)}
 }
 
 func toWorkflowWireList(ws []*Workflow) []*workflowWire {
 	out := make([]*workflowWire, 0, len(ws))
 	for _, w := range ws {
 		out = append(out, toWorkflowWire(w))
+	}
+
+	return out
+}
+
+// workflowRunWire is the wire shape for a WorkflowRun response. It does NOT
+// embed *WorkflowRun: encoding/json's field-shadow rule matches on JSON name
+// (the tag-resolved key), not Go identifier, so an outer field with a
+// different json tag than the promoted one does not suppress it -- both
+// would be emitted. WorkflowRun's own "WorkflowName" tag is kept only for
+// snapshot/persistence compatibility (see its doc comment, models.go); this
+// struct is the real HTTP response shape, with the real "Name" key
+// (deserializers.go's awsAwsjson11_deserializeDocumentWorkflowRun).
+type workflowRunWire struct {
+	Properties    map[string]string      `json:"WorkflowRunProperties,omitempty"`
+	Statistics    *WorkflowRunStatistics `json:"Statistics,omitempty"`
+	Name          string                 `json:"Name"`
+	RunID         string                 `json:"WorkflowRunId"`
+	Status        string                 `json:"Status"`
+	PreviousRunID string                 `json:"PreviousRunId,omitempty"`
+	StartedOn     float64                `json:"StartedOn,omitempty"`
+	CompletedOn   float64                `json:"CompletedOn,omitempty"`
+}
+
+func toWorkflowRunWire(r *WorkflowRun) *workflowRunWire {
+	if r == nil {
+		return nil
+	}
+
+	return &workflowRunWire{
+		Properties:    r.Properties,
+		Statistics:    r.Statistics,
+		Name:          r.WorkflowName,
+		RunID:         r.RunID,
+		Status:        r.Status,
+		PreviousRunID: r.PreviousRunID,
+		StartedOn:     r.StartedOn,
+		CompletedOn:   r.CompletedOn,
+	}
+}
+
+func toWorkflowRunWireList(rs []*WorkflowRun) []*workflowRunWire {
+	out := make([]*workflowRunWire, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, toWorkflowRunWire(r))
 	}
 
 	return out

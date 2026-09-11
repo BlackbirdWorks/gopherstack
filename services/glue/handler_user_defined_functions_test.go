@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -150,4 +153,79 @@ func TestGetUserDefinedFunctions_Pattern(t *testing.T) {
 		t.Parallel()
 		dispatchNewOpExpectError(t, h, "GetUserDefinedFunctions", map[string]any{"DatabaseName": "patterndb"})
 	})
+}
+
+// TestSDKRoundTrip_UserDefinedFunction drives the real aws-sdk-go-v2 client
+// through the full UDF lifecycle -- no test in this family previously did,
+// despite the wire-shape fixes already made here (FunctionType, CatalogId,
+// the internal-only FunctionArn, and the Pattern fix above).
+func TestSDKRoundTrip_UserDefinedFunction(t *testing.T) {
+	t.Parallel()
+
+	h := newGlueHandler(t)
+	client := newTestGlueClient(t, h)
+
+	_, err := client.CreateDatabase(t.Context(), &gluesdk.CreateDatabaseInput{
+		DatabaseInput: &types.DatabaseInput{Name: aws.String("udf-sdk-db")},
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateUserDefinedFunction(t.Context(), &gluesdk.CreateUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionInput: &types.UserDefinedFunctionInput{
+			FunctionName: aws.String("sdk_func"),
+			ClassName:    aws.String("com.example.SdkFunc"),
+			OwnerName:    aws.String("alice"),
+			OwnerType:    types.PrincipalTypeUser,
+			FunctionType: types.FunctionTypeRegularFunction,
+		},
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetUserDefinedFunction(t.Context(), &gluesdk.GetUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionName: aws.String("sdk_func"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.UserDefinedFunction)
+	assert.Equal(t, types.FunctionTypeRegularFunction, getOut.UserDefinedFunction.FunctionType)
+
+	listOut, err := client.GetUserDefinedFunctions(t.Context(), &gluesdk.GetUserDefinedFunctionsInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		Pattern:      aws.String(".*"),
+	})
+	require.NoError(t, err)
+	require.Len(t, listOut.UserDefinedFunctions, 1)
+	assert.Equal(t, "sdk_func", aws.ToString(listOut.UserDefinedFunctions[0].FunctionName))
+
+	_, err = client.UpdateUserDefinedFunction(t.Context(), &gluesdk.UpdateUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionName: aws.String("sdk_func"),
+		FunctionInput: &types.UserDefinedFunctionInput{
+			FunctionName: aws.String("sdk_func"),
+			ClassName:    aws.String("com.example.SdkFuncV2"),
+			FunctionType: types.FunctionTypeAggregateFunction,
+		},
+	})
+	require.NoError(t, err)
+
+	getOut, err = client.GetUserDefinedFunction(t.Context(), &gluesdk.GetUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionName: aws.String("sdk_func"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "com.example.SdkFuncV2", aws.ToString(getOut.UserDefinedFunction.ClassName))
+	assert.Equal(t, types.FunctionTypeAggregateFunction, getOut.UserDefinedFunction.FunctionType)
+
+	_, err = client.DeleteUserDefinedFunction(t.Context(), &gluesdk.DeleteUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionName: aws.String("sdk_func"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.GetUserDefinedFunction(t.Context(), &gluesdk.GetUserDefinedFunctionInput{
+		DatabaseName: aws.String("udf-sdk-db"),
+		FunctionName: aws.String("sdk_func"),
+	})
+	require.Error(t, err)
 }

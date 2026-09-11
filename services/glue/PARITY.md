@@ -145,14 +145,14 @@ families:
   ListEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- ListEntitiesInput declares no required members at all (glue@v1.152.0 api_op_ListEntities.go:29-49). With none given, this now serves the native Amazon S3 Glue Data Catalog path the op's own doc describes, off this backend's real databases/tables (GetDatabases/GetTables), not fabricated data: top level lists databases (Category DATABASES, IsParentEntity true), ParentEntityName=<database> lists that database's tables as \"database.table\" (Category TABLES) -- see DescribeEntity note for why this qualified form was chosen. Also fixed the accept-and-drop half: ParentEntityName was a real input field silently ignored by every path; it is now honored for native-catalog listing. It is NOT honored in connector (ConnectionName given) mode -- entityCatalog()'s canned CRM/COMMERCE entities model no children (only ACCOUNT/CUSTOMER set IsParentEntity, with nothing underneath), so there is nothing to filter to; inventing child entities for those two would be exactly the half-feature this issue's rule warns against, so ParentEntityName stays a documented no-op there. FIXED 2026-08-29 (cursor-pagination sweep): NextToken (declared on both input and output) was still never populated in the native-catalog path -- databases/tables are real, unbounded, user-created collections. The real op declares no MaxResults, so the page size is server-fixed (defaultListEntitiesLimit=100); now routed through paginateSlice. Connector-mode listing (entityCatalog(), a compile-time 7-entry catalogue) is provably bounded and left as-is -- see DescribeEntity. Proven via a real client round trip seeding 101 databases (entities_test.go: TestListEntities_Pagination), confirmed failing pre-fix."}
   GetEntityRecords: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-2wvq): ConnectionName was wrongly required -- GetEntityRecordsInput's only required members are EntityName and Limit (glue@v1.152.0 api_op_GetEntityRecords.go:35-48); ConnectionName is optional (line 55), and the op's own doc says why: \"query preview data from a given connection type or from a native Amazon S3 based Glue Data Catalog\". Checked the OTHER direction too (this issue's rule 1): Limit is real-SDK-required (its client-side validator, validators.go:13344-13360, rejects a call omitting it before the request is ever sent) but this handler never enforced that -- now returns InvalidInputException for Limit<=0, closing that half. With no ConnectionName, EntityName must be the \"database.table\" form ListEntities' native-catalog path advertises (chosen, not AWS-specified, since GetEntityRecordsInput has no separate database/parent field to disambiguate a bare table name against multiple databases -- stated as chosen, in code (nativeEntityName/splitNativeEntityName) and here); a bare database name or an unqualified/unknown name is EntityNotFoundException, not an empty or fabricated success. Records are synthesized the same deterministic way as the connector path (sampleRecord over an entityDefinition), but the schema is real: columnToEntityField maps each StorageDescriptor.Column and PartitionKey's Glue/Hive type string (bigint/decimal(...)/boolean/timestamp/date/etc, matched by prefix) onto the same EntityField shape DescribeEntity uses for connector entities. DescribeEntity itself is out of this issue's scope (not one of the two ops named) and still requires ConnectionName -- it does not yet support native-catalog table lookups; a real client discovering a native entity via ListEntities and then calling DescribeEntity on it would get EntityNotFoundException today. That is a real, scoped-out gap, not silently papered over."}
   triggers: {status: ok, note: "fixed this pass (gopherstack-qd4.1): Trigger gained Description, WorkflowName, and EventBatchingCondition (BatchSize/BatchWindow); TriggerCondition gained CrawlerName and CrawlState (types.Condition supports crawler-state predicates, not just job-state — was entirely unmodeled); TriggerAction gained SecurityConfiguration/NotificationProperty/Timeout (types.Action fields silently dropped). CreateTrigger/UpdateTrigger now enforce AWS's documented 'max 2 crawler actions per trigger' soft limit (about-triggers.html), returning InvalidInputException over the limit. WorkflowName is create-only (not part of TriggerUpdate, confirmed against types.TriggerUpdate) so UpdateTrigger does not accept it."}
-  workflows: {status: partial, note: "fixed this pass (gopherstack-qd3.5-era fix retained): Workflow gained MaxConcurrentRuns, enforced in StartWorkflowRun, returning ConcurrentRunsExceededException. gopherstack-dol3: Workflow.Graph and Workflow.LastRun are now real, derived fields -- GetWorkflow/BatchGetWorkflows gained IncludeGraph (confirmed on GetWorkflowInput/BatchGetWorkflowsInput; Graph is only populated when set, matching AWS). Graph (WorkflowGraph{Nodes,Edges}) is built by workflowGraphLocked (workflow_graph.go) purely from real state: every Trigger with WorkflowName==this workflow becomes a TRIGGER node (with real TriggerDetails.Trigger, confirmed types.TriggerNodeDetails.Trigger), each trigger's TriggerAction.JobName/CrawlerName become downstream JOB/CRAWLER nodes+edges, each trigger's TriggerPredicate.Conditions become upstream JOB/CRAWLER nodes+edges -- no fabricated topology. Node.UniqueId is \"<kind>/<name>\" (real ID-gen algorithm not discoverable from the SDK, same simplification already accepted here for FormType.Id). LastRun is the most recent entry from real StartWorkflowRun history (b.workflowRuns), absent until a run has actually happened. NEW this pass (gopherstack-vcor): the missing link is built. Verified against aws-sdk-go-v2/service/glue@v1.152.0 that neither JobRun nor Crawl/CrawlerHistory carries a WorkflowRunId on the wire (types.go:2815-2836,2916-2946,7134-7352) -- JobRun's only real correlation field is TriggerName (types.go:7350-7351), which this backend now also populates for the first time. StartWorkflowRun now fires the workflow's entry-point trigger(s) (WorkflowName==this workflow, Predicate==nil -- AWS calls this the workflow's \"start trigger\", workflows_overview.html) and stamps the new run's ID onto the job runs/crawls those actions start, via an internal-only (non-wire) WorkflowRunID field on JobRun/CrawlHistoryEntry that persists but is stripped before GetJobRun/GetJobRuns responses (ListCrawls was already safe: its crawlHistoryOut DTO copies fields explicitly). GetWorkflowRun/GetWorkflowRuns/GetWorkflow/BatchGetWorkflows now compute WorkflowRunStatistics live from that link (never stored, so it can't go stale); ErroredActions/WaitingActions count job runs only, per the SDK's own doc comments for those two fields (\"count of job runs in the ERROR/WAITING state\", types.go:13224-13225) unlike the other fields' generic \"Actions\" wording. Two things are deliberately still not modeled: (1) conditional (predicate-gated) triggers within a workflow never fire on their own -- this backend has no predicate-evaluation engine watching job/crawler completions, so only an entry trigger's own direct actions are ever linked to a run, not a full downstream DAG execution; (2) BlueprintDetails (still structurally unreachable, unchanged from gopherstack-dol3) and WorkflowRun.Graph/GetWorkflowRun's own IncludeGraph (types.Node.JobDetails.JobRuns/CrawlerDetails.Crawls) remain unpopulated -- the link now exists to build them, but that is real additional work (converting stamped runs into per-node run-history lists) not done this pass."}
+  workflows: {status: partial, note: "fixed this pass (gopherstack-qd3.5-era fix retained): Workflow gained MaxConcurrentRuns, enforced in StartWorkflowRun, returning ConcurrentRunsExceededException. gopherstack-dol3: Workflow.Graph and Workflow.LastRun are now real, derived fields -- GetWorkflow/BatchGetWorkflows gained IncludeGraph (confirmed on GetWorkflowInput/BatchGetWorkflowsInput; Graph is only populated when set, matching AWS). Graph (WorkflowGraph{Nodes,Edges}) is built by workflowGraphLocked (workflow_graph.go) purely from real state: every Trigger with WorkflowName==this workflow becomes a TRIGGER node (with real TriggerDetails.Trigger, confirmed types.TriggerNodeDetails.Trigger), each trigger's TriggerAction.JobName/CrawlerName become downstream JOB/CRAWLER nodes+edges, each trigger's TriggerPredicate.Conditions become upstream JOB/CRAWLER nodes+edges -- no fabricated topology. Node.UniqueId is \"<kind>/<name>\" (real ID-gen algorithm not discoverable from the SDK, same simplification already accepted here for FormType.Id). LastRun is the most recent entry from real StartWorkflowRun history (b.workflowRuns), absent until a run has actually happened. NEW this pass (gopherstack-vcor): the missing link is built. Verified against aws-sdk-go-v2/service/glue@v1.152.0 that neither JobRun nor Crawl/CrawlerHistory carries a WorkflowRunId on the wire (types.go:2815-2836,2916-2946,7134-7352) -- JobRun's only real correlation field is TriggerName (types.go:7350-7351), which this backend now also populates for the first time. StartWorkflowRun now fires the workflow's entry-point trigger(s) (WorkflowName==this workflow, Predicate==nil -- AWS calls this the workflow's \"start trigger\", workflows_overview.html) and stamps the new run's ID onto the job runs/crawls those actions start, via an internal-only (non-wire) WorkflowRunID field on JobRun/CrawlHistoryEntry that persists but is stripped before GetJobRun/GetJobRuns responses (ListCrawls was already safe: its crawlHistoryOut DTO copies fields explicitly). GetWorkflowRun/GetWorkflowRuns/GetWorkflow/BatchGetWorkflows now compute WorkflowRunStatistics live from that link (never stored, so it can't go stale); ErroredActions/WaitingActions count job runs only, per the SDK's own doc comments for those two fields (\"count of job runs in the ERROR/WAITING state\", types.go:13224-13225) unlike the other fields' generic \"Actions\" wording. Two things are deliberately still not modeled: (1) conditional (predicate-gated) triggers within a workflow never fire on their own -- this backend has no predicate-evaluation engine watching job/crawler completions, so only an entry trigger's own direct actions are ever linked to a run, not a full downstream DAG execution; (2) BlueprintDetails (still structurally unreachable, unchanged from gopherstack-dol3) and WorkflowRun.Graph/GetWorkflowRun's own IncludeGraph (types.Node.JobDetails.JobRuns/CrawlerDetails.Crawls) remain unpopulated -- the link now exists to build them, but that is real additional work (converting stamped runs into per-node run-history lists) not done this pass. FIXED 2026-09-11 (gopherstack-qd3.6, op-by-op audit of the workflow-run lifecycle -- see the dated section at the end of this file for full detail): WorkflowRun's wire key for the workflow name was \"WorkflowName\", the real key is \"Name\" (deserializers.go's WorkflowRun case list has no \"WorkflowName\" case at all); StopWorkflowRun had no RUNNING-only guard and parked a stopped run in STOPPING forever instead of settling to STOPPED; ResumeWorkflowRun had no STOPPED-only guard and echoed back the same run ID instead of minting a new one linked via the newly-added WorkflowRun.PreviousRunId, per the real op's own doc (\"[e]ach resume ... will have a new run ID\"); ResumeWorkflowRun's handler silently 200'd on missing required members instead of erroring; GetWorkflowRunProperties silently 200'd with an empty map for an unknown workflow/run instead of EntityNotFoundException; GetWorkflowRuns had no MaxResults/NextToken pagination at all despite both being real GetWorkflowRunsInput/Output members."}
   dev_endpoints: {status: ok, note: "fixed this pass: DevEndpoint/DevEndpointInput were previously missing ~20 of ~24 real fields (RoleArn, SecurityGroupIds, SubnetId, WorkerType, GlueVersion, NumberOfWorkers/Nodes, PublicKey(s), ExtraJarsS3Path/ExtraPythonLibsS3Path, SecurityConfiguration, VpcId, AvailabilityZone, YarnEndpointAddress/PrivateAddress/PublicAddress, FailureReason, LastUpdateStatus, ZeppelinRemoteSparkInterpreterPort, CreatedTimestamp/LastModifiedTimestamp) — CreateDevEndpoint took only a bare name. Field-diffed against types.DevEndpoint/CreateDevEndpointInput/UpdateDevEndpointInput and added all of them. RoleArn is a real AWS-required field and is now validated as such (was previously accepted as empty, which real AWS rejects). UpdateDevEndpoint gained AddPublicKeys/DeletePublicKeys/PublicKey/DeleteArguments (previously only AddArguments worked). Network address fields (VpcId/YarnEndpointAddress/PrivateAddress/PublicAddress) are deterministic mock values, not real network state — there is no VPC/networking simulation in this backend, consistent with every other service. NEW this pass (gopherstack-dol3): CreateDevEndpoint now enforces AWS's real, published default quota 'Max development endpoint per account: 25' (docs.aws.amazon.com/general/latest/gr/glue.html, verified via WebFetch this pass, not from memory) via a new ErrResourceNumberLimitExceeded sentinel -> ResourceNumberLimitExceededException, confirmed present in CreateDevEndpoint's real error catalog (deserializers.go's awsAwsjson11_deserializeOpErrorCreateDevEndpoint switch). See gap-list note on the other three quota/idempotency exceptions for why only this one resource kind got a limit this pass. 2026-09-11 (gopherstack-qd3.5): the 25-cap moved from a package const into the shared resourceLimits struct (limits.go) alongside 14 more resource kinds now enforcing the same exception; devEndpoints' default is unchanged, just overridable now via WithResourceLimits like the others."}
   security_configurations: {status: ok, note: "fixed this pass: EncryptionConfiguration was missing DataQualityEncryption (DataQualityEncryptionMode/KmsKeyArn), field-diffed against types.EncryptionConfiguration — CloudWatchEncryption/JobBookmarksEncryption/S3Encryption were already modeled. CreateSecurityConfiguration/GetSecurityConfiguration/DeleteSecurityConfiguration/ListSecurityConfigurations all do real state mutation; cloneSecurityConfig's shallow-copy pattern audited and confirmed safe (no field is ever mutated post-creation, same reasoning as the data_quality_rulesets finding below)."}
   schema_registry: {status: partial, note: "FIXED this pass (gopherstack-q4qt): ListSchemas/ListSchemaVersions ignored MaxResults/NextToken entirely (both declared on the real ListSchemasInput/ListSchemaVersionsInput, glue@v1.152.0 api_op_ListSchemas.go/api_op_ListSchemaVersions.go) -- unlike the gopherstack-awzv sweep's 29 ops, these two already took a real RegistryId/SchemaId so were never swept for pagination. Wired through the existing paginateSlice helper with new defaultListSchemasLimit/defaultListSchemaVersionsLimit consts (25, matching each op's own doc comment and ListRegistries' established convention). ListSchemas.RegistryId was re-verified to already be a real filter (registry.go's ListSchemas, confirmed via hand-revert), not a repeat of the DescribeInboundIntegrations/GetColumnStatisticsTaskRuns ignored-scoping-parameter bug class; ListSchemaVersions' SchemaId is inherently a single-schema scope, no separate filter gap. See the dated overall note above and services/glue/handler_pagination_sweep_sdk_test.go / handler_filter_sweep_sdk_test.go for coverage. fixed this pass: RegisterSchemaVersion never validated its SchemaDefinition against the schema's DataFormat — CreateSchema's initial definition IS validated (validateSchemaDefinition), but every subsequent RegisterSchemaVersion call silently accepted arbitrarily malformed AVRO/JSON/PROTOBUF content, a real correctness gap now fixed by reusing the same validator. GetSchemaByDefinition was already implemented for real (found not to be a stub, contrary to the prior ledger's 'still not audited' note). FIXED this pass (gopherstack-j1b7): CreateSchema/UpdateSchema silently accepted any Compatibility string (confirmed against types.Compatibility.Values(), aws-sdk-go-v2/service/glue@v1.152.0 types/enums.go:328-354 -- NONE/DISABLED/BACKWARD/BACKWARD_ALL/FORWARD/FORWARD_ALL/FULL/FULL_ALL are the only 8 legal values), now rejected with InvalidInputException. DISABLED's own documented behavior (api_op_CreateSchema.go:14-18: 'restricts any additional schema versions from being added after the first schema version') was entirely unenforced -- RegisterSchemaVersion now rejects a second version when Compatibility is DISABLED (first version always accepted regardless of mode, per api_op_RegisterSchemaVersion.go:17-18); this is a complete, zero-approximation implementation of DISABLED because it needs no schema diffing, only a version-count check. Still not modeled, deliberately: BACKWARD/FORWARD/FULL (and their _ALL variants) all require a real per-DataFormat schema-compatibility-diffing algorithm (AVRO/JSON/PROTOBUF each have distinct field-addition/type-widening rules) -- sized and deferred rather than approximated, since a diff that misses a real incompatibility is worse than no check at all (a caller trusts a pass). validateAvroSchema/validateJSONSchema/validateProtobufSchema remain surface-level (JSON well-formedness + minimal structural markers, not full grammar validation) — both that and the six diffing-based modes would require real schema-parsing libraries per format, out of scope for this pass (no new go.mod dependencies permitted, per the prior pass's ledger). FIXED this pass (gopherstack-i60f): CreateSchema had no way to carry SchemaDefinition at all -- a client doing AWS's documented one-call create-with-definition flow got a schema with zero versions and no error, a silent drop found immediately after the j1b7 fix above landed. CreateSchema now accepts an optional SchemaDefinition (aws-sdk-go-v2/service/glue@v1.152.0 api_op_CreateSchema.go:106), validated the same way as RegisterSchemaVersion; a malformed definition rejects the whole call, leaving no half-created schema (Test_CreateSchema_RejectsInvalidDefinition). When supplied, the schema and its first SchemaVersion are created atomically and CreateSchemaOutput now returns the five real version fields it was previously missing entirely -- LatestSchemaVersion/NextSchemaVersion/SchemaCheckpoint/SchemaVersionId/SchemaVersionStatus (api_op_CreateSchema.go:129-157). This closes the loop with j1b7's DISABLED enforcement: creating with a definition sets LatestSchemaVersion=1 immediately, so DISABLED correctly refuses a following RegisterSchemaVersion the same as it would a real second version; creating without one leaves LatestSchemaVersion=0 so DISABLED still permits exactly the first RegisterSchemaVersion. Both paths covered by Test_CreateSchema_DisabledCompatibility_VersionSlotInteraction."}
   data_quality_rulesets: {status: partial, note: "fixed this pass: CreateDataQualityRuleset/UpdateDataQualityRuleset silently dropped Description entirely (real CreateDataQualityRulesetInput/UpdateDataQualityRulesetInput both document it) and CreateDataQualityRuleset was also missing TargetTable (DataQualityTargetTable: TableName/DatabaseName/CatalogId) and DataQualitySecurityConfiguration — all field-diffed against types.CreateDataQualityRulesetInput and added via new CreateDataQualityRulesetWithOptions. Re-confirmed the prior pass's finding that CreateDataQualityRuleset/StartDataQualityRulesetEvaluationRun returning their live map-stored pointer is not an actual bug (handlers only read immutable identity fields). Still not modeled: DQDL syntax / rule-type validation — the Ruleset string is stored and returned verbatim with no grammar checking, would require a real DQDL parser, out of scope for this pass."}
   ml_transforms: {status: partial, note: "fixed this pass: CreateMLTransform/UpdateMLTransform silently dropped GlueVersion/WorkerType/NumberOfWorkers/MaxCapacity (the MLTransform model already had these fields from a prior pass, but neither Create nor Update ever wired them from the wire request — a genuine 'field exists on the model but is unreachable' gap) plus MaxRetries/Timeout/Schema ([]SchemaColumn)/TransformEncryption (MlUserDataEncryption+TaskRunSecurityConfigurationName), none of which existed at all. Field-diffed against types.MLTransform/CreateMLTransformRequest/UpdateMLTransformRequest. Added CreateMLTransformWithOptions plus the same MaxCapacity-vs-WorkerType/NumberOfWorkers mutual-exclusion validation used elsewhere (CreateJob/CreateCrawler/StartJobRun). Still not modeled: EvaluationMetrics (FindMatchesMetrics precision/recall/F1/confusion-matrix) — this backend never runs a real ML evaluation, so there is no real metric to report; StartMLEvaluationTaskRun creates a real task-run record but does not fabricate evaluation numbers, which would be a stub-shaped lie rather than an honest gap. Re-confirmed this pass (gopherstack-dol3): still correctly absent, still no code anywhere references EvaluationMetrics/FindMatchesMetrics. Also fixed this pass: Tags were entirely lost, both at creation (see TagResource note) and on every Update (Tags now carried forward explicitly)."}
-  blueprints: {status: ok, note: "fixed this pass: CreateBlueprint took only a bare Name — real CreateBlueprintInput requires BlueprintLocation (the S3 path Glue reads the blueprint from) and also supports Description/Tags, all silently unsupported. UpdateBlueprint similarly took only Name; real UpdateBlueprintInput requires BlueprintLocation and supports Description. Blueprint (the response/Get type) was also missing BlueprintLocation/BlueprintServiceLocation/Description/ParameterSpec/ErrorMessage/CreatedOn/LastModifiedOn — field-diffed against types.Blueprint and added. BlueprintLocation is now validated as required on both Create and Update, matching AWS. Not modeled: LastActiveDefinition — this duplicates Blueprint's own top-level fields in the common case (only differs after a failed update, which this backend does not simulate), so leaving it out does not create an observable gap for any currently-modeled failure path."}
-  user_defined_functions: {status: ok, note: "fixed this pass: UserDefinedFunction was missing FunctionType (types.UserDefinedFunction/UserDefinedFunctionInput both document it — was entirely unmodeled, meaning Athena/Redshift-Spectrum-style scalar-function metadata was silently dropped) and CatalogId (every other catalog-scoped resource in this backend — Database/Table/Partition — already models CatalogID; UDF was the one exception). Also fixed a wire-shape bug in the other direction: the local model had a `FunctionArn` field with `json:\"FunctionArn\"` that does NOT exist on the real wire type at all (confirmed against types.UserDefinedFunction) — a fabricated extra field that, while harmless to JSON-tolerant clients, is not real AWS-accurate shape; changed to `json:\"-\"` (internal-only, used for TagResource) so GetUserDefinedFunction/GetUserDefinedFunctions responses now match the real shape exactly. Fixed this pass (gopherstack-dol3): Tags were entirely lost, both at creation (see TagResource note) and on every Update (Tags now carried forward explicitly). Separately noted, not fixed (out of this pass's tag-dispatch scope): the wire's createUserDefinedFunctionInput.Tags field (handler_user_defined_functions.go) has no equivalent on the real CreateUserDefinedFunctionInput at all (confirmed against the pinned SDK) -- real AWS clients never send it and can only tag a UDF post-creation via TagResource, which now works correctly; the extra accepted-but-non-standard input field is pre-existing and harmless (unreachable by any real SDK client) but is not itself AWS-accurate shape. CORRECTION 2026-09-11 (required-member sweep pass 4a): GetUserDefinedFunctions.Pattern (marked required by validateOpGetUserDefinedFunctionsInput despite its own doc comment calling it optional) wasn't declared on the input struct at all -- every call returned every UDF in the database, unfiltered, regardless of Pattern. Fixed: Pattern is now required and applied as a regexp against FunctionName, matching this service's existing GetTables/Expression convention (tableNameRegexp). See TestGetUserDefinedFunctions_Pattern."}
+  blueprints: {status: ok, note: "fixed this pass: CreateBlueprint took only a bare Name — real CreateBlueprintInput requires BlueprintLocation (the S3 path Glue reads the blueprint from) and also supports Description/Tags, all silently unsupported. UpdateBlueprint similarly took only Name; real UpdateBlueprintInput requires BlueprintLocation and supports Description. Blueprint (the response/Get type) was also missing BlueprintLocation/BlueprintServiceLocation/Description/ParameterSpec/ErrorMessage/CreatedOn/LastModifiedOn — field-diffed against types.Blueprint and added. BlueprintLocation is now validated as required on both Create and Update, matching AWS. Not modeled: LastActiveDefinition — this duplicates Blueprint's own top-level fields in the common case (only differs after a failed update, which this backend does not simulate), so leaving it out does not create an observable gap for any currently-modeled failure path. FIXED 2026-09-11 (gopherstack-qd3.6): StartBlueprintRun fabricated BlueprintRun.WorkflowName on every call even though this backend never creates that workflow and never advances State past RUNNING -- the real field is only populated \"as a result of a successful blueprint run\" (types.BlueprintRun.WorkflowName doc); now left unset. IllegalBlueprintStateException (StartBlueprintRun/UpdateBlueprint's declared error) checked and confirmed structurally unreachable: Blueprint.Status is hardcoded ACTIVE and no code path here ever changes it, same unreachable class as ConcurrentModificationException above -- not wired, disclosed."}
+  user_defined_functions: {status: ok, note: "fixed this pass: UserDefinedFunction was missing FunctionType (types.UserDefinedFunction/UserDefinedFunctionInput both document it — was entirely unmodeled, meaning Athena/Redshift-Spectrum-style scalar-function metadata was silently dropped) and CatalogId (every other catalog-scoped resource in this backend — Database/Table/Partition — already models CatalogID; UDF was the one exception). Also fixed a wire-shape bug in the other direction: the local model had a `FunctionArn` field with `json:\"FunctionArn\"` that does NOT exist on the real wire type at all (confirmed against types.UserDefinedFunction) — a fabricated extra field that, while harmless to JSON-tolerant clients, is not real AWS-accurate shape; changed to `json:\"-\"` (internal-only, used for TagResource) so GetUserDefinedFunction/GetUserDefinedFunctions responses now match the real shape exactly. Fixed this pass (gopherstack-dol3): Tags were entirely lost, both at creation (see TagResource note) and on every Update (Tags now carried forward explicitly). Separately noted, not fixed (out of this pass's tag-dispatch scope): the wire's createUserDefinedFunctionInput.Tags field (handler_user_defined_functions.go) has no equivalent on the real CreateUserDefinedFunctionInput at all (confirmed against the pinned SDK) -- real AWS clients never send it and can only tag a UDF post-creation via TagResource, which now works correctly; the extra accepted-but-non-standard input field is pre-existing and harmless (unreachable by any real SDK client) but is not itself AWS-accurate shape. CORRECTION 2026-09-11 (required-member sweep pass 4a): GetUserDefinedFunctions.Pattern (marked required by validateOpGetUserDefinedFunctionsInput despite its own doc comment calling it optional) wasn't declared on the input struct at all -- every call returned every UDF in the database, unfiltered, regardless of Pattern. Fixed: Pattern is now required and applied as a regexp against FunctionName, matching this service's existing GetTables/Expression convention (tableNameRegexp). See TestGetUserDefinedFunctions_Pattern. 2026-09-11 (gopherstack-qd3.6): re-audited op-by-op, no further bugs found; this family had no real aws-sdk-go-v2 client round-trip test at all despite the fixes above -- added TestSDKRoundTrip_UserDefinedFunction (create/get/list-with-Pattern/update/delete), which re-proves the Pattern fix through the real client too, not just raw HTTP."}
   resource_policy: {status: ok, note: "fixed this pass: PutResourcePolicy silently dropped PolicyExistsCondition (MUST_EXIST/NOT_EXIST) and PolicyHashCondition entirely — every call unconditionally created/overwrote the policy regardless of what a caller passed, defeating the optimistic-concurrency guard those fields exist for. Worse, DeleteResourcePolicy's PolicyHashCondition parameter was already plumbed from the wire into the backend method but the backend signature discarded it as `_ string` — any caller's hash was ignored and the policy always deleted. Both now enforce the conditions and return the documented ConditionCheckFailureException (new sentinel ErrResourcePolicyConditionFailed, mapped in handler.go's handleError) or EntityNotFoundException (MUST_EXIST-but-missing) on mismatch. Interface signature PutResourcePolicy gained two params (existsCondition, hashCondition). Fixed this pass (gopherstack-qd4.2): EnableHybrid (TRUE/FALSE) is now accepted, validated as a well-formed enum, and recorded per-policy — previously silently dropped without even being read off the wire. AWS's documented precondition ('must be TRUE if you have already used the Management Console to grant cross-account access') can never actually trigger in this backend because Lake Formation console-grant state is not modeled anywhere in gopherstack, so both TRUE and FALSE correctly succeed unconditionally, matching real AWS behavior for any account with no console grants."}
   integration_resource_properties: {status: ok, note: "fixed this pass (found while auditing the deferred families, not previously tracked in this ledger): GetIntegrationResourceProperty/CreateIntegrationResourceProperty/UpdateIntegrationResourceProperty/ListIntegrationResourceProperties and GetIntegrationTableProperties all returned the live map-stored pointer with its SourceProperties/TargetProperties (or SourceTableConfig/TargetTableConfig) maps uncloned. UpdateIntegrationResourceProperty/UpdateIntegrationTableProperties reassign those same map fields in place under the lock, while Get/Create's callers read them after the lock is released — a genuine data race, same bug class as the prior pass's GetTables fix. Fixed by cloning (new cloneIntegrationResourceProperty helper + inline clone for the table-properties Get)."}
   Integration: {status: fixed, note: "FIXED (gopherstack-lx5h), first PARITY.md entry for CreateIntegration/ModifyIntegration/DeleteIntegration. CreateIntegrationOutput carries 6 required fields (api_op_CreateIntegration.go); the handler emitted only IntegrationName/Status, dropping CreateTime (already tracked on the model as Integration.CreatedAt, just never surfaced), IntegrationArn, SourceArn, and TargetArn. The last two were structural, not cosmetic: CreateIntegrationInput itself declares SourceArn/TargetArn as required INPUT members that the handler never read at all, and the Integration model had no fields to store them — so this needed schema + request-read fixes together, not a response-key rename. Added SourceArn/TargetArn to the Integration model (validated required, InvalidInputException via the service's existing ErrValidation convention, matching this op's own declared error switch) and IntegrationArn via arn.Build(\"glue\", region, account, \"integration/\"+name), following the exact convention every other Glue resource ARN in this codebase already uses (blueprintARN/connectionARN/crawlerARN/etc.), not a fabricated pattern. CreateTime is emitted as epoch-seconds via pkgs/awstime.Epoch — JSON-RPC 1.1's IntegrationTimestamp shape (confirmed in deserializers.go's CreateIntegrationOutput switch), not an ISO string. ModifyIntegration/DeleteIntegration checked per the issue's request and found the identical 2-of-6-or-fewer gap (ModifyIntegrationOutput/DeleteIntegrationOutput share the same 6 required fields); both fixed the same way, sourcing the now-complete Integration record instead of fabricating anything. Also fixed on the input side, found while in the same code: real ModifyIntegration/DeleteIntegrationInput's own doc comments describe IntegrationIdentifier as \"The Amazon Resource Name (ARN) for the integration\", but this backend's store is keyed by IntegrationName and the handlers only ever accepted the bare name — a real SDK client passing the ARN gopherstack itself just started returning from Create would have 404'd against Modify/Delete. Added resolveIntegrationName (accepts either name or ARN) rather than switching the store's primary key, a smaller and lower-risk fix. Also fixed DescribeInboundIntegrations' IntegrationArn filter, which compared the real filter value against IntegrationName (silently matching nothing for any real client) — now compares against the real IntegrationArn field this pass added. DeleteIntegrationOutput.Status now reports DELETING (a real enum value reflecting the delete just actioned), not fabricated ACTIVE/absent. Not touched: ModifyIntegration accepts DataFilter/Description/IntegrationConfig/IntegrationName (rename) as real optional inputs but this backend still does not apply any of them to the stored record (pre-existing behavior, unchanged — the issue's ask was the response-field gap, not full Modify semantics); disclosed here as a gap, not silently left broken. gopherstack-muzq (2026-08-21): CreateIntegration stamped Status CREATING and nothing anywhere in this backend ever advanced it -- no ticker, no later call, and reconciler.go's existing background reconciler (crawler RUNNING->READY, job-run STARTING->RUNNING->SUCCEEDED) did not cover Integration at all, so every DescribeIntegrations call showed CREATING for the entire lifetime of every integration ever created. Fixed by reusing that exact reconciler (new integrationReadyAt map, a CREATING->ACTIVE branch in reconcileLocked/pendingDueLocked, and a lazy b.advanceStates call at the top of ListIntegrations, mirroring GetCrawler) rather than introducing new async infrastructure. New test TestIntegration_ReachesActive asserts the terminal ACTIVE state via DescribeIntegrations, not just the correct initial CREATING (which the pre-existing TestIntegration already asserted and stopped there)."}
@@ -193,7 +193,7 @@ deferred:
   # left un-audited). Families now fully closed (status: ok in the table above)
   # are removed from this list; families with a genuine remaining gap keep a
   # one-line pointer to the families note above (which has the full reasoning).
-  - "workflows: Graph, LastRun and WorkflowRunStatistics are now real (gopherstack-dol3/gopherstack-vcor, see workflows op note); BlueprintDetails and WorkflowRun.Graph's per-node run details (JobDetails.JobRuns/CrawlerDetails.Crawls) remain unmodeled -- the job/crawler-run-to-workflow-run link they'd need now exists (gopherstack-vcor), but converting it into per-node run lists is separate work not done this pass; also, this backend never evaluates conditional (predicate-gated) triggers, so only a workflow's entry trigger ever links actions to a run"
+  - "workflows: Graph, LastRun and WorkflowRunStatistics are now real (gopherstack-dol3/gopherstack-vcor, see workflows op note); StopWorkflowRun/ResumeWorkflowRun/GetWorkflowRuns/GetWorkflowRunProperties lifecycle bugs and the WorkflowRun.Name wire-key bug are now fixed (gopherstack-qd3.6, see the dated 2026-09-11 section at the end of this file). BlueprintDetails and WorkflowRun.Graph's per-node run details (JobDetails.JobRuns/CrawlerDetails.Crawls) remain unmodeled -- the job/crawler-run-to-workflow-run link they'd need now exists (gopherstack-vcor), but converting it into per-node run lists is separate work, re-confirmed still not done in gopherstack-qd3.6; also, this backend never evaluates conditional (predicate-gated) triggers, so only a workflow's entry trigger ever links actions to a run"
   - "schema registry: Compatibility enum validation and DISABLED-mode enforcement implemented for real (gopherstack-j1b7, see schema_registry op note above). BACKWARD/FORWARD/FULL/BACKWARD_ALL/FORWARD_ALL/FULL_ALL compatibility-mode enforcement and full AVRO/JSON/PROTOBUF grammar validation depth remain deferred -- both would need real schema-parsing/diffing libraries per DataFormat (no new go.mod deps permitted); sized in gopherstack-dol3, re-confirmed still the right call in gopherstack-j1b7, see 'DQDL and schema-compatibility sizing' note below; not started"
   - "data quality rulesets: DQDL syntax / rule-type validation (would need a real DQDL parser) -- sized this pass (gopherstack-dol3), re-confirmed out of scope in gopherstack-j1b7 (no code touched -- see 'DQDL and schema-compatibility sizing' note below); not started"
   - "ML transforms: EvaluationMetrics (FindMatchesMetrics) — no real ML evaluation is ever run, so there is no real metric to report (re-confirmed gopherstack-dol3, still correctly absent)"
@@ -2192,3 +2192,253 @@ shadowed `rec` locals), `go test -count=1 ./pkgs/persistence/...` (pass, no
 glue-related failures).
 
 Closes gopherstack-qd3.5.
+
+## 2026-09-11 (gopherstack-qd3.6: op-by-op audit of the connections/triggers/
+## workflows/schema-registry/data-quality/ML-transforms/blueprints/UDFs/
+## resource-policy families)
+
+This issue was filed 2026-07-05 as a placeholder to audit the families the
+first parity-3 pass deferred entirely. By this pass, seven intervening passes
+(gopherstack-ustu, i60f, j1b7, vcor, dol3, q4qt, qd4.1, qd4.2, r80d, n3zi,
+awzv, muzq, lx5h, qd3.5 -- see the dated sections above) had already done
+real op-by-op work across most of these families. First step this pass was
+re-verifying that work is still current: `diff -rq` between
+`aws-sdk-go-v2/service/glue@v1.152.0` and the pinned `@v1.157.0` (both
+present in the module cache) shows every `api_op_*.go`/`types/*.go` diff is
+codegen/middleware churn only (removed `addlegacyEndpointContextSetter`/
+`addComputeContentLength`/`newServiceMetadataMiddleware` calls, etc.) --
+op count unchanged (299/299), zero structural field diffs in `types/types.go`
+or `types/enums.go`. So every family note above citing `v1.152.0` line
+numbers remains accurate against what this repo actually builds against.
+
+With that confirmed, this pass focused its budget on the two areas that
+still had a real, unaudited gap after the prior passes: **workflow runs**
+(StopWorkflowRun/ResumeWorkflowRun/GetWorkflowRuns/GetWorkflowRunProperties
+lifecycle semantics -- named explicitly in the issue, never actually
+audited) and **blueprint runs** (checked for the same class of bug while
+auditing the sibling family). connections/triggers/schema-registry/
+data-quality/ML-transforms/resource-policy/UDFs were spot-checked against
+specific claims in this issue's brief (CheckSchemaVersionValidity,
+GetUserDefinedFunctions.Pattern, PutResourcePolicy conditions, trigger
+StartOnCreation/activation state) and found to already be real, matching the
+prior passes' notes -- see each family's row above, unchanged this pass
+except where a new dated note appears below.
+
+**workflows: 5 real bugs found and fixed in the run lifecycle.**
+
+1. **SEVERE wire-shape bug**: `WorkflowRun`'s wire key for the workflow's
+   name was `"WorkflowName"`; the real key is `"Name"` (confirmed against
+   `deserializers.go`'s `awsAwsjson11_deserializeDocumentWorkflowRun` case
+   list, which has no `"WorkflowName"` case at all -- a real client's
+   `sv.Name` stayed nil on every `GetWorkflowRun`/`GetWorkflowRuns`/
+   `GetWorkflow`(`.LastRun`) response). Fixed via a new `workflowRunWire`
+   response-only type (`wire_arn.go`) rather than renaming the tag on
+   `WorkflowRun` itself: `WorkflowRun`'s own json tags double as the
+   on-disk snapshot shape (`persistence.go`'s `backendSnapshot.WorkflowRuns`
+   is `map[string][]*WorkflowRun` directly), and renaming that key would
+   silently drop every pre-fix snapshot's workflow name on restore (the
+   persistence snapshot-version guard, `pkgs/persistence`, confirmed this by
+   refusing the change without either a version bump or the wire/persistence
+   split -- see "Snapshot rule" below). `workflowWire`'s embedded `LastRun`
+   field is shadowed the same way `Graph`/`ARN` already are, now routed
+   through `workflowRunWire` too. Proven by
+   `TestSDKRoundTrip_WorkflowRun_NameWireKeyAndResumeLinksPreviousRun` (real
+   aws-sdk-go-v2 client; asserts `Run.Name` is non-nil and correct) and
+   `TestWorkflow_LastRun`'s new assertions.
+2. **Fabricated lifecycle / missing state guard, `StopWorkflowRun`**: had no
+   state check at all -- callable on an already-stopped run with no error --
+   and set `Status = "STOPPING"`, a state nothing in this backend ever
+   advances past (no reconciler transition exists for `WorkflowRun.Status`,
+   confirmed by grepping every `.Status = state...` assignment in the
+   package), so a stopped run stayed reported as STOPPING forever. Real
+   `StopWorkflowRun` declares `IllegalWorkflowStateException`
+   (`deserializers.go`'s `awsAwsjson11_deserializeOpErrorStopWorkflowRun`,
+   confirmed via WebFetch against docs.aws.amazon.com/glue/latest/webapi/
+   API_StopWorkflowRun.html: "The workflow is in an invalid state to perform
+   a requested operation"). Fixed: only a RUNNING run can be stopped
+   (else the new `ErrIllegalWorkflowState` sentinel ->
+   `IllegalWorkflowStateException`); on success the run settles directly to
+   STOPPED, matching the "immediate settlement, no async engine to model a
+   real transient interval" pattern already established for every sibling
+   Cancel/Stop-run op in this file (`CancelDataQualityRulesetEvaluationRun`,
+   `CancelMLTaskRun`, etc. all go straight to a terminal state, not through
+   an unresolved transient one).
+3. **Fabricated lifecycle, `ResumeWorkflowRun`**: mutated and echoed back
+   the *same* run ID, and had no state guard at all (resumable from RUNNING,
+   even from a run that had never been stopped). The real op's own doc text
+   is explicit that this is wrong on both counts: "Each resume of a workflow
+   run will have a new run ID" (`ResumeWorkflowRunOutput.RunId`'s doc,
+   `api_op_ResumeWorkflowRun.go`), and it "[r]estarts ... a previous
+   *partially completed* workflow run" -- confirmed via WebFetch that it
+   shares `IllegalWorkflowStateException` with `StopWorkflowRun`. Fixed:
+   only a STOPPED run may be resumed; a successful resume creates a *new*
+   `WorkflowRun` (new mock ID, `Status: RUNNING`) linked to the original via
+   a new `PreviousRunId` field (real member, `types.WorkflowRun.PreviousRunId`,
+   previously entirely unmodeled) -- the new run's ID is what's returned, not
+   the original. `NodeIds` continues to be echoed back as "actually
+   restarted" (a pre-existing, still-accurate disclosed simplification: this
+   backend has no per-node run-attempt state to restart for real, see
+   `WorkflowRun.Graph` gap below), and no job/crawler actions are re-fired
+   on resume -- this backend cannot honestly determine which entry
+   trigger's actions correspond to the caller's selected node IDs, and
+   re-firing the *whole* entry trigger again would fabricate actions the
+   real op does not describe. Proven by `TestResumeWorkflowRun_Stateful`
+   (rewritten: the pre-fix version asserted the buggy behavior --
+   `wantCode: http.StatusOK` for empty Name/RunId, and `assert.Equal(t,
+   runID, out.RunID)` for a same-run resume -- both were defect-ratifying
+   and are now fixed to assert the corrected contract) and the new
+   `TestSDKRoundTrip_WorkflowRun_NameWireKeyAndResumeLinksPreviousRun`.
+4. **Silent-success bug, `ResumeWorkflowRun`'s handler**: a request with
+   empty `Name`/`RunId` short-circuited to an HTTP 200 with an empty
+   `NodeIds` list instead of erroring. Real `ResumeWorkflowRunInput` marks
+   both `Name`/`RunId` required (`This member is required`), and the real
+   SDK client's own validator only rejects a *nil* pointer, not an empty
+   string (confirmed, `validateOpResumeWorkflowRunInput`, `validators.go`) --
+   so a client-constructed empty string is a real, reachable request this
+   handler must reject, not silently accept. Fixed: `Name`/`RunId`/`NodeIds`
+   (`NodeIds` is likewise required and was previously unenforced) all now
+   return `InvalidInputException` when empty.
+5. **Silent-success bug, `GetWorkflowRunProperties`**: returned an empty
+   `{}` response for *any* lookup failure -- missing `Name`, missing
+   `RunId`, or an unknown workflow/run -- instead of propagating an error.
+   The real op's error catalog declares `EntityNotFoundException`
+   (`deserializers.go`'s
+   `awsAwsjson11_deserializeOpErrorGetWorkflowRunProperties`), so a real
+   client asking about a workflow/run that doesn't exist gets a real error,
+   not a lie that says "no properties are set." Fixed: propagates
+   `EntityNotFoundException` for an unknown workflow/run and
+   `InvalidInputException` for missing required members.
+6. **Missing pagination, `GetWorkflowRuns`**: `MaxResults`/`NextToken` are
+   real `GetWorkflowRunsInput`/`Output` members (`api_op_GetWorkflowRuns.go`)
+   that were declared nowhere on this op's wire struct at all -- every call
+   returned every stored run for a workflow, unbounded, regardless of what a
+   real client requested (the same `gopherstack-awzv`-class gap, on an op
+   that wasn't part of that sweep's 30-op scope since it wasn't a bare
+   `struct{}` input). Fixed via the existing `paginateSlice` helper, matching
+   every other paginated `List`/`Get*` op in this package
+   (`defaultGetWorkflowRunsLimit = 100`). `b.workflowRuns[name]` is a plain
+   append-ordered slice (not map-derived), so this needed no additional
+   sort-totality fix (unlike the 2026-08-30 sweep's findings) -- pagination
+   over an already-stable order.
+
+Proven via `TestStopWorkflowRun_StateGuard`,
+`TestGetWorkflowRunProperties_RequiredMembersAndNotFound`,
+`TestSDKRoundTrip_GetWorkflowRuns_Pagination` (real aws-sdk-go-v2 client,
+seeds 5 runs with `MaxResults=2`), plus the tests named above; all hand
+confirmed to fail against the pre-fix code (reverted each fix locally,
+re-ran, restored).
+
+**Not touched, still correctly disclosed** (see the `workflows` family row
+and `deferred:` entry above, both re-confirmed accurate, not stale):
+`BlueprintDetails` and `WorkflowRun.Graph`'s per-node run-history lists
+remain unmodeled -- both still genuinely package-sized, no new information
+this pass changes that sizing.
+
+**blueprints: 1 bug found and fixed.**
+
+`StartBlueprintRun` fabricated `BlueprintRun.WorkflowName` on every call
+(`"workflow-" + runID`) even though this backend never actually creates that
+workflow anywhere, and never advances `BlueprintRun.State` past RUNNING (no
+blueprint-execution engine exists in this backend, the same honest-gap class
+already documented for `ml_transforms`' `EvaluationMetrics`). The real
+field's doc is explicit that it's the *result* of success: "The name of a
+workflow that is created as a result of a *successful* blueprint run. If a
+blueprint run has an error, there will not be a workflow created"
+(`types.BlueprintRun.WorkflowName`, `types/types.go:842-844`) -- since a run
+here is never honestly successful, `WorkflowName` must never be populated;
+doing so pointed a client at a workflow that was never created. Fixed:
+`WorkflowName` is left unset (json tag changed to `,omitempty`, matching the
+real field's optional-`*string` shape) and `StartBlueprintRun`'s doc comment
+now explains why. `IllegalBlueprintStateException` (`StartBlueprintRun`/
+`UpdateBlueprint`'s declared error, confirmed present in both ops' real
+error catalogs) was checked and found structurally unreachable, same class
+as `ConcurrentModificationException`/`OperationTimeoutException` above:
+`Blueprint.Status` is hardcoded `"ACTIVE"` at creation and no code path in
+this backend ever sets it to CREATING/UPDATING/FAILED, so there is no
+"illegal state" this backend can ever actually be in -- not wired, left
+disclosed rather than adding dead branches. Proven by
+`TestSDKRoundTrip_StartBlueprintRun_NoFabricatedWorkflowName` (real
+aws-sdk-go-v2 client; asserts `WorkflowName` is nil).
+
+**UDFs: no bugs found, but no real-SDK-client test existed for this family
+at all** (every other named family already had one, several from this
+issue's own prior passes) -- added
+`TestSDKRoundTrip_UserDefinedFunction` (create/get/list-with-Pattern/
+update/delete through the real client), which also re-proves the
+2026-09-11 `GetUserDefinedFunctions.Pattern` fix noted in the
+`user_defined_functions` row above still holds through the real client, not
+just the raw-HTTP tests that landed with it.
+
+**Spot-checked, confirmed already correct, no change**: `CheckSchemaVersionValidity`
+(request/response shape matches `api_op_CheckSchemaVersionValidity.go`
+exactly -- `DataFormat`/`SchemaDefinition` in, `Error`/`Valid` out; correctly
+does not take a registry/schema identifier and performs no compatibility
+check, matching the op's own doc "[s]ince it does not take a schema set
+name, no compatibility checks are performed"); trigger `StartOnCreation`/
+activation-state handling (`triggers.go`: `CREATED` -> `ACTIVATED` for a
+non-`ON_DEMAND` trigger created with `StartOnCreation: true`, matching AWS's
+documented "not supported for ON_DEMAND triggers"). `PutResourcePolicy`'s
+`PolicyHashCondition`/`PolicyExistsCondition`/`EnableHybrid` and
+`ConditionCheckFailureException` were re-read against the `resource_policy`
+family note above (fixed in an earlier pass, gopherstack-qd4.2) and found
+still accurate -- not re-derived.
+
+**Snapshot rule**: `WorkflowRun` gained a new field (`PreviousRunID string
+\`json:"PreviousRunId,omitempty"\`` -- purely additive, safe without a
+version bump) and `BlueprintRun.WorkflowName`'s tag gained `,omitempty` (a
+marshal-only change -- `encoding/json` ignores `omitempty` on decode, so an
+older snapshot with a populated `WorkflowName` string still decodes
+correctly; confirmed before accepting this via `-update` rather than
+guessing). `WorkflowRun.WorkflowName`'s tag was deliberately **not** changed
+(see the wire-shape bug writeup above) specifically to avoid needing either
+of those tools for the wire-shape fix. Ran
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`:
+regenerated `pkgs/persistence/testdata/snapshot_inventory.json` with only
+the two glue rows above added/changed; the same `-update` run also captured
+several `sagemaker` rows already in flight from a concurrent agent's edits
+on this branch (left in place, untouched, per this task's instruction --
+not reverted). **No version bump** (`glueSnapshotVersion` stays `3`) --
+confirmed correct rather than assumed, per the guard's own message
+("Confirm whether a version bump is actually required before running
+-update").
+
+**Files changed**: `services/glue/models.go` (`WorkflowRun.PreviousRunID`,
+doc comments; `BlueprintRun.WorkflowName,omitempty`), `services/glue/workflows.go`
+(`ErrIllegalWorkflowState`; `StopWorkflowRun`/`ResumeWorkflowRun` rewritten;
+new `newWorkflowRunID` helper), `services/glue/blueprints.go`
+(`StartBlueprintRun` no longer fabricates `WorkflowName`),
+`services/glue/handler_workflows.go` (`GetWorkflowRunProperties`/
+`ResumeWorkflowRun` validation and error propagation;
+`GetWorkflowRuns` pagination; both `Get`-run ops route through the new wire
+type), `services/glue/wire_arn.go` (new `workflowRunWire`/
+`toWorkflowRunWire`/`toWorkflowRunWireList`; `workflowWire.LastRun` now
+routes through it), `services/glue/handler.go` (`ErrIllegalWorkflowState` ->
+`IllegalWorkflowStateException`; the error-dispatch `switch` was also
+converted to an ordered-table `for` loop here, purely to stay under
+`cyclop`'s limit after adding the new case -- decomposition, not a
+suppression), `services/glue/handler_workflows_test.go`,
+`services/glue/handler_blueprints_test.go`,
+`services/glue/handler_user_defined_functions_test.go` (new/updated tests),
+`pkgs/persistence/testdata/snapshot_inventory.json` (regenerated, glue rows
+only intentionally touched).
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/glue/...`
+(clean), `go test -race -count=1 ./services/glue/...` (pass), `go test -race
+-count=1 ./pkgs/persistence/...` (fails only on `sagemaker`, a concurrent
+agent's in-flight, out-of-scope work on this branch -- not glue), `golangci-lint
+run ./services/glue/...` (0 issues).
+
+Deferred families still genuinely open after this pass, unchanged from
+above: schema-registry BACKWARD/FORWARD/FULL compatibility diffing and full
+AVRO/JSON/PROTOBUF grammar validation (`gopherstack-j1b7`), data-quality DQDL
+grammar validation (`gopherstack-j1b7`), `WorkflowRun.Graph`'s per-node run
+lists and `BlueprintDetails` (this pass, re-confirmed), ML transforms'
+`EvaluationMetrics` (re-confirmed, still correctly absent),
+`IdempotentParameterMismatchException`/`OperationTimeoutException`/
+`ConcurrentModificationException` (`gopherstack-qd3.5`, exhaustively
+verified unreachable). None of these were approximated or newly attempted
+this pass -- all require either a real parsing/diffing library (no new
+go.mod deps permitted) or a real async execution engine this backend does
+not have, per the sizing already on record above.
+
+Closes gopherstack-qd3.6.

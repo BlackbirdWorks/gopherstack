@@ -608,10 +608,13 @@ type UsageProfile struct {
 }
 
 // BlueprintRun represents a single execution of a Glue blueprint.
+// WorkflowName is only ever populated by a successful run (see
+// StartBlueprintRun's doc comment) -- omitempty matches the real field's
+// *string (optional) shape.
 type BlueprintRun struct {
 	BlueprintName string  `json:"BlueprintName"`
 	RunID         string  `json:"RunId"`
-	WorkflowName  string  `json:"WorkflowName"`
+	WorkflowName  string  `json:"WorkflowName,omitempty"`
 	State         string  `json:"State"`
 	RoleARN       string  `json:"RoleArn,omitempty"`
 	Parameters    string  `json:"Parameters,omitempty"`
@@ -1247,15 +1250,28 @@ type WorkflowEdge struct {
 	DestinationID string `json:"DestinationId,omitempty"`
 }
 
-// WorkflowRun represents a single run of a Glue workflow.
+// WorkflowRun represents a single run of a Glue workflow. WorkflowName's real
+// wire key is "Name", not "WorkflowName" -- confirmed against
+// aws-sdk-go-v2/service/glue@v1.157.0 deserializers.go's
+// awsAwsjson11_deserializeDocumentWorkflowRun case list, which has no
+// "WorkflowName" key at all; a real client's sv.Name was silently left nil on
+// every GetWorkflowRun/GetWorkflowRuns/GetWorkflow(LastRun) response. The tag
+// here is deliberately left as "WorkflowName" (NOT renamed to match) because
+// this struct's own json tags double as the on-disk snapshot shape
+// (persistence.go's backendSnapshot.WorkflowRuns); renaming this key would
+// silently drop WorkflowName on every snapshot restored from before this fix.
+// The wire-correct "Name" key is produced only at the HTTP response layer by
+// workflowRunWire (wire_arn.go), the same wire/persistence split workflowWire
+// already uses for Workflow's Graph/ARN.
 type WorkflowRun struct {
-	Properties   map[string]string      `json:"WorkflowRunProperties,omitempty"`
-	Statistics   *WorkflowRunStatistics `json:"Statistics,omitempty"`
-	WorkflowName string                 `json:"WorkflowName"`
-	RunID        string                 `json:"WorkflowRunId"`
-	Status       string                 `json:"Status"`
-	StartedOn    float64                `json:"StartedOn,omitempty"`
-	CompletedOn  float64                `json:"CompletedOn,omitempty"`
+	Properties    map[string]string      `json:"WorkflowRunProperties,omitempty"`
+	Statistics    *WorkflowRunStatistics `json:"Statistics,omitempty"`
+	WorkflowName  string                 `json:"WorkflowName"`
+	RunID         string                 `json:"WorkflowRunId"`
+	Status        string                 `json:"Status"`
+	PreviousRunID string                 `json:"PreviousRunId,omitempty"`
+	StartedOn     float64                `json:"StartedOn,omitempty"`
+	CompletedOn   float64                `json:"CompletedOn,omitempty"`
 }
 
 // WorkflowRunStatistics mirrors aws-sdk-go-v2/service/glue/types.WorkflowRunStatistics
