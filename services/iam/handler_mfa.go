@@ -195,31 +195,6 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		"DeactivateMFADevice": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeactivateMFADevice(vals.Get("UserName"), vals.Get("SerialNumber")); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "DeactivateMFADeviceResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"EnableMFADevice": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.EnableMFADevice(
-				vals.Get("UserName"), vals.Get("SerialNumber"),
-				vals.Get("AuthenticationCode1"), vals.Get("AuthenticationCode2"),
-			); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "EnableMFADeviceResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 		"ResyncMFADevice": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.ResyncMFADevice(
 				vals.Get("UserName"), vals.Get("SerialNumber"),

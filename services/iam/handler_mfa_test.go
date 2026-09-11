@@ -205,3 +205,201 @@ func TestHandler_VirtualMFA_RoundTrip(t *testing.T) {
 	require.NoError(t, h.Handler()(e.NewContext(req6, rec6)))
 	assert.Equal(t, http.StatusOK, rec6.Code)
 }
+
+// TestCreateVirtualMFADevice_Dispatch pins the survivor of the
+// gopherstack-f185i dispatch-table collision: iamVirtualMFAFullDispatch's
+// opCreateVirtualMFADevice entry (backed by CreateVirtualMFADeviceFull) wins
+// over iamNewOpsRoleAndCredentialActions's now-deleted entry (backed by the
+// plain CreateVirtualMFADevice), which never populated Base32StringSeed or
+// QRCodePNG -- both required for a client to actually enroll the device
+// (types.VirtualMFADevice, aws-sdk-go-v2/service/iam/types/types.go:2580-2594)
+// -- and ignored request tags.
+func TestCreateVirtualMFADevice_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	h, b := newTestHandler(t)
+	_, _ = b.CreateUser("carol", "/", "")
+
+	req := iamRequest("CreateVirtualMFADevice", map[string]string{
+		"VirtualMFADeviceName": "carol-mfa",
+		"Tags.member.1.Key":    "team",
+		"Tags.member.1.Value":  "platform",
+	})
+	rec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp struct {
+		Result struct {
+			Device iam.VirtualMFADeviceXML `xml:"VirtualMFADevice"`
+		} `xml:"CreateVirtualMFADeviceResult"`
+	}
+	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.Result.Device.Base32StringSeed)
+	assert.NotEmpty(t, resp.Result.Device.QRCodePNG)
+
+	// Tags aren't echoed in the create response, but the plain
+	// CreateVirtualMFADevice backend method the deleted entry called never
+	// stores them at all -- confirm they landed via ListVirtualMFADevices.
+	listReq := iamRequest("ListVirtualMFADevices", nil)
+	listRec := httptest.NewRecorder()
+	require.NoError(t, h.Handler()(e.NewContext(listReq, listRec)))
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	var listResp struct {
+		Result struct {
+			Devices []iam.VirtualMFADeviceXML `xml:"VirtualMFADevices>member"`
+		} `xml:"ListVirtualMFADevicesResult"`
+	}
+	require.NoError(t, xml.Unmarshal(listRec.Body.Bytes(), &listResp))
+	require.Len(t, listResp.Result.Devices, 1)
+	require.Len(t, listResp.Result.Devices[0].Tags, 1)
+	assert.Equal(t, "team", listResp.Result.Devices[0].Tags[0].Key)
+	assert.Equal(t, "platform", listResp.Result.Devices[0].Tags[0].Value)
+}
+
+// TestEnableMFADevice_Dispatch pins the surviving iamMFALinkDispatch entry.
+// It is a behaviour-neutral guard: the deleted iamMFADeviceDispatch
+// duplicate called the same backend method with the same parameters and
+// produced an identical response, so this test does not distinguish winner
+// from loser -- it only guards against EnableMFADevice losing its dispatch
+// entry entirely.
+func TestEnableMFADevice_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(b *iam.InMemoryBackend) (userName, serial string)
+		name        string
+		wantErrCode string
+		wantCode    int
+	}{
+		{
+			name: "success",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				_, _ = b.CreateUser("dave", "/", "")
+				dev, _ := b.CreateVirtualMFADeviceFull("dave-mfa", "/")
+
+				return "dave", dev.SerialNumber
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "unknown_user_returns_nosuchentity",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				dev, _ := b.CreateVirtualMFADeviceFull("ghost-mfa", "/")
+
+				return "ghost", dev.SerialNumber
+			},
+			wantCode:    http.StatusNotFound,
+			wantErrCode: "NoSuchEntity",
+		},
+		{
+			name: "unknown_device_returns_nosuchentity",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				_, _ = b.CreateUser("erin", "/", "")
+
+				return "erin", "arn:aws:iam::123456789012:mfa/missing"
+			},
+			wantCode:    http.StatusNotFound,
+			wantErrCode: "NoSuchEntity",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			userName, serial := tt.setup(b)
+
+			req := iamRequest("EnableMFADevice", map[string]string{
+				"UserName":            userName,
+				"SerialNumber":        serial,
+				"AuthenticationCode1": "123456",
+				"AuthenticationCode2": "789012",
+			})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantErrCode != "" {
+				var errResp iam.ErrorResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, tt.wantErrCode, errResp.Error.Code)
+			}
+		})
+	}
+}
+
+// TestDeactivateMFADevice_Dispatch pins the surviving iamMFALinkDispatch
+// entry. Behaviour-neutral guard: see TestEnableMFADevice_Dispatch --
+// the deleted iamMFADeviceDispatch duplicate was byte-identical.
+func TestDeactivateMFADevice_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(b *iam.InMemoryBackend) (userName, serial string)
+		name        string
+		wantErrCode string
+		wantCode    int
+	}{
+		{
+			name: "success",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				_, _ = b.CreateUser("frank", "/", "")
+				dev, _ := b.CreateVirtualMFADeviceFull("frank-mfa", "/")
+				_ = b.EnableMFADevice("frank", dev.SerialNumber, "123456", "789012")
+
+				return "frank", dev.SerialNumber
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "unknown_user_returns_nosuchentity",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				dev, _ := b.CreateVirtualMFADeviceFull("ghost2-mfa", "/")
+
+				return "ghost2", dev.SerialNumber
+			},
+			wantCode:    http.StatusNotFound,
+			wantErrCode: "NoSuchEntity",
+		},
+		{
+			name: "not_enabled_returns_invalidaction",
+			setup: func(b *iam.InMemoryBackend) (string, string) {
+				_, _ = b.CreateUser("gina", "/", "")
+				dev, _ := b.CreateVirtualMFADeviceFull("gina-mfa", "/")
+
+				return "gina", dev.SerialNumber
+			},
+			wantCode:    http.StatusBadRequest,
+			wantErrCode: "InvalidAction",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			userName, serial := tt.setup(b)
+
+			req := iamRequest("DeactivateMFADevice", map[string]string{
+				"UserName":     userName,
+				"SerialNumber": serial,
+			})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantErrCode != "" {
+				var errResp iam.ErrorResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, tt.wantErrCode, errResp.Error.Code)
+			}
+		})
+	}
+}

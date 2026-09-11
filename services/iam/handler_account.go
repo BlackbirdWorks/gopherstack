@@ -657,22 +657,6 @@ func (h *Handler) iamOrgsReportDispatch() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		// Shadowed by iamAccessAdvisorDispatch's real opGenerateServiceLastAccessed
-		// entry (handler_access_advisor.go), since buildDispatchTable merges
-		// iamComprehensiveDispatchTable after iamCompletenessDispatchTable (see that
-		// table's own doc comment: "These entries override earlier stub
-		// implementations."). Kept verbatim as dead code from the completeness pass --
-		// unlike that entry, this one never reads Arn and fabricates its JobID.
-		"GenerateServiceLastAccessedDetails": func(_ url.Values, reqID string) (any, error) {
-			return &generateServiceLastAccessedDetailsResponse{
-				XMLName: xml.Name{Local: "GenerateServiceLastAccessedDetailsResponse"},
-				Xmlns:   iamXMLNS,
-				GenerateServiceLastAccessedDetailsResult: generateSLADResult{
-					JobID: "sladjob-" + reqID,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 		"GetOrganizationsAccessReport": func(vals url.Values, reqID string) (any, error) {
 			jobID := vals.Get("JobId")
 			status, createdAt, found := h.Backend.GetOrganizationsAccessReport(jobID)

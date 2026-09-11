@@ -45,26 +45,6 @@ func (h *Handler) iamNewOpsRoleAndCredentialActions() map[string]iamActionFn {
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-
-		"CreateVirtualMFADevice": func(vals url.Values, reqID string) (any, error) {
-			device, err := h.Backend.CreateVirtualMFADevice(
-				vals.Get("VirtualMFADeviceName"),
-				vals.Get("Path"),
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &CreateVirtualMFADeviceResponse{
-				Xmlns: iamXMLNS,
-				CreateVirtualMFADeviceResult: CreateVirtualMFADeviceResult{
-					VirtualMFADevice: VirtualMFADeviceXML{
-						SerialNumber: device.SerialNumber,
-					},
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 	}
 }
 

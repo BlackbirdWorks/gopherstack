@@ -2,7 +2,6 @@ package iam
 
 import (
 	"net/url"
-	"time"
 )
 
 func (h *Handler) iamSAMLProviderDispatchTable() map[string]iamActionFn {
@@ -248,25 +247,6 @@ func (h *Handler) iamLoginProfileDispatchTable() map[string]iamActionFn {
 
 func (h *Handler) iamMiscDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		// Shadowed by iamAccessAdvisorDispatch's real opGetServiceLastAccessed
-		// entry (handler_access_advisor.go): buildDispatchTable merges
-		// iamComprehensiveDispatchTable last (see its own doc comment). Kept
-		// verbatim as dead code -- unlike that entry, this one never reads JobId
-		// and always answers with an empty ServicesLastAccessed list.
-		"GetServiceLastAccessedDetails": func(_ url.Values, reqID string) (any, error) {
-			now := isoTime(time.Now().UTC())
-
-			return &GetServiceLastAccessedDetailsResponse{
-				Xmlns: iamXMLNS,
-				GetServiceLastAccessedDetailsResult: GetServiceLastAccessedDetailsResult{
-					JobStatus:         jobStatusCompleted,
-					JobCreationDate:   now,
-					JobCompletionDate: now,
-					IsTruncated:       false,
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 		"SetSecurityTokenServicePreferences": func(vals url.Values, reqID string) (any, error) {
 			if err := h.Backend.SetSecurityTokenServicePreferences(vals.Get("GlobalEndpointTokenVersion")); err != nil {
 				return nil, err

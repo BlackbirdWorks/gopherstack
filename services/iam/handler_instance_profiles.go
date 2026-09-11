@@ -4,30 +4,6 @@ import (
 	"net/url"
 )
 
-// handleListInstanceProfilesForRole implements ListInstanceProfilesForRole,
-// returning every instance profile that actually contains the given role
-// (via StorageBackend.ListInstanceProfilesForRole). Previously this action
-// ignored the RoleName parameter and always returned an empty list.
-func (h *Handler) handleListInstanceProfilesForRole(vals url.Values, reqID string) (any, error) {
-	profiles, err := h.Backend.ListInstanceProfilesForRole(vals.Get("RoleName"))
-	if err != nil {
-		return nil, err
-	}
-
-	xmlProfiles := make([]InstanceProfileXML, 0, len(profiles))
-
-	for i := range profiles {
-		roles := h.resolveInstanceProfileRoles(&profiles[i])
-		xmlProfiles = append(xmlProfiles, h.toInstanceProfileXML(&profiles[i], roles))
-	}
-
-	return &ListInstanceProfilesForRoleResponse{
-		Xmlns:                             iamXMLNS,
-		ListInstanceProfilesForRoleResult: ListInstanceProfilesForRoleResult{InstanceProfiles: xmlProfiles},
-		ResponseMetadata:                  ResponseMetadata{RequestID: reqID},
-	}, nil
-}
-
 func (h *Handler) iamInstanceProfileDispatchTable() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"CreateInstanceProfile": func(vals url.Values, reqID string) (any, error) {
