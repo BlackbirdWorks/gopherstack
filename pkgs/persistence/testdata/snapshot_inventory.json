@@ -23020,6 +23020,7 @@
       "StoredBucket.MetricsConfigs map[string]string `json:\"metricsConfigs,omitempty\"`",
       "StoredBucket.Name string `json:\"name\"`",
       "StoredBucket.NotificationConfig string `json:\"notificationConfig,omitempty\"`",
+      "StoredBucket.ObjectLambdaConfig string `json:\"objectLambdaConfig,omitempty\"`",
       "StoredBucket.ObjectLockConfig string `json:\"objectLockConfig,omitempty\"`",
       "StoredBucket.ObjectLockEnabled bool `json:\"objectLockEnabled,omitempty\"`",
       "StoredBucket.Objects map[string]*StoredObject `json:\"objects,omitempty\"`",

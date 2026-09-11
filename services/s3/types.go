@@ -33,6 +33,7 @@ type StoredBucket struct {
 	OwnershipControlsConfig       string                       `json:"ownershipControlsConfig,omitempty"`
 	LoggingConfig                 string                       `json:"loggingConfig,omitempty"`
 	ReplicationConfig             string                       `json:"replicationConfig,omitempty"`
+	ObjectLambdaConfig            string                       `json:"objectLambdaConfig,omitempty"`
 	AnalyticsConfigs              map[string]string            `json:"analyticsConfigs,omitempty"`
 	IntelligentTieringConfigs     map[string]string            `json:"intelligentTieringConfigs,omitempty"`
 	InventoryConfigs              map[string]string            `json:"inventoryConfigs,omitempty"`

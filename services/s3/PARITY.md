@@ -42,7 +42,7 @@ gaps:
   - "RenameObject is applied uniformly to any bucket (general-purpose or directory), but real S3 restricts RenameObject to directory buckets only (api_op_RenameObject.go's Bucket doc: 'The bucket name of the directory bucket containing the object... Path-style requests are not supported'). This emulator has no directory-bucket-vs-general-purpose distinction anywhere (see CreateSession gap above), so RenameObject working on any bucket is a permissive superset rather than a wire-shape bug reachable by a real client hitting a real endpoint shape. Also: RenameObjectInput's DestinationIfMatch/DestinationIfNoneMatch/DestinationIfModifiedSince/DestinationIfUnmodifiedSince conditional-header preconditions are declared on the real input but not read/enforced by handleRenameObject (object_ops_copy.go) -- a caller relying on If-None-Match:* to prevent clobbering an existing destination gets a silent unconditional overwrite instead of a 412. Not fixed this pass (scoped feature, not a one-line diff); flagged honestly rather than silently left. (gopherstack-3dqa)"
   - "SelectObjectContent ScanRange (partial-object byte-range selection) is not implemented — requests with a ScanRange element are accepted but the range is ignored and the full object is scanned. Real semantics require record-boundary-aware slicing (a record is included if its first byte falls in [Start,End]) that's entangled with evaluateCSVQuery/evaluateJSONQuery's own record-splitting logic — implementing it correctly is a real feature addition, not a diff-and-fix, so it's left as an honest gap rather than a rushed subtly-wrong implementation."
   - "List*Configurations (analytics/inventory/metrics/intelligent-tiering) do not implement ContinuationToken-based pagination — IsTruncated is always false and all stored configs for a bucket are returned in one response. Real S3 caps at 100 entries per page; this only matters for buckets with >100 configs of one type, an edge case unlikely to be exercised by any realistic test."
-  - "object_lambda: CreateAccessPointForObjectLambda and the whole Object Lambda *access point resource* (policy, configuration, ARN) genuinely belong to and ARE already fully implemented in services/s3control (object_lambda.go + handler_object_lambda.go + handler_object_lambda_test.go — verified: CreateAccessPointForObjectLambda, Get/Delete/List, Get/Put/DeleteAccessPointPolicyForObjectLambda, policy-status, and configuration are all real backend-state ops, not stubs). services/s3's own object_lambda.go (SetObjectLambdaConfig + WriteGetObjectResponse) is legitimately s3 DATA-PLANE surface — confirmed WriteGetObjectResponse is an aws-sdk-go-v2/service/s3 operation, not service/s3control — so it is NOT mis-scoped. What IS a real, disclosed limitation: GetObject only recognizes a Lambda wired in via the Go-only SetObjectLambdaConfig test hook, not via genuine access-point-ARN routing (calling GetObject with Bucket=<object-lambda-access-point-ARN>). Wiring that would require access-point-ARN parsing on every object route PLUS a live cross-service lookup into s3control's backend — and regular (non-Lambda) S3 Access Points have zero ARN-as-bucket routing support anywhere in this service either (grepped: no accesspoint/AccessPointARN handling exists in services/s3), so Object Lambda access points would be building ARN routing on a foundation that doesn't exist yet. This is a real, larger cross-service feature, not a diff-and-fix; left honestly open with the evidence above rather than attempted as a rushed partial wiring."
+  - "object_lambda: CreateAccessPointForObjectLambda and the whole Object Lambda *access point resource* (policy, configuration, ARN) genuinely belong to and ARE already fully implemented in services/s3control (object_lambda.go + handler_object_lambda.go + handler_object_lambda_test.go — verified: CreateAccessPointForObjectLambda, Get/Delete/List, Get/Put/DeleteAccessPointPolicyForObjectLambda, policy-status, and configuration are all real backend-state ops, not stubs). services/s3's own object_lambda.go (SetObjectLambdaConfig + WriteGetObjectResponse) is legitimately s3 DATA-PLANE surface — confirmed WriteGetObjectResponse is an aws-sdk-go-v2/service/s3 operation, not service/s3control — so it is NOT mis-scoped. What IS a real, disclosed limitation: GetObject only recognizes a Lambda wired in by bucket name (via SetObjectLambdaConfig, which services/s3control's PutAccessPointConfigurationForObjectLambda calls through the ObjectLambdaConfigSink interface on every real create/configure, not just from tests), not via genuine access-point-ARN routing (calling GetObject with Bucket=<object-lambda-access-point-ARN>). Wiring that would require access-point-ARN parsing on every object route PLUS a live cross-service lookup into s3control's backend — and regular (non-Lambda) S3 Access Points have zero ARN-as-bucket routing support anywhere in this service either (grepped: no accesspoint/AccessPointARN handling exists in services/s3), so Object Lambda access points would be building ARN routing on a foundation that doesn't exist yet. This is a real, larger cross-service feature, not a diff-and-fix; left honestly open with the evidence above rather than attempted as a rushed partial wiring."
   - "SelectObjectContent's SQL engine internals (select_sql_parser.go/select_sql_tokenizer.go/select_sql_expr.go) were not re-diffed against the S3 Select SQL dialect spec this pass — only the request-handling wrapper (SSE-C headers) was fixed. The engine's existing extensive test coverage (select_test.go, select_advanced_test.go) was re-run and passes; no correctness re-audit of parser/expression-evaluator edge cases was performed."
   - "ListBuckets does not implement the bucket-region/prefix/continuation-token/max-buckets request parameters (filtering or pagination) — ListBucketsInput is always passed empty to the backend, and every bucket the account owns is always returned in one response. A deliberate, disclosed gap: real S3 also gates whether BucketRegion appears in the response on the request being 'paginated' (see the ListBuckets ops note above), which only matters once pagination exists. Adding real filtering/pagination here is a separate feature, not part of the BucketRegion display fix."
   - "ListDirectoryBuckets is structurally unreachable from any real, unmodified aws-sdk-go-v2 client pointed at gopherstack's single local endpoint (gopherstack-0bq8, 2026-08-14). Confirmed against s3@v1.106.5: ListDirectoryBucketsInput.bindEndpointParams sets UseS3ExpressControlEndpoint, and real AWS distinguishes ListDirectoryBuckets from ListBuckets purely by literal hostname (s3express-control.<region>.amazonaws.com vs s3.<region>.amazonaws.com) — the request itself carries no query param, path segment, or header that differs (HttpBindings only sets continuation-token/max-directory-buckets, same shape family as ListBuckets' own params; the addIsExpressUserAgent middleware that tags S3-Express traffic keys off a Bucket field this op doesn't have). The router's isListDirectoryBucketsRequest checks a ?list-type=directory query key no real client ever sends — dead code, confirmed by cross-referencing every query-setting line in the op's own HttpBindings function — so every real ListDirectoryBuckets() call silently falls through to listBuckets (200 success, wrong bucket set: general-purpose buckets instead of directory buckets). Not fixed: there is no real discriminator available to key on when serving both operations from one endpoint (same structural class as the cloudfront KeyValueStore data-plane ops, which structurally can never reach that service's Handler either). Left as documented dead code rather than deleted or silently 'fixed' with another fabricated key, since it's the only way any test (including buckets_test.go's existing TestListDirectoryBuckets) can reach the op at all."
@@ -1087,3 +1087,74 @@ Gates: `golangci-lint run ./services/s3/...` (0 issues), `go test -race
 run to rule out flake), `go test ./services/...` (full suite, pass --
 `persistence.go` is shared infrastructure so blast radius was checked
 repo-wide even though the change is s3-local).
+
+## 2026-09-11: objectLambdaConfigs relocated off the handler (gopherstack-2bl)
+
+`object_lambda.go`'s `objectLambdaConfigs` map lived on `S3Handler` behind
+its own raw `sync.RWMutex` (`objectLambdaMu`), outside the backend's coarse
+`lockmetrics.RWMutex` every other sub-resource config uses. Relocated to a
+new `StoredBucket.ObjectLambdaConfig` string field, following the exact
+pattern `CORSConfig`/`Policy`/`LifecycleConfig`/etc. already use (see
+`cors.go`): `InMemoryBackend.SetObjectLambdaConfig`/`ObjectLambdaConfig` look
+the bucket up under `b.mu.RLock`, then read/write the field under the
+bucket's own `bucket.mu`. `S3Handler.SetObjectLambdaConfig` (the method
+`services/s3control`'s `ObjectLambdaConfigSink` interface requires) and the
+package-private `objectLambdaARN` helper are now thin delegations to the
+backend; the interface signature callers depend on is unchanged.
+
+This also fixes the unbounded-growth half of the same bug for free: the
+explicit `clearObjectLambdaConfig` call in `deleteBucket` (added by an
+earlier pass) is removed and not replaced with an equivalent, because it's
+no longer needed. `getBucket` already treats a `DeletePending` bucket as
+`ErrNoSuchBucket`, so `ObjectLambdaConfig` stops returning the value the
+instant `DeleteBucket` marks the record pending; once the janitor actually
+removes the record (or, in the interim, if a snapshot/restore cycle happens
+to run), the field is gone with it, and a bucket recreated under the same
+name gets a fresh zero-value `StoredBucket` like every other sub-resource
+config. Additive-only snapshot change (a new `omitempty` field on an
+already-plain-JSON struct) -- `s3SnapshotVersion` was NOT bumped, matching
+the doc comment's own criterion ("bump whenever a change would make an
+older snapshot unsafe to decode"); an old snapshot simply decodes the new
+field as "".
+
+**DeleteBucket + Object Lambda access point cascade -- investigated, no
+change needed.** Checked `aws-sdk-go-v2/service/s3control@v1.73.4`'s
+`api_op_DeleteAccessPointForObjectLambda.go` and
+`aws-sdk-go-v2/service/s3@v1.106.5`'s `api_op_DeleteBucket.go`: neither doc
+comment documents any precondition or cascade between a bucket and its
+access points (object-lambda or plain) in either direction -- `DeleteBucket`
+lists only the non-empty-bucket/in-progress-multipart-upload preconditions
+carried forward from the 2026-07-24 pass. `services/s3control`'s Object
+Lambda access-point *resource* (`objectLambdaAccessPoints`,
+`objectLambdaAPConfigs`/`objectLambdaAPPolicies`) is unaffected by
+`services/s3`'s `DeleteBucket` before or after this change -- the two
+backends were never wired to check each other on delete, and nothing found
+here indicates real S3 does either. Not fixed, because there is nothing to
+fix: match means doing nothing extra, not inventing a refusal or a cascade
+that isn't documented.
+
+**Multipart TTL -- already correct, re-confirmed, no change needed.**
+`janitor.go`'s `cleanupDefaultMultipart` (unconditional 24h floor) plus
+`janitor_lifecycle.go`'s per-rule `AbortIncompleteMultipartUpload`/
+`DaysAfterInitiation` handling (lines ~300-306) together already implement
+real S3's actual mechanism for this (a lifecycle rule, not a hardcoded
+per-service TTL) -- see the 2026-07-24 pass's gap-removal note above. s3 is
+`service.Purgeable` (`Purge` on `InMemoryBackend`, `store.go`), but that
+mechanism purges whole buckets by `CreationDate` for CI/test cleanup and is
+orthogonal to multipart-upload abandonment; the multipart-specific sweep
+correctly lives in the janitor, not `Purge`.
+
+New tests: `TestObjectLambdaConfig_BackendStorage` (table-driven: unknown
+bucket, no-op set on missing bucket, set/get round-trip, cleared on
+`DeleteBucket`), `TestObjectLambdaConfig_ConcurrentAccess` (concurrent
+Set/Get/DeleteBucket under `-race`), and a
+`TestInMemoryBackend_SnapshotRestore` table case
+(`object_lambda_config_round_trips`). All pre-existing object-lambda tests
+(`TestS3ObjectLambda_WriteGetObjectResponse*`,
+`TestS3ObjectLambda_ConfigClearedOnBucketDelete`,
+`TestObjectLambdaPendingRequestsClearedOnCtxCancel`) pass unmodified.
+
+Gates: `go build ./...` (whole module), `go vet ./services/s3/...`,
+`go test -race -count=1 ./services/s3/...` (pass), `go test -count=1
+./pkgs/persistence/...` (pass, unaffected), `golangci-lint run
+./services/s3/...` (0 issues).

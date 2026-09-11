@@ -6,9 +6,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -227,4 +230,122 @@ func TestS3ObjectLambda_ConfigClearedOnBucketDelete(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "plain content", rec.Body.String())
+}
+
+// TestObjectLambdaConfig_BackendStorage exercises InMemoryBackend's
+// SetObjectLambdaConfig/ObjectLambdaConfig directly -- the config now lives on
+// the bucket's own record under the backend's per-bucket lock (see cors.go for
+// the pattern), not a raw sync.RWMutex on the handler.
+func TestObjectLambdaConfig_BackendStorage(t *testing.T) {
+	t.Parallel()
+
+	const arn = "arn:aws:lambda:us-east-1:000000000000:function:transformer"
+
+	tests := []struct {
+		setup  func(t *testing.T, b *s3.InMemoryBackend)
+		name   string
+		bucket string
+		want   string
+	}{
+		{
+			name:   "returns empty for unknown bucket",
+			bucket: "unknown-bucket",
+			setup:  func(*testing.T, *s3.InMemoryBackend) {},
+			want:   "",
+		},
+		{
+			name:   "set is a no-op when the bucket does not exist",
+			bucket: "no-such-bucket",
+			setup: func(_ *testing.T, b *s3.InMemoryBackend) {
+				b.SetObjectLambdaConfig("no-such-bucket", arn)
+			},
+			want: "",
+		},
+		{
+			name:   "set then get round trips through the bucket record",
+			bucket: "object-lambda-store-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "object-lambda-store-bucket")
+				b.SetObjectLambdaConfig("object-lambda-store-bucket", arn)
+			},
+			want: arn,
+		},
+		{
+			name:   "deleting the bucket clears the config",
+			bucket: "object-lambda-clear-bucket",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "object-lambda-clear-bucket")
+				b.SetObjectLambdaConfig("object-lambda-clear-bucket", arn)
+
+				_, err := b.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{
+					Bucket: aws.String("object-lambda-clear-bucket"),
+				})
+				require.NoError(t, err)
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, backend := newTestHandler(t)
+			tt.setup(t, backend)
+
+			assert.Equal(t, tt.want, backend.ObjectLambdaConfig(tt.bucket))
+		})
+	}
+}
+
+// TestObjectLambdaConfig_ConcurrentAccess exercises concurrent
+// Set/Get/DeleteBucket against the same bucket name under -race, verifying the
+// per-bucket lockmetrics.RWMutex (not a raw handler-level mutex) protects
+// ObjectLambdaConfig from data races.
+func TestObjectLambdaConfig_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	_, backend := newTestHandler(t)
+	bucket := "object-lambda-race-bucket"
+	mustCreateBucket(t, backend, bucket)
+
+	const arn = "arn:aws:lambda:us-east-1:000000000000:function:transformer"
+
+	var wg sync.WaitGroup
+
+	const iterations = 200
+
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			backend.SetObjectLambdaConfig(bucket, arn)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			_ = backend.ObjectLambdaConfig(bucket)
+		}
+	}()
+
+	go func() {
+		defer wg.Done()
+
+		for range iterations {
+			// Deleting and recreating races against Set/Get above; only the
+			// absence of a data race is asserted, not the eventual value.
+			_, _ = backend.DeleteBucket(t.Context(), &sdk_s3.DeleteBucketInput{
+				Bucket: aws.String(bucket),
+			})
+		}
+	}()
+
+	wg.Wait()
 }
