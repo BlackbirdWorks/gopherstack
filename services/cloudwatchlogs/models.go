@@ -69,6 +69,27 @@ type OutputLogEvent struct {
 	Timestamp     int64  `json:"timestamp"`
 }
 
+// wireOutputLogEvent is OutputLogEvent's wire twin for GetLogEvents:
+// types.OutputLogEvent (cloudwatchlogs v1.86.0 types/types.go:2077-2091) has
+// no ptr member. Ptr MUST stay persisted on OutputLogEvent (do not retag it
+// json:"-") -- it is used internally as a GetLogRecord lookup key and as the
+// fallback source for FilterLogEvents' eventId (see filteredEventID in
+// log_events.go); the nil *struct{} here shadows the embedded field and,
+// with omitempty, drops the key from GetLogEvents' response only.
+type wireOutputLogEvent struct {
+	*OutputLogEvent
+	Ptr *struct{} `json:"ptr,omitempty"`
+}
+
+func toWireOutputLogEvents(events []OutputLogEvent) []wireOutputLogEvent {
+	out := make([]wireOutputLogEvent, len(events))
+	for i := range events {
+		out[i] = wireOutputLogEvent{OutputLogEvent: &events[i]}
+	}
+
+	return out
+}
+
 // FilteredLogEvent represents a single matched event returned by FilterLogEvents.
 // Unlike OutputLogEvent (used by GetLogEvents), it carries the originating log
 // stream name and a unique eventId, matching the AWS FilteredLogEvent shape.

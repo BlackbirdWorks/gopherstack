@@ -26,6 +26,28 @@ type ConfigurationRecorder struct {
 	Status             string              `json:"status,omitempty"` // PENDING or ACTIVE
 }
 
+// wireConfigurationRecorder is ConfigurationRecorder's wire twin for
+// DescribeConfigurationRecorders: types.ConfigurationRecorder (configservice
+// v1.68.4 types/types.go:1024-1146) has no status member -- recorder status
+// is only returned by the separate DescribeConfigurationRecorderStatus
+// operation via types.ConfigurationRecorderStatus (types/types.go:1178-1213).
+// Status MUST stay persisted on ConfigurationRecorder (do not retag it
+// json:"-"); the nil *struct{} here shadows the embedded field and, with
+// omitempty, drops the key.
+type wireConfigurationRecorder struct {
+	*ConfigurationRecorder
+	Status *struct{} `json:"status,omitempty"`
+}
+
+func toWireConfigurationRecorders(recorders []ConfigurationRecorder) []wireConfigurationRecorder {
+	out := make([]wireConfigurationRecorder, len(recorders))
+	for i := range recorders {
+		out[i] = wireConfigurationRecorder{ConfigurationRecorder: &recorders[i]}
+	}
+
+	return out
+}
+
 // ServiceLinkedRecorderLink tracks which AWS service principal owns a
 // service-linked configuration recorder, so
 // PutServiceLinkedConfigurationRecorder/DeleteServiceLinkedConfigurationRecorder
