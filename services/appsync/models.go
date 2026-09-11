@@ -298,8 +298,9 @@ type AdditionalAuthenticationProvider struct {
 // UpdateGraphqlApi all leaked a caller's real environment-variable values
 // into a response AWS never puts them in, once PutGraphqlApiEnvironmentVariables
 // had been called. Region/CreatedAt/UpdatedAt are also fabricated (not on the
-// real type either) but harmless (no customer data) and left on the wire,
-// disclosed rather than fixed -- see PARITY.md.
+// real type either, appsync v1.60.0 deserializers.go:15221, 22-case list);
+// gopherstack-z887j strips them from the wire too via wireGraphqlAPI below --
+// see PARITY.md.
 type GraphqlAPI struct {
 	URIs                              map[string]string                  `json:"uris"`
 	Tags                              *tags.Tags                         `json:"tags,omitempty"`
@@ -324,6 +325,36 @@ type GraphqlAPI struct {
 	QueryDepthLimit                   int32                              `json:"queryDepthLimit,omitempty"`
 	ResolverCountLimit                int32                              `json:"resolverCountLimit,omitempty"`
 	XrayEnabled                       bool                               `json:"xrayEnabled,omitempty"`
+}
+
+// wireGraphqlAPI is GraphqlAPI's wire twin for CreateGraphqlAPI,
+// GetGraphqlAPI, UpdateGraphqlAPI and ListGraphqlAPIs: types.GraphqlApi
+// (appsync v1.60.0 deserializers.go:15221, 22-case list) has no region,
+// createdAt or updatedAt member. All three MUST stay persisted on
+// GraphqlAPI (do not retag them json:"-"); the nil *struct{} fields here
+// shadow the embedded fields and, with omitempty, drop the keys.
+type wireGraphqlAPI struct {
+	*GraphqlAPI
+	Region    *struct{} `json:"region,omitempty"`
+	CreatedAt *struct{} `json:"createdAt,omitempty"`
+	UpdatedAt *struct{} `json:"updatedAt,omitempty"`
+}
+
+func toWireGraphqlAPI(api *GraphqlAPI) *wireGraphqlAPI {
+	if api == nil {
+		return nil
+	}
+
+	return &wireGraphqlAPI{GraphqlAPI: api}
+}
+
+func toWireGraphqlAPIs(apis []*GraphqlAPI) []*wireGraphqlAPI {
+	out := make([]*wireGraphqlAPI, len(apis))
+	for i, api := range apis {
+		out[i] = toWireGraphqlAPI(api)
+	}
+
+	return out
 }
 
 // GraphqlAPIConfig bundles optional auth/logging config for CreateGraphqlAPI and UpdateGraphqlAPI.

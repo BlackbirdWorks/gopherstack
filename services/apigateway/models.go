@@ -102,6 +102,34 @@ type Resource struct {
 	RestAPIID         string             `json:"-"`
 }
 
+// wireResource is Resource's wire twin for GetResource, GetResources,
+// CreateResource and UpdateResource: types.Resource (apigateway v1.42.4
+// deserializers.go:27457) has no corsConfiguration member -- CORS is an
+// HTTP-API (apigatewayv2) concept only. CorsConfiguration MUST stay
+// persisted on Resource (do not retag it json:"-"); the nil *struct{} here
+// shadows the embedded field and, with omitempty, drops the key.
+type wireResource struct {
+	*Resource
+	CorsConfiguration *struct{} `json:"corsConfiguration,omitempty"`
+}
+
+func toWireResource(r *Resource) *wireResource {
+	if r == nil {
+		return nil
+	}
+
+	return &wireResource{Resource: r}
+}
+
+func toWireResources(rs []Resource) []wireResource {
+	out := make([]wireResource, len(rs))
+	for i := range rs {
+		out[i] = wireResource{Resource: &rs[i]}
+	}
+
+	return out
+}
+
 // Method represents an API Gateway method on a resource.
 type Method struct {
 	RequestParameters  map[string]bool            `json:"requestParameters,omitempty"`
@@ -212,6 +240,39 @@ type Stage struct {
 	WebACLARN           string `json:"webAclArn,omitempty"`
 	TracingEnabled      bool   `json:"tracingEnabled,omitempty"`
 	CacheClusterEnabled bool   `json:"cacheClusterEnabled,omitempty"`
+}
+
+// wireStage is Stage's wire twin for GetStage, GetStages, CreateStage and
+// UpdateStage: types.Stage (apigateway v1.42.4 deserializers.go:27905, 17
+// cases) has no invokeUrl member. InvokeURL MUST stay persisted on Stage --
+// it is real gopherstack-UI-facing state, do not retag it json:"-" -- the
+// nil *struct{} here shadows the embedded field and, with omitempty, drops
+// the key. The real @aws-sdk/client-api-gateway UI consumer (getStages via
+// GetStagesCommand) already never sees this key regardless: its schema-driven
+// deserializer copies only schema-listed members out of the parsed body
+// (ui/node_modules/@aws-sdk/client-api-gateway dist-cjs/index.js Stage$'s 17-
+// member list has no invokeUrl either), so this fix changes nothing observable
+// there.
+type wireStage struct {
+	*Stage
+	InvokeURL *struct{} `json:"invokeUrl,omitempty"`
+}
+
+func toWireStage(s *Stage) *wireStage {
+	if s == nil {
+		return nil
+	}
+
+	return &wireStage{Stage: s}
+}
+
+func toWireStages(ss []Stage) []wireStage {
+	out := make([]wireStage, len(ss))
+	for i := range ss {
+		out[i] = wireStage{Stage: &ss[i]}
+	}
+
+	return out
 }
 
 // MethodSnapshot records one method's authorization settings as captured by

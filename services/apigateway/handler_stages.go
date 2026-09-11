@@ -55,7 +55,7 @@ func (h *Handler) createStageAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusCreated, stage, nil
+	return http.StatusCreated, toWireStage(stage), nil
 }
 
 func (h *Handler) updateStageAction(b []byte) (int, any, error) {
@@ -68,7 +68,7 @@ func (h *Handler) updateStageAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, stage, nil
+	return http.StatusOK, toWireStage(stage), nil
 }
 
 func (h *Handler) flushStageCacheAction(b []byte) (int, any, error) {
@@ -112,7 +112,7 @@ func (h *Handler) getStagesAction(b []byte) (int, any, error) {
 		stages = filtered
 	}
 
-	return http.StatusOK, map[string]any{keyItem: stages}, nil
+	return http.StatusOK, map[string]any{keyItem: toWireStages(stages)}, nil
 }
 
 func (h *Handler) getStageAction(b []byte) (int, any, error) {
@@ -125,7 +125,7 @@ func (h *Handler) getStageAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, stage, nil
+	return http.StatusOK, toWireStage(stage), nil
 }
 
 func (h *Handler) deleteStageAction(b []byte) (int, any, error) {
