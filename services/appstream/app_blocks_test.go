@@ -24,9 +24,15 @@ func TestAppStream_AppBlocks(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name:     "CreateAppBlock returns app block with ARN",
-			action:   "CreateAppBlock",
-			body:     map[string]any{"Name": "my-block", "Description": "test"},
+			name:   "CreateAppBlock returns app block with ARN",
+			action: "CreateAppBlock",
+			body: map[string]any{
+				"Name":             "my-block",
+				"Description":      "test",
+				"DisplayName":      "My Block",
+				"PackagingType":    "CUSTOM",
+				"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "my-block.zip"},
+			},
 			wantCode: http.StatusOK,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
@@ -36,6 +42,11 @@ func TestAppStream_AppBlocks(t *testing.T) {
 				assert.Equal(t, "my-block", ab["Name"])
 				assert.Contains(t, ab["Arn"], ":app-block/my-block")
 				assert.Equal(t, "INACTIVE", ab["State"])
+				assert.Equal(t, "My Block", ab["DisplayName"])
+				assert.Equal(t, "CUSTOM", ab["PackagingType"])
+				loc := ab["SourceS3Location"].(map[string]any)
+				assert.Equal(t, "appblock-bucket", loc["S3Bucket"])
+				assert.Equal(t, "my-block.zip", loc["S3Key"])
 			},
 		},
 		{
@@ -44,7 +55,10 @@ func TestAppStream_AppBlocks(t *testing.T) {
 			setup: func(h *appstream.Handler) {
 				createAppBlock(t, h, "dup-block")
 			},
-			body:     map[string]any{"Name": "dup-block"},
+			body: map[string]any{
+				"Name":             "dup-block",
+				"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "dup-block.zip"},
+			},
 			wantCode: http.StatusBadRequest,
 		},
 		{
@@ -286,7 +300,10 @@ func TestAppStream_AppBlockARNFormat(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	rec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "arn-appblock"})
+	rec := doRequest(t, h, "CreateAppBlock", map[string]any{
+		"Name":             "arn-appblock",
+		"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "arn-appblock.zip"},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -331,7 +348,10 @@ func TestAppStream_DeleteAppBlock_InUseByApplication(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
-		abRec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "inuse-block"})
+		abRec := doRequest(t, h, "CreateAppBlock", map[string]any{
+			"Name":             "inuse-block",
+			"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "inuse-block.zip"},
+		})
 		require.Equal(t, http.StatusOK, abRec.Code)
 
 		var abResp map[string]any

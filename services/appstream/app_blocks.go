@@ -20,26 +20,46 @@ const (
 )
 
 type storedAppBlock struct {
-	CreatedTime time.Time         `json:"createdTime"`
-	Tags        map[string]string `json:"tags"`
-	Name        string            `json:"name"`
-	Arn         string            `json:"arn"`
-	Description string            `json:"description"`
-	State       string            `json:"state"`
+	SetupScriptDetails     *ScriptDetails    `json:"setupScriptDetails,omitempty"`
+	PostSetupScriptDetails *ScriptDetails    `json:"postSetupScriptDetails,omitempty"`
+	CreatedTime            time.Time         `json:"createdTime"`
+	Tags                   map[string]string `json:"tags"`
+	SourceS3Location       S3Location        `json:"sourceS3Location"`
+	Name                   string            `json:"name"`
+	Arn                    string            `json:"arn"`
+	Description            string            `json:"description"`
+	DisplayName            string            `json:"displayName,omitempty"`
+	PackagingType          string            `json:"packagingType,omitempty"`
+	State                  string            `json:"state"`
 }
 
 func (a *storedAppBlock) toAppBlock() *AppBlock {
 	tags := make(map[string]string)
 	maps.Copy(tags, a.Tags)
 
-	return &AppBlock{
-		CreatedTime: a.CreatedTime,
-		Tags:        tags,
-		Name:        a.Name,
-		Arn:         a.Arn,
-		Description: a.Description,
-		State:       a.State,
+	ab := &AppBlock{
+		CreatedTime:      a.CreatedTime,
+		Tags:             tags,
+		SourceS3Location: a.SourceS3Location,
+		Name:             a.Name,
+		Arn:              a.Arn,
+		Description:      a.Description,
+		DisplayName:      a.DisplayName,
+		PackagingType:    a.PackagingType,
+		State:            a.State,
 	}
+
+	if a.SetupScriptDetails != nil {
+		sd := *a.SetupScriptDetails
+		ab.SetupScriptDetails = &sd
+	}
+
+	if a.PostSetupScriptDetails != nil {
+		sd := *a.PostSetupScriptDetails
+		ab.PostSetupScriptDetails = &sd
+	}
+
+	return ab
 }
 
 type storedAppBlockBuilder struct {
@@ -83,8 +103,14 @@ func (b *InMemoryBackend) appBlockBuilderARN(name string) string {
 	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("app-block-builder/%s", name))
 }
 
-// CreateAppBlock creates an app block.
-func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[string]string) (*AppBlock, error) {
+// CreateAppBlock creates an app block. SourceS3Location is required on the
+// real wire (api_op_CreateAppBlock.go); the handler rejects a request
+// without one before reaching here.
+func (b *InMemoryBackend) CreateAppBlock(name, description string, opts CreateAppBlockOptions) (*AppBlock, error) {
+	if opts.SourceS3Location.S3Bucket == "" {
+		return nil, fmt.Errorf("%w: SourceS3Location is required", awserr.ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateAppBlock")
 	defer b.mu.Unlock()
 
@@ -94,15 +120,20 @@ func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[stri
 
 	arn := b.appBlockARN(name)
 	storedTags := make(map[string]string)
-	maps.Copy(storedTags, tags)
+	maps.Copy(storedTags, opts.Tags)
 
 	ab := &storedAppBlock{
-		CreatedTime: time.Now().UTC(),
-		Tags:        storedTags,
-		Name:        name,
-		Arn:         arn,
-		Description: description,
-		State:       appBlockStateInactive,
+		CreatedTime:            time.Now().UTC(),
+		Tags:                   storedTags,
+		SourceS3Location:       opts.SourceS3Location,
+		Name:                   name,
+		Arn:                    arn,
+		Description:            description,
+		DisplayName:            opts.DisplayName,
+		PackagingType:          opts.PackagingType,
+		State:                  appBlockStateInactive,
+		SetupScriptDetails:     opts.SetupScriptDetails,
+		PostSetupScriptDetails: opts.PostSetupScriptDetails,
 	}
 	b.appBlocks.Put(ab)
 	b.tags[arn] = storedTags

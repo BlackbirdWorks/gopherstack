@@ -76,32 +76,57 @@ type storedImagePermissions struct {
 }
 
 type storedImageBuilder struct {
-	CreatedTime  time.Time         `json:"createdTime"`
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	Description  string            `json:"description"`
-	Platform     string            `json:"platform"`
-	InstanceType string            `json:"instanceType"`
-	State        string            `json:"state"`
-	ImageName    string            `json:"imageName"`
+	CreatedTime                 time.Time         `json:"createdTime"`
+	DisableIMDSV1               *bool             `json:"disableImdsv1,omitempty"`
+	RootVolumeConfig            *VolumeConfig     `json:"rootVolumeConfig,omitempty"`
+	Tags                        map[string]string `json:"tags"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	DomainJoinInfo              DomainJoinInfo    `json:"domainJoinInfo"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	Description                 string            `json:"description"`
+	Platform                    string            `json:"platform"`
+	InstanceType                string            `json:"instanceType"`
+	State                       string            `json:"state"`
+	ImageName                   string            `json:"imageName"`
+	IamRoleArn                  string            `json:"iamRoleArn,omitempty"`
+	AppstreamAgentVersion       string            `json:"appstreamAgentVersion,omitempty"`
+	VpcConfig                   VpcConfig         `json:"vpcConfig"`
+	AccessEndpoints             []AccessEndpoint  `json:"accessEndpoints,omitempty"`
 }
 
 func (ib *storedImageBuilder) toImageBuilder() *ImageBuilder {
 	tags := make(map[string]string)
 	maps.Copy(tags, ib.Tags)
 
-	return &ImageBuilder{
-		CreatedTime:  ib.CreatedTime,
-		Tags:         tags,
-		Name:         ib.Name,
-		Arn:          ib.Arn,
-		Description:  ib.Description,
-		Platform:     ib.Platform,
-		InstanceType: ib.InstanceType,
-		State:        ib.State,
-		ImageName:    ib.ImageName,
+	out := &ImageBuilder{
+		EnableDefaultInternetAccess: ib.EnableDefaultInternetAccess,
+		DisableIMDSV1:               ib.DisableIMDSV1,
+		CreatedTime:                 ib.CreatedTime,
+		Tags:                        tags,
+		VpcConfig: VpcConfig{
+			SecurityGroupIDs: append([]string(nil), ib.VpcConfig.SecurityGroupIDs...),
+			SubnetIDs:        append([]string(nil), ib.VpcConfig.SubnetIDs...),
+		},
+		DomainJoinInfo:        ib.DomainJoinInfo,
+		AccessEndpoints:       append([]AccessEndpoint(nil), ib.AccessEndpoints...),
+		Name:                  ib.Name,
+		Arn:                   ib.Arn,
+		Description:           ib.Description,
+		Platform:              ib.Platform,
+		InstanceType:          ib.InstanceType,
+		State:                 ib.State,
+		ImageName:             ib.ImageName,
+		IamRoleArn:            ib.IamRoleArn,
+		AppstreamAgentVersion: ib.AppstreamAgentVersion,
 	}
+
+	if ib.RootVolumeConfig != nil {
+		rvc := *ib.RootVolumeConfig
+		out.RootVolumeConfig = &rvc
+	}
+
+	return out
 }
 
 type storedExportImageTask struct {
@@ -422,7 +447,7 @@ func (b *InMemoryBackend) DescribeImagePermissions(
 // CreateImageBuilder creates a new image builder.
 func (b *InMemoryBackend) CreateImageBuilder(
 	name, description, platform, instanceType string,
-	tags map[string]string,
+	opts CreateImageBuilderOptions,
 ) (*ImageBuilder, error) {
 	if instanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
@@ -437,7 +462,7 @@ func (b *InMemoryBackend) CreateImageBuilder(
 
 	arn := b.imageBuilderARN(name)
 	storedTags := make(map[string]string)
-	maps.Copy(storedTags, tags)
+	maps.Copy(storedTags, opts.Tags)
 
 	plat := platform
 	if plat == "" {
@@ -445,14 +470,22 @@ func (b *InMemoryBackend) CreateImageBuilder(
 	}
 
 	ib := &storedImageBuilder{
-		CreatedTime:  time.Now().UTC(),
-		Tags:         storedTags,
-		Name:         name,
-		Arn:          arn,
-		Description:  description,
-		Platform:     plat,
-		InstanceType: instanceType,
-		State:        imageBuilderStateStopped,
+		EnableDefaultInternetAccess: opts.EnableDefaultInternetAccess,
+		DisableIMDSV1:               opts.DisableIMDSV1,
+		RootVolumeConfig:            opts.RootVolumeConfig,
+		CreatedTime:                 time.Now().UTC(),
+		Tags:                        storedTags,
+		VpcConfig:                   opts.VpcConfig,
+		DomainJoinInfo:              opts.DomainJoinInfo,
+		AccessEndpoints:             append([]AccessEndpoint(nil), opts.AccessEndpoints...),
+		Name:                        name,
+		Arn:                         arn,
+		Description:                 description,
+		Platform:                    plat,
+		InstanceType:                instanceType,
+		State:                       imageBuilderStateStopped,
+		IamRoleArn:                  opts.IamRoleArn,
+		AppstreamAgentVersion:       opts.AppstreamAgentVersion,
 	}
 	b.imageBuilders.Put(ib)
 	b.tags[arn] = storedTags
@@ -515,7 +548,7 @@ func (b *InMemoryBackend) DescribeImageBuilders(names []string) ([]*ImageBuilder
 // StartImageBuilderOutput carries only the ImageBuilder shape -- no streaming
 // URL; callers must fetch one separately via CreateImageBuilderStreamingURL.
 func (b *InMemoryBackend) StartImageBuilder(
-	name, appstreamAgentVersion string, //nolint:revive // existing issue.
+	name, appstreamAgentVersion string,
 ) error {
 	b.mu.Lock("StartImageBuilder")
 	defer b.mu.Unlock()
@@ -530,6 +563,10 @@ func (b *InMemoryBackend) StartImageBuilder(
 	}
 
 	ib.State = imageBuilderStateRunning
+
+	if appstreamAgentVersion != "" {
+		ib.AppstreamAgentVersion = appstreamAgentVersion
+	}
 
 	return nil
 }

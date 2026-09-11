@@ -11,10 +11,45 @@ import (
 
 // --- AppBlock handlers ---
 
+// scriptDetailsJSON mirrors appstream@v1.64.5 types.ScriptDetails's wire shape.
+type scriptDetailsJSON struct {
+	ScriptS3Location     *s3LocationJSON `json:"ScriptS3Location"`
+	ExecutablePath       string          `json:"ExecutablePath"`
+	ExecutableParameters string          `json:"ExecutableParameters"`
+	TimeoutInSeconds     int             `json:"TimeoutInSeconds"`
+}
+
+func (j *scriptDetailsJSON) toModel() *ScriptDetails {
+	if j == nil {
+		return nil
+	}
+
+	return &ScriptDetails{
+		ScriptS3Location:     j.ScriptS3Location.toModel(),
+		ExecutablePath:       j.ExecutablePath,
+		ExecutableParameters: j.ExecutableParameters,
+		TimeoutInSeconds:     j.TimeoutInSeconds,
+	}
+}
+
+func scriptDetailsToJSON(sd *ScriptDetails) map[string]any {
+	return map[string]any{
+		"ScriptS3Location":     s3LocationToJSON(sd.ScriptS3Location),
+		"ExecutablePath":       sd.ExecutablePath,
+		"ExecutableParameters": sd.ExecutableParameters,
+		"TimeoutInSeconds":     sd.TimeoutInSeconds,
+	}
+}
+
 type createAppBlockInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	Description string            `json:"Description"`
+	Tags                   map[string]string  `json:"Tags"`
+	SourceS3Location       *s3LocationJSON    `json:"SourceS3Location"`
+	SetupScriptDetails     *scriptDetailsJSON `json:"SetupScriptDetails"`
+	PostSetupScriptDetails *scriptDetailsJSON `json:"PostSetupScriptDetails"`
+	Name                   string             `json:"Name"`
+	Description            string             `json:"Description"`
+	DisplayName            string             `json:"DisplayName"`
+	PackagingType          string             `json:"PackagingType"`
 }
 
 func (h *Handler) opCreateAppBlock(_ context.Context, body []byte) (any, error) {
@@ -23,7 +58,14 @@ func (h *Handler) opCreateAppBlock(_ context.Context, body []byte) (any, error) 
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	ab, err := h.Backend.CreateAppBlock(req.Name, req.Description, req.Tags)
+	ab, err := h.Backend.CreateAppBlock(req.Name, req.Description, CreateAppBlockOptions{
+		Tags:                   req.Tags,
+		SourceS3Location:       req.SourceS3Location.toModel(),
+		DisplayName:            req.DisplayName,
+		PackagingType:          req.PackagingType,
+		SetupScriptDetails:     req.SetupScriptDetails.toModel(),
+		PostSetupScriptDetails: req.PostSetupScriptDetails.toModel(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -311,14 +353,32 @@ func (h *Handler) opDescribeAppBlockBuilderAppBlockAssociations(_ context.Contex
 // --- Response helpers ---
 
 func appBlockToResponse(ab *AppBlock) map[string]any {
-	return map[string]any{
-		"Name":        ab.Name,        //nolint:goconst // existing issue.
-		"Arn":         ab.Arn,         //nolint:goconst // existing issue.
-		"Description": ab.Description, //nolint:goconst // existing issue.
-		"State":       ab.State,
-		"CreatedTime": awstime.Epoch(ab.CreatedTime), //nolint:goconst // existing issue.
-		keyTags:       ab.Tags,
+	resp := map[string]any{
+		"Name":             ab.Name,        //nolint:goconst // existing issue.
+		"Arn":              ab.Arn,         //nolint:goconst // existing issue.
+		"Description":      ab.Description, //nolint:goconst // existing issue.
+		"State":            ab.State,
+		"CreatedTime":      awstime.Epoch(ab.CreatedTime), //nolint:goconst // existing issue.
+		"SourceS3Location": s3LocationToJSON(ab.SourceS3Location),
 	}
+
+	if ab.DisplayName != "" {
+		resp["DisplayName"] = ab.DisplayName
+	}
+
+	if ab.PackagingType != "" {
+		resp["PackagingType"] = ab.PackagingType
+	}
+
+	if ab.SetupScriptDetails != nil {
+		resp["SetupScriptDetails"] = scriptDetailsToJSON(ab.SetupScriptDetails)
+	}
+
+	if ab.PostSetupScriptDetails != nil {
+		resp["PostSetupScriptDetails"] = scriptDetailsToJSON(ab.PostSetupScriptDetails)
+	}
+
+	return resp
 }
 
 func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {

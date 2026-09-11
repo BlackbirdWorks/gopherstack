@@ -17,6 +17,8 @@ type storedApplication struct {
 	Description      string            `json:"description"`
 	LaunchPath       string            `json:"launchPath"`
 	AppBlockArn      string            `json:"appBlockArn"`
+	LaunchParameters string            `json:"launchParameters,omitempty"`
+	WorkingDirectory string            `json:"workingDirectory,omitempty"`
 	Platforms        []string          `json:"platforms"`
 	IconS3Location   S3Location        `json:"iconS3Location"`
 	InstanceFamilies []string          `json:"instanceFamilies"`
@@ -42,8 +44,13 @@ func (a *storedApplication) toApplication() *Application {
 		Description:      a.Description,
 		LaunchPath:       a.LaunchPath,
 		AppBlockArn:      a.AppBlockArn,
+		LaunchParameters: a.LaunchParameters,
+		WorkingDirectory: a.WorkingDirectory,
 		IconS3Location:   a.IconS3Location,
 		InstanceFamilies: instanceFamilies,
+		// Enabled is always true: no code path in this backend ever
+		// disables an application (see Application's doc comment).
+		Enabled: true,
 	}
 }
 
@@ -60,7 +67,7 @@ func (b *InMemoryBackend) applicationARN(name string) string {
 func (b *InMemoryBackend) CreateApplication(
 	name, displayName, description, launchPath, appBlockArn string,
 	platforms []string, iconS3Location S3Location, instanceFamilies []string,
-	tags map[string]string,
+	tags map[string]string, launchParameters, workingDirectory string,
 ) (*Application, error) {
 	if iconS3Location.S3Bucket == "" || iconS3Location.S3Key == "" {
 		return nil, fmt.Errorf("%w: IconS3Location is required", ErrSerialization)
@@ -97,6 +104,8 @@ func (b *InMemoryBackend) CreateApplication(
 		Description:      description,
 		LaunchPath:       launchPath,
 		AppBlockArn:      appBlockArn,
+		LaunchParameters: launchParameters,
+		WorkingDirectory: workingDirectory,
 		IconS3Location:   iconS3Location,
 		InstanceFamilies: families,
 	}
@@ -172,7 +181,9 @@ func (b *InMemoryBackend) DescribeApplications(arns []string) ([]*Application, e
 }
 
 // UpdateApplication updates mutable application fields.
-func (b *InMemoryBackend) UpdateApplication(name, displayName, description, launchPath string) (*Application, error) {
+func (b *InMemoryBackend) UpdateApplication(
+	name, displayName, description, launchPath, launchParameters, workingDirectory string,
+) (*Application, error) {
 	b.mu.Lock("UpdateApplication")
 	defer b.mu.Unlock()
 
@@ -191,6 +202,14 @@ func (b *InMemoryBackend) UpdateApplication(name, displayName, description, laun
 
 	if launchPath != "" {
 		app.LaunchPath = launchPath
+	}
+
+	if launchParameters != "" {
+		app.LaunchParameters = launchParameters
+	}
+
+	if workingDirectory != "" {
+		app.WorkingDirectory = workingDirectory
 	}
 
 	return app.toApplication(), nil

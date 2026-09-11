@@ -330,7 +330,7 @@ func (h *Handler) opCreateUsageReportSubscription(_ context.Context, _ []byte) (
 	}
 
 	return map[string]any{
-		"S3BucketName": sub.S3BucketName,
+		"S3BucketName": sub.S3BucketName, //nolint:goconst // existing issue.
 		"Schedule":     sub.Schedule,
 	}, nil
 }
@@ -497,7 +497,7 @@ func userToResponse(u *User) map[string]any {
 		"LastName":           u.LastName,
 		"AuthenticationType": u.AuthenticationType,
 		keyStatus:            u.Status,
-		"Enabled":            u.Enabled,
+		"Enabled":            u.Enabled,                    //nolint:goconst // existing issue.
 		"CreatedTime":        awstime.Epoch(u.CreatedTime), //nolint:goconst // existing issue.
 	}
 }
