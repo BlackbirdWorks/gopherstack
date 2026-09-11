@@ -148,8 +148,9 @@ type Connection struct {
 	Bandwidth         string
 	Location          string
 	Region            string
-	// LagID is set when this connection is a member of a LAG (via CreateLag
-	// or AssociateConnectionWithLag).
+	// LagID is set when this connection is a member of a LAG -- via CreateLag,
+	// AssociateConnectionWithLag, or as a hosted connection's parent (via
+	// AllocateHostedConnection/AssociateHostedConnection; see resolveHostLocked).
 	LagID                string
 	OwnerAccount         string
 	ProviderName         string
@@ -159,14 +160,17 @@ type Connection struct {
 	HasLogicalRedundancy string
 	EncryptionMode       string
 	PortEncryptionStatus string
-	// InterconnectID is set for a connection allocated via
-	// AllocateConnectionOnInterconnect -- the parent Interconnect it rides
-	// on. Empty for a standard connection.
+	// InterconnectID is the parent Interconnect this connection rides on, set
+	// via AllocateConnectionOnInterconnect or a hosted connection allocated/
+	// associated onto an Interconnect (AllocateHostedConnection/
+	// AssociateHostedConnection; see resolveHostLocked). Empty for a standard
+	// connection. Mutually exclusive with LagID/ParentConnectionID -- exactly
+	// one of the three is set for a hosted connection (gopherstack-41bv6).
 	InterconnectID string
-	// ParentConnectionID is set for a connection allocated via
-	// AllocateHostedConnection onto an existing standard Connection (as
-	// opposed to a LAG, tracked via LagID, or an Interconnect, tracked via
-	// InterconnectID) and reassignable via AssociateHostedConnection.
+	// ParentConnectionID is set for a connection allocated onto an existing
+	// standard Connection (as opposed to a LAG, tracked via LagID, or an
+	// Interconnect, tracked via InterconnectID) via AllocateHostedConnection,
+	// and reassignable among all three kinds via AssociateHostedConnection.
 	ParentConnectionID               string
 	MacSecKeys                       []*MacSecKey
 	Vlan                             int32

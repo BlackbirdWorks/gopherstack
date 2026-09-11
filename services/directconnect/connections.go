@@ -76,20 +76,53 @@ func (b *InMemoryBackend) CreateConnection(req *createConnectionRequest) (*Conne
 	return c.clone(), nil
 }
 
-// resolveHostLocked resolves a "hosting connection or LAG" id (per
-// AllocateHostedConnection/AssociateHostedConnection's shared doc comment)
-// to whichever kind it names, reporting which via isLag. Callers must hold
-// b.mu.
-func (b *InMemoryBackend) resolveHostLocked(id string) (bool, bool) {
+// hostKind identifies which resource kind a hosted connection's parent
+// names -- a connection, a LAG, or an interconnect (AWS's own doc comments
+// for AllocateHostedConnection/AssociateHostedConnection name only
+// "interconnect or LAG", but this emulator also accepts a plain Connection,
+// matching AllocateConnectionOnInterconnect's sibling flow -- see
+// gopherstack-41bv6).
+type hostKind int
+
+const (
+	hostKindConnection hostKind = iota
+	hostKindLag
+	hostKindInterconnect
+)
+
+// resolveHostLocked resolves a "connection, LAG, or interconnect" id (per
+// resourceHostParent) to whichever kind it names. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveHostLocked(id string) (hostKind, bool) {
 	if _, found := b.lags.Get(id); found {
-		return true, true
+		return hostKindLag, true
+	}
+
+	if _, found := b.interconnects.Get(id); found {
+		return hostKindInterconnect, true
 	}
 
 	if _, found := b.connections.Get(id); found {
-		return false, true
+		return hostKindConnection, true
 	}
 
-	return false, false
+	return hostKindConnection, false
+}
+
+// setHostParentLocked clears c's parent fields and sets the one matching
+// kind to parentID. Callers must hold b.mu.
+func setHostParentLocked(c *Connection, kind hostKind, parentID string) {
+	c.LagID = ""
+	c.InterconnectID = ""
+	c.ParentConnectionID = ""
+
+	switch kind {
+	case hostKindLag:
+		c.LagID = parentID
+	case hostKindInterconnect:
+		c.InterconnectID = parentID
+	case hostKindConnection:
+		c.ParentConnectionID = parentID
+	}
 }
 
 // AllocateConnectionOnInterconnect creates a Connection hosted on an
@@ -136,7 +169,9 @@ func (b *InMemoryBackend) locationOfInterconnectLocked(id string) string {
 }
 
 // AllocateHostedConnection creates a Connection hosted on an existing
-// Connection or LAG for a named end-customer OwnerAccount.
+// Connection, LAG, or Interconnect (api_op_AllocateHostedConnection.go:49:
+// "The ID of the interconnect or LAG" -- resolveHostLocked additionally
+// accepts a plain Connection) for a named end-customer OwnerAccount.
 func (b *InMemoryBackend) AllocateHostedConnection(req *allocateHostedConnectionRequest) (*Connection, error) {
 	if req.Bandwidth == "" || req.ConnectionID == "" || req.ConnectionName == "" || req.OwnerAccount == "" {
 		return nil, clientError("bandwidth, connectionId, connectionName, and ownerAccount are required")
@@ -149,9 +184,9 @@ func (b *InMemoryBackend) AllocateHostedConnection(req *allocateHostedConnection
 	b.mu.Lock("AllocateHostedConnection")
 	defer b.mu.Unlock()
 
-	isLag, ok := b.resolveHostLocked(req.ConnectionID)
+	kind, ok := b.resolveHostLocked(req.ConnectionID)
 	if !ok {
-		return nil, notFoundError(resourceConnection, req.ConnectionID)
+		return nil, notFoundError(resourceHostParent, req.ConnectionID)
 	}
 
 	id := newConnectionID()
@@ -168,12 +203,7 @@ func (b *InMemoryBackend) AllocateHostedConnection(req *allocateHostedConnection
 		Vlan:            req.Vlan,
 		Tags:            t,
 	}
-
-	if isLag {
-		c.LagID = req.ConnectionID
-	} else {
-		c.ParentConnectionID = req.ConnectionID
-	}
+	setHostParentLocked(c, kind, req.ConnectionID)
 
 	b.connections.Put(c)
 
@@ -181,7 +211,9 @@ func (b *InMemoryBackend) AllocateHostedConnection(req *allocateHostedConnection
 }
 
 // AssociateHostedConnection reassigns an already-hosted connection to a
-// different parent connection or LAG.
+// different parent connection, LAG, or interconnect
+// (api_op_AssociateHostedConnection.go:39: "The ID of the interconnect or
+// the LAG" -- resolveHostLocked additionally accepts a plain Connection).
 func (b *InMemoryBackend) AssociateHostedConnection(req *associateHostedConnectionRequest) (*Connection, error) {
 	if req.ConnectionID == "" || req.ParentConnectionID == "" {
 		return nil, clientError("connectionId and parentConnectionId are required")
@@ -195,18 +227,12 @@ func (b *InMemoryBackend) AssociateHostedConnection(req *associateHostedConnecti
 		return nil, notFoundError(resourceConnection, req.ConnectionID)
 	}
 
-	isLag, ok := b.resolveHostLocked(req.ParentConnectionID)
+	kind, ok := b.resolveHostLocked(req.ParentConnectionID)
 	if !ok {
-		return nil, notFoundError(resourceConnection, req.ParentConnectionID)
+		return nil, notFoundError(resourceHostParent, req.ParentConnectionID)
 	}
 
-	if isLag {
-		c.LagID = req.ParentConnectionID
-		c.ParentConnectionID = ""
-	} else {
-		c.ParentConnectionID = req.ParentConnectionID
-		c.LagID = ""
-	}
+	setHostParentLocked(c, kind, req.ParentConnectionID)
 
 	return c.clone(), nil
 }
@@ -257,7 +283,12 @@ func (b *InMemoryBackend) DescribeConnections(connectionID string) []*Connection
 }
 
 // DescribeHostedConnections returns the hosted (child) connections riding
-// on the given hosting connection or LAG.
+// on the given hosting connection, LAG, or interconnect
+// (api_op_DescribeHostedConnections.go:15-16: "Lists the hosted connections
+// that have been provisioned on the specified interconnect or link
+// aggregation group (LAG)" -- gopherstack-41bv6: a connection allocated via
+// AllocateConnectionOnInterconnect, which only sets InterconnectID, must
+// match here too).
 func (b *InMemoryBackend) DescribeHostedConnections(hostID string) []*Connection {
 	b.mu.RLock("DescribeHostedConnections")
 	defer b.mu.RUnlock()
@@ -265,7 +296,7 @@ func (b *InMemoryBackend) DescribeHostedConnections(hostID string) []*Connection
 	var out []*Connection
 
 	for _, c := range b.connections.Snapshot() {
-		if c.ParentConnectionID == hostID || (hostID != "" && c.LagID == hostID) {
+		if hostID != "" && (c.ParentConnectionID == hostID || c.LagID == hostID || c.InterconnectID == hostID) {
 			out = append(out, c.clone())
 		}
 	}
@@ -274,7 +305,10 @@ func (b *InMemoryBackend) DescribeHostedConnections(hostID string) []*Connection
 }
 
 // DescribeConnectionsOnInterconnect returns the connections allocated on
-// the given interconnect.
+// the given interconnect -- deprecated in the SDK in favor of
+// DescribeHostedConnections (api_op_DescribeConnectionsOnInterconnect.go:15:
+// "Deprecated. Use DescribeHostedConnections instead."), kept consistent
+// with it here since both read the same InterconnectID field.
 func (b *InMemoryBackend) DescribeConnectionsOnInterconnect(interconnectID string) []*Connection {
 	b.mu.RLock("DescribeConnectionsOnInterconnect")
 	defer b.mu.RUnlock()
