@@ -43,6 +43,11 @@ type InMemoryBackend struct {
 	snsUnsubscribe func()
 	janitorStop    chan struct{}
 	mu             *lockmetrics.RWMutex
+	// nowFunc is the backend's time source for FIFO throughput rate limiting
+	// (see checkFIFOPerQueueRateLimit / checkFIFOPerGroupRateLimit), overridable
+	// in tests via export_test.go's SetNowFunc for deterministic windows without
+	// real sleeps. Defaults to time.Now.
+	nowFunc func() time.Time
 	// recentlyDeleted maps a queueKey(region, name) to the time DeleteQueue was
 	// called for it, so CreateQueue can enforce AWS's 60-second
 	// wait-before-recreate rule (ErrQueueDeletedRecently). Guarded by b.mu, the
@@ -115,6 +120,7 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 		mu:              lockmetrics.New("sqs"),
 		svcCtx:          svcCtx,
 		recentlyDeleted: make(map[string]time.Time),
+		nowFunc:         time.Now,
 	}
 
 	b.queues = store.Register(b.registry, "queues", store.New(queueTableKey))
@@ -123,6 +129,11 @@ func NewInMemoryBackendWithContext(svcCtx context.Context, accountID, region str
 	b.startJanitor()
 
 	return b
+}
+
+// now returns the backend's current time, via nowFunc.
+func (b *InMemoryBackend) now() time.Time {
+	return b.nowFunc()
 }
 
 // Close stops the background janitor goroutine and releases associated

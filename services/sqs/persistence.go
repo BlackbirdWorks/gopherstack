@@ -24,7 +24,7 @@ const sqsSnapshotVersion = 2
 // separate DTO (rather than JSON tags directly on Queue) because Queue also
 // carries live, non-serialisable state — an open notify channel, a mutex, a
 // self-referential dlq pointer rebuilt post-restore from RedrivePolicy, and
-// short-lived caches (fifoSendTimes, receiveAttempts) — that must never be
+// short-lived caches (fifoSendTimes, fifoSendTimesQueue, receiveAttempts) — that must never be
 // part of an on-disk snapshot.
 type queueSnapshot struct {
 	DeduplicationIDs    map[string]time.Time             `json:"deduplicationIDs"`
