@@ -527,7 +527,6 @@ func TestCloudTrailListOperationsSmoke(t *testing.T) {
 		"ListEventDataStores",
 		"ListChannels",
 		"ListDashboards",
-		"ListQueries",
 		"ListImports",
 	}
 
@@ -536,8 +535,23 @@ func TestCloudTrailListOperationsSmoke(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rec.Code, "op %s should return 200", op)
 
 		var m map[string]any
-		assert.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
+		require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
 	}
+
+	// ListQueries takes EventDataStore as required input (real
+	// ListQueriesInput, cloudtrail@v1.58.4 api_op_ListQueries.go:38-41) --
+	// unlike the other ops above, it cannot be smoke-tested with an empty
+	// body.
+	edsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "smoke-eds"})
+	require.Equal(t, http.StatusOK, edsRec.Code)
+	edsARN, _ := parseCloudTrailResp(t, edsRec)["EventDataStoreArn"].(string)
+	require.NotEmpty(t, edsARN)
+
+	rec := doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": edsARN})
+	assert.Equal(t, http.StatusOK, rec.Code, "op ListQueries should return 200")
+
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&m))
 }
 
 // TestCloudTrailAncillaryOperationsSmoke covers ancillary read-only handlers

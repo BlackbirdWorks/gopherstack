@@ -124,12 +124,13 @@ func (b *InMemoryBackend) GetQueryResults(queryID string) (*Query, error) {
 
 // materializeQueryLocked lazily executes a QUEUED query's SQL against the
 // backend's recorded events (see query_exec.go), storing the resulting rows
-// and scan statistics on q and transitioning it to FINISHED. Queries are
-// deliberately left un-executed by StartQuery (mirroring AWS's async
-// QUEUED->RUNNING->FINISHED lifecycle) so a query started and immediately
-// cancelled is still cancellable -- only the first read (GetQueryResults or
-// DescribeQuery) triggers execution. A no-op for queries already in a
-// terminal state (e.g. CANCELLED before ever being read).
+// and scan statistics on q and transitioning it to FINISHED (or FAILED, with
+// ErrorMessage populated, for a query outside the supported SQL subset).
+// Queries are deliberately left un-executed by StartQuery (mirroring AWS's
+// async QUEUED->RUNNING->FINISHED lifecycle) so a query started and
+// immediately cancelled is still cancellable -- only the first read
+// (GetQueryResults or DescribeQuery) triggers execution. A no-op for queries
+// already in a terminal state (e.g. CANCELLED before ever being read).
 // Must be called with b.mu held for writing.
 func (b *InMemoryBackend) materializeQueryLocked(q *Query) {
 	if q.QueryStatus != "QUEUED" {
@@ -137,13 +138,14 @@ func (b *InMemoryBackend) materializeQueryLocked(q *Query) {
 	}
 
 	start := time.Now()
-	rows, stats := executeLakeQuery(q.QueryString, b.events)
+	rows, stats, status, errMsg := executeLakeQuery(q.QueryString, b.events)
 	q.QueryResultRows = rows
 	q.EventsScanned = stats.eventsScanned
 	q.EventsMatched = stats.eventsMatched
 	q.BytesScanned = stats.bytesScanned
 	q.ExecutionTimeInMillis = clampToInt32Millis(time.Since(start).Milliseconds())
-	q.QueryStatus = "FINISHED"
+	q.QueryStatus = status
+	q.ErrorMessage = errMsg
 }
 
 // clampToInt32Millis narrows a millisecond duration to int32

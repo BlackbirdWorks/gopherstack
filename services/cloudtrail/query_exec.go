@@ -17,30 +17,34 @@ import (
 // log regardless of which event data store its FROM clause names.
 //
 // Supported grammar (case-insensitive, single statement, no trailing
-// semicolon required):
+// semicolon required; see query_lex.go/query_parse.go/query_where.go):
 //
-//	SELECT <* | col[, col...]> FROM <event-data-store>
-//	  [WHERE <col> [!]= <'value'|value> [AND <col> [!]= <'value'|value>]...]
+//	SELECT <* | item[, item...]> FROM <event-data-store> [AS alias]
+//	  [WHERE <bool-expr>]
+//	  [GROUP BY col[, col...]]
 //	  [LIMIT <n>]
 //
-// Anything outside that subset (joins, aggregates, GROUP BY, subqueries,
-// OR, LIKE, ...) is not an error -- real Lake SQL is a large surface, and
-// StartQuery/GetQueryResults must not reject syntactically valid queries
-// just because this emulator can't interpret them. Such statements still
-// "run" (QueryStatus reaches FINISHED) but yield zero rows, which is the
-// same documented-simplification pattern PARITY.md already used for
-// "GetQueryResults always empty" before this pass -- now narrowed to only
-// the genuinely-unsupported subset instead of every query.
+//	item      := col [AS alias] | COUNT(* | col) [AS alias]
+//	bool-expr := bool-expr OR bool-expr
+//	           | bool-expr AND bool-expr
+//	           | NOT bool-expr
+//	           | ( bool-expr )
+//	           | col (=|!=|<>) value
+//	           | col [NOT] LIKE 'pattern'
+//	           | col [NOT] IN (value[, value...])
+//
+// Anything outside that subset -- joins/set operations across event data
+// stores (real CloudTrail Lake feature, genuinely large: see
+// query_parse.go's parseFromTarget), SUM/AVG/MIN/MAX, subqueries, HAVING,
+// ORDER BY, DISTINCT, and any other syntactically-valid-but-unhandled SQL --
+// is a genuine query failure: the query reaches QueryStatus FAILED with a
+// populated ErrorMessage (DescribeQueryOutput.ErrorMessage /
+// GetQueryResultsOutput.ErrorMessage; QueryStatus has a documented FAILED
+// value -- cloudtrail@v1.58.4 api_op_DescribeQuery.go:69,
+// types/enums.go:384), never a silent empty FINISHED result.
 const defaultQueryRowLimit = 1000
 
-var (
-	queryFromRe = regexp.MustCompile(`(?is)\bFROM\s+([^\s,;()]+)`)
-	queryFullRe = regexp.MustCompile(
-		`(?is)^\s*SELECT\s+(.+?)\s+FROM\s+([^\s;]+)(?:\s+WHERE\s+(.+?))?(?:\s+LIMIT\s+(\d+))?\s*;?\s*$`,
-	)
-	queryAndRe  = regexp.MustCompile(`(?i)\s+AND\s+`)
-	queryCondRe = regexp.MustCompile(`^\s*([A-Za-z0-9_.]+)\s*(!=|<>|=)\s*(?:'([^']*)'|"([^"]*)"|(\S+))\s*$`)
-)
+var queryFromRe = regexp.MustCompile(`(?is)\bFROM\s+([^\s,;()]+)`)
 
 // queryTrimSet is the set of characters trimmed off a bare identifier or
 // value token (quotes/backticks/trailing semicolon).
@@ -50,7 +54,11 @@ const queryTrimSet = "\"'`;"
 // CloudTrail Lake SQL statement (case-insensitive), or "" if none is found.
 // Used by StartQuery to resolve which event data store a query targets
 // without relying on a gopherstack-invented "EventDataStore" wire field (the
-// real StartQueryInput has none -- the target is embedded in the SQL itself).
+// real StartQueryInput has none -- the target is embedded in the SQL
+// itself). Deliberately independent of the stricter grammar parser below:
+// StartQuery must still resolve a target event data store for a query this
+// emulator can't otherwise execute (e.g. a JOIN), since that query is only
+// discovered to be unsupported later, lazily, at first read.
 func extractQueryFromTarget(stmt string) string {
 	m := queryFromRe.FindStringSubmatch(stmt)
 	if m == nil {
@@ -58,120 +66,6 @@ func extractQueryFromTarget(stmt string) string {
 	}
 
 	return strings.Trim(m[1], queryTrimSet)
-}
-
-// queryCondition is a single WHERE comparison: column (=|!=) value.
-type queryCondition struct {
-	column string
-	value  string
-	negate bool
-}
-
-// parsedLakeQuery is a successfully parsed statement in the supported subset.
-type parsedLakeQuery struct {
-	columns []string // nil means "*" (all columns)
-	where   []queryCondition
-	limit   int // 0 means "use defaultQueryRowLimit"
-}
-
-// parseLakeQuery attempts to parse stmt against the supported grammar. The
-// second return is false for anything outside that subset.
-func parseLakeQuery(stmt string) (parsedLakeQuery, bool) {
-	m := queryFullRe.FindStringSubmatch(stmt)
-	if m == nil {
-		return parsedLakeQuery{}, false
-	}
-
-	where, whereOK := parseWhereClause(m[3])
-	if !whereOK {
-		return parsedLakeQuery{}, false
-	}
-
-	pq := parsedLakeQuery{
-		columns: parseSelectColumns(m[1]),
-		where:   where,
-		limit:   parseLimitClause(m[4]),
-	}
-
-	return pq, true
-}
-
-// parseSelectColumns splits a SELECT column list ("*" or "col1, col2, ...")
-// into individual (trimmed, unquoted) column names. Returns nil for "*".
-func parseSelectColumns(colsStr string) []string {
-	cols := strings.TrimSpace(colsStr)
-	if cols == "*" {
-		return nil
-	}
-
-	var columns []string
-	for c := range strings.SplitSeq(cols, ",") {
-		columns = append(columns, strings.Trim(strings.TrimSpace(c), queryTrimSet))
-	}
-
-	return columns
-}
-
-// parseWhereClause splits a WHERE clause's ANDed conditions into
-// queryConditions. The second return is false if any clause falls outside
-// the supported single-quoted/bare-value equality subset (e.g. LIKE, OR,
-// nested parens) -- the caller treats the whole statement as unsupported
-// rather than guessing.
-func parseWhereClause(whereStr string) ([]queryCondition, bool) {
-	where := strings.TrimSpace(whereStr)
-	if where == "" {
-		return nil, true
-	}
-
-	var conds []queryCondition
-
-	for _, clause := range queryAndRe.Split(where, -1) {
-		cond, condOK := parseWhereCondition(clause)
-		if !condOK {
-			return nil, false
-		}
-
-		conds = append(conds, cond)
-	}
-
-	return conds, true
-}
-
-// parseWhereCondition parses a single "<col> [!]= <'value'|value>" clause.
-func parseWhereCondition(clause string) (queryCondition, bool) {
-	cm := queryCondRe.FindStringSubmatch(clause)
-	if cm == nil {
-		return queryCondition{}, false
-	}
-
-	value := cm[3]
-	if value == "" && cm[4] != "" {
-		value = cm[4]
-	}
-	if value == "" && cm[5] != "" {
-		value = cm[5]
-	}
-
-	return queryCondition{
-		column: strings.ToLower(cm[1]),
-		negate: cm[2] == "!=" || cm[2] == "<>",
-		value:  value,
-	}, true
-}
-
-// parseLimitClause parses an optional "LIMIT n" capture group. Returns 0
-// (meaning "use defaultQueryRowLimit") if absent or invalid.
-func parseLimitClause(limitStr string) int {
-	if limitStr == "" {
-		return 0
-	}
-
-	n, err := strconv.Atoi(limitStr)
-	if err != nil || n <= 0 {
-		return 0
-	}
-
-	return n
 }
 
 // eventToRow flattens an Event (its top-level fields plus the parsed
@@ -233,42 +127,9 @@ func flattenJSONInto(row map[string]string, prefix string, obj map[string]any) {
 	}
 }
 
-// rowMatchesWhere reports whether row satisfies every (ANDed) condition.
-func rowMatchesWhere(row map[string]string, conds []queryCondition) bool {
-	for _, c := range conds {
-		match := row[c.column] == c.value
-		if match == c.negate {
-			return false
-		}
-	}
-
-	return true
-}
-
-// projectRow renders row as the AWS QueryResultRows shape: a slice of
-// single-key {columnName: value} maps, one per selected column. cols nil
-// means "*" -- every column present on the row, in a deterministic order.
-func projectRow(row map[string]string, cols []string) []map[string]string {
-	names := cols
-	if names == nil {
-		names = make([]string, 0, len(row))
-		for k := range row {
-			names = append(names, k)
-		}
-
-		sortStrings(names)
-	}
-
-	out := make([]map[string]string, 0, len(names))
-	for _, name := range names {
-		out = append(out, map[string]string{name: row[strings.ToLower(name)]})
-	}
-
-	return out
-}
-
 // sortStrings is a tiny insertion sort to avoid importing "sort" solely for
-// a handful of column names (called once per result row's "*" projection).
+// a handful of column/group-key names (called once per query execution's
+// output ordering, not per row).
 func sortStrings(s []string) {
 	for i := 1; i < len(s); i++ {
 		for j := i; j > 0 && s[j-1] > s[j]; j-- {
@@ -285,40 +146,170 @@ type queryExecStats struct {
 	bytesScanned  int64
 }
 
-// executeLakeQuery runs stmt against events, returning the full (unpaginated,
-// un-LIMIT-truncated beyond defaultQueryRowLimit as a safety cap) result set
-// and scan statistics. Called with the backend lock held (see
-// materializeQueryLocked).
-func executeLakeQuery(stmt string, events []Event) ([][]map[string]string, queryExecStats) {
+// executeLakeQuery runs stmt against events, returning the result rows,
+// scan statistics, the resulting QueryStatus ("FINISHED" or "FAILED"), and
+// an ErrorMessage (non-empty only when FAILED). Called with the backend
+// lock held (see materializeQueryLocked).
+func executeLakeQuery(stmt string, events []Event) ([][]map[string]string, queryExecStats, string, string) {
 	stats := queryExecStats{eventsScanned: int64(len(events))}
 	for _, ev := range events {
 		stats.bytesScanned += int64(len(ev.CloudTrailEvent))
 	}
 
-	pq, ok := parseLakeQuery(stmt)
-	if !ok {
-		// Outside the supported grammar: the query still "ran" (FINISHED),
-		// it simply matched nothing this emulator can interpret.
-		return [][]map[string]string{}, stats
+	pq, parseErr := parseLakeQuery(stmt)
+	if parseErr != "" {
+		return nil, stats, "FAILED", parseErr
 	}
 
-	limit := pq.limit
-	if limit <= 0 || limit > defaultQueryRowLimit {
-		limit = defaultQueryRowLimit
-	}
+	matched := make([]map[string]string, 0, len(events))
 
-	rows := make([][]map[string]string, 0, len(events))
 	for _, ev := range events {
 		row := eventToRow(ev)
-		if !rowMatchesWhere(row, pq.where) {
+		if pq.where == nil || pq.where.eval(row) {
+			matched = append(matched, row)
+		}
+	}
+
+	stats.eventsMatched = int64(len(matched))
+
+	limit := effectiveQueryLimit(pq.limit)
+
+	rows := projectRows(matched, pq, limit)
+
+	return rows, stats, "FINISHED", ""
+}
+
+func effectiveQueryLimit(limit int) int {
+	if limit <= 0 || limit > defaultQueryRowLimit {
+		return defaultQueryRowLimit
+	}
+
+	return limit
+}
+
+func projectRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][]map[string]string {
+	if pq.hasAgg {
+		return aggregateRows(matched, pq, limit)
+	}
+
+	rows := make([][]map[string]string, 0, min(len(matched), limit))
+
+	for _, row := range matched {
+		if len(rows) >= limit {
+			break
+		}
+
+		rows = append(rows, projectRow(row, pq.items))
+	}
+
+	return rows
+}
+
+// projectRow renders row as the AWS QueryResultRows shape: a slice of
+// single-key {columnName: value} maps, one per selected item. items nil
+// means "*" -- every column present on the row, in a deterministic order.
+func projectRow(row map[string]string, items []selectItem) []map[string]string {
+	if items == nil {
+		names := make([]string, 0, len(row))
+		for k := range row {
+			names = append(names, k)
+		}
+
+		sortStrings(names)
+
+		out := make([]map[string]string, 0, len(names))
+		for _, name := range names {
+			out = append(out, map[string]string{name: row[name]})
+		}
+
+		return out
+	}
+
+	out := make([]map[string]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, map[string]string{item.outName: row[item.column]})
+	}
+
+	return out
+}
+
+// aggState accumulates one GROUP BY bucket: the group-by columns' values
+// (identical across every row in the bucket, by definition of grouping,
+// captured via the first row seen) and a running COUNT.
+type aggState struct {
+	values map[string]string
+	count  int64
+}
+
+// aggregateRows evaluates COUNT(*)/COUNT(col), with or without GROUP BY (no
+// GROUP BY means a single implicit group over every matched row). Output
+// order is sorted by group key so it's deterministic across Go's randomized
+// map iteration.
+func aggregateRows(matched []map[string]string, pq parsedLakeQuery, limit int) [][]map[string]string {
+	groups := map[string]*aggState{}
+
+	for _, row := range matched {
+		key := groupKey(row, pq.groupBy)
+
+		st, ok := groups[key]
+		if !ok {
+			st = &aggState{values: row}
+			groups[key] = st
+		}
+
+		st.count++
+	}
+
+	keys := make([]string, 0, len(groups))
+	for k := range groups {
+		keys = append(keys, k)
+	}
+
+	sortStrings(keys)
+
+	rows := make([][]map[string]string, 0, min(len(keys), limit))
+
+	for _, k := range keys {
+		if len(rows) >= limit {
+			break
+		}
+
+		rows = append(rows, renderAggRow(pq.items, groups[k]))
+	}
+
+	return rows
+}
+
+// groupKeyFieldSep separates GROUP BY column values in a composite group
+// key. \x1f (ASCII unit separator) can't appear in a recorded event's
+// string-valued fields, so it can't collide with real column content.
+const groupKeyFieldSep = "\x1f"
+
+func groupKey(row map[string]string, groupBy []string) string {
+	if len(groupBy) == 0 {
+		return ""
+	}
+
+	parts := make([]string, len(groupBy))
+	for i, col := range groupBy {
+		parts[i] = row[col]
+	}
+
+	return strings.Join(parts, groupKeyFieldSep)
+}
+
+func renderAggRow(items []selectItem, st *aggState) []map[string]string {
+	out := make([]map[string]string, 0, len(items))
+
+	for _, item := range items {
+		if item.kind == itemCount || item.kind == itemCountStar {
+			out = append(out, map[string]string{item.outName: strconv.FormatInt(st.count, 10)})
+
 			continue
 		}
 
-		stats.eventsMatched++
-		if len(rows) < limit {
-			rows = append(rows, projectRow(row, pq.columns))
-		}
+		out = append(out, map[string]string{item.outName: st.values[item.column]})
 	}
 
-	return rows, stats
+	return out
 }

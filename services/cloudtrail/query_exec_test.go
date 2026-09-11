@@ -80,27 +80,35 @@ func TestQueryExecution_SelectColumnsWithWhereAndLimit(t *testing.T) {
 	assert.Contains(t, []string{"CreateBucket", "DeleteBucket"}, cols["eventName"])
 }
 
-// TestQueryExecution_UnsupportedGrammarStillFinishes verifies a
+// TestQueryExecution_UnsupportedGrammarReachesFailed verifies a
 // syntactically valid but unsupported (outside the emulator's parsed
-// subset) Lake SQL statement still reaches FINISHED rather than erroring --
-// StartQuery/GetQueryResults must not reject valid CloudTrail Lake SQL just
-// because this backend can't interpret it.
-func TestQueryExecution_UnsupportedGrammarStillFinishes(t *testing.T) {
+// subset -- a JOIN, here) Lake SQL statement reaches QueryStatus FAILED with
+// a populated ErrorMessage, not a silent empty FINISHED. StartQuery itself
+// must not reject it synchronously (mirrors AWS's async execution model --
+// see materializeQueryLocked): only the first read discovers the failure.
+func TestQueryExecution_UnsupportedGrammarReachesFailed(t *testing.T) {
 	t.Parallel()
 
 	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
 	b.RecordEvent(cloudtrail.Event{EventName: "CreateBucket", EventSource: "s3.amazonaws.com"})
 
 	q, err := b.StartQuery(
-		"SELECT eventSource, COUNT(*) FROM eds-000001 GROUP BY eventSource",
+		"SELECT edsA.eventName FROM eds-000001 AS edsA LEFT JOIN eds-000002 AS edsB ON edsA.eventId = edsB.eventId",
 		"eds-000001", "", "",
 	)
-	require.NoError(t, err)
+	require.NoError(t, err, "StartQuery must accept syntactically valid CloudTrail Lake SQL synchronously")
+	require.Equal(t, "QUEUED", q.QueryStatus)
 
 	got, err := b.GetQueryResults(q.QueryID)
 	require.NoError(t, err)
-	assert.Equal(t, "FINISHED", got.QueryStatus)
+	assert.Equal(t, "FAILED", got.QueryStatus)
 	assert.Empty(t, got.QueryResultRows)
+	assert.NotEmpty(t, got.ErrorMessage, "a FAILED query must explain why, not just fail silently")
+
+	desc, err := b.DescribeQuery(q.QueryID)
+	require.NoError(t, err)
+	assert.Equal(t, "FAILED", desc.QueryStatus)
+	assert.Equal(t, got.ErrorMessage, desc.ErrorMessage)
 }
 
 // TestQueryExecution_CancelBeforeReadStaysQueued verifies a query cancelled
