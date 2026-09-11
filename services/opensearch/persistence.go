@@ -39,6 +39,18 @@ import (
 // snapshot). A pre-existing entry still decodes -- statusUntil is simply
 // zero, matching the pre-fix behavior for data already written before this
 // change; only new snapshots carry the real deadline.
+// Also left at 4 despite gopherstack-ike6y's three field fixes:
+// dataSourceAttachmentSnapshot and packageSnapshot are new DTOs added the
+// same way vpcEndpointSnapshot was, moving dataSourceAttachments/packages to
+// the "dirty" group -- purely additive, same reasoning as above. Migration
+// took a different shape (see its doc comment in models.go and
+// store_setup.go's registerAllTables doc): CreatedAt/UpdatedAt changed from
+// json:"-" to a real tag in place, since Migration stays "clean" and is
+// never marshaled directly onto the wire. An older snapshot has no
+// createdAt/updatedAt keys at all (the tag excluded them before this
+// change), so it still decodes fine with both fields simply zero -- the same
+// non-regression as the other two, just expressed as a tag edit on the
+// existing registered type instead of a new twin struct.
 const opensearchSnapshotVersion = 4
 
 // dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
@@ -228,6 +240,108 @@ func fromVpcEndpointSnapshot(v *vpcEndpointSnapshot) *VpcEndpoint {
 	}
 }
 
+// dataSourceAttachmentSnapshot is DataSourceAttachment's persisted twin
+// (gopherstack-ike6y, same shape as vpcEndpointSnapshot above).
+// DataSourceAttachment.CreatedAt carries json:"-" because real
+// types.DataSourceAttachmentSummary (opensearch@v1.75.4 types/types.go:943-959)
+// has no such member and dataSourceAttachmentJSON
+// (handler_data_source_attachments.go) is the actual wire converter for
+// every op that returns this type -- but dataSourceAttachments was
+// registered directly on b.registry, so SnapshotAll honoured that tag too
+// and dropped CreatedAt from every snapshot. resolveAttachmentStatus treats
+// a restored zero CreatedAt as already 24h stale, so any still-Pending
+// attachment flipped straight to FAILED on the first status check after a
+// restart.
+type dataSourceAttachmentSnapshot struct {
+	CreatedAt     time.Time `json:"createdAt,omitzero"`
+	AttachmentID  string    `json:"attachmentId"`
+	ApplicationID string    `json:"applicationId"`
+	DataSourceArn string    `json:"dataSourceArn"`
+	Status        string    `json:"status"`
+}
+
+func dataSourceAttachmentSnapshotKey(v *dataSourceAttachmentSnapshot) string {
+	return dataSourceAttachmentKey(v.ApplicationID, v.DataSourceArn)
+}
+
+func toDataSourceAttachmentSnapshot(v *DataSourceAttachment) *dataSourceAttachmentSnapshot {
+	return &dataSourceAttachmentSnapshot{
+		CreatedAt:     v.CreatedAt,
+		AttachmentID:  v.AttachmentID,
+		ApplicationID: v.ApplicationID,
+		DataSourceArn: v.DataSourceArn,
+		Status:        v.Status,
+	}
+}
+
+func fromDataSourceAttachmentSnapshot(v *dataSourceAttachmentSnapshot) *DataSourceAttachment {
+	return &DataSourceAttachment{
+		CreatedAt:     v.CreatedAt,
+		AttachmentID:  v.AttachmentID,
+		ApplicationID: v.ApplicationID,
+		DataSourceArn: v.DataSourceArn,
+		Status:        v.Status,
+	}
+}
+
+// packageSnapshot is Package's persisted twin (gopherstack-ike6y, same shape
+// as vpcEndpointSnapshot above). VersionHistory/PackageUserList carry
+// json:"-" because real types.PackageDetails
+// (opensearch@v1.75.4 types/types.go:2631-2681) has neither member and
+// Package is marshaled directly onto the wire by DescribePackages/
+// UpdatePackage (handler_packages.go) -- but packages was registered
+// directly on b.registry, so SnapshotAll honoured that tag too and dropped
+// both from every snapshot, silently discarding a package's version history
+// and user scope across a restart (self-flagged as a known quirk in an
+// earlier pass, store_setup.go, and never fixed until now).
+type packageSnapshot struct {
+	PackageSource            *PackageSource            `json:"PackageSource,omitempty"`
+	PackageEncryptionOptions *PackageEncryptionOptions `json:"PackageEncryptionOptions,omitempty"`
+	PackageID                string                    `json:"PackageID"`
+	PackageName              string                    `json:"PackageName"`
+	PackageType              string                    `json:"PackageType"`
+	PackageDescription       string                    `json:"PackageDescription"`
+	PackageStatus            string                    `json:"PackageStatus"`
+	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
+	VersionHistory           []*PackageVersionHistory  `json:"versionHistory,omitempty"`
+	PackageUserList          []string                  `json:"packageUserList,omitempty"`
+	CreatedAt                float64                   `json:"CreatedAt"`
+}
+
+func packageSnapshotKey(v *packageSnapshot) string { return v.PackageID }
+
+func toPackageSnapshot(v *Package) *packageSnapshot {
+	return &packageSnapshot{
+		PackageSource:            v.PackageSource,
+		PackageEncryptionOptions: v.PackageEncryptionOptions,
+		PackageID:                v.PackageID,
+		PackageName:              v.PackageName,
+		PackageType:              v.PackageType,
+		PackageDescription:       v.PackageDescription,
+		PackageStatus:            v.PackageStatus,
+		AvailablePackageVersion:  v.AvailablePackageVersion,
+		VersionHistory:           v.VersionHistory,
+		PackageUserList:          v.PackageUserList,
+		CreatedAt:                v.CreatedAt,
+	}
+}
+
+func fromPackageSnapshot(v *packageSnapshot) *Package {
+	return &Package{
+		PackageSource:            v.PackageSource,
+		PackageEncryptionOptions: v.PackageEncryptionOptions,
+		PackageID:                v.PackageID,
+		PackageName:              v.PackageName,
+		PackageType:              v.PackageType,
+		PackageDescription:       v.PackageDescription,
+		PackageStatus:            v.PackageStatus,
+		AvailablePackageVersion:  v.AvailablePackageVersion,
+		VersionHistory:           v.VersionHistory,
+		PackageUserList:          v.PackageUserList,
+		CreatedAt:                v.CreatedAt,
+	}
+}
+
 // dirtyTableNames lists the "dirty" table names shared by Snapshot and
 // Restore (see store_setup.go's registerAllTables doc). Both build an
 // ephemeral DTO [store.Registry] under these exact names, so a snapshot
@@ -236,16 +350,19 @@ func fromVpcEndpointSnapshot(v *vpcEndpointSnapshot) *VpcEndpoint {
 //
 //nolint:gochecknoglobals // fixed lookup table, mirrors errCodeLookup-style tables elsewhere
 var dirtyTableNames = struct {
-	dryRuns, autoTunes, domainDataSources, domainIndexes, vpcEndpoints string
+	dryRuns, autoTunes, domainDataSources, domainIndexes string
+	vpcEndpoints, dataSourceAttachments, packages        string
 }{
 	dryRuns:           "dryRuns",
 	autoTunes:         "autoTunes",
 	domainDataSources: "domainDataSources",
 	domainIndexes:     "domainIndexes",
-	// Same table name the "clean" registry previously used for this table
-	// (store_setup.go), so an existing snapshot's "vpcEndpoints" entry still
-	// lines up with the same key under the DTO registry.
-	vpcEndpoints: "vpcEndpoints",
+	// Same table names the "clean" registry previously used for these tables
+	// (store_setup.go), so an existing snapshot's entries still line up with
+	// the same keys under the DTO registry.
+	vpcEndpoints:          "vpcEndpoints",
+	dataSourceAttachments: "dataSourceAttachments",
+	packages:              "packages",
 }
 
 // backendSnapshot is the top-level on-disk shape for the OpenSearch backend.
@@ -299,6 +416,8 @@ func newDirtyDTORegistry() (
 	*store.Table[dataSourceSnapshot],
 	*store.Table[domainIndexSnapshot],
 	*store.Table[vpcEndpointSnapshot],
+	*store.Table[dataSourceAttachmentSnapshot],
+	*store.Table[packageSnapshot],
 ) {
 	dtoReg := store.NewRegistry()
 	dryRunDTOs := store.Register(dtoReg, dirtyTableNames.dryRuns, store.New(dryRunSnapshotKey))
@@ -306,8 +425,13 @@ func newDirtyDTORegistry() (
 	dataSourceDTOs := store.Register(dtoReg, dirtyTableNames.domainDataSources, store.New(dataSourceSnapshotKey))
 	domainIndexDTOs := store.Register(dtoReg, dirtyTableNames.domainIndexes, store.New(domainIndexSnapshotKey))
 	vpcEndpointDTOs := store.Register(dtoReg, dirtyTableNames.vpcEndpoints, store.New(vpcEndpointSnapshotKey))
+	dataSourceAttachmentDTOs := store.Register(
+		dtoReg, dirtyTableNames.dataSourceAttachments, store.New(dataSourceAttachmentSnapshotKey),
+	)
+	packageDTOs := store.Register(dtoReg, dirtyTableNames.packages, store.New(packageSnapshotKey))
 
-	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs
+	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -327,7 +451,8 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	for _, v := range b.dryRuns.Snapshot() {
 		dryRunDTOs.Put(toDryRunSnapshot(v))
@@ -347,6 +472,14 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for _, v := range b.vpcEndpoints.Snapshot() {
 		vpcEndpointDTOs.Put(toVpcEndpointSnapshot(v))
+	}
+
+	for _, v := range b.dataSourceAttachments.Snapshot() {
+		dataSourceAttachmentDTOs.Put(toDataSourceAttachmentSnapshot(v))
+	}
+
+	for _, v := range b.packages.Snapshot() {
+		packageDTOs.Put(toPackageSnapshot(v))
 	}
 
 	dirtyTables, err := dtoReg.SnapshotAll()
@@ -417,6 +550,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.domainDataSources.Reset()
 		b.domainIndexes.Reset()
 		b.vpcEndpoints.Reset()
+		b.dataSourceAttachments.Reset()
+		b.packages.Reset()
 		b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 		b.scheduledActions = make(map[string][]*ScheduledAction)
 		b.packageAssociations = make(map[string]map[string]bool)
@@ -432,13 +567,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("opensearch: restore snapshot tables: %w", err)
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("opensearch: restore snapshot DTO tables: %w", err)
 	}
 
-	restoreDirtyTables(b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs)
+	restoreDirtyTables(
+		b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs,
+	)
 
 	restoreRawMaps(b, &snap)
 
@@ -469,6 +608,8 @@ func restoreDirtyTables(
 	dataSourceDTOs *store.Table[dataSourceSnapshot],
 	domainIndexDTOs *store.Table[domainIndexSnapshot],
 	vpcEndpointDTOs *store.Table[vpcEndpointSnapshot],
+	dataSourceAttachmentDTOs *store.Table[dataSourceAttachmentSnapshot],
+	packageDTOs *store.Table[packageSnapshot],
 ) {
 	dryRuns := make([]*DryRunStatus, 0, dryRunDTOs.Len())
 	for _, v := range dryRunDTOs.All() {
@@ -499,6 +640,18 @@ func restoreDirtyTables(
 		vpcEndpoints = append(vpcEndpoints, fromVpcEndpointSnapshot(v))
 	}
 	b.vpcEndpoints.Restore(vpcEndpoints)
+
+	dataSourceAttachments := make([]*DataSourceAttachment, 0, dataSourceAttachmentDTOs.Len())
+	for _, v := range dataSourceAttachmentDTOs.All() {
+		dataSourceAttachments = append(dataSourceAttachments, fromDataSourceAttachmentSnapshot(v))
+	}
+	b.dataSourceAttachments.Restore(dataSourceAttachments)
+
+	packages := make([]*Package, 0, packageDTOs.Len())
+	for _, v := range packageDTOs.All() {
+		packages = append(packages, fromPackageSnapshot(v))
+	}
+	b.packages.Restore(packages)
 }
 
 // restoreRawMaps restores the plain-map fields left unconverted by the

@@ -116,6 +116,8 @@ func (b *InMemoryBackend) Reset() {
 	b.domainDataSources.Reset()
 	b.domainIndexes.Reset()
 	b.vpcEndpoints.Reset()
+	b.dataSourceAttachments.Reset()
+	b.packages.Reset()
 
 	// Plain maps left unconverted (see store_setup.go's registerAllTables doc).
 	b.packageAssociations = make(map[string]map[string]bool)

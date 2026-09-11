@@ -188,6 +188,206 @@ func TestPersistence_VpcEndpointStatusUntilRoundTrip(t *testing.T) {
 	}
 }
 
+// TestPersistence_MigrationStatusRoundTrip covers gopherstack-ike6y:
+// Migration.CreatedAt/UpdatedAt used to carry json:"-", and migrations was
+// registered directly, so a restart lost both timestamps.
+// resolveMigrationStatus computes elapsed := now.Sub(m.CreatedAt), so a
+// restored zero CreatedAt made every migration resolve straight to
+// SUCCEEDED regardless of its real progress. Snapshotting mid-PENDING and
+// checking status at three points after restore proves the PENDING ->
+// IN_PROGRESS -> SUCCEEDED schedule still runs off the original CreatedAt,
+// not the restore time.
+func TestPersistence_MigrationStatusRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	fixedNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	const delay = 2 * time.Hour
+
+	tests := []struct {
+		name         string
+		wantStatus   string
+		afterRestore time.Duration
+	}{
+		{name: "still_pending_before_first_window", afterRestore: 30 * time.Minute, wantStatus: "PENDING"},
+		{name: "in_progress_within_second_window", afterRestore: 3 * time.Hour, wantStatus: "IN_PROGRESS"},
+		{name: "succeeded_after_both_windows", afterRestore: 5 * time.Hour, wantStatus: "SUCCEEDED"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			b.SetClock(func() time.Time { return fixedNow })
+			b.SetProcessingDelay(delay)
+
+			app, err := b.CreateApplication("migration-status-app", nil, nil, nil)
+			require.NoError(t, err)
+
+			domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "migration-status-domain"})
+			require.NoError(t, err)
+
+			mig, err := b.StartMigration(
+				app.ID, domain.ARN,
+				&opensearch.MigrationWorkspaceInput{CreateWorkspace: true, Name: "mig-ws", Type: "SEARCH"},
+				nil, "",
+			)
+			require.NoError(t, err)
+			require.Equal(t, "PENDING", mig.Status)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+			// processingDelay is a runtime knob, not persisted state -- a real
+			// restart would restore it from server config, so the test does the
+			// same rather than letting it default to 0.
+			fresh.SetProcessingDelay(delay)
+			fresh.SetClock(func() time.Time { return fixedNow.Add(tt.afterRestore) })
+
+			got, err := fresh.GetMigration(mig.MigrationID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.Status)
+		})
+	}
+}
+
+// TestPersistence_DataSourceAttachmentStatusRoundTrip covers
+// gopherstack-ike6y: DataSourceAttachment.CreatedAt used to carry json:"-",
+// and dataSourceAttachments was registered directly, so a restart lost the
+// timestamp. resolveAttachmentStatus checks now.Sub(att.CreatedAt) >
+// dsAttachmentFailWindow, so a restored zero CreatedAt was already "24h
+// stale" the instant it was checked, flipping every still-Pending
+// attachment straight to FAILED. still_pending_within_fail_window is the
+// case that exercises the bug (the domain stays in its processing window
+// well past the check, so only the CreatedAt-vs-fail-window math decides the
+// outcome); becomes_attached_once_domain_settles is a sanity check that the
+// good path -- an attachment resolving once its data source goes active --
+// still works after a restore too.
+func TestPersistence_DataSourceAttachmentStatusRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	fixedNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name                  string
+		wantStatus            string
+		domainProcessingDelay time.Duration
+		afterRestore          time.Duration
+	}{
+		{
+			name:                  "still_pending_within_fail_window",
+			domainProcessingDelay: 48 * time.Hour,
+			afterRestore:          time.Hour,
+			wantStatus:            "PENDING",
+		},
+		{
+			name:                  "becomes_attached_once_domain_settles",
+			domainProcessingDelay: 30 * time.Minute,
+			afterRestore:          time.Hour,
+			wantStatus:            "ATTACHED",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			b.SetClock(func() time.Time { return fixedNow })
+			b.SetProcessingDelay(tt.domainProcessingDelay)
+
+			app, err := b.CreateApplication("attach-status-app", nil, nil, nil)
+			require.NoError(t, err)
+
+			domain, err := b.CreateDomain(opensearch.CreateDomainInput{Name: "attach-status-domain"})
+			require.NoError(t, err)
+
+			att, err := b.AttachDataSource(app.ID, domain.ARN, nil, "")
+			require.NoError(t, err)
+			require.Equal(t, "PENDING", att.Status)
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+			fresh.SetClock(func() time.Time { return fixedNow.Add(tt.afterRestore) })
+
+			got, err := fresh.DescribeDataSourceAttachment(app.ID, domain.ARN)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, got.Status)
+		})
+	}
+}
+
+// TestPersistence_PackageVersionHistoryAndScopeRoundTrip covers
+// gopherstack-ike6y: Package.VersionHistory/PackageUserList both carry
+// json:"-", and packages was registered directly, so a restart silently
+// discarded a package's version history and user scope -- self-flagged as a
+// known quirk in an earlier pass (store_setup.go) and never fixed until now.
+func TestPersistence_PackageVersionHistoryAndScopeRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		scopeUsers    []string
+		wantUsers     []string
+		wantVersions  int
+		updateVersion bool
+	}{
+		{
+			name:          "seeded_version_only",
+			updateVersion: false,
+			wantVersions:  1,
+		},
+		{
+			name:          "extra_version_and_scope",
+			updateVersion: true,
+			scopeUsers:    []string{"user-a", "user-b"},
+			wantVersions:  2,
+			wantUsers:     []string{"user-a", "user-b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+
+			pkg, err := b.CreatePackage("scope-pkg", "TXT-DICTIONARY", "a package", nil, nil)
+			require.NoError(t, err)
+
+			if tt.updateVersion {
+				_, err = b.UpdatePackage(pkg.PackageID, "revised description")
+				require.NoError(t, err)
+			}
+
+			if len(tt.scopeUsers) > 0 {
+				_, err = b.UpdatePackageScope(pkg.PackageID, "ADD", tt.scopeUsers)
+				require.NoError(t, err)
+			}
+
+			snap := b.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			history, err := fresh.GetPackageVersionHistory(pkg.PackageID)
+			require.NoError(t, err)
+			assert.Len(t, history, tt.wantVersions)
+
+			pkgs, err := fresh.DescribePackages(map[string][]string{"PackageID": {pkg.PackageID}}, "", 0)
+			require.NoError(t, err)
+			require.Len(t, pkgs.Data, 1)
+			assert.ElementsMatch(t, tt.wantUsers, pkgs.Data[0].PackageUserList)
+		})
+	}
+}
+
 func TestPersistence_UpgradeHistoryRoundTrip(t *testing.T) {
 	t.Parallel()
 

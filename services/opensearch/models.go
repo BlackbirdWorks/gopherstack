@@ -293,7 +293,15 @@ type Package struct {
 	PackageDescription       string                    `json:"PackageDescription"`
 	PackageStatus            string                    `json:"PackageStatus"`
 	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
-	VersionHistory           []*PackageVersionHistory  `json:"-"`
+	// VersionHistory carries json:"-": real types.PackageDetails
+	// (opensearch@v1.75.4 types/types.go:2631-2681) has no such member --
+	// version history is only ever returned by the separate
+	// GetPackageVersionHistory operation, as a top-level list (see
+	// handler_packages.go) -- and Package is marshaled directly onto the wire
+	// by DescribePackages/UpdatePackage (handler_packages.go), so the tag is
+	// correct for the wire. See persistence.go's packageSnapshot for why it
+	// must still be given a real tag for persistence (gopherstack-ike6y).
+	VersionHistory []*PackageVersionHistory `json:"-"`
 	// PackageUserList holds the package's scope (users who can view/associate
 	// it), maintained by UpdatePackageScope. Not part of the Package/
 	// PackageDetails wire shape itself -- only UpdatePackageScopeOutput
@@ -632,6 +640,12 @@ type RollbackServiceSoftwareOptions struct {
 // types.DataSourceAttachmentSummary plus the identity fields
 // (AttachmentId/DataSourceArn/Status) shared by Attach/Detach/
 // DescribeDataSourceAttachment's outputs.
+// CreatedAt carries json:"-": real types.DataSourceAttachmentSummary
+// (opensearch@v1.75.4 types/types.go:943-959) has no creation-timestamp
+// member, and dataSourceAttachmentJSON (handler_data_source_attachments.go)
+// is the actual wire converter for every op that returns this type, so the
+// tag is correct for the wire. See persistence.go's dataSourceAttachmentSnapshot
+// for why it must still be given a real tag for persistence (gopherstack-ike6y).
 type DataSourceAttachment struct {
 	CreatedAt     time.Time `json:"-"`
 	AttachmentID  string    `json:"attachmentId"`
@@ -663,9 +677,18 @@ type Capability struct {
 // transitions PENDING -> IN_PROGRESS -> SUCCEEDED against the backend's clock
 // (see resolveMigrationStatus in migrations.go), it just always migrates zero
 // objects -- an honest "nothing to migrate" result rather than invented data.
+// CreatedAt/UpdatedAt carry real tags, unlike this file's other internal
+// timing fields: real types.MigrationSummary (opensearch@v1.75.4
+// types/types.go:2299,2320) has both members, and migrationJSON
+// (handler_migrations.go) -- the actual wire converter for every op that
+// returns this type -- reads them by direct field access, independent of
+// Migration's own tags. So json:"-" here was never wire-motivated; it only
+// suppressed both fields from persistence (registered directly,
+// store_setup.go), which is what made resolveMigrationStatus's elapsed
+// calculation see a zero CreatedAt after every restore (gopherstack-ike6y).
 type Migration struct {
-	CreatedAt     time.Time `json:"-"`
-	UpdatedAt     time.Time `json:"-"`
+	CreatedAt     time.Time `json:"createdAt,omitzero"`
+	UpdatedAt     time.Time `json:"updatedAt,omitzero"`
 	MigrationID   string    `json:"migrationId"`
 	ApplicationID string    `json:"applicationId"`
 	SourceArn     string    `json:"sourceArn"`
