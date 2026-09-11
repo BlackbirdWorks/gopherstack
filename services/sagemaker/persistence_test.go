@@ -127,7 +127,9 @@ func TestPersistenceRoundtrip_PolicyCatalogAndPipelineVersions(t *testing.T) {
 // silently dropped by Snapshot/Restore because they were never added to the
 // DTO alongside the fields fixed in the earlier ClusterRole/VpcConfig pass.
 // This also covers the AutoScaling/Orchestrator/NodeProvisioningMode/
-// TieredStorageConfig fields added by gopherstack-i359.
+// TieredStorageConfig fields added by gopherstack-i359 session 2, and the
+// RestrictedInstanceGroups/RestrictedInstanceGroupsConfig fields added by
+// gopherstack-i359's final pass.
 func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
 	t.Parallel()
 
@@ -151,6 +153,40 @@ func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
 		"TieredStorageConfig": map[string]any{
 			"Mode":                               "Enable",
 			"InstanceMemoryAllocationPercentage": 25,
+		},
+		"RestrictedInstanceGroups": []map[string]any{
+			{
+				"InstanceGroupName": "rig-1",
+				"ExecutionRole":     "arn:aws:iam::000000000000:role/RigRole",
+				"InstanceType":      "ml.p4d.24xlarge",
+				"InstanceCount":     1,
+				"EnvironmentConfig": map[string]any{
+					"FSxLustreConfig": map[string]any{
+						"PerUnitStorageThroughput": 250,
+						"SizeInGiB":                1200,
+					},
+				},
+				"InstanceStorageConfigs": []map[string]any{
+					{
+						"FsxLustreConfig": map[string]any{
+							"DnsName":   "fs-1.fsx.example.com",
+							"MountName": "mymount",
+						},
+					},
+				},
+				"ScheduledUpdateConfig": map[string]any{
+					"ScheduleExpression": "cron(0 0 * * ? *)",
+				},
+			},
+		},
+		"RestrictedInstanceGroupsConfig": map[string]any{
+			"SharedEnvironmentConfig": map[string]any{
+				"FSxLustreConfig": map[string]any{
+					"PerUnitStorageThroughput": 500,
+					"SizeInGiB":                2400,
+				},
+				"FSxLustreDeletionPolicy": "DeleteIfNotUsed",
+			},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -192,6 +228,38 @@ func TestPersistenceRoundtrip_ClusterFullFields(t *testing.T) {
 	require.True(t, ok, "TieredStorageConfig must survive snapshot/restore")
 	assert.Equal(t, "Enable", tsc["Mode"])
 	assert.InDelta(t, 25, tsc["InstanceMemoryAllocationPercentage"], 0)
+
+	rigs, ok := resp["RestrictedInstanceGroups"].([]any)
+	require.True(t, ok, "RestrictedInstanceGroups must survive snapshot/restore")
+	require.Len(t, rigs, 1)
+	rig, ok := rigs[0].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "rig-1", rig["InstanceGroupName"])
+	assert.Equal(t, "arn:aws:iam::000000000000:role/RigRole", rig["ExecutionRole"])
+
+	rigEnv, ok := rig["EnvironmentConfig"].(map[string]any)
+	require.True(t, ok, "RestrictedInstanceGroups[0].EnvironmentConfig must survive snapshot/restore")
+	rigFsx, ok := rigEnv["FSxLustreConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, 1200, rigFsx["SizeInGiB"], 0)
+
+	rigStorage, ok := rig["InstanceStorageConfigs"].([]any)
+	require.True(t, ok, "RestrictedInstanceGroups[0].InstanceStorageConfigs must survive snapshot/restore")
+	require.Len(t, rigStorage, 1)
+	rigStorageEntry, ok := rigStorage[0].(map[string]any)
+	require.True(t, ok)
+	rigStorageMember, ok := rigStorageEntry["FsxLustreConfig"].(map[string]any)
+	require.True(t, ok, "the union member set must survive snapshot/restore")
+	assert.Equal(t, "fs-1.fsx.example.com", rigStorageMember["DnsName"])
+
+	rigsConfig, ok := resp["RestrictedInstanceGroupsConfig"].(map[string]any)
+	require.True(t, ok, "RestrictedInstanceGroupsConfig must survive snapshot/restore")
+	sharedEnv, ok := rigsConfig["SharedEnvironmentConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "DeleteIfNotUsed", sharedEnv["CurrentFSxLustreDeletionPolicy"])
+	sharedFsx, ok := sharedEnv["DesiredFSxLustreConfig"].(map[string]any)
+	require.True(t, ok)
+	assert.InDelta(t, 500, sharedFsx["PerUnitStorageThroughput"], 0)
 }
 
 // TestPersistenceRoundtrip_PipelineDefinitionFromS3 confirms a pipeline
