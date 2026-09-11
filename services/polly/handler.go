@@ -124,7 +124,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		route := parseRoute(c.Request().Method, c.Request().URL.Path)
 		if route.operation == opUnknown {
-			return writeError(c, http.StatusNotFound, opUnknown, "unknown Polly route")
+			// Previously passed opUnknown ("Unknown") itself as the wire
+			// __type -- not an exception name any deserializeOpError switch
+			// recognizes, so restjson.GetErrorInfo (aws-sdk-go-v2
+			// aws/protocol/restjson/decoder_util.go:15) fed every real
+			// client a code of literally "Unknown" instead of a typed
+			// exception. ValidationException is the only generic client-fault
+			// exception polly's own errors.go models (see ErrValidation above).
+			return writeError(c, http.StatusNotFound, "ValidationException", "unknown Polly route")
 		}
 
 		err := h.dispatch(c, route)

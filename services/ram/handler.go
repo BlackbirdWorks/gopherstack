@@ -716,11 +716,23 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 	switch {
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		// These branches used to omit keyTypeField entirely, so
+		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
+		// decoder_util.go:15) found no code in the header (unset) or the
+		// body, and every malformed-body/unknown-action failure decoded as
+		// smithy.GenericAPIError{Code:"UnknownError"} instead of a typed
+		// exception.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    codeInvalidParameter,
+			keyMessageField: err.Error(),
+		})
 	default:
 		return c.JSON(
 			http.StatusInternalServerError,
-			map[string]string{keyMessageField: err.Error()},
+			map[string]string{
+				keyTypeField:    "ServerInternalException",
+				keyMessageField: err.Error(),
+			},
 		)
 	}
 }

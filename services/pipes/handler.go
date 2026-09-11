@@ -361,8 +361,16 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		// This branch used to omit keyTypeField entirely, so
+		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
+		// decoder_util.go:15) found no code in the header (unset) or the
+		// body, and every malformed-body/unknown-action failure decoded as
+		// smithy.GenericAPIError{Code:"UnknownError"} instead of the
+		// ValidationException pipes@v1.26.4 types/errors.go models.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ValidationException",
+			keyMessageField: err.Error(),
+		})
 	default:
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalException",
