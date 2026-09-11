@@ -238,6 +238,46 @@ func TestHandler_GenericResourceAndListKeys(t *testing.T) {
 	assert.Equal(t, http.StatusOK, status)
 }
 
+// TestHandler_AccountSubServiceDefault_ReturnsOK proves GET
+// .../storageAccounts/{name}/{x}Services/default returns 200 for an
+// existing account -- terraform-provider-azurerm's post-create data-plane
+// readiness poll for File Share (which mistakes a 404 here for "still
+// provisioning" and retries forever, AZURE.md section 10.8's M8 bug (7))
+// and its unconditional blob_properties read (bug (8)) both depend on
+// this succeeding.
+func TestHandler_AccountSubServiceDefault_ReturnsOK(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	_, _ = doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+
+	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
+	_, _ = doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
+
+	for _, sub := range []string{"fileServices", "blobServices", "queueServices", "tableServices"} {
+		status, _ := doRequest(t, h, http.MethodGet, acctPath+"/"+sub+"/default", nil)
+		assert.Equal(t, http.StatusOK, status, "expected 200 for %s/default", sub)
+	}
+}
+
+// TestHandler_AccountSubServiceDefault_UnknownAccountIs404 proves the route
+// still 404s for an account that genuinely doesn't exist, rather than
+// blindly returning 200 for any path shaped like .../{x}Services/default.
+func TestHandler_AccountSubServiceDefault_UnknownAccountIs404(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	status, _ := doRequest(t, h, http.MethodGet,
+		base+"/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/nope/fileServices/default", nil)
+	assert.Equal(t, http.StatusNotFound, status)
+}
+
 func TestHandler_ProviderRegistration(t *testing.T) {
 	t.Parallel()
 

@@ -375,6 +375,16 @@ var armResourceRoutes = []armRoute{
 		},
 	},
 	{
+		match: func(segs []string, r *http.Request) bool {
+			return len(segs) >= 2 && r.Method == http.MethodGet &&
+				strings.EqualFold(segs[len(segs)-1], "default") &&
+				strings.HasSuffix(strings.ToLower(segs[len(segs)-2]), "services")
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleAccountSubServiceDefault(c, segs[:len(segs)-2])
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return len(segs) == 5 && isSubscriptionScoped(segs) &&
 				segAt(segs, providersOrResourceGroupsIdx, providersSegment)

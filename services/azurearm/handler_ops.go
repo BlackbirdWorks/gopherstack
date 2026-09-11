@@ -237,6 +237,59 @@ func (h *Handler) handleListKeys(c *echo.Context, resourceSegs []string) error {
 	return h.writeJSON(c, http.StatusOK, resp)
 }
 
+// handleAccountSubServiceDefault serves GET
+// /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{name}/{x}Services/default
+// for any {x}Services segment (fileServices, blobServices, ...).
+//
+// These are ARM management-plane sub-resources, not data-plane readiness
+// checks, but two independent terraform-provider-azurerm code paths depend
+// on a 200 here for every StorageV2/Standard account regardless of what the
+// caller's config actually touches (AZURE.md section 10.8's M8 entry, bugs
+// (7)/(8)):
+//
+//  1. The post-create data-plane readiness poll
+//     (waitForDataPlaneToBecomeAvailableForAccount)'s File Share check
+//     (custompollers.DataPlaneFileShareAvailabilityPoller) calls
+//     FileServicesClient.GetServiceProperties directly against ARM and --
+//     critically -- treats a 404 not as "this feature doesn't exist" but as
+//     PollingStatusInProgress, retrying every 10 seconds until it succeeds
+//     or the caller's context is cancelled. A 404 here therefore doesn't
+//     just fail the create, it hangs it for the full 15-minute test
+//     timeout.
+//  2. resourceStorageAccountRead unconditionally calls
+//     BlobServices.GetServiceProperties (guarded only by
+//     supportLevel.supportBlob, which is true for every StorageV2 account)
+//     to populate the `blob_properties` computed block, and hard-fails the
+//     whole read on any error.
+//
+// Since gopherstack has no Blob/File-Share-properties service to back
+// either sub-resource (see PARITY.md's known gaps), the generic ARM
+// resource dispatcher's checkResourceType correctly rejected both
+// "fileServices" and "blobServices" as unsupported Microsoft.Storage leaf
+// types with a 404 -- exactly the response that trips both of the above.
+//
+// Fixed the same way as the Blob/Queue/Table data-plane readiness
+// endpoints (bug (7) below): return 200 with an empty
+// {Blob,File}ServiceProperties-shaped body (every field in the real schema
+// is optional) so both call sites see success immediately. This does not
+// implement blob/file service properties themselves -- Set/Get {Blob,File}
+// Service Properties remain unimplemented, and actual azurerm_storage_share
+// resources are still out of scope (PARITY.md) -- it only unblocks the two
+// gates above that every StorageV2/Standard account triggers regardless of
+// whether the caller ever touches these features.
+func (h *Handler) handleAccountSubServiceDefault(c *echo.Context, accountSegs []string) error {
+	id, err := ParseGenericResourcePath("/" + joinSegs(accountSegs))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	if _, getErr := h.Registry.Get(c.Request().Context(), id); getErr != nil {
+		return h.writeAPIError(c, getErr)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{})
+}
+
 // handleListResources serves both list forms:
 // GET /subscriptions/{sub}/providers/{ns}/{type} and
 // GET /subscriptions/{sub}/resourceGroups/{rg}/providers/{ns}/{type}.
