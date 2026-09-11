@@ -487,18 +487,6 @@ type consoleScreenshotResponse struct {
 	ImageData  string   `xml:"imageData"`
 }
 
-type instanceTypeOfferingItem2 struct {
-	InstanceType string `xml:"instanceType"`
-}
-
-type getInstanceTypesFromReqsResponse struct {
-	XMLName         xml.Name `xml:"GetInstanceTypesFromInstanceRequirementsResponse"`
-	RequestID       string   `xml:"requestId"`
-	InstanceTypeSet struct {
-		Items []instanceTypeOfferingItem2 `xml:"item"`
-	} `xml:"instanceTypeSet"`
-}
-
 func toInstanceConnectEndpointItem(
 	ep *InstanceConnectEndpoint,
 	tags map[string]string,
@@ -735,47 +723,6 @@ func (h *Handler) handleGetConsoleScreenshot(vals url.Values, reqID string) (any
 	}, nil
 }
 
-// handleGetInstanceTypesFromInstanceRequirements requires ArchitectureTypes,
-// VirtualizationTypes, and InstanceRequirements.{VCpuCount,MemoryMiB} (api_op_
-// GetInstanceTypesFromInstanceRequirements.go / types.InstanceRequirementsRequest:
-// all "This member is required"; wire keys confirmed against serializers.go
-// ArchitectureType.N / VirtualizationType.N / InstanceRequirements.VCpuCount.Min
-// / InstanceRequirements.MemoryMiB.Min). This backend has no per-instance-type
-// architecture/vCPU/memory attribute catalog to filter its static instance
-// type list against, so presence validation is the fix; real requirements-based
-// matching is a missing subsystem, left (services/ec2/PARITY.md).
-func (h *Handler) handleGetInstanceTypesFromInstanceRequirements(
-	vals url.Values,
-	reqID string,
-) (any, error) {
-	if len(parseMemberList(vals, "ArchitectureType")) == 0 {
-		return nil, fmt.Errorf("%w: ArchitectureTypes is required", ErrInvalidParameter)
-	}
-
-	if len(parseMemberList(vals, "VirtualizationType")) == 0 {
-		return nil, fmt.Errorf("%w: VirtualizationTypes is required", ErrInvalidParameter)
-	}
-
-	if vals.Get("InstanceRequirements.VCpuCount.Min") == "" || vals.Get("InstanceRequirements.MemoryMiB.Min") == "" {
-		return nil, fmt.Errorf(
-			"%w: InstanceRequirements.VCpuCount and InstanceRequirements.MemoryMiB are required",
-			ErrInvalidParameter,
-		)
-	}
-
-	types := h.Backend.GetInstanceTypesFromInstanceRequirements()
-
-	resp := &getInstanceTypesFromReqsResponse{RequestID: reqID}
-	for _, t := range types {
-		resp.InstanceTypeSet.Items = append(
-			resp.InstanceTypeSet.Items,
-			instanceTypeOfferingItem2{InstanceType: t},
-		)
-	}
-
-	return resp, nil
-}
-
 func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
 	if len(ids) == 0 {
@@ -802,66 +749,6 @@ func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-type describeInstanceTypeOfferingsResponse struct {
-	XMLName                 xml.Name `xml:"DescribeInstanceTypeOfferingsResponse"`
-	RequestID               string   `xml:"requestId"`
-	InstanceTypeOfferingSet struct {
-		Items []instanceTypeOfferingItem `xml:"item"`
-	} `xml:"instanceTypeOfferingSet"`
-}
-
-// applyInstanceTypeOfferingFilters filters offerings by the real "instance-type"
-// and "location" filter names (ec2@v1.319.1 api_op_DescribeInstanceTypeOfferings.go
-// DescribeInstanceTypeOfferingsInput.Filters doc comment).
-func applyInstanceTypeOfferingFilters(
-	offerings []InstanceTypeOffering,
-	filters map[string][]string,
-) []InstanceTypeOffering {
-	if len(filters) == 0 {
-		return offerings
-	}
-
-	out := make([]InstanceTypeOffering, 0, len(offerings))
-	for _, o := range offerings {
-		if vals, ok := filters[filterKeyInstanceType]; ok && !anyEqual(o.InstanceType, vals) {
-			continue
-		}
-		if vals, ok := filters["location"]; ok && !anyEqual(o.Location, vals) {
-			continue
-		}
-		out = append(out, o)
-	}
-
-	return out
-}
-
-func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID string) (any, error) {
-	resp := &describeInstanceTypeOfferingsResponse{RequestID: reqID}
-
-	// This backend only ever generates availability-zone offerings; an explicit
-	// request for another real LocationType (region/availability-zone-id/outpost)
-	// honestly has none, rather than fabricating a match.
-	if lt := vals.Get("LocationType"); lt != "" && lt != filterKeyAvailabilityZone {
-		return resp, nil
-	}
-
-	offerings := h.Backend.DescribeInstanceTypeOfferings()
-	offerings = applyInstanceTypeOfferingFilters(offerings, parseEC2Filters(vals))
-
-	for _, o := range offerings {
-		resp.InstanceTypeOfferingSet.Items = append(
-			resp.InstanceTypeOfferingSet.Items,
-			instanceTypeOfferingItem{
-				InstanceType: o.InstanceType,
-				Location:     o.Location,
-				LocationType: o.LocationType,
-			},
-		)
-	}
-
-	return resp, nil
 }
 
 type sendDiagnosticInterruptResponse struct {

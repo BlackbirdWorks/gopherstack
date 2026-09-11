@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"sort"
-	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -355,108 +354,6 @@ func (h *Handler) handleTerminateInstances(vals url.Values, reqID string) (any, 
 	}, nil
 }
 
-// ec2DescribeInstanceTypesMaxPageSize is the AWS-documented upper bound for
-// MaxResults on DescribeInstanceTypes. The minimum is 5.
-const (
-	ec2DescribeInstanceTypesMaxPageSize = 100
-	ec2DescribeInstanceTypesMinPageSize = 5
-	ec2DefaultInstanceTypeFallback      = "t2.micro"
-)
-
-// handleDescribeInstanceTypes returns a stub response for the requested instance
-// types. Multiple `InstanceType.N` values are echoed back. `MaxResults` and
-// `NextToken` are honored so that callers iterating over instance-type catalogs
-// see AWS-shaped pagination, with NextToken representing an opaque integer
-// offset into the requested set.
-func (h *Handler) handleDescribeInstanceTypes(vals url.Values, reqID string) (any, error) {
-	requested := parseMemberList(vals, "InstanceType")
-
-	// Backwards-compat: when a Filter.1.Value.1 is supplied (older callers), use it.
-	if len(requested) == 0 {
-		if v := vals.Get("Filter.1.Value.1"); v != "" {
-			requested = []string{v}
-		}
-	}
-
-	if len(requested) == 0 {
-		requested = []string{ec2DefaultInstanceTypeFallback}
-	}
-
-	maxResults, nextToken, err := parseInstanceTypesPagination(vals)
-	if err != nil {
-		return nil, err
-	}
-
-	page, outToken := paginateInstanceTypes(requested, nextToken, maxResults)
-
-	items := make([]instanceTypeItem, 0, len(page))
-	for _, t := range page {
-		items = append(items, instanceTypeItem{InstanceType: t})
-	}
-
-	return &describeInstanceTypesResponse{
-		Xmlns:         ec2XMLNS,
-		RequestID:     reqID,
-		NextToken:     outToken,
-		InstanceTypes: instanceTypeSet{Items: items},
-	}, nil
-}
-
-// parseInstanceTypesPagination validates MaxResults bounds and decodes
-// NextToken (which we serialize as a base-10 offset into the result set).
-func parseInstanceTypesPagination(vals url.Values) (int, int, error) {
-	maxResults := 0
-
-	if v := vals.Get("MaxResults"); v != "" {
-		n, perr := strconv.Atoi(v)
-		if perr != nil || n < ec2DescribeInstanceTypesMinPageSize ||
-			n > ec2DescribeInstanceTypesMaxPageSize {
-			return 0, 0, fmt.Errorf(
-				"%w: MaxResults=%q must be between %d and %d",
-				ErrInvalidParameter, v,
-				ec2DescribeInstanceTypesMinPageSize, ec2DescribeInstanceTypesMaxPageSize,
-			)
-		}
-
-		maxResults = n
-	}
-
-	offset := 0
-
-	if tok := vals.Get("NextToken"); tok != "" {
-		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
-		if n == 0 {
-			return 0, 0, fmt.Errorf("%w: NextToken %q is not valid", ErrInvalidPaginationToken, tok)
-		}
-
-		offset = n
-	}
-
-	return maxResults, offset, nil
-}
-
-// paginateInstanceTypes slices the instance-type catalog and returns the next
-// pagination token (empty when fully consumed).
-func paginateInstanceTypes(items []string, offset, maxResults int) ([]string, string) {
-	if offset >= len(items) {
-		return nil, ""
-	}
-
-	end := len(items)
-	if maxResults > 0 && offset+maxResults < end {
-		end = offset + maxResults
-	}
-
-	pageResult := items[offset:end]
-
-	var token string
-	if end < len(items) {
-		token = page.EncodeHMACToken(end, ec2PaginationSalt)
-	}
-
-	return pageResult, token
-}
-
 // boolToEC2Attr renders a Go bool as the "true"/"false" string EC2 query-protocol
 // attribute values use.
 func boolToEC2Attr(v bool) string {
@@ -745,22 +642,6 @@ type terminateInstancesResponse struct {
 	Xmlns        string                 `xml:"xmlns,attr"`
 	RequestID    string                 `xml:"requestId"`
 	InstancesSet instanceStateChangeSet `xml:"instancesSet"`
-}
-
-type instanceTypeItem struct {
-	InstanceType string `xml:"instanceType"`
-}
-
-type instanceTypeSet struct {
-	Items []instanceTypeItem `xml:"item"`
-}
-
-type describeInstanceTypesResponse struct {
-	XMLName       xml.Name        `xml:"DescribeInstanceTypesResponse"`
-	Xmlns         string          `xml:"xmlns,attr"`
-	RequestID     string          `xml:"requestId"`
-	NextToken     string          `xml:"nextToken,omitempty"`
-	InstanceTypes instanceTypeSet `xml:"instanceTypeSet"`
 }
 
 type namedStringAttr struct {

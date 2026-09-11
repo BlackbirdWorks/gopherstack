@@ -1377,7 +1377,7 @@ type Backend interface {
 	DescribeFastSnapshotRestores() []FastSnapshotRestoreItem
 	GetPasswordData(instanceID string) (string, time.Time, error)
 	GetConsoleScreenshot(instanceID string) (string, error)
-	GetInstanceTypesFromInstanceRequirements() []string
+	GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery) []string
 	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
 	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
 	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error

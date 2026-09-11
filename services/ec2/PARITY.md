@@ -525,6 +525,10 @@ in this package) and an explicit, honest empty result for a `LocationType` other
 `availability-zone` (the only kind this backend's static generator produces -- not
 fabricating offerings for `region`/`availability-zone-id`/`outpost`, which it has no real
 data for).
+**Superseded 2026-09-11**: `region` is now backed too (one row per cataloged
+type at the backend's region); `availability-zone-id`/`outpost` remain an
+honest empty result (still no real data) -- see the dated entry at the end of
+this file.
 
 No sibling family shares (1)'s or (4)'s exact op; (2) and (3) are the same "batch op reads
 only index 1" shape and were both found and fixed together as a matched pair -- no other op
@@ -2299,6 +2303,10 @@ all -- `handleDescribeInstanceTypes` (`handler_instances_lifecycle.go`) only
 ever echoes back the `InstanceType.N` values a caller asked for (or a single
 fallback), so there is no real data to filter against without fabricating
 an attribute table. Left as a missing feature, not a bug.
+**Superseded 2026-09-11**: a real static instance-type catalog now backs
+this op (and `DescribeInstanceTypeOfferings`/
+`GetInstanceTypesFromInstanceRequirements`) -- see the dated entry at the
+end of this file.
 
 Not reached this pass: DescribeInstanceTypeOfferings/DescribeInstanceStatus/
 DescribeInstanceTypes' Go pagination and instance-type-catalog fidelity concerns
@@ -4304,7 +4312,9 @@ ignored its request (`_ url.Values`) entirely, always returning the same
 `InstanceRequirements` -- this backend has no per-instance-type architecture/
 vCPU/memory attribute catalog to filter against (a missing subsystem, left),
 so the fix is presence validation for all three required members rather than
-fabricating a match engine. `ProvisionIpamByoasn` never read
+fabricating a match engine. **Superseded 2026-09-11**: a real matching engine
+over a real catalog now backs this op -- see the dated entry at the end of
+this file. `ProvisionIpamByoasn` never read
 `AsnAuthorizationContext` (`Message`+`Signature`, both required) -- the real
 output never echoes it and this backend has no RDAP/WHOIS signature
 verification to perform, so presence validation is the fix.
@@ -4412,3 +4422,198 @@ every new struct, a `shadow`/`nonamedreturns`/`nlreturn` cluster in the new
 `staticcheck` S1016 direct-conversion suggestion, and an `unparam` on a test
 helper's always-zero parameter -- no nolints added). Did NOT commit, push,
 or run any `bd` write command.
+
+## 2026-09-11 -- real instance-type catalog: DescribeInstanceTypes/
+## DescribeInstanceTypeOfferings/GetInstanceTypesFromInstanceRequirements de-stub
+
+`DescribeInstanceTypes` was a hollow echo (`handler_instances_lifecycle.go`):
+it returned whatever `InstanceType.N` values a caller named with no
+attributes at all, or a single `t2.micro` fallback with none requested. With
+no instance-type attribute data anywhere in the backend,
+`GetInstanceTypesFromInstanceRequirements` could only presence-validate its
+required fields (2026-08-31/09-01 passes above) and
+`DescribeInstanceTypeOfferings` served a small hardcoded type list. Built a
+real static catalog (`instance_type_catalog.go`, data-only) and rewrote all
+three ops as real emulation over it.
+
+**Catalog coverage**: 128 entries across 23 families --
+t2/t3/t3a/t4g (all 7 sizes each, nano-2xlarge), m5/m5a/m6i/m6g/m7i/m7g
+(large-8xlarge or 12xlarge, plus `.medium` for the Graviton generations),
+c5/c6i/c6g/c7g (large-9xlarge/12xlarge), r5/r6i/r6g/r7g (medium/large-8xlarge
+or 12xlarge), i3/i4i (large-4xlarge), g4dn/g5 (xlarge-4xlarge), p3
+(2xlarge/8xlarge/16xlarge). Every family block cites its source page
+(`docs.aws.amazon.com/ec2/latest/instancetypes/{gp,co,mo,so,ac,pg}.html`);
+P3 (previous generation) came from `pg.html` since it's off the current-gen
+pages. Populated members per entry: `InstanceType`, `CurrentGeneration`,
+`FreeTierEligible` (t2.micro/t3.micro only), `BurstablePerformanceSupported`,
+`BareMetal` (false for every cataloged type -- no `.metal` size is
+cataloged), `Hypervisor`, `VCpuInfo.{DefaultVCpus,DefaultCores,
+DefaultThreadsPerCore}` (cores/threads omitted for T2, whose per-size core
+split isn't broken out on `gp.html`), `MemoryInfo.SizeInMiB`,
+`ProcessorInfo.SupportedArchitectures`, `NetworkInfo.{NetworkPerformance,
+MaximumNetworkInterfaces,Ipv4AddressesPerInterface}` (the latter two only
+verified for I3/I4i/G4dn/G5/P3, whose family pages break out a network
+interfaces table; R7g's `NetworkPerformance` is left unverified -- the
+fetched value contradicted the pattern its Graviton3 siblings M7g/C7g show
+on the same page, so it was dropped rather than risking a fabricated
+number), `InstanceStorageSupported`/`InstanceStorageInfo` (I3/I4i/G4dn/G5,
+local NVMe SSD only -- no HDD-backed family is cataloged),
+`GpuInfo` (G4dn/T4, G5/A10G, P3/V100), `SupportedRootDeviceTypes` (`ebs`
+only), `SupportedUsageClasses` (`on-demand`+`spot`, never
+`capacity-block`), `SupportedVirtualizationTypes` (`hvm` only -- no
+cataloged family supports `paravirtual`). **Never populated for any entry**
+(left absent, not fabricated -- source data wasn't found or verified this
+pass): `DedicatedHostsSupported`, `AutoRecoverySupported`,
+`HibernationSupported`, `EbsInfo`/`EbsOptimizedInfo` (the fetched
+`gp.html`/`co.html`/`mo.html` tables gave *network* baseline/burst Gbps, not
+EBS-optimized Mbps -- a different metric this pass didn't have a source
+for), `FpgaInfo`, `InferenceAcceleratorInfo`, `PlacementGroupInfo`,
+`NitroEnclavesSupport`, `NitroTpmInfo`/`NitroTpmSupport`,
+`SupportedBootModes`, `RebootMigrationSupport`, `MediaAcceleratorInfo`,
+`NeuronInfo`, `PhcSupport`, `NetworkInfo.{NetworkCards,EfaInfo,
+BandwidthWeightings,ConnectionTrackingConfiguration}`. Wire shape verified
+against `aws-sdk-go-v2/service/ec2@v1.329.0/types/types.go`
+(`InstanceTypeInfo` and its nested `*Info` types) and `deserializers.go`
+(`awsEc2query_deserializeDocumentInstanceTypeInfo`, deserializers.go:121193,
+plus each nested-type deserializer, cited inline in
+`handler_instance_types.go`) -- element names (`vCpuInfo`, `defaultVCpus`,
+`sizeInMiB`, `supportedArchitectures`, etc.) and the `item`-wrapped list
+convention are all confirmed there, not guessed from the handler's own
+output.
+
+**DescribeInstanceTypes**: returns the real catalog entry per requested
+type; an unrecognized `InstanceType.N` now returns `InvalidInstanceType`
+(new sentinel `ErrInvalidInstanceType`, verified against
+`docs.aws.amazon.com/AWSEC2/latest/APIReference/errors-overview.html`'s
+common client error codes table and real AWS's actual per-request message
+shape, "The following supplied instance types do not exist: [...]" --
+confirmed independently of the docs table's generic description). No
+requested types lists the whole catalog, sorted for deterministic
+pagination. Filters implemented (dispatch table
+`instanceTypeFilterPredicates`, mirroring this file's `errCodeLookup`
+pattern): `instance-type` (wildcard, e.g. `c5*`), `current-generation`,
+`free-tier-eligible`, `burstable-performance-supported`, `bare-metal`,
+`hypervisor`, `vcpu-info.default-{vcpus,cores,threads-per-core}`,
+`memory-info.size-in-mib`, `processor-info.supported-architecture`,
+`network-info.network-performance`, `network-info.maximum-network-interfaces`,
+`network-info.ipv4-addresses-per-interface`, `instance-storage-supported`,
+`instance-storage-info.{total-size-in-gb,disk.type,disk.count,
+disk.size-in-gb}`, `supported-usage-class`, `supported-virtualization-type`,
+`supported-root-device-type` -- every filter name backed by a catalog
+member the catalog actually populates. The remaining ~15 documented filter
+names in `api_op_DescribeInstanceTypes.go`'s doc comment (`dedicated-hosts-
+supported`, `ebs-info.*`, `nitro-enclaves-support`, `nitro-tpm-*`,
+`network-info.efa-*`, `network-info.bandwidth-weightings`, `processor-info.
+supported-features`, `processor-info.sustained-clock-speed-in-ghz`,
+`reboot-migration-support`, `supported-boot-mode`, `hibernation-supported`,
+`auto-recovery-supported`, `vcpu-info.valid-{cores,threads-per-core}`) name
+members this catalog never populates for any type; they fall through to
+this file's existing lenient "unknown filter passes everything"
+convention (`instanceMatchesFilter`), not silently dropped or errored.
+`MaxResults`/`NextToken` now reuses the package's generic
+`parseEC2Pagination`/`pageSlice` (5..100, matching the pre-existing bounds)
+instead of the bespoke `parseInstanceTypesPagination`/`paginateInstanceTypes`
+pair, which is deleted.
+
+**DescribeInstanceTypeOfferings**: `LocationType` `availability-zone`
+(default) and the new `region` are both backed by the real catalog now
+(`region` derives the region string from `DescribeAvailabilityZones("")`'s
+own `<region>a/b/c` convention rather than the unpopulated `Handler.Region`
+field, which is only set once the service registry wires a request
+context); `availability-zone-id`/`outpost` remain an honest empty result --
+this backend has no AZ-ID or Outpost inventory to offer against, matching
+the pre-existing treatment. `instance-type`/`location` `Filters` (unchanged
+from the 2026-08-31 pass) still apply on top.
+
+**GetInstanceTypesFromInstanceRequirements**: real matching engine
+(`instanceTypeMatchesRequirements` and its five sub-predicates) over the
+catalog, replacing the presence-validation-only stub. Honoured:
+`VCpuCount`/`MemoryMiB` min/max (required), `MemoryGiBPerVCpu` min/max
+(computed from `MemoryMiB`/`VCpuCount`), `CpuManufacturers` (derived per
+type -- arm64 catalog entries report `amazon-web-services`; m5a/t3a/g5
+report `amd`; everything else `intel`, matching each family's doc-page
+processor line), `ExcludedInstanceTypes`/`AllowedInstanceTypes` (wildcard,
+`path.Match`), `InstanceGenerations` (`current`/`previous` against
+`CurrentGeneration`), `BareMetal`/`BurstablePerformance`
+included/excluded/required (real AWS's documented default policy for
+both is `excluded`, so a call with neither set correctly excludes every
+burstable T-family type, matching real AWS -- confirmed by
+`TestGetInstanceTypesFromInstanceRequirements_RealClient/default_excludes_burstable_performance_types`),
+`AcceleratorTypes`/`AcceleratorManufacturers`/`AcceleratorNames`/
+`AcceleratorCount`/`AcceleratorTotalMemoryMiB` (every cataloged accelerator
+is a GPU; `AcceleratorCount.Max=0` excludes GPU types for free since a
+non-GPU type's synthesized count is always 0), `LocalStorage`
+included/excluded/required + `LocalStorageTypes` (`ssd` only -- no HDD
+family cataloged) + `TotalLocalStorageGB` min/max, `NetworkInterfaceCount`
+min/max (only meaningful for the 5 families with verified `MaximumNetworkInterfaces`
+data -- a type with unverified ENI data is conservatively excluded from a
+request that constrains this attribute rather than fabricating a pass),
+`ArchitectureTypes`/`VirtualizationTypes` (required top-level params).
+Accepted but disclosed as non-filtering, per this ticket's own stated
+exception for the two price-percentage fields, extended here to two more
+fields this pass has no clean data for: `SpotMaxPricePercentageOverLowestPrice`/
+`OnDemandMaxPricePercentageOverLowestPrice` (no price catalog),
+`NetworkBandwidthGbps` (the catalog's `NetworkPerformance` is a qualitative
+AWS display string like `"Up to 12.5 Gigabit"`, not a clean baseline-Gbps
+number, and burst vs. baseline aren't the same thing -- parsing it would
+risk misreporting several families), `BaselineEbsBandwidthMbps` (no
+`EbsInfo` data is cataloged at all this pass). `RequireHibernateSupport`
+excludes everything when `true` (no catalog entry has verified
+`HibernationSupported` data -- an honest empty result, not a fabricated
+pass). The Backend interface method's signature changed from
+`GetInstanceTypesFromInstanceRequirements() []string` to
+`GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery)
+[]string`; `InMemoryBackend` is the only implementer (confirmed by grep).
+
+**`cli.go`/autoscaling seam, not implemented this pass**: `services/
+autoscaling`'s `MixedInstancesPolicy` attribute-based instance-type
+selection (`ec2_launch.go`, `handler_auto_scaling_groups.go`'s
+`InstanceRequirements` parsing) has its own independent, self-contained
+`InstanceRequirements`/`LaunchTemplateOverride` model and does not call
+into `services/ec2` at all -- grepped for
+`GetInstanceTypesFromInstanceRequirements`/cross-service references in
+`services/autoscaling/*.go` and `cli.go`, found none. Wiring ASG's
+attribute-based override resolution to actually query this new ec2 matching
+engine (rather than duplicating its own resolution logic) would need a new
+cross-service seam analogous to `services/ec2/cross_service.go`'s existing
+Outposts coupling; not built here, described instead per this ticket's own
+instruction.
+
+**Tests**: `handler_describe_instance_types_test.go` (`DescribeInstanceTypes`,
+real SDK client, table-driven filters + deep attribute checks on
+t3.micro/m5.large/g4dn.xlarge + unknown-type error + pagination) and
+`handler_instance_types_test.go` (`DescribeInstanceTypeOfferings` +
+`GetInstanceTypesFromInstanceRequirements`, real SDK client, table-driven,
+each case proving one requirement attribute's inclusion and exclusion)
+replace the old `handler_describe_instance_types_test.go`'s
+echo-pinning pagination test and the old `TestGetInstanceTypesFromInstanceRequirements`
+backend-direct test (which asserted only "returns a nonempty static 5-item
+list" -- defect-ratifying for the old stub, and no longer callable from the
+external `ec2_test` package now that the backend method takes an unexported
+query type). `handler_test.go`'s `DescribeInstanceTypes_default` table case
+(pinned to the old single-`t2.micro`-fallback echo) rewritten for the real
+128-entry catalog's actual paginated-listing behavior.
+
+**Snapshot**: no persisted struct changed (`InstanceTypeOffering` is
+unchanged; the catalog itself is static in-code data, never persisted) --
+`pkgs/persistence/testdata/snapshot_inventory.json` not touched, no
+`ec2SnapshotVersion` bump.
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` (clean). `go test -race -count=1 ./services/ec2/...
+./pkgs/persistence/...` (`ok` both packages). `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/...`: 0 issues -- required real
+decomposition (not nolints) of three over-threshold functions
+(`instanceTypeMatchesFilter`'s 26-case switch replaced by the
+`instanceTypeFilterPredicates` dispatch table; `instanceTypeMatchesRequirements`
+split into `instanceTypeMatchesCoreRequirements`/
+`instanceTypeMatchesSelectionRequirements`/`instanceTypeMatchesNetworkRequirements`
+plus the pre-existing accelerator/storage helpers;
+`instanceTypeMatchesAcceleratorRequirements` split into
+`instanceTypeMatchesAcceleratorRanges`/`instanceTypeMatchesAcceleratorIdentity`),
+plus fieldalignment/goconst/nonamedreturns/mnd cleanup (`golangci-lint fmt`
+auto-fixed fieldalignment and line-length; goconst literals promoted to
+named constants; the catalog's `var instanceTypeCatalog` keeps a
+`//nolint:mnd,gochecknoglobals` for its literal data table, the same
+established pattern as `awsRegions`/`errCodeLookup` above). Did NOT commit,
+push, or run any `bd` write command.

@@ -775,6 +775,7 @@ var errCodeLookup = []struct {
 	{ErrResourceCountExceeded, "ResourceCountExceeded"},
 	{ErrIAMInstanceProfileAlreadyAssociated, "IncorrectState"},
 	{ErrIAMAssociationNotFound, errCodeInvalidAssociationIDNotFound},
+	{ErrInvalidInstanceType, "InvalidInstanceType"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.

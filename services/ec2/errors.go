@@ -120,6 +120,17 @@ var (
 	ErrInsufficientInstanceCapacity = errors.New("InsufficientInstanceCapacity")
 )
 
+// Instance type catalog (2026-09-11 DescribeInstanceTypes de-stub).
+var (
+	// ErrInvalidInstanceType backs the real EC2 client error code
+	// "InvalidInstanceType" (docs.aws.amazon.com/AWSEC2/latest/APIReference/
+	// errors-overview.html Common client error codes table), returned when a
+	// caller-supplied InstanceType.N value is not a real, cataloged instance
+	// type (confirmed against real DescribeInstanceTypes/RunInstances
+	// behavior for an unrecognized instance type name).
+	ErrInvalidInstanceType = errors.New("InvalidInstanceType")
+)
+
 // RunInstances allocation-safety bound (gopherstack-x6r7).
 var (
 	// ErrResourceCountExceeded backs the real EC2 error code

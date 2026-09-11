@@ -308,16 +308,15 @@ func TestGetPasswordData(t *testing.T) { //nolint:paralleltest // existing issue
 	})
 }
 
-func TestGetInstanceTypesFromInstanceRequirements( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-
-	t.Run("returns static list", func(t *testing.T) {
-		types := b.GetInstanceTypesFromInstanceRequirements()
-		assert.NotEmpty(t, types)
-	})
-}
+// TestGetInstanceTypesFromInstanceRequirements previously asserted only that
+// the backend method returned a nonempty static 5-item list regardless of
+// its (nonexistent) arguments -- a defect-ratifying test for the old echo
+// stub. The real attribute-based matching engine is exercised end-to-end via
+// the real SDK client in handler_instance_types_test.go
+// (TestGetInstanceTypesFromInstanceRequirements_RealClient); this backend
+// method now takes an unexported *instanceRequirementsQuery this external
+// test package cannot construct, so coverage moved there rather than being
+// faked here with a zero-value stand-in.
 
 // ---- VPN ---- //nolint:godot // existing issue.
 
