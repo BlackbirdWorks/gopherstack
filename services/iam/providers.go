@@ -228,8 +228,8 @@ func (b *InMemoryBackend) ListOpenIDConnectProviders() ([]OIDCProvider, error) {
 
 // ---- Login Profile operations ----
 
-// CreateLoginProfile creates a console login profile for an IAM user.
-// The password is validated but not stored; this is an in-memory mock.
+// CreateLoginProfile creates a console login profile for an IAM user, storing the
+// password on that user's own LoginProfile for later verification by ChangePassword.
 func (b *InMemoryBackend) CreateLoginProfile(
 	userName, password string, passwordResetRequired bool,
 ) (*LoginProfile, error) {
