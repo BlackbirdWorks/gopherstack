@@ -46,6 +46,10 @@ func applyMetricAlarmStateLocked(
 	if update.oldState != stateValue {
 		a.StateTransitionedTimestamp = now
 	}
+	// StateUpdatedTimestamp tracks any state update, even a no-op SetAlarmState
+	// call that re-affirms the current StateValue -- unlike
+	// StateTransitionedTimestamp, which only moves on an actual value change.
+	a.StateUpdatedTimestamp = now
 
 	return instanceIDs
 }
@@ -71,6 +75,8 @@ func applyCompositeAlarmStateLocked(
 	if update.oldState != stateValue {
 		a.StateTransitionedTimestamp = now
 	}
+	// See applyMetricAlarmStateLocked's StateUpdatedTimestamp comment.
+	a.StateUpdatedTimestamp = now
 }
 
 // applyLogAlarmStateLocked copies a log alarm's pre-change fields into update

@@ -50,14 +50,20 @@ func (b *InMemoryBackend) PutMetricAlarm(alarm *MetricAlarm) error {
 		alarm.CreatedAt = now
 	}
 	// Preserve the state-transitioned timestamp from an existing alarm if the state did not change.
+	// PutMetricAlarm reconfigures the alarm but does not itself evaluate metric
+	// state, so StateUpdatedTimestamp -- which tracks state evaluation/SetAlarmState
+	// activity, not config edits -- is seeded once on creation and preserved
+	// across config-only updates.
 	if existing, ok := b.alarms.Get(alarm.AlarmName); ok {
 		if existing.StateValue == alarm.StateValue {
 			alarm.StateTransitionedTimestamp = existing.StateTransitionedTimestamp
 		} else {
 			alarm.StateTransitionedTimestamp = now
 		}
+		alarm.StateUpdatedTimestamp = existing.StateUpdatedTimestamp
 	} else {
 		alarm.StateTransitionedTimestamp = now
+		alarm.StateUpdatedTimestamp = now
 	}
 	alarm.AlarmConfigurationUpdatedTimestamp = now
 
@@ -173,9 +179,7 @@ func validateAlarmFamilyFilter(
 // collectChildrenOfAlarm returns the metric and composite alarms referenced
 // by the named composite alarm's AlarmRule (its "children"), abbreviated per
 // the ChildrenOfAlarmName doc comment: only Name, ARN, StateValue, and
-// StateUpdatedTimestamp are returned. This model does not track
-// StateUpdatedTimestamp separately from StateTransitionedTimestamp for
-// MetricAlarm/CompositeAlarm, so StateTransitionedTimestamp stands in for it.
+// StateUpdatedTimestamp are returned.
 // Caller must hold b.mu (read lock).
 func (b *InMemoryBackend) collectChildrenOfAlarm(name string) ([]MetricAlarm, []CompositeAlarm) {
 	parent, isComposite := b.compositeAlarms.Get(name)
@@ -239,10 +243,10 @@ func (b *InMemoryBackend) collectParentsOfAlarm(name string) []CompositeAlarm {
 // of a MetricAlarm: Name, ARN, StateValue, and StateUpdatedTimestamp.
 func abbreviateMetricAlarmForFamily(a MetricAlarm) MetricAlarm {
 	return MetricAlarm{
-		AlarmName:                  a.AlarmName,
-		AlarmArn:                   a.AlarmArn,
-		StateValue:                 a.StateValue,
-		StateTransitionedTimestamp: a.StateTransitionedTimestamp,
+		AlarmName:             a.AlarmName,
+		AlarmArn:              a.AlarmArn,
+		StateValue:            a.StateValue,
+		StateUpdatedTimestamp: a.StateUpdatedTimestamp,
 	}
 }
 
@@ -250,10 +254,10 @@ func abbreviateMetricAlarmForFamily(a MetricAlarm) MetricAlarm {
 // subset of a CompositeAlarm: Name, ARN, StateValue, and StateUpdatedTimestamp.
 func abbreviateCompositeAlarmForFamily(a CompositeAlarm) CompositeAlarm {
 	return CompositeAlarm{
-		AlarmName:                  a.AlarmName,
-		AlarmArn:                   a.AlarmArn,
-		StateValue:                 a.StateValue,
-		StateTransitionedTimestamp: a.StateTransitionedTimestamp,
+		AlarmName:             a.AlarmName,
+		AlarmArn:              a.AlarmArn,
+		StateValue:            a.StateValue,
+		StateUpdatedTimestamp: a.StateUpdatedTimestamp,
 	}
 }
 

@@ -166,6 +166,9 @@ func buildMetricAlarmCBOR(a *MetricAlarm) cbor.Map {
 	if !a.StateTransitionedTimestamp.IsZero() {
 		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
 	}
+	if !a.StateUpdatedTimestamp.IsZero() {
+		m["StateUpdatedTimestamp"] = cborFromTime(a.StateUpdatedTimestamp)
+	}
 	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
 		m["AlarmConfigurationUpdatedTimestamp"] = cborFromTime(a.AlarmConfigurationUpdatedTimestamp)
 	}

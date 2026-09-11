@@ -1093,3 +1093,68 @@ Gates for this pass: `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/cloudwatch/...` — 0 issues. `GOTOOLCHAIN=go1.27.0 go test -race
 ./services/cloudwatch/...` — all pass. No persisted-type fields were added, so
 `pkgs/persistence` was not touched and its golden was not run.
+
+## 2026-09-11 -- gopherstack-mven/r80d respsweep: MetricAlarm/CompositeAlarm.StateUpdatedTimestamp
+
+Closes the gap the 2026-09-08 pass's Notes section named as needing "a
+dedicated pass": `types.MetricAlarm.StateUpdatedTimestamp`
+(cloudwatch@v1.66.3 types/types.go:2178) and `types.CompositeAlarm.
+StateUpdatedTimestamp` (types/types.go:579) had no backing field on either
+domain struct at all — only `LogAlarm` (added fresh in the 2026-07-25 pass)
+tracked it. Not Smithy-`required` (both SDK fields are `*time.Time`,
+undocumented as required), so this is a "no backing state" gap rather than a
+required-output-member drop, but it is real, always-populated-in-practice
+AWS state gopherstack was silently omitting.
+
+Doc comment (types/types.go:578): "Tracks the timestamp of any state update,
+even if StateValue doesn't change" — the field's whole point is to diverge
+from `StateTransitionedTimestamp`, which only moves on an actual value
+change. Modeled accordingly rather than as a lazy alias:
+
+- `MetricAlarm`/`CompositeAlarm` (`models.go`) gained the field.
+- `PutMetricAlarm` (`alarms.go`) seeds it at creation and preserves it across
+  config-only updates — `PutMetricAlarm` doesn't itself evaluate metric
+  state, so a config edit isn't a "state update" in this field's sense.
+- `PutCompositeAlarm` (`composite_alarms.go`) sets it on every call
+  unconditionally: unlike `PutMetricAlarm`, it always re-evaluates the
+  alarm rule (`evalCompositeRule`), so every call genuinely is a state
+  update even when the result doesn't change.
+- `applyMetricAlarmStateLocked`/`applyCompositeAlarmStateLocked`
+  (`alarm_state.go`), reached by every `SetAlarmState` call (manual or
+  evaluator-driven via `EvaluateAlarms`), set it unconditionally —
+  including a no-op `SetAlarmState` call that re-affirms the current state.
+- `reevaluateCompositeAlarms` (`composite_alarms.go`), the side-effect
+  re-check that runs after any alarm's `SetAlarmState`, sets it alongside
+  `StateTransitionedTimestamp` on the only path where it touches a
+  composite alarm at all (an actual rule-driven transition).
+
+Wired into both wire protocols: the legacy XML/form path
+(`handler_alarms.go`, `handler_composite_alarms.go`) and the real protocol
+this SDK actually speaks, rpc-v2 CBOR (`rpcv2cbor_alarms.go`,
+`rpcv2cbor_composite_alarms.go`; `api_client.go:214` hardcodes
+`rpcv2.NewCBOR`). `collectChildrenOfAlarm`'s abbreviated `ChildrenOfAlarmName`
+view (`alarms.go`) now carries the real field instead of a documented
+`StateTransitionedTimestamp`-stands-in-for-it workaround.
+
+Proven via `wire_output_required_respsweep_test.go`: a real
+`aws-sdk-go-v2/service/cloudwatch` client round trip confirms the field is
+present on both alarm types via `DescribeAlarms`, and a domain-model-level
+test confirms `StateUpdatedTimestamp` advances on a no-op `SetAlarmState`/
+`PutCompositeAlarm` call while `StateTransitionedTimestamp` does not — proved
+at the Go-struct layer rather than through the wire because `cborFromTime`
+(`rpcv2cbor.go`) truncates to whole-second (`Unix()`) precision, which would
+make same-second no-op updates indistinguishable at the wire layer, same as
+real AWS's own epoch-second CBOR encoding. Verified against an isolated
+worktree at pre-fix HEAD that the new test fails to compile there (the field
+genuinely does not exist), confirming it fails before the fix.
+
+`pkgs/persistence/testdata/snapshot_inventory.json` updated (two new
+purely-additive rows, `MetricAlarm.StateUpdatedTimestamp`/
+`CompositeAlarm.StateUpdatedTimestamp`); `cloudwatchSnapshotVersion` not
+bumped — the guard's own additive-diff rule applies. A concurrent agent's
+uncommitted `services/cloudformation` work also trips the same guard
+unrelated to this change; left untouched.
+
+Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
+./services/cloudwatch/...` all pass; `golangci-lint run
+./services/cloudwatch/...` 0 issues, 0 new nolints.

@@ -95,6 +95,9 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 	if !a.StateTransitionedTimestamp.IsZero() {
 		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
 	}
+	if !a.StateUpdatedTimestamp.IsZero() {
+		x.StateUpdatedTimestamp = a.StateUpdatedTimestamp.UTC().Format(time.RFC3339)
+	}
 	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
 		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().
 			Format(time.RFC3339)
@@ -113,6 +116,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 type metricAlarmXML struct {
 	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
 	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
+	StateUpdatedTimestamp              string   `xml:"StateUpdatedTimestamp,omitempty"`
 	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
 	Namespace                          string   `xml:"Namespace,omitempty"`
 	MetricName                         string   `xml:"MetricName,omitempty"`

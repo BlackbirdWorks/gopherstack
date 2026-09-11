@@ -970,3 +970,49 @@ services/ec2` showing unrelated uncommitted changes), `go test -race
 -count=1 ./services/s3control/... ./services/neptune/...` (pass),
 `golangci-lint run ./services/s3control/... ./services/neptune/...` (0
 issues, `golines -w -m 120` applied then re-verified).
+
+## 2026-09-11 -- gopherstack-mven/r80d respsweep: GetBucketTagging.TagSet dropped the documented NoSuchTagSetError case
+
+`GetBucketTaggingOutput.TagSet` is required
+(`api_op_GetBucketTagging.go:100`), and the op's own doc comment names its
+one special error: "Error code: NoSuchTagSetError -- There is no tag set
+associated with the bucket." `GetBucketTagging` (`bucket.go`) could not
+distinguish "never tagged" (or tagging removed via `DeleteBucketTagging`)
+from "tagged with zero tags" -- both hit the same nil map lookup and
+returned 200 with an empty `TagSet`. Combined with `GetBucketTaggingResult`'s
+`xml:"TagSet>member"` nested-path tag on a nil slice (`handler_bucket.go`),
+which Go's `encoding/xml` omits entirely rather than rendering an empty
+wrapper, an untagged bucket silently dropped the required `TagSet` element
+from the wire altogether instead of returning the documented error.
+
+Fixed by tracking presence via Go map key existence
+(`tags, ok := b.bucketTagging[bucketName]`) rather than a nil check --
+`PutBucketTagging` always sets the key (even to an empty tag set) and
+`DeleteBucketTagging`/`DeleteBucket`'s cascade both delete it, so `ok`
+correctly means "a tag set exists, possibly empty." A bucket with no entry
+now returns the new `errNoSuchTagSet` sentinel (`errors.go`,
+`"NoSuchTagSetError"`/`awserr.ErrNotFound`, mapped to HTTP 404 by the
+existing `handleBackendError`). Input side checked per the r80d lesson: the
+op takes no body, nothing to fix there.
+
+`UpdateJobPriority.JobId`/`.Priority` (the sweep's other s3control
+candidate) and `GetBucketTagging`'s sibling required members were reviewed
+and found already correct -- both are unconditionally sourced from real
+backend state on every success path.
+
+Proven via a real `aws-sdk-go-v2/service/s3control` client round trip
+(`wire_output_required_respsweep_test.go`, reusing the existing
+`newTestS3ControlClient` httptest helper): a never-tagged bucket now returns
+`NoSuchTagSetError`, a tagged bucket still returns its tags correctly. Hand-
+reverted (both edited lines) and confirmed the test fails against
+unmodified code, then restored byte-identical (`md5sum`-verified). One
+pre-existing test asserted the old (incorrect) success-with-empty-tags
+behavior after a bucket delete/recreate cycle
+(`TestOutpostsBucket/delete_bucket_cascade_cleans_state`,
+`handler_bucket_test.go`) -- updated to assert the documented error instead,
+since that's the correct proof that "tagging must not survive delete."
+
+Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
+./services/s3control/...` all pass; `golangci-lint run
+./services/s3control/...` 0 issues, 0 new nolints. No persisted-field
+changes, so `pkgs/persistence` was not touched for this fix.

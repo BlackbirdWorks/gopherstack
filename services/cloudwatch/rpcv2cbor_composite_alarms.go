@@ -25,6 +25,9 @@ func buildCompositeAlarmCBOR(a *CompositeAlarm) cbor.Map {
 	if !a.StateTransitionedTimestamp.IsZero() {
 		m["StateTransitionedTimestamp"] = cborFromTime(a.StateTransitionedTimestamp)
 	}
+	if !a.StateUpdatedTimestamp.IsZero() {
+		m["StateUpdatedTimestamp"] = cborFromTime(a.StateUpdatedTimestamp)
+	}
 	if len(a.AlarmActions) > 0 {
 		m["AlarmActions"] = cborStringList(a.AlarmActions)
 	}

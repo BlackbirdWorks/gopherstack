@@ -70,8 +70,13 @@ type Datapoint struct {
 
 // MetricAlarm represents a CloudWatch metric alarm.
 type MetricAlarm struct {
-	CreatedAt                          time.Time `json:"AlarmCreatedAt"`
-	StateTransitionedTimestamp         time.Time `json:"StateTransitionedTimestamp"`
+	CreatedAt                  time.Time `json:"AlarmCreatedAt"`
+	StateTransitionedTimestamp time.Time `json:"StateTransitionedTimestamp"`
+	// StateUpdatedTimestamp tracks the timestamp of any state update, even if
+	// StateValue doesn't change -- distinct from StateTransitionedTimestamp,
+	// which only moves on an actual value change (cloudwatch@v1.66.3
+	// types/types.go:2176-2178).
+	StateUpdatedTimestamp              time.Time `json:"StateUpdatedTimestamp"`
 	AlarmConfigurationUpdatedTimestamp time.Time `json:"AlarmConfigurationUpdatedTimestamp"`
 	StateValue                         string    `json:"StateValue"`
 	Namespace                          string    `json:"Namespace"`
@@ -107,16 +112,19 @@ type MetricAlarm struct {
 type CompositeAlarm struct {
 	CreatedAt                  time.Time `json:"AlarmCreatedAt"`
 	StateTransitionedTimestamp time.Time `json:"StateTransitionedTimestamp"`
-	StateValue                 string    `json:"StateValue"`
-	AlarmName                  string    `json:"AlarmName"`
-	AlarmRule                  string    `json:"AlarmRule"`
-	AlarmDescription           string    `json:"AlarmDescription,omitempty"`
-	AlarmArn                   string    `json:"AlarmArn"`
-	StateReason                string    `json:"StateReason,omitempty"`
-	AlarmActions               []string  `json:"AlarmActions,omitempty"`
-	OKActions                  []string  `json:"OKActions,omitempty"`
-	InsufficientDataActions    []string  `json:"InsufficientDataActions,omitempty"`
-	ActionsEnabled             bool      `json:"ActionsEnabled"`
+	// StateUpdatedTimestamp tracks the timestamp of any state update, even if
+	// StateValue doesn't change (cloudwatch@v1.66.3 types/types.go:578).
+	StateUpdatedTimestamp   time.Time `json:"StateUpdatedTimestamp"`
+	StateValue              string    `json:"StateValue"`
+	AlarmName               string    `json:"AlarmName"`
+	AlarmRule               string    `json:"AlarmRule"`
+	AlarmDescription        string    `json:"AlarmDescription,omitempty"`
+	AlarmArn                string    `json:"AlarmArn"`
+	StateReason             string    `json:"StateReason,omitempty"`
+	AlarmActions            []string  `json:"AlarmActions,omitempty"`
+	OKActions               []string  `json:"OKActions,omitempty"`
+	InsufficientDataActions []string  `json:"InsufficientDataActions,omitempty"`
+	ActionsEnabled          bool      `json:"ActionsEnabled"`
 }
 
 // ScheduleConfiguration is the schedule expression and time-range offsets that
