@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -405,8 +406,66 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 		VersionNumber:      lt.LatestVersionNumber,
 		DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
 	}
+	lt.Versions = append(lt.Versions, *ver)
 
 	return ver, nil
+}
+
+// launchTemplateVersionLatest and launchTemplateVersionDefault are the two
+// magic version aliases LaunchTemplateSpecification.Version accepts, per its
+// own doc comment (aws-sdk-go-v2/service/ec2@v1.329.0 types/types.go:15278-15284):
+// "$Latest uses the latest version"; "$Default uses the default version";
+// "Default: The default version of the launch template" when Version is empty.
+const (
+	launchTemplateVersionLatest  = "$Latest"
+	launchTemplateVersionDefault = "$Default"
+)
+
+// resolveLaunchTemplateVersion resolves version (a version number, "$Latest",
+// "$Default", or "" -- which means "$Default", per LaunchTemplateSpecification.Version's
+// own doc comment) against lt's real per-version history. Falls back to lt's own
+// (mutated-in-place) ImageID/InstanceType when lt.Versions is empty, so launch
+// templates restored from a snapshot persisted before per-version storage existed
+// still resolve. Must be called with b.mu held (read or write).
+func resolveLaunchTemplateVersion(lt *LaunchTemplate, version string) (*LaunchTemplateVersion, error) {
+	var target int64
+
+	switch version {
+	case "", launchTemplateVersionDefault:
+		target = lt.DefaultVersionNumber
+	case launchTemplateVersionLatest:
+		target = lt.LatestVersionNumber
+	default:
+		v, err := strconv.ParseInt(version, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateVersionNotFound, version)
+		}
+
+		target = v
+	}
+
+	for i := range lt.Versions {
+		if lt.Versions[i].VersionNumber == target {
+			cp := lt.Versions[i]
+
+			return &cp, nil
+		}
+	}
+
+	if len(lt.Versions) == 0 {
+		return &LaunchTemplateVersion{
+			LaunchTemplateID:   lt.ID,
+			LaunchTemplateName: lt.Name,
+			CreatedBy:          lt.CreatedBy,
+			ImageID:            lt.ImageID,
+			InstanceType:       lt.InstanceType,
+			CreateTime:         lt.CreateTime,
+			VersionNumber:      lt.LatestVersionNumber,
+			DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s version %d", ErrLaunchTemplateVersionNotFound, lt.ID, target)
 }
 
 // DeleteLaunchTemplateVersions removes specific versions from a launch template.

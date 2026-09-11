@@ -181,16 +181,21 @@ type Instance struct {
 	EBSOptimized          bool `json:"ebsOptimized,omitempty"`
 }
 
-// LaunchTemplate represents an EC2 launch template.
+// LaunchTemplate represents an EC2 launch template. ImageID/InstanceType mirror
+// whichever version was most recently created or modified (back-compat for callers
+// that want "the current data" without resolving a specific version, e.g. Fleet's
+// override resolution); Versions holds the real per-version history that
+// GetLaunchTemplate resolves $Latest/$Default/numeric/empty version requests against.
 type LaunchTemplate struct {
-	CreateTime           time.Time `json:"createTime"`
-	ID                   string    `json:"id,omitempty"`
-	Name                 string    `json:"name,omitempty"`
-	ImageID              string    `json:"imageID,omitempty"`
-	InstanceType         string    `json:"instanceType,omitempty"`
-	CreatedBy            string    `json:"createdBy,omitempty"`
-	DefaultVersionNumber int64     `json:"defaultVersionNumber"`
-	LatestVersionNumber  int64     `json:"latestVersionNumber"`
+	CreateTime           time.Time               `json:"createTime"`
+	ID                   string                  `json:"id,omitempty"`
+	Name                 string                  `json:"name,omitempty"`
+	ImageID              string                  `json:"imageID,omitempty"`
+	InstanceType         string                  `json:"instanceType,omitempty"`
+	CreatedBy            string                  `json:"createdBy,omitempty"`
+	Versions             []LaunchTemplateVersion `json:"versions,omitempty"`
+	DefaultVersionNumber int64                   `json:"defaultVersionNumber"`
+	LatestVersionNumber  int64                   `json:"latestVersionNumber"`
 }
 
 // VpcEndpoint represents an EC2 VPC endpoint.

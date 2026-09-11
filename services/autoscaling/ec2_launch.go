@@ -84,7 +84,13 @@ func (b *InMemoryBackend) makeInstances(g *AutoScalingGroup, count int32) []Inst
 }
 
 // launchInEC2 attempts to launch n real instances in the wired EC2 launcher.
-// Reports ok=false on any error or missing spec so the caller can fall back to fabrication.
+// Reports ok=false on any error or missing spec so the caller can fall back to
+// fabrication. A MixedInstancesPolicy with multiple Overrides resolves to
+// multiple specs, launched round-robin (overrides[i%len(overrides)] for
+// instance i) mirroring EC2 Fleet's own round-robin fulfillment
+// (services/ec2/fleet.go's launchFleetInstancesLocked/growFleetLocked) so the
+// launched fleet's instance-type mix matches the overrides list instead of
+// pinning every instance to the first override.
 func (b *InMemoryBackend) launchInEC2(
 	g *AutoScalingGroup, az string, n int, instanceType string,
 ) ([]Instance, bool) {
@@ -92,29 +98,82 @@ func (b *InMemoryBackend) launchInEC2(
 		return nil, false
 	}
 
-	spec, ok := b.launchSpecForGroup(g, az)
+	specs, ok := b.launchSpecsForGroup(g, az)
 	if !ok {
 		return nil, false
 	}
 
-	ids, err := b.ec2Launcher.LaunchInstances(context.Background(), spec, n)
-	if err != nil {
-		logger.Load(context.Background()).Error(
-			"autoscaling: EC2 launch failed, falling back to synthetic instances",
-			"error", err, "group", g.AutoScalingGroupName)
+	ctx := context.Background()
+
+	instances, allIDs, ok := b.launchRoundRobin(ctx, specs, n, az, g, instanceType)
+	if !ok {
+		if len(allIDs) > 0 {
+			if err := b.ec2Launcher.TerminateInstances(ctx, allIDs); err != nil {
+				logger.Load(ctx).ErrorContext(ctx,
+					"autoscaling: EC2 rollback-terminate failed after partial launch",
+					"error", err, "group", g.AutoScalingGroupName, "instanceIDs", allIDs)
+			}
+		}
 
 		return nil, false
 	}
 
-	if instanceType == "" {
-		instanceType = spec.InstanceType
-	}
-
-	instances := instancesFromIDs(ids, az, g.LaunchConfigurationName, instanceType)
-	b.registerELBTargets(ids, g.TargetGroupARNs)
-	b.registerELBInstances(ids, g.LoadBalancerNames)
+	b.registerELBTargets(allIDs, g.TargetGroupARNs)
+	b.registerELBInstances(allIDs, g.LoadBalancerNames)
 
 	return instances, true
+}
+
+// launchRoundRobin launches n instances across specs round-robin (spec index
+// i%len(specs) for instance i), batching the LaunchInstances call per spec.
+// Reports ok=false on the first launcher error, in which case allIDs holds
+// whatever was launched before the failure so the caller can roll it back.
+func (b *InMemoryBackend) launchRoundRobin(
+	ctx context.Context, specs []InstanceLaunchSpec, n int, az string, g *AutoScalingGroup, fallbackType string,
+) ([]Instance, []string, bool) {
+	var instances []Instance
+
+	var allIDs []string
+
+	for i, count := range distributeRoundRobin(n, len(specs)) {
+		if count == 0 {
+			continue
+		}
+
+		spec := specs[i]
+
+		ids, err := b.ec2Launcher.LaunchInstances(ctx, spec, count)
+		allIDs = append(allIDs, ids...)
+
+		if err != nil {
+			logger.Load(ctx).ErrorContext(ctx,
+				"autoscaling: EC2 launch failed, falling back to synthetic instances",
+				"error", err, "group", g.AutoScalingGroupName)
+
+			return nil, allIDs, false
+		}
+
+		specType := spec.InstanceType
+		if specType == "" {
+			specType = fallbackType
+		}
+
+		instances = append(instances, instancesFromIDs(ids, az, g.LaunchConfigurationName, specType)...)
+	}
+
+	return instances, allIDs, true
+}
+
+// distributeRoundRobin splits n units round-robin across k buckets --
+// bucket[i%k] for unit i -- returning each bucket's count. Matches EC2
+// Fleet's overrides[i%len(overrides)] fulfillment loop (fleet.go).
+func distributeRoundRobin(n, k int) []int {
+	counts := make([]int, k)
+	for i := range n {
+		counts[i%k]++
+	}
+
+	return counts
 }
 
 // adjustInstances adjusts g's existing instance slice to match the new desired
@@ -158,18 +217,23 @@ func (b *InMemoryBackend) terminateInEC2(ids []string) {
 	}
 }
 
-// launchSpecForGroup derives an InstanceLaunchSpec from g's LaunchConfiguration,
-// LaunchTemplate, or MixedInstancesPolicy. It reports ok=false when g cannot be
-// resolved to a usable ImageId, in which case the caller falls back to fabricating
-// instances.
-func (b *InMemoryBackend) launchSpecForGroup(g *AutoScalingGroup, az string) (InstanceLaunchSpec, bool) {
+// launchSpecsForGroup derives the InstanceLaunchSpec(s) to round-robin launch
+// instances from for g: a single spec from its LaunchConfiguration or plain
+// LaunchTemplate, or one spec per MixedInstancesPolicy.LaunchTemplate.Overrides
+// entry when overrides are present (each override may set its own
+// LaunchTemplateSpecification and/or InstanceType -- types.LaunchTemplateOverride,
+// aws-sdk-go-v2/service/autoscaling/types/types.go, mirrored by this package's
+// own LaunchTemplateOverride in models.go). Reports ok=false when g cannot be
+// resolved to at least one usable ImageId, in which case the caller falls back
+// to fabricating instances.
+func (b *InMemoryBackend) launchSpecsForGroup(g *AutoScalingGroup, az string) ([]InstanceLaunchSpec, bool) {
 	if g.LaunchConfigurationName != "" {
 		lc, ok := b.launchConfigurations.Get(g.LaunchConfigurationName)
 		if !ok || lc.ImageID == "" {
-			return InstanceLaunchSpec{}, false
+			return nil, false
 		}
 
-		return InstanceLaunchSpec{
+		return []InstanceLaunchSpec{{
 			ImageID:          lc.ImageID,
 			InstanceType:     lc.InstanceType,
 			SubnetID:         firstSubnetID(g.VPCZoneIdentifier),
@@ -177,14 +241,68 @@ func (b *InMemoryBackend) launchSpecForGroup(g *AutoScalingGroup, az string) (In
 			KeyName:          lc.KeyName,
 			SecurityGroups:   lc.SecurityGroups,
 			Tags:             launchTagsForGroup(g),
-		}, true
+		}}, true
 	}
 
 	if b.ec2Launcher == nil {
-		return InstanceLaunchSpec{}, false
+		return nil, false
+	}
+
+	if g.MixedInstancesPolicy != nil && len(g.MixedInstancesPolicy.LaunchTemplate.Overrides) > 0 {
+		return b.launchSpecsForOverrides(g, az)
 	}
 
 	ltSpec := extractLaunchTemplateSpec(g)
+	if ltSpec == nil || (ltSpec.LaunchTemplateID == "" && ltSpec.LaunchTemplateName == "") {
+		return nil, false
+	}
+
+	spec, ok := b.resolveLaunchTemplateSpec(g, az, ltSpec, "")
+	if !ok {
+		return nil, false
+	}
+
+	return []InstanceLaunchSpec{spec}, true
+}
+
+// launchSpecsForOverrides resolves one InstanceLaunchSpec per
+// MixedInstancesPolicy.LaunchTemplate.Overrides entry: each override's own
+// LaunchTemplateSpecification when it sets one, otherwise the policy's base
+// LaunchTemplateSpecification, with the override's InstanceType taking
+// precedence over the resolved template's when set. Skips overrides that fail
+// to resolve; reports ok=false only when none resolve at all.
+func (b *InMemoryBackend) launchSpecsForOverrides(g *AutoScalingGroup, az string) ([]InstanceLaunchSpec, bool) {
+	baseSpec := g.MixedInstancesPolicy.LaunchTemplate.LaunchTemplateSpecification
+
+	specs := make([]InstanceLaunchSpec, 0, len(g.MixedInstancesPolicy.LaunchTemplate.Overrides))
+
+	for _, ov := range g.MixedInstancesPolicy.LaunchTemplate.Overrides {
+		ltSpec := &baseSpec
+		if ov.LaunchTemplateSpecification != nil {
+			ltSpec = ov.LaunchTemplateSpecification
+		}
+
+		spec, ok := b.resolveLaunchTemplateSpec(g, az, ltSpec, ov.InstanceType)
+		if !ok {
+			continue
+		}
+
+		specs = append(specs, spec)
+	}
+
+	if len(specs) == 0 {
+		return nil, false
+	}
+
+	return specs, true
+}
+
+// resolveLaunchTemplateSpec resolves one LaunchTemplateSpecification (id/name
+// + version) against the wired EC2Launcher, applying instanceTypeOverride in
+// place of the resolved template's own InstanceType when non-empty.
+func (b *InMemoryBackend) resolveLaunchTemplateSpec(
+	g *AutoScalingGroup, az string, ltSpec *LaunchTemplateSpecification, instanceTypeOverride string,
+) (InstanceLaunchSpec, bool) {
 	if ltSpec == nil || (ltSpec.LaunchTemplateID == "" && ltSpec.LaunchTemplateName == "") {
 		return InstanceLaunchSpec{}, false
 	}
@@ -199,8 +317,8 @@ func (b *InMemoryBackend) launchSpecForGroup(g *AutoScalingGroup, az string) (In
 		return InstanceLaunchSpec{}, false
 	}
 
-	if override := extractOverrideInstanceType(g); override != "" {
-		instanceType = override
+	if instanceTypeOverride != "" {
+		instanceType = instanceTypeOverride
 	}
 
 	return InstanceLaunchSpec{
@@ -221,19 +339,6 @@ func extractLaunchTemplateSpec(g *AutoScalingGroup) *LaunchTemplateSpecification
 	}
 
 	return nil
-}
-
-func extractOverrideInstanceType(g *AutoScalingGroup) string {
-	if g.MixedInstancesPolicy == nil {
-		return ""
-	}
-	for _, o := range g.MixedInstancesPolicy.LaunchTemplate.Overrides {
-		if o.InstanceType != "" {
-			return o.InstanceType
-		}
-	}
-
-	return ""
 }
 
 // firstSubnetID returns the first subnet ID from a VPCZoneIdentifier

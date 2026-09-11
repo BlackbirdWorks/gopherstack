@@ -66,6 +66,10 @@ var (
 	ErrSnapshotNotFound       = errors.New("InvalidSnapshotID.NotFound")
 	ErrNetworkACLNotFound     = errors.New("InvalidNetworkAclID.NotFound")
 	ErrLaunchTemplateNotFound = errors.New("InvalidLaunchTemplateID.NotFound")
+	// ErrLaunchTemplateVersionNotFound: "The specified launch template version does
+	// not exist" (docs.aws.amazon.com/AWSEC2/latest/APIReference/errors-overview.html,
+	// InvalidLaunchTemplateId.VersionNotFound).
+	ErrLaunchTemplateVersionNotFound = errors.New("InvalidLaunchTemplateId.VersionNotFound")
 )
 
 // naclDefaultDenyRuleNumber is the AWS-defined default-deny rule number placed at the end of every NACL.
