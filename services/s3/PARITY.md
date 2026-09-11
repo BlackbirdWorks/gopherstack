@@ -1203,7 +1203,7 @@ matches real S3, where a lifecycle rule added or changed after a multipart
 upload begins still governs it). Shared via a new `abortIncompleteInfoForUpload`
 helper so both call sites read `bucket.LifecycleConfig` identically.
 
-**Found in passing, NOT fixed:** the pre-existing janitor sweep
+**Found in passing, NOT fixed here:** the pre-existing janitor sweep
 (`abortStaleMultipartUploads`, janitor.go) that actually EVICTS stale
 uploads does not filter by key prefix at all -- it aborts every upload in a
 bucket older than the rule's `DaysAfterInitiation`, regardless of whether the
@@ -1216,6 +1216,8 @@ correctness, not the sweep's own filter bug, and fixing the sweep touches a
 different code path (`janitor.go`'s `applyLifecycleRule` -> `abortStaleMultipartUploads`)
 with its own blast radius. Flagged for a dedicated pass; not filed as a new
 bd issue since it's adjacent/discovered-in-passing per this task's framing.
+**FIXED same day, see the "abortStaleMultipartUploads prefix bug" section
+below.**
 
 **(c) x-amz-object-lock-mode / x-amz-object-lock-legal-hold /
 x-amz-object-lock-retain-until-date** (GetObject/HeadObject,
@@ -1275,3 +1277,67 @@ Gates: `go build ./...` clean; `go vet ./services/s3/...` clean; `go test
 and a `copyDirectiveReplace` constant to satisfy goconst once
 `buildCopyExpires` added a third `"REPLACE"` comparison in
 object_ops_copy.go).
+
+## 2026-09-11: abortStaleMultipartUploads prefix bug (janitor eviction ignored rule scope)
+
+Closes the gap flagged "found in passing, NOT fixed" in the
+`gopherstack-l4ywn` section above. Per [the AWS user guide for
+AbortIncompleteMultipartUpload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpu-abort-incomplete-mpu-lifecycle-config.html):
+a lifecycle rule scopes which uploads it aborts by the rule's object key
+prefix ("To create a lifecycle rule for all objects with a specific prefix
+... enter the prefix"; an empty/absent prefix applies to all objects), and
+`DaysAfterInitiation` counts from when the multipart upload was initiated.
+
+The janitor's `abortStaleMultipartUploads` (janitor.go) evicted every
+upload in a bucket older than a rule's `DaysAfterInitiation`, ignoring the
+rule's `Filter.Prefix`/`Filter.And.Prefix`/legacy top-level `Prefix`
+entirely (and ignoring `Status` too, since the threshold was precomputed by
+its one caller, `applyLifecycleRule`, which does check `Status` -- but did
+not check prefix before calling). So an `AbortIncompleteMultipartUpload`
+rule scoped to `incoming/` would also abort unrelated uploads under
+`archive/`, contradicting the `x-amz-abort-date`/`x-amz-abort-rule-id`
+headers `computeAbortIncompleteMultipartUpload` already reports correctly
+for those same uploads on CreateMultipartUpload/ListParts.
+
+Fixed by extracting the rule-matching core of
+`computeAbortIncompleteMultipartUpload` into `matchAbortIncompleteRule(cfg
+*lifecycleConfiguration, key string, initiated time.Time)`
+(janitor_lifecycle.go) -- `computeAbortIncompleteMultipartUpload` now just
+parses the XML once and delegates to it. `abortStaleMultipartUploads`
+(janitor.go) now takes the already-parsed `*lifecycleConfiguration` and
+`now`, and calls `matchAbortIncompleteRule` per upload (keyed on the
+upload's own `Key`/`Initiated`) instead of a single bucket-wide
+`abortBefore` cutoff -- so both the header-computation path and the
+eviction path resolve "does this rule apply to this upload" through the
+identical function and cannot drift apart again. The call moved out of the
+per-rule loop in `applyLifecycleRule` (that loop's `rule.prefix()`-based
+call was the bug) up to `applyLifecycleRules`, gated by a new
+`hasEnabledAbortRule(cfg)` check so buckets with no abort-incomplete rule
+skip the uploads scan entirely, same as before.
+
+`Expiration`, `NoncurrentVersionExpiration`, and `Transition`/
+`NoncurrentVersionTransition` were also audited against the same
+prefix/filter concern: all three already thread `rule.prefix()`,
+`rule.Filter.tags()`, and `rule.Filter.sizeBounds()` through to their evict/
+transition helpers (`evictExpiredObjects`, `evictNoncurrentVersions`,
+`applyStorageClassTransitions`, `applyNoncurrentStorageClassTransitions`) --
+no bug found in those three actions.
+
+New test `TestJanitor_AbortIncompleteMultipartUpload_HonoursPrefix`
+(janitor_lifecycle_test.go), table-driven over matching-vs-non-matching
+prefix (two uploads, one rule scoped to `match/`), a `Status=Disabled` rule,
+and a not-yet-due rule (`DaysAfterInitiation:30` against a 1h-old upload).
+All cases backdate uploads by only 1h via the existing
+`s3.BackdateUploadForTest` (well under `cleanupDefaultMultipart`'s
+unconditional 24h safety-net window, janitor.go's `defaultMultipartMaxAge`,
+which would otherwise mask the prefix bug by deleting old uploads
+regardless of any lifecycle rule) and use `DaysAfterInitiation:0` to make a
+matching enabled rule due immediately.
+
+No persisted struct changes; `pkgs/persistence/testdata/snapshot_inventory.json`
+untouched, no version bump.
+
+Gates: `go build ./...` clean; `go vet ./services/s3/...` clean; `go test
+-race -count=1 ./services/s3/...` all pass (including the new test); `go
+test -race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
+./services/s3/...` 0 issues.

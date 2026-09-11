@@ -153,6 +153,19 @@ func computeAbortIncompleteMultipartUpload(
 		return time.Time{}, "", false
 	}
 
+	return matchAbortIncompleteRule(&cfg, key, initiated)
+}
+
+// matchAbortIncompleteRule finds the first enabled rule in cfg with an
+// AbortIncompleteMultipartUpload.DaysAfterInitiation whose prefix matches
+// key, and returns the computed abort date (initiated + days) and the rule's
+// ID. Shared by computeAbortIncompleteMultipartUpload (the CreateMultipartUpload/
+// ListParts x-amz-abort-date path, which parses the lifecycle XML per call) and
+// the janitor's abortStaleMultipartUploads (which parses it once per bucket per
+// sweep) so the two paths cannot drift apart on which uploads are eligible.
+func matchAbortIncompleteRule(
+	cfg *lifecycleConfiguration, key string, initiated time.Time,
+) (time.Time, string, bool) {
 	for i := range cfg.Rules {
 		rule := &cfg.Rules[i]
 		if !strings.EqualFold(rule.Status, statusEnabled) {
@@ -168,6 +181,21 @@ func computeAbortIncompleteMultipartUpload(
 	}
 
 	return time.Time{}, "", false
+}
+
+// hasEnabledAbortRule reports whether cfg has at least one enabled rule with
+// an AbortIncompleteMultipartUpload action, so the janitor can skip scanning
+// a bucket's uploads entirely when no such rule exists.
+func hasEnabledAbortRule(cfg *lifecycleConfiguration) bool {
+	for i := range cfg.Rules {
+		rule := &cfg.Rules[i]
+		if strings.EqualFold(rule.Status, statusEnabled) &&
+			rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // sweepLifecycle iterates over all active buckets, evaluates lifecycle rules,
@@ -275,6 +303,10 @@ func (j *Janitor) applyLifecycleRules(
 		evicted += j.applyLifecycleRule(bucket, bucketName, rule, tagsByKey, now)
 	}
 
+	if hasEnabledAbortRule(&cfg) {
+		j.abortStaleMultipartUploads(bucketName, &cfg, now)
+	}
+
 	if evicted > 0 {
 		logger.Load(ctx).InfoContext(ctx, "S3 janitor: lifecycle objects evicted",
 			"bucket", bucketName, "count", evicted)
@@ -332,15 +364,6 @@ func (j *Janitor) applyLifecycleRule(
 		evicted += j.evictNoncurrentVersions(
 			bucket, bucketName, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, noncurrentBefore,
 		)
-	}
-
-	if rule.AbortIncompleteMultipartUpload.DaysAfterInitiation != nil {
-		abortBefore := now.Add(
-			-time.Duration(
-				*rule.AbortIncompleteMultipartUpload.DaysAfterInitiation,
-			) * 24 * time.Hour,
-		)
-		j.abortStaleMultipartUploads(bucketName, abortBefore)
 	}
 
 	j.applyTransitions(bucket, prefix, tagFilters, sizeMin, sizeMax, tagsByKey, rule.ID, rule.Transitions, now)
