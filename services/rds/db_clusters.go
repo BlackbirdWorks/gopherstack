@@ -100,6 +100,10 @@ func (b *InMemoryBackend) CreateDBCluster(
 		replicationSource.ReadReplicaIdentifiers = append(replicationSource.ReadReplicaIdentifiers, id)
 	}
 
+	if opts.BackupRetentionPeriod > 0 {
+		b.registerClusterAutomatedBackupLocked(cluster)
+	}
+
 	cp := *cluster
 
 	return &cp, nil
@@ -594,21 +598,26 @@ func (b *InMemoryBackend) BacktrackDBCluster(
 		return nil, fmt.Errorf("%w: BacktrackTo must not be empty", ErrInvalidParameter)
 	}
 
-	b.mu.RLock("BacktrackDBCluster")
-	defer b.mu.RUnlock()
+	b.mu.Lock("BacktrackDBCluster")
+	defer b.mu.Unlock()
 
-	if _, exists := b.clusters.Get(normalizeID(clusterID)); !exists {
+	cluster, exists := b.clusters.Get(normalizeID(clusterID))
+	if !exists {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, clusterID)
 	}
 
 	result := &DBClusterBacktrack{
-		DBClusterIdentifier: clusterID,
+		DBClusterIdentifier: cluster.DBClusterIdentifier,
 		BacktrackIdentifier: newBacktrackID(),
 		BacktrackTo:         backtrackTo,
 		Status:              backtrackStatusApplying,
 	}
+	id := normalizeID(cluster.DBClusterIdentifier)
+	b.clusterBacktracks[id] = append(b.clusterBacktracks[id], result)
 
-	return result, nil
+	cp := *result
+
+	return &cp, nil
 }
 
 // RemoveRoleFromDBCluster disassociates an IAM role from the given cluster's
@@ -797,24 +806,23 @@ func (b *InMemoryBackend) PromoteReadReplicaDBCluster(clusterID string) (*DBClus
 	return &cp, nil
 }
 
-// DescribeDBClusterBacktracks returns backtracks for a DB cluster.
-//
-// BacktrackDBCluster returns a DBClusterBacktrack to its caller but this
-// backend has no store to persist it into, so this always returns an empty
-// slice -- a completeness gap of its own (gopherstack-vl4m), same shape as
-// DescribePendingMaintenanceActions's. applyDBClusterBacktrackFilters below
-// still validates and narrows the Filters contract for wire correctness (and
-// is ready the moment that gap is fixed), but with no data ever populated,
-// only its unrecognized-filter-name rejection is observable through the
-// real API today.
+// DescribeDBClusterBacktracks returns backtracks for a DB cluster, in the
+// order BacktrackDBCluster (db_clusters.go) recorded them.
 func (b *InMemoryBackend) DescribeDBClusterBacktracks(clusterID string) ([]DBClusterBacktrack, error) {
 	b.mu.RLock("DescribeDBClusterBacktracks")
 	defer b.mu.RUnlock()
-	if _, ok := b.clusters.Get(normalizeID(clusterID)); !ok {
+	cluster, ok := b.clusters.Get(normalizeID(clusterID))
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterID)
 	}
 
-	return []DBClusterBacktrack{}, nil
+	backtracks := b.clusterBacktracks[normalizeID(cluster.DBClusterIdentifier)]
+	result := make([]DBClusterBacktrack, 0, len(backtracks))
+	for _, bt := range backtracks {
+		result = append(result, *bt)
+	}
+
+	return result, nil
 }
 
 // isKnownDBClusterBacktrackFilterName reports whether name is a

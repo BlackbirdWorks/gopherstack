@@ -3,6 +3,7 @@ package rds
 import (
 	"fmt"
 	"net/url"
+	"slices"
 )
 
 // isValidOptInType reports whether optInType is one of
@@ -21,15 +22,46 @@ func isValidOptInType(optInType string) bool {
 	}
 }
 
+// registerDBUpgradeActionLocked records a pending db-upgrade maintenance
+// action for inst, if one isn't already pending. Callers must hold b.mu for
+// writing. Mirrors the minimal pending-action lifecycle gopherstack-qpxye
+// models: a deferred (ApplyImmediately=false) EngineVersion change queues
+// this the same way real AWS surfaces an available engine upgrade.
+func (b *InMemoryBackend) registerDBUpgradeActionLocked(inst *DBInstance) {
+	id := normalizeID(inst.DBInstanceIdentifier)
+	for _, a := range b.pendingMaintenanceActions[id] {
+		if a.Action == pendingActionDBUpgrade {
+			return
+		}
+	}
+	b.pendingMaintenanceActions[id] = append(b.pendingMaintenanceActions[id], &PendingMaintenanceAction{
+		ResourceIdentifier: b.rdsARN("db", inst.DBInstanceIdentifier),
+		Action:             pendingActionDBUpgrade,
+		Description:        "New DB engine version is available",
+	})
+}
+
+// clearDBUpgradeActionLocked removes any pending db-upgrade action for
+// instanceID. Callers must hold b.mu for writing.
+func (b *InMemoryBackend) clearDBUpgradeActionLocked(instanceID string) {
+	id := normalizeID(instanceID)
+	actions := b.pendingMaintenanceActions[id]
+	idx := slices.IndexFunc(actions, func(a *PendingMaintenanceAction) bool {
+		return a.Action == pendingActionDBUpgrade
+	})
+	if idx < 0 {
+		return
+	}
+	b.pendingMaintenanceActions[id] = slices.Delete(actions, idx, idx+1)
+}
+
 // ApplyPendingMaintenanceAction applies a pending maintenance action to a resource.
-// The resource is identified by its ARN. This implementation validates the resource exists
-// and returns a stub response. OptInType is required and validated against
-// its documented enum, but this backend has no mechanism anywhere that ever
-// generates a real pending maintenance action for a resource (see
-// DescribePendingMaintenanceActions, hardcoded to return none), so
-// OptInType's immediate/next-window/undo semantics have no state to act on
-// -- validated and rejected if invalid, not silently accepted, but not
-// wired to any further effect.
+// The resource is identified by its ARN. OptInType is required and validated
+// against its documented enum. OptInType=immediate on the db-upgrade action
+// this backend models (see registerDBUpgradeActionLocked) applies the
+// instance's deferred EngineVersion change now and clears the action;
+// next-maintenance and undo-opt-in are validated but otherwise have no
+// further modelled effect.
 func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 	resourceID, applyAction, optInType string,
 ) (string, error) {
@@ -49,33 +81,66 @@ func (b *InMemoryBackend) ApplyPendingMaintenanceAction(
 		)
 	}
 
-	b.mu.RLock("ApplyPendingMaintenanceAction")
-	defer b.mu.RUnlock()
+	b.mu.Lock("ApplyPendingMaintenanceAction")
+	defer b.mu.Unlock()
 
-	id := rdsIDFromARN(resourceID)
+	id := normalizeID(rdsIDFromARN(resourceID))
 
-	// Validate that the referenced resource exists (instance or cluster).
-	if _, ok := b.instances.Get(normalizeID(id)); !ok {
-		if _, ok2 := b.clusters.Get(normalizeID(id)); !ok2 {
+	inst, instExists := b.instances.Get(id)
+	if !instExists {
+		if _, clusterExists := b.clusters.Get(id); !clusterExists {
 			return "", fmt.Errorf("%w: resource %s not found", ErrResourceNotFound, resourceID)
+		}
+	}
+
+	if optInType == "immediate" {
+		actions := b.pendingMaintenanceActions[id]
+		idx := slices.IndexFunc(actions, func(a *PendingMaintenanceAction) bool {
+			return a.Action == applyAction
+		})
+		if idx >= 0 {
+			b.pendingMaintenanceActions[id] = slices.Delete(actions, idx, idx+1)
+			if instExists && applyAction == pendingActionDBUpgrade && inst.PendingModifiedValues != nil {
+				applyPendingModifications(inst)
+				inst.DBInstanceStatus = instanceStatusAvailable
+				delete(b.instanceReadyAt, inst.DBInstanceIdentifier)
+			}
 		}
 	}
 
 	return resourceID, nil
 }
 
-// DescribePendingMaintenanceActions returns pending maintenance actions.
-//
-// This backend never generates a real pending maintenance action for any
-// resource (see ApplyPendingMaintenanceAction's own doc comment above), so
-// this always returns an empty slice -- filed as gopherstack-vl4m's
-// follow-up for the structural gap. applyPendingMaintenanceActionFilters
-// below still validates and narrows the Filters contract for wire
-// correctness (and so it's ready the moment that gap is fixed), but with no
-// data ever populated, only its unrecognized-filter-name rejection is
-// observable through the real API today.
-func (b *InMemoryBackend) DescribePendingMaintenanceActions(_ string) []PendingMaintenanceAction {
-	return []PendingMaintenanceAction{}
+// DescribePendingMaintenanceActions returns pending maintenance actions,
+// optionally narrowed to a single resource ARN or identifier.
+func (b *InMemoryBackend) DescribePendingMaintenanceActions(resourceID string) []PendingMaintenanceAction {
+	b.mu.RLock("DescribePendingMaintenanceActions")
+	defer b.mu.RUnlock()
+
+	if resourceID != "" {
+		id := normalizeID(rdsIDFromARN(resourceID))
+		result := make([]PendingMaintenanceAction, 0, len(b.pendingMaintenanceActions[id]))
+		for _, a := range b.pendingMaintenanceActions[id] {
+			result = append(result, *a)
+		}
+
+		return result
+	}
+
+	ids := make([]string, 0, len(b.pendingMaintenanceActions))
+	for id := range b.pendingMaintenanceActions {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+
+	result := make([]PendingMaintenanceAction, 0, len(b.pendingMaintenanceActions))
+	for _, id := range ids {
+		for _, a := range b.pendingMaintenanceActions[id] {
+			result = append(result, *a)
+		}
+	}
+
+	return result
 }
 
 // isKnownPendingMaintenanceActionFilterName reports whether name is a

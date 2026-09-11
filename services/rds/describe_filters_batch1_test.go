@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -9,6 +10,8 @@ import (
 	smithy "github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/rds"
 )
 
 func wantInvalidParameterValue(t *testing.T, err error) {
@@ -363,21 +366,157 @@ func TestDescribeExportTasks_Filters(t *testing.T) {
 	})
 }
 
-// TestDescribePendingMaintenanceActions_UnknownFilterErrors is the only part
-// of this op's Filters contract observable through the real client: this
-// backend has no code path that ever populates real PendingMaintenanceAction
-// data (maintenance.go's own comment on DescribePendingMaintenanceActions),
-// so a narrowing assertion against real data is impossible here. The
-// narrowing match logic itself is covered by
-// TestMatchesAllPendingMaintenanceActionFilters (in-package, maintenance_filters_whitebox_test.go).
-func TestDescribePendingMaintenanceActions_UnknownFilterErrors(t *testing.T) {
+// TestDescribePendingMaintenanceActions_Filters exercises the write path
+// through the real client: ModifyDBInstance with ApplyImmediately=false and
+// an EngineVersion change now queues a pending db-upgrade action
+// (maintenance.go, gopherstack-qpxye), which DescribePendingMaintenanceActions
+// and its Filters contract can narrow.
+//
+// SetInstanceReadyAtForTest pins each instance's reconciler deadline far in
+// the future right after ModifyDBInstance returns: without it, the
+// background reconciler (instanceTransitionDelay=250ms, lifecycle.go) races
+// this test's own assertions under load and can apply+clear the pending
+// action before DescribePendingMaintenanceActions runs, exactly the
+// nondeterminism the no-time.Sleep rule exists to keep out of tests.
+func TestDescribePendingMaintenanceActions_Filters(t *testing.T) {
 	t.Parallel()
 
 	h := newTestRDSHandler()
 	client := newTestRDSClient(t, h)
 
-	_, err := client.DescribePendingMaintenanceActions(t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{
-		Filters: []types.Filter{{Name: aws.String("bogus"), Values: []string{"x"}}},
+	for _, id := range []string{"flt-pma-a", "flt-pma-b"} {
+		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
+			DBInstanceIdentifier: aws.String(id),
+			Engine:               aws.String("mysql"),
+			EngineVersion:        aws.String("8.0.28"),
+			DBInstanceClass:      aws.String("db.t3.micro"),
+			MasterUsername:       aws.String("admin"),
+			AllocatedStorage:     aws.Int32(20),
+		})
+		require.NoError(t, err)
+
+		_, err = client.ModifyDBInstance(t.Context(), &rdssdk.ModifyDBInstanceInput{
+			DBInstanceIdentifier: aws.String(id),
+			EngineVersion:        aws.String("8.0.35"),
+			ApplyImmediately:     aws.Bool(false),
+		})
+		require.NoError(t, err)
+		rds.SetInstanceReadyAtForTest(h.Backend, id, time.Now().Add(time.Hour))
+	}
+
+	t.Run("db-instance-id narrows to matching resource", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribePendingMaintenanceActions(
+			t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{
+				Filters: []types.Filter{
+					{Name: aws.String("db-instance-id"), Values: []string{"flt-pma-a"}},
+				},
+			})
+		require.NoError(t, err)
+		require.Len(t, out.PendingMaintenanceActions, 1)
+		assert.Contains(
+			t,
+			aws.ToString(out.PendingMaintenanceActions[0].ResourceIdentifier),
+			"flt-pma-a",
+		)
+		require.Len(t, out.PendingMaintenanceActions[0].PendingMaintenanceActionDetails, 1)
+		assert.Equal(
+			t,
+			"db-upgrade",
+			aws.ToString(out.PendingMaintenanceActions[0].PendingMaintenanceActionDetails[0].Action),
+		)
 	})
-	wantInvalidParameterValue(t, err)
+
+	t.Run("no filters returns both resources", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := client.DescribePendingMaintenanceActions(
+			t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{},
+		)
+		require.NoError(t, err)
+		assert.Len(t, out.PendingMaintenanceActions, 2)
+	})
+
+	t.Run("unknown filter name errors", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := client.DescribePendingMaintenanceActions(t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{
+			Filters: []types.Filter{{Name: aws.String("bogus"), Values: []string{"x"}}},
+		})
+		wantInvalidParameterValue(t, err)
+	})
+}
+
+// TestApplyPendingMaintenanceAction_Immediate exercises the modelled
+// db-upgrade lifecycle end to end: a deferred EngineVersion change queues
+// the action, and OptInType=immediate applies it and clears it.
+//
+// SetInstanceReadyAtForTest pins the instance's reconciler deadline far in
+// the future right after ModifyDBInstance returns, for the same reason as
+// TestDescribePendingMaintenanceActions_Filters above: otherwise the
+// background reconciler can race this test's own PendingModifiedValues/
+// pending-action assertions under load before ApplyPendingMaintenanceAction
+// (which does its own deterministic clear, independent of this deadline) is
+// even called.
+func TestApplyPendingMaintenanceAction_Immediate(t *testing.T) {
+	t.Parallel()
+
+	h := newTestRDSHandler()
+	client := newTestRDSClient(t, h)
+
+	_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
+		DBInstanceIdentifier: aws.String("flt-pma-immediate"),
+		Engine:               aws.String("mysql"),
+		EngineVersion:        aws.String("8.0.28"),
+		DBInstanceClass:      aws.String("db.t3.micro"),
+		MasterUsername:       aws.String("admin"),
+		AllocatedStorage:     aws.Int32(20),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ModifyDBInstance(t.Context(), &rdssdk.ModifyDBInstanceInput{
+		DBInstanceIdentifier: aws.String("flt-pma-immediate"),
+		EngineVersion:        aws.String("8.0.35"),
+		ApplyImmediately:     aws.Bool(false),
+	})
+	require.NoError(t, err)
+	rds.SetInstanceReadyAtForTest(h.Backend, "flt-pma-immediate", time.Now().Add(time.Hour))
+
+	described, err := client.DescribeDBInstances(t.Context(), &rdssdk.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String("flt-pma-immediate"),
+	})
+	require.NoError(t, err)
+	require.Len(t, described.DBInstances, 1)
+	require.NotNil(t, described.DBInstances[0].PendingModifiedValues)
+	assert.Equal(t, "8.0.35", aws.ToString(described.DBInstances[0].PendingModifiedValues.EngineVersion))
+
+	pending, err := client.DescribePendingMaintenanceActions(
+		t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{
+			ResourceIdentifier: aws.String("flt-pma-immediate"),
+		})
+	require.NoError(t, err)
+	require.Len(t, pending.PendingMaintenanceActions, 1)
+
+	_, err = client.ApplyPendingMaintenanceAction(t.Context(), &rdssdk.ApplyPendingMaintenanceActionInput{
+		ResourceIdentifier: aws.String("flt-pma-immediate"),
+		ApplyAction:        aws.String("db-upgrade"),
+		OptInType:          aws.String("immediate"),
+	})
+	require.NoError(t, err)
+
+	pending, err = client.DescribePendingMaintenanceActions(
+		t.Context(), &rdssdk.DescribePendingMaintenanceActionsInput{
+			ResourceIdentifier: aws.String("flt-pma-immediate"),
+		})
+	require.NoError(t, err)
+	assert.Empty(t, pending.PendingMaintenanceActions)
+
+	described, err = client.DescribeDBInstances(t.Context(), &rdssdk.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String("flt-pma-immediate"),
+	})
+	require.NoError(t, err)
+	require.Len(t, described.DBInstances, 1)
+	assert.Nil(t, described.DBInstances[0].PendingModifiedValues)
+	assert.Equal(t, "8.0.35", aws.ToString(described.DBInstances[0].EngineVersion))
 }

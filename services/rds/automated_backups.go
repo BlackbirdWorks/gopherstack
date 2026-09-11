@@ -129,8 +129,27 @@ func matchesAllDBInstanceAutomatedBackupFilters(ab DBInstanceAutomatedBackup, fi
 	return true
 }
 
+// registerClusterAutomatedBackupLocked records an automated backup for
+// cluster. Callers must already hold b.mu for writing.
+func (b *InMemoryBackend) registerClusterAutomatedBackupLocked(cluster *DBCluster) *DBClusterAutomatedBackup {
+	backup := &DBClusterAutomatedBackup{
+		DBClusterIdentifier:   cluster.DBClusterIdentifier,
+		DBClusterResourceID:   fmt.Sprintf("cluster-%s", cluster.DBClusterIdentifier),
+		Engine:                cluster.Engine,
+		EngineVersion:         cluster.EngineVersion,
+		Region:                b.region,
+		Status:                clusterBackupStatusAvailable,
+		BackupRetentionPeriod: cluster.BackupRetentionPeriod,
+		StorageEncrypted:      cluster.StorageEncrypted,
+	}
+	b.clusterAutomatedBackups.Put(backup)
+
+	return backup
+}
+
 // CreateDBClusterAutomatedBackup records an automated backup for a cluster.
-// Called internally when creating clusters with backup retention > 0.
+// Called internally when creating clusters with backup retention > 0 (see
+// CreateDBCluster, db_clusters.go).
 func (b *InMemoryBackend) CreateDBClusterAutomatedBackup(
 	clusterID string,
 ) *DBClusterAutomatedBackup {
@@ -142,18 +161,7 @@ func (b *InMemoryBackend) CreateDBClusterAutomatedBackup(
 		return nil
 	}
 
-	backup := &DBClusterAutomatedBackup{
-		DBClusterIdentifier: cluster.DBClusterIdentifier,
-		DBClusterResourceID: fmt.Sprintf("cluster-%s", cluster.DBClusterIdentifier),
-		Engine:              cluster.Engine,
-		EngineVersion:       cluster.EngineVersion,
-		Region:              b.region,
-		Status:              clusterBackupStatusAvailable,
-		StorageEncrypted:    cluster.StorageEncrypted,
-	}
-	b.clusterAutomatedBackups.Put(backup)
-
-	return backup
+	return b.registerClusterAutomatedBackupLocked(cluster)
 }
 
 // DeleteDBClusterAutomatedBackup deletes a cluster automated backup by resource ID.

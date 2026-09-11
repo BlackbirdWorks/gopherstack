@@ -31,10 +31,24 @@ func (b *InMemoryBackend) CreateDBSnapshot(snapshotID, instanceID string) (*DBSn
 
 	snap := b.newManualSnapshotLocked(snapshotID, inst)
 	b.snapshots.Put(snap)
+	b.copyTenantDatabasesToSnapshotLocked(snap.DBSnapshotIdentifier, inst)
 
 	cp := *snap
 
 	return &cp, nil
+}
+
+// copyTenantDatabasesToSnapshotLocked records a DBSnapshotTenantDatabase
+// entry for every tenant database on inst, mirroring how AWS snapshots a
+// multi-tenant (CDB) instance's PDBs along with the instance itself. Callers
+// must already hold b.mu for writing.
+func (b *InMemoryBackend) copyTenantDatabasesToSnapshotLocked(snapshotID string, inst *DBInstance) {
+	for _, tdb := range b.tenantDatabases.All() {
+		if !idEqual(tdb.DBInstanceIdentifier, inst.DBInstanceIdentifier) {
+			continue
+		}
+		b.addDBSnapshotTenantDatabaseLocked(snapshotID, inst.DBInstanceIdentifier, tdb.TenantDBName, inst.Engine)
+	}
 }
 
 // newManualSnapshotLocked builds a manual DB snapshot record for inst. It does

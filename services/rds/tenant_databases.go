@@ -186,17 +186,11 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 	return &cp, nil
 }
 
-// AddDBSnapshotTenantDatabase records a tenant database within a snapshot.
-// No CreateDBSnapshot path in this backend actually calls this (grepped) --
-// it is a test-only seam (gopherstack-vl4m completeness gap): a real client's
-// CreateDBSnapshot of a multi-tenant instance never populates
-// DescribeDBSnapshotTenantDatabases data.
-func (b *InMemoryBackend) AddDBSnapshotTenantDatabase(
+// addDBSnapshotTenantDatabaseLocked records a tenant database within a
+// snapshot. Callers must already hold b.mu for writing.
+func (b *InMemoryBackend) addDBSnapshotTenantDatabaseLocked(
 	snapshotID, instanceID, tenantDBName, engine string,
 ) {
-	b.mu.Lock("AddDBSnapshotTenantDatabase")
-	defer b.mu.Unlock()
-
 	entry := &DBSnapshotTenantDatabase{
 		DBSnapshotIdentifier: snapshotID,
 		DBInstanceIdentifier: instanceID,
@@ -205,6 +199,18 @@ func (b *InMemoryBackend) AddDBSnapshotTenantDatabase(
 		Status:               instanceStatusAvailable,
 	}
 	b.snapshotTenantDatabases[snapshotID] = append(b.snapshotTenantDatabases[snapshotID], entry)
+}
+
+// AddDBSnapshotTenantDatabase records a tenant database within a snapshot.
+// CreateDBSnapshot (db_snapshots.go) now calls this itself for every tenant
+// database on the snapshotted instance; exported for direct test seeding too.
+func (b *InMemoryBackend) AddDBSnapshotTenantDatabase(
+	snapshotID, instanceID, tenantDBName, engine string,
+) {
+	b.mu.Lock("AddDBSnapshotTenantDatabase")
+	defer b.mu.Unlock()
+
+	b.addDBSnapshotTenantDatabaseLocked(snapshotID, instanceID, tenantDBName, engine)
 }
 
 // DescribeDBSnapshotTenantDatabases lists tenant databases within snapshots.

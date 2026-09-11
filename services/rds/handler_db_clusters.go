@@ -567,18 +567,12 @@ func (h *Handler) handleBacktrackDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &backtrackDBClusterResponse{
-		Xmlns:              rdsXMLNS,
-		DBClusterBacktrack: toXMLDBClusterBacktrack(bt),
-	}, nil
-}
-
-func toXMLDBClusterBacktrack(bt *DBClusterBacktrack) xmlDBClusterBacktrack {
-	return xmlDBClusterBacktrack{
+		Xmlns:               rdsXMLNS,
 		DBClusterIdentifier: bt.DBClusterIdentifier,
 		BacktrackIdentifier: bt.BacktrackIdentifier,
 		BacktrackTo:         bt.BacktrackTo,
 		Status:              bt.Status,
-	}
+	}, nil
 }
 
 type addRoleToDBClusterResponse struct {
@@ -593,10 +587,18 @@ type xmlDBClusterBacktrack struct {
 	Status              string `xml:"Status"`
 }
 
+// backtrackDBClusterResponse is flat under BacktrackDBClusterResult -- unlike
+// DescribeDBClusterBacktracks' list items, the real BacktrackDBClusterOutput
+// has no inner <DBClusterBacktrack> wrapper element (rds@v1.124.1
+// deserializers.go:58174 awsAwsquery_deserializeOpDocumentBacktrackDBClusterOutput
+// decodes fields directly off BacktrackDBClusterResult).
 type backtrackDBClusterResponse struct {
-	XMLName            xml.Name              `xml:"BacktrackDBClusterResponse"`
-	Xmlns              string                `xml:"xmlns,attr"`
-	DBClusterBacktrack xmlDBClusterBacktrack `xml:"BacktrackDBClusterResult>DBClusterBacktrack"`
+	XMLName             xml.Name `xml:"BacktrackDBClusterResponse"`
+	Xmlns               string   `xml:"xmlns,attr"`
+	DBClusterIdentifier string   `xml:"BacktrackDBClusterResult>DBClusterIdentifier"`
+	BacktrackIdentifier string   `xml:"BacktrackDBClusterResult>BacktrackIdentifier"`
+	BacktrackTo         string   `xml:"BacktrackDBClusterResult>BacktrackTo,omitempty"`
+	Status              string   `xml:"BacktrackDBClusterResult>Status"`
 }
 
 func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {

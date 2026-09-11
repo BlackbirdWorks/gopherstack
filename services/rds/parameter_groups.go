@@ -210,9 +210,12 @@ func (b *InMemoryBackend) CopyDBParameterGroup(
 }
 
 // DescribeEngineDefaultParameters returns default parameters for an engine
-// family. This backend never generates default-parameter data for any
-// family, so this always returns an empty slice -- a completeness gap of its
-// own (gopherstack-vl4m), same shape as DescribePendingMaintenanceActions's.
+// family. This backend has no seeded default-parameter data for any family
+// (CreateDBParameterGroup starts every group with an empty Parameters map,
+// and there is no default.<family> seeding on startup) and the pinned SDK
+// module carries no enumerable default-value data to derive a real set from,
+// so this always returns an empty slice rather than fabricate one -- see the
+// dated gap entry in PARITY.md (gopherstack-qpxye) for the full reasoning.
 // Its Filters contract ("The only supported filter is parameter-name",
 // api_op_DescribeEngineDefaultParameters.go:97-98) is the same contract
 // DescribeDBParameters and DescribeDBClusterParameters share, so

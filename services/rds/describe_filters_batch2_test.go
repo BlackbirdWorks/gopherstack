@@ -2,6 +2,7 @@ package rds_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	rdssdk "github.com/aws/aws-sdk-go-v2/service/rds"
@@ -85,13 +86,11 @@ func TestDescribeBlueGreenDeployments_Filters(t *testing.T) {
 	})
 }
 
-// TestDescribeDBClusterAutomatedBackups_Filters seeds automated-backup
-// records through InMemoryBackend.CreateDBClusterAutomatedBackup directly:
-// no real CreateDBCluster path registers one (grepped -- only
-// db_instances.go calls maybeRegisterAutomatedBackup, for instances), so a
-// real client's CreateDBCluster never populates this op's data --
-// gopherstack-vl4m's completeness gap for this op. The Describe+Filters path
-// itself is exercised through the real client.
+// TestDescribeDBClusterAutomatedBackups_Filters exercises the write path
+// entirely through the real client: CreateDBCluster with
+// BackupRetentionPeriod>0 now registers a cluster automated backup itself
+// (db_clusters.go, gopherstack-qpxye), so no InMemoryBackend seam is needed
+// here any more.
 func TestDescribeDBClusterAutomatedBackups_Filters(t *testing.T) {
 	t.Parallel()
 
@@ -99,19 +98,19 @@ func TestDescribeDBClusterAutomatedBackups_Filters(t *testing.T) {
 	client := newTestRDSClient(t, h)
 
 	_, err := client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
-		DBClusterIdentifier: aws.String("flt-cab-a"),
-		Engine:              aws.String("aurora-mysql"),
-		MasterUsername:      aws.String("admin"),
+		DBClusterIdentifier:   aws.String("flt-cab-a"),
+		Engine:                aws.String("aurora-mysql"),
+		MasterUsername:        aws.String("admin"),
+		BackupRetentionPeriod: aws.Int32(7),
 	})
 	require.NoError(t, err)
 	_, err = client.CreateDBCluster(t.Context(), &rdssdk.CreateDBClusterInput{
-		DBClusterIdentifier: aws.String("flt-cab-b"),
-		Engine:              aws.String("aurora-mysql"),
-		MasterUsername:      aws.String("admin"),
+		DBClusterIdentifier:   aws.String("flt-cab-b"),
+		Engine:                aws.String("aurora-mysql"),
+		MasterUsername:        aws.String("admin"),
+		BackupRetentionPeriod: aws.Int32(7),
 	})
 	require.NoError(t, err)
-	h.Backend.CreateDBClusterAutomatedBackup("flt-cab-a")
-	h.Backend.CreateDBClusterAutomatedBackup("flt-cab-b")
 
 	t.Run("db-cluster-id narrows to matching backup", func(t *testing.T) {
 		t.Parallel()
@@ -261,14 +260,12 @@ func TestDescribeDBInstanceAutomatedBackups_Filters(t *testing.T) {
 	})
 }
 
-// TestDescribeDBClusterBacktracks_UnknownFilterErrors is the only part of
-// this op's Filters contract observable through the real client: this
-// backend has no store that ever persists a real DBClusterBacktrack
-// (db_clusters.go's own comment on DescribeDBClusterBacktracks), so a
-// narrowing assertion against real data is impossible here. The narrowing
-// match logic itself is covered by TestMatchesAllDBClusterBacktrackFilters
-// (in-package, whitebox_filters_test.go).
-func TestDescribeDBClusterBacktracks_UnknownFilterErrors(t *testing.T) {
+// TestDescribeDBClusterBacktracks_Filters exercises the write path through
+// the real client: BacktrackDBCluster now persists the DBClusterBacktrack it
+// builds (db_clusters.go, gopherstack-qpxye), so DescribeDBClusterBacktracks
+// and its Filters contract can narrow real records instead of an always-empty
+// list.
+func TestDescribeDBClusterBacktracks_Filters(t *testing.T) {
 	t.Parallel()
 
 	h := newTestRDSHandler()
@@ -281,14 +278,76 @@ func TestDescribeDBClusterBacktracks_UnknownFilterErrors(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = client.DescribeDBClusterBacktracks(
-		t.Context(),
-		&rdssdk.DescribeDBClusterBacktracksInput{
-			DBClusterIdentifier: aws.String("flt-backtrack-clu"),
-			Filters:             []types.Filter{{Name: aws.String("bogus"), Values: []string{"x"}}},
-		},
-	)
-	wantInvalidParameterValue(t, err)
+	btA, err := client.BacktrackDBCluster(t.Context(), &rdssdk.BacktrackDBClusterInput{
+		DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+		BacktrackTo:         aws.Time(time.Unix(1_700_000_000, 0)),
+	})
+	require.NoError(t, err)
+	_, err = client.BacktrackDBCluster(t.Context(), &rdssdk.BacktrackDBClusterInput{
+		DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+		BacktrackTo:         aws.Time(time.Unix(1_700_000_100, 0)),
+	})
+	require.NoError(t, err)
+
+	t.Run("db-cluster-backtrack-id narrows to matching backtrack", func(t *testing.T) {
+		t.Parallel()
+
+		out, filterErr := client.DescribeDBClusterBacktracks(
+			t.Context(), &rdssdk.DescribeDBClusterBacktracksInput{
+				DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+				Filters: []types.Filter{
+					{
+						Name:   aws.String("db-cluster-backtrack-id"),
+						Values: []string{aws.ToString(btA.BacktrackIdentifier)},
+					},
+				},
+			})
+		require.NoError(t, filterErr)
+		require.Len(t, out.DBClusterBacktracks, 1)
+		assert.Equal(
+			t,
+			aws.ToString(btA.BacktrackIdentifier),
+			aws.ToString(out.DBClusterBacktracks[0].BacktrackIdentifier),
+		)
+	})
+
+	t.Run("db-cluster-backtrack-status narrows to matching backtrack", func(t *testing.T) {
+		t.Parallel()
+
+		out, filterErr := client.DescribeDBClusterBacktracks(
+			t.Context(), &rdssdk.DescribeDBClusterBacktracksInput{
+				DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+				Filters: []types.Filter{
+					{Name: aws.String("db-cluster-backtrack-status"), Values: []string{"applying"}},
+				},
+			})
+		require.NoError(t, filterErr)
+		assert.Len(t, out.DBClusterBacktracks, 2, "both backtracks start in applying status")
+	})
+
+	t.Run("no filters returns both backtracks", func(t *testing.T) {
+		t.Parallel()
+
+		out, filterErr := client.DescribeDBClusterBacktracks(
+			t.Context(), &rdssdk.DescribeDBClusterBacktracksInput{
+				DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+			})
+		require.NoError(t, filterErr)
+		assert.Len(t, out.DBClusterBacktracks, 2)
+	})
+
+	t.Run("unknown filter name errors", func(t *testing.T) {
+		t.Parallel()
+
+		_, filterErr := client.DescribeDBClusterBacktracks(
+			t.Context(),
+			&rdssdk.DescribeDBClusterBacktracksInput{
+				DBClusterIdentifier: aws.String("flt-backtrack-clu"),
+				Filters:             []types.Filter{{Name: aws.String("bogus"), Values: []string{"x"}}},
+			},
+		)
+		wantInvalidParameterValue(t, filterErr)
+	})
 }
 
 // TestDescribeDBRecommendations_Filters seeds recommendations through
@@ -376,20 +435,43 @@ func TestDescribeDBRecommendations_Filters(t *testing.T) {
 	})
 }
 
-// TestDescribeDBSnapshotTenantDatabases_Filters seeds entries through
-// InMemoryBackend.AddDBSnapshotTenantDatabase directly: no real
-// CreateDBSnapshot path calls it (tenant_databases.go's own comment), so a
-// real client's CreateDBSnapshot of a multi-tenant instance never populates
-// this op's data -- gopherstack-vl4m's completeness gap for this op. The
-// Describe+Filters path itself is exercised through the real client.
+// TestDescribeDBSnapshotTenantDatabases_Filters exercises the write path
+// through the real client: CreateDBSnapshot now copies each tenant database
+// on the snapshotted instance into DescribeDBSnapshotTenantDatabases data
+// (tenant_databases.go, db_snapshots.go, gopherstack-qpxye), so no
+// InMemoryBackend seam is needed here any more.
 func TestDescribeDBSnapshotTenantDatabases_Filters(t *testing.T) {
 	t.Parallel()
 
 	h := newTestRDSHandler()
 	client := newTestRDSClient(t, h)
 
-	h.Backend.AddDBSnapshotTenantDatabase("flt-snap-a", "flt-inst-a", "flt-tdb-a", "oracle-ee-cdb")
-	h.Backend.AddDBSnapshotTenantDatabase("flt-snap-b", "flt-inst-b", "flt-tdb-b", "oracle-ee-cdb")
+	for _, tc := range []struct{ inst, snap, tdb string }{
+		{"flt-inst-a", "flt-snap-a", "flt-tdb-a"},
+		{"flt-inst-b", "flt-snap-b", "flt-tdb-b"},
+	} {
+		_, err := client.CreateDBInstance(t.Context(), &rdssdk.CreateDBInstanceInput{
+			DBInstanceIdentifier: aws.String(tc.inst),
+			Engine:               aws.String("custom-oracle-ee-cdb"),
+			DBInstanceClass:      aws.String("db.t3.micro"),
+			MasterUsername:       aws.String("admin"),
+			AllocatedStorage:     aws.Int32(20),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateTenantDatabase(t.Context(), &rdssdk.CreateTenantDatabaseInput{
+			DBInstanceIdentifier: aws.String(tc.inst),
+			TenantDBName:         aws.String(tc.tdb),
+			MasterUsername:       aws.String("tenantadmin"),
+		})
+		require.NoError(t, err)
+
+		_, err = client.CreateDBSnapshot(t.Context(), &rdssdk.CreateDBSnapshotInput{
+			DBSnapshotIdentifier: aws.String(tc.snap),
+			DBInstanceIdentifier: aws.String(tc.inst),
+		})
+		require.NoError(t, err)
+	}
 
 	t.Run("tenant-db-name narrows to matching entry", func(t *testing.T) {
 		t.Parallel()
