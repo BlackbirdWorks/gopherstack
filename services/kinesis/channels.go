@@ -333,17 +333,41 @@ func (b *InMemoryBackend) CreateChannel(ctx context.Context, input *CreateChanne
 // Deletion is synchronous -- DeleteChannel's own doc comment, unlike
 // CreateChannel/UpdateChannel's, describes no CREATING/UPDATING-style
 // asynchronous transition, so there is no documented DELETING state to model.
-func (b *InMemoryBackend) DeleteChannel(_ context.Context, input *DeleteChannelInput) error {
+// Any buffered records are flushed to S3 (best-effort) after the channel row
+// is removed, so records already accepted are not silently dropped.
+func (b *InMemoryBackend) DeleteChannel(ctx context.Context, input *DeleteChannelInput) error {
+	ch, err := b.removeChannelLocked(input.ChannelARN)
+	if err != nil {
+		return err
+	}
+
+	b.deliveryMu.Lock("DeleteChannel.delivery")
+	snap := extractChannelBufferLocked(b.channelBuffers, ch)
+	delete(b.channelBuffers, ch.ChannelARN)
+	b.deliveryMu.Unlock()
+
+	if snap != nil {
+		b.deliverChannelSnapshot(ctx, snap)
+	}
+
+	return nil
+}
+
+// removeChannelLocked validates and removes a channel row under b.mu,
+// returning the removed Channel so the caller can flush its buffer outside
+// the lock (see DeleteChannel).
+func (b *InMemoryBackend) removeChannelLocked(channelARN string) (*Channel, error) {
 	b.mu.Lock("DeleteChannel")
 	defer b.mu.Unlock()
 
-	if !b.channels.Has(input.ChannelARN) {
-		return ErrChannelNotFound
+	ch, ok := b.channels.Get(channelARN)
+	if !ok {
+		return nil, ErrChannelNotFound
 	}
 
-	b.channels.Delete(input.ChannelARN)
+	b.channels.Delete(channelARN)
 
-	return nil
+	return ch, nil
 }
 
 // DescribeChannel describes the specified channel (api_op_DescribeChannel.go).

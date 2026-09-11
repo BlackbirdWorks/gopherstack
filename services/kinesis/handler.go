@@ -48,10 +48,15 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 	return h
 }
 
-// StartWorker starts the background janitor if one is configured.
+// StartWorker starts the background janitor (if configured) and the channel
+// delivery interval flusher (see channel_delivery.go's runChannelFlusher).
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
+	}
+
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		go mem.runChannelFlusher(ctx)
 	}
 
 	return nil
@@ -61,6 +66,30 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func (h *Handler) StopWorker() {
 	if h.janitor != nil {
 		h.janitor.Stop()
+	}
+}
+
+// Shutdown implements service.Shutdowner: it flushes any channel-buffered
+// records to S3 before the process exits, so records accepted since the
+// last interval flush are not lost (this backend does not persist buffered
+// records across a snapshot/restore cycle -- see PARITY.md). If ctx expires
+// before the flush finishes, Shutdown returns immediately.
+func (h *Handler) Shutdown(ctx context.Context) {
+	mem, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		mem.FlushAllChannels(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 

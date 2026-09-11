@@ -134,9 +134,19 @@ type InMemoryBackend struct {
 	registry                           *store.Registry
 	streamsByRegion                    *store.Index[Stream]
 	channelsByRegion                   *store.Index[Channel]
-	accountID                          string
-	region                             string
-	onDemandStreamCountLimit           int
+	// s3Writer delivers channel-buffered records to S3 general purpose
+	// destinations; nil until wired via SetS3Writer (see cli.go's
+	// wireKinesisS3Delivery, mirroring wireAWSConfigDelivery). Channels are
+	// fully manageable with no writer wired, but records are never flushed.
+	s3Writer ChannelS3Writer
+	// deliveryMu guards channelBuffers only -- a leaf lock never held while
+	// acquiring b.mu or a Stream's mu (see channel_delivery.go), so it can be
+	// safely acquired regardless of what other locks a caller already holds.
+	deliveryMu               *lockmetrics.RWMutex
+	channelBuffers           map[string]*channelBuffer
+	accountID                string
+	region                   string
+	onDemandStreamCountLimit int
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -157,7 +167,9 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		minimumThroughputBillingCommitment: MinimumThroughputBillingCommitmentOutput{
 			Status: minimumThroughputBillingCommitmentDisabled,
 		},
-		registry: store.NewRegistry(),
+		registry:       store.NewRegistry(),
+		deliveryMu:     lockmetrics.New("kinesis.delivery"),
+		channelBuffers: make(map[string]*channelBuffer),
 	}
 	b.streams = store.Register(b.registry, "streams", store.New(streamTableKeyFn))
 	b.streamsByRegion = b.streams.AddIndex("region", func(v *Stream) string { return v.Region })
@@ -165,6 +177,13 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b.channelsByRegion = b.channels.AddIndex("region", func(v *Channel) string { return v.Region })
 
 	return b
+}
+
+// SetS3Writer wires the S3 backend used to deliver channel-buffered records
+// to their configured S3DestinationConfiguration bucket. See cli.go's
+// wireKinesisS3Delivery.
+func (b *InMemoryBackend) SetS3Writer(w ChannelS3Writer) {
+	b.s3Writer = w
 }
 
 // Region returns the AWS region this backend is configured to use as its default.
@@ -259,6 +278,10 @@ func (b *InMemoryBackend) Reset() {
 	b.minimumThroughputBillingCommitment = MinimumThroughputBillingCommitmentOutput{
 		Status: minimumThroughputBillingCommitmentDisabled,
 	}
+
+	b.deliveryMu.Lock("Reset.delivery")
+	b.channelBuffers = make(map[string]*channelBuffer)
+	b.deliveryMu.Unlock()
 }
 
 // purgeStreamEntry removes s from the given region's stream map when it predates

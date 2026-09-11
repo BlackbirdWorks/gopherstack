@@ -758,6 +758,12 @@ const (
 	// doc comments).
 	maxChannelStreams  = 1
 	maxS3TablesConfigs = 1
+
+	// channelCompressionNone/Gzip/Zstd mirror types.S3CompressionType
+	// (kinesis@v1.53.0 types/enums.go:219-226).
+	channelCompressionNone = "NONE"
+	channelCompressionGzip = "GZIP"
+	channelCompressionZstd = "ZSTD"
 )
 
 // ChannelRecordConfig mirrors types.RecordConfiguration (kinesis@v1.53.0

@@ -2928,6 +2928,11 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
 	// delivery channel has a topic configured) so snapshot delivery is real.
 	wireAWSConfigDelivery(byName["AWSConfig"], byName["S3"], byName["SNS"])
+
+	// Wire Kinesis Data Streams channel S3 delivery: records put to a stream
+	// with an ACTIVE channel are buffered and flushed to the channel's
+	// S3DestinationConfiguration bucket (gopherstack-s781r).
+	wireKinesisS3Delivery(byName["Kinesis"], byName["S3"])
 }
 
 // wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
@@ -4788,6 +4793,37 @@ func (a *awsConfigSNSPublisherAdapter) PublishToTopic(topicARN, message string) 
 	_, err := a.backend.Publish(topicARN, message, "AWS Config Notification", "", nil)
 
 	return err
+}
+
+// wireKinesisS3Delivery connects the Kinesis backend to S3 so that records
+// put to a stream with an ACTIVE channel are actually buffered and flushed
+// to the channel's S3DestinationConfiguration bucket, instead of a channel
+// existing as a manageable-but-inert resource (gopherstack-s781r).
+// s3backend.InMemoryBackend.PutObject already satisfies
+// kinesisbackend.ChannelS3Writer directly, so no adapter is needed (mirrors
+// wireFirehoseDelivery's SetS3Backend(s3Bk) call).
+func wireKinesisS3Delivery(kinesisReg, s3Reg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	s3H, ok := s3Reg.(*s3backend.S3Handler)
+	if !ok {
+		return
+	}
+
+	s3Bk, ok := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	kinesisBk.SetS3Writer(s3Bk)
 }
 
 // s3EventBridgeAdapter adapts the EventBridge backend to the s3.EventBridgePublisher interface.

@@ -49,13 +49,21 @@ families:
   sequence_numbers: {status: ok, note: "per-shard monotonic NextSeq counter, 49-prefixed AWS-shaped sequence string, persisted via Shard.NextSeq"}
   reshard_lineage: {status: ok, note: "SplitShard/MergeShards/UpdateShardCount/UpdateStreamMode all set ParentShardID/AdjacentParentShardID correctly; closed shards retained forever for DescribeStream/ListShards lineage (see leaks note); Shard gained StartedAt/ClosedAt (set by every shard-creation/closeShard call site) so ListShards' timestamp-bounded ShardFilter types can do real time-bounded filtering instead of approximating"}
   error_codes: {status: ok, note: "ResourceNotFoundException/ResourceInUseException/InvalidArgumentException/ProvisionedThroughputExceededException/ExpiredIteratorException/LimitExceededException/UnknownOperationException all verified exact string + 400 status. fixed: KMSNotFoundException/KMSDisabledException/KMSInvalidStateException are now modeled and reachable via StartStreamEncryption's optional KMSKeyValidator (see StartStreamEncryption note) -- the previous audit's claim that Kinesis has no KMS-specific exceptions was wrong; deserializers.go's awsAwsjson11_deserializeOpErrorStartStreamEncryption lists KMSAccessDeniedException/KMSDisabledException/KMSInvalidStateException/KMSNotFoundException/KMSOptInRequired/KMSThrottlingException/AccessDeniedException as real modeled errors for this op. KMSAccessDeniedException specifically remains unreachable -- see gaps."}
-  CreateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11 (channels sweep, gopherstack channels): implemented per api_op_CreateChannel.go. Requires exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration (InvalidArgumentException otherwise, per the doc comment's exact wording); rejects PROVISIONED-mode source streams with InvalidArgumentException per 'This operation is only supported for data streams with the on-demand capacity mode' -- the doc comment names no specific exception for this case, so InvalidArgumentException was chosen as the closest declared CreateChannel exception (deserializers.go's awsAwsjson11_deserializeOpErrorCreateChannel lists AccessDeniedException/InvalidArgumentException/KMS*/LimitExceededException/ResourceInUseException/ResourceNotFoundException/ValidationException); ChannelName collision -> ResourceInUseException (doc: 'unique within your Amazon Web Services account and Amazon Web Services Region'); unknown source stream ARN -> ResourceNotFoundException. 'state: fixed' documents this backend's disclosed simplification: real AWS is asynchronous (CREATING then ACTIVE); this backend applies it synchronously and returns ACTIVE immediately, the same precedent already set by UpdateStreamWarmThroughput/UpdateStreamMode in this file. Records put to the source stream are NOT delivered to either destination -- see gaps."}
-  DeleteChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DeleteChannel.go. Unlike CreateChannel/UpdateChannel, DeleteChannel's own doc comment describes no asynchronous CREATING/UPDATING-style transition, so there is no documented DELETING state to model; the channel is removed synchronously. Unknown ChannelARN -> ResourceNotFoundException."}
+  CreateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11 (channels sweep, gopherstack channels): implemented per api_op_CreateChannel.go. Requires exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration (InvalidArgumentException otherwise, per the doc comment's exact wording); rejects PROVISIONED-mode source streams with InvalidArgumentException per 'This operation is only supported for data streams with the on-demand capacity mode' -- the doc comment names no specific exception for this case, so InvalidArgumentException was chosen as the closest declared CreateChannel exception (deserializers.go's awsAwsjson11_deserializeOpErrorCreateChannel lists AccessDeniedException/InvalidArgumentException/KMS*/LimitExceededException/ResourceInUseException/ResourceNotFoundException/ValidationException); ChannelName collision -> ResourceInUseException (doc: 'unique within your Amazon Web Services account and Amazon Web Services Region'); unknown source stream ARN -> ResourceNotFoundException. 'state: fixed' documents this backend's disclosed simplification: real AWS is asynchronous (CREATING then ACTIVE); this backend applies it synchronously and returns ACTIVE immediately, the same precedent already set by UpdateStreamWarmThroughput/UpdateStreamMode in this file. UPDATE 2026-09-11 (gopherstack-s781r): records put to the source stream ARE now delivered to an S3DestinationConfiguration destination (buffered, then flushed to the real S3 backend) -- see the new 'Channel record delivery' dated note below. S3TablesDestinationConfiguration (Iceberg on S3 Tables) delivery remains unmodeled -- see gaps."}
+  DeleteChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DeleteChannel.go. Unlike CreateChannel/UpdateChannel, DeleteChannel's own doc comment describes no asynchronous CREATING/UPDATING-style transition, so there is no documented DELETING state to model; the channel is removed synchronously. Unknown ChannelARN -> ResourceNotFoundException. UPDATE 2026-09-11 (gopherstack-s781r): now flushes any buffered records to S3 (best-effort) before removing the channel row, so accepted-but-unflushed records are not silently dropped by deletion."}
   DescribeChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DescribeChannel.go. Keyed by ChannelARN only (the op takes no other identifier). Unknown ChannelARN -> ResourceNotFoundException."}
   ListChannels: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_ListChannels.go. MaxResults defaults to and caps at 100 ('If you specify a value greater than 100, at most 100 results are returned'); NextToken is an exclusive-start ChannelName cursor, mirroring ListStreamConsumers' existing pagination shape in this file. StreamFilter.StreamARN filters by association; StreamFilter.StreamCreationTimestamp is accepted but not applied as a filter -- see gaps."}
   UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
 gaps:
-  - "Channels (CreateChannel/UpdateChannel/DeleteChannel/DescribeChannel/ListChannels, added 2026-09-11) never deliver records: a channel row is created and queryable, but PutRecord/PutRecords never writes anything to the channel's S3DestinationConfiguration or S3TablesDestinationConfiguration target. S3DestinationConfiguration.StorageConfiguration.OutputKeyTemplate's doc comment says only 'If not specified, a default template is used' with no documented default key layout anywhere reachable from the pinned SDK doc comments or the fetchable AWS docs (the streams dev-guide's channels/Iceberg page could not be fetched this pass -- WebFetch against docs.aws.amazon.com/streams/latest/dev/introduction-to-kinesis-data-streams-channels.html and the dev-guide index returned no usable content). Inventing a key layout not backed by verified AWS behavior would itself be a fabrication (this repo's no-stub rule), so delivery was left unimplemented rather than guessed at. Every other channel operation (create/describe/list/update/delete, plus generic ListTagsForResource/TagResource/UntagResource against a channel ARN) is real."
+  - "UPDATE 2026-09-11 (gopherstack-s781r): the entry below (previously claiming channels 'never deliver records') is now PARTIALLY resolved. This pass re-fetched the streams dev-guide -- unlike the prior pass, WebFetch against docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html and data-delivery-s3-about.html returned full usable content this time, including the documented default OutputKeyTemplate string and its variable table. See the dated 'Channel record delivery' note below for what is now real. S3TablesDestinationConfiguration (Iceberg on Amazon S3 Tables) delivery remains UNMODELED: gopherstack has no services/s3tables data-file/manifest write path (services/s3tables only manages table-bucket/namespace/table *metadata* -- confirmed by grepping for PutObject/DataFile/Manifest-shaped methods there, none exist), so there is no honest way to write Parquet-in-Iceberg data even with the destination fully documented. A channel with only S3TablesDestinationConfiguration set still accepts records into its buffer's main-record list, which is now silently never flushed (see the next gap entry) -- effectively an ongoing gap for that destination type specifically, distinct from the DataFreshnessInSeconds-based flush that IS wired for S3DestinationConfiguration."
+  - "deliverPutToChannels (channel_delivery.go) only matches channels with a non-nil S3DestinationConfiguration -- a channel whose only destination is S3TablesDestinationConfiguration is filtered out before ever reaching appendToChannelBuffer, so it never buffers or accumulates records at all (deliberately: buffering records with no delivery path would be worse than not buffering them -- they'd sit in memory pretending to be 'in flight' for a destination this backend cannot honestly write to). Records put to such a channel's source stream are simply never observed by the delivery layer, same end effect as before this pass but now for a narrower, correctly-scoped reason. (gopherstack-s781r follow-up)"
+  - "S3 output key template VALIDATION (docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html's 'Template rules': 1024-char object-key cap after the ~38-char unique suffix, no path traversal, no consecutive slashes, single extension placeholder only at the end, restricted literal charset) is not enforced at CreateChannel/UpdateChannel time -- an OutputKeyTemplate violating these rules is accepted, and buildChannelObjectKey (channel_delivery.go) will still expand it as best-effort at flush time rather than rejecting it upfront the way real AWS's CreateChannel validator would. Key EXPANSION itself (variable substitution, default template, extension derivation) is real and tested. (gopherstack-s781r follow-up)"
+  - "The unique suffix S3 delivery documents as always appended to every object key ('Amazon Kinesis Data Streams automatically appends a unique suffix to every object key') has no documented insertion point or format (length/charset) in the fetched docs. buildChannelObjectKey inserts a 12-character slice of a UUIDv4 immediately before the file extension (or at the end, with no extension), mirroring the position Firehose's own buildS3Key (services/firehose/delivery_s3.go) uses for its uniqueness token -- disclosed as an inference, not a verified AWS behavior."
+  - "The exact byte-level layout of a delivered S3 object's body is not documented beyond data-delivery.html's 'Records are delivered in their original source format with no transformation applied' (general purpose S3 destinations only -- GSR_JSON/Iceberg conversion is documented separately for streaming tables, which this backend does not implement). writeChannelObject (channel_delivery.go) therefore concatenates each buffered record's raw bytes with NO delimiter inserted between records, the literal reading of 'no transformation applied'. Not verified against a captured real AWS object; disclosed as the most literal reading of the documented behavior."
+  - "The dead-letter queue's exact object schema is documented only at the field-list level (data-delivery-s3-about.html / the 'What's New' announcement: 'stream ARN, shard ID, sequence number, and error context'), with no documented JSON key names or file layout. writeChannelDeadLetterQueue (channel_delivery.go) writes newline-delimited JSON with keys streamARN/shardID/sequenceNumber/errorMessage, one line per failed record -- disclosed as an inference, not a verified wire format. The default dead-letter prefix used when DeadLetterQueueS3Configuration is unset (defaultChannelErrorPrefix = \"kinesis-channel-errors/\") is likewise inferred: AWS documents only the behavior ('defaults to the destination bucket with an error prefix'), not the literal prefix string."
+  - "DataFreshnessInSeconds is confirmed (both by the pinned SDK's S3DestinationConfiguration/S3StorageConfiguration Go types and by data-delivery-s3-about.html) to be the ONLY documented buffering control for channel S3 delivery -- there is no separate size-based BufferingHints field on S3DestinationConfiguration (unlike Firehose's S3DestinationDescription.BufferingHints.SizeInMBs). Flush is therefore purely interval-based here, which is a verified-correct simplification, not a disclosed gap by itself; noted so a future pass doesn't assume a missing size trigger is a bug."
+  - "Kinesis has NO injectable clock anywhere in this backend (checked: no Clock interface, no nowFn/timeSource field on InMemoryBackend; the existing janitor.go retention sweeper also uses time.Now() directly on a real time.Ticker). runChannelFlusher (channel_delivery.go) therefore polls a real 1-second time.Ticker for DataFreshnessInSeconds-elapsed channels, mirroring Firehose's own intervalFlusher (services/firehose/flush.go), which has the same real-ticker, no-injectable-clock design. FlushChannel/FlushAllChannels are exported so tests and DeleteChannel/Handler.Shutdown can force an immediate flush without waiting on or sleeping past the ticker."
+  - "Buffered-but-unflushed channel records are NOT persisted across a Snapshot/Restore cycle -- channelBuffers is in-memory-only state on InMemoryBackend, not part of backendSnapshot. Handler.Shutdown (mirroring Firehose's) best-effort flushes every channel via FlushAllChannels before the process exits, and DeleteChannel/DeleteStream flush their affected channel(s) before removing state, which covers graceful shutdown and explicit deletion; an ungraceful process exit (crash, SIGKILL) between an accepted PutRecord and the next flush still loses that channel's currently-buffered records on restart. Disclosed rather than silently accepted; no snapshot_inventory.json changes were needed since no new persisted field was added."
   - "Channel ARN format (arn:{partition}:kinesis:{region}:{accountID}:channel/{channelName}) is inferred by following the same '{service}/{resource-name}' convention AWS uses for every other Kinesis resource (stream/{name}, stream/{name}/consumer/{name}) -- the pinned SDK's doc comments give no ARN format for channels at all (unlike streams/consumers, documented in the IAM access-control guide, which itself predates the channels feature and was re-fetched this pass with no channel-ARN mention added). Not verified against a real AWS response; disclosed rather than asserted as confirmed."
   - "CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel's documented 5 TPS-per-account call-limit LimitExceededException is not modeled. The service already has a couple of injectable-clock throttle precedents elsewhere in the codebase (e.g. services/polly's per-engine sliding-window throttle), but wiring an equivalent per-op rate model into this already-large file was judged disproportionate to this pass's ask; not fabricated. LimitExceededException remains reachable through this service's other existing rate-limited paths (tag limits, consumer-registration cap) -- it is only the channel-specific 5 TPS window that is unmodeled."
   - "ChannelDescription/ChannelSummary's S3TablesConfiguration.PartitionSpec is modeled and round-trips (ChannelPartitionSpec/ChannelPartitionField), but this backend performs no actual Iceberg partitioning -- there is no partitioning behavior to verify the accepted spec against, only storage/echo."
@@ -180,6 +188,144 @@ through the real aws-sdk-go-v2 kinesis client over httptest
 rule, provisioned-stream rejection, unknown-stream rejection, duplicate
 ChannelName, not-found across Describe/Update/Delete, ListChannels
 MaxResults/NextToken pagination, and the tag round trip described above.
+
+### 2026-09-11: channel record delivery to general purpose S3 (gopherstack-s781r)
+
+The dated note above (same day, earlier pass) left channel record delivery
+unimplemented because the object-key layout could not be verified: WebFetch
+against the streams dev-guide returned no usable content that pass. Re-run
+this pass, WebFetch against
+docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html
+and docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-about.html
+returned full page content, so delivery to S3DestinationConfiguration is now
+implemented for real. Also fetched: docs.aws.amazon.com/streams/latest/dev/
+data-delivery.html (data flow / capabilities overview),
+docs.aws.amazon.com/kinesis/latest/APIReference/API_S3DestinationConfiguration.html,
+and aws.amazon.com/about-aws/whats-new/2026/08/kinesis/
+data-delivery-general-purpose-s3-buckets.html and
+.../data-delivery-s3-tables.html (the two "What's New" announcements). The
+pinned SDK's types.go (S3DestinationConfiguration/S3StorageConfiguration,
+kinesis@v1.53.0) was cross-checked and confirmed to have no separate
+size-based BufferingHints field -- DataFreshnessInSeconds (300-900s, default
+300) is the only documented buffering control, matching the fetched pages.
+
+Verified facts used (see channel_delivery.go's own doc comments for the
+per-function citation):
+
+- Default OutputKeyTemplate:
+  `kinesis-channel/!{channel-name}/!{channel-id}/!{yyyy}/!{MM}/!{dd}/!{HH}/!{channel-name}-!{channel-id}-!{yyyy}-!{MM}-!{dd}-!{HH}-!{mm}!{extension}`,
+  and the full template-variable table (!{channel-name}, !{channel-id},
+  !{stream-name}, !{yyyy}, !{yy}, !{MM}, !{dd}, !{HH}, !{mm}, !{extension},
+  !{extension:.literal}) -- data-delivery-s3-key-template.html.
+- !{extension} is derived from CompressionType: ".gz" for GZIP, ".zst" for
+  ZSTD -- same page.
+- Buffering is DataFreshnessInSeconds only (5-15 min, default 300s); no
+  size-based trigger is documented for channel S3 delivery -- confirmed both
+  by data-delivery-s3-about.html's "Data freshness" section and by the
+  absence of any BufferingHints-shaped field on the pinned SDK's
+  S3DestinationConfiguration/S3StorageConfiguration Go types.
+- Compression: NONE/GZIP/ZSTD, CompressionType required --
+  data-delivery-s3-about.html's "Compression options", matching
+  types.S3CompressionType's three enum values exactly.
+- Record formats: JSON/STRING/BYTE_ARRAY for general purpose S3;
+  GSR_JSON is documented as streaming-tables-only -- same page's "Record
+  formats" section.
+- Validation: STRING records must be valid UTF-8, JSON records must be
+  valid JSON; records failing validation go to the dead-letter queue --
+  data-delivery-s3-about.html's "How delivery works" steps 3/6.
+- Dead-letter queue: optional for general purpose S3; when unset, "defaults
+  to the destination bucket with an error prefix" (exact prefix string not
+  documented -- see gaps); failure metadata includes stream ARN, shard ID,
+  sequence number, and error context (exact JSON schema not documented --
+  see gaps) -- same page's "Dead-letter queue" section, plus the
+  general-purpose-S3-buckets "What's New" announcement's "Dead-letter
+  queue" bullet.
+- Records "are delivered in their original source format with no
+  transformation applied" for general purpose S3 (vs. Parquet/Iceberg
+  conversion for streaming tables) -- data-delivery.html's "Delivery
+  destinations" section; read literally as "concatenate raw bytes, no
+  delimiter" since no delimiter option is documented anywhere for channels
+  (unlike Firehose, which has an explicit, separate newline-delimiter
+  toggle).
+- "Amazon Kinesis Data Streams automatically appends a unique suffix to
+  every object key" -- exact insertion point/format not documented; see
+  gaps for the disclosed inference used.
+
+Implemented (see services/kinesis/channel_delivery.go unless noted):
+
+- ChannelS3Writer interface (interfaces.go), mirroring
+  services/firehose/interfaces.go's S3Storer and
+  services/awsconfig/interfaces.go's S3Writer; wired via
+  InMemoryBackend.SetS3Writer and cli.go's new wireKinesisS3Delivery
+  (next to wireAWSConfigDelivery), which binds it directly to
+  s3backend.InMemoryBackend.PutObject (no adapter needed, same as
+  wireFirehoseDelivery's SetS3Backend(s3Bk)).
+- PutRecord (records.go) delivers the record to every ACTIVE channel
+  sourced from the stream, AFTER stream.mu is released (PutRecord was
+  split into PutRecord + putRecordLocked so the caller can run channel
+  delivery, which needs b.mu, without violating this file's established
+  b.mu-then-stream.mu lock order).
+- Per-channel buffering keyed by ChannelARN (channelBuffer), guarded by a
+  new leaf lock (InMemoryBackend.deliveryMu) that is never held while
+  acquiring b.mu or a Stream's mu, so it is safe to take regardless of
+  what the caller already holds.
+- Interval flush: runChannelFlusher polls a real 1-second time.Ticker
+  (Kinesis has NO injectable clock anywhere -- see gaps -- so this mirrors
+  Firehose's own real-ticker intervalFlusher design exactly, including
+  never sleeping in tests: FlushChannel/FlushAllChannels force an
+  immediate flush for tests, DeleteChannel, and Handler.Shutdown).
+- Delivery runs outside every backend lock: extractChannelBufferLocked
+  snapshots-and-clears a buffer under deliveryMu, deliveryMu is released,
+  then the S3 PutObject call happens with no lock held at all -- the
+  capture/release/write pattern services/lambda/lifecycle.go's Reset
+  already uses in this codebase.
+- DeleteChannel and DeleteStream now flush any buffered records for the
+  affected channel(s) before removing state, so accepted-but-unflushed
+  records are not silently dropped by deletion (DeleteStream does this via
+  a thin wrapper around the original locked delete, capturing affected
+  channel ARNs before deletion and flushing them afterward with no lock
+  held, to avoid the same b.mu/stream.mu ordering hazard).
+- Handler.Shutdown (new, implements service.Shutdowner) best-effort
+  flushes every channel before the process exits, mirroring Firehose's
+  Handler.Shutdown exactly.
+
+NOT implemented / disclosed (see gaps for the full list with citations):
+S3TablesDestinationConfiguration (Iceberg on Amazon S3 Tables) delivery --
+services/s3tables has no data-file/manifest write path, only table-bucket/
+namespace/table metadata management, so there is no honest way to write
+Iceberg data even now that the destination itself is documented; channels
+with only that destination type never buffer records at all (filtered out
+before appendToChannelBuffer, deliberately, rather than buffering into a
+dead end). OutputKeyTemplate's documented validation RULES (length cap,
+path-traversal/slash restrictions, single-extension-at-end) are not
+enforced at CreateChannel/UpdateChannel time, only template EXPANSION at
+flush time. The unique-suffix insertion point/format, the dead-letter
+queue's exact object schema, and the default dead-letter error prefix are
+all disclosed inferences, not verified facts -- see gaps for each.
+
+Persistence: channelBuffers is NOT added to backendSnapshot (buffered
+records are runtime-only state, flushed best-effort on
+DeleteChannel/DeleteStream/Handler.Shutdown -- see gaps for what an
+ungraceful exit loses). No new persisted field was added anywhere, so
+pkgs/persistence/testdata/snapshot_inventory.json needed no update and
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` (no
+-update) passes unchanged; kinesisSnapshotVersion stays at 1.
+
+Tests: services/kinesis/channel_delivery_internal_test.go (package kinesis,
+table-driven: object-key expansion for the default/custom/Hive-style
+templates and the extension variable, GZIP/ZSTD/NONE compression round
+trips, STRING/JSON/BYTE_ARRAY record validation, DataFreshnessInSeconds-due
+logic) and services/kinesis/channel_delivery_test.go (package kinesis_test,
+table-driven, real SDK client + a fake ChannelS3Writer: single-record and
+PutRecords-batch delivery with a decompressed body assertion, custom
+OutputKeyTemplate, invalid-UTF8-record-to-dead-letter-queue routing,
+DeleteChannel flushing a buffered record, and the no-writer-wired no-op
+case). cli_kinesis_channel_s3_delivery_wiring_test.go (root package, mirrors
+cli_mgn_s3_import_wiring_test.go) drives the real initializeServices
+composition root end to end: a bucket created through the real S3 backend,
+a real CreateStream/CreateChannel/PutRecord/FlushChannel call sequence
+against the real Kinesis backend, and a real gzip-compressed object read
+back from the real S3 backend's GetObject.
 
 ### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw, this pass)
 
