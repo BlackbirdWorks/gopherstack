@@ -747,6 +747,64 @@ func (db *InMemoryDB) RestoreTableToPointInTime(
 	return &sdkdynamodb.RestoreTableToPointInTimeOutput{TableDescription: td}, nil
 }
 
+// validateBatchStatementMix rejects a BatchExecuteStatement whose Statements mix
+// reads (SELECT) and writes (INSERT/UPDATE/DELETE). AWS: "The entire batch must
+// consist of either read statements or write statements, you cannot mix both
+// in one batch."
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchExecuteStatement.html
+func validateBatchStatementMix(stmts []sdktypes.BatchStatementRequest) error {
+	var hasRead, hasWrite bool
+
+	for _, s := range stmts {
+		stmt := aws.ToString(s.Statement)
+
+		switch {
+		case partiqlStatementIsRead(stmt):
+			hasRead = true
+		case partiqlStatementIsWrite(stmt):
+			hasWrite = true
+		}
+	}
+
+	if hasRead && hasWrite {
+		return NewValidationException(
+			"The entire batch must consist of either read statements or write statements, " +
+				"you cannot mix both in one batch",
+		)
+	}
+
+	return nil
+}
+
+// validateBatchStatementsAreKeyed enforces validateBatchSelectIsFullyKeyed for
+// every SELECT statement in a BatchExecuteStatement call.
+func (db *InMemoryDB) validateBatchStatementsAreKeyed(
+	ctx context.Context,
+	stmts []sdktypes.BatchStatementRequest,
+) error {
+	runner := &partiQLRunner{backend: db}
+
+	for _, s := range stmts {
+		stmt := aws.ToString(s.Statement)
+		if !partiqlStatementIsRead(stmt) {
+			continue
+		}
+
+		params := make([]map[string]any, 0, len(s.Parameters))
+		for _, p := range s.Parameters {
+			if wire, ok := models.FromSDKAttributeValue(p).(map[string]any); ok {
+				params = append(params, wire)
+			}
+		}
+
+		if err := runner.validateBatchSelectIsFullyKeyed(ctx, stmt, params); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // BatchExecuteStatement executes multiple PartiQL statements and returns their results.
 // It satisfies the StorageBackend interface using official AWS SDK v2 types.
 //
@@ -766,6 +824,14 @@ func (db *InMemoryDB) BatchExecuteStatement(
 			fmt.Sprintf("too many statements: %d exceeds the limit of %d",
 				len(input.Statements), maxBatchExecuteStatements),
 		)
+	}
+
+	if err := validateBatchStatementMix(input.Statements); err != nil {
+		return nil, err
+	}
+
+	if err := db.validateBatchStatementsAreKeyed(ctx, input.Statements); err != nil {
+		return nil, err
 	}
 
 	returnCC := input.ReturnConsumedCapacity != "" &&

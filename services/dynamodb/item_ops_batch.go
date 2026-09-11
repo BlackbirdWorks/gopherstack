@@ -234,11 +234,11 @@ func (db *InMemoryDB) batchGetTable(
 	unprocessedKeys map[string]types.KeysAndAttributes,
 ) (bool, []map[string]types.AttributeValue, error) {
 	pkDef, skDef := getPKAndSK(table.KeySchema)
-	proj := resolveProjection(
+	proj, atgNames := resolveProjection(
 		aws.ToString(keysAndAttrs.ProjectionExpression),
 		keysAndAttrs.AttributesToGet,
 	)
-	projector, err := ParseProjector(proj, keysAndAttrs.ExpressionAttributeNames)
+	projector, err := ParseProjector(proj, mergeAttrNames(keysAndAttrs.ExpressionAttributeNames, atgNames))
 	if err != nil {
 		return false, nil, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}

@@ -478,11 +478,11 @@ func (db *InMemoryDB) GetItem(
 	}
 
 	// Resolve effective projection (fallback to AttributesToGet).
-	effectiveProj := resolveProjection(projExpr, input.AttributesToGet)
+	effectiveProj, atgNames := resolveProjection(projExpr, input.AttributesToGet)
 	result := item
 
 	if effectiveProj != "" {
-		result, err = projectItem(item, effectiveProj, input.ExpressionAttributeNames)
+		result, err = projectItem(item, effectiveProj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 		if err != nil {
 			return nil, err
 		}

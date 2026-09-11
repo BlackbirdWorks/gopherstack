@@ -38,7 +38,7 @@ func TestEvaluateExpression(t *testing.T) {
 	}{
 		{
 			name:      "Simple Equality",
-			expr:      "status = :s",
+			expr:      "#status = :s",
 			vals:      map[string]any{":s": map[string]any{"S": "active"}},
 			wantMatch: true,
 		},
@@ -70,18 +70,18 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name:      "Attribute Not Exists",
-			expr:      "attribute_not_exists(missing)",
+			expr:      "attribute_not_exists(absent)",
 			wantMatch: true,
 		},
 		{
 			name:      "Begins With",
-			expr:      "begins_with(status, :prefix)",
+			expr:      "begins_with(#status, :prefix)",
 			vals:      map[string]any{":prefix": map[string]any{"S": "act"}},
 			wantMatch: true,
 		},
 		{
 			name:      "Contains (String)",
-			expr:      "contains(status, :sub)",
+			expr:      "contains(#status, :sub)",
 			vals:      map[string]any{":sub": map[string]any{"S": "tiv"}},
 			wantMatch: true,
 		},
@@ -102,7 +102,7 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 		{
 			name: "AND Condition",
-			expr: "status = :s AND val = :v",
+			expr: "#status = :s AND val = :v",
 			vals: map[string]any{
 				":s": map[string]any{"S": "active"},
 				":v": map[string]any{"N": "100"},
@@ -111,10 +111,12 @@ func TestEvaluateExpression(t *testing.T) {
 		},
 	}
 
+	attrNames := map[string]string{"#status": "status"}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			match, err := dynamodb.EvaluateExpression(tc.expr, item, tc.vals, nil)
+			match, err := dynamodb.EvaluateExpression(tc.expr, item, tc.vals, attrNames)
 			if tc.wantErr {
 				require.Error(t, err)
 

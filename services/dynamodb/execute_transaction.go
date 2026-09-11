@@ -42,6 +42,10 @@ func (db *InMemoryDB) ExecuteTransaction(
 		)
 	}
 
+	if err := validateTransactStatementMix(input.TransactStatements); err != nil {
+		return nil, err
+	}
+
 	// Collect unique table names so we can snapshot them before execution.
 	tableNames := executeTransactionTableNames(input.TransactStatements)
 
@@ -94,6 +98,43 @@ func (db *InMemoryDB) ExecuteTransaction(
 		Responses:        responses,
 		ConsumedCapacity: consumedCapacity,
 	}, nil
+}
+
+// validateTransactStatementMix rejects an ExecuteTransaction whose statements
+// mix reads (SELECT) and writes (INSERT/UPDATE/DELETE). AWS: "The entire
+// transaction must consist of either read statements or write statements. You
+// can't mix both in one transaction. The EXISTS function is an exception."
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+func validateTransactStatementMix(stmts []types.ParameterizedStatement) error {
+	var hasRead, hasWrite bool
+
+	for _, s := range stmts {
+		stmt := ""
+		if s.Statement != nil {
+			stmt = *s.Statement
+		}
+
+		trimmed := strings.TrimSpace(stmt)
+
+		switch {
+		case partiqlExistsRe.MatchString(trimmed):
+			// EXISTS is the documented exception to the mixing rule.
+			continue
+		case partiqlStatementIsRead(trimmed):
+			hasRead = true
+		case partiqlStatementIsWrite(trimmed):
+			hasWrite = true
+		}
+	}
+
+	if hasRead && hasWrite {
+		return NewValidationException(
+			"The entire transaction must consist of either read statements or write " +
+				"statements. You can't mix both in one transaction",
+		)
+	}
+
+	return nil
 }
 
 // executeTransactionTableNames extracts sorted unique table names from transaction statements.

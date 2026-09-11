@@ -25,6 +25,9 @@ func EvaluateExpression(
 	l := expr.NewLexer(expression)
 	p := expr.NewParser(l)
 	node, err := p.ParseCondition()
+	if err == nil {
+		err = expr.CheckReservedWords(node)
+	}
 	if err != nil {
 		return false, NewValidationException("Invalid ConditionExpression: " + err.Error())
 	}
@@ -62,6 +65,9 @@ func applyUpdate(
 	l := expr.NewLexer(expression)
 	p := expr.NewParser(l)
 	u, err := p.ParseUpdate()
+	if err == nil {
+		err = expr.CheckReservedWords(u)
+	}
 	if err != nil {
 		return nil, NewValidationException("Invalid UpdateExpression: " + err.Error())
 	}
@@ -110,6 +116,9 @@ func projectItem(
 	l := expr.NewLexer(projectionExpression)
 	p := expr.NewParser(l)
 	proj, err := p.ParseProjection()
+	if err == nil {
+		err = expr.CheckReservedWords(proj)
+	}
 	if err != nil {
 		return nil, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}
@@ -137,6 +146,9 @@ func ParseProjector(expression string, attrNames map[string]string) (*Projector,
 	l := expr.NewLexer(expression)
 	p := expr.NewParser(l)
 	proj, err := p.ParseProjection()
+	if err == nil {
+		err = expr.CheckReservedWords(proj)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +199,9 @@ func ParseConditionStr(expression string) (*ParsedCondition, error) {
 	l := expr.NewLexer(expression)
 	p := expr.NewParser(l)
 	node, err := p.ParseCondition()
+	if err == nil {
+		err = expr.CheckReservedWords(node)
+	}
 	if err != nil {
 		return nil, err
 	}

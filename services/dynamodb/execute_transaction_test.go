@@ -342,7 +342,7 @@ func TestExecuteTransaction_ExistsStatement_Passes(t *testing.T) {
 	require.NoError(t, err)
 
 	existsStmt := `EXISTS(SELECT * FROM "TxnExistsTable" WHERE pk = 'key1')`
-	updateStmt := `UPDATE "TxnExistsTable" SET data = 'x' WHERE pk = 'key1'`
+	updateStmt := `UPDATE "TxnExistsTable" SET payload = 'x' WHERE pk = 'key1'`
 
 	out, err := db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
 		TransactStatements: []types.ParameterizedStatement{
@@ -374,7 +374,7 @@ func TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction(t *testing.T
 	require.NoError(t, err)
 
 	existsStmt := `EXISTS(SELECT * FROM "TxnExistsFailTable" WHERE pk = 'does-not-exist')`
-	updateStmt := `UPDATE "TxnExistsFailTable" SET data = 'x' WHERE pk = 'key1'`
+	updateStmt := `UPDATE "TxnExistsFailTable" SET payload = 'x' WHERE pk = 'key1'`
 
 	_, err = db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
 		TransactStatements: []types.ParameterizedStatement{
@@ -399,7 +399,7 @@ func TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction(t *testing.T
 		},
 	})
 	require.NoError(t, getErr)
-	assert.NotContains(t, getOut.Item, "data")
+	assert.NotContains(t, getOut.Item, "payload")
 }
 
 // TestExecuteTransaction_CancellationReasons_OnStatementError verifies a
@@ -421,7 +421,7 @@ func TestExecuteTransaction_CancellationReasons_OnStatementError(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	okUpdate := `UPDATE "TxnCancelReasonsTable" SET data = 'x' WHERE pk = 'key1'`
+	okUpdate := `UPDATE "TxnCancelReasonsTable" SET payload = 'x' WHERE pk = 'key1'`
 	// INSERT of an already-existing key fails with DuplicateItemException.
 	badStatement := `INSERT INTO "TxnCancelReasonsTable" VALUE {'pk': 'key1'}`
 

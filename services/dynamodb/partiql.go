@@ -69,6 +69,24 @@ var (
 	partiqlDeleteRe = regexp.MustCompile(`(?i)^\s*DELETE\s+FROM\s+`)
 )
 
+// partiqlStatementIsRead reports whether stmt is a SELECT (read) statement, as
+// opposed to INSERT/UPDATE/DELETE (a write). EXISTS(...) is classified by
+// partiqlExistsRe instead (execute_transaction.go) -- AWS documents it as the
+// one exception to the read/write mixing rule, not a plain read.
+func partiqlStatementIsRead(stmt string) bool {
+	return partiqlSelectRe.MatchString(strings.TrimSpace(stmt))
+}
+
+// partiqlStatementIsWrite reports whether stmt is an INSERT/UPDATE/DELETE
+// (write) statement.
+func partiqlStatementIsWrite(stmt string) bool {
+	trimmed := strings.TrimSpace(stmt)
+
+	return partiqlInsertRe.MatchString(trimmed) ||
+		partiqlUpdateRe.MatchString(trimmed) ||
+		partiqlDeleteRe.MatchString(trimmed)
+}
+
 // Clause extraction regexes.
 var (
 	// partiqlWhereRe extracts the WHERE clause body (stops before ORDER BY / LIMIT).
@@ -257,6 +275,15 @@ func (r *partiQLRunner) executeStatement(
 	stmt := strings.TrimSpace(req.Statement)
 
 	switch {
+	case partiqlExistsRe.MatchString(stmt):
+		// AWS: "The EXISTS function can only be used in transactions." /
+		// "This function can only be used in transactional operations."
+		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-functions.exists.html
+		// ExecuteTransaction never reaches this dispatcher for an EXISTS
+		// statement -- executeTransactionStatement intercepts it first (see
+		// execute_transaction.go) -- so this rejects it for both standalone
+		// ExecuteStatement and BatchExecuteStatement, its only two other callers.
+		return nil, NewValidationException("The EXISTS function can only be used in transactions")
 	case partiqlSelectRe.MatchString(stmt):
 		return r.executePartiQLSelect(ctx, req)
 	case partiqlInsertRe.MatchString(stmt):
@@ -623,6 +650,56 @@ func (r *partiQLRunner) resolveQueryKeySchema(
 	}
 
 	return resolveSDKIndexKeySchema(descOut.Table, indexName, consistentRead)
+}
+
+// validateBatchSelectIsFullyKeyed enforces the documented BatchExecuteStatement
+// restriction on SELECT statements: "Each read statement in a
+// BatchExecuteStatement must specify an equality condition on all key
+// attributes. This enforces that each SELECT statement in a batch returns at
+// most a single item."
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchExecuteStatement.html
+//
+// A statement whose table/index cannot be resolved here is left for the real
+// execution path to reject with its own accurate error (e.g.
+// ResourceNotFoundException) -- this only rejects a resolvable SELECT that
+// under-specifies its key.
+func (r *partiQLRunner) validateBatchSelectIsFullyKeyed(
+	ctx context.Context,
+	stmt string,
+	params []map[string]any,
+) error {
+	substituted, eav, err := partiqlSubstituteParams(stmt, params)
+	if err != nil {
+		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
+	}
+
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
+	if err != nil {
+		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
+	}
+
+	whereClause := partiqlExtractWhere(substituted)
+	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
+
+	keySchema, err := r.resolveQueryKeySchema(ctx, tableName, indexName, false)
+	if err != nil {
+		return nil //nolint:nilerr // table/index resolution failure; real execution surfaces its own error
+	}
+
+	keyAttrs := make(map[string]bool, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = true
+	}
+
+	key, keyErr := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	if keyErr != nil || len(key) != len(keyAttrs) {
+		return NewValidationException(
+			"Each read statement in a BatchExecuteStatement must specify an equality " +
+				"condition on all key attributes",
+		)
+	}
+
+	return nil
 }
 
 // resolveSDKIndexKeySchema resolves indexName's key schema from a

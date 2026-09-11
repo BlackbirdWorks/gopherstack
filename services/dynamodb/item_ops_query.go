@@ -608,10 +608,9 @@ func (db *InMemoryDB) collectQueryPage(
 ) ([]map[string]any, map[string]any, int, error) {
 	limit := int(aws.ToInt32(input.Limit))
 
-	projector, err := ParseProjector(
-		resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet),
-		input.ExpressionAttributeNames,
-	)
+	proj, atgNames := resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet)
+
+	projector, err := ParseProjector(proj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 	if err != nil {
 		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}
