@@ -700,15 +700,23 @@ func (b *InMemoryBackend) RestoreWorkspace(workspaceID string) error {
 
 // CreateStandbyWorkspace creates a single standby WorkSpace and returns it in
 // PENDING state. Returns InvalidParameterValuesException when spec.DirectoryID
-// is not registered, matching the same per-item runtime validation as
-// CreateWorkspace. The real StandbyWorkspace request shape carries no
-// UserName/BundleId (see StandbyWorkspaceSpec) -- those fields belong to the
-// primary WorkSpace, which may live in a different region's backend that this
-// in-memory store cannot see, so the created record has no way to inherit
-// them; PendingCreateStandbyWorkspacesRequest's real shape doesn't surface
-// BundleId at all, and its UserName is left empty for the same reason.
+// is not registered, and ResourceNotFoundException when spec.PrimaryWorkspaceID
+// does not resolve to a WorkSpace in this backend -- both per-item runtime
+// failures the handler reports via FailedStandbyRequests, matching the same
+// pattern as CreateWorkspace's DirectoryID check. The real StandbyWorkspace
+// request shape carries no UserName/BundleId (see StandbyWorkspaceSpec); the
+// created record has no way to inherit them from the primary, and
+// PendingCreateStandbyWorkspacesRequest's real shape doesn't surface BundleId
+// at all, so its UserName is left empty for the same reason.
+//
+// This emulator runs a single backend instance per service, so unlike real
+// AWS (where the primary WorkSpace genuinely lives in a separate region's
+// backend), the primary is looked up in this same b.workspaces table and its
+// RelatedWorkspaces/StandbyWorkspacesProperties are updated with the new
+// standby -- the only way this backend can truthfully round-trip the
+// relationship DescribeWorkspaces must report on both sides.
 func (b *InMemoryBackend) CreateStandbyWorkspace(
-	_ context.Context, spec StandbyWorkspaceSpec,
+	ctx context.Context, spec StandbyWorkspaceSpec,
 ) (*PendingStandbyWorkspace, error) {
 	b.mu.Lock("CreateStandbyWorkspace")
 	defer b.mu.Unlock()
@@ -718,6 +726,12 @@ func (b *InMemoryBackend) CreateStandbyWorkspace(
 			"directory %q is not registered", awserr.ErrInvalidParameter, spec.DirectoryID)
 	}
 
+	primary, ok := b.workspaces.Get(spec.PrimaryWorkspaceID)
+	if !ok {
+		return nil, ErrWorkspaceNotFound
+	}
+
+	standbyRegion := b.regionFor(ctx)
 	id := b.nextID(workspaceIDPrefix)
 	tags := cloneTags(spec.Tags)
 
@@ -730,20 +744,36 @@ func (b *InMemoryBackend) CreateStandbyWorkspace(
 		VolumeEncryptionKey: spec.VolumeEncryptionKey,
 		State:               statePending,
 		Tags:                tags,
+		// State is captured at creation time and does not track the
+		// primary's later state transitions, matching this file's existing
+		// IpAddress-at-creation-time precedent (see CreateWorkspace).
+		RelatedWorkspaces: []RelatedWorkspace{
+			{
+				WorkspaceID: spec.PrimaryWorkspaceID,
+				Type:        "PRIMARY",
+				State:       primary.State,
+				Region:      spec.PrimaryRegion,
+			},
+		},
 	}
 	if spec.DataReplication != "" {
 		w.DataReplicationSettings = &DataReplicationSettings{
 			DataReplication: spec.DataReplication,
 		}
 	}
-	if spec.PrimaryWorkspaceID != "" {
-		w.RelatedWorkspaces = []RelatedWorkspace{
-			{
-				WorkspaceID: spec.PrimaryWorkspaceID,
-				Type:        "PRIMARY",
-			},
-		}
-	}
+
+	primary.RelatedWorkspaces = append(primary.RelatedWorkspaces, RelatedWorkspace{
+		WorkspaceID: id,
+		Type:        "STANDBY",
+		State:       statePending,
+		Region:      standbyRegion,
+	})
+	primary.StandbyWorkspacesProperties = append(
+		primary.StandbyWorkspacesProperties, StandbyWorkspaceProperties{
+			StandbyWorkspaceID: id,
+			DataReplication:    spec.DataReplication,
+		})
+
 	b.workspaces.Put(w)
 	b.tags[id] = tags
 
