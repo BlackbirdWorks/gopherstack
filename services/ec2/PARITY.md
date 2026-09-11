@@ -4047,3 +4047,197 @@ The same run also reports a `scheduler` failure that is NOT this change
 (no `scheduler` files were touched); left for whoever owns that package.
 Neither failure was addressed with `-update` per this task's scope limits.
 Did NOT commit, push, or run any `bd` write command.
+
+## 2026-09-11 pass: gopherstack-a7vs, gopherstack-1qth
+
+**gopherstack-a7vs** ("RunInstances lacks KeyName/SecurityGroups params,
+dropped by the ASG EC2Launcher adapter in cli.go"): mostly ALREADY FIXED at
+HEAD. `cli.go`'s `ec2AutoScalingLauncherAdapter.LaunchInstances` calls
+`SetInstanceLaunchConfig(inst.ID, spec.KeyName, spec.SecurityGroups)`
+(`instances.go`), which sets `inst.KeyName`/`inst.SecurityGroups` correctly,
+and `KeyName` was already emitted on `DescribeInstances` (`keyName`,
+`handler_instances_lifecycle.go`). One real gap remained: `toInstanceItem`'s
+`groupSet` only ever populated `GroupIdentifier.groupId`, never `groupName`
+(`types.GroupIdentifier` has both fields --
+`deserializers.go:107843` `awsEc2query_deserializeDocumentGroupIdentifier`
+reads `groupId`/`groupName`) -- true for both the direct
+`RunInstances SecurityGroupId.N` path and the ASG `SetInstanceLaunchConfig`
+path, since both funnel through the same `toInstanceItem`. Fixed by resolving
+`inst.SecurityGroups` (a list of IDs) to `*SecurityGroup` via
+`h.Backend.DescribeSecurityGroups` at both `toInstanceItem` call sites
+(`RunInstances`, `DescribeInstances`) and populating `GroupName` from the
+match; an ID with no matching group (e.g. deleted after attachment) still
+emits `groupId` with an empty `groupName`, never a fabricated one. New tests:
+`TestDescribeInstances_GroupIdentifierHasName` (table-driven: direct
+`RunInstances SecurityGroupId.N` vs. the ASG-style `SetInstanceLaunchConfig`
+path, both asserting `<groupName>` appears) and
+`TestDescribeInstances_GroupIdentifier_UnknownGroupOmitsName`
+(`handler_instances_test.go`).
+
+**gopherstack-1qth** (`GetReservedInstancesExchangeQuote` always
+`IsValidExchange: true`, nothing else computed): CONFIRMED, and it was worse
+than a missing-fields gap -- the handler ignored its request entirely (`vals`
+was `_`) and `AcceptReservedInstancesExchangeQuote` accepted **any**
+`ReservedInstanceId`, even ones that don't exist, unconditionally fabricating
+a "successful" exchange. Both fixed for real, to the extent this backend's
+Reserved Instance model has honest inputs to compute from:
+
+- The backend's `ReservedInstance`/`ReservedInstancesOffering` had no
+  `OfferingClass` at all (real AWS: `types.OfferingClassType`,
+  `types/enums.go:9660-9661`, `"standard"`/`"convertible"`) -- yet "only
+  Convertible Reserved Instances can be exchanged" is the entire premise of
+  this op (`api_op_GetReservedInstancesExchangeQuote.go` doc comment). Without
+  it, eligibility could not be checked honestly at all, so `OfferingClass`
+  was added to both structs, threaded through
+  `DescribeReservedInstancesOfferings` (new `OfferingClass` request/filter
+  param -- real top-level field,
+  `serializers.go:81778`/`81914`) and inherited by
+  `PurchaseReservedInstancesOffering` from the purchased offering.
+- `ReservedInstance` also had no `Start`/`End` (real AWS:
+  `types/types.go:19737,19770`), so "remaining value" could not be computed
+  either. Added both, set at purchase time as
+  `now = time.Now().UTC()` / `now.Add(Duration seconds)` -- the same
+  convention this file's sibling `host_reservations.go` already uses for its
+  own `Start`/`End` (that file purchases a `HostReservation` the identical
+  way). No injectable clock exists anywhere in this backend; one was not
+  invented solely for this feature when an established, working local
+  convention already covers the same need.
+- New backend method `GetReservedInstancesExchangeQuote(reservedInstanceIDs,
+  targets)`: per-source-RI `ReservationValue` (`HourlyPrice = UsagePrice`;
+  `RemainingUpfrontValue = FixedPrice` prorated by the fraction of the term
+  still remaining; `RemainingTotalValue = RemainingUpfrontValue + HourlyPrice
+  * hours remaining` -- the exact formula from `types.ReservationValue`'s doc
+  comment, `types/types.go:19589-19591`), rolled up across all source RIs;
+  per-target `ReservationValue` from the target offering's
+  `FixedPrice`/`UsagePrice` times the caller-supplied `InstanceCount`
+  (defaulting to 1), assuming a fresh full-term reservation, rolled up across
+  all targets; `PaymentDue = max(0, targetRollup.RemainingTotalValue -
+  sourceRollup.RemainingTotalValue)`; `OutputReservedInstancesWillExpireAt` =
+  earliest source RI `End`; `CurrencyCode = "USD"` (`types/types.go:19729-
+  19731`: "the only supported currency is USD").
+- Eligibility: an unknown `ReservedInstanceId` or target `OfferingId` is
+  `InvalidReservedInstancesId.NotFound` (reused the pre-existing
+  `ErrReservedInstancesNotFound` sentinel/`errCodeLookup` mapping -- already
+  used by `DeleteQueuedReservedInstances`). A non-convertible (standard)
+  source RI is deliberately **not** an error: the quote returns
+  `IsValidExchange: false` with a `ValidationFailureReason` and every other
+  field left unset (no rollups, no `PaymentDue`, no computed value sets --
+  nothing fabricated for a rejected exchange), matching "If the exchange
+  cannot be performed, the reason is returned in the response"
+  (`api_op_GetReservedInstancesExchangeQuote.go`). No AWS documentation page
+  reachable this pass gives an exact `ValidationFailureReason` string for
+  this case (checked `errors-overview.html` via WebFetch: no
+  exchange/convertible-specific entry), so the message here is this
+  backend's own honest description, not a claimed-verified AWS string.
+- `AcceptReservedInstancesExchangeQuote` now runs the identical eligibility
+  checks before accepting. Since
+  `AcceptReservedInstancesExchangeQuoteOutput` has only `ExchangeId` (no
+  `IsValidExchange`/`ValidationFailureReason` soft-failure field), an
+  ineligible exchange fails the call outright with `InvalidParameterValue`
+  (reused `ErrInvalidParameter`) rather than a soft failure -- there is no
+  other real AWS error code documented for this specific case either
+  (checked the same error reference), and `InvalidParameterValue`'s own
+  description ("A value specified in a parameter is not valid, is
+  unsupported, or cannot be used") fits directly.
+
+  Behavior change, disclosed per this task's instructions: this backend's
+  `AcceptReservedInstancesExchangeQuote` previously accepted (with a bare
+  `len(ids) == 0` check) **any** `ReservedInstanceId`, real or not, and any
+  offering class. `TestHandler_AcceptReservedInstancesExchangeQuote`'s
+  `accept_with_one_id`/`accept_with_multiple_ids` cases exercised exactly
+  that gap (fabricated IDs like `ri-abc123` that were never created via
+  `PurchaseReservedInstancesOffering`) and have been rewritten to seed real
+  Reserved Instances of each `OfferingClass` and assert the new,
+  correct-per-real-AWS rejection/acceptance behavior instead of the old
+  no-validation behavior.
+
+**Deliberate, disclosed simplifications** (never fabricated a number; scope
+cut and documented instead):
+- `TargetConfigurationRequest.InstanceCount` is documented in the real SDK as
+  "reserved and cannot be specified in a request"
+  (`types/types.go:23867-23869`) -- real AWS derives the actual purchased
+  instance count automatically so the exchange is value-neutral for the
+  customer. This backend has no such solver: it uses the caller-supplied
+  `InstanceCount` verbatim (defaulting to 1 when omitted/zero) to size the
+  target-side value. A client that sends a count real AWS would not have
+  chosen will see a different `PaymentDue` here than real AWS would compute
+  for the same source RIs.
+- `RecurringCharges` (`types.ReservedInstances.RecurringCharges`) is not
+  modeled anywhere in this backend (no field on `ReservedInstance` or
+  `ReservedInstancesOffering`) and is not included in any value computation.
+  Only `FixedPrice` (upfront) and `UsagePrice` (hourly) feed the quote,
+  consistent with every other pre-existing reserved-instances op in this file
+  (`DescribeReservedInstances`/`DescribeReservedInstancesOfferings` already
+  only expose these two prices).
+- `Scope` (`types.ReservedInstances.Scope`: Availability Zone vs. Region) is
+  not modeled and not validated; a target offering in a different scope than
+  its source RIs is silently accepted.
+- No injectable clock (see above): `Start`/`End`, and therefore the
+  "remaining value" computation, are anchored to `time.Now().UTC()` at
+  purchase time. A test cannot fast-forward the clock to exercise a specific
+  "years into the term" position; new tests instead assert either
+  time-independent exact values (`HourlyPrice`, a flat rate) or use
+  `assert.InDelta`/`InEpsilon` with a tolerance generous enough to absorb the
+  sub-millisecond gap between purchase and quote within one test run.
+
+**Also fixed (de-stub hygiene, `parity-principles.md` rule 5)**:
+`handler_unimplemented_operations.go`'s `stubSupportedOperations()` still
+listed `"GetReservedInstancesExchangeQuote"` even though it has had a real
+handler in `handler_reserved_instances.go` all along -- moved to
+`coreSupportedOperations()` (`handler.go`) next to its sibling
+`AcceptReservedInstancesExchangeQuote`, matching the file's own convention
+for a since-implemented op (see the adjacent commented-out
+`"GetReservedInstancesExchangeQuote", — real handler in ..., covered there`
+lines already present in this file's other stub-manifest tests).
+
+**Wire additions**: `DescribeReservedInstances`/`DescribeReservedInstancesOfferings`
+responses now emit `offeringClass` (verified wire key,
+`deserializers.go:153768`/`154841`), and `DescribeReservedInstances` also
+emits `start`/`end` (`deserializers.go:153691`/`153839`) when set.
+
+**New/changed tests**: `reserved_instances_exchange_test.go`
+(`TestGetReservedInstancesExchangeQuote` -- table-driven: valid convertible
+exchange, standard RI rejected with reason, unknown source RI id, unknown
+target offering id; `TestGetReservedInstancesExchangeQuote_RealClient` and
+`TestGetReservedInstancesExchangeQuote_StandardRi_RealClient` -- real
+`aws-sdk-go-v2` client round trips proving the wire keys above plus
+`reservedInstanceId`/`hourlyPrice`/`targetConfiguration>offeringId`);
+`TestHandler_GetReservedInstancesExchangeQuote_MissingIds`
+(`handler_reserved_instances_test.go`); `TestHandler_AcceptReservedInstancesExchangeQuote`
+rewritten as described above (`handler_accept_ops_test.go`).
+`export_test.go`'s `SeedReservedInstancesOffering` test helper gained an
+`offeringClass` parameter (existing export, signature extended -- not a new
+export); its five pre-existing call sites were updated to pass `"standard"`,
+preserving their prior behavior exactly (none of them exercise exchange
+quotes).
+
+**`pkgs/persistence/testdata/snapshot_inventory.json`**: changed. Added
+`ReservedInstance.OfferingClass` (`omitempty`), `ReservedInstance.Start`/`End`
+(plain `json:"start"`/`"end"`, no `omitempty` -- `omitempty` has no effect on
+a non-pointer `time.Time` field, matching this file's pre-existing
+`host_reservations.go` `HostReservation.Start`/`End` convention), and
+`ReservedInstancesOffering.OfferingClass` (`omitempty`) -- four new fields on
+already-snapshotted structs, purely additive. Ran
+`TestSnapshotVersionGuard -update` twice: the first run (before a lint pass
+changed `Start`/`End`'s tag from `,omitempty` to plain, per the `modernize`
+linter -- `omitempty` on a struct field is a no-op) left the golden file
+holding the pre-lint-fix tag, which then made the *second*, read-only guard
+run fail as a genuine (if self-inflicted) tag-rename mismatch; re-ran
+`-update` after the tag settled, and the guard wrote cleanly. The guard
+itself refuses to write the golden file if any change looks like a
+non-additive/incompatible retype (see the guard's own `-update` code path).
+Final `diff` against the pre-change golden confirms exactly 4 new lines, all
+`ReservedInstance.*`/`ReservedInstancesOffering.*` -- no foreign (other
+service) rows touched, no snapshot version bump (`ec2`'s `SnapshotVersion`
+const left unchanged; the additive-only field set doesn't require one, and
+the guard would have hard-failed on `-update` if it did).
+
+Gates: `go build ./...` (pass, whole module). `go vet ./services/ec2/...`
+(clean). `go test -race -count=1 ./services/ec2/... ./pkgs/persistence/...`
+(both `ok`). `golangci-lint run --new-from-rev=HEAD ./services/ec2/...`:
+initially 8 issues (goconst on a duplicate `"USD"` literal -- reused the
+pre-existing `hostReservationCurrencyUSD` const instead; a `goimports`
+formatting diff; two `modernize` `min`/`max`-builtin suggestions; one
+`nlreturn`; two `testifylint` `require-error` suggestions on
+`assert.ErrorIs`) -- all fixed, no nolints added. Did NOT commit, push, or
+run any `bd` write command.

@@ -209,7 +209,10 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID)),
+			toInstanceItem(
+				inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID),
+				h.Backend.DescribeSecurityGroups(inst.SecurityGroups),
+			),
 		)
 	}
 
@@ -285,7 +288,10 @@ func (h *Handler) handleDescribeInstances(vals url.Values, reqID string) (any, e
 	for _, inst := range instances {
 		items = append(
 			items,
-			toInstanceItem(inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID)),
+			toInstanceItem(
+				inst, h.Backend.TagsForResource(inst.ID), h.activeIamInstanceProfile(inst.ID),
+				h.Backend.DescribeSecurityGroups(inst.SecurityGroups),
+			),
 		)
 	}
 
@@ -531,7 +537,9 @@ func (h *Handler) instanceAttributeValue(inst *Instance, instanceID, attr string
 	}
 }
 
-func toInstanceItem(inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec) instanceItem {
+func toInstanceItem(
+	inst *Instance, instanceTags map[string]string, iamProfile *iamProfileSpec, sgs []*SecurityGroup,
+) instanceItem {
 	tagItems := make([]instanceTagItem, 0, len(instanceTags))
 	for k, v := range instanceTags {
 		tagItems = append(tagItems, instanceTagItem{Key: k, Value: v})
@@ -539,9 +547,18 @@ func toInstanceItem(inst *Instance, instanceTags map[string]string, iamProfile *
 
 	sort.Slice(tagItems, func(i, j int) bool { return tagItems[i].Key < tagItems[j].Key })
 
+	sgNames := make(map[string]string, len(sgs))
+	for _, sg := range sgs {
+		sgNames[sg.ID] = sg.Name
+	}
+
+	// GroupIdentifier carries both groupId and groupName (ec2@v1.329.0
+	// deserializers.go:107843 awsEc2query_deserializeDocumentGroupIdentifier);
+	// a security group deleted after attachment yields an empty groupName,
+	// matching a lookup miss below.
 	groupItems := make([]instanceGroupItem, 0, len(inst.SecurityGroups))
 	for _, sgID := range inst.SecurityGroups {
-		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID})
+		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID, GroupName: sgNames[sgID]})
 	}
 
 	item := instanceItem{

@@ -256,7 +256,13 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 // ---- AcceptReservedInstancesExchangeQuote ----
 
 // AcceptReservedInstancesExchangeQuote accepts an exchange quote for reserved instances,
-// creating a new exchange record with "successful" status.
+// creating a new exchange record with "successful" status. It applies the
+// same eligibility checks as GetReservedInstancesExchangeQuote (gopherstack-1qth):
+// an unknown ID is InvalidReservedInstancesId.NotFound, and a non-convertible
+// source RI -- which the quote call reports via IsValidExchange=false rather
+// than an error -- fails this call with InvalidParameterValue, since Accept
+// has no such soft-failure field
+// (types.AcceptReservedInstancesExchangeQuoteOutput only has ExchangeId).
 func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	reservedInstanceIDs []string,
 ) (*ReservedInstancesExchange, error) {
@@ -269,6 +275,21 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 
 	b.mu.Lock("AcceptReservedInstancesExchangeQuote")
 	defer b.mu.Unlock()
+
+	ris := make([]*ReservedInstance, 0, len(reservedInstanceIDs))
+
+	for _, id := range reservedInstanceIDs {
+		ri, ok := b.reservedInstances.Get(id)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, id)
+		}
+
+		ris = append(ris, ri)
+	}
+
+	if reason := nonExchangeableReason(ris); reason != "" {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, reason)
+	}
 
 	exchangeID := newReservedInstanceExchangeID()
 	targetID := newReservedInstanceTargetID()

@@ -22,34 +22,35 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 		"us-east-1a",
 		"Linux/UNIX",
 		"All Upfront",
+		"standard",
 		94608000,
 		500.0,
 		0.0,
 	)
 
 	t.Run("describe offerings returns seeded offering", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "", "")
+		offerings := b.DescribeReservedInstancesOfferings("", "", "", "")
 		assert.NotEmpty(t, offerings)
 	})
 
 	t.Run("describe offerings by instance type", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("t3.medium", "", "")
+		offerings := b.DescribeReservedInstancesOfferings("t3.medium", "", "", "")
 		require.Len(t, offerings, 1)
 		assert.Equal(t, "t3.medium", offerings[0].InstanceType)
 	})
 
 	t.Run("describe offerings by az", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "us-east-1a", "")
+		offerings := b.DescribeReservedInstancesOfferings("", "us-east-1a", "", "")
 		require.Len(t, offerings, 1)
 	})
 
 	t.Run("describe offerings by product description", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "", "Linux/UNIX")
+		offerings := b.DescribeReservedInstancesOfferings("", "", "Linux/UNIX", "")
 		require.Len(t, offerings, 1)
 	})
 
 	t.Run("describe offerings no match", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("m5.xlarge", "", "")
+		offerings := b.DescribeReservedInstancesOfferings("m5.xlarge", "", "", "")
 		assert.Empty(t, offerings)
 	})
 
@@ -195,4 +196,23 @@ func TestHandler_DeleteQueuedReservedInstances(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHandler_GetReservedInstancesExchangeQuote_MissingIds covers the
+// required ReservedInstanceIds param (api_op_GetReservedInstancesExchangeQuote.go:
+// "This member is required"), mirroring AcceptReservedInstancesExchangeQuote's
+// existing validation.
+func TestHandler_GetReservedInstancesExchangeQuote_MissingIds(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	vals := url.Values{
+		"Action":  {"GetReservedInstancesExchangeQuote"},
+		"Version": {"2016-11-15"},
+	}
+
+	_, err := ec2.ExportDispatch(h, vals)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidParameterValue")
 }

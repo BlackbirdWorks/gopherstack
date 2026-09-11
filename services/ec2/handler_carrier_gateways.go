@@ -26,6 +26,9 @@ type reservedInstanceItem struct {
 	ProductDescription  string          `xml:"productDescription,omitempty"`
 	State               string          `xml:"state,omitempty"`
 	OfferingType        string          `xml:"offeringType,omitempty"`
+	OfferingClass       string          `xml:"offeringClass,omitempty"`
+	Start               string          `xml:"start,omitempty"`
+	End                 string          `xml:"end,omitempty"`
 	TagSet              []simpleTagItem `xml:"tagSet>item"`
 	InstanceCount       int             `xml:"instanceCount,omitempty"`
 	Duration            int64           `xml:"duration"`

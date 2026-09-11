@@ -285,6 +285,7 @@ func coreSupportedOperations() []string {
 		"AcceptTransitGatewayVpcAttachment",
 		"AcceptVpcEndpointConnections",
 		"AcceptVpcPeeringConnection",
+		"GetReservedInstancesExchangeQuote",
 		"AdvertiseByoipCidr",
 		"AllocateHosts",
 		"DescribeCapacityReservations",

@@ -164,8 +164,11 @@ func (b *InMemoryBackend) ByoipCidrCount() int {
 }
 
 // SeedReservedInstancesOffering inserts a reserved instances offering directly (for tests).
+// offeringClass is "standard" or "convertible" (types.OfferingClassType);
+// only "convertible" offerings/RIs are eligible for
+// GetReservedInstancesExchangeQuote (gopherstack-1qth).
 func (b *InMemoryBackend) SeedReservedInstancesOffering(
-	offeringID, instanceType, az, productDesc, offeringType string,
+	offeringID, instanceType, az, productDesc, offeringType, offeringClass string,
 	duration int64,
 	fixedPrice, usagePrice float64,
 ) {
@@ -177,6 +180,7 @@ func (b *InMemoryBackend) SeedReservedInstancesOffering(
 		AvailabilityZone:            az,
 		ProductDescription:          productDesc,
 		OfferingType:                offeringType,
+		OfferingClass:               offeringClass,
 		Duration:                    duration,
 		FixedPrice:                  fixedPrice,
 		UsagePrice:                  usagePrice,

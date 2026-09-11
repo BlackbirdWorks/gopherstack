@@ -62,7 +62,7 @@ func TestCancelReservedInstancesListing_SurfacesListing_RealClient(t *testing.T)
 	client := newTestEC2Client(t, h)
 
 	b.SeedReservedInstancesOffering(
-		"rio-sweep20", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", 94608000, 500.0, 0.0,
+		"rio-sweep20", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", "standard", 94608000, 500.0, 0.0,
 	)
 	ri, err := b.PurchaseReservedInstancesOffering("rio-sweep20", 1)
 	require.NoError(t, err)

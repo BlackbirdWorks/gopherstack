@@ -1596,7 +1596,7 @@ type Backend interface {
 
 	// ---- batch5: ReservedInstances ----
 	DescribeReservedInstances(ids []string) []*ReservedInstance
-	DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering
+	DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass string) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
 	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
 	CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error)
@@ -1608,6 +1608,9 @@ type Backend interface {
 		targetCount int,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
+	GetReservedInstancesExchangeQuote(
+		reservedInstanceIDs []string, targets []TargetConfigurationRequest,
+	) (*ReservedInstancesExchangeQuote, error)
 
 	// ---- Route Server ----
 	CreateRouteServer(

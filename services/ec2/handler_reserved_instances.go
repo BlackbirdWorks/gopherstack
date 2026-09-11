@@ -2,7 +2,9 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"time"
 )
 
 type describeReservedInstancesResponse struct {
@@ -19,6 +21,7 @@ type reservedInstancesOfferingItem struct {
 	AvailabilityZone            string  `xml:"availabilityZone,omitempty"`
 	ProductDescription          string  `xml:"productDescription,omitempty"`
 	OfferingType                string  `xml:"offeringType,omitempty"`
+	OfferingClass               string  `xml:"offeringClass,omitempty"`
 	Duration                    int64   `xml:"duration"`
 	FixedPrice                  float64 `xml:"fixedPrice"`
 	UsagePrice                  float64 `xml:"usagePrice"`
@@ -82,10 +85,56 @@ type modifyReservedInstancesResponse struct {
 	ReservedInstancesModificationID string   `xml:"reservedInstancesModificationId"`
 }
 
+// reservationValueItem mirrors types.ReservationValue (ec2@v1.329.0
+// types/types.go:19584); HourlyPrice/RemainingTotalValue/RemainingUpfrontValue
+// are wire strings there, not numbers.
+type reservationValueItem struct {
+	HourlyPrice           string `xml:"hourlyPrice,omitempty"`
+	RemainingTotalValue   string `xml:"remainingTotalValue,omitempty"`
+	RemainingUpfrontValue string `xml:"remainingUpfrontValue,omitempty"`
+}
+
+// reservedInstanceReservationValueItem mirrors
+// types.ReservedInstanceReservationValue (ec2@v1.329.0 types/types.go:19709).
+type reservedInstanceReservationValueItem struct {
+	ReservedInstanceID string               `xml:"reservedInstanceId"`
+	ReservationValue   reservationValueItem `xml:"reservationValue"`
+}
+
+// targetConfigurationItem mirrors types.TargetConfiguration (ec2@v1.329.0
+// types/types.go:23847).
+type targetConfigurationItem struct {
+	OfferingID    string `xml:"offeringId"`
+	InstanceCount int    `xml:"instanceCount,omitempty"`
+}
+
+// targetReservationValueItem mirrors types.TargetReservationValue
+// (ec2@v1.329.0 types/types.go:23926).
+type targetReservationValueItem struct {
+	ReservationValue    reservationValueItem    `xml:"reservationValue"`
+	TargetConfiguration targetConfigurationItem `xml:"targetConfiguration"`
+}
+
+// getReservedInstancesExchangeQuoteResponse mirrors
+// types.GetReservedInstancesExchangeQuoteOutput (ec2@v1.329.0
+// api_op_GetReservedInstancesExchangeQuote.go); wire keys verified against
+// deserializers.go:221192 (awsEc2query_deserializeOpDocumentGetReservedInstancesExchangeQuoteOutput).
 type getReservedInstancesExchangeQuoteResponse struct {
-	XMLName         xml.Name `xml:"GetReservedInstancesExchangeQuoteResponse"`
-	RequestID       string   `xml:"requestId"`
-	IsValidExchange bool     `xml:"isValidExchange"`
+	XMLName                             xml.Name              `xml:"GetReservedInstancesExchangeQuoteResponse"`
+	RequestID                           string                `xml:"requestId"`
+	CurrencyCode                        string                `xml:"currencyCode,omitempty"`
+	OutputReservedInstancesWillExpireAt string                `xml:"outputReservedInstancesWillExpireAt,omitempty"`
+	PaymentDue                          string                `xml:"paymentDue,omitempty"`
+	ValidationFailureReason             string                `xml:"validationFailureReason,omitempty"`
+	IsValidExchange                     bool                  `xml:"isValidExchange"`
+	ReservedInstanceValueRollup         *reservationValueItem `xml:"reservedInstanceValueRollup,omitempty"`
+	ReservedInstanceValueSet            struct {
+		Items []reservedInstanceReservationValueItem `xml:"item"`
+	} `xml:"reservedInstanceValueSet"`
+	TargetConfigurationValueRollup *reservationValueItem `xml:"targetConfigurationValueRollup,omitempty"`
+	TargetConfigurationValueSet    struct {
+		Items []targetReservationValueItem `xml:"item"`
+	} `xml:"targetConfigurationValueSet"`
 }
 
 // deleteQueuedRIErrorItem mirrors types.DeleteQueuedReservedInstancesError.
@@ -121,6 +170,17 @@ type deleteQueuedReservedInstancesResponse struct {
 
 // ---- Traffic Mirror Filter handlers ----
 
+// formatEC2Time renders t in the same ISO8601 form used elsewhere in this
+// package (e.g. instanceItem.LaunchTime), or "" for a zero time so the
+// caller's xml:",omitempty" tag drops the element.
+func formatEC2Time(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+
+	return t.UTC().Format("2006-01-02T15:04:05.000Z")
+}
+
 func toReservedInstanceItem(ri *ReservedInstance, tags map[string]string) reservedInstanceItem {
 	return reservedInstanceItem{
 		ReservedInstancesID: ri.ReservedInstancesID,
@@ -130,6 +190,9 @@ func toReservedInstanceItem(ri *ReservedInstance, tags map[string]string) reserv
 		ProductDescription:  ri.ProductDescription,
 		State:               ri.State,
 		OfferingType:        ri.OfferingType,
+		OfferingClass:       ri.OfferingClass,
+		Start:               formatEC2Time(ri.Start),
+		End:                 formatEC2Time(ri.End),
 		Duration:            ri.Duration,
 		FixedPrice:          ri.FixedPrice,
 		UsagePrice:          ri.UsagePrice,
@@ -144,6 +207,7 @@ func toReservedInstancesOfferingItem(o *ReservedInstancesOffering) reservedInsta
 		AvailabilityZone:            o.AvailabilityZone,
 		ProductDescription:          o.ProductDescription,
 		OfferingType:                o.OfferingType,
+		OfferingClass:               o.OfferingClass,
 		Duration:                    o.Duration,
 		FixedPrice:                  o.FixedPrice,
 		UsagePrice:                  o.UsagePrice,
@@ -191,8 +255,9 @@ func (h *Handler) handleDescribeReservedInstancesOfferings(
 	instanceType := vals.Get("InstanceType")
 	az := vals.Get("AvailabilityZone")
 	productDesc := vals.Get("ProductDescription")
+	offeringClass := vals.Get("OfferingClass")
 
-	offerings := h.Backend.DescribeReservedInstancesOfferings(instanceType, az, productDesc)
+	offerings := h.Backend.DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass)
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinDefault, ec2PageMaxReservedInstancesOfferings, ec2PageMaxReservedInstancesOfferings,
@@ -377,11 +442,87 @@ func (h *Handler) handleDeleteQueuedReservedInstances(vals url.Values, reqID str
 	return resp, nil
 }
 
-func (h *Handler) handleGetReservedInstancesExchangeQuote(_ url.Values, reqID string) (any, error) {
-	return &getReservedInstancesExchangeQuoteResponse{
-		RequestID:       reqID,
-		IsValidExchange: true,
-	}, nil
+// parseTargetConfigurations parses GetReservedInstancesExchangeQuote/
+// AcceptReservedInstancesExchangeQuote's TargetConfiguration.N.OfferingId /
+// TargetConfiguration.N.InstanceCount (serializers.go:87596-87601,67108-67123:
+// wire prefix "TargetConfiguration", not "TargetConfigurationRequest").
+func parseTargetConfigurations(vals url.Values) []TargetConfigurationRequest {
+	var targets []TargetConfigurationRequest
+
+	for i := 1; ; i++ {
+		offeringID := vals.Get(fmt.Sprintf("TargetConfiguration.%d.OfferingId", i))
+		if offeringID == "" {
+			break
+		}
+
+		count := 0
+		parseIntValue(vals.Get(fmt.Sprintf("TargetConfiguration.%d.InstanceCount", i)), &count)
+
+		targets = append(targets, TargetConfigurationRequest{OfferingID: offeringID, InstanceCount: count})
+	}
+
+	return targets
+}
+
+func toReservationValueItem(v ReservationValue) reservationValueItem {
+	return reservationValueItem{
+		HourlyPrice:           fmt.Sprintf("%.2f", v.HourlyPrice),
+		RemainingTotalValue:   fmt.Sprintf("%.2f", v.RemainingTotalValue),
+		RemainingUpfrontValue: fmt.Sprintf("%.2f", v.RemainingUpfrontValue),
+	}
+}
+
+func (h *Handler) handleGetReservedInstancesExchangeQuote(vals url.Values, reqID string) (any, error) {
+	ids := parseMemberList(vals, "ReservedInstanceId")
+	if len(ids) == 0 {
+		return nil, fmt.Errorf("%w: at least one ReservedInstanceId is required", ErrInvalidParameter)
+	}
+
+	quote, err := h.Backend.GetReservedInstancesExchangeQuote(ids, parseTargetConfigurations(vals))
+	if err != nil {
+		return nil, err
+	}
+
+	resp := &getReservedInstancesExchangeQuoteResponse{
+		RequestID:               reqID,
+		CurrencyCode:            quote.CurrencyCode,
+		IsValidExchange:         quote.IsValidExchange,
+		ValidationFailureReason: quote.ValidationFailureReason,
+	}
+
+	if !quote.IsValidExchange {
+		return resp, nil
+	}
+
+	resp.OutputReservedInstancesWillExpireAt = formatEC2Time(quote.OutputReservedInstancesWillExpireAt)
+	resp.PaymentDue = fmt.Sprintf("%.2f", quote.PaymentDue)
+
+	rollup := toReservationValueItem(quote.ReservedInstanceValueRollup)
+	resp.ReservedInstanceValueRollup = &rollup
+
+	targetRollup := toReservationValueItem(quote.TargetConfigurationValueRollup)
+	resp.TargetConfigurationValueRollup = &targetRollup
+
+	for _, v := range quote.ReservedInstanceValueSet {
+		resp.ReservedInstanceValueSet.Items = append(resp.ReservedInstanceValueSet.Items,
+			reservedInstanceReservationValueItem{
+				ReservedInstanceID: v.ReservedInstancesID,
+				ReservationValue:   toReservationValueItem(v.Value),
+			})
+	}
+
+	for _, v := range quote.TargetConfigurationValueSet {
+		resp.TargetConfigurationValueSet.Items = append(resp.TargetConfigurationValueSet.Items,
+			targetReservationValueItem{
+				ReservationValue: toReservationValueItem(v.Value),
+				TargetConfiguration: targetConfigurationItem{
+					OfferingID:    v.OfferingID,
+					InstanceCount: v.InstanceCount,
+				},
+			})
+	}
+
+	return resp, nil
 }
 
 // registerReservedInstancesOps registers the ReservedInstances operation handlers.

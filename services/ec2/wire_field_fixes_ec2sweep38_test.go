@@ -26,7 +26,7 @@ func TestDescribeReservedInstancesListings_ListingIdFilter_RealClient(t *testing
 
 	backend := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 	backend.SeedReservedInstancesOffering(
-		"rio-sweep38-001", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", 94608000, 500.0, 0.0,
+		"rio-sweep38-001", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", "standard", 94608000, 500.0, 0.0,
 	)
 
 	client := newTestEC2Client(t, ec2.NewHandler(backend))

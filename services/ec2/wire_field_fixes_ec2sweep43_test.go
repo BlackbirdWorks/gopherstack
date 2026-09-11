@@ -99,7 +99,7 @@ func TestDescribeReservedInstancesOfferings_DefaultMaxResults(t *testing.T) {
 
 	for i := range seedCount {
 		b.SeedReservedInstancesOffering(
-			fmt.Sprintf("ec2sweep43-offering-%03d", i), "t3.micro", "us-east-1a", "Linux/UNIX", "Standard",
+			fmt.Sprintf("ec2sweep43-offering-%03d", i), "t3.micro", "us-east-1a", "Linux/UNIX", "Standard", "standard",
 			31536000, 0, 0.05,
 		)
 	}
