@@ -56,6 +56,8 @@ func connectorKeyFn(v *Connector) string { return v.Arn }
 
 func channelKeyFn(v *DeliveryChannel) string { return v.Name }
 
+func deliveryStatusKeyFn(v *deliveryChannelStatusState) string { return v.ChannelName }
+
 // aggregationAuthKeyFn reuses aggregationAuthKey (aggregators.go), the same
 // composite-key function PutAggregationAuthorization/DeleteAggregationAuthorization
 // use, so Put/Get/Delete/Has all agree on the same key.
@@ -175,6 +177,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.channels = store.Register(b.registry, "channels", store.New(channelKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		// Additive vs. awsconfigSnapshotVersion 4: a registered table
+		// missing from an older snapshot resets to empty
+		// (pkgs/store/registry.go's RestoreAll), not a version bump.
+		b.deliveryStatus = store.Register(b.registry, "deliveryStatus", store.New(deliveryStatusKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.connectors = store.Register(b.registry, "connectors", store.New(connectorKeyFn))

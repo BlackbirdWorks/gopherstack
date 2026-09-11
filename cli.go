@@ -2924,6 +2924,10 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// destinations to SNS, so bounce/complaint/delivery outcomes are
 	// actually published instead of silently validated-and-stored.
 	wireSESSNS(byName["SES"], byName["SNS"])
+
+	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
+	// delivery channel has a topic configured) so snapshot delivery is real.
+	wireAWSConfigDelivery(byName["AWSConfig"], byName["S3"], byName["SNS"])
 }
 
 // wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
@@ -4748,6 +4752,40 @@ type sesSNSPublisherAdapter struct {
 
 func (a *sesSNSPublisherAdapter) PublishToTopic(topicARN, message string) error {
 	_, err := a.backend.Publish(topicARN, message, "Amazon SES Notification", "", nil)
+
+	return err
+}
+
+// wireAWSConfigDelivery connects the AWS Config backend to S3 and SNS so
+// DeliverConfigSnapshot actually writes a ConfigSnapshot object and (when a
+// delivery channel has an SNS topic) publishes the stream notification,
+// instead of generating a snapshot ID and persisting nothing
+// (gopherstack-ru0y).
+func wireAWSConfigDelivery(cfgReg, s3Reg, snsReg service.Registerable) {
+	cfgH, ok := cfgReg.(*awsconfigbackend.Handler)
+	if !ok || cfgH.Backend == nil {
+		return
+	}
+
+	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
+		cfgH.Backend.SetS3Writer(awsconfigbackend.NewS3WriterIntegration(s3H.Backend))
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, snsBkOk := snsH.Backend.(*snsbackend.InMemoryBackend); snsBkOk {
+			cfgH.Backend.SetSNSPublisher(&awsConfigSNSPublisherAdapter{backend: snsBk})
+		}
+	}
+}
+
+// awsConfigSNSPublisherAdapter adapts the SNS backend to the
+// awsconfig.SNSPublisher interface.
+type awsConfigSNSPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *awsConfigSNSPublisherAdapter) PublishToTopic(topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "AWS Config Notification", "", nil)
 
 	return err
 }

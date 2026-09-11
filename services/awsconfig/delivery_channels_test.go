@@ -237,7 +237,7 @@ func TestAWSConfigBackend_DeliverConfigSnapshot(t *testing.T) {
 		t.Parallel()
 
 		b := awsconfig.NewInMemoryBackend()
-		_, err := b.DeliverConfigSnapshot("nonexistent")
+		_, err := b.DeliverConfigSnapshot(t.Context(), "nonexistent")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, awsconfig.ErrNoSuchDeliveryChannel)
 	})
@@ -248,7 +248,7 @@ func TestAWSConfigBackend_DeliverConfigSnapshot(t *testing.T) {
 		b := awsconfig.NewInMemoryBackend()
 		require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
 
-		_, err := b.DeliverConfigSnapshot("chan")
+		_, err := b.DeliverConfigSnapshot(t.Context(), "chan")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, awsconfig.ErrNoAvailableConfigurationRecorder)
 	})
@@ -260,7 +260,7 @@ func TestAWSConfigBackend_DeliverConfigSnapshot(t *testing.T) {
 		require.NoError(t, b.PutDeliveryChannel("chan", "bucket", "", "", nil))
 		require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::123:role/r", nil))
 
-		_, err := b.DeliverConfigSnapshot("chan")
+		_, err := b.DeliverConfigSnapshot(t.Context(), "chan")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, awsconfig.ErrNoRunningConfigurationRecorder)
 	})
@@ -273,12 +273,12 @@ func TestAWSConfigBackend_DeliverConfigSnapshot(t *testing.T) {
 		require.NoError(t, b.PutConfigurationRecorder("rec", "arn:aws:iam::123:role/r", nil))
 		require.NoError(t, b.StartConfigurationRecorder("rec"))
 
-		id, err := b.DeliverConfigSnapshot("chan")
+		id, err := b.DeliverConfigSnapshot(t.Context(), "chan")
 		require.NoError(t, err)
 		assert.NotEmpty(t, id)
 
 		// A second delivery produces a distinct snapshot ID.
-		id2, err := b.DeliverConfigSnapshot("chan")
+		id2, err := b.DeliverConfigSnapshot(t.Context(), "chan")
 		require.NoError(t, err)
 		assert.NotEqual(t, id, id2)
 	})

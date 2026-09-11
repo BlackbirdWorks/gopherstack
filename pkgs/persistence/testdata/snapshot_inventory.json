@@ -2507,7 +2507,20 @@
       "StoredQuery.QueryID string `json:\"QueryId,omitempty\"`",
       "StoredQuery.QueryName string `json:\"QueryName\"`",
       "backendSnapshot.Tables map[string]json.RawMessage `json:\"tables\"`",
-      "remediationExecutionSnapshot.RuleName string `json:\"ruleName\"`"
+      "deliveryChannelStatusState.ChannelName string `json:\"channelName\"`",
+      "deliveryChannelStatusState.Snapshot *exportDeliveryState `json:\"snapshot,omitempty\"`",
+      "deliveryChannelStatusState.Stream *streamDeliveryState `json:\"stream,omitempty\"`",
+      "exportDeliveryState.LastAttemptTime time.Time `json:\"lastAttemptTime\"`",
+      "exportDeliveryState.LastErrorCode string `json:\"lastErrorCode,omitempty\"`",
+      "exportDeliveryState.LastErrorMessage string `json:\"lastErrorMessage,omitempty\"`",
+      "exportDeliveryState.LastStatus string `json:\"lastStatus,omitempty\"`",
+      "exportDeliveryState.LastSuccessfulTime time.Time `json:\"lastSuccessfulTime\"`",
+      "exportDeliveryState.NextDeliveryTime time.Time `json:\"nextDeliveryTime\"`",
+      "remediationExecutionSnapshot.RuleName string `json:\"ruleName\"`",
+      "streamDeliveryState.LastErrorCode string `json:\"lastErrorCode,omitempty\"`",
+      "streamDeliveryState.LastErrorMessage string `json:\"lastErrorMessage,omitempty\"`",
+      "streamDeliveryState.LastStatus string `json:\"lastStatus,omitempty\"`",
+      "streamDeliveryState.LastStatusChangeTime time.Time `json:\"lastStatusChangeTime\"`"
     ],
     "version": 4
   },

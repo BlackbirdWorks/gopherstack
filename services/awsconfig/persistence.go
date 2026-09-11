@@ -102,7 +102,7 @@ func fromRemediationExecutionSnapshot(v *remediationExecutionSnapshot) *Remediat
 //
 // Tables holds one JSON-encoded array per table registered on b.registry (see
 // store_setup.go's registerAllTables): recorders, serviceLinkedRecorders,
-// channels, connectors, aggregationAuths, configRules, aggregators,
+// channels, deliveryStatus, connectors, aggregationAuths, configRules, aggregators,
 // conformancePacks, conformancePackRules, orgConfigRules, orgConformancePacks,
 // storedQueries, retentionConfigs, remediationConfigs, resourceEvaluations,
 // resourceConfigs, and ruleResourceEvals, PLUS a "remediationExecutions"

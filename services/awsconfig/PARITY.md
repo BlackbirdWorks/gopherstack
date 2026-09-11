@@ -34,8 +34,8 @@ ops:
   PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
   DescribeDeliveryChannels: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDeliveryChannelStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): DeliveryChannelStatus/DeliveryChannelStatusInfo were tagged PascalCase (Name/ConfigHistoryDeliveryInfo/ConfigStreamDeliveryInfo/LastStatus/LastAttemptTime); the real deserializer is lowerCamelCase for this shape (like DeliveryChannel itself), so a real client's whole response decoded as the zero value. Structurally underspecified vs the real 3-shape/3-field-set DeliveryChannelStatus -- re-audited 2026-08-23, confirmed a genuine modelling gap (no backend state to source the missing fields from), left unfixed. See Notes, gopherstack-ru0y."}
-  DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates the named channel exists (NoSuchDeliveryChannelException), a recorder is configured (NoAvailableConfigurationRecorderException) and running (NoRunningConfigurationRecorderException), and returns a generated ConfigSnapshotId"}
+  DescribeDeliveryChannelStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-09-11 (gopherstack-ru0y): DeliveryChannelStatus now splits into the real 3-shape model -- ConfigHistoryDeliveryInfo/ConfigSnapshotDeliveryInfo (*ConfigExportDeliveryInfo) and ConfigStreamDeliveryInfo (*ConfigStreamDeliveryInfo) -- backed by real tracked state instead of a hardcoded SUCCESS. Each slot is nil until that delivery kind has actually happened; ConfigHistoryDeliveryInfo is always nil (no periodic history delivery exists in this backend). See the 2026-09-11 Notes entry for what's sourced vs still unmodeled."}
+  DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-09-11 (gopherstack-ru0y): now actually delivers -- gzips a real ConfigSnapshot envelope (fileVersion/requestId/configurationItems) to the channel's S3 bucket at the real AWSLogs/<account>/Config/<region>/<y>/<m>/<d>/ConfigSnapshot/... key, and publishes a ConfigurationSnapshotDeliveryCompleted SNS notification when a topic is configured, recording the outcome for DescribeDeliveryChannelStatus to read back. See the 2026-09-11 Notes entry."}
 
   # --- ConfigRule + compliance family ---
   PutConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -611,3 +611,156 @@ ops in the dispatch table, 88 request types, 157 fields.
 Gates: `go build ./services/awsconfig/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
 `golangci-lint run ./services/awsconfig/...` (0 issues).
+
+- **2026-09-11 (`gopherstack-ru0y`): DeliveryChannelStatus/DeliverConfigSnapshot
+  made real, not just reshaped.** The 2026-08-23 audit correctly declined to
+  split `DeliveryChannelStatusInfo` into the real shapes because there was no
+  backend state to source the split fields from -- this pass adds that state
+  and then does the split.
+
+  **Model** (models.go): `DeliveryChannelStatusInfo` is gone, replaced by the
+  two real distinct types verified against configservice@v1.68.4
+  `types/types.go:561` (`ConfigExportDeliveryInfo`: lastAttemptTime/
+  lastErrorCode/lastErrorMessage/lastStatus/lastSuccessfulTime/
+  nextDeliveryTime) and `types/types.go:846` (`ConfigStreamDeliveryInfo`:
+  lastErrorCode/lastErrorMessage/lastStatus/lastStatusChangeTime -- no
+  NextDeliveryTime, LastStatusChangeTime instead of LastAttemptTime/
+  LastSuccessfulTime). Wire keys (lowerCamel) verified against
+  `deserializers.go:15453`
+  (`awsAwsjson11_deserializeDocumentConfigExportDeliveryInfo`),
+  `deserializers.go:16009`
+  (`awsAwsjson11_deserializeDocumentConfigStreamDeliveryInfo`), and
+  `deserializers.go:18209`
+  (`awsAwsjson11_deserializeDocumentDeliveryChannelStatus`, which also
+  confirms `DeliveryChannelStatus` now carries all three real slots:
+  configHistoryDeliveryInfo/configSnapshotDeliveryInfo/configStreamDeliveryInfo).
+  Every emitted value is nil/omitted until that kind of delivery has actually
+  happened -- no field is hardcoded SUCCESS any more.
+
+  **New state** (delivery_status.go, store.go): a new `deliveryStatus`
+  store.Table keyed by channel name, tracking `Snapshot`/`Stream` outcomes
+  (internal `exportDeliveryState`/`streamDeliveryState` twins using
+  `time.Time` zero-value for "never happened" instead of the wire's
+  `*float64`). Registered on `b.registry` like every other table --
+  additive vs. `awsconfigSnapshotVersion` 4, no bump (a registered table
+  absent from an older snapshot resets to empty per
+  `pkgs/store/registry.go`'s `RestoreAll`, confirmed by
+  `TestSnapshotVersionGuard -update`; the resulting
+  `snapshot_inventory.json` diff touches only the new awsconfig struct
+  entries, additive-only).
+
+  **DeliverConfigSnapshot now actually delivers.** New seams on
+  `InMemoryBackend`: `S3Writer`/`SNSPublisher` interfaces (interfaces.go,
+  mirroring stepfunctions' `asl.S3Writer` and ses's `SNSPublisher`),
+  `SetS3Writer`/`SetSNSPublisher`/`SetClock`, and an `S3WriterIntegration`
+  adapter (integrations.go, mirroring
+  `stepfunctions.NewS3ResultWriterIntegration`) wired in cli.go's
+  `wireAWSConfigDelivery` (called alongside `wireSESSNS`) via
+  `awsconfigbackend.NewS3WriterIntegration(s3H.Backend)` and a new
+  `awsConfigSNSPublisherAdapter` (mirroring `sesSNSPublisherAdapter`). I/O
+  (S3 write, SNS publish) happens outside `b.mu` -- state is captured locked
+  (`prepareConfigSnapshotDeliveryLocked`), delivered unlocked
+  (`deliverConfigSnapshotIO`), then the outcome is recorded under a fresh
+  lock -- the same capture-then-release shape as
+  `services/lambda/lifecycle.go`.
+
+  On success, the snapshot body is the currently recorded configuration
+  items (`b.resourceConfigs.Snapshot()`) wrapped in the real envelope
+  verified against
+  https://docs.aws.amazon.com/config/latest/developerguide/example-s3-snapshot.md
+  ("Example Configuration Snapshot"): `{"fileVersion":"1.0","requestId":"<id>",
+  "configurationItems":[...]}`. Note this deviates from what I was asked to
+  verify: the doc's top-level id field is `requestId`, not `configSnapshotId`
+  (even though it carries the same value `DeliverConfigSnapshotOutput.
+  ConfigSnapshotId` returns) -- I followed the doc over the assumption.
+  Each configuration item only carries the fields this backend actually
+  tracks (`ResourceConfigItem`: resourceType/resourceId/configuration/
+  configurationItemCaptureTime), not the full real `ConfigurationItem` shape
+  (arn/accountId/tags/relationships/... are not modeled anywhere in this
+  backend and are not fabricated here either). The body is gzipped and
+  written to the real key layout, verified against the "Example
+  Configuration Snapshot Delivery Notification"
+  (https://docs.aws.amazon.com/config/latest/developerguide/example-configuration-snapshot-notification.md)
+  `s3ObjectKey`: `AWSLogs/<accountId>/Config/<region>/<y>/<m>/<d>/
+  ConfigSnapshot/<accountId>_Config_<region>_ConfigSnapshot_
+  <yyyyMMddTHHmmssZ>_<snapshotId>.json.gz` -- year/month/day are NOT
+  zero-padded (the doc's own example is ".../2016/9/27/...", confirmed by
+  fetching the live page, not assumed).
+
+  When a bucket is missing, the S3Writer's `s3pkg.ErrNoSuchBucket` sentinel
+  (services/s3/errors.go:15) is classified into `lastErrorCode: "NoSuchBucket"`.
+  When no S3Writer is wired at all (e.g. a unit test that never calls
+  `SetS3Writer`), the outcome is FAILURE with an internal error code rather
+  than silently pretending success. Per
+  `awsAwsjson11_deserializeOpErrorDeliverConfigSnapshot`
+  (deserializers.go:2106), `DeliverConfigSnapshot`'s declared error set is
+  exactly `NoSuchDeliveryChannelException`/
+  `NoAvailableConfigurationRecorderException`/
+  `NoRunningConfigurationRecorderException` -- nothing S3/SNS-shaped -- so a
+  delivery failure does NOT fail the call; it still returns the generated
+  snapshot ID with a nil error (matching real AWS Config's async delivery
+  model) and the failure is only visible via
+  `DescribeDeliveryChannelStatus`'s `ConfigSnapshotDeliveryInfo`.
+  `NextDeliveryTime` is derived from the channel's
+  `ConfigSnapshotDeliveryProperties.DeliveryFrequency`
+  (`MaximumExecutionFrequency`, types/enums.go:331-340) when set, omitted
+  otherwise.
+
+  **Stream slot.** On a successful S3 delivery, if the channel has an SNS
+  topic configured, this backend publishes a `ConfigurationSnapshotDeliveryCompleted`
+  message (fields verified against the same "Example Configuration Snapshot
+  Delivery Notification" doc: configSnapshotId/s3ObjectKey/s3Bucket/
+  notificationCreationTime/messageType/recordVersion) and records the real
+  publish outcome (SUCCESS/FAILURE) with `LastStatusChangeTime`. When no
+  topic is configured, this pass deliberately deviates from my literal
+  instructions ("nil ... when a topic is configured, nil otherwise") in favor
+  of the real SDK doc comment on `ConfigStreamDeliveryInfo.LastStatus`
+  (types/types.go:855-859: "If the SNS delivery is turned off, the last
+  status will be Not_Applicable") -- so a *real* delivery with no topic
+  configured records `Not_Applicable`, not nil; the slot stays nil only when
+  no delivery has been attempted at all. `ConfigHistoryDeliveryInfo` is
+  always nil: `DeliverConfigSnapshot` only ever delivers a snapshot, never a
+  periodic history file, and this backend has no history-delivery loop to
+  mirror -- inventing a history delivery event here would itself be
+  fabrication.
+
+  **Still unmodeled / disclosed simplifications:**
+  - Configuration history delivery (the periodic, non-on-demand delivery
+    real AWS Config also performs) does not exist in this backend at all;
+    `ConfigHistoryDeliveryInfo` is always nil, never approximated from the
+    snapshot outcome.
+  - Delivered configuration items only carry the four fields
+    `ResourceConfigItem` tracks (resourceType/resourceId/configuration/
+    configurationItemCaptureTime); the real `ConfigurationItem` shape's
+    arn/accountId/availabilityZone/tags/relationships/relatedEvents/etc. are
+    not modeled anywhere in this backend, so the delivered snapshot file
+    reflects that same gap rather than fabricating them.
+  - `configurationItemCaptureTime` inside the delivered snapshot file is
+    epoch-seconds (this backend's existing internal representation,
+    `ResourceConfigItem.ConfigurationItemCaptureTime float64`), whereas the
+    doc's own example file shows an ISO8601 string for that same field. This
+    is a disclosed format mismatch for the *file's* per-item timestamp, not
+    the file's envelope or key layout (both independently verified above);
+    fixing it would mean introducing a second timestamp representation for
+    `ResourceConfigItem` used only in this one export path.
+
+  Tests: delivery_status_test.go, table-driven, `t.Parallel()` on outer and
+  every subtest. Covers: no-delivery-yet status shape (all slots nil);
+  successful S3 delivery records SUCCESS + LastAttemptTime/LastSuccessfulTime
+  + a real key matching the layout above; missing bucket records FAILURE with
+  `lastErrorCode: "NoSuchBucket"`; no S3Writer wired records FAILURE instead
+  of fabricated success; SNS publish success/failure/no-topic-configured all
+  reflected in the stream slot per the Not_Applicable reasoning above;
+  NextDeliveryTime derived from DeliveryFrequency; state survives a
+  Snapshot/Restore round trip. `TestDeliverConfigSnapshot_RealClient` and the
+  updated `TestDescribeDeliveryChannelStatus_RealClient` drive both ops
+  through a real aws-sdk-go-v2 configservice client against an httptest
+  server, proving the lowerCamel wire keys end-to-end rather than trusting
+  this package's own JSON tags.
+
+  Gates: `go build ./...` (whole module), `go vet ./services/awsconfig/... .`,
+  `go test -race -count=1 ./services/awsconfig/... ./pkgs/persistence/...`
+  (pass), `golangci-lint run ./services/awsconfig/...` (0 issues),
+  `golangci-lint run --new-from-rev=HEAD .` (0 issues, covers the cli.go
+  wiring change). `awsconfigSnapshotVersion` NOT bumped (additive table
+  only, confirmed by the version guard test).

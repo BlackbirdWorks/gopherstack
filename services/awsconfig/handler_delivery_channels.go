@@ -132,9 +132,9 @@ type deliverConfigSnapshotOutput struct {
 }
 
 func (h *Handler) handleDeliverConfigSnapshot(
-	_ context.Context, in *deliverConfigSnapshotInput,
+	ctx context.Context, in *deliverConfigSnapshotInput,
 ) (*deliverConfigSnapshotOutput, error) {
-	id, err := h.Backend.DeliverConfigSnapshot(in.DeliveryChannelName)
+	id, err := h.Backend.DeliverConfigSnapshot(ctx, in.DeliveryChannelName)
 	if err != nil {
 		return nil, err
 	}
