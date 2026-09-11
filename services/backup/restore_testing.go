@@ -168,6 +168,8 @@ func (b *InMemoryBackend) UpdateRestoreTestingPlan(
 	if recoveryPointSelection != nil {
 		rtp.RecoveryPointSelection = recoveryPointSelection
 	}
+	now := time.Now().UTC()
+	rtp.UpdateTime = &now
 	cp := *rtp
 
 	return &cp, nil
@@ -300,6 +302,8 @@ func (b *InMemoryBackend) UpdateRestoreTestingSelection(
 	sel.ProtectedResourceConditions = in.ProtectedResourceConditions
 	sel.RestoreMetadataOverrides = in.RestoreMetadataOverrides
 	sel.ValidationWindowHours = in.ValidationWindowHours
+	now := time.Now().UTC()
+	sel.UpdateTime = &now
 	cp := *sel
 
 	return &cp, nil

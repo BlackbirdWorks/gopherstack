@@ -291,7 +291,11 @@ type RestoreTestingRecoveryPointSelection struct {
 // RestoreTestingPlanForList (types.go:2376-2419, no such member exists
 // there at all), so ListRestoreTestingPlans correctly omits it.
 type RestoreTestingPlan struct {
-	CreationTime           time.Time                             `json:"creationTime"`
+	CreationTime time.Time `json:"creationTime"`
+	// UpdateTime is required on UpdateRestoreTestingPlanOutput
+	// (api_op_UpdateRestoreTestingPlan.go) but nil until the plan's first
+	// update -- real AWS only sets it once an update has occurred.
+	UpdateTime             *time.Time                            `json:"updateTime,omitempty"`
 	RecoveryPointSelection *RestoreTestingRecoveryPointSelection `json:"recoveryPointSelection"`
 	RestoreTestingPlanName string                                `json:"restoreTestingPlanName"`
 	RestoreTestingPlanArn  string                                `json:"restoreTestingPlanArn"`
@@ -301,7 +305,11 @@ type RestoreTestingPlan struct {
 
 // RestoreTestingSelection represents a selection within a restore testing plan.
 type RestoreTestingSelection struct {
-	CreationTime                time.Time                    `json:"creationTime"`
+	CreationTime time.Time `json:"creationTime"`
+	// UpdateTime is required on UpdateRestoreTestingSelectionOutput
+	// (api_op_UpdateRestoreTestingSelection.go) but nil until the
+	// selection's first update.
+	UpdateTime                  *time.Time                   `json:"updateTime,omitempty"`
 	ProtectedResourceConditions *ProtectedResourceConditions `json:"protectedResourceConditions,omitempty"`
 	RestoreMetadataOverrides    map[string]string            `json:"restoreMetadataOverrides,omitempty"`
 	RestoreTestingPlanName      string                       `json:"restoreTestingPlanName"`

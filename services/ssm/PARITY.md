@@ -349,7 +349,7 @@ ops:
   DescribeInstanceAssociationsStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED this pass — same epoch-seconds bug, InstanceAssociationStatusInfo.ExecutionDate. FIXED again (cursor-population sweep, 2026-08-29): Input had no MaxResults/NextToken members at all -- now paginates via paginateSlice (sorted by AssociationId first, since the source store iterates in unspecified order)."}
   DescribeInstancePatchStates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, InstancePatchState.OperationStartTime. FIXED again (cursor-population sweep, 2026-08-29): MaxResults/NextToken were modeled but never read/populated -- now paginates via paginateSlice, sorted by InstanceId for the no-InstanceIds branch."}
   DescribeInstancePatchStatesForPatchGroup: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (cursor-population sweep, 2026-08-29): same defect and fix as its sibling DescribeInstancePatchStates above -- MaxResults/NextToken were modeled but never read/populated; now paginates via paginateSlice, sorted by InstanceId. Filters remains unmodeled -- see gaps."}
-  DescribeInstancePatches: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, PatchComplianceData.InstalledTime. FIXED again (cursor-population sweep, 2026-08-29): MaxResults/NextToken were modeled but never read/populated -- now paginates via paginateSlice."}
+  DescribeInstancePatches: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED this pass — same epoch-seconds bug, PatchComplianceData.InstalledTime. FIXED again (cursor-population sweep, 2026-08-29): MaxResults/NextToken were modeled but never read/populated -- now paginates via paginateSlice. FIXED again (2026-09-11, respsweep): InstalledTime -- required on the real wire (types.PatchComplianceData) -- was tagged omitempty; a Missing-state patch (never installed, the default Scan-only path) has a zero installedTime, so the omitempty tag dropped the required key from the response entirely instead of emitting it present-and-empty. Removed the tag; see families.instances."}
   DescribeInstanceProperties: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (cursor-population sweep, 2026-08-29): handler took the request as `_ *DescribeInstancePropertiesInput` -- MaxResults/NextToken were modeled on the wire but structurally could never be read. Now accepts and reads input, sorts by InstanceId (activations+instance-properties tables iterate in unspecified order) and paginates via paginateSlice; proven by TestDescribeInstanceProperties_Pagination against the real SDK client, which also caught a missing sort during self-review (duplicate items across pages) before this was published. FiltersWithOperator/InstancePropertyFilterList remain unhonored -- see gaps."}
   DescribeAutomationStepExecutions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (cursor-population sweep, 2026-08-29): Input had no MaxResults/NextToken members at all (real api_op_DescribeAutomationStepExecutions.go declares both) -- now paginates via paginateSlice. Steps is already document-order (a slice field), no extra sort needed."}
   DescribePatchProperties: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (cursor-population sweep, 2026-08-29): Input had no MaxResults/NextToken members at all -- now sorts by BaselineName (patch-baselines store iterates in unspecified order) and paginates via paginateSlice. Its pre-existing, separate data-source/filtering gap (disclosed in the patch-baselines family note below) is unchanged by this fix."}
@@ -1331,3 +1331,71 @@ errors.go:39/49) independently re-confirmed dead — `grep` across the package f
 each only in `errors.go` and this file, never `errors.Is`-checked or raised at any
 call site, so the literal never reaches a response writer. Matches the existing
 "declared but never raised" record above; no correction needed.
+
+## 2026-09-11 -- respsweep (gopherstack-mven/r80d continuation, required-OUTPUT-member cut, held-service re-scan)
+
+ssm was excluded from the prior mven/r80d passes as "held by another agent"
+and re-scanned fresh against the current pinned SDK (ssm@v1.77.0). Every op
+has zero required members at its own `<Op>Output` top level (152 of 152 --
+same "invisible to the flat ranking" shape as fsx/codebuild, batch 34), so
+the flat `cmd/requiredoutputfields` ranking table correctly excludes it
+entirely and a nested-domain-struct scan was required instead: for every op
+whose response references a real SDK type carrying at least one required
+member (per-op field -> resolved SDK type -> `This member is required.`
+walk against `types.go`), 19 candidates surfaced across 11 ops.
+
+1 real bug: **`PatchComplianceData.InstalledTime`** (required,
+`*time.Time` on the real wire) was tagged `omitempty` on gopherstack's
+`float64` mirror -- a patch in the (default) Missing/Scan-only state has a
+zero `installedTime`, so the required key vanished from the response
+instead of being present-and-empty. Fixed by dropping the tag. Proven via
+a real `aws-sdk-go-v2/service/ssm` client round trip
+(`wire_output_required_respsweep_test.go`), confirmed failing against
+unmodified code in an isolated `git worktree` at HEAD, then passing.
+
+The other 18 candidates were all false positives, on inspection:
+
+- `InstancePatchState` (`DescribeInstancePatchStates`/
+  `-ForPatchGroup`): all 6 required members (including `OperationEndTime`,
+  a prior pass's own fix) already present, unconditionally set --
+  clean.
+- `GetAccessToken.Credentials`: itself correctly optional (only present
+  once a just-in-time access request is Approved); when present, its 4
+  nested required members (`AccessKeyId`/`ExpirationTime`/
+  `SecretAccessKey`/`SessionToken`) are always unconditionally set by
+  `mockJITCredentials` -- clean.
+- `GetDocument.Requires` / `DocumentRequires.Name`: always non-empty
+  (echoed straight from the request, itself required there) -- clean.
+- `GetInventorySchema.Schemas` / `InventoryItemSchema.Attributes`: NOT a
+  new finding -- already an explicit disclosed gap
+  (2026-08-14, gopherstack-enpq, see ops.GetInventorySchema/gaps below):
+  gopherstack's static built-in catalogue has no per-type attribute list
+  to draw from without fabricating AWS's actual field names.
+- `GetMaintenanceWindowExecutionTask`/`GetMaintenanceWindowTask`/
+  `UpdateMaintenanceWindowTask`'s `AlarmConfiguration`/`LoggingInfo` /
+  nested `AlarmStateInformation`: NOT a new finding -- `AlarmConfiguration`/
+  `LoggingInfo` are themselves optional at the top level and already
+  disclosed as entirely unmodeled (2026-08-21, gopherstack-enpq, see
+  families.maintenance-windows/gaps below) -- this backend has no
+  CloudWatch-alarm infra for a maintenance-window task to plug into, a
+  whole-subsystem gap, left disclosed rather than half-modeled.
+- `GetPatchBaseline`/`UpdatePatchBaseline`'s `ApprovalRules`/
+  `GlobalFilters`/`Sources`: all three optional at the top level; their
+  nested required members (`PatchRuleGroup.PatchRules`,
+  `PatchFilterGroup.PatchFilters`, `PatchSource.{Configuration,Name,
+  Products}`) are all tagged without `omitempty` on gopherstack's own
+  types -- clean whenever the wrapper is present.
+- `ListTagsForResource.TagList` / `Tag.{Key,Value}`: both non-omitempty --
+  clean.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/ssm/...`
+(clean), `go test -race -count=1 ./services/ssm/...` (pass, 1 new test),
+`golangci-lint run ./services/ssm/...` (0 issues).
+`pkgs/persistence/testdata/snapshot_inventory.json` updated via `-update`
+with 1 tag-only row change (`PatchComplianceData.InstalledTime`, dropped
+`omitempty` from its literal tag text); `ssmSnapshotVersion` NOT bumped
+(same field, same type, no shape change). The same `-update` run also
+picked up a concurrent agent's in-flight ec2 rows
+(`InstanceCountEntry`/`PriceScheduleEntry`/`ReservedInstancesListing`/
+`TransitGatewayPeeringAttachment`) -- left in place per this pass's
+instructions, not hand-removed.

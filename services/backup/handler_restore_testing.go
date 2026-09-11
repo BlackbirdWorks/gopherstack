@@ -167,13 +167,18 @@ func (d restoreTestingSelectionDoc) toInput() RestoreTestingSelectionInput {
 // RestoreTestingSelection this backend tracks, matching (a subset of) the
 // real types.RestoreTestingSelectionForGet wire shape.
 func restoreTestingSelectionToJSON(sel *RestoreTestingSelection) map[string]any {
+	// IamRoleArn is required on both RestoreTestingSelectionForGet and
+	// RestoreTestingSelectionForList (types.go), but RestoreTestingSelectionForUpdate
+	// leaves it optional -- an Update that omits it clears sel.IAMRoleArn to "", so
+	// this must stay present-and-empty rather than dropped (parity-principles.md's
+	// required-but-inapplicable rule).
 	resp := map[string]any{
 		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
 		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
 		"ProtectedResourceType":        sel.ProtectedResourceType,
+		"IamRoleArn":                   sel.IAMRoleArn,
 		keyCreationTime:                epochSeconds(sel.CreationTime),
 	}
-	setOptionalStr(resp, "IamRoleArn", sel.IAMRoleArn)
 	setOptionalStr(resp, keyRestoreTestingPlanArn, sel.RestoreTestingPlanArn)
 	if len(sel.ProtectedResourceArns) > 0 {
 		resp["ProtectedResourceArns"] = sel.ProtectedResourceArns
@@ -329,11 +334,16 @@ func (h *Handler) handleUpdateRestoreTestingPlan(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyRestoreTestingPlanArn:  rtp.RestoreTestingPlanArn,
 		keyRestoreTestingPlanName: rtp.RestoreTestingPlanName,
 		keyCreationTime:           epochSeconds(rtp.CreationTime),
-	})
+	}
+	if rtp.UpdateTime != nil {
+		resp["UpdateTime"] = epochSeconds(*rtp.UpdateTime)
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteRestoreTestingPlan(c *echo.Context, planName string) error {
@@ -437,12 +447,17 @@ func (h *Handler) handleUpdateRestoreTestingSelection(
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyRestoreTestingPlanArn:       sel.RestoreTestingPlanArn,
 		keyRestoreTestingPlanName:      sel.RestoreTestingPlanName,
 		keyRestoreTestingSelectionName: sel.RestoreTestingSelectionName,
 		keyCreationTime:                epochSeconds(sel.CreationTime),
-	})
+	}
+	if sel.UpdateTime != nil {
+		resp["UpdateTime"] = epochSeconds(*sel.UpdateTime)
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDeleteRestoreTestingSelection(c *echo.Context, resource string) error {
@@ -460,6 +475,44 @@ func (h *Handler) handleDeleteRestoreTestingSelection(c *echo.Context, resource 
 
 	// Real AWS: responseCode 204.
 	return c.NoContent(http.StatusNoContent)
+}
+
+// handleGetRestoreTestingInferredMetadata serves GetRestoreTestingInferredMetadata
+// (GET /restore-testing/inferred-metadata, BackupVaultName/RecoveryPointArn bound as
+// query params -- serializers.go:4516-4534, backup@v1.64.0). Real AWS derives a set of
+// restore parameter defaults from the target recovery point; this backend has no
+// restore-parameter-inference engine, so per the no-fabrication rule the only key
+// populated is ResourceType, honestly sourced from the recovery point this backend
+// already tracks -- the rest of the real key set stays undisclosed rather than
+// invented. Before this pass the op never validated the vault/recovery point existed
+// at all and always returned an empty map regardless of input.
+func (h *Handler) handleGetRestoreTestingInferredMetadata(c *echo.Context) error {
+	q := c.Request().URL.Query()
+
+	vaultName := q.Get(keyBackupVaultName)
+	recoveryPointArn := q.Get(keyRecoveryPointArn)
+
+	switch {
+	case vaultName == "":
+		return c.JSON(http.StatusBadRequest, errResp("MissingParameterValueException", "BackupVaultName is required"))
+	case recoveryPointArn == "":
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("MissingParameterValueException", "RecoveryPointArn is required"),
+		)
+	}
+
+	rp, err := h.Backend.DescribeRecoveryPoint(vaultName, recoveryPointArn)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ResourceNotFoundException", err.Error()))
+	}
+
+	metadata := map[string]string{}
+	if rp.ResourceType != "" {
+		metadata["ResourceType"] = rp.ResourceType
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{"InferredMetadata": metadata})
 }
 
 // --- Framework read/update/delete handlers ---
