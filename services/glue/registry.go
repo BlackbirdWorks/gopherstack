@@ -256,6 +256,13 @@ func (b *InMemoryBackend) CreateRegistry(
 		return nil, ErrAlreadyExists
 	}
 
+	if b.registries.Len() >= b.limits.schemaRegistries {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d schema registry limit",
+			ErrResourceNumberLimitExceeded, b.limits.schemaRegistries,
+		)
+	}
+
 	reg := &Registry{
 		Name:        name,
 		ARN:         b.registryARN(name),
@@ -534,6 +541,17 @@ func (b *InMemoryBackend) DeleteSchema(registryName, schemaName string) (*Schema
 	return &cp, nil
 }
 
+// totalSchemaVersions returns the total number of schema versions registered
+// across every schema in the account. Must be called with b.mu held.
+func (b *InMemoryBackend) totalSchemaVersions() int {
+	n := 0
+	for _, versions := range b.schemaVersions {
+		n += len(versions)
+	}
+
+	return n
+}
+
 // RegisterSchemaVersion registers a new version of a schema.
 func (b *InMemoryBackend) RegisterSchemaVersion(
 	registryName, schemaName, schemaDefinition string,
@@ -560,6 +578,13 @@ func (b *InMemoryBackend) RegisterSchemaVersion(
 	// register outright invalid AVRO/JSON/PROTOBUF content.
 	if valid, errMsg := validateSchemaDefinition(s.DataFormat, schemaDefinition); !valid {
 		return nil, fmt.Errorf("%w: %s", ErrValidation, errMsg)
+	}
+
+	if b.totalSchemaVersions() >= b.limits.schemaVersions {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d schema version limit",
+			ErrResourceNumberLimitExceeded, b.limits.schemaVersions,
+		)
 	}
 
 	versionNumber := s.NextSchemaVersion

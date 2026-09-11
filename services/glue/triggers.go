@@ -90,6 +90,13 @@ func (b *InMemoryBackend) CreateTrigger(t Trigger, tags map[string]string) (*Tri
 		return nil, ErrAlreadyExists
 	}
 
+	if b.triggers.Len() >= b.limits.triggers {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d trigger limit",
+			ErrResourceNumberLimitExceeded, b.limits.triggers,
+		)
+	}
+
 	stored := cloneTrigger(&t)
 	stored.ARN = b.triggerARN(t.Name)
 	stored.Tags = maps.Clone(tags)

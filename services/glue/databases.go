@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -57,6 +58,13 @@ func (b *InMemoryBackend) CreateDatabase(
 
 	if b.databases.Has(input.Name) {
 		return nil, ErrAlreadyExists
+	}
+
+	if b.databases.Len() >= b.limits.databases {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d database limit",
+			ErrResourceNumberLimitExceeded, b.limits.databases,
+		)
 	}
 
 	db := &Database{

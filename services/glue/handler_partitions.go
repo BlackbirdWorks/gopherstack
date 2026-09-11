@@ -69,6 +69,8 @@ func awserrFromDetail(d ErrorDetail) error {
 		return awserr.New(msg, awserr.ErrAlreadyExists)
 	case errEntityNotFoundCode:
 		return awserr.New(msg, awserr.ErrNotFound)
+	case "ResourceNumberLimitExceededException":
+		return fmt.Errorf("%s: %w", msg, ErrResourceNumberLimitExceeded)
 	default:
 		return awserr.New(msg, awserr.ErrInvalidParameter)
 	}

@@ -115,6 +115,13 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 		return nil, ErrAlreadyExists
 	}
 
+	if b.workflows.Len() >= b.limits.workflows {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d workflow limit",
+			ErrResourceNumberLimitExceeded, b.limits.workflows,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	stored := cloneWorkflow(&w)
 	stored.ARN = b.workflowARN(w.Name)

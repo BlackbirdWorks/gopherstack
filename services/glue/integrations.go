@@ -56,6 +56,13 @@ func (b *InMemoryBackend) CreateIntegration(
 		return nil, fmt.Errorf("%w: TargetArn is required", ErrValidation)
 	}
 
+	if b.integrations.Len() >= b.limits.integrations {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d integration limit",
+			ErrResourceNumberLimitExceeded, b.limits.integrations,
+		)
+	}
+
 	now := time.Now().UTC()
 	ig := &Integration{
 		IntegrationName: name,

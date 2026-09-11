@@ -68,6 +68,21 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 	return fmt.Sprintf("%s|%s|%s", dbName, tableName, versionID)
 }
 
+// countTablesInDatabase returns the number of tables currently stored under
+// dbName. Must be called with b.mu held (read or write).
+func (b *InMemoryBackend) countTablesInDatabase(dbName string) int {
+	n := 0
+	b.tables.Range(func(t *Table) bool {
+		if t.DatabaseName == dbName {
+			n++
+		}
+
+		return true
+	})
+
+	return n
+}
+
 // CreateTable creates a new Glue table in a database.
 func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, error) {
 	b.mu.Lock("CreateTable")
@@ -80,6 +95,13 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 	key := tableKey(dbName, input.Name)
 	if b.tables.Has(key) {
 		return nil, ErrAlreadyExists
+	}
+
+	if b.countTablesInDatabase(dbName) >= b.limits.tablesPerDatabase {
+		return nil, fmt.Errorf(
+			"%w: database %q is already at the %d table limit",
+			ErrResourceNumberLimitExceeded, dbName, b.limits.tablesPerDatabase,
+		)
 	}
 
 	now := float64(time.Now().Unix())

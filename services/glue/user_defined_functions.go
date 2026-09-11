@@ -26,6 +26,21 @@ func (b *InMemoryBackend) udfARN(dbName, name string) string {
 	return arn.Build("glue", b.region, b.accountID, "userDefinedFunction/"+dbName+"/"+name)
 }
 
+// countUDFsInDatabase returns the number of user-defined functions currently
+// stored under dbName. Must be called with b.mu held (read or write).
+func (b *InMemoryBackend) countUDFsInDatabase(dbName string) int {
+	n := 0
+	b.udfs.Range(func(u *UserDefinedFunction) bool {
+		if u.DatabaseName == dbName {
+			n++
+		}
+
+		return true
+	})
+
+	return n
+}
+
 func (b *InMemoryBackend) CreateUserDefinedFunction(
 	dbName string,
 	input UserDefinedFunction,
@@ -46,6 +61,14 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 			ErrAlreadyExists,
 		)
 	}
+
+	if b.countUDFsInDatabase(dbName) >= b.limits.functionsPerDatabase {
+		return nil, fmt.Errorf(
+			"%w: database %q is already at the %d function limit",
+			ErrResourceNumberLimitExceeded, dbName, b.limits.functionsPerDatabase,
+		)
+	}
+
 	udf := input
 	udf.DatabaseName = dbName
 	udf.CatalogID = b.accountID

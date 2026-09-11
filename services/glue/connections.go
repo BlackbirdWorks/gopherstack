@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -98,6 +99,13 @@ func (b *InMemoryBackend) CreateConnectionWithOptions(
 
 	if b.connections.Has(name) {
 		return nil, ErrAlreadyExists
+	}
+
+	if b.connections.Len() >= b.limits.connections {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d connection limit",
+			ErrResourceNumberLimitExceeded, b.limits.connections,
+		)
 	}
 
 	now := float64(time.Now().Unix())

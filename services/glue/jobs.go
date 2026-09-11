@@ -87,6 +87,13 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		return nil, ErrAlreadyExists
 	}
 
+	if b.jobs.Len() >= b.limits.jobs {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d job limit",
+			ErrResourceNumberLimitExceeded, b.limits.jobs,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	j := &Job{
 		Name:                 input.Name,
