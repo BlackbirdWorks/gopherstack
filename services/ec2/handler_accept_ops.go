@@ -149,14 +149,16 @@ type vpcPeeringConnectionItem struct {
 	RequesterVpcInfo       vpcPeeringConnectionVpcInfoItem `xml:"requesterVpcInfo"`
 	AccepterVpcInfo        vpcPeeringConnectionVpcInfoItem `xml:"accepterVpcInfo"`
 	Status                 vpcPeeringConnectionStatusItem  `xml:"status"`
+	TagSet                 []simpleTagItem                 `xml:"tagSet>item"`
 }
 
-func toVpcPeeringConnectionItem(pc *VpcPeeringConnection) vpcPeeringConnectionItem {
+func toVpcPeeringConnectionItem(pc *VpcPeeringConnection, tags map[string]string) vpcPeeringConnectionItem {
 	return vpcPeeringConnectionItem{
 		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
 		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
 		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
 		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -400,7 +402,7 @@ func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string
 	return &acceptVpcPeeringConnectionResponse{
 		Xmlns:                ec2XMLNS,
 		RequestID:            reqID,
-		VpcPeeringConnection: toVpcPeeringConnectionItem(pc),
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
 	}, nil
 }
 
@@ -636,7 +638,8 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 
 	for _, pc := range connections {
 		resp.VpcPeeringConnections.Items = append(
-			resp.VpcPeeringConnections.Items, toVpcPeeringConnectionItem(pc),
+			resp.VpcPeeringConnections.Items,
+			toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
 		)
 	}
 

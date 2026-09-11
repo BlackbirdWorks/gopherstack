@@ -95,7 +95,7 @@ type networkInsightsPathItem struct {
 	DestinationPort        int             `xml:"destinationPort,omitempty"`
 }
 
-func toFleetItem(f *Fleet) fleetItem {
+func toFleetItem(f *Fleet, tags map[string]string) fleetItem {
 	return fleetItem{
 		FleetID:                         f.FleetID,
 		FleetState:                      f.FleetState,
@@ -108,6 +108,7 @@ func toFleetItem(f *Fleet) fleetItem {
 		ExcessCapacityTerminationPolicy: f.ExcessCapacityTerminationPolicy,
 		Errors:                          fleetErrorSet{Items: []fleetErrorItem{}},
 		Instances:                       fleetInstanceItemSet{Items: []fleetInstanceItem{}},
+		TagSet:                          tagItemsFromMap(tags),
 	}
 }
 
@@ -228,6 +229,27 @@ func (h *Handler) handleCreateFleet(vals url.Values, reqID string) (any, error) 
 		return nil, err
 	}
 
+	fleetTags := parseTagSpecification(vals, "fleet")
+	if len(fleetTags) > 0 {
+		if err = h.Backend.CreateTags([]string{f.FleetID}, fleetTags); err != nil {
+			return nil, err
+		}
+	}
+
+	// AWS only allows a "instance" TagSpecification entry for fleets of type
+	// instant (api_op_CreateFleet.go TagSpecifications doc); ModifyFleet only
+	// operates on type maintain (api_op_ModifyFleet.go: "You can only modify
+	// an EC2 Fleet request of type maintain"), so growFleetLocked/
+	// shrinkFleetLocked never launch instances that could need these tags --
+	// no divergence between the two launch paths to reconcile.
+	if f.FleetType == fleetTypeInstant {
+		if instanceTags := parseTagSpecification(vals, "instance"); len(instanceTags) > 0 && len(f.InstanceIDs) > 0 {
+			if err = h.Backend.CreateTags(f.InstanceIDs, instanceTags); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	resp := &createFleetResponse{
 		RequestID: reqID,
 		FleetID:   f.FleetID,
@@ -277,7 +299,7 @@ func (h *Handler) handleDescribeFleets(vals url.Values, reqID string) (any, erro
 
 	resp := &describeFleetsResponse{RequestID: reqID}
 	for _, f := range fleets {
-		item := toFleetItem(f)
+		item := toFleetItem(f, h.Backend.TagsForResource(f.FleetID))
 
 		// Instances/Errors are valid only for fleets of type instant
 		// (ec2@v1.319.1 types/types.go:6646, FleetData doc comments).

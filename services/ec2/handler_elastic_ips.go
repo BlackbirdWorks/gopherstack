@@ -114,13 +114,27 @@ type describeAddressTransfersResponse struct {
 }
 
 type subnetCidrReservationItem struct {
-	SubnetCidrReservationID string `xml:"subnetCidrReservationId"`
-	SubnetID                string `xml:"subnetId"`
-	Cidr                    string `xml:"cidr"`
-	ReservationType         string `xml:"reservationType"`
-	Description             string `xml:"description,omitempty"`
-	OwnerID                 string `xml:"ownerId"`
-	State                   string `xml:"state,omitempty"`
+	SubnetCidrReservationID string          `xml:"subnetCidrReservationId"`
+	SubnetID                string          `xml:"subnetId"`
+	Cidr                    string          `xml:"cidr"`
+	ReservationType         string          `xml:"reservationType"`
+	Description             string          `xml:"description,omitempty"`
+	OwnerID                 string          `xml:"ownerId"`
+	State                   string          `xml:"state,omitempty"`
+	TagSet                  []simpleTagItem `xml:"tagSet>item"`
+}
+
+func toSubnetCidrReservationItem(r *SubnetCIDRReservation, tags map[string]string) subnetCidrReservationItem {
+	return subnetCidrReservationItem{
+		SubnetCidrReservationID: r.SubnetCIDRReservationID,
+		SubnetID:                r.SubnetID,
+		Cidr:                    r.CIDR,
+		ReservationType:         r.ReservationType,
+		Description:             r.Description,
+		OwnerID:                 r.OwnerID,
+		State:                   r.State,
+		TagSet:                  tagItemsFromMap(tags),
+	}
 }
 
 func toAddressTransferDetailItem(t *AddressTransfer) addressTransferDetailItem {

@@ -78,6 +78,7 @@ type clientVpnEndpointItem struct {
 	ServerCertificateArn string                      `xml:"serverCertificateArn,omitempty"`
 	DNSServers           stringItemSet               `xml:"dnsServer"`
 	SecurityGroupIDSet   stringItemSet               `xml:"securityGroupIdSet"`
+	TagSet               []simpleTagItem             `xml:"tagSet>item"`
 	VpnPort              int32                       `xml:"vpnPort,omitempty"`
 	SessionTimeoutHours  int32                       `xml:"sessionTimeoutHours,omitempty"`
 	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
@@ -110,9 +111,16 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "prefix-list")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pl.PrefixListID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createManagedPrefixListResponse{
 		RequestID:  reqID,
-		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
+		PrefixList: toManagedPrefixListItem(pl, tags),
 	}, nil
 }
 

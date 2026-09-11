@@ -157,22 +157,22 @@ func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID strin
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "subnet-cidr-reservation")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{reservation.SubnetCIDRReservationID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSubnetCidrReservationResponse{
-		RequestID: reqID,
-		SubnetCidrReservation: subnetCidrReservationItem{
-			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
-			SubnetID:                reservation.SubnetID,
-			Cidr:                    reservation.CIDR,
-			ReservationType:         reservation.ReservationType,
-			Description:             reservation.Description,
-			OwnerID:                 reservation.OwnerID,
-			State:                   reservation.State,
-		},
+		RequestID:             reqID,
+		SubnetCidrReservation: toSubnetCidrReservationItem(reservation, tags),
 	}, nil
 }
 
 func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID string) (any, error) {
 	reservationID := vals.Get("SubnetCidrReservationId")
+	tags := h.Backend.TagsForResource(reservationID)
 
 	reservation, err := h.Backend.DeleteSubnetCidrReservation(reservationID)
 	if err != nil {
@@ -180,16 +180,8 @@ func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID strin
 	}
 
 	return &deleteSubnetCidrReservationResponse{
-		RequestID: reqID,
-		DeletedSubnetCidrReservation: subnetCidrReservationItem{
-			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
-			SubnetID:                reservation.SubnetID,
-			Cidr:                    reservation.CIDR,
-			ReservationType:         reservation.ReservationType,
-			Description:             reservation.Description,
-			OwnerID:                 reservation.OwnerID,
-			State:                   reservation.State,
-		},
+		RequestID:                    reqID,
+		DeletedSubnetCidrReservation: toSubnetCidrReservationItem(reservation, tags),
 	}, nil
 }
 
@@ -225,15 +217,7 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
-		item := subnetCidrReservationItem{
-			SubnetCidrReservationID: r.SubnetCIDRReservationID,
-			SubnetID:                r.SubnetID,
-			Cidr:                    r.CIDR,
-			ReservationType:         r.ReservationType,
-			Description:             r.Description,
-			OwnerID:                 r.OwnerID,
-			State:                   r.State,
-		}
+		item := toSubnetCidrReservationItem(r, h.Backend.TagsForResource(r.SubnetCIDRReservationID))
 
 		ip, _, parseErr := net.ParseCIDR(r.CIDR)
 		if parseErr == nil && ip.To4() == nil {

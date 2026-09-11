@@ -178,6 +178,7 @@ type createVpcPeeringConnectionResponse struct {
 		Status                 struct {
 			Code string `xml:"code"`
 		} `xml:"status"`
+		TagSet []simpleTagItem `xml:"tagSet>item"`
 	} `xml:"vpcPeeringConnection"`
 }
 
@@ -248,11 +249,19 @@ func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "vpc-peering-connection")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pc.VpcPeeringConnectionID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	resp := &createVpcPeeringConnectionResponse{RequestID: reqID}
 	resp.VpcPeeringConnection.VpcPeeringConnectionID = pc.VpcPeeringConnectionID
 	resp.VpcPeeringConnection.RequesterVpcID = pc.RequesterVpcID
 	resp.VpcPeeringConnection.AccepterVpcID = pc.AccepterVpcID
 	resp.VpcPeeringConnection.Status.Code = pc.State
+	resp.VpcPeeringConnection.TagSet = tagItemsFromMap(tags)
 
 	return resp, nil
 }
