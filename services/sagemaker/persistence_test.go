@@ -454,3 +454,37 @@ func TestInMemoryBackend_RestoreV1SnapshotDiscarded(t *testing.T) {
 	transforms, _ := b.ListTransformJobs(context.Background(), "", sagemaker.ListTransformJobsFilter{})
 	assert.Empty(t, transforms, "a v1-shaped TransformJob must never surface with RoleArn silently dropped")
 }
+
+func TestSnapshotRestore_WorkteamWorkforceTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b1 := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+
+	wt, err := b1.CreateWorkteam(ctx, sagemaker.CreateWorkteamOptions{
+		Name:        "team-1",
+		Description: "desc",
+		Tags:        map[string]string{"k1": "v1"},
+	})
+	require.NoError(t, err)
+
+	wf, err := b1.CreateWorkforce(ctx, sagemaker.CreateWorkforceOptions{
+		Name: "workforce-1",
+		Tags: map[string]string{"k2": "v2"},
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	b2 := sagemaker.NewInMemoryBackend("000000000000", "us-east-1")
+	require.NoError(t, b2.Restore(ctx, snap))
+
+	wtTags, err := b2.ListTags(ctx, wt.WorkteamArn)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"k1": "v1"}, wtTags, "workteam tags must survive a snapshot/restore roundtrip")
+
+	wfTags, err := b2.ListTags(ctx, wf.WorkforceArn)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]string{"k2": "v2"}, wfTags, "workforce tags must survive a snapshot/restore roundtrip")
+}

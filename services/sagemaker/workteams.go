@@ -67,7 +67,7 @@ type MemberDefinition struct {
 type Workteam struct {
 	CreateDate                time.Time                  `json:"CreateDate"`
 	LastUpdatedDate           time.Time                  `json:"LastUpdatedDate"`
-	Tags                      map[string]string          `json:"-"`
+	Tags                      map[string]string          `json:"Tags,omitempty"`
 	NotificationConfiguration *NotificationConfiguration `json:"NotificationConfiguration,omitempty"`
 	WorkerAccessConfiguration *WorkerAccessConfiguration `json:"WorkerAccessConfiguration,omitempty"`
 	WorkteamName              string                     `json:"WorkteamName"`

@@ -401,3 +401,36 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	require.Len(t, filters, 1)
 	assert.Equal(t, "filter1", filters[0].Name)
 }
+
+// TestSnapshotRestore_FindingResourceIDAndType verifies ListFindings'
+// resourceId/resourceType filter criteria still match a finding after a
+// snapshot/restore roundtrip (gopherstack-2slev).
+func TestSnapshotRestore_FindingResourceIDAndType(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b1 := inspector2.NewInMemoryBackend("111111111111", "us-east-1")
+
+	_, err := b1.SeedFinding(inspector2.Finding{
+		FindingArn:   "arn:aws:inspector2:us-east-1:111111111111:finding/f1",
+		ResourceID:   "i-0123456789",
+		ResourceType: "AWS_EC2_INSTANCE",
+		Severity:     inspector2.FindingSeverity{Label: "HIGH"},
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	b2 := inspector2.NewInMemoryBackend("111111111111", "us-east-1")
+	require.NoError(t, b2.Restore(ctx, snap))
+
+	criteria := map[string]any{
+		"resourceId": []any{map[string]any{"comparison": "EQUALS", "value": "i-0123456789"}},
+	}
+
+	findings, _, err := b2.ListFindings(0, "", criteria, "", "")
+	require.NoError(t, err)
+	require.Len(t, findings, 1, "resourceId filter must still match a finding restored from a snapshot")
+	assert.Equal(t, "AWS_EC2_INSTANCE", findings[0].ResourceType)
+}

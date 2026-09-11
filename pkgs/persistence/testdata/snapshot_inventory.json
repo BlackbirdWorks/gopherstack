@@ -13652,7 +13652,9 @@
       "codeSnippet.FindingArn string `json:\"findingArn\"`",
       "codeSnippet.Lines []CodeLine `json:\"codeSnippet,omitempty\"`",
       "codeSnippet.StartLine int32 `json:\"startLine,omitempty\"`",
-      "codeSnippet.SuggestedFixes []SuggestedFix `json:\"suggestedFixes,omitempty\"`"
+      "codeSnippet.SuggestedFixes []SuggestedFix `json:\"suggestedFixes,omitempty\"`",
+      "findingSnapshot.ResourceID string `json:\"resourceId,omitempty\"`",
+      "findingSnapshot.ResourceType string `json:\"resourceType,omitempty\"`"
     ],
     "version": 1
   },
@@ -24501,7 +24503,7 @@
       "Workforce.SourceIPConfig *SourceIPConfig `json:\"SourceIpConfig,omitempty\"`",
       "Workforce.Status string `json:\"Status\"`",
       "Workforce.SubDomain string `json:\"SubDomain,omitempty\"`",
-      "Workforce.Tags map[string]string `json:\"-\"`",
+      "Workforce.Tags map[string]string `json:\"Tags,omitempty\"`",
       "Workforce.WorkforceArn string `json:\"WorkforceArn\"`",
       "Workforce.WorkforceName string `json:\"WorkforceName\"`",
       "Workforce.WorkforceVpcConfig *WorkforceVpcConfig `json:\"WorkforceVpcConfig,omitempty\"`",
@@ -24515,7 +24517,7 @@
       "Workteam.MemberDefinitions []MemberDefinition `json:\"MemberDefinitions,omitempty\"`",
       "Workteam.NotificationConfiguration *NotificationConfiguration `json:\"NotificationConfiguration,omitempty\"`",
       "Workteam.SubDomain string `json:\"SubDomain,omitempty\"`",
-      "Workteam.Tags map[string]string `json:\"-\"`",
+      "Workteam.Tags map[string]string `json:\"Tags,omitempty\"`",
       "Workteam.WorkerAccessConfiguration *WorkerAccessConfiguration `json:\"WorkerAccessConfiguration,omitempty\"`",
       "Workteam.WorkforceArn string `json:\"WorkforceArn,omitempty\"`",
       "Workteam.WorkteamArn string `json:\"WorkteamArn\"`",
