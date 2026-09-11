@@ -101,6 +101,13 @@ func TestCreateFargateProfile_Duplicate_InvalidParameterException(t *testing.T) 
 	_, err = client.CreateFargateProfile(ctx, in)
 	require.NoError(t, err)
 
+	// The SDK's idempotency-token auto-fill middleware mutates in.ClientRequestToken
+	// in place on the first call (it's only filled when nil) -- gopherstack-wf8f
+	// item 3 now honors ClientRequestToken replay, so reusing the same *in
+	// unmodified would return the first call's success response instead of the
+	// duplicate-name error this test means to exercise. A fresh, unset token
+	// (nil, so the SDK mints a new one) proves this is a genuinely new request.
+	in.ClientRequestToken = nil
 	_, err = client.CreateFargateProfile(ctx, in)
 	require.Error(t, err)
 

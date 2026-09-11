@@ -41,6 +41,22 @@ func (b *InMemoryBackend) CreateFargateProfile(
 		)
 	}
 
+	if n := len(b.fargateProfilesByCluster.Get(clusterName)); n >= b.limits.fargateProfilesPerCluster {
+		return nil, resourceLimitExceededErr("Fargate profiles per cluster", b.limits.fargateProfilesPerCluster)
+	}
+
+	if n := len(selectors); n > b.limits.selectorsPerFargateProfile {
+		return nil, resourceLimitExceededErr("selectors per Fargate profile", b.limits.selectorsPerFargateProfile)
+	}
+
+	for _, sel := range selectors {
+		if n := len(sel.Labels); n > b.limits.labelsPerFargateSelector {
+			return nil, resourceLimitExceededErr(
+				"label pairs per Fargate profile selector", b.limits.labelsPerFargateSelector,
+			)
+		}
+	}
+
 	profileARN := arn.Build(
 		"eks",
 		b.region,

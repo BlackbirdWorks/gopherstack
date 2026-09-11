@@ -79,11 +79,10 @@ func (h *Handler) handleDescribeInsight(c *echo.Context, clusterName, insightID 
 	})
 }
 
-// KubernetesVersions is intentionally not applied: Insight has no version
-// field to filter against (both synthetic insights are cluster-wide).
 type listInsightsFilterBody struct {
-	Categories []string `json:"categories"`
-	Statuses   []string `json:"statuses"`
+	Categories         []string `json:"categories"`
+	Statuses           []string `json:"statuses"`
+	KubernetesVersions []string `json:"kubernetesVersions"`
 }
 
 type listInsightsBody struct {
@@ -116,6 +115,12 @@ func (h *Handler) handleListInsights(c *echo.Context, clusterName string, body [
 		if len(in.Filter.Statuses) > 0 {
 			insights = slices.DeleteFunc(insights, func(ins *Insight) bool {
 				return !slices.Contains(in.Filter.Statuses, ins.Status)
+			})
+		}
+
+		if len(in.Filter.KubernetesVersions) > 0 {
+			insights = slices.DeleteFunc(insights, func(ins *Insight) bool {
+				return !slices.Contains(in.Filter.KubernetesVersions, ins.KubernetesVersion)
 			})
 		}
 	}
@@ -169,14 +174,41 @@ func insightsRefreshToJSON(refresh *InsightsRefresh) map[string]any {
 	return m
 }
 
+// insightStatusToJSON mirrors types.InsightStatus (status/reason) --
+// gopherstack-wf8f item 2 fixed the prior bug where reason echoed
+// Recommendation (remediation advice) instead of the actual reasoning for
+// the status.
+func insightStatusToJSON(ins *Insight) map[string]any {
+	m := map[string]any{"status": ins.Status}
+	if ins.StatusReason != "" {
+		m["reason"] = ins.StatusReason
+	}
+
+	return m
+}
+
+// insightToJSON mirrors types.Insight (eks@v1.98.0 types.go:1645). No
+// clusterName: neither Insight nor InsightSummary carries it on the wire
+// (the cluster is already identified by the URL path) -- fixed alongside
+// ListInsights' identical prior fix (gopherstack-uult).
+// additionalInfo/categorySpecificSummary/resources are omitted rather than
+// fabricated: this backend has no Kubernetes API server to source deprecated-
+// API usage or per-resource detail from -- see PARITY.md gaps.
 func insightToJSON(ins *Insight) map[string]any {
 	m := map[string]any{
 		"id":                 ins.ID,
-		keyClusterName:       ins.ClusterName,
 		"category":           ins.Category,
-		"insightStatus":      map[string]any{"status": ins.Status, "reason": ins.Recommendation},
+		"insightStatus":      insightStatusToJSON(ins),
 		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
 		"lastTransitionTime": ins.LastTransition.Unix(),
+	}
+
+	if ins.Name != "" {
+		m["name"] = ins.Name
+	}
+
+	if ins.KubernetesVersion != "" {
+		m["kubernetesVersion"] = ins.KubernetesVersion
 	}
 
 	if ins.Description != "" {
@@ -190,25 +222,27 @@ func insightToJSON(ins *Insight) map[string]any {
 	return m
 }
 
-// insightToSummaryJSON mirrors types.InsightSummary (eks@v1.90.4
-// types/types.go:1485-1514): category, description, id, insightStatus,
+// insightToSummaryJSON mirrors types.InsightSummary (eks@v1.98.0
+// types.go:1755): category, description, id, insightStatus,
 // kubernetesVersion, lastRefreshTime, lastTransitionTime, name. No
 // recommendation -- that's DescribeInsight-only (types.Insight adds it,
-// along with additionalInfo/categorySpecificSummary/resources, none of
-// which gopherstack emits either). No clusterName either: neither
-// InsightSummary nor the full Insight type carries it on the wire (the
-// cluster is already identified by the URL path) -- insightToJSON leaks it
-// into DescribeInsight too, a separate pre-existing bug out of scope here
-// (gopherstack-uult covers ListInsights only). kubernetesVersion and name
-// have no honest source in this backend's Insight model and are left absent
-// rather than fabricated -- see PARITY.md gaps.
+// along with additionalInfo/categorySpecificSummary/resources). No
+// clusterName either, same reasoning as insightToJSON.
 func insightToSummaryJSON(ins *Insight) map[string]any {
 	m := map[string]any{
 		"id":                 ins.ID,
 		"category":           ins.Category,
-		"insightStatus":      map[string]any{"status": ins.Status, "reason": ins.Recommendation},
+		"insightStatus":      insightStatusToJSON(ins),
 		"lastRefreshTime":    ins.LastRefreshTime.Unix(),
 		"lastTransitionTime": ins.LastTransition.Unix(),
+	}
+
+	if ins.Name != "" {
+		m["name"] = ins.Name
+	}
+
+	if ins.KubernetesVersion != "" {
+		m["kubernetesVersion"] = ins.KubernetesVersion
 	}
 
 	if ins.Description != "" {

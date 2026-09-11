@@ -79,7 +79,8 @@ type encryptionConfigItem struct {
 }
 
 type associateEncryptionConfigBody struct {
-	EncryptionConfig []encryptionConfigItem `json:"encryptionConfig"`
+	ClientRequestToken string                 `json:"clientRequestToken"`
+	EncryptionConfig   []encryptionConfigItem `json:"encryptionConfig"`
 }
 
 func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -93,16 +94,6 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 		configs[i] = EncryptionConfig(ec)
 	}
 
-	result, err := h.Backend.AssociateEncryptionConfig(clusterName, configs)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
-	encryptionConfigJSON, err := json.Marshal(result)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
 	// Update.Params is an array of {type, value} pairs -- confirmed against
 	// aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go
 	// (awsRestjson1_deserializeDocumentUpdate, case "params":
@@ -110,16 +101,28 @@ func (h *Handler) handleAssociateEncryptionConfig(c *echo.Context, clusterName s
 	// UpdateParamTypeEncryptionConfig = "EncryptionConfig" enum value
 	// (types/enums.go). A nested {"encryptionConfig": ...} object failed
 	// decoding outright for every real client.
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: map[string]any{
-			"id":           uuid.NewString()[:8],
-			keyStatusField: statusInProgress,
-			keyType:        opAssociateEncryptionConfig,
-			keyClusterName: clusterName,
-			"params": []UpdateParam{
-				{Type: "EncryptionConfig", Value: string(encryptionConfigJSON)},
+	return h.withIdempotency(c, opAssociateEncryptionConfig, in.ClientRequestToken, body, func() (int, any, error) {
+		result, err := h.Backend.AssociateEncryptionConfig(clusterName, configs)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		encryptionConfigJSON, err := json.Marshal(result)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return http.StatusOK, map[string]any{
+			keyUpdate: map[string]any{
+				"id":           uuid.NewString()[:8],
+				keyStatusField: statusInProgress,
+				keyType:        opAssociateEncryptionConfig,
+				keyClusterName: clusterName,
+				"params": []UpdateParam{
+					{Type: "EncryptionConfig", Value: string(encryptionConfigJSON)},
+				},
 			},
-		},
+		}, nil
 	})
 }
 
@@ -143,6 +146,7 @@ type updateClusterConfigBody struct {
 	AccessConfig       *accessConfigJSON             `json:"accessConfig"`
 	ComputeConfig      *computeConfigJSON            `json:"computeConfig"`
 	StorageConfig      *storageConfigJSON            `json:"storageConfig"`
+	ClientRequestToken string                        `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -156,17 +160,17 @@ func (h *Handler) handleUpdateClusterConfig(c *echo.Context, clusterName string,
 
 	cfgUpd := buildClusterConfigUpdate(in)
 
-	update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateClusterConfig, in.ClientRequestToken, body, func() (int, any, error) {
+		update, err := h.Backend.UpdateClusterConfig(clusterName, cfgUpd)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	if vpcErr := h.applyVpcEndpointUpdate(clusterName, in.ResourcesVpcConfig, update); vpcErr != nil {
-		return h.handleError(c, vpcErr)
-	}
+		if vpcErr := h.applyVpcEndpointUpdate(clusterName, in.ResourcesVpcConfig, update); vpcErr != nil {
+			return 0, nil, vpcErr
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: updateToJSON(update),
+		return http.StatusOK, map[string]any{keyUpdate: updateToJSON(update)}, nil
 	})
 }
 
@@ -241,7 +245,8 @@ func (h *Handler) applyVpcEndpointUpdate(
 }
 
 type updateClusterVersionBody struct {
-	Version string `json:"version"`
+	Version            string `json:"version"`
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateClusterVersion(c *echo.Context, clusterName string, body []byte) error {
@@ -252,13 +257,13 @@ func (h *Handler) handleUpdateClusterVersion(c *echo.Context, clusterName string
 		}
 	}
 
-	update, err := h.Backend.UpdateClusterVersion(clusterName, in.Version)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateClusterVersion, in.ClientRequestToken, body, func() (int, any, error) {
+		update, err := h.Backend.UpdateClusterVersion(clusterName, in.Version)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: updateToJSON(update),
+		return http.StatusOK, map[string]any{keyUpdate: updateToJSON(update)}, nil
 	})
 }
 
@@ -319,9 +324,6 @@ type cancelUpdateBody struct {
 	ClientRequestToken string `json:"clientRequestToken"`
 }
 
-// handleCancelUpdate implements CancelUpdate. clientRequestToken is accepted
-// for wire-shape parity but not tracked for idempotency (matching the
-// in-memory, non-durable nature of this backend).
 func (h *Handler) handleCancelUpdate(c *echo.Context, clusterName, updateID string, body []byte) error {
 	var in cancelUpdateBody
 	if len(body) > 0 {
@@ -330,12 +332,12 @@ func (h *Handler) handleCancelUpdate(c *echo.Context, clusterName, updateID stri
 		}
 	}
 
-	update, err := h.Backend.CancelUpdate(clusterName, updateID)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCancelUpdate, in.ClientRequestToken, body, func() (int, any, error) {
+		update, err := h.Backend.CancelUpdate(clusterName, updateID)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: updateToJSON(update),
+		return http.StatusOK, map[string]any{keyUpdate: updateToJSON(update)}, nil
 	})
 }

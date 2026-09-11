@@ -91,12 +91,13 @@ type subscriptionTermJSON struct {
 }
 
 type createEksAnywhereSubscriptionBody struct {
-	Tags            map[string]string     `json:"tags"`
-	Term            *subscriptionTermJSON `json:"term"`
-	Name            string                `json:"name"`
-	LicenseType     string                `json:"licenseType"`
-	LicenseQuantity int32                 `json:"licenseQuantity"`
-	AutoRenew       bool                  `json:"autoRenew"`
+	Tags               map[string]string     `json:"tags"`
+	Term               *subscriptionTermJSON `json:"term"`
+	Name               string                `json:"name"`
+	LicenseType        string                `json:"licenseType"`
+	ClientRequestToken string                `json:"clientRequestToken"`
+	LicenseQuantity    int32                 `json:"licenseQuantity"`
+	AutoRenew          bool                  `json:"autoRenew"`
 }
 
 // The only term durations (in months) real AWS accepts for EKS Anywhere
@@ -146,15 +147,15 @@ func (h *Handler) handleCreateEksAnywhereSubscription(c *echo.Context, body []by
 
 	term := SubscriptionTerm{Unit: in.Term.Unit, Duration: in.Term.Duration}
 
-	sub, err := h.Backend.CreateEksAnywhereSubscription(
-		in.Name, term, in.AutoRenew, in.LicenseQuantity, in.LicenseType, in.Tags,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateEksAnywhereSubscription, in.ClientRequestToken, body, func() (int, any, error) {
+		sub, err := h.Backend.CreateEksAnywhereSubscription(
+			in.Name, term, in.AutoRenew, in.LicenseQuantity, in.LicenseType, in.Tags,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keySubscription: subscriptionToJSON(sub),
+		return http.StatusOK, map[string]any{keySubscription: subscriptionToJSON(sub)}, nil
 	})
 }
 
@@ -202,8 +203,9 @@ func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 }
 
 type updateSubscriptionBody struct {
-	LicenseQuantity *int32 `json:"licenseQuantity,omitempty"`
-	LicenseType     string `json:"licenseType"`
+	LicenseQuantity    *int32 `json:"licenseQuantity,omitempty"`
+	LicenseType        string `json:"licenseType"`
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string, body []byte) error {
@@ -214,12 +216,12 @@ func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string
 		}
 	}
 
-	sub, err := h.Backend.UpdateEksAnywhereSubscription(id, in.LicenseQuantity, in.LicenseType)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateEksAnywhereSubscription, in.ClientRequestToken, body, func() (int, any, error) {
+		sub, err := h.Backend.UpdateEksAnywhereSubscription(id, in.LicenseQuantity, in.LicenseType)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keySubscription: subscriptionToJSON(sub),
+		return http.StatusOK, map[string]any{keySubscription: subscriptionToJSON(sub)}, nil
 	})
 }

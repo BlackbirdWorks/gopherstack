@@ -3,7 +3,9 @@ package eks
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -71,13 +73,13 @@ func capabilityToJSON(capa *Capability) map[string]any {
 	}
 
 	m := map[string]any{
-		keyClusterName:   capa.ClusterName,
-		"capabilityName": capa.CapabilityName,
-		keyArn:           capa.ARN,
-		keyStatusField:   capa.Status,
-		keyCreatedAt:     capa.CreatedAt.Unix(),
-		keyModifiedAt:    modifiedAt.Unix(),
-		keyHealth:        health,
+		keyClusterName:    capa.ClusterName,
+		keyCapabilityName: capa.CapabilityName,
+		keyArn:            capa.ARN,
+		keyStatusField:    capa.Status,
+		keyCreatedAt:      capa.CreatedAt.Unix(),
+		keyModifiedAt:     modifiedAt.Unix(),
+		keyHealth:         health,
 	}
 
 	if capa.Type != "" {
@@ -92,8 +94,8 @@ func capabilityToJSON(capa *Capability) map[string]any {
 		m["deletePropagationPolicy"] = capa.DeletePropagationPolicy
 	}
 
-	if capa.Configuration != nil {
-		m["configuration"] = capa.Configuration
+	if cfg := capabilityConfigurationToJSON(capa.Configuration); cfg != nil {
+		m["configuration"] = cfg
 	}
 
 	if capa.Tags != nil {
@@ -117,11 +119,11 @@ func capabilitySummaryToJSON(capa *Capability) map[string]any {
 	}
 
 	m := map[string]any{
-		"capabilityName": capa.CapabilityName,
-		keyArn:           capa.ARN,
-		keyStatusField:   capa.Status,
-		keyCreatedAt:     capa.CreatedAt.Unix(),
-		keyModifiedAt:    modifiedAt.Unix(),
+		keyCapabilityName: capa.CapabilityName,
+		keyArn:            capa.ARN,
+		keyStatusField:    capa.Status,
+		keyCreatedAt:      capa.CreatedAt.Unix(),
+		keyModifiedAt:     modifiedAt.Unix(),
 	}
 
 	if capa.Type != "" {
@@ -136,16 +138,13 @@ func capabilitySummaryToJSON(capa *Capability) map[string]any {
 }
 
 type createCapabilityBody struct {
-	Tags                    map[string]string `json:"tags"`
-	CapabilityName          string            `json:"capabilityName"`
-	Type                    string            `json:"type"`
-	RoleArn                 string            `json:"roleArn"`
-	DeletePropagationPolicy string            `json:"deletePropagationPolicy"`
-	// ClientRequestToken is accepted for wire-shape parity with the real
-	// CreateCapabilityInput but not tracked for idempotency, matching the
-	// in-memory, non-durable nature of this backend (same pattern as
-	// CancelUpdateInput.ClientRequestToken).
-	ClientRequestToken string `json:"clientRequestToken"`
+	Configuration           *capabilityConfigurationRequestBody `json:"configuration"`
+	Tags                    map[string]string                   `json:"tags"`
+	CapabilityName          string                              `json:"capabilityName"`
+	Type                    string                              `json:"type"`
+	RoleArn                 string                              `json:"roleArn"`
+	DeletePropagationPolicy string                              `json:"deletePropagationPolicy"`
+	ClientRequestToken      string                              `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleCreateCapability(c *echo.Context, clusterName string, body []byte) error {
@@ -173,15 +172,20 @@ func (h *Handler) handleCreateCapability(c *echo.Context, clusterName string, bo
 		)
 	}
 
-	capa, err := h.Backend.CreateCapability(
-		clusterName, in.CapabilityName, in.Type, in.RoleArn, in.DeletePropagationPolicy, in.Tags,
-	)
-	if err != nil {
+	if err := validateCapabilityConfigurationRequestBody(in.Configuration); err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: capabilityToJSON(capa),
+	return h.withIdempotency(c, opCreateCapability, in.ClientRequestToken, body, func() (int, any, error) {
+		capa, err := h.Backend.CreateCapability(
+			clusterName, in.CapabilityName, in.Type, in.RoleArn, in.DeletePropagationPolicy,
+			capabilityConfigurationFromRequest(in.Configuration), in.Tags,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return http.StatusOK, map[string]any{keyCapability: capabilityToJSON(capa)}, nil
 	})
 }
 
@@ -222,8 +226,10 @@ func (h *Handler) handleListCapabilities(c *echo.Context, clusterName string) er
 }
 
 type updateCapabilityBody struct {
-	RoleArn                 string `json:"roleArn"`
-	DeletePropagationPolicy string `json:"deletePropagationPolicy"`
+	Configuration           *updateCapabilityConfigurationBody `json:"configuration"`
+	RoleArn                 string                             `json:"roleArn"`
+	DeletePropagationPolicy string                             `json:"deletePropagationPolicy"`
+	ClientRequestToken      string                             `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateCapability(c *echo.Context, clusterName, capabilityName string, body []byte) error {
@@ -234,12 +240,39 @@ func (h *Handler) handleUpdateCapability(c *echo.Context, clusterName, capabilit
 		}
 	}
 
-	capa, err := h.Backend.UpdateCapability(clusterName, capabilityName, in.RoleArn, in.DeletePropagationPolicy)
-	if err != nil {
+	if err := validateUpdateCapabilityConfigurationBody(in.Configuration); err != nil {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyCapability: capabilityToJSON(capa),
+	// UpdateCapabilityOutput carries an async Update object under "update"
+	// (types.go:3257, deserializers.go's awsRestjson1_deserializeOpDocumentUpdateCapabilityOutput
+	// case "update"), NOT a "capability" key -- discovered via
+	// TestCapabilityConfiguration_UpdateArgoCd_RoleMappingMergeSemantics
+	// (real SDK client) during gopherstack-wf8f item 1; the prior shape
+	// returned the mutated Capability directly under "capability", which a
+	// real client's UpdateCapability deserializer does not recognize (it
+	// would decode Update as nil and read no fields at all). Mirrors
+	// handleUpdateAddon's identical fabricated-Update-map pattern just
+	// below in this file: this backend does not create a real Update
+	// store record for capability updates any more than it does for addon
+	// updates (see PARITY.md's ListUpdates.CapabilityName gap).
+	return h.withIdempotency(c, opUpdateCapability, in.ClientRequestToken, body, func() (int, any, error) {
+		capa, err := h.Backend.UpdateCapability(
+			clusterName, capabilityName, in.RoleArn, in.DeletePropagationPolicy, in.Configuration,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return http.StatusOK, map[string]any{
+			keyUpdate: map[string]any{
+				"id":              uuid.NewString()[:8],
+				keyStatusField:    statusInProgress,
+				keyType:           "CapabilityUpdate",
+				keyClusterName:    clusterName,
+				keyCapabilityName: capa.CapabilityName,
+				keyCreatedAt:      float64(time.Now().Unix()),
+			},
+		}, nil
 	})
 }

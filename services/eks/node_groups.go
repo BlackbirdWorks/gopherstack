@@ -147,6 +147,10 @@ func (b *InMemoryBackend) CreateNodegroup(
 		)
 	}
 
+	if n := len(b.nodegroupsByCluster.Get(clusterName)); n >= b.limits.nodegroupsPerCluster {
+		return nil, resourceLimitExceededErr("managed node groups per cluster", b.limits.nodegroupsPerCluster)
+	}
+
 	if input.DiskSize != 0 && (input.DiskSize < nodegroupDiskSizeMin || input.DiskSize > nodegroupDiskSizeMax) {
 		return nil, fmt.Errorf(
 			"%w: diskSize %d is out of range [%d, %d]",

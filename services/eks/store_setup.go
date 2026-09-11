@@ -173,4 +173,11 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.updates = store.Register(b.registry, "updates", store.New(updateKeyFn))
 	b.updatesByCluster = b.updates.AddIndex("byCluster", updateClusterKeyFn)
+
+	// idempotency stores ClientRequestToken replay records (gopherstack-wf8f
+	// item 3) -- see idempotency.go. Keyed by op name + token, not scoped to
+	// a cluster (a ClientRequestToken carries no cluster identity of its
+	// own; the full request body, captured in the record's fingerprint,
+	// already disambiguates by whatever the op's own parameters are).
+	b.idempotency = store.Register(b.registry, "idempotency", store.New(idempotencyKeyFn))
 }

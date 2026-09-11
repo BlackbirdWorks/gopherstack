@@ -44,6 +44,7 @@ const (
 	keyAccessEntryArn = "accessEntryArn"
 	keyAddon          = "addon"
 	keyCapability     = "capability"
+	keyCapabilityName = "capabilityName"
 	keyAssociation    = "association"
 )
 
@@ -526,6 +527,8 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", err.Error()))
 	case errors.Is(err, ErrInvalidRequest):
 		return c.JSON(http.StatusBadRequest, errResp("InvalidRequestException", err.Error()))
+	case errors.Is(err, ErrResourceLimitExceeded):
+		return c.JSON(http.StatusBadRequest, errResp("ResourceLimitExceededException", err.Error()))
 	default:
 		return c.JSON(http.StatusInternalServerError, errResp("InternalFailure", err.Error()))
 	}

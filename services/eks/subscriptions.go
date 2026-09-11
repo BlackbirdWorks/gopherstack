@@ -24,6 +24,13 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 	b.mu.Lock("CreateEksAnywhereSubscription")
 	defer b.mu.Unlock()
 
+	if n := b.subscriptions.Len(); n >= b.limits.anywhereSubscriptionsPerAcct {
+		return nil, resourceLimitExceededErr(
+			"EKS Anywhere Enterprise Subscriptions",
+			b.limits.anywhereSubscriptionsPerAcct,
+		)
+	}
+
 	id := stableID(name + strconv.FormatInt(time.Now().UnixNano(), 10))
 	subARN := arn.Build("eks", b.region, b.accountID, "eks-anywhere-subscription/"+id)
 
