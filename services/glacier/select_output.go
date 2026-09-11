@@ -46,7 +46,7 @@ type S3Accessor interface {
 // SetS3Backend wires the S3 backend used to deliver completed Select jobs' real
 // OutputLocation output.
 func (b *InMemoryBackend) SetS3Backend(s3 S3Accessor) {
-	b.mu.Lock()
+	b.mu.Lock("SetS3Backend")
 	defer b.mu.Unlock()
 
 	b.s3 = s3
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) SetS3Backend(s3 S3Accessor) {
 
 // s3Backend returns the wired S3 accessor, or nil when none is configured.
 func (b *InMemoryBackend) s3Backend() S3Accessor {
-	b.mu.RLock()
+	b.mu.RLock("s3Backend")
 	defer b.mu.RUnlock()
 
 	return b.s3
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) materializeSelectOutput(ctx context.Context, accountID
 
 	vArn := vaultARN(accountID, region, vaultName)
 
-	b.mu.Lock()
+	b.mu.Lock("materializeSelectOutput")
 
 	j, ok := b.jobs.Get(jobKey(vArn, jobID))
 	if !ok || j.Action != jobTypeSelect || !j.Completed || j.SelectOutputWritten ||

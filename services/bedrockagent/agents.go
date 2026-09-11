@@ -20,7 +20,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateAgent")
 	defer b.mu.Unlock()
 
 	if _, exists := b.agentsByName[cfg.AgentName]; exists {
@@ -65,7 +65,7 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 
 // GetAgent returns an agent by ID.
 func (b *InMemoryBackend) GetAgent(_ context.Context, agentID string) (*Agent, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgent")
 	defer b.mu.RUnlock()
 
 	a, ok := b.agents.Get(agentID)
@@ -78,7 +78,7 @@ func (b *InMemoryBackend) GetAgent(_ context.Context, agentID string) (*Agent, e
 
 // UpdateAgent updates an existing agent.
 func (b *InMemoryBackend) UpdateAgent(_ context.Context, agentID string, cfg AgentConfig) (*Agent, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAgent")
 	defer b.mu.Unlock()
 
 	a, ok := b.agents.Get(agentID)
@@ -159,7 +159,7 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 // plus every numbered AgentVersion row and clearing each scope; agentAliases
 // carries a plain byAgent index so no version walk is needed there.
 func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAgent")
 	defer b.mu.Unlock()
 
 	a, ok := b.agents.Get(agentID)
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
 func (b *InMemoryBackend) ListAgents(
 	_ context.Context, maxResults int, nextToken string,
 ) ([]*AgentSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgents")
 	defer b.mu.RUnlock()
 
 	ids := tableIDs(b.agents.Snapshot(), func(a *Agent) string { return a.AgentID })
@@ -220,7 +220,7 @@ func (b *InMemoryBackend) ListAgents(
 
 // PrepareAgent transitions agent to PREPARED status.
 func (b *InMemoryBackend) PrepareAgent(_ context.Context, agentID string) (*Agent, error) {
-	b.mu.Lock()
+	b.mu.Lock("PrepareAgent")
 	defer b.mu.Unlock()
 
 	a, ok := b.agents.Get(agentID)

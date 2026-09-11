@@ -24,7 +24,7 @@ import (
 func (b *InMemoryBackend) CreateAgentVersion(
 	_ context.Context, agentID, description string,
 ) (*AgentVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateAgentVersion")
 	defer b.mu.Unlock()
 
 	av, err := b.newAgentVersionLocked(agentID, description)
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) snapshotSubResourcesLocked(agentID, version string) {
 func (b *InMemoryBackend) GetAgentVersion(
 	_ context.Context, agentID, agentVersion string,
 ) (*AgentVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgentVersion")
 	defer b.mu.RUnlock()
 
 	if !b.agents.Has(agentID) {
@@ -144,7 +144,7 @@ func (b *InMemoryBackend) GetAgentVersion(
 func (b *InMemoryBackend) DeleteAgentVersion(
 	_ context.Context, agentID, agentVersion string, skipResourceInUseCheck bool,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAgentVersion")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
@@ -199,7 +199,7 @@ func (b *InMemoryBackend) deleteSubResourcesLocked(agentID, version string) {
 func (b *InMemoryBackend) ListAgentVersions(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentVersionSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgentVersions")
 	defer b.mu.RUnlock()
 
 	if !b.agents.Has(agentID) {

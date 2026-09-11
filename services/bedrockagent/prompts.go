@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreatePrompt(ctx context.Context, cfg PromptConfig) (*
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreatePrompt")
 	defer b.mu.Unlock()
 
 	if _, exists := b.promptsByName[cfg.Name]; exists {
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreatePrompt(ctx context.Context, cfg PromptConfig) (*
 
 // GetPrompt returns a prompt.
 func (b *InMemoryBackend) GetPrompt(_ context.Context, promptID string) (*Prompt, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPrompt")
 	defer b.mu.RUnlock()
 
 	p, ok := b.prompts.Get(promptID)
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) GetPrompt(_ context.Context, promptID string) (*Prompt
 func (b *InMemoryBackend) UpdatePrompt(
 	_ context.Context, promptID string, cfg PromptConfig,
 ) (*Prompt, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdatePrompt")
 	defer b.mu.Unlock()
 
 	p, ok := b.prompts.Get(promptID)
@@ -98,7 +98,7 @@ func (b *InMemoryBackend) UpdatePrompt(
 
 // DeletePrompt deletes a prompt.
 func (b *InMemoryBackend) DeletePrompt(_ context.Context, promptID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePrompt")
 	defer b.mu.Unlock()
 
 	p, ok := b.prompts.Get(promptID)
@@ -123,7 +123,7 @@ func (b *InMemoryBackend) DeletePrompt(_ context.Context, promptID string) error
 func (b *InMemoryBackend) ListPrompts(
 	_ context.Context, maxResults int, nextToken string,
 ) ([]*PromptSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListPrompts")
 	defer b.mu.RUnlock()
 
 	ids := tableIDs(b.prompts.Snapshot(), func(p *Prompt) string { return p.PromptID })
@@ -155,7 +155,7 @@ func (b *InMemoryBackend) ListPrompts(
 func (b *InMemoryBackend) CreatePromptVersion(
 	_ context.Context, promptID, description string,
 ) (*PromptVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreatePromptVersion")
 	defer b.mu.Unlock()
 
 	p, ok := b.prompts.Get(promptID)
@@ -191,7 +191,7 @@ func (b *InMemoryBackend) CreatePromptVersion(
 func (b *InMemoryBackend) GetPromptVersion(
 	_ context.Context, promptID, version string,
 ) (*PromptVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPromptVersion")
 	defer b.mu.RUnlock()
 
 	if !b.prompts.Has(promptID) {
@@ -210,7 +210,7 @@ func (b *InMemoryBackend) GetPromptVersion(
 func (b *InMemoryBackend) DeletePromptVersion(
 	_ context.Context, promptID, version string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePromptVersion")
 	defer b.mu.Unlock()
 
 	if !b.prompts.Has(promptID) {

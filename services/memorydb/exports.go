@@ -57,7 +57,7 @@ type ExportedUpdateClusterRequest = updateClusterRequest
 
 // ClusterCount returns the number of clusters in the backend.
 func ClusterCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ClusterCount")
 	defer b.mu.RUnlock()
 	total := 0
 	for _, t := range b.clusters {
@@ -69,7 +69,7 @@ func ClusterCount(b *InMemoryBackend) int {
 
 // ACLCount returns the number of ACLs in the backend.
 func ACLCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ACLCount")
 	defer b.mu.RUnlock()
 	total := 0
 	for _, t := range b.acls {
@@ -81,7 +81,7 @@ func ACLCount(b *InMemoryBackend) int {
 
 // SnapshotCount returns the number of snapshots in the backend.
 func SnapshotCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("SnapshotCount")
 	defer b.mu.RUnlock()
 	total := 0
 	for _, t := range b.snapshots {
@@ -93,7 +93,7 @@ func SnapshotCount(b *InMemoryBackend) int {
 
 // UserCount returns the number of users in the backend.
 func UserCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("UserCount")
 	defer b.mu.RUnlock()
 	total := 0
 
@@ -106,7 +106,7 @@ func UserCount(b *InMemoryBackend) int {
 
 // SubnetGroupCount returns the number of subnet groups in the backend.
 func SubnetGroupCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("SubnetGroupCount")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -119,7 +119,7 @@ func SubnetGroupCount(b *InMemoryBackend) int {
 
 // ParameterGroupCount returns the number of parameter groups in the backend.
 func ParameterGroupCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ParameterGroupCount")
 
 	defer b.mu.RUnlock()
 	total := 0
@@ -132,7 +132,7 @@ func ParameterGroupCount(b *InMemoryBackend) int {
 
 // EventCount returns the number of events in the backend.
 func EventCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("EventCount")
 	defer b.mu.RUnlock()
 	total := 0
 	for _, evs := range b.events {
@@ -144,7 +144,7 @@ func EventCount(b *InMemoryBackend) int {
 
 // MultiRegionClusterCount returns the number of multi-region clusters in the backend.
 func MultiRegionClusterCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("MultiRegionClusterCount")
 	defer b.mu.RUnlock()
 
 	return b.multiRegionClusters.Len()
@@ -152,7 +152,7 @@ func MultiRegionClusterCount(b *InMemoryBackend) int {
 
 // ARNIndexSize returns the number of entries in the ARN-to-resource index.
 func ARNIndexSize(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ARNIndexSize")
 	defer b.mu.RUnlock()
 	total := 0
 	for _, m := range b.arnToResource {

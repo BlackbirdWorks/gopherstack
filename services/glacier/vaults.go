@@ -20,7 +20,7 @@ func cloneVault(v *Vault) *Vault {
 
 // CreateVault creates a new Glacier vault.
 func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vault, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateVault")
 	defer b.mu.Unlock()
 
 	if vaultName == "" {
@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreateVault(accountID, region, vaultName string) (*Vau
 
 // DescribeVault returns vault metadata.
 func (b *InMemoryBackend) DescribeVault(accountID, region, vaultName string) (*Vault, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeVault")
 	defer b.mu.RUnlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -65,7 +65,7 @@ func (b *InMemoryBackend) DescribeVault(accountID, region, vaultName string) (*V
 
 // DeleteVault deletes a vault.
 func (b *InMemoryBackend) DeleteVault(accountID, region, vaultName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVault")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -138,7 +138,7 @@ func sortedVaultNames(vaults []*Vault) []*Vault {
 
 // ListVaults returns all vaults for the given account and region.
 func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
-	b.mu.RLock()
+	b.mu.RLock("ListVaults")
 	defer b.mu.RUnlock()
 
 	group := b.vaultsByAccountRegion.Get(acctRegionKey(accountID, region))
@@ -160,7 +160,7 @@ func (b *InMemoryBackend) ListVaults(accountID, region string) []*Vault {
 // misfile (or collide with) the entry -- see the "Watch mutating-key" note
 // in store_setup.go's package doc.
 func (b *InMemoryBackend) AddVaultInternal(accountID, region string, v *Vault) {
-	b.mu.Lock()
+	b.mu.Lock("AddVaultInternal")
 	defer b.mu.Unlock()
 
 	cp := *v

@@ -13,7 +13,7 @@ import (
 func (b *InMemoryBackend) AssociateSbomWithPackageVersion(
 	input *AssociateSbomWithPackageVersionInput,
 ) (*AssociateSbomWithPackageVersionOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("AssociateSbomWithPackageVersion")
 	defer b.mu.Unlock()
 
 	key := packageVersionKey(input.PackageName, input.VersionName)
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) packageARN(name string) string {
 }
 
 func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[string]string) (*IoTPackage, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateIoTPackage")
 	defer b.mu.Unlock()
 
 	if b.iotPackages.Has(name) {
@@ -79,7 +79,7 @@ func (b *InMemoryBackend) CreateIoTPackage(name, description string, tags map[st
 }
 
 func (b *InMemoryBackend) GetIoTPackage(name string) (*IoTPackage, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetIoTPackage")
 	defer b.mu.RUnlock()
 
 	p, ok := b.iotPackages.Get(name)
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) GetIoTPackage(name string) (*IoTPackage, error) {
 func (b *InMemoryBackend) UpdateIoTPackage(
 	name, description, defaultVersionName string, unsetDefaultVersion bool,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateIoTPackage")
 	defer b.mu.Unlock()
 
 	p, ok := b.iotPackages.Get(name)
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) UpdateIoTPackage(
 }
 
 func (b *InMemoryBackend) DeleteIoTPackage(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteIoTPackage")
 	defer b.mu.Unlock()
 
 	if !b.iotPackages.Has(name) {
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DeleteIoTPackage(name string) error {
 }
 
 func (b *InMemoryBackend) ListIoTPackages() []*IoTPackage {
-	b.mu.RLock()
+	b.mu.RLock("ListIoTPackages")
 	defer b.mu.RUnlock()
 
 	items := b.iotPackages.Snapshot()
@@ -191,7 +191,7 @@ func (b *InMemoryBackend) CreateIoTPackageVersion(
 	tags map[string]string,
 	opts CreateIoTPackageVersionOptions,
 ) (*IoTPackageVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateIoTPackageVersion")
 	defer b.mu.Unlock()
 
 	if b.packageVersions2[packageName] == nil {
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) CreateIoTPackageVersion(
 }
 
 func (b *InMemoryBackend) GetIoTPackageVersion(packageName, versionName string) (*IoTPackageVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetIoTPackageVersion")
 	defer b.mu.RUnlock()
 
 	if b.packageVersions2[packageName] == nil {
@@ -272,7 +272,7 @@ func (b *InMemoryBackend) UpdateIoTPackageVersion(
 	packageName, versionName, description, status string,
 	opts UpdateIoTPackageVersionOptions,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateIoTPackageVersion")
 	defer b.mu.Unlock()
 
 	if b.packageVersions2[packageName] == nil {
@@ -310,7 +310,7 @@ func (b *InMemoryBackend) UpdateIoTPackageVersion(
 }
 
 func (b *InMemoryBackend) DeleteIoTPackageVersion(packageName, versionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteIoTPackageVersion")
 	defer b.mu.Unlock()
 
 	if b.packageVersions2[packageName] == nil {
@@ -326,7 +326,7 @@ func (b *InMemoryBackend) DeleteIoTPackageVersion(packageName, versionName strin
 }
 
 func (b *InMemoryBackend) ListIoTPackageVersions(packageName string) []*IoTPackageVersion {
-	b.mu.RLock()
+	b.mu.RLock("ListIoTPackageVersions")
 	defer b.mu.RUnlock()
 
 	m := b.packageVersions2[packageName]
@@ -348,7 +348,7 @@ type PackageConfiguration struct {
 }
 
 func (b *InMemoryBackend) GetPackageConfiguration() *PackageConfiguration {
-	b.mu.RLock()
+	b.mu.RLock("GetPackageConfiguration")
 	defer b.mu.RUnlock()
 
 	if b.packageConfig == nil {
@@ -365,7 +365,7 @@ func (b *InMemoryBackend) GetPackageConfiguration() *PackageConfiguration {
 // client updating just one must not wipe the other, so merge by key rather
 // than replacing the map wholesale (gopherstack-c8ge).
 func (b *InMemoryBackend) UpdatePackageConfiguration(cfg map[string]any) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdatePackageConfiguration")
 	defer b.mu.Unlock()
 
 	if b.packageConfig == nil {
@@ -411,7 +411,7 @@ func computeSbomValidationResult(sbom *SbomDocument) *SbomValidationResult {
 // DisassociateSbomFromPackageVersion clears the SBOM (and its validation
 // results) associated with a package version.
 func (b *InMemoryBackend) DisassociateSbomFromPackageVersion(packageName, versionName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DisassociateSbomFromPackageVersion")
 	defer b.mu.Unlock()
 
 	if err := b.requirePackageVersionLocked(packageName, versionName); err != nil {
@@ -430,7 +430,7 @@ func (b *InMemoryBackend) DisassociateSbomFromPackageVersion(packageName, versio
 func (b *InMemoryBackend) ListSbomValidationResults(
 	packageName, versionName string, maxResults int32, nextToken string,
 ) ([]*SbomValidationResult, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListSbomValidationResults")
 	defer b.mu.RUnlock()
 
 	if err := b.requirePackageVersionLocked(packageName, versionName); err != nil {

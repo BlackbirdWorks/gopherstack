@@ -90,7 +90,7 @@ func newTaggableMultiRegionCluster(t *testing.T, b *InMemoryBackend) string {
 // present in b.arnToResource, across every region -- the real tag-routing
 // registry, not a hand-typed copy of it.
 func registeredResourceKinds(b *InMemoryBackend) map[string]bool {
-	b.mu.RLock()
+	b.mu.RLock("registeredResourceKinds")
 	defer b.mu.RUnlock()
 
 	kinds := make(map[string]bool)
@@ -133,7 +133,7 @@ func TestTagResource_AllRegisteredResourceKinds(t *testing.T) {
 	for _, tt := range tests {
 		resourceArn := tt.setup(t, seed)
 
-		seed.mu.RLock()
+		seed.mu.RLock("TestTagResource_AllRegisteredResourceKinds")
 		_, ref, ok := seed.findARN(resourceArn)
 		seed.mu.RUnlock()
 

@@ -7,14 +7,14 @@ import (
 )
 
 func multipartPartsRowCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("multipartPartsRowCount")
 	defer b.mu.RUnlock()
 
 	return len(b.multipartParts)
 }
 
 func multipartPartDataRowCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("multipartPartDataRowCount")
 	defer b.mu.RUnlock()
 
 	return len(b.multipartPartData)

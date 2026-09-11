@@ -35,7 +35,7 @@ func (b *InMemoryBackend) expireLockIfStale(vArn string) {
 // GetVaultLock returns the vault lock state.  If no lock has been initiated,
 // the returned VaultLock has State "Unlocked".
 func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*VaultLock, error) {
-	b.mu.Lock()
+	b.mu.Lock("GetVaultLock")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -61,7 +61,7 @@ func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*Va
 // vault_lock_policy_eval.go), so a malformed policy is rejected here rather
 // than silently never being enforced by DeleteArchive/DeleteVault.
 func (b *InMemoryBackend) SetVaultLock(accountID, region, vaultName, policy, lockID string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetVaultLock")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -138,7 +138,7 @@ func (b *InMemoryBackend) checkVaultLockDelete(vArn, action, archiveCreationDate
 
 // AbortVaultLock removes an in-progress vault lock.
 func (b *InMemoryBackend) AbortVaultLock(accountID, region, vaultName string) error {
-	b.mu.Lock()
+	b.mu.Lock("AbortVaultLock")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -154,7 +154,7 @@ func (b *InMemoryBackend) AbortVaultLock(accountID, region, vaultName string) er
 
 // CompleteVaultLock completes and seals a vault lock.
 func (b *InMemoryBackend) CompleteVaultLock(accountID, region, vaultName, lockID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CompleteVaultLock")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)

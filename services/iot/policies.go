@@ -18,7 +18,7 @@ func (b *InMemoryBackend) CreatePolicy(input *CreatePolicyInput) (*CreatePolicyO
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreatePolicy")
 	defer b.mu.Unlock()
 
 	if b.policies.Has(input.PolicyName) {
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInpu
 		return nil
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("AttachPrincipalPolicy")
 	defer b.mu.Unlock()
 
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Principal)
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) AttachPrincipalPolicy(input *AttachPrincipalPolicyInpu
 
 // AttachPolicy attaches a policy to a target (thing group or certificate).
 func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AttachPolicy")
 	defer b.mu.Unlock()
 
 	b.policyTargets[input.PolicyName] = appendUnique(b.policyTargets[input.PolicyName], input.Target)
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) AttachPolicy(input *AttachPolicyInput) error {
 
 // GetPolicy retrieves an existing Policy by name.
 func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPolicy")
 	defer b.mu.RUnlock()
 
 	p, ok := b.policies.Get(policyName)
@@ -113,7 +113,7 @@ func (b *InMemoryBackend) GetPolicy(policyName string) (*GetPolicyOutput, error)
 
 // DeletePolicy removes a Policy by name.
 func (b *InMemoryBackend) DeletePolicy(policyName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePolicy")
 	defer b.mu.Unlock()
 
 	if !b.policies.Has(policyName) {
@@ -135,7 +135,7 @@ func (b *InMemoryBackend) DeletePolicy(policyName string) error {
 
 // ListPolicies returns all policies sorted by name.
 func (b *InMemoryBackend) ListPolicies() []*Policy {
-	b.mu.RLock()
+	b.mu.RLock("ListPolicies")
 	defer b.mu.RUnlock()
 
 	items := b.policies.Snapshot()
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) ListPolicies() []*Policy {
 
 // AddPolicyInternal seeds a Policy directly into the backend for testing.
 func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
-	b.mu.Lock()
+	b.mu.Lock("AddPolicyInternal")
 	defer b.mu.Unlock()
 
 	if p.ARN == "" {
@@ -163,7 +163,7 @@ func (b *InMemoryBackend) AddPolicyInternal(p Policy) {
 
 // DetachPolicy detaches a policy from a target.
 func (b *InMemoryBackend) DetachPolicy(input *DetachPolicyInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DetachPolicy")
 	defer b.mu.Unlock()
 
 	targets := b.policyTargets[input.PolicyName]
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) DetachPolicy(input *DetachPolicyInput) error {
 
 // ListAttachedPolicies returns all policies attached to a target.
 func (b *InMemoryBackend) ListAttachedPolicies(input *ListAttachedPoliciesInput) ([]*Policy, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAttachedPolicies")
 	defer b.mu.RUnlock()
 
 	var out []*Policy
@@ -208,7 +208,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 		return nil, fmt.Errorf("%w: PolicyName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreatePolicyVersion")
 	defer b.mu.Unlock()
 
 	p, ok := b.policies.Get(input.PolicyName)
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) CreatePolicyVersion(input *CreatePolicyVersionInput) (
 
 // GetPolicyVersion retrieves a specific version of a policy.
 func (b *InMemoryBackend) GetPolicyVersion(policyName, versionID string) (*PolicyVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetPolicyVersion")
 	defer b.mu.RUnlock()
 
 	versions := b.policyVersions[policyName]
@@ -270,7 +270,7 @@ func (b *InMemoryBackend) GetPolicyVersion(policyName, versionID string) (*Polic
 
 // ListPolicyVersions returns all versions of a policy.
 func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListPolicyVersions")
 	defer b.mu.RUnlock()
 
 	if !b.policies.Has(policyName) {
@@ -291,7 +291,7 @@ func (b *InMemoryBackend) ListPolicyVersions(policyName string) ([]*PolicyVersio
 // DeletePolicyVersion deletes a specific version of a policy.
 // The default version cannot be deleted.
 func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeletePolicyVersion")
 	defer b.mu.Unlock()
 
 	versions := b.policyVersions[policyName]
@@ -320,7 +320,7 @@ func (b *InMemoryBackend) DeletePolicyVersion(policyName, versionID string) erro
 
 // SetDefaultPolicyVersion sets the default version of a policy.
 func (b *InMemoryBackend) SetDefaultPolicyVersion(policyName, versionID string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetDefaultPolicyVersion")
 	defer b.mu.Unlock()
 
 	versions := b.policyVersions[policyName]
@@ -343,7 +343,7 @@ func (b *InMemoryBackend) SetDefaultPolicyVersion(policyName, versionID string) 
 }
 
 func (b *InMemoryBackend) ListPrincipalPolicies(principal string) []*Policy {
-	b.mu.RLock()
+	b.mu.RLock("ListPrincipalPolicies")
 	defer b.mu.RUnlock()
 
 	var out []*Policy
@@ -361,7 +361,7 @@ func (b *InMemoryBackend) ListPrincipalPolicies(principal string) []*Policy {
 }
 
 func (b *InMemoryBackend) ListPolicyPrincipals(policyName string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListPolicyPrincipals")
 	defer b.mu.RUnlock()
 
 	out := append([]string(nil), b.policyTargets[policyName]...)
@@ -375,7 +375,7 @@ func (b *InMemoryBackend) ListTargetsForPolicy(policyName string) []string {
 }
 
 func (b *InMemoryBackend) ListPrincipalThings(principal string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListPrincipalThings")
 	defer b.mu.RUnlock()
 
 	var out []string
@@ -390,7 +390,7 @@ func (b *InMemoryBackend) ListPrincipalThings(principal string) []string {
 }
 
 func (b *InMemoryBackend) GetEffectivePolicies(thingName, principal string) []*Policy {
-	b.mu.RLock()
+	b.mu.RLock("GetEffectivePolicies")
 	defer b.mu.RUnlock()
 
 	seen := map[string]bool{}
@@ -426,7 +426,7 @@ func (b *InMemoryBackend) DetachPrincipalPolicy(policyName, principal string) er
 		return fmt.Errorf("%w: policyName and principal are required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DetachPrincipalPolicy")
 	defer b.mu.Unlock()
 
 	if !b.policies.Has(policyName) {

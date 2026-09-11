@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateCommand(
 	payload map[string]any,
 	tags map[string]string,
 ) (*IoTCommand, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCommand")
 	defer b.mu.Unlock()
 
 	if b.commands.Has(id) {
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) CreateCommand(
 }
 
 func (b *InMemoryBackend) GetCommand(id string) (*IoTCommand, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommand")
 	defer b.mu.RUnlock()
 
 	cmd, ok := b.commands.Get(id)
@@ -84,7 +84,7 @@ func (b *InMemoryBackend) GetCommand(id string) (*IoTCommand, error) {
 }
 
 func (b *InMemoryBackend) UpdateCommand(id, displayName, description string, deprecated bool) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCommand")
 	defer b.mu.Unlock()
 
 	cmd, ok := b.commands.Get(id)
@@ -104,7 +104,7 @@ func (b *InMemoryBackend) UpdateCommand(id, displayName, description string, dep
 }
 
 func (b *InMemoryBackend) DeleteCommand(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCommand")
 	defer b.mu.Unlock()
 
 	if !b.commands.Has(id) {
@@ -117,7 +117,7 @@ func (b *InMemoryBackend) DeleteCommand(id string) error {
 }
 
 func (b *InMemoryBackend) ListCommands() []*IoTCommand {
-	b.mu.RLock()
+	b.mu.RLock("ListCommands")
 	defer b.mu.RUnlock()
 
 	items := b.commands.Snapshot()
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) commandExecutionKey(commandID, executionID string) str
 }
 
 func (b *InMemoryBackend) GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommandExecution")
 	defer b.mu.RUnlock()
 
 	key := b.commandExecutionKey(commandID, executionID)
@@ -159,7 +159,7 @@ func (b *InMemoryBackend) GetCommandExecution(commandID, executionID string) (*I
 }
 
 func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListCommandExecutions")
 	defer b.mu.RUnlock()
 
 	prefix := commandID + "/"
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandE
 // request shape where executions are addressed by executionId+targetArn,
 // not commandId+executionId (mirrors DeleteCommandExecution below).
 func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommandExecutionByID")
 	defer b.mu.RUnlock()
 
 	for _, ex := range b.commandExecutions {
@@ -204,7 +204,7 @@ func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string)
 // POST /command-executions route. ListCommandExecutions above backs the
 // separate legacy path-scoped route instead.
 func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListCommandExecutionsByFilter")
 	defer b.mu.RUnlock()
 
 	var out []*IoTCommandExecution
@@ -231,7 +231,7 @@ func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, s
 // AWS's real request shape where executions are addressed by
 // executionId+targetArn rather than commandId.
 func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCommandExecution")
 	defer b.mu.Unlock()
 
 	for key, ex := range b.commandExecutions {
@@ -255,7 +255,7 @@ func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) 
 // backend for testing (there is no public CreateCommandExecution control-
 // plane operation; executions are normally created by device SDKs).
 func (b *InMemoryBackend) AddCommandExecutionInternal(commandID, executionID string, ex IoTCommandExecution) {
-	b.mu.Lock()
+	b.mu.Lock("AddCommandExecutionInternal")
 	defer b.mu.Unlock()
 
 	cp := ex

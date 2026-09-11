@@ -17,7 +17,7 @@ import (
 // StartOnDemandAuditTask always generates a random ID, so tests that need a
 // deterministic task ID use this instead.
 func (b *InMemoryBackend) AddAuditTaskInternal(taskID, status string) {
-	b.mu.Lock()
+	b.mu.Lock("AddAuditTaskInternal")
 	defer b.mu.Unlock()
 
 	b.auditTasks[taskID] = status
@@ -29,7 +29,7 @@ func (b *InMemoryBackend) AddAuditTaskInternal(taskID, status string) {
 // generates a random ID, so tests that need a deterministic task ID use this
 // instead.
 func (b *InMemoryBackend) AddAuditMitigationTaskInternal(taskID, status string) {
-	b.mu.Lock()
+	b.mu.Lock("AddAuditMitigationTaskInternal")
 	defer b.mu.Unlock()
 
 	b.auditMitigationTasks[taskID] = status
@@ -42,7 +42,7 @@ func (b *InMemoryBackend) AddAuditMitigationTaskInternal(taskID, status string) 
 // returned by DescribeAuditMitigationActionsTask) is transitioned to
 // CANCELED with an end time, keeping the two representations consistent.
 func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMitigationActionsTaskInput) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelAuditMitigationActionsTask")
 	defer b.mu.Unlock()
 
 	status, ok := b.auditMitigationTasks[input.TaskID]
@@ -67,7 +67,7 @@ func (b *InMemoryBackend) CancelAuditMitigationActionsTask(input *CancelAuditMit
 // ResourceNotFoundException for an unknown task ID and InvalidRequestException
 // if the task is known but not in progress.
 func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelAuditTask")
 	defer b.mu.Unlock()
 
 	status, ok := b.auditTasks[input.AuditTaskID]
@@ -111,7 +111,7 @@ type AccountAuditConfiguration struct {
 // them in, rather than wholesale-replacing the map and disabling every check
 // not named this time (gopherstack-c8ge).
 func (b *InMemoryBackend) UpdateAccountAuditConfiguration(roleARN string, checks map[string]*AuditCheckConfig) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAccountAuditConfiguration")
 	defer b.mu.Unlock()
 
 	if b.auditConfiguration == nil {
@@ -131,7 +131,7 @@ func (b *InMemoryBackend) UpdateAccountAuditConfiguration(roleARN string, checks
 }
 
 func (b *InMemoryBackend) DescribeAccountAuditConfiguration() *AccountAuditConfiguration {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAccountAuditConfiguration")
 	defer b.mu.RUnlock()
 
 	if b.auditConfiguration == nil {
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) DescribeAccountAuditConfiguration() *AccountAuditConfi
 // restoring it to its unconfigured state. It is idempotent: deleting an
 // unconfigured account still succeeds, matching AWS IoT behavior.
 func (b *InMemoryBackend) DeleteAccountAuditConfiguration() error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAccountAuditConfiguration")
 	defer b.mu.Unlock()
 
 	b.auditConfiguration = nil
@@ -166,7 +166,7 @@ type AuditTask struct {
 }
 
 func (b *InMemoryBackend) StartOnDemandAuditTask(_ []string) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartOnDemandAuditTask")
 	defer b.mu.Unlock()
 
 	id := uuid.NewString()[:12]
@@ -182,7 +182,7 @@ func (b *InMemoryBackend) StartOnDemandAuditTask(_ []string) (string, error) {
 }
 
 func (b *InMemoryBackend) DescribeAuditTask(taskID string) (*AuditTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAuditTask")
 	defer b.mu.RUnlock()
 
 	task, ok := b.auditTaskObjects.Get(taskID)
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) DescribeAuditTask(taskID string) (*AuditTask, error) {
 }
 
 func (b *InMemoryBackend) ListAuditTasks(taskType string) []*AuditTask {
-	b.mu.RLock()
+	b.mu.RLock("ListAuditTasks")
 	defer b.mu.RUnlock()
 
 	var out []*AuditTask
@@ -248,7 +248,7 @@ func (b *InMemoryBackend) CreateAuditSuppression(
 	suppressIndefinitely bool,
 	expirationDate float64,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("CreateAuditSuppression")
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
@@ -272,7 +272,7 @@ func (b *InMemoryBackend) DescribeAuditSuppression(
 	checkName string,
 	resourceID map[string]any,
 ) (*AuditSuppression, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAuditSuppression")
 	defer b.mu.RUnlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
@@ -291,7 +291,7 @@ func (b *InMemoryBackend) UpdateAuditSuppression(
 	suppressIndefinitely bool,
 	expirationDate float64,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAuditSuppression")
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
@@ -311,7 +311,7 @@ func (b *InMemoryBackend) UpdateAuditSuppression(
 }
 
 func (b *InMemoryBackend) DeleteAuditSuppression(checkName string, resourceID map[string]any) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAuditSuppression")
 	defer b.mu.Unlock()
 
 	key := auditSuppressionKey(checkName, resourceID)
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) DeleteAuditSuppression(checkName string, resourceID ma
 }
 
 func (b *InMemoryBackend) ListAuditSuppressions() []*AuditSuppression {
-	b.mu.RLock()
+	b.mu.RLock("ListAuditSuppressions")
 	defer b.mu.RUnlock()
 
 	items := b.auditSuppressions.Snapshot()
@@ -443,7 +443,7 @@ func cloneAuditFinding(f *AuditFinding) *AuditFinding {
 // TaskStartTime, when unset, is derived from the referenced AuditTask so it
 // stays consistent with the task that produced the finding.
 func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
-	b.mu.Lock()
+	b.mu.Lock("SeedAuditFinding")
 	defer b.mu.Unlock()
 
 	stored := cloneAuditFinding(f)
@@ -467,7 +467,7 @@ func (b *InMemoryBackend) SeedAuditFinding(f *AuditFinding) *AuditFinding {
 }
 
 func (b *InMemoryBackend) DescribeAuditFinding(findingID string) (*AuditFinding, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAuditFinding")
 	defer b.mu.RUnlock()
 
 	f, ok := b.auditFindings.Get(findingID)
@@ -584,7 +584,7 @@ func (f *AuditFinding) matchesFilter(filter ListAuditFindingsFilter) bool {
 // ListAuditFindings returns findings matching filter. See
 // [ListAuditFindingsFilter]'s doc comment for what is and is not modeled.
 func (b *InMemoryBackend) ListAuditFindings(filter ListAuditFindingsFilter) []*AuditFinding {
-	b.mu.RLock()
+	b.mu.RLock("ListAuditFindings")
 	defer b.mu.RUnlock()
 
 	items := b.auditFindings.Snapshot()
@@ -604,7 +604,7 @@ func (b *InMemoryBackend) ListAuditFindings(filter ListAuditFindingsFilter) []*A
 // ListRelatedResourcesForAuditFinding returns the resources related to a stored
 // audit finding (e.g. certificates, policies) identified when the audit ran.
 func (b *InMemoryBackend) ListRelatedResourcesForAuditFinding(findingID string) ([]map[string]any, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListRelatedResourcesForAuditFinding")
 	defer b.mu.RUnlock()
 
 	f, ok := b.auditFindings.Get(findingID)
@@ -631,7 +631,7 @@ type EventConfigEntry struct {
 }
 
 func (b *InMemoryBackend) DescribeEventConfigurations() *EventConfigurations {
-	b.mu.RLock()
+	b.mu.RLock("DescribeEventConfigurations")
 	defer b.mu.RUnlock()
 
 	if b.eventConfigurations == nil {
@@ -651,7 +651,7 @@ func (b *InMemoryBackend) DescribeEventConfigurations() *EventConfigurations {
 }
 
 func (b *InMemoryBackend) UpdateEventConfigurations(cfgs map[string]*EventConfigEntry) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateEventConfigurations")
 	defer b.mu.Unlock()
 
 	now := float64(time.Now().Unix())
@@ -712,7 +712,7 @@ type CreateScheduledAuditInput struct {
 func (b *InMemoryBackend) CreateScheduledAudit(
 	input *CreateScheduledAuditInput,
 ) (*ScheduledAudit, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateScheduledAudit")
 	defer b.mu.Unlock()
 
 	if b.scheduledAudits.Has(input.ScheduledAuditName) {
@@ -738,7 +738,7 @@ func (b *InMemoryBackend) CreateScheduledAudit(
 }
 
 func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeScheduledAudit")
 	defer b.mu.RUnlock()
 
 	sa, ok := b.scheduledAudits.Get(name)
@@ -750,7 +750,7 @@ func (b *InMemoryBackend) DescribeScheduledAudit(name string) (*ScheduledAudit, 
 }
 
 func (b *InMemoryBackend) ListScheduledAudits() []*ScheduledAudit {
-	b.mu.RLock()
+	b.mu.RLock("ListScheduledAudits")
 	defer b.mu.RUnlock()
 
 	out := make([]*ScheduledAudit, 0, b.scheduledAudits.Len())
@@ -765,7 +765,7 @@ func (b *InMemoryBackend) UpdateScheduledAudit(
 	name, frequency, dayOfMonth, dayOfWeek string,
 	checks []string,
 ) (*ScheduledAudit, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateScheduledAudit")
 	defer b.mu.Unlock()
 
 	sa, ok := b.scheduledAudits.Get(name)
@@ -789,7 +789,7 @@ func (b *InMemoryBackend) UpdateScheduledAudit(
 }
 
 func (b *InMemoryBackend) DeleteScheduledAudit(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteScheduledAudit")
 	defer b.mu.Unlock()
 
 	if !b.scheduledAudits.Has(name) {
@@ -834,7 +834,7 @@ type CreateMitigationActionInput struct {
 func (b *InMemoryBackend) CreateMitigationAction(
 	input *CreateMitigationActionInput,
 ) (*MitigationAction, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMitigationAction")
 	defer b.mu.Unlock()
 
 	if b.mitigationActions.Has(input.ActionName) {
@@ -862,7 +862,7 @@ func (b *InMemoryBackend) CreateMitigationAction(
 }
 
 func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationAction, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMitigationAction")
 	defer b.mu.RUnlock()
 
 	ma, ok := b.mitigationActions.Get(name)
@@ -874,7 +874,7 @@ func (b *InMemoryBackend) DescribeMitigationAction(name string) (*MitigationActi
 }
 
 func (b *InMemoryBackend) ListMitigationActions() []*MitigationAction {
-	b.mu.RLock()
+	b.mu.RLock("ListMitigationActions")
 	defer b.mu.RUnlock()
 
 	out := make([]*MitigationAction, 0, b.mitigationActions.Len())
@@ -889,7 +889,7 @@ func (b *InMemoryBackend) UpdateMitigationAction(
 	name, roleARN string,
 	params map[string]any,
 ) (*MitigationAction, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMitigationAction")
 	defer b.mu.Unlock()
 
 	ma, ok := b.mitigationActions.Get(name)
@@ -908,7 +908,7 @@ func (b *InMemoryBackend) UpdateMitigationAction(
 }
 
 func (b *InMemoryBackend) DeleteMitigationAction(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMitigationAction")
 	defer b.mu.Unlock()
 
 	if !b.mitigationActions.Has(name) {

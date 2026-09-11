@@ -47,7 +47,7 @@ func (b *InMemoryBackend) pendingUntil() time.Time {
 // "creating" state before reaching "available". Zero (the default) means the
 // transition is instant. Safe for concurrent use.
 func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
-	b.mu.Lock()
+	b.mu.Lock("SetLifecycleDelay")
 	defer b.mu.Unlock()
 	b.lifecycleDelay = d
 }
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) SetLifecycleDelay(d time.Duration) {
 // that need to advance time past a transition deadline without sleeping.
 // Passing nil restores time.Now. Safe for concurrent use.
 func (b *InMemoryBackend) SetClock(clock func() time.Time) {
-	b.mu.Lock()
+	b.mu.Lock("SetClock")
 	defer b.mu.Unlock()
 	b.clock = clock
 }

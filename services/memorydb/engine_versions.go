@@ -50,7 +50,7 @@ func (b *InMemoryBackend) DescribeEngineVersions(
 	_ context.Context,
 	req *describeEngineVersionsRequest,
 ) ([]*EngineVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeEngineVersions")
 	defer b.mu.RUnlock()
 
 	all := defaultEngineVersions()

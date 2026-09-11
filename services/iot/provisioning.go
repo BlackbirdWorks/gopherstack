@@ -40,7 +40,7 @@ type CreateRoleAliasInput struct {
 }
 
 func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateRoleAlias")
 	defer b.mu.Unlock()
 
 	if b.roleAliases.Has(input.RoleAlias) {
@@ -70,7 +70,7 @@ func (b *InMemoryBackend) CreateRoleAlias(input *CreateRoleAliasInput) (*RoleAli
 }
 
 func (b *InMemoryBackend) DescribeRoleAlias(alias string) (*RoleAlias, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeRoleAlias")
 	defer b.mu.RUnlock()
 
 	ra, ok := b.roleAliases.Get(alias)
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) DescribeRoleAlias(alias string) (*RoleAlias, error) {
 }
 
 func (b *InMemoryBackend) ListRoleAliases() []*RoleAlias {
-	b.mu.RLock()
+	b.mu.RLock("ListRoleAliases")
 	defer b.mu.RUnlock()
 
 	out := make([]*RoleAlias, 0, b.roleAliases.Len())
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) UpdateRoleAlias(
 	alias, roleARN string,
 	credDuration int,
 ) (*RoleAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateRoleAlias")
 	defer b.mu.Unlock()
 
 	ra, ok := b.roleAliases.Get(alias)
@@ -116,7 +116,7 @@ func (b *InMemoryBackend) UpdateRoleAlias(
 }
 
 func (b *InMemoryBackend) DeleteRoleAlias(alias string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRoleAlias")
 	defer b.mu.Unlock()
 
 	if !b.roleAliases.Has(alias) {
@@ -163,7 +163,7 @@ type CreateDomainConfigurationInput struct {
 func (b *InMemoryBackend) CreateDomainConfiguration(
 	input *CreateDomainConfigurationInput,
 ) (*DomainConfiguration, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDomainConfiguration")
 	defer b.mu.Unlock()
 
 	if b.domainConfigs.Has(input.DomainConfigurationName) {
@@ -194,7 +194,7 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 }
 
 func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfiguration, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDomainConfiguration")
 	defer b.mu.RUnlock()
 
 	dc, ok := b.domainConfigs.Get(name)
@@ -206,7 +206,7 @@ func (b *InMemoryBackend) DescribeDomainConfiguration(name string) (*DomainConfi
 }
 
 func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
-	b.mu.RLock()
+	b.mu.RLock("ListDomainConfigurations")
 	defer b.mu.RUnlock()
 
 	out := make([]*DomainConfiguration, 0, b.domainConfigs.Len())
@@ -220,7 +220,7 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 func (b *InMemoryBackend) UpdateDomainConfiguration(
 	name, status string,
 ) (*DomainConfiguration, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDomainConfiguration")
 	defer b.mu.Unlock()
 
 	dc, ok := b.domainConfigs.Get(name)
@@ -236,7 +236,7 @@ func (b *InMemoryBackend) UpdateDomainConfiguration(
 }
 
 func (b *InMemoryBackend) DeleteDomainConfiguration(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDomainConfiguration")
 	defer b.mu.Unlock()
 
 	if !b.domainConfigs.Has(name) {
@@ -305,7 +305,7 @@ type CreateProvisioningTemplateInput struct {
 func (b *InMemoryBackend) CreateProvisioningTemplate(
 	input *CreateProvisioningTemplateInput,
 ) (*ProvisioningTemplate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateProvisioningTemplate")
 	defer b.mu.Unlock()
 
 	if b.provTemplates.Has(input.TemplateName) {
@@ -341,7 +341,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplate(
 }
 
 func (b *InMemoryBackend) DescribeProvisioningTemplate(name string) (*ProvisioningTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeProvisioningTemplate")
 	defer b.mu.RUnlock()
 
 	pt, ok := b.provTemplates.Get(name)
@@ -353,7 +353,7 @@ func (b *InMemoryBackend) DescribeProvisioningTemplate(name string) (*Provisioni
 }
 
 func (b *InMemoryBackend) ListProvisioningTemplates() []*ProvisioningTemplate {
-	b.mu.RLock()
+	b.mu.RLock("ListProvisioningTemplates")
 	defer b.mu.RUnlock()
 
 	out := make([]*ProvisioningTemplate, 0, b.provTemplates.Len())
@@ -372,7 +372,7 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 	preProvisioningHook *ProvisioningHook,
 	removePreProvisioningHook bool,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateProvisioningTemplate")
 	defer b.mu.Unlock()
 
 	pt, ok := b.provTemplates.Get(name)
@@ -402,7 +402,7 @@ func (b *InMemoryBackend) UpdateProvisioningTemplate(
 }
 
 func (b *InMemoryBackend) DeleteProvisioningTemplate(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteProvisioningTemplate")
 	defer b.mu.Unlock()
 
 	if !b.provTemplates.Has(name) {
@@ -419,7 +419,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
 	name, body string,
 	setAsDefault bool,
 ) (*ProvisioningTemplateVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateProvisioningTemplateVersion")
 	defer b.mu.Unlock()
 
 	pt, ok := b.provTemplates.Get(name)
@@ -448,7 +448,7 @@ func (b *InMemoryBackend) CreateProvisioningTemplateVersion(
 func (b *InMemoryBackend) ListProvisioningTemplateVersions(
 	name string,
 ) ([]*ProvisioningTemplateVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListProvisioningTemplateVersions")
 	defer b.mu.RUnlock()
 
 	if !b.provTemplates.Has(name) {
@@ -462,7 +462,7 @@ func (b *InMemoryBackend) ListProvisioningTemplateVersions(
 }
 
 func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, versionID int32) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteProvisioningTemplateVersion")
 	defer b.mu.Unlock()
 
 	if !b.provTemplates.Has(name) {
@@ -485,7 +485,7 @@ func (b *InMemoryBackend) DeleteProvisioningTemplateVersion(name string, version
 func (b *InMemoryBackend) DescribeProvisioningTemplateVersion(
 	name string, versionID int32,
 ) (*ProvisioningTemplateVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeProvisioningTemplateVersion")
 	defer b.mu.RUnlock()
 
 	if !b.provTemplates.Has(name) {

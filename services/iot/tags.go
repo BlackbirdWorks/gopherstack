@@ -3,7 +3,7 @@ package iot
 import "maps"
 
 func (b *InMemoryBackend) TagResourceGeneric(resourceARN string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResourceGeneric")
 	defer b.mu.Unlock()
 
 	b.putResourceTagsLocked(resourceARN, tags)
@@ -27,7 +27,7 @@ func (b *InMemoryBackend) putResourceTagsLocked(resourceARN string, tags map[str
 }
 
 func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	if tags, ok := b.resourceTags[resourceARN]; ok {
@@ -40,7 +40,7 @@ func (b *InMemoryBackend) UntagResource(resourceARN string, tagKeys []string) er
 }
 
 func (b *InMemoryBackend) ListTagsForResource(resourceARN string) map[string]string {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	tags := b.resourceTags[resourceARN]

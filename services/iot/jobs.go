@@ -21,7 +21,7 @@ import (
 func (b *InMemoryBackend) AssociateTargetsWithJob(
 	input *AssociateTargetsWithJobInput,
 ) (*AssociateTargetsWithJobOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("AssociateTargetsWithJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(input.JobID)
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 // ListJobExecutionsForJob returns summaries of all executions for a job.
 func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListJobExecutionsForJob")
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution 
 
 // ListJobExecutionsForThing returns summaries of all executions for a thing.
 func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListJobExecutionsForThing")
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
@@ -324,7 +324,7 @@ type CreateJobInput struct {
 }
 
 func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
 	if b.jobs.Has(input.JobID) {
@@ -486,7 +486,7 @@ func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetai
 }
 
 func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJob")
 	defer b.mu.RUnlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -501,7 +501,7 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 }
 
 func (b *InMemoryBackend) ListJobs() []*Job {
-	b.mu.RLock()
+	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
 	out := make([]*Job, 0, b.jobs.Len())
@@ -526,7 +526,7 @@ type UpdateJobInput struct {
 }
 
 func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -565,7 +565,7 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 // the same class of terminal-state guard CancelJobExecution/CancelAuditTask
 // already enforce.
 func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -582,7 +582,7 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 }
 
 func (b *InMemoryBackend) DeleteJob(jobID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
 	if !b.jobs.Has(jobID) {
@@ -604,7 +604,7 @@ func (b *InMemoryBackend) DeleteJob(jobID string) error {
 }
 
 func (b *InMemoryBackend) GetJobDocument(jobID string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetJobDocument")
 	defer b.mu.RUnlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -625,7 +625,7 @@ func jobExecKey(jobID, thingName string) string {
 // own create-on-miss fallback can never produce, since it always creates in
 // CANCELED state.
 func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
-	b.mu.Lock()
+	b.mu.Lock("AddJobExecutionInternal")
 	defer b.mu.Unlock()
 
 	cp := *e
@@ -633,7 +633,7 @@ func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
 }
 
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJobExecution")
 	defer b.mu.RUnlock()
 
 	key := jobExecKey(jobID, thingName)
@@ -675,7 +675,7 @@ type CancelJobExecutionOptions struct {
 // AddThingToThingGroup) — there, an execution is created directly in
 // CANCELED state as a defensive fallback.
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelJobExecution")
 	defer b.mu.Unlock()
 
 	now := float64(time.Now().Unix())
@@ -765,7 +765,7 @@ func isTerminalJobExecutionStatus(status JobExecutionStatus) bool {
 // already-absent execution rather than ResourceNotFoundException, since
 // deletion is the natural end state).
 func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteJobExecution")
 	defer b.mu.Unlock()
 
 	key := jobExecKey(jobID, thingName)
@@ -850,7 +850,7 @@ type CreateJobTemplateInput struct {
 }
 
 func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateJobTemplate")
 	defer b.mu.Unlock()
 
 	if b.jobTemplates.Has(input.JobTemplateID) {
@@ -883,7 +883,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 }
 
 func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJobTemplate")
 	defer b.mu.RUnlock()
 
 	jt, ok := b.jobTemplates.Get(id)
@@ -895,7 +895,7 @@ func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
 }
 
 func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
-	b.mu.RLock()
+	b.mu.RLock("ListJobTemplates")
 	defer b.mu.RUnlock()
 
 	out := make([]*JobTemplate, 0, b.jobTemplates.Len())
@@ -907,7 +907,7 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 }
 
 func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteJobTemplate")
 	defer b.mu.Unlock()
 
 	if !b.jobTemplates.Has(id) {
