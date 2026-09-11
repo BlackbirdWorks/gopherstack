@@ -600,3 +600,90 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	assert.Equal(t, 1, redshift.SnapshotCount(b2))
 	assert.Equal(t, 1, redshift.ActiveResizeCount(b2))
 }
+
+// TestPersistence_ScheduledActionWindowSurvivesRestore covers gopherstack-n746d:
+// ServerlessScheduledAction.StartTime/EndTime carried json:"-", so a restart
+// zeroed both. There is no code path in this service that uses a scheduled
+// action's own StartTime/EndTime to filter ListRecoveryPoints/ListSnapshots
+// (those operations take their own StartTime/EndTime straight from the
+// request, in ListRecoveryPointsParams/ListServerlessSnapshotsParams) --
+// only GetServerlessScheduledAction and the GetScheduledAction wire response
+// (via toScheduledActionWire) read the fields, so this covers both of those.
+func TestPersistence_ScheduledActionWindowSurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		startTime time.Time
+		endTime   time.Time
+		name      string
+	}{
+		{
+			name:      "explicit_window",
+			startTime: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+			endTime:   time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
+		},
+		{
+			name: "no_window",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+
+			_, err := b.CreateNamespace(redshift.CreateNamespaceParams{NamespaceName: "sa-rt-ns"})
+			require.NoError(t, err)
+
+			_, err = b.CreateServerlessScheduledAction(redshift.CreateScheduledActionParams{
+				ScheduledActionName: "sa-rt-action",
+				NamespaceName:       "sa-rt-ns",
+				RoleArn:             "arn:aws:iam::000000000000:role/scheduler",
+				Schedule:            json.RawMessage(`{"cron":"0 10 ? * MON *"}`),
+				TargetAction: json.RawMessage(
+					`{"createSnapshot":{"namespaceName":"sa-rt-ns","snapshotName":"sa-rt-snap"}}`,
+				),
+				StartTime: tt.startTime,
+				EndTime:   tt.endTime,
+			})
+			require.NoError(t, err)
+
+			data := b.Snapshot(t.Context())
+			require.NotNil(t, data)
+
+			fresh := redshift.NewInMemoryBackend("000000000000", "us-east-1")
+			require.NoError(t, fresh.Restore(t.Context(), data))
+
+			sa, err := fresh.GetServerlessScheduledAction("sa-rt-action")
+			require.NoError(t, err)
+			assert.True(t, tt.startTime.Equal(sa.StartTime), "start time must survive restore")
+			assert.True(t, tt.endTime.Equal(sa.EndTime), "end time must survive restore")
+
+			h := redshift.NewServerlessHandler(fresh)
+			rec := doServerlessOp(t, h, "GetScheduledAction", map[string]any{"scheduledActionName": "sa-rt-action"})
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			var resp map[string]any
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+			saData, _ := resp["scheduledAction"].(map[string]any)
+			require.NotNil(t, saData)
+
+			if tt.startTime.IsZero() {
+				assert.NotContains(t, saData, "startTime", "omitzero must drop an unset start time from the wire")
+			} else {
+				gotStart, ok := saData["startTime"].(float64)
+				require.True(t, ok, "startTime must be an epoch-seconds number")
+				assert.InDelta(t, float64(tt.startTime.Unix()), gotStart, 1)
+			}
+
+			if tt.endTime.IsZero() {
+				assert.NotContains(t, saData, "endTime", "omitzero must drop an unset end time from the wire")
+			} else {
+				gotEnd, ok := saData["endTime"].(float64)
+				require.True(t, ok, "endTime must be an epoch-seconds number")
+				assert.InDelta(t, float64(tt.endTime.Unix()), gotEnd, 1)
+			}
+		})
+	}
+}

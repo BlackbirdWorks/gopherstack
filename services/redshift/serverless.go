@@ -243,9 +243,18 @@ type ServerlessUsageLimit struct {
 // object (confirmed via awsAwsjson11_serializeDocumentSchedule/TargetAction in
 // serializers.go) -- this backend does not execute scheduled actions, so
 // passthrough preserves wire fidelity without fabricating execution semantics.
+// StartTime/EndTime carry real tags, not json:"-": both are real members of
+// types.ScheduledActionResponse (redshiftserverless@v1.38.5 types/types.go:416,459,
+// wire keys "startTime"/"endTime", epoch-seconds numbers per deserializers.go:10369,10439).
+// The wire response is produced by handler_serverless.go's toScheduledActionWire,
+// which reads these fields directly rather than marshalling this struct, so the
+// tag was never wire-motivated -- it only suppressed StartTime/EndTime from
+// persistence, since store_setup.go registers this type directly (no DTO twin,
+// unlike opensearch's DataSourceAttachment) and the registry marshals the live
+// struct with its own tags (gopherstack-n746d).
 type ServerlessScheduledAction struct {
-	StartTime                  time.Time       `json:"-"`
-	EndTime                    time.Time       `json:"-"`
+	StartTime                  time.Time       `json:"startTime,omitzero"`
+	EndTime                    time.Time       `json:"endTime,omitzero"`
 	NamespaceName              string          `json:"namespaceName,omitempty"`
 	RoleArn                    string          `json:"roleArn,omitempty"`
 	ScheduledActionDescription string          `json:"scheduledActionDescription,omitempty"`
