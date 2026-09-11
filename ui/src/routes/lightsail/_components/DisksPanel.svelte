@@ -5,6 +5,7 @@
 	// InstanceState).
 	import {
 		GetDisksCommand,
+		GetDiskCommand,
 		CreateDiskCommand,
 		CreateDiskFromSnapshotCommand,
 		AttachDiskCommand,
@@ -210,8 +211,12 @@
 		detailModal?.open();
 		if (d.name) {
 			try {
-				const resp = await client().send(new GetAutoSnapshotsCommand({ resourceName: d.name }));
-				autoSnapshots = resp.autoSnapshots ?? [];
+				const [diskResp, snapResp] = await Promise.all([
+					client().send(new GetDiskCommand({ diskName: d.name })),
+					client().send(new GetAutoSnapshotsCommand({ resourceName: d.name }))
+				]);
+				viewed = diskResp.disk ?? d;
+				autoSnapshots = snapResp.autoSnapshots ?? [];
 			} catch (e) {
 				toast.error(describeError(e));
 			}

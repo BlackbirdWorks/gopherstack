@@ -1,11 +1,11 @@
 <script lang="ts">
 	// Instances -- family B (core lifecycle: create/delete/list/start/stop/
 	// reboot/state), folded together with the detail-only families that only
-	// ever act on an already-created instance: C (ports/access/host-keys), E
-	// (metrics -- honest empty, see below -- and metadata options), F
-	// (add-ons/auto-snapshots), and AA (GUI sessions). SetupInstanceHttps and
-	// GetSetupHistory (also family C) are NOT surfaced here -- see the
-	// route's page.test.ts / the restore report for why.
+	// ever act on an already-created instance: C (ports/access/host-keys,
+	// including the bulk PutInstancePublicPorts replace-all form and the
+	// SetupInstanceHttps/GetSetupHistory Bitnami HTTPS flow), E (metrics --
+	// honest empty, see below -- and metadata options), F (add-ons/auto-
+	// snapshots), and AA (GUI sessions).
 	//
 	// InstanceState has NO typed SDK enum (services/lightsail/models.go's
 	// Instance doc comment) -- this panel renders whatever `state.name`
@@ -14,6 +14,7 @@
 	import {
 		GetInstancesCommand,
 		GetInstanceCommand,
+		GetInstanceStateCommand,
 		CreateInstancesCommand,
 		DeleteInstanceCommand,
 		StartInstanceCommand,
@@ -22,6 +23,7 @@
 		GetInstancePortStatesCommand,
 		OpenInstancePublicPortsCommand,
 		CloseInstancePublicPortsCommand,
+		PutInstancePublicPortsCommand,
 		GetInstanceAccessDetailsCommand,
 		GetAutoSnapshotsCommand,
 		DeleteAutoSnapshotCommand,
@@ -33,11 +35,15 @@
 		CreateGUISessionAccessDetailsCommand,
 		StartGUISessionCommand,
 		StopGUISessionCommand,
+		SetupInstanceHttpsCommand,
+		GetSetupHistoryCommand,
 		TagResourceCommand,
 		UntagResourceCommand,
 		type Instance,
 		type InstancePortState,
 		type AutoSnapshotDetails,
+		type SetupHistory,
+		type Operation,
 		type LightsailClient
 	} from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
@@ -221,6 +227,18 @@
 	let metricsCount = $state(0);
 	let guiSessionUrl = $state<string | null>(null);
 	let guiSessionStatus = $state<string | null>(null);
+	let stateChecked = $state(false);
+	let bulkPortRows = $state<
+		{ fromPort: number; toPort: number; protocol: 'tcp' | 'udp' | 'all' | 'icmp' | 'icmpv6'; cidrs: string }[]
+	>([]);
+	let bulkPortsError = $state<string | null>(null);
+	let httpsEmail = $state('');
+	let httpsDomainNames = $state('');
+	let httpsBusy = $state(false);
+	let httpsError = $state<string | null>(null);
+	let httpsOperations = $state<Operation[]>([]);
+	let setupHistory = $state<SetupHistory[]>([]);
+	let setupHistoryLoaded = $state(false);
 
 	async function openDetail(i: Instance): Promise<void> {
 		detailError = null;
@@ -232,6 +250,15 @@
 		metricsEmpty = true;
 		guiSessionUrl = null;
 		guiSessionStatus = null;
+		stateChecked = false;
+		bulkPortRows = [];
+		bulkPortsError = null;
+		httpsEmail = '';
+		httpsDomainNames = '';
+		httpsError = null;
+		httpsOperations = [];
+		setupHistory = [];
+		setupHistoryLoaded = false;
 		detailModal?.open();
 		try {
 			const resp = await client().send(new GetInstanceCommand({ instanceName: i.name }));
@@ -293,6 +320,86 @@
 			);
 			toast.success('Port closed');
 			await loadPorts();
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function refreshInstanceState(): Promise<void> {
+		if (!viewed?.name) return;
+		try {
+			const resp = await client().send(new GetInstanceStateCommand({ instanceName: viewed.name }));
+			viewed = { ...viewed, state: resp.state ?? viewed.state };
+			stateChecked = true;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	function addBulkPortRow(): void {
+		bulkPortRows = [...bulkPortRows, { fromPort: 80, toPort: 80, protocol: 'tcp', cidrs: '' }];
+	}
+
+	function removeBulkPortRow(i: number): void {
+		bulkPortRows = bulkPortRows.filter((_, idx) => idx !== i);
+	}
+
+	// PutInstancePublicPorts REPLACES the entire firewall rule set -- unlike
+	// Open/CloseInstancePublicPorts above, which add/remove one rule at a
+	// time. Any rule not listed here is dropped.
+	async function submitBulkPorts(): Promise<void> {
+		if (!viewed?.name) return;
+		bulkPortsError = null;
+		try {
+			await client().send(
+				new PutInstancePublicPortsCommand({
+					instanceName: viewed.name,
+					portInfos: bulkPortRows.map((r) => ({
+						fromPort: r.fromPort,
+						toPort: r.toPort,
+						protocol: r.protocol,
+						cidrs: r.cidrs.trim() ? r.cidrs.split(',').map((c) => c.trim()) : undefined
+					}))
+				})
+			);
+			toast.success('Firewall rules replaced');
+			await loadPorts();
+		} catch (e) {
+			bulkPortsError = describeError(e);
+		}
+	}
+
+	async function submitSetupHttps(): Promise<void> {
+		if (!viewed?.name) return;
+		httpsBusy = true;
+		httpsError = null;
+		try {
+			const resp = await client().send(
+				new SetupInstanceHttpsCommand({
+					instanceName: viewed.name,
+					emailAddress: httpsEmail,
+					domainNames: httpsDomainNames
+						.split(',')
+						.map((d) => d.trim())
+						.filter(Boolean),
+					certificateProvider: 'LetsEncrypt'
+				})
+			);
+			httpsOperations = resp.operations ?? [];
+			toast.success('HTTPS setup requested');
+		} catch (e) {
+			httpsError = describeError(e);
+		} finally {
+			httpsBusy = false;
+		}
+	}
+
+	async function loadSetupHistory(): Promise<void> {
+		if (!viewed?.name) return;
+		try {
+			const resp = await client().send(new GetSetupHistoryCommand({ resourceName: viewed.name }));
+			setupHistory = resp.setupHistory ?? [];
+			setupHistoryLoaded = true;
 		} catch (e) {
 			toast.error(describeError(e));
 		}
@@ -543,7 +650,14 @@
 				{#if detailError}<p class="text-sm text-red-600 dark:text-red-400">{detailError}</p>{/if}
 				<dl class="grid grid-cols-2 gap-2 text-sm">
 					<div><dt class="text-slate-500">ARN</dt><dd class="break-all">{viewed.arn ?? '—'}</dd></div>
-					<div><dt class="text-slate-500">State</dt><dd>{viewed.state?.name ?? '—'} (code {viewed.state?.code ?? '—'})</dd></div>
+					<div>
+						<dt class="text-slate-500">State</dt>
+						<dd class="flex items-center gap-2">
+							{viewed.state?.name ?? '—'} (code {viewed.state?.code ?? '—'})
+							<button onclick={refreshInstanceState} class="text-blue-600 hover:underline text-xs">Refresh</button>
+							{#if stateChecked}<span class="text-slate-400">(via GetInstanceState)</span>{/if}
+						</dd>
+					</div>
 					<div><dt class="text-slate-500">Public IP</dt><dd>{viewed.publicIpAddress ?? '—'}</dd></div>
 					<div><dt class="text-slate-500">Private IP</dt><dd>{viewed.privateIpAddress ?? '—'}</dd></div>
 					<div><dt class="text-slate-500">CPU / RAM</dt><dd>{viewed.hardware?.cpuCount ?? '—'} vCPU / {viewed.hardware?.ramSizeInGb ?? '—'} GB</dd></div>
@@ -576,6 +690,73 @@
 						</select>
 						<button onclick={openPort} class="px-2 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700">Open port</button>
 					</div>
+				</div>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+					<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Replace all firewall rules</p>
+					<p class="text-xs text-amber-600 dark:text-amber-400">
+						Warning: PutInstancePublicPorts replaces the ENTIRE rule set above -- any open port not
+						listed here is closed.
+					</p>
+					{#each bulkPortRows as row, i (i)}
+						<div class="flex items-center gap-2">
+							<input type="number" bind:value={row.fromPort} aria-label="Bulk rule {i + 1} from port" class="w-20 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700" />
+							<input type="number" bind:value={row.toPort} aria-label="Bulk rule {i + 1} to port" class="w-20 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700" />
+							<select bind:value={row.protocol} aria-label="Bulk rule {i + 1} protocol" class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700">
+								<option value="tcp">tcp</option>
+								<option value="udp">udp</option>
+								<option value="all">all</option>
+								<option value="icmp">icmp</option>
+								<option value="icmpv6">icmpv6</option>
+							</select>
+							<input bind:value={row.cidrs} placeholder="CIDRs, comma-separated (optional)" aria-label="Bulk rule {i + 1} CIDRs" class="flex-1 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700" />
+							<button onclick={() => removeBulkPortRow(i)} class="text-red-600 hover:underline text-xs">Remove</button>
+						</div>
+					{:else}
+						<p class="text-slate-500 text-sm">No rules staged -- applying now would close every open port.</p>
+					{/each}
+					<div class="flex items-center gap-2">
+						<button onclick={addBulkPortRow} class="px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600">Add rule</button>
+						<button onclick={submitBulkPorts} class="px-2 py-1 text-xs rounded-lg bg-amber-600 text-white hover:bg-amber-700">Replace all rules</button>
+					</div>
+					{#if bulkPortsError}<p class="text-sm text-red-600 dark:text-red-400">{bulkPortsError}</p>{/if}
+				</div>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+					<p class="text-sm font-medium text-slate-700 dark:text-slate-300">HTTPS setup (Bitnami auto-provisioning)</p>
+					<div class="flex flex-col sm:flex-row gap-2">
+						<input bind:value={httpsEmail} placeholder="Email address" aria-label="HTTPS setup email address" class="flex-1 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700" />
+						<input bind:value={httpsDomainNames} placeholder="Domain names, comma-separated" aria-label="HTTPS setup domain names" class="flex-1 px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700" />
+						<span class="text-xs text-slate-500 self-center">Provider: Let's Encrypt</span>
+						<button onclick={submitSetupHttps} disabled={httpsBusy || !httpsEmail || !httpsDomainNames} class="px-2 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Set up HTTPS</button>
+					</div>
+					{#if httpsError}<p class="text-sm text-red-600 dark:text-red-400">{httpsError}</p>{/if}
+					{#if httpsOperations.length > 0}<p class="text-xs text-slate-500">{httpsOperations.length} operation(s) started.</p>{/if}
+
+					<div class="flex items-center gap-2 pt-1">
+						<p class="text-sm font-medium text-slate-700 dark:text-slate-300 flex-1">Setup history</p>
+						<button onclick={loadSetupHistory} class="px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600">Load setup history</button>
+					</div>
+					<table class="w-full text-xs">
+						<thead>
+							<tr class="text-left text-slate-500">
+								<th class="pr-2 font-medium">Operation</th>
+								<th class="pr-2 font-medium">Status</th>
+								<th class="font-medium">Domains</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each setupHistory as h (h.operationId)}
+								<tr>
+									<td class="pr-2">{h.operationId ?? '—'}</td>
+									<td class="pr-2">{h.status ?? '—'}</td>
+									<td>{(h.request?.domainNames ?? []).join(', ') || '—'}</td>
+								</tr>
+							{:else}
+								<tr><td colspan="3" class="text-slate-500 py-1">{setupHistoryLoaded ? 'No setup history' : 'Not loaded'}</td></tr>
+							{/each}
+						</tbody>
+					</table>
 				</div>
 
 				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
