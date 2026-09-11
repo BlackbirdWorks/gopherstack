@@ -347,12 +347,13 @@ type defaultCreditSpecificationResponse struct {
 }
 
 type replaceRootVolumeTaskItem struct {
-	ReplaceRootVolumeTaskID string `xml:"replaceRootVolumeTaskId"`
-	InstanceID              string `xml:"instanceId"`
-	TaskState               string `xml:"taskState"`
-	StartTime               string `xml:"startTime"`
-	CompleteTime            string `xml:"completeTime,omitempty"`
-	SnapshotID              string `xml:"snapshotId,omitempty"`
+	ReplaceRootVolumeTaskID string          `xml:"replaceRootVolumeTaskId"`
+	InstanceID              string          `xml:"instanceId"`
+	TaskState               string          `xml:"taskState"`
+	StartTime               string          `xml:"startTime"`
+	CompleteTime            string          `xml:"completeTime,omitempty"`
+	SnapshotID              string          `xml:"snapshotId,omitempty"`
+	TagSet                  []simpleTagItem `xml:"tagSet>item"`
 }
 
 // handleEnableSerialConsoleAccess and handleDisableSerialConsoleAccess:

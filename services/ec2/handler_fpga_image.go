@@ -67,10 +67,13 @@ type fpgaImageItemXML struct {
 	InstanceTypeSet struct {
 		Items []string `xml:"item"`
 	} `xml:"instanceTypes"`
-	Public bool `xml:"public"`
+	// FpgaImage's tag list wire key is "tags", not the usual "tagSet"
+	// (deserializers.go:107225, awsEc2query_deserializeDocumentFpgaImage).
+	TagSet []simpleTagItem `xml:"tags>item"`
+	Public bool            `xml:"public"`
 }
 
-func toFpgaImageItemXML(img *FpgaImage) fpgaImageItemXML {
+func (h *Handler) toFpgaImageItemXML(img *FpgaImage) fpgaImageItemXML {
 	item := fpgaImageItemXML{
 		FpgaImageID:       img.FpgaImageID,
 		FpgaImageGlobalID: img.FpgaImageGlobalID,
@@ -81,6 +84,7 @@ func toFpgaImageItemXML(img *FpgaImage) fpgaImageItemXML {
 		OwnerID:           img.OwnerID,
 		OwnerAlias:        img.OwnerAlias,
 		Public:            img.Public,
+		TagSet:            tagItemsFromMap(h.Backend.TagsForResource(img.FpgaImageID)),
 	}
 
 	if !img.CreateTime.IsZero() {
@@ -183,6 +187,12 @@ func (h *Handler) handleCreateFpgaImage(vals url.Values, reqID string) (any, err
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "fpga-image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{img.FpgaImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createFpgaImageResponse{
 		RequestID:         reqID,
 		FpgaImageID:       img.FpgaImageID,
@@ -226,7 +236,7 @@ func (h *Handler) handleDescribeFpgaImages(vals url.Values, reqID string) (any, 
 
 	resp := &describeFpgaImagesResponse{RequestID: reqID}
 	for _, img := range images {
-		resp.FpgaImageSet.Items = append(resp.FpgaImageSet.Items, toFpgaImageItemXML(img))
+		resp.FpgaImageSet.Items = append(resp.FpgaImageSet.Items, h.toFpgaImageItemXML(img))
 	}
 
 	return resp, nil

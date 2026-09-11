@@ -27,6 +27,7 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	{"sg-", "security-group"},
 	{"subnet-", "subnet"},
 	{"vol-", conversionKindVolume},
+	{"replacevol-", "replace-root-volume-task"},
 	{"igw-", "internet-gateway"},
 	{"rtb-", "route-table"},
 	{"nat-", "natgateway"},
@@ -194,6 +195,7 @@ func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
 	ok = ok || b.subnets.Has(id)
 	ok = ok || b.keyPairs.Has(id)
 	ok = ok || b.volumes.Has(id)
+	ok = ok || b.replaceRootVolumeTasks.Has(id)
 	ok = ok || b.addresses.Has(id)
 	ok = ok || b.internetGateways.Has(id)
 	ok = ok || b.routeTables.Has(id)

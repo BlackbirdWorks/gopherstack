@@ -62,6 +62,16 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		return nil, err
 	}
 
+	// CreateImageInput.TagSpecifications also accepts ResourceType "snapshot"
+	// (api_op_CreateImage.go:132-140) to tag the per-volume snapshots it
+	// creates, but this backend's CreateImage does not model those snapshots,
+	// so only the "image" tag specification can be applied.
+	if tags := parseTagSpecification(vals, "image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{image.ImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createImageResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -93,6 +103,7 @@ func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string)
 			ImageID:  report.ImageID,
 			ReportID: report.ReportID,
 			State:    report.State,
+			TagSet:   tagItemsFromMap(h.Backend.TagsForResource(report.ReportID)),
 		}
 		if !report.CreatedAt.IsZero() {
 			item.CreationTime = report.CreatedAt.Format(time.RFC3339)
@@ -301,10 +312,11 @@ type createImageResponse struct {
 }
 
 type imageUsageReportItem struct {
-	ImageID      string `xml:"imageId,omitempty"`
-	ReportID     string `xml:"reportId,omitempty"`
-	State        string `xml:"state,omitempty"`
-	CreationTime string `xml:"creationTime,omitempty"`
+	ImageID      string          `xml:"imageId,omitempty"`
+	ReportID     string          `xml:"reportId,omitempty"`
+	State        string          `xml:"state,omitempty"`
+	CreationTime string          `xml:"creationTime,omitempty"`
+	TagSet       []simpleTagItem `xml:"tagSet>item"`
 }
 
 type imageUsageReportSet struct {
