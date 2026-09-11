@@ -480,12 +480,6 @@ type StorageBackend interface {
 
 	// Final stub batch: security profile behavior validation.
 	ValidateSecurityProfileBehaviors(behaviors []SecurityProfileBehavior) (bool, []string)
-
-	// Device Shadow operations.
-	GetThingShadow(thingName, shadowName string) (*ThingShadow, error)
-	UpdateThingShadow(thingName, shadowName string, state map[string]any) (*ThingShadow, error)
-	DeleteThingShadow(thingName, shadowName string) error
-	ListNamedShadowsForThing(thingName string) ([]string, error)
 }
 
 // Snapshottable is an optional interface that a StorageBackend may implement

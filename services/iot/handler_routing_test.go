@@ -380,3 +380,72 @@ func TestHandler_NewOperations(t *testing.T) {
 		})
 	}
 }
+
+// TestDeviceShadow_NotClaimedByIoT pins gopherstack-1252's decision: iot's own
+// dead Device Shadow handlers were deleted rather than fixed, because
+// services/iotdataplane already implements the real operations and no
+// correctly-signed client can ever reach iot's copy. This locks two things a
+// reintroduced shadow handler could silently break again:
+//   - RouteMatcher still yields to iotdataplane for iotdata-signed shadow
+//     traffic (gopherstack-61i8), and still claims the path otherwise.
+//   - a claimed shadow path resolves to no operation, rather than being
+//     misrouted onto thingOperation's generic per-method fallback
+//     (e.g. GET would otherwise silently become DescribeThing).
+func TestDeviceShadow_NotClaimedByIoT(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		authScope     string
+		wantRouteable bool
+	}{
+		{"unsigned_request_claimed", "", true},
+		{"iot_signed_claimed", "iot", true},
+		{"iotdata_signed_excluded", "iotdata", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			handler := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+			matcher := handler.RouteMatcher()
+
+			req := httptest.NewRequest(http.MethodGet, "/things/t1/shadow", nil)
+			if tt.authScope != "" {
+				req.Header.Set("Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKIA/20260826/us-east-1/"+tt.authScope+
+						"/aws4_request, SignedHeaders=host, Signature=mock")
+			}
+
+			e := echo.New()
+			c := e.NewContext(req, httptest.NewRecorder())
+
+			assert.Equal(t, tt.wantRouteable, matcher(c))
+		})
+	}
+}
+
+// TestDeviceShadow_ClaimedPathResolvesToNoOp exercises the claimed
+// (unsigned/iot-signed) branch of gopherstack-1252's routing decision over
+// full HTTP dispatch: iot no longer models GetThingShadow at all, so a
+// claimed shadow path must fail as an unknown operation instead of the
+// generic thing fallback silently answering with DescribeThing's shape.
+func TestDeviceShadow_ClaimedPathResolvesToNoOp(t *testing.T) {
+	t.Parallel()
+
+	backend := iot.NewInMemoryBackend()
+	handler := iot.NewHandler(backend, nil)
+
+	_, err := backend.CreateThing(&iot.CreateThingInput{ThingName: "t1"})
+	require.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/things/t1/shadow", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	require.NoError(t, handler.Handler()(c))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "unknown operation")
+}

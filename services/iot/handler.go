@@ -220,18 +220,6 @@ func (h *Handler) dispatchThingOps(c *echo.Context, op string) (bool, error) {
 	case opListThingPrincipals:
 
 		return true, h.handleListThingPrincipals(c)
-	case opGetThingShadow:
-
-		return true, h.handleGetThingShadow(c)
-	case opUpdateThingShadow:
-
-		return true, h.handleUpdateThingShadow(c)
-	case opDeleteThingShadow:
-
-		return true, h.handleDeleteThingShadow(c)
-	case opListNamedShadowsForThing:
-
-		return true, h.handleListNamedShadowsForThing(c)
 	case opDetachThingPrincipal:
 
 		return true, h.handleDetachThingPrincipal(c)

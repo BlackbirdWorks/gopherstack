@@ -25,7 +25,6 @@ type RuleDispatcher interface {
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
 	dispatcher             RuleDispatcher
-	shadows                map[shadowKey]*ThingShadow // thing+name → shadow
 	resourceTags           map[string]map[string]string
 	certificateTransfers   map[string]string
 	thingBillingGroups     map[string]string
@@ -137,7 +136,6 @@ func NewInMemoryBackend() *InMemoryBackend {
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
 		resourceTags:           make(map[string]map[string]string),
 		packageVersions2:       make(map[string]map[string]*IoTPackageVersion),
-		shadows:                make(map[shadowKey]*ThingShadow),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
 
 		auditMitigationExecutions:  make(map[string][]*AuditMitigationActionExecution),
@@ -183,10 +181,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	// Clears every table registered in store_setup.go's registerAllTables.
-	// b.shadows is not part of the registry (no pure keyFn without changing
-	// ThingShadow's shape), so it needs its own clear here.
 	b.registry.ResetAll()
-	b.shadows = make(map[shadowKey]*ThingShadow)
 
 	b.certificateTransfers = make(map[string]string)
 	b.thingBillingGroups = make(map[string]string)
@@ -640,10 +635,6 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 
 // -----------------------------------------------------------
 // CertificateProvider operations
-// -----------------------------------------------------------
-
-// -----------------------------------------------------------
-// Device Shadow operations
 // -----------------------------------------------------------
 
 func (b *InMemoryBackend) DetachThingPrincipal(thingName, principal string) error {
