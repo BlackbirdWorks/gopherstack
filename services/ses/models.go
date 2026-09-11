@@ -252,10 +252,10 @@ type SendQuota struct {
 // SendDataPoint represents a single send statistics time bucket.
 type SendDataPoint struct {
 	Timestamp        time.Time `json:"timestamp"`
-	DeliveryAttempts float64   `json:"deliveryAttempts"`
-	Bounces          float64   `json:"bounces"`
-	Complaints       float64   `json:"complaints"`
-	Rejects          float64   `json:"rejects"`
+	DeliveryAttempts int64     `json:"deliveryAttempts"`
+	Bounces          int64     `json:"bounces"`
+	Complaints       int64     `json:"complaints"`
+	Rejects          int64     `json:"rejects"`
 }
 
 const (
