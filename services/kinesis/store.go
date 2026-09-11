@@ -129,9 +129,11 @@ type InMemoryBackend struct {
 	faultsMu                           *lockmetrics.RWMutex
 	resourcePolicies                   map[string]map[string]string
 	streams                            *store.Table[Stream]
+	channels                           *store.Table[Channel]
 	OnStreamPurged                     func(string)
 	registry                           *store.Registry
 	streamsByRegion                    *store.Index[Stream]
+	channelsByRegion                   *store.Index[Channel]
 	accountID                          string
 	region                             string
 	onDemandStreamCountLimit           int
@@ -159,6 +161,8 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	}
 	b.streams = store.Register(b.registry, "streams", store.New(streamTableKeyFn))
 	b.streamsByRegion = b.streams.AddIndex("region", func(v *Stream) string { return v.Region })
+	b.channels = store.Register(b.registry, "channels", store.New(channelTableKeyFn))
+	b.channelsByRegion = b.channels.AddIndex("region", func(v *Channel) string { return v.Region })
 
 	return b
 }
@@ -175,6 +179,14 @@ func streamKey(region, name string) string {
 // streamTableKeyFn is the [store.Table] key function for b.streams.
 func streamTableKeyFn(v *Stream) string {
 	return streamKey(v.Region, v.Name)
+}
+
+// channelTableKeyFn is the [store.Table] key function for b.channels.
+// Channels are keyed by their ARN directly (unlike streams' composite
+// region/name key) since ChannelARN is already globally unique and encodes
+// the region.
+func channelTableKeyFn(v *Channel) string {
+	return v.ChannelARN
 }
 
 // faultsStore returns the FIS throttle-fault map for the given region, lazily

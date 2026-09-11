@@ -49,7 +49,16 @@ families:
   sequence_numbers: {status: ok, note: "per-shard monotonic NextSeq counter, 49-prefixed AWS-shaped sequence string, persisted via Shard.NextSeq"}
   reshard_lineage: {status: ok, note: "SplitShard/MergeShards/UpdateShardCount/UpdateStreamMode all set ParentShardID/AdjacentParentShardID correctly; closed shards retained forever for DescribeStream/ListShards lineage (see leaks note); Shard gained StartedAt/ClosedAt (set by every shard-creation/closeShard call site) so ListShards' timestamp-bounded ShardFilter types can do real time-bounded filtering instead of approximating"}
   error_codes: {status: ok, note: "ResourceNotFoundException/ResourceInUseException/InvalidArgumentException/ProvisionedThroughputExceededException/ExpiredIteratorException/LimitExceededException/UnknownOperationException all verified exact string + 400 status. fixed: KMSNotFoundException/KMSDisabledException/KMSInvalidStateException are now modeled and reachable via StartStreamEncryption's optional KMSKeyValidator (see StartStreamEncryption note) -- the previous audit's claim that Kinesis has no KMS-specific exceptions was wrong; deserializers.go's awsAwsjson11_deserializeOpErrorStartStreamEncryption lists KMSAccessDeniedException/KMSDisabledException/KMSInvalidStateException/KMSNotFoundException/KMSOptInRequired/KMSThrottlingException/AccessDeniedException as real modeled errors for this op. KMSAccessDeniedException specifically remains unreachable -- see gaps."}
+  CreateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11 (channels sweep, gopherstack channels): implemented per api_op_CreateChannel.go. Requires exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration (InvalidArgumentException otherwise, per the doc comment's exact wording); rejects PROVISIONED-mode source streams with InvalidArgumentException per 'This operation is only supported for data streams with the on-demand capacity mode' -- the doc comment names no specific exception for this case, so InvalidArgumentException was chosen as the closest declared CreateChannel exception (deserializers.go's awsAwsjson11_deserializeOpErrorCreateChannel lists AccessDeniedException/InvalidArgumentException/KMS*/LimitExceededException/ResourceInUseException/ResourceNotFoundException/ValidationException); ChannelName collision -> ResourceInUseException (doc: 'unique within your Amazon Web Services account and Amazon Web Services Region'); unknown source stream ARN -> ResourceNotFoundException. 'state: fixed' documents this backend's disclosed simplification: real AWS is asynchronous (CREATING then ACTIVE); this backend applies it synchronously and returns ACTIVE immediately, the same precedent already set by UpdateStreamWarmThroughput/UpdateStreamMode in this file. Records put to the source stream are NOT delivered to either destination -- see gaps."}
+  DeleteChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DeleteChannel.go. Unlike CreateChannel/UpdateChannel, DeleteChannel's own doc comment describes no asynchronous CREATING/UPDATING-style transition, so there is no documented DELETING state to model; the channel is removed synchronously. Unknown ChannelARN -> ResourceNotFoundException."}
+  DescribeChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DescribeChannel.go. Keyed by ChannelARN only (the op takes no other identifier). Unknown ChannelARN -> ResourceNotFoundException."}
+  ListChannels: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_ListChannels.go. MaxResults defaults to and caps at 100 ('If you specify a value greater than 100, at most 100 results are returned'); NextToken is an exclusive-start ChannelName cursor, mirroring ListStreamConsumers' existing pagination shape in this file. StreamFilter.StreamARN filters by association; StreamFilter.StreamCreationTimestamp is accepted but not applied as a filter -- see gaps."}
+  UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
 gaps:
+  - "Channels (CreateChannel/UpdateChannel/DeleteChannel/DescribeChannel/ListChannels, added 2026-09-11) never deliver records: a channel row is created and queryable, but PutRecord/PutRecords never writes anything to the channel's S3DestinationConfiguration or S3TablesDestinationConfiguration target. S3DestinationConfiguration.StorageConfiguration.OutputKeyTemplate's doc comment says only 'If not specified, a default template is used' with no documented default key layout anywhere reachable from the pinned SDK doc comments or the fetchable AWS docs (the streams dev-guide's channels/Iceberg page could not be fetched this pass -- WebFetch against docs.aws.amazon.com/streams/latest/dev/introduction-to-kinesis-data-streams-channels.html and the dev-guide index returned no usable content). Inventing a key layout not backed by verified AWS behavior would itself be a fabrication (this repo's no-stub rule), so delivery was left unimplemented rather than guessed at. Every other channel operation (create/describe/list/update/delete, plus generic ListTagsForResource/TagResource/UntagResource against a channel ARN) is real."
+  - "Channel ARN format (arn:{partition}:kinesis:{region}:{accountID}:channel/{channelName}) is inferred by following the same '{service}/{resource-name}' convention AWS uses for every other Kinesis resource (stream/{name}, stream/{name}/consumer/{name}) -- the pinned SDK's doc comments give no ARN format for channels at all (unlike streams/consumers, documented in the IAM access-control guide, which itself predates the channels feature and was re-fetched this pass with no channel-ARN mention added). Not verified against a real AWS response; disclosed rather than asserted as confirmed."
+  - "CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel's documented 5 TPS-per-account call-limit LimitExceededException is not modeled. The service already has a couple of injectable-clock throttle precedents elsewhere in the codebase (e.g. services/polly's per-engine sliding-window throttle), but wiring an equivalent per-op rate model into this already-large file was judged disproportionate to this pass's ask; not fabricated. LimitExceededException remains reachable through this service's other existing rate-limited paths (tag limits, consumer-registration cap) -- it is only the channel-specific 5 TPS window that is unmodeled."
+  - "ChannelDescription/ChannelSummary's S3TablesConfiguration.PartitionSpec is modeled and round-trips (ChannelPartitionSpec/ChannelPartitionField), but this backend performs no actual Iceberg partitioning -- there is no partitioning behavior to verify the accepted spec against, only storage/echo."
   - "KMSAccessDeniedException (types.KMSAccessDeniedException) is a real modeled StartStreamEncryption/StopStreamEncryption error but has no trigger path: it requires evaluating a KMS key policy/grant against a calling principal, and gopherstack has no IAM policy evaluation engine anywhere (not just in kinesis) to produce an access-denied decision from. The sentinel (ErrKMSAccessDenied) and its InvalidArgumentException-style wire mapping (KMSAccessDeniedException, 400) are defined for wire-shape completeness, matching the real error type string exactly, but nothing in the backend can ever return it. Fabricating a fake denial rule (e.g. 'deny if KeyId contains X') would itself be a stub, so this stays an honest gap rather than a fake implementation. (bd: gopherstack-ud2)"
   - "UpdateStreamMode's PROVISIONED -> ON_DEMAND auto-reshard (see UpdateStreamMode note) approximates AWS's real throughput-history-based scaling with a fixed floor (defaultOnDemandShardCount = 4); it does not scale further for streams whose sustained load would earn a higher on-demand shard count in real AWS, since that requires tracking throughput history this emulator has no model for. Low priority: most callers re-describe the stream after the transition and adapt to whatever shard count comes back. (bd: gopherstack-ud2)"
   - "AT_TRIM_HORIZON's trim-horizon instant is computed from the stream's RetentionPeriod but clamped to never predate the stream's own oldest tracked shard StartedAt (see trimHorizon in shards.go), so it degrades gracefully for young streams instead of AWS's true 'oldest data still available' semantics that would require tracking exactly when each record was trimmed, not just when its shard opened/closed. Close enough for shard-lineage filtering (the documented ShardFilter use case); would diverge from AWS in a scenario with partial mid-shard trimming, which this emulator's record ring-buffer model doesn't represent per-shard trim timestamps for."
@@ -68,6 +77,109 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 ---
 
 ## Notes
+
+### 2026-09-11: implemented the Kinesis Data Streams "channels" API (CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel)
+
+The pinned SDK bump to kinesis@v1.53.0 added five new operations for the
+"channels" feature (delivering records from a stream to a general-purpose S3
+bucket or to Apache Iceberg / Amazon S3 Tables streaming tables), previously
+listed in sdk_completeness_test.go's notImplemented slice. All five are now
+routed and backed by a real store.Table[Channel] (channels.go/models.go/
+handler_channels.go); see each op's own ops: entry above for its specific
+wire/error notes and the gaps: entries below for what is honestly NOT
+modeled.
+
+Authority used: the pinned SDK's api_op_CreateChannel.go / DeleteChannel /
+DescribeChannel / ListChannels / UpdateChannel doc comments and Input/Output
+structs, types/types.go (ChannelDescription, ChannelSummary,
+S3DestinationConfiguration/Description/UpdateInput,
+S3TablesDestinationConfiguration/Description/UpdateInput,
+S3StorageConfiguration, DeadLetterQueueS3Configuration, RecordConfiguration,
+PartitionSpec/PartitionField, StreamFilter), types/enums.go (ChannelStatus,
+ChannelDestinationType, ChannelEncryptionType, RecordFormatType,
+S3CompressionType/S3StorageClass/S3TablesCompressionType), types/errors.go
+(confirmed no new exception TYPES were added for channels -- they reuse the
+existing ResourceNotFoundException/ResourceInUseException/
+InvalidArgumentException/LimitExceededException/ValidationException/
+AccessDeniedException/KMS* family), and validators.go/deserializers.go for
+exact required-field sets and the declared exception list per op (see each
+ops: entry). WebFetch against
+docs.aws.amazon.com/streams/latest/dev/introduction-to-kinesis-data-streams-channels.html
+and the dev-guide index returned no usable page content this pass (tool
+limitation, not a 404 confirmed by other means), and a WebSearch/WebFetch of
+the IAM access-control guide (controlling-access.html) turned up no
+channel-specific ARN format or additional detail either -- every claim in
+this note and the ops:/gaps: entries above is therefore sourced from the SDK
+doc comments and generated validator/deserializer code only, never the
+developer guide.
+
+Semantics modeled honestly, per instruction:
+
+- Exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration
+  is required on CreateChannel (InvalidArgumentException otherwise) --
+  verbatim from the CreateChannelInput doc comment.
+- Only on-demand streams: CreateChannel checks the referenced stream's
+  StreamMode and rejects PROVISIONED with InvalidArgumentException. The doc
+  comment states the restriction ("This operation is only supported for data
+  streams with the on-demand capacity mode") but names no specific exception
+  for it; InvalidArgumentException was chosen as CreateChannel's closest
+  declared, semantically-appropriate exception -- documented as an inference,
+  not a verified fact.
+- Async CREATING->ACTIVE (Create) / UPDATING->ACTIVE (Update) lifecycle is
+  applied synchronously, i.e. a channel is ACTIVE immediately on
+  CreateChannel/UpdateChannel's own return. This is the same disclosed
+  simplification this file already documents for UpdateStreamWarmThroughput
+  and UpdateStreamMode (no transient-state model anywhere in this backend).
+- DeleteChannel removes the channel synchronously -- its own doc comment,
+  unlike Create/Update's, describes no asynchronous transition at all, so
+  there is no DELETING state to honestly model here (this differs from the
+  general instruction's "DELETING then gone" framing, which describes real
+  AWS's Create/Update async pattern, not what DeleteChannel's own doc
+  comment actually says).
+- ResourceNotFoundException for an unknown ChannelARN (Describe/Update/
+  Delete) or an unknown source StreamARN (Create); ResourceInUseException
+  for a duplicate ChannelName within account+region (the doc comment's own
+  uniqueness statement).
+- The documented 5 TPS LimitExceededException is NOT modeled -- see gaps.
+  Not fabricated.
+
+Delivery: after checking whether an S3Writer-style seam (services/awsconfig's
+S3Writer, wired in cli.go) could honestly deliver put records to a channel's
+S3 destination, the answer was no: S3StorageConfiguration.OutputKeyTemplate's
+own doc comment only says "If not specified, a default template is used"
+with no template given anywhere reachable (SDK doc comments or the
+unfetchable dev-guide page). Inventing an object-key layout not backed by
+verified AWS behavior would itself be exactly the kind of fabricated stub
+this repo's no-stub rule exists to prevent, so no S3Writer seam was added and
+cli.go was NOT touched. Channels exist and are fully manageable
+(create/describe/list/update/delete, plus tagging); records put to their
+source stream are simply never delivered. See gaps.
+
+Persistence: added a new "channels" store.Table[Channel], registered
+additively on the existing b.registry alongside "streams"
+(store.Registry.RestoreAll resets any table absent from an older snapshot to
+empty), so kinesisSnapshotVersion stayed at 1 -- confirmed via
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`,
+whose diff is 45 pure-addition lines all under the existing "kinesis" golden
+entry, version unchanged.
+
+Tags: CreateChannelInput.Tags is stored and reachable through the existing
+generic ARN-routed ListTagsForResource/TagResource/UntagResource ops (new
+isChannelARN/listChannelTags/tagChannel/untagChannel in tags.go), mirroring
+the consumer-ARN routing precedent already established for
+RegisterStreamConsumer.Tags (see that op's own ops: entry/PARITY note above)
+-- chosen specifically because this exact service's history includes two
+prior real "accept a Tags field, never expose a way to read it back" bugs
+(RegisterStreamConsumer.Tags, gopherstack-enpq), so the same class was closed
+proactively here rather than left as a new instance of it.
+
+Tests: services/kinesis/channels_test.go drives the full lifecycle
+(Create->Describe->List->Update->Delete) for both destination variants
+through the real aws-sdk-go-v2 kinesis client over httptest
+(newTestKinesisClient, existing helper), plus the exactly-one-destination
+rule, provisioned-stream rejection, unknown-stream rejection, duplicate
+ChannelName, not-found across Describe/Update/Delete, ListChannels
+MaxResults/NextToken pagination, and the tag round trip described above.
 
 ### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw, this pass)
 

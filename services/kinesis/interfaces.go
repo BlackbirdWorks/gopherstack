@@ -61,6 +61,11 @@ type StorageBackend interface {
 		input *UpdateStreamWarmThroughputInput,
 	) (*UpdateStreamWarmThroughputOutput, error)
 	DescribeAccountSettings(ctx context.Context) (*DescribeAccountSettingsOutput, error)
+	CreateChannel(ctx context.Context, input *CreateChannelInput) (*CreateChannelOutput, error)
+	DeleteChannel(ctx context.Context, input *DeleteChannelInput) error
+	DescribeChannel(ctx context.Context, input *DescribeChannelInput) (*DescribeChannelOutput, error)
+	ListChannels(ctx context.Context, input *ListChannelsInput) (*ListChannelsOutput, error)
+	UpdateChannel(ctx context.Context, input *UpdateChannelInput) (*UpdateChannelOutput, error)
 	CountOpenShards(ctx context.Context) int
 	CountOnDemandStreams(ctx context.Context) int
 	OnDemandStreamCountLimit(ctx context.Context) int

@@ -710,6 +710,238 @@ type UpdateStreamWarmThroughputOutput struct {
 	WarmThroughput WarmThroughputObject
 }
 
+// --- Channel types (CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel) ---
+
+const (
+	// channelStatusActive is the only ChannelStatus (types.ChannelStatus,
+	// kinesis@v1.53.0 types/enums.go:41-50) this backend ever produces:
+	// CreateChannel/UpdateChannel are documented as asynchronous
+	// (CREATING->ACTIVE, UPDATING->ACTIVE) but this backend applies every
+	// change synchronously, matching the precedent already set by
+	// UpdateStreamWarmThroughput/UpdateStreamMode -- see PARITY.md.
+	channelStatusActive = "ACTIVE"
+
+	// channelDestinationTypeS3/S3Tables mirror types.ChannelDestinationType
+	// (kinesis@v1.53.0 types/enums.go:5-22), used on ChannelSummary.
+	channelDestinationTypeS3       = "S3"
+	channelDestinationTypeS3Tables = "S3_TABLES"
+
+	// Valid types.RecordFormatType values (kinesis@v1.53.0 types/enums.go:196-217).
+	recordFormatTypeGSRJSON   = "GSR_JSON"
+	recordFormatTypeJSON      = "JSON"
+	recordFormatTypeString    = "STRING"
+	recordFormatTypeByteArray = "BYTE_ARRAY"
+
+	// channelEncryptionTypeKMS is the only valid ChannelEncryptionType value
+	// ("The only valid value is KMS.", kinesis@v1.53.0 types/types.go:87).
+	channelEncryptionTypeKMS = "KMS"
+
+	// minChannelDataFreshnessSeconds/maxChannelDataFreshnessSeconds bound
+	// S3DestinationConfiguration/S3TablesDestinationConfiguration's
+	// DataFreshnessInSeconds ("Valid range is 300 to 900 seconds",
+	// kinesis@v1.53.0 types/types.go:634-636/776-778).
+	minChannelDataFreshnessSeconds = 300
+	maxChannelDataFreshnessSeconds = 900
+	// defaultChannelDataFreshnessSeconds is applied when a channel is
+	// created with no DataFreshnessInSeconds ("The default value is 300
+	// seconds.").
+	defaultChannelDataFreshnessSeconds = 300
+
+	// maxChannelsListResults is ListChannels' documented default/cap:
+	// "The default value is 100. If you specify a value greater than 100,
+	// at most 100 results are returned." (api_op_ListChannels.go).
+	maxChannelsListResults = 100
+
+	// maxChannelStreams/maxS3TablesConfigs enforce "Currently, one stream
+	// [table] is supported per channel" (CreateChannelInput.StreamConfigurationList
+	// and types.S3TablesDestinationConfiguration.S3TablesConfigurationList
+	// doc comments).
+	maxChannelStreams  = 1
+	maxS3TablesConfigs = 1
+)
+
+// ChannelRecordConfig mirrors types.RecordConfiguration (kinesis@v1.53.0
+// types/types.go:600-624).
+type ChannelRecordConfig struct {
+	RecordFormatType string `json:"recordFormatType"`
+	GSRSchemaARN     string `json:"gsrSchemaARN,omitempty"`
+}
+
+// ChannelStreamConfig mirrors the source-stream binding shared by
+// types.ChannelStreamConfiguration (CreateChannelInput's StreamConfigurationList),
+// types.ChannelStreamDescription (ChannelDescription's StreamConfigurationList),
+// and types.ChannelStreamIdentifier (ChannelSummary's Streams) --
+// kinesis@v1.53.0 types/types.go:122-172.
+type ChannelStreamConfig struct {
+	StreamCreationTimestamp time.Time           `json:"streamCreationTimestamp"`
+	StreamARN               string              `json:"streamARN"`
+	RecordConfiguration     ChannelRecordConfig `json:"recordConfiguration"`
+}
+
+// ChannelCloudWatchLogsConfig mirrors types.CloudWatchLogs /
+// types.CloudWatchLogsUpdateInput (kinesis@v1.53.0 types/types.go:256-289).
+type ChannelCloudWatchLogsConfig struct {
+	LogGroupName  string `json:"logGroupName,omitempty"`
+	LogStreamName string `json:"logStreamName,omitempty"`
+	Enabled       bool   `json:"enabled"`
+}
+
+// ChannelEncryptionConfig mirrors types.ChannelEncryptionConfiguration
+// (kinesis@v1.53.0 types/types.go:83-97).
+type ChannelEncryptionConfig struct {
+	EncryptionType string `json:"encryptionType"`
+	KeyID          string `json:"keyID"`
+}
+
+// ChannelS3StorageConfig mirrors types.S3StorageConfiguration
+// (kinesis@v1.53.0 types/types.go:678-714).
+type ChannelS3StorageConfig struct {
+	BucketARN           string `json:"bucketARN"`
+	CompressionType     string `json:"compressionType"`
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
+	OutputKeyTemplate   string `json:"outputKeyTemplate,omitempty"`
+	StorageClass        string `json:"storageClass,omitempty"`
+}
+
+// ChannelDeadLetterQueueS3Config mirrors types.DeadLetterQueueS3Configuration
+// (kinesis@v1.53.0 types/types.go:364-381).
+type ChannelDeadLetterQueueS3Config struct {
+	BucketARN           string `json:"bucketARN"`
+	ExpectedBucketOwner string `json:"expectedBucketOwner,omitempty"`
+	ErrorOutputPrefix   string `json:"errorOutputPrefix,omitempty"`
+}
+
+// ChannelS3Destination mirrors the merged shape of types.S3DestinationConfiguration
+// (CreateChannelInput) and types.S3DestinationDescription (ChannelDescription) --
+// both carry the same members, only required-ness differs between the two
+// (kinesis@v1.53.0 types/types.go:626-663).
+type ChannelS3Destination struct {
+	DeadLetterQueueS3Configuration *ChannelDeadLetterQueueS3Config `json:"deadLetterQueueS3Configuration,omitempty"`
+	StorageConfiguration           ChannelS3StorageConfig          `json:"storageConfiguration"`
+	DataFreshnessInSeconds         int                             `json:"dataFreshnessInSeconds"`
+}
+
+// ChannelPartitionField mirrors types.PartitionField (kinesis@v1.53.0
+// types/types.go:479-493).
+type ChannelPartitionField struct {
+	SourceName string `json:"sourceName"`
+	Transform  string `json:"transform"`
+}
+
+// ChannelPartitionSpec mirrors types.PartitionSpec (kinesis@v1.53.0
+// types/types.go:495-504).
+type ChannelPartitionSpec struct {
+	PartitionFields []ChannelPartitionField `json:"partitionFields"`
+}
+
+// ChannelS3TablesConfig mirrors types.S3TablesConfiguration (kinesis@v1.53.0
+// types/types.go:718-746).
+type ChannelS3TablesConfig struct {
+	PartitionSpec   *ChannelPartitionSpec `json:"partitionSpec,omitempty"`
+	TableBucketARN  string                `json:"tableBucketARN"`
+	Namespace       string                `json:"namespace"`
+	TableName       string                `json:"tableName"`
+	CompressionType string                `json:"compressionType"`
+}
+
+// ChannelS3TablesDestination mirrors types.S3TablesDestinationConfiguration /
+// types.S3TablesDestinationDescription (kinesis@v1.53.0 types/types.go:762-802).
+type ChannelS3TablesDestination struct {
+	DeadLetterQueueS3Configuration *ChannelDeadLetterQueueS3Config `json:"deadLetterQueueS3Configuration,omitempty"`
+	S3TablesConfigurationList      []ChannelS3TablesConfig         `json:"s3TablesConfigurationList"`
+	DataFreshnessInSeconds         int                             `json:"dataFreshnessInSeconds"`
+}
+
+// Channel represents an in-memory Kinesis Data Streams channel -- a
+// CreateChannel-provisioned delivery pipe from a stream to either a general
+// purpose S3 bucket or a streaming table (Apache Iceberg / Amazon S3 Tables)
+// destination (types.ChannelDescription, kinesis@v1.53.0 types/types.go:9-79).
+// Records put to the source stream are NOT delivered to either destination by
+// this backend -- see PARITY.md.
+type Channel struct {
+	ChannelCreationTimestamp         time.Time                   `json:"channelCreationTimestamp"`
+	EncryptionConfiguration          *ChannelEncryptionConfig    `json:"encryptionConfiguration,omitempty"`
+	S3DestinationConfiguration       *ChannelS3Destination       `json:"s3DestinationConfiguration,omitempty"`
+	S3TablesDestinationConfiguration *ChannelS3TablesDestination `json:"s3TablesDestinationConfiguration,omitempty"`
+	Tags                             map[string]string           `json:"tags,omitempty"`
+	ChannelID                        string                      `json:"channelID"`
+	ChannelARN                       string                      `json:"channelARN"`
+	ChannelName                      string                      `json:"channelName"`
+	ChannelStatus                    string                      `json:"channelStatus"`
+	ServiceExecutionRoleARN          string                      `json:"serviceExecutionRoleARN"`
+	Region                           string                      `json:"region,omitempty"`
+	StreamConfigurationList          []ChannelStreamConfig       `json:"streamConfigurationList"`
+	LoggingConfiguration             ChannelCloudWatchLogsConfig `json:"loggingConfiguration"`
+}
+
+// CreateChannelInput is the input for CreateChannel.
+type CreateChannelInput struct {
+	EncryptionConfiguration          *ChannelEncryptionConfig
+	LoggingConfiguration             *ChannelCloudWatchLogsConfig
+	S3DestinationConfiguration       *ChannelS3Destination
+	S3TablesDestinationConfiguration *ChannelS3TablesDestination
+	Tags                             map[string]string
+	ChannelName                      string
+	ServiceExecutionRoleARN          string
+	StreamConfigurationList          []ChannelStreamConfig
+}
+
+// CreateChannelOutput is the output for CreateChannel.
+type CreateChannelOutput struct {
+	ChannelDescription Channel
+}
+
+// DeleteChannelInput is the input for DeleteChannel.
+type DeleteChannelInput struct {
+	ChannelARN string
+}
+
+// DescribeChannelInput is the input for DescribeChannel.
+type DescribeChannelInput struct {
+	ChannelARN string
+}
+
+// DescribeChannelOutput is the output for DescribeChannel.
+type DescribeChannelOutput struct {
+	ChannelDescription Channel
+}
+
+// ChannelStreamFilter mirrors types.StreamFilter (kinesis@v1.53.0
+// types/types.go:1141-1153), used by ListChannels to filter by source stream.
+type ChannelStreamFilter struct {
+	StreamARN string
+}
+
+// ListChannelsInput is the input for ListChannels.
+type ListChannelsInput struct {
+	NextToken    string
+	StreamFilter []ChannelStreamFilter
+	MaxResults   int
+}
+
+// ListChannelsOutput is the output for ListChannels.
+type ListChannelsOutput struct {
+	NextToken        string
+	ChannelSummaries []Channel
+}
+
+// UpdateChannelInput is the input for UpdateChannel. Per the real op's doc
+// comment, only LoggingConfiguration and the active destination's
+// DataFreshnessInSeconds can be changed: "You cannot change the
+// destination, source stream, record format, schema, encryption
+// configuration, or service execution role of an existing channel".
+type UpdateChannelInput struct {
+	LoggingConfiguration             *ChannelCloudWatchLogsConfig
+	S3DestinationConfiguration       *ChannelS3Destination
+	S3TablesDestinationConfiguration *ChannelS3TablesDestination
+	ChannelARN                       string
+}
+
+// UpdateChannelOutput is the output for UpdateChannel.
+type UpdateChannelOutput struct {
+	ChannelDescription Channel
+}
+
 // TagResourceInput is the input for TagResource (ARN-based tagging).
 type TagResourceInput struct {
 	Tags        map[string]string

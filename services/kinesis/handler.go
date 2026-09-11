@@ -127,6 +127,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutResourcePolicy",
 		"ListTagsForResource",
 		"UpdateStreamMode",
+		"CreateChannel",
+		"DeleteChannel",
+		"DescribeChannel",
+		"ListChannels",
+		"UpdateChannel",
 	}
 }
 
@@ -258,6 +263,11 @@ func (h *Handler) buildOps() map[string]kinesisDispatchFn {
 		"UpdateShardCount":              h.handleUpdateShardCount,
 		"EnableEnhancedMonitoring":      h.handleEnableEnhancedMonitoring,
 		"DisableEnhancedMonitoring":     h.handleDisableEnhancedMonitoring,
+		"CreateChannel":                 h.handleCreateChannel,
+		"DeleteChannel":                 h.handleDeleteChannel,
+		"DescribeChannel":               h.handleDescribeChannel,
+		"ListChannels":                  h.handleListChannels,
+		"UpdateChannel":                 h.handleUpdateChannel,
 	}
 }
 
@@ -359,6 +369,14 @@ func resourceErrorDetails(err error) (string, string, int, bool) {
 	case errors.Is(err, ErrResourcePolicyNotFound):
 		return errTypeResourceNotFound,
 			"Resource policy not found.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrChannelNotFound):
+		return errTypeResourceNotFound,
+			"Channel not found.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrChannelAlreadyExists):
+		return errTypeResourceInUse,
+			"A channel with this name already exists.",
 			http.StatusBadRequest, true
 	default:
 		return "", "", 0, false

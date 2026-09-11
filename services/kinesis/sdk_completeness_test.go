@@ -19,13 +19,5 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := kinesis.NewInMemoryBackend()
 	h := kinesis.NewHandler(backend)
 
-	// Added by the aws-sdk-go-v2/service/kinesis v1.53.0 bump; unimplemented.
-	notImplemented := []string{
-		"CreateChannel",
-		"DeleteChannel",
-		"DescribeChannel",
-		"ListChannels",
-		"UpdateChannel",
-	}
-	sdkcheck.CheckCompleteness(t, &kinesissdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(t, &kinesissdk.Client{}, h.GetSupportedOperations(), nil)
 }

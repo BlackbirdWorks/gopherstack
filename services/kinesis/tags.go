@@ -23,6 +23,10 @@ func (b *InMemoryBackend) ListTagsForResource(
 		return b.listConsumerTags(region, sName, cName)
 	}
 
+	if isChannelARN(input.ResourceARN) {
+		return b.listChannelTags(input.ResourceARN)
+	}
+
 	b.mu.RLock("ListTagsForResource")
 
 	streamName := streamNameFromARN(input.ResourceARN)
@@ -72,6 +76,22 @@ func (b *InMemoryBackend) listConsumerTags(
 	return &ListTagsForResourceOutput{Tags: result}, nil
 }
 
+// listChannelTags is ListTagsForResource's channel-ARN path.
+func (b *InMemoryBackend) listChannelTags(channelARN string) (*ListTagsForResourceOutput, error) {
+	b.mu.RLock("ListTagsForResource")
+	defer b.mu.RUnlock()
+
+	channel, ok := b.channels.Get(channelARN)
+	if !ok {
+		return nil, ErrChannelNotFound
+	}
+
+	result := make(map[string]string, len(channel.Tags))
+	maps.Copy(result, channel.Tags)
+
+	return &ListTagsForResourceOutput{Tags: result}, nil
+}
+
 // TaggedEntry pairs a stream ARN with its tag map, for cross-service tag
 // enumeration by the Resource Groups Tagging API (see cli.go's wireTaggingKinesis).
 type TaggedEntry struct {
@@ -115,6 +135,10 @@ func (b *InMemoryBackend) TagResource(ctx context.Context, input *TagResourceInp
 
 	if sName, cName := consumerInfoFromARN(input.ResourceARN); cName != "" {
 		return b.tagConsumer(region, sName, cName, input.Tags)
+	}
+
+	if isChannelARN(input.ResourceARN) {
+		return b.tagChannel(input.ResourceARN, input.Tags)
 	}
 
 	b.mu.RLock("TagResource")
@@ -167,6 +191,28 @@ func (b *InMemoryBackend) tagConsumer(region, streamName, consumerName string, n
 	return nil
 }
 
+// tagChannel is TagResource's channel-ARN path.
+func (b *InMemoryBackend) tagChannel(channelARN string, newTags map[string]string) error {
+	if err := validateTagKVs(newTags); err != nil {
+		return err
+	}
+
+	b.mu.Lock("TagResource")
+	defer b.mu.Unlock()
+
+	channel, ok := b.channels.Get(channelARN)
+	if !ok {
+		return ErrChannelNotFound
+	}
+
+	if channel.Tags == nil {
+		channel.Tags = make(map[string]string, len(newTags))
+	}
+	maps.Copy(channel.Tags, newTags)
+
+	return nil
+}
+
 // UntagResource removes tags from a Kinesis resource identified by its ARN --
 // a stream (the ARN-based counterpart to RemoveTagsFromStream) or an
 // enhanced fan-out consumer.
@@ -175,6 +221,10 @@ func (b *InMemoryBackend) UntagResource(ctx context.Context, input *UntagResourc
 
 	if sName, cName := consumerInfoFromARN(input.ResourceARN); cName != "" {
 		return b.untagConsumer(region, sName, cName, input.TagKeys)
+	}
+
+	if isChannelARN(input.ResourceARN) {
+		return b.untagChannel(input.ResourceARN, input.TagKeys)
 	}
 
 	b.mu.RLock("UntagResource")
@@ -219,6 +269,23 @@ func (b *InMemoryBackend) untagConsumer(region, streamName, consumerName string,
 
 	for _, k := range keys {
 		delete(consumer.Tags, k)
+	}
+
+	return nil
+}
+
+// untagChannel is UntagResource's channel-ARN path.
+func (b *InMemoryBackend) untagChannel(channelARN string, keys []string) error {
+	b.mu.Lock("UntagResource")
+	defer b.mu.Unlock()
+
+	channel, ok := b.channels.Get(channelARN)
+	if !ok {
+		return ErrChannelNotFound
+	}
+
+	for _, k := range keys {
+		delete(channel.Tags, k)
 	}
 
 	return nil
