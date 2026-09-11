@@ -511,11 +511,43 @@ func FromSDKConsumedCapacity(cc *types.ConsumedCapacity) *ConsumedCapacity {
 	}
 
 	return &ConsumedCapacity{
-		TableName:          ptrconv.String(cc.TableName),
-		CapacityUnits:      ptrconv.Float64(cc.CapacityUnits),
-		ReadCapacityUnits:  ptrconv.Float64(cc.ReadCapacityUnits),
-		WriteCapacityUnits: ptrconv.Float64(cc.WriteCapacityUnits),
+		TableName:              ptrconv.String(cc.TableName),
+		CapacityUnits:          ptrconv.Float64(cc.CapacityUnits),
+		ReadCapacityUnits:      ptrconv.Float64(cc.ReadCapacityUnits),
+		WriteCapacityUnits:     ptrconv.Float64(cc.WriteCapacityUnits),
+		Table:                  fromSDKCapacity(cc.Table),
+		GlobalSecondaryIndexes: fromSDKCapacityMap(cc.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  fromSDKCapacityMap(cc.LocalSecondaryIndexes),
 	}
+}
+
+func fromSDKCapacity(c *types.Capacity) *Capacity {
+	if c == nil {
+		return nil
+	}
+
+	return &Capacity{
+		CapacityUnits:      ptrconv.Float64(c.CapacityUnits),
+		ReadCapacityUnits:  ptrconv.Float64(c.ReadCapacityUnits),
+		WriteCapacityUnits: ptrconv.Float64(c.WriteCapacityUnits),
+	}
+}
+
+func fromSDKCapacityMap(m map[string]types.Capacity) map[string]Capacity {
+	if len(m) == 0 {
+		return nil
+	}
+
+	out := make(map[string]Capacity, len(m))
+	for k, v := range m {
+		out[k] = Capacity{
+			CapacityUnits:      ptrconv.Float64(v.CapacityUnits),
+			ReadCapacityUnits:  ptrconv.Float64(v.ReadCapacityUnits),
+			WriteCapacityUnits: ptrconv.Float64(v.WriteCapacityUnits),
+		}
+	}
+
+	return out
 }
 
 func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollectionMetrics {

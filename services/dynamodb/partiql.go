@@ -91,11 +91,12 @@ const minRegexMatch = 2
 // awsAwsjson10_serializeOpDocumentExecuteStatementInput), distinct from a
 // "LIMIT n" clause embedded in the Statement text itself.
 type executeStatementRequest struct {
-	Limit          *int32           `json:"Limit,omitempty"`
-	Statement      string           `json:"Statement"`
-	NextToken      string           `json:"NextToken,omitempty"`
-	Parameters     []map[string]any `json:"Parameters,omitempty"`
-	ConsistentRead bool             `json:"ConsistentRead,omitempty"`
+	Limit                  *int32                       `json:"Limit,omitempty"`
+	Statement              string                       `json:"Statement"`
+	NextToken              string                       `json:"NextToken,omitempty"`
+	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"-"`
+	Parameters             []map[string]any             `json:"Parameters,omitempty"`
+	ConsistentRead         bool                         `json:"ConsistentRead,omitempty"`
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
@@ -108,10 +109,11 @@ type executeStatementRequest struct {
 // it left any client reading output.LastEvaluatedKey (the Query/Scan-style
 // pagination field) always empty even when more pages existed.
 type executeStatementResponse struct {
-	TableName        string           `json:"-"` // internal: table name for ConsumedCapacity tracking
-	NextToken        string           `json:"NextToken,omitempty"`
-	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
-	Items            []map[string]any `json:"Items"`
+	LastEvaluatedKey map[string]any          `json:"LastEvaluatedKey,omitempty"`
+	ConsumedCapacity *types.ConsumedCapacity `json:"-"`
+	TableName        string                  `json:"-"`
+	NextToken        string                  `json:"NextToken,omitempty"`
+	Items            []map[string]any        `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
@@ -461,6 +463,7 @@ func (r *partiQLRunner) tryQueryOptimization(
 		Items:            itemsToWire(out.Items),
 		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
 		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
+		ConsumedCapacity: out.ConsumedCapacity,
 	}, nil
 }
 
@@ -484,6 +487,7 @@ func (r *partiQLRunner) buildQueryInput(
 		TableName:                 aws.String(tableName),
 		ExpressionAttributeValues: sdkEAV,
 		KeyConditionExpression:    aws.String(keyCond),
+		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
 	}
 
 	if req.ConsistentRead {
@@ -520,7 +524,8 @@ func (r *partiQLRunner) executeScanSelect(
 	limit int,
 ) (*executeStatementResponse, error) {
 	scanInput := &dynamodb.ScanInput{
-		TableName: aws.String(tableName),
+		TableName:              aws.String(tableName),
+		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
 	}
 
 	if req.ConsistentRead {
@@ -560,6 +565,7 @@ func (r *partiQLRunner) executeScanSelect(
 		Items:            itemsToWire(out.Items),
 		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
 		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
+		ConsumedCapacity: out.ConsumedCapacity,
 	}, nil
 }
 
@@ -670,24 +676,30 @@ func (r *partiQLRunner) executePartiQLInsert(
 	// with the same key already exists; PutItem silently overwrites.
 	keySchema, ksErr := r.lookupKeySchema(ctx, tableName)
 	if ksErr != nil || len(keySchema) == 0 {
-		if _, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item:      sdkItem,
-		}); putErr != nil {
+		putOut, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName:              aws.String(tableName),
+			Item:                   sdkItem,
+			ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+		})
+		if putErr != nil {
 			return nil, putErr
 		}
 
-		return &executeStatementResponse{Items: []map[string]any{}}, nil
+		return &executeStatementResponse{
+			Items:            []map[string]any{},
+			ConsumedCapacity: putOut.ConsumedCapacity,
+		}, nil
 	}
 
 	pkDef, _ := getPKAndSK(keySchema)
 	condExpr := "attribute_not_exists(#__pk)"
 	sdkEANs := map[string]string{"#__pk": pkDef.AttributeName}
-	_, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+	putOut, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:                aws.String(tableName),
 		Item:                     sdkItem,
 		ConditionExpression:      aws.String(condExpr),
 		ExpressionAttributeNames: sdkEANs,
+		ReturnConsumedCapacity:   req.ReturnConsumedCapacity,
 	})
 	if putErr != nil {
 		var ddbErr *Error
@@ -701,7 +713,10 @@ func (r *partiQLRunner) executePartiQLInsert(
 		return nil, putErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: putOut.ConsumedCapacity,
+	}, nil
 }
 
 // partiqlUpdateParsed holds parsed clauses from a PartiQL UPDATE statement.
@@ -809,16 +824,21 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		return nil, err
 	}
 
-	if _, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	updateOut, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(parsed.tableName),
 		Key:                       sdkKey,
 		UpdateExpression:          aws.String(updateExpr),
 		ExpressionAttributeValues: sdkEAV,
-	}); updateErr != nil {
+		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
+	})
+	if updateErr != nil {
 		return nil, updateErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: updateOut.ConsumedCapacity,
+	}, nil
 }
 
 // executePartiQLDelete handles DELETE FROM "table" WHERE ... statements.
@@ -864,14 +884,19 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, err
 	}
 
-	if _, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(tableName),
-		Key:       sdkKey,
-	}); delErr != nil {
+	delOut, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName:              aws.String(tableName),
+		Key:                    sdkKey,
+		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+	})
+	if delErr != nil {
 		return nil, delErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: delOut.ConsumedCapacity,
+	}, nil
 }
 
 // extractTableNameFromStatement extracts the table name from a SELECT/DELETE PartiQL statement.

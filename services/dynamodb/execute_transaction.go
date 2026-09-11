@@ -10,7 +10,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -49,13 +48,18 @@ func (db *InMemoryDB) ExecuteTransaction(
 
 	runner := &partiQLRunner{backend: db}
 	responses := make([]types.ItemResponse, len(input.TransactStatements))
-	tableRCU := make(map[string]float64)
-	tableWCU := make(map[string]float64)
 	returnCC := input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
+	var consumedCapacity []types.ConsumedCapacity
+	if returnCC {
+		consumedCapacity = make([]types.ConsumedCapacity, len(input.TransactStatements))
+	}
+
 	for i, stmt := range input.TransactStatements {
-		resp, stmtStr, execErr := executeTransactionStatement(ctx, runner, stmt)
+		resp, stmtCC, execErr := executeTransactionStatement(
+			ctx, runner, stmt, input.ReturnConsumedCapacity,
+		)
 		if execErr != nil {
 			// Roll back all tables to their pre-transaction state.
 			db.restoreExecTxnSnapshots(ctx, tableNames, snapshots)
@@ -64,14 +68,14 @@ func (db *InMemoryDB) ExecuteTransaction(
 		}
 		responses[i] = resp
 
-		if returnCC {
-			trackTransactCC(stmtStr, tableRCU, tableWCU)
+		if returnCC && stmtCC != nil {
+			consumedCapacity[i] = *stmtCC
 		}
 	}
 
 	return &dynamodb.ExecuteTransactionOutput{
 		Responses:        responses,
-		ConsumedCapacity: buildTransactionConsumedCapacity(tableRCU, tableWCU, returnCC),
+		ConsumedCapacity: consumedCapacity,
 	}, nil
 }
 
@@ -218,12 +222,19 @@ func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
 }
 
 // executeTransactionStatement converts one ParameterizedStatement to wire format,
-// runs it, and returns the ItemResponse plus the statement string for CC tracking.
+// runs it against the real per-op backend method (PutItem/UpdateItem/DeleteItem/
+// Query/Scan, depending on statement type), and returns the ItemResponse plus
+// that op's own ConsumedCapacity -- one entry per statement, matching
+// ExecuteTransactionOutput.ConsumedCapacity's documented ordering ("ordered
+// according to the ordering of the statements", dynamodb SDK
+// api_op_ExecuteTransaction.go:59-61) and costing each statement identically
+// to the equivalent standalone call.
 func executeTransactionStatement(
 	ctx context.Context,
 	runner *partiQLRunner,
 	stmt types.ParameterizedStatement,
-) (types.ItemResponse, string, error) {
+	ccReq types.ReturnConsumedCapacity,
+) (types.ItemResponse, *types.ConsumedCapacity, error) {
 	stmtStr := ""
 	if stmt.Statement != nil {
 		stmtStr = *stmt.Statement
@@ -233,7 +244,7 @@ func executeTransactionStatement(
 	for _, p := range stmt.Parameters {
 		wire, ok := models.FromSDKAttributeValue(p).(map[string]any)
 		if !ok {
-			return types.ItemResponse{}, "", NewValidationException(
+			return types.ItemResponse{}, nil, NewValidationException(
 				"invalid parameter type in TransactStatement",
 			)
 		}
@@ -242,11 +253,12 @@ func executeTransactionStatement(
 	}
 
 	out, err := runner.executeStatement(ctx, executeStatementRequest{
-		Statement:  stmtStr,
-		Parameters: wireParams,
+		Statement:              stmtStr,
+		Parameters:             wireParams,
+		ReturnConsumedCapacity: ccReq,
 	})
 	if err != nil {
-		return types.ItemResponse{}, "", err
+		return types.ItemResponse{}, nil, err
 	}
 
 	resp := types.ItemResponse{}
@@ -256,66 +268,7 @@ func executeTransactionStatement(
 		}
 	}
 
-	return resp, stmtStr, nil
-}
-
-// trackTransactCC updates per-table RCU/WCU counters for a single statement.
-func trackTransactCC(stmtStr string, tableRCU, tableWCU map[string]float64) {
-	tbl := partiqlStmtTableName(stmtStr)
-	if tbl == "" {
-		return
-	}
-
-	if isWriteStmt(stmtStr) {
-		tableWCU[tbl]++
-	} else {
-		tableRCU[tbl]++
-	}
-}
-
-// buildTransactionConsumedCapacity assembles the ConsumedCapacity slice from
-// per-table RCU/WCU accumulators. Returns nil when returnCC is false.
-func buildTransactionConsumedCapacity(
-	tableRCU, tableWCU map[string]float64,
-	returnCC bool,
-) []types.ConsumedCapacity {
-	if !returnCC {
-		return nil
-	}
-
-	result := make([]types.ConsumedCapacity, 0, len(tableRCU)+len(tableWCU))
-	seen := make(map[string]bool, len(tableRCU))
-
-	for tbl, rcu := range tableRCU {
-		seen[tbl] = true
-		result = append(result, types.ConsumedCapacity{
-			TableName:          aws.String(tbl),
-			ReadCapacityUnits:  aws.Float64(rcu),
-			WriteCapacityUnits: aws.Float64(tableWCU[tbl]),
-		})
-	}
-
-	for tbl, wcu := range tableWCU {
-		if seen[tbl] {
-			continue
-		}
-		result = append(result, types.ConsumedCapacity{
-			TableName:          aws.String(tbl),
-			ReadCapacityUnits:  aws.Float64(0),
-			WriteCapacityUnits: aws.Float64(wcu),
-		})
-	}
-
-	return result
-}
-
-// isWriteStmt reports whether a PartiQL statement is a write (INSERT/UPDATE/DELETE).
-func isWriteStmt(stmt string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(stmt))
-
-	return strings.HasPrefix(upper, "INSERT") ||
-		strings.HasPrefix(upper, "UPDATE") ||
-		strings.HasPrefix(upper, "DELETE")
+	return resp, out.ConsumedCapacity, nil
 }
 
 // partiqlStmtTableName extracts the table name from a PartiQL statement string.
