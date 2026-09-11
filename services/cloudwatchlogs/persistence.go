@@ -57,6 +57,14 @@ import (
 // additive: an old snapshot decodes the previously-dropped field as zero/empty,
 // exactly as before, matching TestSnapshotVersionGuard's tolerance for this
 // shape (see opensearch's dbc50bc49/c5475e9a6 precedent for the same judgment).
+//
+// Also NOT a bump (gopherstack-glxp1): ScheduledQueryRunSummary was rebuilt
+// field-for-field to match the real TriggerHistoryRecord shape (Arn/
+// FailureReason/RunStatus/ExecutionTime/InvocationTime -- all fabricated,
+// none real -- replaced by Destinations/ErrorMessage/ExecutionStatus/
+// QueryID/TriggeredTimestamp). Same as the Anomaly precedent above:
+// scheduledQueryRuns is registered on b.ephemeralRegistry (store_setup.go),
+// never included in backendSnapshot, so the rename is moot for persistence.
 const cwlSnapshotVersion = 2
 
 // logGroupSnapshot, logStreamSnapshot, subscriptionFilterSnapshot, and

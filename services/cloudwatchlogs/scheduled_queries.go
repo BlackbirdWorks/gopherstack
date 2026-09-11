@@ -148,19 +148,20 @@ func (b *InMemoryBackend) CreateScheduledQuery(p ScheduledQueryCreateParams) (st
 
 	b.scheduledQueries.Put(sq)
 
-	// Seed an initial SUCCEEDED run so history is non-empty from creation, and
+	// Seed an initial Complete run so history is non-empty from creation, and
 	// reflect it on the ScheduledQuery row itself: real GetScheduledQueryOutput's
 	// lastExecutionStatus/lastTriggeredTime describe the most recent execution.
-	sq.LastExecutionStatus = "SUCCEEDED"
+	// "Complete" is the real types.ExecutionStatus value (enums.go:263-271);
+	// a previous revision used the non-existent "SUCCEEDED".
+	sq.LastExecutionStatus = "Complete"
 	sq.LastTriggeredTime = now
 	b.scheduledQueryRuns.Put(&scheduledQueryRunHistory{
 		Arn: queryARN,
 		Runs: []*ScheduledQueryRunSummary{
 			{
-				Arn:            queryARN,
-				RunStatus:      "SUCCEEDED",
-				ExecutionTime:  now,
-				InvocationTime: now,
+				QueryID:            uuid.New().String(),
+				ExecutionStatus:    "Complete",
+				TriggeredTimestamp: now,
 			},
 		},
 	})
@@ -335,7 +336,7 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 		all = append(all, *r)
 	}
 	// Most recent invocations first.
-	sort.Slice(all, func(i, j int) bool { return all[i].InvocationTime > all[j].InvocationTime })
+	sort.Slice(all, func(i, j int) bool { return all[i].TriggeredTimestamp > all[j].TriggeredTimestamp })
 
 	startIdx := parseNextToken(nextToken)
 	if startIdx >= len(all) {

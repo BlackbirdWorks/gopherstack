@@ -202,10 +202,10 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 					b,
 					arn,
 					cloudwatchlogs.ScheduledQueryRunSummary{
-						Arn:            arn,
-						RunStatus:      "FAILED",
-						ExecutionTime:  500,
-						InvocationTime: 400,
+						QueryID:            "run-2",
+						ExecutionStatus:    "Failed",
+						ErrorMessage:       "query timed out",
+						TriggeredTimestamp: 400,
 					},
 				)
 

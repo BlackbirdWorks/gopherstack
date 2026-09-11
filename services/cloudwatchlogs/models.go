@@ -153,13 +153,30 @@ type Anomaly struct {
 	Active                    bool               `json:"active"`
 }
 
-// ScheduledQueryRunSummary describes a single scheduled query execution.
+// ScheduledQueryRunSummary describes a single scheduled query execution,
+// field-diffed against aws-sdk-go-v2 types.TriggerHistoryRecord (types.go:3191).
+// A previous revision fabricated this shape wholesale (Arn/FailureReason/
+// RunStatus/ExecutionTime/InvocationTime -- none of these are real members),
+// so a real client always decoded an empty history. Destinations is always
+// empty: this backend does not simulate destination delivery for scheduled
+// query runs (see ScheduledQueryDestination).
 type ScheduledQueryRunSummary struct {
-	Arn            string `json:"arn"`
-	FailureReason  string `json:"failureReason,omitempty"`
-	RunStatus      string `json:"runStatus"`
-	ExecutionTime  int64  `json:"executionTime"`
-	InvocationTime int64  `json:"invocationTime"`
+	ErrorMessage       string                      `json:"errorMessage,omitempty"`
+	ExecutionStatus    string                      `json:"executionStatus"`
+	QueryID            string                      `json:"queryId"`
+	Destinations       []ScheduledQueryDestination `json:"destinations,omitempty"`
+	TriggeredTimestamp int64                       `json:"triggeredTimestamp"`
+}
+
+// ScheduledQueryDestination describes destination-processing status for one
+// scheduled query execution (aws-sdk-go-v2 types.ScheduledQueryDestination,
+// types.go:2873).
+type ScheduledQueryDestination struct {
+	DestinationIdentifier string `json:"destinationIdentifier,omitempty"`
+	DestinationType       string `json:"destinationType,omitempty"`
+	ErrorMessage          string `json:"errorMessage,omitempty"`
+	ProcessedIdentifier   string `json:"processedIdentifier,omitempty"`
+	Status                string `json:"status,omitempty"`
 }
 
 // Distribution constants for subscription filter event routing.

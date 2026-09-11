@@ -120,9 +120,11 @@ func anomalyDetectorIndexKeyFn(a *Anomaly) string { return a.AnomalyDetectorArn 
 
 // scheduledQueryRunHistory wraps the run-history slice AWS keeps per scheduled
 // query. It exists because store.Table requires a value with its own identity
-// field; a bare []*ScheduledQueryRunSummary has none (multiple runs share the
-// same Arn), so -- like inlining log events on LogStream -- the slice is
-// nested one level under a keyed parent entity instead.
+// field; ScheduledQueryRunSummary carries no field identifying which scheduled
+// query it belongs to (matching real TriggerHistoryRecord, which has none
+// either -- that association only exists via GetScheduledQueryHistoryInput's
+// own Identifier), so -- like inlining log events on LogStream -- the slice
+// is nested one level under a keyed parent entity instead.
 type scheduledQueryRunHistory struct {
 	Arn  string                      `json:"arn"`
 	Runs []*ScheduledQueryRunSummary `json:"runs"`
