@@ -584,8 +584,6 @@ func (h *Handler) dispatchAuditConfigOps(c *echo.Context, op string) (bool, erro
 		return true, h.handleDescribeAuditTask(c)
 	case opListAuditTasks:
 		return true, h.handleListAuditTasks(c)
-	case opCancelAuditTask:
-		return true, h.handleCancelAuditTask(c)
 	}
 
 	return false, nil

@@ -1,6 +1,7 @@
 package lambda_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -380,4 +381,119 @@ func TestScalingConfig_ZeroConcurrency_Blocked(t *testing.T) {
 	_, err = lambda.AcquireConcurrencySlot(bk, "scaling-zero-fn")
 	// With MaxExecutionEnvironments=0, active(0) >= 0 is true so it blocks
 	require.ErrorIs(t, err, lambda.ErrTooManyRequests)
+}
+
+// TestInvoke_ScalingConfig_EnforcedPerResolvedQualifier locks in gopherstack-tx8a5:
+// Invoke now threads its resolved qualifier (an alias already resolved to the version
+// it points at) into the scaling-config enforcement lookup, instead of hardcoding
+// $LATEST. Both cases share one $LATEST invocation already holding the function's
+// single shared active-execution slot (functionConcurrencies/activeConcurrencies stay
+// keyed by function name alone, matching PutFunctionConcurrency's function-wide scope);
+// only the qualifier being invoked differs.
+func TestInvoke_ScalingConfig_EnforcedPerResolvedQualifier(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, h *lambda.Handler, bk *lambda.InMemoryBackend)
+		name        string
+		fnName      string
+		qualifier   string
+		wantBlocked bool
+	}{
+		{
+			name:   "unqualified_blocked_at_latest_own_limit",
+			fnName: "inv-scale-a",
+			setup: func(t *testing.T, _ *lambda.Handler, bk *lambda.InMemoryBackend) {
+				t.Helper()
+
+				latestMax := int32(1)
+				_, err := bk.PutFunctionScalingConfig("inv-scale-a", "$LATEST",
+					&lambda.PutFunctionScalingConfigInput{
+						FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &latestMax},
+					})
+				require.NoError(t, err)
+
+				held, acquireErr := lambda.AcquireConcurrencySlotQualified(bk, "inv-scale-a", "$LATEST")
+				require.NoError(t, acquireErr)
+				require.True(t, held)
+			},
+			qualifier:   "",
+			wantBlocked: true,
+		},
+		{
+			name:   "alias_uses_its_own_higher_limit_not_latest",
+			fnName: "inv-scale-b",
+			setup: func(t *testing.T, _ *lambda.Handler, bk *lambda.InMemoryBackend) {
+				t.Helper()
+
+				pub, pubErr := bk.PublishVersion("inv-scale-b", "")
+				require.NoError(t, pubErr)
+
+				_, aliasErr := bk.CreateAlias("inv-scale-b", &lambda.CreateAliasInput{
+					Name:            "stable",
+					FunctionVersion: pub.Version,
+				})
+				require.NoError(t, aliasErr)
+
+				latestMax := int32(1)
+				_, err := bk.PutFunctionScalingConfig("inv-scale-b", "$LATEST",
+					&lambda.PutFunctionScalingConfigInput{
+						FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &latestMax},
+					})
+				require.NoError(t, err)
+
+				versionMax := int32(5)
+				_, err = bk.PutFunctionScalingConfig("inv-scale-b", pub.Version,
+					&lambda.PutFunctionScalingConfigInput{
+						FunctionScalingConfig: &lambda.FunctionScalingConfig{MaxExecutionEnvironments: &versionMax},
+					})
+				require.NoError(t, err)
+
+				// One in-flight $LATEST invocation exhausts $LATEST's limit of 1, but
+				// leaves the alias's own version-1 limit of 5 untouched.
+				held, acquireErr := lambda.AcquireConcurrencySlotQualified(bk, "inv-scale-b", "$LATEST")
+				require.NoError(t, acquireErr)
+				require.True(t, held)
+			},
+			qualifier:   "stable",
+			wantBlocked: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, bk := newInMemoryHandler(t)
+			rec := auditCreateFunction(t, h, baseImageFn(tc.fnName))
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			tc.setup(t, h, bk)
+
+			_, _, _, statusCode, err := bk.InvokeFunctionWithQualifier(
+				context.Background(),
+				tc.fnName, tc.qualifier, "", "",
+				lambda.InvocationTypeRequestResponse,
+				[]byte("{}"),
+			)
+
+			if tc.wantBlocked {
+				require.Error(t, err)
+				require.ErrorIs(t, err, lambda.ErrTooManyRequests)
+				assert.Equal(t, http.StatusTooManyRequests, statusCode)
+
+				return
+			}
+
+			// Not blocked by the scaling limit: it may still fail past the concurrency
+			// check (no real container runtime in this unit test), but never with
+			// TooManyRequests, which would mean it was checked against $LATEST's
+			// exhausted limit instead of its own.
+			assert.NotEqual(t, http.StatusTooManyRequests, statusCode)
+
+			if err != nil {
+				assert.NotErrorIs(t, err, lambda.ErrTooManyRequests)
+			}
+		})
+	}
 }

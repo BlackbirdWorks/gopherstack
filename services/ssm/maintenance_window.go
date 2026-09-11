@@ -193,17 +193,58 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 
 	endTime := execTime.Add(time.Duration(win.Duration) * time.Hour)
 
-	return &DescribeMaintenanceWindowExecutionsOutputFull{
-		WindowExecutions: []MaintenanceWindowExecution{
-			{
-				WindowID:          win.WindowID,
-				WindowExecutionID: mwExecID(win.WindowID),
-				Status:            mwExecutionStatusSuccess,
-				StartTime:         UnixTimeFloat(execTime),
-				EndTime:           UnixTimeFloat(endTime),
-			},
+	executions := filterWindowExecutions([]MaintenanceWindowExecution{
+		{
+			WindowID:          win.WindowID,
+			WindowExecutionID: mwExecID(win.WindowID),
+			Status:            mwExecutionStatusSuccess,
+			StartTime:         UnixTimeFloat(execTime),
+			EndTime:           UnixTimeFloat(endTime),
 		},
-	}, nil
+	}, input.Filters)
+
+	return &DescribeMaintenanceWindowExecutionsOutputFull{WindowExecutions: executions}, nil
+}
+
+// filterWindowExecutions applies DescribeMaintenanceWindowExecutions' documented filter
+// keys (api_op_DescribeMaintenanceWindowExecutions.go:39-40: "Supported keys include
+// ExecutedBefore and ExecutedAfter"), compared against StartTime the same way
+// sessionMatchesFilter compares InvokedBefore/InvokedAfter against a session's
+// StartDate. Unrecognized keys match everything (see matchesTargetFilters).
+func filterWindowExecutions(
+	execs []MaintenanceWindowExecution,
+	filters []MaintenanceWindowFilter,
+) []MaintenanceWindowExecution {
+	out := make([]MaintenanceWindowExecution, 0, len(execs))
+
+	for _, e := range execs {
+		if matchesExecutionFilters(e, filters) {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
+func matchesExecutionFilters(e MaintenanceWindowExecution, filters []MaintenanceWindowFilter) bool {
+	for _, f := range filters {
+		var cmp func(iso8601 string) bool
+
+		switch f.Key {
+		case "ExecutedAfter":
+			cmp = func(iso8601 string) bool { return sessionTimestampCompare(e.StartTime, iso8601) >= 0 }
+		case "ExecutedBefore":
+			cmp = func(iso8601 string) bool { return sessionTimestampCompare(e.StartTime, iso8601) <= 0 }
+		default:
+			continue
+		}
+
+		if !slices.ContainsFunc(f.Values, cmp) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DescribeMaintenanceWindowExecutionTasks returns task executions for a window execution.
@@ -314,17 +355,52 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 		}, nil
 	}
 
-	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull{
-		WindowExecutionTaskInvocationIdentities: []MaintenanceWindowExecutionTaskInvocation{
-			{
-				WindowExecutionID: input.WindowExecutionID,
-				TaskExecutionID:   input.TaskID,
-				InvocationID:      "inv-" + input.WindowExecutionID,
-				Status:            mwExecutionStatusSuccess,
-				StartTime:         UnixTimeFloat(time.Now()),
-			},
+	invocations := filterExecutionTaskInvocations([]MaintenanceWindowExecutionTaskInvocation{
+		{
+			WindowExecutionID: input.WindowExecutionID,
+			TaskExecutionID:   input.TaskID,
+			InvocationID:      "inv-" + input.WindowExecutionID,
+			Status:            mwExecutionStatusSuccess,
+			StartTime:         UnixTimeFloat(time.Now()),
 		},
+	}, input.Filters)
+
+	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull{
+		WindowExecutionTaskInvocationIdentities: invocations,
 	}, nil
+}
+
+// filterExecutionTaskInvocations applies DescribeMaintenanceWindowExecutionTaskInvocations'
+// documented filter key (api_op_DescribeMaintenanceWindowExecutionTaskInvocations.go:42-43:
+// "the supported filter key is STATUS"). Unrecognized keys match everything, mirroring
+// filterExecutionTasks for the sibling op.
+func filterExecutionTaskInvocations(
+	invocations []MaintenanceWindowExecutionTaskInvocation,
+	filters []MaintenanceWindowFilter,
+) []MaintenanceWindowExecutionTaskInvocation {
+	out := make([]MaintenanceWindowExecutionTaskInvocation, 0, len(invocations))
+
+	for _, inv := range invocations {
+		matched := true
+
+		for _, f := range filters {
+			if f.Key != "STATUS" {
+				continue
+			}
+
+			if !slices.Contains(f.Values, inv.Status) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			out = append(out, inv)
+		}
+	}
+
+	return out
 }
 
 // DescribeMaintenanceWindowSchedule returns the upcoming schedule for a window.

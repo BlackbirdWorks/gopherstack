@@ -2,6 +2,7 @@ package ssm_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	ssmsdk "github.com/aws/aws-sdk-go-v2/service/ssm"
@@ -363,5 +364,142 @@ func TestDescribeMaintenanceWindowExecutionTasks_Filters(t *testing.T) {
 		)
 		require.NoError(t, err)
 		assert.Empty(t, got.WindowExecutionTaskIdentities)
+	})
+}
+
+// TestDescribeMaintenanceWindowExecutions_Filters covers gopherstack-c7blx:
+// DescribeMaintenanceWindowExecutions ignored Filters entirely. The synthetic
+// execution's StartTime is the window's creation time (maintenance_window.go),
+// so bounds an hour either side of "now" reliably bracket or exclude it.
+func TestDescribeMaintenanceWindowExecutions_Filters(t *testing.T) {
+	t.Parallel()
+
+	client, windowID := newMWTestClient(t)
+	ctx := t.Context()
+
+	before := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	after := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+
+	t.Run("executed_after_narrows_to_match", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+			Filters:  []ssmtypes.MaintenanceWindowFilter{{Key: aws.String("ExecutedAfter"), Values: []string{after}}},
+		})
+		require.NoError(t, err)
+		require.Len(t, got.WindowExecutions, 1)
+	})
+
+	t.Run("executed_after_future_excludes", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+			Filters:  []ssmtypes.MaintenanceWindowFilter{{Key: aws.String("ExecutedAfter"), Values: []string{before}}},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, got.WindowExecutions)
+	})
+
+	t.Run("executed_before_narrows_to_match", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+			Filters:  []ssmtypes.MaintenanceWindowFilter{{Key: aws.String("ExecutedBefore"), Values: []string{before}}},
+		})
+		require.NoError(t, err)
+		require.Len(t, got.WindowExecutions, 1)
+	})
+
+	t.Run("executed_before_past_excludes", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+			Filters:  []ssmtypes.MaintenanceWindowFilter{{Key: aws.String("ExecutedBefore"), Values: []string{after}}},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, got.WindowExecutions)
+	})
+
+	t.Run("unrecognized_key_matches_everything", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+			WindowId: aws.String(windowID),
+			Filters:  []ssmtypes.MaintenanceWindowFilter{{Key: aws.String("Bogus"), Values: []string{"whatever"}}},
+		})
+		require.NoError(t, err)
+		require.Len(t, got.WindowExecutions, 1)
+	})
+}
+
+// TestDescribeMaintenanceWindowExecutionTaskInvocations_Filters covers
+// gopherstack-c7blx: DescribeMaintenanceWindowExecutionTaskInvocations
+// ignored Filters entirely.
+func TestDescribeMaintenanceWindowExecutionTaskInvocations_Filters(t *testing.T) {
+	t.Parallel()
+
+	client, windowID := newMWTestClient(t)
+	ctx := t.Context()
+
+	execs, setupErr := client.DescribeMaintenanceWindowExecutions(ctx, &ssmsdk.DescribeMaintenanceWindowExecutionsInput{
+		WindowId: aws.String(windowID),
+	})
+	require.NoError(t, setupErr)
+	require.NotEmpty(t, execs.WindowExecutions)
+	execID := aws.ToString(execs.WindowExecutions[0].WindowExecutionId)
+
+	t.Run("status_match_returns_invocation", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutionTaskInvocations(
+			ctx,
+			&ssmsdk.DescribeMaintenanceWindowExecutionTaskInvocationsInput{
+				WindowExecutionId: aws.String(execID),
+				TaskId:            aws.String("taskexec-1"),
+				Filters: []ssmtypes.MaintenanceWindowFilter{
+					{Key: aws.String("STATUS"), Values: []string{"SUCCESS"}},
+				},
+			},
+		)
+		require.NoError(t, err)
+		assert.Len(t, got.WindowExecutionTaskInvocationIdentities, 1)
+	})
+
+	t.Run("status_mismatch_excludes_invocation", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutionTaskInvocations(
+			ctx,
+			&ssmsdk.DescribeMaintenanceWindowExecutionTaskInvocationsInput{
+				WindowExecutionId: aws.String(execID),
+				TaskId:            aws.String("taskexec-1"),
+				Filters: []ssmtypes.MaintenanceWindowFilter{
+					{Key: aws.String("STATUS"), Values: []string{"FAILED"}},
+				},
+			},
+		)
+		require.NoError(t, err)
+		assert.Empty(t, got.WindowExecutionTaskInvocationIdentities)
+	})
+
+	t.Run("unrecognized_key_matches_everything", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := client.DescribeMaintenanceWindowExecutionTaskInvocations(
+			ctx,
+			&ssmsdk.DescribeMaintenanceWindowExecutionTaskInvocationsInput{
+				WindowExecutionId: aws.String(execID),
+				TaskId:            aws.String("taskexec-1"),
+				Filters: []ssmtypes.MaintenanceWindowFilter{
+					{Key: aws.String("Bogus"), Values: []string{"whatever"}},
+				},
+			},
+		)
+		require.NoError(t, err)
+		assert.Len(t, got.WindowExecutionTaskInvocationIdentities, 1)
 	})
 }

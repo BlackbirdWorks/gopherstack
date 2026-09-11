@@ -35,8 +35,9 @@ type DeregisterTaskFromMaintenanceWindowInput struct {
 // name suggesting it might be optional given DescribeMaintenanceWindowExecutionTasks
 // already scopes to WindowExecutionId alone.
 type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct {
-	WindowExecutionID string `json:"WindowExecutionId"`
-	TaskID            string `json:"TaskId"`
+	WindowExecutionID string                    `json:"WindowExecutionId"`
+	TaskID            string                    `json:"TaskId"`
+	Filters           []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsOutput is the response payload.
@@ -64,7 +65,8 @@ type DescribeMaintenanceWindowExecutionTasksOutput struct{}
 
 // DescribeMaintenanceWindowExecutionsInput is the request payload.
 type DescribeMaintenanceWindowExecutionsInput struct {
-	WindowID string `json:"WindowId"`
+	WindowID string                    `json:"WindowId"`
+	Filters  []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionsOutput is the response payload.

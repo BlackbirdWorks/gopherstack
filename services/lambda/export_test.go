@@ -284,9 +284,16 @@ func ReleaseConcurrencySlot(b *InMemoryBackend, functionName string) {
 	b.releaseConcurrencySlot(functionName)
 }
 
-// AcquireConcurrencySlot exports acquireConcurrencySlot for testing.
+// AcquireConcurrencySlot exports acquireConcurrencySlot for testing, defaulting the
+// scaling-config qualifier to $LATEST (an unqualified invoke's resolved qualifier).
 func AcquireConcurrencySlot(b *InMemoryBackend, functionName string) (bool, error) {
-	return b.acquireConcurrencySlot(functionName)
+	return b.acquireConcurrencySlot(functionName, versionLatest)
+}
+
+// AcquireConcurrencySlotQualified exports acquireConcurrencySlot with an explicit
+// scaling-config qualifier, for testing per-version/alias scaling enforcement.
+func AcquireConcurrencySlotQualified(b *InMemoryBackend, functionName, scalingQualifier string) (bool, error) {
+	return b.acquireConcurrencySlot(functionName, scalingQualifier)
 }
 
 // MinEventAgeInSeconds exports minEventAgeInSeconds for use in tests.
