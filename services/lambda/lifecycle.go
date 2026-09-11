@@ -33,11 +33,13 @@ func (b *InMemoryBackend) Reset() {
 
 		// Table/Index-backed resources collapse to two registry sweeps instead of
 		// one make() per map -- see store_setup.go for what each registry holds.
-		// b.permissions is deliberately NOT on either registry (see store_setup.go
-		// and persistence.go's DTO handling) so it is reset explicitly.
+		// b.permissions and b.functions are deliberately NOT on either registry
+		// (see store_setup.go and persistence.go's DTO handling) so both are
+		// reset explicitly.
 		b.registry.ResetAll()
 		b.ephemeralRegistry.ResetAll()
 		b.permissions.Reset()
+		b.functions.Reset()
 
 		b.versionCounters = make(map[string]int)
 		b.versions = make(map[string][]*FunctionVersion)
