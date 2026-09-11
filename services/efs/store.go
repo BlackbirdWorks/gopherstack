@@ -145,6 +145,12 @@ type InMemoryBackend struct {
 	// is synchronous and immediate, matching legacy behaviour. A non-zero value enables
 	// the AWS-accurate lifecycle simulation and is only set in parity tests.
 	fsActivationDelay time.Duration
+	// limits holds the account-quota caps enforced by FileSystemLimitExceeded/
+	// AccessPointLimitExceeded (see limits.go); configuredLimits preserves a
+	// WithResourceLimits override across Reset(), matching configuredEmailTTL's
+	// precedent in services/ses/store.go.
+	limits           resourceLimits
+	configuredLimits resourceLimits
 }
 
 // NewInMemoryBackend creates a new in-memory EFS backend.
@@ -155,6 +161,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:             region,
 		mu:                 lockmetrics.New("efs"),
 		registry:           store.NewRegistry(),
+		limits:             defaultResourceLimits(),
+		configuredLimits:   defaultResourceLimits(),
 	}
 
 	registerAllTables(b)
@@ -274,7 +282,20 @@ func (b *InMemoryBackend) apFSStore(region, fsID string) map[string]struct{} {
 	return b.apByFS[region][fsID]
 }
 
+// WithResourceLimits overrides the resource caps enforced by
+// FileSystemLimitExceeded/AccessPointLimitExceeded (see limits.go) and
+// returns the backend for chaining. A zero field in l keeps its real-EFS
+// default. The override survives Reset(), matching services/ses's
+// WithEmailTTL/configuredEmailTTL precedent.
+func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend {
+	applyResourceLimitOverrides(&b.limits, l)
+	applyResourceLimitOverrides(&b.configuredLimits, l)
+
+	return b
+}
+
 // Reset clears all stored resources, returning the backend to its empty initial state.
+// A resource-limit override set via WithResourceLimits is preserved.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -294,6 +315,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.initRegionMaps()
 	b.accountPreferences = AccountPreferences{ResourceIDType: resourceIDTypeLong}
+	b.limits = b.configuredLimits
 }
 
 // Region returns the AWS region this backend is configured for.

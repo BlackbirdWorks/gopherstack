@@ -106,6 +106,44 @@ func (b *InMemoryBackend) applyInitialBackupPolicy(region, id string, req Create
 	}
 }
 
+// checkFileSystemIdempotency returns found=true when req.CreationToken already maps to
+// an existing file system, along with its copy and either ErrCreationTokenExists (args
+// match) or ErrAlreadyExists (args differ). CreateFileSystem's only caller must return
+// (fs, err) verbatim when found is true, and otherwise proceed to create a new one.
+// Callers must hold b.mu.
+func (b *InMemoryBackend) checkFileSystemIdempotency(
+	region string,
+	tokenIdx map[string]string,
+	req CreateFileSystemRequest,
+) (*FileSystem, bool, error) {
+	existingID, ok := tokenIdx[req.CreationToken]
+	if !ok {
+		return nil, false, nil
+	}
+
+	existing, _ := b.fileSystems.Get(regionKey(region, existingID))
+	cp := *existing
+
+	if existing.PerformanceMode == req.PerformanceMode &&
+		existing.ThroughputMode == req.ThroughputMode &&
+		existing.Encrypted == req.Encrypted &&
+		existing.KmsKeyID == req.KmsKeyID &&
+		existing.AvailabilityZoneName == req.AvailabilityZoneName {
+		return &cp, true, fmt.Errorf(
+			"%w: file system with token %s already exists (identical args)",
+			ErrCreationTokenExists,
+			req.CreationToken,
+		)
+	}
+
+	return &cp, true, fmt.Errorf(
+		"%w: file system with token %s already exists with different parameters (FileSystemId: %s)",
+		ErrAlreadyExists,
+		req.CreationToken,
+		existing.FileSystemID,
+	)
+}
+
 // CreateFileSystem creates a new EFS file system.
 func (b *InMemoryBackend) CreateFileSystem(
 	ctx context.Context,
@@ -124,28 +162,12 @@ func (b *InMemoryBackend) CreateFileSystem(
 	tokenIdx := b.tokenIdxStore(region)
 
 	// O(1) idempotency check via creation-token index.
-	if existingID, ok := tokenIdx[req.CreationToken]; ok {
-		fs, _ := b.fileSystems.Get(regionKey(region, existingID))
-		cp := *fs
+	if cp, found, idemErr := b.checkFileSystemIdempotency(region, tokenIdx, req); found {
+		return cp, idemErr
+	}
 
-		if fs.PerformanceMode == req.PerformanceMode &&
-			fs.ThroughputMode == req.ThroughputMode &&
-			fs.Encrypted == req.Encrypted &&
-			fs.KmsKeyID == req.KmsKeyID &&
-			fs.AvailabilityZoneName == req.AvailabilityZoneName {
-			return &cp, fmt.Errorf(
-				"%w: file system with token %s already exists (identical args)",
-				ErrCreationTokenExists,
-				req.CreationToken,
-			)
-		}
-
-		return &cp, fmt.Errorf(
-			"%w: file system with token %s already exists with different parameters (FileSystemId: %s)",
-			ErrAlreadyExists,
-			req.CreationToken,
-			fs.FileSystemID,
-		)
+	if len(b.fileSystemsByRegion.Get(region)) >= b.limits.fileSystemsPerAccount {
+		return nil, fileSystemLimitExceededErr(b.limits.fileSystemsPerAccount)
 	}
 
 	id := "fs-" + uuid.NewString()[:8]

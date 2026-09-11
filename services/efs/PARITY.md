@@ -103,11 +103,39 @@ gaps:
     rather than remove tested behavior on weak evidence. Not changed this pass either
     (gopherstack-g8sg): confirming/removing it is a real-AWS-behavior judgment call
     outside what the SDK doc text alone can settle, left for deliberate review.
-  - FileSystemLimitExceeded / AccessPointLimitExceeded (account-level Service Quota errors, HTTP 403) are not simulated. Unlike SecurityGroupLimitExceeded (a fixed, non-adjustable per-mount-target structural limit of 5, which IS enforced), these are adjustable per-account Service Quotas with high documented defaults (hundreds to low thousands depending on resource/file-system type) that operators can raise via the Service Quotas console. There is no account-quota-configuration model anywhere in this backend to hang an enforceable, configurable threshold off of, and hardcoding an arbitrary number risks breaking legitimate high-volume test/load usage of the mock for no wire-shape or state-correctness benefit (no SDK client behavior differs based on whether this specific 403 is reachable). Deferred; see items_still_open in the audit receipt for the full reasoning.
+  - gopherstack-ne9h (2026-09-11, fixed): FileSystemLimitExceeded / AccessPointLimitExceeded
+    (account-level Service Quota 403s) are now enforced. services/efs/limits.go adds the same
+    named-constant + WithResourceLimits quota-config model services/ses/limits.go and
+    services/glue/limits.go use: CreateFileSystem and CreateReplicationConfiguration (the
+    latter implicitly creates a destination file system) enforce a 1,000-per-account/region
+    file-system cap (FileSystemLimitExceeded), and CreateAccessPoint enforces a
+    10,000-per-file-system access-point cap (AccessPointLimitExceeded) -- both values from
+    https://docs.aws.amazon.com/efs/latest/ug/limits.html's "Amazon EFS quotas that you can
+    increase" table (WebFetch'd 2026-09-11). Both exceptions carry httpStatusCode 403 per
+    aws-sdk-go@v1.55.8/models/apis/elasticfilesystem/2015-02-01/api-2.json's shapes entries
+    (unlike SecurityGroupLimitExceeded's 400), confirmed by a real-SDK-client round-trip test
+    (limits_realclient_test.go) that both typed exceptions decode correctly through
+    aws-sdk-go-v2/service/efs's REST-JSON deserializer. Deliberately left unenforced, same
+    pass: ThroughputLimitExceeded (CreateFileSystem/CreateReplicationConfiguration/
+    UpdateFileSystem) overlaps the ProvisionedThroughputInMibps 1-1024 structural bound
+    already enforced as BadRequest, and the currently published per-file-system throughput
+    quota is region-dependent (3-10 GiBps) rather than the flat 1024 MiB/s the SDK doc string
+    still cites -- picking either number to also raise a second, distinct exception would be
+    guessing, not citing. NetworkInterfaceLimitExceeded/NoFreeAddressesInSubnet/IpAddressInUse
+    (CreateMountTarget) depend on real subnet CIDR occupancy and account-wide ENI counts,
+    which are EC2/VPC quotas efs's own limits page never publishes a number for -- gopherstack
+    has no subnet-IP-occupancy model to check them against without fabricating a threshold.
+    Also confirmed not a gap: the mount-targets-per-VPC hard cap of 1,400 (same "cannot
+    change" table as the already-enforced 1-per-AZ/5-security-groups rules) has no distinct
+    SDK exception of its own (would still be MountTargetConflict) and would need new
+    cross-file-system-per-VPC indexing this pass didn't build; a candidate follow-up, not
+    fabricated here. See limits.go's doc comment for the full per-op citations.
   - DescribeTags (the legacy GET-only op, distinct from the resource-tags family) does not apply Marker/MaxItems pagination server-side -- always returns the full tag set in one page. Low priority: EFS caps tags per resource at 50 (maxTagsPerResource), so a single page is always sufficient in practice; a real client would never actually see a second page from real AWS either at that low a cap.
 deferred:
   - DescribeTags pagination (Marker/MaxItems) -- see gaps; capped at 50 tags/resource so unreachable in practice.
-  - FileSystemLimitExceeded / AccessPointLimitExceeded account-quota simulation -- see gaps; no account-quota-config model exists to hang a real threshold off.
+  - ThroughputLimitExceeded / NetworkInterfaceLimitExceeded / NoFreeAddressesInSubnet /
+    IpAddressInUse / mount-targets-per-VPC (1,400) -- see gaps entry dated 2026-09-11 for why
+    each is left unenforced now that FileSystemLimitExceeded/AccessPointLimitExceeded are done.
 leaks: {status: clean, note: "single self-terminating goroutine (fsActivationDelay simulation in CreateFileSystem) guards against concurrent deletion via a Get-under-lock check before mutating state; only active when fsActivationDelay>0, which is zero (disabled) outside parity tests. No new goroutines/tickers added this pass (mount-target IPv6 fields, replication pagination, and LastReplicatedTimestamp are all synchronous state mutations)."}
 ---
 

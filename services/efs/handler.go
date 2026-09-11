@@ -607,6 +607,11 @@ func efsErrClassifications() []errClassification {
 		{ErrMountTargetConflict, "MountTargetConflict", http.StatusConflict},
 		{ErrIncorrectFileSystemLifeCycleState, "IncorrectFileSystemLifeCycleState", http.StatusConflict},
 		{ErrSecurityGroupLimitExceeded, "SecurityGroupLimitExceeded", http.StatusBadRequest},
+		// FileSystemLimitExceeded/AccessPointLimitExceeded are httpStatusCode 403 in
+		// aws-sdk-go@v1.55.8/models/apis/elasticfilesystem/2015-02-01/api-2.json's
+		// shapes entries -- a Service Quota 403, unlike SecurityGroupLimitExceeded's 400.
+		{ErrFileSystemLimitExceeded, "FileSystemLimitExceeded", http.StatusForbidden},
+		{ErrAccessPointLimitExceeded, "AccessPointLimitExceeded", http.StatusForbidden},
 		{ErrNotFound, "FileSystemNotFound", http.StatusNotFound},
 		{ErrMountTargetNotFound, "MountTargetNotFound", http.StatusNotFound},
 		{ErrAccessPointNotFound, "AccessPointNotFound", http.StatusNotFound},
