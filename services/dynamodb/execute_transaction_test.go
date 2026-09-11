@@ -321,3 +321,120 @@ func TestExecuteTransaction_ConsumedCapacity_TableDriven(t *testing.T) {
 		})
 	}
 }
+
+// TestExecuteTransaction_ExistsStatement_Passes verifies the EXISTS(SELECT ...)
+// transaction-only condition check succeeds (contributes no Response.Item)
+// when the inner SELECT finds a matching item.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+func TestExecuteTransaction_ExistsStatement_Passes(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnExistsTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnExistsTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	existsStmt := `EXISTS(SELECT * FROM "TxnExistsTable" WHERE pk = 'key1')`
+	updateStmt := `UPDATE "TxnExistsTable" SET data = 'x' WHERE pk = 'key1'`
+
+	out, err := db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &existsStmt},
+			{Statement: &updateStmt},
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Responses, 2)
+	assert.Nil(t, out.Responses[0].Item, "EXISTS contributes no response item")
+}
+
+// TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction verifies
+// that when the EXISTS condition is false, the whole transaction is rolled
+// back and rejected with TransactionCanceledException.
+func TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnExistsFailTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnExistsFailTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	existsStmt := `EXISTS(SELECT * FROM "TxnExistsFailTable" WHERE pk = 'does-not-exist')`
+	updateStmt := `UPDATE "TxnExistsFailTable" SET data = 'x' WHERE pk = 'key1'`
+
+	_, err = db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &existsStmt},
+			{Statement: &updateStmt},
+		},
+	})
+	require.Error(t, err)
+
+	var wireErr *dynamodb.Error
+	require.ErrorAs(t, err, &wireErr)
+	assert.Contains(t, wireErr.Type, "TransactionCanceledException")
+	require.Len(t, wireErr.CancellationReasons, 2)
+	assert.Equal(t, "ConditionalCheckFailed", wireErr.CancellationReasons[0].Code)
+	assert.Equal(t, "None", wireErr.CancellationReasons[1].Code)
+
+	// The transaction must have rolled back: the update must not have applied.
+	getOut, getErr := db.GetItem(ctx, &sdk.GetItemInput{
+		TableName: aws.String("TxnExistsFailTable"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, getErr)
+	assert.NotContains(t, getOut.Item, "data")
+}
+
+// TestExecuteTransaction_CancellationReasons_OnStatementError verifies a
+// non-EXISTS statement failure (a WHERE clause that never matches on an
+// UPDATE) is also wrapped in TransactionCanceledException with a properly
+// shaped, per-statement CancellationReasons array.
+func TestExecuteTransaction_CancellationReasons_OnStatementError(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnCancelReasonsTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnCancelReasonsTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	okUpdate := `UPDATE "TxnCancelReasonsTable" SET data = 'x' WHERE pk = 'key1'`
+	// INSERT of an already-existing key fails with DuplicateItemException.
+	badStatement := `INSERT INTO "TxnCancelReasonsTable" VALUE {'pk': 'key1'}`
+
+	_, err = db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &okUpdate},
+			{Statement: &badStatement},
+		},
+	})
+	require.Error(t, err)
+
+	var wireErr *dynamodb.Error
+	require.ErrorAs(t, err, &wireErr)
+	assert.Contains(t, wireErr.Type, "TransactionCanceledException")
+	require.Len(t, wireErr.CancellationReasons, 2)
+}

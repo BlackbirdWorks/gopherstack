@@ -1,6 +1,7 @@
 package dynamodb
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"sort"
@@ -25,7 +26,7 @@ func EvaluateExpression(
 	p := expr.NewParser(l)
 	node, err := p.ParseCondition()
 	if err != nil {
-		return false, err
+		return false, NewValidationException("Invalid ConditionExpression: " + err.Error())
 	}
 
 	eval := &expr.Evaluator{
@@ -36,7 +37,7 @@ func EvaluateExpression(
 
 	result, err := eval.Evaluate(node)
 	if err != nil {
-		return false, err
+		return false, NewValidationException("Invalid ConditionExpression: " + err.Error())
 	}
 
 	if b, ok := result.(bool); ok {
@@ -62,7 +63,7 @@ func applyUpdate(
 	p := expr.NewParser(l)
 	u, err := p.ParseUpdate()
 	if err != nil {
-		return nil, err
+		return nil, NewValidationException("Invalid UpdateExpression: " + err.Error())
 	}
 
 	eval := &expr.Evaluator{
@@ -72,10 +73,28 @@ func applyUpdate(
 	}
 
 	if applyErr := eval.ApplyUpdate(u); applyErr != nil {
-		return nil, applyErr
+		return nil, NewValidationException(updateExpressionErrorMessage(applyErr))
 	}
 
 	return eval.UpdatedPaths, nil
+}
+
+// updateExpressionErrorMessage renders an ApplyUpdate error as the exact
+// ValidationException wording AWS documents for it (capitalized, no generic
+// prefix), falling back to a generic "Invalid UpdateExpression: " wrapper for
+// errors with no verified verbatim AWS message.
+func updateExpressionErrorMessage(err error) string {
+	switch {
+	case errors.Is(err, expr.ErrDocumentPathInvalidForUpdate):
+		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+		return "The document path provided in the update expression is invalid for update"
+	case errors.Is(err, expr.ErrOperandIncorrectType):
+		return "An operand in the update expression has an incorrect data type"
+	case errors.Is(err, expr.ErrOverlappingDocumentPaths):
+		return "Two document paths overlap with each other; must remove or rewrite one of these paths"
+	default:
+		return "Invalid UpdateExpression: " + err.Error()
+	}
 }
 
 // projectItem creates a new item containing only the attributes specified in the ProjectionExpression.
@@ -337,6 +356,69 @@ func checkUnusedExpressionAttributeValues(eav map[string]any, exprs ...string) e
 			strings.Join(unused, ", "),
 		),
 	)
+}
+
+// checkUndefinedExpressionAttributeValues returns a ValidationException when
+// expression references a :placeholder that is not defined in eav. Message
+// text matches the commonly observed AWS wording (not verbatim quoted in the
+// developer guide, but consistent with community-reported error strings).
+func checkUndefinedExpressionAttributeValues(eav map[string]any, exprLabel, expression string) error {
+	for _, tok := range extractPlaceholderTokens(expression, ':') {
+		if _, ok := eav[tok]; !ok {
+			return NewValidationException(fmt.Sprintf(
+				"Invalid %s: An expression attribute value used in expression is not defined; "+
+					"attribute value name: %s",
+				exprLabel, tok,
+			))
+		}
+	}
+
+	return nil
+}
+
+// checkUndefinedExpressionAttributeNames returns a ValidationException when
+// expression references a #placeholder that is not defined in ean.
+func checkUndefinedExpressionAttributeNames(ean map[string]string, exprLabel, expression string) error {
+	for _, tok := range extractPlaceholderTokens(expression, '#') {
+		if _, ok := ean[tok]; !ok {
+			return NewValidationException(fmt.Sprintf(
+				"Invalid %s: An expression attribute name used in expression is not defined; "+
+					"attribute name: %s",
+				exprLabel, tok,
+			))
+		}
+	}
+
+	return nil
+}
+
+// extractPlaceholderTokens scans expression for tokens starting with prefix
+// (':' or '#') followed by alphanumerics/underscore, e.g. ":val" or "#name".
+func extractPlaceholderTokens(expression string, prefix byte) []string {
+	var tokens []string
+
+	for i := 0; i < len(expression); i++ {
+		if expression[i] != prefix {
+			continue
+		}
+		j := i + 1
+		for j < len(expression) && isPlaceholderChar(expression[j]) {
+			j++
+		}
+		if j > i+1 {
+			tokens = append(tokens, expression[i:j])
+		}
+		i = j - 1
+	}
+
+	return tokens
+}
+
+func isPlaceholderChar(b byte) bool {
+	return b == '_' ||
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9')
 }
 
 // validateUpdateDoesNotModifyKeys returns a ValidationException when the

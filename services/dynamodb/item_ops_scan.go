@@ -279,6 +279,17 @@ func (db *InMemoryDB) doScan(
 		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}
 
+	if filter != "" {
+		if undefErr := checkUndefinedExpressionAttributeNames(
+			input.ExpressionAttributeNames, "FilterExpression", filter,
+		); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
+		if undefErr := checkUndefinedExpressionAttributeValues(eav, "FilterExpression", filter); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
+	}
+
 	// Pre-parse the filter expression once to avoid re-parsing per item in the hot loop.
 	parsedFilter, err := ParseConditionStr(filter)
 	if err != nil {

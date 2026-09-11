@@ -20,7 +20,21 @@ var (
 	ErrUnexpectedOperand     = errors.New("unexpected operand token")
 	ErrExpectedIndex         = errors.New("expected index")
 	ErrExpectedRParen2       = errors.New("expected )")
+	// ErrTooManyINValues matches the documented IN limit: "The list can
+	// contain up to 100 values, separated by commas."
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
+	ErrTooManyINValues = errors.New("IN operator can have up to 100 values")
+	// ErrDuplicateUpdateSection matches AWS rejecting an UpdateExpression that
+	// repeats the same SET/REMOVE/ADD/DELETE keyword: "each action keyword can
+	// appear only once."
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+	ErrDuplicateUpdateSection = errors.New(
+		"can only be used once in an update expression",
+	)
 )
+
+// maxINValues is the documented maximum number of IN operator candidates.
+const maxINValues = 100
 
 type Parser struct {
 	l         *Lexer
@@ -355,6 +369,9 @@ func (p *Parser) parseInInfix(left Node) (Node, error) {
 	if !p.expectPeek(TokenRParen) {
 		return nil, ErrExpectedRParenAfterIN
 	}
+	if len(candidates) > maxINValues {
+		return nil, fmt.Errorf("%w: got %d", ErrTooManyINValues, len(candidates))
+	}
 
 	return &InExpr{Value: left, Candidates: candidates}, nil
 }
@@ -380,11 +397,19 @@ func (p *Parser) parseInCandidates() ([]Node, error) {
 // ParseUpdate parses an UpdateExpression.
 func (p *Parser) ParseUpdate() (*UpdateExpr, error) {
 	expr := &UpdateExpr{}
+	seen := make(map[TokenType]bool, 4) //nolint:mnd // four update section keywords
 
 	for !p.curTokenIs(TokenEOF) {
 		action := UpdateAction{Type: p.curToken.Type}
 		switch p.curToken.Type {
 		case TokenSET, TokenREMOVE, TokenADD, TokenDELETE:
+			if seen[action.Type] {
+				return nil, fmt.Errorf(
+					"%w: %q", ErrDuplicateUpdateSection, p.curToken.Literal,
+				)
+			}
+			seen[action.Type] = true
+
 			p.nextToken()
 			items, err := p.parseUpdateItems(action.Type)
 			if err != nil {

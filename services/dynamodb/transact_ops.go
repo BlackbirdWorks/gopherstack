@@ -35,6 +35,10 @@ type tableStateSnapshot struct {
 
 const txCancelPrefix = "Transaction cancelled, please refer cancellation reasons for specific reasons"
 
+// cancellationReasonNone is the CancellationReason.Code for a transaction
+// statement/item that did not itself fail.
+const cancellationReasonNone = "None"
+
 // replicationOpDelete is the mutation op string for item deletion in global-table replication.
 const replicationOpDelete = "DELETE"
 
@@ -140,7 +144,7 @@ func (db *InMemoryDB) executeTransactWrite(
 	// Phase 1: Check conditions.
 	reasons := make([]CancellationReason, len(input.TransactItems))
 	for i := range reasons {
-		reasons[i] = CancellationReason{Code: "None"}
+		reasons[i] = CancellationReason{Code: cancellationReasonNone}
 	}
 
 	canceled := false

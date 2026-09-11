@@ -1,6 +1,8 @@
 package expr_test
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/blackbirdworks/gopherstack/services/dynamodb/expr"
@@ -84,6 +86,28 @@ func TestParser_Errors(t *testing.T) {
 			isUpd:   false,
 			wantErr: expr.ErrUnexpectedToken,
 		},
+		{
+			// AWS: "each action keyword can appear only once" in an UpdateExpression.
+			// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+			name:    "duplicate SET section rejected",
+			input:   "SET #a = :v1 SET #b = :v2",
+			isUpd:   true,
+			wantErr: expr.ErrDuplicateUpdateSection,
+		},
+		{
+			name:    "duplicate REMOVE section rejected",
+			input:   "REMOVE #a REMOVE #b",
+			isUpd:   true,
+			wantErr: expr.ErrDuplicateUpdateSection,
+		},
+		{
+			// AWS: "The list can contain up to 100 values, separated by commas."
+			// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
+			name:    "IN with 101 values rejected",
+			input:   "pk IN (" + repeatValuePlaceholders(101) + ")",
+			isUpd:   false,
+			wantErr: expr.ErrTooManyINValues,
+		},
 	}
 
 	for _, tt := range tests {
@@ -102,6 +126,27 @@ func TestParser_Errors(t *testing.T) {
 			assert.ErrorIs(t, err, tt.wantErr)
 		})
 	}
+}
+
+// repeatValuePlaceholders returns n comma-separated distinct value
+// placeholders (":v0, :v1, ...") for building large IN clauses.
+func repeatValuePlaceholders(n int) string {
+	parts := make([]string, n)
+	for i := range n {
+		parts[i] = ":v" + strconv.Itoa(i)
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+func TestParser_IN_MaxValues(t *testing.T) {
+	t.Parallel()
+
+	// Exactly 100 values is the documented limit and must still parse.
+	l := expr.NewLexer("pk IN (" + repeatValuePlaceholders(100) + ")")
+	p := expr.NewParser(l)
+	_, err := p.ParseCondition()
+	require.NoError(t, err)
 }
 
 func TestParser_Projection(t *testing.T) {

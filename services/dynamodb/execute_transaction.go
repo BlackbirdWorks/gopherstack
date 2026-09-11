@@ -5,8 +5,10 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -64,7 +66,22 @@ func (db *InMemoryDB) ExecuteTransaction(
 			// Roll back all tables to their pre-transaction state.
 			db.restoreExecTxnSnapshots(ctx, tableNames, snapshots)
 
-			return nil, execErr
+			// AWS: "If any of the singleton INSERT, UPDATE, or DELETE operations
+			// return an error, the transactions are canceled with the
+			// TransactionCanceledException exception, and the cancellation
+			// reason code includes the errors from the individual singleton
+			// operations."
+			// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+			reasons := make([]CancellationReason, len(input.TransactStatements))
+			for j := range reasons {
+				reasons[j] = CancellationReason{Code: cancellationReasonNone}
+			}
+			reasons[i] = CancellationReason{
+				Code:    cancellationCodeForErr(execErr),
+				Message: execErr.Error(),
+			}
+
+			return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
 		}
 		responses[i] = resp
 
@@ -252,6 +269,16 @@ func executeTransactionStatement(
 		wireParams = append(wireParams, wire)
 	}
 
+	// EXISTS(SELECT ...) is a transaction-only condition check, analogous to
+	// ConditionCheck in TransactWriteItems: it never appears in a standalone
+	// ExecuteStatement/BatchExecuteStatement call. AWS: "The entire transaction
+	// must consist of either read statements or write statements. You can't
+	// mix both in one transaction. The EXISTS function is an exception."
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+	if partiqlExistsRe.MatchString(strings.TrimSpace(stmtStr)) {
+		return executeTransactionExists(ctx, runner, stmtStr, wireParams, ccReq)
+	}
+
 	out, err := runner.executeStatement(ctx, executeStatementRequest{
 		Statement:              stmtStr,
 		Parameters:             wireParams,
@@ -269,6 +296,93 @@ func executeTransactionStatement(
 	}
 
 	return resp, out.ConsumedCapacity, nil
+}
+
+// partiqlExistsRe matches the EXISTS(...) transaction condition-check statement.
+var partiqlExistsRe = regexp.MustCompile(`(?i)^\s*EXISTS\s*\(`)
+
+// executeTransactionExists evaluates EXISTS(SELECT ...) as a read-only
+// condition check: it runs the inner SELECT and fails the statement (so the
+// enclosing transaction cancels) when it returns no items, without
+// contributing an Item to the transaction's Responses -- matching
+// ConditionCheck's no-return-value contract.
+func executeTransactionExists(
+	ctx context.Context,
+	runner *partiQLRunner,
+	stmtStr string,
+	params []map[string]any,
+	ccReq types.ReturnConsumedCapacity,
+) (types.ItemResponse, *types.ConsumedCapacity, error) {
+	inner, err := extractExistsInnerSelect(stmtStr)
+	if err != nil {
+		return types.ItemResponse{}, nil, err
+	}
+
+	out, err := runner.executeStatement(ctx, executeStatementRequest{
+		Statement:              inner,
+		Parameters:             params,
+		ReturnConsumedCapacity: ccReq,
+	})
+	if err != nil {
+		return types.ItemResponse{}, nil, err
+	}
+
+	if len(out.Items) == 0 {
+		return types.ItemResponse{}, nil, NewConditionalCheckFailedException(
+			"The conditional request failed",
+		)
+	}
+
+	return types.ItemResponse{}, out.ConsumedCapacity, nil
+}
+
+// extractExistsInnerSelect returns the SELECT statement inside
+// "EXISTS( ... )", respecting parentheses and quotes nested within string
+// literals in the WHERE clause.
+func extractExistsInnerSelect(stmt string) (string, error) {
+	trimmed := strings.TrimSpace(stmt)
+	if !partiqlExistsRe.MatchString(trimmed) {
+		return "", fmt.Errorf("%w: not an EXISTS statement", ErrInvalidStatement)
+	}
+
+	open := strings.IndexByte(trimmed, '(')
+	if open < 0 {
+		return "", fmt.Errorf("%w: EXISTS missing (", ErrInvalidStatement)
+	}
+
+	depth := 0
+	for i := open; i < len(trimmed); {
+		switch trimmed[i] {
+		case '\'':
+			i = advancePastStringLiteral(trimmed, i)
+
+			continue
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(trimmed[open+1 : i]), nil
+			}
+		}
+		i++
+	}
+
+	return "", fmt.Errorf("%w: EXISTS missing closing )", ErrInvalidStatement)
+}
+
+// cancellationCodeForErr maps an internal error to a DynamoDB CancellationReason
+// code for ExecuteTransaction. ConditionalCheckFailedException maps to
+// "ConditionalCheckFailed" (matching TransactWriteItems); everything else maps
+// to the generic "ValidationError" used elsewhere in this package for
+// expression/validation failures inside a transaction.
+func cancellationCodeForErr(err error) string {
+	var wireErr *Error
+	if errors.As(err, &wireErr) && strings.Contains(wireErr.Type, "ConditionalCheckFailedException") {
+		return "ConditionalCheckFailed"
+	}
+
+	return "ValidationError"
 }
 
 // partiqlStmtTableName extracts the table name from a PartiQL statement string.
