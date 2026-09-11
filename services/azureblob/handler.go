@@ -35,15 +35,16 @@ const blockBlobType = "BlockBlob"
 // Operation name constants used for metrics (ExtractOperation) and
 // GetSupportedOperations.
 const (
-	opListContainers    = "ListContainers"
-	opCreateContainer   = "CreateContainer"
-	opDeleteContainer   = "DeleteContainer"
-	opListBlobs         = "ListBlobs"
-	opPutBlob           = "PutBlob"
-	opGetBlob           = "GetBlob"
-	opGetBlobProperties = "GetBlobProperties"
-	opDeleteBlob        = "DeleteBlob"
-	unknownOperation    = "Unknown"
+	opListContainers       = "ListContainers"
+	opGetServiceProperties = "GetServiceProperties"
+	opCreateContainer      = "CreateContainer"
+	opDeleteContainer      = "DeleteContainer"
+	opListBlobs            = "ListBlobs"
+	opPutBlob              = "PutBlob"
+	opGetBlob              = "GetBlob"
+	opGetBlobProperties    = "GetBlobProperties"
+	opDeleteBlob           = "DeleteBlob"
+	unknownOperation       = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for Azure Blob Storage operations.
@@ -86,6 +87,7 @@ func (h *Handler) Name() string { return "AzureBlob" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opListContainers,
+		opGetServiceProperties,
 		opCreateContainer,
 		opDeleteContainer,
 		opListBlobs,
@@ -248,7 +250,9 @@ const (
 	queryComp    = "comp"
 
 	restypeContainer = "container"
+	restypeService   = "service"
 	compList         = "list"
+	compProperties   = "properties"
 )
 
 // operationFor determines the Azure Blob operation name for a request, for
@@ -268,14 +272,20 @@ func operationFor(r *http.Request) string {
 	}
 }
 
-// accountOperationFor covers the one account-level operation, List
-// Containers (GET /<account>?comp=list).
+// accountOperationFor covers the two account-level operations: List
+// Containers (GET /<account>?comp=list) and Get Blob Service Properties
+// (GET /<account>?restype=service&comp=properties).
 func accountOperationFor(r *http.Request) string {
-	if r.Method == http.MethodGet && r.URL.Query().Get(queryComp) == compList {
-		return opListContainers
-	}
+	q := r.URL.Query()
 
-	return unknownOperation
+	switch {
+	case r.Method == http.MethodGet && q.Get(queryComp) == compList:
+		return opListContainers
+	case r.Method == http.MethodGet && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
+		return opGetServiceProperties
+	default:
+		return unknownOperation
+	}
 }
 
 // containerOperationFor covers the three container-scoped operations:
@@ -323,9 +333,17 @@ func (h *Handler) serviceEndpoint() string {
 	return fmt.Sprintf("http://127.0.0.1:%d", h.Port)
 }
 
-// handleAccountLevel serves GET /<account>?comp=list (List Containers).
+// handleAccountLevel serves GET /<account>?comp=list (List Containers) and
+// GET /<account>?restype=service&comp=properties (Get Blob Service
+// Properties).
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
+
+	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
+		c.QueryParam(queryComp) == compProperties {
+		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+	}
+
 	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")

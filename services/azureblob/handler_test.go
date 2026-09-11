@@ -432,6 +432,22 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "PutBlob")
 	assert.Contains(t, ops, "GetBlob")
 	assert.Contains(t, ops, "ListContainers")
+	assert.Contains(t, ops, "GetServiceProperties")
+}
+
+// TestHandler_GetServiceProperties proves GET /<account>?restype=service&
+// comp=properties succeeds -- terraform-provider-azurerm v4.81+ polls this
+// endpoint to confirm the data plane is reachable right after creating a
+// storage account, and fails the whole apply if it 400s (AZURE.md section
+// 10.8).
+func TestHandler_GetServiceProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"?restype=service&comp=properties", nil, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<StorageServiceProperties")
 }
 
 // TestErrNilAppContext and TestProviderInit live in provider_test.go.

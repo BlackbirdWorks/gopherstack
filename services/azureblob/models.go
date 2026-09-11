@@ -85,6 +85,18 @@ type enumerationResults struct {
 	NextMarker      string          `xml:"NextMarker"`
 }
 
+// storageServiceProperties is the minimal (all-empty) response body for Get
+// Blob Service Properties (GET /<account>?restype=service&comp=properties).
+// Every field in the real schema (Cors/DefaultServiceVersion/
+// DeleteRetentionPolicy/Logging/HourMetrics/MinuteMetrics/StaticWebsite) is
+// optional, so an empty element round-trips through every SDK's XML decoder
+// (they match by tag name, not presence). This endpoint exists solely to
+// satisfy terraform-provider-azurerm v4.81+'s post-create data-plane
+// readiness poll (AZURE.md section 10.8) -- it has no configurable state.
+type storageServiceProperties struct {
+	XMLName xml.Name `xml:"StorageServiceProperties"`
+}
+
 type containersList struct {
 	Container []containerEntry `xml:"Container"`
 }

@@ -30,16 +30,17 @@ const azureQueueVersion = "2021-08-06"
 // Operation name constants used for metrics (ExtractOperation) and
 // GetSupportedOperations.
 const (
-	opListQueues     = "ListQueues"
-	opCreateQueue    = "CreateQueue"
-	opDeleteQueue    = "DeleteQueue"
-	opPutMessage     = "PutMessage"
-	opGetMessages    = "GetMessages"
-	opPeekMessages   = "PeekMessages"
-	opDeleteMessage  = "DeleteMessage"
-	opUpdateMessage  = "UpdateMessage"
-	opClearMessages  = "ClearMessages"
-	unknownOperation = "Unknown"
+	opListQueues           = "ListQueues"
+	opGetServiceProperties = "GetServiceProperties"
+	opCreateQueue          = "CreateQueue"
+	opDeleteQueue          = "DeleteQueue"
+	opPutMessage           = "PutMessage"
+	opGetMessages          = "GetMessages"
+	opPeekMessages         = "PeekMessages"
+	opDeleteMessage        = "DeleteMessage"
+	opUpdateMessage        = "UpdateMessage"
+	opClearMessages        = "ClearMessages"
+	unknownOperation       = "Unknown"
 )
 
 // messagesSegment is the fixed path segment ("messages") under a queue that
@@ -101,6 +102,7 @@ func (h *Handler) Name() string { return "AzureQueue" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opListQueues,
+		opGetServiceProperties,
 		opCreateQueue,
 		opDeleteQueue,
 		opPutMessage,
@@ -258,7 +260,10 @@ func splitPath(p string) (string, string, string) {
 // request handlers.
 const (
 	queryComp              = "comp"
+	queryRestype           = "restype"
 	compList               = "list"
+	compProperties         = "properties"
+	restypeService         = "service"
 	queryNumOfMessages     = "numofmessages"
 	queryVisibilityTimeout = "visibilitytimeout"
 	queryMessageTTL        = "messagettl"
@@ -285,14 +290,20 @@ func operationFor(r *http.Request) string {
 	}
 }
 
-// accountOperationFor covers the one account-level operation, List Queues
-// (GET /<account>?comp=list).
+// accountOperationFor covers the two account-level operations: List Queues
+// (GET /<account>?comp=list) and Get Queue Service Properties
+// (GET /<account>?restype=service&comp=properties).
 func accountOperationFor(r *http.Request) string {
-	if r.Method == http.MethodGet && r.URL.Query().Get(queryComp) == compList {
-		return opListQueues
-	}
+	q := r.URL.Query()
 
-	return unknownOperation
+	switch {
+	case r.Method == http.MethodGet && q.Get(queryComp) == compList:
+		return opListQueues
+	case r.Method == http.MethodGet && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
+		return opGetServiceProperties
+	default:
+		return unknownOperation
+	}
 }
 
 // queueOperationFor covers the two queue-scoped operations: Create Queue and
@@ -353,6 +364,12 @@ func (h *Handler) serviceEndpoint() string {
 // handleAccountLevel serves GET /<account>?comp=list (List Queues).
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
+
+	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
+		c.QueryParam(queryComp) == compProperties {
+		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+	}
+
 	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")
