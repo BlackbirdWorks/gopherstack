@@ -5,11 +5,11 @@ func (b *InMemoryBackend) DescribeSharedVpcConfiguration() (*SharedVpcConfigurat
 	b.mu.RLock("DescribeSharedVpcConfiguration")
 	defer b.mu.RUnlock()
 
-	return &SharedVpcConfiguration{EnableSharedVpcOnFileSystemCreation: b.sharedVpcEnabled}, nil
+	return &SharedVpcConfiguration{EnableFsxRouteTableUpdatesFromParticipantAccounts: b.sharedVpcEnabled}, nil
 }
 
 type updateSharedVpcConfigurationInput struct {
-	EnableSharedVpcOnFileSystemCreation string `json:"EnableSharedVpcOnFileSystemCreation"`
+	EnableFsxRouteTableUpdatesFromParticipantAccounts string `json:"EnableFsxRouteTableUpdatesFromParticipantAccounts"`
 }
 
 // UpdateSharedVpcConfiguration updates the shared VPC configuration.
@@ -19,7 +19,7 @@ func (b *InMemoryBackend) UpdateSharedVpcConfiguration(
 	b.mu.Lock("UpdateSharedVpcConfiguration")
 	defer b.mu.Unlock()
 
-	b.sharedVpcEnabled = input.EnableSharedVpcOnFileSystemCreation
+	b.sharedVpcEnabled = input.EnableFsxRouteTableUpdatesFromParticipantAccounts
 
-	return &SharedVpcConfiguration{EnableSharedVpcOnFileSystemCreation: b.sharedVpcEnabled}, nil
+	return &SharedVpcConfiguration{EnableFsxRouteTableUpdatesFromParticipantAccounts: b.sharedVpcEnabled}, nil
 }

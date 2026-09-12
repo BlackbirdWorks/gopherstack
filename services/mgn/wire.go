@@ -942,9 +942,14 @@ type enrichmentSourceS3ConfigurationWire struct {
 	S3Key         string `json:"s3Key"`
 }
 
+// startImportFileEnrichmentRequest mirrors StartImportFileEnrichmentInput
+// (mgn@v1.48.4 api_op_StartImportFileEnrichment.go): both S3BucketSource and
+// S3BucketTarget are required real members serialized as "s3BucketSource"/
+// "s3BucketTarget" (serializers.go:6807-6816) -- NOT "sourceS3Configuration"/
+// "targetS3Configuration", which are not real wire keys at all.
 type startImportFileEnrichmentRequest struct {
-	SourceS3Configuration *enrichmentSourceS3ConfigurationWire `json:"sourceS3Configuration"`
-	TargetS3Configuration *enrichmentTargetS3ConfigurationWire `json:"targetS3Configuration"`
+	SourceS3Configuration *enrichmentSourceS3ConfigurationWire `json:"s3BucketSource"`
+	TargetS3Configuration *enrichmentTargetS3ConfigurationWire `json:"s3BucketTarget"`
 	Tags                  map[string]string                    `json:"tags,omitempty"`
 }
 

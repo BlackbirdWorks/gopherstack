@@ -157,11 +157,12 @@ func (h *Handler) handleStartReplication(_ context.Context, _ *http.Request, bod
 		return nil, err
 	}
 
-	if err := h.Backend.StartReplication(req.SourceServerID); err != nil {
+	s, err := h.Backend.StartReplication(req.SourceServerID)
+	if err != nil {
 		return nil, err
 	}
 
-	return marshalResponse(struct{}{})
+	return marshalResponse(toSourceServerWire(s))
 }
 
 func (h *Handler) handleStopReplication(_ context.Context, _ *http.Request, body []byte) ([]byte, error) {

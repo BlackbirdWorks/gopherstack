@@ -474,9 +474,10 @@ type S3AccessPoint struct {
 	ResourceARN string `json:"ResourceARN,omitempty"`
 }
 
-// SharedVpcConfiguration holds the shared VPC on-file-system-creation setting.
+// SharedVpcConfiguration holds whether participant accounts can update route
+// tables for FSx for ONTAP Multi-AZ file systems in shared subnets.
 type SharedVpcConfiguration struct {
-	EnableSharedVpcOnFileSystemCreation string `json:"EnableSharedVpcOnFileSystemCreation"`
+	EnableFsxRouteTableUpdatesFromParticipantAccounts string `json:"EnableFsxRouteTableUpdatesFromParticipantAccounts"`
 }
 
 // Tag is a key-value pair attached to an FSx resource.

@@ -113,7 +113,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	apName := createS3AP(t, h, volumeID)
 
 	rec = doFSxRequest(t, h, "UpdateSharedVpcConfiguration", map[string]any{
-		"EnableSharedVpcOnFileSystemCreation": "true",
+		"EnableFsxRouteTableUpdatesFromParticipantAccounts": "true",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -260,7 +260,7 @@ func assertFullStateRestored(t *testing.T, h *fsx.Handler, ids fullStateIDs) {
 
 	var vpcOut map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vpcOut))
-	assert.Equal(t, "true", vpcOut["EnableSharedVpcOnFileSystemCreation"])
+	assert.Equal(t, "true", vpcOut["EnableFsxRouteTableUpdatesFromParticipantAccounts"])
 
 	rec = doFSxRequest(t, h, "ListTagsForResource", map[string]any{"ResourceARN": fsRecord["ResourceARN"]})
 	require.Equal(t, http.StatusOK, rec.Code)

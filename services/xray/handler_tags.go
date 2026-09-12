@@ -38,9 +38,18 @@ func (h *Handler) handleListTagsForResource(_ context.Context, body []byte) ([]b
 	})
 }
 
+// tagWire mirrors types.Tag (xray@v1.39.4): a {Key, Value} object, one per
+// list element -- NOT a JSON map. TagResourceInput.Tags serializes as this
+// list shape (serializers.go's awsRestjson1_serializeDocumentTagList), so a
+// real client's request body is always a JSON array here.
+type tagWire struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
 type tagResourceInput struct {
-	Tags        map[string]string `json:"Tags"`
-	ResourceARN string            `json:"ResourceARN"`
+	ResourceARN string    `json:"ResourceARN"`
+	Tags        []tagWire `json:"Tags"`
 }
 
 func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, error) {
@@ -55,7 +64,12 @@ func (h *Handler) handleTagResource(_ context.Context, body []byte) ([]byte, err
 		return nil, fmt.Errorf("%w: ResourceARN is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.TagResource(in.ResourceARN, in.Tags); err != nil {
+	tags := make(map[string]string, len(in.Tags))
+	for _, t := range in.Tags {
+		tags[t.Key] = t.Value
+	}
+
+	if err := h.Backend.TagResource(in.ResourceARN, tags); err != nil {
 		return nil, err
 	}
 

@@ -602,21 +602,24 @@ func (b *InMemoryBackend) MarkAsArchived(sourceServerID string) (*SourceServer, 
 }
 
 // StartReplication restarts data replication for a stopped/disconnected
-// source server -- a void-result op (StartReplicationOutput genuinely has
-// no fields beyond ResultMetadata, confirmed by direct SDK read, matching
-// PARITY.md's note that this asymmetry with its Stop/Pause/Resume siblings
-// is real, not an oversight).
-func (b *InMemoryBackend) StartReplication(sourceServerID string) error {
+// source server. StartReplicationOutput is the same flattened SourceServer
+// shape as its Stop/Pause/Resume/RetryDataReplication siblings (mgn@v1.48.4
+// api_op_StartReplication.go's StartReplicationOutput, confirmed against
+// deserializers.go:13454 awsRestjson1_deserializeOpDocumentStartReplicationOutput,
+// which decodes applicationID/arn/dataReplicationInfo/lifeCycle/sourceServerID/
+// etc.) -- a prior PARITY.md pass wrongly recorded this as a genuine
+// void-result op.
+func (b *InMemoryBackend) StartReplication(sourceServerID string) (*SourceServer, error) {
 	b.mu.Lock("StartReplication")
 	defer b.mu.Unlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
-		return err
+		return nil, err
 	}
 
 	s, ok := b.resolveSourceServerLocked(sourceServerID)
 	if !ok {
-		return notFoundError(resourceSourceServer, sourceServerID)
+		return nil, notFoundError(resourceSourceServer, sourceServerID)
 	}
 
 	if s.DataReplicationInfo == nil {
@@ -631,7 +634,7 @@ func (b *InMemoryBackend) StartReplication(sourceServerID string) error {
 
 	b.scheduleReplicationLocked(sourceServerID)
 
-	return nil
+	return s.clone(), nil
 }
 
 // StopReplication halts data replication. Any in-flight

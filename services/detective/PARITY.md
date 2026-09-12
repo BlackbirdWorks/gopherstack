@@ -57,6 +57,26 @@ deferred:                 # consciously not audited this pass (scope) — next p
 leaks: {status: clean, note: "DeleteGraph purges investigations/datasources/orgConfigs for the deleted graph ARN (not just members/tags). DisableOrganizationAdminAccount now reuses the same deleteGraphLocked cascade (see EnableOrganizationAdminAccount/DisableOrganizationAdminAccount notes above), so org-graph deletion via Disable is leak-free too. Verified via TestDeleteGraph_CleansUpDependentState and TestDisableOrganizationAdminAccount_DeletesGraph, both asserting the deleted ARN is absent from a post-delete Snapshot()/ListGraphs()."}
 ---
 
+## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+
+Drove all 19 typed-client-uncovered ops (BatchGetGraphMemberDatasources,
+BatchGetMembershipDatasources, CreateMembers, DeleteMembers,
+DescribeOrganizationConfiguration, DisableOrganizationAdminAccount,
+DisassociateMembership, EnableOrganizationAdminAccount, GetInvestigation,
+GetMembers, ListDatasourcePackages, ListInvestigations, ListMembers,
+ListOrganizationAdminAccounts, RejectInvitation, StartMonitoringMember,
+UpdateDatasourcePackages, UpdateInvestigationState,
+UpdateOrganizationConfiguration) through the real aws-sdk-go-v2 detective
+client for the first time (`typed_slice27_realclient_test.go`). Zero wire
+bugs found -- this PARITY.md's prior A-grade audit history already verified
+every one of these ops' wire shape by hand; the typed client confirmed it.
+RejectInvitation/DisassociateMembership/StartMonitoringMember needed
+`seedMember` (whitebox_test.go) to reach a self-membership state CreateMembers
+structurally cannot produce (an account cannot invite itself) -- same
+unreachable-except-by-seed shape already documented in items_still_open for
+StartMonitoringMember's ACCEPTED_BUT_DISABLED precondition. detective: 29/29
+typed-client covered (was 10/29).
+
 ## Notes
 
 Protocol: restjson1. All 29 CreateGraph..UpdateOrganizationConfiguration ops route

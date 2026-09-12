@@ -48,7 +48,7 @@ ops:
   GetTraceSegmentDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "traceSegmentDest snapshot/Reset fixed prior pass"}
   UpdateTraceSegmentDestination: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): (1) resourceTags is now included in backendSnapshot/Restore, closing the previously-deferred persistence gap; (2) added ResourceARN existence validation -- previously any ARN, including ones that were never a real group or sampling rule, silently returned an empty tag list. Real AWS declares ResourceNotFoundException for TagResource/UntagResource/ListTagsForResource (confirmed in deserializers.go); now enforced against groupsByARN/samplingRulesByARN"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource, plus added TooManyTagsException enforcement (50 tags/resource cap, AWS docs 'Maximum number of user-applied tags per resource: 50') -- previously unenforced, an unbounded number of tags could be applied"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource, plus added TooManyTagsException enforcement (50 tags/resource cap, AWS docs 'Maximum number of user-applied tags per resource: 50') -- previously unenforced, an unbounded number of tags could be applied. FIXED 2026-09-12 (typed slice 27): request body's Tags field was declared map[string]string, but real TagResourceInput.Tags (xray@v1.39.4) serializes as a JSON ARRAY of {Key,Value} objects (types.Tag / serializers.go's awsRestjson1_serializeDocumentTagList), not a map -- every real client's request body failed to JSON-decode into this handler's Tags field. Fixed by adding a tagWire{Key,Value} list type and converting to the internal map[string]string before calling the backend."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource"}
 families:
   route_matcher: {status: ok, note: "unchanged this pass; prior pass audited all 34 dispatch-table paths against serializers.go opPath literals and fixed 6 mismatches (GetInsight/GetInsightEvents/GetInsightImpactGraph/GetInsightSummaries/GetSamplingStatisticSummaries/GetSamplingTargets)"}
@@ -69,6 +69,42 @@ deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
 ---
+
+## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+
+Drove all 21 typed-client-uncovered ops through the real aws-sdk-go-v2 xray
+client for the first time (`typed_slice27_realclient_test.go`): tag family
+(TagResource/UntagResource/ListTagsForResource), resource policies
+(Put/List/Delete), indexing rules (Get/Update), the insight family
+(Get/GetEvents/GetImpactGraph), trace retrieval (Start/Get/Cancel), sampling
+(GetStatisticSummaries/GetTargets/UpdateSamplingRule),
+GetTraceSegmentDestination/UpdateTraceSegmentDestination,
+BatchGetTraces/GetTraceGraph, PutTelemetryRecords, and UpdateGroup.
+
+**One real wire bug found and fixed**: `TagResource`'s request body
+declared `Tags map[string]string`, but the real `TagResourceInput.Tags`
+(xray@v1.39.4 api_op_TagResource.go) serializes as a JSON ARRAY of
+`{Key,Value}` objects (`types.Tag`, confirmed against
+`serializers.go:2931's awsRestjson1_serializeDocumentTagList`), not a map.
+Every real client's `TagResource` call sent a JSON array that this
+handler's map-typed field could never decode -- the request failed outright
+for every real caller. `ListTagsForResource`'s response side was already
+correct (its `[]map[string]string{"Key":k,"Value":v}}` shape matches the
+real array-of-objects wire shape). Fixed by adding a `tagWire{Key,Value}`
+list type to `tagResourceInput` and converting to the internal
+`map[string]string` before calling the backend; updated the 4 existing
+raw-body tests in handler_tags_test.go that had pinned the old map shape
+as correct (the same "raw-body test passes on a well-formed body it wrote
+itself" trap this file's own prior passes have hit).
+
+xray: 38/38 typed-client covered (was 17/38).
+
+Gates: `go build ./...` clean. `go vet ./services/xray/...` clean. `go test
+-race -count=1 ./services/xray/... ./pkgs/persistence/...` clean (no
+persisted struct's shape changed -- the fix is request-decoding only).
+`golangci-lint run --new-from-rev=HEAD ./services/xray/...` 0 issues. `go
+run ./cmd/paritylint` 0 FAIL, before and after this file's edits. No
+version bump.
 
 ## Notes
 

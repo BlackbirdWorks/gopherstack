@@ -129,7 +129,7 @@ ops:
   MarkAsArchived: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-04 delete/update precondition sweep): api_op_MarkAsArchived.go:13-14 (\"This command only works for SourceServers with a lifecycle. state which equals DISCONNECTED or CUTOVER.\") was never enforced -- any lifecycle state could be archived. Now returns ConflictException (modelled on this op) unless LifeCycleState is DISCONNECTED or CUTOVER."}
   StartTest: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: on Job completion, launches a real services/ec2 instance via launchParticipantInstanceLocked (cross_service.go), resolving AMI/instance type from the source server's LaunchConfiguration.Ec2LaunchTemplateID when it names a real EC2 launch template, else the EC2 backend's own stub AMI catalogue + a documented default instance type. Falls back to a synthetic gopherstack-format instance ID (newSyntheticInstanceID) only when the EC2 backend isn't wired (unit tests) or RunInstances itself fails -- verified end to end against a real Docker container in test/integration/mgn_test.go's TestIntegration_MGN_JobLifecycle (DescribeInstances against the launched ID)."}
   StartCutover: {wire: ok, errors: ok, state: ok, persist: ok, note: "same real-EC2-launch path as StartTest (jobs.go, cross_service.go)"}
-  StartReplication: {wire: ok, errors: ok, state: ok, persist: ok}
+  StartReplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-12 (typed slice 27): output was a bare empty envelope; real StartReplicationOutput is the same flattened SourceServer shape as Stop/Pause/Resume/RetryDataReplication (mgn@v1.48.4 api_op_StartReplication.go). A prior audit's void-result claim was wrong; corrected."}
   StopReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   PauseReplication: {wire: ok, errors: ok, state: ok, persist: ok}
   ResumeReplication: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -188,7 +188,7 @@ ops:
   StartImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: CSV schema replaced -- the prior column set (hostname/fqdn/cpuCores/ramBytes/...) was fully invented with zero AWS provenance. Now uses AWS's own documented \"mgn:server:*\" namespaced parameters (MGN User Guide's Import parameters table: mgn:server:user-provided-id, mgn:server:fqdn-for-action-framework, mgn:server:tag:<key>), plus a same-convention extension onto the SDK's real IdentificationHints fields (hostname/fqdn/aws-instance-id/vmware-uuid/vmpath) for the identification requirement AWS's docs state in prose but don't formally tabulate. ModifiedCount is now real: a row whose mgn:server:user-provided-id matches an existing SourceServer updates it (documented AWS dedup behavior) instead of always creating a new one. 2026-09-11 (gopherstack-i6oz follow-up): added the real mgn:app:id/mgn:app:name/mgn:app:description/mgn:app:tag:<key> and mgn:wave:id/mgn:wave:name/mgn:wave:description/mgn:wave:tag:<key> columns (fetched import-parameters.html directly -- see s3import.go's doc comment) plus mgn:server:id, so a row now really creates/updates Applications and Waves (dedup by name, or explicit lookup-and-fail-the-row-if-missing by id, matching the doc's own 'Additional considerations' #3-6) and attaches them in the Wave -> Application -> SourceServer hierarchy. ImportTaskSummary.Applications/Waves -- always zero before this pass -- now carry real counts. mgn:launch:*/mgn:replication:*/mgn:account-id/mgn:region remain out of scope (see gaps); mgn:server:platform is a real column with no corresponding wire field on this SDK version's SourceServer/SourceProperties, so it is accepted and discarded, not stored."}
   ListImports: {wire: ok, errors: ok, state: ok, persist: ok}
   ListImportErrors: {wire: ok, errors: ok, state: ok, persist: ok}
-  StartImportFileEnrichment: {wire: ok, errors: ok, state: partial, persist: ok, note: "PENDING->STARTED->SUCCEEDED bookkeeping only (exportimport.go:301-343) -- never reads or actually enriches the target S3 object with real network/segment metadata; no such discovery engine exists"}
+  StartImportFileEnrichment: {wire: fixed, errors: ok, state: partial, persist: ok, note: "PENDING->STARTED->SUCCEEDED bookkeeping only (exportimport.go:301-343) -- never reads or actually enriches the target S3 object with real network/segment metadata; no such discovery engine exists. FIXED 2026-09-12 (typed slice 27): request JSON keys were the fabricated \"sourceS3Configuration\"/\"targetS3Configuration\" -- real wire keys (serializers.go:6807-6816) are \"s3BucketSource\"/\"s3BucketTarget\". No real client's request ever decoded either field; the handler always rejected it as missing. Fixed the JSON tags and made S3BucketSource's presence required, matching the real Input's required-ness."}
   ListImportFileEnrichments: {wire: ok, errors: ok, state: ok, persist: ok}
   # actions (6) -- state-only (documents listed/ordered/active), never invokes any SSM document; this
   # repo has no SSM execution engine, and real AWS's own public API for this family is likewise
@@ -929,18 +929,21 @@ struct it flattens/nests.
 | MarkAsArchived | POST /MarkAsArchived | SourceServerID*, AccountID | flattened SourceServer | Conflict, ResourceNotFound, UninitializedAccount |
 | StartTest | POST /StartTest | SourceServerIDs*[]string (BATCH — multiple servers, one Job), AccountID, Tags | nested `Job *Job` (trap #1) | Conflict, UninitializedAccount, Validation |
 | StartCutover | POST /StartCutover | SourceServerIDs*[]string (batch), AccountID, Tags | nested `Job *Job` | Conflict, UninitializedAccount, Validation |
-| StartReplication | POST /StartReplication | SourceServerID*, AccountID | empty | Conflict, ResourceNotFound, ServiceQuotaExceeded, UninitializedAccount, Validation |
+| StartReplication | POST /StartReplication | SourceServerID*, AccountID | flattened SourceServer | Conflict, ResourceNotFound, ServiceQuotaExceeded, UninitializedAccount, Validation |
 | StopReplication | POST /StopReplication | SourceServerID*, AccountID | flattened SourceServer | Conflict, ResourceNotFound, ServiceQuotaExceeded, UninitializedAccount, Validation |
 | PauseReplication | POST /PauseReplication | SourceServerID*, AccountID | flattened SourceServer | Conflict, ResourceNotFound, ServiceQuotaExceeded, UninitializedAccount, Validation |
 | ResumeReplication | POST /ResumeReplication | SourceServerID*, AccountID | flattened SourceServer | Conflict, ResourceNotFound, ServiceQuotaExceeded, UninitializedAccount, Validation |
 | RetryDataReplication | POST /RetryDataReplication | SourceServerID*, AccountID | flattened SourceServer | ResourceNotFound, UninitializedAccount, Validation |
 | TerminateTargetInstances | POST /TerminateTargetInstances | SourceServerIDs*[]string (batch), AccountID, Tags | nested `Job *Job` | Conflict, UninitializedAccount, Validation |
 
-Note: `StartReplication`'s empty output is a genuine void-result op (per parity-principles.md rule
-4 — confirmed by reading `api_op_StartReplication.go` directly, it really has no output fields
-besides `ResultMetadata`), not a disguised stub; every sibling `*Replication` op (Stop/Pause/Resume)
-DOES return the flattened SourceServer, so `StartReplication`'s emptiness is a real, deliberate
-asymmetry, not an oversight in this table.
+Note (CORRECTED 2026-09-12, typed slice 27): this table previously claimed `StartReplication`'s
+empty output was a genuine void-result op. That claim was wrong -- `StartReplicationOutput`
+(mgn@v1.48.4 api_op_StartReplication.go) has the exact same flattened-SourceServer shape as its
+Stop/Pause/Resume/RetryDataReplication siblings (confirmed against
+`deserializers.go:13454 awsRestjson1_deserializeOpDocumentStartReplicationOutput`, which decodes
+`applicationID`/`arn`/`dataReplicationInfo`/`lifeCycle`/`sourceServerID`/etc.). Fixed: the backend
+method now returns `(*SourceServer, error)` and the handler serializes it via `toSourceServerWire`,
+matching every sibling `*Replication` op.
 
 ### B. Jobs (3 ops)
 
@@ -1680,3 +1683,56 @@ issues. New tests: `services/mgn/s3import_app_wave_test.go` (Application/Wave cr
 dedup-by-name, explicit-id update, explicit-id-not-found as a row error carrying the
 referenced id, orphaned-property silent drop) plus the existing `TestStartImport_CSVSchema`/
 `TestStartImport_ModifiedCount` suite, all passing unchanged.
+
+## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+
+Drove all 19 typed-client-uncovered ops through the real aws-sdk-go-v2 mgn
+client for the first time (`typed_slice27_realclient_test.go`): application
+archive/unarchive/update, wave archive/unarchive/update, DeleteJob, the
+full replication lifecycle (StartReplication/PauseReplication/
+ResumeReplication/RetryDataReplication/StopReplication),
+StartImportFileEnrichment/ListImportFileEnrichments, and the network
+migration mapper-segment-construct/mapping-update/deployments-listing
+family.
+
+**Two real wire bugs found and fixed:**
+
+1. `StartReplication`'s output was a bare empty envelope. Real
+   `StartReplicationOutput` (mgn@v1.48.4 api_op_StartReplication.go) is the
+   same flattened SourceServer shape as every sibling `*Replication` op
+   (confirmed against `deserializers.go:13454`
+   `awsRestjson1_deserializeOpDocumentStartReplicationOutput`, which decodes
+   `applicationID`/`arn`/`dataReplicationInfo`/`lifeCycle`/`sourceServerID`/
+   etc.). A prior audit pass on this same file had explicitly claimed this
+   was a genuine void-result op ("confirmed by direct SDK read") -- that
+   claim was wrong. Fixed: `InMemoryBackend.StartReplication` now returns
+   `(*SourceServer, error)`; the handler serializes it via
+   `toSourceServerWire`, matching Stop/Pause/Resume/RetryDataReplication.
+2. `StartImportFileEnrichment`'s request used the fabricated JSON keys
+   `sourceS3Configuration`/`targetS3Configuration`. Real
+   `StartImportFileEnrichmentInput` (api_op_StartImportFileEnrichment.go)
+   requires both `S3BucketSource`/`S3BucketTarget`, serialized as
+   `s3BucketSource`/`s3BucketTarget` (serializers.go:6807-6816). No real
+   client's request body ever populated the field this handler read --
+   every real call failed the handler's own "required" check. Fixed the
+   JSON tags in `startImportFileEnrichmentRequest` (wire.go) and made
+   `S3BucketSource`'s presence a required-field check too, matching the
+   real Input's required-ness on both members.
+
+**Accept-and-drop found while fixing bug 1, not fixed this pass**:
+`CreateStorageVirtualMachine`-shaped issue doesn't apply here (that's fsx);
+for mgn, `UpdateNetworkMigrationMapperSegment`/
+`ListNetworkMigrationMapperSegmentConstructs` remain honest, deliberate
+empty-list/404 results (networkmigration.go's own doc comment: no
+network-analysis engine exists to populate segments/constructs) -- covered
+by asserting the documented empty/404 outcome through the typed client,
+not fabricating reachable state.
+
+mgn: 95/95 typed-client covered (was 76/95).
+
+Gates: `go build ./...` clean. `go vet ./services/mgn/...` clean. `go test
+-race -count=1 ./services/mgn/... ./pkgs/persistence/...` clean (no
+snapshot-inventory diff -- neither fix touched a persisted struct's shape).
+`golangci-lint run --new-from-rev=HEAD ./services/mgn/...` 0 issues. `go
+run ./cmd/paritylint` 0 FAIL, before and after this file's edits. No
+version bump.
