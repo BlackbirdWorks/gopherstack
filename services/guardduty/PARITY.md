@@ -837,3 +837,41 @@ methods still required by the uncovered census: `AcceptInvitation`,
 ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot-inventory
 change (the fix is request-decode-only, and the field it fixes isn't
 persisted); no version bump.
+
+## 2026-09-12 (gopherstack-39710: detective's /invitation over-claim swallowed ListInvitations)
+
+Not a guardduty code defect -- guardduty's own `RouteMatcher`
+(`services/guardduty/handler.go:301`, `strings.HasPrefix(path,
+"/"+pathInvitation)`) was always correct; the bug was on the other side of
+the collision. detective's `RouteMatcher` claimed the exact `/invitation`
+path unconditionally (visible only after this sweep's
+`scanSwitchCaseIdentClaims` fix to `cmd/routecollisions` made its
+switch-case claims list extractable at all), registers at `MatchPriority`
+85 vs. guardduty's -1, and neither side checked SigV4 scope -- so every
+`ListInvitations` request (`GET /invitation`,
+`aws-sdk-go-v2/service/guardduty@v1.85.4/serializers.go:5486`) was silently
+answered by detective's `classifyPath` (which only recognizes `PUT
+/invitation` as its own `AcceptInvitation`, everything else as `Unknown`)
+with a bare 400 `InvalidInputException: unknown operation` -- guardduty's
+handler never ran. detective's `AcceptInvitation` (`PUT /invitation`,
+`aws-sdk-go-v2/service/detective@v1.41.4/serializers.go:44`) is the only
+real overlap at that exact path; every other guardduty invitation op binds
+one segment deeper (`/invitation/decline`, `/invitation/delete`,
+`/invitation/count`) or an entirely different path
+(`AcceptAdministratorInvitation` is `PUT
+/detector/{DetectorId}/administrator`; the deprecated legacy
+`AcceptInvitation` is `POST /detector/{DetectorId}/master`).
+
+Fixed by SigV4-scoping detective's claim (`services/detective/handler.go`),
+not by touching guardduty or raising either side's `MatchPriority` -- see
+`services/detective/PARITY.md`'s matching 2026-09-12 entry and
+`services/_ROUTE_COLLISIONS.md` for the full overlap-set citations, the
+before/after `cmd/routecollisions` lines, and the new real-router regression
+test (`services/detective/invitation_routing_cross_service_test.go`) that
+drives both services' real `aws-sdk-go-v2` clients through one shared
+`service.NewServiceRouter`.
+
+Gates (no guardduty source changed): `go build ./...` clean; `go vet
+./services/guardduty/...` clean; `go test -race -count=1
+./services/guardduty/...` `ok`; `golangci-lint run --new-from-rev=HEAD
+./services/guardduty/...` 0 issues; `go run ./cmd/paritylint` 0 FAIL.

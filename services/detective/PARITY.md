@@ -312,3 +312,73 @@ Gates: `go build ./services/detective/...` (clean), `go test -race
 ./services/detective/...` (`ok`), `golangci-lint run
 ./services/detective/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+### 2026-09-12: gopherstack-39710 -- RouteMatcher over-claim, detective swallowed guardduty's ListInvitations
+
+`RouteMatcher`'s `switch path { case pathGraph, pathInvitation, ... }` claimed
+the exact `/invitation` path unconditionally (`scanSwitchCaseIdentClaims`,
+`cmd/routecollisions`, made this claim visible for the first time this sweep;
+previously it collapsed to just the `/tags/` ARN guard). guardduty's
+`RouteMatcher` claims the same `/invitation` prefix with no SigV4 guard
+either (`services/guardduty/handler.go:301`), and detective registers at
+`MatchPriority` 85 vs. guardduty's -1, so detective always won the tie.
+
+**Real overlap set** (every path both SDKs actually send at exact
+`/invitation`, cited from each pinned module's `serializers.go`):
+detective's `AcceptInvitation` is `PUT /invitation`
+(`aws-sdk-go-v2/service/detective@v1.41.4/serializers.go:44`); guardduty's
+`ListInvitations` is `GET /invitation`
+(`aws-sdk-go-v2/service/guardduty@v1.85.4/serializers.go:5486`). No other
+guardduty op sends bare `/invitation` --
+`AcceptInvitation` (the deprecated legacy op) is `POST
+/detector/{DetectorId}/master` (serializers.go:144),
+`AcceptAdministratorInvitation` is `PUT
+/detector/{DetectorId}/administrator` (serializers.go:44), and
+`DeclineInvitations`/`DeleteInvitations`/`GetInvitationsCount` are all a
+segment deeper (`/invitation/decline`, `/invitation/delete`,
+`/invitation/count`). Confirmed live before the fix: a real two-service
+router (detective + guardduty, both real handlers) answered a guardduty
+`ListInvitations` request out of detective's `classifyPath` (method GET,
+neither the PUT-only `AcceptInvitation` branch nor any POST-path map entry
+matches) with a bare 400 `InvalidInputException: unknown operation`,
+guardduty's handler never invoked.
+
+**Fix**: scoped detective's `pathInvitation` case out of the bare switch and
+into its own SigV4-guarded branch in `RouteMatcher`
+(`services/detective/handler.go`), same idiom as `services/iot/handler.go`'s
+`/policies` guard: `httputils.ExtractServiceFromRequest(c.Request())`, and
+only claim the path when the scope is absent or literally `"detective"`
+(written as an early `return false` when it's a different, present scope, so
+`cmd/routecollisions`' `isExclusion` heuristic recognizes the carve-out
+instead of conservatively over-reporting it as a live collision). No
+`MatchPriority` change on either side, per the standing rule (see the
+`route-matcher-prefix-collision` memory / this pass's
+`services/_ROUTE_COLLISIONS.md` "gopherstack-39710" entry).
+
+Regression test: `TestInvitationRouting_CrossServiceIsolation`
+(`invitation_routing_cross_service_test.go`) wires detective's and
+guardduty's real `Handler`s into one `service.NewRegistry` +
+`service.NewServiceRouter`, same as production's `cli.go`, and drives both
+through their real `aws-sdk-go-v2` clients against the shared `httptest`
+server: a guardduty-signed `ListInvitations` (GET) now reaches guardduty
+(previously the 400 above), and a detective-signed `AcceptInvitation` (PUT)
+against an unknown graph still reaches detective (`ResourceNotFoundException`,
+proving the guard didn't overcorrect). Confirmed the test fails with the
+pre-fix `RouteMatcher` (reproduces the exact `InvalidInputException: unknown
+operation` above) and passes with the fix.
+
+`go run ./cmd/routecollisions`: before, `detective [exact "/invitation"
+prio=85 reg=143] shadows guardduty [prefix "/invitation" prio=-1 reg=84]
+(UNGUARDED-WINNER/unguarded)`, 204 literal-overlap pairs total; after, the
+pair no longer appears in the report at all, 203 pairs total.
+`services/_ROUTE_COLLISIONS.md` regenerated to record this.
+
+Gates: `go build ./...` clean; `go vet ./services/detective/...
+./services/guardduty/...` clean; `go test -race -count=1
+./services/detective/... ./services/guardduty/... ./cmd/routecollisions/...`
+all `ok`; `golangci-lint run ./services/detective/...` and
+`--new-from-rev=HEAD ./services/guardduty/...` both 0 issues; `go run
+./cmd/paritylint` 0 FAIL. Files changed: `services/detective/handler.go`,
+`services/detective/invitation_routing_cross_service_test.go` (new),
+`services/detective/PARITY.md`, `services/guardduty/PARITY.md`,
+`services/_ROUTE_COLLISIONS.md`.

@@ -849,6 +849,15 @@ scope, and the fix (guard detective's `/invitation` case the same
 SigV4-scoped way its own `/tags/` case already is) deserves its own
 dedicated pass with a regression test, not a bundled fix.
 
+**Correction (2026-09-12, resolving pass, see below):** the scratch repro's
+`PUT /invitation` was a synthetic demonstration, not a real guardduty SDK
+call — no guardduty op actually sends `PUT /invitation`. The real,
+SDK-verified overlap at this exact path is detective's `AcceptInvitation`
+(`PUT /invitation`) against guardduty's `ListInvitations` (`GET
+/invitation`); the underlying bug (detective's path-only claim ignoring
+method entirely) is the same either way. See "gopherstack-39710 resolved"
+below.
+
 ### Known tool limitations (added this pass)
 
 - `isExclusion` misreads a claim guarded by a runtime check that returns a
@@ -873,3 +882,56 @@ dedicated pass with a regression test, not a bundled fix.
   effect skews toward over-reporting, the safer direction for a sweep whose
   every hit gets hand-verified anyway.
   need the limit raised.
+
+### gopherstack-39710 resolved (2026-09-12): detective/guardduty `/invitation`
+
+**Real overlap set**, cited from each pinned SDK's own `serializers.go`
+(the only two ops of either service that bind the bare `/invitation` path
+with no further segment):
+
+- detective `AcceptInvitation`: `PUT /invitation`
+  (`aws-sdk-go-v2/service/detective@v1.41.4/serializers.go:44`).
+- guardduty `ListInvitations`: `GET /invitation`
+  (`aws-sdk-go-v2/service/guardduty@v1.85.4/serializers.go:5486`).
+
+No other guardduty op collides here: `AcceptInvitation` (the deprecated
+legacy op) is `POST /detector/{DetectorId}/master` (serializers.go:144),
+`AcceptAdministratorInvitation` is `PUT /detector/{DetectorId}/administrator`
+(serializers.go:44), and `DeclineInvitations`/`DeleteInvitations`/
+`GetInvitationsCount` all bind one segment deeper
+(`/invitation/decline`/`/invitation/delete`/`/invitation/count`) — none of
+which detective's `RouteMatcher` ever claimed.
+
+**Fix**: `services/detective/handler.go`'s `RouteMatcher` pulled the
+`pathInvitation` case out of its bare `switch path { case ... }` claim list
+into its own SigV4-scoped branch, the same idiom `services/iot/handler.go`
+already uses for its `/policies` guard —
+`httputils.ExtractServiceFromRequest(c.Request())`, claiming the path only
+when the scope is absent or `"detective"`, written with an explicit early
+`return false` for a different present scope so `isExclusion`'s "return
+false before return true" heuristic recognizes it as a real carve-out rather
+than conservatively flagging it. No `MatchPriority` change on either side.
+
+**Before** (pre-fix, `go run ./cmd/routecollisions`, 204 pairs total):
+
+```
+detective                [exact "/invitation"        prio=85 reg=143] shadows guardduty                [prefix "/invitation"        prio=-1 reg=84]  (UNGUARDED-WINNER/unguarded)
+```
+
+**After** (post-fix, 203 pairs total): the pair no longer appears in the
+report at all.
+
+Regression test: `TestInvitationRouting_CrossServiceIsolation`
+(`services/detective/invitation_routing_cross_service_test.go`) — a real
+`service.NewRegistry` + `service.NewServiceRouter` with both services' real
+`Handler`s, driven by both services' real `aws-sdk-go-v2` clients against
+one shared `httptest.Server`. Confirmed it fails against the pre-fix
+`RouteMatcher` (reproduces the exact `InvalidInputException: unknown
+operation` 400 the live repro above found) and passes with the fix; a
+guardduty-signed `ListInvitations` now reaches guardduty, and a
+detective-signed `AcceptInvitation` against an unknown graph still reaches
+detective (`ResourceNotFoundException`, proving the guard didn't
+overcorrect).
+
+See `services/detective/PARITY.md` and `services/guardduty/PARITY.md`'s
+matching 2026-09-12 entries for the full gate results.
