@@ -182,14 +182,11 @@ func TestDeleteBucketMetadataTableConfiguration_DoesNotDeleteBucket(t *testing.T
 // regression test for the Get side of the same key mismatch: the router
 // checked ?metadataTableConfiguration where the real SDK's
 // GetBucketMetadataTableConfiguration sends ?metadataTable (s3@v1.106.5
-// serializers.go). This can't be proven through the typed client's response
-// alone -- gopherstack's Get handler echoes back the raw stored Create body
-// rather than the real GetBucketMetadataTableConfigurationResult shape, so a
-// mis-routed ListObjects fallthrough and the correctly-routed handler both
-// decode as an empty, error-free result to the SDK; the wrong answer is
-// silent, exactly the failure mode this bug class produces. Verified at the
-// wire instead: only the real key must return the stored config body, not a
-// bucket listing.
+// serializers.go). Verified at the wire: only the real key must return the
+// stored config body, not a bucket listing. (The handler's response shape
+// was fixed separately in gopherstack-n3zi typed slice 11 -- see
+// TestMetadataTableFamily_ReachableViaRealClient for the typed-client
+// coverage of the real GetBucketMetadataTableConfigurationResult shape.)
 func TestGetBucketMetadataTableConfiguration_KeyedOnRealQueryParam(t *testing.T) {
 	t.Parallel()
 

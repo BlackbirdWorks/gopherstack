@@ -74,8 +74,10 @@ func TestCancelRotateSecret_SetsRotationDisabled(t *testing.T) {
 
 	desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "cancel-enabled"})
 	require.NoError(t, err)
-	// Real AWS: CancelRotateSecret only removes AWSPENDING; rotation config stays intact.
-	assert.True(t, desc.RotationEnabled)
+	// Real AWS: "Turns off automatic rotation" (api_op_CancelRotateSecret.go
+	// doc comment, secretsmanager@v1.48.0); DescribeSecretOutput.RotationEnabled's
+	// own doc comment: "To turn off rotation, use CancelRotateSecret."
+	assert.False(t, desc.RotationEnabled)
 }
 
 func TestCancelRotateSecret_NotFound(t *testing.T) {
@@ -181,8 +183,9 @@ func TestCancelRotateSecret_HTTP(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestCancelRotateSecret_RotationConfigPreserved verifies that CancelRotateSecret
-// does not disable rotation. Real AWS only removes the AWSPENDING label; the Lambda ARN
-// and rotation rules remain, and RotationEnabled stays true.
+// removes the AWSPENDING label and turns off RotationEnabled, while leaving the
+// Lambda ARN and rotation rules in place so a later RotateSecret call resumes
+// with the same configuration.
 func TestCancelRotateSecret_RotationConfigPreserved(t *testing.T) {
 	t.Parallel()
 
@@ -206,8 +209,10 @@ func TestCancelRotateSecret_RotationConfigPreserved(t *testing.T) {
 
 	desc, err := b.DescribeSecret(ctx, &secretsmanager.DescribeSecretInput{SecretID: "cancel-rot-config"})
 	require.NoError(t, err)
-	assert.True(t, desc.RotationEnabled,
-		"real AWS: CancelRotateSecret must not disable RotationEnabled")
+	assert.False(t, desc.RotationEnabled,
+		"real AWS: CancelRotateSecret turns off automatic rotation")
+	assert.Equal(t, testLambdaARN, desc.RotationLambdaARN,
+		"real AWS: CancelRotateSecret does not clear the Lambda ARN or rules")
 }
 
 // ---------------------------------------------------------------------------
@@ -263,8 +268,8 @@ func TestCancelRotateSecret_BackendEdgeCases(t *testing.T) {
 
 		desc, err := b.DescribeSecret(context.Background(), &secretsmanager.DescribeSecretInput{SecretID: "rot-cancel"})
 		require.NoError(t, err)
-		// Real AWS: CancelRotateSecret removes AWSPENDING but does not disable rotation.
-		assert.True(t, desc.RotationEnabled)
+		// Real AWS: CancelRotateSecret removes AWSPENDING and turns off rotation.
+		assert.False(t, desc.RotationEnabled)
 	})
 
 	t.Run("not_found", func(t *testing.T) {

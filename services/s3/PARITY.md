@@ -35,10 +35,11 @@ ops:
   PutObjectAnnotation/GetObjectAnnotation/DeleteObjectAnnotation/ListObjectAnnotations/UpdateBucketMetadataAnnotationTableConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "IMPLEMENTED 2026-08-14 (gopherstack-zi7k): the whole family was previously entirely absent (gopherstack-3dqa). Routes verified from s3@v1.106.5 serializers.go's httpbinding.SplitURI calls, not by pattern: PUT/GET/DELETE /{Key+}?annotation (query keys annotationName/versionId), bucket-level PUT /?metadataAnnotationTable. GetObjectAnnotation and ListObjectAnnotations share the identical GET route template -- routed on whether the annotationName query param is present, since only GetObjectAnnotation's own HttpBindings function binds it. Annotations are real per-object-version state (StoredObjectVersion.Annotations, additive/omitempty field, no snapshot version bump), proven with a lifecycle test through the real aws-sdk-go-v2 client (put->get->list->delete->list, asserting non-empty/exact-count results at each step) plus a dedicated Snapshot/Restore round-trip test. See gaps for what's deliberately not enforced (payload size cap, ObjectIfMatch) and the one validation rule sourced from a doc comment rather than wire code (reserved name prefix)."}
   ListObjects/ListObjectsV2: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): Object.Owner (s3@v1.106.5 deserializers.go's awsRestxml_deserializeDocumentObject, case \"Owner\") is a real per-item member the shared ObjectXML struct had NO field for at all -- every real client's Contents[].Owner was nil regardless of backend state, for both ops. ListObjects (V1) has no FetchOwner request member (confirmed absent from ListObjectsInput) so Owner is unconditionally present on every item; ListObjectsV2 only includes it when FetchOwner=true (a near-duplicate-shape pair that genuinely differs, not a copy-paste mismatch). Fixed by adding ObjectXML.Owner and an includeOwner bool threaded through the shared mapObjectsToXML (true for V1, q.Get(\"fetch-owner\")==\"true\" for V2)."}
   GetBucketVersioning/PutBucketVersioning: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): GetBucketVersioningOutput.MFADelete (deserializers.go's awsRestxml_deserializeOpDocumentGetBucketVersioningOutput, case \"MfaDelete\", sibling to \"Status\") was read from no request, stored nowhere, and echoed by no response -- a real client's PutBucketVersioning({MFADelete: Enabled}) had the value silently dropped, and GetBucketVersioning's MFADelete was always empty regardless. Real request-side type is types.MFADelete; real response-side type is the DIFFERENT types.MFADeleteStatus (same \"Enabled\"/\"Disabled\" strings, two distinct SDK enums) -- stored as a plain string in StoredBucket to avoid coupling to either. Only emitted once ever configured (omitempty), matching the real doc: \"This element is only returned if the bucket has been configured with MFA delete.\""}
-  GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration: {wire: gap, errors: n/a, state: n/a, persist: ok, note: "FOUND, NOT FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep) -- the most severe finding this pass, deliberately left unfixed. Unlike every other Get*Configuration op in this file (CORS/lifecycle/notification/encryption/logging/replication/analytics/inventory/metrics/intelligent-tiering), where the real GET deserializer parses the response ROOT element directly as the same struct the PUT request root already is (confirmed per-op against deserializers.go), these two do NOT: awsRestxml_deserializeOpGetBucketMetadataConfiguration.HandleDeserialize (deserializers.go) parses the response root directly as types.GetBucketMetadataConfigurationResult, which requires a CHILD element named exactly \"MetadataConfigurationResult\" (types.MetadataConfigurationResult{DestinationResult (required, TableBucketArn/TableBucketType/TableNamespace), AnnotationTableConfigurationResult, InventoryTableConfigurationResult, JournalTableConfigurationResult}) -- a server-computed RESULT shape, structurally different from the client's CreateBucketMetadataConfiguration request body (types.MetadataConfiguration{JournalTableConfiguration, AnnotationTableConfiguration, InventoryTableConfiguration}, no ARNs/status at all). gopherstack's getBucketMetadataConfiguration/getBucketMetadataTableConfiguration (bucket_ops_metadata_table.go) echo the raw stored CREATE request body verbatim -- which has no \"MetadataConfigurationResult\"/\"MetadataTableConfigurationResult\" child element anywhere, so a real typed client's GetBucketMetadataConfigurationOutput.GetBucketMetadataConfigurationResult.MetadataConfigurationResult (and the Table variant's equivalent) decodes to nil regardless of what was created. The same OpDocument...Output wrapper function with a matching case IS present in generated code but is dead -- HandleDeserialize never calls it, the same trap gopherstack-ob1g already found and fixed once on GetBucketAbac -- so this is not a simple 'wrong root name' rename. NOT FIXED: producing a real DestinationResult requires an S3 Tables table-bucket ARN/namespace/provisioning-status concept this backend has no model for at all (no CreateBucketMetadataConfiguration path allocates a table bucket or generates an ARN); fabricating plausible-looking ARNs/status would be invented data, not a shape fix. Flagged per this campaign's own precedent for genuinely-unmodeled response shapes (matches securityhub's GetRecommendedPolicyV2 finding) rather than attempted."}
+  GetBucketMetadataTableConfiguration: {wire: ok, errors: n/a, state: n/a, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- see bucket_ops_metadata_table.go's getBucketMetadataTableConfigurationResponse. Was previously the Table half of the finding below; confirmed via a real typed GetBucketMetadataTableConfiguration client call."}
+  GetBucketMetadataConfiguration: {wire: gap, errors: n/a, state: n/a, persist: ok, note: "FOUND, NOT FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep); re-confirmed still open 2026-09-12 (gopherstack-n3zi). Unlike every other Get*Configuration op in this file (CORS/lifecycle/notification/encryption/logging/replication/analytics/inventory/metrics/intelligent-tiering), where the real GET deserializer parses the response ROOT element directly as the same struct the PUT request root already is (confirmed per-op against deserializers.go), this one does NOT: awsRestxml_deserializeOpGetBucketMetadataConfiguration.HandleDeserialize (deserializers.go) parses the response root directly as types.GetBucketMetadataConfigurationResult, which requires a CHILD element named exactly \"MetadataConfigurationResult\" (types.MetadataConfigurationResult{DestinationResult (required, TableBucketArn/TableBucketType/TableNamespace), AnnotationTableConfigurationResult, InventoryTableConfigurationResult, JournalTableConfigurationResult}) -- a server-computed RESULT shape, structurally different from the client's CreateBucketMetadataConfiguration request body (types.MetadataConfiguration{JournalTableConfiguration, AnnotationTableConfiguration, InventoryTableConfiguration}, no ARNs/status at all). gopherstack's getBucketMetadataConfiguration (bucket_ops_metadata_table.go) echoes the raw stored CREATE request body verbatim -- which has no \"MetadataConfigurationResult\" child element anywhere, so a real typed client's GetBucketMetadataConfigurationOutput.GetBucketMetadataConfigurationResult.MetadataConfigurationResult decodes to nil regardless of what was created. The same OpDocument...Output wrapper function with a matching case IS present in generated code but is dead -- HandleDeserialize never calls it, the same trap gopherstack-ob1g already found and fixed once on GetBucketAbac -- so this is not a simple 'wrong root name' rename. NOT FIXED: producing a real DestinationResult requires an S3 Tables table-bucket ARN/namespace/provisioning-status concept this backend has no model for at all (no CreateBucketMetadataConfiguration path allocates a table bucket or generates an ARN); fabricating plausible-looking ARNs/status would be invented data, not a shape fix. Flagged per this campaign's own precedent for genuinely-unmodeled response shapes (matches securityhub's GetRecommendedPolicyV2 finding) rather than attempted."}
 gaps: []
 items_still_open:
-  - "GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration return the wrong response shape entirely for any real typed client -- see the ops row above (gopherstack-6flj, 2026-08-15). Fixing this for real requires modeling S3 Tables table-bucket provisioning (ARN/namespace/status), which this backend has no concept of anywhere; CreateBucketMetadataConfiguration/CreateBucketMetadataTableConfiguration would also need the same new state. Left flagged rather than fabricated."
+  - "GetBucketMetadataConfiguration returns the wrong response shape entirely for any real typed client -- see the ops row above (gopherstack-6flj, 2026-08-15). Fixing this for real requires modeling S3 Tables table-bucket provisioning (ARN/namespace/status: DestinationResult/InventoryTableConfigurationResult/JournalTableConfigurationResult per s3@v1.111.0 types/types.go), which this backend has no concept of anywhere; CreateBucketMetadataConfiguration would also need the same new state. Left flagged rather than fabricated. GetBucketMetadataTableConfiguration's parallel bug (also flagged here since 2026-08-15) WAS fixed 2026-09-12 (gopherstack-n3zi typed slice 11) -- see bucket_ops_metadata_table.go's getBucketMetadataTableConfigurationResponse, which now wraps the response in the real GetBucketMetadataTableConfigurationResult/MetadataTableConfigurationResult/S3TablesDestinationResult shape (TableArn synthesized as TableBucketArn+\"/table/aws_s3_metadata/\"+TableName, mirroring services/s3tables/store.go's TableARN convention) instead of echoing the raw stored Create body -- confirmed against a real typed GetBucketMetadataTableConfiguration client call, which previously decoded to a nil/empty result regardless of what was created."
   - "Object Annotations (gopherstack-zi7k, 2026-08-14): implemented -- PutObjectAnnotation/GetObjectAnnotation/DeleteObjectAnnotation/ListObjectAnnotations store real per-object-version state (StoredObjectVersion.Annotations, additive/omitempty, survives Snapshot/Restore) and UpdateBucketMetadataAnnotationTableConfiguration persists its config XML the same way its metadataInventoryTable/metadataJournalTable siblings do. Routes verified from the pinned serializer, not by pattern: PUT/GET/DELETE /{Key+}?annotation, and GET is shared byte-for-byte between GetObjectAnnotation and ListObjectAnnotations (both httpbinding.SplitURI to the same path+query) -- disambiguated on the presence of the annotationName query param, which only GetObjectAnnotation's HttpBindings function binds. Bucket-level route key metadataAnnotationTable was independently re-verified (matches the bd issue's note). Deliberately NOT enforced: the documented 1-byte-to-1-MiB payload size window (no error code for it appears in any of these ops' own deserializeOpError switches, so inventing one would violate the same rule that caught the invented metadataTableConfiguration/exception bugs this same sweep found elsewhere) and DeleteObjectAnnotation/PutObjectAnnotation's ObjectIfMatch conditional header (also absent from every relevant switch in this pinned SDK version). DeleteObjectAnnotation deliberately does NOT return NoSuchAnnotation for a missing name -- its error switch declares only NoSuchBucket/NoSuchKey, matching real S3's idempotent-delete semantics. The annotation-name reserved-prefix rule ('cannot start with aws or s3') is enforced from DeleteObjectAnnotation's doc comment in the pinned source, not a serializer/deserializer fact -- flagged here as the one validation rule in this pass that rests on prose rather than wire code. UpdateBucketMetadataAnnotationTableConfiguration's own error switch declares no typed error cases at all (every failure decodes as smithy.GenericAPIError) -- confirmed by reading it directly, not assumed. No dedicated Get op exists for the bucket-level annotation-table config in the pinned SDK, so (like its inventory/journal siblings) persistence there is provable by store/restore but not independently readable over the wire."
   - "CreateSession (S3 Express One Zone) is a disguised stub beyond its own doc comment's disclosure: buckets.go's CreateSession returns a hardcoded fake SessionToken/AccessKeyId/SecretAccessKey for ANY bucket (it doesn't check IsDirectoryBucket, doesn't validate the bucket is actually a directory bucket the way real S3 requires), completely ignores the request's SessionMode (ReadOnly/ReadWrite), and the returned session token has no effect anywhere else in this package -- it isn't wired into sigv4 validation or any subsequent request's authorization, so a caller that authenticates via the returned session credentials would not actually get S3-Express-scoped access semantics. Consistent with the broader disclosed gap that this emulator does not model directory buckets/S3-Express as a distinct bucket type at all; a real fix is a full S3 Express feature addition, not scoped for this pass. (gopherstack-3dqa)"
   - "RenameObject is applied uniformly to any bucket (general-purpose or directory), but real S3 restricts RenameObject to directory buckets only (api_op_RenameObject.go's Bucket doc: 'The bucket name of the directory bucket containing the object... Path-style requests are not supported'). This emulator has no directory-bucket-vs-general-purpose distinction anywhere (see CreateSession gap above), so RenameObject working on any bucket is a permissive superset rather than a wire-shape bug reachable by a real client hitting a real endpoint shape. Also: RenameObjectInput's DestinationIfMatch/DestinationIfNoneMatch/DestinationIfModifiedSince/DestinationIfUnmodifiedSince conditional-header preconditions are declared on the real input but not read/enforced by handleRenameObject (object_ops_copy.go) -- a caller relying on If-None-Match:* to prevent clobbering an existing destination gets a silent unconditional overwrite instead of a 412. Not fixed this pass (scoped feature, not a one-line diff); flagged honestly rather than silently left. (gopherstack-3dqa)"
@@ -1342,3 +1343,115 @@ Gates: `go build ./...` clean; `go vet ./services/s3/...` clean; `go test
 -race -count=1 ./services/s3/...` all pass (including the new test); `go
 test -race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
 ./services/s3/...` 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go` covering 24 of s3's remaining
+typed-client-blind ops (47 real ops driven through the real aws-sdk-go-v2
+client; `PostObject`/`PresignedGetObject`/`PresignedPutObject` excluded --
+confirmed no such method exists on the pinned SDK's `*s3.Client`, matching
+this campaign's documented opcensus-artifact precedent). Client-side typed
+coverage went from 65/115 to 111/115 (the 4 remaining: the 3 non-real ops
+above, plus the already-disclosed `GetBucketMetadataConfiguration` gap
+below, unchanged).
+
+**Four real bugs found and fixed**, each confirmed only by decoding through
+the real typed client (raw-body/handler tests had missed all four):
+
+1. **`GetBucketMetadataTableConfiguration` wrong response shape** (upgrades
+   the existing 2026-08-15 disclosure below from "found, not fixed" to
+   fixed for the Table variant specifically). `bucket_ops_metadata_table.go`
+   was echoing the raw stored `CreateBucketMetadataTableConfiguration`
+   request XML verbatim as the `Get` response; the real deserializer
+   (s3@v1.111.0 types/types.go `GetBucketMetadataTableConfigurationResult`)
+   requires a distinct `MetadataTableConfigurationResult` >
+   `S3TablesDestinationResult` wrapper with a required `Status` and a
+   server-synthesized `TableArn` the Create request never carries at all --
+   any real client's decode returned a nil/empty result regardless of what
+   was created. Fixed by parsing the stored Create body and re-wrapping it
+   in the real shape, synthesizing `TableArn` as
+   `TableBucketArn+"/table/aws_s3_metadata/"+TableName` (mirroring
+   `services/s3tables/store.go`'s own `TableARN` convention) with a
+   hardcoded `Status: "ACTIVE"` (this backend's standing
+   synchronous-completion convention). `GetBucketMetadataConfiguration`
+   (the V2 sibling) remains an open, disclosed gap -- see below; it wasn't
+   attempted this pass, consistent with the existing note's own reasoning.
+
+2. **`RestoreObject` / `x-amz-restore` accept-and-drop.** `RestoreObject`
+   stored `OngoingRestore`/`RestoreExpiry` on the object version but no
+   code anywhere ever read them back into a response -- `GetObject` and
+   `HeadObject` never emitted the real `x-amz-restore` header
+   (s3@v1.111.0 deserializers.go:7015-7018 for GetObject, :8978-8981 for
+   HeadObject) at all, so a real client's `HeadObjectOutput.Restore` was
+   always nil regardless of whether the object had ever been restored.
+   Fixed: added a `restoreHeaderValue` helper (`objects.go`) formatting
+   `ongoing-request="false", expiry-date="..."` (this backend's
+   synchronous-completion model means `OngoingRestore` is never
+   observably true, so only the completed form is emitted), wired through
+   `buildGetObjectOutput`/`buildHeadObjectOutput` into the new
+   `objectCommonDetails.Restore` field and `setCommonHeaders`.
+
+3. **`GetObjectAcl` ignored the stored canned ACL entirely.**
+   `object_ops_acl.go`'s `getObjectACL` always returned a single hardcoded
+   owner-`FULL_CONTROL` grant regardless of what canned ACL (e.g.
+   `public-read`) was set via `PutObjectAcl`'s `X-Amz-Acl` header -- the
+   exact bug class `acl_grants.go`'s `cannedACLGrants` was already written
+   to fix for `GetBucketAcl` (2026-0x pass, see that file's own header
+   comment, which even claimed "mirrors getObjectACL" -- untrue at the
+   time). Fixed by wiring `cannedACLGrants` into `getObjectACL` the same
+   way `GetBucketAcl` already uses it, so `public-read`'s `AllUsers` READ
+   grant (and every other canned ACL's real grant set) is no longer
+   silently dropped on read.
+
+4. **`CreateBucket`'s `ObjectLockEnabledForBucket` accept-and-drop.**
+   `X-Amz-Bucket-Object-Lock-Enabled` (s3@v1.111.0 serializers.go:707-710,
+   a request HEADER, not a body field) was never read by `createBucket`
+   (`bucket_ops.go`) at all -- `input.ObjectLockEnabledForBucket` was
+   always nil, so a real client's request to create an object-lock-enabled
+   bucket silently produced an ordinary bucket instead; every subsequent
+   `PutObjectLockConfiguration` then failed with `InvalidBucketState`
+   for a bucket the caller believed was created with the flag set. Fixed
+   by reading the header and setting the field before calling
+   `Backend.CreateBucket`.
+
+**Accept-and-drop / test-authoring corrections** (my test's own wrong
+assumptions, fixed in the test, not the backend): `GetBucketLifecycleConfiguration`
+after `DeleteBucketLifecycle` returns `NoSuchLifecycleConfiguration` (404),
+not an empty 200 body -- matches `GetBucketCors`'s already-correct
+post-delete behavior, confirmed against the real client. `GetObjectTorrent`
+correctly returns `NotImplemented` (deliberate, cited real-AWS-deprecation
+behavior already in `object_ops_get.go`) -- not a bug.
+
+**Structural finding, not a new bug:** `ListDirectoryBuckets` is even less
+reachable than the existing PARITY.md disclosure describes. A real,
+unmodified client's call never reaches gopherstack's HTTP server at all --
+it fails inside the SDK's own `ExpressIdentityResolver.GetIdentity`
+(s3@v1.111.0 internal/customizations/express.go:32-34) with a local
+`"bucket name is missing"` error, because `ListDirectoryBucketsInput` has
+no `Bucket` field but the op is classified as S3Express and that resolver
+hard-requires one from context/properties. No server implementation could
+make this succeed through a real client; left undisturbed, disclosure
+updated to note the stronger finding.
+
+**`WriteGetObjectResponse`** required a test-harness accommodation, not a
+backend fix: the real SDK's endpoint customization for this op
+(`UseObjectLambdaEndpoint`) prefixes `RequestRoute` onto the endpoint
+hostname, which fails DNS resolution against httptest's default
+`127.0.0.1` base. Using `localhost` (RFC 6761: any subdomain resolves to
+loopback) as the base host let a real, unmodified client reach the op;
+verified end-to-end (typed `GetObject` -> lambda invocation -> typed
+`WriteGetObjectResponse` callback -> transformed body returned to the
+caller), with a `sync.Mutex`-guarded result struct and `require.Eventually`
+to avoid a legitimate cross-goroutine race between the channel handshake
+and the invoker's own result bookkeeping (caught by `-race`, fixed in the
+test).
+
+No persisted struct fields changed (`Restore` is derived at read time from
+already-persisted `RestoreExpiry`/`OngoingRestore`, not itself persisted);
+`pkgs/persistence/testdata/snapshot_inventory.json` untouched; no version
+bump.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/s3/...`
+and `go vet ./...` clean; `go test -race -count=1 ./services/s3/...` all
+pass; `go test -race -count=1 ./pkgs/persistence/...` passes;
+`golangci-lint run --new-from-rev=HEAD services/s3/...` 0 issues.

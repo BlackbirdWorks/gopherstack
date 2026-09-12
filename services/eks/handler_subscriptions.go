@@ -202,9 +202,14 @@ func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 	return c.JSON(http.StatusOK, eksPageResponse("subscriptions", p))
 }
 
+// updateSubscriptionBody matches the real UpdateEksAnywhereSubscriptionInput
+// wire shape: AutoRenew is the sole (required) update field
+// (eks@v1.90.4 api_op_UpdateEksAnywhereSubscription.go) -- LicenseQuantity/
+// LicenseType belong only to CreateEksAnywhereSubscriptionInput and were
+// never real members of this request; a real client's required AutoRenew
+// value was previously never read at all.
 type updateSubscriptionBody struct {
-	LicenseQuantity    *int32 `json:"licenseQuantity,omitempty"`
-	LicenseType        string `json:"licenseType"`
+	AutoRenew          bool   `json:"autoRenew"`
 	ClientRequestToken string `json:"clientRequestToken"`
 }
 
@@ -217,7 +222,7 @@ func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string
 	}
 
 	return h.withIdempotency(c, opUpdateEksAnywhereSubscription, in.ClientRequestToken, body, func() (int, any, error) {
-		sub, err := h.Backend.UpdateEksAnywhereSubscription(id, in.LicenseQuantity, in.LicenseType)
+		sub, err := h.Backend.UpdateEksAnywhereSubscription(id, in.AutoRenew)
 		if err != nil {
 			return 0, nil, err
 		}

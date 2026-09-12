@@ -1028,3 +1028,43 @@ golden, not just the intermediate version-3 one).
 Gates: `go build ./...`, `go vet ./services/eks/...`, `go test -race
 -count=1 ./services/eks/... ./pkgs/persistence/...`, `golangci-lint run
 ./services/eks/...` all clean.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 31
+typed-client-blind ops (AssociateIdentityProviderConfig, CancelUpdate,
+DeleteAccessEntry, DeleteAddon, DeleteCapability,
+DeleteEksAnywhereSubscription, DeleteFargateProfile,
+DeletePodIdentityAssociation, DeregisterCluster, DescribeAccessEntry,
+DescribeAddonVersions, DescribeEksAnywhereSubscription,
+DescribeFargateProfile, DescribeIdentityProviderConfig, DescribeInsight,
+DescribeInsightsRefresh, DescribePodIdentityAssociation,
+DisassociateAccessPolicy, DisassociateIdentityProviderConfig,
+ListAccessPolicies, ListAddons, ListAssociatedAccessPolicies,
+ListCapabilities, ListIdentityProviderConfigs, StartInsightsRefresh,
+UpdateAccessEntry, UpdateAddon, UpdateClusterConfig,
+UpdateEksAnywhereSubscription, UpdateNodegroupConfig,
+UpdatePodIdentityAssociation) -- typed coverage 39/70 -> 70/70 (0
+uncovered). **One real bug found and fixed**, caught only by a decoded
+typed-client assertion (the call always returned 200, nothing status-code-
+only would have caught it): `UpdateEksAnywhereSubscription`'s request
+decoder read fabricated `licenseQuantity`/`licenseType` fields that don't
+exist on the real wire at all (those belong only to
+`CreateEksAnywhereSubscriptionInput` -- the real
+`UpdateEksAnywhereSubscriptionInput`, eks@v1.90.4
+api_op_UpdateEksAnywhereSubscription.go, has exactly one member,
+`AutoRenew`, and it's required) -- so a real client's `AutoRenew` value,
+the entire point of this op, was silently dropped and never applied
+regardless of what was requested. Fixed the request decoder to the real
+flat `autoRenew` field and changed the backend's
+`UpdateEksAnywhereSubscription` signature to accept and apply it directly;
+no pre-existing test called this path with the old fields, so none needed
+correcting. Two test-authoring corrections along the way (not bugs): the
+real `EksAnywhereSubscription` type has no `Name` field at all (only
+`Id`/`Arn`/etc, `Status` is `*string` not a typed enum), and
+`StartInsightsRefreshOutput`/`DescribeInsightsRefreshOutput` carry no
+`ClusterName` field. Gates: `go build ./...` (whole module), `go vet`, `go
+test -race -count=1` (eks + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted struct fields changed (a backend method's
+parameter list, not `AnywhereSubscription`'s own fields); no version bump.

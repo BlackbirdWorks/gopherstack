@@ -724,3 +724,22 @@ Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
 ./services/dynamodb/...` 0 issues. No persisted field added (`pendingReplicaCapacityWrite` is
 an unexported, transient, non-persisted struct); `pkgs/persistence` snapshot-inventory guard
 passed unchanged, confirming no version bump was needed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 9
+typed-client-blind ops (DescribeEndpoints, DescribeGlobalTable,
+DescribeKinesisStreamingDestination, DescribeLimits,
+DisableKinesisStreamingDestination, SearchVectors, TagResource,
+UntagResource, UpdateGlobalTable) -- typed coverage 49/58 -> 58/58 (0
+uncovered). Zero real bugs found: tag CRUD, the Kinesis streaming
+destination enable/describe/disable lifecycle, and global table
+describe/update (adding a replica region) all decoded correctly through the
+real client. `SearchVectors`' disclosed honest-gap behavior (this backend
+doesn't model vector indexes, so it always returns a real
+`ResourceNotFoundException` naming the requested index rather than
+fabricating similarity scores) confirmed correct via `errors.As` against
+the real typed `*types.ResourceNotFoundException`. Gates: `go build ./...`
+(whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
+changed; no version bump.

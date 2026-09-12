@@ -1242,3 +1242,22 @@ for cyclop; the new `standardUnitValues` lookup table carries the same
 `//nolint:gochecknoglobals // read-only lookup table, mirrors a fixed AWS
 enum` precedent already used by `knownDashboardWidgetTypes` in this
 package).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 11
+typed-client-blind ops (DeleteAnomalyDetector, DeleteMetricStream,
+DescribeInsightRules, DisableInsightRules, DisassociateDatasetKmsKey,
+EnableInsightRules, GetDataset, GetMetricData, GetOTelEnrichment,
+StartOTelEnrichment, StopOTelEnrichment) -- typed coverage 39/50 -> 50/50 (0
+uncovered). Zero real bugs found: anomaly detector create/delete (using the
+non-deprecated `SingleMetricAnomalyDetector` request member), metric stream
+create/delete, the insight rule enable/disable/describe family (including
+per-rule `PartialFailure` reporting for an unknown rule name), the default
+dataset's KMS key associate/get/disassociate lifecycle, the OTel enrichment
+Start/Stop/Get status lifecycle, and `GetMetricData` resolving a
+`MetricStat` query against data just written via `PutMetricData` all
+decoded correctly through the real rpc-v2 CBOR client. Gates: `go build
+./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint
+run --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
+changed; no version bump.

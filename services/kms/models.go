@@ -810,11 +810,17 @@ const maxTagsPerKey = 50
 // maxAliasNameLength is the maximum byte length of an alias name including the "alias/" prefix.
 const maxAliasNameLength = 256
 
-// rotationTypeAWSKMS is the rotation type for automatic AWS-managed rotations.
-const rotationTypeAWSKMS = "AWS_KMS"
+// rotationTypeAutomatic is the rotation type for automatic AWS-managed
+// rotations -- the real ListKeyRotations RotationType enum value
+// (kms@v1.59.0 types/enums.go: RotationTypeAutomatic = "AUTOMATIC";
+// "AWS_KMS" is not a real value).
+const rotationTypeAutomatic = "AUTOMATIC"
 
-// rotationTypeImported is the rotation type for customer-triggered (on-demand) rotations.
-const rotationTypeImported = "IMPORTED"
+// rotationTypeOnDemand is the rotation type for customer-triggered
+// (RotateKeyOnDemand) rotations -- the real ListKeyRotations RotationType
+// enum value (RotationTypeOnDemand = "ON_DEMAND"; "IMPORTED" is not a real
+// value and is unrelated to imported key material).
+const rotationTypeOnDemand = "ON_DEMAND"
 
 // encryptionAlgorithmSymmetric is the encryption algorithm string for symmetric (AES-256-GCM) keys.
 const encryptionAlgorithmSymmetric = "SYMMETRIC_DEFAULT"

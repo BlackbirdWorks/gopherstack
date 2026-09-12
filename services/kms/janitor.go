@@ -316,7 +316,7 @@ func (j *Janitor) sweepAutoRotations(now float64) int {
 				continue
 			}
 
-			if err := j.Backend.rotateKeyMaterialLocked(region, key, rotationTypeAWSKMS); err != nil {
+			if err := j.Backend.rotateKeyMaterialLocked(region, key, rotationTypeAutomatic); err != nil {
 				continue
 			}
 

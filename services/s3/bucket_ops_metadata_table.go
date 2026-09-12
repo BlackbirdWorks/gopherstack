@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"net/http"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -82,6 +83,36 @@ func (h *S3Handler) createBucketMetadataTableConfiguration(
 	w.WriteHeader(http.StatusOK)
 }
 
+// metadataTableConfigXML parses the raw request body CreateBucketMetadataTableConfiguration
+// stored verbatim, matching the real request shape (api_op_CreateBucketMetadataTableConfiguration.go:
+// MetadataTableConfiguration.S3TablesDestination{TableBucketArn,TableName}).
+type metadataTableConfigXML struct {
+	XMLName             xml.Name `xml:"MetadataTableConfiguration"`
+	S3TablesDestination struct {
+		TableBucketArn string `xml:"TableBucketArn"`
+		TableName      string `xml:"TableName"`
+	} `xml:"S3TablesDestination"`
+}
+
+// getBucketMetadataTableConfigurationResponse mirrors the real response root
+// (types.GetBucketMetadataTableConfigurationResult, s3@v1.111.0 types/types.go) --
+// nested under MetadataTableConfigurationResult.S3TablesDestinationResult, with
+// a required Status sibling. TableNamespace is always "aws_s3_metadata" per
+// S3TablesDestinationResult's own doc comment.
+type getBucketMetadataTableConfigurationResponse struct {
+	XMLName xml.Name `xml:"GetBucketMetadataTableConfigurationResult"`
+	Xmlns   string   `xml:"xmlns,attr"`
+	Result  struct {
+		S3TablesDestinationResult struct {
+			TableArn       string `xml:"TableArn"`
+			TableBucketArn string `xml:"TableBucketArn"`
+			TableName      string `xml:"TableName"`
+			TableNamespace string `xml:"TableNamespace"`
+		} `xml:"S3TablesDestinationResult"`
+	} `xml:"MetadataTableConfigurationResult"`
+	Status string `xml:"Status"`
+}
+
 func (h *S3Handler) getBucketMetadataTableConfiguration(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -95,9 +126,22 @@ func (h *S3Handler) getBucketMetadataTableConfiguration(
 
 		return
 	}
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(configXML))
+
+	var stored metadataTableConfigXML
+	if unmarshalErr := xml.Unmarshal([]byte(configXML), &stored); unmarshalErr != nil {
+		WriteError(ctx, w, r, ErrMalformedXML)
+
+		return
+	}
+
+	resp := getBucketMetadataTableConfigurationResponse{Xmlns: xmlNamespaceS3, Status: "ACTIVE"}
+	resp.Result.S3TablesDestinationResult.TableBucketArn = stored.S3TablesDestination.TableBucketArn
+	resp.Result.S3TablesDestinationResult.TableName = stored.S3TablesDestination.TableName
+	resp.Result.S3TablesDestinationResult.TableNamespace = "aws_s3_metadata"
+	resp.Result.S3TablesDestinationResult.TableArn = stored.S3TablesDestination.TableBucketArn +
+		"/table/aws_s3_metadata/" + stored.S3TablesDestination.TableName
+
+	httputils.WriteXML(ctx, w, http.StatusOK, resp)
 }
 
 func (h *S3Handler) deleteBucketMetadataTableConfiguration(

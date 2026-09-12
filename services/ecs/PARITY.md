@@ -1028,3 +1028,51 @@ run ./services/ecs/...` (0 issues, after decomposing `CreateService`
 (funlen) into `createServiceDefaults` and `ListAccountSettings` (gocognit)
 into `filterAccountSettings`/`effectiveAccountSettings`). Work left
 uncommitted per this pass's instructions.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 18
+typed-client-blind ops (ContinueServiceDeployment, DeleteDaemon,
+DeleteDaemonTaskDefinition, DeleteTaskDefinitions, DeregisterTaskDefinition,
+DescribeCapacityProviders, DescribeDaemonDeployments,
+DescribeDaemonRevisions, DescribeServiceDeployments, DiscoverPollEndpoint,
+ListClusters, ListDaemonDeployments, ListDaemons, ListServicesByNamespace,
+SubmitAttachmentStateChanges, SubmitContainerStateChange,
+SubmitTaskStateChange, UpdateDaemon). **Two real bugs found and fixed**,
+both caught only by a decoded typed-client value (every call returned 200,
+nothing status-code-only would have caught them):
+
+1. `ListServicesByNamespace`'s backend matched services by
+   `strings.Contains(svc.ServiceName, namespace)` -- a fabricated semantic
+   with no basis in the real op, whose actual, documented filter is a
+   service's own `ServiceConnectConfiguration.Namespace` (Cloud Map
+   namespace). The handler also read a fabricated `cluster` request field
+   that doesn't exist on the real `ListServicesByNamespaceInput` at all
+   ("Tasks can connect to services across all of the clusters in the
+   namespace" -- api_op_ListServicesByNamespace.go), so any real client's
+   call was silently scoped to just the "default" cluster regardless of
+   which cluster its services actually lived in. Fixed both: search
+   `b.services.All()` (every cluster) and match against
+   `ServiceConnectConfiguration.Namespace`. Corrected four pre-existing
+   tests that depended on the old substring-on-name behavior
+   (`TestListServicesByNamespace_Filter` and three
+   `TestPaginationCoverage_ListServices` subtests) to attach real Service
+   Connect configuration instead of relying on name prefixes, not weakened.
+2. `DeleteTaskDefinitions` returned the task definition's pre-delete
+   `INACTIVE` status instead of the real, documented immediate transition:
+   "it is immediately transitions from the INACTIVE to DELETE_IN_PROGRESS"
+   (api_op_DeleteTaskDefinitions.go doc comment) -- a real client always
+   saw the stale status regardless of the actual deletion. Fixed by setting
+   the returned copy's `Status` to the new `DELETE_IN_PROGRESS` constant
+   before returning it (the stored revision is still removed from the
+   family's list exactly as before).
+
+Gates: `go build ./services/ecs/...` (whole-module `go build ./...` fails
+only on `services/opsworks`, a concurrent sibling agent's dirty, in-flight
+edit -- confirmed unrelated by `git status --short services/opsworks`,
+not touched), `go vet`, `go test -race -count=1`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean for `services/ecs`. `go run
+./cmd/paritylint` stays at 0 FAIL. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` fails only on `opsworks` (same concurrent
+sibling-agent edit, confirmed unrelated). No persisted struct fields
+changed in `services/ecs`; no version bump.

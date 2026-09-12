@@ -1421,3 +1421,54 @@ string field before this pass.
 Gates (gopherstack-b3pm): `go build ./...` (whole module) clean, `go vet
 ./...` clean, `go test -count=1 ./services/cloudformation/... ./pkgs/persistence/...`
 pass, `golangci-lint run ./services/cloudformation/...` 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 12
+typed-client-blind ops (DescribeChangeSetHooks, DescribeGeneratedTemplate,
+DescribeOrganizationsAccess, DescribeResourceScan, DescribeTypeRegistration,
+ExecuteStackRefactor, GetGeneratedTemplate, ListHookResults,
+ListResourceScanRelatedResources, SignalResource, TestType,
+UpdateStackInstances) -- typed coverage 78/90 -> 90/90 (0 uncovered).
+**Three real bugs found and fixed**, all caught only by a decoded typed-
+client value (every call returned 200, nothing status-code-only would have
+caught them):
+
+1. `CreateGeneratedTemplate`'s handler never read the request's `Resources`
+   member at all (`h.Backend.CreateGeneratedTemplate(name, nil)`,
+   hardcoded nil) -- a real client's `Resources` list (the entire point of
+   the op) was silently dropped regardless of what was requested, so
+   `GetGeneratedTemplate`/`DescribeGeneratedTemplate` always returned an
+   empty-Resources template. Fixed by parsing
+   `Resources.member.N.{ResourceType,LogicalResourceId}` from the awsQuery
+   form (verified against serializers.go's
+   `awsAwsquery_serializeDocumentResourceDefinition`) into the
+   "Type/LogicalID" strings the existing backend signature accepts.
+2. `SignalResource`'s handler discarded the backend's error entirely
+   (`_ = h.Backend.SignalResource(...)`) -- a real client's call against a
+   nonexistent stack always got a fabricated 200 OK instead of the real
+   error. Fixed by returning `h.xmlError` on a non-nil error, matching this
+   file's sibling handlers' convention.
+3. Three `StackSetOperation.Action` values recorded by
+   `CreateStackInstances`/`UpdateStackInstances`/`DeleteStackInstances`
+   were fabricated: `"CREATE_INSTANCES"`/`"UPDATE_INSTANCES"`/
+   `"DELETE_INSTANCES"` do not exist in the real `StackSetOperationAction`
+   enum (only `CREATE`/`UPDATE`/`DELETE`/`DETECT_DRIFT` are real,
+   `types/enums.go`, cloudformation@v1.76.1) -- confirmed by
+   `StackSetOperation.Action`'s own doc comment: "Create and delete
+   operations affect only the specified stack instances ... Update
+   operations affect both the StackSet itself, in addition to all
+   associated stack instances," i.e. instance-scoped operations report the
+   same CREATE/UPDATE/DELETE action as their StackSet-level counterparts,
+   not a distinct suffixed value. Fixed all three call sites; one
+   pre-existing test (`TestDescribeStackSetOperation_Action`) asserting the
+   old fabricated value was corrected, not weakened. `ImportStacksToStackSet`
+   recording `"IMPORT"` (also not a real enum value) was left unfixed --
+   not hit by this slice's own test, flagged in code for a future pass.
+
+No accept-and-drop findings beyond what's listed above. Gates: `go build
+./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint
+run --new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted struct fields changed (the Action fix
+corrects an existing string field's *value*, not its shape); no version
+bump.

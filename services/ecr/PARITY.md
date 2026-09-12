@@ -876,3 +876,30 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 28
+typed-client-blind ops (BatchCheckLayerAvailability, BatchGetImage,
+CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule,
+DeleteRegistryPolicy, DeleteRepositoryCreationTemplate,
+DeleteRepositoryPolicy, DeregisterPullTimeUpdateExclusion,
+GetAccountSetting, GetDownloadUrlForLayer, GetLifecyclePolicy,
+GetLifecyclePolicyPreview, GetRegistryPolicy, GetRepositoryPolicy,
+InitiateLayerUpload, ListImageReferrers, ListTagsForResource,
+PutAccountSetting, PutRegistryPolicy, SetRepositoryPolicy,
+StartLifecyclePolicyPreview, TagResource, UntagResource,
+UpdatePullThroughCacheRule, UpdateRepositoryCreationTemplate,
+UploadLayerPart, ValidatePullThroughCacheRule) -- typed coverage 30/58 ->
+58/58 (0 uncovered). Zero real bugs found: every op decoded correctly on
+the first correctly-shaped request, including the full manual layer upload
+sequence (InitiateLayerUpload -> UploadLayerPart with a real 5MiB part
+satisfying the minimum-part-size rule -> CompleteLayerUpload with a
+SHA256-verified digest -> BatchCheckLayerAvailability ->
+GetDownloadUrlForLayer). `ListImageReferrers`' disclosed honest gap (this
+backend doesn't model OCI referrer artifact relationships, so it always
+returns a real, empty list rather than fabricating referrers) confirmed
+correct. Gates: `go build ./...` (whole module), `go vet`, `go test -race
+-count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean.
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted struct fields
+changed; no version bump.

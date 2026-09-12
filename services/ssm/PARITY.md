@@ -1400,3 +1400,53 @@ picked up a concurrent agent's in-flight ec2 rows
 (`InstanceCountEntry`/`PriceScheduleEntry`/`ReservedInstancesListing`/
 `TransitGatewayPeeringAttachment`) -- left in place per this pass's
 instructions, not hand-removed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering all 64 of this
+service's remaining typed-client-blind ops through the real
+aws-sdk-go-v2 ssm client, in 20 subtests grouped by subsystem
+(maintenance window targets/tasks; maintenance window lifecycle; patch
+baselines; parameters; associations; ops item related items; ops
+metadata; cancel command; managed instances; resource data sync; cloud
+connectors; compliance and inventory; document metadata; automation step
+executions and signals; sessions; change request execution; access
+token; calendar state; ops summary; reset service setting). Client-side
+typed coverage went from 88/152 to 152/152.
+
+**One real bug found and fixed**, caught only by a round-trip through the
+real typed client (`UpdateOpsMetadata` with both `MetadataToUpdate` and
+`KeysToDelete` set, then `GetOpsMetadata` still showing the
+supposedly-deleted key): `UpdateOpsMetadataInput.KeysToDelete` (real,
+documented member -- "The metadata keys to delete from the OpsMetadata
+object", ssm@v1.77.0 api_op_UpdateOpsMetadata.go) had no field on
+gopherstack's own `UpdateOpsMetadataInput` (`models_ops_items.go`) at
+all, so it was silently dropped by `json.Unmarshal` regardless of what a
+real client sent -- a caller deleting a metadata key via
+`UpdateOpsMetadata` instead saw it persist forever. Fixed by adding the
+field and applying deletions before merging `MetadataToUpdate`
+(`ops_items.go`'s `UpdateOpsMetadata`), so a key present in both lists
+ends up defined by the update, matching the more specific/recent intent.
+
+**Test-authoring corrections** (SDK client-side required-field
+validation caught before any request was even sent -- not backend bugs):
+`CreateOpsItem.Description` and `CreateResourceDataSyncInput.
+S3Destination.Region` are both real required members the test's first
+draft omitted; both fixed in the test.
+
+**Structural note, not a bug:** there is no real `StartMaintenanceWindowExecution`
+op in the SDK at all -- maintenance window executions run only on their
+own cron/rate schedule, so `CancelMaintenanceWindowExecution` is
+exercised against a synthetic execution ID rather than one produced by a
+prerequisite Start call (which doesn't exist).
+
+No persisted-shape changes beyond `UpdateOpsMetadataInput.KeysToDelete`
+(a request-only field, not itself persisted -- only the deletion path
+through the already-persisted `OpsMetadata.Metadata` map changed);
+`pkgs/persistence/testdata/snapshot_inventory.json` untouched, no version
+bump.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/ssm/...`
+clean; `go test -race -count=1 ./services/ssm/...` all pass; `go test
+-race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
+--new-from-rev=HEAD services/ssm/...` 0 issues.

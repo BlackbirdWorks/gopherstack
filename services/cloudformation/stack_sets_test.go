@@ -400,7 +400,7 @@ func TestDeleteStackSet_ClearsOperationHistory(t *testing.T) {
 // TestDescribeStackSetOperation_Action verifies that
 // DescribeStackSetOperation returns the Action field in its response, matching
 // AWS CloudFormation behaviour. Previously only OperationId and Status were
-// returned; the Action (e.g. CREATE_INSTANCES, DETECT_DRIFT) was omitted.
+// returned; the Action (e.g. CREATE, DETECT_DRIFT) was omitted.
 func TestDescribeStackSetOperation_Action(t *testing.T) {
 	t.Parallel()
 
@@ -423,7 +423,11 @@ func TestDescribeStackSetOperation_Action(t *testing.T) {
 				"Accounts.member.1": {"111111111111"},
 				"Regions.member.1":  {"us-east-1"},
 			},
-			wantAction: "CREATE_INSTANCES",
+			// Real AWS: Create/DeleteStackInstances report the same CREATE/
+			// DELETE action as their StackSet-level counterparts (types.go's
+			// StackSetOperation.Action doc comment) -- not a distinct
+			// "CREATE_INSTANCES" enum value, which does not exist.
+			wantAction: "CREATE",
 		},
 	}
 
@@ -728,7 +732,7 @@ func TestStackSetOperations(t *testing.T) {
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// UpdateStackInstances — creates an UPDATE_INSTANCES operation
+	// UpdateStackInstances — creates an UPDATE operation
 	rec = postForm(t, h, url.Values{
 		"Action":            []string{"UpdateStackInstances"},
 		"StackSetName":      []string{"ops-test-set"},
@@ -737,7 +741,7 @@ func TestStackSetOperations(t *testing.T) {
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// DeleteStackInstances — creates a DELETE_INSTANCES operation
+	// DeleteStackInstances — creates a DELETE operation
 	rec = postForm(t, h, url.Values{
 		"Action":            []string{"DeleteStackInstances"},
 		"StackSetName":      []string{"ops-test-set"},

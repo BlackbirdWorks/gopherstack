@@ -767,19 +767,25 @@ func (b *InMemoryBackend) StopOldestServiceTask(clusterName, serviceName string)
 	return nil
 }
 
-// ListServicesByNamespace returns service ARNs in a cluster whose service name contains the namespace prefix.
-func (b *InMemoryBackend) ListServicesByNamespace(cluster, namespace string) ([]string, error) {
-	clusterName := clusterKey(b.resolveCluster(cluster))
-
+// ListServicesByNamespace returns service ARNs whose Service Connect
+// configuration is attached to the given Cloud Map namespace. Real
+// ListServicesByNamespaceInput has no Cluster member at all -- "Tasks can
+// connect to services across all of the clusters in the namespace"
+// (api_op_ListServicesByNamespace.go doc comment) -- so this searches every
+// cluster, not one scoped by a (fabricated) cluster parameter. Namespace
+// matches against Service.ServiceConnectConfiguration.Namespace, the real
+// field this op filters by; it is not a substring match against the
+// service's own name, which has nothing to do with Service Connect
+// namespaces.
+func (b *InMemoryBackend) ListServicesByNamespace(namespace string) ([]string, error) {
 	b.mu.RLock("ListServicesByNamespace")
 	defer b.mu.RUnlock()
 
-	svcs := b.servicesByCluster.Get(clusterName)
+	all := b.services.All()
+	out := make([]string, 0, len(all))
 
-	out := make([]string, 0, len(svcs))
-
-	for _, svc := range svcs {
-		if namespace == "" || strings.Contains(svc.ServiceName, namespace) {
+	for _, svc := range all {
+		if svc.ServiceConnectConfiguration != nil && svc.ServiceConnectConfiguration.Namespace == namespace {
 			out = append(out, svc.ServiceArn)
 		}
 	}

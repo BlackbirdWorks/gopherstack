@@ -12,6 +12,7 @@ import (
 type createContactInput struct {
 	EmailAddress     string            `json:"EmailAddress"`
 	TopicPreferences []TopicPreference `json:"TopicPreferences"`
+	UnsubscribeAll   bool              `json:"UnsubscribeAll"`
 }
 
 func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (any, error) {
@@ -21,7 +22,9 @@ func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if _, err := h.Backend.CreateContact(contactListName, in.EmailAddress, in.TopicPreferences); err != nil {
+	if _, err := h.Backend.CreateContact(
+		contactListName, in.EmailAddress, in.TopicPreferences, in.UnsubscribeAll,
+	); err != nil {
 		return nil, err
 	}
 
@@ -71,6 +74,7 @@ func (h *Handler) handleDeleteContact(c *echo.Context, contactListName string) (
 
 type updateContactInput struct {
 	TopicPreferences []TopicPreference `json:"TopicPreferences"`
+	UnsubscribeAll   bool              `json:"UnsubscribeAll"`
 }
 
 func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (any, error) {
@@ -91,7 +95,9 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if err := h.Backend.UpdateContact(contactListName, emailAddress, in.TopicPreferences); err != nil {
+	if err := h.Backend.UpdateContact(
+		contactListName, emailAddress, in.TopicPreferences, in.UnsubscribeAll,
+	); err != nil {
 		return nil, err
 	}
 

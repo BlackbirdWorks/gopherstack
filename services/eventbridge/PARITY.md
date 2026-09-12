@@ -974,3 +974,29 @@ stack as the bd issue), `TestPattern_AnythingBut_DefenseInDepth_NoPanicWhenValid
 
 Gates: `go build`, `go test -race -count=1`, `golangci-lint run` — all
 clean (`./services/eventbridge/...`).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 20
+typed-client-blind ops (DeactivateEventSource, DeleteApiDestination,
+DeleteArchive, DeleteConnection, DeleteEndpoint, DeletePartnerEventSource,
+DescribeApiDestination, DescribeEndpoint, DescribeEventSource,
+DescribePartnerEventSource, DisableRule, EnableRule, ListTagsForResource,
+PutPartnerEvents, RemovePermission, TagResource, TestEventPattern,
+UntagResource, UpdateApiDestination, UpdateArchive). **One real bug found
+and fixed**, caught only by a decoded typed-client enum comparison:
+`DeactivateEventSource` set the mirrored `EventSource.State` to a
+fabricated `"INACTIVE"` value that doesn't exist in the real
+`EventSourceState` enum at all (only `PENDING`/`ACTIVE`/`DELETED`,
+eventbridge@v1.53.0 types/enums.go) -- the real op's own doc comment is
+explicit: "When you deactivate a partner event source, the source goes
+into PENDING state." A real client's `DescribeEventSource` after
+`DeactivateEventSource` always decoded a value with no defined meaning
+instead of the documented `PENDING`. Fixed by transitioning to `PENDING`;
+one pre-existing test (renamed
+`TestPartnerEventSource_DeactivateTransitionsToPending`, formerly
+`...ToInactive`) asserting the fabricated value was corrected, not
+weakened. Gates: `go build ./...` (whole module), `go vet`, `go test -race
+-count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean.
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted struct fields
+changed (a string field's value, not its shape); no version bump.

@@ -139,7 +139,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 	recentCount := 0
 
 	for _, r := range key.Rotations {
-		if r.RotationType == rotationTypeImported && r.Date >= cutoff {
+		if r.RotationType == rotationTypeOnDemand && r.Date >= cutoff {
 			recentCount++
 		}
 	}
@@ -151,7 +151,7 @@ func (b *InMemoryBackend) RotateKeyOnDemand(
 		)
 	}
 
-	if err = b.rotateKeyMaterialLocked(region, key, rotationTypeImported); err != nil {
+	if err = b.rotateKeyMaterialLocked(region, key, rotationTypeOnDemand); err != nil {
 		return nil, err
 	}
 
@@ -217,7 +217,7 @@ func (b *InMemoryBackend) populateNextRotationDate(key *Key, out *GetKeyRotation
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) lastScheduledRotationDate(key *Key) float64 {
 	for _, v := range slices.Backward(key.Rotations) {
-		if v.RotationType == rotationTypeAWSKMS {
+		if v.RotationType == rotationTypeAutomatic {
 			return v.Date
 		}
 	}
@@ -234,7 +234,7 @@ func (b *InMemoryBackend) lastScheduledRotationDate(key *Key) float64 {
 // Must be called with at least a read lock held.
 func (b *InMemoryBackend) lastOnDemandRotationDate(key *Key) float64 {
 	for _, v := range slices.Backward(key.Rotations) {
-		if v.RotationType == rotationTypeImported {
+		if v.RotationType == rotationTypeOnDemand {
 			return v.Date
 		}
 	}

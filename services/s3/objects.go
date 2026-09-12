@@ -790,6 +790,7 @@ func buildGetObjectOutput(
 		ObjectLockMode:            types.ObjectLockMode(ver.RetentionMode),
 		ObjectLockLegalHoldStatus: legalHoldStatus(ver.LegalHold),
 		ObjectLockRetainUntilDate: retainUntilPtr(ver),
+		Restore:                   restoreHeaderValue(ver),
 	}
 }
 
@@ -832,6 +833,23 @@ func retainUntilPtr(ver *StoredObjectVersion) *time.Time {
 	}
 
 	return aws.Time(ver.RetainUntil)
+}
+
+// restoreHeaderValue formats the x-amz-restore header (s3@v1.111.0
+// deserializers.go:7015-7018 for GetObject, :8978-8981 for HeadObject: a
+// plain, unstructured string header, not a typed field) from a restored
+// version's stored state. RestoreObject never leaves OngoingRestore true in
+// this backend's synchronous-completion model, so only the completed form
+// is ever emitted; nil (no header at all) means RestoreObject was never
+// called for this version, matching real S3's omission of the header for
+// objects that were never restored.
+func restoreHeaderValue(ver *StoredObjectVersion) *string {
+	if ver.RestoreExpiry.IsZero() {
+		return nil
+	}
+
+	return aws.String(`ongoing-request="false", expiry-date="` +
+		ver.RestoreExpiry.UTC().Format(http.TimeFormat) + `"`)
 }
 
 func (b *InMemoryBackend) HeadObject(
@@ -957,6 +975,7 @@ func (b *InMemoryBackend) buildHeadObjectOutput(bucketName, key string, ver *Sto
 		ObjectLockMode:            types.ObjectLockMode(ver.RetentionMode),
 		ObjectLockLegalHoldStatus: legalHoldStatus(ver.LegalHold),
 		ObjectLockRetainUntilDate: retainUntilPtr(ver),
+		Restore:                   restoreHeaderValue(ver),
 	}
 }
 

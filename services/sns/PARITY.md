@@ -733,3 +733,22 @@ Gates: `go build ./services/sns/...`, `go vet ./...` (repo-wide, clean --
 no exported signature changed), `go test -race -count=1 ./services/sns/...`
 (pass), `golangci-lint run ./services/sns/...` (0 issues, no `nolint` in
 any edited file).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 8
+typed-client-blind ops (CheckIfPhoneNumberIsOptedOut, ConfirmSubscription,
+GetDataProtectionPolicy, GetSMSAttributes, GetSMSSandboxAccountStatus,
+ListPhoneNumbersOptedOut, ListSMSSandboxPhoneNumbers,
+PutDataProtectionPolicy) -- typed coverage 34/42 -> 42/42 (0 uncovered).
+Zero real bugs found; two test-authoring corrections (not bugs) confirmed
+this backend already matches subtle real AWS behavior: (1)
+`ListSubscriptionsByTopic`/`ListSubscriptions` correctly return the literal
+placeholder `"pending confirmation"` for `SubscriptionArn` on an unconfirmed
+subscription rather than a real ARN, matching AWS's documented behavior
+(`handler_subscriptions.go`'s `PendingConfirmation && !returnArn` gate); (2)
+`Subscribe`'s own `SubscriptionArn` field, not tested here previously,
+still returns the placeholder too until `ConfirmSubscription` supplies the
+real ARN. Gates: `go build ./...` (whole module), `go vet`, `go test -race
+-count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No
+persisted struct fields changed; no version bump.

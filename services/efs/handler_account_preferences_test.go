@@ -11,13 +11,16 @@ import (
 // TestPutAccountPreferences_InvalidResourceIdType verifies an unrecognized
 // ResourceIdType emits BadRequest, not ValidationException -- PutAccountPreferences
 // declares BadRequest/InternalServerError only (efs@v1.44.4 deserializers.go).
+// ResourceIdType is a flat, top-level request field (efs@v1.48.0
+// api_op_PutAccountPreferences.go), not nested under ResourceIdPreference --
+// that wrapper is response-only.
 func TestPutAccountPreferences_InvalidResourceIdType(t *testing.T) {
 	t.Parallel()
 
 	h := newTestEFSHandler()
 
 	rec := doREST(t, h, http.MethodPut, "/2015-02-01/account-preferences", map[string]any{
-		"ResourceIdPreference": map[string]any{"ResourceIdType": "BOGUS"},
+		"ResourceIdType": "BOGUS",
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 

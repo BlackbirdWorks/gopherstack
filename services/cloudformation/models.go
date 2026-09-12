@@ -336,8 +336,11 @@ type StackSetOperation struct {
 	CreatedAt    time.Time
 	OperationID  string
 	StackSetName string
-	Action       string // CREATE_INSTANCES / UPDATE_INSTANCES / DELETE_INSTANCES / UPDATE / DETECT_DRIFT / IMPORT
-	Status       string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
+	// Action is one of the real StackSetOperationAction values: CREATE /
+	// UPDATE / DELETE / DETECT_DRIFT. IMPORT is not a real value either
+	// (gopherstack-n3zi slice 11).
+	Action string
+	Status string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
 }
 
 // RegisteredType holds registration info for a CloudFormation type.

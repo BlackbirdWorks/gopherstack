@@ -128,7 +128,7 @@ type Backend interface {
 
 	// Namespace-scoped service listing
 
-	ListServicesByNamespace(cluster, namespace string) ([]string, error)
+	ListServicesByNamespace(namespace string) ([]string, error)
 
 	// Tagging
 

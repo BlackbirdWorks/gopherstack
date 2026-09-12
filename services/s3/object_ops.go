@@ -28,6 +28,7 @@ type objectCommonDetails struct {
 	ObjectLockMode            string
 	ObjectLockLegalHoldStatus string
 	SSEAlgorithm              string
+	Restore                   *string
 }
 
 func (h *S3Handler) handleObjectOperation(

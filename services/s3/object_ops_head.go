@@ -132,6 +132,7 @@ func (h *S3Handler) writeHeadObjectResponse(
 		ObjectLockMode:            string(out.ObjectLockMode),
 		ObjectLockLegalHoldStatus: string(out.ObjectLockLegalHoldStatus),
 		ObjectLockRetainUntilDate: out.ObjectLockRetainUntilDate,
+		Restore:                   out.Restore,
 	}
 
 	h.setCommonHeaders(w, details)

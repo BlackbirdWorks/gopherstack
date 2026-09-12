@@ -292,3 +292,26 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   lower-confidence question deferred rather than changed speculatively). Gates
   (`build`/`test -race`/`golangci-lint`/`go vet .` at repo root) all pass clean; no snapshot version
   bump (new fields are additive `omitempty`, verified round-tripping through `Snapshot`/`Restore`).
+- **2026-09-12 (gopherstack-n3zi typed slice 11)**: added `typed_slice11_realclient_test.go`,
+  covering this service's last 6 typed-client-blind ops (BatchGetSecretValue, CancelRotateSecret,
+  RemoveRegionsFromReplication, ReplicateSecretToRegions, StopReplicationToReplica,
+  ValidateResourcePolicy) -- typed coverage 17/23 -> 23/23 (0 uncovered). One real bug found and
+  fixed by a decoded typed-client assertion: `CancelRotateSecret` removed the AWSPENDING staging
+  label but never cleared `Secret.RotationEnabled`, even though `api_op_CancelRotateSecret.go`'s
+  doc comment (`secretsmanager@v1.48.0`) says "Turns off automatic rotation" and
+  `DescribeSecretOutput.RotationEnabled`'s own doc comment says "To turn off rotation, use
+  CancelRotateSecret" -- a real client's `DescribeSecret` after `CancelRotateSecret` always showed
+  rotation still enabled. Three pre-existing tests
+  (`TestCancelRotateSecret_SetsRotationDisabled`, `TestCancelRotateSecret_RotationConfigPreserved`,
+  `TestCancelRotateSecret_BackendEdgeCases/removes_pending_label`) asserted the old (wrong)
+  behavior as correct and were corrected, not weakened; the Lambda ARN/rotation rules are still
+  confirmed preserved (only `RotationEnabled` flips). No accept-and-drop findings in the newly
+  covered ops. `ReplicateSecretToRegions`/`RemoveRegionsFromReplication`/`StopReplicationToReplica`
+  confirmed already correct: a configured replica region is a real, independently
+  `GetSecretValue`-able secret (not just bookkeeping), removing a region deletes that replica
+  secret, and promoting a replica via `StopReplicationToReplica` correctly leaves
+  `DescribeSecretOutput.PrimaryRegion` populated with its own (former replica) region -- confirmed
+  against `api_op_DescribeSecret.go`'s doc comment ("The Region the secret is in"), not a bare
+  replica-link marker, which was my own first-draft test assertion mistake, not a backend bug.
+  Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
+  --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields changed; no version bump.

@@ -733,3 +733,19 @@ Not reached this pass: `AmazonOpenSearchServerlessDestinationConfiguration`
 (11th destination family, out of scope, pre-existing disclosed gap), MSK/
 Database source real polling (structural gap, `cli.go` wiring forbidden),
 Redshift `RedshiftDataExecutor` `cli.go` wiring (pre-existing disclosed gap).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 6
+typed-client-blind ops (ListTagsForDeliveryStream, PutRecordBatch,
+StartDeliveryStreamEncryption, StopDeliveryStreamEncryption,
+TagDeliveryStream, UntagDeliveryStream) -- typed coverage 6/12 -> 12/12 (0
+uncovered). Zero real bugs found: tag CRUD, batch record puts (RecordId/
+ErrorCode per entry), and the encryption enable/disable lifecycle
+(DeliveryStreamEncryptionConfiguration.Status/KeyType round-tripping through
+DescribeDeliveryStream) all matched the real SDK's decoded shapes on the
+first correctly-shaped request, consistent with this service's prior
+`wire_sdk_roundtrip_test.go` sweep already having hardened its wire shapes.
+Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
+struct fields changed; no version bump.

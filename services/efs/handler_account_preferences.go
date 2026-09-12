@@ -18,10 +18,14 @@ func (h *Handler) handleDescribeAccountPreferences(c *echo.Context) error {
 	})
 }
 
+// putAccountPreferencesBody matches the real PutAccountPreferencesInput wire
+// shape: ResourceIdType is a flat, top-level required field on the request
+// (efs@v1.48.0 api_op_PutAccountPreferences.go) -- unlike the response, which
+// nests it under ResourceIdPreference. A request-shaped ResourceIdPreference
+// wrapper here was copied from the response and never matched what a real
+// client actually sends, so ResourceIdType always decoded empty.
 type putAccountPreferencesBody struct {
-	ResourceIDPreference struct {
-		ResourceIDType string `json:"ResourceIdType"`
-	} `json:"ResourceIdPreference"`
+	ResourceIDType string `json:"ResourceIdType"`
 }
 
 func (h *Handler) handlePutAccountPreferences(c *echo.Context, body []byte) error {
@@ -30,7 +34,7 @@ func (h *Handler) handlePutAccountPreferences(c *echo.Context, body []byte) erro
 		return c.JSON(http.StatusBadRequest, errResp("BadRequest", "invalid request body"))
 	}
 
-	prefs, err := h.Backend.PutAccountPreferences(in.ResourceIDPreference.ResourceIDType)
+	prefs, err := h.Backend.PutAccountPreferences(in.ResourceIDType)
 	if err != nil {
 		return h.handleError(c, err)
 	}

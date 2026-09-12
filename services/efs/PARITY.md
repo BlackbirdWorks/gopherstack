@@ -664,3 +664,29 @@ Gates: `go build ./services/efs/...`, `go vet ./services/efs/...`, `go vet ./...
 (repo-wide, no signature changed outside this package), `go test -race -count=1
 ./services/efs/...`, `golangci-lint run ./services/efs/...`. Work left uncommitted
 per this pass's instructions.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 18
+typed-client-blind ops (CreateTags, DeleteAccessPoint,
+DeleteFileSystemPolicy, DeleteReplicationConfiguration, DeleteTags,
+DescribeAccessPoints, DescribeAccountPreferences, DescribeFileSystemPolicy,
+DescribeLifecycleConfiguration, DescribeMountTargetSecurityGroups,
+DescribeTags, ModifyMountTargetSecurityGroups, PutAccountPreferences,
+PutBackupPolicy, PutFileSystemPolicy, PutLifecycleConfiguration,
+UpdateFileSystem, UpdateFileSystemProtection). **One real bug found and
+fixed**, caught only by a decoded typed-client error where 200 was
+expected: `PutAccountPreferences`'s request decoder expected
+`{"ResourceIdPreference":{"ResourceIdType":...}}`, but the real
+`PutAccountPreferencesInput.ResourceIdType` (efs@v1.48.0
+api_op_PutAccountPreferences.go) is a flat, required, top-level request
+field -- the nested wrapper shape was copied from the *response* (which
+does nest it under `ResourceIdPreference`) and never matched what a real
+client actually sends, so every real `PutAccountPreferences` call failed
+`BadRequest: invalid ResourceIdType ""` regardless of the value requested.
+Fixed the request decoder to the flat shape; one pre-existing test
+(`TestPutAccountPreferences_InvalidResourceIdType`) asserting the old wrong
+nested request shape was corrected to the real flat shape, not weakened.
+Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
+struct fields changed; no version bump.

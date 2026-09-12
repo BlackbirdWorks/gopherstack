@@ -207,9 +207,10 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	regStatus, err := b.DescribeTypeRegistration(token)
+	regStatus, regTypeArn, err := b.DescribeTypeRegistration(token)
 	require.NoError(t, err)
 	assert.NotEmpty(t, regStatus)
+	assert.NotEmpty(t, regTypeArn)
 
 	types, err := b.ListTypes("", 0, "")
 	require.NoError(t, err)

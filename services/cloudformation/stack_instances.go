@@ -78,7 +78,7 @@ func (b *InMemoryBackend) CreateStackInstances(
 		return "", err
 	}
 
-	opID := b.recordStackSetOperation(stackSetName, "CREATE_INSTANCES")
+	opID := b.recordStackSetOperation(stackSetName, "CREATE")
 	touchedAccounts := make([]string, 0, len(targets))
 	for _, t := range targets {
 		touchedAccounts = append(touchedAccounts, t.account)
@@ -267,7 +267,7 @@ func (b *InMemoryBackend) DeleteStackInstances(
 		}
 	}
 	failed := b.deleteMatchingStackInstances(ctx, stackSetName, accounts, regions, retainStacks)
-	opID := b.recordStackSetOperation(stackSetName, "DELETE_INSTANCES")
+	opID := b.recordStackSetOperation(stackSetName, "DELETE")
 	b.recordStackInstanceDeleteResults(stackSetName, opID, accounts, regions, failed)
 
 	return opID, nil
@@ -292,7 +292,7 @@ func (b *InMemoryBackend) UpdateStackInstances(
 			accounts = append(accounts, t.account)
 		}
 	}
-	opID := b.recordStackSetOperation(stackSetName, "UPDATE_INSTANCES")
+	opID := b.recordStackSetOperation(stackSetName, "UPDATE")
 	if len(accounts) > 0 && len(regions) > 0 {
 		b.recordOpResults(stackSetName, opID, accounts, regions, "SUCCEEDED")
 	}

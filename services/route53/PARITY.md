@@ -780,3 +780,21 @@ stored-then-checked error from any response-writer helper.
 **No instance of the broken shape exists in route53.** No code changed. Gates:
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/route53/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/route53/...` ok.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 13
+typed-client-blind ops (DeleteTrafficPolicy, GetChange, GetCheckerIpRanges,
+GetHealthCheckCount, GetHealthCheckLastFailureReason, GetHealthCheckStatus,
+GetHostedZoneCount, GetReusableDelegationSetLimit, GetTrafficPolicy,
+TestDNSAnswer, UpdateHealthCheck, UpdateHostedZoneComment,
+UpdateTrafficPolicyComment) -- typed coverage 58/71 -> 71/71 (0 uncovered).
+Zero real bugs found: hosted zone count/comment, health check status/last-
+failure-reason/update (including a real DNS-observation history seeded via
+the existing `SetHealthCheckStatus` test helper), the full traffic policy
+lifecycle (get/update-comment/delete), reusable delegation set limits, and
+`TestDNSAnswer` resolving a real record written via `ChangeResourceRecordSets`
+all decoded correctly through the real client. Gates: `go build ./...`
+(whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
+changed; no version bump.

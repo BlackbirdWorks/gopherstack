@@ -1155,3 +1155,21 @@ against, and no pre-existing test asserts this path either way (confirmed
 by re-grepping `*_test.go` for `StateMachineDoesNotExist` near
 `DescribeStateMachineForExecution`; none found). Landmine comment at
 executions.go:784-793 left as-is, now cross-referenced by this entry.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 7
+typed-client-blind ops (DescribeActivity, ListActivities, ListStateMachines,
+RedriveExecution, SendTaskFailure, SendTaskHeartbeat, UpdateStateMachine) --
+typed coverage 30/37 -> 37/37 (0 uncovered). Zero real bugs found. Confirmed
+correct: `RedriveExecutionOutput.RedriveDate` decodes non-nil
+(`api_op_RedriveExecution.go`, sfn@v1.49.0); `DescribeExecutionOutput.RedriveCount`
+increments on redrive (used as the test's stable assertion instead of
+`Status`, since a Fail-state re-run completes asynchronously and near-
+instantly, making a RUNNING-status snapshot immediately after
+`RedriveExecution` returns a race rather than a guarantee); `SendTaskFailure`/
+`SendTaskHeartbeat` correctly resolve a task token obtained via
+`GetActivityTask` and unblock the corresponding `InvokeActivity` caller with
+the real error/cause. Gates: `go build ./...` (whole module), `go vet`,
+`go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
+all clean. No persisted struct fields changed; no version bump.

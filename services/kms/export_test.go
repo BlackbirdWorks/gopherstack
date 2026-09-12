@@ -258,7 +258,7 @@ func (b *InMemoryBackend) ForceRotateForTest(keyID string) error {
 
 	for region, tbl := range b.keys {
 		if key, ok := tbl.Get(keyID); ok {
-			return b.rotateKeyMaterialLocked(region, key, rotationTypeAWSKMS)
+			return b.rotateKeyMaterialLocked(region, key, rotationTypeAutomatic)
 		}
 	}
 

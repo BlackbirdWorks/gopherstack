@@ -89,10 +89,15 @@ type StorageBackend interface {
 	CreateContact(
 		contactListName, emailAddress string,
 		topicPreferences []TopicPreference,
+		unsubscribeAll bool,
 	) (*Contact, error)
 	GetContact(contactListName, emailAddress string) (*Contact, error)
 	DeleteContact(contactListName, emailAddress string) error
-	UpdateContact(contactListName, emailAddress string, topicPreferences []TopicPreference) error
+	UpdateContact(
+		contactListName, emailAddress string,
+		topicPreferences []TopicPreference,
+		unsubscribeAll bool,
+	) error
 	ListContacts(contactListName, nextToken string, pageSize int) (page.Page[*Contact], error)
 
 	// Custom verification template ops

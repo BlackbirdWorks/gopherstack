@@ -272,6 +272,7 @@ func buildGetObjectDetails(ver *s3.GetObjectOutput) objectCommonDetails {
 		ObjectLockMode:            string(ver.ObjectLockMode),
 		ObjectLockLegalHoldStatus: string(ver.ObjectLockLegalHoldStatus),
 		ObjectLockRetainUntilDate: ver.ObjectLockRetainUntilDate,
+		Restore:                   ver.Restore,
 	}
 }
 

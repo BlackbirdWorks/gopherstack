@@ -127,7 +127,7 @@ type StorageBackend interface {
 		typeName, deprecatedStatus string, maxResults int, nextToken string,
 	) (page.Page[string], error)
 	ListTypeRegistrations(typeName, typeFilter string, maxResults int, nextToken string) (page.Page[string], error)
-	DescribeTypeRegistration(registrationToken string) (string, error)
+	DescribeTypeRegistration(registrationToken string) (status, typeArn string, err error)
 	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
 	TestType(typeName, arn string) (string, error)
 	RegisterPublisher(connectionArn string) (string, error)

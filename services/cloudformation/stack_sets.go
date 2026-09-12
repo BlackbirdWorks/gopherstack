@@ -266,7 +266,15 @@ func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
 	}
 }
 
-// recordStackSetOperation creates a StackSetOperation record and returns its ID.
+// recordStackSetOperation creates a StackSetOperation record and returns its
+// ID. action must be one of the real StackSetOperationAction enum values
+// (CREATE/UPDATE/DELETE/DETECT_DRIFT, cloudformation@v1.76.1 types/enums.go)
+// -- StackSetOperation.Action's own doc comment: "Create and delete
+// operations affect only the specified stack instances ... Update operations
+// affect both the StackSet itself, in addition to all associated stack
+// instances", i.e. Create/Update/DeleteStackInstances report the same
+// CREATE/UPDATE/DELETE action as their StackSet-level counterparts, not a
+// distinct "_INSTANCES" suffix (there is no such enum value).
 // Caller must hold b.mu.Lock.
 func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) string {
 	opID := uuid.New().String()

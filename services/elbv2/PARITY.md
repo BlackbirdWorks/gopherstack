@@ -496,3 +496,32 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 16
+typed-client-blind ops (DeleteSharedTrustStoreAssociation, DeleteTrustStore,
+DescribeAccountLimits, DescribeListenerAttributes, DescribeSSLPolicies,
+DescribeTargetGroupAttributes, DescribeTrustStoreAssociations,
+GetResourcePolicy, GetTrustStoreCaCertificatesBundle,
+GetTrustStoreRevocationContent, ModifyListenerAttributes, ModifyRule,
+ModifyTargetGroup, ModifyTargetGroupAttributes, ModifyTrustStore,
+SetRulePriorities). **One real bug found and fixed**: `DescribeTrustStores`
+silently filtered out an explicitly requested but nonexistent
+`TrustStoreArn`/`Name` instead of erroring, the same "silent-omission on an
+explicit id list" class this campaign has hit repeatedly elsewhere (ec2
+slice 1/2) -- `DescribeTrustStores` declares `TrustStoreNotFoundException`
+in its deserializer (elasticloadbalancingv2@v1.58.5), and this package's
+own sibling `DescribeTargetGroups` already hard-fails via
+`checkAllTGArnsFound`/`checkAllTGNamesFound`, so `DescribeTrustStores` was
+the outlier, not the precedent. Added the matching
+`checkAllTrustStoreArnsFound`/`checkAllTrustStoreNamesFound` helpers; no
+pre-existing test asserted the old silent-empty-result behavior, so none
+needed correcting. One test-authoring correction (not a bug): `ModifyRule`'s
+response always nests `path-pattern` condition values under
+`PathPatternConfig`, never the deprecated top-level `Values` field, even
+when the request used the deprecated field -- confirmed correct by
+hand-instrumented debug output before writing the final assertion. Gates:
+`go build ./...` (whole module), `go vet`, `go test -race -count=1`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
+struct fields changed; no version bump.

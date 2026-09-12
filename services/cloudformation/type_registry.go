@@ -347,15 +347,20 @@ func (b *InMemoryBackend) ListTypeRegistrations(
 	return page.New(tokens, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, error) {
+// DescribeTypeRegistration returns the registration's ProgressStatus and, per
+// the real DescribeTypeRegistrationOutput.TypeArn doc comment ("For
+// registration requests with a ProgressStatus of other than COMPLETE, this
+// will be null"), its TypeArn -- populated here since every registration this
+// mock creates is immediately COMPLETE.
+func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, string, error) {
 	b.mu.RLock("DescribeTypeRegistration")
 	defer b.mu.RUnlock()
 	rec, ok := b.typeRegistrations.Get(registrationToken)
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
+		return "", "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
 	}
 
-	return rec.Status, nil
+	return rec.Status, rec.TypeArn, nil
 }
 
 func (b *InMemoryBackend) TestType(typeName, typeArn string) (string, error) {

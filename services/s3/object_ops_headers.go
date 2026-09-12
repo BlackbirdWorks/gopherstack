@@ -52,6 +52,10 @@ func (h *S3Handler) setCommonHeaders(w http.ResponseWriter, out objectCommonDeta
 		w.Header().Set("X-Amz-Tagging-Count", strconv.FormatInt(int64(*out.TagCount), 10))
 	}
 
+	if out.Restore != nil {
+		w.Header().Set("X-Amz-Restore", *out.Restore)
+	}
+
 	// Advertise byte-range support. AWS returns x-amz-storage-class for every
 	// object EXCEPT those in the STANDARD class, for which the header is omitted
 	// (see HeadObject/GetObject output docs) — so a blank or STANDARD class

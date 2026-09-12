@@ -861,3 +861,33 @@ Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
 `go test -count=1 ./services/kms/...` clean (existing suite unaffected,
 6.2s); `golangci-lint run ./services/kms/...` clean, 0 issues, no
 cyclop/gocyclo/gocognit/funlen nolints added.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 13
+typed-client-blind ops (CancelKeyDeletion, DeleteAlias, EnableKey,
+GetKeyLastUsage, GetKeyPolicy, ListKeyPolicies, ListKeyRotations,
+PutKeyPolicy, RotateKeyOnDemand, UpdateAlias, UpdateCustomKeyStore,
+UpdateKeyDescription, UpdatePrimaryRegion) -- typed coverage 41/54 ->
+54/54 (0 uncovered). **One real bug found and fixed**, caught only by a
+decoded typed-client enum comparison: `ListKeyRotations`' `RotationType`
+field used fabricated wire values `"AWS_KMS"` (for automatic scheduled
+rotations) and `"IMPORTED"` (for `RotateKeyOnDemand` rotations) -- the real
+`RotationType` enum has exactly two values, `AUTOMATIC` and `ON_DEMAND`
+(kms@v1.59.0 types/enums.go); neither fabricated string exists on the real
+wire, so a real client's `types.RotationTypeOnDemand`/`RotationTypeAutomatic`
+comparison always failed regardless of which rotation actually happened.
+Renamed the misleadingly-named constants (`rotationTypeAWSKMS` ->
+`rotationTypeAutomatic`, `rotationTypeImported` -> `rotationTypeOnDemand`,
+the old "Imported" name was also confusing since it has nothing to do with
+imported key material) and fixed their values across `rotation.go`,
+`janitor.go`, and `export_test.go`; five pre-existing tests
+(`rotation_test.go`) asserting the fabricated `"IMPORTED"` value were
+corrected, not weakened. `UpdateCustomKeyStore`'s well-known, previously
+disclosed CloudHSM-cluster/XKS-proxy-field gap (`items_still_open`,
+"no CloudHSM cluster or XKS proxy is modeled") reconfirmed, not fixed --
+`CustomKeyStoreName` (the one field this backend genuinely models end to
+end) round-trips correctly. Gates: `go build ./...` (whole module), `go vet`,
+`go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
+all clean. No persisted struct fields changed (a string field's value, not
+its shape); no version bump.

@@ -520,12 +520,13 @@ func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Context) error {
-	status, err := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
+	status, typeArn, err := h.Backend.DescribeTypeRegistration(form.Get("RegistrationToken"))
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type result struct {
 		ProgressStatus string `xml:"ProgressStatus"`
+		TypeArn        string `xml:"TypeArn,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeTypeRegistrationResponse"`
@@ -538,7 +539,7 @@ func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{ProgressStatus: status},
+			Result:    result{ProgressStatus: status, TypeArn: typeArn},
 			RequestID: uuid.New().String(),
 		},
 	)
