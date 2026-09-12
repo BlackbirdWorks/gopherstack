@@ -216,15 +216,17 @@ func verifyTerraformTableRoundTrip(ctx context.Context, t *testing.T) {
 
 	tableClient := service.NewClient(azureStorageDataPlaneTableName)
 
-	// golangci-lint 2.13.2's modernize/embedlit wants this flattened to promoted-field
-	// syntax (EDMEntity{PartitionKey: .., RowKey: .., Properties: ..}), but that syntax
-	// requires go1.27+ (verified: fails to compile with "requires go1.27 or later" under
-	// this repo's go.mod `go 1.26.6`) -- a false positive, not gated on the module's
-	// actual language version. Do not apply the suggested fix.
-	entity := aztables.EDMEntity{ //nolint:modernize,nolintlint // see comment above
-		Entity:     aztables.Entity{PartitionKey: "m8", RowKey: "1"},
-		Properties: map[string]any{"Message": "hello from the go sdk, m8 table round-trip"},
-	}
+	// Both golangci-lint's modernize/embedlit linter and CI's separate
+	// `go fix -diff` job (which, unlike golangci-lint, has no per-line
+	// suppression mechanism) want this flattened to promoted-field syntax
+	// (EDMEntity{PartitionKey: .., RowKey: .., Properties: ..}), but that
+	// syntax requires go1.27+ (verified: fails to compile with "requires
+	// go1.27 or later" under this repo's go.mod `go 1.26.6`). Avoid the
+	// composite-literal-with-embedded-field shape entirely (rather than
+	// suppress it) so neither tool has anything to flag.
+	var entity aztables.EDMEntity
+	entity.Entity = aztables.Entity{PartitionKey: "m8", RowKey: "1"}
+	entity.Properties = map[string]any{"Message": "hello from the go sdk, m8 table round-trip"}
 
 	marshaled, err := entity.MarshalJSON()
 	require.NoError(t, err)
