@@ -9,17 +9,19 @@ import (
 
 // ---- XML response types for accept/advertise/allocate operations ----
 
-type addressTransferItem struct {
-	AllocationID        string `xml:"allocationId"`
-	TransferAccountID   string `xml:"transferAccountId,omitempty"`
-	TransferOfferStatus string `xml:"transferOfferStatus"`
-}
-
+// acceptAddressTransferResponse reuses addressTransferDetailItem
+// (handler_volumes.go), the same real types.AddressTransfer shape
+// EnableAddressTransfer/DescribeAddressTransfers already render correctly
+// (addressTransferStatus/transferOfferExpirationTimestamp element names,
+// ec2@v1.319.1 deserializers.go awsEc2query_deserializeDocumentAddressTransfer)
+// -- the previous addressTransferItem here had the same wrapper-key bug that
+// struct's own doc comment already fixed for its sibling ops, plus a missing
+// publicIp member.
 type acceptAddressTransferResponse struct {
-	XMLName         xml.Name            `xml:"AcceptAddressTransferResponse"`
-	Xmlns           string              `xml:"xmlns,attr"`
-	RequestID       string              `xml:"requestId"`
-	AddressTransfer addressTransferItem `xml:"addressTransfer"`
+	XMLName         xml.Name                  `xml:"AcceptAddressTransferResponse"`
+	Xmlns           string                    `xml:"xmlns,attr"`
+	RequestID       string                    `xml:"requestId"`
+	AddressTransfer addressTransferDetailItem `xml:"addressTransfer"`
 }
 
 type capacityReservationItem struct {
@@ -209,13 +211,9 @@ func (h *Handler) handleAcceptAddressTransfer(vals url.Values, reqID string) (an
 	}
 
 	return &acceptAddressTransferResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		AddressTransfer: addressTransferItem{
-			AllocationID:        transfer.AllocationID,
-			TransferAccountID:   transfer.TransferAccountID,
-			TransferOfferStatus: transfer.TransferOfferStatus,
-		},
+		Xmlns:           ec2XMLNS,
+		RequestID:       reqID,
+		AddressTransfer: toAddressTransferDetailItem(transfer),
 	}, nil
 }
 

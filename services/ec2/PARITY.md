@@ -351,6 +351,23 @@ items_still_open:
     DescribeApplicationStatusCheckAssociationsOutput.Tags ('tags associated with the application status checks')
     is always empty: its exact aggregation semantics across multiple checks are ambiguous from the SDK doc alone
     and getting it wrong risked being worse than an honest omission."
+  - "NetworkAcl associations (gopherstack-n3zi slice 24, 2026-09-12): this backend does not
+    model a NetworkAclAssociationId distinct from the subnet it associates -- confirmed
+    already disclosed in-code (handler_filters.go's applyNetworkACLFilters doc comment:
+    'there is no separately-modeled association ID'). Real types.NetworkAclAssociation
+    (ec2@v1.329.0 types/types.go:16823) has three distinct fields
+    (NetworkAclAssociationId/NetworkAclId/SubnetId); this backend's model
+    (NetworkACL.AssociationIDs []string, store.go) stores bare subnet IDs and
+    toNetworkACLItem (handler_deepdive_ops.go) renders that subnet ID under BOTH
+    networkAclAssociationId (wrong -- should be a distinct minted ID) and omits subnetId
+    entirely (always empty on DescribeNetworkAcls for a real client) --
+    ReplaceNetworkAclAssociation's handler then treats the request's AssociationId
+    parameter as the subnet to move, matching the model's conflation but not the real
+    wire (ReplaceNetworkAclAssociationInput's AssociationId is documented as 'the ID of
+    the current association', never a subnet ID). Confirmed, not fixed: a full fix needs a
+    real per-association-ID model threaded through CreateNetworkAcl/DeleteNetworkAcl's
+    dependency check/ReplaceNetworkAclAssociation/DescribeNetworkAcls/
+    applyNetworkACLFilters together -- out of scope for a single coverage slice."
   - "Key pairs: ED25519 CreateKeyPair generation and the PPK KeyFormat are not modeled —
     CreateKeyPair always generates RSA (real, not fabricated: KeyType is honestly reported
     as 'rsa' since that's the only type ever generated) and KeyFormat is silently ignored
@@ -5022,3 +5039,114 @@ not previously named there).
 ./cmd/paritylint` stays at 0 FAIL. No persisted struct fields changed
 (the fix populates an existing field, doesn't add one); snapshot inventory
 not touched; no version bump.
+
+## 2026-09-12 -- typed real-client coverage slice 24 (gopherstack-n3zi)
+
+Per task assignment: walk the uncovered list DESCENDING from the largest
+remaining count (bedrock excluded -- a sibling slice-23 agent's territory,
+walking ascending on bedrockagent/mediastore/mq). ec2 was by far the
+largest remainder (560/785, 225 uncovered) after 6 prior ec2 slices
+(1/2/4/5/7/8/10/20); took it as the sole target given its size.
+`typed_slice24_realclient_test.go` added, one outer `t.Parallel()` test,
+12 subtests: core instance lifecycle (Start/Reboot/Monitor/Unmonitor/
+GetConsoleOutput/GetConsoleScreenshot/GetPasswordData/
+SendDiagnosticInterrupt), VPC/network attribute extras (VPC attribute/
+tenancy/classic-link, IAM instance profile replace/disassociate, route
+replace, VGW route propagation enable/disable, network ACL entry/
+association replace, address release/accept-transfer), instance attribute
+extras (private DNS name options, instance event window modify/
+associate/disassociate, capacity-reservation/network-performance
+attributes, UEFI/TPM data, instance event notification attributes,
+availability-zone group, identity ID format, instance-metadata account
+defaults, instance-connect-endpoint lifecycle), Application Status Checks
+(full family: create/modify/describe/associate/disassociate/suppress/
+delete), Capacity Manager (enable/disable/attributes/metric-data/
+metric-dimensions/organizations-access/data-export lifecycle), Mac
+Dedicated Host tasks (describe hosts, SIP modification task, volume
+ownership delegation task, describe modification tasks), EBS/credit
+account defaults (encryption-by-default, default KMS key, default credit
+specification, serial console access), the IPAM Policy family (create/
+describe/enable/disable/allocation-rules/organization-targets/delete,
+IPAM Organizations admin account, BYOIP-to-IPAM move), two missed
+instance-attribute ops (ModifyInstanceEventStartTime,
+ModifyInstanceMetadataOptions), VPC endpoint extras (modify endpoint/add
+subnet, payer responsibility for both endpoint and service, service
+configuration modify/delete, connection notification delete, connection
+reject, service permissions describe, endpoint associations describe),
+Reserved Instances/Host Reservations/Scheduled Instances (modify/describe
+modifications, exchange-quote accept, queued-deletion, host reservation
+purchase preview, host release, scheduled instance purchase), and VPC
+Encryption Control (delete/modify, account-level describe/modify,
+resources-blocking-enforcement).
+
+**Two real bugs found and fixed, both by decoding through a real typed
+client for the first time on these exact ops:**
+
+1. `AcceptAddressTransfer` (`accept_ops.go`) looked up a pending transfer
+   in `b.addressTransfers` keyed by the request's `Address` (public IP,
+   the real, sole identifier `AcceptAddressTransferInput` declares --
+   confirmed against `ec2@v1.329.0` api_op_AcceptAddressTransfer.go), but
+   `EnableAddressTransfer`/`DisableAddressTransfer` (`elastic_ips.go`)
+   stored/deleted that same map keyed by `AllocationId` instead (their own
+   real, sole identifier, per api_op_Enable/DisableAddressTransfer.go) --
+   a genuine asymmetric-identifier shape in real AWS's own API across one
+   op family, not a gopherstack invention. The natural real-world flow
+   (one account calls `EnableAddressTransfer`, the target account calls
+   `AcceptAddressTransfer`) was completely broken: any real client's
+   Accept call always failed `InvalidAddressTransfer.NotFound` regardless
+   of a successful preceding Enable. Fixed by keying the map by
+   `PublicIP` everywhere (Enable/Disable/Release), matching what
+   `AcceptAddressTransfer` and the existing test-only
+   `AddAddressTransferInternal` seed helper already expected;
+   `ReleaseAddress`'s own map cleanup (`elastic_ips.go`) needed the same
+   key-scheme fix to keep passing `TestReleaseAddress_ClearsAddressTransfers`.
+   Additionally, `AcceptAddressTransferResponse`'s wire shape
+   (`handler_accept_ops.go`) used a separate, incomplete
+   `addressTransferItem` type with the wrong element name
+   (`transferOfferStatus` instead of the real `addressTransferStatus`,
+   confirmed against `awsEc2query_deserializeDocumentAddressTransfer`) and
+   no `publicIp` member at all -- replaced with the existing, already
+   wire-correct `addressTransferDetailItem` (`handler_volumes.go`) that a
+   prior pass had already fixed for `EnableAddressTransfer`/
+   `DescribeAddressTransfers` but never applied to this sibling op.
+2. (Method note, not a fix) `TestReleaseAddress_ClearsAddressTransfers`
+   (`ghost_rows_test.go`) is the reason fix 1's key-scheme change is
+   provably not a regression: it independently exercises the same map via
+   `ReleaseAddress`, caught the key mismatch immediately when only
+   `EnableAddressTransfer`/`DisableAddressTransfer` were changed, and
+   passes again once `ReleaseAddress`'s own lookup was fixed to match.
+
+**Accept-and-drop, disclosed not fixed** (added to `items_still_open`):
+`ReplaceNetworkAclAssociation`/`DescribeNetworkAcls` conflate a
+`NetworkAclAssociationId` with the associated subnet's ID -- already
+disclosed in-code (`handler_filters.go`'s `applyNetworkACLFilters` doc
+comment: "there is no separately-modeled association ID"), confirmed
+against the real `types.NetworkAclAssociation` (three distinct fields:
+`NetworkAclAssociationId`/`NetworkAclId`/`SubnetId`) -- `SubnetId` is
+always empty on a real `DescribeNetworkAcls`, and
+`NetworkAclAssociationId` is actually the subnet ID. Exercised the op
+matching its own documented, disclosed simplification, not weakened.
+
+Census: 560/785 (71.3%) -> 661/785 (84.2%) typed-covered (regenerated via
+`cmd/opcensus`+`cmd/clientcoverage`), 101 ops newly covered, 124 remain.
+Remaining 124: Transit Gateway peripherals (Accept/Reject/Delete for
+peering/VPC/ClientVpn/multicast attachments, metering policy, policy
+table, prefix list reference, route table announcement -- still by far
+the largest single family, ~44 ops), IPAM prefix-list-resolver/BYOASN/
+discovery families (~24 ops), legacy Bundle/Conversion/Import/Export/FPGA
+image tasks (~24 ops), and a long tail of Get*/Modify*/Describe*
+singletons with no natural grouping (network performance, declarative
+policies, secondary networks, enclave certs, trunk interfaces, spot
+datafeed) -- none attempted this pass, left for a future slice.
+`items_still_open` gained one new entry (the NetworkAcl association
+conflation above); the AcceptAddressTransfer fix was freshly discovered,
+not previously named there.
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` clean. `go test -race -count=1 ./services/ec2/...
+./pkgs/persistence/...` `ok` (persistence's `TestSnapshotVersionGuard`
+passes with no diff -- the `AddressTransfer` map-key fix changes an
+internal `map[string]*AddressTransfer` key from allocation ID to public
+IP, not the persisted struct's shape). `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/...` 0 issues (after `goimports`
+formatting). `go run ./cmd/paritylint` stays at 0 FAIL. No version bump.
