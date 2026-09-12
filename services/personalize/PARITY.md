@@ -576,3 +576,23 @@ immediately above being assigned -- apparently contiguous, comment-free `ValueSp
 same `const (...)` block are what keeps an unused sibling from being flagged next to a used one.
 Folding that comment into the single block-level doc comment above `const (` instead restored the
 clean `0 issues.` result without changing which constants are declared).
+
+## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+
+Added `typed_slice14_realclient_test.go`, 14 subtests driving every op the
+repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
+listed as uncovered for this service (57 ops: schema/dataset/dataset-job
+lifecycles, solution/solution-version extras, campaign lifecycle, event
+tracker/filter/recommender lifecycles, metric attribution lifecycle, batch
+inference/segment job lifecycles, data deletion job lifecycle,
+recipe/algorithm/feature-transformation reads, tags). Every op passed on
+the first correctly-shaped real-client request -- **zero new bugs found**;
+this service's existing wire-shape audits (the long history above) had
+already caught everything a real client's decode would catch. Typed
+coverage: 16/73 -> 73/73 (100%).
+
+Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
+-count=1` clean on `services/personalize` and `pkgs/persistence`.
+`golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
+stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
+changes; no version bump.

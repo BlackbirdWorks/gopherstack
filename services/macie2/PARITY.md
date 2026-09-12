@@ -598,3 +598,27 @@ The disclosed `PolicyDetails`/`FindingAction`/`FindingActor` gap (POLICY-
 category sample findings; no actor/API-call data source in this backend) was
 already recorded in the 2026-08-15 pass notes above -- confirmed still
 accurate, no new gap found.
+
+## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+
+Added `typed_slice14_realclient_test.go`, 19 subtests driving every op the
+repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
+listed as uncovered for this service (56 ops: Macie session
+enable/disable/update, allow-list lifecycle, custom data identifier
+batch-get/test, findings filter lifecycle, findings
+list/get/statistics/sample + sensitive-data-occurrences availability,
+findings publication configuration, member/invitation lifecycle,
+administrator/master account relationship, organization admin account
+management, automated discovery configuration/accounts, DescribeBuckets,
+classification job list/update, classification export configuration,
+classification scope update, reveal configuration, usage
+statistics/totals, managed data identifiers, resource profile
+artifacts/detections, tags). Every op passed on the first correctly-shaped
+real-client request -- **zero new bugs found**. Typed coverage: 25/81 ->
+81/81 (100%).
+
+Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
+-count=1` clean on `services/macie2` and `pkgs/persistence`.
+`golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
+stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
+changes; no version bump.
