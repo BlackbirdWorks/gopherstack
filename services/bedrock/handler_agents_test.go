@@ -473,7 +473,7 @@ func TestAgentVersionCRUD(t *testing.T) {
 
 	var vb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vb))
-	version := vb["agentVersion"].(map[string]any)["agentVersion"].(string)
+	version := vb["agentVersion"].(map[string]any)["version"].(string)
 	assert.Equal(t, "1", version)
 
 	// Get version

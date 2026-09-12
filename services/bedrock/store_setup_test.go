@@ -56,7 +56,7 @@ func TestInMemoryBackend_RegistryRoundTrip(t *testing.T) {
 				t.Fatalf("CreateAgent: %v", err)
 			}
 
-			fl, err := b.CreateFlow("test-flow", "desc", nil)
+			fl, err := b.CreateFlow("test-flow", "desc", "arn:aws:iam::000000000000:role/flow-role", nil)
 			if err != nil {
 				t.Fatalf("CreateFlow: %v", err)
 			}

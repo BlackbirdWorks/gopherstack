@@ -67,7 +67,7 @@ func TestDeleteOps_ExactWireKeySet(t *testing.T) {
 
 				var verBody map[string]any
 				require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody))
-				version, _ := verBody["promptVersion"].(map[string]any)["version"].(string)
+				version, _ := verBody["version"].(string)
 				require.NotEmpty(t, version)
 
 				return h, http.MethodDelete, fmt.Sprintf("/prompts/%s/versions/%s", promptID, version)

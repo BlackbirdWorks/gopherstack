@@ -78,9 +78,10 @@ func (h *AgentsHandler) dispatchFlowIDRoutes(
 
 func (h *AgentsHandler) handleCreateFlow(c *echo.Context, body []byte) error {
 	var req struct {
-		Tags        map[string]string `json:"tags"`
-		Name        string            `json:"name"`
-		Description string            `json:"description"`
+		Tags             map[string]string `json:"tags"`
+		Name             string            `json:"name"`
+		Description      string            `json:"description"`
+		ExecutionRoleArn string            `json:"executionRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -90,7 +91,7 @@ func (h *AgentsHandler) handleCreateFlow(c *echo.Context, body []byte) error {
 		)
 	}
 
-	f, err := h.Backend.CreateFlow(req.Name, req.Description, req.Tags)
+	f, err := h.Backend.CreateFlow(req.Name, req.Description, req.ExecutionRoleArn, req.Tags)
 	if err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
 			return c.JSON(http.StatusConflict, agentErrResp("ConflictException", err.Error()))
@@ -126,8 +127,9 @@ func (h *AgentsHandler) handleUpdateFlow(
 	c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name             string `json:"name"`
+		Description      string `json:"description"`
+		ExecutionRoleArn string `json:"executionRoleArn"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -137,7 +139,7 @@ func (h *AgentsHandler) handleUpdateFlow(
 		)
 	}
 
-	f, err := h.Backend.UpdateFlow(flowID, req.Name, req.Description)
+	f, err := h.Backend.UpdateFlow(flowID, req.Name, req.Description, req.ExecutionRoleArn)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}

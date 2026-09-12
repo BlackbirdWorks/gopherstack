@@ -133,9 +133,9 @@ func TestAgentsHandler_KnowledgeBaseAssociationUpdateAndDocumentGet(t *testing.T
 
 	docPath := fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID)
 	// Real IngestKnowledgeBaseDocuments is PUT.
-	rec = doAgentRequest(t, h, http.MethodPut, docPath, map[string]any{"documentIds": []string{"one", "two"}})
+	rec = doAgentRequest(t, h, http.MethodPut, docPath, ingestDocs("s3://bucket/one", "s3://bucket/two"))
 	require.Equal(t, http.StatusOK, rec.Code)
-	rec = doAgentRequest(t, h, http.MethodPost, docPath+"/getDocuments", map[string]any{"documentIds": []string{"two"}})
+	rec = doAgentRequest(t, h, http.MethodPost, docPath+"/getDocuments", documentIdentifiers("s3://bucket/two"))
 	require.Equal(t, http.StatusOK, rec.Code)
 	var docs map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &docs))

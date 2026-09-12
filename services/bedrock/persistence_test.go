@@ -115,14 +115,16 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 func seedParity4Resources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureIDs) {
 	t.Helper()
 
-	job, err := b.CreateAdvancedPromptOptimizationJob(bedrock.CreateAdvancedPromptOptimizationJobInput{
-		JobName:      "test-apo-job",
-		InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
-		OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
-		ModelConfigurations: []bedrock.ModelConfiguration{
-			{ModelID: "amazon.titan-text-express-v1"},
+	job, err := b.CreateAdvancedPromptOptimizationJob(
+		bedrock.CreateAdvancedPromptOptimizationJobInput{
+			JobName:      "test-apo-job",
+			InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
+			OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
+			ModelConfigurations: []bedrock.ModelConfiguration{
+				{ModelID: "amazon.titan-text-express-v1"},
+			},
 		},
-	})
+	)
 	require.NoError(t, err)
 
 	g, err := b.GetGuardrail(ids.guardrailID)
@@ -143,7 +145,11 @@ func seedParity4Resources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixture
 // customModelDeployments, foundationModelAgreements,
 // enforcedGuardrailConfigs) and returns the IDs fixtureIDs needs from them,
 // plus GuardrailVersionCounterForTest's pre-snapshot value.
-func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, tags []bedrock.Tag) fixtureIDs {
+func seedGuardrailAndModelResources(
+	t *testing.T,
+	b *bedrock.InMemoryBackend,
+	tags []bedrock.Tag,
+) fixtureIDs {
 	t.Helper()
 
 	policies := &bedrock.GuardrailPolicies{
@@ -154,7 +160,14 @@ func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, ta
 		},
 	}
 
-	g, err := b.CreateGuardrail("test-guardrail", "desc", "blocked-in", "blocked-out", tags, policies)
+	g, err := b.CreateGuardrail(
+		"test-guardrail",
+		"desc",
+		"blocked-in",
+		"blocked-out",
+		tags,
+		policies,
+	)
 	require.NoError(t, err)
 
 	// CreateGuardrailVersion snapshots the DRAFT's current policies immutably; this
@@ -199,7 +212,11 @@ func seedGuardrailAndModelResources(t *testing.T, b *bedrock.InMemoryBackend, ta
 // marketplaceEndpoints, modelInvocationJobs, promptRouters), writing their
 // IDs into ids in place.
 func seedJobResources(
-	t *testing.T, b *bedrock.InMemoryBackend, tags []bedrock.Tag, customModelARN string, ids *fixtureIDs,
+	t *testing.T,
+	b *bedrock.InMemoryBackend,
+	tags []bedrock.Tag,
+	customModelARN string,
+	ids *fixtureIDs,
 ) {
 	t.Helper()
 
@@ -245,7 +262,12 @@ func seedJobResources(
 	)
 	require.NoError(t, err)
 
-	mme, err := b.CreateMarketplaceModelEndpoint("test-mp-endpoint", "test-model-source-id", nil, tags)
+	mme, err := b.CreateMarketplaceModelEndpoint(
+		"test-mp-endpoint",
+		"test-model-source-id",
+		nil,
+		tags,
+	)
 	require.NoError(t, err)
 
 	invJob, err := b.CreateModelInvocationJob("test-invocation-job", tags)
@@ -285,7 +307,10 @@ func seedAgentResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureID
 	t.Helper()
 
 	agent, err := b.CreateAgent(
-		"test-agent", "anthropic.claude-v2", "be helpful", "arn:aws:iam::123456789012:role/BedrockRole",
+		"test-agent",
+		"anthropic.claude-v2",
+		"be helpful",
+		"arn:aws:iam::123456789012:role/BedrockRole",
 		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
@@ -322,7 +347,7 @@ func seedKBResources(t *testing.T, b *bedrock.InMemoryBackend, agentID string, i
 	)
 	require.NoError(t, err)
 
-	_, err = b.AssociateAgentKnowledgeBase(agentID, kb.KnowledgeBaseID, "assoc desc")
+	_, err = b.AssociateAgentKnowledgeBase(agentID, kb.KnowledgeBaseID, "assoc desc", "")
 	require.NoError(t, err)
 
 	ds, err := b.CreateDataSource(kb.KnowledgeBaseID, "test-ds", "desc", nil)
@@ -331,7 +356,10 @@ func seedKBResources(t *testing.T, b *bedrock.InMemoryBackend, agentID string, i
 	job, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, "test job")
 	require.NoError(t, err)
 
-	docs, err := b.IngestKnowledgeBaseDocuments(kb.KnowledgeBaseID, ds.DataSourceID, []string{"doc-1"})
+	docs, err := b.IngestKnowledgeBaseDocuments(
+		kb.KnowledgeBaseID, ds.DataSourceID,
+		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: "doc-1"}},
+	)
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
 
@@ -339,7 +367,11 @@ func seedKBResources(t *testing.T, b *bedrock.InMemoryBackend, agentID string, i
 	ids.dataSourceID = ds.DataSourceID
 	ids.ingestionJobID = job.IngestionJobID
 	ids.docID = docs[0].DocumentID
-	ids.completionDueAt = b.IngestionJobCompletionDueAtForTest(kb.KnowledgeBaseID, ds.DataSourceID, job.IngestionJobID)
+	ids.completionDueAt = b.IngestionJobCompletionDueAtForTest(
+		kb.KnowledgeBaseID,
+		ds.DataSourceID,
+		job.IngestionJobID,
+	)
 }
 
 // seedFlowPromptResources seeds the flow/prompt-family tables (flows,
@@ -350,7 +382,12 @@ func seedKBResources(t *testing.T, b *bedrock.InMemoryBackend, agentID string, i
 func seedFlowPromptResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureIDs) {
 	t.Helper()
 
-	flow, err := b.CreateFlow("test-flow", "desc", map[string]string{"env": "test"})
+	flow, err := b.CreateFlow(
+		"test-flow",
+		"desc",
+		"arn:aws:iam::000000000000:role/flow-role",
+		map[string]string{"env": "test"},
+	)
 	require.NoError(t, err)
 
 	fv, err := b.CreateFlowVersion(flow.FlowID)
@@ -369,7 +406,8 @@ func seedFlowPromptResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixt
 	require.NoError(t, err)
 
 	collab, err := b.AssociateAgentCollaborator(
-		ids.agentID, "DRAFT", "arn:aws:bedrock:us-east-1:123456789012:agent/collaborator-id", "DISABLED",
+		ids.agentID, "DRAFT", "arn:aws:bedrock:us-east-1:123456789012:agent/collaborator-id",
+		"collab-name", "collaborate", "DISABLED",
 	)
 	require.NoError(t, err)
 
@@ -444,14 +482,16 @@ func assertParity4State(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	// ID/revision counters: a newly created job or policy after restore must
 	// not collide with (or otherwise depend on) the state created before the
 	// snapshot.
-	job2, err := fresh.CreateAdvancedPromptOptimizationJob(bedrock.CreateAdvancedPromptOptimizationJobInput{
-		JobName:      "post-restore-apo-job",
-		InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
-		OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
-		ModelConfigurations: []bedrock.ModelConfiguration{
-			{ModelID: "amazon.titan-text-express-v1"},
+	job2, err := fresh.CreateAdvancedPromptOptimizationJob(
+		bedrock.CreateAdvancedPromptOptimizationJobInput{
+			JobName:      "post-restore-apo-job",
+			InputConfig:  bedrock.AdvancedPromptOptimizationInputConfig{S3URI: "s3://bucket/in"},
+			OutputConfig: bedrock.AdvancedPromptOptimizationOutputConfig{S3URI: "s3://bucket/out"},
+			ModelConfigurations: []bedrock.ModelConfiguration{
+				{ModelID: "amazon.titan-text-express-v1"},
+			},
 		},
-	})
+	)
 	require.NoError(t, err)
 	assert.NotEqual(t, ids.advancedPromptOptJobARN, job2.JobArn)
 }
@@ -474,7 +514,11 @@ func assertGuardrailAndModelState(t *testing.T, fresh *bedrock.InMemoryBackend, 
 	// Guardrail.versionCounter (unexported): a restored guardrail must not
 	// restart version numbering from 1 -- see persistence.go's
 	// backendSnapshot doc comment for the data-corruption risk this avoids.
-	assert.Equal(t, ids.guardrailVersionCount, fresh.GuardrailVersionCounterForTest(ids.guardrailID))
+	assert.Equal(
+		t,
+		ids.guardrailVersionCount,
+		fresh.GuardrailVersionCounterForTest(ids.guardrailID),
+	)
 
 	// The numbered version's immutable policy snapshot (a GuardrailVersion field added
 	// alongside GetGuardrailVersion) must also round-trip.
@@ -533,7 +577,9 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	require.NoError(t, err)
 	assert.Equal(t, ids.arpTestCaseID, tc.TestCaseID)
 
-	arpv, err := fresh.ExportAutomatedReasoningPolicyVersion(ids.arpARN + "/version/" + ids.arpVersion)
+	arpv, err := fresh.ExportAutomatedReasoningPolicyVersion(
+		ids.arpARN + "/version/" + ids.arpVersion,
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "definition-hash-123", arpv["definitionHash"])
 
@@ -555,7 +601,11 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	ip, err := fresh.GetInferenceProfile(ids.inferenceProfileARN)
 	require.NoError(t, err)
 	assert.Equal(t, "test-inference-profile", ip.InferenceProfileName)
-	assert.Equal(t, "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2", ip.ModelSource)
+	assert.Equal(
+		t,
+		"arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-v2",
+		ip.ModelSource,
+	)
 
 	mme, err := fresh.GetMarketplaceModelEndpoint(ids.marketplaceEndpointARN)
 	require.NoError(t, err)
@@ -627,7 +677,10 @@ func assertKBState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs)
 		fresh.IngestionJobCompletionDueAtForTest(ids.kbID, ids.dataSourceID, ids.ingestionJobID),
 	))
 
-	docs, err := fresh.GetKnowledgeBaseDocuments(ids.kbID, ids.dataSourceID, []string{ids.docID})
+	docs, err := fresh.GetKnowledgeBaseDocuments(
+		ids.kbID, ids.dataSourceID,
+		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: ids.docID}},
+	)
 	require.NoError(t, err)
 	require.Len(t, docs, 1)
 	assert.Equal(t, ids.docID, docs[0].DocumentID)
@@ -644,7 +697,7 @@ func assertFlowPromptState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fix
 	assert.Equal(t, "test-flow", flow.Name)
 
 	// flowsByName raw map.
-	_, err = fresh.CreateFlow("test-flow", "d", nil)
+	_, err = fresh.CreateFlow("test-flow", "d", "arn:aws:iam::000000000000:role/flow-role", nil)
 	require.ErrorIs(t, err, bedrock.ErrAlreadyExists)
 
 	fv, err := fresh.GetFlowVersion(ids.flowID, ids.flowVersion)
@@ -778,7 +831,11 @@ func TestInMemoryBackend_RestoreV1FlowIDDiscarded(t *testing.T) {
 	// still exists and would show up here with FlowID/FlowArn silently
 	// zeroed while Name (whose key was never renamed) restores correctly.
 	flows, _ := b.ListFlows(10, "")
-	assert.Empty(t, flows, "incompatible-version snapshot must reset to empty, not restore a flow with a corrupted id")
+	assert.Empty(
+		t,
+		flows,
+		"incompatible-version snapshot must reset to empty, not restore a flow with a corrupted id",
+	)
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as

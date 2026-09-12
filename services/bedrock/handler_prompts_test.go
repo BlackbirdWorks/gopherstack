@@ -121,8 +121,7 @@ func TestAccuracy_Prompt_VersionPreservesContent(t *testing.T) {
 
 	var verBody map[string]any
 	require.NoError(t, json.Unmarshal(verRec.Body.Bytes(), &verBody))
-	pv := verBody["promptVersion"].(map[string]any)
-	version := pv["version"].(string)
+	version := verBody["version"].(string)
 	assert.NotEmpty(t, version)
 
 	// GET version preserves prompt ID
@@ -132,7 +131,7 @@ func TestAccuracy_Prompt_VersionPreservesContent(t *testing.T) {
 	var getVerBody map[string]any
 	require.NoError(t, json.Unmarshal(getVerRec.Body.Bytes(), &getVerBody))
 	gotVer := getVerBody["promptVersion"].(map[string]any)
-	assert.Equal(t, promptID, gotVer["promptId"])
+	assert.Equal(t, promptID, gotVer["id"])
 }
 
 func TestAccuracy_Prompt_UpdateNameAndDescription(t *testing.T) {

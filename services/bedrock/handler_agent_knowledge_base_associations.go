@@ -51,8 +51,9 @@ func (h *AgentsHandler) dispatchAgentKBRoutes(
 
 func (h *AgentsHandler) handleAssociateAgentKB(c *echo.Context, agentID string, body []byte) error {
 	var req struct {
-		KnowledgeBaseID string `json:"knowledgeBaseId"`
-		Description     string `json:"description"`
+		KnowledgeBaseID    string `json:"knowledgeBaseId"`
+		Description        string `json:"description"`
+		KnowledgeBaseState string `json:"knowledgeBaseState"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -66,6 +67,7 @@ func (h *AgentsHandler) handleAssociateAgentKB(c *echo.Context, agentID string, 
 		agentID,
 		req.KnowledgeBaseID,
 		req.Description,
+		req.KnowledgeBaseState,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))

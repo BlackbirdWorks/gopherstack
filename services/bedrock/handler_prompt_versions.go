@@ -34,13 +34,20 @@ func (h *AgentsHandler) dispatchPromptVersionRoutes(
 	)
 }
 
+// handleCreatePromptVersion returns pv flat, un-wrapped: real
+// CreatePromptVersionOutput has no httpPayload member (see PromptVersion's
+// doc comment), unlike GetPromptVersion/handleListPromptVersions/
+// handleDeletePromptVersion below, which stay wrapped in "promptVersion" --
+// none of those three are real bedrock-agent wire operations (confirmed by
+// handler_agent_sdk_route_table_test.go's route table), so their shape is
+// this package's own internal convention, not a real-client contract.
 func (h *AgentsHandler) handleCreatePromptVersion(c *echo.Context, promptID string) error {
 	pv, err := h.Backend.CreatePromptVersion(promptID)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{respPromptVersion: pv})
+	return c.JSON(http.StatusCreated, pv)
 }
 
 func (h *AgentsHandler) handleGetPromptVersion(
