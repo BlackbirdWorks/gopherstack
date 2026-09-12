@@ -29,7 +29,7 @@ ops:
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, typed-client slice 36): CreateChannelOutput.Tags (cloudtrail@v1.58.4 api_op_CreateChannel.go:76) was decoded and stored at creation but never echoed back on the response -- a real client's CreateChannel call always saw an empty Tags list even when tags were supplied. Added channelTagsList (handler_channels.go), mirroring the existing edsTagsList pattern for CreateEventDataStore."}
   GetChannel: {wire: ok, errors: ok, state: partial, persist: ok, note: "gopherstack-6flj: real GetChannelOutput additionally has IngestionStatus/SourceConfig (confirmed against cloudtrail@v1.58.4's deserializer); this backend's Channel struct does not model either (no per-channel ingestion tracking or AWS-service-linked source config). Structural gap, disclosed not fabricated -- see gaps."}
   UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -61,7 +61,7 @@ ops:
   GenerateQuery: {wire: ok, errors: ok, state: ok, persist: n/a}
   StartImport: {wire: ok, errors: ok, state: partial, persist: ok, note: "fixed (was a gap last pass): ImportSource.S3 now models all three real (all-required) S3ImportSource fields -- S3LocationUri, S3BucketRegion, S3BucketAccessRoleArn -- not just S3LocationUri; all three are stored and echoed back on Start/Get/Stop via a new ImportSource/S3ImportSource backend type. Import execution itself (actual file replay) remains not real -- unchanged, documented limitation. gopherstack-6flj: real StartImportInput also has optional StartEventTime/EndEventTime (a time-range filter on which events to import); the handler discards both (no field to receive them at all). Consistent with the pre-existing 'import execution not real' limitation -- disclosed, not fixed, since honoring a time filter over data that is never actually replayed would be misleading. See gaps."}
   GetImport: {wire: ok, errors: ok, state: partial, persist: ok, note: "same ImportSource fix as StartImport. gopherstack-6flj: real GetImportOutput additionally has StartEventTime/EndEventTime/ImportStatistics, none of which this backend's Import struct models -- same 'import execution not real' root cause as the discarded StartEventTime/EndEventTime inputs. Structural gap, disclosed not fabricated -- see gaps."}
-  ListImports: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; Destination/ImportStatus filters added"}
+  ListImports: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; Destination/ImportStatus filters added. FIXED (2026-09-12, typed-client slice 36): each list item was missing Destinations (real types.ImportsListItem.Destinations, cloudtrail@v1.58.4 types/types.go:473) -- a real client's ListImports never saw which event data store an import targeted even though StartImport/GetImport both already emit it. Added to the per-item map (handler_imports.go)."}
   StopImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ImportSource fix as StartImport"}
   ListImportFailures: {wire: ok, errors: ok, state: partial, persist: n/a, note: "always empty — consistent since imports never actually execute/fail in this backend"}
   GetEventConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -451,3 +451,45 @@ query_parse.go (new), query_where.go (new), query_grammar_client_test.go
 (new), query_exec.go, queries.go, handler_queries.go, management_event.go,
 handler_queries_test.go, query_exec_test.go, handler_test.go, PARITY.md}`
 and `pkgs/service/cloudtrail_capture.go`. No other service's files touched.
+
+## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+
+Drove every previously-uncovered op (25/60 -> 60/60 typed-client-covered)
+through the real `aws-sdk-go-v2/service/cloudtrail` client
+(`typed_slice36_realclient_test.go`, 11 subtests covering the channel
+lifecycle, event data store lifecycle + federation + ingestion + restore,
+trail lifecycle, event selectors + event configuration, resource policy,
+dashboard list/update, imports lifecycle, the query family
+(CancelQuery/GenerateQuery/SearchSampleQueries), organization delegated
+admin, ListPublicKeys, and the Insights family). This service already had
+very dense prior wire-fidelity audit history (dated sections back to
+2026-08-15, most ops annotated with exact SDK deserializer citations);
+consistent with this campaign's observation that thick prior-audit services
+yield fewer bugs per newly-covered op, only two real bugs were found, both
+response-side accept-and-drop.
+
+**Bugs found and fixed, both response-side member never set:**
+
+1. `CreateChannel`'s response never echoed `Tags` (real `CreateChannelOutput.Tags`,
+   `cloudtrail@v1.58.4` `api_op_CreateChannel.go:76`) even though the tags were
+   correctly decoded and stored at creation -- a real client's `CreateChannel`
+   call always saw an empty tag list. Fixed with a new `channelTagsList`
+   helper (`handler_channels.go`), mirroring the existing `edsTagsList`
+   pattern used by `CreateEventDataStore`.
+2. `ListImports`' per-item shape omitted `Destinations` (real
+   `types.ImportsListItem.Destinations`, `types/types.go:473`) -- present on
+   `StartImport`/`GetImport`'s item shape but dropped from the list view, so
+   a real client could never tell which event data store an import targeted
+   without a follow-up `GetImport` call. Added to the per-item map
+   (`handler_imports.go`).
+
+No persisted (`backendSnapshot`) fields changed; `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed no diff to `snapshot_inventory.json`
+for cloudtrail. No version bump.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/cloudtrail/...`,
+`go test -race -count=1 ./services/cloudtrail/...` (all pass, including the
+new typed-client tests), `golangci-lint run --new-from-rev=HEAD
+./services/cloudtrail/...` (0 issues). `cmd/paritylint` stays at 0 FAIL
+(missing-items-still-open). Typed-client census: cloudtrail 25/60 -> 60/60
+(100%).

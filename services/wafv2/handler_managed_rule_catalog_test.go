@@ -67,7 +67,7 @@ func TestGetMobileSdkRelease_KnownVersion(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "GetMobileSdkRelease", map[string]any{
-		"Platform":       "Android",
+		"Platform":       "ANDROID",
 		"ReleaseVersion": "3.1.0",
 	})
 	require.Equal(t, http.StatusOK, rec.Code, "GetMobileSdkRelease Android/3.1.0: %s", rec.Body.String())
@@ -89,7 +89,7 @@ func TestGetMobileSdkRelease_IOSVersion(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "GetMobileSdkRelease", map[string]any{
-		"Platform":       "iOS",
+		"Platform":       "IOS",
 		"ReleaseVersion": "3.0.0",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -106,7 +106,7 @@ func TestGetMobileSdkRelease_UnknownVersion(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "GetMobileSdkRelease", map[string]any{
-		"Platform":       "Android",
+		"Platform":       "ANDROID",
 		"ReleaseVersion": "99.0.0",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -149,7 +149,7 @@ func TestListMobileSdkReleases_Android(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "ListMobileSdkReleases", map[string]any{
-		"Platform": "Android",
+		"Platform": "ANDROID",
 		"Scope":    "REGIONAL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -174,7 +174,7 @@ func TestListMobileSdkReleases_iOS(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "ListMobileSdkReleases", map[string]any{
-		"Platform": "iOS",
+		"Platform": "IOS",
 		"Scope":    "REGIONAL",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -209,7 +209,7 @@ func TestGenerateMobileSdkReleaseUrl_Shape(t *testing.T) {
 	h := newTestHandler(t)
 
 	rec := doWafv2Request(t, h, "GenerateMobileSdkReleaseUrl", map[string]any{
-		"Platform":       "Android",
+		"Platform":       "ANDROID",
 		"ReleaseVersion": "3.1.0",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -362,14 +362,14 @@ func TestGenerateMobileSdkReleaseUrl(t *testing.T) {
 	}{
 		{
 			name:       "Android 3.1.0 returns URL",
-			platform:   "Android",
+			platform:   "ANDROID",
 			version:    "3.1.0",
 			wantStatus: http.StatusOK,
 			checkURL:   true,
 		},
 		{
 			name:       "iOS 3.0.0 returns URL",
-			platform:   "iOS",
+			platform:   "IOS",
 			version:    "3.0.0",
 			wantStatus: http.StatusOK,
 			checkURL:   true,
@@ -383,7 +383,7 @@ func TestGenerateMobileSdkReleaseUrl(t *testing.T) {
 		},
 		{
 			name:       "unknown version returns WAFNonexistentItemException",
-			platform:   "Android",
+			platform:   "ANDROID",
 			version:    "99.0.0",
 			wantStatus: http.StatusBadRequest,
 			wantType:   "WAFNonexistentItemException",
@@ -396,7 +396,7 @@ func TestGenerateMobileSdkReleaseUrl(t *testing.T) {
 		},
 		{
 			name:       "missing version rejected",
-			platform:   "Android",
+			platform:   "ANDROID",
 			version:    "",
 			wantStatus: http.StatusBadRequest,
 		},

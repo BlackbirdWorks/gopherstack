@@ -91,7 +91,7 @@ ops:
   GetManagedRuleSet: {wire: partial, errors: ok, state: ok, persist: ok, note: "no Description/LabelNamespace fields modeled, genuinely unreachable, see gaps/Notes; fixed: was missing required Name/Scope validation, see Notes"}
   ListManagedRuleSets: {wire: partial, errors: ok, state: ok, persist: ok, note: "summary omits Description/LabelNamespace, same gap as Get; fixed: Scope is required on the real op, was an optional filter here, see Notes. FIXED 2026-08-30 (pagination-tie sweep): PutManagedRuleSetVersions keys strictly on the caller-supplied Id with no Name-uniqueness check (unlike CreateWebACL/CreateIPSet/CreateRegexPatternSet/CreateRuleGroup's webACLsByNameScope-style dedup), so two ManagedRuleSets could share a Name. handleListManagedRuleSets paginated with paginateByName, an equality/marker cursor keyed on Name alone that skips every item whose name is <= the marker -- once a page boundary fell inside a same-name tie group, every remaining item in that group was dropped, deterministically (proven with one walk, not 30, since the loss doesn't depend on map-iteration order). Fixed with a new paginateByNameID helper (handler.go) whose marker also encodes the last id seen, plus an id tiebreak added to ListManagedRuleSets' sort (managed_rule_sets.go). paginateByName itself was left untouched: its other four callers (WebACLs/IPSets/RegexPatternSets/RuleGroups via listResourceSummaries, and APIKeys) all have a name that is either dedup-enforced at Create or a generated UUID, so they were re-verified safe rather than changed. TestListManagedRuleSets_DuplicateNamePagination (handler_managed_rule_sets_test.go) creates 3 ManagedRuleSets sharing a Name, pages at Limit=2, and asserts all 3 ids are seen across the full walk; failed against unfixed code (ms-3 dropped) before this fix."}
   PutManagedRuleSetVersions: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: was missing required Name/Scope validation, see Notes"}
-  UpdateManagedRuleSetVersionExpiryDate: {wire: ok, errors: ok, state: ok, persist: ok, note: "epoch-seconds int64 pass-through, verified vs deserializers.go; fixed: was missing required Name/Scope/LockToken/VersionToExpire/ExpiryTimestamp validation, see Notes"}
+  UpdateManagedRuleSetVersionExpiryDate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: was missing required Name/Scope/LockToken/VersionToExpire/ExpiryTimestamp validation, see Notes. FIXED (2026-09-12, typed-client slice 36): the prior 'epoch-seconds int64 pass-through' claim was WRONG -- the real wire encodes ExpiryTimestamp as a JSON double (wafv2@v1.77.3 serializers.go: `ok.Double(smithytime.FormatEpochSeconds(*v.ExpiryTimestamp))`), and the request struct decoded it as *int64, which rejects any real client's timestamp with a fractional-second component (i.e. every real call). Request field changed to *float64, truncated to int64 only at the backend-call boundary."}
   GetRateBasedStatementManagedKeys: {wire: ok, errors: ok, state: partial, note: "always returns empty ManagedKeys lists (no rate-limiting simulation); documented AWS-accurate empty shape"}
   GetSampledRequests: {wire: ok, errors: ok, state: partial, note: "always returns empty SampledRequests/PopulationSize=0; no traffic sampling exists to report"}
   GetTopPathStatisticsByTraffic: {wire: fixed, errors: ok, state: partial, note: "FIXED 2026-08-13 (bd gopherstack-kb66): emitted {UrlStatistics: []}, a key that does not exist in the real API, and never emitted the required PathStatistics/TotalRequestCount (awsAwsjson11_serializeOpDocumentGetTopPathStatisticsByTrafficInput/deserializer, wafv2@v1.77.3). The request side was also wrong: it read WebACLName/WebACLId, neither of which exists on this op's wire shape at all -- the real request identifies the web ACL by WebAclArn, matching GetSampledRequests' convention. Now emits real PathStatistics/TotalRequestCount keys, honestly empty/zero (this backend has no per-request path/bot traffic model to aggregate, same structural gap as GetSampledRequests above), proven with a real aws-sdk-go-v2 client round trip (TestGetTopPathStatisticsByTraffic_SDKRoundTrip)."}
@@ -100,9 +100,9 @@ ops:
   DescribeManagedRuleGroup: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (this session, gopherstack-6flj sweep): DescribeManagedRuleGroupOutput.LabelNamespace (grammar `awswaf:managed:<vendor>:<rule group name>:`, confirmed via https://docs.aws.amazon.com/waf/latest/APIReference/API_DescribeManagedRuleGroup.html) and .VersionName (echoes the request's VersionName, else the catalog's existing hardcoded default \"Version_1.0\" for a versioning-supported group, matching ListAvailableManagedRuleGroupVersions' own CurrentDefaultVersion) were entirely unmodeled. Also removed an INVENTED \"Description\" response key -- confirmed absent from DescribeManagedRuleGroupOutput's real member set (api_op_DescribeManagedRuleGroup.go) and already flagged as such by the 2026-08-22 keycheck sweep note below but left unfixed at the time; harmless to a typed client (extra key silently discarded) so not a functional bug, but removed since it was already disclosed as a known invention. Proven via TestDescribeManagedRuleGroup_LabelNamespaceAndVersionName (wire_field_fixes_test.go), confirmed failing pre-fix, restored."}
   ListAvailableManagedRuleGroups: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "Limit/NextMarker were parsed into the request struct but never applied -- every call returned the full 14-entry static catalog regardless of Limit, and NextMarker never appeared even though the real Output doc says 'If you specified a Limit in your request, this might not be the full list.' Now sorts the catalog by Name and applies the shared paginateByName helper -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns)"}
   ListAvailableManagedRuleGroupVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GenerateMobileSdkReleaseUrl: {wire: ok, errors: ok, state: ok, persist: n/a}
-  GetMobileSdkRelease: {wire: ok, errors: ok, state: ok, persist: n/a}
-  ListMobileSdkReleases: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): removed fabricated Scope field (ListMobileSdkReleasesInput has no such member); Limit/NextMarker were parsed but never applied to pagination -- same bug class just fixed for ListAvailableManagedRuleGroups above, now paginated via paginateByName sorted by ReleaseVersion"}
+  GenerateMobileSdkReleaseUrl: {wire: ok, errors: fixed, state: fixed, persist: n/a, note: "FIXED (2026-09-12, typed-client slice 36): catalog Platform values were 'Android'/'iOS'; the real Platform enum is ANDROID/IOS only (wafv2@v1.77.3 types/enums.go) -- every real client call (which can only ever send the real enum value) always missed the catalog, so this op was unreachable end to end. Catalog values corrected in managed_rule_catalog.go."}
+  GetMobileSdkRelease: {wire: ok, errors: fixed, state: fixed, persist: n/a, note: "same Platform enum casing fix as GenerateMobileSdkReleaseUrl -- was equally unreachable for any real client."}
+  ListMobileSdkReleases: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): removed fabricated Scope field (ListMobileSdkReleasesInput has no such member); Limit/NextMarker were parsed but never applied to pagination -- same bug class just fixed for ListAvailableManagedRuleGroups above, now paginated via paginateByName sorted by ReleaseVersion. FIXED (2026-09-12, typed-client slice 36): same Platform enum casing fix -- a real client's Platform=\"ANDROID\"/\"IOS\" filter always matched zero catalog entries."}
   GetRevenueStatistics: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0 (AI-bot pay-per-crawl monetization). Full request validation (Currency=USDC, CLOUDFRONT-only Scope, StatisticType enum, GroupBy required iff TOP_SOURCES_BY_REVENUE, SortBy/SortOrder enums, 90-day TimeWindow cap, Filters incl. enum-restricted values); always returns an empty SourceStatistics or RevenuePathStatistics list (matching which field the SDK docs say is 'populated when' -- the other is omitted) because no real AI-bot traffic exists to rank. See Notes."}
   GetRevenueStatisticsSummary: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family; RevenueBreakdown is always Currency=<request currency>, all amounts '0', all counts 0 -- honest zero, not fabricated. See Notes."}
   GetRevenueStatisticsTimeSeries: {wire: ok, errors: ok, state: partial, persist: n/a, note: "new in v1.76.0. Same validation family plus Interval enum and Limit 1-10000 bound; DataPoints always empty. See Notes."}
@@ -635,3 +635,50 @@ ops in this same catalog family, not previously called out by field name:
 
 Gates: `go build ./services/wafv2/...`, `go vet ./services/wafv2/...`,
 `go test -race -count=1 ./services/wafv2/...`, `golangci-lint run ./services/wafv2/...`.
+
+## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+
+Drove every previously-uncovered op (23/59 -> 59/59 typed-client-covered)
+through the real `aws-sdk-go-v2/service/wafv2` client
+(`typed_slice36_realclient_test.go`, 12 subtests covering the IPSet
+lifecycle, RegexPatternSet lifecycle, RuleGroup delete/list, WebACL
+delete/association family (DisassociateWebACL, DeleteFirewallManagerRuleGroups),
+APIKey delete, logging configuration round trip, permission policy round
+trip, ManagedRuleSet round trip (PutManagedRuleSetVersions,
+UpdateManagedRuleSetVersionExpiryDate), managed rule catalog + mobile SDK
+family, revenue statistics family, rate-based managed keys +
+GetSampledRequests, and TagResource/UntagResource).
+
+**Two real bugs found and fixed, both by the typed client hitting a decode
+or a real-world-unreachable enum value:**
+
+1. `UpdateManagedRuleSetVersionExpiryDate`'s request struct decoded
+   `ExpiryTimestamp` as `*int64`, but the real wire encodes it as a JSON
+   double (`wafv2@v1.77.3` `serializers.go`:
+   `ok.Double(smithytime.FormatEpochSeconds(*v.ExpiryTimestamp))`) -- any
+   real client's timestamp with sub-second precision (i.e. essentially
+   every real call, since `time.Now()`-derived values are never exact whole
+   seconds) failed to decode at all, a 400 on every real invocation. Fixed
+   by changing the field to `*float64` and truncating to `int64` only at
+   the point of calling the backend (`handler_managed_rule_sets.go`).
+2. The mobile-SDK catalog (`managed_rule_catalog.go`) stored `Platform` as
+   `"Android"`/`"iOS"`, but the real `types.Platform` enum only has
+   `ANDROID`/`IOS` (`wafv2@v1.77.3` `types/enums.go`) -- since a real SDK
+   client can only ever send one of those two exact values, every catalog
+   lookup always missed, making `GenerateMobileSdkReleaseUrl`,
+   `GetMobileSdkRelease`, and `ListMobileSdkReleases` entirely unreachable
+   for any real client (100% failure, not a partial-match issue). Fixed the
+   catalog values; updated the pre-existing raw-body tests in
+   `handler_managed_rule_catalog_test.go` that had pinned the wrong-case
+   values as correct (not weakened -- corrected to the real enum).
+
+No persisted (`backendSnapshot`) fields changed; `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed no diff to `snapshot_inventory.json`
+for wafv2. No version bump.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/wafv2/...`,
+`go test -race -count=1 ./services/wafv2/...` (all pass, including the new
+typed-client tests and the corrected raw-body fixtures), `golangci-lint run
+--new-from-rev=HEAD ./services/wafv2/...` (0 issues). `cmd/paritylint` stays
+at 0 FAIL (missing-items-still-open). Typed-client census: wafv2 23/59 ->
+59/59 (100%).

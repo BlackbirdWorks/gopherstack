@@ -55,7 +55,7 @@ ops:
   ListTransactions: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteObjectsOnCancel: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): DatabaseName/TableName/Objects are all `required` on the real DeleteObjectsOnCancelInput (api_op_DeleteObjectsOnCancel.go, lakeformation@v1.50.4) but were accepted and silently dropped -- never validated, never forwarded to the backend (which only ever took TransactionId). Now validated required-non-empty; CatalogID remains unread, see gaps (same class as the other CatalogID-accepting ops)."}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
-  UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
+  UpdateTableObjects: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "FIXED (2026-09-12, typed-client slice 36): WriteOperation.DeleteObject was decoded but never read -- only AddObject was applied, so a real client's delete writes were silently no-ops (governed objects, once added, could never be removed). Now removes matching TableObject entries by URI across every partition list (removeTableObjectByURI, table_storage.go)."}
   GetTemporaryDataLocationCredentials: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members. gopherstack-4ly2 (2026-08-21): the fixed handler still over-validated -- it demanded DataLocations be non-empty, but GetTemporaryDataLocationCredentialsInput marks no member required, DataLocations included, and the backend never uses it as a lookup key (only echoes it back as AccessibleDataLocations). Now optional; TestGetTemporaryDataLocationCredentials_MissingDataLocations (which asserted the wrong 400) was corrected."}
   GetTemporaryGluePartitionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "checked against its GetTemporaryGlueTableCredentials/GetTemporaryDataLocationCredentials siblings this pass (gopherstack-6flj) -- already correct, no fix needed"}
   GetTemporaryGlueTableCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-6flj): real request member S3Path was parsed nowhere; real response member VendedS3Path was entirely missing. Now threaded through together. QuerySessionContext (also real on this op) remains unmodeled -- disclosed in gaps:, a broader query-family feature out of scope for this pass"}
@@ -605,3 +605,44 @@ No code or test changes. Gates: `go test -race -count=1 ./services/lakeformation
 `golangci-lint run services/lakeformation/...` (0 issues). Re-ran
 `cmd/errtargetaudit`: lakeformation count unchanged at 2 class A findings -- both dismissed
 above as false positives, not remaining work.
+
+## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+
+Drove every previously-uncovered op (27/61 -> 61/61 typed-client-covered) through
+the real `aws-sdk-go-v2/service/lakeformation` client
+(`typed_slice36_realclient_test.go`, 14 subtests covering LF-tags-on-resource,
+batch grant/revoke permissions, the transaction lifecycle, DataCellsFilter
+update, LFTagExpression lifecycle, LakeFormationOptIn lifecycle, identity
+center delete, GetDataLakePrincipal, table objects + storage optimizer,
+temporary Glue partition credentials, GetQueryState, search-by-LFTags,
+AssumeDecoratedRoleWithSAML, and UpdateResource). This service already had
+dense prior wire-fidelity audit history (gopherstack-4ly2/6flj/kbnu/i8lo),
+consistent with this campaign's observation that thick prior-audit services
+yield fewer bugs per newly-covered op: only one real bug found.
+
+**Bug found and fixed:** `UpdateTableObjects`' `WriteOperation.DeleteObject`
+was decoded off the wire but never read -- `table_storage.go`'s backend only
+ever applied `AddObject`, so a real client's delete write silently did
+nothing (an object added to a governed table could never be removed). Fixed
+by adding `removeTableObjectByURI`, matching real `DeleteObjectInput.Uri`
+semantics (`lakeformation@v1.50.4` `types/types.go:345`); the existing test
+now creates an object then deletes it and asserts it is gone.
+
+**Accept-and-drop note (not fixed, low blast radius):** `WriteOperation.DeleteObject`'s
+gopherstack type (`VirtualObject{URI,ETag}`) has no `PartitionValues` field,
+while the real `types.DeleteObjectInput` does (`Uri`,`ETag`,`PartitionValues`).
+This backend's table-objects model is not partition-aware for deletes (a URI
+match removes the object from every partition list), so `PartitionValues`
+would currently be a no-op filter even if threaded through; left as a
+documented gap rather than plumbed for no behavioral effect.
+
+No persisted (`backendSnapshot`) fields changed -- `pkgs/persistence`'s
+`TestSnapshotVersionGuard` is unaffected by this service (confirmed no diff
+to `snapshot_inventory.json` for lakeformation). No version bump.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...` (all pass, including
+the new typed-client tests), `golangci-lint run --new-from-rev=HEAD
+./services/lakeformation/...` (0 issues). `cmd/paritylint` stays at 0
+FAIL (missing-items-still-open). Typed-client census: lakeformation 27/61 ->
+61/61 (100%).
