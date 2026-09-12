@@ -78,7 +78,8 @@ ops:
   DescribeReservedElasticsearchInstanceOfferings: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeReservedElasticsearchInstances: {wire: ok, errors: ok, state: ok, persist: ok}
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "FIXED (2026-09-04 pass) -- never validated ReservedElasticsearchInstanceOfferingId against the known offering; an unknown offering ID silently created a reservation with zero-value InstanceType/FixedPrice/UsagePrice/Duration and 200 OK instead of the modelled ResourceNotFoundException. See Notes."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "GetUpgradeStatus.UpgradeName (gopherstack-6flj, 2026-08-15): real, optional *string member \
      never emitted -- no upgrade-name/upgrade-history state is tracked anywhere in this backend \
      (GetUpgradeHistory always returns empty), so there is no honest source value; fabricating a \

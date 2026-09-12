@@ -16,6 +16,7 @@ ops:
 families:
   routing: {status: ok, note: "FIXED this sweep: RouteMatcher's /tags/{arn} branch hardcoded an \"arn:aws:dlm:\" prefix check, but pkgs/arn.Build (used by this same backend's CreateLifecyclePolicy to mint PolicyArn) derives the ARN partition from the region (aws-us-gov, aws-cn, aws-iso, aws-iso-b via arn.PartitionForRegion) -- a backend constructed with a GovCloud/China/ISO region produced PolicyArn values the router would then refuse to accept on TagResource/UntagResource/ListTagsForResource, a self-inconsistency within the service (Create/Get worked, Tag* silently 404/unrouted). Replaced with isDLMResourceARN, a partition-agnostic arn:<partition>:dlm:... check. classifyPath/RouteMatcher otherwise correctly disambiguate GET /policies (list) vs GET /policies/{id} (get), and PATCH for UpdateLifecyclePolicy, per generated serializers.go opPath templates."}
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.RWMutex only; TagResource/UntagResource/ListTagsForResource operate on the policy's own Tags map (no secondary tag-store row to leak on delete) -- DeleteLifecyclePolicy removes the whole storedPolicy row, tags included"}
 ---

@@ -253,20 +253,7 @@ families:
   KnowledgeBase: {status: ok, note: "new family (SDK v1.121.0): CreateKnowledgeBase/DescribeKnowledgeBase/UpdateKnowledgeBase/DeleteKnowledgeBase/BatchDeleteKnowledgeBase/ListKnowledgeBases/SearchKnowledgeBases/permissions real (knowledgebases.go, handler_knowledgebases.go), field-diffed against types.KnowledgeBase/KnowledgeBaseSummary. Found and correctly implemented a real API quirk: UpdateKnowledgeBase and UpdateKnowledgeBasePermissions are POST, not PUT, unlike every other resource family's Update* op in this backend -- confirmed against serializers.go, not assumed. Configuration/AccessControlConfiguration/MediaExtractionConfiguration are opaque pass-through documents (map[string]any), matching the Dashboard.Definition precedent for deeply-nested config blobs this backend has no processing logic for. BatchDeleteKnowledgeBase partitions per-ID success/failure for real (an unknown ID is a genuine per-item error, not swallowed into a whole-request failure)."}
   Space: {status: ok, note: "new family (SDK v1.121.0): CreateSpace/DescribeSpace/UpdateSpace/DeleteSpace/ListSpaces/SearchSpaces/permissions/ListSpaceResources/UpdateSpaceResources real (spaces.go, handler_spaces.go). Field-diffed against deserializers.go and found the Space family's wire shape is NOT PascalCase like every other family in this backend: spaceId/spaceArn are camelCase on every op's envelope, the nested Space/SpaceSummary document is fully camelCase, and UpdateSpacePermissionsOutput is uniquely fully-lowercase even for permissions/requestId (confirmed key-by-key against the deserializer switch statements, not assumed) -- see handler_spaces.go's wire-shape note. UpdateSpaceResources validates each resource ARN against arnExists before attaching it, same real-failure pattern as Agent's association updates. One documented, non-fabricated omission: DescribeSpace's Contributors is always an empty list and Space carries no ConsumedSourceSize/ConsumedSourceDocCount fields, because both require per-user raw-file-size attribution from a real ingestion pipeline this backend doesn't have -- an honest omission, matching the VPCConnection.NetworkInterfaces precedent from the prior pass. SECOND item, CORRECTED this pass (gopherstack-r80d, required-output-member sweep -- gopherstack-lx5h's prior conclusion here was wrong and is superseded): ListSpacesOutput/SearchSpacesOutput both declare a required top-level spaceId (SpaceArn is optional, not required -- gopherstack-lx5h mischaracterized neither as fabrication-worthy, but conflated the two) alongside the required spaceSummaries list -- verified against api_op_ListSpaces.go:44-63/api_op_SearchSpaces.go:49-68 and both ops' own deserializers.go switches. gopherstack-lx5h left spaceId/spaceArn entirely absent, reasoning that emitting an empty string would "misrepresent a real value" -- but a required Smithy output member is a structural wire guarantee from AWS's real server: leaving it absent means a real aws-sdk-go-v2 client's *string decodes nil, the exact "zero value where AWS guarantees content" bug this sweep hunts, not an honest omission. This is the same shape as this session's opensearch NextToken fix: when a required field has no natural per-call value (no single space is in scope for an account-wide list/search), the correct move is present-but-empty, not absent -- absence is what breaks the client, not what protects the caller from a misleading value. handleListSpaces/handleSearchSpaces (handler_spaces.go) now emit spaceId:\"\"/spaceArn:\"\" alongside spaceSummaries+requestId(+nextToken)."}
   UserIndexCapacity: {status: ok, note: "new op (SDK v1.121.0), ListUsersIndexCapacity: real, derived computation (userindexcapacity.go, handler_userindexcapacity.go) -- KBCount/SpaceCount and TotalKBCapacityBytes are computed by scanning this backend's actual KnowledgeBase/Space state for PrimaryOwnerArn/CreatedByArn matches against each user, never a fabricated placeholder. TotalSpaceCapacityBytes stays honestly 0 (Space carries no ConsumedSourceSize field to sum, per the Space family note above). Wire shape is fully camelCase (filters/maxResults/namespace/nextToken/sortBy/sortOrder on the request; nextToken/requestId/users on the response, with UserIndexCapacity's own fields all camelCase too) -- confirmed against (de)serializers.go, matching the Space family's convention rather than this backend's usual PascalCase."}
-gaps:
-  - TopicV2 cross-family field projection: a topic's V1-only fields (ConfigOptions,
-    DataSets' full DatasetMetadata -- Columns/CalculatedFields/Filters/
-    NamedEntities/DataAggregation) are not visible through DescribeTopicV2, and a
-    topic's V2-only fields (DataSetRelations, the leaner TopicV2DataSetReference
-    DataSets, CustomInstructions) are not visible through DescribeTopic (V1). This
-    is a documented, non-fabricated omission, not a bug: TopicV2Details is not a
-    losslessly-convertible schema of V1's TopicDetails (verified field-by-field
-    against types.go -- neither is a superset of the other), and there is no SDK
-    evidence describing how real AWS projects one schema's fields into the other's
-    response, so synthesizing a translation would be exactly the kind of
-    unverified claim parity-principles.md warns against. Both families do share
-    the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
-    comment and TestQuickSight_TopicV2_SharesResourceWithV1.
+gaps: []
   # All 5 previously-named gaps fixed several passes back (UpdateDataSet ingestion
   # reporting, CancelIngestion terminal-status handling, Tag/Untag/ListTags ARN
   # existence check, Folder.SharingModel). parity-5: Agent.CustomPromptInterface's
@@ -284,6 +271,20 @@ gaps:
   # corrected in the VPCConnection family note and the families preamble. Fixed by
   # dropping the field from vpcConnectionToMap; the model still stores/round-trips
   # SubnetIDs for Create/Update. See handler_vpcconnections.go, handler_vpcconnections_test.go.
+items_still_open:
+  - TopicV2 cross-family field projection: a topic's V1-only fields (ConfigOptions,
+    DataSets' full DatasetMetadata -- Columns/CalculatedFields/Filters/
+    NamedEntities/DataAggregation) are not visible through DescribeTopicV2, and a
+    topic's V2-only fields (DataSetRelations, the leaner TopicV2DataSetReference
+    DataSets, CustomInstructions) are not visible through DescribeTopic (V1). This
+    is a documented, non-fabricated omission, not a bug: TopicV2Details is not a
+    losslessly-convertible schema of V1's TopicDetails (verified field-by-field
+    against types.go -- neither is a superset of the other), and there is no SDK
+    evidence describing how real AWS projects one schema's fields into the other's
+    response, so synthesizing a translation would be exactly the kind of
+    unverified claim parity-principles.md warns against. Both families do share
+    the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
+    comment and TestQuickSight_TopicV2_SharesResourceWithV1.
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.

@@ -95,7 +95,8 @@ families:
     AccessDeniedException/ServiceUnavailableError/StatementTimeoutException
     are unreachable by design -- consistent with an emulator that doesn't
     simulate IAM or Aurora Serverless timeouts.}
-gaps:                     # known divergences NOT fixed
+gaps: []
+items_still_open:
   - "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction,
     ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never
     read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged

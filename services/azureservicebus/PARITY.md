@@ -43,7 +43,8 @@ families:
   auth: {status: partial, note: "Authorization: SharedAccessSignature sr=<resource>&sig=<hmac>&se=<expiry>&skn=<keyname> is always structurally parsed (sas.go's ParseSASAuthorization extracts key name, resource scope, and expiry). Cryptographic HMAC-SHA256 verification (VerifySAS) exists and is unit-tested but is opt-in via Handler.WithSASValidation / --azure-servicebus-validate-sas (mirroring services/s3's WithPresignValidation and Blob/Queue/Table's WithSharedKeyValidation) -- off by default, an absent/malformed/wrong-signature header is accepted."}
   routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 10003 via --azure-servicebus-port/AZURE_SERVICEBUS_PORT; no fallback pool -- fails fast if unavailable, mirroring services/azureblob/azurequeue/azuretable), never registered into the shared AWS single-port Router. cli.go's reserveFixedServicePorts additionally reserves this port in the shared PortAlloc pool at startup."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics, and derives its listener logger via logger.WithWorker(ctx, \"azureservicebus\", \"listener\")."}
-gaps:
+gaps: []
+items_still_open:
   - "azservicebus (the only azure-sdk-for-go Service Bus client) is AMQP-only and cannot be pointed at this REST emulator -- see families.sdk_compat. This is a genuine SDK-compatibility limitation, not an MVP scope cut; a real AMQP 1.0 listener would be required to support it, which AZURE.md section 9's M5 rationale explicitly defers."
   - "No SQL-filter rule evaluation for subscriptions -- every subscription is effectively TrueFilter (match-all). See families.filter_evaluation."
   - "No sessions (ordered/exclusive per-SessionId delivery) -- SessionId round-trips but has no locking/FIFO semantics. See families.sessions_and_amqp."

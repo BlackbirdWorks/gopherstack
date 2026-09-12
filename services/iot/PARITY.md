@@ -287,6 +287,7 @@ gaps: []
   # two additional, previously-undiscovered bugs that check turned up (a RouteMatcher-whitelist
   # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name
   # bugs on the same two ops plus ListTargetsForSecurityProfile).
+items_still_open: []
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed

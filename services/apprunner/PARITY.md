@@ -46,7 +46,8 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   error_taxonomy: {status: ok, note: "was systemically broken across all 35 ops -- see Notes; fixed 2026-07-13"}
-gaps:
+gaps: []
+items_still_open:
   - "CreateVpcIngressConnection doesn't validate that ServiceArn refers to an existing service, allowing a dangling reference. Left as-is because CreateVpcIngressConnection's documented error set has no ResourceNotFoundException -- adding validation would need a new InvalidRequestException-mapped check, not a NotFound one, to stay wire-correct; low traffic op, deferred. Re-verified 2026-07-23: still the correct call, not a bug."
   - "2026-08-19 (Layer 3, disclosed not fixed): CLOSED 2026-08-23 -- ListServices's ServiceSummary.UpdatedAt (deserializers.go:6939, emit-only: storedService.UpdatedAt was already tracked and current), Service.DeletedAt (deserializers.go:6615, needed a new storedService field plus a DeleteService write since real AWS keeps returning it on the DeleteService response even though this backend evicts the row from the store immediately after), VpcConnector.DeletedAt (deserializers.go:7299, emit-only) and VpcIngressConnection.DeletedAt (deserializers.go:7547, emit-only) all now round-trip through a real aws-sdk-go-v2 client. AutoScalingConfiguration.Latest (deserializers.go:4692) is now computed the same way ObservabilityConfiguration.Latest already was, via a b.asgByName[name] revision-order list; AutoScalingConfiguration.DeletedAt (deserializers.go:4660, emit-only -- also already tracked internally) closed alongside it. See ops table above for per-op detail. Still open: CustomDomain omits CertificateValidationRecords (deserializers.go:4899, 5381), a genuine backend gap since no cert validation flow is modeled -- not touched, no internal tracking exists to surface."
 deferred: []

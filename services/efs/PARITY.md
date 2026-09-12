@@ -72,7 +72,8 @@ families:
   FileSystemPolicy:   {status: ok, note: "InvalidPolicyException vs ValidationException distinction fixed this pass -- previously deferred, now closed for real (both malformed-JSON and oversized-policy paths)"}
   ReplicationConfiguration: {status: ok, note: "pagination implemented + Destination timestamp typing/population fixed this pass -- previously deferred, now closed for real; 2026-08-21 required-output Region fix, see below"}
   AccountPreferences: {status: ok}
-gaps:
+gaps: []
+items_still_open:
   - FIXED (gopherstack-jkma triage, 2026-09-07): errtargetaudit's module-conditional
     genericProtocolCodes (gopherstack-udkm) surfaced 8 ops emitting ValidationException
     that efs@v1.44.4 declares nowhere in the module (only CreateReplicationConfiguration/

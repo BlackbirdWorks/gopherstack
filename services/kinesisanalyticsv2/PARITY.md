@@ -47,7 +47,8 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass."}
 families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
-gaps:
+gaps: []
+items_still_open:
   - FlinkApplicationConfigurationDescription.JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) remains accepted-but-ignored: it is real AWS's Apache Flink job graph/scheduling plan (see the Apache Flink "Jobs and Scheduling" docs JobPlanDescription's own doc comment links to), which requires an actual Flink job compiler to produce -- structural, same class as DiscoverInputSchema's synthetic-schema limitation. Confirmed still genuinely unmodelable this pass; IncludeAdditionalDetails isn't even parsed by describeApplicationInput. Leniency only.
   - StopApplication's Force field now enforces the Flink-only restriction and is stored, but the pre-stop auto-snapshot itself is still not modeled: real AWS's auto-snapshot naming/visibility convention isn't documented publicly enough to fabricate (re-confirmed this pass via AWS's own "Deep dive into the Amazon Managed Service for Apache Flink application lifecycle" blog, which describes that a snapshot is taken but not how it's named or surfaced) -- deliberately left unimplemented rather than invented.
   - UpdateApplicationMaintenanceConfiguration's ApplicationMaintenanceWindowEndTime is never computed/returned (pre-existing gap, unchanged, low value -- no client observably depends on the exact window end time).

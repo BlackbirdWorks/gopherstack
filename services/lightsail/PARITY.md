@@ -90,7 +90,8 @@ families:
   operations: {status: ok, note: "3 ops, operations.go. Genuinely real: every mutating op creates a Started (never synchronously-fabricated-terminal) Operation and schedules a real async transition to Succeeded via pkgs/worker, following services/eks/services/grafana's established timer pattern. The Succeeded-vs-Completed per-op split this SDK leaves undocumented is resolved by a single, disclosed, UNCONFIRMED convention (always Succeeded) rather than a guessed per-op mapping."}
   gui_sessions: {status: ok, note: "3 ops, tagging_vpc_misc.go. Real SettingUp->Ready timer-driven state walk per instance, real Stop/restart bookkeeping."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
-gaps:
+gaps: []
+items_still_open:
   - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
     the cloudwatchlogs/memorydb bug class (an identifier/storage key built from the backend's
     fixed default region instead of the request's) against this service. Confirmed CLEAN, and by

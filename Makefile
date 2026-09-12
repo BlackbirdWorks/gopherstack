@@ -1,4 +1,4 @@
-.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit
+.PHONY: build build-check ui-install ui-lint ui-check ui-lint-fix ui-fmt ui-fmt-fix ui-test ui-build install-deps install-tofu lint lint-changed lint-fix test integration-test terraform-test e2e e2e-test total-coverage clean demo all dev-mcp-install dev-mcp-check pgo docs check-pins bd-audit parity-lint
 
 BINARY_NAME=gopherstack
 VERSION_PKG=github.com/blackbirdworks/gopherstack/pkgs/version
@@ -229,6 +229,16 @@ check-pins:
 # trailer (see cmd/bdaudit). Reports only -- never closes anything in bd.
 bd-audit:
 	go run ./cmd/bdaudit
+
+# Check gopherstack-anjf's invariant: every services/<svc>/PARITY.md's fix
+# status lives in exactly one place, items_still_open:. Fails only when the
+# field is missing entirely -- see cmd/paritylint's package doc for why its
+# other two checks (a stale items_still_open entry a later section marks
+# fixed; a body paragraph disclosing an item absent from items_still_open)
+# are printed as advisory findings instead of gating: both were measured
+# against the real corpus and found too imprecise to build a hard gate on.
+parity-lint:
+	go run ./cmd/paritylint
 
 demo: ui-build
 	docker compose down

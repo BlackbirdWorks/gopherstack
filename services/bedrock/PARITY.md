@@ -134,7 +134,9 @@ families:
   FoundationModelAgreement: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked, and the note itself was wrong: ListFoundationModelAgreementOffers is NOT a resource-shape question, it's a completely different operation than gopherstack implemented). See ListFoundationModelAgreementOffers/DeleteFoundationModelAgreement ops entries."}
   FoundationModelAvailability: {status: ok, note: "fixed — field-diffed for real this pass. See GetFoundationModelAvailability ops entry."}
 
-gaps:
+gaps: []
+
+items_still_open:
   - "gopherstack-r80d/gopherstack-39ps (2026-08-20/21): BOTH gaps this entry
     used to record are now FIXED -- see CreateEvaluationJob/GetEvaluationJob
     ops entries above for the full detail (union modeling + JobType
@@ -254,7 +256,6 @@ gaps:
     (bedrockagent@v1.58.4 deserializers.go's awsRestjson1_deserializeOpDocumentDeletePromptOutput
     — DeletePrompt with a promptVersion set is the real op backing this internal route) declares
     only \"id\" and \"version\", no status. Fixed to {id, version}. See wire_field_fixes_test.go."
-
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
 # PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was

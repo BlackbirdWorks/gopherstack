@@ -20,6 +20,7 @@ ops:
 families:
   route_matching: {status: ok, note: "RouteMatcher gates on signing-service + path prefix only (method-agnostic, correct); ExtractOperation correctly routes UpdateMonitor/UpdateProbe on PATCH (not PUT, which the real API does not expose). TestHandler_RouteMatcher and TestHandler_ExtractOperation_MethodPathMatrix (handler_test.go) exercise RouteMatcher() and the method+path matrix directly."}
 gaps: []
+items_still_open: []
 deferred:
   - "AccessDeniedException (403) / ThrottlingException (429) are not wired: verified this pass that there is no shared auth/rate-limit middleware anywhere in gopherstack that would inject these for networkmonitor (checked pkgs/chaos, which is fault-injection only, not standard error mapping) -- corrects last pass's unverified guess that such middleware existed. This backend has no auth model and no request-rate accounting, so there is no real condition under which these codes would ever be produced; every other audited service in this repo (ce, pipes, ssoadmin, fis, apprunner, polly) follows the same pattern of only wiring exception branches that have a genuine backend trigger. Re-open if gopherstack ever grows a cross-service auth/throttle layer."
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend is a plain locked map+store.Table with no background work"}

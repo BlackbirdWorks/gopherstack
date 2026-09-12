@@ -134,6 +134,7 @@ families:
 gaps:                      # known divergences NOT fixed — link bd issue ids
   # "DescribeAlarms AlarmTypes default-inclusion bug" (bd gopherstack-yvb7) FIXED 2026-07-26 --
   # see the DescribeAlarms ops row above and the Notes writeup below. No longer a gap.
+items_still_open: []
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - widget.go / widget_draw.go / widget_font.go (GetMetricWidgetImage PNG rendering internals — not a wire-shape or state-correctness concern, only visual fidelity)
   - "IMPLEMENTED 2026-08-07 (bd gopherstack-lrmf): metric-stream Firehose delivery -- see families.metric-streams-delivery. Remaining: opentelemetry0.7/opentelemetry1.0 OutputFormat byte-level OTLP protobuf shape not encoded (json only); SetFirehosePutter cli.go wiring itself is deferred (forbidden in this pass's scope), so delivery does not fire in a real running gopherstack server yet, only under test with a wired mock/real backend."

@@ -1,4 +1,5 @@
 ---
+items_still_open: []
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
 last_audit_commit: cb5dac6ff

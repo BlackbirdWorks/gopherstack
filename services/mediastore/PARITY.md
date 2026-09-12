@@ -47,7 +47,8 @@ families:
   LifecyclePolicy: {status: ok, note: "Put/Get/Delete round-trip the raw JSON string verbatim."}
   MetricPolicy: {status: ok, note: "Put validates ContainerLevelMetrics enum and >5-rule limit; Get/Delete round-trip full policy including MetricPolicyRules."}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource keyed by ARN via containerNameFromARN; tags also settable at CreateContainer time."}
-gaps:
+gaps: []
+items_still_open:
   - "gopherstack-apg3 (2026-09-07, audited, NOT fixed -- structural): DeleteContainer does not
     require the container to be empty. Real AWS's doc comment (aws-sdk-go-v2/service/mediastore
     @v1.32.4 api_op_DeleteContainer.go:10-12, byte-identical in botocore's mediastore/2017-09-01/

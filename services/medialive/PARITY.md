@@ -742,7 +742,10 @@ deferred: []
 # changed and how each was verified against the SDK. What's left below is
 # either newly-discovered-and-closed (kept here only as a paper trail) or
 # genuinely out of scope for this pass.
-gaps:
+gaps: []
+
+
+items_still_open:
   - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
     gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n,
     then gopherstack-1szb). See Channel's note above for the full list of what IS modeled:
@@ -791,7 +794,6 @@ gaps:
     the full state/error-code re-audit this entry originally called for; Cluster/Node/
     SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
     (see the same dated entry) remain open.
-
   - "Constraining-parameter sweep (wrapper-key campaign, 2026-08-29): six real
     never-applied-constraint bugs found and fixed, all confirmed with a real
     aws-sdk-go-v2 client test that failed against the unfixed handler first.
@@ -847,7 +849,6 @@ gaps:
     an unverified literal risks the wrong-vocabulary bug class more than
     leaving it a documented gap, since this backend has zero AWS-managed
     groups to ever wrongly include regardless."
-
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---

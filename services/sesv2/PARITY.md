@@ -1,4 +1,5 @@
 ---
+items_still_open: []
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
 last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9

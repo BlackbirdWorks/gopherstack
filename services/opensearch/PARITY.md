@@ -412,6 +412,7 @@ families:
       was needed) but never updated this earlier note. No open gap remains here; see that sweep's
       dated section below for the fix detail.
 gaps: []
+items_still_open: []
 deferred:
   - serverless
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}

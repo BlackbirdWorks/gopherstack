@@ -136,7 +136,8 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
 
-gaps:
+gaps: []
+items_still_open:
   - ErrValidation is still mapped to a single generic ValidationException wire type for
     most Put* validation paths. This pass added the three most load-bearing per-op
     Invalid*Exception types (InvalidConfigurationRecorderNameException,

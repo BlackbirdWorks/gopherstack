@@ -87,6 +87,7 @@ families:
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
   ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
+items_still_open: []
 deferred: []              # both prior deferred items resolved this pass (see below)
 resolved_this_pass:
   - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-

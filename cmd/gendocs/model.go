@@ -34,6 +34,7 @@ type ParityDoc struct {
 	Ops             []OpStatus
 	Families        []FamilyStatus
 	Gaps            []string
+	ItemsStillOpen  []string
 	StructuralGaps  []string
 	Deferred        []string
 	// Warnings holds "file:line: ..." diagnostics for ops:/families: lines
@@ -226,4 +227,17 @@ func (d *ParityDoc) familiesTally() tally {
 	}
 
 	return t
+}
+
+// openItems returns every currently-open item, from whichever front-matter
+// field(s) a manifest uses. gopherstack-anjf: items_still_open is meant to
+// become the one authoritative open list, but gaps: still holds items in
+// unmigrated manifests and a manifest mid-migration may carry both — so
+// counts/rendering combine them rather than picking one.
+func (d *ParityDoc) openItems() []string {
+	items := make([]string, 0, len(d.Gaps)+len(d.ItemsStillOpen))
+	items = append(items, d.Gaps...)
+	items = append(items, d.ItemsStillOpen...)
+
+	return items
 }

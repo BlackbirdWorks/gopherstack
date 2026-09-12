@@ -221,7 +221,22 @@ families:
   tenant_databases: {status: ok, note: "re-verified this pass against the real SDK's CreateTenantDatabaseOutput/DeleteTenantDatabaseOutput/ModifyTenantDatabaseOutput shapes (these DO nest under <TenantDatabase>, unlike shard groups/integrations) — no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   db_security_groups: {status: ok, note: "re-verified this pass (EC2-Classic legacy) — CreateDBSecurityGroupOutput/AuthorizeDBSecurityGroupIngressOutput/RevokeDBSecurityGroupIngressOutput all nest under <DBSecurityGroup> in the real SDK, matches gopherstack; no bug found, ledger's prior 'spot-checked only' caveat is now resolved to ok"}
   activity_streams: {status: ok, note: "de-deferred this pass: field-diffed Start/Stop/ModifyActivityStream against aws-sdk-go-v2's StartActivityStreamOutput/StopActivityStreamOutput/ModifyActivityStreamOutput. Start/Stop already matched (flat KinesisStreamName/KmsKeyId/Status/Mode/ApplyImmediately fields, correct — these ops were never affected by the shard-group/integration nesting bug class since their outputs were always flat in gopherstack). ModifyActivityStream had a real disguised-stub bug: it emitted an invented <AuditPolicy> element that does not exist on the real output (the real field is PolicyStatus, of type ActivityStreamPolicyStatus) and omitted the real KinesisStreamName/Mode members — FIXED, see Notes. Also fixed: cluster-not-found on all three ops returned InvalidParameterValue instead of the correct DBClusterNotFoundFault. Test coverage was previously zero for this family; added activity_stream_test.go (lifecycle, not-found, and backend-error-path tests)."}
-gaps:
+gaps: []
+  # All three gaps carried in the 2026-07-23 A- audit were closed for real this pass
+  # (2026-07-24), with regression tests, not just re-labeled deferrals -- see the
+  # overall: header and Notes for full detail on each:
+  #   - DB instance/cluster/snapshot/parameter-group identifiers are now case-insensitive
+  #     (pkgs/strs + normalizeID at every store boundary for the six identifier families).
+  #   - CreateDBInstance/CreateDBCluster now validate Engine against the real SDK's
+  #     documented "Valid Values" lists (validateDBInstanceEngine/validateDBClusterEngine).
+  #   - DBShardGroup/Integration field coverage is complete: DBShardGroupArn/
+  #     DBShardGroupResourceId/PubliclyAccessible now wired on all four DBShardGroup
+  #     mutating ops; Integration gained KMSKeyId/CreateTime/Tags/Errors on Create/Delete/
+  #     Modify.
+  # Historical record of two already-fixed (prior-pass) items, kept for context:
+  # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
+  # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
+items_still_open:
   - "OPEN 2026-09-11 (gopherstack-qpxye): DescribeEngineDefaultParameters always returns an
     empty Parameters list. Real AWS returns the engine family's default parameter set (a
     few hundred parameters per DBParameterGroupFamily, e.g. mysql8.0), but this backend
@@ -290,20 +305,6 @@ gaps:
     Inventing specific version strings would fabricate data with nothing in this SDK
     module to verify them against. See the ops: entry for full reasoning; re-review if a
     future SDK/API model version publishes an authoritative version list.
-  # All three gaps carried in the 2026-07-23 A- audit were closed for real this pass
-  # (2026-07-24), with regression tests, not just re-labeled deferrals -- see the
-  # overall: header and Notes for full detail on each:
-  #   - DB instance/cluster/snapshot/parameter-group identifiers are now case-insensitive
-  #     (pkgs/strs + normalizeID at every store boundary for the six identifier families).
-  #   - CreateDBInstance/CreateDBCluster now validate Engine against the real SDK's
-  #     documented "Valid Values" lists (validateDBInstanceEngine/validateDBClusterEngine).
-  #   - DBShardGroup/Integration field coverage is complete: DBShardGroupArn/
-  #     DBShardGroupResourceId/PubliclyAccessible now wired on all four DBShardGroup
-  #     mutating ops; Integration gained KMSKeyId/CreateTime/Tags/Errors on Create/Delete/
-  #     Modify.
-  # Historical record of two already-fixed (prior-pass) items, kept for context:
-  # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
-  # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 deferred: []
 leaks: {status: fixed, note: "FOUND and FIXED this pass: DeleteDBCluster (DeleteDBClusterWithOptions in db_clusters.go) removed the cluster itself but did NOT cascade-delete its custom DB cluster endpoints or their tags — DescribeDBClusterEndpoints kept returning ghost rows pointing at a deleted cluster forever, and b.clusterEndpoints only ever shrank via an explicit DeleteDBClusterEndpoint call, so the map grew unboundedly across create/delete cycles in any long-running client (exactly the 'no ghost map rows after delete — cascade-clean instances/endpoints on cluster delete' invariant this audit was scoped to check). Fixed by adding deleteClusterEndpointsLocked (db_clusters.go), called from DeleteDBClusterWithOptions under the existing b.mu write lock, alongside the pre-existing tags/fisFailoverFaults/clusterRoles cleanup. Regression tests: TestDeleteDBCluster_CascadeDeletesClusterEndpoints (cluster_endpoints_test.go, verifies via DescribeDBClusterEndpoints) and a new cluster_endpoint_cascade_via_cluster_delete case added to the existing TestRDSBackend_TagsCleanedUpOnDelete table (tags_test.go). Separately re-verified this pass and still clean: the single reconciler goroutine (lifecycle.go:scheduleReconcilerLocked) is per-backend, started lazily, and exits its own loop once both instanceReadyAt and clusterReadyAt are empty (ticker.Stop() deferred); the two FIS fault-injection goroutines in fault_injection.go/handler_db_clusters.go are ctx-bound (one blocks on ctx.Done(), the other races a time.Timer against ctx.Done(), both Stop()/cleanup correctly). No time.Sleep/context.Background()-rooted unbounded goroutine patterns found in non-test files."}
 

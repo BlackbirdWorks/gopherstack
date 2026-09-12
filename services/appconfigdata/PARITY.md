@@ -9,7 +9,8 @@ overall: A            # both ops re-verified field-by-field against v1.26.4's ge
 ops:
   StartConfigurationSession: {wire: ok, errors: ok, state: ok, persist: ok, note: "identifier max-length was 2048, real Identifier shape max is 128 -- fixed in a prior pass"}
   GetLatestConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "poll-interval echo and empty-blob-on-unchanged semantics already correct; this pass fixed the 204-vs-200 responseCode deviation (see below)"}
-gaps:
+gaps: []
+items_still_open:
   - services/appconfig is now bridged to appconfigdata (bd gopherstack-uiyi, closed;
     commit 41f3817bd): appconfig's InMemoryBackend.finalizeDeploymentLocked (every
     completion path -- synchronous zero-duration, the async reconciler, and restore-time

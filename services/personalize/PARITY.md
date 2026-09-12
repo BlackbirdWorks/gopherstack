@@ -105,6 +105,7 @@ families:
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
   Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: no goroutines/janitors in this backend; all state is synchronous map/table mutation under lockmetrics.RWMutex. This pass added no new goroutines, tickers, or persistence-relevant fields requiring cleanup.}
 ---

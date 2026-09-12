@@ -95,7 +95,27 @@ families:
   nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified. 2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions' response body shape itself was also wrong (flat []MSKVersion{Version,Status} instead of the real grouped CompatibleKafkaVersion{SourceVersion,TargetVersions[]}) -- see the op note."}
   replicator: {status: ok, note: "full ReplicationInfo/KafkaCluster topology now implemented end-to-end: CreateReplicator accepts and persists kafkaClusters/replicationInfoList; DescribeReplicator/ListReplicators resolve real KafkaClusterAlias/SourceKafkaClusterAlias/TargetKafkaClusterAlias from the live cluster table; UpdateReplicationInfo enforces the real currentVersion/source/target contract against a specific replication flow. See services/kafka/replicators_test.go TestCreateReplicator_TopologyAndAliasResolution and TestUpdateReplicationInfo_Backend."}
   topic: {status: ok, note: "CreateTopic/DescribeTopic/ListTopics/UpdateTopic field-name divergence closed (partitionCount/configs, topicArn/status, distinct TopicInfo list shape). DescribeTopicPartitions now returns the real {nextToken, partitions} shape with synthesized round-robin leader/replica placement. See services/kafka/topics_test.go and services/kafka/handler_topics_test.go."}
-gaps:
+gaps: []
+  # All 5 gaps from the 2026-07-12 audit (topic field names, DescribeTopicPartitions
+  # shape, UpdateReplicationInfo shape, CreateReplicator missing topology fields,
+  # Cluster.CurrentVersion never advancing) are closed -- see the op/family notes
+  # above for exactly what changed and where. Two NEW real wire bugs were found and
+  # fixed while closing out the deferred items below (GetBootstrapBrokers field
+  # names, ListClientVpcConnections envelope+shape) plus a missing-required-field
+  # gap on CreateVpcConnection/DescribeVpcConnection (clientSubnets/securityGroups).
+  #
+  # Documented simplifications (not wire-shape gaps -- these are internal-model
+  # choices that do not diverge from any real MSK response field or type):
+  #   - Topic.Status is always ACTIVE immediately on Create/Update; real MSK's
+  #     TopicState enum also has CREATING/UPDATING/DELETING but topic creation
+  #     exposes no polling protocol the way cluster creation does, so there is no
+  #     externally observable "stuck CREATING" behavior to get wrong.
+  #   - DescribeTopicPartitions' Isr is always == Replicas (fully in-sync); this
+  #     in-memory emulator has no real per-broker replication lag to diverge from.
+  #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
+  #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
+  #     ownership model to draw a different value from.
+items_still_open:
   - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
     polling window) -- same documented simplification as Topic.Status (see
     below): the real API exposes a ClusterOperationArn/polling protocol this
@@ -118,25 +138,6 @@ gaps:
     client-side check exists in validators.go), so enforcing an invented rule
     risks fabricating unproven behavior; the ARN is accepted, stored, and
     echoed back verbatim instead."
-  # All 5 gaps from the 2026-07-12 audit (topic field names, DescribeTopicPartitions
-  # shape, UpdateReplicationInfo shape, CreateReplicator missing topology fields,
-  # Cluster.CurrentVersion never advancing) are closed -- see the op/family notes
-  # above for exactly what changed and where. Two NEW real wire bugs were found and
-  # fixed while closing out the deferred items below (GetBootstrapBrokers field
-  # names, ListClientVpcConnections envelope+shape) plus a missing-required-field
-  # gap on CreateVpcConnection/DescribeVpcConnection (clientSubnets/securityGroups).
-  #
-  # Documented simplifications (not wire-shape gaps -- these are internal-model
-  # choices that do not diverge from any real MSK response field or type):
-  #   - Topic.Status is always ACTIVE immediately on Create/Update; real MSK's
-  #     TopicState enum also has CREATING/UPDATING/DELETING but topic creation
-  #     exposes no polling protocol the way cluster creation does, so there is no
-  #     externally observable "stuck CREATING" behavior to get wrong.
-  #   - DescribeTopicPartitions' Isr is always == Replicas (fully in-sync); this
-  #     in-memory emulator has no real per-broker replication lag to diverge from.
-  #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
-  #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
-  #     ownership model to draw a different value from.
 deferred: []
   # Both prior deferred items are now resolved:
   #   - GetBootstrapBrokers: field-diffed against deserializers.go this pass (see

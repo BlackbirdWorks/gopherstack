@@ -482,7 +482,8 @@ families:
     matches the real error catalog (types/errors.go: AccessDeniedException,
     ConflictException, InternalServerException, ResourceNotFoundException,
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
-gaps:
+gaps: []
+items_still_open:
   - "FIXED (gopherstack-wzwn, 2026-08-13): GetKnowledgeBaseDocuments and
     DeleteKnowledgeBaseDocuments decoded their request body against a struct
     tagged json:\"documentIds\" holding []string. Real clients send

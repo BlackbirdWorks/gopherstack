@@ -236,6 +236,7 @@ gaps:
   #    case. CopyDistribution didn't enforce CallerReference uniqueness at all and was also
   #    fixed. See the CreateDistribution/CopyDistribution/CreateStreamingDistribution/
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
+items_still_open: []
 deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."

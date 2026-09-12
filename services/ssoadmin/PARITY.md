@@ -99,7 +99,8 @@ families:
   InstanceAccessControlAttributeConfiguration: {status: ok}
   Region: {status: ok, note: "ListRegions pagination added this sweep"}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource confirmed as the sole tag-retrieval path for Application/Instance/TrustedTokenIssuer (all three previously had fabricated inline Tags members on their Describe/singular-Get responses, now removed)"}
-gaps:
+gaps: []
+items_still_open:
   - "FIXED (gopherstack-gt9o): DescribeInstanceOutput/UpdateInstanceInput's PermissionSetsEnabled and ListInstances' InstanceMetadata.Regions are now threaded/populated; see DescribeInstance/UpdateInstance/ListInstances ops entries."
   - "InstanceMetadata.PrimaryRegion (ListInstances) remains permanently unset -- no caller-settable or derivable source in this backend (see ListInstances op note). UpdateInstanceInput.EncryptionConfiguration remains entirely unmodeled (pre-existing, out of scope for gopherstack-gt9o -- see UpdateInstance op note)."
   - "RegionMetadata.IsPrimaryRegion is always false -- known simplification, unchanged from prior sweep (bd: none filed). This is also why InstanceMetadata.PrimaryRegion above has no real data to derive from."
