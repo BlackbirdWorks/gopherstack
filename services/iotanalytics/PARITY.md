@@ -439,3 +439,47 @@ Gates: `go build ./...`, `go vet ./services/iotanalytics/...`,
 `go test -race -count=1 ./services/cloudformation/... ./services/iot/... ./services/lambda/... .`
 — all pass (no cross-service wiring touches `CreatePipeline`'s shape, so no CFN teardown or
 Lambda/IoT wiring regression).
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering iotanalytics's last four
+typed-client-uncovered ops: `TagResource`, `UntagResource`,
+`UpdateDataset`, `UpdatePipeline`.
+
+**One real bug found and fixed, HIGH BLAST RADIUS**: `pipelineDetail.Activities`
+(`models.go`) was tagged `json:"pipelineActivities"`, copying
+`CreatePipelineInput`/`UpdatePipelineInput`'s own top-level request field
+name, but `DescribePipelineOutput.Pipeline` is deserialized by a distinct
+function (iotanalytics@v1.32.0 `deserializers.go`'s
+`awsRestjson1_deserializeDocumentPipeline`, case `"activities"`) that
+expects the unprefixed key -- so a real client's `DescribePipeline` (and
+every other caller observing `Pipeline.Activities`, this pass's own
+`UpdatePipeline` verification included) always decoded an empty slice
+regardless of backend state, even immediately after `CreatePipeline`.
+Confirmed via a throwaway debug test that the request-side decode
+(`createPipelineRequest.PipelineActivities`, key `"pipelineActivities"`,
+correct per `serializers.go:699`) worked fine and the backend stored the
+activities correctly -- only the *response*-side re-serialization used the
+wrong key. This bug predates this pass: every earlier Create/Describe/
+Update pipeline test that only asserted `PipelineArn`/tags (never
+`Activities`) passed straight over it. Fixed the one wire tag
+(`pipelineDetail.Activities` -> `json:"activities,omitempty"`); no other
+`pipelineDetail` field was affected (`name`/`arn`/`creationTime`/
+`lastUpdateTime`/`reprocessingSummaries` were already correct, confirmed
+against the same deserializer's key switch; `tags` has no case in that
+switch at all, i.e. real `types.Pipeline` carries no Tags field, matching
+the pre-existing precedent this file documents elsewhere -- gopherstack's
+extra `tags` key is a harmless over-return, not a bug).
+
+Typed-client coverage: 30/34 -> 34/34 (100%).
+
+No persisted struct fields changed (the fix is a JSON tag on an HTTP
+response DTO, not a backend/store model); no version bump.
+
+Gates: `go build ./...`, `go vet ./services/iotanalytics/...`, `go test
+-race -count=1 ./services/iotanalytics/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/iotanalytics/...` (0 issues, after adding
+this new file to `.golangci.yml`'s existing whole-package `staticcheck`
+exemption list -- iotanalytics is AWS-deprecated, so every SDK
+type/method/field a real client touches carries an SA1019). `cmd/paritylint`
+stays at 0 FAIL.

@@ -585,3 +585,22 @@ observable client-facing behavior to pin; a test asserting these codes are
 never returned would just restate the dispatch table already enforcing it.
 Gates: `golangci-lint run ./services/forecast/...` (0 issues),
 `go test -race ./services/forecast/...` (pass) -- no source changed.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering forecast's last four
+typed-client-uncovered ops: `TagResource`, `UntagResource`,
+`ResumeResource`, `DeleteResourceTree`. Creates a dataset group, tags and
+untags it (asserting via `ListTagsForResource`), stops and resumes it
+(asserting the `STATUS` field via `DescribeDatasetGroup` toggles
+`STOPPED`/`ACTIVE`), then deletes its resource tree and confirms a
+subsequent `DescribeDatasetGroup` errors. All four ops' real outputs are
+empty (`ResultMetadata` only), matching gopherstack's existing handlers.
+Zero bugs found.
+
+Typed-client coverage: 4/8 -> 8/8 (100%).
+
+Gates: `go build ./...`, `go vet ./services/forecast/...`, `go test -race
+-count=1 ./services/forecast/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/forecast/...` (0 issues). No persisted
+struct fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.

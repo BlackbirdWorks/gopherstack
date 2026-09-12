@@ -39,15 +39,16 @@ func (b *InMemoryBackend) CreateConnectorV2(
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	c := &ConnectorV2{
-		ConnectorId:     id,
-		ConnectorArn:    arn,
-		Name:            name,
-		Description:     description,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-		ConnectorStatus: "ACTIVE",
-		Provider:        provider,
-		Tags:            tags,
+		ConnectorId:      id,
+		ConnectorArn:     arn,
+		Name:             name,
+		Description:      description,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		ConnectorStatus:  "ACTIVE",
+		EnablementStatus: "ENABLED",
+		Provider:         provider,
+		Tags:             tags,
 	}
 	b.connectorsV2.Put(c)
 

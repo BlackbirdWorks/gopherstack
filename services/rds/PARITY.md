@@ -1456,3 +1456,49 @@ parameters); no version bump. Gates: `go build ./...`, `go vet
 ./services/rds/...`, `go test -race -count=1 ./services/rds/...` (pass),
 `golangci-lint run --new-from-rev=HEAD ./services/rds/...` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering four of the five ops
+slice 8 left uncovered: `DeleteDBInstanceAutomatedBackup` (via
+`DbiResourceId`, seeded by `CreateDBInstance` with
+`BackupRetentionPeriod>0`), `DisableHttpEndpoint`, `ModifyDBClusterEndpoint`
+(via `CreateDBClusterEndpoint`), `ModifyDBRecommendation` (via
+`AddDBRecommendation`). `GetPerformanceInsightsMetrics` stays uncovered by
+design -- confirmed again this pass: no `api_op_GetPerformanceInsightsMetrics.go`
+in the pinned rds@v1.124.1 module and no `pi` (Performance Insights) SDK
+module dependency in this repo, matching the `overall:` header's existing
+disclosure of the same fact.
+
+**Two real bugs found and fixed:**
+
+1. `EnableHttpEndpointOutput`/`DisableHttpEndpointOutput` both carry a real
+   `ResourceArn` member (rds@v1.124.1 deserializers.go's
+   `awsAwsquery_deserializeOpDocumentDisableHttpEndpointOutput`, case
+   `"ResourceArn"`) that gopherstack's `enableHTTPEndpointResponse`/
+   `disableHTTPEndpointResponse` structs never emitted -- always nil for a
+   real client regardless of backend state. Fixed both handlers
+   (`handler_data_api.go`) to echo the resolved ARN back.
+2. `ModifyDBClusterEndpointOutput` (and, via the shared
+   `toXMLClusterEndpointFields` helper, `CreateDBClusterEndpoint`/
+   `DeleteDBClusterEndpoint`/`DescribeDBClusterEndpoints` too) has separate
+   `EndpointType`/`CustomEndpointType` members: every endpoint reachable
+   through this API family is a CUSTOM endpoint, so real `EndpointType` is
+   always the literal `"CUSTOM"` while `CustomEndpointType` carries the
+   caller's READER/WRITER/ANY value -- gopherstack emitted only a single
+   `EndpointType` set to the caller's value, so a real client's
+   `CustomEndpointType` was always empty and `EndpointType` never read
+   `"CUSTOM"`. Fixed at the wire-serialization boundary only
+   (`handler_cluster_endpoints.go`); the internal `DBClusterEndpoint` model
+   and its own unit tests (which assert the internal field, not the wire
+   shape) are unchanged.
+
+Typed-client coverage: 160/165 (97.0%) -> 164/165 (99.4%); the one
+remaining uncovered op is the disclosed `GetPerformanceInsightsMetrics`
+case above.
+
+No persisted struct fields changed (both fixes are wire-serialization-layer
+only, not backend model fields); no version bump. Gates: `go build ./...`,
+`go vet ./services/rds/...`, `go test -race -count=1 ./services/rds/...`
+(pass), `golangci-lint run --new-from-rev=HEAD ./services/rds/...` (0
+issues). `cmd/paritylint` stays at 0 FAIL.

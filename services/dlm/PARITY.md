@@ -148,3 +148,23 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
   convention for documented default quotas (e.g. `services/glue`'s
   `maxDevEndpointsPerAccount`, `services/applicationautoscaling`'s
   `ErrLimitExceeded`).
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering dlm's last three typed-
+client-uncovered ops: `GetLifecyclePolicies`, `GetLifecyclePolicy`,
+`UpdateLifecyclePolicy`. No real-client test helper existed for dlm at all
+previously (its only prior typed coverage came from
+`test/integration/tag_routing_test.go`'s tag family, driven against a live
+container); added a local `newTestDLMClient` following this repo's
+standard httptest-server-plus-registry pattern. Creates a policy, lists
+and describes it, updates its description/state, and re-describes to
+assert the change persisted, all through the real aws-sdk-go-v2 client.
+Zero bugs found.
+
+Typed-client coverage: 5/8 -> 8/8 (100%).
+
+Gates: `go build ./...`, `go vet ./services/dlm/...`, `go test -race
+-count=1 ./services/dlm/...` (pass), `golangci-lint run --new-from-rev=HEAD
+./services/dlm/...` (0 issues). No persisted struct fields changed, no
+version bump. `cmd/paritylint` stays at 0 FAIL.

@@ -538,3 +538,25 @@ before touching the backend. This is the same "checked-bool-helper" shape as ela
 **No instance of the broken shape exists in mwaa.** No code changed as a result. Gates:
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/mwaa/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/mwaa/...` ok.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering mwaa's last two typed-
+client-uncovered ops, `CreateWebLoginToken` and `UpdateEnvironment`.
+Reuses `newMWAAHostPrefixTestClient(t, true)`
+(`host_prefix_reachability_test.go`, gopherstack-3gbe) since every mwaa op
+carries a client-side `"api."`/`"env."` host-prefix rewrite a plain
+httptest client can't dial without the redial fix. Round-trips
+`CreateEnvironment` -> (two `GetEnvironment` calls, since
+`environments.go`'s `promoteTransientStatus` promotes the *stored*
+environment to `AVAILABLE` but returns a snapshot taken *before* that
+promotion, so the first call still reports `CREATING`) -> `CreateWebLoginToken`
+-> `UpdateEnvironment` -> `GetEnvironment`, asserting decoded values at
+each step. Zero bugs found.
+
+Typed-client coverage: 10/12 -> 12/12 (100%).
+
+Gates: `go build ./...`, `go vet ./services/mwaa/...`, `go test -race
+-count=1 ./services/mwaa/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/mwaa/...` (0 issues). No persisted struct
+fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.

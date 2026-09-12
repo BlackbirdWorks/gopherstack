@@ -742,3 +742,27 @@ reordering fields (`time.Time` before `sync.Mutex`). No `cyclop`/`gocyclo`/
 unpersisted backend field, not part of `backendSnapshot`) -- see
 `persistence.go` -- so `pkgs/persistence/testdata/snapshot_inventory.json`
 needed no update and no version bump.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering rdsdata's last typed-
+client-uncovered op: the deprecated `ExecuteSql` batch-statement entry
+point (superseded by `ExecuteStatement`/`BatchExecuteStatement`, still a
+real, callable op in the pinned SDK). Creates a table, inserts a row, and
+selects it back through the real client, asserting the decoded legacy
+`SqlStatementResult`/`ResultFrame`/`ColumnMetadata`/`Value` union shapes
+(`types.ValueMemberBigIntValue`). Zero bugs found -- `sql.go`'s
+`legacyValueFromField` already emits the correct `bigIntValue` wire key for
+this union.
+
+Every real client call to this op carries an expected `SA1019` deprecation
+notice; the whole file is exempted from `staticcheck` in `.golangci.yml`
+(same pattern as `iotanalytics`/`opsworks`'s existing deprecated-op
+exemptions) since testing this op requires calling it.
+
+Typed-client coverage: 5/6 -> 6/6 (100%).
+
+Gates: `go build ./...`, `go vet ./services/rdsdata/...`, `go test -race
+-count=1 ./services/rdsdata/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/rdsdata/...` (0 issues). No persisted
+struct fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.

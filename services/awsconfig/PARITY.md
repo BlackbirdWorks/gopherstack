@@ -812,3 +812,43 @@ No persisted struct fields changed; no version bump. Gates: `go build ./...`,
 ./services/awsconfig/... ./pkgs/persistence/...` (pass), `golangci-lint run
 --new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering awsconfig's last seven
+typed-client-uncovered ops: `PutServiceLinkedConfigurationRecorder`,
+`DeleteServiceLinkedConfigurationRecorder`,
+`PutThirdPartyServiceLinkedConfigurationRecorder`,
+`GetAggregateComplianceDetailsByConfigRule`,
+`DescribeAggregateComplianceByConfigRules`,
+`DescribeAggregateComplianceByConformancePacks`,
+`GetAggregateConformancePackComplianceSummary`. Zero bugs found -- every
+op passed on the first correctly-shaped request.
+
+Accept-and-drop finding, NOT fixed (out of scope for this pass, disclosed
+here): `DescribeAggregateComplianceByConfigRulesInput.ConfigurationAggregatorName`
+is a real, required request member (configservice@v1.68.4
+`api_op_DescribeAggregateComplianceByConfigRules.go`), but
+`handleDescribeAggregateComplianceByConfigRules` dispatches with `_
+*emptyInput` -- the aggregator name is never read or validated, unlike
+this file's sibling `GetAggregateComplianceDetailsByConfigRule`/
+`DescribeAggregateComplianceByConformancePacks`/
+`GetAggregateConformancePackComplianceSummary`, which all call
+`requireAggregatorLocked` and correctly fault
+`NoSuchConfigurationAggregatorException` for an unknown name. A real
+client naming a nonexistent aggregator gets the local account's real
+compliance data back instead of the documented error. Not fixed this pass:
+doing so changes `DescribeAggregateComplianceByConfigRules`'s backend
+signature (currently zero-arg) and would need auditing every existing
+caller (including the in-package unit test that calls it directly with no
+aggregator context) -- a validation-completeness gap, not a decode-
+affecting wire-shape bug, so left for a dedicated future pass.
+
+Typed-client coverage: 95/102 -> 102/102 (100%).
+
+No persisted struct fields changed, no version bump.
+
+Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
+-count=1 ./services/awsconfig/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

@@ -325,3 +325,23 @@ surface here. No range, date, size, or operator-grammar filter exists
 anywhere in this service's pinned SDK. Zero bugs found; the service is
 structurally too small (2 real filter parameters total) to carry most of
 this class's known sub-shapes. No files changed.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering timestreamwrite's last
+typed-client-uncovered op, `ResumeBatchLoadTask`. A batch load task only
+resumes from `PROGRESS_STOPPED`/`FAILED` (`batch_load_tasks.go`'s
+`ResumeBatchLoadTask`), states the backend never reaches on its own
+without a real S3 load pipeline, so the test uses the backend's own
+`SetBatchLoadTaskStatus` seed method (already exported for exactly this
+purpose) to reach `FAILED` before resuming through the real
+aws-sdk-go-v2 client and asserting the decoded `CREATED` status via
+`DescribeBatchLoadTask`. Zero bugs found.
+
+Typed-client coverage: 18/19 -> 19/19 (100%).
+
+Gates: `go build ./...`, `go vet ./services/timestreamwrite/...`,
+`go test -race -count=1 ./services/timestreamwrite/...` (pass),
+`golangci-lint run --new-from-rev=HEAD ./services/timestreamwrite/...`
+(0 issues). No persisted struct fields changed, no version bump.
+`cmd/paritylint` stays at 0 FAIL.

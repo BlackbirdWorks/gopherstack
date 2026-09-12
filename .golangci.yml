@@ -530,6 +530,23 @@ linters:
       # Same reasoning as iotanalytics/handler_create_tags_test.go above.
       - path: 'iotanalytics/list_summaries_missing_members_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as iotanalytics/handler_create_tags_test.go above --
+      # typed coverage slice 17 (gopherstack-n3zi).
+      - path: 'iotanalytics/typed_slice17_realclient_test.go'
+        linters: [ staticcheck ]
+      # rdsdata's ExecuteSql is a deprecated legacy op (superseded by
+      # ExecuteStatement/BatchExecuteStatement); this file's sole purpose is
+      # driving it through a real client for typed coverage slice 17
+      # (gopherstack-n3zi), so every call carries an expected SA1019.
+      - path: 'rdsdata/typed_slice17_realclient_test.go'
+        linters: [ staticcheck ]
+      # securityhub's AcceptInvitation/GetMasterAccount are deprecated
+      # (superseded by AcceptAdministratorInvitation/GetAdministratorAccount);
+      # this file also covers the non-deprecated UpdateConnectorV2 typed
+      # coverage slice 17 (gopherstack-n3zi), but the deprecated pair's
+      # SA1019 is expected and unavoidable while still exercising the real op.
+      - path: 'securityhub/typed_slice17_realclient_test.go'
+        linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
       # cli.go composition-root wiring test also drives the deprecated iotanalytics
       # SDK client end to end.

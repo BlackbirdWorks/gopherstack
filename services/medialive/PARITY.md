@@ -1631,3 +1631,26 @@ Gates: `go build ./...`, `go vet ./services/medialive/...`,
 issues), `go test -race -count=1 ./services/medialive/...` — all clean. No
 backend struct fields changed in medialive this pass, no
 `pkgs/persistence` impact, no version bump.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Closed the one op the slice-6 pass above left uncovered. Slice 6 was
+correct that `PurchaseOffering`'s term length can't be fast-forwarded by a
+real client, but missed that this package already carries a test-only
+export for exactly this purpose: `export_test.go`'s `ForceReservationEnd`
+backdates a reservation's `End` directly, letting `DeleteReservation`'s
+`EXPIRED`-only precondition (`reservations.go`'s `effectiveState()`) be
+reached without a real time-travel hook. Added
+`typed_slice17_realclient_test.go`: purchase an offering through the real
+client, backdate its `End` via `ForceReservationEnd`, then delete it
+through the real client and assert the decoded `CANCELED` state and a
+subsequent `DescribeReservation` 404. Zero bugs found -- the op already
+worked correctly once reachable.
+
+Typed-client coverage: 122/123 (99.2%) -> 123/123 (100%).
+
+Gates: `go build ./...`, `go vet ./services/medialive/...`, `go test -race
+-count=1 ./services/medialive/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/medialive/...` (0 issues). No backend
+struct fields changed, no `pkgs/persistence` impact, no version bump.
+`cmd/paritylint` stays at 0 FAIL.

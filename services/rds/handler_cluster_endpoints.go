@@ -58,12 +58,22 @@ func (h *Handler) handleDeleteDBClusterEndpoint(vals url.Values) (any, error) {
 	}, nil
 }
 
+// toXMLClusterEndpointFields builds the wire shape for a custom cluster
+// endpoint. Real AWS's EndpointType/CustomEndpointType are distinct members
+// (rds@v1.124.1 api_op_ModifyDBClusterEndpoint.go's ModifyDBClusterEndpointOutput):
+// every endpoint reachable through this Create/Modify/Delete/Describe family is
+// a CUSTOM endpoint (the built-in reader/writer endpoints aren't managed here),
+// so EndpointType is always the literal "CUSTOM" and CustomEndpointType carries
+// the caller's READER/WRITER/ANY value -- gopherstack's own DBClusterEndpoint.
+// EndpointType field stores that caller value unchanged (see cluster_endpoints.go),
+// so only this wire-boundary mapping needed the split.
 func toXMLClusterEndpointFields(ep *DBClusterEndpoint) xmlDBClusterEndpointFields {
 	return xmlDBClusterEndpointFields{
 		DBClusterEndpointIdentifier: ep.DBClusterEndpointIdentifier,
 		DBClusterIdentifier:         ep.DBClusterIdentifier,
 		DBClusterEndpointArn:        ep.DBClusterEndpointArn,
-		EndpointType:                ep.EndpointType,
+		EndpointType:                "CUSTOM",
+		CustomEndpointType:          ep.EndpointType,
 		Status:                      ep.Status,
 		Endpoint:                    ep.Endpoint,
 	}
@@ -77,6 +87,7 @@ type xmlDBClusterEndpointFields struct {
 	DBClusterIdentifier         string `xml:"DBClusterIdentifier"`
 	DBClusterEndpointArn        string `xml:"DBClusterEndpointArn,omitempty"`
 	EndpointType                string `xml:"EndpointType"`
+	CustomEndpointType          string `xml:"CustomEndpointType,omitempty"`
 	Status                      string `xml:"Status"`
 	Endpoint                    string `xml:"Endpoint,omitempty"`
 }

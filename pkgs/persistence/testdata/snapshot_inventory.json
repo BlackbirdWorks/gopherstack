@@ -25192,6 +25192,7 @@
       "ConnectorV2.ConnectorStatus string `json:\"ConnectorStatus\"`",
       "ConnectorV2.CreatedAt string `json:\"CreatedAt\"`",
       "ConnectorV2.Description string `json:\"Description\"`",
+      "ConnectorV2.EnablementStatus string `json:\"EnablementStatus\"`",
       "ConnectorV2.Name string `json:\"Name\"`",
       "ConnectorV2.Provider map[string]any `json:\"Provider\"`",
       "ConnectorV2.Tags map[string]string `json:\"Tags\"`",

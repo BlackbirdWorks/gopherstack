@@ -1350,3 +1350,46 @@ No persisted struct fields changed; no version bump. Gates: `go build
 ./...`, `go vet ./services/securityhub/...`, `go test -race -count=1
 ./services/securityhub/...` (pass), `golangci-lint run --new-from-rev=HEAD
 ./services/securityhub/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering securityhub's last two
+typed-client-uncovered ops: the deprecated `AcceptInvitation` (an alias
+for `AcceptAdministratorInvitation`, `invitations.go`) and
+`UpdateConnectorV2`.
+
+**One real bug found and fixed**: `ConnectorV2` (`models.go`) had no
+`EnablementStatus` field at all, so `UpdateConnectorV2Output.EnablementStatus`
+(securityhub@v1.75.4 `api_op_UpdateConnectorV2.go`, `deserializers.go`'s
+case `"EnablementStatus"`) always decoded as the zero value regardless of
+backend state -- and, sharing the same `connectorV2ToResponse` render
+function, so did `CreateConnectorV2Output.EnablementStatus`. Fixed by
+adding the field to `ConnectorV2`, setting it to `"ENABLED"` on Create
+(`connectors_v2.go`), and echoing it from `connectorV2ToResponse`
+(`handler_connectors_v2.go`). `pkgs/persistence/testdata/snapshot_inventory.json`
+updated (one additive row, `ConnectorV2.EnablementStatus`); no version
+bump (`TestSnapshotVersionGuard` confirms pure addition).
+
+Accept-and-drop finding, NOT fixed (out of scope for this pass, left
+disclosed): `ConnectorV2.ConnectorStatus` is set to the literal `"ACTIVE"`
+at creation, but the real `types.ConnectorStatus` enum for this API family
+is `CONNECTED`/`DEGRADED`/`FAILED_TO_CONNECT`/`PENDING_AUTHORIZATION`/
+`PENDING_CONFIGURATION`/`UNKNOWN` -- `"ACTIVE"` isn't a member of it. Since
+`ConnectorStatus` is a plain Go string type, this never causes a real
+client's decode to fail (only a semantically wrong status string), so it
+was left as-is rather than risk-adjusting `ConnectorStatus`'s value across
+the whole `connectors_v2.go` file (would also touch
+`connectors_v2_test.go`'s existing `"ACTIVE"` assertions).
+
+Typed-client coverage: 114/116 -> 116/116 (100%).
+
+Every real client call to `AcceptInvitation`/`GetMasterAccount` carries an
+expected `SA1019` deprecation notice; the whole file is exempted from
+`staticcheck` in `.golangci.yml` (same pattern as `iotanalytics`/
+`opsworks`'s existing deprecated-op exemptions).
+
+Gates: `go build ./...`, `go vet ./services/securityhub/...`, `go test
+-race -count=1 ./services/securityhub/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/securityhub/...` (0 issues), `go test -race
+-count=1 ./pkgs/persistence/...` (pass, includes `TestSnapshotVersionGuard`).
+`cmd/paritylint` stays at 0 FAIL.
