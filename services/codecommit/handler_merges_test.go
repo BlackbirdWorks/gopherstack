@@ -230,8 +230,12 @@ func TestHandler_MergeBranchesByFastForward(t *testing.T) {
 
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, sourceTip, resp["commitId"],
-		"fast-forward moves the pointer to the existing source commit; it never fabricates a new one")
+	assert.Equal(
+		t,
+		sourceTip,
+		resp["commitId"],
+		"fast-forward moves the pointer to the existing source commit; it never fabricates a new one",
+	)
 	assert.Equal(t, sourceTip, mustBranchTip(t, h, "branch-merge-repo", "main"),
 		"destination branch tip must move to the source commit")
 }
@@ -391,7 +395,12 @@ func TestHandler_MergeBranchesByThreeWay_UnresolvableSource(t *testing.T) {
 func mustBranchTip(t *testing.T, h *codecommit.Handler, repoName, branchName string) string {
 	t.Helper()
 
-	rec := doRequest(t, h, "GetBranch", map[string]any{"repositoryName": repoName, "branchName": branchName})
+	rec := doRequest(
+		t,
+		h,
+		"GetBranch",
+		map[string]any{"repositoryName": repoName, "branchName": branchName},
+	)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp map[string]any
@@ -590,10 +599,16 @@ func TestHandler_GetMergeCommit(t *testing.T) {
 	h := newTestHandler(t)
 	setupRepoAndBranch(t, h, "merge-commit-repo")
 
+	// sourceCommitSpecifier/destinationCommitSpecifier must resolve to a real
+	// branch or commit -- "main" is the only branch setupRepoAndBranch
+	// creates. A prior version of this test used fabricated specifiers
+	// ("abc"/"def") that resolved to nothing; GetMergeCommit now validates
+	// both, matching GetMergeConflicts' established precedent (see
+	// handleGetMergeCommit's doc comment).
 	rec := doRequest(t, h, "GetMergeCommit", map[string]any{
 		"repositoryName":             "merge-commit-repo",
-		"sourceCommitSpecifier":      "abc",
-		"destinationCommitSpecifier": "def",
+		"sourceCommitSpecifier":      "main",
+		"destinationCommitSpecifier": "main",
 		"mergeOption":                "FAST_FORWARD_MERGE",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -601,6 +616,11 @@ func TestHandler_GetMergeCommit(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp["mergedCommitId"])
+	assert.NotEmpty(
+		t,
+		resp["sourceCommitId"],
+		"sourceCommitId must resolve to a real commit ID, not echo the branch name",
+	)
 }
 
 func TestHandler_GetMergeCommit_NotFound(t *testing.T) {

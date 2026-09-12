@@ -119,7 +119,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	prComment, err := original.PostCommentForPullRequest(pr.PullRequestID, repo.RepositoryName, "pr comment")
 	require.NoError(t, err)
-	require.NoError(t, original.PutCommentReaction(prComment.CommentID, "THUMBSUP"))
+	require.NoError(t, original.PutCommentReaction(
+		prComment.CommentID, "THUMBSUP", "arn:aws:iam::111122223333:user/bob",
+	))
 
 	commitComment, err := original.PostCommentForComparedCommit(
 		repo.RepositoryName, "", commit1.CommitID, "commit comment",

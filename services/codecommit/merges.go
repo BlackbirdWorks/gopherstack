@@ -107,6 +107,17 @@ func (b *InMemoryBackend) MergePullRequestByThreeWay(
 	return &cp, nil
 }
 
+// ResolveCommitSpecifier resolves a branch name or full commit ID to a
+// commit ID, taking the read lock itself -- the exported counterpart of
+// resolveCommitSpecifier for callers (handleGetMergeCommit) that are not
+// already holding b.mu.
+func (b *InMemoryBackend) ResolveCommitSpecifier(repoName, specifier string) (string, error) {
+	b.mu.RLock("ResolveCommitSpecifier")
+	defer b.mu.RUnlock()
+
+	return b.resolveCommitSpecifier(repoName, specifier)
+}
+
 // resolveCommitSpecifier resolves a branch name or full commit ID to a commit
 // ID. Real AWS specifiers can also be a tag or HEAD; this backend has no tag
 // concept and no separate HEAD pointer, so those are out of scope. Caller

@@ -93,6 +93,51 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 
 ## Notes
 
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): Redshift Serverless typed-client round trips, 150/198 -> 198/198
+
+Added `typed_slice32_realclient_test.go`: 17 table-driven tests, each
+building a real `redshiftserverless` SDK client against `ServerlessHandler`
+and round-tripping every previously-untyped op (Namespace/Workgroup/Snapshot
+CRUD, GetCredentials, UsageLimit/ScheduledAction Get-List-Update,
+CustomDomainAssociation/EndpointAccess Get-List-Update,
+ListManagedWorkgroups, SnapshotCopyConfiguration lifecycle, RecoveryPoint
+Get/List + RestoreFromRecoveryPoint, RestoreFromSnapshot, table-restore
+family, ConvertRecoveryPointToSnapshot, Track Get/List,
+UpdateLakehouseConfiguration including DryRun, and TagResource/UntagResource/
+ListTagsForResource). Redshift Serverless typed coverage: 150/198 -> 198/198.
+
+**Real bug found and fixed**: `ListScheduledActions` echoed the full
+`slScheduledActionWire` object (roleArn/schedule/targetAction/state/uuid/
+startTime/endTime) into its `scheduledActions` array, but the real
+`ListScheduledActionsOutput.ScheduledActions` member is
+`[]types.ScheduledActionAssociation` -- a summary shape carrying only
+`namespaceName`/`scheduledActionName` (confirmed against
+`awsAwsjson11_deserializeDocumentScheduledActionAssociation`,
+aws-sdk-go-v2/service/redshiftserverless@v1.38.5/deserializers.go:10298,
+whose only two cases are those fields). `GetScheduledAction`/
+`UpdateScheduledAction` correctly return the full `ScheduledActionResponse`
+object; only the List response was over-sharing. Fixed
+`handleListScheduledActions` (handler_serverless.go) to emit a new
+`slScheduledActionAssociationWire{NamespaceName, ScheduledActionName}` per
+entry instead. This is the "Summary-type member leak" bug class named in the
+typed-coverage campaign's method notes. `go test -race` on the package
+passes before and after; the one pre-existing test touching
+`ListScheduledActions` only asserted HTTP 200, not body shape, so no other
+test needed updating.
+
+No accept-and-drop findings beyond ones already documented in this file
+(AdminUserPassword/RedshiftIdcApplicationArn on CreateNamespace,
+MaintainIntegration on RestoreFromSnapshot/RestoreFromRecoveryPoint,
+ActivateCaseSensitiveIdentifier on the table-restore family -- all
+pre-existing, doc-commented in serverless.go/serverless_restore.go/
+serverless_table_restore.go, confirmed still accurate).
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/redshift/...` and `./pkgs/persistence/...` pass. `golangci-lint
+run --new-from-rev=HEAD services/redshift/...` 0 issues. No persistence
+schema/version change (Serverless already persists these types; no new
+fields added). `go run ./cmd/paritylint` stays at 0 FAIL.
+
 ### 2026-08-23 pass (third): closed the RevokeClusterSecurityGroupIngress follow-up, re-derived coverage, found the Authorize-side sibling bug (no bd id assigned this session)
 
 Started with the one named follow-up the prior continued pass left open:

@@ -162,7 +162,6 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"PostCommentForComparedCommit":          h.handlePostCommentForComparedCommit,
 		"PostCommentForPullRequest":             h.handlePostCommentForPullRequest,
 		"PostCommentReply":                      h.handlePostCommentReply,
-		"PutCommentReaction":                    h.handlePutCommentReaction,
 		"PutFile":                               h.handlePutFile,
 		"PutRepositoryTriggers":                 h.handlePutRepositoryTriggers,
 		"TestRepositoryTriggers":                h.handleTestRepositoryTriggers,
@@ -339,6 +338,15 @@ func (h *Handler) Handler() echo.HandlerFunc {
 func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]byte, error) {
 	if action == "OverridePullRequestApprovalRules" {
 		resp, err := h.handleOverridePullRequestApprovalRules(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	}
+
+	if action == "PutCommentReaction" {
+		resp, err := h.handlePutCommentReaction(ctx, body)
 		if err != nil {
 			return nil, err
 		}

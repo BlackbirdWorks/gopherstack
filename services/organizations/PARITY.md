@@ -157,6 +157,34 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 
 ## Notes
 
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 39 ops, 22/63 -> 63/63
+
+Added `typed_slice32_realclient_test.go`: 13 tests, each building a real
+`organizations` SDK client against `Handler` and round-tripping every
+previously-untyped op -- Account lifecycle (Create/DescribeCreateAccountStatus/
+ListCreateAccountStatus/MoveAccount/ListAccountsForParent/CloseAccount/
+RemoveAccountFromOrganization/CreateGovCloudAccount), OrganizationalUnit
+(ListChildren/ListParents/UpdateOrganizationalUnit), Policy (Describe/Update/
+Delete/Attach/Detach/ListPolicies/ListPoliciesForTarget/ListTargetsForPolicy),
+Enable/DisablePolicyType, Enable/DisableAWSServiceAccess +
+ListAWSServiceAccessForOrganization, RegisterDelegatedAdministrator family,
+Handshake lifecycle (Describe/Cancel/Decline/ListHandshakesForAccount/
+ListHandshakesForOrganization), EnableAllFeatures, LeaveOrganization (proves
+the always-fails-from-the-management-account path, the only caller identity
+this single-account backend can have), resource policy Put/Describe/Delete,
+DescribeEffectivePolicy/ListAccountsWithInvalidEffectivePolicy, and
+TagResource/UntagResource. organizations typed coverage: 22/63 -> 63/63.
+
+No new bugs found -- this package had already been through an "ordering pass"
+(every List op's sort key audited against the real SDK) and prior wire-shape
+passes; a fresh typed-client sweep corroborates that history.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/organizations/...` and `./pkgs/persistence/...` pass.
+`golangci-lint run --new-from-rev=HEAD services/organizations/...` 0 issues.
+No persistence schema/version change. `go run ./cmd/paritylint` stays at 0
+FAIL.
+
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct" traps
 so the next auditor doesn't re-flag them.
 

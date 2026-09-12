@@ -207,6 +207,33 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 
 ## Notes
 
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 40 ops, 259/299 -> 299/299
+
+Added `typed_slice32_realclient_test.go`: 11 tests, each building a real
+`glue` SDK client (reusing slice 5's `newSlice5GlueClient` helper) and
+round-tripping every previously-untyped op -- business glossary lifecycle
+(Create/Get/UpdateGlossary, ListGlossaries, Create/Get/UpdateGlossaryTerm,
+Associate/DisassociateGlossaryTerms), asset-catalog AssetType/FormType
+(Put/Get/List for both), Asset+attachment lifecycle (Get/UpdateAsset,
+SearchAssets, Put/DeleteAttachment, BatchGetIterableForms/ListIterableForms),
+custom entity types (Create/Get/Delete/BatchGet), table optimizers
+(Update/List runs/Delete), usage profile delete, Identity Center
+configuration delete, GetDashboardUrl, the ETL script family (CreateScript/
+GetDataflowGraph/GetMapping/GetPlan), DescribeEntity + GetEntityRecords, and
+DeleteTableVersion. glue typed coverage: 259/299 -> 299/299.
+
+No new bugs found -- every op already had a real, previously-audited backend
+implementation (glossaries.go, assets.go, forms.go, custom_entity_types.go,
+table_optimizers.go, usage_profiles.go, dashboard.go, identity_center.go,
+entities.go, etl.go), each with prior field-diff doc comments against the
+pinned SDK's Output structs; this sweep corroborates that work under a real
+typed client rather than finding new drift.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/glue/...` and `./pkgs/persistence/...` pass. `golangci-lint run
+--new-from-rev=HEAD services/glue/...` 0 issues. No persistence schema/
+version change. `go run ./cmd/paritylint` stays at 0 FAIL.
+
 - **Protocol**: json-1.1 (`X-Amz-Target: AWSGlue.<Op>`, `application/x-amz-json-1.1`),
   confirmed against `aws-sdk-go-v2/service/glue/deserializers.go`'s
   `awsAwsjson11_deserializeOpError<Op>` switch statements. Error responses use

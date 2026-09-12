@@ -87,7 +87,7 @@ ops:
   MergeBranchesBySquash: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — was calling the FastForward backend method verbatim; now a real distinct method: resolves+validates both specifiers exist (CommitDoesNotExistException if not, previously unvalidated), creates a commit with exactly ONE parent (the destination tip, matching real squash-merge shape vs. 3-way's two), and honors TargetBranch/CommitMessage/AuthorName/Email request fields that were previously silently dropped. Content-level squash (combining file changes) still not modeled — see gaps. CHECKED 2026-08-30 (gopherstack-4a8v): mergeBranchesRequest.{TargetBranch,CommitMessage,AuthorName,Email} were flagged unread by cmd/reqfieldscan's anonymous-struct-decode scan -- FALSE POSITIVE, confirmed by reading handler_merges.go: they ARE read, via mergeBranchesRequest's own options() method (r.TargetBranch etc., handler_merges.go:388-391), which the tool's collectLocalBindings doesn't bind because it only tracks a function's own parameters/locals, never a method receiver. No code change."}
   MergeBranchesByThreeWay: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED this pass — same as MergeBranchesBySquash, but the created commit has TWO parents ([destination, source]), a real merge-commit shape FastForward's zero-parent commit and Squash's one-parent commit both lack. Content-level 3-way merge still not modeled — see gaps. Same false-positive check as MergeBranchesBySquash above (shares mergeBranchesRequest)."}
   CreateUnreferencedMergeCommit: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 — decode struct dropped CreateUnreferencedMergeCommitInput's authorName/commitMessage/email entirely (the exact bug class PutFile/DeleteFile were fixed for, gopherstack-n3zi's flagged lead): the resulting commit always carried the hardcoded 'Unreferenced merge commit' message and an anonymous author, even though Commit.AuthorName/AuthorEmail/Message are real tracked fields populated correctly by CreateCommit and MergeBranchesBySquash/ByThreeWay. Now threaded through the backend signature and set on the commit, defaulting to the prior hardcoded message only when the client omits commitMessage (matching MergeBranchesBySquash/ByThreeWay's own default-message pattern). FIXED 2026-08-30 (gopherstack-4a8v): mergeOption is a required CreateUnreferencedMergeCommitInput member (api_op_CreateUnreferencedMergeCommit.go) that was parsed and never validated OR forwarded to the backend at all -- the backend method has no mergeOption parameter to receive it. Added the same required+valid-enum check BatchDescribeMergeConflicts/GetMergeConflicts already had. Not threaded into the backend beyond validation: like GetMergeConflicts's own blank-discarded mergeOption (merges.go), this backend has no per-branch content model to actually compute a differing squash/3-way/fast-forward result, so there's nothing for the value to drive once it's valid."}
-  GetMergeCommit: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): the decode struct declared a mergeOption field that is not a real GetMergeCommitInput member at all (confirmed against api_op_GetMergeCommit.go and awsAwsjson11_serializeOpDocumentGetMergeCommitInput in serializers.go -- a real client never sends it). Deleted rather than wired up, per this campaign's fabricated-field convention. No observable runtime behavior changed (the field was already never read), so no new regression test was written for the deletion itself -- existing tests (TestHandler_GetMergeCommit et al.) still pass sending the now-ignored key, since an unrecognized JSON key is silently dropped by encoding/json either way."}
+  GetMergeCommit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-30 (gopherstack-4a8v): the decode struct declared a mergeOption field that is not a real GetMergeCommitInput member at all (confirmed against api_op_GetMergeCommit.go and awsAwsjson11_serializeOpDocumentGetMergeCommitInput in serializers.go -- a real client never sends it). Deleted rather than wired up, per this campaign's fabricated-field convention. No observable runtime behavior changed (the field was already never read), so no new regression test was written for the deletion itself -- existing tests (TestHandler_GetMergeCommit et al.) still pass sending the now-ignored key, since an unrecognized JSON key is silently dropped by encoding/json either way. FIXED 2026-09-12 (typed slice 32): sourceCommitId/destinationCommitId were echoed as the raw, unresolved request specifiers (which can be branch names) instead of real commit IDs; now resolved via the new exported ResolveCommitSpecifier, which also makes an unresolvable specifier 404 instead of silently succeeding. baseCommitId remains a documented gap (no real merge-base algorithm), see dated section below."}
   GetMergeConflicts: {wire: fixed, errors: fixed, state: fixed, persist: n/a, note: "FIXED this pass — three bugs: (1) required-field/mergeOption-enum validation was entirely missing (repositoryName/sourceCommitSpecifier/destinationCommitSpecifier/mergeOption all 'This member is required' per the real SDK's validateOpGetMergeConflictsInput); (2) sourceCommitId/destinationCommitId echoed the raw request specifier instead of the resolved commit ID (now resolved via resolveCommitSpecifier, CommitDoesNotExistException if unresolvable); (3) SEVERE — mergeable was hardcoded to `false` (inverted: this emulator never computes real conflicts, so every merge was actually mergeable, but every real client polling this op before merging would have seen mergeable:false and refused to proceed). Now true. conflicts/mergeHunks remain always empty — no content-diff engine (see gaps); this is AWS-correct for FAST_FORWARD_MERGE specifically (doc-guaranteed empty) but a documented gap for SQUASH_MERGE/THREE_WAY_MERGE. FIXED (gopherstack-lx5h) — response key was also wrong: emitted \"conflicts\", real required key (deserializers.go) is conflictMetadataList. Confirmed the always-empty list itself is the deliberate, documented stub described above (no content-diff engine) and left that behavior untouched; only the key name changed, which is a zero-behavior-change fix since the value is always []"}
   GetMergeOptions: {wire: ok, errors: ok, state: n/a, persist: n/a}
   DescribeMergeConflicts: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was a disguised no-op that echoed the request and never checked the repository existed; now delegates to the same backend logic as BatchDescribeMergeConflicts with full validation"}
@@ -96,10 +96,10 @@ ops:
   PostCommentForPullRequest: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same CreationDate/LastModifiedDate string-vs-JSON-number bug as PostCommentForComparedCommit. Also now echoes pullRequestId/repositoryName/afterCommitId/beforeCommitId at the top level (previously omitted; the backend still doesn't store afterCommitId/beforeCommitId per-comment, so these are echoed from the request, not read back from storage)"}
   PostCommentReply: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: parent-not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
   GetComment: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: not-found now CommentDoesNotExistException, was RepositoryDoesNotExistException"}
-  GetCommentReactions: {wire: ok, errors: fixed, state: ok, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf"}
+  GetCommentReactions: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf. FIXED 2026-09-12 (typed slice 32): the response emitted a flat {emoji,userArn} object per reaction instead of the real nested ReactionForComment{reaction:{emoji,...},reactionUsers:[...]} shape, so a typed client always decoded a nil Reaction/empty ReactionUsers; see dated section below."}
   GetCommentsForComparedCommit: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — TWO bugs. (1) same Comment timestamp bug as the rest of the family. (2) SEPARATE, more severe bug: the real response is []CommentsForComparedCommit (deserializers.go:20763), each wrapping a nested \"comments\" array plus repositoryName/afterCommitId/beforeCommitId/afterBlobId/beforeBlobId/location — this emulator emitted a flat []Comment instead. Unknown top-level JSON keys are silently dropped by the JSON-RPC protocol (no decode error), so every real client got back a group with an empty Comments slice — total silent data loss, worse than a hard failure. Now wraps all matching comments into one group (repositoryName/afterCommitId always set, beforeCommitId when provided; afterBlobId/beforeBlobId/location omitted — not tracked by this backend, and are optional pointer fields in the real shape)"}
   GetCommentsForPullRequest: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same two bugs as GetCommentsForComparedCommit: Comment timestamps, and flat []Comment instead of []CommentsForPullRequest (deserializers.go:20883) wrapping a nested \"comments\" list. Now wraps into one group with pullRequestId always set and repositoryName populated from the stored comments' RepoName when available; afterCommitId/beforeCommitId omitted (PostCommentForPullRequest doesn't persist them per-comment)"}
-  PutCommentReaction: {wire: ok, errors: fixed, state: ok, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf"}
+  PutCommentReaction: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "operates on Reaction, not Comment — unaffected by gopherstack-gvkf. FIXED 2026-09-12 (typed slice 32): never recorded a reacting user (Reaction.UserARN was always empty) since the handler had no caller identity to pass; now threads awsmeta.CallerArn(ctx) through the same ctx-special-case dispatch mechanism OverridePullRequestApprovalRules already uses, and is idempotent per (commentID, emoji, userARN). See dated section below."}
   UpdateComment: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug. errors: unchanged from prior pass"}
   DeleteCommentContent: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-gvkf) — same timestamp bug via the shared commentToMap converter; not one of the 7 ops named in the original bug report, but calls the identical converter and was found broken the same way while auditing the rest of the family. errors: unchanged from prior pass"}
   GetDifferences: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "was a documented deferred item (nextToken/maxResults accepted but not enforced); now paginated via pkgs/page. Also fixed a wire-shape bug: this op is the one CodeCommit exception to lowercase pagination field names — both request and response use MaxResults/NextToken (capital), verified against the SDK's generated (de)serializers; the handler previously used lowercase and so real pagination requests/responses were silently no-ops"}
@@ -122,6 +122,70 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
 ---
 
 ## Notes
+
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 38 ops, 38/79 -> 79/79
+
+Added `typed_slice32_realclient_test.go`: 11 tests, each building a real
+`codecommit` SDK client against `Handler` and round-tripping every
+previously-untyped op -- Repository (BatchGetRepositories/UpdateName/
+UpdateDescription/Tag/Untag/ListTagsForResource), Branches+Commits
+(ListBranches/UpdateDefaultBranch/BatchGetCommits), Files+Blob (GetFile/
+GetFolder/GetBlob), merges (GetMergeOptions/GetMergeCommit/
+MergeBranchesByFastForward), pull requests (Get/UpdateTitle/UpdateDescription/
+GetPullRequestApprovalStates/UpdatePullRequestApprovalState/
+GetPullRequestOverrideState/OverridePullRequestApprovalRules/
+ListPullRequests/MergePullRequestBy{Squash,ThreeWay,FastForward}), approval
+rule templates (Get/List/Update{Content,Description,Name}/(Dis)Associate*/
+Batch(Dis)Associate*/ListAssociated*/ListRepositoriesFor*), repository
+triggers (Put/Get/TestRepositoryTriggers), and comment reactions
+(Put/GetCommentReactions). codecommit typed coverage: 38/79 -> 79/79.
+
+**Two real bugs found and fixed:**
+
+1. `handleGetCommentReactions` (handler_reactions.go) emitted a flat
+   `{emoji, userArn}` object per stored reaction, but the real wire shape
+   (codecommit@v1.36.4 `types.ReactionForComment`) nests a
+   `ReactionValueFormats` object under `reaction` and the reacting users'
+   ARNs under `reactionUsers` -- there is no flat member at all. A typed
+   client decoding the old shape always saw a nil `Reaction` and empty
+   `ReactionUsers` regardless of what was stored. Fixed by grouping stored
+   reactions by emoji into the real nested shape (`reactionsForCommentJSON`).
+   This also exposed that `PutCommentReaction` never recorded a reacting
+   user at all (`PutCommentReactionInput` has no client-supplied ARN member,
+   same as the already-fixed `OverridePullRequestApprovalRules`) -- fixed by
+   threading `awsmeta.CallerArn(ctx)` through the same ctx-special-case
+   dispatch mechanism `handleOverridePullRequestApprovalRules` already uses
+   (`dispatch()` in handler.go), so `PutCommentReaction`'s backend signature
+   is now `(commentID, emoji, userARN string)` and is idempotent per
+   `(commentID, emoji, userARN)`. `ShortCode`/`Unicode` on
+   `ReactionValueFormats` remain unset -- this backend never resolves a raw
+   `reactionValue` into those two alternate representations, a documented
+   gap rather than a fabrication.
+2. `handleGetMergeCommit` (handler_merges.go) echoed the raw
+   `sourceCommitSpecifier`/`destinationCommitSpecifier` request strings back
+   as `sourceCommitId`/`destinationCommitId`, but real `GetMergeCommitOutput`
+   documents both as "the commit ID ... used in the merge evaluation" --
+   since a specifier can be a branch name (this package's own
+   `resolveCommitSpecifier` already accepts one), the response could hand a
+   typed client a branch name where it expected a real commit ID. Fixed by
+   resolving both specifiers via a new exported `ResolveCommitSpecifier`
+   (wraps the existing unexported, already-locked `resolveCommitSpecifier`)
+   before echoing them, and by validating them as a side effect -- an
+   unresolvable specifier now correctly 404s instead of silently succeeding.
+   `baseCommitId` (also a required `GetMergeCommitOutput` member) remains
+   absent: this backend has no real merge-base algorithm to compute it
+   honestly, left as a documented gap rather than fabricated. One existing
+   raw-body test (`TestHandler_GetMergeCommit`) used fabricated,
+   unresolvable specifiers (`"abc"`/`"def"`) and asserted success; updated
+   to use the repository's real `"main"` branch, matching the now-correct
+   validation.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/codecommit/...` and `./pkgs/persistence/...` pass. `golangci-lint
+run --new-from-rev=HEAD services/codecommit/...` 0 issues. No persistence
+schema/version change (Reaction already persists via the generic
+store.Table machinery; UserARN was already a modeled field, just never
+populated). `go run ./cmd/paritylint` stays at 0 FAIL.
 
 ### Bugs fixed this pass (2026-08-13, HEAD 1835ab406) — gopherstack-gvkf
 

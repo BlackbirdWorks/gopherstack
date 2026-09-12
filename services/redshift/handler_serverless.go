@@ -969,6 +969,17 @@ func (h *ServerlessHandler) handleGetScheduledAction(c *echo.Context, body []byt
 	return c.JSON(http.StatusOK, map[string]any{slRespScheduledAction: toScheduledActionWire(sa)})
 }
 
+// slScheduledActionAssociationWire is ListScheduledActionsOutput's real
+// per-item shape (types.ScheduledActionAssociation) -- only the two
+// identifying fields, NOT the full ScheduledActionResponse object Get/Update
+// return (confirmed via awsAwsjson11_deserializeDocumentScheduledActionAssociation
+// in aws-sdk-go-v2/service/redshiftserverless@v1.38.5/deserializers.go:10298,
+// whose only cases are "namespaceName"/"scheduledActionName").
+type slScheduledActionAssociationWire struct {
+	NamespaceName       string `json:"namespaceName,omitempty"`
+	ScheduledActionName string `json:"scheduledActionName"`
+}
+
 func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context, body []byte) error {
 	var req struct {
 		NamespaceName string `json:"namespaceName"`
@@ -984,9 +995,12 @@ func (h *ServerlessHandler) handleListScheduledActions(c *echo.Context, body []b
 
 	list, outToken := h.Backend.ListServerlessScheduledActions(req.NamespaceName, req.MaxResults, req.NextToken)
 
-	wire := make([]*slScheduledActionWire, 0, len(list))
+	wire := make([]slScheduledActionAssociationWire, 0, len(list))
 	for _, sa := range list {
-		wire = append(wire, toScheduledActionWire(sa))
+		wire = append(wire, slScheduledActionAssociationWire{
+			NamespaceName:       sa.NamespaceName,
+			ScheduledActionName: sa.ScheduledActionName,
+		})
 	}
 
 	resp := map[string]any{"scheduledActions": wire}

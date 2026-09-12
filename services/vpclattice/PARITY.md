@@ -130,6 +130,30 @@ items_still_open:
   - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 42 ops, 31/73 -> 73/73
+
+Added `typed_slice32_realclient_test.go`: 17 tests, each building a real
+`vpclattice` SDK client against `Handler` and round-tripping every
+previously-untyped op -- ServiceNetwork/Listener/Rule/TargetGroup+Targets/
+AccessLogSubscription lifecycles, ServiceNetworkServiceAssociation/
+ServiceNetworkVpcAssociation/ServiceNetworkResourceAssociation Get+List+
+Update+Delete, BatchUpdateRule (success and per-rule failure), resource and
+auth policy Put/Get/Delete, UpdateResourceConfiguration/UpdateResourceGateway/
+UpdateService, ListDomainVerifications, TagResource/UntagResource, and the
+always-empty ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
+families (proving the honest-empty shape decodes cleanly, not just that the
+backend never populates it). vpclattice typed coverage: 31/73 -> 73/73.
+
+No new bugs found -- this package had already been through 13+ dated
+wire-fidelity passes (the entries below), all field-diffed against
+`vpclattice@v1.25.5`'s real Output structs, so a fresh typed-client sweep
+corroborates rather than supersedes that history.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/vpclattice/...` and `./pkgs/persistence/...` pass. `golangci-lint
+run --new-from-rev=HEAD services/vpclattice/...` 0 issues. No persistence
+schema/version change. `go run ./cmd/paritylint` stays at 0 FAIL.
+
 ### 2026-08-21 gopherstack-r80d batch 13: required-output cut, 1 bug
 
 Selected as the largest remaining candidate after sagemaker (off-limits,
