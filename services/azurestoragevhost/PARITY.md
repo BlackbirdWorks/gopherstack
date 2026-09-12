@@ -14,8 +14,7 @@ families:
 gaps:
   - "This package owns no state of its own (Reset/Snapshot/Restore are no-ops); a snapshot/restore cycle on the wired services fully covers vhost-visible data too, so nothing is missing here specifically -- listed for completeness since most services have real persist behavior to audit."
   - "GetSupportedOperations() returns nil (no dedicated metrics-op enum); ExtractOperation/ExtractResource parse the Host header only for basic request-metrics labeling, not the fine-grained per-op accounting the wrapped services' own handlers already do internally once delegated to."
-structural_gaps:
-  - "None -- this is a pure translation layer; every real behavioral gap belongs to the wrapped azureblob/azurequeue/azuretable services' own PARITY.md files."
+structural_gaps: []
 deferred:
   - "M8 initial implementation (AZURE.md section 10.8 finding (9)). No prior audit passes to report."
 leaks: {status: clean, note: "Handler.StartWorker/Shutdown mirror azureblob's own listener lifecycle exactly (fixed port, fail-fast bind); no additional goroutines beyond the one HTTP server."}

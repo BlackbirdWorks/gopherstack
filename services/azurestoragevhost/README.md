@@ -10,7 +10,6 @@
 | PARITY entries audited | 2 (2 ok) |
 | Feature families | 1 (1 ok) |
 | Known gaps | 2 |
-| Structural gaps (can't be emulated) | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -18,12 +17,6 @@
 
 - This package owns no state of its own (Reset/Snapshot/Restore are no-ops); a snapshot/restore cycle on the wired services fully covers vhost-visible data too, so nothing is missing here specifically -- listed for completeness since most services have real persist behavior to audit.
 - GetSupportedOperations() returns nil (no dedicated metrics-op enum); ExtractOperation/ExtractResource parse the Host header only for basic request-metrics labeling, not the fine-grained per-op accounting the wrapped services' own handlers already do internally once delegated to.
-
-### Structural gaps
-
-These do not block an A grade — no implementation could produce real data here because the underlying data source cannot exist in an emulator.
-
-- None -- this is a pure translation layer; every real behavioral gap belongs to the wrapped azureblob/azurequeue/azuretable services' own PARITY.md files.
 
 ### Deferred
 

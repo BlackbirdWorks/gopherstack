@@ -252,14 +252,16 @@ func TestHandler_AccountSubServiceDefault_ReturnsOK(t *testing.T) {
 	sub := h.Settings.SubscriptionID
 	base := "/subscriptions/" + sub
 
-	_, _ = doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+	status, _ := doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusCreated, status)
 
 	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
-	_, _ = doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
+	status, _ = doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusOK, status)
 
 	for _, sub := range []string{"fileServices", "blobServices", "queueServices", "tableServices"} {
-		status, _ := doRequest(t, h, http.MethodGet, acctPath+"/"+sub+"/default", nil)
-		assert.Equal(t, http.StatusOK, status, "expected 200 for %s/default", sub)
+		subStatus, _ := doRequest(t, h, http.MethodGet, acctPath+"/"+sub+"/default", nil)
+		assert.Equal(t, http.StatusOK, subStatus, "expected 200 for %s/default", sub)
 	}
 }
 
@@ -275,6 +277,30 @@ func TestHandler_AccountSubServiceDefault_UnknownAccountIs404(t *testing.T) {
 
 	status, _ := doRequest(t, h, http.MethodGet,
 		base+"/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/nope/fileServices/default", nil)
+	assert.Equal(t, http.StatusNotFound, status)
+}
+
+// TestHandler_AccountSubServiceDefault_NonStorageResourceIs404 proves the
+// route only ever answers for Microsoft.Storage/storageAccounts, not any
+// resource type whose path happens to end in "{x}Services/default" -- a
+// generic (non-Storage) resource existing under that shape must not also
+// 200, even though the outer route match only checks the trailing path
+// segments (see handleAccountSubServiceDefault's namespace/type check).
+func TestHandler_AccountSubServiceDefault_NonStorageResourceIs404(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	status, _ := doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusCreated, status)
+
+	widgetPath := base + "/resourceGroups/rg1/providers/Microsoft.SomeFutureThing/widgets/w1"
+	status, _ = doRequest(t, h, http.MethodPut, widgetPath, []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = doRequest(t, h, http.MethodGet, widgetPath+"/blobServices/default", nil)
 	assert.Equal(t, http.StatusNotFound, status)
 }
 

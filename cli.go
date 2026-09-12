@@ -558,6 +558,15 @@ func (c *CLI) GetAzureStorageVHostSettings() azurestoragevhostbackend.Settings {
 	return c.AzureStorageVHost
 }
 
+// GetAzureStorageVHostPort returns the shared Azure Storage virtual-hosted
+// listener's actual configured port (azurearm.VHostPortProvider), so
+// azurearm.Provider.Init can fail fast if it disagrees with
+// --azure-arm-storage-vhost-port instead of silently advertising a port
+// nothing answers on.
+func (c *CLI) GetAzureStorageVHostPort() int {
+	return c.AzureStorageVHost.Port
+}
+
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
 func (c *CLI) GetS3Endpoint() string {
 	s3Port := strings.TrimPrefix(c.Port, ":")

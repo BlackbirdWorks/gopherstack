@@ -7,9 +7,9 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 9 (7 ok, 2 partial) |
+| PARITY entries audited | 11 (8 ok, 2 partial, 1 gap) |
 | Feature families | 4 (3 ok, 1 partial) |
-| Known gaps | 8 |
+| Known gaps | 9 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -22,7 +22,8 @@
 - No Copy Blob (server-side or cross-account) support.
 - No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support.
 - List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination.
-- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet. All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
+- Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet.
+- Set Blob Properties (PUT ?comp=properties, ops.SetBlobProperties) is accepted and validated (404s a nonexistent blob) but not persisted -- StorageBackend has no property-update path (PutBlob only sets content-type at upload time), so content-type/cache-control/etc changes sent via this call are silently discarded. Added in M8 solely to satisfy terraform-provider-azurerm's post-upload call, which only checks for a 200 and never re-reads these properties in the same apply. All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
 
 ### Deferred
 

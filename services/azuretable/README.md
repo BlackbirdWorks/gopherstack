@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 11 (9 ok, 1 partial, 1 deferred) |
+| PARITY entries audited | 13 (10 ok, 1 partial, 1 gap, 1 deferred) |
 | Feature families | 8 (7 ok, 1 partial) |
 | Known gaps | 6 |
 | Deferred items | 3 |
@@ -18,7 +18,7 @@
 - No continuation-token pagination on List Tables or Query Entities -- both return every matching result in one page. x-ms-continuation-NextPartitionKey/NextRowKey response headers are not set.
 - $select is honored for custom properties, but PartitionKey/RowKey/Timestamp are always returned regardless of the $select list (real Table Storage honors $select literally for these too); documented deviation chosen for simplicity and because every SDK round-trip needs the key properties anyway.
 - A whole-number Edm.Double value (e.g. 4.0) round-trips as Edm.Int32 when written without an explicit @odata.type annotation -- an inherent ambiguity in the unannotated-number wire format that aztables' own client has too (see families.edm_types).
-- No SAS / Set-Get Table ACL support.
+- No SAS support. Set Table ACL (ops.SetTableACL, M8) is a compatibility-only no-op -- it 204s for an existing table but never parses or stores stored access policies from the request body; Get Table ACL is unimplemented.
 - No queue-style janitor: Table Storage entities have no TTL/expiry concept, so there is nothing to sweep (this is a deliberate scope decision, not an oversight -- see provider.go's Provider doc comment).
 - Auth verification is not enforced -- see families.auth. All gaps above are intentional MVP scope per AZURE.md's M2 entry (see AZURE.md section 8), not oversights.
 

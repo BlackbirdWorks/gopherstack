@@ -283,6 +283,16 @@ func (h *Handler) handleAccountSubServiceDefault(c *echo.Context, accountSegs []
 		return h.writeAPIError(c, err)
 	}
 
+	// Both real call sites (bug (7)/(8) above) only ever query this shape
+	// under Microsoft.Storage/storageAccounts; restricting it here stops an
+	// unrelated resource type (e.g. Microsoft.Network/virtualNetworks/foo/
+	// somethingServices/default) from also matching the route's generic
+	// "ends in {x}Services/default" check and 200ing.
+	if !strings.EqualFold(id.Namespace, namespaceMicrosoftStorage) ||
+		len(id.Types) != 1 || !strings.EqualFold(id.Types[0], storageAccountsType) {
+		return h.writeAPIError(c, ErrResourceNotFound)
+	}
+
 	if _, getErr := h.Registry.Get(c.Request().Context(), id); getErr != nil {
 		return h.writeAPIError(c, getErr)
 	}

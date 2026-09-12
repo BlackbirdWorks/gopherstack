@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
@@ -9,6 +10,24 @@ import (
 
 // ErrNilAppContext is returned when Init is called with a nil AppContext.
 var ErrNilAppContext = errors.New("azurearm: nil app context")
+
+// ErrStorageVHostPortMismatch is returned when Settings.StorageVHostPort
+// (what ARM advertises in primaryEndpoints) disagrees with the actual
+// services/azurestoragevhost listener's own configured port. Failing fast
+// here, rather than letting the two silently diverge, avoids repeating the
+// exact "advertised a port nothing answers on" bug class already found and
+// fixed twice in this milestone (AZURE.md section 10.10, M8 bugs (1)/(5)).
+var ErrStorageVHostPortMismatch = errors.New(
+	"azurearm: --azure-arm-storage-vhost-port must match --azure-storage-vhost-port",
+)
+
+// VHostPortProvider is a private interface AppContext.Config may implement
+// to expose the actual services/azurestoragevhost listener's configured
+// port, so Init can cross-check it against Settings.StorageVHostPort. cli.go
+// implements this via CLI.GetAzureStorageVHostPort.
+type VHostPortProvider interface {
+	GetAzureStorageVHostPort() int
+}
 
 // ConfigProvider is a private interface to extract ARM configuration from
 // the abstract AppContext Config, mirroring services/cosmosdb.ConfigProvider.
@@ -58,6 +77,15 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	var dataPlane StorageAccounts
 	if sp, ok := ctx.Config.(StorageAccountsProvider); ok {
 		dataPlane = sp.GetAzureARMStorageAccounts()
+	}
+
+	if settings.AdvertiseStorageVHost == "" {
+		if vp, ok := ctx.Config.(VHostPortProvider); ok {
+			if actual := vp.GetAzureStorageVHostPort(); actual != 0 && actual != settings.StorageVHostPort {
+				return nil, fmt.Errorf("%w: azure-arm-storage-vhost-port=%d, azure-storage-vhost-port=%d",
+					ErrStorageVHostPortMismatch, settings.StorageVHostPort, actual)
+			}
+		}
 	}
 
 	backend := NewInMemoryBackend()
