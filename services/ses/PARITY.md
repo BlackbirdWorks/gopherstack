@@ -53,7 +53,7 @@ ops:
   UpdateConfigurationSetReputationMetricsEnabled: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateConfigurationSetSendingEnabled: {wire: ok, errors: ok, state: ok, persist: ok}
   SendEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior pass added AccountSendingPausedException + 24h-quota + ConfigurationSetDoesNotExist enforcement; this pass added the ReturnPathArn input member (SendEmailInput.ReturnPathArn), which was silently dropped -- now captured on the stored Email record like the sibling SourceArn/ReturnPath members. gopherstack-nbp (2026-09-11): now calls checkMailFromLocked, which real-code-paths MailFromDomainNotVerifiedException (declared for this op, deserializers.go) -- see families.mail_from_domain_not_verified for why it's unreachable from any real client today."}
-  SendRawEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to SendEmail, inherits the same fixes; this pass added ReturnPathArn parsing (SendRawEmailInput.ReturnPathArn, confirmed real member via api_op_SendRawEmail.go). gopherstack-x0sl (2026-08-13): fixed -- Destinations (wire key \"Destinations.member.N\", serializers.go:6682-6684 / AddressList array encoding at 4982-4990) was parsed nowhere; recipients came only from the raw message's To: header, silently dropping Bcc-only recipients (Destinations is the documented mechanism for delivering to addresses deliberately absent from the headers, which is exactly how Bcc works). Now: Destinations, when present, is the actual envelope SES delivers to and takes precedence over the headers; each address is classified To/Cc/Bcc by whether it's visible in the raw message's To/Cc header, with anything not visible landing in Bcc. Cc is now also parsed from the header (previously only To was) as a direct consequence. SendRawEmailInput.FromArn remains unhandled -- see gaps. gopherstack-nbp (2026-09-11): inherits checkMailFromLocked via SendEmail -- see that row."}
+  SendRawEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to SendEmail, inherits the same fixes; this pass added ReturnPathArn parsing (SendRawEmailInput.ReturnPathArn, confirmed real member via api_op_SendRawEmail.go). gopherstack-x0sl (2026-08-13): fixed -- Destinations (wire key \"Destinations.member.N\", serializers.go:6682-6684 / AddressList array encoding at 4982-4990) was parsed nowhere; recipients came only from the raw message's To: header, silently dropping Bcc-only recipients (Destinations is the documented mechanism for delivering to addresses deliberately absent from the headers, which is exactly how Bcc works). Now: Destinations, when present, is the actual envelope SES delivers to and takes precedence over the headers; each address is classified To/Cc/Bcc by whether it's visible in the raw message's To/Cc header, with anything not visible landing in Bcc. Cc is now also parsed from the header (previously only To was) as a direct consequence. SendRawEmailInput.FromArn remains unhandled -- see gaps. gopherstack-nbp (2026-09-11): inherits checkMailFromLocked via SendEmail -- see that row. gopherstack-n3zi slice 18 (2026-09-12), first ever real-client exercise of this op: RawMessage.Data was never base64-decoded even though the real query-protocol serializer always base64-encodes Blob members (serializers.go: awsAwsquery_serializeDocumentRawMessage) -- every real client's raw message failed to parse (From/Subject/To all silently lost). Fixed with a tolerant decode; op had never worked from a real client before this fix."}
   SendTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "same enforcement added as SendEmail; this pass added ReturnPathArn (see SendEmail note). gopherstack-nbp (2026-09-11): now also calls checkMailFromLocked -- see SendEmail row."}
   SendBulkTemplatedEmail: {wire: ok, errors: ok, state: ok, persist: ok, note: "prior pass fixed ConfigurationSetName/ReplyToAddresses/ReturnPath/SourceArn. This pass: (1) added ReturnPathArn; (2) added DefaultTags and per-destination BulkEmailDestination.ReplacementTags, both real SendBulkTemplatedEmailInput members that were entirely unparsed by the handler (Tags on bulk-send silently vanished) -- ReplacementTags overrides (not merges with) DefaultTags per destination; (3) refactored the backend method's 8-positional-argument signature into SendBulkTemplatedEmailInput (struct, mirrors SendEmailInput/SendTemplatedEmailInput) so future members don't grow the param list further. TemplateArn remains unhandled -- see gaps. gopherstack-nbp (2026-09-11): each destination inherits checkMailFromLocked via sendTemplatedEmailChecked -- see SendEmail row."}
   SendBounce: {wire: ok, errors: ok, state: ok, persist: ok, note: "was a disguised stub (no field validation, no sender-verification check, deterministic fabricated MessageId); now validates BounceSender + BouncedRecipientInfoList as required (matching SendBounceInput), enforces sender verification, real unique MessageId"}
@@ -89,7 +89,7 @@ ops:
   DeleteConfigurationSetTrackingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ssk (2026-09-11): enforces the 50-custom-verification-templates-per-account cap (dev guide FAQ, quotas.html omits this one) -> LimitExceededException; see families.limit_exceeded_enforcement."}
   DeleteCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-n3zi slice 18 (2026-09-12): fixed a wrapper-key bug -- response wrapped every field inside a nonexistent CustomVerificationEmailTemplate element; real output is flat. Every field decoded empty on a real client until this pass, first ever real-client exercise of this op."}
   ListCustomVerificationEmailTemplates: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): MaxResults/NextToken were never plumbed through the call chain at all -- handleListCustomVerificationEmailTemplates took no query params and the backend method took none either, so ListCustomVerificationEmailTemplatesOutput.NextToken was always empty and every template was returned in one page regardless of MaxResults. Now paginated (own documented 1-50 range, default+cap 50, api_op_ListCustomVerificationEmailTemplates.go) via page.New (custom_verification.go)."}
   CreateReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ssk (2026-09-11): enforces the 40-receipt-rule-sets-per-account cap -> LimitExceededException; see families.limit_exceeded_enforcement."}
   CloneReceiptRuleSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ssk (2026-09-11): also creates a new rule set, so shares the same 40-per-account cap as CreateReceiptRuleSet."}
@@ -451,3 +451,63 @@ not a version-bump case" message. One pre-existing test
 to keep creating >100 rule sets for an unrelated pagination assertion now
 that the real 40-per-account cap is enforced -- see
 `families.limit_exceeded_enforcement` for why.
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 44 of ses's
+typed-client-uncovered ops (per `cmd/clientcoverage`): identity
+verification/DKIM/policies, legacy verified-email-address ops, account
+sending/quota, custom verification templates, template render,
+configuration-set delivery/event-destination/reputation/sending/tracking
+updates, receipt rule set/rule lifecycle (describe/update/reorder/
+position/active set/filters), and the whole Send* family (SendEmail,
+SendRawEmail, SendTemplatedEmail, SendBulkTemplatedEmail, SendBounce).
+
+**Two real bugs found and fixed, both invisible to every prior pass**
+because none drove these ops through the real SDK client:
+
+1. `SendRawEmail`'s `RawMessage.Data` is a Blob member. The real
+   query-protocol serializer always base64-encodes blob members
+   (ses@v1.37.4 `serializers.go`:
+   `awsAwsquery_serializeDocumentRawMessage` ->
+   `objectKey.Base64EncodeBytes(v.Data)`), but `handleSendRawEmail`
+   (`handler_email_sending.go`) read `RawMessage.Data` straight off the
+   form with no decode step at all -- every real client's `SendRawEmail`
+   call handed the handler base64 text instead of a MIME message, so
+   `mail.ReadMessage` silently failed to parse headers and From/Subject/
+   To were never extracted correctly (fell through to the `err != nil`
+   branch, `subject = "raw"`, source stayed whatever `Source` was
+   explicitly set to or empty). This op had never worked from any real
+   client. Fixed with a tolerant decode (try base64, fall back to the
+   literal value) so the many pre-existing hand-crafted unit tests across
+   `email_sending_test.go`/`handler_test.go`/
+   `handler_send_raw_email_destinations_test.go` that POST literal
+   (non-base64) MIME text directly, simulating the wire body by hand,
+   keep passing unchanged -- raw MIME headers contain `:`/`@`/space,
+   none of which are in the base64 alphabet, so a literal payload never
+   base64-decodes successfully by accident.
+2. `GetCustomVerificationEmailTemplate`'s response wrapped every field
+   (`TemplateName`, `FromEmailAddress`, `TemplateSubject`,
+   `TemplateContent`, `SuccessRedirectionURL`, `FailureRedirectionURL`)
+   inside a `<CustomVerificationEmailTemplate>` element, but the real
+   `GetCustomVerificationEmailTemplateOutput` has no such wrapper --
+   confirmed against ses@v1.37.4 `deserializers.go`'s
+   `awsAwsquery_deserializeOpDocumentGetCustomVerificationEmailTemplateOutput`,
+   whose case labels (`FromEmailAddress`, `TemplateSubject`, etc.) read
+   directly off the `GetCustomVerificationEmailTemplateResult` node with
+   no parent case for a wrapper element at all. Every field decoded empty
+   on a real client regardless of backend state. Fixed by making
+   `getCustomVerificationEmailTemplateResult` a flat alias of
+   `xmlCustomVerifTemplate` (`handler_custom_verification.go`) instead of
+   nesting it under a `Template` field.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes needed for this service this pass.
+
+Typed-client coverage: 27/71 -> 71/71 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/ses/...` (clean). `go test -race -count=1 ./services/ses/...`
+(pass, including all pre-existing SendRawEmail tests unmodified).
+`golangci-lint run --new-from-rev=HEAD ./services/ses/...` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.

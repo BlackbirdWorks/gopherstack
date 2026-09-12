@@ -962,3 +962,49 @@ stays at `2` -- every change here is a new field on an already-registered
 `store.Table` value type, which `encoding/json` decodes from an older
 snapshot as a zero value with no version bump required (the guard's own
 purpose, per its doc comment in `pkgs/persistence`).
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 48 of appstream's
+typed-client-uncovered ops (per `cmd/clientcoverage`): fleet start/stop/
+disassociate + list-associated-fleets/stacks, tags, app block delete +
+app block builder start/stop/streaming-URL/associate-disassociate-describe/
+delete, application delete/describe + license usage, application-fleet
+disassociate/describe, entitlement describe/update/associate-app/
+list-entitled/disassociate-app/delete, directory config create/describe/
+update/delete, image copy/delete-permissions/export-task lifecycle,
+image builder stop/streaming-URL/software-disassociate/software-deploy,
+user disable/enable/delete, user-stack association describe/batch-
+disassociate, session drain/expire, usage report subscription delete,
+and theme describe/delete.
+
+**Zero real bugs found** -- 14 subtests, all passed against the existing
+handlers once the test's own setup was corrected (test-only mistakes:
+`CreateApplicationInput.AppBlockArn`/`InstanceFamilies` are both real
+required members omitted from the first draft; `DescribeAppLicenseUsageInput.
+BillingPeriod` is real-required and was omitted; `BatchAssociateUserStack`
+needs the user to already exist via `CreateUser` first). Consistent with
+this service's fully A-graded, `items_still_open: []` audit history.
+
+One method note for future rpc-v2-cbor slices: `DescribeAppLicenseUsage`
+(this backend always reports zero license-usage records, no license-
+tracking model exists) decodes its always-empty `AppLicenseUsages` list as
+a **nil** Go slice on the real client, not an empty non-nil one -- the
+SDK's rpc-v2-cbor deserializer never allocates a slice when it reads zero
+list elements. Asserting non-nilness on a real, legitimately-empty list
+response is the wrong test shape for this protocol; assert only the
+absence of an error for genuinely-always-empty collections. This is a
+protocol/deserializer characteristic, not a gopherstack encoding bug --
+`services/appstream/rpcv2cbor.go`'s `jsonToCBOR`/`goToCBOR` bridge was
+independently re-read and confirmed to encode an empty Go slice as a
+proper zero-length CBOR array, not omit the key.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 41/89 -> 89/89 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/appstream/...` (clean). `go test -race -count=1
+./services/appstream/...` (pass). `golangci-lint run --new-from-rev=HEAD
+./services/appstream/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.

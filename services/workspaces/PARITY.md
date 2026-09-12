@@ -676,3 +676,46 @@ this pass**:
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/workspaces/...` and `./cmd/reqfieldscan/...`).
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 51 of workspaces's
+typed-client-uncovered ops (per `cmd/clientcoverage`): account link
+accept/reject/get, IP group authorize/revoke/update/disassociate, tags
+create/delete, Connect client add-in delete/update, connection alias
+associate/disassociate, account describe/modify/CIDR-ranges, client
+branding import/describe/delete + client properties describe/modify,
+core workspace lifecycle (state modify, reboot/rebuild/stop/start,
+connection status, terminate, migrate, restore), bundle
+delete/describe/update/associations, image create-updated/delete/
+associations, application association describe/disassociate/deploy +
+DescribeApplications, pool start/stop/terminate/update/sessions/
+terminate-session, DescribeWorkspaceSnapshots, and directory
+deregister + ModifyStreamingProperties.
+
+**Zero real bugs found** -- 14 subtests, all passed against the existing
+handlers once the test's own setup was corrected (two required-field
+misses on the test side: `CreateWorkspacesPoolInput.Description` and
+`CreateWorkspaceBundleInput.ImageId` must reference a real, existing
+image -- fixed in the test, not the handler). Consistent with this
+service's already A-graded audit history (see PARITY.md items_still_open,
+which already tracks the service's few genuinely open gaps).
+
+One structural note recorded for the method notes: `TerminateWorkspacesPoolSession`
+has no production path anywhere in this backend that ever creates a real
+`storedPoolSession` (no simulated user-connects-to-pool flow, and no
+test-only seam either, unlike `DescribeWorkspacesPoolSessions`'s sibling
+read path) -- the subtest exercises it against a deliberately nonexistent
+session ID and asserts the real client decodes the NotFound-shaped error
+correctly, which still proves the op's wire round trip end to end even
+though a genuine success path can't be constructed today.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 40/91 -> 91/91 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/workspaces/...` (clean). `go test -race -count=1
+./services/workspaces/...` (pass). `golangci-lint run --new-from-rev=HEAD
+./services/workspaces/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.

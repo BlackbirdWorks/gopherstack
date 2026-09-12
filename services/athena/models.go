@@ -533,14 +533,18 @@ type CapacityAssignmentConfiguration struct {
 	CapacityAssignments     []CapacityAssignment `json:"CapacityAssignments,omitempty"`
 }
 
-// Executor describes a Spark executor.
+// Executor describes a Spark executor. StartDateTime/TerminationDateTime are
+// plain epoch-seconds *int64 on the real wire (athena@v1.60.4 types.go's
+// ExecutorsSummary), NOT a smithy timestamp -- their deserializer calls
+// strconv.ParseInt, which errors on a fractional value, unlike the
+// time.Time-typed epoch fields elsewhere in this package.
 type Executor struct {
-	ExecutorID          string  `json:"ExecutorId"`
-	ExecutorType        string  `json:"ExecutorType"`
-	ExecutorState       string  `json:"ExecutorState"`
-	StartDateTime       float64 `json:"StartDateTime,omitempty"`
-	TerminationDateTime float64 `json:"TerminationDateTime,omitempty"`
-	ExecutorSize        int64   `json:"ExecutorSize,omitempty"`
+	ExecutorID          string `json:"ExecutorId"`
+	ExecutorType        string `json:"ExecutorType"`
+	ExecutorState       string `json:"ExecutorState"`
+	StartDateTime       int64  `json:"StartDateTime,omitempty"`
+	TerminationDateTime int64  `json:"TerminationDateTime,omitempty"`
+	ExecutorSize        int64  `json:"ExecutorSize,omitempty"`
 }
 
 // EngineVersionDescriptor describes an available engine version.

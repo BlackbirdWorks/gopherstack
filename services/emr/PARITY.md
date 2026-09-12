@@ -773,3 +773,45 @@ clean. `git status --short` at the end of this batch shows only
 `services/emr/handler_policies.go` (modified) and
 `services/emr/wire_output_required_r80d_test.go` (new) from this batch, plus
 the pre-existing untouched `services/sagemaker/*` concurrent-agent dirt.
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 44 of emr's
+typed-client-uncovered ops (per `cmd/clientcoverage`): instance group and
+instance fleet lifecycle (Add/List/Modify for both), security
+configuration lifecycle, release label describe/instance-type listing,
+cluster settings (ModifyCluster, SetTerminationProtection,
+SetKeepJobFlowAliveWhenNoSteps, SetVisibleToAllUsers,
+SetUnhealthyNodeReplacement), managed-scaling/auto-termination/
+auto-scaling/block-public-access policies, tags, bootstrap actions +
+CancelSteps, sessions (Get/GetEndpoint/Terminate), persistent app UI +
+cluster session credentials, studio lifecycle (session mappings
+included), and StopNotebookExecution.
+
+**Zero real bugs found** -- 12 subtests, 12 dozen assertions, all passed
+against the existing handlers on the first run (after fixing test-input
+mistakes, not handler bugs: a missing `AutoScalingPolicy.Rules` required
+member in the test's own `PutAutoScalingPolicy` call). Consistent with
+this service's already-deep prior audit history (multiple dated sections
+above; `items_still_open` already tracks the two genuinely open gaps).
+
+One measurement-tool note: `ListTagsForResource`, one of emr's existing
+ops, has **no real wire operation at all** -- confirmed via
+`ls aws-sdk-go-v2/service/emr@v1.64.4/api_op_*Tag*.go`, which lists only
+`AddTags`/`RemoveTags`. It is a gopherstack-only convenience extension
+(same class as iotdataplane's `ListConnections`/`RegisterConnection`,
+documented in typed/NOTES.md slice 17) -- correctly absent from
+`cmd/opcensus`'s uncoverable-by-definition set since it isn't a listed op
+at all, so it never appeared in the uncovered list; the `tags` subtest
+verifies `AddTags`/`RemoveTags` via `DescribeCluster.Cluster.Tags`, the
+real read path, instead.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 21/65 -> 65/65 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet ./services/emr/...`
+(clean). `go test -race -count=1 ./services/emr/...` (pass). `golangci-lint
+run --new-from-rev=HEAD ./services/emr/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

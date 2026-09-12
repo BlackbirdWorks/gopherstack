@@ -475,3 +475,71 @@ any file touched this batch (`models.go`, `sessions.go`, `handler_sessions.go`,
 field) -- `SessionSummary` is a derived list-view type, not part of `backendSnapshot`
 (confirmed against `persistence.go`), so no snapshot version bump was needed;
 `TestSnapshotVersionGuard` run anyway per this session's mandate and passed.
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 51 of athena's
+typed-client-uncovered ops (per `cmd/clientcoverage`): capacity
+reservation lifecycle, notebook lifecycle (create/export/import/update/
+metadata/presigned URL/delete), session read/list/dashboard/terminate
+ops, calculation execution lifecycle, prepared statement lifecycle,
+named-query batch-get/update, data catalog list/delete, database/table
+metadata reads, tags, and query-execution batch-get/list/runtime-stats/
+stop.
+
+**Three real bugs found and fixed, all invisible to every prior pass**
+because none drove these ops through the real SDK client:
+
+1. `CreatePresignedNotebookUrlOutput.AuthTokenExpirationTime` is a plain
+   `*int64` on the real wire (athena@v1.60.4
+   `api_op_CreatePresignedNotebookUrl.go`) -- its deserializer calls
+   `strconv.ParseInt`, which errors outright on a fractional value. The
+   shared `newSessionAuthToken()` helper returns a fractional
+   epoch-seconds `float64` (correct for `GetSessionEndpointOutput`'s
+   sibling field, which really is a smithy timestamp/`*time.Time`), but
+   `handler_notebooks.go`'s `CreatePresignedNotebookUrl` response echoed
+   that same fractional value under the int64-typed field -- every real
+   client's call failed to decode the response at all, not just that
+   field. Fixed by truncating to `int64` at that one call site only
+   (`handler_notebooks.go`); `GetSessionEndpoint` untouched, still correct
+   as a float.
+2. Same bug class, `ListExecutors`/`Executor.StartDateTime`/
+   `TerminationDateTime`: the real `types.ExecutorsSummary` (athena@v1.60.4
+   types.go) models both as plain `*int64`, but gopherstack's `Executor`
+   struct (`models.go`) declared them `float64` and populated
+   `StartDateTime` from the same fractional `SessionStatus.StartDateTime`
+   -- every real client's `ListExecutors` call on a session with an active
+   executor failed to decode. Fixed by changing `Executor.StartDateTime`/
+   `TerminationDateTime` to `int64` and truncating at the one construction
+   site (`sessions.go`).
+3. `StartSessionInput` has **no top-level `NotebookId` member** on the
+   real wire at all -- confirmed against athena@v1.60.4 `serializers.go`'s
+   `awsAwsjson11_serializeOpDocumentStartSessionInput`, which emits only
+   `NotebookVersion`; the SDK's own doc comment on
+   `EngineConfiguration.AdditionalConfigs` says NotebookId travels there
+   instead ("add a key named NotebookId to AdditionalConfigs"). gopherstack's
+   `startSessionInput` (`handler_sessions.go`) read a top-level
+   `NotebookId` field that a real client never sends, so `Session.NotebookID`
+   was always empty from any real client -- silently breaking
+   `ListNotebookSessions`'s notebook association for every real caller.
+   Fixed by extracting NotebookId from
+   `EngineConfiguration.AdditionalConfigs["NotebookId"]` instead
+   (`startSessionInput.notebookID()`). The pre-existing
+   `TestHandler_ListNotebookSessions` unit test posted the old,
+   wire-inaccurate top-level shape and only asserted HTTP status (not the
+   session-notebook link), so it passed both before and after the fix
+   without exercising the bug -- updated to post the real nested shape and
+   assert the linked session actually appears in the list.
+
+No persisted struct fields changed (Executor/CreatePresignedNotebookUrl
+fields are derived/response-only, not part of `backendSnapshot`); no
+version bump; no `snapshot_inventory.json` changes for this service this
+pass.
+
+Typed-client coverage: 19/70 -> 70/70 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet ./services/athena/...`
+(clean). `go test -race -count=1 ./services/athena/...` (pass, including
+the updated `TestHandler_ListNotebookSessions`). `golangci-lint run
+--new-from-rev=HEAD ./services/athena/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.
