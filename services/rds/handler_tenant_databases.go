@@ -146,8 +146,9 @@ func (h *Handler) handleDescribeTenantDatabases(vals url.Values) (any, error) {
 func (h *Handler) handleModifyTenantDatabase(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	tenantDBName := vals.Get("TenantDBName")
+	newTenantDBName := vals.Get("NewTenantDBName")
 
-	tdb, err := h.Backend.ModifyTenantDatabase(instanceID, tenantDBName)
+	tdb, err := h.Backend.ModifyTenantDatabase(instanceID, tenantDBName, newTenantDBName)
 	if err != nil {
 		return nil, err
 	}

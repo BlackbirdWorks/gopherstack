@@ -4742,6 +4742,7 @@
       "FieldLevelEncryption.ID string `json:\"id\"`",
       "FieldLevelEncryption.Name string `json:\"name\"`",
       "FieldLevelEncryption.QueryArgProfiles []FLEQueryArgProfile `json:\"queryArgProfiles,omitempty\"`",
+      "FieldLevelEncryptionProfile.CallerReference string `json:\"callerReference,omitempty\"`",
       "FieldLevelEncryptionProfile.Comment string `json:\"comment,omitempty\"`",
       "FieldLevelEncryptionProfile.ETag string `json:\"eTag\"`",
       "FieldLevelEncryptionProfile.EncryptionEntities []EncryptionEntity `json:\"encryptionEntities,omitempty\"`",

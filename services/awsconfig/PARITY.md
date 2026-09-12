@@ -765,3 +765,50 @@ clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
   `golangci-lint run --new-from-rev=HEAD .` (0 issues, covers the cli.go
   wiring change). `awsconfigSnapshotVersion` NOT bumped (additive table
   only, confirmed by the version guard test).
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (12 subtests) driving recorders/
+delivery, config rules + compliance/evaluations, conformance packs,
+remediation, aggregators/authorizations, resource config history/select,
+retention, stored queries, organization rules/packs, connectors, tags, and
+resource evaluation through the real aws-sdk-go-v2 configservice client.
+Typed-client coverage (cmd/opcensus + cmd/clientcoverage): 28/102 (27.5%)
+-> 95/102 (93.1%); uncovered dropped from 74 to 7 (DeleteServiceLinked-
+ConfigurationRecorder, PutServiceLinkedConfigurationRecorder,
+PutThirdPartyServiceLinkedConfigurationRecorder, DescribeAggregate-
+ComplianceByConfigRules, DescribeAggregateComplianceByConformancePacks,
+GetAggregateComplianceDetailsByConfigRule, GetAggregateConformancePack-
+ComplianceSummary -- service-linked-recorder and aggregate-compliance
+families, not attempted this pass).
+
+**Two real wire-shape bugs found and fixed, both by a typed client's own
+request-side validation rejecting the shape this backend demanded:**
+
+1. `PutRetentionConfiguration` required a fabricated `RetentionConfiguration-
+   Name` request field. The real `PutRetentionConfigurationInput`
+   (configservice@v1.68.4 api_op_PutRetentionConfiguration.go) has no name
+   member at all -- the API always names the (singleton, per-region) object
+   `"default"` server-side -- so a real client's marshalled request can
+   never carry that field, and every real `PutRetentionConfiguration` call
+   failed with `InvalidParameterValueException` regardless of state. Fixed:
+   the handler now always uses the constant name `"default"` and returns
+   the real, previously-missing `RetentionConfiguration` echo in the
+   response. Removed the now-obsolete `put_retention_configuration_missing_name`
+   error-matrix test case that exercised the old fabricated field.
+2. `PutEvaluations` required a fabricated top-level `ConfigRuleName` request
+   field. The real `PutEvaluationsInput` has no such member either --
+   `ResultToken` ("An encrypted token that associates an evaluation with a
+   Config rule") is the sole per-call correlator a real Lambda-backed
+   custom-rule evaluator sends. Since this emulator has no Lambda-invocation
+   pipeline to hand a custom rule its real encrypted token, `ResultToken` is
+   now treated as the rule name a caller supplies (documented in-code);
+   `TestMode` is also now honored (no-op, matching the real semantics).
+   Updated `TestHandler_PutEvaluationsAWSKeys` to the corrected request
+   shape.
+
+No persisted struct fields changed; no version bump. Gates: `go build ./...`,
+`go vet ./services/awsconfig/...`, `go test -race -count=1
+./services/awsconfig/... ./pkgs/persistence/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

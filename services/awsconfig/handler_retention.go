@@ -22,16 +22,42 @@ func retentionSupportedOps() []string {
 	}
 }
 
-// PutRetentionConfiguration request/response types and handler.
+// defaultRetentionConfigurationName is the only name real AWS Config ever
+// assigns a retention configuration: PutRetentionConfigurationInput has no
+// name field at all (api_op_PutRetentionConfiguration.go) -- the API always
+// names the (singleton, per-region) object "default".
+const defaultRetentionConfigurationName = "default"
+
+// PutRetentionConfiguration request/response types and handler. Real
+// PutRetentionConfigurationInput carries no name field (verified above);
+// this previously required a fabricated "RetentionConfigurationName" wire
+// key that no real client ever sends, so every real PutRetentionConfiguration
+// call failed with InvalidParameterValueException regardless of state.
 type putRetentionConfigurationInput struct {
-	RetentionConfigurationName string `json:"RetentionConfigurationName"`
-	RetentionPeriodInDays      int32  `json:"RetentionPeriodInDays"`
+	RetentionPeriodInDays int32 `json:"RetentionPeriodInDays"`
+}
+
+type putRetentionConfigurationOutput struct {
+	RetentionConfiguration *RetentionConfiguration `json:"RetentionConfiguration,omitempty"`
 }
 
 func (h *Handler) handlePutRetentionConfiguration(
 	_ context.Context, in *putRetentionConfigurationInput,
-) (*emptyOutput, error) {
-	return &emptyOutput{}, h.Backend.PutRetentionConfiguration(in.RetentionConfigurationName, in.RetentionPeriodInDays)
+) (*putRetentionConfigurationOutput, error) {
+	err := h.Backend.PutRetentionConfiguration(
+		defaultRetentionConfigurationName,
+		in.RetentionPeriodInDays,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &putRetentionConfigurationOutput{
+		RetentionConfiguration: &RetentionConfiguration{
+			Name:                  defaultRetentionConfigurationName,
+			RetentionPeriodInDays: in.RetentionPeriodInDays,
+		},
+	}, nil
 }
 
 // DescribeRetentionConfigurations request/response types and handler.

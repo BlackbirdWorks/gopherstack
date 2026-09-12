@@ -77,8 +77,11 @@ func TestIntegration_WireFieldsPresentOnAllOps(t *testing.T) {
 		[]rds.Tag{{Key: "env", Value: "test"}},
 	)
 
-	modifyRec := postRDSForm(t, h,
-		"Action=ModifyIntegration&Version=2014-10-31&IntegrationIdentifier=wire-fields-intg&DataFilter=include:*")
+	modifyRec := postRDSForm(
+		t,
+		h,
+		"Action=ModifyIntegration&Version=2014-10-31&IntegrationIdentifier=wire-fields-intg&DataFilter=include:*",
+	)
 	require.Equal(t, http.StatusOK, modifyRec.Code, "body: %s", modifyRec.Body.String())
 	assertIntegrationWireFieldsPresent(t, "ModifyIntegration", modifyRec.Body.String())
 	assert.Contains(t, modifyRec.Body.String(), "<Key>env</Key>")
@@ -237,7 +240,7 @@ func TestModifyIntegration(t *testing.T) {
 		_, err := b.CreateIntegration("intg-mod", "src", "tgt", "", "", "")
 		require.NoError(t, err)
 
-		intg, err := b.ModifyIntegration("intg-mod", "", "")
+		intg, err := b.ModifyIntegration("intg-mod", "", "", "")
 		require.NoError(t, err)
 		assert.Equal(t, "intg-mod", intg.IntegrationName)
 	})
@@ -245,7 +248,7 @@ func TestModifyIntegration(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.ModifyIntegration("missing", "", "")
+		_, err := b.ModifyIntegration("missing", "", "", "")
 		require.Error(t, err)
 		require.ErrorIs(t, err, rds.ErrIntegrationNotFound)
 	})
@@ -396,7 +399,7 @@ func TestIntegration_ModifyDataFilter(t *testing.T) {
 	_, err := b.CreateIntegration("intg-mod", "src", "tgt", "", "", "original desc")
 	require.NoError(t, err)
 
-	modified, err := b.ModifyIntegration("intg-mod", "include(tableName=users)", "updated desc")
+	modified, err := b.ModifyIntegration("intg-mod", "include(tableName=users)", "updated desc", "")
 	require.NoError(t, err)
 
 	assert.Equal(t, "include(tableName=users)", modified.DataFilter)
@@ -448,7 +451,14 @@ func TestPersistence_IntegrationDataFilter(t *testing.T) {
 
 	b := newBatch3Backend()
 
-	_, err := b.CreateIntegration("intg-snap", "src", "tgt", "", "include(orders)", "my description")
+	_, err := b.CreateIntegration(
+		"intg-snap",
+		"src",
+		"tgt",
+		"",
+		"include(orders)",
+		"my description",
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -461,7 +471,12 @@ func TestPersistence_IntegrationDataFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, integrations, 1)
 
-	assert.Equal(t, "include(orders)", integrations[0].DataFilter, "DataFilter should survive round-trip")
+	assert.Equal(
+		t,
+		"include(orders)",
+		integrations[0].DataFilter,
+		"DataFilter should survive round-trip",
+	)
 	assert.Equal(t, "my description", integrations[0].IntegrationDescription)
 }
 

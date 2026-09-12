@@ -170,7 +170,14 @@ func (h *Handler) handleCreateIntegration(vals url.Values) (any, error) {
 	dataFilter := vals.Get("DataFilter")
 	description := vals.Get("Description")
 
-	intg, err := h.Backend.CreateIntegration(name, sourceARN, targetARN, kmsKeyID, dataFilter, description)
+	intg, err := h.Backend.CreateIntegration(
+		name,
+		sourceARN,
+		targetARN,
+		kmsKeyID,
+		dataFilter,
+		description,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -262,8 +269,9 @@ func (h *Handler) handleModifyIntegration(vals url.Values) (any, error) {
 	identifier := vals.Get("IntegrationIdentifier")
 	dataFilter := vals.Get("DataFilter")
 	description := vals.Get("Description")
+	newName := vals.Get("IntegrationName")
 
-	intg, err := h.Backend.ModifyIntegration(identifier, dataFilter, description)
+	intg, err := h.Backend.ModifyIntegration(identifier, dataFilter, description, newName)
 	if err != nil {
 		return nil, err
 	}

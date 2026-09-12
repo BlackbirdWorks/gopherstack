@@ -79,7 +79,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// fieldLevelEncryptionProfiles (references the public key above)
-	flep, err := orig.CreateFieldLevelEncryptionProfile("my-flep", "c", []cloudfront.EncryptionEntity{
+	flep, err := orig.CreateFieldLevelEncryptionProfile("", "my-flep", "c", []cloudfront.EncryptionEntity{
 		{PublicKeyID: pk.ID, ProviderID: "provider", FieldPatterns: []string{"field1"}},
 	})
 	require.NoError(t, err)

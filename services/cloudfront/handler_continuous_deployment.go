@@ -68,7 +68,10 @@ func (req continuousDeploymentPolicyConfigXML) trafficConfig() ContinuousDeploym
 		}
 	}
 	if shc := req.TrafficConfig.SingleHeaderConfig; shc != nil {
-		out.SingleHeaderConfig = &ContinuousDeploymentSingleHeaderConfig{Header: shc.Header, Value: shc.Value}
+		out.SingleHeaderConfig = &ContinuousDeploymentSingleHeaderConfig{
+			Header: shc.Header,
+			Value:  shc.Value,
+		}
 	}
 
 	return out
@@ -111,23 +114,13 @@ func (h *Handler) handleCreateContinuousDeploymentPolicy(c *echo.Context) error 
 // shared by the singular ContinuousDeploymentPolicy root and the nested
 // ContinuousDeploymentPolicySummary>ContinuousDeploymentPolicy used by ListContinuousDeploymentPolicies.
 func continuousDeploymentPolicyBodyXML(policy *ContinuousDeploymentPolicy) string {
-	var dnsNames strings.Builder
-	for _, dns := range policy.StagingDistributionDNSNames {
-		fmt.Fprintf(&dnsNames, `<DnsName>%s</DnsName>`, dns)
-	}
-
 	return fmt.Sprintf(
 		`<Id>%s</Id>`+
 			`<ARN>%s</ARN>`+
 			`<LastModifiedTime>%s</LastModifiedTime>`+
-			`<ContinuousDeploymentPolicyConfig>`+
-			`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
-			`<Enabled>%v</Enabled>`+
-			`<TrafficConfig><Type>%s</Type></TrafficConfig>`+
-			`</ContinuousDeploymentPolicyConfig>`,
+			`<ContinuousDeploymentPolicyConfig>%s</ContinuousDeploymentPolicyConfig>`,
 		policy.ID, policy.ARN, policy.LastModifiedTime,
-		len(policy.StagingDistributionDNSNames), dnsNames.String(),
-		policy.Enabled, policy.TrafficConfig.Type)
+		continuousDeploymentPolicyConfigXMLBlock(policy))
 }
 
 func continuousDeploymentPolicyXML(ns string, policy *ContinuousDeploymentPolicy) string {
@@ -147,6 +140,54 @@ func (h *Handler) handleGetContinuousDeploymentPolicy(c *echo.Context, id string
 	return xmlResp(c, http.StatusOK, continuousDeploymentPolicyXML(cfNS, policy))
 }
 
+// continuousDeploymentPolicyConfigXMLBlock renders the inner fields of a
+// ContinuousDeploymentPolicyConfig element, shared by the bare
+// GetContinuousDeploymentPolicyConfig response and (nested one level deeper)
+// continuousDeploymentPolicyBodyXML above.
+func continuousDeploymentPolicyConfigXMLBlock(policy *ContinuousDeploymentPolicy) string {
+	var dnsNames strings.Builder
+	for _, dns := range policy.StagingDistributionDNSNames {
+		fmt.Fprintf(&dnsNames, `<DnsName>%s</DnsName>`, dns)
+	}
+
+	return fmt.Sprintf(
+		`<StagingDistributionDnsNames><Quantity>%d</Quantity><Items>%s</Items></StagingDistributionDnsNames>`+
+			`<Enabled>%v</Enabled>`+
+			`<TrafficConfig><Type>%s</Type></TrafficConfig>`,
+		len(policy.StagingDistributionDNSNames),
+		dnsNames.String(),
+		policy.Enabled,
+		policy.TrafficConfig.Type,
+	)
+}
+
+// handleGetContinuousDeploymentPolicyConfig serves GetContinuousDeploymentPolicyConfig,
+// whose real response root element is the bare ContinuousDeploymentPolicyConfig
+// (verified against cloudfront@v1.67.4's
+// awsRestxml_deserializeOpGetContinuousDeploymentPolicyConfig, which decodes
+// the root node's own children into ContinuousDeploymentPolicyConfig directly)
+// -- unlike GetContinuousDeploymentPolicy, whose root is the full wrapping
+// ContinuousDeploymentPolicy element with Id/ARN/LastModifiedTime plus a
+// nested ContinuousDeploymentPolicyConfig one level deeper. This previously
+// reused handleGetContinuousDeploymentPolicy's wrapped response for both ops,
+// so every field (StagingDistributionDnsNames, Enabled, TrafficConfig) was
+// always empty for a real client's GetContinuousDeploymentPolicyConfig call
+// regardless of backend state, breaking the standard Get-then-Update idiom.
+func (h *Handler) handleGetContinuousDeploymentPolicyConfig(c *echo.Context, id string) error {
+	policy, err := h.Backend.GetContinuousDeploymentPolicy(id)
+	if err != nil {
+		return h.handleError(c, err)
+	}
+
+	c.Response().Header().Set("ETag", policy.ETag)
+
+	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
+		`<ContinuousDeploymentPolicyConfig xmlns="%s">%s</ContinuousDeploymentPolicyConfig>`,
+		cfNS, continuousDeploymentPolicyConfigXMLBlock(policy))
+
+	return xmlResp(c, http.StatusOK, resp)
+}
+
 func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id string) error {
 	current, getErr := h.Backend.GetContinuousDeploymentPolicy(id)
 	if getErr != nil {
@@ -155,7 +196,8 @@ func (h *Handler) handleUpdateContinuousDeploymentPolicy(c *echo.Context, id str
 
 	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
 		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
-			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+			"PreconditionFailed",
+			"If-Match ETag did not match the current continuous deployment policy ETag",
 		))
 	}
 
@@ -196,7 +238,8 @@ func (h *Handler) handleDeleteContinuousDeploymentPolicy(c *echo.Context, id str
 
 	if ifMatch := c.Request().Header.Get("If-Match"); ifMatch != "" && ifMatch != current.ETag {
 		return xmlResp(c, http.StatusPreconditionFailed, cfErrorXML(
-			"PreconditionFailed", "If-Match ETag did not match the current continuous deployment policy ETag",
+			"PreconditionFailed",
+			"If-Match ETag did not match the current continuous deployment policy ETag",
 		))
 	}
 

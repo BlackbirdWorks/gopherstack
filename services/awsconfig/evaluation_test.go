@@ -545,8 +545,7 @@ func TestHandler_PutEvaluationsAWSKeys(t *testing.T) {
 	require.NoError(t, b.PutConfigRule(&awsconfig.ConfigRule{ConfigRuleName: "rule"}))
 
 	rec := doAWSConfigRequest(t, h, "PutEvaluations", map[string]any{
-		"ConfigRuleName": "rule",
-		"ResultToken":    "tok",
+		"ResultToken": "rule",
 		"Evaluations": []map[string]any{
 			{
 				"ComplianceResourceType": "AWS::S3::Bucket",

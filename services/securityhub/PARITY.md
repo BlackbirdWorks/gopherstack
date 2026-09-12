@@ -1315,3 +1315,38 @@ the exact failures above, including the concatenated-body text.
 both clean after the fix. Full `go test ./services/...` also green (see gopherstack-3t96's
 cross-service report for the combined blast-radius run covering lambda, securityhub, and
 organizations).
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (12 subtests) driving hub v1/v2
+lifecycle, standards/controls, security control definitions, organization
+admin, invitations/members, automation rules (v1+v2), configuration
+policies, finding aggregators, connectors (v1+v2), aggregators v2,
+products, and misc findings-v2 ops through the real aws-sdk-go-v2
+securityhub client. Typed-client coverage (cmd/opcensus + cmd/
+clientcoverage): 45/116 (38.8%) -> 114/116 (98.3%); uncovered dropped from
+71 to 2 (`AcceptInvitation` -- exercised via direct backend call for this
+pass's invitation-acceptance setup rather than the typed client;
+`UpdateConnectorV2` -- not attempted this pass).
+
+**One real wire-shape bug found and fixed:** `BatchGetConfigurationPolicy-
+Associations` read each request-list item's `TargetId` field directly, but
+the real wire shape (securityhub@v1.75.4 serializers.go's
+`awsRestjson1_serializeDocumentConfigurationPolicyAssociation`) has no flat
+`TargetId` member at all -- each identifier is `{"Target":
+{"AccountId"|"OrganizationalUnitId"|"RootId": ...}}`, the same tagged union
+`StartConfigurationPolicyAssociation`/`GetConfigurationPolicyAssociation`
+already parse correctly via `extractConfigPolicyTarget`. A real client's
+request therefore always decoded `TargetId` as empty, so every association
+was reported unprocessed regardless of backend state. Fixed by normalizing
+each raw request item through `extractConfigPolicyTarget` before handing it
+to the backend (`batchGetConfigPolicyAssocRequests`, handler_configuration_
+policies.go). `TestConfigurationPolicy/ConfigurationPolicy_association_
+lifecycle`'s `"batch get"` step previously asserted the old flat shape as
+correct (it only passed because the pre-fix handler expected that same
+wrong shape); corrected to the real nested `Target` shape.
+
+No persisted struct fields changed; no version bump. Gates: `go build
+./...`, `go vet ./services/securityhub/...`, `go test -race -count=1
+./services/securityhub/...` (pass), `golangci-lint run --new-from-rev=HEAD
+./services/securityhub/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.

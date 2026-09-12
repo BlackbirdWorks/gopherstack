@@ -1399,3 +1399,60 @@ confirming the emitted code was `DBClusterNotFoundFault` before the fix.
 
 Gates: `go test -race -count=1 ./services/rds/...` (pass, 0 failures),
 `golangci-lint run ./services/rds/...` (0 issues).
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (14 subtests) driving instance/
+cluster lifecycle, read replicas, security groups, parameter/option/
+subnet groups, event subscriptions, snapshots, global clusters, blue/green
+deployments, DB shard groups, tenant databases, integrations, reserved
+instances, pending-maintenance/reference data, automated backups, and
+custom engine versions through the real aws-sdk-go-v2 rds client -- setup
+steps whose own op was already typed-covered (CreateDBInstance,
+CreateDBCluster, CreateDBSecurityGroup, CreateEventSubscription, etc.) go
+directly through the backend, matching the redshift slice-5 precedent.
+Typed-client coverage (cmd/opcensus + cmd/clientcoverage): 97/165 (58.8%)
+-> 160/165 (97.0%); uncovered dropped from 68 to 5 (`DeleteDBInstance-
+AutomatedBackup`, `DisableHttpEndpoint`, `GetPerformanceInsightsMetrics`,
+`ModifyDBClusterEndpoint`, `ModifyDBRecommendation` -- each needs setup
+this pass didn't reach: a DbiResourceId-addressable automated backup, a
+Data API resource ARN, a live Performance Insights resource, a custom
+cluster endpoint, and a recommendation record respectively).
+
+**Three real bugs found and fixed, all confirmed by a typed client either
+decoding a stale value or deserializing an entirely wrong root element:**
+
+1. `ModifyDBCluster`'s real, commonly-used `BackupRetentionPeriod` member
+   (rds@v1.124.1 api_op_ModifyDBCluster.go:133) was silently dropped twice
+   over: `handleModifyDBCluster` never read it off the request at all, and
+   `applyDBClusterStringOpts` never applied it to the cluster even if it
+   had been threaded through. Every real client's backup-retention change
+   via Modify was a complete no-op regardless of the value sent. Fixed both
+   layers.
+2. `ModifyTenantDatabase` was a disguised stub: the handler never read
+   `NewTenantDBName` (the real, documented rename field --
+   api_op_ModifyTenantDatabase.go:130) off the request, and the backend
+   method didn't even accept a rename parameter -- it looked the tenant
+   database up and returned an unmodified copy. Fixed: added `newTenantDBName`
+   plumbing through the interface/handler/backend, including re-keying the
+   `tenantDatabases` table (keyed by instance+name) and regenerating
+   `TenantDatabaseARN` on a successful rename.
+3. `ModifyIntegration`'s real `IntegrationName` member (a documented rename
+   field, api_op_ModifyIntegration.go:46) was accepted by no layer at all --
+   not read from the request, not a backend parameter. Fixed the same way
+   as (2), including re-keying the name-keyed `integrations` table.
+4. `DescribeOptionGroupOptions` was a disguised stub with no
+   `DescribeOptionGroupOptionsResult` wrapper element at all -- every real
+   RDS query/XML response nests its payload under `<Operation>Result`, so a
+   real client's deserializer failed outright ("DescribeOptionGroupOptions-
+   Result node not found") regardless of state. Fixed the wire shape with
+   the correct wrapper; the per-engine option catalog itself isn't modeled
+   (no persistent per-engine option metadata anywhere in this backend to
+   source it from), so `OptionGroupOptions` is disclosed as an empty,
+   correctly-wrapped list rather than a fabricated catalog.
+
+No persisted struct fields changed (only backend method signatures gained
+parameters); no version bump. Gates: `go build ./...`, `go vet
+./services/rds/...`, `go test -race -count=1 ./services/rds/...` (pass),
+`golangci-lint run --new-from-rev=HEAD ./services/rds/...` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.

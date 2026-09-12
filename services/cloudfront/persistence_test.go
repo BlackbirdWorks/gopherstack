@@ -110,7 +110,7 @@ func TestPersistenceRoundTrip_NewResourceTypes(t *testing.T) {
 	fle, err := b.CreateFieldLevelEncryption("persist-fle", "comment", nil)
 	require.NoError(t, err)
 
-	fleP, err := b.CreateFieldLevelEncryptionProfile("persist-fle-profile", "comment", nil)
+	fleP, err := b.CreateFieldLevelEncryptionProfile("", "persist-fle-profile", "comment", nil)
 	require.NoError(t, err)
 
 	pk, err := b.CreatePublicKey("pk-persist-ref", "persist-pk", "comment", testRSA2048PublicKeyPEM)

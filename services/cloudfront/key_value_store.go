@@ -17,7 +17,10 @@ func (b *InMemoryBackend) keyValueStoreARN(id string) string {
 }
 
 // CreateKeyValueStore creates a new CloudFront Key Value Store.
-func (b *InMemoryBackend) CreateKeyValueStore(name, comment string, tags map[string]string) (*KeyValueStore, error) {
+func (b *InMemoryBackend) CreateKeyValueStore(
+	name, comment string,
+	tags map[string]string,
+) (*KeyValueStore, error) {
 	b.mu.Lock("CreateKeyValueStore")
 	defer b.mu.Unlock()
 
@@ -55,26 +58,51 @@ func (b *InMemoryBackend) CreateKeyValueStore(name, comment string, tags map[str
 	return &cp, nil
 }
 
-// GetKeyValueStore returns a Key Value Store by ID or ARN.
-func (b *InMemoryBackend) GetKeyValueStore(idOrARN string) (*KeyValueStore, error) {
-	b.mu.RLock("GetKeyValueStore")
-	defer b.mu.RUnlock()
-
-	if kvs, ok := b.keyValueStores.Get(idOrARN); ok {
-		cp := *kvs
-
-		return &cp, nil
+// resolveKeyValueStoreLocked finds a Key Value Store by ID, Name, or ARN.
+// Real DescribeKeyValueStore/UpdateKeyValueStore/DeleteKeyValueStoreInput all
+// address the store by "Name" alone (cloudfront@v1.67.4's
+// api_op_DescribeKeyValueStore.go/api_op_UpdateKeyValueStore.go/
+// api_op_DeleteKeyValueStore.go: path "/2020-05-31/key-value-store/{Name}"),
+// never by the internally generated ID -- looking up only by ID (or ARN)
+// made every one of those ops 404 for a real client regardless of backend
+// state. Must be called with the lock held.
+func (b *InMemoryBackend) resolveKeyValueStoreLocked(idNameOrARN string) (*KeyValueStore, bool) {
+	if kvs, ok := b.keyValueStores.Get(idNameOrARN); ok {
+		return kvs, true
 	}
 
-	for _, kvs := range b.keyValueStores.All() {
-		if kvs.ARN == idOrARN {
-			cp := *kvs
-
-			return &cp, nil
+	if id, ok := b.keyValueStoreByName[idNameOrARN]; ok {
+		if kvs, kvsOK := b.keyValueStores.Get(id); kvsOK {
+			return kvs, true
 		}
 	}
 
-	return nil, fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, idOrARN)
+	for _, kvs := range b.keyValueStores.All() {
+		if kvs.ARN == idNameOrARN {
+			return kvs, true
+		}
+	}
+
+	return nil, false
+}
+
+// GetKeyValueStore returns a Key Value Store by ID, Name, or ARN.
+func (b *InMemoryBackend) GetKeyValueStore(idNameOrARN string) (*KeyValueStore, error) {
+	b.mu.RLock("GetKeyValueStore")
+	defer b.mu.RUnlock()
+
+	kvs, ok := b.resolveKeyValueStoreLocked(idNameOrARN)
+	if !ok {
+		return nil, fmt.Errorf(
+			"%w: key value store %s not found",
+			ErrKeyValueStoreNotFound,
+			idNameOrARN,
+		)
+	}
+
+	cp := *kvs
+
+	return &cp, nil
 }
 
 // ListKeyValueStores returns all Key Value Stores sorted by name.
@@ -94,17 +122,17 @@ func (b *InMemoryBackend) ListKeyValueStores() []*KeyValueStore {
 }
 
 // DeleteKeyValueStore deletes a Key Value Store by ID.
-func (b *InMemoryBackend) DeleteKeyValueStore(id string) error {
+func (b *InMemoryBackend) DeleteKeyValueStore(idNameOrARN string) error {
 	b.mu.Lock("DeleteKeyValueStore")
 	defer b.mu.Unlock()
 
-	kvs, ok := b.keyValueStores.Get(id)
+	kvs, ok := b.resolveKeyValueStoreLocked(idNameOrARN)
 	if !ok {
-		return fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, id)
+		return fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, idNameOrARN)
 	}
 
 	delete(b.keyValueStoreByName, kvs.Name)
-	b.keyValueStores.Delete(id)
+	b.keyValueStores.Delete(kvs.ID)
 	delete(b.keyValueStoreData, kvs.ID)
 	delete(b.keyValueDataETags, kvs.ID)
 
@@ -131,7 +159,11 @@ func (b *InMemoryBackend) GetKVSValue(kvsID, key string) (string, string, error)
 	defer b.mu.RUnlock()
 
 	if _, ok := b.keyValueStores.Get(kvsID); !ok {
-		return "", "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+		return "", "", fmt.Errorf(
+			"%w: key value store %s not found",
+			ErrKeyValueStoreNotFound,
+			kvsID,
+		)
 	}
 
 	data := b.keyValueStoreData[kvsID]
@@ -196,7 +228,11 @@ func (b *InMemoryBackend) ListKVSValues(kvsID string) ([]*KVSItem, string, error
 	defer b.mu.RUnlock()
 
 	if _, ok := b.keyValueStores.Get(kvsID); !ok {
-		return nil, "", fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, kvsID)
+		return nil, "", fmt.Errorf(
+			"%w: key value store %s not found",
+			ErrKeyValueStoreNotFound,
+			kvsID,
+		)
 	}
 
 	data := b.keyValueStoreData[kvsID]
@@ -210,7 +246,11 @@ func (b *InMemoryBackend) ListKVSValues(kvsID string) ([]*KVSItem, string, error
 }
 
 // UpdateKVSValues performs a batch put/delete on a Key Value Store.
-func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem, deletes []string) (string, error) {
+func (b *InMemoryBackend) UpdateKVSValues(
+	kvsID, ifMatch string,
+	puts []*KVSItem,
+	deletes []string,
+) (string, error) {
 	b.mu.Lock("UpdateKVSValues")
 	defer b.mu.Unlock()
 
@@ -241,13 +281,17 @@ func (b *InMemoryBackend) UpdateKVSValues(kvsID, ifMatch string, puts []*KVSItem
 // --- VPC Origin CRUD ---
 
 // UpdateKeyValueStore updates a Key Value Store's comment.
-func (b *InMemoryBackend) UpdateKeyValueStore(id, comment string) (*KeyValueStore, error) {
+func (b *InMemoryBackend) UpdateKeyValueStore(idNameOrARN, comment string) (*KeyValueStore, error) {
 	b.mu.Lock("UpdateKeyValueStore")
 	defer b.mu.Unlock()
 
-	kvs, ok := b.keyValueStores.Get(id)
+	kvs, ok := b.resolveKeyValueStoreLocked(idNameOrARN)
 	if !ok {
-		return nil, fmt.Errorf("%w: key value store %s not found", ErrKeyValueStoreNotFound, id)
+		return nil, fmt.Errorf(
+			"%w: key value store %s not found",
+			ErrKeyValueStoreNotFound,
+			idNameOrARN,
+		)
 	}
 	if comment != "" {
 		kvs.Comment = comment

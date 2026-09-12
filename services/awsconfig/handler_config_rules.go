@@ -433,19 +433,33 @@ func (e evaluationBody) toResult(fallbackRule string) EvaluationResult {
 	}
 }
 
-// PutEvaluations request/response types and handler.
+// PutEvaluations request/response types and handler. Real
+// PutEvaluationsInput has no ConfigRuleName member at all (api_op_
+// PutEvaluations.go): ResultToken is the sole per-call correlator a real
+// Lambda-backed custom rule evaluator sends ("An encrypted token that
+// associates an evaluation with a Config rule"). This previously required a
+// fabricated top-level ConfigRuleName that no real client's marshalled
+// request can ever carry, so association to a rule always failed for a real
+// client. Since this emulator has no Lambda-invocation pipeline to hand a
+// custom rule its real encrypted token, ResultToken is treated as the rule
+// name a caller supplies -- callers of this emulator are expected to pass
+// ResultToken=<ConfigRuleName>.
 type putEvaluationsInput struct {
-	ConfigRuleName string           `json:"ConfigRuleName,omitempty"`
-	ResultToken    string           `json:"ResultToken,omitempty"`
-	Evaluations    []evaluationBody `json:"Evaluations"`
+	ResultToken string           `json:"ResultToken,omitempty"`
+	Evaluations []evaluationBody `json:"Evaluations"`
+	TestMode    bool             `json:"TestMode,omitempty"`
 }
 
 func (h *Handler) handlePutEvaluations(
 	_ context.Context, in *putEvaluationsInput,
 ) (*emptyOutput, error) {
+	if in.TestMode {
+		return &emptyOutput{}, nil
+	}
+
 	results := make([]EvaluationResult, 0, len(in.Evaluations))
 	for _, e := range in.Evaluations {
-		results = append(results, e.toResult(in.ConfigRuleName))
+		results = append(results, e.toResult(in.ResultToken))
 	}
 
 	return &emptyOutput{}, h.Backend.PutEvaluations(results)

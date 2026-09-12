@@ -169,8 +169,15 @@ func matchesAllTenantDatabaseFilters(tdb TenantDatabase, filters map[string][]st
 }
 
 // ModifyTenantDatabase modifies a tenant database (e.g. master password).
+// ModifyTenantDatabase applies NewTenantDBName (the real, modeled rename
+// field -- rds@v1.124.1 api_op_ModifyTenantDatabase.go:130). Real
+// ManageMasterUserPassword/MasterUserPassword/MasterUserSecretKmsKeyId/
+// RotateMasterUserPassword aren't modeled by TenantDatabase (no Secrets
+// Manager integration in this backend) and are accepted-but-dropped,
+// matching this file's existing precedent for CreateTenantDatabase's
+// masterUsername-only password handling.
 func (b *InMemoryBackend) ModifyTenantDatabase(
-	instanceID, tenantDBName string,
+	instanceID, tenantDBName, newTenantDBName string,
 ) (*TenantDatabase, error) {
 	b.mu.Lock("ModifyTenantDatabase")
 	defer b.mu.Unlock()
@@ -179,6 +186,23 @@ func (b *InMemoryBackend) ModifyTenantDatabase(
 	tdb, exists := b.tenantDatabases.Get(key)
 	if !exists {
 		return nil, fmt.Errorf("%w: %s/%s", ErrTenantDatabaseNotFound, instanceID, tenantDBName)
+	}
+
+	if newTenantDBName != "" && newTenantDBName != tenantDBName {
+		newKey := tenantKey(instanceID, newTenantDBName)
+		if _, taken := b.tenantDatabases.Get(newKey); taken {
+			return nil, fmt.Errorf(
+				"%w: %s/%s", ErrTenantDatabaseAlreadyExists, instanceID, newTenantDBName,
+			)
+		}
+
+		b.tenantDatabases.Delete(key)
+		tdb.TenantDBName = newTenantDBName
+		tdb.TenantDatabaseARN = fmt.Sprintf(
+			"arn:aws:rds:%s:%s:tenant-database:%s/%s",
+			b.region, b.accountID, instanceID, newTenantDBName,
+		)
+		b.tenantDatabases.Put(tdb)
 	}
 
 	cp := *tdb
@@ -299,7 +323,10 @@ func applyDBSnapshotTenantDatabaseFilters(
 	return filtered, nil
 }
 
-func matchesAllDBSnapshotTenantDatabaseFilters(e DBSnapshotTenantDatabase, filters map[string][]string) bool {
+func matchesAllDBSnapshotTenantDatabaseFilters(
+	e DBSnapshotTenantDatabase,
+	filters map[string][]string,
+) bool {
 	for name, values := range filters {
 		switch name {
 		case filterNameTenantDBName:

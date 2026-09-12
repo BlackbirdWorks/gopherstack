@@ -258,7 +258,7 @@ func TestConfigRootXML(t *testing.T) {
 			name: "fle_profile_config",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("fle-prof-root", "cmt", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "fle-prof-root", "cmt", nil)
 				require.NoError(t, err)
 
 				return prefix + "field-level-encryption-profile/" + p.ID + "/config"

@@ -347,10 +347,11 @@ type EncryptionEntity struct {
 
 // FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
 type FieldLevelEncryptionProfile struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Comment         string `json:"comment,omitempty"`
+	ETag            string `json:"eTag"`
+	CallerReference string `json:"callerReference,omitempty"`
 	// EncryptionEntities reference public keys. Each PublicKeyID must correspond to
 	// an existing public key (referential integrity enforced on create/update).
 	EncryptionEntities []EncryptionEntity `json:"encryptionEntities,omitempty"`

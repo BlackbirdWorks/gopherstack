@@ -346,3 +346,28 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   narrower taggable surface than what this generic ARN-keyed tag store already accepts for
   all twelve families (a pre-existing design choice, not touched this pass). Left
   unimplemented; recorded in `gaps`.
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (16 subtests) driving every WAF
+Classic condition-set family (IPSet, ByteMatch, SqlInjectionMatch,
+SizeConstraint, XssMatch, GeoMatch, RegexPattern, RegexMatch), Rule/
+RuleGroup, RateBasedRule, WebACL, logging configuration, permission policy,
+tags, and change-token status through the real aws-sdk-go-v2 waf client --
+each mutation drives the real GetChangeToken -> mutate sequence, and every
+Delete* op empties the set first (WAFNonEmptyEntityException otherwise,
+which the backend already enforces correctly). Typed-client coverage
+(cmd/opcensus + cmd/clientcoverage): 7/77 (9.1%) -> 77/77 (100%); the
+0-of-70-named-uncovered-ops list is now fully closed.
+
+**Zero real bugs found.** Every newly-covered op passed against a
+correctly-shaped real-client request on the first try; the
+`WAFNonEmptyEntityException` "bug" surfaced during test authoring was this
+pass's own test omitting the required empty-before-delete step, not a
+backend defect -- confirmed by reading the backend's delete-path validation,
+which matches real AWS's documented precondition exactly.
+
+No persisted struct fields changed; no version bump. Gates: `go build
+./...`, `go vet ./services/waf/...`, `go test -race -count=1
+./services/waf/...` (pass), `golangci-lint run --new-from-rev=HEAD
+./services/waf/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.

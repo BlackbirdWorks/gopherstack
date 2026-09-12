@@ -227,7 +227,7 @@ func TestListFieldLevelEncryptionProfiles_SDKRoundTrip_Pagination(t *testing.T) 
 
 	const total = 25
 	for i := range total {
-		_, err := backend.CreateFieldLevelEncryptionProfile(fmt.Sprintf("pg-flep-%02d", i), "pagination test", nil)
+		_, err := backend.CreateFieldLevelEncryptionProfile("", fmt.Sprintf("pg-flep-%02d", i), "pagination test", nil)
 		require.NoError(t, err)
 	}
 

@@ -123,12 +123,6 @@ func TestAWSConfigHandler_UndeclaredValidationCodes(t *testing.T) {
 			wantContains: "InvalidParameterValueException",
 		},
 		{
-			name:         "put_retention_configuration_missing_name",
-			operation:    "PutRetentionConfiguration",
-			body:         map[string]any{},
-			wantContains: "InvalidParameterValueException",
-		},
-		{
 			name:         "describe_config_rules_invalid_next_token",
 			operation:    "DescribeConfigRules",
 			body:         map[string]any{"NextToken": "not-base64!!"},
