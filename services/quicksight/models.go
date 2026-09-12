@@ -156,6 +156,7 @@ type storedDashboard struct {
 	ThemeArn               string               `json:"themeArn,omitempty"`
 	VersionDescription     string               `json:"versionDescription,omitempty"`
 	Permissions            []ResourcePermission `json:"permissions,omitempty"`
+	LinkPermissions        []ResourcePermission `json:"linkPermissions,omitempty"`
 	LinkEntities           []string             `json:"linkEntities,omitempty"`
 	VersionNumber          int64                `json:"versionNumber"`
 	PublishedVersionNumber int64                `json:"publishedVersionNumber"`
@@ -176,6 +177,7 @@ func (d *storedDashboard) toDashboard() *Dashboard {
 		PublishedVersionNumber: d.PublishedVersionNumber,
 		Definition:             d.Definition,
 		Permissions:            clonePermissions(d.Permissions),
+		LinkPermissions:        clonePermissions(d.LinkPermissions),
 		LinkEntities:           append([]string(nil), d.LinkEntities...),
 	}
 }

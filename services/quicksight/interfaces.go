@@ -139,7 +139,7 @@ type StorageBackend interface {
 	DescribeDashboardPermissions(accountID, dashboardID string) (*Dashboard, []ResourcePermission, error)
 	UpdateDashboardPermissions(
 		accountID, dashboardID string,
-		grant, revoke []ResourcePermission,
+		grant, revoke, grantLink, revokeLink []ResourcePermission,
 	) (*Dashboard, []ResourcePermission, error)
 
 	// Analyses

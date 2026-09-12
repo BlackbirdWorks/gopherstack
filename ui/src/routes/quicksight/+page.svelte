@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getQuickSightClient } from '$lib/aws-client';
 	import {
@@ -810,7 +811,13 @@
 		// test) can switch tabs before it settles. Re-reading `activeTab` inside
 		// the callback would then refresh whatever tab they switched TO a second
 		// time and never load the one that was active when this effect fired.
-		const tabAtMount = activeTab;
+		//
+		// untrack is required, not just style: onRegionChange's callback runs
+		// inside a Svelte $effect, so a plain synchronous read of `activeTab`
+		// here makes the effect depend on it too -- every switchTab() call would
+		// then re-run this whole region-change handler and refresh every tab
+		// (gopherstack-291eg).
+		const tabAtMount = untrack(() => activeTab);
 		void ensureAccountId().then(() => {
 			if (isInitialMount) {
 				void tabLoader.refresh(tabAtMount);
@@ -1326,6 +1333,7 @@
 				new DescribeDashboardPermissionsCommand({ AwsAccountId: awsAccountId, DashboardId: dashboardId })
 			);
 			dashboardPermissions = fromResourcePermissions(resp.Permissions);
+			dashboardLinkPermissions = fromResourcePermissions(resp.LinkSharingConfiguration?.Permissions);
 		} catch (e) {
 			toast.error(describeError(e));
 		} finally {

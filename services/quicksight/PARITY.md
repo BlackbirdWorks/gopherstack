@@ -1828,3 +1828,57 @@ verified: the real AWS ARN format for these three resource types (no SDK doc or 
 example found), and whether `DeleteLimitsProfile`'s undocumented-in-practice
 `ConflictException` path is reachable in real AWS at all (left unimplemented rather than
 guessed, per the Associate-op gap noted above).
+
+## 2026-09-11: Dashboard LinkSharingConfiguration fix (gopherstack-xs5xo)
+
+`UpdateDashboardPermissions` accepted `GrantLinkPermissions`/`RevokeLinkPermissions` (both
+real input members, `api_op_UpdateDashboardPermissions.go`) but never stored them or emitted
+`LinkSharingConfiguration` on the response (`UpdateDashboardPermissionsOutput.LinkSharingConfiguration
+*types.LinkSharingConfiguration`, same file). `DescribeDashboardPermissionsOutput` carries the
+same member (`api_op_DescribeDashboardPermissions.go`); `types.LinkSharingConfiguration` is a
+single-field wrapper, `{Permissions []ResourcePermission}` (`types/types.go:14421`). Confirmed
+against `deserializers.go`: both ops' output deserializers (`:21594`, `:51314`) read
+`LinkSharingConfiguration` as an optional key -- an absent key is a no-op, not an error -- and
+`serializers.go:1727`/`:30906` only write the key `if v.LinkSharingConfiguration != nil`, so a
+dashboard with no link permissions correctly omits the member rather than emitting an empty
+struct. Analyses were checked for the same members
+(`api_op_UpdateAnalysisPermissions.go`/`api_op_DescribeAnalysisPermissions.go`) -- neither
+carries `GrantLinkPermissions`/`RevokeLinkPermissions`/`LinkSharingConfiguration`; link sharing
+is a dashboard-only concept in this SDK version, so no analysis change was needed.
+
+Fixed by adding `LinkPermissions []ResourcePermission` to `storedDashboard`/`Dashboard`
+(`models.go`, `types.go`), threading `grantLink, revokeLink` through
+`InMemoryBackend.UpdateDashboardPermissions` (`dashboard.go`) with the same
+`applyGrantRevoke` merge semantics already used for the regular `Permissions` field, and
+having both dashboard-permissions handlers (`handler_dashboard.go`) build a
+`LinkSharingConfiguration` object from `d.LinkPermissions`, included in the response only when
+non-empty (mirrors the real serializer's `!= nil` gate). `DescribeDashboardPermissions`'s own
+signature was left unchanged -- it already returns the whole `*Dashboard`, which now carries
+`LinkPermissions` -- so only `UpdateDashboardPermissions`'s signature grew two params.
+
+**Persistence**: `storedDashboard.LinkPermissions` is a new, purely-additive
+`omitempty` field; `quicksightSnapshotVersion` was not bumped (an older snapshot missing the
+field decodes fine, zero-valuing it, matching `TestSnapshotVersionGuard`'s documented rule).
+Added the one row (`storedDashboard.LinkPermissions []ResourcePermission
+\`json:"linkPermissions,omitempty"\``) directly to
+`pkgs/persistence/testdata/snapshot_inventory.json`'s `quicksight` block by hand rather than
+`-update`, since a concurrent in-flight `services/opensearch` fix (not touched by this pass)
+was also failing the same guard and `-update` rewrites the whole golden file. The first hand
+edit was made while `opensearch` still failed the guard; a concurrent `-update` run made to
+fix *that* violation landed on disk mid-pass (committed as `4016e3d86`) and, because it
+regenerates the entire file from a live scan taken before this fix's `models.go` change was
+in place, silently dropped the hand-added `LinkPermissions` row along with it. Caught by
+re-running the guard read-only after that commit landed (it reported "no diff" instead of
+the expected pass) and fixed by re-applying the same one-line hand edit on top of the new
+HEAD; confirmed clean afterward with no `-update` needed.
+
+**Tests**: `TestDashboardLinkSharing_RealClient` (`handler_dashboard_test.go`) drives
+Create -> grant link permission -> Update response carries `LinkSharingConfiguration` -> Describe
+reflects it -> revoke -> both Update and Describe responses omit it again, through the real
+`aws-sdk-go-v2` client, and asserts the regular `Permissions` list is untouched by a link-only
+grant.
+
+**Gates**: `go build ./...` (whole module) clean; `go vet ./services/quicksight/...` clean;
+`go test -race -count=1 ./services/quicksight/... ./pkgs/persistence/...` -- both `ok`,
+including `TestSnapshotVersionGuard`; `golangci-lint run ./services/quicksight/...` --
+`0 issues`.

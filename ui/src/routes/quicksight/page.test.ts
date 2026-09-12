@@ -531,4 +531,113 @@ describe("QuickSight Page", () => {
       );
     });
   }, 30000);
+
+  // gopherstack-291eg: onRegionChange's effect used to read `activeTab`
+  // synchronously, making activeTab a tracked dependency -- every
+  // switchTab() call then re-ran the whole region-change handler and
+  // force-refreshed every OTHER tab's list command in the background. Fixed
+  // by untrack()-ing that read. This proves switching through three tabs
+  // issues exactly one list call per tab, in order, with no extra calls for
+  // tabs never visited (or re-visited).
+  it("does not re-fire other tabs' list commands when switching tabs", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
+    render(QuickSightPage);
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    mockSend.mockResolvedValueOnce({ AnalysisSummaryList: [] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Analyses" }));
+    await waitFor(() => screen.getByText("No analyses found"));
+
+    mockSend.mockResolvedValueOnce({ DataSetSummaries: [] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
+    await waitFor(() => screen.getByText("No data sets found"));
+
+    // Switching back to an already-loaded tab must not refetch it either.
+    await fireEvent.click(screen.getByRole("tab", { name: "Dashboards" }));
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    await waitFor(() => {
+      const commandNames = mockSend.mock.calls.map((c) => c[0].constructor.name);
+      expect(commandNames).toEqual([
+        "ListDashboardsCommand",
+        "ListAnalysesCommand",
+        "ListDataSetsCommand",
+      ]);
+    });
+  });
+
+  // gopherstack-xs5xo: DescribeDashboardPermissions/UpdateDashboardPermissions
+  // now carry LinkSharingConfiguration alongside the regular Permissions
+  // list. The dashboard modal's second ResourcePermissions instance
+  // ("Link sharing") must populate from Describe's LinkSharingConfiguration
+  // on open and update from Update's LinkSharingConfiguration on grant --
+  // and must send Grant/RevokeLinkPermissions, not Grant/RevokePermissions.
+  it("rounds trip link sharing permissions through Describe/UpdateDashboardPermissions", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
+    render(QuickSightPage);
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    const namespacePrincipal = "arn:aws:quicksight:us-east-1:123456789012:namespace/default";
+
+    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard }); // DescribeDashboard
+    mockSend.mockResolvedValueOnce({
+      Permissions: [],
+      LinkSharingConfiguration: {
+        Permissions: [{ Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] }],
+      },
+    }); // DescribeDashboardPermissions
+    mockSend.mockResolvedValueOnce({ DashboardVersionSummaryList: [] }); // ListDashboardVersions
+    await fireEvent.click(screen.getByTitle("View"));
+
+    await waitFor(() => {
+      expect(screen.getByText(namespacePrincipal)).toBeInTheDocument();
+    });
+    // The regular Permissions table (queued empty above) must stay empty --
+    // link sharing rows must not leak into it.
+    expect(screen.getByText("No principals granted access")).toBeInTheDocument();
+
+    const linkViewer = "arn:aws:quicksight:us-east-1:123456789012:user/default/carol";
+    await fireEvent.input(screen.getByLabelText("Link sharing: new principal ARN"), {
+      target: { value: linkViewer },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      LinkSharingConfiguration: {
+        Permissions: [
+          { Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] },
+          {
+            Principal: linkViewer,
+            Actions: ["quicksight:DescribeDashboard", "quicksight:ListDashboardVersions", "quicksight:QueryDashboard"],
+          },
+        ],
+      },
+    }); // UpdateDashboardPermissions
+    const grantButtons = screen.getAllByRole("button", { name: "Grant" });
+    await fireEvent.click(grantButtons[1]); // second ResourcePermissions instance is "Link sharing"
+
+    await waitFor(() => {
+      expect(screen.getByText(linkViewer)).toBeInTheDocument();
+    });
+
+    const updateCall = mockSend.mock.calls.find(
+      (c) => c[0].constructor.name === "UpdateDashboardPermissionsCommand",
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].input).toEqual(
+      expect.objectContaining({
+        DashboardId: "example",
+        GrantLinkPermissions: [
+          {
+            Principal: linkViewer,
+            Actions: [
+              "quicksight:DescribeDashboard",
+              "quicksight:ListDashboardVersions",
+              "quicksight:QueryDashboard",
+            ],
+          },
+        ],
+      }),
+    );
+    expect(updateCall![0].input.GrantPermissions).toBeUndefined();
+  }, 30000);
 });

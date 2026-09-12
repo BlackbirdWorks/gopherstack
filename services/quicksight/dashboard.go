@@ -366,7 +366,7 @@ func (b *InMemoryBackend) DescribeDashboardPermissions(
 
 func (b *InMemoryBackend) UpdateDashboardPermissions(
 	accountID, dashboardID string,
-	grant, revoke []ResourcePermission,
+	grant, revoke, grantLink, revokeLink []ResourcePermission,
 ) (*Dashboard, []ResourcePermission, error) {
 	b.mu.Lock("UpdateDashboardPermissions")
 	defer b.mu.Unlock()
@@ -377,6 +377,7 @@ func (b *InMemoryBackend) UpdateDashboardPermissions(
 	}
 
 	d.Permissions = applyGrantRevoke(d.Permissions, grant, revoke)
+	d.LinkPermissions = applyGrantRevoke(d.LinkPermissions, grantLink, revokeLink)
 	d.LastUpdatedTime = time.Now().UTC()
 
 	return d.toDashboard(), clonePermissions(d.Permissions), nil

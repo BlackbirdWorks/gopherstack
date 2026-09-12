@@ -212,6 +212,7 @@ type Dashboard struct {
 	ThemeArn               string
 	VersionDescription     string
 	Permissions            []ResourcePermission
+	LinkPermissions        []ResourcePermission
 	LinkEntities           []string
 	VersionNumber          int64
 	PublishedVersionNumber int64

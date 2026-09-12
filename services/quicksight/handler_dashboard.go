@@ -313,13 +313,20 @@ func (h *Handler) handleDescribeDashboardPermissions(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyDashboardID:  dashboardID,
 		keyDashboardArn: d.Arn,
 		keyPermissions:  permissionsToMaps(perms),
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-	})
+	}
+	if len(d.LinkPermissions) > 0 {
+		resp["LinkSharingConfiguration"] = map[string]any{
+			keyPermissions: permissionsToMaps(d.LinkPermissions),
+		}
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
@@ -337,18 +344,27 @@ func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
 		dashboardID,
 		permissionsField(body, "GrantPermissions"),
 		permissionsField(body, "RevokePermissions"),
+		permissionsField(body, "GrantLinkPermissions"),
+		permissionsField(body, "RevokeLinkPermissions"),
 	)
 	if err != nil {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyDashboardID:  dashboardID,
 		keyDashboardArn: d.Arn,
 		keyPermissions:  permissionsToMaps(perms),
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-	})
+	}
+	if len(d.LinkPermissions) > 0 {
+		resp["LinkSharingConfiguration"] = map[string]any{
+			keyPermissions: permissionsToMaps(d.LinkPermissions),
+		}
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 // handleUpdateDashboardPublishedVersion flips which stored version of a

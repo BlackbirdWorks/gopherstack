@@ -21367,6 +21367,7 @@
       "storedDashboard.LastPublishedTime time.Time `json:\"lastPublishedTime\"`",
       "storedDashboard.LastUpdatedTime time.Time `json:\"lastUpdatedTime\"`",
       "storedDashboard.LinkEntities []string `json:\"linkEntities,omitempty\"`",
+      "storedDashboard.LinkPermissions []ResourcePermission `json:\"linkPermissions,omitempty\"`",
       "storedDashboard.Name string `json:\"name\"`",
       "storedDashboard.Permissions []ResourcePermission `json:\"permissions,omitempty\"`",
       "storedDashboard.PublishedVersionNumber int64 `json:\"publishedVersionNumber\"`",
