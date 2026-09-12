@@ -185,7 +185,9 @@ func (b *InMemoryBackend) ModifyDBParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
-	if err := applyParameterInputs(b.parameterOverridesFor(region, name), params); err != nil {
+	if err := applyParameterInputs(
+		neptuneInstanceParameterCatalogIndex(), b.parameterOverridesFor(region, name), params,
+	); err != nil {
 		return nil, err
 	}
 	cp := *pg
@@ -209,7 +211,9 @@ func (b *InMemoryBackend) ResetDBParameterGroup(
 	if !exists {
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
-	if err := resetParameterInputs(b.parameterOverridesFor(region, name), resetAll, params); err != nil {
+	if err := resetParameterInputs(
+		neptuneInstanceParameterCatalogIndex(), b.parameterOverridesFor(region, name), resetAll, params,
+	); err != nil {
 		return nil, err
 	}
 	cp := *pg
@@ -227,7 +231,7 @@ func (b *InMemoryBackend) DescribeDBParameters(ctx context.Context, name string)
 		return nil, fmt.Errorf("%w: parameter group %s not found", ErrParameterGroupNotFound, name)
 	}
 
-	return describeParameters(b.parameterOverrides[regionKey(region, name)]), nil
+	return describeParameters(neptuneInstanceParameterCatalog(), b.parameterOverrides[regionKey(region, name)]), nil
 }
 
 // AddParameterGroupInternal creates a DB parameter group directly. Used for seeding tests.

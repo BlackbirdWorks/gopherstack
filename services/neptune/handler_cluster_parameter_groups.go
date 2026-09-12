@@ -152,7 +152,7 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(
 	if family == "" {
 		family = pgFamilyNeptune13
 	}
-	catalog := neptuneParameterCatalog()
+	catalog := neptuneClusterParameterCatalog()
 	members := make([]xmlParameter, 0, len(catalog))
 	for _, p := range catalog {
 		members = append(members, toXMLParameter(p))

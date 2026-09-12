@@ -135,7 +135,7 @@ func (h *Handler) handleDescribeEngineDefaultParameters(
 	if family == "" {
 		family = pgFamilyNeptune13
 	}
-	catalog := neptuneParameterCatalog()
+	catalog := neptuneInstanceParameterCatalog()
 	members := make([]xmlParameter, 0, len(catalog))
 	for _, p := range catalog {
 		members = append(members, toXMLParameter(p))

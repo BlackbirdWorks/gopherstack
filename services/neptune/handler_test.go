@@ -55,6 +55,22 @@ func createCluster(t *testing.T, h *neptune.Handler, id string) {
 	})
 }
 
+// createClusterInGlobalCluster creates a DB cluster that joins globalClusterID
+// at creation time -- the real Neptune join path (CreateDBClusterInput's
+// GlobalClusterIdentifier member, api_op_CreateDBCluster.go:129) -- so tests
+// can exercise FailoverGlobalCluster/SwitchoverGlobalCluster against a
+// genuine tracked secondary member instead of an arbitrary identifier.
+func createClusterInGlobalCluster(t *testing.T, h *neptune.Handler, id, globalClusterID string) {
+	t.Helper()
+	rr := doRequest(t, h, url.Values{
+		"Action":                  {"CreateDBCluster"},
+		"Version":                 {"2014-10-31"},
+		"DBClusterIdentifier":     {id},
+		"GlobalClusterIdentifier": {globalClusterID},
+	})
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+}
+
 func createInstance(t *testing.T, h *neptune.Handler, instanceID, clusterID string) {
 	t.Helper()
 	doRequest(t, h, url.Values{
