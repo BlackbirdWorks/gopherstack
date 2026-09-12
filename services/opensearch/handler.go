@@ -110,6 +110,7 @@ const (
 	jsonKeyDocSeqNo    = "_seq_no"
 	jsonKeyDocPrimTerm = "_primary_term"
 	jsonKeyDocShards   = "_shards"
+	jsonKeyDocResult   = "result"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -761,6 +762,8 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 	// opensearch@v1.75.4: only DomainName is URI-bound) -- gopherstack-l5ir.
 	case strings.HasSuffix(trimmed, "/index"):
 		return h.handleCreateIndexRealRoute(w, r, trimmed)
+	case strings.HasSuffix(trimmed, "/_bulk"):
+		return h.handleBulkRoute(w, r, trimmed)
 	case strings.Contains(trimmed, "/index/"):
 		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:

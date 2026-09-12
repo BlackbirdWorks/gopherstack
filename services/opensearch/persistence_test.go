@@ -415,7 +415,11 @@ func TestPersistence_AutoTunesRoundTrip(t *testing.T) {
 	b := opensearch.NewInMemoryBackend("123456789012", "us-east-1")
 	b.AddDomainInternal("at-persist", "")
 
-	err := b.SetAutoTune("at-persist", "ENABLED", nil)
+	// GetAutoTune only derives an AutoTune entry from a real, configured
+	// MaintenanceSchedule (advanced.go) -- a nil schedule list now correctly
+	// reports zero entries, so one is seeded here.
+	err := b.SetAutoTune("at-persist", "ENABLED",
+		[]opensearch.AutoTuneMaintenanceSchedule{{CronExpression: "cron(0 2 ? * SUN *)"}})
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -764,10 +768,11 @@ func TestOpenSearchHandler_Persistence(t *testing.T) {
 
 // TestInMemoryBackend_SnapshotRestore_FullState exercises a Snapshot->Restore
 // round trip across every resource family, including the pkgs/store "clean"
-// tables, the "dirty" DTO tables (dryRuns, autoTunes, domainDataSources,
-// domainIndexes), and the plain maps left unconverted (part of the Phase 3.3
-// datalayer conversion -- see store_setup.go). It guards against silently
-// losing a family in Snapshot/Restore's field wiring.
+// tables, the "dirty" DTO tables (dryRuns, domainDataSources,
+// domainIndexes), the AutoTuneOptions nested directly on Domain, and the
+// plain maps left unconverted (part of the Phase 3.3 datalayer conversion --
+// see store_setup.go). It guards against silently losing a family in
+// Snapshot/Restore's field wiring.
 func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	t.Parallel()
 
@@ -780,7 +785,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// "Dirty" DTO tables: domainDataSources, domainIndexes, dryRuns, autoTunes.
+	// "Dirty" DTO tables: domainDataSources, domainIndexes, dryRuns.
 	_, err = original.AddDataSource(domain.Name, "ds-1", "a data source", json.RawMessage(`{"S3GlueDataCatalog":{}}`))
 	require.NoError(t, err)
 
@@ -790,7 +795,12 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.GetDryRunProgress(domain.Name)
 	require.NoError(t, err)
 
-	require.NoError(t, original.SetAutoTune(domain.Name, "ENABLED", nil))
+	// AutoTuneOptions is nested directly on Domain (models.go), a "clean"
+	// table -- covered here rather than as its own "dirty DTO" bullet above.
+	// GetAutoTune only derives an entry from a real, configured
+	// MaintenanceSchedule, so one is seeded here.
+	require.NoError(t, original.SetAutoTune(domain.Name, "ENABLED",
+		[]opensearch.AutoTuneMaintenanceSchedule{{CronExpression: "cron(0 2 ? * SUN *)"}}))
 
 	// "Clean" pkgs/store tables not otherwise covered by other persistence tests.
 	_, err = original.AddDirectQueryDataSource(

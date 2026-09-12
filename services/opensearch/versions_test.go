@@ -162,7 +162,11 @@ func TestDescribeDomainAutoTunes_RealClient_ValidAutoTuneType(t *testing.T) {
 		DomainName: aws.String("autotune-dom"),
 	})
 	require.NoError(t, err)
-	require.NoError(t, b.SetAutoTune("autotune-dom", "ENABLED", nil))
+	// GetAutoTune only derives an AutoTune entry from a real, configured
+	// MaintenanceSchedule (advanced.go) -- a nil schedule list now correctly
+	// reports zero entries, so one is seeded here.
+	require.NoError(t, b.SetAutoTune("autotune-dom", "ENABLED",
+		[]opensearch.AutoTuneMaintenanceSchedule{{CronExpression: "cron(0 2 ? * SUN *)"}}))
 
 	out, err := client.DescribeDomainAutoTunes(ctx, &opensearchsdk.DescribeDomainAutoTunesInput{
 		DomainName: aws.String("autotune-dom"),

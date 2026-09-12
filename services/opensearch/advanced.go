@@ -22,11 +22,193 @@ type UpgradeStepItem struct {
 	ProgressPercent   float64  `json:"ProgressPercent"`
 }
 
-// AutoTuneConfig stores auto-tune configuration for a domain.
+// AutoTuneConfig stores a domain's Auto-Tune configuration and status,
+// nested directly on Domain (types.AutoTuneOptions/AutoTuneOptionsOutput/
+// AutoTuneOptionsStatus/AutoTuneStatus, opensearch@v1.75.4 types/types.go:
+// 414-521). State mirrors DesiredState directly (ENABLED/DISABLED): this
+// backend has no async enable/disable pipeline, so it never reports the real
+// enum's transient ENABLE_IN_PROGRESS/DISABLE_IN_PROGRESS/
+// DISABLED_AND_ROLLBACK_* values -- an honest restraint, not a fabricated
+// state machine, matching the off-peak-window/IdentityCenter options above
+// (also stored and echoed verbatim, no transition modeling).
 type AutoTuneConfig struct {
+	CreatedAt            time.Time                     `json:"CreatedAt,omitzero"`
+	UpdatedAt            time.Time                     `json:"UpdatedAt,omitzero"`
+	UseOffPeakWindow     *bool                         `json:"UseOffPeakWindow,omitempty"`
 	DesiredState         string                        `json:"DesiredState"`
-	DomainName           string                        `json:"-"`
+	RollbackOnDisable    string                        `json:"RollbackOnDisable,omitempty"`
+	State                string                        `json:"State"`
+	ErrorMessage         string                        `json:"ErrorMessage,omitempty"`
 	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"MaintenanceSchedules,omitempty"`
+	UpdateVersion        int                           `json:"UpdateVersion,omitempty"`
+}
+
+// AutoTuneOptionsInput is the Auto-Tune request shape accepted by
+// CreateDomain (types.AutoTuneOptionsInput) -- unlike UpdateDomainConfig's
+// AutoTuneUpdateInput below, it has no RollbackOnDisable member (serializers.go
+// awsRestjson1_serializeDocumentAutoTuneOptionsInput vs.
+// awsRestjson1_serializeDocumentAutoTuneOptions).
+type AutoTuneOptionsInput struct {
+	UseOffPeakWindow     *bool
+	DesiredState         string
+	MaintenanceSchedules []AutoTuneMaintenanceSchedule
+}
+
+// AutoTuneUpdateInput is the Auto-Tune request shape accepted by
+// UpdateDomainConfig (types.AutoTuneOptions).
+type AutoTuneUpdateInput struct {
+	UseOffPeakWindow     *bool
+	DesiredState         string
+	RollbackOnDisable    string
+	MaintenanceSchedules []AutoTuneMaintenanceSchedule
+}
+
+// Auto-Tune validation constants, matching the documented closed enums
+// (opensearch@v1.75.4 types/enums.go): AutoTuneDesiredState (118-135),
+// RollbackOnDisable (1575-1591), and TimeUnit (1715-1727, "HOURS" is its
+// only member).
+const (
+	autoTuneDesiredStateEnabled     = "ENABLED"
+	autoTuneDesiredStateDisabled    = "DISABLED"
+	autoTuneRollbackNoRollback      = "NO_ROLLBACK"
+	autoTuneRollbackDefaultRollback = "DEFAULT_ROLLBACK"
+	autoTuneDurationUnitHours       = "HOURS"
+)
+
+// validateAutoTuneDesiredState checks DesiredState against its documented
+// closed enum. An empty value (field omitted) is allowed.
+func validateAutoTuneDesiredState(state string) error {
+	switch state {
+	case "", autoTuneDesiredStateEnabled, autoTuneDesiredStateDisabled:
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: AutoTuneOptions.DesiredState %q is not a valid AutoTuneDesiredState (ENABLED, DISABLED)",
+			ErrValidation, state,
+		)
+	}
+}
+
+// validateAutoTuneSchedules checks each maintenance schedule's Duration.Unit
+// against TimeUnit's documented closed enum (HOURS is its only member).
+func validateAutoTuneSchedules(schedules []AutoTuneMaintenanceSchedule) error {
+	for _, s := range schedules {
+		if s.Duration.Unit != "" && s.Duration.Unit != autoTuneDurationUnitHours {
+			return fmt.Errorf(
+				"%w: AutoTuneOptions maintenance schedule Duration.Unit %q is not a valid TimeUnit (HOURS)",
+				ErrValidation, s.Duration.Unit,
+			)
+		}
+	}
+
+	return nil
+}
+
+// validateAutoTuneRollback checks RollbackOnDisable against its documented
+// closed enum, and enforces the doc's stated constraint that DEFAULT_ROLLBACK
+// requires a MaintenanceSchedule in the request, since otherwise OpenSearch
+// Service has nothing to roll back to.
+func validateAutoTuneRollback(rollback string, schedules []AutoTuneMaintenanceSchedule) error {
+	switch rollback {
+	case "", autoTuneRollbackNoRollback:
+		return nil
+	case autoTuneRollbackDefaultRollback:
+		if len(schedules) == 0 {
+			return fmt.Errorf(
+				"%w: RollbackOnDisable DEFAULT_ROLLBACK requires a MaintenanceSchedule in the request",
+				ErrValidation,
+			)
+		}
+
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: AutoTuneOptions.RollbackOnDisable %q is not a valid RollbackOnDisable (NO_ROLLBACK, DEFAULT_ROLLBACK)",
+			ErrValidation, rollback,
+		)
+	}
+}
+
+// validateAutoTuneCreateInput validates CreateDomain's AutoTuneOptions.
+func validateAutoTuneCreateInput(input *AutoTuneOptionsInput) error {
+	if input == nil {
+		return nil
+	}
+
+	if err := validateAutoTuneDesiredState(input.DesiredState); err != nil {
+		return err
+	}
+
+	return validateAutoTuneSchedules(input.MaintenanceSchedules)
+}
+
+// validateAutoTuneUpdateInput validates UpdateDomainConfig's AutoTuneOptions.
+func validateAutoTuneUpdateInput(input *AutoTuneUpdateInput) error {
+	if input == nil {
+		return nil
+	}
+
+	if err := validateAutoTuneDesiredState(input.DesiredState); err != nil {
+		return err
+	}
+
+	if err := validateAutoTuneSchedules(input.MaintenanceSchedules); err != nil {
+		return err
+	}
+
+	return validateAutoTuneRollback(input.RollbackOnDisable, input.MaintenanceSchedules)
+}
+
+// newAutoTuneConfigLocked builds the initial AutoTuneConfig for a new domain
+// from CreateDomain's AutoTuneOptionsInput. Caller must hold the write lock.
+func newAutoTuneConfigLocked(now time.Time, input *AutoTuneOptionsInput) *AutoTuneConfig {
+	return &AutoTuneConfig{
+		DesiredState:         input.DesiredState,
+		State:                input.DesiredState,
+		MaintenanceSchedules: input.MaintenanceSchedules,
+		UseOffPeakWindow:     input.UseOffPeakWindow,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		UpdateVersion:        1,
+	}
+}
+
+// applyAutoTuneUpdateLocked returns a new AutoTuneConfig reflecting input
+// applied on top of existing (nil if the domain had none yet). It never
+// mutates existing in place -- always returns a fresh value, so a caller
+// building a PreviewDomainConfig copy can safely discard the result without
+// affecting the live domain's AutoTuneOptions (same "replace wholesale, never
+// mutate in place" convention as the other *Options pointer fields on
+// Domain, see handler_domain_options.go). Caller must hold the write lock
+// (or, for a preview, operate on a domain copy under a read lock).
+func applyAutoTuneUpdateLocked(existing *AutoTuneConfig, now time.Time, input AutoTuneUpdateInput) *AutoTuneConfig {
+	next := &AutoTuneConfig{CreatedAt: now}
+	if existing != nil {
+		cp := *existing
+		next = &cp
+	}
+
+	if input.DesiredState != "" {
+		next.DesiredState = input.DesiredState
+		next.State = input.DesiredState
+	}
+
+	if input.RollbackOnDisable != "" {
+		next.RollbackOnDisable = input.RollbackOnDisable
+	}
+
+	if input.MaintenanceSchedules != nil {
+		next.MaintenanceSchedules = input.MaintenanceSchedules
+	}
+
+	if input.UseOffPeakWindow != nil {
+		next.UseOffPeakWindow = input.UseOffPeakWindow
+	}
+
+	next.UpdatedAt = now
+	next.UpdateVersion++
+
+	return next
 }
 
 // AutoTuneMaintenanceSchedule represents a maintenance window.
@@ -105,8 +287,6 @@ const (
 
 	// upgradeProgressComplete is the 100% progress value for a completed upgrade step.
 	upgradeProgressComplete = float64(100)
-	// autoTuneScheduleLookahead is the look-ahead duration for the next auto-tune window.
-	autoTuneScheduleLookahead = 24 * time.Hour
 	// maxUpgradeHistoryPerDomain caps the number of upgrade history entries kept
 	// per domain to prevent unbounded memory growth in long-running backends.
 	maxUpgradeHistoryPerDomain = 100
@@ -151,11 +331,6 @@ const (
 // upgradeHistoryKey returns the map key for a domain's upgrade history list.
 func upgradeHistoryKey(domainName string) string {
 	return "upgrade:" + domainName
-}
-
-// autoTuneKey returns the map key for a domain's auto-tune config.
-func autoTuneKey(domainName string) string {
-	return "autotune:" + domainName
 }
 
 // UpgradeDomain records an upgrade in the domain's history.
@@ -243,7 +418,10 @@ func (b *InMemoryBackend) GetUpgradeStatus(domainName string) (string, string, s
 	return latest.UpgradeName, latest.UpgradeStatus, upgradeStepUpgrade, nil
 }
 
-// SetAutoTune stores auto-tune configuration for a domain.
+// SetAutoTune stores auto-tune configuration for a domain. Test-seeding
+// helper (export_test.go/persistence_test.go callers) that shares the same
+// storage and update semantics CreateDomain/UpdateDomainConfig now use for
+// real client requests (applyAutoTuneUpdateLocked).
 func (b *InMemoryBackend) SetAutoTune(
 	domainName, desiredState string,
 	schedules []AutoTuneMaintenanceSchedule,
@@ -251,48 +429,71 @@ func (b *InMemoryBackend) SetAutoTune(
 	b.mu.Lock("SetAutoTune")
 	defer b.mu.Unlock()
 
-	if !b.domains.Has(domainName) {
+	d, ok := b.domains.Get(domainName)
+	if !ok {
 		return fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
-	b.autoTunes.Put(&AutoTuneConfig{
+	d.AutoTuneOptions = applyAutoTuneUpdateLocked(d.AutoTuneOptions, b.clock(), AutoTuneUpdateInput{
 		DesiredState:         desiredState,
 		MaintenanceSchedules: schedules,
-		DomainName:           domainName,
 	})
 
 	return nil
 }
 
-// GetAutoTune returns auto-tune details for a domain.
+// autoTunePlaceholderActionType/Action/Severity are the values used for
+// every AutoTune entry DescribeDomainAutoTunes derives from a domain's
+// MaintenanceSchedules. This backend has no tuning-decision engine to
+// determine which of ScheduledAutoTuneActionType's two documented members
+// (JVM_HEAP_SIZE_TUNING/JVM_YOUNG_GEN_TUNING, opensearch@v1.75.4
+// types/enums.go:1615-1631) or which severity a real domain would need --
+// a disclosed placeholder, not a fabricated diagnosis, and only emitted at
+// all when the stored schedules genuinely imply a scheduled action (see
+// GetAutoTune).
+const (
+	autoTunePlaceholderActionType = "JVM_HEAP_SIZE_TUNING"
+	autoTunePlaceholderAction     = "Scheduled Auto-Tune maintenance action " +
+		"(no live tuning diagnostics available in this emulator)"
+	autoTunePlaceholderSeverity = "LOW"
+)
+
+// GetAutoTune returns the AutoTune entries DescribeDomainAutoTunes reports:
+// one per configured MaintenanceSchedule, honoring only what the domain's
+// stored AutoTuneOptions actually imply -- no entries at all when Auto-Tune
+// is disabled or no schedule was ever configured, rather than a fabricated
+// canned optimization (see autoTunePlaceholder* above for what a real
+// schedule does still borrow, disclosed).
 func (b *InMemoryBackend) GetAutoTune(domainName string) ([]*AutoTune, error) {
 	b.mu.RLock("GetAutoTune")
 	defer b.mu.RUnlock()
 
-	if !b.domains.Has(domainName) {
+	d, ok := b.domains.Get(domainName)
+	if !ok || deleteWindowElapsed(d, b.clock()) {
 		return nil, fmt.Errorf("%w: domain %q not found", ErrDomainNotFound, domainName)
 	}
 
-	cfg, ok := b.autoTunes.Get(autoTuneKey(domainName))
-	if !ok || cfg == nil {
+	cfg := d.AutoTuneOptions
+	if cfg == nil || cfg.DesiredState != autoTuneDesiredStateEnabled || len(cfg.MaintenanceSchedules) == 0 {
 		return []*AutoTune{}, nil
 	}
 
-	out := []*AutoTune{
-		{
+	out := make([]*AutoTune, 0, len(cfg.MaintenanceSchedules))
+
+	for _, sched := range cfg.MaintenanceSchedules {
+		out = append(out, &AutoTune{
 			// types.AutoTuneType (opensearch@v1.75.4 types/enums.go) has
-			// exactly one value, "SCHEDULED_ACTION" -- "SCHEDULED" is not a
-			// member.
+			// exactly one value, "SCHEDULED_ACTION".
 			AutoTuneType: "SCHEDULED_ACTION",
 			AutoTuneDetails: AutoTuneDetails{
 				ScheduledAutoTuneDetails: ScheduledAutoTuneDetails{
-					Date:       float64(time.Now().Add(autoTuneScheduleLookahead).Unix()),
-					ActionType: "JVM_HEAP_SIZE_TUNING",
-					Action:     "Increase JVM heap size to improve performance",
-					Severity:   "LOW",
+					Date:       sched.StartAt,
+					ActionType: autoTunePlaceholderActionType,
+					Action:     autoTunePlaceholderAction,
+					Severity:   autoTunePlaceholderSeverity,
 				},
 			},
-		},
+		})
 	}
 
 	return out, nil

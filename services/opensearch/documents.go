@@ -96,6 +96,121 @@ func (b *InMemoryBackend) IndexDocument(
 	return docID, !existed, meta, nil
 }
 
+// CreateDocument indexes a new document, matching the _bulk "create"
+// action's real semantics: unlike IndexDocument (upsert), it fails with
+// ErrDocumentVersionConflict when a document with this ID already exists
+// (https://opensearch.org/docs/latest/api-reference/document-apis/bulk/).
+func (b *InMemoryBackend) CreateDocument(
+	domainName, indexName, docID string,
+	doc map[string]any,
+) (string, DocumentMeta, error) {
+	b.mu.Lock("CreateDocument")
+	defer b.mu.Unlock()
+
+	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpPut)
+	if err != nil {
+		return "", DocumentMeta{}, err
+	}
+
+	if idx.Documents == nil {
+		idx.Documents = make(map[string]map[string]any)
+	}
+
+	if docID == "" {
+		b.docCounter++
+		docID = fmt.Sprintf("doc-%d", b.docCounter)
+	} else if _, exists := idx.Documents[docID]; exists {
+		return "", DocumentMeta{}, fmt.Errorf(
+			"%w: document %s already exists in index %s",
+			ErrDocumentVersionConflict,
+			docID,
+			indexName,
+		)
+	}
+
+	idx.Documents[docID] = cloneDoc(doc)
+	idx.DocumentCount = len(idx.Documents)
+	meta := idx.bumpDocMetaLocked(docID)
+
+	return docID, meta, nil
+}
+
+// UpdateDocument applies a partial update to a document: doc is merged
+// field-by-field into the stored source (real OpenSearch's Update Document
+// "doc" semantics), not replaced wholesale like IndexDocument. When the
+// document doesn't exist, docAsUpsert=true creates it from doc (the
+// documented "doc_as_upsert" behavior); otherwise it is
+// ErrConnectionNotFound, matching GetDocument/DeleteDocument's own
+// not-found convention.
+func (b *InMemoryBackend) UpdateDocument(
+	domainName, indexName, docID string,
+	doc map[string]any,
+	docAsUpsert bool,
+) (bool, DocumentMeta, error) {
+	b.mu.Lock("UpdateDocument")
+	defer b.mu.Unlock()
+
+	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpPost)
+	if err != nil {
+		return false, DocumentMeta{}, err
+	}
+
+	if idx.Documents == nil {
+		idx.Documents = make(map[string]map[string]any)
+	}
+
+	existing, ok := idx.Documents[docID]
+	if !ok {
+		if !docAsUpsert {
+			return false, DocumentMeta{}, fmt.Errorf(
+				"%w: document %s not found in index %s",
+				ErrConnectionNotFound,
+				docID,
+				indexName,
+			)
+		}
+
+		idx.Documents[docID] = cloneDoc(doc)
+		idx.DocumentCount = len(idx.Documents)
+
+		return true, idx.bumpDocMetaLocked(docID), nil
+	}
+
+	merged := cloneDoc(existing)
+	maps.Copy(merged, doc)
+	idx.Documents[docID] = merged
+
+	return false, idx.bumpDocMetaLocked(docID), nil
+}
+
+// BulkDeleteDocument implements the _bulk "delete" action's real semantics:
+// deleting a document that doesn't exist is not an error -- real OpenSearch
+// still reports status 404, but as a "not_found" result with a bumped
+// tombstone version, not an error{} item
+// (https://opensearch.org/docs/latest/api-reference/document-apis/bulk/).
+// DeleteDocument, used by the single-document REST endpoint, keeps its
+// existing error-on-missing behavior unchanged; this is a bulk-specific
+// twin so that endpoint's semantics and tests are unaffected.
+func (b *InMemoryBackend) BulkDeleteDocument(
+	domainName, indexName, docID string,
+) (bool, DocumentMeta, error) {
+	b.mu.Lock("BulkDeleteDocument")
+	defer b.mu.Unlock()
+
+	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpDelete)
+	if err != nil {
+		return false, DocumentMeta{}, err
+	}
+
+	_, found := idx.Documents[docID]
+	if found {
+		delete(idx.Documents, docID)
+		idx.DocumentCount = len(idx.Documents)
+	}
+
+	return found, idx.bumpDocMetaLocked(docID), nil
+}
+
 // GetDocument returns a stored document by ID along with its current real
 // _version/_seq_no (see DomainIndex.DocMeta). A read does not itself advance
 // either counter.

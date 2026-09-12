@@ -336,9 +336,9 @@ func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp
 		return
 	}
 
-	result := "updated"
+	result := docResultUpdated
 	if created {
-		result = "created"
+		result = docResultCreated
 	}
 
 	h.writeJSON(r, w, map[string]any{
@@ -347,7 +347,7 @@ func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp
 		jsonKeyDocVersion:  meta.Version,
 		jsonKeyDocSeqNo:    meta.SeqNo,
 		jsonKeyDocPrimTerm: docPrimaryTerm,
-		"result":           result,
+		jsonKeyDocResult:   result,
 		jsonKeyDocShards:   writeOpShards(),
 	})
 }
@@ -452,7 +452,7 @@ func (h *Handler) handleIndexDeleteRoute(w http.ResponseWriter, r *http.Request,
 			jsonKeyDocVersion:  meta.Version,
 			jsonKeyDocSeqNo:    meta.SeqNo,
 			jsonKeyDocPrimTerm: docPrimaryTerm,
-			"result":           "deleted",
+			jsonKeyDocResult:   docResultDeleted,
 			jsonKeyDocShards:   writeOpShards(),
 		})
 

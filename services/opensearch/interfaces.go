@@ -177,8 +177,13 @@ type StorageBackend interface {
 
 	// Document operations (real per-index document storage + bounded search)
 	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, DocumentMeta, error)
+	CreateDocument(domainName, indexName, docID string, doc map[string]any) (string, DocumentMeta, error)
+	UpdateDocument(
+		domainName, indexName, docID string, doc map[string]any, docAsUpsert bool,
+	) (bool, DocumentMeta, error)
 	GetDocument(domainName, indexName, docID string) (map[string]any, DocumentMeta, error)
 	DeleteDocument(domainName, indexName, docID string) (DocumentMeta, error)
+	BulkDeleteDocument(domainName, indexName, docID string) (bool, DocumentMeta, error)
 	CountDocuments(domainName, indexName string) (int, error)
 	DomainDocumentCount(domainName string) int
 	SearchIndex(domainName, indexName string, query map[string]any, size int) (*SearchResult, error)

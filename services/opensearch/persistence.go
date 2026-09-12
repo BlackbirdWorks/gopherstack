@@ -51,10 +51,23 @@ import (
 // change), so it still decodes fine with both fields simply zero -- the same
 // non-regression as the other two, just expressed as a tag edit on the
 // existing registered type instead of a new twin struct.
+// Also left at 4 despite gopherstack-qtywh moving Auto-Tune settings onto
+// Domain itself (Domain.AutoTuneOptions *AutoTuneConfig, models.go/
+// advanced.go) and retiring the separate autoTunes "dirty" DTO table
+// (autoTuneSnapshot, formerly registered here) entirely: Domain is a "clean"
+// table snapshotted by direct JSON marshal of the live type (store_setup.go),
+// so the new field is purely additive -- an older snapshot simply has no
+// "autoTuneOptions" key and decodes with it nil, matching a domain that
+// never configured Auto-Tune. Any auto-tune data an older snapshot's now-gone
+// autoTunes table held is lost on restore into this version (RestoreAll
+// resets any registered/dirty table absent from the snapshot rather than
+// erroring, same as every other table-addition case above) -- an accepted,
+// one-time restore-time loss for this internal-only, deliberately-disclosed
+// data-plane feature, not a wire-shape regression for any real client.
 const opensearchSnapshotVersion = 4
 
-// dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
-// domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors
+// dryRunSnapshot, dataSourceSnapshot, and domainIndexSnapshot are DTOs used
+// ONLY for Snapshot/Restore. Each mirrors
 // its live type field for field, except the identity field (DomainName) is
 // given a real JSON tag here instead of the live type's `json:"-"` (see
 // models.go / advanced.go) -- marshaling the live type directly
@@ -94,30 +107,6 @@ func fromDryRunSnapshot(v *dryRunSnapshot) *DryRunStatus {
 		UpdateDate:         v.UpdateDate,
 		DomainName:         v.DomainName,
 		ValidationFailures: v.ValidationFailures,
-	}
-}
-
-type autoTuneSnapshot struct {
-	DesiredState         string                        `json:"desiredState"`
-	DomainName           string                        `json:"domainName"`
-	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"maintenanceSchedules,omitempty"`
-}
-
-func autoTuneSnapshotKey(v *autoTuneSnapshot) string { return autoTuneKey(v.DomainName) }
-
-func toAutoTuneSnapshot(v *AutoTuneConfig) *autoTuneSnapshot {
-	return &autoTuneSnapshot{
-		DesiredState:         v.DesiredState,
-		MaintenanceSchedules: v.MaintenanceSchedules,
-		DomainName:           v.DomainName,
-	}
-}
-
-func fromAutoTuneSnapshot(v *autoTuneSnapshot) *AutoTuneConfig {
-	return &AutoTuneConfig{
-		DesiredState:         v.DesiredState,
-		MaintenanceSchedules: v.MaintenanceSchedules,
-		DomainName:           v.DomainName,
 	}
 }
 
@@ -350,11 +339,10 @@ func fromPackageSnapshot(v *packageSnapshot) *Package {
 //
 //nolint:gochecknoglobals // fixed lookup table, mirrors errCodeLookup-style tables elsewhere
 var dirtyTableNames = struct {
-	dryRuns, autoTunes, domainDataSources, domainIndexes string
-	vpcEndpoints, dataSourceAttachments, packages        string
+	dryRuns, domainDataSources, domainIndexes     string
+	vpcEndpoints, dataSourceAttachments, packages string
 }{
 	dryRuns:           "dryRuns",
-	autoTunes:         "autoTunes",
 	domainDataSources: "domainDataSources",
 	domainIndexes:     "domainIndexes",
 	// Same table names the "clean" registry previously used for these tables
@@ -412,7 +400,6 @@ type backendSnapshot struct {
 func newDirtyDTORegistry() (
 	*store.Registry,
 	*store.Table[dryRunSnapshot],
-	*store.Table[autoTuneSnapshot],
 	*store.Table[dataSourceSnapshot],
 	*store.Table[domainIndexSnapshot],
 	*store.Table[vpcEndpointSnapshot],
@@ -421,7 +408,6 @@ func newDirtyDTORegistry() (
 ) {
 	dtoReg := store.NewRegistry()
 	dryRunDTOs := store.Register(dtoReg, dirtyTableNames.dryRuns, store.New(dryRunSnapshotKey))
-	autoTuneDTOs := store.Register(dtoReg, dirtyTableNames.autoTunes, store.New(autoTuneSnapshotKey))
 	dataSourceDTOs := store.Register(dtoReg, dirtyTableNames.domainDataSources, store.New(dataSourceSnapshotKey))
 	domainIndexDTOs := store.Register(dtoReg, dirtyTableNames.domainIndexes, store.New(domainIndexSnapshotKey))
 	vpcEndpointDTOs := store.Register(dtoReg, dirtyTableNames.vpcEndpoints, store.New(vpcEndpointSnapshotKey))
@@ -430,7 +416,7 @@ func newDirtyDTORegistry() (
 	)
 	packageDTOs := store.Register(dtoReg, dirtyTableNames.packages, store.New(packageSnapshotKey))
 
-	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+	return dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
 		dataSourceAttachmentDTOs, packageDTOs
 }
 
@@ -451,15 +437,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+	dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
 		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	for _, v := range b.dryRuns.Snapshot() {
 		dryRunDTOs.Put(toDryRunSnapshot(v))
-	}
-
-	for _, v := range b.autoTunes.Snapshot() {
-		autoTuneDTOs.Put(toAutoTuneSnapshot(v))
 	}
 
 	for _, v := range b.domainDataSources.Snapshot() {
@@ -546,7 +528,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.dryRuns.Reset()
-		b.autoTunes.Reset()
 		b.domainDataSources.Reset()
 		b.domainIndexes.Reset()
 		b.vpcEndpoints.Reset()
@@ -567,7 +548,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("opensearch: restore snapshot tables: %w", err)
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+	dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
 		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
@@ -575,7 +556,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	}
 
 	restoreDirtyTables(
-		b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		b, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
 		dataSourceAttachmentDTOs, packageDTOs,
 	)
 
@@ -604,7 +585,6 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 func restoreDirtyTables(
 	b *InMemoryBackend,
 	dryRunDTOs *store.Table[dryRunSnapshot],
-	autoTuneDTOs *store.Table[autoTuneSnapshot],
 	dataSourceDTOs *store.Table[dataSourceSnapshot],
 	domainIndexDTOs *store.Table[domainIndexSnapshot],
 	vpcEndpointDTOs *store.Table[vpcEndpointSnapshot],
@@ -616,12 +596,6 @@ func restoreDirtyTables(
 		dryRuns = append(dryRuns, fromDryRunSnapshot(v))
 	}
 	b.dryRuns.Restore(dryRuns)
-
-	autoTunes := make([]*AutoTuneConfig, 0, autoTuneDTOs.Len())
-	for _, v := range autoTuneDTOs.All() {
-		autoTunes = append(autoTunes, fromAutoTuneSnapshot(v))
-	}
-	b.autoTunes.Restore(autoTunes)
 
 	dataSources := make([]*DataSource, 0, dataSourceDTOs.Len())
 	for _, v := range dataSourceDTOs.All() {

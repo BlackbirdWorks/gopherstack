@@ -40,6 +40,7 @@ func validateDomainName(name string) error {
 
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
+	AutoTuneOptions             *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
@@ -63,6 +64,7 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
+	AutoTuneOptions             *autoTuneOptionsOutputJSON          `json:"AutoTuneOptions,omitempty"`
 	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
 	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
@@ -144,6 +146,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		AccessPolicies:              upd.AccessPolicies,
 		Tags:                        svcTags.MapFromKV(req.Tags),
 		ClusterConfig:               parseClusterConfigFromReq(req.ClusterConfig),
+		AutoTuneOptions:             autoTuneCreateInputFromReq(req.AutoTuneOptions),
 		EBSOptions:                  upd.EBSOptions,
 		SnapshotOptions:             upd.SnapshotOptions,
 		EncryptionAtRestOptions:     upd.EncryptionAtRestOptions,
@@ -360,6 +363,8 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 			AutoSoftwareUpdateEnabled: d.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
 		}
 	}
+
+	out.AutoTuneOptions = toAutoTuneOptionsOutputJSON(d.AutoTuneOptions)
 }
 
 // handleServiceSoftwareRoutes handles service software update routes.

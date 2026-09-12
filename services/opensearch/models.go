@@ -35,6 +35,18 @@ const (
 	indexStatusDeleted = "DELETED"
 )
 
+// docResultCreated/docResultUpdated/docResultDeleted/docResultNotFound are
+// the real Index/Update/Delete Document API "result" values
+// (https://opensearch.org/docs/latest/api-reference/document-apis/), shared
+// by the single-document routes (handler_indices.go) and _bulk
+// (handler_bulk.go).
+const (
+	docResultCreated  = "created"
+	docResultUpdated  = "updated"
+	docResultDeleted  = "deleted"
+	docResultNotFound = "not_found"
+)
+
 // reservedInstanceStateActive matches the documented (freeform, non-enum in
 // the SDK) ReservedInstance.State value AWS returns for an active
 // reservation: "payment-pending" | "active" | "payment-failed" | "retired",
@@ -565,6 +577,7 @@ type LogPublishingOption struct {
 type Domain struct {
 	ProcessingUntil             time.Time                       `json:"processingUntil,omitzero"`
 	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	AutoTuneOptions             *AutoTuneConfig                 `json:"autoTuneOptions,omitempty"`
 	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
 	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
 	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
@@ -597,6 +610,7 @@ type Domain struct {
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.
 type CreateDomainInput struct {
+	AutoTuneOptions             *AutoTuneOptionsInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
 	EncryptionAtRestOptions     *EncryptionAtRestOptions
@@ -618,6 +632,7 @@ type CreateDomainInput struct {
 
 // UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
 type UpdateDomainConfigInput struct {
+	AutoTuneOptions             *AutoTuneUpdateInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
 	EncryptionAtRestOptions     *EncryptionAtRestOptions

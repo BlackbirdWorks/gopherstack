@@ -1275,28 +1275,51 @@ real `opensearchsdk.Client`.
    2026-08-29" pass already fixed on `GetUpgradeHistory`/`GetUpgradeStatus`, just not
    caught here at the time. Fixed to `writeError(404, "ResourceNotFoundException", ...)`.
    Proven via `TestDescribeDomainAutoTunes_RealClient_UnknownDomain`.
-3. *Structural gap, DISCLOSED, not fixed*: `AutoTuneOptions` (a real field on both
-   `CreateDomainInput`/`UpdateDomainConfigInput`, `types.AutoTuneOptionsInput`/
-   `types.AutoTuneOptions`) is entirely absent from this service's `CreateDomain`/
-   `UpdateDomainConfig` request handling -- confirmed by grep, no `AutoTuneOptions`
-   reference anywhere in `domains.go`/`domain_config.go`/`handler_domains.go`. The only
-   way to populate `b.autoTunes` today is the internal test-seeding method `SetAutoTune`
-   (`export_test.go`/`persistence_test.go` callers only) -- a real AWS client that enables
-   Auto-Tune via `CreateDomain`'s `AutoTuneOptions.DesiredState` gets that field silently
-   dropped and will always see an empty `DescribeDomainAutoTunes` response. Not fixed this
-   pass: wiring it in means extending `CreateDomain`/`UpdateDomainConfig`'s wire model (both
-   independently graded `ok` in the top-level `ops` table above) and their
-   `DescribeDomainConfig` echo-back, which is out of this pass's scope (field-diffing the
-   skipped-op list, not re-auditing already-`ok` ops) -- flagged here for a dedicated future
-   pass, same discipline as `UpdateDomainConfig`'s existing `EngineMode` gap note.
-   `MaxResults`/`NextToken` pagination is also unimplemented on this op, but is not an
-   observable bug: `GetAutoTune` returns at most one entry per domain by construction (no
-   auto-tune history model exists), so there is never a second page to lose -- same
-   restraint call as `DescribeReservedInstanceOfferings`'s "catalogue of three entries"
-   precedent above.
+3. **FIXED (2026-09-11, gopherstack-qtywh)**: `AutoTuneOptions` is now wired into both
+   `CreateDomain` (`types.AutoTuneOptionsInput`: `DesiredState`/`MaintenanceSchedules`/
+   `UseOffPeakWindow` -- no `RollbackOnDisable`, that member doesn't exist on this shape)
+   and `UpdateDomainConfig` (`types.AutoTuneOptions`, which adds `RollbackOnDisable`).
+   Settings are nested directly on the domain record (`Domain.AutoTuneOptions
+   *AutoTuneConfig`, `models.go`/`advanced.go`) rather than a separate lookup table, so
+   they persist and preview (`PreviewDomainConfig` dry-run) for free through the domain's
+   own snapshot -- the old test-seeding-only `b.autoTunes` table
+   (`autoTuneKey`/`autoTuneConfigKeyFn`/`autoTuneSnapshot`) is retired entirely.
+   `DescribeDomain`/`CreateDomain`'s `DomainStatus.AutoTuneOptions` now echoes
+   `State`/`ErrorMessage`/`UseOffPeakWindow` (`types.AutoTuneOptionsOutput`); `State`
+   mirrors `DesiredState` directly since this backend has no async enable/disable pipeline
+   to produce real AWS's transient `*_IN_PROGRESS`/`DISABLED_AND_ROLLBACK_*` states --
+   disclosed restraint, not a fabricated state machine.
+   `DescribeDomainConfig.AutoTuneOptions` (`types.AutoTuneOptionsStatus`) echoes the stored
+   `Options` plus a real `Status` (`CreationDate`/`UpdateDate` as epoch seconds via
+   `awstime.Epoch`, matching this file's existing timestamp convention; `UpdateVersion`
+   increments on every apply). Validation matches the doc comments: `DesiredState` must be
+   `ENABLED`/`DISABLED`; `RollbackOnDisable` must be `NO_ROLLBACK`/`DEFAULT_ROLLBACK`, and
+   `DEFAULT_ROLLBACK` without a `MaintenanceSchedule` is rejected per its own doc text
+   ("Otherwise, OpenSearch Service is unable to perform the rollback"); a schedule's
+   `Duration.Unit` must be `HOURS`, `TimeUnit`'s only documented enum member.
+   `DescribeDomainAutoTunes` now derives its list from the domain's real, configured
+   `MaintenanceSchedules` (one `AutoTune{AutoTuneType:"SCHEDULED_ACTION"}` entry per
+   schedule, using that schedule's own `StartAt` as `Date`) instead of a fabricated
+   always-present entry: no entries at all when Auto-Tune is disabled or no schedule was
+   ever configured. `ActionType`/`Action`/`Severity` remain a disclosed placeholder
+   (`JVM_HEAP_SIZE_TUNING`/a stated-emulator-limitation description/`LOW`) since this
+   backend has no tuning-decision engine to determine which of `ScheduledAutoTuneActionType`'s
+   two real members a given domain would need, or at what severity -- only the *existence*
+   of a scheduled action is now honestly derived from real state; its specific diagnosis was
+   never derivable and isn't fabricated. `MaxResults`/`NextToken` pagination remains
+   unimplemented on this op (same restraint as before: schedule count is naturally small,
+   so there's rarely a second page to lose). Proven via `autotune_options_test.go`, table
+   name `TestCreateDomain_AutoTuneOptions*`/`TestUpdateDomainConfig_AutoTuneOptions*`/
+   `TestDescribeDomainAutoTunes_*`, all against the real `aws-sdk-go-v2` `opensearch.Client`
+   (the established `_RealClient` pattern for this file); the three
+   `SetAutoTune`-with-`nil`-schedules test call sites (`versions_test.go`,
+   `persistence_test.go` x2) were updated to seed a real schedule, since the honest
+   derive-from-schedules behavior above means a `nil` schedule list now correctly reports
+   zero `AutoTune` entries instead of the old fabricated one.
 
-**Data-plane (index/document/_search) -- served, field-diffed against the real OpenSearch
-REST API, 6 divergences FIXED; `_bulk` DISCLOSED as unserved.** This backend does serve a
+**Data-plane (index/document/_search/_bulk) -- served, field-diffed against the real
+OpenSearch REST API, 6 divergences FIXED this pass; `_bulk` FIXED (2026-09-11, see item 5
+below) after being disclosed as unserved.** This backend does serve a
 non-SDK convenience data-plane surface under `{domainName}/index/{indexName}[/_doc|/_search|
 /_count]` (`documents.go`/`handler_indices.go`) -- distinct from the real AWS SDK's
 `CreateIndex`/`UpdateIndex`/`GetIndex`/`DeleteIndex` control-plane ops (`handleCreateIndexRealRoute`
@@ -1332,14 +1355,30 @@ instead, standard and unchanged across OpenSearch/Elasticsearch versions). Found
    OpenSearch-style client's body was silently dropped. Fixed both; the orphaned
    `indexResponseJSON`/`toIndexResponseJSON` type+function (no remaining caller) deleted
    per de-stub hygiene.
-5. **Disclosed, not built**: this surface does not serve a `_bulk` endpoint at all (no
-   route, no backend method) -- the task's data-plane scope named
-   "document index/get/delete/bulk" but bulk indexing was never claimed by this backend in
-   the first place. Not adding it: that would be a new feature, not a wire-shape fix on an
-   existing op, and out of scope per the standing "disclose, don't build a search engine
-   here" principle for this deliberately-small data-plane surface (see the
-   `dispatchDomainGetResourceRoutes` era note, "not real SDK control-plane operations and
-   were left as-is").
+5. **FIXED (2026-09-11, gopherstack-qtywh): `_bulk` is now served.** `POST
+   {domainName}/_bulk` and `POST {domainName}/index/{indexName}/_bulk` (`handler_bulk.go`)
+   accept an NDJSON body of `index`/`create`/`update`/`delete` action lines per
+   https://opensearch.org/docs/latest/api-reference/document-apis/bulk/ (fetched
+   2026-09-11): `index`/`create` are each followed by a source document, `delete` has none,
+   and `update`'s source line supports `doc`/`doc_as_upsert` (a real partial-merge, not a
+   full replace -- new `UpdateDocument` backend method) while `script` is rejected with a
+   documented `illegal_argument_exception` item (this backend has no scripting engine).
+   `create` on an existing `_id` fails with the real `version_conflict_engine_exception`
+   at status 409 (new `CreateDocument` backend method, `ErrDocumentVersionConflict`); an
+   unknown index/domain reports `index_not_found_exception` at 404; an `update` against a
+   missing document (no `doc_as_upsert`) reports `document_missing_exception` at 404; a
+   `delete` of a missing document is the real soft `"not_found"` result (bumped tombstone
+   version, no `error` object) rather than a hard error -- new `BulkDeleteDocument` backend
+   method, kept separate from the existing single-document `DeleteDocument` so that route's
+   own error-on-missing behavior and tests are untouched. Every successful item reuses the
+   real per-document `_version`/`_seq_no` tracking (`DocMeta`/`NextSeqNo`) the 2026-09-11
+   pass added. The top-level envelope is `{took, errors, items}`; `?refresh`/`?routing` are
+   accepted without error (this single-node backend has no refresh-interval or
+   shard-routing model to apply them to); both `application/x-ndjson` and
+   `application/json` Content-Type values are accepted (Content-Type is not inspected at
+   all). Proven via `bulk_test.go`'s table-driven `TestBulk_*` suite, httptest-driven with
+   raw NDJSON bodies (no AWS SDK client models this non-SDK surface, same as every other
+   data-plane test in this file).
 
 Proven via `TestHTTPDocumentCRUDAndSearch` (extended with the new field assertions),
 `TestHTTPCreateIndex_RealResponseShape` (new, table-driven-shaped as a single scenario
@@ -1359,3 +1398,32 @@ Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
 package passes; the persistence package's `TestSnapshotVersionGuard` fails only on the
 pre-existing, out-of-scope `quicksight` diff from that other in-flight session (opensearch
 rows are clean); `golangci-lint run ./services/opensearch/...` -- 0 issues.
+
+## 2026-09-11 gopherstack-qtywh: `_bulk` served, `AutoTuneOptions` wired
+
+Closes both disclosures the audit above left open: item 5 of the data-plane note (`_bulk`
+unserved) and item 3 of the `DescribeDomainAutoTunes` note (`AutoTuneOptions` dropped on
+`CreateDomain`/`UpdateDomainConfig`) -- see those two items above for the full detail;
+summarized together here since both landed in the same pass.
+
+**No version bump.** Two field-set changes, both non-additive in the guard's strict sense
+(a field was removed, not only added) but neither destructive: `AutoTuneConfig` moved from
+a standalone `DomainName`-keyed DTO (`autoTuneSnapshot`, now deleted) to a field nested
+directly on `Domain` (`Domain.AutoTuneOptions *AutoTuneConfig`), gaining
+`CreatedAt`/`UpdatedAt`/`RollbackOnDisable`/`State`/`ErrorMessage`/`UpdateVersion` and
+losing its now-redundant `DomainName` identity field. `Domain` is a "clean" `pkgs/store`
+table snapshotted by direct JSON marshal (`store_setup.go`), so the new
+`autoTuneOptions` key on it is purely additive on that side; the retired `autoTunes` DTO
+table's entries are the only thing an old snapshot loses on restore into this version --
+an accepted, one-time loss for this internal-only feature (see `persistence.go`'s
+`opensearchSnapshotVersion` doc comment for the full reasoning). `TestSnapshotVersionGuard`
+confirms this reading (fails on the diff, as expected for any field-set change, but not
+the "PURELY ADDITIVE" case that would demand a version bump) -- refreshed the golden via
+`-update`; `git diff pkgs/persistence/testdata/snapshot_inventory.json` touches only
+`AutoTuneConfig.*`/`Domain.AutoTuneOptions`/`autoTuneSnapshot.*` rows under the
+`"opensearch"` key.
+
+Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
+`go test -race -count=1 ./services/opensearch/... ./pkgs/persistence/...` -- both packages
+pass, including `TestSnapshotVersionGuard`; `golangci-lint run ./services/opensearch/...`
+-- 0 issues.

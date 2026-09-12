@@ -37,7 +37,6 @@ type InMemoryBackend struct {
 	domainIndexesByDomain      *store.Index[DomainIndex]
 	upgradeHistory             map[string][]*UpgradeHistory
 	domainPackages             map[string]map[string]bool
-	autoTunes                  *store.Table[AutoTuneConfig]
 	slNetworkPolicies          *store.Table[ServerlessNetworkPolicy]
 	slCollections              *store.Table[ServerlessCollection]
 	slAccessPolicies           *store.Table[ServerlessAccessPolicy]
@@ -112,7 +111,6 @@ func (b *InMemoryBackend) Reset() {
 
 	// "Dirty" tables, not registered on b.registry (see store_setup.go).
 	b.dryRuns.Reset()
-	b.autoTunes.Reset()
 	b.domainDataSources.Reset()
 	b.domainIndexes.Reset()
 	b.vpcEndpoints.Reset()

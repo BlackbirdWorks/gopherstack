@@ -17,11 +17,14 @@ package opensearch
 // DataSource and DomainIndex gained a `DomainName string `json:"-"`` field for
 // exactly this reason.
 //
-// Two more single-value-per-domain maps (dryRuns: domainName -> *DryRunStatus,
-// autoTunes: "autotune:"+domainName -> *AutoTuneConfig) have the same problem
-// in miniature: the value type carried no field of its own to key a Table by,
-// so DryRunStatus and AutoTuneConfig also gained a `DomainName string
-// `json:"-"`` field.
+// One more single-value-per-domain map (dryRuns: domainName -> *DryRunStatus)
+// has the same problem in miniature: the value type carried no field of its
+// own to key a Table by, so DryRunStatus gained a `DomainName string
+// `json:"-"`` field. AutoTuneConfig (Auto-Tune settings) is nested directly
+// on Domain instead (Domain.AutoTuneOptions) rather than living in its own
+// table -- CreateDomain/UpdateDomainConfig already own the write lock on the
+// domain record they're configuring, so no separate identity/keying problem
+// exists for it.
 //
 // A handful of fields are deliberately NOT registered here and remain plain
 // maps -- see registerAllTables's doc for the full list and why.
@@ -59,8 +62,6 @@ func domainIndexKeyFn(v *DomainIndex) string {
 }
 
 func dryRunKeyFn(v *DryRunStatus) string { return v.DomainName }
-
-func autoTuneConfigKeyFn(v *AutoTuneConfig) string { return autoTuneKey(v.DomainName) }
 
 // slCollectionKeyFn/slAccessPolicyKeyFn/... reuse the serverless*Key helpers
 // (defined in serverless.go, next to the other serverless
@@ -111,10 +112,10 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 //     never marshaled directly onto the wire (migrationJSON in
 //     handler_migrations.go always mediates), so nothing needs those two
 //     fields hidden from JSON -- see the Migration doc comment in models.go.
-//   - "Dirty" tables (dryRuns, autoTunes, domainDataSources, domainIndexes,
+//   - "Dirty" tables (dryRuns, domainDataSources, domainIndexes,
 //     vpcEndpoints, dataSourceAttachments, packages) are built with store.New
 //     but deliberately NOT registered on b.registry.
-//     dryRuns/autoTunes/domainDataSources/domainIndexes are dirty because
+//     dryRuns/domainDataSources/domainIndexes are dirty because
 //     their key depends on a field (DomainName) tagged `json:"-"` on the live
 //     type; vpcEndpoints/dataSourceAttachments/packages are dirty for a
 //     different reason (gopherstack-8mcb, gopherstack-ike6y) -- each carries
@@ -216,9 +217,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 	// registerAllTables doc.
 	func(b *InMemoryBackend) {
 		b.dryRuns = store.New(dryRunKeyFn)
-	},
-	func(b *InMemoryBackend) {
-		b.autoTunes = store.New(autoTuneConfigKeyFn)
 	},
 	func(b *InMemoryBackend) {
 		b.domainDataSources = store.New(dataSourceKeyFn)
