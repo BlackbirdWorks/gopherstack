@@ -191,14 +191,25 @@ func (h *Handler) handleGetTableVersion(
 	return &getTableVersionOutput{TableVersion: tv}, nil
 }
 
+// defaultGetTableVersionsLimit is used when GetTableVersionsInput.MaxResults is unset.
+const defaultGetTableVersionsLimit = 100
+
 // getTableVersionsInput holds input for GetTableVersions.
+//
+// MaxResults/NextToken are real GetTableVersionsInput members
+// (glue@v1.157.0 api_op_GetTableVersions.go) previously declared nowhere on
+// this wire struct, so every call returned every stored version in one
+// unbounded response regardless of what a real client requested.
 type getTableVersionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
 }
 
 // getTableVersionsOutput holds the result for GetTableVersions.
 type getTableVersionsOutput struct {
+	NextToken     string          `json:"NextToken,omitempty"`
 	TableVersions []*TableVersion `json:"TableVersions"`
 }
 
@@ -208,7 +219,14 @@ func (h *Handler) handleGetTableVersions(
 ) (*getTableVersionsOutput, error) {
 	versions := h.Backend.GetTableVersions(in.DatabaseName, in.TableName)
 
-	return &getTableVersionsOutput{TableVersions: versions}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetTableVersionsLimit
+	}
+
+	page, next := paginateSlice(versions, in.NextToken, limit)
+
+	return &getTableVersionsOutput{TableVersions: page, NextToken: next}, nil
 }
 
 // getUnfilteredTableMetadataInput holds input for GetUnfilteredTableMetadata.

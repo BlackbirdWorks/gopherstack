@@ -111,12 +111,21 @@ func TestPartitionIndexLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 	var out struct {
-		Indexes []*glue.PartitionIndex `json:"PartitionIndexDescriptorList"`
+		Indexes []struct {
+			IndexName   string `json:"IndexName"`
+			IndexStatus string `json:"IndexStatus"`
+			Keys        []struct {
+				Name string `json:"Name"`
+				Type string `json:"Type"`
+			} `json:"Keys"`
+		} `json:"PartitionIndexDescriptorList"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	require.Len(t, out.Indexes, 2)
 	assert.Equal(t, "year_idx", out.Indexes[0].IndexName)
 	assert.Equal(t, "ACTIVE", out.Indexes[0].IndexStatus)
+	require.Len(t, out.Indexes[0].Keys, 1)
+	assert.Equal(t, "year", out.Indexes[0].Keys[0].Name)
 
 	rec = doGlueRequest(t, h, "DeletePartitionIndex", map[string]any{
 		"DatabaseName": "db", "TableName": "events", "IndexName": "year_idx",

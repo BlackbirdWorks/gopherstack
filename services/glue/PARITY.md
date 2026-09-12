@@ -189,6 +189,8 @@ items_still_open:
   - "NEW gap FOUND (not introduced) this pass (parity-4): Session.Status is set to PROVISIONING on CreateSession and this backend has no reconciler transition that ever advances it to READY, unlike crawlers/job-runs/workflow-runs which all do reach a terminal running/ready state. This was surfaced while implementing GetSessionEndpoint (bd note: had to gate on 'not STOPPED/STOPPING' instead of the more natural READY check -- see dashboard_and_session_endpoint family note). Fixing session lifecycle is out of scope for this pass; flagging for whichever pass owns sessions.go."
   - "gopherstack-a250 (empty-struct-input sweep): 32 `type <Op>Input struct{}` candidates found via `grep -n '^type [A-Za-z]*Input struct{}' services/glue/*.go`. 2 confirmed genuinely correct (see gopherstack-awzv note below); the other 30 were split into follow-up gopherstack-awzv, now FIXED — see that note."
   - "gopherstack-awzv (empty-struct-input follow-up, 2026-08-13): all 29 real ops from the gopherstack-a250 split now wire MaxResults/NextToken via the existing paginateSlice helper (handler.go), matching ListCrawls' pre-existing pagination convention. Filter/Tags wired wherever the stored entity honestly backs the field; documented inert (accepted on the wire, never fabricated) where it doesn't. Real Filter/Tags now wired: ListBlueprints/ListCrawlers/ListDevEndpoints/ListJobs/ListTriggers/ListDataQualityRulesets/ListMLTransforms Tags (all route through tags.go's generic tag dispatch); GetCatalogs.HasDatabases (real, via Database.CatalogId); GetConnections.Filter.ConnectionType/MatchCriteria and HidePassword (real, redacts ConnectionProperties[\"PASSWORD\"]); GetTriggers/ListTriggers.DependentJobName (real, including the 'fall back to every trigger when nothing matches' semantics from api_op_GetTriggers.go); ListDataQualityRulesets.Filter (Name/Description/CreatedAfter/CreatedBefore/LastModifiedAfter/LastModifiedBefore/TargetTable, all backed); GetMLTransforms/ListMLTransforms.Filter (Name/GlueVersion/Status/Schema/timestamps) and .Sort (NAME/STATUS/CREATED/LAST_MODIFIED); DescribeIntegrations.Filters (Status/IntegrationName/SourceArn, the three keys the op's own doc comment names) and .IntegrationIdentifier; ListMaterializedViewRefreshTaskRuns.DatabaseName/TableName; ListDataQualityRuleRecommendationRuns/ListDataQualityRulesetEvaluationRuns.Filter.StartedAfter/StartedBefore and (evaluation runs only) RulesetName. Inverse bug found and fixed in the same pass: GetColumnStatisticsTaskRuns previously ignored its own required DatabaseName/TableName members entirely (not just MaxResults/NextToken) and returned every column-statistics run in the account regardless of table — now scoped. Two pre-existing wire-shape bugs also found (via the first-ever real-SDK-client tests these ops got) and fixed as part of the same functions: ListMaterializedViewRefreshTaskRunsOutput's member was named `Runs` instead of the real `MaterializedViewRefreshTaskRuns`, and MaterializedViewRefreshRun's JSON tags were `TaskRunId`/`StartedOn` instead of the real `MaterializedViewRefreshTaskRunId`/`StartTime` (models.go); DescribeIntegrationsOutput.Integrations and ListUsageProfilesOutput.Profiles were dumping their raw backend struct (Integration.CreatedAt / UsageProfile.CreatedOn are time.Time, which json.Marshal renders as an RFC3339 string) instead of an epoch float via pkgs/awstime, which a real client rejects (\"expected ... to be a JSON Number, got string instead\"); ListRegistriesOutput's RegistryListItem.CreatedTime/UpdatedTime were float64 when the real type is `*string` (Glue Schema Registry timestamps are a documented exception to the rest of the service's unixTimestamp convention) — now formatted as RFC3339 strings. Documented inert (real member, no honest backing, accepted on the wire and never fabricated): GetCatalogs.IncludeRoot/ParentCatalogId/Recursive (CatalogEntry has no parent-catalog field; this backend's b.catalogs table is flat with no root-catalog concept); GetConnections.CatalogId and Filter.ConnectionSchemaVersion (Connection has neither a CatalogId nor a schema-version field); ListCustomEntityTypes.Tags and ListSessions.Tags/RequestOrigin (CustomEntityType and Session are never routed through tags.go's dispatch, and CreateSession doesn't even accept a RequestOrigin to store); GetMLTransforms/ListMLTransforms.Filter.TransformType and Sort.Column=TRANSFORM_TYPE (MLTransform models only one transform kind, no TransformType field); ListMaterializedViewRefreshTaskRuns.CatalogId (flat namespace, no per-catalog scoping, consistent with how the rest of this service treats the account's implicit single catalog); ListDataQualityRuleRecommendationRuns/ListDataQualityRulesetEvaluationRuns.Filter.DataSource (DQRuleRecommendationRun only stores a flat DataSourceS3Path string and DataQualityEvaluationRun stores no data-source link at all — neither has the structured types.DataSource{GlueTable} a real filter would compare against); ListDataQualityResults.Filter in its entirety (DataQualityResult stores only ResultID+Score — DataSource/JobName/JobRunId/StartedAfter/StartedBefore have no field to compare against on the stored entity). Test coverage: services/glue/handler_pagination_sweep_sdk_test.go (MaxResults truncation + NextToken resume, all 29 ops, driven through the real aws-sdk-go-v2 client) and services/glue/handler_filter_sweep_sdk_test.go (Tags/Filter/Sort round trips, the DependentJobName fallback semantics, and the GetColumnStatisticsTaskRuns scoping fix); every new assertion hand-verified to fail against the pre-fix behavior (paginateSlice/matchesTagFilter/sortTransforms/matchesIntegrationFilters and each inline filter block temporarily neutralized one at a time, confirmed red, then restored). NOT touched at the time (separate, smaller pre-existing bugs found along the way, out of this issue's scope): DescribeInboundIntegrationsInput already declares Marker/MaxRecords but neither actually paginates, and its Integrations output has the identical raw-struct timestamp bug DescribeIntegrations had; handler_schemas.go's GetRegistry/GetSchema/ListSchemas/ListSchemaVersions/GetSchemaVersion share ListRegistries' pre-fix CreatedTime/UpdatedTime float-vs-string bug (same root cause, same fix shape, but a systemic sweep across a whole file that was never part of this issue's flagged 30 ops). Both fixed under gopherstack-7f5k, see the dated note at the top of this file."
+  - "2026-09-12 (typed slice 5, gopherstack-n3zi): StartDataQualityRulesetEvaluationRun accepts a client-supplied DataSource (required), AdditionalDataSources, AdditionalRunOptions, NumberOfWorkers, Timeout and ClientToken (api_op_StartDataQualityRulesetEvaluationRun.go), none of which have a corresponding field on this backend's wire input struct -- accepted on the wire and silently dropped rather than fabricated. Left open: this backend never actually evaluates a ruleset against real data, so there is nothing honest to do with DataSource once accepted."
+  - "2026-09-12 (typed slice 5, gopherstack-n3zi): CreateIntegrationResourceProperty's real output also carries ResourcePropertyArn (api_op_CreateIntegrationResourceProperty.go) -- not modeled, no backing state (this backend never mints a distinct ARN for the resource-property association itself, only for the resource it decorates). Left absent rather than invented."
 deferred:
   # Every family below was field-diffed against the pinned SDK this pass (none
   # left un-audited). Families now fully closed (status: ok in the table above)
@@ -2464,3 +2466,86 @@ was primarily a RAM-side gap; glue's role is the one concrete trigger path).
 Tests: `resource_policies_ram_test.go` (fake `ResourceShareCreator`, table-driven).
 Gates: `go build ./...`, `go vet ./services/glue/...`, `go test -race -count=1
 ./services/glue/...`, `golangci-lint run ./services/glue/...` -- all clean.
+
+## gopherstack-n3zi (2026-09-12): typed slice 5 -- 120 more ops covered by a real client, 5 wire bugs found
+
+`typed_slice5_realclient_test.go` added: one outer `t.Parallel()` test, 19
+subtests (family-per-row), covering tables/partitions (incl. Batch* and
+Get*Versions), crawlers/classifiers, jobs/bookmarks, triggers, workflows,
+connections, dev endpoints, sessions/statements, schema registry, data
+quality, ML transforms, blueprints, resource policy, catalog encryption/
+security configurations, multi-catalog, column statistics and zero-ETL
+integration properties -- 120 ops newly driven through the real
+aws-sdk-go-v2 client for the first time (139/299 -> 259/299 typed-covered).
+Remaining 40 uncovered ops (glossaries, custom entity types,
+assets/forms/entities, table optimizers, ETL script-authoring helpers
+(CreateScript/GetMapping/GetPlan/GetDataflowGraph), identity-center
+configuration, usage profiles, dashboard URL) were not in this task's named
+priority families and were left uncovered.
+
+FIVE real wire bugs found, all only by asserting on typed-client-decoded
+fields:
+
+1. `ListCrawls`' `Crawl` entries used JSON keys `StartTime`/`EndTime`; the
+   real member names are `StartedOn`/`CompletedOn` (glue@v1.157.0
+   deserializers.go:47425 `awsAwsjson11_deserializeDocumentCrawl`) -- a real
+   client never saw either timestamp. `handler_crawlers.go`.
+2. `GetJobBookmark`/`ResetJobBookmark`'s `JobBookmarkEntry.Run` was
+   string-typed (real member is `int32`, decoded from a JSON number --
+   types/types.go:7074, deserializers.go:61792) and the current run id was
+   emitted under a fictitious `ActiveRun` key instead of the real `RunId`
+   (types/types.go:7077) -- present-but-wrong-typed would have hard-failed a
+   real client's decode had it ever been populated; the wrong key silently
+   dropped the run id from every real client's view. `models.go`, `jobs.go`.
+3. `GetPartitionIndexes`' `PartitionIndexDescriptor.Keys` was emitted as a
+   bare `[]string` of key names; the real member is `[]KeySchemaElement`
+   ({Name, Type} objects -- types/types.go:8899) -- a real client's decode
+   failed outright (`unexpected JSON type dt`, confirmed live). Fixed with a
+   new response-only wire type, backfilling `Type` from the table's
+   partition-key column type (default `"string"`) since this backend's
+   stored `PartitionIndex` only ever kept key names. `handler_partition_indexes.go`.
+4. `GetTableVersions`/`GetTableVersion`/`BatchDeleteTableVersion` always
+   returned empty/not-found for real production use: `CreateTable` and
+   `UpdateTable` never called `AddTableVersionInternal` (a test-only seeding
+   helper), so no table version was ever recorded outside test setup. Fixed
+   by having both ops append a new sequentially-numbered version (`"0"`,
+   `"1"`, ...) on every call, matching real Glue's create/update-creates-a-
+   version semantics. `tables.go`. Also added missing `MaxResults`/
+   `NextToken` pagination to `GetTableVersions` (previously absent from the
+   wire input/output entirely -- api_op_GetTableVersions.go).
+5. `CreateIntegrationResourceProperty`/`GetIntegrationResourceProperty`/
+   `UpdateIntegrationResourceProperty`/`ListIntegrationResourceProperties`
+   used entirely fictitious member names `SourceProperties`/
+   `TargetProperties` (free-form `map[string]string`); the real members are
+   `SourceProcessingProperties`/`TargetProcessingProperties`
+   (api_op_CreateIntegrationResourceProperty.go:40,46, structured objects --
+   `SourceProcessingProperties.RoleArn`, `TargetProcessingProperties.
+   ConnectionName/EventBusArn/KmsArn`) -- this entire op family was
+   invisible to every real client; a caller's stored properties never came
+   back under any key the SDK recognizes. Fixed by renaming to the real
+   member names and storing as `map[string]any` (consistent with
+   `IntegrationTableProperties.SourceTableConfig`'s existing precedent,
+   since this backend doesn't interpret the nested contents). `models.go`,
+   `integrations.go`, `interfaces.go`, `handler_integrations.go`.
+
+Both #2 and #5's renames are non-additive (field name/type changes), so
+`pkgs/persistence`'s `TestSnapshotVersionGuard` correctly refused to treat
+them as bookkeeping -- per this task's "prefer tolerant decoders" guidance,
+`JobBookmark` and `IntegrationResourceProperty` each got a custom
+`UnmarshalJSON` that also accepts the old `ActiveRun`/`SourceProperties`/
+`TargetProperties` keys, so an older on-disk snapshot's data survives the
+upgrade instead of silently zeroing. No `glueSnapshotVersion` bump.
+
+Accept-and-drop findings (recorded in `items_still_open` above):
+`StartDataQualityRulesetEvaluationRun` drops `DataSource`/
+`AdditionalDataSources`/`AdditionalRunOptions`/`NumberOfWorkers`/`Timeout`/
+`ClientToken` entirely; `CreateIntegrationResourceProperty`'s response omits
+`ResourcePropertyArn`.
+
+Every fix reproduced red (temporarily reverted, confirmed the originating
+typed-client failure, then restored) before being counted.
+
+Gates: `go build ./...` clean, `go vet ./services/glue/...` clean, `go test
+-race -count=1 ./services/glue/...` and `./pkgs/persistence/...` pass,
+`golangci-lint run --new-from-rev=HEAD ./services/glue/...` 0 issues,
+`go run ./cmd/paritylint` 0 FAIL.

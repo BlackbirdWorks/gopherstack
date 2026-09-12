@@ -250,6 +250,49 @@ func (b *InMemoryBackend) GetReservedNodeExchangeOfferings(reservedNodeID string
 	return result, nil
 }
 
+// ReservedNodeConfigurationOption mirrors
+// types.ReservedNodeConfigurationOption: a candidate exchange pairing a
+// currently-owned reserved node with an available target offering.
+//
+//nolint:govet // fieldalignment: embeds existing model structs; reordering fields here doesn't help
+type ReservedNodeConfigurationOption struct {
+	SourceReservedNode         ReservedNode
+	TargetReservedNodeOffering ReservedNodeOffering
+	TargetReservedNodeCount    int
+}
+
+// GetReservedNodeExchangeConfigurationOptions returns exchange configuration
+// options for every reserved node currently owned by the account, each
+// paired against this backend's static reserved-node-offering catalog
+// (defaultReservedNodeOfferings, same source GetReservedNodeExchangeOfferings
+// already uses). This backend does not track which specific cluster or
+// snapshot a reservation applies to, so ClusterIdentifier/SnapshotIdentifier
+// scoping (real GetReservedNodeExchangeConfigurationOptionsInput members) is
+// accepted by the handler but not filtered on here.
+func (b *InMemoryBackend) GetReservedNodeExchangeConfigurationOptions() []ReservedNodeConfigurationOption {
+	b.mu.RLock("GetReservedNodeExchangeConfigurationOptions")
+	defer b.mu.RUnlock()
+
+	offerings := defaultReservedNodeOfferings()
+
+	options := make([]ReservedNodeConfigurationOption, 0, b.reservedNodes.Len())
+
+	for _, node := range b.reservedNodes.All() {
+		opt := ReservedNodeConfigurationOption{
+			SourceReservedNode:      *node,
+			TargetReservedNodeCount: node.NodeCount,
+		}
+
+		if len(offerings) > 0 {
+			opt.TargetReservedNodeOffering = *offerings[0]
+		}
+
+		options = append(options, opt)
+	}
+
+	return options
+}
+
 // AcceptReservedNodeExchange exchanges an existing reserved node for a new offering.
 func (b *InMemoryBackend) AcceptReservedNodeExchange(reservedNodeID, targetOfferingID string) (*ReservedNode, error) {
 	if reservedNodeID == "" {

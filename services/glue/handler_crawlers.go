@@ -291,12 +291,17 @@ type listCrawlsInput struct {
 }
 
 // crawlHistoryOut is a single crawl-history entry.
+//
+// StartedOn/CompletedOn (not StartTime/EndTime -- glue@v1.157.0
+// types.Crawl, deserializers.go:47425 awsAwsjson11_deserializeDocumentCrawl)
+// are epoch-seconds numbers; a real client never populated these fields
+// under the old key names.
 type crawlHistoryOut struct {
-	CrawlID   string  `json:"CrawlId,omitempty"`
-	State     string  `json:"State,omitempty"`
-	Summary   string  `json:"Summary,omitempty"`
-	StartTime float64 `json:"StartTime,omitempty"`
-	EndTime   float64 `json:"EndTime,omitempty"`
+	CrawlID     string  `json:"CrawlId,omitempty"`
+	State       string  `json:"State,omitempty"`
+	Summary     string  `json:"Summary,omitempty"`
+	StartedOn   float64 `json:"StartedOn,omitempty"`
+	CompletedOn float64 `json:"CompletedOn,omitempty"`
 }
 
 // listCrawlsOutput holds the result for ListCrawls.
@@ -325,11 +330,11 @@ func (h *Handler) handleListCrawls(_ context.Context, in *listCrawlsInput) (*lis
 	out := make([]crawlHistoryOut, 0, len(page))
 	for _, e := range page {
 		out = append(out, crawlHistoryOut{
-			CrawlID:   e.CrawlID,
-			State:     e.State,
-			Summary:   e.Summary,
-			StartTime: e.StartTime,
-			EndTime:   e.EndTime,
+			CrawlID:     e.CrawlID,
+			State:       e.State,
+			Summary:     e.Summary,
+			StartedOn:   e.StartTime,
+			CompletedOn: e.EndTime,
 		})
 	}
 

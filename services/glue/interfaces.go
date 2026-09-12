@@ -454,12 +454,12 @@ type StorageBackend interface {
 	ModifyIntegration(identifier string) (*Integration, error)
 	CreateIntegrationResourceProperty(
 		resourceArn string,
-		sourceProps, targetProps map[string]string,
+		sourceProps, targetProps map[string]any,
 	) (*IntegrationResourceProperty, error)
 	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
 	UpdateIntegrationResourceProperty(
 		resourceArn string,
-		sourceProps, targetProps map[string]string,
+		sourceProps, targetProps map[string]any,
 	) (*IntegrationResourceProperty, error)
 	ListIntegrationResourceProperties() []*IntegrationResourceProperty
 	CreateIntegrationTableProperties(

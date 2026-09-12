@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"encoding/json"
 	"time"
 )
 
@@ -517,12 +518,39 @@ type StartJobRunOptions struct {
 }
 
 // JobBookmark holds the bookmark state for a job run.
+//
+// RunId (not the fictitious "ActiveRun" key) is the real
+// JobBookmarkEntry.RunId member -- glue@v1.157.0 types/types.go:7077,
+// deserializers.go:61792 decodes "Run" as a JSON number (int32), so it must
+// not be string-typed even though this backend never populates it.
 type JobBookmark struct {
-	JobName   string `json:"JobName"`
-	Run       string `json:"Run,omitempty"`
-	ActiveRun string `json:"ActiveRun,omitempty"`
-	Version   int    `json:"Version"`
-	Attempt   int    `json:"Attempt,omitempty"`
+	JobName string `json:"JobName"`
+	RunID   string `json:"RunId,omitempty"`
+	Run     int    `json:"Run,omitempty"`
+	Version int    `json:"Version"`
+	Attempt int    `json:"Attempt,omitempty"`
+}
+
+// UnmarshalJSON tolerates a persisted snapshot written before RunID was
+// renamed from the fictitious "ActiveRun" wire key, so an older snapshot's
+// in-progress run id survives the upgrade instead of silently zeroing.
+func (b *JobBookmark) UnmarshalJSON(data []byte) error {
+	type alias JobBookmark
+
+	aux := &struct {
+		*alias
+		ActiveRun string `json:"ActiveRun,omitempty"`
+	}{alias: (*alias)(b)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if b.RunID == "" && aux.ActiveRun != "" {
+		b.RunID = aux.ActiveRun
+	}
+
+	return nil
 }
 
 // BatchStopJobRunError holds error info for a single stop attempt.
@@ -690,12 +718,56 @@ type IdentityCenterConfig struct {
 	UserBackgroundSessionsEnabled bool     `json:"UserBackgroundSessionsEnabled,omitempty"`
 }
 
-// IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
+// IntegrationResourceProperty stores resource-level properties for a Zero-ETL
+// integration.
+//
+// SourceProcessingProperties/TargetProcessingProperties (not the fictitious
+// "SourceProperties"/"TargetProperties") are the real member names --
+// glue@v1.157.0 types/types.go:11323 (SourceProcessingProperties: RoleArn)
+// and :12251 (TargetProcessingProperties: ConnectionName/EventBusArn/KmsArn).
+// Stored as map[string]any, same as IntegrationTableProperties'
+// SourceTableConfig/TargetTableConfig, since this backend does not interpret
+// their contents.
 type IntegrationResourceProperty struct {
-	CreatedAt        time.Time         `json:"CreateTime"`
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	CreatedAt                  time.Time      `json:"CreateTime"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
+}
+
+// UnmarshalJSON tolerates a persisted snapshot written before
+// SourceProcessingProperties/TargetProcessingProperties were renamed from
+// the fictitious "SourceProperties"/"TargetProperties" wire keys, so an
+// older snapshot's stored properties survive the upgrade instead of
+// silently zeroing.
+func (p *IntegrationResourceProperty) UnmarshalJSON(data []byte) error {
+	type alias IntegrationResourceProperty
+
+	aux := &struct {
+		SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+		TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+		*alias
+	}{alias: (*alias)(p)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if p.SourceProcessingProperties == nil && aux.SourceProperties != nil {
+		p.SourceProcessingProperties = make(map[string]any, len(aux.SourceProperties))
+		for k, v := range aux.SourceProperties {
+			p.SourceProcessingProperties[k] = v
+		}
+	}
+
+	if p.TargetProcessingProperties == nil && aux.TargetProperties != nil {
+		p.TargetProcessingProperties = make(map[string]any, len(aux.TargetProperties))
+		for k, v := range aux.TargetProperties {
+			p.TargetProcessingProperties[k] = v
+		}
+	}
+
+	return nil
 }
 
 // IntegrationTableProperties stores table-level properties for a Zero-ETL integration.

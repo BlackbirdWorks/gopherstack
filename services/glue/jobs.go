@@ -428,7 +428,7 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		bm = &JobBookmark{JobName: jobName}
 		b.jobBookmarks.Put(bm)
 	}
-	bm.ActiveRun = run.ID
+	bm.RunID = run.ID
 	bm.Attempt++
 
 	return run, nil
