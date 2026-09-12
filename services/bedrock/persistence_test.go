@@ -393,7 +393,7 @@ func seedFlowPromptResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixt
 	fv, err := b.CreateFlowVersion(flow.FlowID)
 	require.NoError(t, err)
 
-	falias, err := b.CreateFlowAlias(flow.FlowID, "test-flow-alias", "desc")
+	falias, err := b.CreateFlowAlias(flow.FlowID, "test-flow-alias", "desc", nil)
 	require.NoError(t, err)
 
 	prompt, err := b.CreatePrompt("test-prompt", "desc", map[string]string{"env": "test"})

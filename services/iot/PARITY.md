@@ -2076,3 +2076,34 @@ updated for the wire-shape fixes above), `golangci-lint run
 --new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays at
 0 FAIL. No version bump — no `backendSnapshot` struct field added, removed,
 or retyped.
+
+## 2026-09-12 (gopherstack-n3zi slice 30, typed-client coverage: 229/272 -> 272/272)
+
+`typed_slice30_realclient_test.go` added: 14 subtests covering every op left
+uncovered by slice 4 (see its entry above for the exact list) -- audit
+suppressions, account audit configuration, audit findings and related
+resources, audit- and detect-mitigation task lifecycle, event
+configurations, v1/v2 logging, certificate provider extras, SBOM
+association, thing-group extras (DescribeThingGroup/ListThingsInThingGroup),
+thing registration task extras, top-level tags, DescribeEndpoint,
+GetEffectivePolicies, GetBehaviorModelTrainingSummaries,
+PutVerificationStateOnViolation, UpdateEncryptionConfiguration,
+ConfirmTopicRuleDestination (using the `TopicRuleDestConfirmationToken`
+export_test.go helper slice 4 flagged as unavailable -- it exists after
+all), and ListMetricValues (seeded via the test-only
+`AddMetricValueInternal` hook, matching `SeedActiveViolation`/
+`SeedAuditFinding`'s precedent for real-AWS ops with no public write path).
+
+**Zero new bugs found** -- every one of the 43 previously-uncovered ops
+passed on the first correctly-shaped request against the real typed client.
+Consistent with this service's four prior audit passes and slice 4's own
+five-bug sweep already having hardened these wire shapes hard; this pass's
+value is coverage completion, not defect discovery. iot is now 272/272
+(100%) typed-covered -- the highest-value remaining family (audit/device
+defender/logging/SBOM) that slice 4 explicitly deferred is fully closed.
+
+Gates: `go build ./...` (whole module), `go vet ./services/iot/...`, `go
+test -race -count=1 ./services/iot/...` (all green). `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays
+at 0 FAIL. No version bump -- no `backendSnapshot` field added, removed, or
+retyped; no `pkgs/persistence` golden diff for this service.

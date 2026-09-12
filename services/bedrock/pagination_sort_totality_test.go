@@ -104,7 +104,7 @@ func TestListFlowAliasesSortIsTotal(t *testing.T) {
 
 	want := make(map[string]bool, 3)
 	for i := range 3 {
-		fa, createErr := b.CreateFlowAlias(flow.FlowID, "dup-name", fmt.Sprintf("desc-%d", i))
+		fa, createErr := b.CreateFlowAlias(flow.FlowID, "dup-name", fmt.Sprintf("desc-%d", i), nil)
 		require.NoError(t, createErr)
 		want[fa.FlowAliasID] = true
 	}

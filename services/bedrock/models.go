@@ -953,14 +953,26 @@ type Flow struct {
 
 // FlowAlias represents an alias for a Bedrock Flow. Its own id/arn are flat
 // "id"/"arn"; "flowId" names only the parent flow (see Flow's doc comment).
+// RoutingConfiguration is required on the real GetFlowAliasOutput/
+// UpdateFlowAliasOutput (bedrockagent@v1.58.4 api_op_GetFlowAlias.go) --
+// previously entirely absent from this type, so CreateFlowAlias/
+// UpdateFlowAlias silently dropped the real, required routingConfiguration
+// request member (gopherstack-n3zi slice 30).
 type FlowAlias struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	FlowAliasID  string    `json:"id"`
-	FlowAliasArn string    `json:"arn"`
-	FlowID       string    `json:"flowId"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	FlowAliasID          string             `json:"id"`
+	FlowAliasArn         string             `json:"arn"`
+	FlowID               string             `json:"flowId"`
+	Name                 string             `json:"name"`
+	Description          string             `json:"description,omitempty"`
+	RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
+}
+
+// FlowAliasRouting matches types.FlowAliasRoutingConfigurationListItem: the
+// wire key is "flowVersion", distinct from AgentAliasRouting's "agentVersion".
+type FlowAliasRouting struct {
+	FlowVersion string `json:"flowVersion"`
 }
 
 // FlowVersion represents a snapshot version of a Flow. GetFlowVersionResponse

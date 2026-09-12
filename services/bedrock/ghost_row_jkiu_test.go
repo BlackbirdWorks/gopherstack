@@ -108,7 +108,7 @@ func TestDeleteFlow_PrunesTagsVersionsAndAliases(t *testing.T) {
 	ver, err := b.CreateFlowVersion(f.FlowID)
 	require.NoError(t, err)
 
-	alias, err := b.CreateFlowAlias(f.FlowID, "alias1", "")
+	alias, err := b.CreateFlowAlias(f.FlowID, "alias1", "", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteFlow(f.FlowID))
@@ -143,7 +143,7 @@ func TestDeleteFlowAlias_PrunesAgentTags(t *testing.T) {
 	f, err := b.CreateFlow("flow1", "", "arn:aws:iam::000000000000:role/flow-role", nil)
 	require.NoError(t, err)
 
-	alias, err := b.CreateFlowAlias(f.FlowID, "alias1", "")
+	alias, err := b.CreateFlowAlias(f.FlowID, "alias1", "", nil)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagAgentResource(alias.FlowAliasArn, map[string]string{"k": "v"}))
