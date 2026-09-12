@@ -244,3 +244,31 @@ file. No dropped filter, no wrong key, no wrong cardinality found across any of 
 
 Gates: `go build ./services/datasync/...` (no changes made, nothing to build-verify beyond
 confirming the tree is unchanged). Work left uncommitted per this pass's instructions.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestDataSyncClient`
+from `wire_field_fixes_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 30
+typed-client-uncovered ops (per `cmd/clientcoverage`) — every location
+family's Create/Describe/Update trio (AzureBlob, FsxLustre, FsxOntap,
+FsxOpenZfs, FsxWindows, Hdfs, Smb), ObjectStorage/Efs updates, location
+delete + untag, agent/task updates, and task-execution update/cancel. Typed
+coverage: 23/53 -> 53/53 (30 -> 0 uncovered).
+
+All 30 ops passed against the existing handler/backend on the first
+correctly-shaped request — no wire-shape bug found. Two test-authoring
+corrections along the way, not bugs (both confirmed by reading the real
+SDK's output structs field-by-field): `DescribeLocationFsxLustreOutput` and
+`DescribeLocationObjectStorageOutput` have no `FsxFilesystemArn`/
+`ServerHostname` fields respectively — those values are only recoverable
+from the response's `LocationUri`, matching what gopherstack's handlers
+already correctly emit (`handler_locations_objectstorage.go`'s
+`describeLocationObjectStorageOutput` has no `ServerHostname` key, matching
+the real absence, not a bug).
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/datasync + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

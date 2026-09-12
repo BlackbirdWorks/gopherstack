@@ -47,7 +47,7 @@ ops:
   ModifyDBClusterSnapshotAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
   # EventSubscription family
   CreateEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: error codes were SubscriptionNotFoundFault/SubscriptionAlreadyExistFault, real wire codes are SubscriptionNotFound/SubscriptionAlreadyExist (no Fault). FIXED this pass, two bugs: (1) the handler passed sourceIDs/eventCategories to Backend.CreateEventSubscription in the wrong positional order (the backend signature is (eventCategories, sourceIDs)), so a real client's SourceIds silently came back as EventCategoriesList and vice versa -- invisible to every pre-existing test since none checked both lists in one request; (2) Enabled was accepted on the wire but never parsed/stored/echoed -- now defaults to true (AWS's default for a new subscription) when unspecified and is a real, mutable field."}
-  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: response now carries EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/SubscriptionCreationTime, all previously entirely absent from xmlEventSubscription (see families.EventSubscription)"}
+  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: response now carries EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/SubscriptionCreationTime, all previously entirely absent from xmlEventSubscription (see families.EventSubscription). FIXED 2026-09-12 (gopherstack-n3zi typed slice 33): filtering by an unmatched SubscriptionName silently returned an empty list instead of the real SubscriptionNotFoundFault (deserializers.go's awsAwsquery_deserializeOpErrorDescribeEventSubscriptions, docdb@v1.51.4, declares SubscriptionNotFound) -- the same silent-omission-vs-hard-fail bug class already fixed for DescribeDBClusterParameterGroups/DescribeDBSubnetGroups/DescribeDBClusterSnapshots in this service; DescribeEventSubscriptions was the one Describe-by-name op still missing it. events.go's DescribeEventSubscriptions now returns ([]EventSubscription, error)."}
   DeleteEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: Enabled is now a real, wire-visible mutation (was silently dropped, same gap as Create)"}
   AddSourceIdentifierToSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -371,3 +371,39 @@ class appears exhausted in docdb.
 Gates: `go build ./services/docdb/...`, `go vet ./services/docdb/...` and `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/docdb/...` (pass, no changes), `golangci-lint run
 ./services/docdb/...` (0 issues). No code changed this pass.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestDocDBClient` from
+`handler_sdk_roundtrip_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 31
+typed-client-uncovered ops (per `cmd/clientcoverage`) — cluster parameter
+groups, subnet groups, event subscriptions, snapshots + snapshot
+attributes, reference data (certificates/engine versions/orderable
+instance options), cluster lifecycle (modify/stop/start/failover/restore-
+to-point-in-time), instance lifecycle (modify/reboot), global cluster
+(failover/switchover/remove-member), and tags. Typed coverage: 24/55 ->
+115/115 (31 -> 0 uncovered).
+
+**One real bug found and fixed**: `DescribeEventSubscriptions` filtering by
+an unmatched `SubscriptionName` silently returned an empty list instead of
+the real `SubscriptionNotFoundFault` — confirmed against the pinned SDK's
+`deserializers.go` (`awsAwsquery_deserializeOpErrorDescribeEventSubscriptions`
+switches on the `SubscriptionNotFound` error code, docdb@v1.51.4). This is
+the same silent-omission-vs-hard-fail bug class this service's own
+`items_still_open`/dated notes already document as fixed for
+`DescribeDBClusterParameterGroups`/`DescribeDBSubnetGroups`/
+`DescribeDBClusterSnapshots` — `DescribeEventSubscriptions` was the one
+Describe-by-name op in this family still missing it, only surfaced now
+because no prior typed-client test drove it with an unmatched name.
+`events.go`'s `DescribeEventSubscriptions` signature changed from
+`[]EventSubscription` to `([]EventSubscription, error)`; the one call site
+(`handler_events.go`) updated accordingly. No existing test asserted the
+old (buggy) empty-list behavior for a not-found name, so nothing needed
+correcting.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/docdb + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

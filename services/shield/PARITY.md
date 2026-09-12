@@ -35,7 +35,7 @@ ops:
   UpdateProtectionGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this sweep -- now enforces the same ARBITRARY-pattern subscriptionMaxMembersPerGroup=10000 quota as CreateProtectionGroup"}
   DeleteProtectionGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAttacks: {wire: ok, errors: ok, state: ok, persist: ok, note: "TimeRange {FromInclusive/ToExclusive} shape verified against types.TimeRange"}
-  DescribeAttack: {wire: ok, errors: ok, state: ok, persist: ok, note: "AttackProperties/SubResources (optional AWS fields) never populated -- acceptable, see gaps"}
+  DescribeAttack: {wire: ok, errors: ok, state: ok, persist: ok, note: "AttackProperties/SubResources (optional AWS fields) never populated -- acceptable, see gaps. FIXED 2026-09-12 (gopherstack-n3zi typed slice 33): the response's top-level \"Attack\" object emitted a fabricated \"AttackVectors\" key that types.AttackDetail (shield@v1.37.4) does not have (that's AttackSummary/ListAttacks' field, correctly present there) -- removed; real clients silently discarded the extraneous key so this wasn't client-breaking, but it meant AttackVectorType info was unreachable from DescribeAttack specifically. The real member in that slot, AttackProperties, remains honestly absent per the gaps entry below."}
   DescribeAttackStatistics: {wire: ok, errors: ok, state: ok, persist: n/a, note: "top-level TimeRange/DataItems, no wrapper -- matches DescribeAttackStatisticsOutput"}
   EnableApplicationLayerAutomaticResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   DisableApplicationLayerAutomaticResponse: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -433,3 +433,41 @@ generic already-attributed codes as other ops rather than a distinct sentinel re
 
 Gates: `go test -race -count=1 ./services/shield/...` ok (1.5s); `golangci-lint run
 services/shield/...` 0 issues.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+This service had no prior typed-client helper (grep found none). Added
+`typed_slice33_realclient_test.go` with `newTestShieldClient` (httptest +
+`service.NewRegistry`/`NewServiceRouter`), plus one outer `t.Parallel()`
+test with 8 subtests (all also parallel) driving every one of this
+service's 29 typed-client-uncovered ops (per `cmd/clientcoverage`) —
+protection groups, DRT log-bucket/role association, emergency contacts +
+proactive engagement, ALAR, health checks, attacks, subscription, and tags.
+Typed coverage: 7/36 -> 36/36 (29 -> 0 uncovered).
+
+**One real bug found and fixed**: `DescribeAttack`'s response fabricated a
+top-level `AttackVectors` key inside `Attack` that `types.AttackDetail`
+(shield@v1.37.4) does not have — confirmed field-by-field against the
+vendored SDK; that field belongs to `AttackSummary` (`ListAttacks`), where
+it's correctly present. Real clients silently discard unrecognized keys
+(not client-breaking), but the practical effect was that attack-vector-type
+information was reachable via `ListAttacks` and NOT via `DescribeAttack`,
+an asymmetry a real caller has no way to detect from the wire alone. Fixed
+by removing the key from `handleDescribeAttack` (`handler_attacks.go`); the
+real member in that slot, `AttackProperties`, stays honestly absent (see
+`items_still_open` — no per-attack contributor/traffic data exists in this
+backend to populate it without fabricating numbers). Two pre-existing tests
+(`TestHandler_AttackRichFields`, the `DescribeAttack` section of
+`TestHandler_AttackSimulationEndToEnd`) asserted the fabricated key was
+present; updated to assert its absence instead of weakening the check.
+
+One test-authoring correction, not a bug: `AssociateDRTRole` must be called
+before `AssociateDRTLogBucket` (the log-bucket association depends on an
+already-associated DRT role) — confirmed via the real
+`NoAssociatedRoleException` the typed client surfaced on the first attempt.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/shield + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

@@ -471,3 +471,29 @@ trimming, etc.) is unrelated to the fields now being enforced.
 - `paginateList`'s `nextToken` is a plain string-encoded integer offset. This is fine:
   real AWS clients never parse `NextToken` — it's opaque by contract — so this doesn't
   need to match any particular AWS-internal format.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 9
+subtests (all also parallel) driving every one of this service's 25
+typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
+aws-sdk-go-v2 client — language models, vocabulary/vocabulary-filter/medical-
+vocabulary lifecycles, medical scribe/medical transcription/call analytics
+job list+delete, call analytics category update+delete, and
+tag/untag/list-tags. All 25 ops passed on the first correctly-shaped
+request against the existing handler/backend — no wire-shape bug found;
+this service's op-by-op wire correctness was already swept hard by prior
+passes (see dated sections above). Typed coverage: 18/43 -> 43/43 (25 -> 0
+uncovered).
+
+One accept-and-drop-adjacent finding, not a bug: `startCallAnalyticsJobInput`
+(`handler_call_analytics.go`) accepts a top-level `LanguageCode` field, but
+the real `StartCallAnalyticsJobInput` (`api_op_StartCallAnalyticsJob.go`,
+aws-sdk-go-v2/service/transcribe@v1.64.0) has no such member at all — Call
+Analytics jobs are always auto-language-identified or configured via
+`Settings.LanguageIdSettings`/`LanguageOptions`. The real SDK's typed
+client-generated request can never populate this field, so gopherstack's
+input struct carries dead surface; harmless (validateLanguageCode accepts
+empty), left as-is since fixing it is outside this slice's scope (no
+uncovered op touches it) and every existing test that does set it predates
+this pass.

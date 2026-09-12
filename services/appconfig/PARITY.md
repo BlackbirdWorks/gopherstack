@@ -400,3 +400,32 @@ must not error or panic). This directly exercises the bug's repro path (tags set
 previously invisible to `ListTagsForResource`), so a regression to "field bound but not forwarded" or
 "forwarded but not applied" would now fail these tests directly rather than passing silently as it did
 before this pass.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestAppConfigClient`
+from `handler_error_type_test.go`): one outer `t.Parallel()` test, 9
+subtests (all also parallel) driving every one of this service's 28
+typed-client-uncovered ops (per `cmd/clientcoverage`) — deployment
+strategies, hosted configuration versions, configuration profile deletion,
+application/environment updates, ValidateConfiguration, tags, the full
+extension/extension-association family, and the full experiment-
+definition/experiment-run families. Typed coverage: 28/56 -> 56/56
+(28 -> 0 uncovered).
+
+26 of 28 ops passed on the first correctly-shaped request. Two
+test-authoring corrections, not bugs: (1) `UpdateExtension` creates a new
+extension *version* rather than mutating in place (extensions.go's own doc
+comment) — the test's `UpdateExtension` call left two versions behind, so
+fully removing the extension needed two explicit-`VersionNumber`
+`DeleteExtension` calls, not one unversioned call. (2)
+`DeleteExperimentDefinition` with no `DeleteType` defaults to `ARCHIVE` (a
+documented soft-delete that leaves the record readable with
+`Status=ARCHIVED`); the test needed `DeleteType: DESTROY` to get a real
+removal before asserting `GetExperimentDefinition` 404s.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/appconfig + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

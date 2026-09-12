@@ -586,6 +586,14 @@ linters:
       # (gopherstack-n3zi); the SA1019s are expected and unavoidable.
       - path: 'codedeploy/typed_slice29_realclient_test.go'
         linters: [ staticcheck ]
+      # UpdateCertificateOptions' only real member,
+      # Options.CertificateTransparencyLoggingPreference, carries an AWS
+      # SA1019 deprecation notice (opt-out is no longer available) but is
+      # still the real wire contract this op mutates -- typed coverage
+      # slice 33 (gopherstack-n3zi) must set/read it through the real
+      # client to cover the op at all.
+      - path: 'acm/typed_slice33_realclient_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

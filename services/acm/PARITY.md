@@ -1027,3 +1027,39 @@ Gates on `./services/acm/...`: `go build`, `go vet`, `gofmt -l` (empty),
 `cmd/errtargetaudit` afterward drops acm from 20 findings to 7 (the 6
 confirmed-unreachable ResourceNotFoundException sites plus the one landmined
 already-revoked InvalidStateException site).
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 12
+subtests (all also parallel) driving every one of this service's 26
+typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
+aws-sdk-go-v2 client — certificate tags, Get/ExportCertificate (seeded via
+ImportCertificate for an instantly-ISSUED cert), Renew/Resend/Revoke/
+UpdateOptions on RequestCertificate'd certs, the generic UntagResource,
+account configuration, and the full ACME endpoint/domain-validation/
+external-account-binding families. All 26 ops passed against the existing
+handler/backend after one test-authoring correction (not a bug):
+`UpdateAcmeEndpoint`'s `Contact` field is the `AcmeContact` enum
+(REQUIRED/NOT_REQUIRED — whether ACME clients must supply contact info
+during account registration), not a free-form contact string; the test
+initially sent an email-shaped string and correctly got rejected. Typed
+coverage: 13/39 -> 39/39 (26 -> 0 uncovered).
+
+`DescribeAcmeAccount`/`ListAcmeAccounts`/`RevokeAcmeAccount` are covered via
+the already-documented structural gap in `acme_accounts.go` (no real ACME
+protocol front-end populates the AcmeAccount table): the subtest creates a
+real endpoint and asserts the real, non-fabricated behavior through the
+typed client — endpoint-FK validation (a bogus endpoint ARN 404s) and honest
+empty-list/not-found results for a real account URL. This is genuine
+coverage of the real code paths, not a fabricated round trip.
+
+Added one `.golangci.yml` per-file `staticcheck` exemption
+(`acm/typed_slice33_realclient_test.go`) for AWS's own SA1019 deprecation
+notice on `CertificateOptions.CertificateTransparencyLoggingPreference` —
+`UpdateCertificateOptions`' only real member — same precedent as the
+existing iotanalytics/opsworks/securityhub/codedeploy exemptions.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/acm + pkgs/persistence), `golangci-lint run --new-from-rev=HEAD`
+(0 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL. No
+persisted-struct fields changed; no version bump.

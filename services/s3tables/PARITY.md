@@ -684,3 +684,36 @@ once.
 ./services/s3tables/...` (green), `golangci-lint run ./services/s3tables/...`
 (0 issues) all pass. No banned `nolint:cyclop/gocyclo/gocognit/funlen`
 added.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestS3TablesClient`
+from `handler_sdk_roundtrip_test.go`): one outer `t.Parallel()` test, 8
+subtests (all also parallel) driving every one of this service's 26
+typed-client-uncovered ops (per `cmd/clientcoverage`) — table-bucket
+encryption/metrics/storage-class/replication, table replication +
+replication status, table record expiration + job status, the table extras
+family (encryption/maintenance-job-status/metadata-location/storage-class/
+rename), and tags. Typed coverage: 23/49 -> 49/49 (26 -> 0 uncovered).
+
+All 26 ops passed against the existing handler/backend after one
+test-authoring correction (not a bug): `GetTableMaintenanceJobStatus` on a
+freshly created table returns two entries (`icebergCompaction`,
+`icebergSnapshotManagement`), each `Not_Yet_Run` — every new table gets
+these two default maintenance types configured automatically
+(`tables.go`'s `CreateTable`), which the test's initial empty-map
+assumption missed. Also specifically re-verified, since this exact bug
+class (a real client's percent-encoded `%2F` in an ARN desyncing a
+fixed-segment-count path router) was found and fixed in quicksight
+(gopherstack-n3zi slice 3): `TagResource`/`UntagResource`/
+`ListTagsForResource`'s `/tag/{resourceArn}` path already handles this
+correctly — `rawPathSegments` (`handler.go`) splits on the *raw* (still
+percent-encoded) path before per-segment `url.PathUnescape`, so an ARN's
+embedded `/` (sent as `%2F`) never desyncs the split. No fix needed; this
+service was already immune.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/s3tables + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

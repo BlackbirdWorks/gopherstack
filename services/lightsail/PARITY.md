@@ -1379,3 +1379,35 @@ parameter (`Instance.PublicIPGeneration`, bumped each qualifying restart)
 folded into its hash input, so the address stays a pure, reproducible
 function of (name, generation) instead of drawing on `time.Now` or
 `crypto/rand`.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestClient` from
+`sdk_roundtrip_helper_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 29
+typed-client-uncovered ops (per `cmd/clientcoverage`) — instance public
+ports/snapshots/metrics/add-ons, instance setup/metadata/IP-type, key pair
+import, disks, load balancers, buckets, relational databases, container
+services, and distributions. Typed coverage: 132/161 -> 161/161
+(29 -> 0 uncovered).
+
+27 of 29 ops passed on the first correctly-shaped request. Two
+test-authoring corrections, not bugs: (1) `GetRelationalDatabaseLogEvents`
+validates `LogStreamName` against the seeded catalog
+(`seedRDSLogStreams`, databases.go) — a made-up stream name 400s; the real
+seeded names are `error/mysqld.log`/`slow-query/mysql-slow.log`. (2)
+`GetContainerLog`'s and `GetRelationalDatabaseLogEvents`' response structs
+tag their event-list field `,omitempty`, so an empty result omits the key
+entirely rather than sending `[]`, and a real client decodes the field as
+nil rather than a non-nil empty slice -- functionally identical for any
+real caller (ranging over a nil vs. empty slice behaves the same), so this
+is not treated as a bug; the test asserts `Empty` rather than `NotNil`.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/lightsail), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+`pkgs/persistence`'s `TestSnapshotVersionGuard` fails only on a
+concurrent sibling agent's in-progress `appsync` edit (confirmed via `git
+status` -- `services/appsync/{caching,models}.go` modified, not touched by
+this pass); no diff to `snapshot_inventory.json` for lightsail (no
+persisted-struct fields changed). No version bump.

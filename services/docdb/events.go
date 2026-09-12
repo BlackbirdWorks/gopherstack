@@ -101,18 +101,23 @@ func (b *InMemoryBackend) DeleteEventSubscription(ctx context.Context, name stri
 	return cp, nil
 }
 
-// DescribeEventSubscriptions returns event subscriptions, optionally filtered by name.
-func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name string) []EventSubscription {
+// DescribeEventSubscriptions returns event subscriptions, optionally
+// filtered by name. Real AWS's DescribeEventSubscriptions declares
+// SubscriptionNotFoundFault (deserializers.go's
+// awsAwsquery_deserializeOpErrorDescribeEventSubscriptions, docdb@v1.51.4)
+// for an unmatched SubscriptionName -- unlike ListLocations-style ops that
+// treat an unmatched filter as an empty result, this one hard-fails.
+func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name string) ([]EventSubscription, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
 	if name != "" {
 		sub, exists := b.eventSubscriptionGet(region, name)
 		if !exists {
-			return []EventSubscription{}
+			return nil, fmt.Errorf("%w: subscription %s not found", ErrEventSubscriptionNotFound, name)
 		}
 
-		return []EventSubscription{*copyEventSubscription(sub)}
+		return []EventSubscription{*copyEventSubscription(sub)}, nil
 	}
 	subStore := b.eventSubscriptionsInRegion(region)
 	result := make([]EventSubscription, 0, len(subStore))
@@ -123,7 +128,7 @@ func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name s
 		return result[i].SubscriptionName < result[j].SubscriptionName
 	})
 
-	return result
+	return result, nil
 }
 
 // ModifyEventSubscription modifies an event subscription. enabled mirrors

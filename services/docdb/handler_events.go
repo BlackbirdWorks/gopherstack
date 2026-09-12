@@ -63,7 +63,12 @@ func (h *Handler) handleDeleteEventSubscription(ctx context.Context, vals url.Va
 
 func (h *Handler) handleDescribeEventSubscriptions(ctx context.Context, vals url.Values) (any, error) {
 	name := vals.Get("SubscriptionName")
-	subs := h.Backend.DescribeEventSubscriptions(ctx, name)
+
+	subs, err := h.Backend.DescribeEventSubscriptions(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlEventSubscription, 0, len(subs))
 	for _, sub := range subs {
 		cp := sub
