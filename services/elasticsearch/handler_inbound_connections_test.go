@@ -40,7 +40,7 @@ func TestElasticsearchHandler_AcceptInboundCrossClusterSearchConnection(t *testi
 				},
 			},
 			wantCode:     http.StatusOK,
-			wantContains: []string{"CrossClusterSearchConnectionId", "conn-001", "ACTIVE"},
+			wantContains: []string{"CrossClusterSearchConnectionId", "conn-001", "APPROVED"},
 		},
 		{
 			name:         "not_found",

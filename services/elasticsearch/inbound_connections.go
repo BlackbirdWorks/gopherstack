@@ -19,7 +19,11 @@ func (b *InMemoryBackend) AcceptInboundCrossClusterSearchConnection(
 		return nil, fmt.Errorf("%w: inbound connection %s not found", ErrConnectionNotFound, connectionID)
 	}
 
-	conn.ConnectionStatus = statusActive
+	// types.InboundCrossClusterSearchConnectionStatusCode has no "ACTIVE" value
+	// (enums.go:435-444, elasticsearchservice@v1.45.4) -- an accepted inbound
+	// connection's status is APPROVED; ACTIVE belongs only to the sibling
+	// OutboundCrossClusterSearchConnectionStatusCode enum.
+	conn.ConnectionStatus = "APPROVED"
 	cp := *conn
 
 	return &cp, nil

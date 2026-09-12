@@ -255,6 +255,16 @@ func (h *Handler) handleCreateReplicator(ctx context.Context, c *echo.Context, b
 	})
 }
 
+// deleteReplicatorOutput mirrors DeleteReplicatorOutput (replicatorArn/
+// replicatorState) -- an empty body left both fields permanently absent for
+// every real client, even though replicatorArn is already known from the
+// request path and this backend's synchronous delete is honestly reported
+// as the real API's transitional DELETING state (types.ReplicatorStateDeleting).
+type deleteReplicatorOutput struct {
+	ReplicatorArn   string `json:"replicatorArn"`
+	ReplicatorState string `json:"replicatorState"`
+}
+
 func (h *Handler) handleDeleteReplicator(
 	ctx context.Context,
 	c *echo.Context,
@@ -264,7 +274,10 @@ func (h *Handler) handleDeleteReplicator(
 		return h.writeBackendError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, deleteReplicatorOutput{
+		ReplicatorArn:   replicatorArn,
+		ReplicatorState: "DELETING",
+	})
 }
 
 // describeReplicatorOutput mirrors DescribeReplicatorOutput.

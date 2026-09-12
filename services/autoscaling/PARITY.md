@@ -139,6 +139,7 @@ gaps: []
 items_still_open:
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
   - "PutScalingPolicy's parsePredictiveScalingMetricSpecifications (gopherstack-r80d batch 29, reviewed not fixed): a MetricSpecifications element carrying only a Customized*/Predefined* sub-field with no TargetValue is accepted with TargetValue defaulted to 0.0 instead of rejected, even though AWS's own doc comment on this exact field says \"TargetValue is required ... on every element\" and its client-side validator (validators.go:1660 validatePredictiveScalingMetricSpecification) unconditionally rejects a nil TargetValue. Out of scope for this cut (an input-validation permissiveness gap, not a dropped required OUTPUT field -- the wire-side TargetValue member has no omitempty and is always echoed correctly) and, per this campaign's proof standard, not reachable via any real aws-sdk-go-v2 client anyway (the SDK's own validator blocks the request before it is ever sent) -- same \"unreachable via any real Go SDK client\" class apprunner's batch 10 SourceCodeVersion hit. Left unfixed."
+  - "LaunchInstancesOutput.Instances[].AvailabilityZoneId/MarketType/SubnetId (gopherstack-n3zi slice 35, 2026-09-12): the real types.InstanceCollection models 6 members, this backend's Instance struct tracks none of AZ-ID/market-type/subnet -- no honest source value exists (no AttachInstances/LaunchInstances caller ever supplies a subnet either). Structural modeling gap, not a dropped value; documented simplification."
 deferred: []
 leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
@@ -1105,3 +1106,56 @@ anywhere) -- `golangci-lint run ./services/autoscaling/...` and `golangci-lint r
 --new-from-rev=HEAD ./services/ec2/... .` (root verified the same way) both 0 issues after
 `--fix` resolved fieldalignment (both new structs) and a `modernize` `int32Ptr` rewrite in the
 autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `make docs`.
+
+## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+
+`typed_slice35_realclient_test.go` added: 8 subtests driving all 32 previously
+typed-coverage-blind ops (34/66 -> 66/66) through the real aws-sdk-go-v2
+client -- instance lifecycle (AttachInstances/DetachInstances/EnterStandby/
+ExitStandby/SetInstanceHealth/SetDesiredCapacity/
+TerminateInstanceInAutoScalingGroup/LaunchInstances), tags (CreateOrUpdateTags/
+DeleteTags), notifications (Put/DeleteNotificationConfiguration/
+DescribeAutoScalingNotificationTypes), scheduled actions (Put/
+BatchPutScheduledUpdateGroupAction/Delete/BatchDeleteScheduledAction),
+scaling policies (DeletePolicy/ExecutePolicy/DescribeAdjustmentTypes),
+instance refresh (CancelInstanceRefresh/RollbackInstanceRefresh), metrics
+collection (Enable/DisableMetricsCollection/DescribeMetricCollectionTypes),
+process management and static describe-types (Suspend/ResumeProcesses,
+DescribeLifecycleHooks/-HookTypes/-ScalingProcessTypes/
+-TerminationPolicyTypes/-AccountLimits).
+
+Two real bugs found and fixed, both caught only by asserting on decoded
+typed-client values (raw-body/status-only tests missed both):
+
+1. **`AttachInstances` never updated `b.instanceIndex`** (instances.go) --
+   every other instance-adding path (CreateAutoScalingGroup, replacement
+   launches, lifecycle-hook resolution) maintains this `instanceID ->
+   groupName` side-index, but `AttachInstances` only appended to
+   `g.Instances`. `TerminateInstanceInAutoScalingGroup` (and any other
+   instanceIndex-keyed lookup) looks the instance up via `b.instanceIndex`,
+   not by scanning groups, so a real client's
+   `AttachInstances`-then-`TerminateInstanceInAutoScalingGroup` sequence
+   always 400'd with `ErrInstanceNotFound` even though
+   `DescribeAutoScalingInstances` showed the instance as `InService` in the
+   group. Fixed: `AttachInstances` now sets `b.instanceIndex[id] =
+   groupName` for each newly attached instance.
+2. **`CreateOrUpdateTags` silently dropped `PropagateAtLaunch`** (tags.go) --
+   both the update-existing-tag and create-new-tag branches only copied
+   `Key`/`Value` into the stored `Tag`, never `PropagateAtLaunch`, so every
+   real client's tag came back `PropagateAtLaunch: false` regardless of what
+   was requested. Fixed: both branches now set `PropagateAtLaunch` from the
+   request.
+
+Accept-and-drop finding (not fixed, added to `items_still_open`):
+`LaunchInstancesOutput.Instances[]` (`types.InstanceCollection`) has 6 real
+members; this backend's `Instance` model tracks none of
+`AvailabilityZoneId`/`MarketType`/`SubnetId` -- a structural gap (no
+subnet-of-launch concept anywhere in this service), not a dropped value.
+
+Gates: `go build ./...` (whole module) clean. `go vet ./services/autoscaling/...`
+clean. `go test -race -count=1 ./services/autoscaling/...` and
+`./pkgs/persistence/...` both `ok`. `golangci-lint run --new-from-rev=HEAD
+./services/autoscaling/...` 0 issues. No `backendSnapshot` field changed
+(`Instance`/`Tag` shapes unchanged), no version bump,
+`pkgs/persistence/testdata/snapshot_inventory.json` unaffected for this
+service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.

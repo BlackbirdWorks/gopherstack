@@ -370,7 +370,15 @@ type Configuration struct {
 // CreationTime is a real required member of types.ConfigurationRevision --
 // ListConfigurationRevisions marshals this type directly as its list-item
 // shape (deserializers.go's awsRestjson1_deserializeDocumentConfigurationRevision
-// switches on "creationTime").
+// switches on "creationTime"). ConfigurationArn keeps its on-disk tag
+// "configurationArn" here (this type is also the persisted Configuration.
+// LatestRevision shape, snapshotted verbatim by store.Table -- renaming the
+// tag would silently drop the field from every existing snapshot on
+// restore). DescribeConfigurationRevisionOutput's real wire key is "arn"
+// instead (deserializers.go:4297 awsRestjson1_deserializeOpDocument
+// DescribeConfigurationRevisionOutput) -- handleDescribeConfigurationRevision
+// builds its own wire-only response struct rather than marshaling this type
+// directly, the same pattern describeTopicOutputFrom uses for Topic.
 type ConfigurationRevision struct {
 	ConfigurationArn string `json:"configurationArn"`
 	Description      string `json:"description"`

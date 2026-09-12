@@ -14,15 +14,19 @@ type cancelSoftwareUpdateRequest struct {
 }
 
 // serviceSoftwareOptionsJSON is the JSON representation of software update options.
+// AutomatedUpdateDate is restjson1's unixTimestamp wire format (a JSON Number,
+// deserializers.go:14366 awsRestjson1_deserializeDocumentServiceSoftwareOptions)
+// -- a plain string field here always failed a real client's decode even when
+// empty. Omitted entirely: this backend tracks no scheduled-update date.
 type serviceSoftwareOptionsJSON struct {
-	CurrentVersion      string `json:"CurrentVersion"`
-	NewVersion          string `json:"NewVersion"`
-	UpdateStatus        string `json:"UpdateStatus"`
-	Description         string `json:"Description"`
-	AutomatedUpdateDate string `json:"AutomatedUpdateDate"`
-	UpdateAvailable     bool   `json:"UpdateAvailable"`
-	Cancellable         bool   `json:"Cancellable"`
-	OptionalDeployment  bool   `json:"OptionalDeployment"`
+	CurrentVersion      string   `json:"CurrentVersion"`
+	NewVersion          string   `json:"NewVersion"`
+	UpdateStatus        string   `json:"UpdateStatus"`
+	Description         string   `json:"Description"`
+	AutomatedUpdateDate *float64 `json:"AutomatedUpdateDate,omitempty"`
+	UpdateAvailable     bool     `json:"UpdateAvailable"`
+	Cancellable         bool     `json:"Cancellable"`
+	OptionalDeployment  bool     `json:"OptionalDeployment"`
 }
 
 // cancelSoftwareUpdateOutput is the response for CancelElasticsearchServiceSoftwareUpdate.
