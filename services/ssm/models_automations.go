@@ -30,6 +30,7 @@ type DescribeAutomationStepExecutionsInput struct {
 	MaxResults            *int32 `json:"MaxResults,omitempty"`
 	AutomationExecutionID string `json:"AutomationExecutionId"`
 	NextToken             string `json:"NextToken,omitempty"`
+	ReverseOrder          *bool  `json:"ReverseOrder,omitempty"`
 }
 
 // DescribeAutomationStepExecutionsOutput is the response for DescribeAutomationStepExecutions.
@@ -105,8 +106,17 @@ type StartChangeRequestExecutionInput struct {
 type StartChangeRequestExecutionOutput struct{}
 
 // StartExecutionPreviewInput is the request payload.
+// StartExecutionPreviewInput is the request payload for StartExecutionPreview.
+//
+// DocumentVersion is not modeled: this backend's execution preview never
+// resolves or diffs actual document content by version (ExecutionPreview
+// only records DocumentName/Status), and neither StartExecutionPreviewOutput
+// nor GetExecutionPreviewOutput's types.ExecutionPreview echoes the version
+// back on the real wire either -- there is no observable point to prove
+// this against, so it is accepted on the wire and otherwise inert.
 type StartExecutionPreviewInput struct {
-	DocumentName string `json:"DocumentName,omitempty"`
+	DocumentName    string `json:"DocumentName,omitempty"`
+	DocumentVersion string `json:"DocumentVersion,omitempty"`
 }
 
 // StartExecutionPreviewOutput is the response payload.

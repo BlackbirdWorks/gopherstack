@@ -323,8 +323,9 @@ type DescribeEffectivePatchesForPatchBaselineOutput struct {
 
 // GetDeployablePatchSnapshotForInstanceInput is the request payload.
 type GetDeployablePatchSnapshotForInstanceInput struct {
-	InstanceID string `json:"InstanceId"`
-	SnapshotID string `json:"SnapshotId"`
+	InstanceID             string `json:"InstanceId"`
+	SnapshotID             string `json:"SnapshotId"`
+	UseS3DualStackEndpoint bool   `json:"UseS3DualStackEndpoint,omitempty"`
 }
 
 // GetDeployablePatchSnapshotForInstanceOutput is the response payload.

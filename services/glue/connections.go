@@ -33,6 +33,7 @@ type ConnectionOptions struct {
 	PhysicalConnectionRequirements *PhysicalConnectionRequirements
 	Description                    string
 	MatchCriteria                  []string
+	CatalogID                      string
 }
 
 // BatchDeleteConnection deletes multiple connections. The real
@@ -120,6 +121,7 @@ func (b *InMemoryBackend) CreateConnectionWithOptions(
 		Description:                    opts.Description,
 		MatchCriteria:                  append([]string(nil), opts.MatchCriteria...),
 		PhysicalConnectionRequirements: opts.PhysicalConnectionRequirements,
+		CatalogID:                      b.resolveCatalogID(opts.CatalogID),
 	}
 	b.connections.Put(c)
 

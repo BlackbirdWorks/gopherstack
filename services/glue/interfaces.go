@@ -194,6 +194,9 @@ type StorageBackend interface {
 	UpdateDataQualityRuleset(name, ruleset, description string) error
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
+	StartDataQualityRulesetEvaluationRunWithOptions(
+		rulesetNames []string, opts DataQualityRunOptions,
+	) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
 	BatchGetDataQualityRulesetEvaluationRun(runIDs []string) ([]*DataQualityEvaluationRun, []string)
 	CancelDataQualityRulesetEvaluationRun(runID string) error
@@ -419,6 +422,9 @@ type StorageBackend interface {
 
 	// DataQuality recommendation runs.
 	StartDataQualityRuleRecommendationRun(s3Path string) (*DQRuleRecommendationRun, error)
+	StartDataQualityRuleRecommendationRunWithOptions(
+		s3Path string, opts DataQualityRunOptions,
+	) (*DQRuleRecommendationRun, error)
 	GetDataQualityRuleRecommendationRun(runID string) (*DQRuleRecommendationRun, error)
 	CancelDataQualityRuleRecommendationRun(runID string) error
 	ListDataQualityRuleRecommendationRuns() []*DQRuleRecommendationRun

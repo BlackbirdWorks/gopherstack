@@ -137,9 +137,28 @@ func (b *InMemoryBackend) ListDataQualityRulesets() []*DataQualityRuleset {
 	return out
 }
 
+// DataQualityRunOptions carries the optional NumberOfWorkers/Timeout knobs
+// shared by StartDataQualityRulesetEvaluationRun and
+// StartDataQualityRuleRecommendationRun.
+type DataQualityRunOptions struct {
+	NumberOfWorkers int32
+	Timeout         int32
+}
+
 // StartDataQualityRulesetEvaluationRun validates the rulesets exist and creates a run.
 func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 	rulesetNames []string,
+) (*DataQualityEvaluationRun, error) {
+	return b.StartDataQualityRulesetEvaluationRunWithOptions(rulesetNames, DataQualityRunOptions{})
+}
+
+// StartDataQualityRulesetEvaluationRunWithOptions is
+// StartDataQualityRulesetEvaluationRun plus the optional NumberOfWorkers/
+// Timeout StartDataQualityRulesetEvaluationRunInput also supports
+// (glue@v1.157.0 api_op_StartDataQualityRulesetEvaluationRun.go), echoed
+// back by GetDataQualityRulesetEvaluationRun.
+func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRunWithOptions(
+	rulesetNames []string, opts DataQualityRunOptions,
 ) (*DataQualityEvaluationRun, error) {
 	b.mu.Lock("StartDataQualityRulesetEvaluationRun")
 	defer b.mu.Unlock()
@@ -156,9 +175,11 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 			time.Now().UnixNano(),
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
-		RulesetNames: append([]string(nil), rulesetNames...),
-		Status:       stateRunning,
-		StartedOn:    float64(time.Now().Unix()),
+		RulesetNames:    append([]string(nil), rulesetNames...),
+		Status:          stateRunning,
+		StartedOn:       float64(time.Now().Unix()),
+		NumberOfWorkers: opts.NumberOfWorkers,
+		Timeout:         opts.Timeout,
 	}
 	b.dataQualityEvalRuns.Put(run)
 
@@ -243,6 +264,17 @@ var ErrDQRecommendationRunNotFound = fmt.Errorf("data quality recommendation run
 
 // StartDataQualityRuleRecommendationRun creates a recommendation run.
 func (b *InMemoryBackend) StartDataQualityRuleRecommendationRun(s3Path string) (*DQRuleRecommendationRun, error) {
+	return b.StartDataQualityRuleRecommendationRunWithOptions(s3Path, DataQualityRunOptions{})
+}
+
+// StartDataQualityRuleRecommendationRunWithOptions is
+// StartDataQualityRuleRecommendationRun plus the optional NumberOfWorkers/
+// Timeout StartDataQualityRuleRecommendationRunInput also supports
+// (glue@v1.157.0 api_op_StartDataQualityRuleRecommendationRun.go), echoed
+// back by GetDataQualityRuleRecommendationRun.
+func (b *InMemoryBackend) StartDataQualityRuleRecommendationRunWithOptions(
+	s3Path string, opts DataQualityRunOptions,
+) (*DQRuleRecommendationRun, error) {
 	b.mu.Lock("StartDataQualityRuleRecommendationRun")
 	defer b.mu.Unlock()
 
@@ -252,6 +284,8 @@ func (b *InMemoryBackend) StartDataQualityRuleRecommendationRun(s3Path string) (
 		DataSourceS3Path:    s3Path,
 		Status:              stateRunning,
 		StartedOn:           float64(time.Now().Unix()),
+		NumberOfWorkers:     opts.NumberOfWorkers,
+		Timeout:             opts.Timeout,
 	}
 	b.dqRecommendationRuns.Put(run)
 	cp := *run

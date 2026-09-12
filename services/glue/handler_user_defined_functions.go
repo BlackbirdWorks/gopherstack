@@ -6,17 +6,23 @@ import (
 )
 
 // createUserDefinedFunctionInput holds input for CreateUserDefinedFunction.
+// CatalogId is a top-level member (glue@v1.157.0
+// api_op_CreateUserDefinedFunction.go), not part of FunctionInput.
 type createUserDefinedFunctionInput struct {
 	Tags          map[string]string   `json:"Tags,omitempty"`
 	DatabaseName  string              `json:"DatabaseName"`
 	FunctionInput UserDefinedFunction `json:"FunctionInput"`
+	CatalogID     string              `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleCreateUserDefinedFunction(
 	_ context.Context,
 	in *createUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
-	_, err := h.Backend.CreateUserDefinedFunction(in.DatabaseName, in.FunctionInput, in.Tags)
+	fnInput := in.FunctionInput
+	fnInput.CatalogID = in.CatalogID
+
+	_, err := h.Backend.CreateUserDefinedFunction(in.DatabaseName, fnInput, in.Tags)
 
 	return &emptyOutput{}, err
 }
@@ -25,12 +31,24 @@ func (h *Handler) handleCreateUserDefinedFunction(
 type deleteUserDefinedFunctionInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	FunctionName string `json:"FunctionName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteUserDefinedFunction(
 	_ context.Context,
 	in *deleteUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetUserDefinedFunction(in.DatabaseName, in.FunctionName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.DeleteUserDefinedFunction(in.DatabaseName, in.FunctionName)
 }
 
@@ -38,6 +56,7 @@ func (h *Handler) handleDeleteUserDefinedFunction(
 type getUserDefinedFunctionInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	FunctionName string `json:"FunctionName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // getUserDefinedFunctionOutput holds the result for GetUserDefinedFunction.
@@ -54,6 +73,10 @@ func (h *Handler) handleGetUserDefinedFunction(
 		return nil, err
 	}
 
+	if catalogIDMismatch(in.CatalogID, u.CatalogID) {
+		return nil, ErrNotFound
+	}
+
 	return &getUserDefinedFunctionOutput{UserDefinedFunction: u}, nil
 }
 
@@ -65,6 +88,7 @@ func (h *Handler) handleGetUserDefinedFunction(
 type getUserDefinedFunctionsInput struct {
 	DatabaseName string `json:"DatabaseName,omitempty"`
 	Pattern      string `json:"Pattern"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // getUserDefinedFunctionsOutput holds the result for GetUserDefinedFunctions.
@@ -89,7 +113,7 @@ func (h *Handler) handleGetUserDefinedFunctions(
 
 	filtered := make([]*UserDefinedFunction, 0, len(udfs))
 	for _, u := range udfs {
-		if re.MatchString(u.FunctionName) {
+		if re.MatchString(u.FunctionName) && (in.CatalogID == "" || u.CatalogID == in.CatalogID) {
 			filtered = append(filtered, u)
 		}
 	}
@@ -102,12 +126,24 @@ type updateUserDefinedFunctionInput struct {
 	DatabaseName  string              `json:"DatabaseName"`
 	FunctionName  string              `json:"FunctionName"`
 	FunctionInput UserDefinedFunction `json:"FunctionInput"`
+	CatalogID     string              `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleUpdateUserDefinedFunction(
 	_ context.Context,
 	in *updateUserDefinedFunctionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetUserDefinedFunction(in.DatabaseName, in.FunctionName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.UpdateUserDefinedFunction(
 		in.DatabaseName,
 		in.FunctionName,

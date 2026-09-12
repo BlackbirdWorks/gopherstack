@@ -70,7 +70,7 @@ func (b *InMemoryBackend) CreateDatabase(
 	db := &Database{
 		Name:                          input.Name,
 		Description:                   input.Description,
-		CatalogID:                     b.accountID,
+		CatalogID:                     b.resolveCatalogID(input.CatalogID),
 		ARN:                           b.databaseARN(input.Name),
 		Tags:                          maps.Clone(tags),
 		CreateTime:                    float64(time.Now().Unix()),

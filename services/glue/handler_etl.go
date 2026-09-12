@@ -480,9 +480,10 @@ type getPlanCatalogEntry struct {
 
 // getPlanInput holds input for GetPlan.
 type getPlanInput struct {
-	Source   *getPlanCatalogEntry `json:"Source,omitempty"`
-	Language string               `json:"Language"`
-	Mapping  []MappingEntry       `json:"Mapping"`
+	Source                   *getPlanCatalogEntry `json:"Source,omitempty"`
+	Language                 string               `json:"Language"`
+	Mapping                  []MappingEntry       `json:"Mapping"`
+	AdditionalPlanOptionsMap map[string]string    `json:"AdditionalPlanOptionsMap,omitempty"`
 }
 
 // getPlanOutput holds the result for GetPlan.
@@ -499,6 +500,15 @@ func (h *Handler) handleGetPlan(_ context.Context, in *getPlanInput) (*getPlanOu
 		}
 		if scala != "" {
 			scala += fmt.Sprintf("// Source: %s\n", in.Source.TableName)
+		}
+	}
+
+	if inferSchema, ok := in.AdditionalPlanOptionsMap["inferSchema"]; ok {
+		if python != "" {
+			python += fmt.Sprintf("# inferSchema: %s\n", inferSchema)
+		}
+		if scala != "" {
+			scala += fmt.Sprintf("// inferSchema: %s\n", inferSchema)
 		}
 	}
 

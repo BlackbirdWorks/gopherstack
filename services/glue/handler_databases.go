@@ -8,10 +8,14 @@ import (
 type createDatabaseInput struct {
 	Tags          map[string]string `json:"Tags,omitempty"`
 	DatabaseInput DatabaseInput     `json:"DatabaseInput"`
+	CatalogID     string            `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleCreateDatabase(_ context.Context, in *createDatabaseInput) (*emptyOutput, error) {
-	if _, err := h.Backend.CreateDatabase(in.DatabaseInput, in.Tags); err != nil {
+	dbInput := in.DatabaseInput
+	dbInput.CatalogID = in.CatalogID
+
+	if _, err := h.Backend.CreateDatabase(dbInput, in.Tags); err != nil {
 		return nil, err
 	}
 
@@ -19,7 +23,8 @@ func (h *Handler) handleCreateDatabase(_ context.Context, in *createDatabaseInpu
 }
 
 type getDatabaseInput struct {
-	Name string `json:"Name"`
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
 }
 
 type getDatabaseOutput struct {
@@ -32,6 +37,10 @@ func (h *Handler) handleGetDatabase(_ context.Context, in *getDatabaseInput) (*g
 		return nil, err
 	}
 
+	if catalogIDMismatch(in.CatalogID, db.CatalogID) {
+		return nil, ErrNotFound
+	}
+
 	return &getDatabaseOutput{Database: toDatabaseWire(db)}, nil
 }
 
@@ -41,6 +50,7 @@ const maxGetDatabasesResults = 100
 type getDatabasesInput struct {
 	MaxResults *int32 `json:"MaxResults,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	CatalogID  string `json:"CatalogId,omitempty"`
 }
 
 type getDatabasesOutput struct {
@@ -55,6 +65,18 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 
 	dbs := h.Backend.GetDatabases()
 
+	if in.CatalogID != "" {
+		filtered := dbs[:0]
+
+		for _, db := range dbs {
+			if db.CatalogID == in.CatalogID {
+				filtered = append(filtered, db)
+			}
+		}
+
+		dbs = filtered
+	}
+
 	limit := maxGetDatabasesResults
 	if in.MaxResults != nil {
 		limit = int(*in.MaxResults)
@@ -68,9 +90,21 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 type updateDatabaseInput struct {
 	Name          string        `json:"Name"`
 	DatabaseInput DatabaseInput `json:"DatabaseInput"`
+	CatalogID     string        `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleUpdateDatabase(_ context.Context, in *updateDatabaseInput) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetDatabase(in.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.UpdateDatabase(in.Name, in.DatabaseInput); err != nil {
 		return nil, err
 	}
@@ -79,10 +113,22 @@ func (h *Handler) handleUpdateDatabase(_ context.Context, in *updateDatabaseInpu
 }
 
 type deleteDatabaseInput struct {
-	Name string `json:"Name"`
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteDatabase(_ context.Context, in *deleteDatabaseInput) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetDatabase(in.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.DeleteDatabase(in.Name); err != nil {
 		return nil, err
 	}

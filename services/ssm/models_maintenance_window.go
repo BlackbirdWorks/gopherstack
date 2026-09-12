@@ -226,6 +226,7 @@ type RegisterTaskWithMaintenanceWindowInput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -339,6 +340,7 @@ type MaintenanceWindowTask struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -482,6 +484,7 @@ type GetMaintenanceWindowTaskOutput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -500,6 +503,7 @@ func maintenanceWindowTaskToGetOutput(t *MaintenanceWindowTask) GetMaintenanceWi
 		ServiceRoleArn: t.ServiceRoleArn,
 		MaxConcurrency: t.MaxConcurrency,
 		MaxErrors:      t.MaxErrors,
+		CutoffBehavior: t.CutoffBehavior,
 		Targets:        t.Targets,
 		Priority:       t.Priority,
 	}
@@ -538,6 +542,7 @@ type UpdateMaintenanceWindowTaskInput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 
@@ -551,6 +556,7 @@ type UpdateMaintenanceWindowTaskOutput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }

@@ -109,7 +109,7 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 	t := &Table{
 		Name:              input.Name,
 		DatabaseName:      dbName,
-		CatalogID:         b.accountID,
+		CatalogID:         b.resolveCatalogID(input.CatalogID),
 		Description:       input.Description,
 		Owner:             input.Owner,
 		Retention:         input.Retention,
@@ -207,7 +207,10 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	t.PartitionKeys = input.PartitionKeys
 	t.TableType = input.TableType
 	t.UpdateTime = float64(time.Now().Unix())
-	b.addTableVersionLocked(t)
+
+	if !input.SkipArchive {
+		b.addTableVersionLocked(t)
+	}
 
 	return nil
 }

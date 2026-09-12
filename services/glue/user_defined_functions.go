@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateUserDefinedFunction(
 
 	udf := input
 	udf.DatabaseName = dbName
-	udf.CatalogID = b.accountID
+	udf.CatalogID = b.resolveCatalogID(input.CatalogID)
 	udf.FunctionARN = b.udfARN(dbName, input.FunctionName)
 	udf.CreateTime = float64(time.Now().Unix())
 	b.udfs.Put(&udf)

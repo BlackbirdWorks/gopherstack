@@ -13,6 +13,11 @@ type DatabaseInput struct {
 	Description                   string                 `json:"Description,omitempty"`
 	LocationURI                   string                 `json:"LocationUri,omitempty"`
 	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
+	// CatalogID carries CreateDatabaseInput's top-level CatalogId (not a
+	// DatabaseInput member on the wire) into CreateDatabase; handlers set it
+	// before calling the backend. No json tag: never decoded from the
+	// nested DatabaseInput wire object.
+	CatalogID string `json:"-"`
 }
 
 // Database represents a Glue catalog database.
@@ -98,6 +103,13 @@ type TableInput struct {
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
 	Retention         int               `json:"Retention,omitempty"`
+	// CatalogID carries CreateTableInput's top-level CatalogId (not a
+	// TableInput member on the wire) into CreateTable; handlers set it
+	// before calling the backend.
+	CatalogID string `json:"-"`
+	// SkipArchive carries UpdateTableInput's top-level SkipArchive into
+	// UpdateTable, unused by CreateTable.
+	SkipArchive bool `json:"-"`
 }
 
 // Table represents a Glue catalog table.
@@ -300,6 +312,9 @@ type Job struct {
 	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
 	CreatedOn         float64           `json:"CreatedOn,omitempty"`
 	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
+	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
+	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
+	JobMode string `json:"JobMode,omitempty"`
 }
 
 // NotificationProperty specifies the delay, in minutes, after which a job run
@@ -387,6 +402,7 @@ type Connection struct {
 	MatchCriteria                  []string                        `json:"MatchCriteria,omitempty"`
 	CreationTime                   float64                         `json:"CreationTime,omitempty"`
 	LastUpdatedTime                float64                         `json:"LastUpdatedTime,omitempty"`
+	CatalogID                      string                          `json:"CatalogId,omitempty"`
 }
 
 // PhysicalConnectionRequirements specifies the VPC/subnet/security-group
@@ -599,12 +615,14 @@ type DataQualityTargetTable struct {
 
 // DataQualityEvaluationRun represents a data quality ruleset evaluation run.
 type DataQualityEvaluationRun struct {
-	RunID        string   `json:"RunId"`
-	Status       string   `json:"Status"`
-	ErrorString  string   `json:"ErrorString,omitempty"`
-	RulesetNames []string `json:"RulesetNames,omitempty"`
-	StartedOn    float64  `json:"StartedOn,omitempty"`
-	CompletedOn  float64  `json:"CompletedOn,omitempty"`
+	RunID           string   `json:"RunId"`
+	Status          string   `json:"Status"`
+	ErrorString     string   `json:"ErrorString,omitempty"`
+	RulesetNames    []string `json:"RulesetNames,omitempty"`
+	StartedOn       float64  `json:"StartedOn,omitempty"`
+	CompletedOn     float64  `json:"CompletedOn,omitempty"`
+	NumberOfWorkers int32    `json:"NumberOfWorkers,omitempty"`
+	Timeout         int32    `json:"Timeout,omitempty"`
 }
 
 // CrawlerOptions holds the CreateCrawler/UpdateCrawler fields beyond the core
@@ -655,6 +673,8 @@ type DQRuleRecommendationRun struct {
 	DataSourceS3Path    string  `json:"DataSourceS3Path,omitempty"`
 	Status              string  `json:"Status"`
 	StartedOn           float64 `json:"StartedOn,omitempty"`
+	NumberOfWorkers     int32   `json:"NumberOfWorkers,omitempty"`
+	Timeout             int32   `json:"Timeout,omitempty"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
@@ -929,6 +949,7 @@ type Session struct {
 	CreatedOn        float64           `json:"CreatedOn,omitempty"`
 	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
 	Timeout          int32             `json:"Timeout,omitempty"`
+	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
 }
 
 // Statement represents a statement run within a Glue session.

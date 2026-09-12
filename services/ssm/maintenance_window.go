@@ -900,6 +900,7 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		ServiceRoleArn: input.ServiceRoleArn,
 		MaxConcurrency: input.MaxConcurrency,
 		MaxErrors:      input.MaxErrors,
+		CutoffBehavior: input.CutoffBehavior,
 		Targets:        input.Targets,
 	}
 
@@ -1234,6 +1235,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.MaxErrors = input.MaxErrors
 	}
 
+	if input.CutoffBehavior != "" {
+		task.CutoffBehavior = input.CutoffBehavior
+	}
+
 	if len(input.Targets) > 0 {
 		task.Targets = input.Targets
 	}
@@ -1250,6 +1255,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		ServiceRoleArn: task.ServiceRoleArn,
 		MaxConcurrency: task.MaxConcurrency,
 		MaxErrors:      task.MaxErrors,
+		CutoffBehavior: task.CutoffBehavior,
 		Targets:        task.Targets,
 	}, nil
 }

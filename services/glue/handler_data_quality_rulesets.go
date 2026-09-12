@@ -236,7 +236,9 @@ func (h *Handler) handleListDataQualityRulesets(
 }
 
 type startDataQualityRulesetEvaluationRunInput struct {
-	RulesetNames []string `json:"RulesetNames"`
+	RulesetNames    []string `json:"RulesetNames"`
+	NumberOfWorkers int32    `json:"NumberOfWorkers,omitempty"`
+	Timeout         int32    `json:"Timeout,omitempty"`
 }
 
 type startDataQualityRulesetEvaluationRunOutput struct {
@@ -247,7 +249,10 @@ func (h *Handler) handleStartDataQualityRulesetEvaluationRun(
 	_ context.Context,
 	in *startDataQualityRulesetEvaluationRunInput,
 ) (*startDataQualityRulesetEvaluationRunOutput, error) {
-	run, err := h.Backend.StartDataQualityRulesetEvaluationRun(in.RulesetNames)
+	run, err := h.Backend.StartDataQualityRulesetEvaluationRunWithOptions(in.RulesetNames, DataQualityRunOptions{
+		NumberOfWorkers: in.NumberOfWorkers,
+		Timeout:         in.Timeout,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -332,9 +337,11 @@ type getDataQualityRuleRecommendationRunInput struct {
 // already tracked on DQRuleRecommendationRun (models.go) -- previously
 // dropped entirely by this narrower response struct.
 type getDataQualityRuleRecommendationRunOutput struct {
-	RunID     string  `json:"RunId"`
-	Status    string  `json:"Status"`
-	StartedOn float64 `json:"StartedOn,omitempty"`
+	RunID           string  `json:"RunId"`
+	Status          string  `json:"Status"`
+	StartedOn       float64 `json:"StartedOn,omitempty"`
+	NumberOfWorkers int32   `json:"NumberOfWorkers,omitempty"`
+	Timeout         int32   `json:"Timeout,omitempty"`
 }
 
 func (h *Handler) handleGetDataQualityRuleRecommendationRun(
@@ -351,9 +358,11 @@ func (h *Handler) handleGetDataQualityRuleRecommendationRun(
 	}
 
 	return &getDataQualityRuleRecommendationRunOutput{
-		RunID:     run.RecommendationRunID,
-		Status:    run.Status,
-		StartedOn: run.StartedOn,
+		RunID:           run.RecommendationRunID,
+		Status:          run.Status,
+		StartedOn:       run.StartedOn,
+		NumberOfWorkers: run.NumberOfWorkers,
+		Timeout:         run.Timeout,
 	}, nil
 }
 
@@ -513,8 +522,10 @@ type startDataQualityRuleRecommendationRunInput struct {
 	DataSource struct {
 		GlueTable *GlueTable `json:"GlueTable,omitempty"`
 	} `json:"DataSource,omitzero"`
-	OutputS3Path string `json:"OutputS3Path,omitempty"`
-	Role         string `json:"Role,omitempty"`
+	OutputS3Path    string `json:"OutputS3Path,omitempty"`
+	Role            string `json:"Role,omitempty"`
+	NumberOfWorkers int32  `json:"NumberOfWorkers,omitempty"`
+	Timeout         int32  `json:"Timeout,omitempty"`
 }
 
 // startDataQualityRuleRecommendationRunOutput holds the result for StartDataQualityRuleRecommendationRun.
@@ -526,7 +537,10 @@ func (h *Handler) handleStartDataQualityRuleRecommendationRun(
 	_ context.Context,
 	in *startDataQualityRuleRecommendationRunInput,
 ) (*startDataQualityRuleRecommendationRunOutput, error) {
-	run, err := h.Backend.StartDataQualityRuleRecommendationRun(in.OutputS3Path)
+	run, err := h.Backend.StartDataQualityRuleRecommendationRunWithOptions(in.OutputS3Path, DataQualityRunOptions{
+		NumberOfWorkers: in.NumberOfWorkers,
+		Timeout:         in.Timeout,
+	})
 	if err != nil {
 		return nil, err
 	}

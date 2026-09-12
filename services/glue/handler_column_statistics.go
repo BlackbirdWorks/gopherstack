@@ -30,12 +30,24 @@ type deleteColumnStatisticsForPartitionInput struct {
 	TableName       string   `json:"TableName"`
 	ColumnName      string   `json:"ColumnName"`
 	PartitionValues []string `json:"PartitionValues"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteColumnStatisticsForPartition(
 	_ context.Context,
 	in *deleteColumnStatisticsForPartitionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, p.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForPartition(
 		in.DatabaseName,
 		in.TableName,
@@ -49,12 +61,24 @@ type deleteColumnStatisticsForTableInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
 	ColumnName   string `json:"ColumnName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteColumnStatisticsForTable(
 	_ context.Context,
 	in *deleteColumnStatisticsForTableInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		t, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.DeleteColumnStatisticsForTable(
 		in.DatabaseName,
 		in.TableName,
@@ -84,6 +108,7 @@ type getColumnStatisticsForPartitionInput struct {
 	TableName       string   `json:"TableName"`
 	PartitionValues []string `json:"PartitionValues"`
 	ColumnNames     []string `json:"ColumnNames,omitempty"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
 }
 
 // getColumnStatisticsForPartitionOutput holds the result for GetColumnStatisticsForPartition.
@@ -96,6 +121,17 @@ func (h *Handler) handleGetColumnStatisticsForPartition(
 	_ context.Context,
 	in *getColumnStatisticsForPartitionInput,
 ) (*getColumnStatisticsForPartitionOutput, error) {
+	if in.CatalogID != "" {
+		p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, p.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	stats, err := h.Backend.GetColumnStatisticsForPartition(
 		in.DatabaseName,
 		in.TableName,
@@ -117,6 +153,7 @@ type getColumnStatisticsForTableInput struct {
 	DatabaseName string   `json:"DatabaseName"`
 	TableName    string   `json:"TableName"`
 	ColumnNames  []string `json:"ColumnNames,omitempty"`
+	CatalogID    string   `json:"CatalogId,omitempty"`
 }
 
 // getColumnStatisticsForTableOutput holds the result for GetColumnStatisticsForTable.
@@ -129,6 +166,17 @@ func (h *Handler) handleGetColumnStatisticsForTable(
 	_ context.Context,
 	in *getColumnStatisticsForTableInput,
 ) (*getColumnStatisticsForTableOutput, error) {
+	if in.CatalogID != "" {
+		t, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	stats, err := h.Backend.GetColumnStatisticsForTable(
 		in.DatabaseName,
 		in.TableName,
@@ -277,15 +325,20 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
 //
 // CatalogID (real member name is "CatalogID", not "CatalogId" --
-// glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go), ColumnNameList,
-// SampleSize, and SecurityConfiguration are not modeled: this backend has no
-// per-column sampling/encryption-scoped state to honor them against --
-// accepted on the wire and otherwise inert. Role is real and required
+// glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go) now scopes the target
+// table like every other op in this service. ColumnNameList, SampleSize, and
+// SecurityConfiguration remain unmodeled: StartColumnStatisticsTaskRun never
+// actually computes statistics (no reconciler transitions the run out of
+// "starting" -- see StartColumnStatisticsTaskRun, column_statistics.go), so
+// there is no per-column computation to select a subset of -- accepted on
+// the wire and otherwise inert (see PARITY.md). Role is real and required
 // (ColumnStatisticsTaskRun.Role, models.go).
 type startColumnStatisticsTaskRunInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	TableName    string `json:"TableName"`
-	Role         string `json:"Role"`
+	DatabaseName   string   `json:"DatabaseName"`
+	TableName      string   `json:"TableName"`
+	Role           string   `json:"Role"`
+	CatalogID      string   `json:"CatalogID,omitempty"`
+	ColumnNameList []string `json:"ColumnNameList,omitempty"`
 }
 
 // startColumnStatisticsTaskRunOutput holds the result for StartColumnStatisticsTaskRun.
@@ -299,6 +352,17 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 ) (*startColumnStatisticsTaskRunOutput, error) {
 	if in.Role == "" {
 		return nil, fmt.Errorf("%w: Role is required", ErrValidation)
+	}
+
+	if in.CatalogID != "" {
+		t, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+			return nil, ErrNotFound
+		}
 	}
 
 	run, err := h.Backend.StartColumnStatisticsTaskRun(in.DatabaseName, in.TableName, in.Role)
@@ -360,6 +424,7 @@ type updateColumnStatisticsForPartitionInput struct {
 	TableName            string              `json:"TableName"`
 	PartitionValues      []string            `json:"PartitionValues"`
 	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+	CatalogID            string              `json:"CatalogId,omitempty"`
 }
 
 // updateColumnStatisticsForPartitionOutput holds the result for UpdateColumnStatisticsForPartition.
@@ -371,6 +436,17 @@ func (h *Handler) handleUpdateColumnStatisticsForPartition(
 	_ context.Context,
 	in *updateColumnStatisticsForPartitionInput,
 ) (*updateColumnStatisticsForPartitionOutput, error) {
+	if in.CatalogID != "" {
+		p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, p.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	err := h.Backend.UpdateColumnStatisticsForPartition(
 		in.DatabaseName,
 		in.TableName,
@@ -389,6 +465,7 @@ type updateColumnStatisticsForTableInput struct {
 	DatabaseName         string              `json:"DatabaseName"`
 	TableName            string              `json:"TableName"`
 	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
+	CatalogID            string              `json:"CatalogId,omitempty"`
 }
 
 // updateColumnStatisticsForTableOutput holds the result for UpdateColumnStatisticsForTable.
@@ -400,6 +477,17 @@ func (h *Handler) handleUpdateColumnStatisticsForTable(
 	_ context.Context,
 	in *updateColumnStatisticsForTableInput,
 ) (*updateColumnStatisticsForTableOutput, error) {
+	if in.CatalogID != "" {
+		t, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	err := h.Backend.UpdateColumnStatisticsForTable(
 		in.DatabaseName,
 		in.TableName,
