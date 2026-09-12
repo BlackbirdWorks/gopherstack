@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -339,19 +340,89 @@ func prepareTofu(logger *slog.Logger) string {
 	return ""
 }
 
-// stableCertHostPath/stableKeyHostPath are the fixed host paths a stable
-// dev certificate is generated to (or reused from) once, rather than a
-// fresh os.CreateTemp path every run -- the entire point being that the
-// SAME certificate bytes persist across suite runs, matching the
+// stableCertDir is a fixed, securely-owned (0700) directory a stable dev
+// certificate is generated into (or reused from) once, rather than a fresh
+// os.CreateTemp path every run -- the entire point being that the SAME
+// certificate bytes persist across suite runs, matching the
 // AZURE_ARM_TLS_CERT/AZURE_ARM_TLS_KEY override AZURE.md section 10.8's
 // resolution added to services/azurearm (see services/azurearm/settings.go,
-// services/azurearm/handler.go's loadOrGenerateCert).
+// services/azurearm/handler.go's loadOrGenerateCert). Living under a
+// dedicated 0700 subdirectory (checked by ensureSecureDir, not directly
+// under os.TempDir()) and being written via a randomly-named temp file
+// atomically renamed into place (not a direct os.WriteFile to the
+// predictable final name) closes the symlink/TOCTOU class of attack a
+// shared, world-writable temp directory otherwise invites at a
+// predictable path.
 //
 //nolint:gochecknoglobals // fixed derived path, read-only after init -- mirrors tofuProviderCacheDir above
-var stableCertHostPath = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.pem")
+var stableCertDir = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.d")
 
-//nolint:gochecknoglobals // fixed derived path, read-only after init -- mirrors tofuProviderCacheDir above
-var stableKeyHostPath = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.key")
+var (
+	stableCertHostPath = filepath.Join(stableCertDir, "cert.pem")
+	stableKeyHostPath  = filepath.Join(stableCertDir, "key.pem")
+)
+
+// ensureSecureDir makes sure dir exists, is a real directory (not a
+// symlink), is owned by the current user, and is mode 0700 -- rejecting it
+// outright (rather than reusing or "fixing" it) if any of that doesn't
+// hold, since a permissive or foreign-owned directory at a predictable
+// path could have been planted by another local user/process.
+func ensureSecureDir(dir string) error {
+	fi, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return os.Mkdir(dir, 0o700)
+	}
+
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", dir, err)
+	}
+
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink, refusing to use it", dir)
+	}
+
+	if !fi.IsDir() {
+		return fmt.Errorf("%s exists and is not a directory", dir)
+	}
+
+	if fi.Mode().Perm() != 0o700 {
+		return fmt.Errorf("%s has insecure permissions %o, want 0700", dir, fi.Mode().Perm())
+	}
+
+	if stat, ok := fi.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
+		return fmt.Errorf("%s is owned by uid %d, not the current user", dir, stat.Uid)
+	}
+
+	return nil
+}
+
+// writeFileAtomically writes data to a randomly-named temporary file inside
+// dir (created with mode 0600) and renames it over path -- rename replaces
+// the destination directory entry itself rather than following it, so even
+// a pre-planted symlink at path is atomically replaced, never dereferenced.
+func writeFileAtomically(dir, path string, data []byte) error {
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+
+		return err
+	}
+
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+
+		return err
+	}
+
+	return os.Rename(tmpName, path)
+}
 
 // prepareStableCert populates certPEMPath/keyPEMPath with a stable
 // self-signed dev certificate: reused as-is from stableCertHostPath/
@@ -359,6 +430,10 @@ var stableKeyHostPath = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcer
 // pair, else freshly generated (pkgs/devtls) and written there for the next
 // run to reuse. Returns a non-empty skip reason on failure.
 func prepareStableCert(logger *slog.Logger) string {
+	if err := ensureSecureDir(stableCertDir); err != nil {
+		return fmt.Sprintf("could not secure stable ARM dev certificate directory: %v", err)
+	}
+
 	if certExistsAndParses(stableCertHostPath, stableKeyHostPath) {
 		logger.Info("reusing existing stable ARM dev certificate", "cert", stableCertHostPath)
 		certPEMPath, keyPEMPath = stableCertHostPath, stableKeyHostPath
@@ -371,11 +446,11 @@ func prepareStableCert(logger *slog.Logger) string {
 		return fmt.Sprintf("could not generate stable ARM dev certificate: %v", err)
 	}
 
-	if writeErr := os.WriteFile(stableCertHostPath, certPEM, 0o600); writeErr != nil {
+	if writeErr := writeFileAtomically(stableCertDir, stableCertHostPath, certPEM); writeErr != nil {
 		return fmt.Sprintf("could not write stable ARM dev certificate: %v", writeErr)
 	}
 
-	if writeErr := os.WriteFile(stableKeyHostPath, keyPEM, 0o600); writeErr != nil {
+	if writeErr := writeFileAtomically(stableCertDir, stableKeyHostPath, keyPEM); writeErr != nil {
 		return fmt.Sprintf("could not write stable ARM dev certificate key: %v", writeErr)
 	}
 
