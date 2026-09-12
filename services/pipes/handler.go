@@ -706,8 +706,14 @@ func (h *Handler) handleUntagResource(
 	return nil, nil
 }
 
+// listTagsResponse's wire key is lowercase "tags" -- unlike DescribePipe's
+// PascalCase "Tags" field, ListTagsForResource belongs to the AWS common
+// tagging API family, whose response key is camelCase. Confirmed against
+// aws-sdk-go-v2/service/pipes@v1.26.4 deserializers.go's
+// awsRestjson1_deserializeOpDocumentListTagsForResourceOutput (case "tags":).
+// A real client's Tags always decoded nil against the old "Tags" key.
 type listTagsResponse struct {
-	Tags map[string]string `json:"Tags"`
+	Tags map[string]string `json:"tags"`
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([]byte, error) {

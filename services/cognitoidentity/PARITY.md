@@ -454,3 +454,23 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteIdentities, GetPrincipalTagAttributeMap,
+ListIdentities, ListTagsForResource, MergeDeveloperIdentities,
+SetPrincipalTagAttributeMap, TagResource, UntagResource driven through the
+real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 4 subtests: tags, principal tag
+attribute map, identities lifecycle, merge developer identities).
+cognitoidentity moved from 15/23 to 23/23 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request.
+
+Gates: `go build ./...`, `go vet ./services/cognitoidentity/...`,
+`go test -race -count=1 ./services/cognitoidentity/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/cognitoidentity/...` (0 issues). `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted-struct/snapshot changes.

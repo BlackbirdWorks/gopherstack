@@ -250,3 +250,25 @@ cap uses `total+count > tagsPerPage` (keeps items while cumulative count `<=`
 tagsPerPage) -- correctly inclusive of the exact `TagsPerPage` value.
 
 No bugs found; no code changes in this service this pass.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DescribeReportCreation, GetComplianceSummary,
+GetTagKeys, GetTagValues, ListRequiredTags, StartReportCreation,
+TagResources, UntagResources driven through the real aws-sdk-go-v2 client
+for the first time (`typed_slice15_realclient_test.go`, 3 subtests: tag
+keys/values via a registered test provider, tag/untag resources via a
+registered ARNTagger/ARNUntagger, compliance summary + required tags +
+report creation). resourcegroupstaggingapi moved from 1/9 to 9/9
+typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request. `ListRequiredTags`/`GetComplianceSummary` legitimately return
+empty results with no tag-policy provider registered (this file's own
+documented, honest-gap behavior, not a stub).
+
+Gates: `go build ./...`, `go vet ./services/resourcegroupstaggingapi/...`,
+`go test -race -count=1 ./services/resourcegroupstaggingapi/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/resourcegroupstaggingapi/...` (0 issues). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.

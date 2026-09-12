@@ -580,3 +580,28 @@ Zero bugs found -- not because the surface was checked and came back clean,
 but because the surface does not exist, same structural verdict as
 cloudfront/apigateway/cloudformation/elbv2 earlier in this campaign. No
 files changed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: CancelQuery, DescribeAccountSettings,
+PrepareQuery, TagResource, UntagResource, UpdateAccountSettings,
+UpdateScheduledQuery driven through the real aws-sdk-go-v2 client for the
+first time (`typed_slice15_realclient_test.go`, 3 subtests: cancel/prepare
+query, account settings, scheduled query update + tags -- the latter
+confirms tag ops correctly route to the TimestreamWrite handler in
+production, per this file's own `tags: {status: deferred}` family note).
+timestreamquery moved from 8/15 to 15/15 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found. One pre-existing, already-disclosed gap reconfirmed
+live (not fixed, not new): `PrepareQuery`'s parameter inference only
+recognizes `?` positional markers (`inferColumnsFromSQL`'s own doc
+comment), not real Timestream's `@identifier` named-parameter syntax --
+a query using `@device_id` returns zero `Parameters` for a real client.
+Test written against the `?` syntax this implementation actually supports.
+
+Gates: `go build ./...`, `go vet ./services/timestreamquery/...`,
+`go test -race -count=1 ./services/timestreamquery/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/timestreamquery/...` (0 issues). `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted-struct/snapshot changes.

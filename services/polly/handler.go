@@ -340,6 +340,17 @@ func splitHeader(values []string) []string {
 	return out
 }
 
+// chunkSignatureHeader is smithy-go eventstream.ChunkSignatureHeader's value
+// (":chunk-signature"). Every real aws-sdk-go-v2 client signs each input
+// event with SigV4 event-stream chunk signing (eventstream.SigningWriter):
+// the application message (with its own ":event-type" header) is nested as
+// the PAYLOAD of an outer, signed frame carrying only ":date" and
+// ":chunk-signature" headers -- an empty-payload signed frame marks
+// end-of-stream (SigningWriter.Close). Unsigned test fixtures that encode
+// TextEvent directly at the top level (no chunk-signature wrapper) still
+// decode correctly since this check only unwraps when the wrapper is present.
+const chunkSignatureHeader = ":chunk-signature"
+
 func decodeStreamText(body io.Reader) (string, string, error) {
 	decoder := eventstream.NewDecoder()
 	textType := textTypeText
@@ -352,6 +363,16 @@ func decodeStreamText(body io.Reader) (string, string, error) {
 		}
 		if err != nil {
 			return "", "", err
+		}
+
+		if message.Headers.Get(chunkSignatureHeader) != nil {
+			if len(message.Payload) == 0 {
+				continue
+			}
+			message, err = eventstream.NewDecoder().Decode(bytes.NewReader(message.Payload), nil)
+			if err != nil {
+				return "", "", err
+			}
 		}
 
 		eventType := message.Headers.Get(eventTypeHeader)

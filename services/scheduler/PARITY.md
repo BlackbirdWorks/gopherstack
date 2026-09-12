@@ -732,3 +732,23 @@ TestSnapshotVersionGuard` (read-only, no `-update`, `pkgs/persistence/
 testdata/` is out of scope for this change) reports scheduler's golden
 entry as stale, as expected; refreshing it is for whoever owns
 `pkgs/persistence/testdata/`.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteSchedule, DeleteScheduleGroup,
+GetScheduleGroup, ListScheduleGroups, TagResource, UntagResource,
+UpdateSchedule driven through the real aws-sdk-go-v2 client for the first
+time (`typed_slice15_realclient_test.go`, 2 subtests: schedule group
+lifecycle + tags, schedule update/delete). scheduler moved from 5/12 to
+12/12 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this file's own documented, already-verified
+`resourceTag` wire shape (handler.go's `{"Key":..., "Value":...}` array
+comment).
+
+Gates: `go build ./...`, `go vet ./services/scheduler/...`, `go test -race
+-count=1 ./services/scheduler/...` and `./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/scheduler/...` (0
+issues). `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/
+snapshot changes.

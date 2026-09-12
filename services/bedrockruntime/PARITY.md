@@ -410,3 +410,30 @@ trigger (time-based, random, or a test-only backdoor) is explicitly out of
 scope per gopherstack-0c1r and would be worse than leaving the constant
 unreachable.
 
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: Converse, CountTokens, GetAsyncInvoke,
+InvokeGuardrailChecks, InvokeModelWithBidirectionalStream, StartAsyncInvoke
+driven through the real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 5 subtests). bedrockruntime moved from
+5/11 to 11/11 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found; `estimateTokenCount`'s existing `input.invokeModel`/
+`input.converse` envelope unwrapping (handler_invoke.go) was double-checked
+against a live typed CountTokens call and confirmed correct, not the bug it
+initially looked like from a skim.
+
+InvokeModelWithBidirectionalStream needed the same HTTP/2-over-TLS test
+harness polly's StartSpeechSynthesisStream needed this same slice (real
+client hard-refuses its response over HTTP/1.1) -- added
+`newTestBedrockRuntimeH2Client`, used only by this one subtest; every other
+op, including the response-only ConverseStream/InvokeModelWithResponseStream
+already covered by prior passes, keeps using the plain
+`newTestBedrockRuntimeSDKClient` over HTTP/1.1.
+
+Gates: `go build ./...`, `go vet ./services/bedrockruntime/...`,
+`go test -race -count=1 ./services/bedrockruntime/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/bedrockruntime/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

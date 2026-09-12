@@ -960,3 +960,37 @@ into the generic array/matcher-object path; if that branch is ever removed,
 matcher-object check), but the error message degrades to a confusing
 "unknown matcher %q for field \"$or\"" naming the wrong thing. Keep the
 explicit branch.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeletePipe, ListPipes, ListTagsForResource,
+StartPipe, StopPipe, TagResource, UntagResource driven through the real
+aws-sdk-go-v2 client for the first time (`typed_slice15_realclient_test.go`,
+2 subtests: tags, start/stop/delete/list). pipes moved from 3/10 to 10/10
+typed-covered per `cmd/clientcoverage`.
+
+**One real bug found and fixed**: `listTagsResponse` (handler.go) emitted
+its response body as `{"Tags": {...}}` (PascalCase, matching DescribePipe's
+own unrelated `Tags` field convention), but ListTagsForResource belongs to
+the AWS common tagging API family, whose real wire key is lowercase
+`"tags"` -- confirmed against `aws-sdk-go-v2/service/pipes@v1.26.4`
+deserializers.go's `awsRestjson1_deserializeOpDocumentListTagsForResourceOutput`
+(`case "tags":`). A real client's `ListTagsForResourceOutput.Tags` always
+decoded nil regardless of what tags were actually stored. Fixed by
+correcting the struct tag to `json:"tags"`; `TestTags_UpdateViaTagResource`
+(tags_test.go), a pre-existing raw-body test asserting the old wrong key,
+updated to the real shape, not weakened. `TagResource`'s own request-side
+`json:"Tags"` struct tag is not a matching bug: Go's `encoding/json`
+Unmarshal falls back to a case-insensitive field match, so a real client's
+lowercase `"tags"` request body already decoded correctly despite the tag
+capitalization; confirmed by reading `encoding/json`'s documented fallback
+behavior rather than assuming symmetry with the Marshal-side bug.
+`UntagResource`'s `tagKeys` was already correctly read from the query
+string (real wire binds it as `HTTPQuery`, not a body field), not
+mishandled.
+
+Gates: `go build ./...`, `go vet ./services/pipes/...`, `go test -race
+-count=1 ./services/pipes/...` and `./pkgs/persistence/...`, `golangci-lint
+run --new-from-rev=HEAD ./services/pipes/...` (0 issues). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes
+(response-shape-only fix).

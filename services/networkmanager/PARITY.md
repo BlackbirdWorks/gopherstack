@@ -1361,3 +1361,23 @@ fabrications found by the per-operation cross-reference above.
 Gates: `go build ./services/networkmanager/...` (clean), `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/networkmanager/...`
 (pass), `golangci-lint run ./services/networkmanager/...` (0 issues).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: GetConnectAttachment, GetDevices, GetLinks,
+GetTransitGatewayConnectPeerAssociations, UpdateDevice, UpdateLink,
+UpdateSite driven through the real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 2 subtests: device/site/link
+lifecycle, connect attachment + transit gateway Connect peer
+associations). networkmanager moved from 88/95 to 95/95 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this service's extensive prior real-client test
+suite (`sdk_roundtrip_helper_test.go` + family test files).
+
+Gates: `go build ./...`, `go vet ./services/networkmanager/...`,
+`go test -race -count=1 ./services/networkmanager/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/networkmanager/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

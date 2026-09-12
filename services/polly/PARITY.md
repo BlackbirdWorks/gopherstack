@@ -13,7 +13,7 @@ overall: A            # two real bugs found and fixed this pass (StartSpeechSynt
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   SynthesizeSpeech: {wire: ok, errors: ok, state: ok, persist: n/a, note: "OutputFormat coverage complete (ogg_opus/mulaw/alaw); full op-specific error taxonomy; SSML well-formedness now validated (InvalidSsmlException)"}
-  StartSpeechSynthesisStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-04: Engine was validated against SynthesizeSpeech's full 4-value set (standard/neural/long-form/generative) and defaulted an unset value to standard, but api_op_StartSpeechSynthesisStream.go's Engine doc comment says 'Currently, only the generative engine is supported' -- any other value (including unset) is now rejected as ValidationException before the shared SynthesizeSpeech validation path runs. OutputFormat=json (the doc's other stated restriction, 'does not support JSON speech marks') was already rejected, coincidentally: this op never reads SpeechMarkTypes from headers, so validateSpeechMarks' 'json requires SpeechMarkTypes' rule always fires for it -- confirmed, not changed. Error taxonomy (from prior pass) remains correct: every client validation failure remaps to the generic ValidationException, matching the real deserializer's error switch (ServiceFailureException/ServiceQuotaExceededException/ThrottlingException/ValidationException). FIXED 2026-09-11 (gopherstack-80h3): ServiceQuotaExceededException/ThrottlingException are now real, enforced quotas -- see Notes and the 2026-09-11 session below."}
+  StartSpeechSynthesisStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-04: Engine was validated against SynthesizeSpeech's full 4-value set (standard/neural/long-form/generative) and defaulted an unset value to standard, but api_op_StartSpeechSynthesisStream.go's Engine doc comment says 'Currently, only the generative engine is supported' -- any other value (including unset) is now rejected as ValidationException before the shared SynthesizeSpeech validation path runs. OutputFormat=json (the doc's other stated restriction, 'does not support JSON speech marks') was already rejected, coincidentally: this op never reads SpeechMarkTypes from headers, so validateSpeechMarks' 'json requires SpeechMarkTypes' rule always fires for it -- confirmed, not changed. Error taxonomy (from prior pass) remains correct: every client validation failure remaps to the generic ValidationException, matching the real deserializer's error switch (ServiceFailureException/ServiceQuotaExceededException/ThrottlingException/ValidationException). FIXED 2026-09-11 (gopherstack-80h3): ServiceQuotaExceededException/ThrottlingException are now real, enforced quotas -- see Notes and the 2026-09-11 session below. FIXED 2026-09-12 (gopherstack-n3zi slice 15): decodeStreamText never unwrapped the real client's SigV4 event-stream chunk signing (smithy-go eventstream.SigningWriter wraps every input event in an outer :date/:chunk-signature frame, nesting the actual TextEvent/end-of-stream marker as that frame's payload) -- every real client's call therefore parsed Text as empty regardless of input and failed ValidationException unconditionally. Confirmed live: the op had never actually worked end-to-end for a real aws-sdk-go-v2 client before this fix. Also confirmed this op needs HTTP/2 (the real client hard-refuses its own response over HTTP/1.1 with 'operation requires minimum HTTP protocol of HTTP/2.0'), the only polly op with that requirement -- the new test drives it over an httptest.NewUnstartedServer+EnableHTTP2+StartTLS server, every other op in this package still round-trips over the usual plain httptest.Server."}
   StartSpeechSynthesisTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: removed fabricated SnsRoleArn request/response field (not a real Polly API field -- see Notes); added real OutputS3KeyPrefix request field wired into OutputUri; added S3 bucket/key and SNS topic ARN format validation; SSML-vs-plain-text length limit now correctly differentiated (100000 billed / 200000 total, was flat 100000 for both). FIXED 2026-09-04: SampleRate for mp3/ogg_vorbis now correctly narrower than SynthesizeSpeech's (8000/16000/22050/24000 only, no 44100/48000) per this op's own SampleRate doc comment, which was previously sharing SynthesizeSpeech's 6-value set via the common validateOptions helper."}
   GetSpeechSynthesisTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: added InvalidTaskIdException for syntactically invalid (non-UUID) TaskId, distinct from SynthesisTaskNotFoundException for a well-formed-but-unknown one -- both are real, separately-modeled exceptions for this op"}
   ListSpeechSynthesisTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults out-of-range left generic (unlisted in the real service model -- confirmed via deserializer's error switch, which lists only InvalidNextTokenException/ServiceFailureException)"}
@@ -570,3 +570,53 @@ golangci-lint run ./services/polly/...                  -> 0 issues
 ```
 
 No snapshot inventory changes; `pollySnapshotVersion` stays at 2.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DescribeVoices, GetSpeechSynthesisTask,
+ListSpeechSynthesisTasks, StartSpeechSynthesisTask, and
+StartSpeechSynthesisStream driven through the real aws-sdk-go-v2 client for
+the first time (`typed_slice15_realclient_test.go`; polly moved from 5/10 to
+10/10 typed-covered per `cmd/clientcoverage`).
+
+**Corrects the prior session's "real duplex out of scope" conclusion above**
+for StartSpeechSynthesisStream: the earlier hang was two separate, both
+fixable, problems, not a genuine architecture mismatch:
+
+1. The real client hard-refuses this op's response over HTTP/1.1
+   ("operation requires minimum HTTP protocol of HTTP/2.0"). Solved on the
+   TEST side only (no production code change) with an
+   `httptest.NewUnstartedServer` + `EnableHTTP2` + `StartTLS()` server and
+   `srv.Client()` as the SDK's `HTTPClient` -- this op is the only one in the
+   package needing that; every other op still uses the plain
+   `httptest.Server` `newTestPollySDKClient` helper.
+2. **Real bug, fixed**: `decodeStreamText` (handler.go) only ever looked for
+   a top-level `:event-type: TextEvent` header. A real client signs every
+   input event with SigV4 event-stream chunk signing
+   (`smithy-go/eventstream.SigningWriter`): each application message is
+   nested as the PAYLOAD of an outer frame carrying only `:date`/
+   `:chunk-signature` headers, with an empty-payload signed frame marking
+   end-of-stream. `decodeStreamText` never unwrapped that outer frame, so
+   `Text` always decoded as empty and the op failed `ValidationException`
+   ("Text and VoiceId are required") for every real client regardless of
+   input -- this op had never actually worked end-to-end from a real SDK
+   before this fix. Confirmed live before/after (raw `httputil.DumpResponse`
+   round trip): 400 before, 200 with real `AudioEvent`/`StreamClosedEvent`
+   payloads after.
+
+Also load-bearing for anyone reusing this pattern: call `stream.Writer.Close()`
+(closes only the write half), not the combined `stream.Close()`, before
+ranging over `stream.Events()` -- `stream.Close()` tears down the reader too
+and starves the read loop before the response can arrive, which is what
+produced the original zero-events/no-error symptom while debugging this
+(not a hang -- a race that always resolved to "nothing received").
+
+No other real bugs found; DescribeVoices/StartSpeechSynthesisTask/
+GetSpeechSynthesisTask/ListSpeechSynthesisTasks all passed on the first
+correctly-shaped request.
+
+Gates: `go build ./...`, `go vet ./services/polly/...`,
+`go test -race -count=1 ./services/polly/...` and `./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/polly/...` (0 issues).
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot
+changes; `pollySnapshotVersion` unchanged.

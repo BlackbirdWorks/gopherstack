@@ -234,3 +234,25 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `last_audit_date: 2026-07-29`) checks out -- `git show -s --format=%ad 2d47b51d4` returns
   `Wed Jul 29 22:13:36 2026 -0500`, the same day as the recorded audit date. No gap, no false
   provenance. Refreshed this pass to the current HEAD (`bf7f0944b`) and today (2026-08-20).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteScheduledAction,
+DescribeScalingActivities, DescribeScheduledActions, PutScheduledAction,
+TagResource, UntagResource driven through the real aws-sdk-go-v2 client for
+the first time (`typed_slice15_realclient_test.go`, 3 subtests: tags,
+scheduled action lifecycle, scaling activities). applicationautoscaling
+moved from 8/14 to 14/14 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found. One test-authoring note (not a bug): a brand-new
+scheduled action requires a non-empty `Schedule` even when `StartTime` is
+supplied -- `Schedule` is not itself wire-required, but the existing
+implementation's own doc comment (scheduled_actions.go:85-90) explains this
+is deliberate (Schedule has no meaning for a brand-new action, only for an
+update), not a gap.
+
+Gates: `go build ./...`, `go vet ./services/applicationautoscaling/...`,
+`go test -race -count=1 ./services/applicationautoscaling/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/applicationautoscaling/...` (0 issues). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.

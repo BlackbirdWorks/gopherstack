@@ -306,3 +306,22 @@ every named cursor still resolves.
 **Gates**: `go build ./services/serverlessrepo/...`, `go vet ./services/serverlessrepo/...`,
 `go test -race -count=1 ./services/serverlessrepo/...` all pass; `golangci-lint run
 ./services/serverlessrepo/...` reports 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: CreateApplicationVersion,
+CreateCloudFormationChangeSet, ListApplicationDependencies,
+ListApplicationVersions, UnshareApplication driven through the real
+aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 4 subtests). serverlessrepo moved from
+9/14 to 14/14 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this service's extensive prior pagination/wire
+audit history already in this file.
+
+Gates: `go build ./...`, `go vet ./services/serverlessrepo/...`,
+`go test -race -count=1 ./services/serverlessrepo/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/serverlessrepo/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

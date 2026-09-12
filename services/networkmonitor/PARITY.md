@@ -251,3 +251,20 @@ numbers exist only in AWS's service-quotas doc prose
 Recorded as a known unverifiable-by-oracle item (Notes above). Constants
 left unchanged -- no evidence they're wrong, just no second source to check
 them against.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteProbe, GetMonitor, GetProbe,
+ListMonitors, UpdateMonitor, UpdateProbe driven through the real
+aws-sdk-go-v2 client for the first time (`typed_slice15_realclient_test.go`,
+2 subtests: monitor lifecycle, probe lifecycle). networkmonitor moved from
+6/12 to 12/12 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request.
+
+Gates: `go build ./...`, `go vet ./services/networkmonitor/...`,
+`go test -race -count=1 ./services/networkmonitor/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/networkmonitor/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

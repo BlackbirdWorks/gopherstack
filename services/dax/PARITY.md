@@ -720,3 +720,25 @@ the coverage line is unchanged (21/77, 21/21 of dax's own ops -- see explanation
 
 Gates: `go test -race -count=1 ./services/dax/...` (pass, including
 `./services/dax/dataplane/...`), `golangci-lint run services/dax/...` (0 issues).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteCluster, DescribeClusters,
+DescribeDefaultParameters, DescribeParameters, IncreaseReplicationFactor,
+UpdateCluster, UpdateParameterGroup, UpdateSubnetGroup driven through the
+real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 3 subtests: cluster lifecycle,
+parameter group lifecycle, subnet group update). dax moved from 13/21 to
+21/21 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request. `DeleteCluster` synchronously removes the cluster under this
+package's `DAX_TEST_SYNC=1` test-env override (zz_testmain_test.go), so
+the test asserts `DescribeClusters` errors immediately after delete rather
+than asserting a `deleting` status snapshot.
+
+Gates: `go build ./...`, `go vet ./services/dax/...`, `go test -race
+-count=1 ./services/dax/...` (including `dax/dataplane`) and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/dax/...` (0 issues). `go run ./cmd/paritylint` stays at 0 FAIL.
+No persisted-struct/snapshot changes.
