@@ -105,11 +105,15 @@ type deleteUserInput struct {
 type deleteUserOutput struct{}
 
 // getUserWithMFAOutput is the wire format for GetUser, including MFA preference fields.
+// MFAOptions mirrors types.GetUserOutput (cognitoidentityprovider@1.67.4
+// api_op_GetUser.go:72) -- the legacy SMS-only MFA field is deprecated but
+// still present on the wire.
 type getUserWithMFAOutput struct {
 	Username            string          `json:"Username,omitempty"`
 	PreferredMfaSetting string          `json:"PreferredMfaSetting,omitempty"`
 	UserAttributes      []attributeType `json:"UserAttributes,omitempty"`
 	UserMFASettingList  []string        `json:"UserMFASettingList,omitempty"`
+	MFAOptions          []mfaOptionType `json:"MFAOptions,omitempty"`
 }
 
 type getUserAccurateInput struct {

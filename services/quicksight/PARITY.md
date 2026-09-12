@@ -285,6 +285,7 @@ items_still_open:
     unverified claim parity-principles.md warns against. Both families do share
     the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
     comment and TestQuickSight_TopicV2_SharesResourceWithV1.
+  - "CLOSED 2026-09-12 (gopherstack-n3zi slice 3): ListFoldersForResource's route classifier (classifyResourceFoldersPaths, handler_folders.go) and its handler both assumed a resource ARN fits in exactly one URI path segment. Every real QuickSight resource ARN contains a literal `/` (e.g. `arn:aws:quicksight:region:account:dashboard/id`), which net/http decodes back from the real client's percent-encoded `%2F` before this router sees it -- so the op 501'd (opUnknown) for any real client, always. Found only by a typed round trip using a real ARN (typed_slice3_realclient_test.go); no raw-body test had exercised this op with an ARN containing `/`. Fixed by reconstructing the ARN via strings.Join(segs[segResID:n-1], \"/\"), the same pattern classifyTagResourcePaths already used correctly for /resources/{arn}/tags. See the dated Notes section for detail; NOT swept broadly across every other ARN-in-URI op this pass."
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
@@ -293,6 +294,97 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 ---
 
 ## Notes
+
+### 2026-09-12 (gopherstack-n3zi slice 3: typed real-client coverage)
+
+Added `typed_slice3_realclient_test.go` (`TestSlice3_QuickSight_RealClient`,
+one outer `t.Parallel()` test with 13 `t.Run` subtests, each also
+`t.Parallel()`), targeting the highest-priority uncovered families named by
+the sweep: data sources, data sets, analyses, dashboards, templates, themes,
+folders, users, groups, namespaces, ingestions, permissions, tags, and
+embedding (`GenerateEmbedUrlFor*`/`GetDashboardEmbedUrl`/`GetSessionEmbedUrl`/
+`GetIdentityContext`). 84 previously-uncovered ops now have a real typed
+round trip: `CreateNamespace`/`DescribeNamespace`/`ListNamespaces`/
+`DeleteNamespace`; `CreateGroupMembership`/`DescribeGroupMembership`/
+`ListGroupMemberships`/`DeleteGroupMembership`/`UpdateGroup`;
+`RegisterUser`/`DescribeUser`/`UpdateUser`/`ListUsers`/`ListUserGroups`/
+`DeleteUser`/`DeleteUserByPrincipalId`; `CreateDataSource`/
+`DescribeDataSource`/`UpdateDataSource`/`ListDataSources`/
+`DescribeDataSourcePermissions`/`UpdateDataSourcePermissions`/
+`DeleteDataSource`; `DeleteDataSet`/`DescribeDataSetPermissions`/
+`UpdateDataSetPermissions`/`ListDataSets`/`PutDataSetRefreshProperties`/
+`DescribeDataSetRefreshProperties`/`DeleteDataSetRefreshProperties`;
+`CreateIngestion`/`DescribeIngestion`/`ListIngestions`/`CancelIngestion`;
+`DeleteAnalysis`/`DescribeAnalysisPermissions`/`UpdateAnalysisPermissions`/
+`ListAnalyses`/`RestoreAnalysis`/`SearchAnalyses`;
+`DescribeDashboardDefinition`/`ListDashboards`/`ListDashboardVersions`/
+`SearchDashboards`/`UpdateDashboardPublishedVersion`/`UpdateDashboardLinks`/
+`UpdatePublicSharingSettings`; `DescribeTemplateDefinition`/
+`DescribeTemplatePermissions`/`UpdateTemplatePermissions`/`ListTemplates`/
+`CreateTemplateAlias`/`DescribeTemplateAlias`/`UpdateTemplateAlias`/
+`DeleteTemplateAlias`/`ListTemplateAliases`; `CreateTheme`/`DescribeTheme`/
+`UpdateTheme`/`DeleteTheme`/`DescribeThemePermissions`/
+`UpdateThemePermissions`/`CreateThemeAlias`/`DescribeThemeAlias`/
+`UpdateThemeAlias`/`DeleteThemeAlias`/`ListThemeAliases`/`ListThemeVersions`;
+`UpdateFolder`/`DescribeFolderPermissions`/`UpdateFolderPermissions`/
+`DescribeFolderResolvedPermissions`/`DeleteFolderMembership`/
+`ListFoldersForResource`/`SearchFolders`; `TagResource`/`UntagResource`/
+`ListTagsForResource`; `GenerateEmbedUrlForAnonymousUser`/
+`GenerateEmbedUrlForRegisteredUser`/
+`GenerateEmbedUrlForRegisteredUserWithIdentity`/`GetDashboardEmbedUrl`/
+`GetSessionEmbedUrl`/`GetIdentityContext`. Census: quicksight moved from
+61/292 to 145/292 typed-covered (147 remain, see items_still_open note
+below for the full family list -- mostly governance/Q-config/asset-bundle/
+snapshot-job/topic/brand/space/flow/agent/knowledge-base/action-connector
+families not in this pass's priority list).
+
+One real routing bug found and fixed, caught only because `ListFoldersForResource`
+takes a full QuickSight ARN (which always contains a literal `/`, e.g.
+`arn:aws:quicksight:region:account:dashboard/id`) as a URI path segment --
+no raw-body or handler-level test had ever driven this op through the real
+router with a realistic ARN:
+
+1. **`ListFoldersForResource`'s route classifier and handler both assumed the
+   resource ARN fits in exactly one path segment.** The real client
+   percent-encodes the ARN's `/` as `%2F` (serializers.go's
+   `awsRestjson1_serializeOpHttpBindingsListFoldersForResourceInput`, via
+   `encoder.SetURI("ResourceArn")`), but Go's `net/http` decodes `%2F` back
+   to a literal `/` in `Request().URL.Path` before this router ever sees it
+   -- so a real ARN spans a variable number of path segments, not one.
+   `classifyResourceFoldersPaths` (handler_folders.go) required
+   `n == nSegsSubRes` exactly and read the ARN from a single fixed segment
+   index; any ARN containing `/` (i.e., every real QuickSight resource ARN)
+   made `n` too large, so the route silently fell through to `opUnknown` and
+   the op 501'd for every real client. `handleListFoldersForResource` had
+   the identical bug independently (it re-derives segments from the URL
+   itself rather than trusting the classifier's resolved value). Both fixed
+   by reconstructing the ARN as `strings.Join(segs[segResID:n-1], "/")`,
+   the same pattern `classifyTagResourcePaths` (handler_paths.go) already
+   uses correctly for `/resources/{arn}/tags` -- this bug class was already
+   known and fixed for Tag ops but had not been swept across every other
+   op that binds an ARN into a URI path segment; not attempted broadly this
+   pass, per this issue's own "fix what your test's own op list hits, don't
+   go hunting" guidance, but worth a dedicated sweep given the hit rate.
+
+No accept-and-drop `Definition`-member findings this pass: Dashboard/
+Analysis/Template `Definition`/`TemplateVersionDefinition` are stored and
+echoed back as opaque `map[string]any` documents (pre-existing design, see
+the Dashboard/Analysis/Template family notes below), so every member sent
+by the typed client on Create round-trips byte-for-byte through Describe*
+Definition with no server-side interpretation to lose members against --
+confirmed by asserting `DataSetIdentifierDeclarations`/`Name` on
+`DescribeDashboardDefinition`/`DescribeTemplateDefinition` after Create.
+This differs from cases where a backend re-derives or partially models a
+nested struct: here nothing is dropped because nothing is parsed.
+
+Gates: `go build ./...` (whole module, clean), `go vet
+./services/cognitoidp/... ./services/quicksight/...` (clean), `go test -race
+-count=1 ./services/cognitoidp/... ./services/quicksight/...
+./pkgs/persistence/...` (pass), `golangci-lint run
+./services/cognitoidp/... ./services/quicksight/...` (0 issues). Version
+bumped: **no** (no `backendSnapshot` field changed;
+`pkgs/persistence/testdata/snapshot_inventory.json` unaffected for
+quicksight).
 
 ### 2026-08-29 (filter/pagination-not-honoured sweep, partial)
 
