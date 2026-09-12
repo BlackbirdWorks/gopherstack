@@ -227,6 +227,7 @@ type pkgData struct {
 	intConsts         map[string]int
 	sliceConsts       map[string][]string
 	srcByFile         map[string][]byte
+	namedBodies       map[string]ast.Node
 	matchPriorityBody string
 	routeMatchers     []*ast.FuncDecl
 }
@@ -261,6 +262,7 @@ func parsePackage(dir string) (*pkgData, error) {
 		selectorConsts: map[string]string{},
 		intConsts:      map[string]int{},
 		srcByFile:      map[string][]byte{},
+		namedBodies:    map[string]ast.Node{},
 	}
 
 	var pkgSrc strings.Builder
@@ -303,8 +305,43 @@ func parsePackageFile(pd *pkgData, dir, name string, pkgSrc *strings.Builder) er
 
 	collectConsts(f, pd.consts, pd.selectorConsts, pd.intConsts)
 	collectRouteMatcherFuncs(pd, f, src)
+	collectNamedBodies(f, pd.namedBodies)
 
 	return nil
+}
+
+// collectNamedBodies records every top-level func/method body and every
+// package-level var composite-literal body in f, keyed by name -- the
+// table chaseClaims (delegation.go) walks when a RouteMatcher body calls or
+// indexes a name it doesn't itself define.
+func collectNamedBodies(f *ast.File, out map[string]ast.Node) {
+	for _, decl := range f.Decls {
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				out[d.Name.Name] = d.Body
+			}
+		case *ast.GenDecl:
+			if d.Tok == token.VAR {
+				collectVarBodies(d, out)
+			}
+		}
+	}
+}
+
+func collectVarBodies(gd *ast.GenDecl, out map[string]ast.Node) {
+	for _, spec := range gd.Specs {
+		vs, ok := spec.(*ast.ValueSpec)
+		if !ok || len(vs.Names) != len(vs.Values) {
+			continue
+		}
+
+		for i, name := range vs.Names {
+			if lit, isCompositeLit := vs.Values[i].(*ast.CompositeLit); isCompositeLit {
+				out[name.Name] = lit
+			}
+		}
+	}
 }
 
 func collectRouteMatcherFuncs(pd *pkgData, f *ast.File, src []byte) {
@@ -351,7 +388,7 @@ func buildServiceInfos(pd *pkgData, name string, priority int) []svcInfo {
 		fp := pd.fset.Position(fn.Pos()).Filename
 
 		body := bodyText(pd.fset, pd.srcByFile[fp], fn.Body)
-		claims := extractClaims(body, pd.consts, pd.sliceConsts)
+		claims := dedupeClaims(chaseClaims(body, fn.Body, pd, pd.consts, pd.sliceConsts, 0, map[string]bool{}))
 
 		if len(claims) == 0 {
 			isQueryProtocol := queryProtocolContentTypeRe.MatchString(body) && queryProtocolVersionRe.MatchString(body)
@@ -373,9 +410,12 @@ func buildServiceInfos(pd *pkgData, name string, priority int) []svcInfo {
 	return out
 }
 
-func bodyText(fset *token.FileSet, src []byte, body *ast.BlockStmt) string {
-	start := fset.Position(body.Pos()).Offset
-	end := fset.Position(body.End()).Offset
+// bodyText slices src down to node's source range. node is typically a
+// *ast.BlockStmt (a func/method body) but can be any ast.Node -- chaseClaims
+// also calls this for a package-level var composite-literal body.
+func bodyText(fset *token.FileSet, src []byte, node ast.Node) string {
+	start := fset.Position(node.Pos()).Offset
+	end := fset.Position(node.End()).Offset
 
 	if start < 0 || end > len(src) || start > end {
 		return ""

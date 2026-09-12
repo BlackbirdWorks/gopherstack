@@ -18,20 +18,27 @@ gitignored here; `cmd/routecollisions` is the committed Go tool for exactly
 the reason the sibling `_OVERWIDE_CANDIDATES.md`/`cmd/overwidecandidates`
 and `_WRAPPER_KEY_SWEEP_REMAINDER.md`/`cmd/opcensus` pairs exist.
 
-**Status after two passes: all 163 registered services triaged, 4 confirmed
-bugs found and fixed** (the original securityhub/inspector2/macie2 one, plus
-three more in the second pass's "Second pass" section below —
-`apigateway`/`quicksight` on `/account/`, `appconfigdata`/`omics` on
-`/configuration`, `inspector2`/`omics` on `/configuration/`), **2 tool false
-positives disproven by driving the real router** (`batch`/`kafka` on bare
-`/v1/`, first pass; `polly`/`appsync`/`batch` on `/v1/`, second pass), and
-every remaining candidate hand-verified clean via a real disambiguation
-mechanism. `cmd/routecollisions` now extracts claims for 53 of 94 path-based
-services directly plus recognizes 14 more as structurally immune
-(Query/EC2-protocol body match) — 67 of 94 tool-covered; the other 27 were
-hand-read (helper-function delegation and route-table map keys the
-extractor doesn't chase yet — see "Second pass" below for exactly which and
-why).
+**Status after three passes: all 163 registered services triaged, 5 confirmed
+bugs found and fixed** (the original securityhub/inspector2/macie2 one, three
+more in the second pass — `apigateway`/`quicksight` on `/account/`,
+`appconfigdata`/`omics` on `/configuration`, `inspector2`/`omics` on
+`/configuration/` — plus `rolesanywhere`/`xray` on bare `/TagResource`,
+`/UntagResource`, `/ListTagsForResource` in the third pass, gopherstack-h3p1;
+see "Third pass" below), **6 tool false positives disproven by hand/by
+driving the real router** (`batch`/`kafka` on bare `/v1/` and
+`polly`/`appsync`/`batch` on `/v1/` from the first two passes, plus
+`codeartifact`/`appsync` on `/v1/tags`+`/v1/domain`, `ecr`/`apigatewayv2`+
+`appsync`+`sesv2` on `/v2`, `resourcegroups`/`backup` on `/resources/`, and
+`vpclattice`/`macie2` on `/tags` from the third pass), and every remaining
+candidate hand-verified clean via a real disambiguation mechanism.
+`cmd/routecollisions` now chases predicate-function delegation and map/
+route-table keys (gopherstack-h3p1) in addition to direct claims, extracting
+real claims for 69 of 94 path-based services plus recognizing 16 more as
+structurally immune (Query/EC2-protocol body match) — 85 of 94 tool-covered;
+the remaining 9 (`resiliencehub`, `mgn`, `networkmanager`, plus 6 more) are
+confirmed via the tool itself to have zero extractable "/"-prefixed literal
+claims (AWS's own "RPC over REST" operation-name-shaped route tables, not a
+tooling gap) or were hand-read for other reasons — see "Third pass" below.
 
 ## The question this asks (and the one it doesn't)
 
@@ -340,6 +347,13 @@ router-level gap the way `ListKafkaVersions` was).
 
 ### Hand-read this pass, confirmed clean (27 services)
 
+**Superseded in part by the third pass** (gopherstack-h3p1, see above):
+`account`, `backup`, `codeartifact`, `ecr`, `resourcegroups` (below), plus
+`omics`, `elasticsearch`, `opensearch`, `mwaa` (elsewhere in this list), now
+produce real extracted claims instead of relying on the hand-read below —
+the mechanism and conclusions described here are unchanged (still correctly
+"clean"), just now tool-confirmed rather than assumed.
+
 **account, acm, acmpca, appstream, backup, codeartifact, cognitoidp, ecr,
 elasticsearch, glacier, lakeformation, lambda, mediastoredata, mgn, mwaa,
 networkmanager, omics, opensearch, personalize, quicksight, ram, rdsdata,
@@ -423,6 +437,180 @@ above as the fixed side of a collision). Mechanism per service:
   `/v1/authorization-token` literals by name — belt and suspenders, already
   correct.
 
+## Third pass (gopherstack-h3p1): delegation chasing
+
+`cmd/routecollisions` previously extracted claims only from a `RouteMatcher`
+body's own text. This pass (see `cmd/routecollisions/delegation.go`) makes it
+chase two delegation shapes documented as tooling debt at the end of the
+second pass: a predicate-function call (`return isXPath(path)`) and a map/
+route-table index (`operationNames[path]`, `h.routes()[key]`).
+
+### How the chase works
+
+`collectNamedBodies` (`main.go`) records every top-level func/method body and
+package-level `var` composite-literal body in the package, keyed by name
+(receiver type ignored — two receivers never share a method name in one
+gopherstack service package). `chaseClaims` (`delegation.go`) then, starting
+from `RouteMatcher`'s own body: extracts claims from the current body via
+`extractClaimsForNode`, finds every name `referencedNames` sees called
+(`ast.CallExpr`, both bare `isXPath(...)` and method-call
+`h.routes()` forms) or indexed (`ast.IndexExpr`) in it, and — for each name
+present in the named-body table and not already visited in this chase —
+recurses into that body one level deeper. Depth is capped at
+`chaseDepthLimit = 4` and a `visited` set (shared across the whole chase, not
+per-branch) prevents cycles and redundant work on a helper reached from
+multiple branches (e.g. `mergeRoutes`/`concatRoutes`). Three extraction
+mechanisms run per chased body:
+
+1. The existing text-based `extractClaims` (quoted literals, `"/"+ident`/
+   `ident+"/"` concatenation, bare-identifier `==`/`HasPrefix`/`CutPrefix`/
+   `range` context) — unchanged, just now also run on delegate bodies.
+2. `scanMapKeyClaims` walks the body's AST for any map composite literal
+   (however deeply nested — a func that directly `return`s
+   `map[string]T{...}`, resiliencehub/mgn's shape, counts) and adds an exact
+   claim per key: a literal string key directly, or an identifier key
+   resolved against the const table (account's `operationNames` is keyed by
+   consts, not string literals — this needed real AST inspection, not text
+   matching, to resolve correctly).
+3. `scanSliceLiteralIdentClaims` walks the body's AST for any `[]string{...}`
+   composite literal — local (`prefixes := []string{...}` inside a helper,
+   which the package-wide `sliceConsts` regex table never sees since it only
+   matches a top-level `IDENT = []string{...}` var) or otherwise — and for
+   each bare-identifier element resolving against a const, records **both**
+   an exact claim for the value and a prefix claim for value+`"/"`. Both
+   readings are needed because this repo's common idiom for such a table is
+   `path == p || strings.HasPrefix(path, p+"/")` (omics' `isOmicsPath`): the
+   loop variable `p` isn't itself const-resolvable, so the existing
+   concatenation scan can't see the `+"/"` half on its own.
+
+A fourth change fixes a false positive the chase would otherwise introduce:
+`localConstTable` collects consts declared *local* to a chased body (e.g.
+resourcegroups' `isResourceTagsPath`: `const prefix = "/resources/"` and
+`const suffix = "/tags"`) into the const table for that call, and excludes
+each such literal's own declaration text from the raw quoted-literal scan.
+Without this, a local const used only in `strings.HasSuffix(path, suffix)`
+produced a bogus standalone `"/tags"` claim merely from declaring the name —
+never from an actual prefix check — because plain text scanning can't tell a
+declaration from a comparison. With it, `suffix` (used only via `HasSuffix`,
+a context the resolver never treats as claim-worthy) correctly contributes
+no claim, while `prefix` (used via `HasPrefix(path, prefix)`) still resolves
+to `/resources/` through the normal identifier-resolution path.
+
+### Reproduces the two hand-found collisions automatically
+
+Before this pass, `omics` produced **zero** extracted claims (`isOmicsPath`
+was never chased), so `appconfigdata`/`omics` and `inspector2`/`omics` never
+appeared in the tool's own candidate list — both were only found by hand
+last pass. After this pass, `go run ./cmd/routecollisions` reproduces both
+automatically:
+
+```
+appconfigdata            [prefix "/configuration"     prio=86 reg=50] shadows omics                    [exact "/configuration"     prio=85 reg=157]  (guarded/unguarded)
+appconfigdata            [prefix "/configuration"     prio=86 reg=50] shadows omics                    [prefix "/configuration/"    prio=85 reg=157]  (guarded/unguarded)
+inspector2               [exact "/configuration/"    prio=85 reg=85] shadows omics                    [prefix "/configuration/"    prio=85 reg=157]  (guarded/unguarded)
+inspector2               [prefix "/configuration/"    prio=85 reg=85] shadows omics                    [prefix "/configuration/"    prio=85 reg=157]  (guarded/unguarded)
+```
+
+(`guarded/unguarded` — the winner, `appconfigdata`/`inspector2`, is
+correctly recognized as SigV4/prefix-map-gated, matching the already-fixed
+state from the second pass; the pairs surface for confirmation, not as new
+bugs.)
+
+### Now tool-covered instead of hand-read
+
+`omics`, `backup`, `account`, `resourcegroups`, `codeartifact`,
+`elasticsearch`, `opensearch`, `ecr`, and `mwaa` — 9 of the second pass's 27
+hand-read services — now produce real extracted claims instead of relying on
+a human having read the source. `resiliencehub`, `mgn`, and `networkmanager`
+remain claim-free even after the chase, but that's now a *confirmed*
+structural fact rather than an assumption: every literal key their route
+tables use is a bare operation slug (`"POST create-app"`,
+`"/DescribeSourceServers"`'s sibling shapes) with no leading `"/"`, so the
+same `"/"`-prefix filter that has always applied to every other extraction
+path here correctly finds nothing to claim.
+
+### Fixed this pass — one real, newly-discovered collision
+
+**`rolesanywhere` vs `xray` on bare `/TagResource`, `/UntagResource`,
+`/ListTagsForResource`** (`services/rolesanywhere/handler.go`). Both
+services' real AWS SDK clients emit these exact bare paths — confirmed
+against `aws-sdk-go-v2/service/rolesanywhere@v1.26.3/serializers.go` and
+`.../xray@v1.39.4/serializers.go`'s own `SplitURI("/TagResource")` etc:
+`resourceArn` travels in the JSON body/query, never the path, for either
+service (the standard AWS tagging-operation convention). RolesAnywhere
+claimed all three unconditionally (`path == "/"+pathTagResource`, no SigV4
+gate at all) while X-Ray's own real matcher indexes an equally unconditional
+`xrayPaths` map — both `MatchPriority` 85, and RolesAnywhere registers first
+in `cli.go`, so it always won the tie and silently swallowed every X-Ray
+`TagResource`/`UntagResource`/`ListTagsForResource` request. Neither
+delegation shape was previously chased, so RolesAnywhere had zero extracted
+claims before this pass and the pair was invisible to the tool. **Fix**:
+gated just those three ambiguous paths on
+`httputils.ExtractServiceFromRequest(...) in {"", "rolesanywhere"}` — the
+same `svc == "" || svc == ownServiceName` idiom `iot` already uses for its
+own `/policies` and `/api/things/shadow/` disambiguation — leaving
+RolesAnywhere's other (genuinely unique) paths unconditional. Regression
+test: `services/rolesanywhere/handler_test.go`'s
+`TestHandler_RouteMatcher_TagOpsCrossServiceIsolation`.
+
+### False positives disproven this pass
+
+All four follow the same root cause as Polly's `/v1/` false positive from
+the first pass: the chase now reaches a real predicate/map, but that
+predicate's condition is a **compound** one (an additional `&&`-ed check,
+or an ARN-content narrowing) the tool's flat literal-overlap check can't
+see — so the newly-surfaced over-claim needs the same by-hand disproof as
+before, just now the tool tells you where to look instead of missing the
+claim entirely.
+
+- **`codeartifact` vs `appsync` on `/v1/tags`, `/v1/domain`**. CodeArtifact's
+  real `ListTagsForResource` is `GET /v1/tags` with `resourceArn` as a query
+  parameter (confirmed against
+  `aws-sdk-go-v2/service/codeartifact@v1.41.4/serializers.go`,
+  `SplitURI("/v1/tags")` + `encoder.SetQuery("resourceArn")`) — a genuine
+  bare, no-ARN-in-path claim. But AppSync's own real matcher
+  (`isAppSyncTagPath`, see its doc comment) requires an ARN *in the path*
+  (`/v1/tags/{resourceArn}`) and explicitly does not claim bare `/v1/tags`;
+  the tool's extracted AppSync claim is a `HasPrefix` over-approximation of
+  that ARN-gated predicate. For `/v1/domain`: CodeArtifact's real prefix
+  check is `HasPrefix(path, pathV1Domain+"/")` (note the trailing `/`), but
+  the pre-existing `concatRightRe` extraction (unchanged this pass) drops
+  the `+"/"` and records the bare `/v1/domain` — so the extracted claim is
+  broader than the real one, and `/v1/domain` (without a following `/`) is
+  not a prefix of AppSync's real `/v1/domainnames`. No fix needed.
+- **`ecr` vs `apigatewayv2`/`appsync`/`sesv2` on `/v2`**. ECR's real registry
+  gate (`isRegistryPath`) requires, after stripping the `/v2/` prefix, that
+  the remainder contain `/manifests/` or `/blobs/` or end in `/tags/list` —
+  none of which any of these three services' real `/v2/...` paths do — and
+  is further gated on a `h.registryEnabled` runtime flag the tool has no way
+  to see at all. The tool's claim (`HasPrefix`/`CutPrefix` on the bare `/v2`
+  prefix identifier) is the same "sees one `HasPrefix`, not the `&&`-ed
+  follow-up checks" gap Polly hit. No fix needed.
+- **`resourcegroups` vs `backup` on `/resources/`**. resourcegroups'
+  `isResourceTagsPath` requires the path to *also* end in `/tags` (and be
+  longer than the combined prefix+suffix) — it only ever matches
+  `/resources/{arn}/tags`, never a bare `/resources/...` sub-path, so it
+  never reaches backup's real `/resources/*` traffic despite resourcegroups
+  registering at the highest priority tier (`PriorityHeaderExact` = 100).
+  No fix needed (backup's own unconditional, ungated `/resources` claims
+  remain the standing risk pattern already flagged in the second pass — this
+  pairing specifically is clean).
+- **`vpclattice` vs `macie2` on `/tags`**. Both sides are actually
+  ARN-scoped in reality — vpclattice's `isVPCLatticeTagPath` requires the
+  ARN segment to contain `:vpc-lattice:`, macie2's own claim is the already-
+  fixed `"/tags/arn:aws:macie2:"` exact prefix — but the tool's coarse
+  `guarded` bit doesn't recognize either ARN-content check by name (same
+  documented undercount as the `/tags/{arn}` cluster in "Candidates checked
+  this pass" above), so it shows as `UNGUARDED-WINNER`. No fix needed.
+
+The remaining `UNGUARDED-WINNER/unguarded` pairs in the current full run are
+all the **same, already-documented-clean** clusters from the first two
+passes — the ARN-embedded `/tags`/`/tags/{arn}` trio
+(accessanalyzer/amplify/detective/dlm/eks/vpclattice — see "Candidates
+checked this pass" above) and the AppSync `/v2/apis` User-Agent-marker case —
+now also reached from newly-covered services (`mwaa`, `ecr`) landing on the
+same already-verified conclusion, not new findings.
+
 ## Known tool limitations
 
 - Coarse per-service `guarded` bit only recognizes
@@ -470,17 +658,23 @@ above as the fixed side of a collision). Mechanism per service:
   `Immune` is only ever set when zero path claims were extracted, the
   failure mode is a cosmetic misclassification in the summary line, not a
   missed collision.
-- Helper-function-body delegation (`return isXPath(path)` to a predicate
-  defined elsewhere in the package) and map/route-table literal-key
-  extraction (`rgRESTPathOps["/resources/search"]`,
-  `h.routes()["POST create-app"]`) are still not chased at all — every
-  service relying on either shape (`omics`, `apigateway`, `backup`,
-  `codeartifact`, `elasticsearch`, `opensearch`, `account`, `resourcegroups`,
-  `resiliencehub`, `networkmanager`, `mgn`) was hand-read this pass instead
-  (see "Second pass" above) rather than guessed at. A future pass could add
-  this as a one-hop call-graph chase: collect every top-level func/method
-  body and package-level `var`-composite-literal body in the package (not
-  just `RouteMatcher`/`MatchPriority`), then when `RouteMatcher`'s body
-  calls or indexes a name found in that table, recursively run
-  `extractClaims` on its body text too (bounded depth + a visited set for
-  cycle safety). Scoped out of this pass for time, not difficulty.
+- (Added third pass, gopherstack-h3p1) Helper-function-body delegation
+  (`return isXPath(path)`) and map/route-table literal-key extraction
+  (`rgRESTPathOps["/resources/search"]`, `h.routes()["POST create-app"]`,
+  and a local `[]string{...}` table of bare consts) are now chased — see
+  "Third pass" above for the mechanism. This did not remove the "multi-
+  condition guard" blind spot the batch/kafka and Polly false positives
+  already documented; it just means that blind spot can now surface
+  *through* a chased body too, not only a `RouteMatcher`'s own top-level
+  code (see "False positives disproven this pass" in the Third pass section
+  for four concrete instances: `codeartifact`/`appsync`,
+  `ecr`/`apigatewayv2`+`appsync`+`sesv2`, `resourcegroups`/`backup`,
+  `vpclattice`/`macie2`). The chase also still doesn't follow a local
+  variable that isn't itself a `[]string{...}`/map composite literal at the
+  call site — e.g. `slices.Contains(exacts, path)` where `exacts` was built
+  some other way, or a value threaded through more than one variable
+  reassignment — so a table built that way still needs a human read.
+  `chaseDepthLimit = 4` bounds recursion depth; the deepest real chain found
+  this pass (resiliencehub/mgn's route-table builders) is 3 hops, so there's
+  one hop of headroom before a legitimately deeper delegation chain would
+  need the limit raised.

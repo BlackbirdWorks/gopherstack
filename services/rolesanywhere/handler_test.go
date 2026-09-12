@@ -153,6 +153,52 @@ func TestHandler_RouteMatcher(t *testing.T) {
 	}
 }
 
+// TestHandler_RouteMatcher_TagOpsCrossServiceIsolation guards against the
+// RolesAnywhere/X-Ray collision on bare "/TagResource", "/UntagResource",
+// "/ListTagsForResource": both services' real SDK clients emit these exact
+// paths (ARN in the body, not the path), and RolesAnywhere used to claim
+// them unconditionally, always winning ties over X-Ray (see
+// services/_ROUTE_COLLISIONS.md).
+func TestHandler_RouteMatcher_TagOpsCrossServiceIsolation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		path string
+		auth string
+		want bool
+	}{
+		{"TagResource unsigned", "/TagResource", "", true},
+		{"TagResource signed rolesanywhere", "/TagResource", "rolesanywhere", true},
+		{"TagResource signed xray", "/TagResource", "xray", false},
+		{"UntagResource signed xray", "/UntagResource", "xray", false},
+		{"ListTagsForResource signed xray", "/ListTagsForResource", "xray", false},
+		{"ListTagsForResource signed rolesanywhere", "/ListTagsForResource", "rolesanywhere", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			matcher := h.RouteMatcher()
+			e := echo.New()
+			req := httptest.NewRequest(http.MethodPost, tt.path, nil)
+
+			if tt.auth != "" {
+				req.Header.Set(
+					"Authorization",
+					"AWS4-HMAC-SHA256 Credential=AKID/20240101/us-east-1/"+tt.auth+"/aws4_request",
+				)
+			}
+
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			assert.Equal(t, tt.want, matcher(c))
+		})
+	}
+}
+
 // ---- ExtractOperation / ExtractResource ----
 
 func TestHandler_ExtractOperation(t *testing.T) {

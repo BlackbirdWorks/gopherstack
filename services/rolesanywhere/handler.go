@@ -140,9 +140,22 @@ func (h *Handler) GetSupportedOperations() []string {
 }
 
 // RouteMatcher returns a function that matches Roles Anywhere requests by path.
+// TagResource/UntagResource/ListTagsForResource are bare, ARN-in-body REST
+// paths -- the standard AWS tagging convention many restjson1 services
+// share verbatim (confirmed against aws-sdk-go-v2/service/rolesanywhere and
+// .../xray's own serializers.go: both emit exactly "/TagResource" etc, with
+// resourceArn in the body/query, never the path) -- so those three are
+// SigV4-scoped instead of claimed unconditionally like the rest of this
+// matcher's paths, which are all unique to Roles Anywhere.
 func (h *Handler) RouteMatcher() service.Matcher {
 	return func(c *echo.Context) bool {
 		path := c.Request().URL.Path
+
+		if path == "/"+pathTagResource || path == "/"+pathUntagResource || path == "/"+pathListTags {
+			svc := httputils.ExtractServiceFromRequest(c.Request())
+
+			return svc == "" || svc == rolesAnywhereService
+		}
 
 		return strings.HasPrefix(path, "/"+pathTrustanchors) ||
 			strings.HasPrefix(path, "/"+pathTrustanchor+"/") ||
@@ -153,10 +166,7 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			strings.HasPrefix(path, "/"+pathSubjects) ||
 			strings.HasPrefix(path, "/"+pathSubject+"/") ||
 			path == "/"+pathPutNotifications ||
-			path == "/"+pathResetNotifications ||
-			path == "/"+pathTagResource ||
-			path == "/"+pathUntagResource ||
-			path == "/"+pathListTags
+			path == "/"+pathResetNotifications
 	}
 }
 
