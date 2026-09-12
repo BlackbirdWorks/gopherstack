@@ -70,7 +70,7 @@ ops:
   CreateCustomModelDeployment: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): Status was stamped Creating and nothing else in this backend ever advanced it -- confirmed via GetCustomModelDeployment, which echoes the stored value verbatim; the pre-existing TestAccuracy_CustomModelDeployment_StatusIsActive was named after the terminal state but its own assertion checked Creating and stopped there. Fixed via a new AdvanceCustomModelDeploymentStatuses, wired into the existing janitor.go tick alongside the identically-shaped AdvanceProvisionedModelThroughputStatuses -- no new infrastructure."}
   GetCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — List/Get/Update/Delete were routed under a fabricated \"/custom-model-deployments\" path; real SDK uses the SAME base path as Create (\"/model-customization/custom-model-deployments\") for all five ops. Completely unreachable by real clients before this fix."}
   ListCustomModelDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as GetCustomModelDeployment. this pass: also fixed -- ListCustomModelDeployments() took no arguments at all, so statusEquals/modelArnEquals/nameContains/createdAfter/createdBefore/sortOrder/maxResults were all silently ignored. Now filters/sorts/paginates per ListCustomModelDeploymentsInput."}
-  UpdateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix, PLUS: the shared Handler() body-reader only read request bodies for POST/PUT, never PATCH — so even with the path fixed, this PATCH op's body was silently discarded (fabricated no-op). Both fixed."}
+  UpdateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix, PLUS: the shared Handler() body-reader only read request bodies for POST/PUT, never PATCH — so even with the path fixed, this PATCH op's body was silently discarded (fabricated no-op). Both fixed. gopherstack-n3zi (2026-09-12): a THIRD bug on top -- the PATCH body was reachable but handleUpdateCustomModelDeployment never called parseBody at all, so the real, required ModelArn field (the whole point of the op: point the deployment at a new model) was silently dropped regardless of body-reading. Found by a real aws-sdk-go-v2 client asserting the new ModelArn round-tripped through GetCustomModelDeployment. Fixed."}
   DeleteCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix as GetCustomModelDeployment"}
   CreateInferenceProfile: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-ii4c) -- required member ModelSource (api_op_CreateInferenceProfile.go:48, the CopyFrom ARN this profile tracks) was accepted nowhere; the profile got a name but no model link. Now validated as required and echoed back on Get/List as the required Models list (api_op_GetInferenceProfile.go:62); this backend does not expand a system-defined profile's CopyFrom into its per-region constituent models, so Models always has exactly one entry."}
   GetInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -90,11 +90,11 @@ ops:
   ListModelInvocationJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed — handler called Backend.ListModelInvocationJobs(nil), silently discarding every query param (statusEquals/nameContains/sortBy/sortOrder/nextToken/submitTimeAfter/submitTimeBefore) even though the backend already implements the full filter/sort/paginate logic. Classic disguised no-op: real-looking op, dead capability. Now parses and wires all of them. gopherstack-7ux2: summary also omitted modelId/inputDataConfig/outputDataConfig/roleArn/submitTime, all five required on types.ModelInvocationJobSummary (types/types.go:5592-5722) -- same converter and same Create-side fix as GetModelInvocationJob above. Confirmed types.ModelInvocationJobSummary carries no tags member, so job.Tags correctly stays off both Get and List (unlike ListModelImportJobs' summary just above, this shape needed members added, not removed)."}
   StopModelInvocationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was DELETE on the plural list path; real SDK sends POST /model-invocation-job/{id}/stop (singular + /stop suffix, same pattern as StopEvaluationJob)."}
   CreateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — EndpointConfig (SageMaker execution role/instance type/instance count/KMS key) is a required CreateMarketplaceModelEndpointInput field and was previously not parsed/stored at all, so every Get/List response was missing the required endpointConfig field. Now parsed, stored, and round-tripped."}
-  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig — see CreateMarketplaceModelEndpoint"}
-  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig per item; nextToken pagination only, real AWS's sole extra filter (modelSourceEquals) not implemented — see gaps"}
-  UpdateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — request body's required EndpointConfig field was accepted but never parsed/applied (the op only bumped updatedAt, a disguised no-op). Now parses {\"endpointConfig\":{\"sageMaker\":{...}}} and applies it to the stored endpoint; omitting endpointConfig on PATCH now correctly preserves the existing config rather than erroring."}
+  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig — see CreateMarketplaceModelEndpoint. gopherstack-n3zi (2026-09-12): TWO more bugs found by a real aws-sdk-go-v2 client — (1) the response was returned flat with no wrapper; real GetMarketplaceModelEndpointOutput requires the whole endpoint nested under a \"marketplaceModelEndpoint\" key (deserializers.go:9536), so a real client's required output field always decoded nil. (2) the shared marketplaceEndpointOutput struct never emitted the real, required \"endpointStatus\" member at all (only the separate, optional \"status\") — always decoded empty. Both fixed; fixes apply to Create/Get/List/Register/Update via the shared builder/wrapper."}
+  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig per item; nextToken pagination only, real AWS's sole extra filter (modelSourceEquals) not implemented — see gaps. Already used the correct \"marketplaceModelEndpoints\" wrapper key (unlike Get/Update, see their notes) and now also carries endpointStatus (gopherstack-n3zi, 2026-09-12)."}
+  UpdateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — request body's required EndpointConfig field was accepted but never parsed/applied (the op only bumped updatedAt, a disguised no-op). Now parses {\"endpointConfig\":{\"sageMaker\":{...}}} and applies it to the stored endpoint; omitting endpointConfig on PATCH now correctly preserves the existing config rather than erroring. gopherstack-n3zi (2026-09-12): same unwrapped-response + missing-endpointStatus bugs as GetMarketplaceModelEndpoint, fixed together."}
   DeleteMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  RegisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-n3zi (2026-09-12): output already used the \"marketplaceModelEndpoint\" wrapper; also gained endpointStatus via the shared builder fix (see GetMarketplaceModelEndpoint)."}
   DeregisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as POST /.../deregistration (a path AWS doesn't have); real SDK sends DELETE on the SAME /.../registration path Register uses (method-only disambiguation). Completely unreachable by real clients before this fix."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -1053,3 +1053,64 @@ Locked by `TestDeleteOps_ExactWireKeySet` in both
 raw-body (`map[string]any`) exact-key-set assertions per op (a typed client
 can't observe either a missing real key or an extra fabricated one, so the
 raw body is the only way to prove the set is exact).
+
+## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+
+Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 48/179 (26.8%) ->
+105/179 (58.7%) ops driven by a real aws-sdk-go-v2 client anywhere in this
+repo's tests. `services/bedrock/typed_slice6_realclient_test.go` added, 15
+subtests covering guardrail versions, model invocation logging, account
+data retention, evaluation jobs, model import jobs, inference profiles,
+foundation model agreements, use-case-for-model-access, marketplace model
+endpoints, prompt routers, custom model deployment/customization/invocation
+job stops, advanced prompt optimization jobs, automated reasoning policies,
+and tags/resource policy -- the named priority families for this slice.
+The bedrock-agent (AgentsHandler) family -- CreateAgent/Flow/Prompt/
+KnowledgeBase/DataSource and their Get/List/Update/Delete siblings, 74 ops
+-- was deliberately not attempted: it was not among this slice's named
+priority families.
+
+**Bugs found and fixed, all by a decoded typed-client value, none by status
+code alone (every call returned 200/201/204):**
+
+1. `UpdateCustomModelDeployment` never called `parseBody` at all --
+   confirmed via `handler_custom_model_deployments.go`. The real, required
+   `ModelArn` field (the entire point of the op: point a deployment at a
+   new model) was silently dropped on every request. Fixed by threading
+   `body []byte` through `routeStubDeploymentOps`/`routeStubMiscOps` and
+   parsing it; `custom_model_deployments.go`'s `UpdateCustomModelDeployment`
+   now takes and applies `modelARN`.
+2. `GetMarketplaceModelEndpoint`/`UpdateMarketplaceModelEndpoint` returned
+   the endpoint flat with no wrapper; real `GetMarketplaceModelEndpointOutput`/
+   `UpdateMarketplaceModelEndpointOutput` require the whole endpoint nested
+   under `"marketplaceModelEndpoint"` (bedrock@v1.66.4 deserializers.go:9536,
+   :18574) -- a real client's required output field always decoded nil.
+   Fixed by reusing the existing `createMarketplaceModelEndpointOutput`
+   wrapper for both.
+3. The shared `marketplaceEndpointOutput` wire struct never emitted the
+   real, required `endpointStatus` member (types.go:5208) at all -- only
+   the separate, optional `status` -- so a real client's `EndpointStatus`
+   always decoded empty regardless of lifecycle state. Fixed by emitting
+   both from the same backend field.
+4. `CancelAutomatedReasoningPolicyBuildWorkflow` stamped the workflow
+   status `"Cancelled"`, and `StartAutomatedReasoningPolicyBuildWorkflow`
+   stamped a freshly-created workflow `"Running"` -- neither is a real
+   `AutomatedReasoningPolicyBuildWorkflowStatus` enum value
+   (bedrock@v1.66.4 types/enums.go:267-274 declares only SCHEDULED /
+   CANCEL_REQUESTED / PREPROCESSING / BUILDING / TESTING / COMPLETED /
+   FAILED / CANCELLED). Fixed to `"CANCELLED"`/`"BUILDING"`; existing tests
+   hardcoding the old values were corrected, not weakened.
+
+**Accept-and-drop / disclosed, not fixed:** `DeleteAutomatedReasoningPolicyTestCase`/
+`UpdateAutomatedReasoningPolicyTestCase`/`DeleteAutomatedReasoningPolicyBuildWorkflow`'s
+real, required `LastUpdatedAt` optimistic-concurrency token is accepted by
+the SDK client-side validator but this backend has no per-record revision
+tracking to check it against (same class as several other services'
+revisionId fields) -- not fixed this pass, consistent with this file's
+existing precedent for unenforced concurrency tokens elsewhere.
+
+Gates: `go build ./...`, `go vet ./services/bedrock/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/bedrock/...` (0 issues),
+`go test -race -count=1 ./services/bedrock/... ./pkgs/persistence/...` --
+all clean. No persisted-struct field changed in bedrock this pass; no
+version bump.

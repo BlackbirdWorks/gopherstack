@@ -110,7 +110,9 @@ func (b *InMemoryBackend) CancelAutomatedReasoningPolicyBuildWorkflow(
 		)
 	}
 
-	wf.Status = "Cancelled"
+	// Real enum value is "CANCELLED" (bedrock@v1.66.4 types/enums.go:274), not
+	// the previous "Cancelled".
+	wf.Status = "CANCELLED"
 	wf.UpdatedAt = time.Now().UTC()
 
 	return nil
@@ -180,7 +182,11 @@ func (b *InMemoryBackend) CreateAutomatedReasoningPolicyVersion(
 	return &cp, nil
 }
 
-const statusRunning = "Running"
+// statusRunning uses the real AutomatedReasoningPolicyBuildWorkflowStatus
+// enum casing (bedrock@v1.66.4 types/enums.go:270) -- previously "Running",
+// a value not in the real enum at all, so a real client's equality check
+// against types.AutomatedReasoningPolicyBuildWorkflowStatusBuilding never matched.
+const statusRunning = "BUILDING"
 
 // GetAutomatedReasoningPolicy returns a single ARP by ARN.
 func (b *InMemoryBackend) GetAutomatedReasoningPolicy(policyARN string) (*AutomatedReasoningPolicy, error) {

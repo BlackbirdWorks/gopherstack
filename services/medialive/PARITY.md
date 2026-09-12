@@ -1594,3 +1594,40 @@ per instructions.
 
 Gates: `go test -race -count=1 ./services/medialive/...`,
 `golangci-lint run services/medialive/...` -- both clean.
+
+## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+
+Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 36/123 (29.3%)
+-> 122/123 (99.2%) ops driven by a real aws-sdk-go-v2 client anywhere in
+this repo's tests. `services/medialive/typed_slice6_realclient_test.go`
+added, 19 subtests covering channels (lifecycle/alerts/versions/class),
+account configuration, channel placement groups, clusters, networks, nodes
+(+registration script), input devices (claim/transfer lifecycle incl.
+accept/cancel/reject), input security groups, inputs (+partner input),
+multiplexes/programs, reservations/offerings, signal maps, SDI sources,
+schedules, tags, batch start/stop/delete, event bridge rule templates, and
+cloudwatch alarm templates — every named priority family for this slice.
+
+**Zero new bugs found** — every newly-covered op passed on the first
+correctly-shaped request against the existing implementation. Two
+test-authoring corrections needed (not bugs, both already documented
+in-code as deliberate real-AWS-contract emulation): `StartChannel`/
+`StopChannel`/`StartMultiplex`/`StopMultiplex` responses carry the
+intermediate `STARTING`/`STOPPING` state (not the settled `RUNNING`/`IDLE`
+the stored resource immediately advances to), matching real AWS's
+async-transition contract per `channels.go`'s/`multiplexes.go`'s own doc
+comments; `DeleteReservation` requires an `EXPIRED` reservation
+(`reservations.go`'s `effectiveState()`) and `PurchaseOffering`'s term
+length comes from the fixed offering catalog with no test-only time-travel
+hook, so it is the one op this slice could not exercise.
+
+**Remaining uncovered (1 op): `DeleteReservation`** — not a gap in the
+implementation, just untestable without fast-forwarding wall-clock time
+past a purchased reservation's term; real AWS has the identical
+constraint.
+
+Gates: `go build ./...`, `go vet ./services/medialive/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/medialive/...` (0
+issues), `go test -race -count=1 ./services/medialive/...` — all clean. No
+backend struct fields changed in medialive this pass, no
+`pkgs/persistence` impact, no version bump.

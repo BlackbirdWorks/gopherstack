@@ -108,12 +108,20 @@ func (h *Handler) deleteNetworkAnalyzerConfiguration(c *echo.Context, name strin
 	return nil
 }
 
+// updateNetworkAnalyzerConfiguration's request field names must match the
+// real *ToAdd/*ToRemove members (iotwireless@v1.59.4 serializers.go:8738) --
+// the previous WirelessDevices/WirelessGateways keys don't exist on the
+// real wire at all, so a real client's request always no-opped.
 func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name string) error {
 	var req struct {
-		TraceContent     *TraceContent `json:"TraceContent,omitempty"`
-		Description      string        `json:"Description"`
-		WirelessDevices  []string      `json:"WirelessDevices"`
-		WirelessGateways []string      `json:"WirelessGateways"`
+		TraceContent             *TraceContent `json:"TraceContent,omitempty"`
+		Description              string        `json:"Description"`
+		WirelessDevicesToAdd     []string      `json:"WirelessDevicesToAdd"`
+		WirelessDevicesToRemove  []string      `json:"WirelessDevicesToRemove"`
+		WirelessGatewaysToAdd    []string      `json:"WirelessGatewaysToAdd"`
+		WirelessGatewaysToRemove []string      `json:"WirelessGatewaysToRemove"`
+		MulticastGroupsToAdd     []string      `json:"MulticastGroupsToAdd"`
+		MulticastGroupsToRemove  []string      `json:"MulticastGroupsToRemove"`
 	}
 
 	body := readStubBody(c)
@@ -121,7 +129,10 @@ func (h *Handler) updateNetworkAnalyzerConfiguration(c *echo.Context, name strin
 
 	if err := h.Backend.UpdateNetworkAnalyzerConfig(
 		h.AccountID, h.DefaultRegion, name,
-		req.Description, req.WirelessDevices, req.WirelessGateways,
+		req.Description,
+		req.WirelessDevicesToAdd, req.WirelessDevicesToRemove,
+		req.WirelessGatewaysToAdd, req.WirelessGatewaysToRemove,
+		req.MulticastGroupsToAdd, req.MulticastGroupsToRemove,
 		req.TraceContent,
 	); err != nil {
 		return handleError(c, err)

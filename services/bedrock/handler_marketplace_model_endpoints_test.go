@@ -291,8 +291,9 @@ func TestAccuracy_MarketplaceEndpoint_UpdateReturnsEndpoint(t *testing.T) {
 
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, ep.EndpointArn, out["endpointArn"])
-	assert.NotEmpty(t, out["updatedAt"])
+	updated := out["marketplaceModelEndpoint"].(map[string]any)
+	assert.Equal(t, ep.EndpointArn, updated["endpointArn"])
+	assert.NotEmpty(t, updated["updatedAt"])
 }
 
 // TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig locks in the
@@ -347,7 +348,8 @@ func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) 
 
 	var updateOut map[string]any
 	mustUnmarshal(t, updateRec, &updateOut)
-	updatedCfg := updateOut["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	updatedEp := updateOut["marketplaceModelEndpoint"].(map[string]any)
+	updatedCfg := updatedEp["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/exec2", updatedCfg["executionRole"])
 	assert.Equal(t, "ml.m5.2xlarge", updatedCfg["instanceType"])
 	assert.InEpsilon(t, float64(3), updatedCfg["initialInstanceCount"], 0)
@@ -362,7 +364,8 @@ func TestAccuracy_MarketplaceEndpoint_UpdateAppliesEndpointConfig(t *testing.T) 
 	)
 	var getOut map[string]any
 	mustUnmarshal(t, getRec, &getOut)
-	getCfg := getOut["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	gotEp := getOut["marketplaceModelEndpoint"].(map[string]any)
+	getCfg := gotEp["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
 	assert.Equal(t, "ml.m5.2xlarge", getCfg["instanceType"])
 }
 
@@ -397,7 +400,8 @@ func TestAccuracy_MarketplaceEndpoint_UpdateWithoutEndpointConfigPreservesExisti
 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
-	cfg := out["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
+	updated := out["marketplaceModelEndpoint"].(map[string]any)
+	cfg := updated["endpointConfig"].(map[string]any)["sageMaker"].(map[string]any)
 	assert.Equal(t, "arn:aws:iam::000000000000:role/original", cfg["executionRole"])
 }
 

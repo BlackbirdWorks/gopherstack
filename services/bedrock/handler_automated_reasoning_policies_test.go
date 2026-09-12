@@ -480,7 +480,7 @@ func TestAccuracy_ARP_BuildWorkflowStatusTransitions(t *testing.T) {
 
 	// Add a build workflow via test helper
 	wf := b.AddBuildWorkflowForTest(policyARN)
-	assert.Equal(t, "Running", wf.Status)
+	assert.Equal(t, "BUILDING", wf.Status)
 
 	// Get the workflow
 	getRec := doRequest(t, h, http.MethodGet,
@@ -489,7 +489,7 @@ func TestAccuracy_ARP_BuildWorkflowStatusTransitions(t *testing.T) {
 
 	var getOut map[string]any
 	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
-	assert.Equal(t, "Running", getOut["status"])
+	assert.Equal(t, "BUILDING", getOut["status"])
 }
 
 func TestAccuracy_ARP_TestCaseRoundTrip(t *testing.T) {

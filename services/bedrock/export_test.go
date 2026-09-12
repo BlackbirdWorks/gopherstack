@@ -99,7 +99,7 @@ func (b *InMemoryBackend) AddBuildWorkflowForTest(policyARN string) *AutomatedRe
 	wf := &AutomatedReasoningPolicyBuildWorkflow{
 		BuildWorkflowID: id,
 		PolicyArn:       policyARN,
-		Status:          "Running",
+		Status:          "BUILDING",
 	}
 	b.arpBuildWorkflows.Put(wf)
 

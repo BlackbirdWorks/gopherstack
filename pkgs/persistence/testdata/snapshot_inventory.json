@@ -14933,6 +14933,7 @@
       "SingleWirelessDeviceImportTask.ARN string `json:\"arn\"`",
       "SingleWirelessDeviceImportTask.CreatedAt time.Time `json:\"createdAt\"`",
       "SingleWirelessDeviceImportTask.DestinationName string `json:\"destinationName\"`",
+      "SingleWirelessDeviceImportTask.ID string `json:\"id\"`",
       "SingleWirelessDeviceImportTask.Status string `json:\"status\"`",
       "SingleWirelessDeviceImportTask.WirelessDeviceID string `json:\"wirelessDeviceId\"`",
       "TraceContent.LogLevel string `json:\"LogLevel,omitempty\"`",

@@ -127,6 +127,7 @@ func (b *InMemoryBackend) StartSingleWirelessDeviceImportTask(
 	wirelessDeviceID := uuid.NewString()
 
 	task := &SingleWirelessDeviceImportTask{
+		ID:               id,
 		ARN:              arn,
 		WirelessDeviceID: wirelessDeviceID,
 		DestinationName:  destinationName,
