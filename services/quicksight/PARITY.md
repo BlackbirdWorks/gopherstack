@@ -1975,3 +1975,44 @@ grant.
 `go test -race -count=1 ./services/quicksight/... ./pkgs/persistence/...` -- both `ok`,
 including `TestSnapshotVersionGuard`; `golangci-lint run ./services/quicksight/...` --
 `0 issues`.
+
+## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+
+Added `typed_slice10_realclient_test.go` (`TestSlice10_QuickSight_RealClient`,
+one outer `t.Parallel()` test, 14 subtests), covering the highest-priority
+families named by this slice's sweep: VPC connections, custom permissions,
+OAuth client applications, asset bundle export jobs, dataset refresh
+schedules, topics (V1), brands, spaces, agents, knowledge bases, action
+connectors, dashboard snapshot jobs, automation jobs, and account-level
+settings (IP restriction, Q personalization, SPICE capacity). 59
+previously-uncovered ops now have a real typed round trip. **Zero real
+bugs found** -- every newly-covered op passed on its first correctly-shaped
+request. `VPCConnection`'s `SubnetIds` field is a Create/Update request-only
+member (confirmed absent from the real `DescribeVPCConnectionOutput`'s
+`VPCConnection` type, `types.go:24545-24583`) that this backend's own
+`vpcConnectionToMap` already documents and deliberately omits on read --
+not a bug, my own initial test assertion was simply wrong and was
+corrected, not the backend.
+
+Census: 145/292 (49.7%) -> 204/292 (69.9%) typed-covered. 88 ops remain,
+families: TopicV2 (Create/Describe/Update/Delete/List, permissions,
+refresh schedule, search -- the parallel V2 surface to the now-covered V1
+topic family), topic reviewed-answers (batch create/delete, list) and
+refresh (describe/list/create/delete/update schedules), IAM policy
+assignment (Create/Describe/Update/Delete/List, incl. per-user list),
+role/user/account custom-permission assignment (as opposed to the
+custom-permissions objects themselves, now covered), role membership,
+identity propagation config, self-upgrade config, brand assignment/
+published-version, default Q Business application, Dashboards-QA and
+QSearch configuration, and a Search* family (SearchAgents/DataSets/
+DataSources/KnowledgeBases/Topics/TopicsV2) needing indexed state this
+pass didn't set up. `items_still_open` unchanged (nothing in this slice's
+scope was previously named there).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/quicksight/...` clean. `go test -race -count=1
+./services/quicksight/... ./pkgs/persistence/...` `ok`. `golangci-lint run
+--new-from-rev=HEAD ./services/quicksight/...` 0 issues (after
+`goimports`/`golines` formatting). `go run ./cmd/paritylint` stays at 0
+FAIL. No persisted struct fields changed; snapshot inventory not touched;
+no version bump.

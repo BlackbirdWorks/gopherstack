@@ -201,12 +201,18 @@ func parseNetmaskLength(raw string) (int32, error) {
 }
 
 func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, error) {
-	// Accept either IpamId directly or fall back to the scope's parent IPAM.
-	// For simplicity, prefer IpamId; if not present, use IpamScopeId as-is.
-	ipamID := vals.Get("IpamId")
-	if ipamID == "" {
-		ipamID = vals.Get("IpamScopeId")
+	// The real CreateIpamPoolInput has no IpamId member at all (api_op_CreateIpamPool.go:36-47)
+	// -- IpamScopeId is the only identifier a real client ever sends. Resolve it to its
+	// parent IPAM here; treating the scope ID as an IPAM ID (the prior behavior) made this
+	// op fail InvalidIpamId.NotFound for every real client.
+	scopeID := vals.Get("IpamScopeId")
+
+	scopes := h.Backend.DescribeIpamScopes([]string{scopeID})
+	if len(scopes) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrIpamScopeNotFound, scopeID)
 	}
+
+	ipamID := scopes[0].IpamID
 
 	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
 	if err != nil {

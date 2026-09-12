@@ -4895,3 +4895,66 @@ editing. `services/ec2` was git-clean when this file was added.
 ./services/ec2/...` 0 issues after `--fix` resolved a `fieldalignment` finding on the new
 `InstanceRequirementsQuery` struct. No persisted struct changed; snapshot inventory not
 touched.
+
+## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+
+Added `typed_slice10_realclient_test.go` (`TestSlice10_RealClient`, one outer
+`t.Parallel()` test, 6 subtests), covering the highest-priority families
+named by this slice's sweep: IPAM core (Ipam/IpamScope/IpamPool CRUD),
+IPAM pool CIDR + resource discovery + external verification token, BYOIP/
+COIP/public IPv4 pools, Traffic Mirror (filter/rule/session/target
+lifecycle), Route Server (server/endpoint/peer/association/propagation),
+and Local Gateway (route table/route/VIF/VIF group + VPC and VIF-group
+associations). 68 previously-uncovered ops now have a real typed round
+trip.
+
+**One real wire-shape bug found and fixed**: `CreateIpamPool`'s handler
+(`handleCreateIpamPool`, `handler_ipam.go`) read `vals.Get("IpamId")` and,
+if empty, fell back to treating `vals.Get("IpamScopeId")` as an IPAM ID.
+The real `CreateIpamPoolInput` has no `IpamId` member at all
+(`api_op_CreateIpamPool.go:36-47`, pinned ec2@v1.329.0) -- `IpamScopeId` is
+the only identifier a real client ever sends. So every real client's
+`CreateIpamPool` call passed a scope ID into a lookup that expects an IPAM
+ID, which always missed and surfaced as `InvalidIpamId.NotFound` --
+`CreateIpamPool` never worked at all for a real SDK client, regardless of
+input. Fixed by resolving the scope via `h.Backend.DescribeIpamScopes` to
+find its parent `IpamID` before calling the backend. Five pre-existing
+raw-body tests (`ipam_family_test.go`, `ipam_policy_family_test.go`,
+`networking1_test.go`, `handler_advanced_networking_test.go`,
+`handler_ipam_verified_access_tags_test.go`) hardcoded the old, fabricated
+`IpamId=<ipam-id>` request shape for this one op; all five updated to the
+real `IpamScopeId=<scope-id>` shape, not weakened -- each now extracts
+`<privateDefaultScopeId>` from its `CreateIpam` response instead of
+`<ipamId>` for this specific call.
+
+**Accept-and-drop finding, not fixed** (real, documented, low severity):
+`ProvisionPublicIpv4PoolCidr`'s `IpamPoolId` is a real, required member of
+the wire request (`api_op_ProvisionPublicIpv4PoolCidr.go:35-36`) that this
+backend accepts and silently drops (`handleProvisionPublicIpv4PoolCidr`,
+`handler_ip_pools.go`) -- this backend's public-IPv4-pool model tracks
+standalone pools, not ones sourced from an IPAM pool, so there is nothing
+to link the value to. Not fabrication (the field is simply unused), but a
+real completeness gap for any client asserting IPAM/public-pool linkage.
+
+Census: 433/785 (55.2%) -> 501/785 (63.8%) typed-covered. 284 ops remain,
+families: TGW peripherals (Accept/Reject/Delete for peering/VPC/ClientVpn/
+multicast attachments, metering policy, policy table, prefix list
+reference, route table announcement), Verified Access (trust provider
+attach/detach, group/instance/trust-provider delete, endpoint/group policy
+get/modify, logging configuration), VPN + Client VPN (connection route,
+tunnel replace/certificate/options, concentrator describe/delete, client
+cert revocation list import/export, ingress revoke), IPAM policy/BYOASN/
+prefix-list-resolver families, Capacity Reservation extras (split, fleet
+cancel/modify, billing ownership), Network Insights (access scope/analysis
+delete), MAC host/modification tasks, application status checks, VPC
+encryption control, and a long tail of Get*/Modify*/Describe* single-op
+families with no natural grouping. `items_still_open` unchanged (this
+slice's one fix was freshly discovered, not previously named there).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` clean. `go test -race -count=1 ./services/ec2/...
+./pkgs/persistence/...` `ok`. `golangci-lint run --new-from-rev=HEAD
+./services/ec2/...` 0 issues (after `goimports`/`golines` formatting and
+one `lll` line-length fix). `go run ./cmd/paritylint` stays at 0 FAIL. No
+persisted struct fields changed; snapshot inventory not touched; no
+version bump.

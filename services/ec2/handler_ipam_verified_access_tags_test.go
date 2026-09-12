@@ -79,6 +79,21 @@ func createTestIpam(t *testing.T, h *ec2.Handler) string {
 	return id
 }
 
+// createTestIpamPrivateScope creates an IPAM and returns its private default
+// scope ID -- the real CreateIpamPoolInput identifier (IpamScopeId), not
+// IpamId (api_op_CreateIpamPool.go has no IpamId member at all).
+func createTestIpamPrivateScope(t *testing.T, h *ec2.Handler) string {
+	t.Helper()
+
+	resp, err := dispatchHandler(h, url.Values{"Action": []string{"CreateIpam"}})
+	require.NoError(t, err)
+
+	id := extractBetween(t, resp, "<privateDefaultScopeId>", "</privateDefaultScopeId>")
+	require.NotEmpty(t, id)
+
+	return id
+}
+
 func testIpamScopeCreateTags(t *testing.T) {
 	t.Helper()
 
@@ -110,11 +125,11 @@ func testIpamPoolCreateTags(t *testing.T) {
 	t.Helper()
 
 	h := newTestHandler()
-	ipamID := createTestIpam(t, h)
+	scopeID := createTestIpamPrivateScope(t, h)
 
 	createResp, err := dispatchHandler(h, url.Values{
 		"Action":                          []string{"CreateIpamPool"},
-		"IpamId":                          []string{ipamID},
+		"IpamScopeId":                     []string{scopeID},
 		"AddressFamily":                   []string{"ipv4"},
 		"TagSpecification.1.ResourceType": []string{"ipam-pool"},
 		"TagSpecification.1.Tag.1.Key":    []string{"Name"},

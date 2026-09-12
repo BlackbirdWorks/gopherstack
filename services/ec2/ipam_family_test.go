@@ -263,6 +263,11 @@ func TestIpam_HTTP(t *testing.T) {
 	ipamID := body[indexOf(body, "<ipamId>")+len("<ipamId>") : indexOf(body, "</ipamId>")]
 	require.NotEmpty(t, ipamID)
 
+	privateScopeID := body[indexOf(body, "<privateDefaultScopeId>")+len("<privateDefaultScopeId>") : indexOf(
+		body, "</privateDefaultScopeId>",
+	)]
+	require.NotEmpty(t, privateScopeID)
+
 	describeRec := postForm(t, h, fmt.Sprintf("Action=DescribeIpams&Version=2016-11-15&IpamId.1=%s", ipamID))
 	require.Equal(t, http.StatusOK, describeRec.Code)
 	assert.Contains(t, describeRec.Body.String(), "<ipamSet>")
@@ -284,8 +289,8 @@ func TestIpam_HTTP(t *testing.T) {
 	assert.Contains(t, scopeBody, "<ipamScopeType>private</ipamScopeType>")
 
 	poolRec := postForm(t, h, fmt.Sprintf(
-		"Action=CreateIpamPool&Version=2016-11-15&IpamId=%s&AddressFamily=ipv4&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
-		ipamID,
+		"Action=CreateIpamPool&Version=2016-11-15&IpamScopeId=%s&AddressFamily=ipv4&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
+		privateScopeID,
 	))
 	require.Equal(t, http.StatusOK, poolRec.Code)
 

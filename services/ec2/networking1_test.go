@@ -490,15 +490,15 @@ func TestNetworking1_Handler_IPAMPoolOps(t *testing.T) {
 	ipamRec := postForm(t, h, "Action=CreateIpam&Version=2016-11-15")
 	require.Equal(t, http.StatusOK, ipamRec.Code)
 	ipamBody := ipamRec.Body.String()
-	ipamIDStart := indexOf(ipamBody, "<ipamId>") + len("<ipamId>")
-	ipamIDEnd := indexOf(ipamBody, "</ipamId>")
-	require.Greater(t, ipamIDEnd, ipamIDStart)
-	ipamID := ipamBody[ipamIDStart:ipamIDEnd]
+	scopeIDStart := indexOf(ipamBody, "<privateDefaultScopeId>") + len("<privateDefaultScopeId>")
+	scopeIDEnd := indexOf(ipamBody, "</privateDefaultScopeId>")
+	require.Greater(t, scopeIDEnd, scopeIDStart)
+	scopeID := ipamBody[scopeIDStart:scopeIDEnd]
 
 	// Create pool.
 	poolRec := postForm(t, h, fmt.Sprintf(
-		"Action=CreateIpamPool&Version=2016-11-15&IpamId=%s&AddressFamily=ipv4&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
-		ipamID,
+		"Action=CreateIpamPool&Version=2016-11-15&IpamScopeId=%s&AddressFamily=ipv4&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
+		scopeID,
 	))
 	require.Equal(t, http.StatusOK, poolRec.Code)
 	poolBody := poolRec.Body.String()

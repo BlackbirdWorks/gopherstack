@@ -355,14 +355,17 @@ func TestEC2Core_Handler_IPAMViaHandler(t *testing.T) {
 	body := createRec.Body.String()
 	ipamIDStart := indexOf(body, "<ipamId>") + len("<ipamId>")
 	ipamIDEnd := indexOf(body, "</ipamId>")
-	if ipamIDStart > 0 && ipamIDEnd > ipamIDStart {
+	scopeIDStart := indexOf(body, "<privateDefaultScopeId>") + len("<privateDefaultScopeId>")
+	scopeIDEnd := indexOf(body, "</privateDefaultScopeId>")
+	if ipamIDStart > 0 && ipamIDEnd > ipamIDStart && scopeIDEnd > scopeIDStart {
 		ipamID := body[ipamIDStart:ipamIDEnd]
+		scopeID := body[scopeIDStart:scopeIDEnd]
 
 		// Create pool.
 		poolRec := postForm(t, h, fmt.Sprintf(
-			"Action=CreateIpamPool&Version=2016-11-15&IpamId=%s"+
+			"Action=CreateIpamPool&Version=2016-11-15&IpamScopeId=%s"+
 				"&AddressFamily=ipv4&Locale=us-east-1&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
-			ipamID,
+			scopeID,
 		))
 		assert.Equal(t, http.StatusOK, poolRec.Code)
 

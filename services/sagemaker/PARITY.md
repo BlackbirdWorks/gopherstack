@@ -6589,3 +6589,46 @@ Gates: `go build ./...`, `go vet ./services/sagemaker/...`, `go test -race
 --new-from-rev=HEAD ./services/sagemaker/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL. No version bump — no `backendSnapshot` struct field
 touched.
+
+## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+
+Added `typed_slice10_realclient_test.go` (`TestSlice10_SageMaker_RealClient`,
+one outer `t.Parallel()` test, 10 subtests), covering the highest-priority
+families named by this slice's sweep: inference components (Create/
+Describe/Update/List/Delete), hub + hub content (Create/DescribeHub,
+ImportHubContent, Describe/DeleteHubContent, DeleteHub), MLflow tracking
+servers (Create/Describe/Delete + presigned URL), partner apps (Create/
+Describe/Delete + presigned URL), optimization jobs (Create/Describe/
+Stop/Delete), labeling jobs (Create/Describe/List/Stop), studio lifecycle
+configs (Create/Describe/Delete), workforces (Create/Describe/Update/
+List/Delete), workteams (Create/Describe/List/Delete), and monitoring
+schedule lifecycle (Start/Stop/Delete, on top of the already-covered
+Create). 31 previously-uncovered ops now have a real typed round trip
+(several more ops in these families -- e.g. `UpdateInferenceComponent`,
+`ListInferenceComponents`, `DescribeWorkforce`/`DescribeWorkteam`,
+`ListWorkforces`/`ListWorkteams` -- were already covered by an earlier
+slice's note listing them as uncovered families to target; this pass's
+tests exercise them directly). **Zero real bugs found** -- every
+newly-covered op passed on its first correctly-shaped request.
+
+Census: 276/403 (68.5%) -> 307/403 (76.2%) typed-covered. 96 ops remain,
+families: AI benchmark/recommendation jobs (Create/Describe/Delete/Stop),
+edge deployment stage/plan lifecycle, generic Job family (CreateJob/
+DescribeJob/ListJobs/StopJob/DeleteJob -- the newer unified job API),
+transform/processing/compilation job Stop/Delete/List, lineage (Action/
+Artifact/Context/Association update/delete, LineageGroup describe/policy),
+AutoML V1/V2 describe/list/stop, model-quality/bias/explainability job
+definitions (Delete/Describe/List), device fleet delete/deregister/report,
+servicecatalog portfolio enable/disable/status, and a long tail of
+singletons (RenderUiTemplate, StartSession, ListModelMetadata,
+ListResourceCatalogs, UpdateClusterSoftware, UpdatePipelineVersion, etc.).
+`items_still_open` unchanged (nothing in this slice's scope was previously
+named there).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/sagemaker/...` clean. `go test -race -count=1
+./services/sagemaker/... ./pkgs/persistence/...` `ok`. `golangci-lint run
+--new-from-rev=HEAD ./services/sagemaker/...` 0 issues (after
+`goimports`/`golines` formatting). `go run ./cmd/paritylint` stays at 0
+FAIL. No persisted struct fields changed; snapshot inventory not touched;
+no version bump.
