@@ -234,7 +234,7 @@ func TestDistributeDatasetEntries_SetsInProgress(t *testing.T) { //nolint:parall
 
 	rec = doRequest(t, h, "DistributeDatasetEntries", map[string]any{
 		"Datasets": []any{
-			map[string]any{"DatasetArn": dsARN},
+			map[string]any{"Arn": dsARN},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -274,7 +274,7 @@ func TestDeleteDataset_WhileUpdating_Rejected(t *testing.T) { //nolint:parallelt
 
 	rec = doRequest(t, h, "DistributeDatasetEntries", map[string]any{
 		"Datasets": []any{
-			map[string]any{"DatasetArn": dsARN},
+			map[string]any{"Arn": dsARN},
 		},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -294,7 +294,7 @@ func TestDistributeDatasetEntries_UnknownDataset(t *testing.T) {
 
 	rec := doRequest(t, h, "DistributeDatasetEntries", map[string]any{
 		"Datasets": []any{
-			map[string]any{"DatasetArn": "arn:aws:rekognition:us-east-1:000000000000:project/x/dataset/train/1"},
+			map[string]any{"Arn": "arn:aws:rekognition:us-east-1:000000000000:project/x/dataset/train/1"},
 		},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -411,7 +411,7 @@ func TestDatasets(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run("DistributeDatasetEntries succeeds", func(t *testing.T) { //nolint:paralleltest // existing issue.
 		rec := doRequest(t, h, "DistributeDatasetEntries", map[string]any{ //nolint:govet // existing issue.
 			"Datasets": []any{
-				map[string]any{"DatasetArn": datasetARN},
+				map[string]any{"Arn": datasetARN},
 			},
 		})
 		assert.Equal(t, http.StatusOK, rec.Code)

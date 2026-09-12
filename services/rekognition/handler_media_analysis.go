@@ -110,8 +110,16 @@ type segmentTypeInfoWire struct {
 	Type string `json:"Type"`
 }
 
+// getSegmentDetectionResp's VideoMetadata deliberately shadows (not embeds
+// as-is) getJobBaseResp's field: real GetSegmentDetectionOutput.VideoMetadata
+// is a LIST, not a single object, unlike every other Get<Family> video-job
+// response (api_op_GetSegmentDetection.go: "Amazon Rekognition Video
+// returns a single object in the VideoMetadata array"). Emitting the shared
+// single-object shape here would fail a real client's JSON decode outright
+// (array destination fed a JSON object), not just drop a field.
 type getSegmentDetectionResp struct {
 	getJobBaseResp
+	VideoMetadata        []videoMetadata       `json:"VideoMetadata"`
 	Segments             []struct{}            `json:"Segments"`
 	SelectedSegmentTypes []segmentTypeInfoWire `json:"SelectedSegmentTypes"`
 }
@@ -129,8 +137,14 @@ func (h *Handler) handleGetSegmentDetection(
 		selected = append(selected, segmentTypeInfoWire{Type: t})
 	}
 
+	videoMeta := []videoMetadata{}
+	if base.VideoMetadata != nil {
+		videoMeta = []videoMetadata{*base.VideoMetadata}
+	}
+
 	return &getSegmentDetectionResp{
 		getJobBaseResp:       *base,
+		VideoMetadata:        videoMeta,
 		Segments:             []struct{}{},
 		SelectedSegmentTypes: selected,
 	}, nil

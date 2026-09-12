@@ -655,3 +655,35 @@ Gates re-run: `GOTOOLCHAIN=go1.26.6 go build ./services/workmail/...`
 (clean), `GOTOOLCHAIN=go1.26.6 go test -race -count=1
 ./services/workmail/...` (pass, unchanged), `GOTOOLCHAIN=go1.26.6
 golangci-lint run services/workmail/...` (0 issues).
+
+## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+
+Typed-client coverage: 34/92 (37.0%) -> 92/92 (100%) ops now driven by a
+real aws-sdk-go-v2 workmail client end to end (`typed_slice13_realclient_test.go`,
+17 subtests, family-per-row, each a fresh backend: tags, aliases,
+availability configurations, IAM Identity Center application + identity
+provider configuration, impersonation roles (incl. AssumeImpersonationRole
+and GetImpersonationRoleEffect), mobile device access rules, mobile device
+access overrides, personal access tokens (seeded via the existing
+backend-direct `CreatePersonalAccessToken` test helper -- the real WorkMail
+API has no create op for these), resource delegates, inbound DMARC
+settings, email monitoring configuration, retention policy, access control
+rules, default mail domain, mailbox extras (quota/export job lifecycle),
+DescribeEntity + group membership + UpdateGroup, and ResetPassword +
+UpdatePrimaryEmailAddress).
+
+**Zero new bugs found** -- every op passed against its real typed-decoded
+response on the first correctly-shaped request. Consistent with this
+service's long, itemized prior-pass history in this file (the addendum
+above this section alone traces a `DeleteMobileDeviceAccessOverride`
+error-code question through to a confirmed non-finding); the wire shapes
+this slice exercised had already been through the same field-by-field
+diffing this campaign's earlier passes on other services found bugs
+through.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/workmail/...`
+clean, `golangci-lint run --new-from-rev=HEAD services/workmail/...` 0
+issues, `go test -race -count=1 ./services/workmail/...` green,
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
+changes; no version bump; no `items_still_open` changes (nothing new
+found to disclose).

@@ -1,7 +1,9 @@
 package opsworks
 
 import (
+	"encoding/json"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -90,7 +92,7 @@ func (l *storedLayer) toLayer() *Layer {
 type storedInstance struct {
 	CreatedAt    time.Time `json:"createdAt"`
 	StackID      string    `json:"stackId"`
-	LayerID      string    `json:"layerId"`
+	LayerIDs     []string  `json:"layerIds"`
 	InstanceID   string    `json:"instanceId"`
 	Arn          string    `json:"arn"`
 	Hostname     string    `json:"hostname"`
@@ -99,11 +101,35 @@ type storedInstance struct {
 	Registered   bool      `json:"registered"`
 }
 
+// UnmarshalJSON tolerates a pre-slice13 snapshot's singular "layerId"
+// string alongside the current plural "layerIds" array, so an on-disk
+// snapshot written before CreateInstance/AssignInstance's multi-layer fix
+// still restores instead of being discarded by the version guard.
+func (i *storedInstance) UnmarshalJSON(data []byte) error {
+	type alias storedInstance
+
+	var v struct {
+		LayerID *string `json:"layerId"`
+		alias
+	}
+
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+
+	*i = storedInstance(v.alias)
+	if v.LayerID != nil && len(i.LayerIDs) == 0 {
+		i.LayerIDs = []string{*v.LayerID}
+	}
+
+	return nil
+}
+
 func (i *storedInstance) toInstance() *Instance {
 	return &Instance{
 		CreatedAt:    i.CreatedAt,
 		StackID:      i.StackID,
-		LayerID:      i.LayerID,
+		LayerIDs:     slices.Clone(i.LayerIDs),
 		InstanceID:   i.InstanceID,
 		Arn:          i.Arn,
 		Hostname:     i.Hostname,

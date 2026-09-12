@@ -26,7 +26,7 @@ type StorageBackend interface {
 	DeleteLayer(layerID string) error
 
 	// Instance operations
-	CreateInstance(stackID, layerID, instanceType string) (*Instance, error)
+	CreateInstance(stackID string, layerIDs []string, instanceType string) (*Instance, error)
 	RegisterInstance(stackID, hostname string) (string, error)
 	DeregisterInstance(instanceID string) error
 	AssignInstance(instanceID string, layerIDs []string) error
@@ -227,7 +227,7 @@ type Layer struct {
 type Instance struct {
 	CreatedAt    time.Time
 	StackID      string
-	LayerID      string
+	LayerIDs     []string
 	InstanceID   string
 	Arn          string
 	Hostname     string

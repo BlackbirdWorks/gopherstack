@@ -1,6 +1,7 @@
 package opsworks
 
 import (
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -113,7 +114,7 @@ func (b *InMemoryBackend) DeleteLayer(layerID string) error {
 	}
 
 	for _, i := range b.instancesByStack.Get(l.StackID) {
-		if i.LayerID == layerID {
+		if slices.Contains(i.LayerIDs, layerID) {
 			return ErrValidation
 		}
 	}

@@ -95,7 +95,15 @@ func (h *Handler) handleDescribeMyUserProfile(_ context.Context, _ []byte) (any,
 		return nil, err
 	}
 
-	return map[string]any{"UserProfile": userProfileToJSON(profile)}, nil
+	// types.SelfUserProfile (opsworks@v1.31.0 types.go:1677) has no
+	// AllowSelfManagement member, unlike types.UserProfile -- a distinct,
+	// narrower wire shape from userProfileToJSON's.
+	return map[string]any{"UserProfile": map[string]any{
+		fieldIamUserArn: profile.IamUserArn,
+		keyName:         profile.Name,
+		"SshUsername":   profile.SSHUsername,
+		"SshPublicKey":  profile.SSHPublicKey,
+	}}, nil
 }
 
 // handleUpdateMyUserProfile handles UpdateMyUserProfile requests.

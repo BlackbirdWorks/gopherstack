@@ -2,17 +2,21 @@ package opsworks
 
 import (
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-// CreateInstance creates a new instance in a stack/layer. StackId,
+// CreateInstance creates a new instance in a stack/layer(s). StackId,
 // LayerIds (at least one), and InstanceType are all "This member is
 // required" on the real CreateInstanceInput (confirmed against
-// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateInstance.go).
-func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) (*Instance, error) {
-	if stackID == "" || layerID == "" || instanceType == "" {
+// aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CreateInstance.go) --
+// LayerIds is genuinely plural on the real wire ("An array that contains
+// the instance's layer IDs"), so every requested layer is validated and
+// stored, not just the first.
+func (b *InMemoryBackend) CreateInstance(stackID string, layerIDs []string, instanceType string) (*Instance, error) {
+	if stackID == "" || len(layerIDs) == 0 || instanceType == "" {
 		return nil, ErrValidation
 	}
 
@@ -23,8 +27,10 @@ func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) 
 		return nil, ErrStackNotFound
 	}
 
-	if !b.layers.Has(layerID) {
-		return nil, ErrLayerNotFound
+	for _, layerID := range layerIDs {
+		if !b.layers.Has(layerID) {
+			return nil, ErrLayerNotFound
+		}
 	}
 
 	id := uuid.NewString()
@@ -35,7 +41,7 @@ func (b *InMemoryBackend) CreateInstance(stackID, layerID, instanceType string) 
 	i := &storedInstance{
 		CreatedAt:    now,
 		StackID:      stackID,
-		LayerID:      layerID,
+		LayerIDs:     slices.Clone(layerIDs),
 		InstanceID:   id,
 		Arn:          b.instanceARN(id),
 		Hostname:     hostname,
@@ -124,23 +130,23 @@ func (b *InMemoryBackend) AssignInstance(instanceID string, layerIDs []string) e
 		return ErrValidation
 	}
 
-	layerID := layerIDs[0]
+	for _, layerID := range layerIDs {
+		l, layerOK := b.layers.Get(layerID)
+		if !layerOK {
+			return ErrLayerNotFound
+		}
 
-	l, ok := b.layers.Get(layerID)
-	if !ok {
-		return ErrLayerNotFound
+		if l.StackID != i.StackID {
+			return ErrValidation
+		}
 	}
 
-	if l.StackID != i.StackID {
-		return ErrValidation
-	}
-
-	i.LayerID = layerID
+	i.LayerIDs = slices.Clone(layerIDs)
 
 	return nil
 }
 
-// UnassignInstance removes an instance from its layer.
+// UnassignInstance removes an instance from its layer(s).
 func (b *InMemoryBackend) UnassignInstance(instanceID string) error {
 	b.mu.Lock("UnassignInstance")
 	defer b.mu.Unlock()
@@ -150,7 +156,7 @@ func (b *InMemoryBackend) UnassignInstance(instanceID string) error {
 		return ErrInstanceNotFound
 	}
 
-	i.LayerID = ""
+	i.LayerIDs = nil
 
 	return nil
 }
@@ -177,7 +183,7 @@ func (b *InMemoryBackend) DescribeInstances(stackID, layerID string, instanceIDs
 
 	result := make([]*Instance, 0, len(source))
 	for _, i := range source {
-		if layerID != "" && i.LayerID != layerID {
+		if layerID != "" && !slices.Contains(i.LayerIDs, layerID) {
 			continue
 		}
 		result = append(result, i.toInstance())

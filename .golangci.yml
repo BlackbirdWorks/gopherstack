@@ -551,6 +551,10 @@ linters:
       # Same reasoning as opsworks/sdk_roundtrip_test.go above.
       - path: 'opsworks/list_filter_params_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as opsworks/sdk_roundtrip_test.go above -- typed
+      # coverage slice 13 (gopherstack-n3zi).
+      - path: 'opsworks/typed_slice13_realclient_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

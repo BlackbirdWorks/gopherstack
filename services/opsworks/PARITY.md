@@ -1,8 +1,8 @@
 service: opsworks
-sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # exists in the module cache but is NOT
-                                                       # a go.mod dependency of this repo (see
-                                                       # note below) — audited by reading the
-                                                       # module source directly, not via import.
+sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # now a real go.mod dependency (added for
+                                                       # typed-client testing -- gopherstack-n3zi
+                                                       # slices; STALE as of 2026-09-12, this used
+                                                       # to say "not a go.mod dependency").
 last_audit_commit: 5f0e2722b
 last_audit_date: 2026-08-15
 # gopherstack-6flj/21my re-sweep (2026-08-29): spot-checked filter/sort-drop risk
@@ -37,10 +37,10 @@ ops:
   DescribeLayers: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateLayer: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLayer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-04 (gopherstack-2rx): missing delete precondition -- api_op_DeleteLayer.go: \"You must first stop and then delete all associated instances or unassign registered instances.\" Previously deleted the layer unconditionally, leaving any instance still assigned to it (storedInstance.LayerID) with a dangling reference to a deleted layer. Now returns ValidationException if any instance is still assigned."}
-  CreateInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates all 3 required members (StackId/LayerIds/InstanceType) and that the target layer exists -- previously silently accepted a nonexistent layer ID"}
+  CreateInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates all 3 required members (StackId/LayerIds/InstanceType) and that the target layer exists -- previously silently accepted a nonexistent layer ID. FIXED 2026-09-12 (gopherstack-n3zi typed slice 13): LayerIds is genuinely plural on the real wire (api_op_CreateInstance.go: \"An array that contains the instance's layer IDs\"), but the handler truncated it to only its first element and the backend's own param was singular -- a real client's multi-layer CreateInstance silently dropped every layer past the first. storedInstance.LayerID (string) -> LayerIDs ([]string); tolerant UnmarshalJSON accepts a legacy singular \"layerId\" snapshot key, no version bump."}
   RegisterInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "now validates the required StackId member (gopherstack-4uhx) -- an empty StackId previously fell through to the stack-lookup's ResourceNotFoundException instead of ValidationException"}
   DeregisterInstance: {wire: ok, errors: ok, state: ok, persist: ok}
-  AssignInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies the target layer exists AND belongs to the same stack as the instance -- previously accepted any layer ID, including nonexistent or cross-stack ones, without checking either. Also now enforces AWS's documented business rule (api_op_AssignInstance.go: \"You cannot use this action with instances that were created with OpsWorks Stacks\") via storedInstance.Registered (gopherstack-4uhx)"}
+  AssignInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "now verifies the target layer exists AND belongs to the same stack as the instance -- previously accepted any layer ID, including nonexistent or cross-stack ones, without checking either. Also now enforces AWS's documented business rule (api_op_AssignInstance.go: \"You cannot use this action with instances that were created with OpsWorks Stacks\") via storedInstance.Registered (gopherstack-4uhx). FIXED 2026-09-12 (gopherstack-n3zi typed slice 13): same plural-LayerIds truncation-to-first-element bug as CreateInstance above -- every requested layer is now validated and stored, not just layerIds[0]."}
   UnassignInstance: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED wire bug -- was emitting a singular 'LayerId' string; real types.Instance has a plural 'LayerIds' []string member, so a real SDK client's Instance.LayerIds field would never have populated from this backend's old response"}
   UpdateInstance: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -59,7 +59,7 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "same stack/layer-only restriction as TagResource"}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated via sorted-key nextToken; same stack/layer-only restriction as TagResource"}
 families:
-  UserProfile: {status: ok, note: "CreateUserProfile/DeleteUserProfile/DescribeUserProfiles/UpdateUserProfile/DescribeMyUserProfile/UpdateMyUserProfile all mutate real state and persist"}
+  UserProfile: {status: ok, note: "CreateUserProfile/DeleteUserProfile/DescribeUserProfiles/UpdateUserProfile/DescribeMyUserProfile/UpdateMyUserProfile all mutate real state and persist. FIXED 2026-09-12 (gopherstack-n3zi typed slice 13): UpdateMyUserProfile was a no-op stub that silently dropped every real client's SshPublicKey; DescribeMyUserProfile now echoes it back (backed by a new InMemoryBackend.myUserProfileSSHKey field, additive backendSnapshot row, no version bump). Also fixed DescribeMyUserProfile's wire response to use the real, narrower types.SelfUserProfile shape (IamUserArn/Name/SshUsername/SshPublicKey only) instead of reusing userProfileToJSON's types.UserProfile shape, which carries a fabricated AllowSelfManagement member SelfUserProfile does not have."}
   ElasticLoadBalancer: {status: ok, note: "Attach/Detach/Describe all real. FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): DescribeElasticLoadBalancers' real, plural LayerIds filter member (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_DescribeElasticLoadBalancers.go) was silently discarded -- the handler truncated it to only its first element and the backend method's own parameter was named `_`, never read at all. Now honors the full list via slices.Contains. Per-item fields AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId remain unmodeled on the wire -- see gaps, structural (this backend has no VPC/subnet/EC2-instance model to source them from)."}
   ElasticIp: {status: ok, note: "Register/Deregister/Associate/Disassociate/Describe/Update all real. FIXED 2026-08-15 (gopherstack-6flj wrapper-key sweep): RegisterElasticIpInput's real, required StackId member was entirely unmodeled -- the handler instead read a fabricated 'Region' field that does not exist on the real input at all, and an empty/missing StackId was never rejected (200 instead of the real API's required-member ValidationException). Now validates StackId is present (and that the referenced stack exists) and threads it through to DescribeElasticIps' real StackId filter member, which was also previously discarded. StackId is kept as an internal-only field (storedElasticIP/ElasticIP.StackID) and deliberately never serialized on the wire -- the real types.ElasticIp has no StackId member."}
   Volume: {status: ok, note: "Register/Deregister/Assign/Unassign/Describe/Update all real. DescribeVolumes now also filters by StackId (real DescribeVolumesInput supports it; this backend previously silently dropped the parameter). Wire no longer emits invented 'StackId' field (real types.Volume has none). AssignVolume now verifies the instance belongs to the same stack the volume was registered with. RegisterVolume now validates the required StackId member (gopherstack-4uhx). AssignVolume's own required VolumeId member is now pre-validated for emptiness too (FIXED 2026-08-23, batch14) -- an empty VolumeId now returns ValidationException instead of falling through to ResourceNotFoundException."}
@@ -73,7 +73,7 @@ items_still_open:
   - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
   - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
   - "FIXED 2026-08-23 (batch14): AssignVolume's required VolumeId member (RegisterVolume's own required StackId was fixed in gopherstack-4uhx, see families.Volume) is now pre-validated for emptiness -- an empty VolumeId now returns ValidationException instead of falling through to the volume-lookup's ResourceNotFoundException. Confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignVolume.go / validateOpAssignVolumeInput (VolumeId required, InstanceId not). TestAssignVolumeValidation (volumes_test.go), hand-reverted to confirm it fails with 404 ResourceNotFoundException pre-fix."
-  - "No test/integration/*_parity_test.go suite exists for opsworks (the deprecated SDK isn't a go.mod dependency, so a client-driven integration test needs either vendoring it or hand-rolling raw HTTP requests in the integration-test harness style). This is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though this pass's live-HTTP verification covered all 73 ops. Building that suite is a real, nontrivial follow-on task, not done this pass."
+  - "No test/integration/*_parity_test.go suite exists for opsworks. The deprecated SDK IS now a go.mod dependency (added by gopherstack-n3zi's typed-coverage slices for services/opsworks/*_test.go's in-process httptest round trips) -- a prior version of this note incorrectly said otherwise. A Docker-backed test/integration suite is still not built; this is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though the in-process typed-client suite (sdk_roundtrip_test.go, list_filter_params_test.go, typed_slice13_realclient_test.go) now covers all 74 ops through the real SDK client end to end. Building the Docker-backed suite is a real, nontrivial follow-on task, not done this pass."
   - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
 deferred:                 # consciously not audited/implemented this pass (scope)
   - "CreateStack's VpcId/Attributes/ConfigurationManager/ChefConfiguration are now modeled (gopherstack-4uhx), but the rest of CreateStack's optional surface (AgentVersion, CustomCookbooksSource, CustomJson, DefaultAvailabilityZone, DefaultOs, DefaultRootDeviceType, DefaultSshKeyName, DefaultSubnetId, HostnameTheme, UseCustomCookbooks, UseOpsworksSecurityGroups) is not, and CreateLayer/CreateApp/CreateInstance's full optional surfaces (CloudWatchLogsConfiguration, LifecycleEventConfiguration, VolumeConfigurations, AppSource, DataSources, Environment, SslConfiguration, BlockDeviceMappings, etc.) remain entirely unmodeled -- only the fields this backend's Handler already decodes were audited for wire-shape correctness."
@@ -795,3 +795,44 @@ green; `GOTOOLCHAIN=go1.26.6 golangci-lint run services/opsworks/...`
 `0 issues.`. No subagents used. No git-mutating commands run --
 orchestrator must commit/push. Only `services/opsworks/*` files touched;
 `services/s3control/` never read or written.
+
+## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+
+Typed-client coverage: 15/74 (20.3%) -> 74/74 (100%) ops now driven by a
+real aws-sdk-go-v2 opsworks client end to end (`typed_slice13_realclient_test.go`,
+15 subtests, family-per-row, each a fresh backend). Two real bugs found and
+fixed via decoded typed-client values, both already noted above under
+`ops.CreateInstance`/`ops.AssignInstance` and `families.UserProfile`:
+
+1. `CreateInstance`/`AssignInstance`'s real, plural `LayerIds` request
+   member was silently truncated to its first element (`layerIds[0]`); the
+   backend's `storedInstance.LayerID` model only ever tracked one layer at
+   all. A real client assigning an instance to two layers only ever saw
+   one survive. Fixed by widening the model to `LayerIDs []string`
+   end to end (interfaces.go, models.go, instances.go, layers.go's
+   `DeleteLayer` precondition, handler_instances.go). Non-additive rename
+   (`storedInstance.LayerID string "layerId"` -> `LayerIDs []string
+   "layerIds"`); given a tolerant `UnmarshalJSON` on `storedInstance`
+   accepting the legacy singular key, no version bump was needed
+   (`pkgs/persistence/testdata/snapshot_inventory.json` updated via
+   `-update`, diff limited to the two changed opsworks rows).
+2. `UpdateMyUserProfile` was a pure stub (`func(_ string) error { return
+   nil }`) that silently dropped every real client's `SshPublicKey`; a
+   subsequent `DescribeMyUserProfile` could never observe the change.
+   Fixed with a new `InMemoryBackend.myUserProfileSSHKey` field (additive
+   `backendSnapshot` row, no version bump) and `DescribeMyUserProfile`'s
+   wire response corrected to the real, narrower `types.SelfUserProfile`
+   shape (no `AllowSelfManagement` member, unlike `types.UserProfile`).
+
+Also corrected a stale header note (`sdk_module:` comment previously said
+the SDK "is NOT a go.mod dependency" -- it has been one since an earlier
+pass added `sdk_roundtrip_helper_test.go`) and the matching
+`items_still_open` bullet.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/opsworks/...`
+clean, `golangci-lint run --new-from-rev=HEAD services/opsworks/...` 0
+issues (after adding `typed_slice13_realclient_test.go` to `.golangci.yml`'s
+existing opsworks SA1019-deprecation exclusion list, same pattern as the
+service's three prior typed-client test files), `go test -race -count=1
+./services/opsworks/...` and `./pkgs/persistence/...` both green,
+`go run ./cmd/paritylint` stays at 0 FAIL.

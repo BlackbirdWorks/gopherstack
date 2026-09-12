@@ -54,7 +54,7 @@ func newPersistenceTestBackend(t *testing.T) (*opsworks.InMemoryBackend, persist
 	layer, err := b.CreateLayer(stack.StackID, "custom", "layer1", "layer1short")
 	require.NoError(t, err)
 
-	instance, err := b.CreateInstance(stack.StackID, layer.LayerID, "t2.micro")
+	instance, err := b.CreateInstance(stack.StackID, []string{layer.LayerID}, "t2.micro")
 	require.NoError(t, err)
 
 	app, err := b.CreateApp(stack.StackID, "app1", "other")

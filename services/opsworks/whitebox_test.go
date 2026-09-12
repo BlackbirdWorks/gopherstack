@@ -1,6 +1,7 @@
 package opsworks
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -68,4 +69,22 @@ func TestFormatOpsWorksTimeDeploymentCompletedAt(t *testing.T) {
 
 	require.Equal(t, "2021-06-15T09:02:03+00:00", got[keyCreatedAt])
 	require.Equal(t, "2021-06-15T10:02:03+00:00", got["CompletedAt"])
+}
+
+// TestStoredInstanceUnmarshalJSON_LegacyLayerID confirms a pre-slice13
+// snapshot's singular "layerId" string still restores into the current
+// plural LayerIDs -- gopherstack-n3zi typed slice 13 renamed the field
+// (CreateInstance/AssignInstance's real LayerIds member is plural) without
+// a version bump, so this tolerant decode is what keeps an old on-disk
+// snapshot from being silently discarded.
+func TestStoredInstanceUnmarshalJSON_LegacyLayerID(t *testing.T) {
+	t.Parallel()
+
+	var legacy storedInstance
+	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-1","layerId":"l-1"}`), &legacy))
+	require.Equal(t, []string{"l-1"}, legacy.LayerIDs)
+
+	var current storedInstance
+	require.NoError(t, json.Unmarshal([]byte(`{"instanceId":"i-2","layerIds":["l-2","l-3"]}`), &current))
+	require.Equal(t, []string{"l-2", "l-3"}, current.LayerIDs)
 }
