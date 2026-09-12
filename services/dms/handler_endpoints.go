@@ -260,20 +260,11 @@ type describeEndpointsOutput struct {
 	Endpoints []endpointJSON `json:"Endpoints"`
 }
 
-//nolint:dupl // same HMAC-paginate pattern as handleDescribeReplicationInstances
 func (h *Handler) handleDescribeEndpoints(
 	ctx context.Context,
 	in *describeEndpointsInput,
 ) (*describeEndpointsOutput, error) {
-	identifier := extractFilterValue(in.Filters, "endpoint-id")
-	arnFilter := extractFilterValue(in.Filters, "endpoint-arn")
-
-	lookup := identifier
-	if arnFilter != "" {
-		lookup = arnFilter
-	}
-
-	list, err := h.Backend.DescribeEndpoints(ctx, lookup)
+	list, err := h.Backend.DescribeEndpoints(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -404,18 +395,17 @@ func (h *Handler) handleDescribeEndpointTypes(
 		"dynamodb",
 	}
 
-	engineFilter := extractFilterValue(in.Filters, "engine-name")
-	directionFilter := extractFilterValue(in.Filters, "endpoint-type")
+	df := newDescribeFilters(in.Filters)
 
 	const endpointDirections = 2 // source and target
 	types := make([]supportedEndpointTypeJSON, 0, len(engines)*endpointDirections)
 
 	for _, e := range engines {
-		if engineFilter != "" && e != engineFilter {
+		if !df.Matches("engine-name", e) {
 			continue
 		}
 
-		if directionFilter == "" || directionFilter == endpointTypeSource {
+		if df.Matches("endpoint-type", endpointTypeSource) {
 			types = append(types, supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,
@@ -424,7 +414,7 @@ func (h *Handler) handleDescribeEndpointTypes(
 			})
 		}
 
-		if directionFilter == "" || directionFilter == endpointTypeTarget {
+		if df.Matches("endpoint-type", endpointTypeTarget) {
 			types = append(types, supportedEndpointTypeJSON{
 				EngineName:        e,
 				SupportsCDC:       true,

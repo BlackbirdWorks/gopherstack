@@ -69,16 +69,15 @@ func (h *Handler) handleDescribeRecommendations(
 		return nil, err
 	}
 
-	dbFilter := extractFilterValue(in.Filters, "database-id")
-	engineFilter := extractFilterValue(in.Filters, "engine-name")
+	df := newDescribeFilters(in.Filters)
 
 	recs := make([]map[string]any, 0, len(list))
 	for _, r := range list {
-		if dbFilter != "" && r.DatabaseID != dbFilter {
+		if !df.Matches("database-id", r.DatabaseID) {
 			continue
 		}
 
-		if engineFilter != "" && r.EngineName != engineFilter {
+		if !df.Matches("engine-name", r.EngineName) {
 			continue
 		}
 

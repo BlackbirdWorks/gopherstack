@@ -126,12 +126,12 @@ type describeDataMigrationsOutput struct {
 func (h *Handler) handleDescribeDataMigrations(
 	ctx context.Context, in *describeDataMigrationsInput,
 ) (*describeDataMigrationsOutput, error) {
-	identifier := ptrconv.String(in.DataMigrationIdentifier)
-	if identifier == "" {
-		identifier = extractFilterValue(in.Filters, "data-migration-identifier")
+	df := newDescribeFilters(in.Filters)
+	if identifier := ptrconv.String(in.DataMigrationIdentifier); identifier != "" {
+		df = NewIdentifierFilter("data-migration-identifier", identifier)
 	}
 
-	list, err := h.Backend.DescribeDataMigrations(ctx, identifier)
+	list, err := h.Backend.DescribeDataMigrations(ctx, df)
 	if err != nil {
 		return nil, err
 	}

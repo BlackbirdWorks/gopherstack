@@ -86,21 +86,11 @@ type describeReplicationInstancesOutput struct {
 	ReplicationInstances []replicationInstanceJSON `json:"ReplicationInstances"`
 }
 
-//nolint:dupl // same HMAC-paginate pattern as handleDescribeEndpoints
 func (h *Handler) handleDescribeReplicationInstances(
 	ctx context.Context,
 	in *describeReplicationInstancesInput,
 ) (*describeReplicationInstancesOutput, error) {
-	identifier := extractFilterValue(in.Filters, "replication-instance-id")
-	arnFilter := extractFilterValue(in.Filters, "replication-instance-arn")
-
-	// ARN filter takes precedence when present.
-	lookup := identifier
-	if arnFilter != "" {
-		lookup = arnFilter
-	}
-
-	list, err := h.Backend.DescribeReplicationInstances(ctx, lookup)
+	list, err := h.Backend.DescribeReplicationInstances(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +123,10 @@ func (h *Handler) handleDeleteReplicationInstance(
 ) (*deleteReplicationInstanceOutput, error) {
 	arnOrID := ptrconv.String(in.ReplicationInstanceArn)
 	// Retrieve before deletion to return it in the response.
-	instances, err := h.Backend.DescribeReplicationInstances(ctx, arnOrID)
+	instances, err := h.Backend.DescribeReplicationInstances(
+		ctx,
+		NewIdentifierFilter("replication-instance-arn", arnOrID),
+	)
 	if err != nil {
 		// Try ARN lookup via delete directly.
 		if delErr := h.Backend.DeleteReplicationInstance(ctx, arnOrID); delErr != nil {
@@ -270,10 +263,30 @@ const (
 
 func dmsOrderableInstanceList() []orderableInstanceSpec {
 	return []orderableInstanceSpec{
-		{class: "dms.t3.micro", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
-		{class: "dms.t3.small", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
-		{class: "dms.t3.medium", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
-		{class: "dms.t3.large", defaultStorage: t3DefaultStorage, minStorage: minStorageAll, maxStorage: t3MaxStorage},
+		{
+			class:          "dms.t3.micro",
+			defaultStorage: t3DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     t3MaxStorage,
+		},
+		{
+			class:          "dms.t3.small",
+			defaultStorage: t3DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     t3MaxStorage,
+		},
+		{
+			class:          "dms.t3.medium",
+			defaultStorage: t3DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     t3MaxStorage,
+		},
+		{
+			class:          "dms.t3.large",
+			defaultStorage: t3DefaultStorage,
+			minStorage:     minStorageAll,
+			maxStorage:     t3MaxStorage,
+		},
 		{
 			class:          "dms.c5.large",
 			defaultStorage: c5r5DefaultStorage,

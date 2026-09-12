@@ -277,29 +277,28 @@ func (b *InMemoryBackend) ReloadReplicationTables(ctx context.Context, arnOrID s
 // against them at least once. A config that has never been started still
 // carries a valid Status ("created") from CreateReplicationConfig, matching
 // AWS's behavior of DescribeReplications listing every config regardless of
-// whether it has ever run. Optionally filtered by config identifier or ARN.
+// whether it has ever run. Matched against filters (valid filter names per
+// api_op_DescribeReplications.go: replication-config-arn |
+// replication-config-id).
 func (b *InMemoryBackend) DescribeReplications(
 	ctx context.Context,
-	replicationConfigIDOrArn string,
+	filters DescribeFilters,
 ) ([]*ReplicationConfig, error) {
 	b.mu.RLock("DescribeReplications")
 	defer b.mu.RUnlock()
-
-	if replicationConfigIDOrArn != "" {
-		rc := b.findReplicationConfig(ctx, replicationConfigIDOrArn)
-		if rc == nil {
-			return []*ReplicationConfig{}, nil
-		}
-
-		cp := *rc
-
-		return []*ReplicationConfig{&cp}, nil
-	}
 
 	items := b.replicationConfigsByRegion.Get(getRegion(ctx, b.region))
 	list := make([]*ReplicationConfig, 0, len(items))
 
 	for _, rc := range items {
+		if !filters.Matches("replication-config-arn", rc.ReplicationConfigArn) {
+			continue
+		}
+
+		if !filters.Matches("replication-config-id", rc.ReplicationConfigIdentifier) {
+			continue
+		}
+
 		cp := *rc
 		list = append(list, &cp)
 	}

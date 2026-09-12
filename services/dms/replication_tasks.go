@@ -13,7 +13,7 @@ import (
 
 // mustDescribeReplicationTasks returns all replication tasks without error (for internal use).
 func (b *InMemoryBackend) mustDescribeReplicationTasks(ctx context.Context) []*ReplicationTask {
-	list, _ := b.DescribeReplicationTasks(ctx, "")
+	list, _ := b.DescribeReplicationTasks(ctx, DescribeFilters{})
 
 	return list
 }
@@ -111,16 +111,53 @@ func (b *InMemoryBackend) CreateReplicationTask(
 	return &cp, nil
 }
 
-// DescribeReplicationTasks returns replication tasks, optionally filtered by ARN or identifier.
-func (b *InMemoryBackend) DescribeReplicationTasks(ctx context.Context, arnOrID string) ([]*ReplicationTask, error) {
+// DescribeReplicationTasks returns replication tasks matching filters (valid
+// filter names per api_op_DescribeReplicationTasks.go: replication-task-arn |
+// replication-task-id | migration-type | endpoint-arn |
+// replication-instance-arn; endpoint-arn matches either the task's source or
+// target endpoint).
+func (b *InMemoryBackend) DescribeReplicationTasks(
+	ctx context.Context,
+	filters DescribeFilters,
+) ([]*ReplicationTask, error) {
 	b.mu.RLock("DescribeReplicationTasks")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.region)
+	items := b.replicationTasksByRegion.Get(getRegion(ctx, b.region))
+	result := make([]*ReplicationTask, 0, len(items))
 
-	return describeByIdentifierOrARN(
-		b.replicationTasks, b.replicationTasksByARN, b.replicationTasksByRegion, region, arnOrID,
-	), nil
+	for _, rt := range items {
+		if !replicationTaskMatchesFilters(rt, filters) {
+			continue
+		}
+
+		cp := *rt
+		result = append(result, &cp)
+	}
+
+	return result, nil
+}
+
+// replicationTaskMatchesFilters applies every documented
+// DescribeReplicationTasks filter name to a single task.
+func replicationTaskMatchesFilters(rt *ReplicationTask, filters DescribeFilters) bool {
+	if !filters.Matches("replication-task-id", rt.ReplicationTaskIdentifier) {
+		return false
+	}
+
+	if !filters.Matches("replication-task-arn", rt.ReplicationTaskArn) {
+		return false
+	}
+
+	if !filters.Matches("migration-type", rt.MigrationType) {
+		return false
+	}
+
+	if !filters.MatchesAny("endpoint-arn", rt.SourceEndpointArn, rt.TargetEndpointArn) {
+		return false
+	}
+
+	return filters.Matches("replication-instance-arn", rt.ReplicationInstanceArn)
 }
 
 // StartReplicationTask transitions a replication task to running status.

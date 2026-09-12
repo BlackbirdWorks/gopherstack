@@ -205,7 +205,6 @@ families:
 gaps: []
 items_still_open:
   - "CHECKED 2026-09-07 (gopherstack-z1sd triage), found FALSE: the claim 'migration project has no status' misdescribes the real API, not this backend. The real MigrationProject type (databasemigrationservice@v1.66.4 types/types.go:2044-2088) has no Status/MigrationProjectStatus field at all -- confirmed by full field listing (Description, InstanceProfileArn, InstanceProfileName, MigrationProjectArn, MigrationProjectCreationTime, MigrationProjectName, SchemaConversionApplicationAttributes, Source/TargetDataProviderDescriptors, TransformationRules) and by grep across the whole SDK module for MigrationProjectStatus (zero hits). CreateMigrationProject/ModifyMigrationProject/DeleteMigrationProject/DescribeMigrationProjects (ops rows above) already match this shape exactly, including the 2026-08-11 fix that removed a fabricated MigrationProjectIdentifier response field. There is no gap here."
-  - "FOUND 2026-09-12 (gopherstack-0vh7l, documented-plural-truncation sweep), NOT YET FIXED: extractFilterValue (handler.go:433-441), the shared helper behind essentially every Describe* op's Filters handling (~40 call sites across handler_certificates.go, handler_endpoints.go, handler_replication_tasks.go, handler_replication_instances.go, handler_replication_configs.go, handler_event_subscriptions.go, handler_data_providers.go/_migrations.go, handler_migration_projects.go, handler_instance_profiles.go, handler_connections.go, handler_fleet_advisor.go, handler_recommendations.go, handler_replication_subnet_groups.go, handler_metadata_model.go, handler_assessment_runs.go), returns only filters[i].Values[0] for a matching filter name. types.Filter.Values is a real, documented plural wire member (databasemigrationservice@v1.66.4 types/types.go:1237-1250+); AWS's universal Filter{Name,Values} convention treats multiple Values as an OR-match set, so a real client passing e.g. Values:[\"arn1\",\"arn2\"] for certificate-arn silently gets only arn1's behavior with no error. Most call sites feed the single extracted value straight into a Backend.DescribeX(ctx, identifier string) method (~15 distinct backend methods), so a correct fix needs those signatures widened to accept multiple identifiers and OR-match internally, not just a call-site change -- out of proportion to fix mechanically in one pass without matching backend/test coverage. Not fixed this pass; flagging for a dedicated follow-up."
 deferred: []
 leaks: {status: clean, note: "no goroutines, janitors, or timers in this service; all state lives in store.Table/store.Index behind the single lockmetrics.RWMutex. leak_test.go / isolation_test.go pre-existing and passing. Confirmed again this pass -- no new goroutines/tickers/channels were introduced by the assessment-run rework (StartReplicationTaskAssessmentRun completes synchronously)."}
 ---
@@ -920,3 +919,57 @@ Gates: `go build ./...` clean, `go vet ./services/dms/...` clean, `go test
 `go run ./cmd/paritylint` 0 FAIL. `pkgs/persistence`'s
 `TestSnapshotVersionGuard` passes for dms (one additive row,
 `ReplicationSubnetGroup.SubnetIDs []string`, no version bump).
+
+- **2026-09-12 (gopherstack-pulu9) Filters OR/AND-value fix**: `extractFilterValue`
+  (handler.go) returned only `filters[i].Values[0]` for a matching filter
+  name, so a real client's `Values:["a","b"]` silently behaved like
+  `Values:["a"]`. types.Filter's doc (databasemigrationservice@v1.66.4
+  types/types.go) says Values "can specify one or more values used to
+  narrow the returned results" -- AWS's universal convention is that a
+  single filter OR-matches any of its Values, while distinct filter names
+  AND together (spelled out explicitly on
+  api_op_DescribeTableStatistics.go:45-46). Replaced `extractFilterValue`
+  with `DescribeFilters` (handler.go): `name -> []string` parsed from the
+  wire Filters list, with `Matches(name, value)` /
+  `MatchesAny(name, candidates...)` / `Values(name)`. Widened the backend
+  `DescribeX(ctx, identifier string)` methods that previously took a single
+  extracted value to `DescribeX(ctx, filters DescribeFilters)`:
+  `DescribeEndpoints`, `DescribeReplicationInstances`,
+  `DescribeReplicationTasks`, `DescribeConnections`,
+  `DescribeDataProviders`, `DescribeDataMigrations`,
+  `DescribeEventSubscriptions`, `DescribeReplications`,
+  `DescribeAssessmentRunsFiltered`, `DescribeIndividualAssessments` (10
+  methods; the old `describeByIdentifierOrARN`/single-string-arg shortcut,
+  which collapsed a documented id-vs-arn filter-name pair into one merged
+  "either" lookup, is gone -- each documented name now matches its own
+  resource field independently, so two filters on different names AND
+  correctly instead of one silently overriding the other). The remaining
+  ~10 in-handler filter loops (certificates, instance profiles, migration
+  projects (5 names), fleet advisor collectors/databases, recommendations,
+  replication subnet groups, the metadata-model Describe* family via
+  `listMetadataModelRequests`, table statistics, endpoint types, event
+  categories) were converted the same way without a backend signature
+  change, since they already had the full unfiltered list in hand.
+  ADJACENT BUG fixed while rewriting `DescribeConnections`:
+  `handleDescribeConnections` (`handler_connections.go`) was filtering on
+  `replication-instance-id`/`endpoint-id`, names `Connection` has no
+  corresponding fields for (only `ReplicationInstanceArn`/`EndpointArn`) --
+  dead filters that could never narrow anything under the old
+  single-value code either; corrected to the real documented names
+  (`api_op_DescribeConnections.go`: `endpoint-arn | replication-instance-arn`).
+  Filter-name validation: DMS declares no
+  `InvalidParameterValueException`-shaped fault anywhere in its error set
+  (types/errors.go), and `validateFilterList` (validators.go) only checks
+  the wire shape (Name/Values non-empty), never the name against a known
+  vocabulary -- so an undocumented filter name is accepted and silently
+  ignored, matching real AWS's behavior for services with no such
+  validation error; `DescribeFilters.Matches`/`MatchesAny` implement this
+  by construction (an absent name is unconstrained). Real SDK client tests
+  (`handler_multivalue_filters_test.go`) prove, for six representative ops
+  (certificates, replication instances, endpoints, replication tasks,
+  connections, replications), that a two-value filter returns both matches
+  and that two filters on different names AND together. Existing
+  single-value filter tests (`handler_filters_test.go`,
+  `list_filter_params_test.go`) were re-verified passing unchanged --
+  correct single-value behavior was never in question, only the untested
+  multi-value/multi-filter paths.

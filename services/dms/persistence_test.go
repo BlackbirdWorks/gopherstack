@@ -179,7 +179,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 
 	ctx := t.Context()
 
-	ris, err := fresh.DescribeReplicationInstances(ctx, "")
+	ris, err := fresh.DescribeReplicationInstances(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, ris, 1)
 	assert.Equal(t, ids["replicationInstanceArn"], ris[0].ReplicationInstanceArn)
@@ -192,30 +192,32 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	assert.Equal(t, "phase-3.3", v)
 
 	// Lookup by ARN (byARN index) must also work post-restore.
-	byARN, err := fresh.DescribeReplicationInstances(ctx, ids["replicationInstanceArn"])
+	byARN, err := fresh.DescribeReplicationInstances(
+		ctx, dms.NewIdentifierFilter("replication-instance-arn", ids["replicationInstanceArn"]),
+	)
 	require.NoError(t, err)
 	require.Len(t, byARN, 1)
 
-	eps, err := fresh.DescribeEndpoints(ctx, "")
+	eps, err := fresh.DescribeEndpoints(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	assert.Len(t, eps, 2)
 
-	tasks, err := fresh.DescribeReplicationTasks(ctx, "")
+	tasks, err := fresh.DescribeReplicationTasks(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	assert.Equal(t, ids["replicationTaskArn"], tasks[0].ReplicationTaskArn)
 
-	dataMigrations, err := fresh.DescribeDataMigrations(ctx, "")
+	dataMigrations, err := fresh.DescribeDataMigrations(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, dataMigrations, 1)
 	assert.Equal(t, ids["dataMigrationArn"], dataMigrations[0].DataMigrationArn)
 
-	dps, err := fresh.DescribeDataProviders(ctx, "")
+	dps, err := fresh.DescribeDataProviders(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, dps, 1)
 	assert.Equal(t, ids["dataProviderArn"], dps[0].DataProviderArn)
 
-	subs, err := fresh.DescribeEventSubscriptions(ctx, "")
+	subs, err := fresh.DescribeEventSubscriptions(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	assert.Len(t, subs, 1)
 
@@ -259,7 +261,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 	require.NotNil(t, rcs[0].ComputeConfig.MaxCapacityUnits)
 	assert.Equal(t, int32(4), *rcs[0].ComputeConfig.MaxCapacityUnits)
 
-	conns, err := fresh.DescribeConnections(ctx, "", "")
+	conns, err := fresh.DescribeConnections(ctx, dms.DescribeFilters{})
 	require.NoError(t, err)
 	assert.Len(t, conns, 1)
 
@@ -295,7 +297,7 @@ func TestInMemoryBackend_SnapshotRestore_EmptyBackend(t *testing.T) {
 	fresh := dms.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
-	ris, err := fresh.DescribeReplicationInstances(t.Context(), "")
+	ris, err := fresh.DescribeReplicationInstances(t.Context(), dms.DescribeFilters{})
 	require.NoError(t, err)
 	assert.Empty(t, ris)
 }
@@ -350,7 +352,7 @@ func TestInMemoryBackend_Restore_IncompatibleVersion(t *testing.T) {
 
 	require.NoError(t, fresh.Restore(t.Context(), legacyPayload))
 
-	ris, err := fresh.DescribeReplicationInstances(t.Context(), "")
+	ris, err := fresh.DescribeReplicationInstances(t.Context(), dms.DescribeFilters{})
 	require.NoError(t, err)
 	assert.Empty(t, ris, "incompatible snapshot version must reset to empty, not partially decode")
 }
@@ -392,7 +394,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := dms.NewHandler(dms.NewInMemoryBackend("123456789012", "us-east-1"))
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	ris, err := h2.Backend.DescribeReplicationInstances(t.Context(), "")
+	ris, err := h2.Backend.DescribeReplicationInstances(t.Context(), dms.DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, ris, 1)
 	assert.Equal(t, "ri-1", ris[0].ReplicationInstanceIdentifier)

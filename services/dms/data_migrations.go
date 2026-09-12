@@ -92,7 +92,10 @@ func (b *InMemoryBackend) AddDataMigrationInternal(name, migrationType string) {
 }
 
 // DeleteDataMigration deletes a data migration by name or ARN.
-func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) DeleteDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("DeleteDataMigration")
 	defer b.mu.Unlock()
 
@@ -176,7 +179,10 @@ func (b *InMemoryBackend) findDataMigration(ctx context.Context, nameOrArn strin
 }
 
 // StartDataMigration transitions a data migration to running status.
-func (b *InMemoryBackend) StartDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) StartDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("StartDataMigration")
 	defer b.mu.Unlock()
 
@@ -192,7 +198,10 @@ func (b *InMemoryBackend) StartDataMigration(ctx context.Context, nameOrArn stri
 }
 
 // StopDataMigration transitions a data migration to stopped status.
-func (b *InMemoryBackend) StopDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) StopDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("StopDataMigration")
 	defer b.mu.Unlock()
 
@@ -207,25 +216,32 @@ func (b *InMemoryBackend) StopDataMigration(ctx context.Context, nameOrArn strin
 	return &cp, nil
 }
 
-// DescribeDataMigrations returns all data migrations (optionally filtered by name/arn).
-func (b *InMemoryBackend) DescribeDataMigrations(ctx context.Context, nameOrArn string) ([]*DataMigration, error) {
+// DescribeDataMigrations returns data migrations matching filters. Real AWS
+// documents no specific filter-name vocabulary for this op
+// (api_op_DescribeDataMigrations.go simply says "Filters applied to the data
+// migrations"); data-migration-identifier is this backend's own choice,
+// matching either the name or the ARN, mirroring the equivalent documented
+// *-identifier filters on sibling ops (data-provider-identifier,
+// instance-profile-identifier, migration-project-identifier).
+func (b *InMemoryBackend) DescribeDataMigrations(
+	ctx context.Context,
+	filters DescribeFilters,
+) ([]*DataMigration, error) {
 	b.mu.RLock("DescribeDataMigrations")
 	defer b.mu.RUnlock()
 
-	if nameOrArn != "" {
-		dm := b.findDataMigration(ctx, nameOrArn)
-		if dm == nil {
-			return []*DataMigration{}, nil
-		}
-
-		cp := *dm
-
-		return []*DataMigration{&cp}, nil
-	}
-
 	items := b.dataMigrationsByRegion.Get(getRegion(ctx, b.region))
 	list := make([]*DataMigration, 0, len(items))
+
 	for _, dm := range items {
+		if !filters.MatchesAny(
+			"data-migration-identifier",
+			dm.DataMigrationName,
+			dm.DataMigrationArn,
+		) {
+			continue
+		}
+
 		cp := *dm
 		list = append(list, &cp)
 	}

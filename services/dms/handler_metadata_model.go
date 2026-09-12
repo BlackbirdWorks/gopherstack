@@ -44,16 +44,15 @@ func listMetadataModelRequests(
 		return nil, nil, err
 	}
 
-	requestIDFilter := extractFilterValue(filters, "request-id")
-	statusFilter := extractFilterValue(filters, "status")
+	df := newDescribeFilters(filters)
 
 	all := make([]schemaConversionRequestJSON, 0, len(list))
 	for _, req := range list {
-		if requestIDFilter != "" && req.RequestIdentifier != requestIDFilter {
+		if !df.Matches("request-id", req.RequestIdentifier) {
 			continue
 		}
 
-		if statusFilter != "" && req.Status != statusFilter {
+		if !df.Matches("status", req.Status) {
 			continue
 		}
 

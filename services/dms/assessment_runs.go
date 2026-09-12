@@ -3,6 +3,7 @@ package dms
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -234,25 +235,17 @@ func (b *InMemoryBackend) DeleteAssessmentRun(ctx context.Context, runArn string
 	return &cp, nil
 }
 
-// assessmentRunFilters holds the filter values DescribeReplicationTaskAssessmentRuns
-// supports (matches the SDK's documented valid filter names).
-type assessmentRunFilters struct {
-	runArn                 string
-	taskArn                string
-	replicationInstanceArn string
-	status                 string
-}
-
 // DescribeAssessmentRuns returns stored assessment runs, optionally filtered by task ARN.
 func (b *InMemoryBackend) DescribeAssessmentRuns(ctx context.Context, taskArn string) ([]*AssessmentRun, error) {
-	return b.DescribeAssessmentRunsFiltered(ctx, assessmentRunFilters{taskArn: taskArn})
+	return b.DescribeAssessmentRunsFiltered(ctx, NewIdentifierFilter("replication-task-arn", taskArn))
 }
 
-// DescribeAssessmentRunsFiltered returns stored assessment runs matching all
-// non-empty filter fields (valid filter names per the SDK: replication-task-
-// assessment-run-arn, replication-task-arn, replication-instance-arn, status).
+// DescribeAssessmentRunsFiltered returns stored assessment runs matching
+// filters (valid filter names per api_op_DescribeReplicationTaskAssessmentRuns.go:
+// replication-task-assessment-run-arn, replication-task-arn,
+// replication-instance-arn, status).
 func (b *InMemoryBackend) DescribeAssessmentRunsFiltered(
-	ctx context.Context, f assessmentRunFilters,
+	ctx context.Context, filters DescribeFilters,
 ) ([]*AssessmentRun, error) {
 	b.mu.RLock("DescribeAssessmentRuns")
 	defer b.mu.RUnlock()
@@ -262,23 +255,8 @@ func (b *InMemoryBackend) DescribeAssessmentRunsFiltered(
 	list := make([]*AssessmentRun, 0, len(items))
 
 	for _, run := range items {
-		if f.taskArn != "" && run.ReplicationTaskArn != f.taskArn {
+		if !b.assessmentRunMatchesFilters(region, run, filters) {
 			continue
-		}
-
-		if f.runArn != "" && run.ReplicationTaskAssessmentRunArn != f.runArn {
-			continue
-		}
-
-		if f.status != "" && run.Status != f.status {
-			continue
-		}
-
-		if f.replicationInstanceArn != "" {
-			rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, run.ReplicationTaskArn))
-			if !ok || rt.ReplicationInstanceArn != f.replicationInstanceArn {
-				continue
-			}
 		}
 
 		cp := *run
@@ -288,11 +266,38 @@ func (b *InMemoryBackend) DescribeAssessmentRunsFiltered(
 	return list, nil
 }
 
+// assessmentRunMatchesFilters applies every documented
+// DescribeReplicationTaskAssessmentRuns filter name to a single run. Caller
+// must hold at least b.mu.RLock().
+func (b *InMemoryBackend) assessmentRunMatchesFilters(region string, run *AssessmentRun, filters DescribeFilters) bool {
+	if !filters.Matches("replication-task-arn", run.ReplicationTaskArn) {
+		return false
+	}
+
+	if !filters.Matches("replication-task-assessment-run-arn", run.ReplicationTaskAssessmentRunArn) {
+		return false
+	}
+
+	if !filters.Matches("status", run.Status) {
+		return false
+	}
+
+	riArns := filters.Values("replication-instance-arn")
+	if len(riArns) == 0 {
+		return true
+	}
+
+	rt, ok := lookupUnique(b.replicationTasksByARN, regionKey(region, run.ReplicationTaskArn))
+
+	return ok && slices.Contains(riArns, rt.ReplicationInstanceArn)
+}
+
 // DescribeIndividualAssessments returns individual assessments across all
-// stored assessment runs, optionally filtered (valid filter names per the
-// SDK: replication-task-assessment-run-arn, replication-task-arn, status).
+// stored assessment runs matching filters (valid filter names per
+// api_op_DescribeReplicationTaskIndividualAssessments.go:
+// replication-task-assessment-run-arn, replication-task-arn, status).
 func (b *InMemoryBackend) DescribeIndividualAssessments(
-	ctx context.Context, f assessmentRunFilters,
+	ctx context.Context, filters DescribeFilters,
 ) ([]*IndividualAssessment, error) {
 	b.mu.RLock("DescribeIndividualAssessments")
 	defer b.mu.RUnlock()
@@ -302,16 +307,16 @@ func (b *InMemoryBackend) DescribeIndividualAssessments(
 	list := make([]*IndividualAssessment, 0)
 
 	for _, run := range items {
-		if f.runArn != "" && run.ReplicationTaskAssessmentRunArn != f.runArn {
+		if !filters.Matches("replication-task-assessment-run-arn", run.ReplicationTaskAssessmentRunArn) {
 			continue
 		}
 
-		if f.taskArn != "" && run.ReplicationTaskArn != f.taskArn {
+		if !filters.Matches("replication-task-arn", run.ReplicationTaskArn) {
 			continue
 		}
 
 		for _, ia := range run.IndividualAssessments {
-			if f.status != "" && ia.Status != f.status {
+			if !filters.Matches("status", ia.Status) {
 				continue
 			}
 

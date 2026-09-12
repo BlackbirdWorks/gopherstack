@@ -219,9 +219,7 @@ type describeReplicationsOutput struct {
 func (h *Handler) handleDescribeReplications(
 	ctx context.Context, in *describeReplicationsInput,
 ) (*describeReplicationsOutput, error) {
-	arnOrID := extractFilterValue(in.Filters, "replication-config-arn", "replication-config-id")
-
-	list, err := h.Backend.DescribeReplications(ctx, arnOrID)
+	list, err := h.Backend.DescribeReplications(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}

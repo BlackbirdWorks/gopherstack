@@ -108,7 +108,9 @@ func (h *Handler) handleCancelReplicationTaskAssessmentRun(
 		return nil, err
 	}
 
-	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, assessmentRunFilters{runArn: runArn})
+	runs, err := h.Backend.DescribeAssessmentRunsFiltered(
+		ctx, NewIdentifierFilter("replication-task-assessment-run-arn", runArn),
+	)
 	if err != nil || len(runs) == 0 {
 		return nil, fmt.Errorf("%w: assessment run %s not found", ErrNotFound, runArn)
 	}
@@ -170,14 +172,7 @@ type describeReplicationTaskAssessmentRunsOutput struct {
 func (h *Handler) handleDescribeReplicationTaskAssessmentRuns(
 	ctx context.Context, in *describeReplicationTaskAssessmentRunsInput,
 ) (*describeReplicationTaskAssessmentRunsOutput, error) {
-	f := assessmentRunFilters{
-		taskArn:                extractFilterValue(in.Filters, "replication-task-arn"),
-		runArn:                 extractFilterValue(in.Filters, "replication-task-assessment-run-arn"),
-		replicationInstanceArn: extractFilterValue(in.Filters, "replication-instance-arn"),
-		status:                 extractFilterValue(in.Filters, "status"),
-	}
-
-	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, f)
+	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -206,13 +201,7 @@ type describeReplicationTaskIndividualAssessmentsOutput struct {
 func (h *Handler) handleDescribeReplicationTaskIndividualAssessments(
 	ctx context.Context, in *describeReplicationTaskIndividualAssessmentsInput,
 ) (*describeReplicationTaskIndividualAssessmentsOutput, error) {
-	f := assessmentRunFilters{
-		taskArn: extractFilterValue(in.Filters, "replication-task-arn"),
-		runArn:  extractFilterValue(in.Filters, "replication-task-assessment-run-arn"),
-		status:  extractFilterValue(in.Filters, "status"),
-	}
-
-	items, err := h.Backend.DescribeIndividualAssessments(ctx, f)
+	items, err := h.Backend.DescribeIndividualAssessments(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +260,7 @@ func (h *Handler) handleDescribeReplicationTaskAssessmentResults(
 			}, nil
 		}
 
-		tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
+		tasks, err := h.Backend.DescribeReplicationTasks(ctx, NewIdentifierFilter("replication-task-arn", taskArn))
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +281,9 @@ func (h *Handler) handleDescribeReplicationTaskAssessmentResults(
 	all := make([]assessmentResultJSON, 0, len(runs))
 
 	for _, run := range runs {
-		tasks, taskErr := h.Backend.DescribeReplicationTasks(ctx, run.ReplicationTaskArn)
+		tasks, taskErr := h.Backend.DescribeReplicationTasks(
+			ctx, NewIdentifierFilter("replication-task-arn", run.ReplicationTaskArn),
+		)
 		if taskErr != nil {
 			continue
 		}

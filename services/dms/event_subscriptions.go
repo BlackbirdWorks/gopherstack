@@ -159,29 +159,30 @@ func (b *InMemoryBackend) ModifyEventSubscription(
 	return &cp, nil
 }
 
-// DescribeEventSubscriptions returns all event subscriptions (optionally filtered by name).
-func (b *InMemoryBackend) DescribeEventSubscriptions(ctx context.Context, name string) ([]*EventSubscription, error) {
+// DescribeEventSubscriptions returns event subscriptions matching filters
+// (valid filter names per api_op_DescribeEventSubscriptions.go:
+// event-subscription-arn | event-subscription-id). EventSubscription has no
+// distinct ARN in this emulation (see eventSubscriptionJSON), so both names
+// resolve against SubscriptionName, the only identifier that exists.
+func (b *InMemoryBackend) DescribeEventSubscriptions(
+	ctx context.Context,
+	filters DescribeFilters,
+) ([]*EventSubscription, error) {
 	b.mu.RLock("DescribeEventSubscriptions")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.region)
+	items := b.eventSubscriptionsByRegion.Get(getRegion(ctx, b.region))
+	list := make([]*EventSubscription, 0, len(items))
 
-	if name != "" {
-		es, ok := b.eventSubscriptions.Get(regionKey(region, name))
-		if !ok {
-			return []*EventSubscription{}, nil
+	for _, es := range items {
+		if !filters.Matches("event-subscription-arn", es.SubscriptionName) {
+			continue
 		}
 
-		cp := *es
-		cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
-		cp.EventCategories = copyStringsOrEmpty(es.EventCategories)
+		if !filters.Matches("event-subscription-id", es.SubscriptionName) {
+			continue
+		}
 
-		return []*EventSubscription{&cp}, nil
-	}
-
-	items := b.eventSubscriptionsByRegion.Get(region)
-	list := make([]*EventSubscription, 0, len(items))
-	for _, es := range items {
 		cp := *es
 		cp.SourceIDsList = copyStringsOrEmpty(es.SourceIDsList)
 		cp.EventCategories = copyStringsOrEmpty(es.EventCategories)

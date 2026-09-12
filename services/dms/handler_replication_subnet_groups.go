@@ -140,11 +140,11 @@ func (h *Handler) handleDescribeReplicationSubnetGroups(
 		return list[i].ReplicationSubnetGroupIdentifier < list[j].ReplicationSubnetGroupIdentifier
 	})
 
-	idFilter := extractFilterValue(in.Filters, "replication-subnet-group-id")
+	df := newDescribeFilters(in.Filters)
 
 	all := make([]replicationSubnetGroupFullJSON, 0, len(list))
 	for _, sg := range list {
-		if idFilter != "" && sg.ReplicationSubnetGroupIdentifier != idFilter {
+		if !df.Matches("replication-subnet-group-id", sg.ReplicationSubnetGroupIdentifier) {
 			continue
 		}
 

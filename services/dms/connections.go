@@ -43,10 +43,12 @@ func (b *InMemoryBackend) TestConnection(
 	return &cp, nil
 }
 
-// DescribeConnections returns stored connections, optionally filtered by replication instance ARN or endpoint ARN.
+// DescribeConnections returns stored connections matching filters (valid
+// filter names per api_op_DescribeConnections.go: endpoint-arn |
+// replication-instance-arn).
 func (b *InMemoryBackend) DescribeConnections(
 	ctx context.Context,
-	replicationInstanceArn, endpointArn string,
+	filters DescribeFilters,
 ) ([]*Connection, error) {
 	b.mu.RLock("DescribeConnections")
 	defer b.mu.RUnlock()
@@ -54,13 +56,16 @@ func (b *InMemoryBackend) DescribeConnections(
 	region := getRegion(ctx, b.region)
 	items := b.connectionsByRegion.Get(region)
 	list := make([]*Connection, 0, len(items))
+
 	for _, conn := range items {
-		if replicationInstanceArn != "" && conn.ReplicationInstanceArn != replicationInstanceArn {
+		if !filters.Matches("replication-instance-arn", conn.ReplicationInstanceArn) {
 			continue
 		}
-		if endpointArn != "" && conn.EndpointArn != endpointArn {
+
+		if !filters.Matches("endpoint-arn", conn.EndpointArn) {
 			continue
 		}
+
 		cp := *conn
 		list = append(list, &cp)
 	}

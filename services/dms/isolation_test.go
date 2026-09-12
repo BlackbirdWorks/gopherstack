@@ -61,24 +61,30 @@ func TestDMSRegionIsolation(t *testing.T) {
 	assert.NotEqual(t, eastRI.ReplicationInstanceArn, westRI.ReplicationInstanceArn)
 
 	// 2. Each region reads back its own instance class.
-	eastList, err := backend.DescribeReplicationInstances(ctxEast, "shared-ri")
+	eastList, err := backend.DescribeReplicationInstances(
+		ctxEast,
+		NewIdentifierFilter("replication-instance-id", "shared-ri"),
+	)
 	require.NoError(t, err)
 	require.Len(t, eastList, 1)
 	assert.Equal(t, "dms.t3.medium", eastList[0].ReplicationInstanceClass)
 	assert.Equal(t, "us-east-1", eastList[0].Region)
 
-	westList, err := backend.DescribeReplicationInstances(ctxWest, "shared-ri")
+	westList, err := backend.DescribeReplicationInstances(
+		ctxWest,
+		NewIdentifierFilter("replication-instance-id", "shared-ri"),
+	)
 	require.NoError(t, err)
 	require.Len(t, westList, 1)
 	assert.Equal(t, "dms.r5.large", westList[0].ReplicationInstanceClass)
 	assert.Equal(t, "us-west-2", westList[0].Region)
 
 	// 3. Listing without a filter returns exactly one instance per region.
-	eastAll, err := backend.DescribeReplicationInstances(ctxEast, "")
+	eastAll, err := backend.DescribeReplicationInstances(ctxEast, DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, eastAll, 1)
 
-	westAll, err := backend.DescribeReplicationInstances(ctxWest, "")
+	westAll, err := backend.DescribeReplicationInstances(ctxWest, DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, westAll, 1)
 
@@ -112,13 +118,19 @@ func TestDMSRegionIsolation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	eastEP, err := backend.DescribeEndpoints(ctxEast, "shared-ep")
+	eastEP, err := backend.DescribeEndpoints(
+		ctxEast,
+		NewIdentifierFilter("endpoint-id", "shared-ep"),
+	)
 	require.NoError(t, err)
 	require.Len(t, eastEP, 1)
 	assert.Equal(t, "source", eastEP[0].EndpointType)
 	assert.Equal(t, "mysql", eastEP[0].EngineName)
 
-	westEP, err := backend.DescribeEndpoints(ctxWest, "shared-ep")
+	westEP, err := backend.DescribeEndpoints(
+		ctxWest,
+		NewIdentifierFilter("endpoint-id", "shared-ep"),
+	)
 	require.NoError(t, err)
 	require.Len(t, westEP, 1)
 	assert.Equal(t, "target", westEP[0].EndpointType)
@@ -127,11 +139,17 @@ func TestDMSRegionIsolation(t *testing.T) {
 	// 5. Deleting the replication instance in us-east-1 must not affect us-west-2.
 	require.NoError(t, backend.DeleteReplicationInstance(ctxEast, "shared-ri"))
 
-	eastGone, err := backend.DescribeReplicationInstances(ctxEast, "shared-ri")
+	eastGone, err := backend.DescribeReplicationInstances(
+		ctxEast,
+		NewIdentifierFilter("replication-instance-id", "shared-ri"),
+	)
 	require.NoError(t, err)
 	assert.Empty(t, eastGone)
 
-	westStill, err := backend.DescribeReplicationInstances(ctxWest, "shared-ri")
+	westStill, err := backend.DescribeReplicationInstances(
+		ctxWest,
+		NewIdentifierFilter("replication-instance-id", "shared-ri"),
+	)
 	require.NoError(t, err)
 	require.Len(t, westStill, 1)
 	assert.Equal(t, "dms.r5.large", westStill[0].ReplicationInstanceClass)
@@ -181,12 +199,12 @@ func TestDMSTagAndConnectionRegionIsolation(t *testing.T) {
 	_, err = backend.TestConnection(ctxEast, eastRI.ReplicationInstanceArn, eastEP.EndpointArn)
 	require.NoError(t, err)
 
-	eastConns, err := backend.DescribeConnections(ctxEast, "", "")
+	eastConns, err := backend.DescribeConnections(ctxEast, DescribeFilters{})
 	require.NoError(t, err)
 	require.Len(t, eastConns, 1)
 
 	// us-west-2 sees no connections.
-	westConns, err := backend.DescribeConnections(ctxWest, "", "")
+	westConns, err := backend.DescribeConnections(ctxWest, DescribeFilters{})
 	require.NoError(t, err)
 	assert.Empty(t, westConns)
 
@@ -232,13 +250,17 @@ func TestDMSDefaultRegionFallback(t *testing.T) {
 	require.NoError(t, err)
 
 	// Reading via the explicit default region sees it.
-	list, err := backend.DescribeReplicationInstances(dmsCtxRegion("eu-central-1"), "def-ri")
+	list, err := backend.DescribeReplicationInstances(
+		dmsCtxRegion("eu-central-1"), NewIdentifierFilter("replication-instance-id", "def-ri"),
+	)
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "eu-central-1", list[0].Region)
 
 	// A different region sees nothing.
-	other, err := backend.DescribeReplicationInstances(dmsCtxRegion("ap-south-1"), "def-ri")
+	other, err := backend.DescribeReplicationInstances(
+		dmsCtxRegion("ap-south-1"), NewIdentifierFilter("replication-instance-id", "def-ri"),
+	)
 	require.NoError(t, err)
 	assert.Empty(t, other)
 }
