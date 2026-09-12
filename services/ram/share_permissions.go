@@ -22,6 +22,18 @@ func (b *InMemoryBackend) AssociateResourceSharePermission(
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
+	// AssociateResourceSharePermission's own error model (ram@v1.39.4 deserializers.go
+	// awsRestjson1_deserializeOpErrorAssociateResourceSharePermission) declares no
+	// InvalidStateTransitionException at all -- OperationNotPermittedException is the
+	// modeled fit, same as UpdateResourceShare's identical gap.
+	if isCreatedFromPolicy(rs) {
+		return fmt.Errorf(
+			"%w: resource share %s was created from a resource-based policy and can't "+
+				"be modified until promoted with PromoteResourceShareCreatedFromPolicy",
+			ErrOperationNotPermitted, shareARN,
+		)
+	}
+
 	p, ok := b.permissions.Get(permissionARN)
 	if !ok || p.Deleted {
 		return fmt.Errorf("%w: permission %s not found", ErrPermissionNotFound, permissionARN)
@@ -137,6 +149,18 @@ func (b *InMemoryBackend) DisassociateResourceSharePermission(
 	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
+	}
+
+	// DisassociateResourceSharePermission's own error model declares
+	// InvalidStateTransitionException (ram@v1.39.4 deserializers.go
+	// awsRestjson1_deserializeOpErrorDisassociateResourceSharePermission) for the same
+	// CREATED_FROM_POLICY restriction as AssociateResourceShare.
+	if isCreatedFromPolicy(rs) {
+		return fmt.Errorf(
+			"%w: resource share %s was created from a resource-based policy and can't "+
+				"be modified until promoted with PromoteResourceShareCreatedFromPolicy",
+			ErrInvalidStateTransition, shareARN,
+		)
 	}
 
 	perms := b.sharePermissions[shareARN]

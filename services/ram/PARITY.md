@@ -103,6 +103,7 @@ families:
   wrapper_key_sweep_2026_08_19: {status: ok, note: "All 34 SDK ops swept (api_op_*.go count) against their own deserializers.go top-level-key switch AND their nested types' field-by-field switch (not generalized from siblings). 3 genuine bugs found and fixed (CreatePermissionVersion, ListPermissionVersions, ListPermissionAssociations -- see per-op notes above). 31 ops confirmed clean: ResourceShare/ResourceShareAssociation/ResourceShareInvitation/Principal/Resource/Tag/ServiceNameAndResourceType/AssociatedSource/ReplacePermissionAssociationsWork/ResourceSharePermissionSummary/ResourceSharePermissionDetail all verified field-for-field against their own deserializeDocument* function in deserializers.go@ram v1.39.4. No fabricated members found beyond the two Summary/Detail swaps. Layer-3 hunt (never-emitted members) was out of scope; resourceShareConfiguration/resourceGroupArn/receiverArn/resourceShareAssociations(on invitation) noted as genuine unfixed gaps below, not treated as bugs."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
+items_still_open: []
 deferred:
   - PromoteResourceShareCreatedFromPolicy's featureSet state machine (CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD) is not modeled; every share created here is already STANDARD so this hasn't caused observed drift, but if CREATED_FROM_POLICY share creation is ever added, this needs revisiting.
   - "CLOSED 2026-08-13: permissionSummaryObject/permissionDetailObject emitted a resourceRegionScope field that does not exist on the real ResourceSharePermissionSummary/ResourceSharePermissionDetail SDK types. Evidence: aws-sdk-go-v2/service/ram@v1.39.4, types/types.go:492-(Summary)/403-(Detail), checked 2026-08-13 -- exhaustive field lists are Arn/CreationTime/DefaultVersion/FeatureSet/IsResourceTypeDefault/LastUpdatedTime/Name/PermissionType/ResourceType/Status/Tags/Version (Summary, plus Permission on Detail), no ResourceRegionScope on either. That field exists only on types.Resource and types.ServiceNameAndResourceType (see handler_resources.go's legitimate use, TestResourceRegionScope_InListResources). Deleted the field from both wire structs; the internal Permission.ResourceRegionScope domain field (models.go) is untouched -- it backs real filtering logic, just was never a real member of these two wire shapes. Raw-body regression test: TestPermissionResponses_NoResourceRegionScopeField."
@@ -669,3 +670,133 @@ by grep before changing the signatures)/`gofmt -l`/`go fix -diff` all clean;
 ./services/ram/...` reports 0 issues; no banned `nolint:cyclop|gocyclo|gocognit|funlen`.
 `account` service audited in the same pass for this class (see its own PARITY.md) --
 clean, 0 code changes there.
+
+## gopherstack-kvyy (2026-09-11): CREATED_FROM_POLICY resource shares -- the missing wire path, implemented
+
+**Premise confirmed and fixed.** No backend path ever created a `CREATED_FROM_POLICY`
+resource share, so `PromoteResourceShareCreatedFromPolicy` and the `featureSet` state
+machine (deferred entry above, `PromoteResourceShareCreatedFromPolicy`'s `ops:` note)
+were unreachable dead code. Verified real semantics before implementing, not guessed:
+
+- RAM API reference, `PromoteResourceShareCreatedFromPolicy`
+  (`https://docs.aws.amazon.com/ram/latest/APIReference/API_PromoteResourceShareCreatedFromPolicy.html`,
+  fetched 2026-09-11): "When you attach a resource-based policy to a resource, AWS RAM
+  automatically creates a resource share of `featureSet`=`CREATED_FROM_POLICY` with a
+  managed permission that has the same IAM permissions as the original resource-based
+  policy. However, this type of managed permission is visible to only the resource share
+  owner, and the associated resource share can't be modified by using AWS RAM." Same op
+  promotes it to `STANDARD`.
+- `ram@v1.39.4` `types/enums.go`: `ResourceShareFeatureSet` = `CREATED_FROM_POLICY` /
+  `PROMOTING_TO_STANDARD` / `STANDARD` (lines 228-230); `deserializers.go`'s own
+  `awsRestjson1_deserializeOpError*` switch per op gives the exact modeled exception set
+  used below (each op cited at its call site in the diff).
+- Glue side: `glue@v1.152.0` `api_op_PutResourcePolicy.go`'s `EnableHybrid` doc talks
+  about Lake Formation console grants, not RAM directly, and
+  `https://docs.aws.amazon.com/glue/latest/dg/cross-account-access.html` (fetched
+  2026-09-11) documents the cross-account-grant-via-resource-policy pattern (a
+  `Principal.AWS` entry naming another account) without naming RAM's
+  `CREATED_FROM_POLICY` mechanism explicitly -- web search corroborates the two are
+  related in practice (RAM sharing for the Data Catalog is real and documented) but
+  through Lake Formation's own grant flow, not a literally-documented "any cross-account
+  Glue policy triggers a RAM share" statement. **Disclosed mock-simplified choice**:
+  this backend treats *any* Glue `PutResourcePolicy(EnableHybrid=TRUE)` whose policy
+  grants a cross-account principal as the trigger, since Glue has no other concrete,
+  emulatable wire path to RAM's generically-documented "attach a resource-based policy"
+  mechanism. This gives `CREATED_FROM_POLICY` shares a real, reachable creation path
+  matching the general RAM mechanism precisely, at the cost of being broader than real
+  Lake-Formation-mediated Glue sharing.
+
+**Implementation**: `services/glue/interfaces.go`'s new `ResourceShareCreator` seam
+(`PutPolicyBasedShare`/`DeletePolicyBasedShare`), wired in `cli.go`'s
+`wireGlueRAMPolicyShares` (mirrors `wireAWSConfigDelivery`'s adapter-in-cli.go pattern).
+`services/glue/resource_policies.go`'s `PutResourcePolicy`/`DeleteResourcePolicy` call
+the seam *after* releasing `b.mu` (`services/lambda/lifecycle.go`'s
+capture/release/call/re-lock pattern -- ram's lock never nests inside glue's).
+`services/glue/policy_shares.go` parses the policy JSON's `Principal.AWS` entries,
+filters to genuinely cross-account ones (a public `"*"` grant is not RAM-shareable),
+and collects the granting statements' `Action`s. `services/ram/policy_shares.go`'s new
+`PutPolicyBasedShare`/`DeletePolicyBasedShare` create/resync/tear down the share, its
+resource+principal associations (no invitation -- a policy-created share represents
+access already granted by the resource policy itself, not a new grant needing
+acceptance), and a derived `CREATED_FROM_POLICY` managed permission whose
+`PolicyTemplate` is built from the granted actions.
+
+**State machine enforced** (`ResourceShare.FeatureSet`, new field, additive --
+`featureSetOf` defaults empty/pre-existing shares to `STANDARD`, no version bump):
+
+- `UpdateResourceShare` / `AssociateResourceSharePermission` on a `CREATED_FROM_POLICY`
+  share -> `OperationNotPermittedException`: their own error models
+  (`awsRestjson1_deserializeOpErrorUpdateResourceShare` /
+  `...AssociateResourceSharePermission`) declare no `InvalidStateTransitionException` at
+  all, so this is the closest modeled fit (matches their own doc text and this repo's
+  existing `DeletePermission` precedent for the identical "op declares no X" situation).
+- `AssociateResourceShare` / `DisassociateResourceShare` /
+  `DisassociateResourceSharePermission` on a `CREATED_FROM_POLICY` share ->
+  `InvalidStateTransitionException`: each op's own error model declares it.
+- `PromoteResourceShareCreatedFromPolicy` on a share that is *not*
+  `CREATED_FROM_POLICY` -> `InvalidStateTransitionException` (its own error model
+  declares it; this is also a genuine pre-existing defect fix -- the old code was an
+  RLock'd no-op that silently "succeeded" on any share, including a plain `STANDARD` one,
+  matching the deferred note's "effectively a no-op validator" description).
+- `PromoteResourceShareCreatedFromPolicy` success sets `FeatureSet` straight to
+  `STANDARD`, skipping the async `PROMOTING_TO_STANDARD` intermediate -- disclosed
+  simplification, consistent with this file's existing `PromotePermissionCreatedFromPolicy`
+  precedent (`permissions.go`) of skipping straight to the terminal state.
+- Not modeled: `PromoteResourceShareCreatedFromPolicy`'s
+  `UnmatchedPolicyPermissionException` (requires simulating "no existing customer-managed
+  permission exactly matches" -- out of this pass's scope, not attempted).
+
+**Genuine pre-existing bug found and fixed while wiring a real SDK-client test for the
+new state machine**: `handlePromoteResourceShareCreatedFromPolicy` read
+`resourceShareArn` from the JSON request body. The real operation has no
+`httpPayload` member and binds its one input field via `httpQuery`
+(`serializers.go`'s `awsRestjson1_serializeOpHttpBindingsPromoteResourceShareCreatedFromPolicyInput`:
+`encoder.SetQuery("resourceShareArn")`) -- a real client sends an **empty body**, so the
+old handler's `json.Unmarshal(body, &req)` always failed with "unexpected end of JSON
+input" on every real call. No prior test drove this op through a real SDK client to
+catch it. Fixed to read `c.Request().URL.Query().Get("resourceShareArn")`, matching
+`handleDeleteResourceShare`'s identical query-only binding immediately above it in the
+same file.
+
+**Tests**: `services/glue/resource_policies_ram_test.go` (fake `ResourceShareCreator`,
+table-driven, asserts exact Put/Delete call args including the cross-account-vs-same-
+account-vs-wildcard-principal filtering and the `EnableHybrid`/empty-`resourceARN`
+gating); `services/ram/policy_shares_test.go` (unit tests for
+`PutPolicyBasedShare`/`DeletePolicyBasedShare` idempotent resync behavior, plus the full
+state-machine table); `services/ram/policy_shares_wire_test.go` (real
+`aws-sdk-go-v2/service/ram` client against `httptest`, `errors.As`-asserting the exact
+typed exceptions for the two state-transition rejections and the full
+create-from-policy -> promote -> `STANDARD` lifecycle -- this is what caught the
+`httpQuery`-vs-body bug above); root `cli_glue_ram_policy_share_wiring_test.go` (mirrors
+`cli_mgn_s3_import_wiring_test.go`: drives the real `initializeServices` composition
+root, proving `wireGlueRAMPolicyShares` is actually called, not just defined).
+
+**Persistence**: `ResourceShare.FeatureSet`/`.PolicyResourceARN` are additive fields
+(`omitempty`, decode to `""` on an old snapshot, which `featureSetOf`/`isCreatedFromPolicy`
+already treat as "ordinary STANDARD share"). `pkgs/persistence/testdata/snapshot_inventory.json`
+regenerated via `-update` -- confirmed the diff is exactly the two new `ResourceShare`
+field rows, nothing else; **no version bump** (`ramSnapshotVersion` stays `1`).
+
+**Files changed**: `services/ram/models.go` (`ResourceShare.FeatureSet`/`.PolicyResourceARN`),
+`services/ram/store.go` (`featureSetCreatedFromPolicy`), `services/ram/errors.go`
+(`ErrInvalidStateTransition`), `services/ram/handler.go` (`errCodeLookup` entry;
+`handlePromoteResourceShareCreatedFromPolicy` call site now passes `c` not `body`),
+`services/ram/resource_shares.go` (`featureSetOf`/`isCreatedFromPolicy` helpers;
+`UpdateResourceShare`/`PromoteResourceShareCreatedFromPolicy` state checks),
+`services/ram/handler_resource_shares.go` (`toResourceShareObject` emits real
+`FeatureSet`; `handlePromoteResourceShareCreatedFromPolicy` query-param fix),
+`services/ram/share_associations.go`, `services/ram/share_permissions.go` (state
+checks), new `services/ram/policy_shares.go`; `services/glue/interfaces.go`
+(`ResourceShareCreator`), `services/glue/store.go` (`ramShareCreator` field +
+`SetResourceShareCreator`), `services/glue/resource_policies.go` (seam call sites), new
+`services/glue/policy_shares.go`; `cli.go` (`wireGlueRAMPolicyShares` +
+`glueRAMShareAdapter`, called from `wireGovernanceIntegrations`);
+`pkgs/persistence/testdata/snapshot_inventory.json` (ram rows only).
+
+Gates: `go build ./...` (whole module, clean); `go vet ./services/ram/...
+./services/glue/... .` (clean); `go test -race -count=1 ./services/ram/...
+./services/glue/... ./pkgs/persistence/...` (pass); `go test -count=1 -run 'RAM|Ram' .`
+(pass, includes the new root wiring test); `golangci-lint run ./services/ram/...
+./services/glue/...` (0 issues); `golangci-lint run --new-from-rev=HEAD .` (0 issues).
+
+Closes gopherstack-kvyy.

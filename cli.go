@@ -3809,6 +3809,12 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
+
+	// Wire Glue's hybrid resource-policy grants into RAM so a cross-account
+	// PutResourcePolicy(EnableHybrid=TRUE) creates a real CREATED_FROM_POLICY resource
+	// share, instead of that featureSet state machine being permanently unreachable
+	// (gopherstack-kvyy).
+	wireGlueRAMPolicyShares(byName["Glue"], byName["RAM"])
 }
 
 // registerCloudFormationAndDashboard registers CloudFormation and the
@@ -11350,6 +11356,49 @@ func wireTaggingInspector2(bk resourcegroupstaggingapibackend.StorageBackend, re
 		iBk.TagResource,
 		iBk.UntagResource,
 	)
+}
+
+// wireGlueRAMPolicyShares connects glue's PutResourcePolicy/DeleteResourcePolicy to RAM
+// so a hybrid (EnableHybrid=TRUE) cross-account resource policy creates, updates, or
+// removes a real RAM CREATED_FROM_POLICY resource share, instead of
+// PromoteResourceShareCreatedFromPolicy's featureSet state machine being permanently
+// unreachable (gopherstack-kvyy: no backend path ever created a CREATED_FROM_POLICY
+// share).
+func wireGlueRAMPolicyShares(glueReg, ramReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, ok := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ramH, ok := ramReg.(*rambackend.Handler)
+	if !ok {
+		return
+	}
+
+	ramBk, ok := ramH.Backend.(*rambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	glueBk.SetResourceShareCreator(&glueRAMShareAdapter{backend: ramBk})
+}
+
+// glueRAMShareAdapter adapts the RAM backend to glue.ResourceShareCreator.
+type glueRAMShareAdapter struct {
+	backend *rambackend.InMemoryBackend
+}
+
+func (a *glueRAMShareAdapter) PutPolicyBasedShare(resourceARN string, principals, actions []string) error {
+	return a.backend.PutPolicyBasedShare(resourceARN, principals, actions)
+}
+
+func (a *glueRAMShareAdapter) DeletePolicyBasedShare(resourceARN string) error {
+	return a.backend.DeletePolicyBasedShare(resourceARN)
 }
 
 // wireTaggingRAM wires the RAM backend into the Resource Groups Tagging API.

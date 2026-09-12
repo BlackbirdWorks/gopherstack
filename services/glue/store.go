@@ -196,6 +196,10 @@ type InMemoryBackend struct {
 	dataCatalogExportConfig   *DataCatalogExportConfiguration
 	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
+	// ramShareCreator seams a hybrid cross-account resource policy into a real RAM
+	// CREATED_FROM_POLICY share (SetResourceShareCreator, wired in cli.go like
+	// awsconfig's SetSNSPublisher). Nil in tests that construct a bare backend.
+	ramShareCreator ResourceShareCreator
 
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
@@ -351,6 +355,17 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// SetResourceShareCreator registers the RAM seam used by PutResourcePolicy/
+// DeleteResourcePolicy to keep a CREATED_FROM_POLICY resource share in sync with a
+// hybrid resource policy's cross-account grants. Unwired backends (nil, the default)
+// simply skip RAM sync -- the resource policy itself is still stored correctly.
+func (b *InMemoryBackend) SetResourceShareCreator(c ResourceShareCreator) {
+	b.mu.Lock("SetResourceShareCreator")
+	defer b.mu.Unlock()
+
+	b.ramShareCreator = c
+}
 
 // glueResourceName extracts the resource name from a Glue ARN for a given resource type.
 // Glue ARNs have the format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.

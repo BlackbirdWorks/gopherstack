@@ -166,7 +166,11 @@ families:
   error_codes_global: {status: ok, note: "SEVERE systemic fix this pass: the shared ErrValidation sentinel wired \"ValidationException\" as its wire __type — confirmed against aws-sdk-go-v2/service/glue/deserializers.go that the vast majority of Create/Update/Delete operations (CreateDatabase, CreateTable, CreateJob, CreateCrawler, CreateTrigger, CreateBlueprint, CreateCustomEntityType, CreateUsageProfile, tag validation, ...) document InvalidInputException instead. Changed the shared sentinel + handler.go's hardcoded mapping to InvalidInputException, and fixed the ~8 existing tests that had encoded the wrong wire code. Also fixed awserrFromDetail (handler_stubs.go), which always wrapped batch-operation ErrorDetail as awserr.ErrNotFound regardless of the actual ErrorCode string — so e.g. an AlreadyExistsException detail from BatchCreatePartition surfaced to CreatePartition callers as EntityNotFoundException. 2026-09-11 update (gopherstack-qd3.5, closing): ResourceNumberLimitExceededException is no longer unused — see limits.go and the dated 2026-09-11 section at the end of this file for the 15 ops now enforcing it with real AWS quotas. IdempotentParameterMismatchException/OperationTimeoutException/ConcurrentModificationException remain genuinely unused, now with exhaustive verification (every op in glue@v1.157.0's deserializers.go mechanically checked), not just spot-checked — same section."}
   BatchGetDataQualityRulesetEvaluationRun: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-05 (SDK v1.152.0, new op): in: RunIds*[]string; out: Runs[]DataQualityRulesetEvaluationRun, RunsNotFound[]string; errors: InternalServiceException/InvalidInputException/OperationTimeoutException (no EntityNotFoundException -- unknown IDs go in RunsNotFound instead, confirmed absent from the op's own error switch). Real batch lookup against the same dataQualityEvalRuns table GetDataQualityRulesetEvaluationRun already reads, following BatchGetCrawlers' found/missing split shape exactly (crawlers.go)."}
   data_catalog_export_configuration: {status: partial, note: "2026-08-05 (SDK v1.152.0, new ops): Get/PutDataCatalogExportConfiguration. Unlike DataCatalogEncryptionSettings, these ops carry no CatalogId at all (confirmed absent from both Input structs) -- modeled as one backend-global (account+region) singleton, matching GetGlueIdentityCenterConfiguration's existing pattern (identity_center.go). PutDataCatalogExportConfiguration validates ExportSetting is ENABLED or DISABLED (InvalidInputException otherwise) and really stores EncryptionConfiguration/CreatedAt/UpdatedAt; GetDataCatalogExportConfiguration returns the real DISABLED default when never configured (same rationale already documented for GetDataCatalogEncryptionSettings' empty-default return). state=partial only because Status mirrors ExportSetting SYNCHRONOUSLY: real AWS transitions through ENABLING/DISABLING before settling (an actual async S3 Tables export pipeline standing up/tearing down), which this backend has nothing to simulate -- honest immediate settlement, not a fabricated transient state, but also not the real eventually-consistent timing. S3TableBucketArn has no corresponding field anywhere in PutDataCatalogExportConfigurationInput, so it is never populated -- see gaps."}
-gaps:
+gaps: []
+  # All 7 gaps tracked at the start of this pass are fixed — see the ops/families
+  # notes above for each. Kept here (marked FIXED) rather than deleted so the
+  # bd issue IDs remain traceable; close the corresponding bd issues separately.
+items_still_open:
   - "2026-08-23 (clientcoverage-driven audit): GetUnfilteredTableMetadata/GetUnfilteredPartitionMetadata/GetUnfilteredPartitionsMetadata (Lake Formation cell/row-level-filtering integration) are all missing several real output members with no backing state anywhere in this backend -- GetUnfilteredTableMetadataOutput's CellFilters/IsMaterializedView/IsMultiDialectView/IsProtected/Permissions/QueryAuthorizationId/ResourceArn/RowFilter, and GetUnfilteredPartitionsMetadataOutput's NextToken (confirmed against api_op_GetUnfilteredTableMetadata.go / api_op_GetUnfilteredPartitionsMetadata.go) -- this backend has no Lake Formation permissions/cell-filter engine anywhere (consistent with PutResourcePolicy's existing EnableHybrid note: 'Lake Formation console-grant state is not modeled anywhere in gopherstack'). IsRegisteredWithLakeFormation is left false rather than fabricated true. Left absent/false rather than invented."
   - "2026-08-23 (clientcoverage-driven audit): CreateCatalog/UpdateCatalog/GetCatalog(s) accept/return only Description/Parameters of the real types.CatalogInput/types.Catalog; the newer Lake Formation federation members (AllowFullTableExternalDataAccess, CatalogProperties, CreateDatabaseDefaultPermissions, CreateTableDefaultPermissions, FederatedCatalog, OverwriteChildResourcePermissionsWithDefault, TargetRedshiftCatalog -- types/types.go:1067-1107) have no backing state anywhere in this backend (no federated-catalog or Lake-Formation-permissions modeling exists for any resource kind). Left absent rather than invented."
   - "2026-08-23 (clientcoverage-driven audit): GetDataQualityResult's DataQualityResult model (models.go) stores only ResultID+Score; the real GetDataQualityResultOutput's AggregatedMetrics/AnalyzerResults/CompletedOn/DataSource/EvaluationContext/JobName/JobRunId/Observations/ProfileId/RuleResults/StartedOn (api_op_GetDataQualityResult.go) have no backing state -- this backend never runs a real data-quality evaluation, the same class already documented for ml_transforms' EvaluationMetrics gap. Left absent rather than invented."
@@ -174,9 +178,6 @@ gaps:
   - "2026-08-13 (gopherstack-ustu): ListConnectionTypes' ConnectionTypeBrief.DisplayName/LogoUrl/Vendor/ConnectionTypeVariants (types.ConnectionTypeBrief, glue@v1.152.0 types/types.go:2533-2564) have no corresponding backing state anywhere in this backend (no per-connector display name/logo/vendor/variant catalog exists) -- left absent rather than invented."
   - "2026-08-05: DataCatalogExportConfiguration.S3TableBucketArn (GetDataCatalogExportConfigurationOutput field) is real AWS-managed state -- the actual S3 Tables bucket ARN backing the export -- with no corresponding input field anywhere in this API (confirmed absent from PutDataCatalogExportConfigurationInput). There is no way to honestly derive it, so it is always left empty rather than fabricated."
   - "2026-08-05: DataCatalogExportConfiguration.Status's ENABLING/DISABLING transient states (real AWS's async S3 Tables export pipeline standing up/tearing down) are not modeled -- this backend has no such pipeline, so Status settles to ENABLED/DISABLED synchronously with the Put call. Honest (no fabricated FAILED occurrences or invented settlement delay), just not eventually-consistent like real AWS."
-  # All 7 gaps tracked at the start of this pass are fixed — see the ops/families
-  # notes above for each. Kept here (marked FIXED) rather than deleted so the
-  # bd issue IDs remain traceable; close the corresponding bd issues separately.
   - "FIXED this pass: CrawlerTarget missing DynamoDBTargets/DeltaTargets/HudiTargets/IcebergTargets/MongoDBTargets (bd: gopherstack-qd3.1)"
   - "FIXED this pass: CreateCrawler/UpdateCrawler missing SchemaChangePolicy, RecrawlPolicy, LineageConfiguration, CrawlerSecurityConfiguration, LakeFormationConfiguration (bd: gopherstack-qd3.2)"
   - "FIXED this pass: DatabaseInput/Database missing Parameters, LocationUri, CreateTableDefaultPermissions, TargetDatabase (bd: gopherstack-qd3.3)"
@@ -2442,3 +2443,24 @@ go.mod deps permitted) or a real async execution engine this backend does
 not have, per the sizing already on record above.
 
 Closes gopherstack-qd3.6.
+
+## gopherstack-kvyy (2026-09-11): PutResourcePolicy/DeleteResourcePolicy now seam a hybrid cross-account grant into a real RAM CREATED_FROM_POLICY share
+
+New `ResourceShareCreator` seam (`interfaces.go`), wired to the RAM backend in `cli.go`'s
+`wireGlueRAMPolicyShares` (nil when RAM isn't wired in, e.g. bare-backend tests --
+`PutResourcePolicy`/`DeleteResourcePolicy` behave exactly as before in that case). A
+`PutResourcePolicy(EnableHybrid=TRUE)` call whose policy's `Principal.AWS` grants a
+different account now creates/updates a real RAM resource share
+(`featureSet=CREATED_FROM_POLICY`); dropping the last cross-account principal, or
+`DeleteResourcePolicy`, removes it. The seam call happens after `b.mu` is released
+(`services/lambda/lifecycle.go`'s capture/release/call/re-lock pattern), so RAM's lock
+never nests inside glue's. New `policy_shares.go` (policy-JSON `Principal`/`Action`
+parsing, cross-account filtering). No change to `PutResourcePolicy`/`DeleteResourcePolicy`'s
+own wire shape, errors, or persistence -- this is additive cross-service behavior only.
+Full verification, the RAM-side implementation, and the state-machine details this
+unblocks are recorded in `services/ram/PARITY.md`'s own `gopherstack-kvyy` section (this
+was primarily a RAM-side gap; glue's role is the one concrete trigger path).
+
+Tests: `resource_policies_ram_test.go` (fake `ResourceShareCreator`, table-driven).
+Gates: `go build ./...`, `go vet ./services/glue/...`, `go test -race -count=1
+./services/glue/...`, `golangci-lint run ./services/glue/...` -- all clean.

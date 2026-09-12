@@ -7,15 +7,26 @@ import (
 
 // ResourceShare represents an AWS RAM resource share.
 type ResourceShare struct {
-	LastUpdatedTime         time.Time         `json:"lastUpdatedTime"`
-	CreationTime            time.Time         `json:"creationTime"`
-	Tags                    map[string]string `json:"tags,omitempty"`
-	Name                    string            `json:"name"`
-	ARN                     string            `json:"arn"`
-	OwningAccountID         string            `json:"owningAccountId"`
-	Status                  string            `json:"status"`
-	StatusMessage           string            `json:"statusMessage,omitempty"`
-	AllowExternalPrincipals bool              `json:"allowExternalPrincipals"`
+	LastUpdatedTime time.Time         `json:"lastUpdatedTime"`
+	CreationTime    time.Time         `json:"creationTime"`
+	Tags            map[string]string `json:"tags,omitempty"`
+	Name            string            `json:"name"`
+	ARN             string            `json:"arn"`
+	OwningAccountID string            `json:"owningAccountId"`
+	Status          string            `json:"status"`
+	StatusMessage   string            `json:"statusMessage,omitempty"`
+	// FeatureSet is one of STANDARD/CREATED_FROM_POLICY/PROMOTING_TO_STANDARD
+	// (ram@v1.39.4 types/enums.go ResourceShareFeatureSet). Empty decodes as
+	// STANDARD (see featureSetOf) so pre-existing snapshots stay valid without a
+	// version bump.
+	FeatureSet string `json:"featureSet,omitempty"`
+	// PolicyResourceARN is set only for a CREATED_FROM_POLICY share: the ARN of
+	// the resource whose resource-based policy this share represents (see
+	// PutPolicyBasedShare). Empty for every ordinary STANDARD share. Not part of
+	// the AWS wire shape -- internal bookkeeping only, never read by
+	// toResourceShareObject.
+	PolicyResourceARN       string `json:"policyResourceArn,omitempty"`
+	AllowExternalPrincipals bool   `json:"allowExternalPrincipals"`
 }
 
 // ResourceShareAssociation represents a principal or resource associated with a resource share.

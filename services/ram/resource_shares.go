@@ -11,6 +11,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// featureSetOf returns rs.FeatureSet, defaulting an unset (pre-CREATED_FROM_POLICY-support)
+// value to STANDARD so existing shares and snapshots need no migration.
+func featureSetOf(rs *ResourceShare) string {
+	if rs.FeatureSet == "" {
+		return permStandard
+	}
+
+	return rs.FeatureSet
+}
+
+// isCreatedFromPolicy reports whether rs is a policy-derived share that "can't be
+// modified by using RAM" until promoted (api_op_PromoteResourceShareCreatedFromPolicy.go
+// doc). Real AWS visibly restricts CreateResourceShare, and this repo's own
+// PutPolicyBasedShare is the only path that ever sets featureSetCreatedFromPolicy.
+func isCreatedFromPolicy(rs *ResourceShare) bool {
+	return rs.FeatureSet == featureSetCreatedFromPolicy
+}
+
 // isValidResourceARN reports whether s is syntactically ARN-shaped: it starts
 // with "arn:" and has at least five colon separators (six colon-delimited
 // segments), matching the resourcegroups package's own resource-ARN check.
@@ -77,6 +95,7 @@ func (b *InMemoryBackend) CreateResourceShare(
 		ARN:                     shareARN,
 		OwningAccountID:         b.accountID,
 		Status:                  statusActive,
+		FeatureSet:              permStandard,
 		AllowExternalPrincipals: allowExternalPrincipals,
 		CreationTime:            now,
 		LastUpdatedTime:         now,
@@ -227,6 +246,19 @@ func (b *InMemoryBackend) UpdateResourceShare(
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
+	// UpdateResourceShare's own error model (ram@v1.39.4 deserializers.go
+	// awsRestjson1_deserializeOpErrorUpdateResourceShare) declares no
+	// InvalidStateTransitionException at all -- OperationNotPermittedException is the
+	// closest modeled fit and is what AssociateResourceSharePermission (same "can't be
+	// modified by using RAM" restriction, same missing exception) uses below.
+	if isCreatedFromPolicy(rs) {
+		return nil, fmt.Errorf(
+			"%w: resource share %s was created from a resource-based policy and can't "+
+				"be modified until promoted with PromoteResourceShareCreatedFromPolicy",
+			ErrOperationNotPermitted, shareARN,
+		)
+	}
+
 	if name != "" {
 		rs.Name = name
 		// Keep association ResourceShareName in sync.
@@ -339,18 +371,36 @@ func (b *InMemoryBackend) ownerMatchesFilter(shareARN, resourceOwner string) boo
 	}
 }
 
-// PromoteResourceShareCreatedFromPolicy promotes a resource share to standard feature set.
-// In this mock, it simply returns the existing share unchanged.
+// PromoteResourceShareCreatedFromPolicy promotes a CREATED_FROM_POLICY resource share to
+// STANDARD, making it fully manageable in RAM (api_op_PromoteResourceShareCreatedFromPolicy.go
+// doc). Real AWS transitions CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD
+// asynchronously; this backend applies the transition synchronously and never persists the
+// intermediate state, matching this repo's existing PromotePermissionCreatedFromPolicy
+// convention (permissions.go) of skipping straight to the terminal state.
 func (b *InMemoryBackend) PromoteResourceShareCreatedFromPolicy(
 	shareARN string,
 ) (*ResourceShare, error) {
-	b.mu.RLock("PromoteResourceShareCreatedFromPolicy")
-	defer b.mu.RUnlock()
+	b.mu.Lock("PromoteResourceShareCreatedFromPolicy")
+	defer b.mu.Unlock()
 
 	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
+
+	// PromoteResourceShareCreatedFromPolicy's own error model declares
+	// InvalidStateTransitionException (ram@v1.39.4 deserializers.go
+	// awsRestjson1_deserializeOpErrorPromoteResourceShareCreatedFromPolicy) for exactly
+	// this: the operation is only valid for a share still in CREATED_FROM_POLICY.
+	if !isCreatedFromPolicy(rs) {
+		return nil, fmt.Errorf(
+			"%w: resource share %s is not a CREATED_FROM_POLICY share",
+			ErrInvalidStateTransition, shareARN,
+		)
+	}
+
+	rs.FeatureSet = permStandard
+	rs.LastUpdatedTime = time.Now()
 
 	return cloneResourceShare(rs), nil
 }

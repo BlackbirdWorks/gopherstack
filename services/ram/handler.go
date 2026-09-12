@@ -462,7 +462,7 @@ func (h *Handler) dispatchCRUDShareOps(
 
 		return r, true, err
 	case opPromoteResourceShareCreatedFromPolicy:
-		r, err := h.handlePromoteResourceShareCreatedFromPolicy(ctx, body)
+		r, err := h.handlePromoteResourceShareCreatedFromPolicy(ctx, c)
 
 		return r, true, err
 	case opEnableSharingWithAwsOrganization:
@@ -699,6 +699,7 @@ var errCodeLookup = []struct {
 	{ErrInvalidParameter, codeInvalidParameter},
 	{ErrValidation, codeInvalidParameter},
 	{ErrMalformedArn, "MalformedArnException"},
+	{ErrInvalidStateTransition, "InvalidStateTransitionException"},
 }
 
 func (h *Handler) handleError(c *echo.Context, err error) error {
