@@ -14,8 +14,10 @@ import (
 
 	// modernc.org/sqlite registers the pure-Go "sqlite" database/sql driver
 	// (no cgo), so the Data API can execute real SQL against an in-memory
-	// engine on every platform the rest of gopherstack builds for.
-	_ "modernc.org/sqlite"
+	// engine on every platform the rest of gopherstack builds for. It is
+	// imported by name (not blank) because columnOriginInfo below also uses
+	// its exported ColumnInfo type.
+	sqlitedriver "modernc.org/sqlite"
 )
 
 // errNoEngineTx is returned when a statement references a transaction that has
@@ -111,6 +113,8 @@ func (e *sqlEngine) execute(
 
 	var run querier
 
+	var originDB *sql.DB
+
 	if transactionID != "" {
 		tx, ok := e.txs[transactionID]
 		if !ok {
@@ -125,9 +129,14 @@ func (e *sqlEngine) execute(
 		}
 
 		run = db
+		// originDB backs columnOriginInfo's conn.Raw lookup (see
+		// applyColumnOrigin). Only available here: *sql.Tx has no equivalent
+		// to *sql.Conn.Raw, so a statement run inside a BeginTransaction
+		// transaction can't use this path -- see PARITY.md.
+		originDB = db
 	}
 
-	return runStatement(ctx, run, statement, params, getResultSetOptions(ctx))
+	return runStatement(ctx, run, originDB, statement, params, getResultSetOptions(ctx))
 }
 
 // beginTx opens an engine-side transaction bound to txID. The caller must have
@@ -211,6 +220,7 @@ func (e *sqlEngine) replay(ctx context.Context, region string, stmts []ExecutedS
 func runStatement(
 	ctx context.Context,
 	run querier,
+	originDB *sql.DB,
 	statement string,
 	params []SQLParameter,
 	opts resultSetOptions,
@@ -224,7 +234,7 @@ func runStatement(
 		}
 		defer func() { _ = rows.Close() }()
 
-		records, columns, scanErr := scanRows(rows, opts)
+		records, columns, scanErr := scanRows(ctx, run, originDB, statement, rows, opts)
 		if scanErr != nil {
 			return nil, nil, 0, nil, scanErr
 		}
@@ -280,17 +290,42 @@ func generatedFieldsFor(ctx context.Context, run querier, statement string, res 
 // hasRowIDAliasColumn reports whether table declares exactly one INTEGER
 // PRIMARY KEY column (a composite primary key, or a primary key of any other
 // declared type, does not create a rowid alias per SQLite's documented
-// rules). table is only ever a regexp-validated bare identifier (see
-// insertIntoTableRe), so it is safe to interpolate directly into the PRAGMA
-// statement -- database/sql has no bind-parameter support for PRAGMA targets.
+// rules).
 func hasRowIDAliasColumn(ctx context.Context, run querier, table string) bool {
+	_, ok := rowIDAliasColumn(ctx, run, table)
+
+	return ok
+}
+
+// isRowIDAliasColumn reports whether column is table's sole rowid-alias
+// INTEGER PRIMARY KEY column -- the signal applyColumnOrigin uses for
+// ColumnMetadata.IsAutoIncrement (real AWS: "a value that indicates whether
+// the column increments automatically").
+func isRowIDAliasColumn(ctx context.Context, run querier, table, column string) bool {
+	name, ok := rowIDAliasColumn(ctx, run, table)
+
+	return ok && name == column
+}
+
+// rowIDAliasColumn returns the name of table's INTEGER PRIMARY KEY column
+// when it declares exactly one such column (SQLite's documented rowid alias,
+// https://sqlite.org/lang_createtable.html#rowid); ("", false) otherwise.
+// table is only ever a name the SQLite engine itself resolved (see
+// insertIntoTableRe's regexp-validated capture, or the real
+// sqlite3_column_table_name value columnOriginInfo returns), so it is safe
+// to interpolate directly into the PRAGMA statement -- database/sql has no
+// bind-parameter support for PRAGMA targets.
+func rowIDAliasColumn(ctx context.Context, run querier, table string) (string, bool) {
 	rows, err := run.QueryContext(ctx, "PRAGMA table_info("+table+")")
 	if err != nil {
-		return false
+		return "", false
 	}
 	defer func() { _ = rows.Close() }()
 
 	pkCount := 0
+
+	var pkName string
+
 	isIntegerPK := false
 
 	for rows.Next() {
@@ -301,20 +336,82 @@ func hasRowIDAliasColumn(ctx context.Context, run querier, table string) bool {
 		var dflt any
 
 		if scanErr := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); scanErr != nil {
-			return false
+			return "", false
 		}
 
 		if pk > 0 {
 			pkCount++
+			pkName = name
 			isIntegerPK = strings.Contains(strings.ToUpper(ctype), "INT")
 		}
 	}
 
-	if rows.Err() != nil {
-		return false
+	if rows.Err() != nil || pkCount != 1 || !isIntegerPK {
+		return "", false
 	}
 
-	return pkCount == 1 && isIntegerPK
+	return pkName, true
+}
+
+// columnOriginInfo resolves each result column's source table/database/
+// origin-column name via the real sqlite3_column_table_name /
+// sqlite3_column_database_name / sqlite3_column_origin_name C APIs, which
+// modernc.org/sqlite@v1.58.0 exposes through *sql.Conn.Raw (see conn.go's
+// ColumnInfo) -- database/sql's own sql.ColumnType has no such accessor.
+// Returns nil when originDB is nil (statement ran inside a transaction; see
+// runStatement), the driver conn doesn't implement the accessor, or opening
+// a fresh connection fails, so callers degrade to the historical
+// zero-valued fields. A column that doesn't resolve to an unambiguous table
+// column (an expression, function call, or constant) reports an empty
+// TableName, per the accessor's own documented contract -- not an error.
+func columnOriginInfo(ctx context.Context, originDB *sql.DB, statement string) []sqlitedriver.ColumnInfo {
+	if originDB == nil {
+		return nil
+	}
+
+	conn, err := originDB.Conn(ctx)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conn.Close() }()
+
+	var info []sqlitedriver.ColumnInfo
+
+	_ = conn.Raw(func(driverConn any) error {
+		ci, ok := driverConn.(interface {
+			ColumnInfo(query string) ([]sqlitedriver.ColumnInfo, error)
+		})
+		if !ok {
+			return nil
+		}
+
+		info, _ = ci.ColumnInfo(statement)
+
+		return nil
+	})
+
+	return info
+}
+
+// applyColumnOrigin fills ColumnMetadata.SchemaName/TableName/
+// IsAutoIncrement from columnOriginInfo, matching each result column by
+// position. DatabaseName ("main" for the default, unattached database) is
+// reported as SchemaName -- the closest signal SQLite exposes to a
+// PostgreSQL/MySQL schema, since SQLite databases have no schema catalog of
+// their own. Left at the zero value (unmodified) for any column
+// columnOriginInfo can't resolve, or when it returns nil entirely.
+func applyColumnOrigin(ctx context.Context, run querier, originDB *sql.DB, statement string, columns []ColumnMetadata) {
+	origin := columnOriginInfo(ctx, originDB, statement)
+
+	for i := range columns {
+		if i >= len(origin) || origin[i].TableName == "" {
+			continue
+		}
+
+		columns[i].TableName = origin[i].TableName
+		columns[i].SchemaName = origin[i].DatabaseName
+		columns[i].IsAutoIncrement = isRowIDAliasColumn(ctx, run, origin[i].TableName, origin[i].OriginName)
+	}
 }
 
 // queryLeadKeywords are the statement prefixes that produce a result set.
@@ -407,12 +504,14 @@ func sqliteAffinity(decltype string) string {
 	}
 }
 
-// columnMetadataFor builds a ColumnMetadata for one result column. The
-// pure-Go SQLite driver exposes only the declared type name, nullability (it
-// always reports "nullable, known" -- see modernc.org/sqlite's
-// rows.ColumnTypeNullable), and decimal size (never known); schemaName,
-// tableName, isAutoIncrement, and arrayBaseColumnType have no equivalent in
-// database/sql's ColumnType and are left at their zero values.
+// columnMetadataFor builds a ColumnMetadata for one result column from
+// database/sql's sql.ColumnType: the declared type name, nullability (the
+// pure-Go driver always reports "nullable, known" -- see
+// modernc.org/sqlite's rows.ColumnTypeNullable), and decimal size (never
+// known). SchemaName/TableName/IsAutoIncrement are filled in afterward by
+// applyColumnOrigin, which uses the driver's own column-origin accessor
+// (sql.ColumnType itself has no such accessor). ArrayBaseColumnType is left
+// at 0: this mock's result columns are never array-typed (see PARITY.md).
 func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
 	decltype := ct.DatabaseTypeName()
 
@@ -461,8 +560,12 @@ func columnMetadataFor(ct *sql.ColumnType) ColumnMetadata {
 
 // scanRows materialises an *sql.Rows cursor into the Data API record model,
 // applying opts (real AWS ExecuteStatementInput.ResultSetOptions) to shape
-// each column's values -- see shapeField.
-func scanRows(rows *sql.Rows, opts resultSetOptions) ([][]Field, []ColumnMetadata, error) {
+// each column's values -- see shapeField. originDB (nil inside a
+// transaction) backs applyColumnOrigin's SchemaName/TableName/
+// IsAutoIncrement lookup.
+func scanRows(
+	ctx context.Context, run querier, originDB *sql.DB, statement string, rows *sql.Rows, opts resultSetOptions,
+) ([][]Field, []ColumnMetadata, error) {
 	cols, err := rows.ColumnTypes()
 	if err != nil {
 		return nil, nil, fmt.Errorf("column types: %w", err)
@@ -472,6 +575,8 @@ func scanRows(rows *sql.Rows, opts resultSetOptions) ([][]Field, []ColumnMetadat
 	for i, ct := range cols {
 		columns[i] = columnMetadataFor(ct)
 	}
+
+	applyColumnOrigin(ctx, run, originDB, statement, columns)
 
 	records := [][]Field{}
 

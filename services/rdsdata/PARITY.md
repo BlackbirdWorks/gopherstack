@@ -99,34 +99,35 @@ gaps:                     # known divergences NOT fixed
     both select *within* a resource. gopherstack's sqlEngine keys its one
     SQLite database per (region, resourceARN) only (engine.go's dbFor/dbKey);
     there is no per-resource multi-database or schema catalog for these
-    fields to select into, matching this service's existing typeHint gap
-    (see above) and its siblings' repeated honest-gap pattern in this
-    campaign. Confirmed via grep: no `.Database`/`.Schema` selector anywhere
-    in non-test source. Not fixed: modeling multiple named databases/schemas
-    inside one engine instance is a real feature (SQLite ATTACH DATABASE per
-    name, or a schema-qualified table namespace), not a field-read fix."
-  - "SqlParameter.typeHint (DATE/DECIMAL/JSON/TIME/TIMESTAMP/UUID) is
-    accepted on the wire but does not change bind behavior -- the mock
-    SQLite engine has no distinct DATE/TIMESTAMP/UUID column types to
-    convert strings into, so a DATE-hinted value binds identically to an
-    unhinted string. Re-examined this pass and deliberately NOT implemented:
-    real AWS's exact behavior for a malformed hinted value (which error
-    class, and whether it's a request-time or DB-execution-time failure) is
-    not independently verifiable without a live Aurora cluster, and
-    inventing that mapping would risk exactly the kind of
-    gopherstack-invented error semantics this audit is supposed to catch.
-    Only matters if a test asserts on hint-driven type coercion or
-    validation."
-  - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement/ArrayBaseColumnType
-    are always zero-valued. database/sql's sql.ColumnType (the only
-    introspection the pure-Go modernc.org/sqlite driver exposes) has no
-    origin-table/schema/autoincrement accessor, so there is no real signal to
-    populate them from without a hand-rolled SQL catalog query per column
-    keyed by the column's origin table -- which sql.ColumnType also does not
-    expose. (Contrast with generatedFields/UpdateResult, which needed the
-    origin table but got it for free by parsing it out of the INSERT
-    statement itself; a SELECT's result columns have no such textual anchor
-    in the general case, e.g. `SELECT * FROM t JOIN u`.)"
+    fields to select into, the same root cause as ExecuteSql's Database/
+    Schema fields below and its siblings' repeated honest-gap pattern in
+    this campaign. Confirmed via grep: no `.Database`/`.Schema` selector
+    anywhere in non-test source. Not fixed: modeling multiple named
+    databases/schemas inside one engine instance is a real feature (SQLite
+    ATTACH DATABASE per name, or a schema-qualified table namespace), not a
+    field-read fix."
+  - "SqlParameter.typeHint bind semantics (gopherstack-fdle, fixed this
+    pass -- see Notes): a hint now validates its stringValue's documented
+    format and 400s a malformed one, but the *bound value* is still the
+    unmodified string -- the mock SQLite engine has no distinct DATE/
+    DECIMAL/TIMESTAMP/UUID column types to coerce into, so a well-formed
+    DATE-hinted value still binds identically to an unhinted string. Real
+    AWS's exact behavior for a malformed hinted value (which error class,
+    and whether it's a request-time or DB-execution-time failure) is not
+    independently verifiable without a live Aurora cluster -- the
+    BadRequestException class and message wording gopherstack now returns
+    are a best-effort inference, not a field-diffed fact. See Notes."
+  - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement (gopherstack-fdle,
+    fixed this pass for the non-transactional path -- see Notes): populated
+    via modernc.org/sqlite@v1.58.0's conn.ColumnInfo, which exposes the real
+    sqlite3_column_table_name/database_name/origin_name C APIs through
+    *sql.Conn.Raw (database/sql's own sql.ColumnType has no such accessor,
+    as the prior pass found). Still always zero-valued for a statement run
+    inside a BeginTransaction transaction: *sql.Tx has no equivalent to
+    *sql.Conn.Raw, so there's no way to recover the driver connection
+    ColumnInfo needs. ArrayBaseColumnType remains always 0 -- unaffected,
+    and correct, since this mock's result columns are never array-typed
+    (see the field_union family note above)."
 leaks: {status: clean, note: >
   sqlEngine.reset() rolls back every open *sql.Tx and closes every resourceDB
   (including its keep-alive conn) before clearing the maps; Handler.Reset()
@@ -222,8 +223,9 @@ version below.
   affinity algorithm (see `sqliteAffinity`); `nullable` and `precision`/
   `scale` reflect modernc.org/sqlite's driver limits (verified from driver
   source, not guessed).
-- `SqlParameter.typeHint` round-trips on the wire; see gaps for why it still
-  doesn't affect bind semantics.
+- `SqlParameter.typeHint` round-trips on the wire; see the gopherstack-fdle
+  section below for its format-validation semantics (added since), and
+  gaps for why it still doesn't affect the actual bound value.
 
 **Trap for the next auditor:** `ExecuteStatement`/`BatchExecuteStatement`
 degrade SQL the mock SQLite engine rejects (e.g. DML against a table that was
@@ -447,3 +449,160 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## gopherstack-fdle (2026-09-11): typeHint validation, ColumnMetadata table origin, array-param wording
+
+Closed the three open items this issue tracked. Split cleanly into "verified
+from docs" (implemented) and "needs live Aurora" (disclosed, unchanged).
+
+**1. SqlParameter.typeHint bind semantics -- format validation implemented;
+actual bind coercion still a documented gap.**
+
+Verified the six enum values and their documented formats two ways: the SDK
+source (`rdsdata@v1.35.4` `types/enums.go`'s `TypeHint` and `types/types.go`'s
+`SqlParameter.TypeHint` doc comment) and the live API reference page
+(https://docs.aws.amazon.com/rdsdataservice/latest/APIReference/API_SqlParameter.html,
+fetched this pass) -- both read identically: `DATE` "YYYY-MM-DD", `DECIMAL`
+(no format constraint beyond "sent as an object of DECIMAL type"), `JSON`
+(no constraint beyond "sent as JSON"), `TIME` "HH:MM:SS[.FFF]", `TIMESTAMP`
+"YYYY-MM-DD HH:MM:SS[.FFF]", `UUID` (no format given in either source, so
+gopherstack validates against the standard 8-4-4-4-12 hex form).
+
+`typehints.go`'s `validateTypeHints`/`validateTypeHintFormat` now checks a
+hinted parameter's `stringValue` against its documented format (DATE/TIME/
+TIMESTAMP via regexp -- TIME/TIMESTAMP have an optional fractional-seconds
+suffix that doesn't fit a single `time.Parse` layout; DATE uses
+`time.Parse(time.DateOnly, ...)` directly; DECIMAL via a plain-number
+regexp; JSON via `encoding/json.Valid`; UUID via a hex-pattern regexp),
+called from both `handleExecuteStatement` and per parameter set from
+`handleBatchExecuteStatement`, alongside the existing
+`validateNoArrayParameters` call. A malformed value under a hint returns
+`ErrValidation` (`BadRequestException` -- confirmed a member of
+`ExecuteStatement`'s own error switch,
+`deserializers.go:880-923`'s `awsRestjson1_deserializeOpErrorExecuteStatement`)
+wrapping the parameter name (`fmt.Errorf("%w: parameter %q: %w", ...)`), so
+the response body names the offending parameter. **Disclosed, not
+implemented:** the actual bound *value* is unchanged by a well-formed
+hint -- the mock SQLite engine has no distinct DATE/DECIMAL/TIMESTAMP/UUID
+column types to coerce a string into, so this mock can only ever validate
+the wire-level string format, not reproduce Aurora's actual DB-side type
+coercion. Whether real AWS's malformed-value failure is request-time
+(before touching the database, as gopherstack now does) or a DB-execution-time
+error from the database engine itself, and the exact message text, is not
+independently verifiable without a live Aurora cluster -- said so directly
+in `validateTypeHints`'s doc comment and here, rather than inventing wording
+and presenting it as verified. A hint on a non-string or null `Value` is a
+no-op (matches the doc's "the corresponding *String* parameter value..."
+wording, which only defines behavior for a stringValue).
+
+**2. ColumnMetadata.SchemaName/TableName/IsAutoIncrement -- implemented for
+the non-transactional path via a real driver accessor neither prior audit
+found.**
+
+Both prior audits (2026-08-11, 2026-08-30) concluded `sql.ColumnType` (the
+only introspection `database/sql` itself exposes) has no origin-table
+accessor, and stopped there. This pass went one level deeper: the pinned
+driver, `modernc.org/sqlite@v1.58.0` (go.mod), exposes the real
+`sqlite3_column_table_name`/`sqlite3_column_database_name`/
+`sqlite3_column_origin_name` C APIs directly through its own
+`conn.ColumnInfo(query string) ([]sqlite.ColumnInfo, error)` method
+(`conn.go:342-405`), reachable from a `*sql.Conn` via the standard
+`(*sql.Conn).Raw` escape hatch -- confirmed by reading the driver source,
+not assumed from its name.
+
+`engine.go`'s new `columnOriginInfo` opens a fresh `*sql.Conn` from the
+resource's `*sql.DB` and calls `ColumnInfo` on the same statement text (a
+prepare-only call -- it doesn't execute or bind parameters, so named
+placeholders like `:id` compile fine without values); `applyColumnOrigin`
+matches each returned entry to `scanRows`'s columns by position, filling
+`TableName`/`SchemaName` (from `DatabaseName`, the closest signal SQLite has
+to a schema -- "main" for the default database) and computing
+`IsAutoIncrement` by checking whether `(TableName, OriginName)` is that
+table's sole rowid-alias `INTEGER PRIMARY KEY` column, reusing the same
+`rowIDAliasColumn` primitive `generatedFieldsFor` already relied on (a real,
+previously-verified signal, not a new invented one -- see the
+`generatedFields` Notes entry above). A column with no unambiguous source
+table (an expression, function call, or constant) reports an empty
+`TableName` per the accessor's own documented contract, which
+`applyColumnOrigin` passes through as the historical zero value --
+verified in `TestExecuteStatement_ColumnMetadata_TableOrigin`'s `SELECT 1 +
+1` case.
+
+**Disclosed, not implemented:** this only works outside a
+`BeginTransaction` transaction. `sqlEngine.execute` only has a `*sql.DB` to
+call `.Conn`/`.Raw` on in the autocommit branch; the transactional branch
+runs against an `*sql.Tx` (opened once by `BeginTransaction` and reused
+across calls), and `*sql.Tx` has no `Raw` method or equivalent in
+`database/sql` -- there is no way to recover the underlying driver
+connection from an existing `*sql.Tx` to call `ColumnInfo` on. A statement
+run with a `transactionId` therefore still reports
+`SchemaName`/`TableName`/`IsAutoIncrement` as their zero value, exactly as
+before this pass -- verified in
+`TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction`.
+`ArrayBaseColumnType` is untouched (still always 0) and correctly so: see
+the field_union family note above for why this mock's result columns are
+never array-typed.
+
+**3. Array parameters -- confirmed and message wording tightened.**
+
+Re-verified `validateNoArrayParameters`'s behavior against
+`rdsdata@v1.35.4`: `ExecuteStatementInput.Parameters`
+(`api_op_ExecuteStatement.go`) and `BatchExecuteStatementInput.ParameterSets`
+(`api_op_BatchExecuteStatement.go:87`) both carry the identical doc comment
+"Array parameters are not supported." (capital A, period) directly above the
+field. gopherstack's rejection message previously read lowercase ("array
+parameters are..."); changed to match the doc's exact capitalization while
+still naming the parameter for debuggability:
+`"%w: Array parameters are not supported (parameter %q)"`. Confirmed both
+call sites (`handleExecuteStatement`'s single-parameter-list check and
+`handleBatchExecuteStatement`'s per-parameter-set loop) still invoke it. The
+exact wording a live Aurora call returns for this case remains
+unverified without one -- this is a best-effort alignment with the
+documented constraint, not a field-diffed fact; unchanged conclusion from
+the prior two audits, restated here per this issue's ask to re-confirm it.
+
+**Tests** (all real `aws-sdk-go-v2/service/rdsdata` client against
+`httptest`, following the existing `newRoundTripClient` pattern from
+`handler_oversized_body_test.go`, except the in-transaction ColumnMetadata
+case -- see its doc comment for why): `typehints_realclient_test.go` (valid
++ malformed value per hint, table-driven; a non-string value is a no-op;
+BatchExecuteStatement applies hints per parameter set),
+`column_origin_realclient_test.go` (TableName/SchemaName/IsAutoIncrement for
+a real table's columns, a computed column's empty origin, and the
+inside-a-transaction zero-value case), `array_parameter_realclient_test.go`
+(ExecuteStatement and BatchExecuteStatement both reject with the updated
+message).
+
+**Aside, out of scope, filed as a separate finding (not fixed here):**
+while writing the in-transaction ColumnMetadata test against a live
+`httptest.Server` + real SDK client (this issue's requested test pattern),
+found that `sqlEngine.beginTx` (engine.go) opens the engine-side `*sql.Tx`
+using `BeginTransaction`'s own per-request `context.Context`. Over a real
+`net/http.Server`, that context is canceled once the `BeginTransaction`
+request finishes being served, and `database/sql` auto-rolls-back a `*sql.Tx`
+whose context is canceled -- so a *separate* subsequent HTTP request
+(`ExecuteStatement` with that `transactionId`) silently hits the already
+"transaction has already been committed or rolled back" error, which
+`statements.go`'s historical lenient-fallback swallows into the ordinary
+empty-success envelope (no client-visible error, just silently-wrong
+empty/zero results). Reproduced directly: a real client's
+`BeginTransaction` then `ExecuteStatement` in two separate HTTP round trips
+against an `httptest.Server` returns `"columnMetadata":[]` where the
+backend, called in-process with a durable context, correctly returns one
+entry. Every other transaction test in this package avoids the confound by
+driving the handler in-process (`doRDSDataRequest`, whose
+`httptest.NewRequest` carries a never-canceled `context.Background()`),
+which is almost certainly why this has gone uncaught. Out of scope for
+gopherstack-fdle (transaction-context lifetime, not typeHint/ColumnMetadata/
+array parameters); worth its own bd issue and a real fix (e.g. binding the
+engine-side transaction to a longer-lived context decoupled from any single
+request).
+
+**Gates:** `go build ./...` clean; `go vet ./services/rdsdata/...` clean;
+`go test -race -count=1 ./services/rdsdata/... ./pkgs/persistence/...` ok;
+`golangci-lint run ./services/rdsdata/...` 0 issues; no cyclop/gocyclo/
+gocognit/funlen nolints added. No persisted struct changed (ColumnMetadata/
+SQLParameter's JSON shape is identical -- only how their fields are
+populated changed; query results were never part of `backendSnapshot` to
+begin with, see `persistence.go`), so `pkgs/persistence/testdata/
+snapshot_inventory.json` needed no update and no version bump.

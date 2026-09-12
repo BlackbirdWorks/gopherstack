@@ -342,7 +342,7 @@ func validateResultSetOptions(opts *resultSetOptionsRequest) error {
 func validateNoArrayParameters(params []SQLParameter) error {
 	for _, p := range params {
 		if p.Value.ArrayValue != nil {
-			return fmt.Errorf("%w: array parameters are not supported (parameter %q)", ErrValidation, p.Name)
+			return fmt.Errorf("%w: Array parameters are not supported (parameter %q)", ErrValidation, p.Name)
 		}
 	}
 
@@ -399,6 +399,10 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 	}
 
 	if err := validateNoArrayParameters(req.Parameters); err != nil {
+		return nil, err
+	}
+
+	if err := validateTypeHints(req.Parameters); err != nil {
 		return nil, err
 	}
 
@@ -518,6 +522,10 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 
 	for _, params := range req.ParameterSets {
 		if err := validateNoArrayParameters(params); err != nil {
+			return nil, err
+		}
+
+		if err := validateTypeHints(params); err != nil {
 			return nil, err
 		}
 	}
