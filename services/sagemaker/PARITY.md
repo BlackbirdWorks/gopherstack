@@ -214,12 +214,12 @@ ops:
 
   # --- parity-4: new ops added by the v1.236.0 -> v1.261.0 SDK bump ---
   CreateAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (Arn/Name/Status/AIWorkloadConfigIdentifier/BenchmarkTarget/CreationTime/OutputConfig/RoleArn) always emitted; BenchmarkTarget/OutputConfig/NetworkConfig are json.RawMessage passthrough of the Create payload — see aiBenchmarkJob family note"}
+  DescribeAIBenchmarkJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "required fields (Arn/Name/Status/AIWorkloadConfigIdentifier/BenchmarkTarget/CreationTime/OutputConfig/RoleArn) always emitted; BenchmarkTarget/OutputConfig/NetworkConfig are json.RawMessage passthrough of the Create payload — see aiBenchmarkJob family note. FIXED 2026-09-12 (gopherstack-n3zi slice 28): AIBenchmarkJob.MarshalJSON emitted Tags as the {\"k\":\"v\"} map shape instead of DescribeAIBenchmarkJobOutput.Tags' real []types.Tag list (sagemaker@v1.263.2 api_op_DescribeAIBenchmarkJob.go:97) — a real client's decode failed outright whenever the job had any tags. Fixed with the same toTagObjects pattern AIWorkloadConfig.MarshalJSON already used."}
   DeleteAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopAIBenchmarkJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
   ListAIBenchmarkJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "StatusEquals/NameContains/CreationTimeAfter/Before/SortBy/SortOrder/MaxResults all real filters; AIWorkloadConfigName derived from the stored identifier. parity-21: an unset SortBy/SortOrder fell through to Name/Ascending, the reverse of the op's own doc default (CreationTime/Descending) -- fixed."}
   CreateAIRecommendationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: AdapterSource was entirely absent from decode -- added as json.RawMessage passthrough, threaded through Create and echoed on Describe."}
-  DescribeAIRecommendationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "required fields always emitted; ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification/AdapterSource are json.RawMessage passthrough — see aiRecommendationJob family note; Recommendations intentionally always empty, see gaps:"}
+  DescribeAIRecommendationJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "required fields always emitted; ModelSource/OutputConfig/PerformanceTarget/ComputeSpec/InferenceSpecification/AdapterSource are json.RawMessage passthrough — see aiRecommendationJob family note; Recommendations intentionally always empty, see gaps:. FIXED 2026-09-12 (gopherstack-n3zi slice 28): same Tags-as-map bug as AIBenchmarkJob (DescribeAIRecommendationJobOutput.Tags is also []types.Tag, api_op_DescribeAIRecommendationJob.go:115) — fixed identically."}
   DeleteAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok}
   StopAIRecommendationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM via stopSimpleJobFSM (lifecycle.go)"}
   ListAIRecommendationJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: same SortBy/SortOrder default bug as ListAIBenchmarkJobs (real default CreationTime/Descending, was falling through to Name/Ascending) -- fixed."}
@@ -246,7 +246,7 @@ ops:
   DeleteCodeRepository: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCodeRepositories: {wire: fixed, errors: ok, state: ok, persist: ok, note: "parity-21: was NextToken-only -- added CreationTimeAfter/Before, LastModifiedTimeAfter/Before, MaxResults, NameContains, SortBy(Name/CreationTime/LastModifiedTime, default Name), SortOrder (default Ascending, confirmed per-op)."}
   CreateJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "JobConfigSchemaVersion validated against jobConfigSchemaVersionsForCategory before create (real ResourceNotFound if unknown)"}
-  DescribeJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "required fields (incl. SecondaryStatus/SecondaryStatusTransitions) always emitted; scoped by (JobCategory,JobName) — a category mismatch 404s, see jobs.go doc comment"}
+  DescribeJob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "required fields (incl. SecondaryStatus/SecondaryStatusTransitions) always emitted; scoped by (JobCategory,JobName) — a category mismatch 404s, see jobs.go doc comment. FIXED 2026-09-12 (gopherstack-n3zi slice 28), TWO bugs: (1) JobSecondaryStatusTransition.StartTime/EndTime had no custom marshaling and emitted Go's default RFC3339 strings, but types.JobSecondaryStatusTransition (sagemaker@v1.263.2 types/types.go:12921-12940) requires epoch-seconds numbers — since every Job has at least one transition from creation, a real client's DescribeJob decode failed unconditionally, not just when tagged. (2) Job.MarshalJSON's embedded Tags map[string]string also serialized as the wrong {\"k\":\"v\"} shape vs. real []types.Tag — same class as AIBenchmarkJob/AIRecommendationJob above. Fixed via a new marshalJobResponse (handler_jobs.go) that round-trips through Job.MarshalJSON then substitutes the Tags shape, plus a MarshalJSON/UnmarshalJSON pair added to JobSecondaryStatusTransition itself."}
   DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects a still-InProgress job with ResourceInUse (StopJob required first), matching DeleteJob's doc comment + error deserializer"}
   StopJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "InProgress->Stopping->Stopped FSM with SecondaryStatusTransitions history, distinct JobSecondaryStatusTransition type from TrainingJob's SecondaryStatusTransition"}
   ListJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "scoped to the required JobCategory param plus NameContains/StatusEquals/CreationTime*/LastModifiedTime*/SortBy/SortOrder"}
@@ -6697,3 +6697,74 @@ named there).
 `gofmt`/`golines` formatting). `go run ./cmd/paritylint` stays at 0 FAIL.
 No persisted struct fields changed; snapshot inventory not touched; no
 version bump.
+
+## 2026-09-12 -- typed real-client coverage slice 28 (gopherstack-n3zi)
+
+Added `typed_slice28_realclient_test.go` (`TestSlice28_SageMaker_RealClient`,
+one outer `t.Parallel()` test, 24 subtests), covering every op slice 20
+left uncovered: AI benchmark/recommendation jobs (Create/Describe/Stop/
+Delete), AI workload configs (list/delete), edge deployment (stage create/
+start/stop/delete, plan delete, device fleet report), device management
+(delete fleet, deregister/update devices), edge packaging job stop, the
+generic Job family (Create/Describe/Stop/Delete/List, schema version
+describe/list), transform/processing job Stop/Delete/List, training job
+delete, app-image-config delete, flow-definition delete, hub content
+(update, reference create/update/delete), human-task-UI delete, MLflow app
+(presigned URL, delete), space delete, training-plan extension history +
+ultra-servers-by-reserved-capacity, cluster software update,
+inference-component runtime-config update, inference-experiment start/
+update, inference-recommendations-job steps/stop, model-card export job
+describe, pipeline-version update, and the presigned-session singletons
+(`RenderUiTemplate`, `StartSession`). All 53 previously-uncovered ops now
+have a real typed round trip.
+
+**Three real bugs found and fixed, all confirmed only by decoding through
+a real typed client**:
+
+1. `DescribeJobOutput.Tags`/`DescribeAIBenchmarkJobOutput.Tags`/
+   `DescribeAIRecommendationJobOutput.Tags` are all `[]types.Tag`
+   (`{Key,Value}` objects) on the real wire, but `Job`/`AIBenchmarkJob`/
+   `AIRecommendationJob`'s embedded `Tags map[string]string` field
+   serialized as a `{"k":"v"}` JSON object -- a real client's decode
+   failed outright whenever any of these had tags. `AIWorkloadConfig` had
+   already been fixed for this exact class in an earlier pass (its
+   `MarshalJSON` already converts via `toTagObjects`); the same fix was
+   applied to `Job` (via a new `marshalJobResponse` in handler_jobs.go,
+   since `Job.MarshalJSON` is also relied on by persistence and must keep
+   its map-shaped internal representation) and to `AIBenchmarkJob`/
+   `AIRecommendationJob` (directly in their own `MarshalJSON`).
+2. `JobSecondaryStatusTransition.StartTime`/`EndTime` had no custom
+   marshaling and emitted Go's default RFC3339 strings, but real
+   `types.JobSecondaryStatusTransition` (`types/types.go:12921-12940`)
+   requires epoch-seconds numbers -- since `CreateJob` always seeds at
+   least one transition, a real client's `DescribeJob` decode failed
+   unconditionally, not only when the job carried tags. Fixed with a
+   matching `MarshalJSON`/`UnmarshalJSON` pair on the type itself,
+   mirroring `Job`'s and `AIBenchmarkJob`'s own top-level epoch-seconds
+   overrides.
+3. `CreateTransformJob`/`CreateProcessingJob`/`CreateTrainingJob`/
+   `CreateEdgePackagingJob`/`CreateModelCard` and sibling ops were all
+   already correctly wired (zero findings on those); confirmed by driving
+   each through a real client rather than assumed from the handler.
+
+**Accept-and-drop findings, not fixed (disclosed here, not silently
+accepted)**: `ListInferenceRecommendationsJobSteps` always returns an
+empty `Steps` list -- this backend models no per-step recommender subtask
+simulation, so there is nothing to page or filter over; the real
+`MaxResults`/`Status`/`StepType` request fields are decoded for wire
+fidelity but are genuine no-ops. `UpdateApplicationWithTokenExchangeGrant`-
+class quirks were not found in this slice's scope.
+
+Census: 350/403 (86.8%) -> 403/403 (100.0%) typed-covered. sagemaker has
+zero remaining typed-uncovered operations.
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/sagemaker/...` clean. `go test -race -count=1
+./services/sagemaker/... ./pkgs/persistence/...` `ok` (no golden diff --
+none of the three fixes change a persisted struct's shape, only its
+JSON wire encoding). `golangci-lint run --new-from-rev=HEAD
+./services/sagemaker/...` 0 issues (after `golines` formatting, a
+`govet` shadow rename, and a `fieldalignment` field reorder to match the
+`AIBenchmarkJob.MarshalJSON` convention). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted struct fields changed; snapshot inventory not
+touched; no version bump.

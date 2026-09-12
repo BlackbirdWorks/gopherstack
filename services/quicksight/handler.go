@@ -433,6 +433,7 @@ const (
 	keyUserList             = "UserList"
 	keyDataSource           = "DataSource"
 	keyDataSources          = "DataSources"
+	keyDataSourceSummaries  = "DataSourceSummaries"
 	keyDataSourceID         = "DataSourceId"
 	keyDataSet              = "DataSet"
 	keyDataSetSummaries     = "DataSetSummaries"

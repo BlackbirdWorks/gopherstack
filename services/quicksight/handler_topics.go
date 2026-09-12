@@ -2,7 +2,9 @@ package quicksight
 
 import (
 	"errors"
+	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -21,6 +23,11 @@ const (
 	keyDatasetArn       = "DatasetArn"
 	keyIsEnabled        = "IsEnabled"
 	keyRefreshType      = "RefreshType"
+	// keyTopicScheduleType is types.TopicRefreshSchedule's real schedule-type
+	// member (quicksight@v1.129.0 types/types.go:22948-22950) -- distinct from
+	// keyRefreshType, which belongs to the unrelated DataSet-level
+	// types.RefreshSchedule used by handler_refreshschedule.go.
+	keyTopicScheduleType = "TopicScheduleType"
 	keyAnswers          = "Answers"
 	keyAnswerIDs        = "AnswerIds"
 	keySucceededAnswer  = "SucceededAnswers"
@@ -332,6 +339,17 @@ func (h *Handler) handleDescribeTopicRefresh(c *echo.Context) error {
 
 // ---- Topic refresh schedules ----
 
+// scheduleFieldsFromBody reads Create/UpdateTopicRefreshScheduleInput's
+// nested RefreshSchedule object. Its wire shape is types.TopicRefreshSchedule
+// (quicksight@v1.129.0 types/types.go:22926-22951): TopicScheduleType,
+// IsEnabled, BasedOnSpiceSchedule, RepeatAt, StartingAt, Timezone -- a flat
+// object directly under the "RefreshSchedule" key, with no further
+// "ScheduleFrequency" nesting (that shape belongs to the unrelated
+// DataSet-level types.RefreshSchedule in handler_refreshschedule.go).
+// scheduleConfig is the whole nested object, stored and echoed back
+// verbatim by topicRefreshScheduleToMap so RepeatAt/StartingAt/Timezone/
+// BasedOnSpiceSchedule round-trip even though this backend tracks only
+// TopicScheduleType/IsEnabled as their own fields.
 func scheduleFieldsFromBody(body map[string]any) (string, string, string, map[string]any) {
 	datasetID := strField(body, keyDatasetID)
 	datasetArn := strField(body, keyDatasetArn)
@@ -340,10 +358,20 @@ func scheduleFieldsFromBody(body map[string]any) (string, string, string, map[st
 	if sched == nil {
 		sched = body
 	}
-	refreshType := strField(sched, keyRefreshType)
-	scheduleConfig := mapField(sched, "ScheduleFrequency")
+	scheduleType := strField(sched, keyTopicScheduleType)
 
-	return datasetID, datasetArn, refreshType, scheduleConfig
+	return datasetID, datasetArn, scheduleType, sched
+}
+
+// datasetIDFromArn extracts the DataSetId component of a dataset ARN
+// ("arn:...:dataset/<id>" -> "<id>").
+func datasetIDFromArn(arn string) string {
+	idx := strings.LastIndex(arn, "/")
+	if idx < 0 {
+		return ""
+	}
+
+	return arn[idx+1:]
 }
 
 func (h *Handler) handleCreateTopicRefreshSchedule(c *echo.Context) error {
@@ -356,11 +384,20 @@ func (h *Handler) handleCreateTopicRefreshSchedule(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	datasetID, datasetArn, refreshType, scheduleConfig := scheduleFieldsFromBody(body)
-	isEnabled, _ := body[keyIsEnabled].(bool)
+	datasetID, datasetArn, scheduleType, scheduleConfig := scheduleFieldsFromBody(body)
+	// CreateTopicRefreshScheduleInput carries no DatasetId member at all --
+	// only DatasetArn/DatasetName (quicksight@v1.129.0
+	// api_op_CreateTopicRefreshSchedule.go:35-38) -- unlike Describe/Update/
+	// Delete/ListTopicRefreshSchedule, which key by DatasetId in the URI. A
+	// real client never sends "DatasetId" here, so derive the same key from
+	// the ARN it does send.
+	if datasetID == "" {
+		datasetID = datasetIDFromArn(datasetArn)
+	}
+	isEnabled, _ := scheduleConfig[keyIsEnabled].(bool)
 
 	s, err := h.Backend.CreateTopicRefreshSchedule(
-		accountID, topicID, datasetID, datasetArn, refreshType, isEnabled, scheduleConfig,
+		accountID, topicID, datasetID, datasetArn, scheduleType, isEnabled, scheduleConfig,
 	)
 	if err != nil {
 		if errors.Is(err, ErrTopicRefreshScheduleAlreadyExists) {
@@ -427,10 +464,10 @@ func (h *Handler) handleUpdateTopicRefreshSchedule(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	_, _, refreshType, scheduleConfig := scheduleFieldsFromBody(body)
+	_, _, scheduleType, scheduleConfig := scheduleFieldsFromBody(body)
 
 	var isEnabled *bool
-	if v, present := body[keyIsEnabled]; present {
+	if v, present := scheduleConfig[keyIsEnabled]; present {
 		b, _ := v.(bool)
 		isEnabled = &b
 	}
@@ -439,7 +476,7 @@ func (h *Handler) handleUpdateTopicRefreshSchedule(c *echo.Context) error {
 		accountID,
 		topicID,
 		datasetID,
-		refreshType,
+		scheduleType,
 		isEnabled,
 		scheduleConfig,
 	)
@@ -590,7 +627,7 @@ func (h *Handler) handleBatchDeleteTopicReviewedAnswer(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusOK, map[string]any{
 		keyTopicID:         topicID,
-		keySucceededAnswer: succeeded,
+		keySucceededAnswer: succeededAnswersToMaps(succeeded),
 		keyInvalidAnswers:  answerErrorsToMaps(failed),
 		keyRequestID:       reqIDPlaceholder,
 		keyStatus:          http.StatusOK,
@@ -657,26 +694,49 @@ func topicSummaryToMap(t *Topic) map[string]any {
 	}
 }
 
+// topicRefreshScheduleToMap builds the real, flat types.TopicRefreshSchedule
+// shape (quicksight@v1.129.0 types/types.go:22926-22951): TopicScheduleType/
+// IsEnabled/BasedOnSpiceSchedule/RepeatAt/StartingAt/Timezone directly on one
+// object -- no "ScheduleId" member exists on this type at all (DatasetId is
+// carried one level up, as the request's URI/response's top-level DatasetId,
+// not inside the schedule) and no "ScheduleFrequency" wrapper exists either
+// (that belongs to the unrelated DataSet-level types.RefreshSchedule).
+// s.ScheduleConfig is the caller's original nested object, echoed back
+// verbatim so BasedOnSpiceSchedule/RepeatAt/StartingAt/Timezone round-trip;
+// IsEnabled/TopicScheduleType are then set from this backend's own tracked
+// fields, which win over whatever the blob carried for those two.
 func topicRefreshScheduleToMap(s *TopicRefreshSchedule) map[string]any {
-	m := map[string]any{
-		"ScheduleId":   s.DatasetID,
-		keyIsEnabled:   s.IsEnabled,
-		keyRefreshType: s.RefreshType,
-	}
-	if s.ScheduleConfig != nil {
-		m["ScheduleFrequency"] = s.ScheduleConfig
-	}
+	m := map[string]any{}
+	maps.Copy(m, s.ScheduleConfig)
+	m[keyIsEnabled] = s.IsEnabled
+	m[keyTopicScheduleType] = s.RefreshType
 
 	return m
 }
 
+// answerErrorsToMaps builds InvalidTopicReviewedAnswer entries. Error is the
+// plain ReviewedAnswerErrorCode enum string, not a nested object --
+// quicksight@v1.129.0 deserializers.go:103007-103013 rejects anything but a
+// string for this member.
 func answerErrorsToMaps(errs []TopicAnswerError) []map[string]any {
 	out := make([]map[string]any, 0, len(errs))
 	for _, e := range errs {
 		out = append(out, map[string]any{
 			keyAnswerID: e.AnswerID,
-			"Error":     map[string]any{"Message": e.Message},
+			"Error":     e.ErrorCode,
 		})
+	}
+
+	return out
+}
+
+// succeededAnswersToMaps builds SucceededTopicReviewedAnswer entries
+// ({"AnswerId": ...} objects) -- quicksight@v1.129.0 deserializers.go:126545
+// -126548 rejects a bare string array for this member.
+func succeededAnswersToMaps(answerIDs []string) []map[string]any {
+	out := make([]map[string]any, 0, len(answerIDs))
+	for _, id := range answerIDs {
+		out = append(out, map[string]any{keyAnswerID: id})
 	}
 
 	return out

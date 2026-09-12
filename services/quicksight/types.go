@@ -389,10 +389,13 @@ type TopicReviewedAnswer struct {
 }
 
 // TopicAnswerError represents a single failed entry in a batch reviewed-answer
-// create/delete operation.
+// create/delete operation. ErrorCode must be one of
+// types.ReviewedAnswerErrorCode's values -- the real
+// InvalidTopicReviewedAnswer.Error wire member is that enum string, not a
+// free-form message (quicksight@v1.129.0 deserializers.go:103007-103013).
 type TopicAnswerError struct {
-	AnswerID string
-	Message  string
+	AnswerID  string
+	ErrorCode string
 }
 
 // VPCConnection represents a QuickSight VPC connection.
