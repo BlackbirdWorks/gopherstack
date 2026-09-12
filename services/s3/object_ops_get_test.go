@@ -394,26 +394,6 @@ func TestHandler_GetObject_ExpirationHeader(t *testing.T) {
 	)
 }
 
-func TestHandler_GetObject_ResponseHeaderOverrides(t *testing.T) {
-	t.Parallel()
-
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "bkt")
-	mustPutObject(t, backend, "bkt", "obj", []byte("data"))
-
-	req := httptest.NewRequest(http.MethodGet,
-		"/bkt/obj?response-content-type=application/pdf"+
-			"&response-content-disposition=attachment%3B%20filename%3D%22r.pdf%22"+
-			"&response-cache-control=no-cache", nil)
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "application/pdf", rec.Header().Get("Content-Type"))
-	assert.Equal(t, `attachment; filename="r.pdf"`, rec.Header().Get("Content-Disposition"))
-	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
-}
-
 func TestHandler_GetObject_RangeContentLength(t *testing.T) {
 	t.Parallel()
 
@@ -441,12 +421,14 @@ func TestHandler_GetObject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		setup      func(*testing.T, *s3.InMemoryBackend)
-		name       string
-		bucket     string
-		key        string
-		wantBody   string
-		wantStatus int
+		setup       func(*testing.T, *s3.InMemoryBackend)
+		wantHeaders map[string]string
+		name        string
+		bucket      string
+		key         string
+		query       string
+		wantBody    string
+		wantStatus  int
 	}{
 		{
 			name:   "get existing object",
@@ -470,6 +452,25 @@ func TestHandler_GetObject(t *testing.T) {
 			},
 			wantStatus: http.StatusNotFound,
 		},
+		{
+			name:   "response header overrides",
+			bucket: "bkt",
+			key:    "obj",
+			query: "?response-content-type=application/pdf" +
+				"&response-content-disposition=attachment%3B%20filename%3D%22r.pdf%22" +
+				"&response-cache-control=no-cache",
+			setup: func(t *testing.T, b *s3.InMemoryBackend) {
+				t.Helper()
+				mustCreateBucket(t, b, "bkt")
+				mustPutObject(t, b, "bkt", "obj", []byte("data"))
+			},
+			wantStatus: http.StatusOK,
+			wantHeaders: map[string]string{
+				"Content-Type":        "application/pdf",
+				"Content-Disposition": `attachment; filename="r.pdf"`,
+				"Cache-Control":       "no-cache",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -479,7 +480,7 @@ func TestHandler_GetObject(t *testing.T) {
 			handler, backend := newTestHandler(t)
 			tt.setup(t, backend)
 
-			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key, nil)
+			req := httptest.NewRequest(http.MethodGet, "/"+tt.bucket+"/"+tt.key+tt.query, nil)
 			rec := httptest.NewRecorder()
 			serveS3Handler(handler, rec, req)
 
@@ -488,6 +489,10 @@ func TestHandler_GetObject(t *testing.T) {
 			if tt.wantBody != "" {
 				body, _ := io.ReadAll(rec.Body)
 				assert.Equal(t, tt.wantBody, string(body))
+			}
+
+			for header, want := range tt.wantHeaders {
+				assert.Equal(t, want, rec.Header().Get(header))
 			}
 		})
 	}
