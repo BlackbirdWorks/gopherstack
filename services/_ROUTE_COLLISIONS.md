@@ -678,3 +678,198 @@ same already-verified conclusion, not new findings.
   this pass (resiliencehub/mgn's route-table builders) is 3 hops, so there's
   one hop of headroom before a legitimately deeper delegation chain would
   need the limit raised.
+
+## Unclaimed dispatcher paths (gopherstack-blzga, 2026-09-12)
+
+The inverse question from every pass above: does a service's own **dispatcher**
+(its `Handler()`/`handleREST`/`classifyPath`-style routing code) handle a path
+family its `RouteMatcher` never claims? A path in that gap is unreachable over
+the real HTTP wire — unit tests calling `h.Handler()` directly never see it,
+only a real request through `pkgs/service.Router` does. Found twice already in
+typed slice 16 (2026-09-12, predates this pass): omics' `isOmicsPath` had
+`/s3accesspolicy/` baked with a trailing slash so the matcher required `//`
+(S3AccessPolicy family unroutable), and opensearch defined
+`openSearchDefaultAppSettingPath` but never added it to
+`openSearchPathPrefixes` (Get/PutDefaultApplicationSetting unroutable).
+Tracked as gopherstack-blzga.
+
+### Checker design
+
+`cmd/routecollisions -unclaimed` (new mode, `unclaimed.go`) reuses the
+existing claim-extraction machinery but starts from the opposite end:
+
+1. **Dispatch entry points.** `pkgData` now also collects every method
+   literally named `Handler` (the `service.Service.Handler() echo.HandlerFunc`
+   entry point every `Registerable` type must implement — a slice, since
+   bedrock/redshift have more than one `Registerable` per package).
+2. **Dispatch chase.** `chaseDispatchClaims` walks from each `Handler()` body
+   the same call/index-following way `chaseClaims` (delegation.go) already
+   does for `RouteMatcher`, but deeper (`dispatchChaseDepthLimit = 8` vs. 4 —
+   real dispatch chains run `Handler → handleREST → classifyPath →
+   classifyGET/POST/DELETE → an op-dispatch table`) and with two
+   dispatch-specific differences from the matcher-side extraction:
+   - **Comments are stripped** before scanning (`blankComments`,
+     byte-length- and offset-preserving). A doc comment describing a path
+     shape — extremely common in this repo — reads as a claim otherwise once
+     an 8-hop chase runs through arbitrary handler code.
+   - **Quoted literals require nearby comparison context**
+     (`isDispatchComparisonContext`: `HasPrefix(`/`HasSuffix(`/`Contains(`/
+     `CutPrefix(`/`==`/`case ` within 40 chars behind). Without this, a
+     resource ID built by concatenation (route53's `"/hostedzone/" + hz.ID`)
+     or a redirect `Location` header value reads as a route claim merely for
+     being a bare `"/"`-prefixed quoted string anywhere in the reachable call
+     graph. (Map-literal keys and local `[]string` slice-of-consts claims are
+     still recorded unconditionally, same as the matcher side — those shapes
+     are never anything but route tables in this codebase.)
+3. **Coverage diff.** Dispatch claims not covered by any of the service's own
+   `RouteMatcher` claims (string-prefix or exact match, same rule
+   `literalsOverlap` uses) are reported, minimized to root literals (a hit
+   that is itself a prefix-extension of another reported hit in the same
+   service is dropped — fixing the shorter one covers the longer one too).
+   Services whose only `RouteMatcher`(s) never reference `URL.Path` at all
+   (header/`X-Amz-Target`-scoped — checked directly on the matcher body text,
+   not the coarser `guarded` bit) are skipped as structurally immune, as are
+   services whose matcher is path-based but extracts **zero** literal claims
+   (the pre-existing "RPC-over-REST route table" tool limitation documented
+   above — nothing to diff against, so nothing is reported rather than
+   false-flagging the entire dispatcher).
+
+Three shared-extraction gaps were fixed along the way (all purely additive —
+verified against a full JSON diff that no previously-found `RouteMatcher`
+claim was ever removed, only new ones added):
+
+- **`range` over a package-level `[]string` of bare const identifiers**
+  (`extractSliceConsts` in `main.go`, e.g. lambda's `lambdaPathPrefixes =
+  []string{lambdaPathPrefix, lambda2017PathPrefix, ...}`) — previously only a
+  slice literal's *quoted* elements resolved; a slice of *identifiers*
+  resolved to nothing, so lambda's entire 19-entry dated-prefix table (and
+  opensearch's, vpclattice's) was invisible to the matcher-side claims list
+  too. Fixed by also resolving each comma-split element against the const
+  table. (Confirmed via a full before/after JSON diff: lambda, opensearch,
+  and vpclattice each gained many previously-missing claims; nothing else
+  changed.)
+- **Multi-value `switch` case clauses using bare const identifiers**
+  (`scanSwitchCaseIdentClaims`, delegation.go, shared by both pipelines) —
+  detective's `RouteMatcher` classifies its entire op set as `switch path {
+  case pathGraph, pathInvitation, pathMembersList, ...: return true }`; no
+  individual case value is preceded by `==`/`HasPrefix(path,`/`CutPrefix(
+  path,`/`range ` (the only contexts `bareIdentRe` recognizes), and it isn't
+  a map literal either, so detective's claims list previously collapsed to
+  just its `/tags/` ARN guard. Fixed by walking every `*ast.CaseClause` for
+  bare-identifier values resolved against consts.
+- **`isExclusion` false-negatives on a guard that returns a boolean
+  expression, not a literal `true`** — tried, **reverted**, kept as a
+  documented limitation (see "Known tool limitations" below) because fixing
+  it generically broke the primary report far worse than it helped: turning
+  ~10 previously-invisible dispatch-side false positives into real matcher
+  claims also turned every one of them into an **unconditional** `"/tags/"`
+  claim in the *default* over-claim report (since the coarse `guarded` bit is
+  package-wide, not per-claim — the fix loses exactly the ARN-scoping
+  condition that made the pattern safe), inflating the collision-pair count
+  from 204 to 321 with false `UNGUARDED-WINNER` alarms across every service
+  using this repo's established `/tags/{arn}` guard idiom. Left alone; see
+  below for how each affected service was instead verified safe by hand.
+
+### Result: 151 candidate hits across 20 services, zero confirmed bugs
+
+`go run ./cmd/routecollisions -unclaimed` (2026-09-12, post-fixes) reports
+**151 unclaimed dispatcher path literals across 20 services**: apigateway,
+backup, bedrock, bedrockagent, bedrockruntime, cloudfront, emrserverless,
+inspector2, iot, iotanalytics, kafka, lambda, medialive, mediapackage,
+mediatailor, mq, omics, route53, sagemakerruntime, scheduler. Every one was
+hand-read against its own source (per-service source citations kept in the
+session notes, not reproduced here) and falls into exactly two false-positive
+classes — no new unreachable-path bug found (beyond the two already fixed
+pre-pass, above):
+
+**Class A — ARN/SigV4-scoped guard hidden by the `isExclusion` gap above.**
+The matcher genuinely claims the path, conditionally: `if rest, ok :=
+CutPrefix(path, "/tags/"); ok { return Contains(rest, ":omics:") }` (omics,
+apigateway, bedrock, bedrockagent's `AgentsHandler`, detective, inspector2),
+`if HasPrefix(p, configurationsPath) || HasPrefix(p, tagsPath) { return
+isMQRequest(...) }` (mq), or the equivalent via
+`httputils.ExtractServiceFromRequest(...) == "<svc>"` (backup's ARN-scoped
+prefix concatenation `pathTags + "arn:aws:backup:"` inside a `[]string`
+element — a *fourth*, unfixed shape: `const + "literal"` as a slice element
+or switch-case value, not just a bare identifier — iotanalytics, kafka's
+`isKafkaTagsPath`, scheduler). **Spot-verified live** via a real two-request
+`service.NewRegistry`/`NewServiceRouter` test (scratch, not committed): mq's
+`/v1/configurations` and `/v1/tags` are reachable when SigV4-scoped `mq` and
+correctly fall through to the router's default 404 when scoped `kafka`.
+
+**Class B — reachability-safe internal sub-dispatch.** The literal is
+compared against an already-trimmed/split substring (`suffix`, `rest`,
+`inner`, `parts[1]`, an already-stripped `path` local — never the raw
+`c.Request().URL.Path`), or is a `HasSuffix`/`Contains` check reached only
+after the service's own broad top-level prefix claim already matched
+(route53's single `/2013-04-01/` claim covering `/hostedzone/`, `/change/`,
+`/cidrblocks`, `/cidrlocations`, `/delegationset/`; cloudfront's single
+`/2020-05-31/`; medialive's single `/prod/`; bedrockruntime's `/model/` +
+`/guardrail/` covering `/invoke`/`/converse`; bedrock/bedrockagent's
+`/agents/`+`/flows`+`/knowledgebases/` covering every `/actiongroups`,
+`/agentaliases`, `/documents`, `/versions`, etc. sub-resource action word;
+iot's large enumerated prefix list covering every `HasSuffix(path, "/x")`
+sub-check reached only within an already-claimed `/jobs/`, `/things/`,
+`/policies/`, etc.; sagemakerruntime's `/endpoints/` covering
+`/invocations`/`/async-invocations`, with `/output` additionally not even a
+path check — it's an S3 output-location URI string; mediapackage's
+`/credentials` checked against `sub`, not `path`; mediatailor's bare
+`parts[1] == "vodSource"` segment check within an already-claimed
+`/sourceLocation/` path; lambda's durable-execution/URL-config suffix checks
+within its own already-claimed function-path prefixes; backup's remaining
+action words (`/access-policy`, `/disassociate`, `/index`,
+`/mpaApprovalTeam`, `/vault-lock`, `/recovery-points`, `/restore-metadata`)
+checked against an already-CutSuffix'd `rest`/`arn` or looked up in a local
+`[]string` route table of known suffixes).
+
+No fixes were made to any service's `RouteMatcher` — there was nothing to fix.
+`go run ./cmd/paritylint` was not affected (no service source changed).
+
+### A finding this pass's tool fixes surfaced, filed separately
+
+The `scanSwitchCaseIdentClaims` fix (detective's real claims list, above) also
+changed the **default** (non-`-unclaimed`) report: 69→71 services now show
+extracted claims, 201→204 collision pairs. Diffed against the pre-fix
+baseline (a throwaway `git worktree add --detach` at the prior commit) to
+confirm the delta is genuine, not reordering: two new pairs are cosmetic
+(`iot`/`iotwireless` and `lakeformation`/`rdsdata`, both `guarded/guarded`,
+low risk, not investigated further here). The third is real and **confirmed
+live**: detective's newly-visible exact claim on `/invitation` (priority 85)
+literal-overlaps guardduty's own prefix claim on `/invitation` (priority -1),
+neither guarded, and detective registers with the higher effective priority —
+so detective wins the tie. A scratch two-service router test (`detective` +
+`guardduty`, both real handlers, a `PUT /invitation` request SigV4-scoped
+`guardduty`) confirms detective's handler answers it (`operation=
+AcceptInvitation status=400`), never guardduty. This is a **pre-existing**
+bug this pass's tool fix made visible, not introduced by it — same class as
+the original securityhub/inspector2/macie2 incident this whole sweep exists
+for. Filed as gopherstack-39710 rather than fixed here: it's a different bug
+class (over-claim, not unclaimed-dispatcher-path) than gopherstack-blzga's
+scope, and the fix (guard detective's `/invitation` case the same
+SigV4-scoped way its own `/tags/` case already is) deserves its own
+dedicated pass with a regression test, not a bundled fix.
+
+### Known tool limitations (added this pass)
+
+- `isExclusion` misreads a claim guarded by a runtime check that returns a
+  boolean *expression* (`isMQRequest(...)`, `Contains(rest, ":omics:")`) as
+  an exclusion carve-out, because the enclosing function's own unrelated
+  trailing `return false` fallback is the first return-false-or-true text the
+  unbounded lookahead window finds (there's no literal `return true`
+  anywhere in the function to find first instead). See "Three shared-
+  extraction gaps" above for why a generic fix was tried and reverted.
+- `const + "literal"` concatenation as a `[]string` slice element or
+  `switch`/`case` value (backup's `pathTags + "arn:aws:backup:"`) is not
+  resolved by any extractor — only a bare identifier element/case value
+  (`scanSliceLiteralIdentClaims`, `scanSwitchCaseIdentClaims`) or a
+  `"/"+ident`/`ident+"/"` concatenation (`scanConcatLiterals`) is.
+- The dispatch-side 40-char comparison-context window
+  (`isDispatchComparisonContext`) is a text-proximity heuristic, not
+  control-flow aware — an unrelated `==` or `HasPrefix(`/`HasSuffix(` earlier
+  in the same statement or the previous line can make an unrelated literal
+  read as "in comparison context" (seen once: route53's `z.Name == dnsName
+  && strings.TrimPrefix(z.ID, "/hostedzone/")`, where the `==` compares a
+  different pair of values than the literal a few characters later). Net
+  effect skews toward over-reporting, the safer direction for a sweep whose
+  every hit gets hand-verified anyway.
+  need the limit raised.

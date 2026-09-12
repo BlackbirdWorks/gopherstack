@@ -176,6 +176,24 @@ func scanIdentifierLiterals(
 // call, or a "return false" appearing before any "return true" in the
 // window immediately following the literal (the single-condition
 // `if strings.HasPrefix(path, "/x/") { return false }` shape).
+//
+// Known false-negative (documented, not fixed here): a claim GUARDED by a
+// runtime check that returns a boolean expression rather than a literal
+// "true" (omics' `if rest, ok := CutPrefix(path, "/tags/"); ok { return
+// Contains(rest, ":omics:") }`, mq's `if HasPrefix(p, configurationsPath) ||
+// ... { return isMQRequest(...) }`) reads as excluded here, because the
+// RouteMatcher's own unrelated trailing "return false" fallback is the
+// first return-false-or-true text found in the lookahead window (there's no
+// literal "return true" anywhere in the function to find first instead). A
+// narrower attempt to fix this generically (truncating the lookahead at the
+// literal's own enclosing "}") was tried and reverted: it turned this one
+// real gap into ~120 new spurious UNGUARDED-WINNER collision pairs across
+// the primary report, because every service using this same guarded-/tags/
+// idiom then reads as claiming a bare, UNCONDITIONAL "/tags/" (the "guarded"
+// bit is package-wide, not per-claim, so the fix loses exactly the
+// conditional nature that made the pattern safe). See
+// services/_ROUTE_COLLISIONS.md's "Unclaimed dispatcher paths" section for
+// the services this affects and why each is verified safe by hand instead.
 func isExclusion(body string, pos, endPos int) bool {
 	behindStart := max(pos-exclusionLookbehindChars, 0)
 

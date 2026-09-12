@@ -108,8 +108,41 @@ func extractClaimsForNode(
 	cc := newClaimCollector(body)
 	scanMapKeyClaims(cc, node, merged)
 	scanSliceLiteralIdentClaims(cc, node, merged)
+	scanSwitchCaseIdentClaims(cc, node, merged)
 
 	return append(claims, cc.claims()...)
+}
+
+// scanSwitchCaseIdentClaims walks node for every switch statement's case
+// clause and adds an exact claim for each case value that's a bare
+// identifier resolving against consts. detective's RouteMatcher classifies
+// its entire operation set this way -- "switch path { case pathGraph,
+// pathGraphRemoval, pathGraphsList, ...: return true }" -- a multi-value
+// case clause where no individual value is preceded by "==", "HasPrefix(
+// path,", "CutPrefix(path," or "range " (bareIdentRe's only recognized
+// contexts), and it isn't a map literal either, so without this the whole
+// claim set silently collapses to whatever else the RouteMatcher happens
+// to check (here, just its "/tags/" ARN guard).
+func scanSwitchCaseIdentClaims(cc *claimCollector, node ast.Node, consts map[string]string) {
+	ast.Inspect(node, func(n ast.Node) bool {
+		clause, ok := n.(*ast.CaseClause)
+		if !ok {
+			return true
+		}
+
+		for _, expr := range clause.List {
+			id, isIdent := expr.(*ast.Ident)
+			if !isIdent {
+				continue
+			}
+
+			if val, resolved := consts[id.Name]; resolved {
+				cc.addExact(val)
+			}
+		}
+
+		return true
+	})
 }
 
 // scanSliceLiteralIdentClaims walks node for every "[]string{...}" composite

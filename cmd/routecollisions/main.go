@@ -56,7 +56,24 @@ const cliGoPath = "cli.go"
 
 func main() {
 	jsonOut := flag.String("json", "", "write full per-service claim detail to this path as JSON")
+	unclaimed := flag.Bool(
+		"unclaimed", false,
+		"report dispatcher path literals no RouteMatcher claim covers (gopherstack-blzga), "+
+			"instead of the default over-claim collision report",
+	)
 	flag.Parse()
+
+	if *unclaimed {
+		hits, err := runUnclaimed()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+
+		printUnclaimedReport(hits)
+
+		return
+	}
 
 	results, err := run()
 	if err != nil {
@@ -75,9 +92,9 @@ func main() {
 }
 
 func run() ([]svcInfo, error) {
-	root, err := os.Getwd()
+	root, dirs, priorityConsts, err := loadServiceDirs()
 	if err != nil {
-		return nil, fmt.Errorf("getwd: %w", err)
+		return nil, err
 	}
 
 	cliSrc, err := os.ReadFile(filepath.Join(root, cliGoPath))
@@ -85,20 +102,30 @@ func run() ([]svcInfo, error) {
 		return nil, fmt.Errorf("read cli.go: %w", err)
 	}
 
-	aliasToDir := parseAliasToDir(cliSrc)
-	regOrder := parseRegOrder(cliSrc, aliasToDir)
+	regOrder := parseRegOrder(cliSrc, parseAliasToDir(cliSrc))
+
+	return analyzeAllDirs(root, dirs, regOrder, priorityConsts), nil
+}
+
+// loadServiceDirs is the prep shared by run() and runUnclaimed(): the
+// repo root, every services/<dir> name, and the MatchPriority const table.
+func loadServiceDirs() (string, []string, map[string]int, error) {
+	root, err := os.Getwd()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("getwd: %w", err)
+	}
 
 	priorityConsts, err := parsePriorityConsts(filepath.Join(root, "pkgs", "service", "priorities.go"))
 	if err != nil {
-		return nil, fmt.Errorf("parse priorities.go: %w", err)
+		return "", nil, nil, fmt.Errorf("parse priorities.go: %w", err)
 	}
 
 	dirs, err := listServiceDirs(filepath.Join(root, "services"))
 	if err != nil {
-		return nil, fmt.Errorf("list services: %w", err)
+		return "", nil, nil, fmt.Errorf("list services: %w", err)
 	}
 
-	return analyzeAllDirs(root, dirs, regOrder, priorityConsts), nil
+	return root, dirs, priorityConsts, nil
 }
 
 func analyzeAllDirs(root string, dirs []string, regOrder, priorityConsts map[string]int) []svcInfo {
@@ -221,15 +248,28 @@ func parsePriorityConsts(path string) (map[string]int, error) {
 // from, since multiple files in one dir can each declare their own
 // RouteMatcher, e.g. redshift's serverless handler).
 type pkgData struct {
-	fset              *token.FileSet
-	consts            map[string]string
-	selectorConsts    map[string]string
-	intConsts         map[string]int
-	sliceConsts       map[string][]string
-	srcByFile         map[string][]byte
-	namedBodies       map[string]ast.Node
-	matchPriorityBody string
-	routeMatchers     []*ast.FuncDecl
+	fset           *token.FileSet
+	consts         map[string]string
+	selectorConsts map[string]string
+	intConsts      map[string]int
+	sliceConsts    map[string][]string
+	srcByFile      map[string][]byte
+	// srcByFileNoComments is srcByFile with every comment's bytes blanked
+	// out (byte-length- and newline-preserving, so fset offsets still
+	// address correctly). Only the -unclaimed dispatch chase uses this --
+	// see bodyTextNoComments's doc comment for why a doc comment
+	// mentioning a path literal (very common in this repo) would otherwise
+	// read as a dispatcher claim.
+	srcByFileNoComments map[string][]byte
+	namedBodies         map[string]ast.Node
+	matchPriorityBody   string
+	routeMatchers       []*ast.FuncDecl
+	// handlerFuncs holds every method literally named "Handler" -- the
+	// service.Service.Handler() echo.HandlerFunc entry point every
+	// Registerable type must implement (bedrock/redshift have more than
+	// one Registerable per package, hence a slice, mirroring routeMatchers).
+	// This is the dispatch-side sweep's chase starting point (-unclaimed).
+	handlerFuncs []*ast.FuncDecl
 }
 
 // analyzeDir parses every non-test .go file in a service directory, builds a
@@ -257,12 +297,13 @@ func parsePackage(dir string) (*pkgData, error) {
 	}
 
 	pd := &pkgData{
-		fset:           token.NewFileSet(),
-		consts:         map[string]string{},
-		selectorConsts: map[string]string{},
-		intConsts:      map[string]int{},
-		srcByFile:      map[string][]byte{},
-		namedBodies:    map[string]ast.Node{},
+		fset:                token.NewFileSet(),
+		consts:              map[string]string{},
+		selectorConsts:      map[string]string{},
+		intConsts:           map[string]int{},
+		srcByFile:           map[string][]byte{},
+		srcByFileNoComments: map[string][]byte{},
+		namedBodies:         map[string]ast.Node{},
 	}
 
 	var pkgSrc strings.Builder
@@ -277,7 +318,7 @@ func parsePackage(dir string) (*pkgData, error) {
 		}
 	}
 
-	pd.sliceConsts = extractSliceConsts(pkgSrc.String())
+	pd.sliceConsts = extractSliceConsts(pkgSrc.String(), pd.consts)
 
 	return pd, nil
 }
@@ -298,10 +339,12 @@ func parsePackageFile(pd *pkgData, dir, name string, pkgSrc *strings.Builder) er
 	pkgSrc.Write(src)
 	pkgSrc.WriteByte('\n')
 
-	f, err := parser.ParseFile(pd.fset, fp, src, 0)
+	f, err := parser.ParseFile(pd.fset, fp, src, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("parse %s: %w", fp, err)
 	}
+
+	pd.srcByFileNoComments[fp] = blankComments(pd.fset, src, f.Comments)
 
 	collectConsts(f, pd.consts, pd.selectorConsts, pd.intConsts)
 	collectRouteMatcherFuncs(pd, f, src)
@@ -354,6 +397,10 @@ func collectRouteMatcherFuncs(pd *pkgData, f *ast.File, src []byte) {
 		switch fn.Name.Name {
 		case "RouteMatcher":
 			pd.routeMatchers = append(pd.routeMatchers, fn)
+		case "Handler":
+			if fn.Body != nil {
+				pd.handlerFuncs = append(pd.handlerFuncs, fn)
+			}
 		case "MatchPriority":
 			if fn.Body != nil {
 				pd.matchPriorityBody = bodyText(pd.fset, src, fn.Body)
@@ -362,23 +409,44 @@ func collectRouteMatcherFuncs(pd *pkgData, f *ast.File, src []byte) {
 	}
 }
 
-func extractSliceConsts(pkgSrc string) map[string][]string {
+// extractSliceConsts finds every package-level "IDENT = []string{...}" var
+// (optionally wrapped in sync.OnceValue) and resolves its elements to
+// string values -- both plain quoted literals and, since a table like
+// lambda's lambdaPathPrefixes lists every element as a bare package-const
+// identifier rather than a literal (const lambdaPathPrefix = "/2015-03-31/
+// functions"; var lambdaPathPrefixes = []string{lambdaPathPrefix, ...}),
+// bare identifiers resolved against consts (the same package-wide
+// string-const table collectConsts already built, passed in here since
+// this text-based scan runs once at the end of parsePackage after every
+// file's consts are collected).
+func extractSliceConsts(pkgSrc string, consts map[string]string) map[string][]string {
 	out := map[string][]string{}
 
 	for _, m := range sliceLitRe.FindAllStringSubmatch(pkgSrc, -1) {
-		matches := quotedRe.FindAllStringSubmatch(m[2], -1)
-		elems := make([]string, 0, len(matches))
-
-		for _, qm := range matches {
-			elems = append(elems, qm[1])
-		}
-
+		elems := sliceElemsOf(m[2], consts)
 		if len(elems) > 0 {
 			out[m[1]] = elems
 		}
 	}
 
 	return out
+}
+
+func sliceElemsOf(body string, consts map[string]string) []string {
+	var elems []string
+
+	for _, qm := range quotedRe.FindAllStringSubmatch(body, -1) {
+		elems = append(elems, qm[1])
+	}
+
+	for tok := range strings.SplitSeq(body, ",") {
+		ident := strings.TrimSpace(tok)
+		if val, ok := consts[ident]; ok {
+			elems = append(elems, val)
+		}
+	}
+
+	return elems
 }
 
 func buildServiceInfos(pd *pkgData, name string, priority int) []svcInfo {
