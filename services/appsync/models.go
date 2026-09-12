@@ -2,6 +2,7 @@ package appsync
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/vektah/gqlparser/v2/ast"
 
@@ -408,15 +409,58 @@ type APIKey struct {
 }
 
 // APICache represents an AppSync API cache configuration.
+//
+// HealthMetricsConfig is a string enum ("ENABLED"/"DISABLED") in the real
+// wire shape (appsync@v1.60.0 types/types.go:128, types/enums.go:176-181),
+// not a bool -- a bool field here made json.Unmarshal reject every real
+// client's non-empty CacheHealthMetricsConfig value outright.
 type APICache struct {
-	APIID              string `json:"apiId"`
-	Type               string `json:"type"`
-	Status             string `json:"status"`
-	APICachingBehavior string `json:"apiCachingBehavior"`
-	TTL                int64  `json:"ttl"`
-	TransitEncryption  bool   `json:"transitEncryptionEnabled,omitempty"`
-	AtRestEncryption   bool   `json:"atRestEncryptionEnabled,omitempty"`
-	HealthMetrics      bool   `json:"healthMetricsConfig,omitempty"`
+	APIID               string `json:"apiId"`
+	Type                string `json:"type"`
+	Status              string `json:"status"`
+	APICachingBehavior  string `json:"apiCachingBehavior"`
+	HealthMetricsConfig string `json:"healthMetricsConfig,omitempty"`
+	TTL                 int64  `json:"ttl"`
+	TransitEncryption   bool   `json:"transitEncryptionEnabled,omitempty"`
+	AtRestEncryption    bool   `json:"atRestEncryptionEnabled,omitempty"`
+}
+
+// UnmarshalJSON tolerates a snapshot written before HealthMetricsConfig
+// became a string: back when the field was `bool` with the same
+// "healthMetricsConfig" tag, omitempty meant only `true` could ever have
+// been persisted. LANDMINE: do not bump appsyncSnapshotVersion for this.
+func (a *APICache) UnmarshalJSON(data []byte) error {
+	type alias APICache
+
+	aux := struct {
+		*alias
+		HealthMetricsConfig json.RawMessage `json:"healthMetricsConfig,omitempty"`
+	}{alias: (*alias)(a)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.HealthMetricsConfig) == 0 {
+		return nil
+	}
+
+	// A real string (or null, a no-op unmarshal target) decodes here directly.
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &a.HealthMetricsConfig); err == nil {
+		return nil
+	}
+
+	var legacy bool
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &legacy); err != nil {
+		return fmt.Errorf("APICache: invalid healthMetricsConfig %s: %w", aux.HealthMetricsConfig, err)
+	}
+
+	a.HealthMetricsConfig = "DISABLED"
+	if legacy {
+		a.HealthMetricsConfig = "ENABLED"
+	}
+
+	return nil
 }
 
 // Function represents an AppSync pipeline function.

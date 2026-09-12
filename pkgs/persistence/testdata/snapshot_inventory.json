@@ -1773,7 +1773,7 @@
       "APICache.APICachingBehavior string `json:\"apiCachingBehavior\"`",
       "APICache.APIID string `json:\"apiId\"`",
       "APICache.AtRestEncryption bool `json:\"atRestEncryptionEnabled,omitempty\"`",
-      "APICache.HealthMetrics bool `json:\"healthMetricsConfig,omitempty\"`",
+      "APICache.HealthMetricsConfig string `json:\"healthMetricsConfig,omitempty\"`",
       "APICache.Status string `json:\"status\"`",
       "APICache.TTL int64 `json:\"ttl\"`",
       "APICache.TransitEncryption bool `json:\"transitEncryptionEnabled,omitempty\"`",

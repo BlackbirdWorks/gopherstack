@@ -167,6 +167,47 @@ func Test_InMemoryBackend_Restore_V1PipelineConfigDiscarded(t *testing.T) {
 		"incompatible-version snapshot must reset to empty, not partially decode")
 }
 
+// Test_InMemoryBackend_Restore_LegacyHealthMetricsConfigBool proves
+// gopherstack-n3zi's fix: a version-2 snapshot written before
+// APICache.HealthMetricsConfig became a string (it was bool, same json tag)
+// must still restore, decoding the legacy `true` via APICache's
+// UnmarshalJSON instead of failing the whole apiCaches table.
+func Test_InMemoryBackend_Restore_LegacyHealthMetricsConfigBool(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b := newTestBackend()
+
+	// GetAPICache requires the owning api to exist too, so the "apis" table
+	// needs a matching row -- minimal fields, since Restore doesn't validate.
+	legacySnapshot := []byte(`{
+		"version": 2,
+		"tables": {
+			"apis": [{
+				"apiId": "api-1",
+				"authenticationType": "API_KEY",
+				"arn": "arn:aws:appsync:us-east-1:000000000000:apis/api-1",
+				"name": "TestAPI",
+				"region": "us-east-1"
+			}],
+			"apiCaches": [{
+				"apiId": "api-1",
+				"type": "SMALL",
+				"status": "AVAILABLE",
+				"apiCachingBehavior": "FULL_REQUEST_CACHING",
+				"healthMetricsConfig": true,
+				"ttl": 60
+			}]
+		}
+	}`)
+
+	require.NoError(t, b.Restore(ctx, legacySnapshot))
+
+	got, err := b.GetAPICache("api-1")
+	require.NoError(t, err)
+	assert.Equal(t, "ENABLED", got.HealthMetricsConfig)
+}
+
 // Test_InMemoryBackend_Restore_InvalidJSON verifies malformed JSON is
 // reported as an error rather than silently discarded or partially applied.
 func Test_InMemoryBackend_Restore_InvalidJSON(t *testing.T) {
