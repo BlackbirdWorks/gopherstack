@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
@@ -42,8 +41,8 @@ func TestIntegration_MediaStoreData_ObjectLifecycle(t *testing.T) {
 	tests := []struct {
 		name        string
 		objectPath  string
-		body        []byte
 		contentType string
+		body        []byte
 	}{
 		{
 			name:        "video_object",
