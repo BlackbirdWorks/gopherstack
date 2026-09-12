@@ -90,9 +90,11 @@ describe("QuickSight Page", () => {
     });
   });
 
-  // Multi-step modal interaction (open, fill 2 fields, submit, refresh) runs
-  // past the 5s default under the full 2000+ test suite's CPU contention
-  // (gopherstack CI job 93845979320); default timeout is fine standalone.
+  // Modal interaction (open, fill fields, submit, refresh) still runs past
+  // the 5s default under the full suite's CPU contention: ~3.7s standalone,
+  // but 5.2s-8.1s across full-suite runs even after fixing Tabs.svelte's
+  // non-reactive tabElements bind:this (gopherstack-naoq). The contention
+  // margin is real, not eliminated; keep the wider timeout.
   it("creates a dashboard via the modal", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
     render(QuickSightPage);

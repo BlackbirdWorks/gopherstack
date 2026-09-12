@@ -63,7 +63,7 @@
 	const INACTIVE_CLASSES =
 		'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-slate-600';
 
-	let tabElements: (HTMLButtonElement | null)[] = [];
+	let tabElements: (HTMLButtonElement | null)[] = $state([]);
 
 	function selectByIndex(index: number): void {
 		const tab = tabs[index];
