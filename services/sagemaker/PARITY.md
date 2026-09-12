@@ -6632,3 +6632,68 @@ named there).
 `goimports`/`golines` formatting). `go run ./cmd/paritylint` stays at 0
 FAIL. No persisted struct fields changed; snapshot inventory not touched;
 no version bump.
+
+## 2026-09-12 -- typed real-client coverage slice 20 (gopherstack-n3zi)
+
+Added `typed_slice20_realclient_test.go` (`TestSlice20_SageMaker_RealClient`,
+one outer `t.Parallel()` test, 6 subtests), covering the families slice
+10's write-up above named as the next tier: lineage (Action update/delete,
+Context update/describe/delete, Artifact update, Association add/list/
+delete, LineageGroup describe/policy), AutoML V1+V2 (describe/list/stop,
+candidates list, V2 describe), compilation job (delete/stop/list),
+monitoring job definitions (describe/delete/list across all four families:
+DataQuality/ModelBias/ModelQuality/ModelExplainability), monitoring alert
+extras (update, list alerts/history, list executions), and workteam extras
+(update, subscribed-workteam describe/list, labeling-jobs-for-workteam
+list, servicecatalog portfolio enable/disable/status, resource catalogs
+list).
+
+**Two real bugs found and fixed**, both caught only by the decoded typed
+value (every call returned 200 OK): (1) `AutoMLCandidate`
+(`automl_search.go`)'s `CreationTime`/`LastModifiedTime` fields had no
+custom marshaling and emitted Go's default RFC3339 strings, but the real
+wire (`sagemaker@v1.263.2` deserializers.go:
+`awsAwsjson11_deserializeDocumentAutoMLCandidate`, `smithytime.
+ParseEpochSeconds`) requires epoch-seconds JSON numbers for both fields --
+a real client's `ListCandidatesForAutoMLJob` failed to decode the response
+at all, regardless of job state; this is the exact bug class this file's
+sibling struct `AutoMLJob` (`automl.go`) already carries a `MarshalJSON`
+fix and code comment for, just never applied to `AutoMLCandidate`. Fixed
+by adding the matching `MarshalJSON` (epoch-seconds override via the same
+`epochSeconds` helper); no `UnmarshalJSON` needed since candidates are
+deterministically derived per call, never persisted. (2) Not a bug, a
+confirmed-correct finding: `GetLineageGroupPolicy` always returns
+`ResourceNotFound` for the default lineage group -- this backend, like
+real AWS, has no API to attach a resource policy to a lineage group
+(policies are attached out-of-band via IAM/Resource Access Manager), so
+the error is honest, not fabricated; test asserts the error rather than a
+success value.
+
+Census: 307/403 (76.2%) -> 350/403 (86.8%) typed-covered (regenerated via
+`cmd/opcensus`+`cmd/clientcoverage`; net delta 43 ops vs. this slice's 6
+subtests' ~50 named ops -- a handful of setup-only `Create*` calls, e.g.
+`CreateAction`/`CreateContext`/`CreateArtifact`/`CreateWorkteam`, were
+already typed-covered by prior slices). 53 ops remain: AI benchmark/
+recommendation jobs (Create/Describe/Delete/Stop), AI workload configs,
+edge deployment stage/plan lifecycle, generic Job family (CreateJob/
+DescribeJob/ListJobs/StopJob/DeleteJob/JobSchemaVersion -- the newer
+unified job API), transform/processing/training job Stop/Delete/List,
+device fleet delete/deregister/report, MLflow app delete/presigned URL,
+hub content update/delete-reference, human-task-UI delete, flow-definition
+delete, space delete, app-image-config delete, inference-component
+runtime-config update, inference-experiment start/update, cluster
+software update, pipeline-version update, and singletons (RenderUiTemplate,
+StartSession, ListJobSchemaVersions,
+ListUltraServersByReservedCapacity, ListInferenceRecommendationsJobSteps,
+DescribeTrainingPlanExtensionHistory, StopInferenceRecommendationsJob).
+`items_still_open` unchanged (nothing in this slice's scope was previously
+named there).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/sagemaker/...` clean. `go test -race -count=1
+./services/sagemaker/... ./pkgs/persistence/...` `ok` (no golden diff --
+`AutoMLCandidate` is never persisted). `golangci-lint run
+--new-from-rev=HEAD ./services/sagemaker/...` 0 issues (after
+`gofmt`/`golines` formatting). `go run ./cmd/paritylint` stays at 0 FAIL.
+No persisted struct fields changed; snapshot inventory not touched; no
+version bump.

@@ -288,7 +288,7 @@ func TestPersistenceExtended(t *testing.T) {
 		{
 			name: "managed_prefix_list_persists",
 			setup: func(b *ec2.InMemoryBackend) {
-				_, err := b.CreateManagedPrefixList("persist-pl", "IPv4", 10)
+				_, err := b.CreateManagedPrefixList("persist-pl", "IPv4", 10, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *ec2.InMemoryBackend) {

@@ -4958,3 +4958,67 @@ slice's one fix was freshly discovered, not previously named there).
 one `lll` line-length fix). `go run ./cmd/paritylint` stays at 0 FAIL. No
 persisted struct fields changed; snapshot inventory not touched; no
 version bump.
+
+## 2026-09-12 -- typed real-client coverage slice 20 (gopherstack-n3zi)
+
+`typed_slice20_realclient_test.go` added, 6 subtests: Capacity Reservation
+extras (fleet create/modify/cancel, split/move, billing owner
+disassociate/reject, groups-for-reservation, interruptible allocation
+create/update, usage), Verified Access extras (trust provider create/
+attach/modify/detach/delete, instance modify/logging-configuration/
+describe-logging/export-client-configuration/delete, endpoint modify/
+policy modify/get/targets/, group policy modify/get/delete), Client VPN
+extras (route delete, connections describe, client config export, CRL
+export/import, connections terminate, ingress revoke, route/endpoint
+delete), VPN Connection + Concentrator extras (route create/delete,
+connection modify/options, tunnel certificate/options modify, tunnel
+replace, active tunnel status, device sample configuration, tunnel
+replacement status, connection delete, concentrator create/describe/
+delete), Managed Prefix List extras (entries get, modify, restore
+version, delete), Network Insights extras (path/analysis/access-scope/
+access-scope-analysis delete, paths/access-scopes describe).
+
+**One real bug found and fixed**: `CreateManagedPrefixList`'s handler
+(`handleCreateManagedPrefixList`, `handler_prefix_lists.go`) never read the
+real, wire-documented `Entry.N.Cidr`/`Entry.N.Description` request members
+at all (confirmed against `ec2@v1.329.0` serializers.go:
+`awsEc2query_serializeOpDocumentCreateManagedPrefixListInput` --
+`object.FlatKey("Entry")`, distinct from `ModifyManagedPrefixList`'s own
+`AddEntry.N.*` naming) -- every real client's initial `Entries` were
+silently dropped on create, so a `CreateManagedPrefixList` followed
+immediately by `GetManagedPrefixListEntries` always came back empty
+regardless of what was requested. Fixed by parsing `Entry.N.*` in the
+handler and threading an `entries []PrefixListEntry` parameter through
+`InMemoryBackend.CreateManagedPrefixList` (additive signature change, 6
+existing raw-body/backend call sites updated to pass `nil`, not weakened
+-- pure addition with zero blast radius on other callers). No persisted
+struct field added (existing `ManagedPrefixList.Entries` field, now
+actually populated at create time); no version bump.
+
+**Accept-and-drop, not fixed**: `ProvisionPublicIpv4PoolCidr`'s
+`IpamPoolId` gap (already disclosed in slice 10's section above) was not
+re-touched this slice.
+
+Census: 501/785 (63.8%) -> 560/785 (71.3%) typed-covered (regenerated via
+`cmd/opcensus`+`cmd/clientcoverage`; several of this slice's Create* setup
+calls -- e.g. `CreateVerifiedAccessTrustProvider`,
+`CreateCapacityReservationFleet`, `CreateVpnConnection` -- were already
+typed-covered by prior slices, so the net delta is 59 ops, not this
+slice's own 62-op subtest count). 225 ops remain:
+TGW peripherals (Accept/Reject/Delete for peering/VPC/ClientVpn/multicast
+attachments, metering policy, policy table, prefix list reference, route
+table announcement -- the largest remaining single family, ~44 ops), IPAM
+policy/BYOASN/prefix-list-resolver families (~36 ops), MAC host/
+modification tasks, application status checks, VPC encryption control,
+instance metadata/console/monitoring extras, and a long tail of
+Get*/Modify*/Describe* single-op families with no natural grouping.
+`items_still_open` unchanged (this slice's one fix was freshly discovered,
+not previously named there).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` clean. `go test -race -count=1 ./services/ec2/...
+./pkgs/persistence/...` `ok`. `golangci-lint run --new-from-rev=HEAD
+./services/ec2/...` 0 issues (after `gofmt`/`golines` formatting). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted struct fields changed
+(the fix populates an existing field, doesn't add one); snapshot inventory
+not touched; no version bump.

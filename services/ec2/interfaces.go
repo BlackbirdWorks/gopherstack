@@ -1399,7 +1399,9 @@ type Backend interface {
 	ModifyTransitGateway(tgwID, description string) (*TransitGateway, error)
 
 	// ---- batch4: ManagedPrefixList ----
-	CreateManagedPrefixList(name, addressFamily string, maxEntries int) (*ManagedPrefixList, error)
+	CreateManagedPrefixList(
+		name, addressFamily string, maxEntries int, entries []PrefixListEntry,
+	) (*ManagedPrefixList, error)
 	DeleteManagedPrefixList(id string) (*ManagedPrefixList, error)
 	DescribeManagedPrefixLists(ids []string) []*ManagedPrefixList
 	GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error)
