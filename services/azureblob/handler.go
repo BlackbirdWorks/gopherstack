@@ -415,7 +415,7 @@ func (h *Handler) getContainerProperties(c *echo.Context, container string) erro
 
 		hdr := c.Response().Header()
 		hdr.Set("Last-Modified", ci.CreatedAt.Format(http.TimeFormat))
-		hdr.Set("Etag", computeContainerETag(ci.Name, ci.CreatedAt))
+		hdr.Set("ETag", computeContainerETag(ci.Name, ci.CreatedAt))
 		hdr.Set("X-Ms-Lease-Status", "unlocked")
 		hdr.Set("X-Ms-Lease-State", "available")
 

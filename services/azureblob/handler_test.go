@@ -238,7 +238,7 @@ func TestGetContainerProperties(t *testing.T) {
 
 		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mycontainer?restype=container", nil, nil)
 		assert.Equal(t, http.StatusOK, rec.Code)
-		assert.NotEmpty(t, rec.Header().Get("Etag"))
+		assert.NotEmpty(t, rec.Header().Get("ETag"))
 	})
 
 	t.Run("missing_container", func(t *testing.T) {

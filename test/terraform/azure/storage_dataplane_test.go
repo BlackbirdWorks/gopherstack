@@ -221,8 +221,8 @@ func verifyTerraformTableRoundTrip(ctx context.Context, t *testing.T) {
 	// requires go1.27+ (verified: fails to compile with "requires go1.27 or later" under
 	// this repo's go.mod `go 1.26.6`) -- a false positive, not gated on the module's
 	// actual language version. Do not apply the suggested fix.
-	entity := aztables.EDMEntity{
-		Entity:     aztables.Entity{PartitionKey: "m8", RowKey: "1"}, //nolint:modernize,nolintlint // see comment above
+	entity := aztables.EDMEntity{ //nolint:modernize,nolintlint // see comment above
+		Entity:     aztables.Entity{PartitionKey: "m8", RowKey: "1"},
 		Properties: map[string]any{"Message": "hello from the go sdk, m8 table round-trip"},
 	}
 
