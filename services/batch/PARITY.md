@@ -541,3 +541,30 @@ have a mechanical re-scan behind them and hold, this one field excepted.
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/batch/...` and `./cmd/reqfieldscan/...`).
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Added `typed_slice19_realclient_test.go` driving all 10 previously
+typed-client-uncovered ops through a real `aws-sdk-go-v2/service/batch`
+client: `CancelJob`, `DeleteQuotaShare`, `GetJobQueueSnapshot`,
+`ListJobsByConsumableResource`, `ListQuotaShares`, `TerminateJob`,
+`TerminateServiceJob`, `UpdateConsumableResource`, `UpdateQuotaShare`,
+`UpdateServiceJob`. batch is now 45/45 typed-covered.
+
+**Zero bugs found** -- this service already has an unusually deep audit
+history (SDK bump sweep, required-output sweep, constrain-not-honoured
+sweep, all recorded above). Note for future slices: this file's per-op
+"Proven via a real aws-sdk-go-v2/service/batch client round trip
+(wire_output_required_r80d_test.go)" claims on these 10 ops' rows referred
+to *other* required-output fixes verified in that file (DescribeJobs/
+DescribeServiceJob's `StartedAt`, `QuotaShareCapacityLimit.MaxCapacity`) --
+that file never actually calls CancelJob/TerminateJob/GetJobQueueSnapshot/
+UpdateConsumableResource/UpdateQuotaShare/DeleteQuotaShare/ListQuotaShares/
+ListJobsByConsumableResource/TerminateServiceJob/UpdateServiceJob itself, so
+the typed-client census was correct that these 10 had never been driven by
+a real client before this pass -- the PARITY.md wording just didn't
+distinguish "this file proved a related fix" from "this op was called."
+
+Gates: `go build ./services/batch/...`, `go vet`, `go test -race -count=1`
+(clean), `golangci-lint run --new-from-rev=HEAD` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

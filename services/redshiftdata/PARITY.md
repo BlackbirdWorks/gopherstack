@@ -721,3 +721,22 @@ clean bill. This service's earlier A-grade verdict holds.
 
 Gates: not re-run (no change); `go build`/`go vet ./...` confirmed clean as
 part of this session's repo-wide checks.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Added `typed_slice19_realclient_test.go` driving all 9 previously
+typed-client-uncovered ops through a real `aws-sdk-go-v2/service/redshiftdata`
+client: `CancelStatement`, `DescribeStatement`, `DescribeTable`,
+`GetStatementResult`, `GetStatementResultV2`, `ListSchemas`, `ListSessions`,
+`ListStatements`, `ListTables`. `CancelStatement` was driven against its
+documented-terminal-state case (`items_still_open`'s first entry) and asserted
+to decode as a typed `types.ValidationException` -- itself genuine coverage
+of that error path. redshiftdata is now 12/12 typed-covered.
+
+**Zero bugs found** -- this service was already deeply audited (extensive
+prior wire-shape/field-diff passes recorded above); the round trip confirms
+rather than discovers here.
+
+Gates: `go build ./services/redshiftdata/...`, `go vet`, `go test -race
+-count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.

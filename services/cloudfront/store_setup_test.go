@@ -125,7 +125,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// tenantInvalidations: composite-key table keyed by tenantID + "#" + invID.
-	tenantInv, err := orig.CreateInvalidationForTenant(tenant.ID, []string{"/*"})
+	tenantInv, err := orig.CreateInvalidationForTenant(tenant.ID, "ref", []string{"/*"})
 	require.NoError(t, err)
 
 	snap := orig.Snapshot(t.Context())

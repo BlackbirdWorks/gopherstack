@@ -58,9 +58,9 @@ ops:
   UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
   DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
   ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GatewayRouteSummary correctly includes virtualGatewayName — present on the real GatewayRouteRef type too, not fabricated"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn+tags in JSON body — verified against real serializer"}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn+tagKeys in JSON body"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn as a QUERY param (tags only in JSON body) — FIXED 2026-09-12 (gopherstack-n3zi slice 19): prior note claiming resourceArn was in the body was wrong and untested by any real client; handler read it from c.Bind only, which never sees query params on a PUT, so every real SDK call failed with BadRequestException. See awsRestjson1_serializeOpHttpBindingsTagResourceInput in serializers.go."}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn as a QUERY param (tagKeys only in JSON body) — same bug/fix as TagResource, see awsRestjson1_serializeOpHttpBindingsUntagResourceInput"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params; confirmed by a real client round trip this pass"}
 families:
   mesh_crud: {status: ok, note: "route matcher, HTTP methods (PUT create/update, GET describe, DELETE, GET list), ARN shape, error codes all verified against real serializer/deserializer source"}
   virtualnode_crud: {status: ok}
@@ -468,3 +468,27 @@ HEAD before this pass, its only other caller already ignores the same
 return value) was left untouched as out of this pass's scope. No
 production code changed this pass — test-only additions confirming
 correctness.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Drove all 9 previously-uncovered ops with a real `aws-sdk-go-v2/service/appmesh`
+client (`typed_slice19_realclient_test.go`): `ListVirtualNodes`, `ListVirtualRouters`,
+`ListVirtualServices`, `ListVirtualGateways`, `ListRoutes`, `ListGatewayRoutes`,
+`TagResource`, `UntagResource`, `ListTagsForResource`. appmesh is now 38/38 typed-covered.
+
+**Real bug found and fixed**: `TagResource`/`UntagResource` read `resourceArn` only
+from the JSON body (`handler_tags.go`), but the real wire sends it as a query
+parameter (`awsRestjson1_serializeOpHttpBindingsTagResourceInput`/
+`...UntagResourceInput` in serializers.go — `encoder.SetQuery("resourceArn")`, with
+only `tags`/`tagKeys` in the body). echo v5's `c.Bind` only binds query params for
+GET/DELETE/HEAD/QUERY methods (`bind.go`'s `DefaultBinder.Bind`), and these are PUT,
+so a real client's `resourceArn` never reached the handler — every real
+`TagResource`/`UntagResource` call against this service failed with
+`BadRequestException: resourceArn is required`, unconditionally. Fixed by reading
+`c.QueryParam("resourceArn")` explicitly, matching `handleListTags`'s existing
+pattern. Three pre-existing raw-body tests (`tags_test.go`, `handler_wire_test.go`)
+had encoded the wrong (body-based) shape as correct and were updated to send
+`resourceArn` as a query param instead of weakening the fix.
+
+Gates: `go build ./services/appmesh/...`, `go vet`, `go test -race -count=1` (clean),
+`golangci-lint run --new-from-rev=HEAD` (0 issues).

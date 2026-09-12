@@ -1616,3 +1616,51 @@ version bump. Gates: `go build ./...`, `go vet ./services/cloudfront/...`,
 `go test -race -count=1 ./services/cloudfront/... ./pkgs/persistence/...`
 (pass), `golangci-lint run --new-from-rev=HEAD ./services/cloudfront/...`
 (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Drove the last 9 typed-client-uncovered ops (`typed_slice19_realclient_test.go`,
+4 subtests) named by slice 8 as remaining: `GetDistributionConfig`,
+`CreateInvalidationForDistributionTenant`, `GetInvalidationForDistributionTenant`,
+`ListDistributionTenantsByCustomization`, `VerifyDnsConfiguration`,
+`UpdateDistributionTenant`, `CreateConnectionGroup`/`UpdateConnectionGroup`,
+`CreateConnectionFunction`/`UpdateConnectionFunction`/`TestConnectionFunction`.
+cloudfront is now 167/167 typed-covered.
+
+**Four real bugs found and fixed, all by a real client decoding nil/wrong values:**
+
+1. `VerifyDnsConfiguration`: the `<DnsConfigurationList>` item wrapper was
+   `<Item>`, but the real deserializer (`awsRestxml_deserializeDocumentDnsConfigurationList`,
+   cloudfront@v1.67.4) only recognizes `<DnsConfiguration>` — every real client
+   decoded an empty list regardless of backend state. Also, `Status` used
+   invented literals `"PASSED"`/`"FAILED"`, but the real field is the typed enum
+   `types.DnsConfigurationStatus` with values `valid-configuration`/
+   `invalid-configuration`/`unknown-configuration` — the old literals decoded
+   without erroring (plain string underlying type) but could never equal any
+   real enum constant a caller compares against. Fixed both in
+   `handler_distribution_tenants.go`/`distribution_tenants.go`; also added the
+   previously-unemitted optional `Reason` field.
+2. `GetInvalidationForDistributionTenant`: response omitted `InvalidationBatch`
+   entirely, a required member of `types.Invalidation` — always nil for a real
+   client. Root cause traced further back: `CreateInvalidationForTenant` never
+   persisted the request's `CallerReference` onto the stored `Invalidation` at
+   all, so `GetInvalidationForTenant` had nothing to reconstruct it from even
+   after adding the element. Fixed by threading `callerRef` through
+   `CreateInvalidationForTenant`'s signature and re-emitting the full
+   `InvalidationBatch` (`CallerReference` + `Paths`) on `Get`.
+3. `TestConnectionFunction`'s nested `ConnectionFunctionSummary` only emitted
+   `Id`/`Name`/`Stage`, but the real `types.ConnectionFunctionSummary` also
+   requires `ConnectionFunctionArn`/`ConnectionFunctionConfig`/`CreatedTime`/
+   `LastModifiedTime`/`Status` — all nil for a real client despite the sibling
+   `connectionFunctionSummaryXML` (used by Get/Update/Publish/List) already
+   emitting the correct full shape. Fixed by extracting a shared
+   `connectionFunctionSummaryFields` helper and reusing it in both places.
+4. `GetDistributionConfig`, `UpdateDistributionTenant`, `CreateConnectionGroup`/
+   `UpdateConnectionGroup`, `CreateConnectionFunction`/`UpdateConnectionFunction`,
+   and `ListDistributionTenantsByCustomization` were already wire-correct
+   (confirmed by the real client round trip) — no fix needed, just newly
+   proven.
+
+Gates: `go build ./services/cloudfront/...`, `go vet`, `go test -race -count=1`
+(clean), `golangci-lint run --new-from-rev=HEAD` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

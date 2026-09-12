@@ -398,3 +398,19 @@ cursor still resolves -- none deleted an item or forged a token between pages.
 **Gates**: `go build ./services/translate/...`, `go vet ./services/translate/...`,
 `go test -race -count=1 ./services/translate/...` all pass; `golangci-lint run
 ./services/translate/...` reports 0 issues.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Added `typed_slice19_realclient_test.go` driving all 10 previously
+typed-client-uncovered ops through a real `aws-sdk-go-v2/service/translate`
+client: `DeleteParallelData`, `DescribeTextTranslationJob`, `ListLanguages`,
+`ListParallelData`, `ListTagsForResource`, `StopTextTranslationJob`,
+`TagResource`, `TranslateDocument`, `UntagResource`, `UpdateParallelData`.
+translate is now 19/19 typed-covered.
+
+**Zero bugs found** -- this service already has a deep audit history
+(wrapper-key sweep, constraint-not-honoured sweep, both recorded above).
+
+Gates: `go build ./services/translate/...`, `go vet`, `go test -race
+-count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.

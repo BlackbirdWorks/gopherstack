@@ -109,3 +109,20 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Added `typed_slice19_realclient_test.go` (this package had no real-client
+helper at all before this slice) driving all 11 previously typed-client-
+uncovered ops through a real `aws-sdk-go-v2/service/identitystore` client:
+`CreateGroupMembership`, `DeleteGroupMembership`, `DescribeGroupMembership`,
+`GetGroupId`, `GetGroupMembershipId`, `IsMemberInGroups`,
+`ListGroupMemberships`, `ListGroupMembershipsForMember`, `ListGroups`,
+`UpdateGroup`, `UpdateUser`. identitystore is now 19/19 typed-covered.
+
+**Zero bugs found** -- this service already has a deep audit history (see
+2026-08 notes above).
+
+Gates: `go build ./services/identitystore/...`, `go vet`, `go test -race
+-count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.
