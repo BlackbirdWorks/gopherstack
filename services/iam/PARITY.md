@@ -118,6 +118,64 @@ items_still_open:
 ---
 
 ## Notes
+- Sweep 14 (2026-09-11, gopherstack-n3zi slice 1): added typed real-SDK-client
+  round-trip coverage for 74 previously-untyped-uncovered ops (see
+  typed_slice1_realclient_test.go), grouped by family (inline policies,
+  managed-policy getters, Tag/Untag pairs, server certificates, SSH keys,
+  account password policy/aliases, MFA cleanup, service-specific
+  credentials, access-key-last-used, role/user/group updates, credential
+  report, OIDC client IDs, policy simulation + context keys, service-linked
+  role deletion, Organizations access report/features, Organizations root
+  management + outbound web identity federation). Four real bugs found and
+  fixed, all confirmed only by driving the real typed client (none had ANY
+  prior typed-client coverage):
+  1. `GetContextKeysForPrincipalPolicy` shared `GetContextKeysResponse` with
+     `GetContextKeysForCustomPolicy`, whose hardcoded XMLName/field tags
+     ("GetContextKeysForCustomPolicyResponse"/"...Result") became the wire
+     root/wrapper for BOTH ops. iam@v1.63.0 deserializers.go:7156 looks
+     specifically for `GetContextKeysForPrincipalPolicyResult` and fails with
+     a `DeserializationError` when it isn't there -- every real client call
+     to this op failed outright. Fixed by giving it its own response type
+     (`GetContextKeysForPrincipalPolicyResponse`, models_policies.go) and,
+     since it was being touched anyway, made it honor the optional
+     `PolicyInputList` member via the existing `contextKeysFromPolicyDocuments`
+     helper (previously ignored, always returned an empty list regardless of
+     input).
+  2. `Enable/DisableOrganizationsRootCredentialsManagement` and
+     `Enable/DisableOrganizationsRootSessions` returned a bare
+     `iamSimpleTagResponse` with no `<Result>` wrapper at all, but all 4 real
+     ops require one (deserializers.go:5743/5317/5870/5441,
+     `decoder.GetElement("...Result")` — hard `DeserializationError`, not a
+     silent empty decode, if missing). Added 4 dedicated response types
+     (models_account.go) each with the correct per-op wrapper name and the
+     real (always-empty-here) `EnabledFeatures`/`OrganizationId` members.
+  3. `GetAccessKeyLastUsed`'s `LastUsedDate` was the literal string `"N/A"`
+     when a key had never been used. Real `AccessKeyLastUsed.LastUsedDate` is
+     `*time.Time` (Timestamp-typed); only `Region`/`ServiceName` (`*string`)
+     use `"N/A"` as a real sentinel. A real client's decode failed outright
+     ("cannot parse N/A as 2006") for every never-used key. Fixed
+     (access_keys.go, models_access_keys.go: `LastUsedDate` field now
+     `omitempty` and left blank instead of "N/A"); updated 3 existing unit
+     tests that had encoded the bug as expected behavior
+     (access_keys_test.go).
+  4. `UpdateAccountPasswordPolicy`'s `AllowUsersToChangePassword` defaulted an
+     omitted parameter to `true`, the opposite of the real API's documented
+     default (`false`). Real AWS query-protocol bools serialize only when
+     `true` (serializers.go:15960), so a real client's explicit `false` is
+     wire-indistinguishable from omission either way -- `!= "false"` could
+     never be triggered correctly by any real caller. Fixed to
+     `== formValueTrue` (handler_account.go), matching every sibling boolean
+     on the same struct literal.
+  All 4 fixes proven via the new typed tests; hand-confirmed each reproduces
+  the pre-fix symptom by re-reading the unfixed code path (wrapper mismatch,
+  missing Result element, literal "N/A" in a Timestamp field, inverted
+  boolean default) rather than a blind revert/restore cycle. Gates: `go
+  build ./...` (whole module), `go vet`, `gofmt -l` (clean), `go test -race
+  -count=1 ./services/iam/...` (pass), `golangci-lint run ./services/iam/...`
+  (0 issues), `go test ./pkgs/persistence/...` (pass -- no persisted struct
+  touched). No items_still_open entries closed (all 4 bugs were new
+  discoveries, not previously-named gaps). Not reached: the remaining ~104
+  uncovered ops.
 - Sweep 11 (2026-08-23): worked items_still_open's named queue -- access advisor / credential
   report / account summary ("not re-verified since sweep 4"), GetDelegationRequest/
   ListDelegationRequests (disclosed stubs since sweep 9), and ListSigningCertificates'

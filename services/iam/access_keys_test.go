@@ -331,7 +331,11 @@ func TestGetAccessKeyLastUsed_NeverUsed(t *testing.T) {
 
 	result, err := b.GetAccessKeyLastUsed(ak.AccessKeyID)
 	require.NoError(t, err)
-	assert.Equal(t, "N/A", result.LastUsedDate)
+	assert.Empty(
+		t,
+		result.LastUsedDate,
+		"LastUsedDate must be absent (Timestamp-typed on the real wire), not the literal N/A",
+	)
 	assert.Equal(t, "N/A", result.Region)
 	assert.Equal(t, "N/A", result.ServiceName)
 }
@@ -418,7 +422,11 @@ func TestGetAccessKeyLastUsed_NeverUsed_ReturnsNA(t *testing.T) {
 
 	info, err := b.GetAccessKeyLastUsed(ak.AccessKeyID)
 	require.NoError(t, err)
-	assert.Equal(t, "N/A", info.LastUsedDate)
+	assert.Empty(
+		t,
+		info.LastUsedDate,
+		"LastUsedDate must be absent (Timestamp-typed on the real wire), not the literal N/A",
+	)
 	assert.Equal(t, "N/A", info.Region)
 	assert.Equal(t, "N/A", info.ServiceName)
 }
@@ -559,7 +567,7 @@ func TestGetAccessKeyLastUsed_NotUsed(t *testing.T) {
 
 	result, err := b.GetAccessKeyLastUsed(ak.AccessKeyID)
 	require.NoError(t, err)
-	assert.Equal(t, "N/A", result.LastUsedDate, "new key must report N/A for last used date")
+	assert.Empty(t, result.LastUsedDate, "new key must report an absent (not literal N/A) last used date")
 }
 
 func TestGetAccessKeyLastUsed_AfterUsage(t *testing.T) {

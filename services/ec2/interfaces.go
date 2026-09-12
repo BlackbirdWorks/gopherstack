@@ -191,7 +191,7 @@ type Backend interface {
 	DeleteInternetGateway(id string) error
 
 	// DescribeInternetGateways returns internet gateways, optionally filtered by IDs.
-	DescribeInternetGateways(ids []string) []*InternetGateway
+	DescribeInternetGateways(ids []string) ([]*InternetGateway, error)
 
 	// AttachInternetGateway attaches an internet gateway to a VPC.
 	AttachInternetGateway(igwID, vpcID string) error
@@ -208,7 +208,7 @@ type Backend interface {
 	DeleteRouteTable(id string) error
 
 	// DescribeRouteTables returns route tables, optionally filtered by IDs.
-	DescribeRouteTables(ids []string) []*RouteTable
+	DescribeRouteTables(ids []string) ([]*RouteTable, error)
 
 	// CreateRoute adds a route to a route table.
 	CreateRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
@@ -239,7 +239,7 @@ type Backend interface {
 	CreateSnapshot(volumeID, description string) (*Snapshot, error)
 
 	// DescribeSnapshots returns snapshots, optionally filtered by IDs.
-	DescribeSnapshots(ids []string) []*Snapshot
+	DescribeSnapshots(ids []string) ([]*Snapshot, error)
 
 	// DeleteSnapshot removes a snapshot.
 	DeleteSnapshot(id string) error
@@ -538,7 +538,7 @@ type Backend interface {
 	CreateDhcpOptions(configs []DhcpConfiguration, tags map[string]string) (*DhcpOptions, error)
 
 	// DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
-	DescribeDhcpOptions(ids []string) []*DhcpOptions
+	DescribeDhcpOptions(ids []string) ([]*DhcpOptions, error)
 
 	// AssociateDhcpOptions associates a DHCP options set with a VPC.
 	AssociateDhcpOptions(dhcpOptionsID, vpcID string) error
@@ -601,6 +601,10 @@ type Backend interface {
 
 	// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC.
 	AssociateVpcCidrBlock(vpcID, cidrBlock string) (*VpcCidrBlockAssociation, error)
+
+	// SecondaryCidrBlockAssociationsForVPC returns vpcID's secondary CIDR
+	// block associations (not including the primary CIDR block).
+	SecondaryCidrBlockAssociationsForVPC(vpcID string) []*VpcCidrBlockAssociation
 
 	// ---- Transit Gateway Route Tables ----
 
@@ -874,7 +878,7 @@ type Backend interface {
 	CreateCustomerGateway(gatewayType, ipAddress, bgpAsn string) (*CustomerGateway, error)
 
 	// DescribeCustomerGateways returns customer gateways, optionally filtered by IDs.
-	DescribeCustomerGateways(ids []string) []*CustomerGateway
+	DescribeCustomerGateways(ids []string) ([]*CustomerGateway, error)
 
 	// DeleteCustomerGateway removes a customer gateway.
 	DeleteCustomerGateway(id string) error

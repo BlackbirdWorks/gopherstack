@@ -399,7 +399,12 @@ func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "DhcpOptionsId")
-	opts := h.Backend.DescribeDhcpOptions(ids)
+
+	opts, err := h.Backend.DescribeDhcpOptions(ids)
+	if err != nil {
+		return nil, err
+	}
+
 	opts = applyDhcpOptionsFilters(opts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeDhcpOptionsResponse{RequestID: reqID}

@@ -271,12 +271,16 @@ type SecurityGroup struct {
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	Attributes              map[string]bool `json:"attributes,omitempty"`
-	ID                      string          `json:"id,omitempty"`
-	CIDRBlock               string          `json:"cidrBlock,omitempty"`
-	IsDefault               bool            `json:"isDefault,omitempty"`
-	ClassicLinkEnabled      bool            `json:"classicLinkEnabled,omitempty"`
-	ClassicLinkDNSSupported bool            `json:"classicLinkDnsSupported,omitempty"`
+	Attributes map[string]bool `json:"attributes,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	CIDRBlock  string          `json:"cidrBlock,omitempty"`
+	// DHCPOptionsID is the associated DHCP options set, or "default" when
+	// none has been explicitly associated -- real AWS always reports one of
+	// the two (ec2@v1.329.0 types.Vpc.DhcpOptionsId), never an absent value.
+	DHCPOptionsID           string `json:"dhcpOptionsId,omitempty"`
+	IsDefault               bool   `json:"isDefault,omitempty"`
+	ClassicLinkEnabled      bool   `json:"classicLinkEnabled,omitempty"`
+	ClassicLinkDNSSupported bool   `json:"classicLinkDnsSupported,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.
@@ -861,9 +865,10 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 func (b *InMemoryBackend) initDefaults() {
 	defaultVPCID := vpcDefaultName
 	b.vpcs.Put(&VPC{
-		ID:        defaultVPCID,
-		CIDRBlock: "172.31.0.0/16",
-		IsDefault: true,
+		ID:            defaultVPCID,
+		CIDRBlock:     "172.31.0.0/16",
+		IsDefault:     true,
+		DHCPOptionsID: dhcpOptionsDefault,
 	})
 
 	defaultSubnetID := "subnet-default"

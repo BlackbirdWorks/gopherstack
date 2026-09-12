@@ -383,6 +383,105 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-11 (gopherstack-n3zi slice 1: typed real-client coverage)
+
+Added typed real-SDK-client round-trip coverage for ~40 of 446 previously-untyped
+-uncovered ops (typed_slice1_realclient_test.go; ec2 has by far the largest single
+uncovered count of any service measured, so this slice covers key pairs, default
+VPC/subnet, Internet Gateway lifecycle, DHCP options, route table + route CRUD,
+EBS volume/snapshot lifecycle, Elastic IP association, Network ACL lifecycle, VPN/
+Customer Gateway lifecycle, DescribeAvailabilityZones/Regions/VpcAttribute/
+InstanceAttribute, VPC Endpoint lifecycle, and VPC/subnet secondary CIDR
+association -- the remaining ~400 uncovered ops, mostly IPAM, Transit Gateway
+sub-families, Verified Access, Local Gateway, and Capacity Reservation edge ops,
+were not reached this slice).
+
+Eight real bugs found and fixed, every one confirmed only by driving the real
+typed client (raw-body/handler-level tests had exercised none of these paths
+correctly):
+
+1. **DescribeInternetGateways/DescribeDhcpOptions/DescribeRouteTables/
+   DescribeSnapshots silently omitted an explicitly-named-but-nonexistent ID
+   from the result instead of erroring** (internet_gateways.go, networking1.go,
+   route_tables.go, snapshots.go). Real AWS fails the whole call with
+   `Invalid<Resource>ID.NotFound` when any requested ID filter doesn't match;
+   a real client asking about a specific (e.g. just-deleted) resource got an
+   empty 200 instead of the NotFound it depends on to detect that. Fixed all
+   four to return the real NotFound error on any explicit-ID miss (shared
+   logic factored into a small generic helper, `describeByIDsOrNotFound`,
+   describe_helpers.go, to avoid `dupl` between the DhcpOptions/CustomerGateway
+   pair). Also found and fixed the *same* class in
+   **DescribeNetworkAcls/DescribeCustomerGateways** while covering those ops
+   directly.
+2. **Two of the four sentinels above (`ErrDhcpOptionsNotFound`,
+   `ErrSnapshotNotFound`, `ErrNetworkACLNotFound`) were missing from
+   `errCodeLookup`** (handler.go), so the NotFound errors from (1) -- and,
+   it turns out, DeleteDhcpOptions'/AssociateDhcpOptions' own pre-existing
+   not-found paths, unrelated to this slice's new code -- surfaced as a
+   500 `InternalFailure` instead of a 400 `Invalid*.NotFound`. This is the
+   exact "missing errCodeLookup entry" bug class named in
+   `.claude/memories/parity-principles.md`. Fixed by adding all three.
+3. **VPC's DhcpOptionsId is a fabricated-absent field**: the `VPC` struct had
+   no field for it at all, and `AssociateDhcpOptions` only updated internal
+   `DhcpOptions.AssociatedVPCIDs` bookkeeping, never the VPC record itself --
+   a real client had no way to observe which DHCP options set (if any) is
+   associated with a VPC via DescribeVpcs, ever (ec2@v1.329.0
+   types.Vpc.DhcpOptionsId is a real, always-present top-level field). Fixed:
+   added `VPC.DHCPOptionsID` (defaults to `"default"` on CreateVpc/
+   CreateDefaultVpc/initDefaults, matching real AWS), `AssociateDhcpOptions`
+   now sets it, and `DescribeVpcs`'/`CreateVpc`'s wire item includes
+   `dhcpOptionsId`. Additive persisted-struct change (no version bump needed;
+   confirmed by the snapshot guard).
+4. **CreateCustomerGateway silently dropped the `PublicIp` parameter**
+   (handler_vpn_gateways.go). `IpAddress` and `PublicIp` are two real,
+   distinct wire keys for the same logical parameter (serializers.go
+   serializes `CreateCustomerGatewayInput.PublicIp` -- the older, still-valid
+   alias -- to `"PublicIp"`, not `"IpAddress"`); the handler read only
+   `IpAddress`, rejecting any real client using the deprecated-but-supported
+   field with "IpAddress is required". Fixed to fall back to `PublicIp`.
+5. **AssociateVpcCidrBlock's response used the wrong wire wrapper name**
+   (`ipv4CidrBlockAssociation` instead of `cidrBlockAssociation`) --
+   verified against deserializers.go's
+   `awsEc2query_deserializeOpDocumentAssociateVpcCidrBlockOutput`, which
+   looks for `cidrBlockAssociation` specifically. Every real client's
+   `AssociateVpcCidrBlockOutput.CidrBlockAssociation` decoded nil regardless
+   of what was actually associated. Fixed (handler_ec2core.go).
+6. **DescribeVpcs never surfaced CidrBlockAssociationSet at all** -- a VPC's
+   secondary CIDR blocks (added via AssociateVpcCidrBlock) were stored
+   (`b.vpcCidrAssociations`) but never rendered into the VPC item, so a real
+   client could create/list a secondary CIDR association (5) but never see
+   it reflected back via DescribeVpcs. Added `SecondaryCidrBlockAssociationsForVPC`
+   (vpcs.go) and wired `CidrBlockAssociationSet` (primary CIDR + secondary
+   associations, `cidrBlockAssociationSet>item`) into `toVPCItem`
+   (handler_vpcs.go).
+
+Also found, NOT fixed (out of this slice's scope, disclosed here): the
+"silently omit a missing explicit ID" defect in (1)/(2) is almost certainly
+systemic across most of this file's remaining Describe-by-ID ops (a quick
+sample beyond the four fixed here turned up the identical shape every time
+it was checked) -- worth a dedicated future sweep rather than fixing
+piecemeal as each op happens to get typed coverage.
+
+Gates: `go build ./...` (whole module -- caught and fixed 2 cross-package
+compile breaks from the `DescribeCustomerGateways`/`DescribeRouteTables`
+signature changes: `cli.go`'s `networkManagerEC2ResolverAdapter.
+ResolveCustomerGateway`, plus test call sites across
+cleanup_test.go/main_route_table_test.go/route_tables_test.go/
+persistence_test.go/networking1_test.go/handler_advanced_networking_test.go/
+snapshots_test.go/internet_gateways_test.go, all updated to the 2-return
+signature and, where the described ID was one this pass now correctly
+NotFounds, to expect that error instead of an empty result), `go vet`,
+`gofmt -l` (clean), `go test -race -count=1 ./services/ec2/...` (pass, full
+suite), `golangci-lint run ./services/ec2/...` (0 issues -- fixed a `dupl`
+between DescribeDhcpOptions/DescribeCustomerGateways via the shared generic
+helper, and a `gocognit` over-limit in handleDescribeNetworkAcls via
+extracting `requireAllNetworkACLIDsFound`; the 2 pre-existing
+`fieldalignment` findings in handler_reserved_instances.go/models.go are
+unrelated, unmodified by this pass), `go test ./pkgs/persistence/...` (pass
+after regenerating `snapshot_inventory.json` for the `ec2` row only -- the
+new `VPC.DHCPOptionsID` field; guard confirms additive, no version bump, no
+foreign rows touched).
 - sourceDestCheck AWS default is **true** for VPC instances (must be explicitly disabled, e.g. NAT instances) — a prior test encoded false, corrected.
 - kernel/ramdisk return "" for HVM (not "stop").
 - 2026-07-24 pass: fixed the long-tracked gopherstack-b5m VPC/subnet cascade-delete bug (DependencyViolation, no cascade), extended the same real-AWS-dependency-check pattern to DeleteRouteTable/DeleteInternetGateway/AttachInternetGateway, fixed a disguised-stub NAT gateway address association pair, and closed a systemic tag-map leak across ~50 delete ops in the newer op families. All found via direct code reading + cross-referencing resource_types.go's resourceTypePrefixes/resourceExistsLocked (the authoritative taggable-resource-ID list) rather than grep-only stub hunting, per parity-principles.md rule 4 (grep-based stub hunting has false positives — confirmed by reading each flagged function body before editing, and explicitly NOT touching composite-key sub-entry deletes that were never taggable).

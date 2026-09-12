@@ -3197,7 +3197,9 @@ func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool 
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
-	return len(a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})) > 0
+	cgws, err := a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
+
+	return err == nil && len(cgws) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {

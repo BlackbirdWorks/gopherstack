@@ -201,6 +201,11 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
 	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(nil), aclIDs)
+
+	if err := requireAllNetworkACLIDsFound(acls, aclIDs); err != nil {
+		return nil, err
+	}
+
 	acls = applyNetworkACLFilters(acls, filters, h.Backend)
 
 	maxResults := 0
@@ -242,6 +247,30 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 		Acls:      networkACLSet{Items: items},
 		NextToken: nextToken,
 	}, nil
+}
+
+// requireAllNetworkACLIDsFound matches real AWS: naming an ID that does not
+// exist fails the whole call with InvalidNetworkAclID.NotFound rather than
+// silently omitting it -- a real client asking for a specific (e.g.
+// just-deleted) NACL got an empty, successful response instead of the
+// NotFound it depends on to detect that.
+func requireAllNetworkACLIDsFound(acls []*NetworkACL, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	found := make(map[string]bool, len(acls))
+	for _, acl := range acls {
+		found[acl.ID] = true
+	}
+
+	for _, id := range ids {
+		if !found[id] {
+			return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, id)
+		}
+	}
+
+	return nil
 }
 
 func filterNetworkACLsByIDs(acls []*NetworkACL, ids []string) []*NetworkACL {

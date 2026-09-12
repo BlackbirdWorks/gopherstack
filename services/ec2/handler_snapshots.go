@@ -678,7 +678,11 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 
 func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SnapshotId")
-	snaps := h.Backend.DescribeSnapshots(ids)
+
+	snaps, err := h.Backend.DescribeSnapshots(ids)
+	if err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	snaps = applySnapshotFilters(snaps, filters, h.Backend)

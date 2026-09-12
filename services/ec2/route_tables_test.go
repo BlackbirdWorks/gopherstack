@@ -51,7 +51,8 @@ func TestRouteTableOperations(t *testing.T) {
 			case "describe_all":
 				_, err := b.CreateRouteTable("vpc-default")
 				require.NoError(t, err)
-				rts := b.DescribeRouteTables(nil)
+				rts, err := b.DescribeRouteTables(nil)
+				require.NoError(t, err)
 				assert.NotEmpty(t, rts)
 
 			case "delete":
@@ -69,7 +70,8 @@ func TestRouteTableOperations(t *testing.T) {
 				require.NoError(t, err)
 				err = b.CreateRoute(rt.ID, "0.0.0.0/0", "igw-123", "")
 				require.NoError(t, err)
-				rts := b.DescribeRouteTables([]string{rt.ID})
+				rts, err := b.DescribeRouteTables([]string{rt.ID})
+				require.NoError(t, err)
 				require.Len(t, rts, 1)
 				assert.Len(t, rts[0].Routes, 1)
 
@@ -80,7 +82,8 @@ func TestRouteTableOperations(t *testing.T) {
 				require.NoError(t, err)
 				err = b.DeleteRoute(rt.ID, "0.0.0.0/0")
 				require.NoError(t, err)
-				rts := b.DescribeRouteTables([]string{rt.ID})
+				rts, err := b.DescribeRouteTables([]string{rt.ID})
+				require.NoError(t, err)
 				require.Len(t, rts, 1)
 				assert.Empty(t, rts[0].Routes)
 
@@ -135,9 +138,12 @@ func TestDeleteRouteTable_DependencyViolation(t *testing.T) {
 	err = b.DeleteRouteTable(rt.ID)
 	require.Error(t, err, "DeleteRouteTable must fail while a subnet is associated")
 	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
-	assert.NotEmpty(t, b.DescribeRouteTables([]string{rt.ID}))
+	stillThere, err := b.DescribeRouteTables([]string{rt.ID})
+	require.NoError(t, err)
+	assert.NotEmpty(t, stillThere)
 
 	require.NoError(t, b.DisassociateRouteTable(assocID))
 	require.NoError(t, b.DeleteRouteTable(rt.ID))
-	assert.Empty(t, b.DescribeRouteTables([]string{rt.ID}))
+	_, err = b.DescribeRouteTables([]string{rt.ID})
+	require.Error(t, err, "deleted route table must NotFound, not silently vanish from the result")
 }

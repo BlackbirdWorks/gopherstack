@@ -155,7 +155,7 @@ items_still_open:
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): UserMigration_ForgotPassword trigger source and domain AWSAccountId/ManagedLoginVersion/S3Bucket, the two items explicitly named but not reached in the SRP-6a pass -- see families.ForgotPassword and families.domains above for detail."
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): op-by-op re-walk of user_import_jobs/devices/webauthn/managed_login_branding/risk_config/terms/log_delivery plus a full field diff of identity_providers/resource_servers, the remaining named scope item. Found and fixed 4 real bugs beyond the headline items: webauthn's wrong wire key (FriendlyName vs FriendlyCredentialName) and missing required AuthenticatorTransports; managed_login_branding's Settings/Assets/UseCognitoProvidedValues completely discarded; SetLogDeliveryConfiguration's disguised-nil-stub; CreateUserImportJob's dropped CloudWatchLogsRoleArn/PasswordHashingAlgorithm. See families above for each. terms/ was found to be built on a fictional wire model entirely and needs a full redesign -- explicitly NOT fixed this pass, see deferred below."
 deferred:
-  - "devices' deviceType.DeviceStatus is an extra field NOT present on the real DeviceType wire shape (verified by reading the complete SDK struct: only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist; device remembered status is write-only in real Cognito, never returned by any Get/List device op). Not removed: several existing tests assert on it and no real client breaks from an extra unknown JSON key, so removing it purely for spec purity would cost test-observable state for no functional gain. Flagged for whoever next touches devices.go so it isn't mistaken for a verified-real field. Evidence: aws-sdk-go-v2/service/cognitoidentityprovider@v1.67.4, types/types.go:677-698, checked 2026-08-13 -- see families.devices above for the full citation including the deserializer default-case confirmation. This entry records a verdict as of that version; re-check the same struct before trusting it against a newer SDK pin."
+  - "CLOSED 2026-09-11 (gopherstack-n3zi slice 1): devices' deviceType.DeviceStatus is confirmed an extra field NOT present on the real DeviceType wire shape (types/types.go:677-698, only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist) -- the prior entry's finding stands. What changed: this was not just a spec-purity concern but a real functional gap, confirmed by a real typed-client test (TestDevices_RealClient): since DeviceStatus decodes to nothing on the real DeviceType, UpdateDeviceStatus/AdminUpdateDeviceStatus's effect was completely unobservable by any real client through GetDevice/ListDevices/AdminGetDevice/AdminListDevices -- the existing raw-body tests asserting the fabricated top-level field passed only because they inspected gopherstack's own invented shape, not the real one. Fixed by mirroring the status into DeviceAttributes as \"device_status\" (the key real Cognito uses for this) in toDeviceType (handler_devices.go), alongside the still-present fabricated top-level field (kept, unremoved, for the same existing-test-compatibility reason as before)."
   - "CLOSED 2026-08-29 (bd gopherstack-6flj/21my continuation): risk_config's RiskConfigurationType.LastModifiedDate is now tracked -- TypedRiskConfiguration gained a LastModifiedAt field, stamped by SetTypedRiskConfiguration on every SetRiskConfiguration call and echoed by both DescribeRiskConfiguration and SetRiskConfigurationOutput via toRiskConfigJSON. See TestSetRiskConfiguration_LastModifiedDatePopulated (wire_field_fixes_test.go) for the real-SDK-client round trip."
   - "CLOSED 2026-09-11 (gopherstack-5f20): USER_AUTH choice-based authentication is now implemented -- see families.user_auth below for the full design, SDK citations, and what remains disclosed (WEB_AUTHN, PASSWORD_SRP as a USER_AUTH first factor, UserMigration_Authentication)."
   - "CLOSED 2026-08-30 (cursor sweep): pagination is now implemented on ListUserImportJobs and ListResourceServers (see their own entries above), plus ListUserPoolClients, ListIdentityProviders, and AdminListGroupsForUser, which the same sweep found had the identical gap but were not yet named here."
@@ -165,6 +165,84 @@ leaks: {status: clean, note: "janitor.go sweeps expired refresh tokens/mfa sessi
 ---
 
 ## Notes
+
+### 2026-09-11 (gopherstack-n3zi slice 1: typed real-client coverage)
+
+Added typed real-SDK-client round-trip coverage for 53 previously-untyped-uncovered
+ops (typed_slice1_realclient_test.go), grouped by family: groups (GetGroup/
+UpdateGroup/DeleteGroup/ListGroups/AdminListGroupsForUser/AdminRemoveUserFromGroup),
+identity providers (Create/Describe/Update/Delete/List/GetByIdentifier), resource
+servers (List/Update/Delete), user pool client + domain (Update/DeleteUserPoolClient,
+Describe/Update/DeleteUserPoolDomain), TagResource/UntagResource, admin user
+lifecycle (Disable/Enable/UpdateAttributes/DeleteAttributes/GlobalSignOut/
+ResetPassword), self-service user (GetUser/UpdateAttributes/DeleteAttributes/
+ChangePassword/VerificationCode+VerifyAttribute/GlobalSignOut/DeleteUser), sign-up
+confirmation flow (ConfirmSignUp/ResendConfirmationCode/ForgotPassword/
+ConfirmForgotPassword), devices (Get/List/UpdateStatus/Forget, admin variants),
+MFA preferences (Set/AdminSet/GetUserAuthFactors/AdminGetUserAuthFactors/
+GetUserPoolMfaConfig), and UI customization (Get/SetUICustomization).
+
+Two real bugs found and fixed, both confirmed only by driving the real typed
+client (no prior typed-client coverage existed for either path):
+
+1. **GlobalSignOut same-second race** (auth_tokens.go). `tokenRevokedBefore`
+   compared each token's `auth_time` claim (JWT NumericDate, second-granularity
+   by spec, per RFC 7519) against a full-precision `time.Now()` captured at
+   sign-out. A sign-out immediately followed by a fresh login within the same
+   wall-clock second minted a new token with the identical (floored) auth_time
+   as the just-revoked one -- no timestamp comparison at any rounding could
+   correctly revoke the old token while sparing the new one in that case; the
+   real symptom was the *opposite* of what you'd expect (a freshly-issued,
+   never-revoked token was incorrectly rejected as expired) since revokedBefore
+   carries nonzero sub-second precision that always exceeds a floored auth_time.
+   Fixed by replacing the wall-clock comparison with a monotonic per-mint
+   sequence number: `InMemoryBackend.tokenSeq` increments (holding b.mu) on
+   every token mint (issueTokensLocked, InitiateAuthRefreshToken), each access
+   token carries it as a new gopherstack-private claim `gs_auth_seq` (not part
+   of real Cognito's token shape -- invisible to real clients, which never
+   inspect token claims), and `tokenRevokedBeforeSeq[user]` records the
+   `tokenSeq` value at the moment of GlobalSignOut. `authSeq <= revokedSeq` is
+   unambiguous regardless of clock resolution or ordering-within-a-second.
+   Persisted-struct change: **CORRECTED 2026-09-11 same day** -- the original
+   version of this fix replaced `backendSnapshot.TokenRevokedBefore
+   map[string]time.Time` outright with `TokenRevokedBeforeSeq map[string]int64`
+   + `TokenSeq int64` and bumped the snapshot version 2 -> 3. That bump
+   discards the ENTIRE snapshot (every user pool/user in a real deployment) on
+   restore, not just the revocation bookkeeping -- unacceptably destructive for
+   what a version bump is supposed to gate. Fixed properly: `TokenRevokedBefore`
+   is KEPT (same name, same json tag, same type, unchanged), and
+   `TokenRevokedBeforeSeq`/`TokenSeq` are added ADDITIVELY alongside it --
+   version stays at **2**. `findUserByAccessTokenLocked` now checks
+   `tokenRevokedBeforeSeq[key]` first (the authSeq-based, race-free path) and
+   falls back to the old `tokenRevokedBefore[key]` wall-clock comparison only
+   when `revokedSeq == 0` -- which happens precisely when restoring a snapshot
+   taken before this fix existed (that map was never populated), so a v2
+   snapshot's pending GlobalSignOuts are still honored (at the old,
+   second-granularity precision) instead of silently vanishing. Proven by
+   `TestGlobalSignOut_RestoreFromV2Snapshot` (persistence_internal_test.go):
+   hand-patches a real snapshot into the old v2 shape (strips
+   tokenSeq/tokenRevokedBeforeSeq, sets version=2, populates the legacy
+   tokenRevokedBefore map) and confirms a pre-sign-out token is rejected while
+   a post-sign-out token is accepted after restore. `fieldalignment` reordered
+   both `InMemoryBackend` and `backendSnapshot` after the fields were added
+   (govet fieldalignment -fix; no other changes). Version bumped: **no**.
+2. **devices' fabricated top-level DeviceStatus field** -- see the deferred-list
+   entry above (now CLOSED) for the full writeup.
+
+Gates (post-correction): `go build ./...` (whole module), `go vet
+./services/cognitoidp/...`, `gofmt -l` (clean), `go test -race -count=1
+./services/cognitoidp/... ./pkgs/persistence/...` (pass), `golangci-lint run
+./services/cognitoidp/...` (0 issues after the fieldalignment auto-fix), `go
+test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update` (pass --
+`git diff -- pkgs/persistence/testdata/snapshot_inventory.json` against the
+pre-session baseline shows exactly 3 additive insertions, 0 deletions:
+`backendSnapshot.TokenRevokedBeforeSeq`/`TokenSeq` for cognitoidp, plus
+`VPC.DHCPOptionsID` for ec2's own unrelated fix; cognitoidp's `version` field
+is unchanged at 2). Version bumped: **no**. Not reached: the remaining ~33
+uncovered ops (user pool replica family, managed login branding, terms, user
+import jobs, provisioned limits, log delivery config, WebAuthn, auth events,
+AdminRespondToAuthChallenge, AdminLinkProviderForUser,
+AdminDisableProviderForUser, GetTokensFromRefreshToken, GetCSVHeader).
 
 ### 2026-08-30 (dispatch-duplicate sweep: is the winner correct, not just which one wins)
 

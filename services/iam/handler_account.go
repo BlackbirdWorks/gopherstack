@@ -392,7 +392,17 @@ func (h *Handler) iamPasswordPolicyDispatch() map[string]iamActionFn {
 				RequireLowercaseCharacters: vals.Get("RequireLowercaseCharacters") == formValueTrue,
 				RequireNumbers:             vals.Get("RequireNumbers") == formValueTrue,
 				RequireSymbols:             vals.Get("RequireSymbols") == formValueTrue,
-				AllowUsersToChangePassword: vals.Get("AllowUsersToChangePassword") != "false",
+				// AWS query-protocol bools serialize only when true (a
+				// real client's AllowUsersToChangePassword:false is
+				// therefore indistinguishable on the wire from "omitted" --
+				// aws-sdk-go-v2/service/iam@v1.63.0 serializers.go:15960,
+				// `if v.AllowUsersToChangePassword { ... }`), and
+				// UpdateAccountPasswordPolicyInput's own doc comment states
+				// the default when omitted is false. `!= "false"` defaulted
+				// an omitted/false param to true, the opposite of documented
+				// behavior, and could never be triggered any other way by a
+				// real client.
+				AllowUsersToChangePassword: vals.Get("AllowUsersToChangePassword") == formValueTrue,
 				HardExpiry:                 vals.Get("HardExpiry") == formValueTrue,
 			}
 			if err := h.Backend.UpdateAccountPasswordPolicy(pp); err != nil {
@@ -420,15 +430,13 @@ func (h *Handler) iamPasswordPolicyDispatch() map[string]iamActionFn {
 func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
 		"DisableOrganizationsRootCredentialsManagement": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "DisableOrganizationsRootCredentialsManagementResponse"},
+			return &disableOrganizationsRootCredentialsManagementResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"DisableOrganizationsRootSessions": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "DisableOrganizationsRootSessionsResponse"},
+			return &disableOrganizationsRootSessionsResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
@@ -442,15 +450,13 @@ func (h *Handler) iamOrgsDispatch() map[string]iamActionFn {
 			}, nil
 		},
 		"EnableOrganizationsRootCredentialsManagement": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "EnableOrganizationsRootCredentialsManagementResponse"},
+			return &enableOrganizationsRootCredentialsManagementResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
 		"EnableOrganizationsRootSessions": func(_ url.Values, reqID string) (any, error) {
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "EnableOrganizationsRootSessionsResponse"},
+			return &enableOrganizationsRootSessionsResponse{
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

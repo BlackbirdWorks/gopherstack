@@ -339,6 +339,62 @@ func toDelegationRequestXML(req *DelegationRequest) delegationRequestXML {
 
 // ---- Organizations ----
 
+// organizationsRootFeaturesResult is the shared (always-empty, mock) shape of
+// Enable/DisableOrganizationsRootCredentialsManagement and
+// Enable/DisableOrganizationsRootSessions' EnabledFeatures/OrganizationId
+// result (iam@v1.63.0 deserializers.go:
+// awsAwsquery_deserializeOpDocumentEnableOrganizationsRootCredentialsManagementOutput
+// and its Disable/Sessions siblings -- all 4 share this exact member set).
+type organizationsRootFeaturesResult struct {
+	OrganizationID  string   `xml:"OrganizationId,omitempty"`
+	EnabledFeatures []string `xml:"EnabledFeatures>member"`
+}
+
+// enableOrganizationsRootCredentialsManagementResponse is the XML response
+// for EnableOrganizationsRootCredentialsManagement. A distinct type per op
+// (rather than reusing one struct across all 4) is required: each op's real
+// deserializer looks for its own "<Op>Result" element by name
+// (deserializers.go:5743/5317/5870/5441) and a shared/hardcoded wrapper tag
+// makes that GetElement call fail with a DeserializationError for every op
+// but the one whose name the hardcoded tag matches -- the same bug class as
+// GetContextKeysForPrincipalPolicyResponse (see models_policies.go).
+type enableOrganizationsRootCredentialsManagementResponse struct {
+	XMLName          xml.Name                        `xml:"EnableOrganizationsRootCredentialsManagementResponse"`
+	Xmlns            string                          `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata                `xml:"ResponseMetadata"`
+	Result           organizationsRootFeaturesResult `xml:"EnableOrganizationsRootCredentialsManagementResult"`
+}
+
+// disableOrganizationsRootCredentialsManagementResponse is the XML response
+// for DisableOrganizationsRootCredentialsManagement. See
+// enableOrganizationsRootCredentialsManagementResponse's doc comment.
+type disableOrganizationsRootCredentialsManagementResponse struct {
+	XMLName          xml.Name                        `xml:"DisableOrganizationsRootCredentialsManagementResponse"`
+	Xmlns            string                          `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata                `xml:"ResponseMetadata"`
+	Result           organizationsRootFeaturesResult `xml:"DisableOrganizationsRootCredentialsManagementResult"`
+}
+
+// enableOrganizationsRootSessionsResponse is the XML response for
+// EnableOrganizationsRootSessions. See
+// enableOrganizationsRootCredentialsManagementResponse's doc comment.
+type enableOrganizationsRootSessionsResponse struct {
+	XMLName          xml.Name                        `xml:"EnableOrganizationsRootSessionsResponse"`
+	Xmlns            string                          `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata                `xml:"ResponseMetadata"`
+	Result           organizationsRootFeaturesResult `xml:"EnableOrganizationsRootSessionsResult"`
+}
+
+// disableOrganizationsRootSessionsResponse is the XML response for
+// DisableOrganizationsRootSessions. See
+// enableOrganizationsRootCredentialsManagementResponse's doc comment.
+type disableOrganizationsRootSessionsResponse struct {
+	XMLName          xml.Name                        `xml:"DisableOrganizationsRootSessionsResponse"`
+	Xmlns            string                          `xml:"xmlns,attr"`
+	ResponseMetadata ResponseMetadata                `xml:"ResponseMetadata"`
+	Result           organizationsRootFeaturesResult `xml:"DisableOrganizationsRootSessionsResult"`
+}
+
 // listOrganizationsFeaturesResult contains the (always-empty, mock)
 // organizations features list. Real ListOrganizationsFeaturesOutput's members
 // are "EnabledFeatures" and "OrganizationId", not "OrganizationFeatures"/

@@ -111,14 +111,18 @@ func TestEC2Core_Handler_CustomerGateway(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, cgw.CustomerGatewayID)
 
-	cgws := bk.DescribeCustomerGateways([]string{cgw.CustomerGatewayID})
+	cgws, err := bk.DescribeCustomerGateways([]string{cgw.CustomerGatewayID})
+	require.NoError(t, err)
 	require.Len(t, cgws, 1)
 
-	cgws2 := bk.DescribeCustomerGateways(nil)
+	cgws2, err := bk.DescribeCustomerGateways(nil)
+	require.NoError(t, err)
 	assert.Len(t, cgws2, 1)
 
 	require.NoError(t, bk.DeleteCustomerGateway(cgw.CustomerGatewayID))
-	assert.Empty(t, bk.DescribeCustomerGateways(nil))
+	afterDelete, err := bk.DescribeCustomerGateways(nil)
+	require.NoError(t, err)
+	assert.Empty(t, afterDelete)
 
 	err2 := bk.DeleteCustomerGateway("nonexistent")
 	require.Error(t, err2)

@@ -108,7 +108,11 @@ func (h *Handler) handleDeleteInternetGateway(vals url.Values, reqID string) (an
 
 func (h *Handler) handleDescribeInternetGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InternetGatewayId")
-	igws := h.Backend.DescribeInternetGateways(ids)
+
+	igws, err := h.Backend.DescribeInternetGateways(ids)
+	if err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	igws = applyIGWFilters(igws, filters, h.Backend)

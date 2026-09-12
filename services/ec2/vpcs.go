@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,9 +26,10 @@ func (b *InMemoryBackend) CreateDefaultVpc() (*VPC, error) {
 	}
 
 	vpc := &VPC{
-		ID:        newVPCID(),
-		CIDRBlock: defaultVPCCIDR,
-		IsDefault: true,
+		ID:            newVPCID(),
+		CIDRBlock:     defaultVPCCIDR,
+		IsDefault:     true,
+		DHCPOptionsID: dhcpOptionsDefault,
 	}
 	b.vpcs.Put(vpc)
 
@@ -134,6 +136,31 @@ func (b *InMemoryBackend) DisassociateVpcCidrBlock(associationID string) (string
 // vpcCidrBlockStateDisassociated matches types.VpcCidrBlockStateCodeDisassociated
 // (ec2@v1.319.1 types/enums.go).
 const vpcCidrBlockStateDisassociated = "disassociated"
+
+// SecondaryCidrBlockAssociationsForVPC returns the secondary CIDR blocks
+// associated with vpcID via AssociateVpcCidrBlock, sorted by association ID
+// for stable output. Does not include the VPC's primary CIDR block (callers
+// building the real CidrBlockAssociationSet response member must prepend it
+// themselves).
+func (b *InMemoryBackend) SecondaryCidrBlockAssociationsForVPC(vpcID string) []*VpcCidrBlockAssociation {
+	b.mu.RLock("SecondaryCidrBlockAssociationsForVPC")
+	defer b.mu.RUnlock()
+
+	prefix := vpcID + ":"
+
+	out := make([]*VpcCidrBlockAssociation, 0, len(b.vpcCidrAssociations))
+
+	for key, assoc := range b.vpcCidrAssociations {
+		if strings.HasPrefix(key, prefix) {
+			cp := *assoc
+			out = append(out, &cp)
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool { return out[i].AssociationID < out[j].AssociationID })
+
+	return out
+}
 
 // ---- NAT Gateway address ops ----
 
@@ -312,8 +339,9 @@ func (b *InMemoryBackend) CreateVpc(cidr, tenancy string) (*VPC, error) {
 
 	id := newVPCID()
 	v := &VPC{
-		ID:        id,
-		CIDRBlock: cidr,
+		ID:            id,
+		CIDRBlock:     cidr,
+		DHCPOptionsID: dhcpOptionsDefault,
 	}
 	b.vpcs.Put(v)
 	b.vpcTenancy[id] = tenancy

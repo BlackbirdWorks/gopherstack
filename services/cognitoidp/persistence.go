@@ -42,6 +42,16 @@ var (
 // (StringAttributeConstraints/NumberAttributeConstraints), matching the real wire shape.
 // A structural reshape, not a rename or addition -- an old snapshot's flattened numeric
 // fields are simply gone, so decoding it as the new shape would silently lose them.
+// NOT bumped for gopherstack-n3zi slice 1's GlobalSignOut same-wall-clock-second
+// fix (see auth_tokens.go): TokenRevokedBeforeSeq (map[string]int64) and TokenSeq
+// were added ADDITIVELY alongside the pre-existing TokenRevokedBefore
+// (map[string]time.Time), which is kept unchanged, same name, same json tag.
+// A v2 snapshot decodes with TokenRevokedBeforeSeq/TokenSeq absent (zero value);
+// findUserByAccessTokenLocked falls back to the old wall-clock comparison against
+// TokenRevokedBefore whenever a user's revokedSeq is 0, so pre-existing revocations
+// from a restored v2 snapshot are honored (at the old, second-granularity precision)
+// instead of silently discarding every user pool/user on restore, which a version
+// bump here would do. See TestGlobalSignOut_RestoreFromV2Snapshot for the proof.
 const cognitoidpSnapshotVersion = 2
 
 // userPoolSnapshot holds the serializable fields of a UserPool.
@@ -114,22 +124,24 @@ func userSnapshotKeyFn(v *userSnapshot) string { return userKey(v.UserPoolID, v.
 // one can't be a store.Table) and is persisted exactly as it was before this
 // conversion.
 type backendSnapshot struct {
-	Tables              map[string]json.RawMessage                `json:"tables,omitempty"`
-	RefreshTokens       map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
-	GroupMembers        map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
-	TokenRevokedBefore  map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
-	ResourceTags        map[string]map[string]string              `json:"resourceTags,omitempty"`
-	RiskConfigurations  map[string]*RiskConfiguration             `json:"riskConfigurations,omitempty"`
-	LogDeliveryConfigs  map[string]*LogDeliveryConfig             `json:"logDeliveryConfigs,omitempty"`
-	PoolMfaConfigs      map[string]*UserPoolMfaFullConfig         `json:"poolMfaConfigs,omitempty"`
-	Devices             map[string]map[string]*Device             `json:"devices,omitempty"`
-	WebAuthnCredentials map[string]map[string]*WebAuthnCredential `json:"webauthnCredentials,omitempty"`
-	AuthEvents          map[string]map[string]*AuthEvent          `json:"authEvents,omitempty"`
-	ProvisionedLimits   map[string]int32                          `json:"provisionedLimits,omitempty"`
-	AccountID           string                                    `json:"accountId,omitempty"`
-	Region              string                                    `json:"region,omitempty"`
-	Endpoint            string                                    `json:"endpoint,omitempty"`
-	Version             int                                       `json:"version"`
+	ProvisionedLimits     map[string]int32                          `json:"provisionedLimits,omitempty"`
+	Devices               map[string]map[string]*Device             `json:"devices,omitempty"`
+	GroupMembers          map[string]map[string]map[string]struct{} `json:"groupMembers,omitempty"`
+	TokenRevokedBeforeSeq map[string]int64                          `json:"tokenRevokedBeforeSeq,omitempty"`
+	TokenRevokedBefore    map[string]time.Time                      `json:"tokenRevokedBefore,omitempty"`
+	Tables                map[string]json.RawMessage                `json:"tables,omitempty"`
+	ResourceTags          map[string]map[string]string              `json:"resourceTags,omitempty"`
+	RiskConfigurations    map[string]*RiskConfiguration             `json:"riskConfigurations,omitempty"`
+	LogDeliveryConfigs    map[string]*LogDeliveryConfig             `json:"logDeliveryConfigs,omitempty"`
+	RefreshTokens         map[string]*refreshTokenEntry             `json:"refreshTokens,omitempty"`
+	WebAuthnCredentials   map[string]map[string]*WebAuthnCredential `json:"webauthnCredentials,omitempty"`
+	PoolMfaConfigs        map[string]*UserPoolMfaFullConfig         `json:"poolMfaConfigs,omitempty"`
+	AuthEvents            map[string]map[string]*AuthEvent          `json:"authEvents,omitempty"`
+	AccountID             string                                    `json:"accountId,omitempty"`
+	Region                string                                    `json:"region,omitempty"`
+	Endpoint              string                                    `json:"endpoint,omitempty"`
+	TokenSeq              int64                                     `json:"tokenSeq,omitempty"`
+	Version               int                                       `json:"version"`
 }
 
 func marshalRSAKey(key *rsa.PrivateKey) (string, error) {
@@ -305,22 +317,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:             cognitoidpSnapshotVersion,
-		Tables:              tables,
-		RefreshTokens:       b.refreshTokens,
-		GroupMembers:        b.groupMembers,
-		TokenRevokedBefore:  b.tokenRevokedBefore,
-		ResourceTags:        b.resourceTags,
-		RiskConfigurations:  b.riskConfigurations,
-		LogDeliveryConfigs:  b.logDeliveryConfigs,
-		PoolMfaConfigs:      b.poolMfaConfigs,
-		Devices:             b.devices,
-		WebAuthnCredentials: b.webauthnCredentials,
-		AuthEvents:          b.authEvents,
-		ProvisionedLimits:   b.provisionedLimits,
-		AccountID:           b.accountID,
-		Region:              b.region,
-		Endpoint:            b.endpoint,
+		Version:               cognitoidpSnapshotVersion,
+		Tables:                tables,
+		RefreshTokens:         b.refreshTokens,
+		GroupMembers:          b.groupMembers,
+		TokenRevokedBeforeSeq: b.tokenRevokedBeforeSeq,
+		TokenRevokedBefore:    b.tokenRevokedBefore,
+		TokenSeq:              b.tokenSeq,
+		ResourceTags:          b.resourceTags,
+		RiskConfigurations:    b.riskConfigurations,
+		LogDeliveryConfigs:    b.logDeliveryConfigs,
+		PoolMfaConfigs:        b.poolMfaConfigs,
+		Devices:               b.devices,
+		WebAuthnCredentials:   b.webauthnCredentials,
+		AuthEvents:            b.authEvents,
+		ProvisionedLimits:     b.provisionedLimits,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		Endpoint:              b.endpoint,
 	}
 
 	data, err := json.Marshal(snap)
@@ -381,7 +395,9 @@ func (b *InMemoryBackend) resetForIncompatibleSnapshotLocked() {
 	b.refreshTokensByClient = make(map[string]map[string]struct{})
 	b.refreshTokensByUser = make(map[string]map[string]struct{})
 	b.groupMembers = make(map[string]map[string]map[string]struct{})
+	b.tokenRevokedBeforeSeq = make(map[string]int64)
 	b.tokenRevokedBefore = make(map[string]time.Time)
+	b.tokenSeq = 0
 	b.resourceTags = make(map[string]map[string]string)
 	b.riskConfigurations = make(map[string]*RiskConfiguration)
 	b.logDeliveryConfigs = make(map[string]*LogDeliveryConfig)
@@ -482,7 +498,9 @@ func (b *InMemoryBackend) restoreRawMapsLocked(snap *backendSnapshot) {
 	b.refreshTokensByClient = buildRefreshTokensByClientIndex(b.refreshTokens)
 	b.refreshTokensByUser = buildRefreshTokensByUserIndex(b.refreshTokens)
 	b.groupMembers = snap.GroupMembers
+	b.tokenRevokedBeforeSeq = snap.TokenRevokedBeforeSeq
 	b.tokenRevokedBefore = snap.TokenRevokedBefore
+	b.tokenSeq = snap.TokenSeq
 	b.resourceTags = snap.ResourceTags
 	b.riskConfigurations = snap.RiskConfigurations
 	b.logDeliveryConfigs = snap.LogDeliveryConfigs
@@ -541,6 +559,10 @@ func normalizeBackendSnapshot(snap *backendSnapshot) {
 
 	if snap.GroupMembers == nil {
 		snap.GroupMembers = make(map[string]map[string]map[string]struct{})
+	}
+
+	if snap.TokenRevokedBeforeSeq == nil {
+		snap.TokenRevokedBeforeSeq = make(map[string]int64)
 	}
 
 	if snap.TokenRevokedBefore == nil {

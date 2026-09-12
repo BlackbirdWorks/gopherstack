@@ -106,11 +106,13 @@ func TestNetworking1_DhcpOptions(t *testing.T) {
 	assert.NotEmpty(t, opts.DhcpOptionsID)
 
 	// Describe with filter.
-	all := bk.DescribeDhcpOptions([]string{opts.DhcpOptionsID})
+	all, err := bk.DescribeDhcpOptions([]string{opts.DhcpOptionsID})
+	require.NoError(t, err)
 	require.Len(t, all, 1)
 
 	// Describe all.
-	all2 := bk.DescribeDhcpOptions(nil)
+	all2, err := bk.DescribeDhcpOptions(nil)
+	require.NoError(t, err)
 	assert.NotEmpty(t, all2)
 
 	// Associate.
@@ -662,7 +664,8 @@ func TestNetworking1HelperMethods(t *testing.T) {
 	_ = bk.DescribeNetworkAclsFiltered(nil)
 
 	// DescribeSnapshotsSorted.
-	_ = bk.DescribeSnapshotsSorted(nil)
+	_, err = bk.DescribeSnapshotsSorted(nil)
+	require.NoError(t, err)
 }
 
 func TestDhcpOptions_Tagging(t *testing.T) {

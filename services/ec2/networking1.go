@@ -267,31 +267,32 @@ func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration, tags ma
 }
 
 // DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
-func (b *InMemoryBackend) DescribeDhcpOptions(ids []string) []*DhcpOptions {
+// DescribeDhcpOptions returns DHCP options sets, optionally filtered by IDs.
+// Matching real AWS, naming an ID that does not exist fails the whole call
+// with InvalidDhcpOptionsID.NotFound rather than silently omitting it --
+// a real client asking for a specific (e.g. just-deleted) options set got an
+// empty, successful response instead of the NotFound it depends on to detect
+// that.
+func (b *InMemoryBackend) DescribeDhcpOptions(ids []string) ([]*DhcpOptions, error) {
 	b.mu.RLock("DescribeDhcpOptions")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
+	less := func(a, o *DhcpOptions) bool { return a.DhcpOptionsID < o.DhcpOptionsID }
+
+	if len(ids) > 0 {
+		return describeByIDsOrNotFound(ids, b.dhcpOptionSets.Get, ErrDhcpOptionsNotFound, less)
 	}
 
 	out := make([]*DhcpOptions, 0, b.dhcpOptionSets.Len())
 
 	for _, opts := range b.dhcpOptionSets.All() {
-		if len(idSet) > 0 && !idSet[opts.DhcpOptionsID] {
-			continue
-		}
-
 		cp := *opts
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].DhcpOptionsID < out[j].DhcpOptionsID
-	})
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 
-	return out
+	return out, nil
 }
 
 // AssociateDhcpOptions associates a DHCP options set with a VPC.
@@ -303,12 +304,15 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 	b.mu.Lock("AssociateDhcpOptions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(vpcID); !ok {
+	vpc, ok := b.vpcs.Get(vpcID)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
 	// dhcpOptionsDefault is a special sentinel meaning "reset to AWS default DHCP options"
 	if dhcpOptionsID == dhcpOptionsDefault {
+		vpc.DHCPOptionsID = dhcpOptionsDefault
+
 		return nil
 	}
 
@@ -320,6 +324,13 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 	if !slices.Contains(opts.AssociatedVPCIDs, vpcID) {
 		opts.AssociatedVPCIDs = append(opts.AssociatedVPCIDs, vpcID)
 	}
+
+	// DhcpOptionsId is a real, always-present top-level field on every
+	// VPC describe response (ec2@v1.329.0 types.Vpc.DhcpOptionsId), not
+	// just internal AssociatedVPCIDs bookkeeping on the options set --
+	// without this, no real client could ever observe which DHCP options
+	// set (if any) is associated with a VPC.
+	vpc.DHCPOptionsID = dhcpOptionsID
 
 	return nil
 }
