@@ -121,7 +121,7 @@ func seedFullBackend(t *testing.T, b *dms.InMemoryBackend) map[string]string {
 	require.NoError(t, err)
 	ids["migrationProjectArn"] = mp.MigrationProjectArn
 
-	sg, err := b.CreateReplicationSubnetGroup(ctx, "sg-1", "", "vpc-1", nil)
+	sg, err := b.CreateReplicationSubnetGroup(ctx, "sg-1", "", "vpc-1", nil, nil)
 	require.NoError(t, err)
 	ids["subnetGroupArn"] = sg.ReplicationSubnetGroupArn
 

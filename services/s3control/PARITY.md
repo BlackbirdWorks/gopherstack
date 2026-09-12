@@ -1017,3 +1017,57 @@ Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
 ./services/s3control/...` all pass; `golangci-lint run
 ./services/s3control/...` 0 issues, 0 new nolints. No persisted-field
 changes, so `pkgs/persistence` was not touched for this fix.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 76 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/s3control`
+client (`typed_slice7_realclient_test.go`, 9 subtests) -- census
+21/97 -> 97/97 typed-covered (0 remaining). Five real wire/logic bugs found
+and fixed, every one caught only by a decoded typed-client value:
+
+1. `CreateAccessPointForObjectLambda`'s handler never decoded the request
+   body at all -- the required `Configuration` member was silently
+   dropped, so an immediate `Get*ConfigurationForObjectLambda`/
+   `ListAccessPointsForObjectLambda` always saw an empty configuration
+   until a separate `Put` call. Fixed by decoding `Configuration` and
+   seeding it through the same store `PutAccessPointConfigurationForObjectLambda`
+   uses. `handler_object_lambda.go`.
+2. `UpdateJobPriority`/`UpdateJobStatus` read `priority`/
+   `requestedJobStatus`/`statusUpdateReason` from an XML request body, but
+   the real SDK binds all three as HTTPQuery parameters
+   (`awsRestxml_serializeOpHttpBindingsUpdateJob{Priority,Status}Input`,
+   serializers.go:8477,8556-8561) with an empty body -- both ops were
+   completely non-functional for any real client. Fixed to read
+   `c.Request().URL.Query()`; two pre-existing raw-body unit tests
+   converted to the real query-string shape, not weakened.
+   `handler_jobs.go`, `handler_jobs_test.go`.
+3. `GetStorageLensConfiguration`/`GetStorageLensGroup` wrapped their
+   payload one level too deep
+   (`<GetStorageLensConfigurationResult><StorageLensConfiguration>...`) --
+   the real deserializer has no wrapper element at all
+   (`smithyxml.FetchRootElement` decodes the response root directly as the
+   httpPayload), so every field silently decoded to its zero value with no
+   error. Fixed by making the payload struct itself the XML root.
+   `handler_storage_lens.go`.
+4. `UpdateStorageLensGroup`'s request decoder expected `<StorageLensGroup>`
+   as the request ROOT, but the real wire root is
+   `<UpdateStorageLensGroupRequest><StorageLensGroup>...` one level deeper
+   (serializers.go:8667) -- every real client request was rejected as
+   MalformedXML. Pre-existing raw-body tests updated to the real wrapped
+   shape. `handler_storage_lens.go`, `handler_storage_lens_test.go`.
+5. `GetDataAccess`'s `MatchedGrantTarget` echoed the backend's internal
+   mock presigned URL instead of the requested S3 target (the real field
+   is documented as "The S3 URI path of the data..."). Fixed to echo the
+   request's `target`. `handler_access_grants.go`.
+
+Accept-and-drop, reconfirmed not fixed (already disclosed, out of scope):
+`GetDataAccess`'s `Credentials.AccessKeyId`/`SecretAccessKey` are always
+empty -- this backend issues no real STS federation tokens and has no
+backing credential state to vend.
+
+Gates: `go build ./...` clean, `go vet ./services/s3control/...` clean,
+`go test -race -count=1 ./services/s3control/...` and
+`./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
+./services/s3control/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
+persisted-struct fields changed; no version bump.

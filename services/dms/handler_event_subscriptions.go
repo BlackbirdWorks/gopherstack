@@ -371,14 +371,21 @@ type updateSubscriptionsToEventBridgeInput struct {
 	ForceMove *bool `json:"ForceMove"`
 }
 
+// updateSubscriptionsToEventBridgeOutput mirrors the real
+// UpdateSubscriptionsToEventBridgeOutput (api_op_UpdateSubscriptionsToEventBridge.go):
+// a single Result string message, not an "Applied" bool -- the real type has
+// no such field, so a real client always decoded a fabricated member that
+// doesn't exist on the wire and missed the actual Result string entirely.
 type updateSubscriptionsToEventBridgeOutput struct {
-	Applied bool `json:"Applied"`
+	Result string `json:"Result"`
 }
 
 func (h *Handler) handleUpdateSubscriptionsToEventBridge(
 	_ context.Context, _ *updateSubscriptionsToEventBridgeInput,
 ) (*updateSubscriptionsToEventBridgeOutput, error) {
-	return &updateSubscriptionsToEventBridgeOutput{Applied: false}, nil
+	return &updateSubscriptionsToEventBridgeOutput{
+		Result: "0 event subscriptions were migrated, and 0 remain to be migrated",
+	}, nil
 }
 
 // opsEventSubscriptions returns the dispatch-table entries for the event_subscriptions operation family.

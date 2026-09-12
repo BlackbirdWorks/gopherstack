@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -440,14 +442,21 @@ type describeEngineVersionsInput struct {
 	MaxRecords *int32  `json:"MaxRecords"`
 }
 
+// engineVersionJSON mirrors types.EngineVersion (types.go:1065): LaunchDate/
+// AutoUpgradeDate/DeprecationDate/ForceUpgradeDate are *time.Time on the real
+// type, wire-encoded as epoch-seconds numbers, not date strings -- confirmed
+// against deserializers.go:18174 (LaunchDate case,
+// smithytime.ParseEpochSeconds). A real client failed to decode this op
+// entirely before this fix ("expected TStamp to be a JSON Number, got string
+// instead").
 type engineVersionJSON struct {
-	Version          string `json:"Version"`
-	Lifecycle        string `json:"Lifecycle"`
-	ReleaseNotes     string `json:"ReleaseNotes,omitempty"`
-	LaunchDate       string `json:"LaunchDate,omitempty"`
-	AutoUpgradeDate  string `json:"AutoUpgradeDate,omitempty"`
-	DeprecationDate  string `json:"DeprecationDate,omitempty"`
-	ForceUpgradeDate string `json:"ForceUpgradeDate,omitempty"`
+	Version          string  `json:"Version"`
+	Lifecycle        string  `json:"Lifecycle"`
+	ReleaseNotes     string  `json:"ReleaseNotes,omitempty"`
+	LaunchDate       float64 `json:"LaunchDate,omitempty"`
+	AutoUpgradeDate  float64 `json:"AutoUpgradeDate,omitempty"`
+	DeprecationDate  float64 `json:"DeprecationDate,omitempty"`
+	ForceUpgradeDate float64 `json:"ForceUpgradeDate,omitempty"`
 }
 
 type describeEngineVersionsOutput struct {
@@ -455,14 +464,29 @@ type describeEngineVersionsOutput struct {
 	EngineVersions []engineVersionJSON `json:"EngineVersions"`
 }
 
+// mustEngineDate parses a static "YYYY-MM-DD" literal into its epoch-seconds
+// wire form; panics on a malformed literal, which only a coding mistake in
+// dmsEngineVersionList below could produce.
+func mustEngineDate(s string) float64 {
+	t, err := time.Parse("2006-01-02", s)
+	if err != nil {
+		panic(err)
+	}
+
+	return awstime.Epoch(t)
+}
+
 func dmsEngineVersionList() []engineVersionJSON {
 	return []engineVersionJSON{
-		{Version: defaultEngineVersion, Lifecycle: statusAvailable, LaunchDate: "2023-11-01"},
-		{Version: "3.5.2", Lifecycle: statusAvailable, LaunchDate: "2023-07-01"},
-		{Version: "3.5.1", Lifecycle: statusAvailable, LaunchDate: "2023-03-01"},
-		{Version: "3.4.7", Lifecycle: statusAvailable, LaunchDate: "2022-11-01"},
-		{Version: "3.4.6", Lifecycle: statusAvailable, LaunchDate: "2022-07-01"},
-		{Version: "3.4.5", Lifecycle: "deprecated", LaunchDate: "2022-03-01", DeprecationDate: "2023-06-01"},
+		{Version: defaultEngineVersion, Lifecycle: statusAvailable, LaunchDate: mustEngineDate("2023-11-01")},
+		{Version: "3.5.2", Lifecycle: statusAvailable, LaunchDate: mustEngineDate("2023-07-01")},
+		{Version: "3.5.1", Lifecycle: statusAvailable, LaunchDate: mustEngineDate("2023-03-01")},
+		{Version: "3.4.7", Lifecycle: statusAvailable, LaunchDate: mustEngineDate("2022-11-01")},
+		{Version: "3.4.6", Lifecycle: statusAvailable, LaunchDate: mustEngineDate("2022-07-01")},
+		{
+			Version: "3.4.5", Lifecycle: "deprecated",
+			LaunchDate: mustEngineDate("2022-03-01"), DeprecationDate: mustEngineDate("2023-06-01"),
+		},
 	}
 }
 
@@ -478,8 +502,14 @@ type describeRefreshSchemasStatusInput struct {
 	EndpointArn *string `json:"EndpointArn"`
 }
 
+// refreshSchemasStatusJSON mirrors types.RefreshSchemasStatus (types.go:3682):
+// EndpointArn/ReplicationInstanceArn were missing entirely, so a real
+// client's RefreshSchemas/DescribeRefreshSchemasStatus always decoded them
+// empty regardless of the request.
 type refreshSchemasStatusJSON struct {
-	Status string `json:"Status"`
+	EndpointArn            string `json:"EndpointArn,omitempty"`
+	ReplicationInstanceArn string `json:"ReplicationInstanceArn,omitempty"`
+	Status                 string `json:"Status"`
 }
 
 type describeRefreshSchemasStatusOutput struct {
@@ -487,10 +517,13 @@ type describeRefreshSchemasStatusOutput struct {
 }
 
 func (h *Handler) handleDescribeRefreshSchemasStatus(
-	_ context.Context, _ *describeRefreshSchemasStatusInput,
+	_ context.Context, in *describeRefreshSchemasStatusInput,
 ) (*describeRefreshSchemasStatusOutput, error) {
 	return &describeRefreshSchemasStatusOutput{
-		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: statusSuccessful},
+		RefreshSchemasStatus: refreshSchemasStatusJSON{
+			EndpointArn: ptrconv.String(in.EndpointArn),
+			Status:      statusSuccessful,
+		},
 	}, nil
 }
 
@@ -615,7 +648,11 @@ func (h *Handler) handleRefreshSchemas(
 	}
 
 	return &refreshSchemasOutput{
-		RefreshSchemasStatus: refreshSchemasStatusJSON{Status: statusSuccessful},
+		RefreshSchemasStatus: refreshSchemasStatusJSON{
+			EndpointArn:            ptrconv.String(in.EndpointArn),
+			ReplicationInstanceArn: ptrconv.String(in.ReplicationInstanceArn),
+			Status:                 statusSuccessful,
+		},
 	}, nil
 }
 

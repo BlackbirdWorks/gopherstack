@@ -7979,6 +7979,7 @@
       "ReplicationSubnetGroup.ReplicationSubnetGroupArn string",
       "ReplicationSubnetGroup.ReplicationSubnetGroupDescription string",
       "ReplicationSubnetGroup.ReplicationSubnetGroupIdentifier string",
+      "ReplicationSubnetGroup.SubnetIDs []string",
       "ReplicationSubnetGroup.Tags *tags.Tags `json:\"-\"`",
       "ReplicationSubnetGroup.VpcID string",
       "ReplicationTask.AccountID string `json:\"accountId\"`",

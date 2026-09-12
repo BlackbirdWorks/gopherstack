@@ -863,3 +863,59 @@ Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
     restoring.
   - Nothing left unenforceable for this op: both documented preconditions
     are backed by real, queryable state in this backend.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 64 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/databasemigrationservice`
+client (`typed_slice7_realclient_test.go`, 12 subtests) -- census
+33/119 -> 97/119 typed-covered. Six real bugs found and fixed, every one
+caught only by a decoded typed-client value (all returned 200 OK):
+
+1. `ModifyReplicationSubnetGroup`'s backend signature never accepted
+   `SubnetIds` at all, and neither `Create` nor `Modify` ever populated
+   `types.ReplicationSubnetGroup.Subnets` (types.go:4135) -- a real client
+   always saw an empty `Subnets` list regardless of what it requested.
+   Added `SubnetIDs []string` to the backend struct (purely additive, no
+   version bump) and wired both ops to populate/echo it as
+   `Subnets`/`SubnetGroupStatus`. `replication_subnet_groups.go`,
+   `handler_replication_subnet_groups.go`, `models.go`.
+2. `ModifyReplicationConfig`'s backend method only accepted
+   `replicationType`; real `ModifyReplicationConfigInput` also accepts
+   `ComputeConfig`/`TableMappings`/`SourceEndpointArn`/`TargetEndpointArn`,
+   all silently dropped -- a real client's Modify call never changed
+   anything else. `replication_configs.go`, `handler_replication_configs.go`.
+3. `DescribeEngineVersions`' `LaunchDate`/`AutoUpgradeDate`/
+   `DeprecationDate`/`ForceUpgradeDate` were wire-encoded as date strings
+   ("2023-11-01") where the real awsjson1.1 protocol expects epoch-seconds
+   numbers (deserializers.go:18174, `smithytime.ParseEpochSeconds`) -- a
+   real client failed to decode the op entirely ("expected TStamp to be a
+   JSON Number, got string instead"). Fixed with `pkgs/awstime.Epoch`.
+   `handler_endpoints.go`.
+4. `RefreshSchemas`/`DescribeRefreshSchemasStatus`'s `RefreshSchemasStatus`
+   wire shape carried only `Status`, missing `EndpointArn`/
+   `ReplicationInstanceArn` entirely (real types.go:3682-3699).
+   `handler_endpoints.go`.
+5. `UpdateSubscriptionsToEventBridge`'s response wire struct used a
+   fabricated `Applied bool` field; the real
+   `UpdateSubscriptionsToEventBridgeOutput` has only a `Result *string`
+   message and no such field at all. `handler_event_subscriptions.go`.
+6. `ModifyDataMigration` silently dropped `DataMigrationName` (a documented
+   modifiable field). Since `DataMigrationName` is this store's primary key
+   (`dataMigrationKeyFn`), fixed via delete+re-put re-keying rather than an
+   in-place field mutation. `data_migrations.go`, `handler_data_migrations.go`.
+
+No accept-and-drop findings beyond the six fixes above. Remaining 22
+typed-uncovered ops (`DescribeMetadataModel*`/`StartMetadataModel*`/
+`CancelMetadataModel*`/`ExportMetadataModelAssessment`/
+`GetTargetSelectionRules`/`Describe|ModifyConversionConfiguration`/
+`Start|DescribeExtensionPackAssociation`) are the schema-conversion/
+metadata-model family, not named in this pass's priority list -- not
+audited, no claim made about their correctness either way.
+
+Gates: `go build ./...` clean, `go vet ./services/dms/...` clean, `go test
+-race -count=1 ./services/dms/...` and `./pkgs/persistence/...` pass,
+`golangci-lint run --new-from-rev=HEAD ./services/dms/...` 0 issues,
+`go run ./cmd/paritylint` 0 FAIL. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` passes for dms (one additive row,
+`ReplicationSubnetGroup.SubnetIDs []string`, no version bump).

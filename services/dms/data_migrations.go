@@ -117,10 +117,15 @@ func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn str
 	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
 }
 
-// ModifyDataMigration updates a data migration.
+// ModifyDataMigration updates a data migration. Real ModifyDataMigrationInput
+// (api_op_ModifyDataMigration.go) also accepts DataMigrationName -- dropped
+// entirely until this fix, so a real client's rename request silently did
+// nothing. DataMigrationName is this store's primary key (dataMigrationKeyFn,
+// store_setup.go), so a rename re-keys the table via delete+put rather than
+// mutating the field in place.
 func (b *InMemoryBackend) ModifyDataMigration(
 	ctx context.Context,
-	nameOrArn, migrationType, serviceAccessRoleArn string,
+	nameOrArn, newName, migrationType, serviceAccessRoleArn string,
 	numberOfJobs *int32,
 ) (*DataMigration, error) {
 	b.mu.Lock("ModifyDataMigration")
@@ -141,6 +146,13 @@ func (b *InMemoryBackend) ModifyDataMigration(
 
 	if numberOfJobs != nil {
 		dm.NumberOfJobs = *numberOfJobs
+	}
+
+	if newName != "" && newName != dm.DataMigrationName {
+		region := getRegion(ctx, b.region)
+		b.dataMigrations.Delete(regionKey(region, dm.DataMigrationName))
+		dm.DataMigrationName = newName
+		b.dataMigrations.Put(dm)
 	}
 
 	cp := *dm

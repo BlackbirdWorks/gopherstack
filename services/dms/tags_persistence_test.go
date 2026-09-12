@@ -150,7 +150,7 @@ func TestInMemoryBackend_TagsSurviveRestore(t *testing.T) {
 			create: func(t *testing.T, b *dms.InMemoryBackend) string {
 				t.Helper()
 
-				sg, err := b.CreateReplicationSubnetGroup(t.Context(), "sg-1", "", "vpc-1", nil)
+				sg, err := b.CreateReplicationSubnetGroup(t.Context(), "sg-1", "", "vpc-1", nil, nil)
 				require.NoError(t, err)
 
 				return sg.ReplicationSubnetGroupArn

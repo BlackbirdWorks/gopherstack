@@ -401,6 +401,12 @@ func (h *Handler) handleGetMultiRegionAccessPointPolicy(c *echo.Context) error {
 	})
 }
 
+// handleGetMultiRegionAccessPointPolicyStatus. Real
+// GetMultiRegionAccessPointPolicyStatusOutput wraps IsPublic under
+// "Established", not "PolicyStatus" (confirmed against
+// awsRestxml_deserializeOpDocumentGetMultiRegionAccessPointPolicyStatusOutput,
+// s3control@v1.73.4 deserializers.go:7724) -- a real client's Established
+// field always decoded nil regardless of the actual policy status.
 func (h *Handler) handleGetMultiRegionAccessPointPolicyStatus(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimSuffix(
@@ -415,7 +421,7 @@ func (h *Handler) handleGetMultiRegionAccessPointPolicyStatus(c *echo.Context) e
 
 	return writeXML(c, struct {
 		XMLName  xml.Name `xml:"GetMultiRegionAccessPointPolicyStatusResult"`
-		IsPublic bool     `xml:"PolicyStatus>IsPublic"`
+		IsPublic bool     `xml:"Established>IsPublic"`
 	}{IsPublic: isPublic})
 }
 

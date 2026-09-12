@@ -241,8 +241,12 @@ func (h *Handler) handleDescribeReplications(
 }
 
 type modifyReplicationConfigInput struct {
-	ReplicationConfigArn *string `json:"ReplicationConfigArn"`
-	ReplicationType      *string `json:"ReplicationType"`
+	ReplicationConfigArn *string            `json:"ReplicationConfigArn"`
+	ReplicationType      *string            `json:"ReplicationType"`
+	TableMappings        *string            `json:"TableMappings"`
+	SourceEndpointArn    *string            `json:"SourceEndpointArn"`
+	TargetEndpointArn    *string            `json:"TargetEndpointArn"`
+	ComputeConfig        *computeConfigJSON `json:"ComputeConfig"`
 }
 
 type modifyReplicationConfigOutput struct {
@@ -256,6 +260,10 @@ func (h *Handler) handleModifyReplicationConfig(
 		ctx,
 		ptrconv.String(in.ReplicationConfigArn),
 		ptrconv.String(in.ReplicationType),
+		ptrconv.String(in.TableMappings),
+		ptrconv.String(in.SourceEndpointArn),
+		ptrconv.String(in.TargetEndpointArn),
+		in.ComputeConfig.toDomain(),
 	)
 	if err != nil {
 		return nil, err

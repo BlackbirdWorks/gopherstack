@@ -600,3 +600,44 @@ the errors.As-matching concern this whole error-code campaign exists to catch.
 
 Gates: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/pinpoint/...` -- 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/pinpoint/...` -- ok.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 75 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/pinpoint`
+client (`typed_slice7_realclient_test.go`, 10 subtests) -- census
+47/122 -> 122/122 typed-covered (0 remaining). Three real wire/logic bugs
+found and fixed, every one caught only by a decoded typed-client value:
+
+1. `UpdateEndpointsBatch`'s request decoder expected `Item` as a JSON
+   object keyed by endpoint ID; real `EndpointBatchRequest.Item` is a JSON
+   ARRAY of `EndpointBatchItem` (each carrying its own `Id` field --
+   confirmed against `awsRestjson1_serializeDocumentEndpointBatchRequest`,
+   which calls `...ListOfEndpointBatchItem`) -- every real client's batch
+   update failed `json.Unmarshal` outright (array into a map), so this op
+   never worked at all. Fixed the wire struct to a slice and converted to
+   the backend's map keying inside the handler. Two pre-existing raw-body
+   tests encoding the old (wrong) map shape were updated to the real array
+   shape, not weakened. `wire.go`, `handler_endpoints.go`,
+   `endpoints_test.go`.
+2. `GetChannels`' response map was keyed by the lowercase URL path segment
+   (`"email"`, copied verbatim from the REST path literal
+   `/channels/email`) instead of the canonical uppercase channel-type
+   constant (`"EMAIL"`) that real `ChannelsResponse.Channels` is keyed by
+   -- a real client's `Channels["EMAIL"]` lookup always missed. Fixed by
+   upper-casing the key; two pre-existing tests asserting the lowercase key
+   updated to uppercase. `handler_channels.go`, `channels_test.go`.
+3. `JourneyRunExecutionActivityMetricsResponse`'s activity-identifier field
+   was wire-named `ActivityId`; the real field is `JourneyActivityId` --
+   always decoded empty for a real client. `wire.go`.
+
+Accept-and-drop, reconfirmed not fixed (already disclosed, out of scope):
+`JourneyRunExecutionActivityMetricsResponse.ActivityType` (a required real
+member) has no backing state in this emulator -- activities aren't
+classified by type here -- GAP, not fabricated.
+
+Gates: `go build ./...` clean, `go vet ./services/pinpoint/...` clean,
+`go test -race -count=1 ./services/pinpoint/...` and
+`./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
+./services/pinpoint/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
+persisted-struct fields changed; no version bump.

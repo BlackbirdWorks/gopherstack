@@ -225,7 +225,12 @@ func (h *Handler) handleUpdateEndpointsBatch(c *echo.Context, appID string) erro
 		return writeErrorResponse(c, http.StatusBadRequest, "BadRequestException", "invalid request body")
 	}
 
-	if backendErr := h.Backend.UpdateEndpointsBatch(appID, req.Item); backendErr != nil {
+	items := make(map[string]updateEndpointRequest, len(req.Item))
+	for _, item := range req.Item {
+		items[item.ID] = item
+	}
+
+	if backendErr := h.Backend.UpdateEndpointsBatch(appID, items); backendErr != nil {
 		return writeErrorResponse(c, http.StatusInternalServerError, "InternalServerErrorException", backendErr.Error())
 	}
 

@@ -399,6 +399,10 @@ type updateEndpointRequest struct {
 	EndpointStatus string              `json:"EndpointStatus,omitempty"`
 	OptOut         string              `json:"OptOut,omitempty"`
 	RequestID      string              `json:"RequestId,omitempty"`
+	// ID is only populated (and only relevant) when this struct decodes one
+	// entry of an UpdateEndpointsBatch Item list -- see EndpointBatchItem.Id,
+	// awsRestjson1_serializeDocumentEndpointBatchItem.
+	ID string `json:"Id,omitempty"`
 }
 
 // endpointUser is a sub-object in updateEndpointRequest.
@@ -408,8 +412,14 @@ type endpointUser struct {
 }
 
 // updateEndpointsBatchRequest is the request body for UpdateEndpointsBatch.
+// Real EndpointBatchRequest.Item is a JSON ARRAY of EndpointBatchItem, each
+// carrying its own Id field (confirmed against
+// awsRestjson1_serializeDocumentEndpointBatchRequest, which calls
+// ...ListOfEndpointBatchItem) -- not a JSON object keyed by endpoint ID. A
+// real client's request always failed json.Unmarshal (array into a map)
+// before this fix, so UpdateEndpointsBatch never actually worked.
 type updateEndpointsBatchRequest struct {
-	Item map[string]updateEndpointRequest `json:"Item"`
+	Item []updateEndpointRequest `json:"Item"`
 }
 
 // putEventStreamRequest is the request body for PutEventStream.
@@ -809,12 +819,19 @@ type journeyRunExecutionMetricsResponse struct {
 }
 
 // journeyRunExecutionActivityMetricsResponse is the response for GetJourneyRunExecutionActivityMetrics.
+// journeyRunExecutionActivityMetricsResponse mirrors
+// types.JourneyRunExecutionActivityMetricsResponse: the activity identifier
+// field is wire-named JourneyActivityId, not ActivityId -- a real client's
+// JourneyActivityId always decoded empty regardless of the requested
+// activity. ActivityType (also a required member on the real type) is a
+// GAP, not fabricated: this backend never classifies journey activities by
+// type.
 type journeyRunExecutionActivityMetricsResponse struct {
 	Metrics           map[string]string `json:"Metrics"`
 	ApplicationID     string            `json:"ApplicationId"`
 	JourneyID         string            `json:"JourneyId"`
 	RunID             string            `json:"RunId"`
-	ActivityID        string            `json:"ActivityId"`
+	ActivityID        string            `json:"JourneyActivityId"`
 	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 

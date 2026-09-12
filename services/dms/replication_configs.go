@@ -103,10 +103,48 @@ func (b *InMemoryBackend) DescribeReplicationConfigs(ctx context.Context) ([]*Re
 	return list, nil
 }
 
-// ModifyReplicationConfig updates the replication type of an existing replication config.
+// modifyReplicationConfigFields applies every ModifyReplicationConfigInput
+// member this backend models onto an existing ReplicationConfig. Real
+// ModifyReplicationConfigInput (api_op_ModifyReplicationConfig.go) also
+// accepts ReplicationSettings/SupplementalSettings/ResourceIdentifier, which
+// this backend doesn't model on ReplicationConfig at all (pre-existing,
+// unrelated to this fix) so they're not applied here either.
+func modifyReplicationConfigFields(
+	rc *ReplicationConfig,
+	replicationType, tableMappings, sourceEndpointArn, targetEndpointArn string,
+	computeConfig *ComputeConfig,
+) {
+	if replicationType != "" {
+		rc.ReplicationType = replicationType
+	}
+
+	if tableMappings != "" {
+		rc.TableMappings = tableMappings
+	}
+
+	if sourceEndpointArn != "" {
+		rc.SourceEndpointArn = sourceEndpointArn
+	}
+
+	if targetEndpointArn != "" {
+		rc.TargetEndpointArn = targetEndpointArn
+	}
+
+	if computeConfig != nil {
+		rc.ComputeConfig = computeConfig
+	}
+}
+
+// ModifyReplicationConfig updates an existing replication config. Real AWS
+// (api_op_ModifyReplicationConfig.go) accepts ComputeConfig, TableMappings,
+// SourceEndpointArn, and TargetEndpointArn alongside ReplicationType --
+// gopherstack silently dropped all four until this fix, so a real client's
+// ModifyReplicationConfig call never actually changed anything but the
+// replication type.
 func (b *InMemoryBackend) ModifyReplicationConfig(
 	ctx context.Context,
-	identifierOrArn, replicationType string,
+	identifierOrArn, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn string,
+	computeConfig *ComputeConfig,
 ) (*ReplicationConfig, error) {
 	b.mu.Lock("ModifyReplicationConfig")
 	defer b.mu.Unlock()
@@ -114,18 +152,18 @@ func (b *InMemoryBackend) ModifyReplicationConfig(
 	region := getRegion(ctx, b.region)
 
 	if rc, ok := b.replicationConfigs.Get(regionKey(region, identifierOrArn)); ok {
-		if replicationType != "" {
-			rc.ReplicationType = replicationType
-		}
+		modifyReplicationConfigFields(
+			rc, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn, computeConfig,
+		)
 		cp := *rc
 
 		return &cp, nil
 	}
 
 	if rc, ok := lookupUnique(b.replicationConfigsByARN, regionKey(region, identifierOrArn)); ok {
-		if replicationType != "" {
-			rc.ReplicationType = replicationType
-		}
+		modifyReplicationConfigFields(
+			rc, replicationType, tableMappings, sourceEndpointArn, targetEndpointArn, computeConfig,
+		)
 		cp := *rc
 
 		return &cp, nil
