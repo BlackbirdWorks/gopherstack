@@ -75,10 +75,33 @@ type getLogGroupFieldsOutput struct {
 }
 
 // --- ListLogGroups ---.
+// LogGroupNamePattern (not LogGroupNamePrefix, DescribeLogGroups' field) is
+// the real ListLogGroupsInput wire key (serializers.go's
+// ...serializeOpDocumentListLogGroupsInput case "logGroupNamePattern":) -- a
+// previous revision read "logGroupNamePrefix" here, so a real client's
+// filter was always silently ignored regardless of what it sent.
 type listLogGroupsInput struct {
-	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
-	NextToken          string `json:"nextToken"`
-	Limit              int    `json:"limit"`
+	LogGroupNamePattern string `json:"logGroupNamePattern"`
+	NextToken           string `json:"nextToken"`
+	Limit               int    `json:"limit"`
+}
+
+// logGroupSummaryView is the real ListLogGroupsOutput.LogGroups item shape
+// (types.LogGroupSummary: logGroupArn/logGroupClass/logGroupName only) --
+// narrower than, and with a different arn key than, DescribeLogGroups' full
+// LogGroup ("arn", not "logGroupArn"). Confirmed against deserializers.go's
+// awsAwsjson11_deserializeDocumentLogGroupSummary. A previous revision
+// reused describeLogGroupsOutput's full LogGroup shape here, so a real
+// client's LogGroupArn field always decoded nil (the wire carried "arn").
+type logGroupSummaryView struct {
+	LogGroupArn   string `json:"logGroupArn,omitempty"`
+	LogGroupClass string `json:"logGroupClass,omitempty"`
+	LogGroupName  string `json:"logGroupName,omitempty"`
+}
+
+type listLogGroupsOutput struct {
+	NextToken string                `json:"nextToken,omitempty"`
+	LogGroups []logGroupSummaryView `json:"logGroups"`
 }
 
 func (h *Handler) logGroupActions() map[string]actionFn {
@@ -216,12 +239,21 @@ func (h *Handler) handleListLogGroups(ctx context.Context, b []byte) (any, error
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	groups, next, err := h.Backend.ListLogGroups(ctx, input.LogGroupNamePrefix, input.NextToken, input.Limit)
+	groups, next, err := h.Backend.ListLogGroups(ctx, input.LogGroupNamePattern, input.NextToken, input.Limit)
 	if err != nil {
 		return nil, err
 	}
 
-	return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
+	views := make([]logGroupSummaryView, 0, len(groups))
+	for _, g := range groups {
+		views = append(views, logGroupSummaryView{
+			LogGroupArn:   g.Arn,
+			LogGroupClass: g.LogGroupClass,
+			LogGroupName:  g.LogGroupName,
+		})
+	}
+
+	return &listLogGroupsOutput{LogGroups: views, NextToken: next}, nil
 }
 
 type putLogGroupDeletionProtectionInput struct {

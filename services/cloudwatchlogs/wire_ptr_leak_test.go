@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,16 @@ import (
 // then replays them so the real SDK deserializer still sees the full body.
 type ptrLeakCaptureTransport struct {
 	body []byte
+	mu   sync.Mutex
+}
+
+// Body returns the last captured response body. The SDK retry loop may
+// call Do from a different goroutine than the test asserting on it.
+func (c *ptrLeakCaptureTransport) Body() []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.body
 }
 
 func (c *ptrLeakCaptureTransport) Do(req *http.Request) (*http.Response, error) {
@@ -39,14 +50,16 @@ func (c *ptrLeakCaptureTransport) Do(req *http.Request) (*http.Response, error) 
 	}
 	resp.Body.Close()
 
+	c.mu.Lock()
 	c.body = b
+	c.mu.Unlock()
 	resp.Body = io.NopCloser(bytes.NewReader(b))
 
 	return resp, nil
 }
 
 // newCapturingWireTestCloudWatchLogsClient is newTestCloudWatchLogsClient
-// plus a transport that stashes each response's raw bytes on capture.body,
+// plus a transport that stashes each response's raw bytes on capture.Body(),
 // so a test can assert on the wire JSON while also proving the real client
 // decodes it.
 func newCapturingWireTestCloudWatchLogsClient(
@@ -138,8 +151,8 @@ func TestGetLogEvents_PtrStripped(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, out.Events, 3)
 
-	require.NotEmpty(t, capture.body)
-	assert.NotContains(t, string(capture.body), `"ptr"`,
+	require.NotEmpty(t, capture.Body())
+	assert.NotContains(t, string(capture.Body()), `"ptr"`,
 		"GetLogEvents response must not carry the persisted-only Ptr field on the wire")
 }
 
@@ -300,7 +313,7 @@ func TestFilterLogEvents_EventIDStillOnWire(t *testing.T) {
 		assert.NotEmpty(t, aws.ToString(ev.EventId), "FilterLogEvents must still carry a real eventId")
 	}
 
-	require.NotEmpty(t, capture.body)
-	assert.Contains(t, string(capture.body), `"eventId"`,
+	require.NotEmpty(t, capture.Body())
+	assert.Contains(t, string(capture.Body()), `"eventId"`,
 		"FilterLogEvents must still carry eventId on the wire")
 }

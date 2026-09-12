@@ -239,7 +239,7 @@ ops:
   GetAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: limit/position (serializers.go:7117,7121) never read; left unfixed as a gap, not a bug, given tag maps per resource are small and bounded -- flagged for follow-up, not fabricated"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagResource: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 9, first typed-client coverage): the shared query-string-to-JSON-body merge in handleRESTAPI (handler.go) kept only the FIRST value of each repeated query parameter, but the real UntagResourceInput.TagKeys is bound as a REPEATED query parameter (encoder.AddQuery(\"tagKeys\") in a loop, apigateway@v1.42.4 serializers.go:9284), not a single scalar -- so a real client's ?tagKeys=a&tagKeys=b was collapsed to a single string \"a\" and injected as a bare JSON string, which then failed json.Unmarshal into the handler's []string field outright (\"cannot unmarshal string into Go struct field untagResourceInput.tagKeys of type []string\"). Every real UntagResource call failed unconditionally, regardless of how many keys were requested. Fixed with a new injectJSONArrayFieldAPIGW helper, special-cased on the \"tagKeys\" query key (mirroring the existing \"limit\" int special-case in injectJSONFieldAPIGW) to inject the full value list as a JSON array. Proven via TestTypedSlice9RealClient/tags (real aws-sdk-go-v2 client)."}
   TestInvokeMethod: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGatewayResponses: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read (fixed set of 12 default response types, so re-sorted by responseType only when paginating to satisfy cursor ordering)."}
@@ -1116,3 +1116,26 @@ verified.
 Gates: `gofmt -l services/apigateway/` clean; `GOTOOLCHAIN=go1.26.6 go build
 ./services/apigateway/...`, `go vet`, `go test -race -count=1`, and
 `golangci-lint run` all clean on `./services/apigateway/...`.
+
+## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+
+apigateway: 59/124 (47.6%) -> 124/124 (100%) typed-covered (65 -> 0
+uncovered), 65 ops newly covered, `typed_slice9_realclient_test.go` added
+(one outer `t.Parallel()` test, 17 subtests covering every named priority
+family: REST API lifecycle (PutRestApi import + delete), resources/
+methods/method responses, integrations/integration responses, authorizers,
+deployments/stages (+update/flush-cache), models, request validators,
+gateway responses, usage plan keys, API keys, domain names + base path
+mappings, domain name access associations, VPC links, documentation
+(versions + parts + import), client certificates, SDK types, tags). **One
+real bug found and fixed** (see UntagResource op entry above): the shared
+query-string merge that feeds every REST-path op's JSON body kept only the
+first value of a repeated query parameter, breaking UntagResource's
+real, repeated `tagKeys` parameter outright for every real client
+regardless of key count -- previously undetected because no prior test
+drove UntagResource through the real HTTP query-string wire path (only
+through the JSON-RPC-shaped internal dispatch). Gates: `go build ./...`
+(whole module, clean), `go vet`, `golangci-lint run --new-from-rev=HEAD`
+(0 issues), `go test -race -count=1` (all pass). `pkgs/persistence`'s
+`TestSnapshotVersionGuard` clean (no persisted-struct fields changed). No
+version bump.

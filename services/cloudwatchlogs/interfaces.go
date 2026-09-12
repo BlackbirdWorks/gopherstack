@@ -228,10 +228,13 @@ type StorageBackend interface {
 	// UpdateAnomaly updates anomaly suppression settings, by anomalyID or,
 	// when anomalyID is empty, every anomaly sharing patternID.
 	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string) error
-	// ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
+	// ListLogGroups is the newer paginated list operation. Unlike
+	// DescribeLogGroups, its name filter (namePattern) is a regular
+	// expression, not a literal prefix, and its real response shape is the
+	// narrower LogGroupSummary (see handleListLogGroups).
 	ListLogGroups(
 		ctx context.Context,
-		namePrefix, nextToken string,
+		namePattern, nextToken string,
 		limit int,
 	) ([]LogGroup, string, error)
 }

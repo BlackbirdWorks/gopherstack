@@ -442,3 +442,24 @@ response-writer helper.
 **No instance of the broken shape exists in ssoadmin.** No code changed. Gates:
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/ssoadmin/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/ssoadmin/...` ok.
+
+## Notes (2026-09-12, gopherstack-n3zi slice 9 -- first typed-client coverage)
+
+ssoadmin: 13/79 (16.5%) -> 79/79 (100%) typed-covered (66 -> 0 uncovered),
+66 ops newly covered, `typed_slice9_realclient_test.go` added (one outer
+`t.Parallel()` test, 14 subtests covering every named priority family:
+permission set provisioning + policies (managed/customer-managed/inline/
+permissions-boundary), account assignments (+creation/deletion status),
+applications (+assignments/access scopes/authentication methods/grants/
+assignment+session configuration), trusted token issuers, instance access
+control attribute configuration, instance describe/update, regions, tags).
+**Zero new bugs found** -- every op passed on the first correctly-shaped
+request. This is consistent with the extensive prior field-level audit
+already on record in this file (gopherstack-2mwl and others): reading
+every touched handler before writing tests found the wire shapes already
+correct (flat vs. wrapped responses, union tags, real field names) with
+in-code comments documenting prior fixes for exactly these ops. Gates:
+`go build ./...` (whole module), `go vet`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues), `go test -race -count=1` (all pass).
+`pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
+fields touched). No version bump.

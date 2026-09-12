@@ -796,3 +796,67 @@ No pre-existing assertion was weakened or removed -- line 785 still checks the s
 Gates after the fix: `golangci-lint run ./services/lambda/...` 0 issues; 25 separate process
 invocations of `go test -p 1 -race -count=1 ./services/lambda/...` (a shell loop, not
 `-count=25`), 0/25 failures.
+
+## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+
+lambda: 45/85 (52.9%) -> 76/85 (89.4%) typed-covered (40 -> 9 uncovered),
+31 ops newly covered, `typed_slice9_realclient_test.go` added (one outer
+`t.Parallel()` test, 13 subtests covering every named priority family:
+permissions, aliases, code signing configs, concurrency, event invoke
+config, function URL configs, account settings, layers, recursion config,
+runtime management config, invoke (dry-run + legacy async; see below),
+invoke-with-response-stream, event source mapping update). **Three real
+bugs found and fixed**:
+
+1. `GetFunctionConcurrency` 404'd with `ResourceNotFoundException` when a
+   function had no reserved-concurrency configuration set, but real
+   `GetFunctionConcurrencyOutput` documents no such error for this state --
+   `ReservedConcurrentExecutions` is simply an optional field that comes
+   back null. A real client's `GetFunctionConcurrency` on any function in
+   its default (no-reservation) state always failed instead of decoding
+   `nil`. Fixed to return 200 with the key omitted; three pre-existing
+   tests that encoded the wrong 404 expectation (`TestGetFunctionConcurrency`,
+   `TestConcurrency_PutGetDelete`, `TestDeleteFunction_ClearsSideState`)
+   corrected to the real semantics, not weakened.
+
+2. STRUCTURAL, HIGH BLAST RADIUS: the entire `FunctionEventInvokeConfig`
+   family (Put/Get/Update/Delete/List, 5 ops) was completely unreachable by
+   any real SDK client. `lambdaFunctionPrefixes`/`lambdaPathPrefixes`
+   (handler_paths.go) had `lambda2019PathPrefix = "/2019-09-30/functions"`
+   (the real date for `GetFunctionConcurrency`/provisioned-concurrency) but
+   no entry at all for `/2019-09-25/functions` -- the real, distinct date
+   for this whole family (confirmed against each op's own
+   `awsRestjson1_serializeOp*FunctionEventInvokeConfig*`, lambda@v1.107.0
+   serializers.go), five days off. Every real request 404'd before even
+   reaching lambda's own router (`isLambdaPath` didn't recognize the path).
+   Fixed by adding `lambda2019EventInvokeConfigPathPrefix` and registering
+   it in both prefix tables.
+
+3. `InvokeWithResponseStream` never read `X-Amz-Invocation-Type` at all
+   (a real, optional header supporting `RequestResponse`/`DryRun`, same
+   binding as plain `Invoke` -- confirmed against
+   `awsRestjson1_serializeOpHttpBindingsInvokeWithResponseStreamInput`) --
+   a `DryRun` request from a real client always ran a full invocation
+   instead of validating only. Fixed to honor the header and return 204
+   immediately for `DryRun`, matching `Invoke`'s existing behavior.
+
+Remaining 9 uncovered ops are the entire `DurableExecution` family
+(CheckpointDurableExecution, GetDurableExecution/-History/-State,
+ListDurableExecutionsByFunction, SendDurableExecutionCallback{Success,
+Failure,Heartbeat}, StopDurableExecution) -- not a named priority family
+for this slice, deliberately not attempted; the wire shapes were already
+rewritten and field-diffed in an earlier pass (see the `durable_execution`
+family note above), so this is a coverage gap only, not a suspected bug.
+Real `RequestResponse`-type `Invoke`/`InvokeWithResponseStream` (i.e. an
+actual container execution, not `DryRun`) could not be typed-covered in
+this unit-test harness either: this backend requires a real Docker
+port allocator (`b.portAlloc`/`b.docker`), which every other unit test in
+this package also deliberately constructs as `nil` ("no real HTTP servers
+in unit tests") -- genuine sync execution is `test/integration`'s job, out
+of scope for this pass.
+
+Gates: `go build ./...` (whole module, clean), `go vet`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues), `go test -race
+-count=1` (all pass, including the three corrected pre-existing tests).
+`pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
+fields changed by any of the three fixes). No version bump.

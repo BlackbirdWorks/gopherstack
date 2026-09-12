@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -404,10 +405,41 @@ func (b *InMemoryBackend) GetLogGroupFields(
 }
 
 // ListLogGroups is the newer paginated list operation, equivalent to DescribeLogGroups.
+// ListLogGroups matches namePattern as a regular expression against each log
+// group name -- unlike DescribeLogGroups' LogGroupNamePrefix, the real
+// ListLogGroupsInput.LogGroupNamePattern is a regex supporting "^" prefix
+// anchors and "|" alternation (aws-sdk-go-v2 api_op_ListLogGroups.go:22), not
+// a literal prefix. An empty pattern matches every log group.
 func (b *InMemoryBackend) ListLogGroups(
-	ctx context.Context, namePrefix, nextToken string, limit int,
+	ctx context.Context, namePattern, nextToken string, limit int,
 ) ([]LogGroup, string, error) {
-	return b.DescribeLogGroups(ctx, namePrefix, nextToken, limit)
+	region := getRegion(ctx, b.region)
+
+	b.mu.RLock("ListLogGroups")
+	defer b.mu.RUnlock()
+
+	var re *regexp.Regexp
+	if namePattern != "" {
+		compiled, err := regexp.Compile(namePattern)
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: invalid logGroupNamePattern: %w", ErrValidation, err)
+		}
+		re = compiled
+	}
+
+	regionGroups := b.groupsInRegion(region)
+	all := make([]LogGroup, 0, len(regionGroups))
+	for _, g := range regionGroups {
+		if re == nil || re.MatchString(g.LogGroupName) {
+			all = append(all, *g)
+		}
+	}
+
+	sort.Slice(all, func(i, j int) bool { return all[i].LogGroupName < all[j].LogGroupName })
+
+	groups, token := paginateGroups(all, nextToken, limit)
+
+	return groups, token, nil
 }
 
 // SetLogGroupDeletionProtection enables or disables deletion protection for a log group.
