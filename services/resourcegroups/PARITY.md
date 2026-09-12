@@ -486,3 +486,20 @@ these are deliberately characterizing (not aspirational) tests, disclosed
 as such by the doc comment directly above `TestErrorShapes`
 (`handler_test.go:470-475`) and by gaps item 15 above; left unedited since
 no evidenced replacement behavior exists to assert instead.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 7/23 -> 23/23 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/resourcegroups` client: CancelTagSyncTask,
+GetAccountSettings, GetGroupConfiguration, GetGroupQuery, GetTagSyncTask,
+ListGroupResources, ListGroups, ListTagSyncTasks, PutGroupConfiguration,
+SearchResources, StartTagSyncTask, Tag, Untag, UpdateAccountSettings,
+UpdateGroup, UpdateGroupQuery. Zero bugs found -- every op decoded
+correctly on the first well-formed request, consistent with this
+service's deep prior audit history (see dated sections above, esp. the
+Owner/Tags/ResourceQuery wire fixes already made). Used `Group` (not the
+deprecated `GroupName`) on `GetGroupQueryInput`/`UpdateGroupInput`/
+`UpdateGroupQueryInput` per current SDK guidance. No `items_still_open`
+changes; no `snapshot_inventory.json` change; no version bump.

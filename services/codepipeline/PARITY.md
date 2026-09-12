@@ -571,3 +571,22 @@ No code changes this pass -- service verdict is CLEAN on this specific axis
 across the ops checked. Gates re-run to confirm no regression: `go build`,
 `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` -- all
 clean (`./services/codepipeline/...`), 0 diff.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 27/44 -> 44/44 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/codepipeline` client: DeleteWebhook,
+DeregisterWebhookWithThirdParty, EnableStageTransition, GetActionType,
+GetJobDetails, GetPipelineExecution, ListActionTypes, ListRuleExecutions,
+ListRuleTypes, PollForJobs, PutActionRevision, PutApprovalResult,
+RegisterWebhookWithThirdParty, RollbackStage, TagResource, UntagResource,
+UpdateActionType. Zero bugs found -- every op decoded correctly on the
+first well-formed request, consistent with this service's deep prior
+audit history (this file's own dated sections already cover extensive
+wire-shape/error-code sweeps). Reused this package's existing
+`newTestPipelineForState`/`AddJobInternal`/approval-token-extraction test
+conventions rather than re-deriving pipeline/job setup from scratch. No
+`items_still_open` changes; no `snapshot_inventory.json` change; no
+version bump.

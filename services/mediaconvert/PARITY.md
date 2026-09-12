@@ -616,3 +616,17 @@ through the handler. `TestCreateQueue_ConcurrentJobs` (`queues_test.go`) and
 pre-existing tests asserting `ConcurrentJobs` as a plain value; both
 corrected in place to assert through the pointer instead of weakened or
 deleted.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 21/34 -> 34/34 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/mediaconvert` client: CancelJob, DeleteJobTemplate,
+DescribeEndpoints, GetJobTemplate, ListJobs, ListVersions, Probe,
+SearchJobs, StartJobsQuery, TagResource, UntagResource, UpdateJobTemplate,
+UpdateQueue. Zero bugs found -- every op decoded correctly on the first
+well-formed request, consistent with this service's long prior audit
+history (see dated sections above). No `items_still_open` changes; no
+`snapshot_inventory.json` change (no persisted-struct field touched); no
+version bump.

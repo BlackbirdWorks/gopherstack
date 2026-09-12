@@ -691,3 +691,39 @@ plus new regression tests).
 
 Gates: `go test -race ./services/accessanalyzer/...` and
 `golangci-lint run services/accessanalyzer/...` both clean, 0 issues.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 22/39 -> 39/39 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/accessanalyzer` client: CheckAccessNotGranted,
+CheckNoNewAccess, CheckNoPublicAccess, CreateServiceLinkedAnalyzer,
+DeleteServiceLinkedAnalyzer, GetAnalyzedResource, GetFinding,
+GetFindingRecommendation, GetFindingV2, ListAccessPreviews,
+ListAnalyzedResources, ListPolicyGenerations, StartPolicyGeneration,
+StartResourceScan, UpdateAnalyzer, UpdateArchiveRule, UpdateFindings.
+
+**Two real wire bugs found and fixed**, both the same bug class this
+file's own `queryParamValue` doc comment already names but two handlers had
+not yet adopted: `handleGetAnalyzedResource` (`handler_analyzed_resources.go`)
+and `handleListAccessPreviews` (`handler_access_previews.go`) parsed
+`analyzerArn`/`resourceArn` straight off the raw, still percent-encoded
+query string via a bare `strings.CutPrefix`, never unescaping it. A real
+`aws-sdk-go-v2` client always percent-encodes ARNs on the wire
+(`awsRestjson1_serializeOpHttpBindingsGetAnalyzedResourceInput`,
+`accessanalyzer@v1.51.4` serializers.go), so every real `GetAnalyzedResource`
+and `ListAccessPreviews` call compared an encoded ARN against the backend's
+decoded one and always missed -- `GetAnalyzedResource` returned
+`AnalyzedResourceNotFound` and `ListAccessPreviews` silently returned an
+empty list, both on every real caller. Fixed by switching both handlers to
+the existing `queryParamValue` helper (already used correctly by
+`GetFinding`/`GenerateFindingRecommendation`), which already unescapes.
+Confirmed by the typed test failing against the pre-fix code
+(`AnalyzedResourceNotFound` / empty `ListAccessPreviews` result) and passing
+after.
+
+Zero bugs in the remaining 15 ops -- consistent with this service's deep
+prior audit history. No `items_still_open` changes (these were undisclosed
+latent bugs, not previously-known gaps); no `snapshot_inventory.json`
+change; no version bump.

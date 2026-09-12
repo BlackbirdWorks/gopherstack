@@ -180,3 +180,23 @@ anonymous-inline-struct request decodes (opsworks-style handlers implementing
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/databrew/...`).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 27/44 -> 44/44 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/databrew` client: DeleteDataset, DeleteJob,
+DeleteProject, DeleteRecipeVersion, DeleteRuleset, DeleteSchedule,
+ListJobs, ListProjects, ListSchedules, SendProjectSessionAction,
+StopJobRun, UpdateDataset, UpdateProject, UpdateRecipe, UpdateRecipeJob,
+UpdateRuleset, UpdateSchedule. Zero bugs found -- every op decoded
+correctly on the first well-formed request, consistent with this
+service's prior audit depth. Reused the existing `newRoundTripClient`
+helper (`handler_sdk_roundtrip_test.go`) rather than adding a new one.
+StopJobRun's race against the 100ms `jobRunTransitionDelay` (STARTING ->
+SUCCEEDED) follows this package's own established
+`TestStopJobRun_Success` pattern: call StopJobRun immediately after
+StartJobRun with no sleep, reliably landing in STARTING before the
+delayed transition fires. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

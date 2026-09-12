@@ -583,3 +583,21 @@ identically before and after this fix, not something this defect hid.
 Verdict: zero bugs caused or hidden by the collision defect. One
 pre-existing, already-flagged, out-of-scope gap noted (idempotency token is
 a no-op across 8 create/update/register operations in this package).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 14/30 -> 30/30 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/servicediscovery` client: DeleteNamespace,
+DeleteService, DeleteServiceAttributes, DeregisterInstance, GetInstance,
+GetInstancesHealthStatus, ListInstances, ListNamespaces, ListOperations,
+ListServices, TagResource, UntagResource, UpdateHttpNamespace,
+UpdateInstanceCustomHealthStatus, UpdateService. Zero bugs found. One
+test-authoring correction, not a bug: `UpdateInstanceCustomHealthStatus`
+legitimately requires the target service to have been created with
+`HealthCheckCustomConfig` (real AWS returns `CustomHealthNotFound`
+otherwise, confirmed against `instances.go`'s existing enforcement) --
+the test's service is created with that config rather than the shared
+namespace/service helper. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

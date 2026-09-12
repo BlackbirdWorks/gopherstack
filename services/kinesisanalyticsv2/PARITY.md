@@ -576,3 +576,28 @@ Gates this pass: `GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/kinesisanaly
 (0 issues, both before this pass's fix and after) and
 `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/kinesisanalyticsv2/...`
 (pass, `ok ... 1.0s`, before/after as described above).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 15/33 -> 33/33 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/kinesisanalyticsv2` client:
+AddApplicationCloudWatchLoggingOption,
+AddApplicationInputProcessingConfiguration, AddApplicationOutput,
+AddApplicationVpcConfiguration, CreateApplicationPresignedUrl,
+DeleteApplicationCloudWatchLoggingOption,
+DeleteApplicationInputProcessingConfiguration, DeleteApplicationOutput,
+DeleteApplicationReferenceDataSource, DeleteApplicationVpcConfiguration,
+DescribeApplicationOperation, DescribeApplicationSnapshot,
+DescribeApplicationVersion, DiscoverInputSchema, ListApplicationOperations,
+ListApplicationVersions, RollbackApplication,
+UpdateApplicationMaintenanceConfiguration. Zero bugs found -- every op
+decoded correctly on the first well-formed request, consistent with this
+service's deep prior audit history. One test-authoring correction, not a
+bug: once every input/output/reference-data-source is removed and there is
+no non-SQL config either, `ApplicationConfigurationDescription` (and its
+nested `SqlApplicationConfigurationDescription`) is correctly entirely
+absent on the wire, matching real AWS -- the test asserts on that absence
+rather than on empty sub-slices. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

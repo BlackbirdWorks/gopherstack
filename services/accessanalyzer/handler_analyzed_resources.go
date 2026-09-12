@@ -3,7 +3,6 @@ package accessanalyzer
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -18,7 +17,10 @@ const (
 // dispatchAnalyzedResourceOps routes analyzed-resource and resource-scan
 // operations. None of the handlers need the raw path (identity is carried in
 // the query string or JSON body), so that parameter is unused here.
-func (h *Handler) dispatchAnalyzedResourceOps(op, _, query string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchAnalyzedResourceOps(
+	op, _, query string,
+	body []byte,
+) (any, int, bool, error) {
 	switch op {
 	case opGetAnalyzedResource:
 		r, c, e := h.handleGetAnalyzedResource(query)
@@ -39,25 +41,24 @@ func (h *Handler) dispatchAnalyzedResourceOps(op, _, query string, body []byte) 
 
 // ---- operation handlers ----
 
+// handleGetAnalyzedResource serves GET /analyzed-resource?analyzerArn=...&
+// resourceArn=... . Both are query parameters carrying ARNs, which the real
+// SDK client always percent-encodes on the wire (":" and "/"); queryParamValue
+// unescapes them the same way GetFinding/GenerateFindingRecommendation
+// already do, since a comparison against a raw, still-encoded ARN never
+// matches the backend's decoded ARN.
 func (h *Handler) handleGetAnalyzedResource(query string) (any, int, error) {
-	var analyzerArn, resourceArn string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if v, ok := strings.CutPrefix(part, "analyzerArn="); ok {
-			analyzerArn = v
-		}
-
-		if v, ok := strings.CutPrefix(part, "resourceArn="); ok {
-			resourceArn = v
-		}
-	}
+	analyzerArn := queryParamValue(query, keyAnalyzerArn)
+	resourceArn := queryParamValue(query, "resourceArn")
 
 	ar, err := h.Backend.GetAnalyzedResource(analyzerArn, resourceArn)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	return map[string]any{"resource": analyzedResourceToJSON(ar, h.Backend.AccountID())}, http.StatusOK, nil
+	return map[string]any{
+		"resource": analyzedResourceToJSON(ar, h.Backend.AccountID()),
+	}, http.StatusOK, nil
 }
 
 func (h *Handler) handleListAnalyzedResources(body []byte) (any, int, error) {

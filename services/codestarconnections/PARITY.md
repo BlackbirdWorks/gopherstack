@@ -401,3 +401,22 @@ Gates: `GOTOOLCHAIN=go1.26.6 go test -race -count=1
 golangci-lint run ./services/codestarconnections/...` (0 issues), dependents
 `./services/cloudformation/...` and `./services/codeconnections/...` (both
 pass, unchanged).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 9/27 -> 27/27 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 3
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/codestarconnections` client: CreateSyncConfiguration,
+DeleteHost, DeleteRepositoryLink, GetHost, GetRepositoryLink,
+GetRepositorySyncStatus, GetResourceSyncStatus, GetSyncBlockerSummary,
+GetSyncConfiguration, ListHosts, ListRepositoryLinks,
+ListRepositorySyncDefinitions, ListSyncConfigurations, TagResource,
+UntagResource, UpdateRepositoryLink, UpdateSyncBlocker,
+UpdateSyncConfiguration. Zero bugs found -- every op decoded correctly on
+the first well-formed request, consistent with this service's deep prior
+audit history (and its codeconnections twin's identical result this same
+slice). Reused the existing `newTestCodeStarConnectionsClient` helper and
+the `CreateSyncBlocker` test/internal backend method to seed a blocker for
+GetSyncBlockerSummary/UpdateSyncBlocker. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

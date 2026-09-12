@@ -668,3 +668,31 @@ Regression tests: `cost_usage_granularity_test.go`
 `TestGetCostAndUsage_HourlyGranularityBucketsHourly`) and
 `cost_usage_timeperiod_test.go` (`TestGetCostAndUsage_UnparseableTimePeriodRejected`), both
 confirmed failing against unmodified code before the fix.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 28/47 -> 47/47 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/costexplorer` client: DeleteAnomalySubscription,
+DeleteCostCategoryDefinition, GetApproximateUsageRecords,
+GetCostAndUsageWithResources, GetCostComparisonDrivers,
+GetReservationPurchaseRecommendation, GetReservationUtilization,
+GetSavingsPlanPurchaseRecommendationDetails,
+GetSavingsPlansPurchaseRecommendation, GetTags, GetUsageForecast,
+ListCostAllocationTags, ListCostCategoryResourceAssociations,
+ListTagsForResource, ProvideAnomalyFeedback, TagResource, UntagResource,
+UpdateAnomalyMonitor, UpdateCostAllocationTagsStatus. Zero bugs found --
+every op decoded correctly on the first well-formed request, consistent
+with this service's exceptionally deep prior audit history (see the long
+`items_still_open`/Notes history above). Reused the existing
+`newTestCEClient`/`createCostCategory` test conventions and the
+`AddAnomaly` test/internal backend helper to seed an anomaly for
+`ProvideAnomalyFeedback`. One test-authoring correction, not a bug:
+`GetAnomalySubscriptions` with an explicit `SubscriptionArnList` naming a
+just-deleted subscription correctly returns `UnknownSubscriptionException`
+rather than an empty list (confirmed against
+`anomalySubscriptionARNSet`'s existing hard-fail behavior) -- the test
+asserts the error, then separately confirms the subscription is gone via
+an unfiltered `MonitorArn`-scoped list. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.
