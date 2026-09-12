@@ -157,6 +157,7 @@ var openSearchPathPrefixes = []string{
 	openSearchListApplicationsPath,
 	openSearchReservedOfferingsPath,
 	openSearchPurchaseReservedPath,
+	openSearchDefaultAppSettingPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.

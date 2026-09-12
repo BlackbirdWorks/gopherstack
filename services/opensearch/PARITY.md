@@ -1428,3 +1428,74 @@ Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
 `go test -race -count=1 ./services/opensearch/... ./pkgs/persistence/...` -- both packages
 pass, including `TestSnapshotVersionGuard`; `golangci-lint run ./services/opensearch/...`
 -- 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 14 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/opensearch` client (52 ops -- domain lifecycle tail,
+domain config/maintenance, VPC endpoint family, inbound/outbound connection
+tail, package family, data source family, direct-query data source family,
+data source attachment tail, application/capability family, default
+application setting, insights, migrations, reserved instances, scheduled
+actions). Each subtest creates real state through the typed client and
+asserts decoded response values.
+
+**Three real bugs found and fixed**, all previously invisible because no
+prior test drove these paths through a real SDK client:
+
+1. **RouteMatcher gap**: `openSearchDefaultAppSettingPath`
+   ("/2021-01-01/opensearch/defaultApplicationSetting") was defined as a
+   constant and used correctly by the request dispatcher, but never added
+   to `openSearchPathPrefixes`, the list `isOpenSearchPath` (the
+   RouteMatcher) actually checks. Both `GetDefaultApplicationSetting` and
+   `PutDefaultApplicationSetting` were completely unreachable over the real
+   HTTP wire -- confirmed live: a real client's `PutDefaultApplicationSetting`
+   got a bare 404 with no RequestID, meaning the request never reached this
+   handler's dispatch at all. Same bug class as the omics S3AccessPolicy
+   fix earlier in this slice (a RouteMatcher silently owning zero real
+   request paths for a family), not the RouteMatcher-collision class fixed
+   elsewhere via Authorization-header gating. Fixed by adding the constant
+   to `openSearchPathPrefixes`.
+
+2. **Wrong JSON type, total decode failure**: `serviceSoftwareOptionsJSON.
+   AutomatedUpdateDate` (the `StartServiceSoftwareUpdate`/
+   `CancelServiceSoftwareUpdate` response shape, `handler_domains.go`) was
+   a plain Go `string`, always empty since this backend never tracks a
+   real automated-update date. Real `types.ServiceSoftwareOptions.
+   AutomatedUpdateDate` (confirmed against `aws-sdk-go-v2/service/
+   opensearch@v1.75.4` `deserializers.go:27053-27067`,
+   `awsRestjson1_deserializeDocumentServiceSoftwareOptions`) is an
+   epoch-seconds JSON Number -- any client decoding a JSON string there,
+   even an empty one, fails the ENTIRE response, not just that one field
+   ("list/type mismatch = total failure, not dropped value", the same bug
+   class this campaign's method notes already name). Fixed by changing the
+   wire field to `*int64` with `omitempty`, always nil (honest absence,
+   not a fabricated timestamp) -- matches the file's own established
+   convention for fields this backend has no real source for.
+
+3. **Missing required response member**: `GetPackageVersionHistory`'s
+   handler (`handlePackageSubResourceRoutes`, `handler_packages.go`) only
+   ever wrote `PackageVersionHistoryList`, never the real, also-present
+   `PackageID` member (confirmed against `deserializers.go`'s
+   `awsRestjson1_deserializeOpDocumentGetPackageVersionHistoryOutput`,
+   which decodes both keys). A real client's `PackageID` was always nil.
+   Fixed by echoing the requested package ID into the response.
+
+No accept-and-drop findings beyond what's already disclosed in this file
+(`items_still_open: []`, grade A) -- `ListInsights`/`DescribeInsightDetails`/
+`InsightFeedback`'s "no analytics engine, always empty/404" behavior is
+existing, documented, and correctly exercised by the new `insight_family`
+subtest (a real client sees the honest empty-list/not-found responses, not
+an error decoding them).
+
+Coverage: opensearch 66/118 (55.9%) -> 118/118 (100%) per
+`cmd/clientcoverage`.
+
+Gates: `go build ./services/opensearch/...` and `go vet
+./services/opensearch/...` clean; `go test -race -count=1
+./services/opensearch/...` clean; `golangci-lint run --new-from-rev=HEAD
+./services/opensearch/...` 0 issues. `go run ./cmd/paritylint` stays at 0
+FAIL. No persisted-struct/snapshot-inventory change (all three fixes are
+routing/response-encoding only; the underlying domain model in `models.go`
+is untouched); no version bump.

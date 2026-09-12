@@ -900,3 +900,32 @@ gocognit trips from the added logic were resolved by extracting
 `matchExistingEndpointByCreatorRequestID`/`matchExistingRuleByCreatorRequestID`/
 `copyIPAddressesWithIDs` as separate functions, not by nolint -- this repo
 bans cyclop/gocognit/funlen nolints).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 13 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/route53resolver` client (52 ops -- firewall domain
+list tail, firewall rule group family incl. policy sharing, firewall rule
+tail incl. rule-type catalog, the three Batch*FirewallRule ops, resolver
+config, DNSSEC config, firewall config, resolver endpoint tail incl. IP
+association, outpost resolver tail, query log config tail incl. policy
+sharing, query log config association tail, resolver rule tail incl.
+policy sharing and associations, resource tags). Each subtest creates real
+state through the typed client and asserts decoded response values.
+
+**Zero new bugs found** -- every op passed on the first correctly-shaped
+request against the real client, consistent with this service's existing
+grade-A, previously-audited PARITY.md history (full wrapper-key/nesting
+sweep of all 30+ ops in gopherstack-6flj). No accept-and-drop findings
+beyond what's already disclosed in `items_still_open`.
+
+Coverage: route53resolver 20/72 (27.8%) -> 72/72 (100%) per
+`cmd/clientcoverage`.
+
+Gates: `go build ./services/route53resolver/...` and `go vet
+./services/route53resolver/...` clean; `go test -race -count=1
+./services/route53resolver/...` clean; `golangci-lint run
+--new-from-rev=HEAD ./services/route53resolver/...` 0 issues (after
+`golines --fix`). `go run ./cmd/paritylint` stays at 0 FAIL. No
+persisted-struct/snapshot-inventory change; no version bump.

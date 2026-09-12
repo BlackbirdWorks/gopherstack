@@ -782,3 +782,58 @@ guide) -- both carried the "aws agent-toolkit search-skills" footer described in
 No bugs found in this slice; `finding_criteria.go`/`malware_scan_filter.go` unchanged.
 Gates unaffected (no code touched): `go build`, `go vet`, `go test -race -count=1`,
 `golangci-lint run`, all `./services/guardduty/...`, all clean.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 11 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/guardduty` client (52 ops -- UpdateDetector,
+organization admin account enable/disable, GetOrganizationStatistics,
+findings lifecycle (sample/get/list/archive/unarchive/feedback), IPSet/
+ThreatIntelSet deletion, ThreatEntitySet/TrustedEntitySet get/update/
+delete, publishing destination describe/update/delete, malware scan
+family (get/settings/list/send-object/protection-plan CRUD), member
+lifecycle (invite/get/monitor/update/disassociate/delete), legacy and
+current admin-account invitation flows (accept/decline/delete/count/get/
+disassociate), investigations CRUD, coverage listing + free-trial days,
+resource tags). Each subtest creates real state through the typed client
+and asserts decoded response values.
+
+**One real bug found and fixed**: `SendObjectMalwareScan`'s request
+decoder read a fabricated JSON key `"s3ObjectDetails"`; the real wire key
+(confirmed against `aws-sdk-go-v2/service/guardduty@v1.85.4`'s
+`serializers.go:6391-6396`,
+`awsRestjson1_serializeOpDocumentSendObjectMalwareScanInput`) is
+`"s3Object"` (with nested keys `bucket`/`key`/`versionId` --
+`serializers.go:9343-9362`). Every real client's `S3Object` was silently
+decoded as nil regardless of what was sent -- a pure request-side
+accept-and-drop, currently unobservable only because
+`SendObjectMalwareScan`'s own backend implementation doesn't yet use its
+`s3ObjectDetails` parameter for anything (a separate, pre-existing,
+documented simplification, not touched by this fix). Fixed the wire key
+in `handler_malware_protection.go`; corrected the one pre-existing unit
+test (`malware_protection_test.go`'s `send_object_malware_scan` case) that
+asserted the wrong key as correct, to the real shape rather than deleting
+or weakening it.
+
+**Accept-and-drop findings disclosed, not fixed** (both already-documented,
+pre-existing simplifications, confirmed still accurate): `AcceptInvitation`/
+`AcceptAdministratorInvitation` accept an `InvitationId` but this backend
+never validates it against a real pending invitation record (single-account
+emulation has no second party to originate one); `CreateInvestigation`'s
+`TriggerPrompt` is stored but never actually analyzed (see the existing
+`investigations` family note -- no threat-analysis engine).
+
+Coverage: guardduty 38/90 (42.2%) -> 90/90 (100%) per `cmd/clientcoverage`.
+
+Gates: `go build ./services/guardduty/...` and `go vet
+./services/guardduty/...` clean; `go test -race -count=1
+./services/guardduty/...` clean; `golangci-lint run --new-from-rev=HEAD
+./services/guardduty/...` 0 issues (three legacy-op call sites carry
+targeted `//nolint:staticcheck` comments, not a blanket path exclusion,
+since only those three of the file's ~50 calls touch deprecated SDK
+methods still required by the uncovered census: `AcceptInvitation`,
+`GetMasterAccount`, `DisassociateFromMasterAccount`). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot-inventory
+change (the fix is request-decode-only, and the field it fixes isn't
+persisted); no version bump.

@@ -60,7 +60,7 @@ families:
   RunCache: {status: ok, note: "CRUD + List; already used correct query params. 2026-08-14 (gopherstack-7185, mutating-op sweep): RunCache.CacheS3Location was tagged json:\"cacheS3Location\" -- that key is real only for CreateRunCacheInput's request body (serializers.go:1334); every RESPONSE shape (CreateRunCacheOutput, GetRunCacheOutput, ListRunCaches' element) uses the different key \"cacheS3Uri\" (deserializers.go:9853). A real client's CacheS3Uri was always nil on every read of a run cache. Fixed by retagging the model field (the handler's separate request-parsing struct already correctly used \"cacheS3Location\" and was untouched)."}
   RunBatch: {status: ok, note: "2026-08-07 (gopherstack-hnhk): body-shape re-architecture. StartRunBatch's real wire shape ({requestId, batchName, batchRunSettings:{inlineSettings|s3UriSettings}, defaultRunSetting:{roleArn,workflowId,...}, tags} -- field-diffed against awsRestjson1_serializeOpDocumentStartRunBatchInput/DefaultRunSetting/BatchRunSettings/InlineSetting) replaces the old flat {workflowId,roleArn,name} shape a real client never sends. Each inlineSettings entry (merged with defaultRunSetting per the documented per-run-override semantics) now creates a real constituent Run via the new startRunLocked helper shared with StartRun -- previously StartRunBatch created zero runs regardless of what a caller sent. GetBatch's real response shape (arn/creationTime/defaultRunSetting/id/name/runSummary/status/submissionSummary/submittedTime/processedTime/tags/totalRuns/uuid -- field-diffed against awsRestjson1_deserializeOpDocumentGetBatchOutput) is now built by a dedicated handler response, separate from ListBatch's smaller BatchListItem shape (arn/createdAt/id/name/status/totalRuns/workflowId) which was previously (and remains, now correctly) served by marshaling the same struct -- a latent leak risk this pass closed by giving each its own wire type instead of widening the shared one. runSummary's pending/running/completed/cancelled/failed counts are computed LIVE from surviving Run rows (summarizeRunBatchLocked) rather than stored, since this backend creates/completes runs synchronously and a stored counter would drift; deletedRunCount and submissionSummary's success/failure counts ARE stored, since DeleteRunsInBatch actually removes the Run rows they'd otherwise be computed from. ListRunsInBatch's runSettingId filter is now real (previously accepted-but-ignored; SubmissionStatus remains accepted-but-ignored -- this backend has no async submission-status state machine, batches complete synchronously). NOT modeled, see gaps: s3UriSettings (rejected with a clear ValidationException rather than silently creating zero runs -- reading real S3 object content synchronously is not something this backend can honestly simulate), most optional DefaultRunSetting fields (cacheBehavior/cacheId/configurationName/engineSettings/logLevel/networkingMode/outputBucketOwnerId/parameters/retentionMode/scratchStorageMode/storageCapacity/storageType/workflowOwnerId), and RequestId idempotency (accepted and required, matching the real API, but not deduplicated against retries)."}
   Configuration: {status: fixed, note: "gopherstack-4ggy: CreateConfiguration's RunConfigurations (a required CreateConfigurationInput member, api_op_CreateConfiguration.go:30-55) was dropped entirely, and the response was a near-total fabrication -- Configuration previously had only {creationTime,name,description,value}, where \"value\" is not a real field anywhere in the API at all (invented) and Arn/Status/Tags/Uuid/RunConfigurations (all real CreateConfigurationOutput/GetConfigurationOutput members) were simply absent. Rebuilt to the real shape: RunConfigurations now required and validated, ARN synthesized via pkgs/arn (arn:aws:omics:<region>:<account>:configuration/<uuid>, matching this service's existing workflow/run-group ARN convention), Status set to ACTIVE immediately (this resource has no async provisioning to model), Tags stored and echoed, Uuid populated. RunConfigurations.VpcConfig models SecurityGroupIds/SubnetIds; the response-only computed VpcId (types.VpcConfigResponse) is left empty rather than fabricated -- this backend does no real VPC/subnet resolution. RequestId (also client-side-required, but auto-filled by the SDK's IdempotencyTokenAutoFill middleware before validation runs, so a real client never omits it) is accepted but not enforced or deduplicated server-side -- out of scope for this fix, same category as RunBatch's RequestId gap noted below."}
-  S3AccessPolicy: {status: ok, note: "FIXED (field-diffed against PutS3AccessPolicyInput/Output and GetS3AccessPolicyOutput, closing the prior deferred item): the policy document was serialized under the invented key \"policy\" -- real GetS3AccessPolicyOutput uses \"s3AccessPolicy\" (confirmed against the SDK deserializer) -- renamed; PutS3AccessPolicy's response now echoes s3AccessPointArn (was an empty {}); added StoreID/StoreType/UpdateTime fields to the model (StoreID/StoreType left empty -- this backend has no S3-access-point-to-store association to derive them from, but they're optional/pointer-safe on the wire)"}
+  S3AccessPolicy: {status: ok, note: "FIXED (field-diffed against PutS3AccessPolicyInput/Output and GetS3AccessPolicyOutput, closing the prior deferred item): the policy document was serialized under the invented key \"policy\" -- real GetS3AccessPolicyOutput uses \"s3AccessPolicy\" (confirmed against the SDK deserializer) -- renamed; PutS3AccessPolicy's response now echoes s3AccessPointArn (was an empty {}); added StoreID/StoreType/UpdateTime fields to the model (StoreID/StoreType left empty -- this backend has no S3-access-point-to-store association to derive them from, but they're optional/pointer-safe on the wire). FIXED 2026-09-12 (gopherstack-n3zi typed slice 16): isOmicsPath's routing prefix table carried the literal \"/s3accesspolicy/\" (with its own trailing slash already baked in) into a loop that additionally appends \"+\"/\"\" before matching -- the resulting required prefix was \"/s3accesspolicy//\" (double slash), which no real request path (\"/s3accesspolicy/<arn>\", single slash) ever satisfies. Every op in this family (Put/Get/DeleteS3AccessPolicy) was completely unreachable over the real HTTP wire -- confirmed live: a real aws-sdk-go-v2 client's PutS3AccessPolicy got a bare 404 with no RequestID, meaning the request never reached this handler's dispatch at all (classifyPath's own separate, correctly-single-slashed prefix check was never even called). Fixed by introducing a shared pathS3AccessPolicy = \"/s3accesspolicy\" constant (matching every sibling path constant's no-trailing-slash convention) and using it in isOmicsPath in place of the ad hoc literal."}
   Tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource; RouteMatcher correctly scopes /tags/{arn} to arn containing \":omics:\" so FIS's /tags/{arn} isn't stolen"}
 gaps: []
 items_still_open:
@@ -886,3 +886,50 @@ clean), `go vet ./...` (repo-wide, clean), `go test -race -count=1
 issues, `golangci-lint run --fix` used once for fieldalignment on the new
 structs, re-verified with plain `run` afterward). Work left uncommitted per
 this pass's instructions.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 15 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/omics` client (55 ops -- SequenceStore CRUD tail,
+Reference/ReferenceImportJob family, ReadSet/ReadSetActivationJob/
+ReadSetExportJob/ReadSetImportJob families, MultipartReadSetUpload family,
+AnnotationStore/AnnotationImportJob tail, VariantStore/VariantImportJob
+tail, RunGroup/Run/RunCache/RunBatch tails, Workflow/WorkflowVersion
+deletion, Share family, Configuration family, S3AccessPolicy family,
+UntagResource). Each subtest creates real state through the typed client,
+round-trips the op under test, and asserts decoded response values -- no
+raw-JSON or backend-direct assertions.
+
+**One real bug found and fixed**, described in the S3AccessPolicy family
+note above: the entire PutS3AccessPolicy/GetS3AccessPolicy/
+DeleteS3AccessPolicy family was unreachable over the real HTTP wire due to
+a doubled-slash prefix bug in `isOmicsPath` (RouteMatcher), not
+`classifyPath` (op dispatch) -- the same class of bug already named in this
+campaign's method notes (a service's RouteMatcher silently owning zero real
+request paths for a family, distinct from the RouteMatcher *collision*
+class fixed via Authorization-header gating elsewhere). No prior audit
+pass had caught this because every existing S3AccessPolicy test called
+`h.Handler()` directly (bypassing RouteMatcher) or used `doRequest`, which
+this repo's helper also calls the handler directly rather than routing
+through `service.NewServiceRouter`.
+
+No accept-and-drop findings beyond what's already disclosed in this file
+(GetReadSet/GetReference's required `PartNumber`/`File` members are
+accepted but this single-blob in-memory backend has no real per-part
+chunking to honor them against, same class as the existing disclosed
+`FileInformation`/`Files` partial-value notes above). CancelAnnotationImportJob/
+CancelVariantImportJob/CancelRunBatch have no reachable non-terminal state
+to cancel against in this backend (every import/batch job completes
+synchronously), so a real client can only observe the error path for those
+three ops here -- consistent with, not a regression of, this file's
+existing "completes synchronously" design note for every job family.
+
+Coverage: omics 52/107 (48.6%) -> 107/107 (100%) per `cmd/clientcoverage`.
+
+Gates: `go build ./services/omics/...` and `go vet ./services/omics/...`
+clean; `go test -race -count=1 ./services/omics/...` clean; `golangci-lint
+run --new-from-rev=HEAD ./services/omics/...` 0 issues. `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot-inventory
+change (the fix was routing-only, no wire-shape or stored-field change); no
+version bump.

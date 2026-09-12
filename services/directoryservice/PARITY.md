@@ -614,3 +614,38 @@ anonymous-inline-struct request decodes (opsworks-style handlers implementing
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/directoryservice/...`).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 20 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/directoryservice` client (53 ops -- directory alias/
+computer/reset-password/limits, ConnectDirectory, resource tags,
+conditional forwarders, certificate deregistration, event topic
+deregistration, log subscriptions, LDAPS, RADIUS, SSO, client
+authentication, directory data access, shared-directory
+describe/reject/unshare, additional regions, domain controller count,
+snapshots, schema extensions, trusts, hybrid AD update, IP routes). Each
+subtest creates real state through the typed client and asserts decoded
+response values.
+
+**Zero new bugs found** -- every op passed on the first correctly-shaped
+request against the real client, consistent with this service's already
+extensive, repeatedly re-audited PARITY.md history (grade A since
+2026-08-29, multiple dated field-diff and wrong-wire-key sweeps). No new
+accept-and-drop findings beyond what this file already discloses in
+`items_still_open` (ShareTarget.Type, RadiusServersIpv6, the
+synchronous-completion async-state gap); confirmed `StartSchemaExtension`'s
+`LdifContent` request member is accepted and genuinely has nowhere
+observable to echo to (no Get/List op returns it in the real API either),
+so its absence from any response is correct, not a drop.
+
+Coverage: directoryservice 27/80 (33.8%) -> 80/80 (100%) per
+`cmd/clientcoverage`.
+
+Gates: `go build ./services/directoryservice/...` and `go vet
+./services/directoryservice/...` clean; `go test -race -count=1
+./services/directoryservice/...` clean; `golangci-lint run
+--new-from-rev=HEAD ./services/directoryservice/...` 0 issues (after
+`gofmt -w` on the new file). `go run ./cmd/paritylint` stays at 0 FAIL. No
+persisted-struct/snapshot-inventory change; no version bump.
