@@ -13,6 +13,14 @@ import (
 const (
 	// accessorStatusAvailable is the status for a ready accessor.
 	accessorStatusAvailable = "AVAILABLE"
+	// accessorStatusPendingDeletion is the status DeleteAccessor transitions an
+	// accessor to (managedblockchain@v1.34.4 api_op_DeleteAccessor.go doc:
+	// "After an accessor is deleted, the status of the accessor changes from
+	// AVAILABLE to PENDING_DELETION. An accessor in the PENDING_DELETION state
+	// can't be used for new WebSocket requests or HTTP requests."). The
+	// accessor row itself is NOT removed -- GetAccessor/ListAccessors must
+	// keep reporting it in this status.
+	accessorStatusPendingDeletion = "PENDING_DELETION"
 	// accessorDefaultType is the default accessor type.
 	accessorDefaultType = "BILLING_TOKEN"
 )
@@ -84,7 +92,12 @@ func (b *InMemoryBackend) GetAccessor(accessorID string) (*Accessor, error) {
 	return cloneAccessor(accessor), nil
 }
 
-// DeleteAccessor removes an accessor.
+// DeleteAccessor transitions an accessor to PENDING_DELETION. Real AWS does
+// not remove the resource: GetAccessor/ListAccessors keep reporting it (see
+// accessorStatusPendingDeletion's doc comment). The ARN is dropped from
+// arnToResource so TagResource/UntagResource/ListTagsForResource correctly
+// stop resolving it -- matching the once-deleted-can't-be-tagged behavior
+// every other resource kind in this backend already has.
 func (b *InMemoryBackend) DeleteAccessor(accessorID string) error {
 	b.mu.Lock("DeleteAccessor")
 	defer b.mu.Unlock()
@@ -95,7 +108,7 @@ func (b *InMemoryBackend) DeleteAccessor(accessorID string) error {
 	}
 
 	delete(b.arnToResource, accessor.Arn)
-	b.accessors.Delete(accessorID)
+	accessor.Status = accessorStatusPendingDeletion
 
 	return nil
 }

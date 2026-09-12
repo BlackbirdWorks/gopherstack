@@ -716,3 +716,15 @@ assertion counts, no new tests needed since no behavior changed);
 `golangci-lint run services/acmpca/...` 0 issues. `errtargetaudit` re-run
 post-pass: still 6 class-A findings, identical sites -- expected, since no
 code changed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 15 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/acmpca` client for the first time
+(`typed_slice23_realclient_test.go`): audit report create+describe, CA
+certificate/CSR retrieval, permissions CRUD, resource policy CRUD, CA tags
+(Tag/Untag/List), and a delete+restore lifecycle -- all against a ROOT CA,
+which this backend auto-self-signs and activates on creation
+(newCertificateAuthorityLocked's own doc comment), so no separate Csr/Import
+round trip was needed to reach ACTIVE for most subtests. Zero bugs --
+confirms the `ops:` table's existing verdicts.

@@ -520,3 +520,16 @@ immediately preceded by `return` on the same line.
 the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/mediastore/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/mediastore/...` ok. (mediastoredata's own
 audit is recorded separately in its own PARITY.md, same date.)
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 14 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/mediastore` client for the first time
+(`typed_slice23_realclient_test.go`): container policy, CORS policy,
+lifecycle policy, and metric policy full CRUD lifecycles (each asserting
+the decoded typed value, then a not-found error after delete), plus
+StartAccessLogging/StopAccessLogging round-tripped through
+DescribeContainer.AccessLoggingEnabled. Zero bugs -- every op's backend
+method (containers.go, cors_policy.go, lifecycle_policy.go,
+metric_policy.go) was already real, validated state, matching the
+`ops:` table's existing `wire: ok` verdicts.

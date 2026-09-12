@@ -665,3 +665,14 @@ Gates: `go build`, `go vet`, `go fix -diff`, `gofmt -l`, `go test -race
 ./services/cloudformation/...` (unrelated dependent sanity check per this
 campaign's standing instruction) also green. No `StorageBackend` interface
 method signatures changed, so no root-package run was needed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 15 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/apprunner` client for the first time
+(`typed_slice23_realclient_test.go`): service pause/resume + ListOperations
++ tags + UpdateService, custom domains, VPC connector describe/list, VPC
+ingress connection describe/list/update, auto scaling configuration
+default/list/ListServicesForAutoScalingConfiguration, and
+DeleteObservabilityConfiguration. Zero bugs -- confirms the `ops:` table's
+existing verdicts.

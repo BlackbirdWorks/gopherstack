@@ -881,3 +881,16 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    (`cli.go:5558-5571`), but the batch-input shape of `DescribeTags` itself is a genuine
    Direct-Connect-specific wrinkle relative to every other tagging-wiring precedent audited in
    this campaign so far.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 15 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/directconnect` client for the first time
+(`typed_slice23_realclient_test.go`): a hosted-connection Allocate->Confirm
+lifecycle plus ConfirmCustomerAgreement, Allocate+Confirm for both public
+and transit VIFs plus AssociateVirtualInterface, a full Direct Connect
+gateway association proposal lifecycle (Update/Describe gateway, Create
+proposal, Describe proposals, Accept into an association, Describe
+associations, a second proposal's Delete), and an interconnect Describe+
+DescribeInterconnectLoa+Delete lifecycle. Zero bugs -- confirms the `ops:`
+table's existing verdicts.

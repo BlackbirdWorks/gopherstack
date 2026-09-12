@@ -443,3 +443,17 @@ compiles, confirmed test failure, restored byte-identical).
 
 Gates: `go test -race ./services/textract/...`, `golangci-lint run services/textract/...` —
 both clean.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 14 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/textract` client for the first time
+(`typed_slice23_realclient_test.go`): adapter CRUD plus TagResource/
+UntagResource, an adapter-version CRUD sub-lifecycle, synchronous
+AnalyzeExpense/AnalyzeID, and Get{Document,Expense,Lending}Analysis plus
+GetLendingAnalysisSummary against jobs started on `NewInMemoryBackendSync`
+(the exported zero-async-delay test constructor -- `NewInMemoryBackend`'s
+default 200ms delay would otherwise leave a freshly started job
+IN_PROGRESS at Get time, a setup mistake in this pass, not a product bug).
+Zero bugs -- confirms the `ops:` table's existing verdicts, all previously
+backed by raw-body/unit tests but never a full typed-client round trip.

@@ -470,3 +470,18 @@ not a to-do.
 Gates: `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/kinesisanalytics/...` (pass),
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/kinesisanalytics/...` (0 issues) -- both run
 against the unmodified tree since no fix was made.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 14 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/kinesisanalytics` client for the first time
+(`typed_slice23_realclient_test.go`): a single application's full
+configuration lifecycle -- CloudWatch logging option add/delete, input add
+plus input-processing-configuration add/delete, output add/delete,
+reference-data-source add/delete, UpdateApplication (ApplicationCodeUpdate),
+StartApplication, and TagResource/ListTagsForResource/UntagResource -- each
+step re-fetching `ApplicationVersionId` via DescribeApplication for the
+next `CurrentApplicationVersionId`, plus a standalone DiscoverInputSchema
+subtest using the existing `fakeKinesisReader` test double. Zero bugs --
+confirms the `ops:`/`families:` entries above, which already carried
+detailed per-field wire verification from prior sweeps.

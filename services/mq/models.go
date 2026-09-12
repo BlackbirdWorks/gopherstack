@@ -58,6 +58,11 @@ const (
 	// is a free string field (no generated enum), but types.BrokerStateReplica
 	// ("REPLICA") confirms this is the real spelling AWS uses.
 	DataReplicationRoleReplica = "REPLICA"
+	// DataReplicationRolePrimary is the role a replica broker takes on after
+	// Promote -- the counterpart to DataReplicationRoleReplica ("When a
+	// replica broker is promoted to primary, this role is interchanged",
+	// aws-sdk-go-v2/service/mq/types.DataReplicationMetadataOutput doc).
+	DataReplicationRolePrimary = "PRIMARY"
 )
 
 // BrokerInstance holds endpoint information for a broker instance.

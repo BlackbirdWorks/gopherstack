@@ -27,7 +27,7 @@ ops:
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAccessor: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-09-12: was a hard delete (Get/ListAccessors 404'd immediately after); real AWS keeps the accessor visible with status PENDING_DELETION (api_op_DeleteAccessor.go doc). Now transitions Status in place and drops only the arnToResource entry (so TagResource still correctly fails), matching the documented lifecycle."}
   ListAccessors: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -575,3 +575,21 @@ removed. Guard restored before commit.
 Gates re-run for the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/managedblockchain/...` 0 issues; `GOTOOLCHAIN=go1.27.0 go test -race
 -count=1 ./services/managedblockchain/...` ok.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 14 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/managedblockchain` client for the first time
+(`typed_slice23_realclient_test.go`): accessor CRUD, a full proposal
+lifecycle (create, vote, threshold-approve, invitation, reject) on a
+single-member network, and member update + node lifecycle. **One real bug
+found and fixed**: `DeleteAccessor` hard-deleted the accessor row (Get/
+ListAccessors immediately 404'd), but `api_op_DeleteAccessor.go`'s own doc
+comment states "After an accessor is deleted, the status of the accessor
+changes from AVAILABLE to PENDING_DELETION" -- the resource stays visible.
+Fixed: the accessor's `Status` now flips to `PENDING_DELETION` in place;
+only its `arnToResource` entry is dropped, so tagging a deleted accessor
+still correctly fails. Three pre-existing tests (`TestHandler_DeleteAccessor`,
+`TestHandler_AccessorLifecycleViaHTTP`, `TestHandler_AccessorRoundTrip`) had
+encoded the wrong hard-delete/404 shape as correct -- corrected to assert
+`PENDING_DELETION` instead. All other 13 ops clean.
