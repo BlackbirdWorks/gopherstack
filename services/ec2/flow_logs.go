@@ -6,8 +6,9 @@ import "fmt"
 // wiring an existing flow log to Athena, referencing the flow log's real ID
 // and the requested S3 destinations. The Athena WorkGroup's OutputLocation
 // comes from IntegrateServices.AthenaIntegrations[0].IntegrationResultS3DestinationArn
-// (serializers.go:60999-61005, wire key "IntegrateServices.AthenaIntegration.
-// 1.IntegrationResultS3DestinationArn") -- a distinct field from
+// (ec2@v1.329.0 serializers.go:86507-86511 + 60999-61005; the wire key is
+// "IntegrateService.AthenaIntegration.1.IntegrationResultS3DestinationArn",
+// singular "IntegrateService" at the top level) -- a distinct field from
 // ConfigDeliveryS3DestinationArn, which is where the generated template
 // config itself is delivered, not where Athena query results land.
 func (b *InMemoryBackend) GetFlowLogsIntegrationTemplate(

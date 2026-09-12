@@ -386,6 +386,25 @@ items_still_open:
     Same shape as the pre-existing ListImagesInRecycleBin gap noted elsewhere in this file —
     a real Recycle Bin retention-rule feature (CreateRule/GetRule with per-resource-type
     RetentionPeriod), not modeled for any of the three resource types."
+  - "RestoreImageFromRecycleBin (images.go): the restore logic itself is correct (confirmed
+    2026-09-12, gopherstack-n3zi slice 26 — re-read images.go end to end), but nothing in this
+    backend's write paths ever calls recycleBinImages.Put(): DeregisterImage always hard-deletes
+    (matching the same shape as the volume/snapshot recycle-bin gap above), so the bin is
+    permanently empty and a real client's RestoreImageFromRecycleBin always returns
+    InvalidAMIID.NotFound regardless of which image ID is supplied. Exercised via
+    TestSlice26_RealClient/singletons_b, asserting the correct NotFound error rather than
+    fabricating a reachable success path. Same missing feature as the volume/snapshot recycle
+    bins: a real Recycle Bin retention-rule mechanism, not implemented for any of the three
+    resource types."
+  - "CancelImportTask (vm_import_export.go): ImportImage/ImportSnapshot both set Status to
+    'completed' synchronously at creation (images.go/snapshots.go — this mock has no real
+    async import pipeline to keep a task 'active' for), a design pinned by the pre-existing
+    TestBackend_CancelImportTask_AlreadyCompletedFails. A real client's CancelImportTask
+    therefore always reports IncorrectState for any import task from this backend's normal
+    create paths — the happy (still-cancellable) path is structurally unreachable. Confirmed
+    2026-09-12 (gopherstack-n3zi slice 26); exercised via TestSlice26_RealClient/
+    legacy_bundle_conversion_export_import, asserting the correct wire-level IncorrectState
+    error rather than weakening the test to force a fabricated success."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -5150,3 +5169,134 @@ internal `map[string]*AddressTransfer` key from allocation ID to public
 IP, not the persisted struct's shape). `golangci-lint run
 --new-from-rev=HEAD ./services/ec2/...` 0 issues (after `goimports`
 formatting). `go run ./cmd/paritylint` stays at 0 FAIL. No version bump.
+
+## 2026-09-12 -- typed real-client coverage slice 26, final ec2 tier (gopherstack-n3zi)
+
+Per task assignment: ec2's last 124 uncovered ops (measured at slice 24's
+end), walking the specific families the task named rather than a size-
+descending sweep: Transit Gateway peripherals (peering/VPC/Connect/
+multicast/Client VPN attachment accept/reject/delete, policy tables, route
+table announcements/associations/propagations/routes/search/export,
+metering policies, prefix list references), IPAM prefix-list-resolver/
+BYOASN/resource-discovery/pool-allocation families, legacy Bundle/
+Conversion/Import/Export task families, FPGA images, and the remaining
+singletons. `typed_slice26_realclient_test.go` added, one outer
+`t.Parallel()` test, 14 subtests, three shared setup helpers per the task's
+own instruction (`setupTGWWithTwoVPCAttachments`, `setupInstanceWithVolume`,
+plus reusing `backend.CreateIpam()` directly for the IPAM helper since it
+already returns a ready scope+pool-capable IPAM).
+
+All 124 originally-uncovered ops were already backed by real (non-stub)
+handler+backend implementations before this slice -- confirmed by grepping
+every op name against non-test `.go` files: none were registered only in
+`handler_unimplemented_operations.go` (that file's op-name strings turned
+out to be a documentation-only `stubSupportedOperations()` list for
+`GetSupportedOperations()`, never wired into the dispatch table -- so no
+stub-vs-real conflict existed to resolve). This slice's job was purely
+exercising already-real code through a typed client for the first time.
+
+**Four real wire-shape bugs found and fixed, all by decoding through a real
+typed client for the first time on these exact ops:**
+
+1. `AcceptTransitGatewayMulticastDomainAssociations` (`handler_accept_ops.go`)
+   and `RejectTransitGatewayMulticastDomainAssociations`
+   (`handler_tgw_peripherals.go`) both rendered their `Associations` member
+   as a flat list of per-subnet items (`tgwMulticastDomainAssociationItem`
+   with `TransitGatewayMulticastDomainId`/`TransitGatewayAttachmentId`/
+   `SubnetId`/`State` each repeated per subnet). The real wire shape
+   (`ec2@v1.329.0` `AcceptTransitGatewayMulticastDomainAssociationsOutput`/
+   `RejectTransitGatewayMulticastDomainAssociationsOutput`, both
+   `*types.TransitGatewayMulticastDomainAssociations`, confirmed against
+   `deserializers.go`'s `awsEc2query_deserializeOpDocumentAccept...Output`)
+   is a **single aggregate record** (`ResourceId`/`ResourceOwnerId`/
+   `ResourceType`/`TransitGatewayAttachmentId`/
+   `TransitGatewayMulticastDomainId` plus a nested `Subnets` list of
+   `{SubnetId, State}`) -- the exact shape this same file's sibling
+   `AssociateTransitGatewayMulticastDomain`/
+   `DisassociateTransitGatewayMulticastDomain`
+   (`handler_tgw_multicast.go`) already got right via
+   `tgwMulticastDomainAssociationsAggregate`/`assocsToAggregate`. A real
+   client's Accept/Reject call got the wrong Go type entirely for every
+   field under `Associations` (nil pointer / zero values throughout) even
+   though the backend's own data was correct -- the flat
+   `tgwMulticastDomainAssociationItem`/`tgwMulticastDomainAssociationSet`
+   types are now deleted (only ever used by these two ops) and both
+   handlers reuse the existing, already-correct `assocsToAggregate` helper.
+2. `GetFlowLogsIntegrationTemplate` (`handler_flow_logs.go`) read its two
+   required nested fields at
+   `"IntegrateServices.AthenaIntegration.1.IntegrationResultS3DestinationArn"`/
+   `"...PartitionLoadFrequency"` -- but the real wire's top-level key is
+   `IntegrateService` (**singular**), confirmed against `ec2@v1.329.0`
+   `serializers.go:86507-86511`
+   (`awsEc2query_serializeOpDocumentGetFlowLogsIntegrationTemplateInput`'s
+   `object.Key("IntegrateService")`) feeding into `serializers.go:60999-
+   61005`'s `object.FlatKey("AthenaIntegration")`. Every real client call
+   read both fields as empty and failed the handler's own "required" check
+   unconditionally -- this op could never succeed for a real client despite
+   being otherwise fully implemented. A pre-existing raw-body test
+   (`handler_flow_logs_test.go`'s `TestGetFlowLogsIntegrationTemplateHTTP`)
+   had pinned the wrong key as correct, since it POSTs form values directly
+   rather than through a typed client's own serializer -- exactly the
+   "raw-body test passes on a well-formed body it wrote itself" failure
+   mode `gopherstack-n3zi`'s own notes describe; fixed alongside the
+   handler.
+3. `ModifyManagedResourceVisibility`/`GetManagedResourceVisibility`
+   (already-correct wire shape, listed here only because slice 26's
+   initial test draft used the wrong SDK Go field names --
+   `ManagedResourceVisibility` instead of the real, nested
+   `Visibility.DefaultVisibility` -- NOT a backend bug, a test-authoring
+   correction caught immediately by `go vet`; recorded so a future reader
+   does not re-flag `handler_managed_resource_visibility.go` as suspect.)
+4. (Method note, not a fix) The TGW Client VPN attachment's real state
+   field type is `types.TransitGatewayAttachmentStatusType`, distinct from
+   `types.TransitGatewayAttachmentState` used by every other TGW
+   attachment kind (VPC/peering) -- a real, SDK-generated type split
+   across sibling attachment kinds that share the same string enum values
+   ("available"/"rejected"/etc.), not a gopherstack inconsistency; caught
+   by `go vet`, not a runtime bug.
+
+**Accept-and-drop, disclosed not fixed** (both added to `items_still_open`):
+`RestoreImageFromRecycleBin`'s happy path is structurally unreachable
+(nothing ever populates `recycleBinImages`) and `CancelImportTask`'s happy
+path is structurally unreachable (`ImportImage`/`ImportSnapshot` settle to
+"completed" synchronously, pinned by a pre-existing backend test) -- both
+covered by asserting the correct real error (`InvalidAMIID.NotFound` /
+`IncorrectState` respectively) through the typed client rather than
+fabricating a success path or weakening the test.
+
+**Method note**: the initial size-based census (5 uncovered-op families,
+124 ops) undercounted by 15 ops due to `cmd/clientcoverage`'s documented
+cross-run non-determinism (its own notes: "opcensus is not perfectly
+deterministic across runs") -- a second census taken after this slice's
+first pass still showed `AttachImageWatermark`/`DetachImageWatermark`,
+`CreateStoreImageTask`/`DescribeStoreImageTasks`/`CreateRestoreImageTask`,
+`DeleteImageUsageReport`, `DeleteTransitGatewayMulticastDomain`,
+`DeleteTransitGatewayPrefixListReference`, `DeleteTransitGatewayRouteTable`,
+`DisassociateTransitGatewayMulticastDomain`,
+`GetIpamAddressHistory`/`GetIpamDiscoveredAccounts`/
+`GetIpamDiscoveredPublicAddresses`/`GetIpamDiscoveredResourceCidrs`, and
+`ModifyIpamResourceDiscovery` as uncovered -- confirmed genuinely
+uncovered (not a tool artifact) by grepping every one for a `client.<Op>(`
+call anywhere in `services/ec2/*_test.go` or `test/integration/*.go`: zero
+hits for all 15. Added a `singletons_c` subtest covering all 15,
+including the four `GetIpamDiscovered*`/`GetIpamAddressHistory` ops that
+are legitimately void-result by design (`handler_ipam.go`: "modeling real
+IPAM address-usage history requires a live discovery pipeline this mock
+does not implement") -- covered by asserting the correctly-shaped, empty
+response.
+
+Census: 661/785 (84.2%) -> **785/785 (100.0%) typed-covered**. ec2 has zero
+remaining typed-uncovered operations. Repo-wide: 9082/10856 (83.7%, slice
+24's end) -> 9374/10856 (86.3%).
+
+**Gates**: `go build ./...` (whole module, clean). `go vet
+./services/ec2/...` clean. `go test -race -count=1 ./services/ec2/...
+./pkgs/persistence/...` `ok` (persistence's `TestSnapshotVersionGuard`
+passes with no diff -- neither fix touched a persisted struct's shape:
+both are pure wire-serialization corrections). `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/...` 0 issues (after `gofmt`/`golines`
+formatting). `go run ./cmd/paritylint` stays at 0 FAIL. No version bump;
+no `snapshot_inventory.json` changes (no persisted struct shape changed).
+`items_still_open` gained two new entries (`RestoreImageFromRecycleBin`
+and `CancelImportTask`'s structurally-unreachable happy paths, both
+documented above).

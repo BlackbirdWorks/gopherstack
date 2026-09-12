@@ -14,8 +14,14 @@ type getFlowLogsIntegrationTemplateResponse struct {
 func (h *Handler) handleGetFlowLogsIntegrationTemplate(vals url.Values, reqID string) (any, error) {
 	flowLogID := vals.Get("FlowLogId")
 	s3DestinationArn := vals.Get("ConfigDeliveryS3DestinationArn")
-	athenaResultArn := vals.Get("IntegrateServices.AthenaIntegration.1.IntegrationResultS3DestinationArn")
-	partitionLoadFrequency := vals.Get("IntegrateServices.AthenaIntegration.1.PartitionLoadFrequency")
+	// Top-level key is "IntegrateService" (singular) -- the request member is
+	// IntegrateServices but ec2query serializes struct-typed members by their
+	// Go field name only when it lacks a FlatKey override; this one is
+	// serialized via object.Key("IntegrateService") (ec2@v1.329.0
+	// serializers.go:86508), not "IntegrateServices". Using the plural here
+	// meant these two always-required fields silently read as empty.
+	athenaResultArn := vals.Get("IntegrateService.AthenaIntegration.1.IntegrationResultS3DestinationArn")
+	partitionLoadFrequency := vals.Get("IntegrateService.AthenaIntegration.1.PartitionLoadFrequency")
 
 	tmpl, err := h.Backend.GetFlowLogsIntegrationTemplate(
 		flowLogID, s3DestinationArn, athenaResultArn, partitionLoadFrequency,

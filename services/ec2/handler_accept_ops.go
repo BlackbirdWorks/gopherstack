@@ -54,22 +54,21 @@ type acceptReservedInstancesExchangeQuoteResponse struct {
 	ExchangeID string   `xml:"exchangeId"`
 }
 
-type tgwMulticastDomainAssociationItem struct {
-	TransitGatewayMulticastDomainID string `xml:"transitGatewayMulticastDomainId"`
-	TransitGatewayAttachmentID      string `xml:"transitGatewayAttachmentId"`
-	SubnetID                        string `xml:"subnetId"`
-	State                           string `xml:"state"`
-}
-
-type tgwMulticastDomainAssociationSet struct {
-	Items []tgwMulticastDomainAssociationItem `xml:"item"`
-}
-
+// acceptTransitGatewayMulticastDomainAssociationsResponse mirrors the real
+// AcceptTransitGatewayMulticastDomainAssociationsOutput shape: Associations is
+// a single types.TransitGatewayMulticastDomainAssociations aggregate (one
+// record with a nested Subnets list), not a flat per-subnet item list
+// (ec2@v1.329.0 deserializers.go's
+// awsEc2query_deserializeOpDocumentAcceptTransitGatewayMulticastDomainAssociationsOutput
+// -> awsEc2query_deserializeDocumentTransitGatewayMulticastDomainAssociations).
+// Reuses the same tgwMulticastDomainAssociationsAggregate/assocsToAggregate
+// this file's sibling AssociateTransitGatewayMulticastDomain already gets
+// right (handler_tgw_multicast.go).
 type acceptTransitGatewayMulticastDomainAssociationsResponse struct {
-	XMLName      xml.Name                         `xml:"AcceptTransitGatewayMulticastDomainAssociationsResponse"`
-	Xmlns        string                           `xml:"xmlns,attr"`
-	RequestID    string                           `xml:"requestId"`
-	Associations tgwMulticastDomainAssociationSet `xml:"associations"`
+	XMLName      xml.Name                                `xml:"AcceptTransitGatewayMulticastDomainAssociationsResponse"`
+	Xmlns        string                                  `xml:"xmlns,attr"`
+	RequestID    string                                  `xml:"requestId"`
+	Associations tgwMulticastDomainAssociationsAggregate `xml:"associations"`
 }
 
 type peeringTgwInfoItem struct {
@@ -296,21 +295,11 @@ func (h *Handler) handleAcceptTransitGatewayMulticastDomainAssociations(
 		return nil, err
 	}
 
-	resp := &acceptTransitGatewayMulticastDomainAssociationsResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-	}
-
-	for _, a := range assocs {
-		resp.Associations.Items = append(resp.Associations.Items, tgwMulticastDomainAssociationItem{
-			TransitGatewayMulticastDomainID: a.TransitGatewayMulticastDomainID,
-			TransitGatewayAttachmentID:      a.TransitGatewayAttachmentID,
-			SubnetID:                        a.SubnetID,
-			State:                           a.State,
-		})
-	}
-
-	return resp, nil
+	return &acceptTransitGatewayMulticastDomainAssociationsResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		Associations: assocsToAggregate(assocs),
+	}, nil
 }
 
 func (h *Handler) handleAcceptTransitGatewayPeeringAttachment(
