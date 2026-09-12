@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	ec2types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	elbsdk "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing"
 	elbtypes "github.com/aws/aws-sdk-go-v2/service/elasticloadbalancing/types"
 	"github.com/stretchr/testify/assert"
@@ -19,13 +21,33 @@ func TestIntegration_ELBClassic_Lifecycle(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createELBClient(t)
+	ec2Client := createEC2Client(t)
 	ctx := t.Context()
 
-	const (
-		lbName = "it-elb-classic"
-		instA  = "i-0a0a0a0a0a0a0a0a0"
-		instB  = "i-0b0b0b0b0b0b0b0b0"
-	)
+	const lbName = "it-elb-classic"
+
+	// RunInstances so RegisterInstancesWithLoadBalancer has real instances to
+	// reference: ELB's EC2Resolver rejects unknown instance IDs.
+	runOut, err := ec2Client.RunInstances(ctx, &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String("ami-12345678"),
+		InstanceType: ec2types.InstanceTypeT2Micro,
+		MinCount:     aws.Int32(2),
+		MaxCount:     aws.Int32(2),
+	})
+	require.NoError(t, err, "RunInstances should succeed")
+	require.Len(t, runOut.Instances, 2)
+
+	instA := aws.ToString(runOut.Instances[0].InstanceId)
+	instB := aws.ToString(runOut.Instances[1].InstanceId)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ec2Client.TerminateInstances(cleanupCtx, &ec2sdk.TerminateInstancesInput{
+			InstanceIds: []string{instA, instB},
+		})
+	})
 
 	// CreateLoadBalancer with a single HTTP listener.
 	createOut, err := client.CreateLoadBalancer(ctx, &elbsdk.CreateLoadBalancerInput{

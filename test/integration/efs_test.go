@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/efs"
 	efstypes "github.com/aws/aws-sdk-go-v2/service/efs/types"
 	"github.com/google/uuid"
@@ -85,9 +86,32 @@ func TestIntegration_EFS_MountTargetLifecycle(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createEFSClient(t)
+	ec2Client := createEC2Client(t)
 	ctx := t.Context()
 
 	creationToken := "mt-token-" + uuid.NewString()[:8]
+
+	// Create a VPC and subnet for the mount target to attach to.
+	vpcOut, err := ec2Client.CreateVpc(ctx, &ec2sdk.CreateVpcInput{CidrBlock: aws.String("10.88.0.0/16")})
+	require.NoError(t, err, "CreateVpc should succeed")
+
+	vpcID := aws.ToString(vpcOut.Vpc.VpcId)
+
+	subnetOut, err := ec2Client.CreateSubnet(ctx, &ec2sdk.CreateSubnetInput{
+		VpcId:     aws.String(vpcID),
+		CidrBlock: aws.String("10.88.1.0/24"),
+	})
+	require.NoError(t, err, "CreateSubnet should succeed")
+
+	subnetID := aws.ToString(subnetOut.Subnet.SubnetId)
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = ec2Client.DeleteSubnet(cleanupCtx, &ec2sdk.DeleteSubnetInput{SubnetId: aws.String(subnetID)})
+		_, _ = ec2Client.DeleteVpc(cleanupCtx, &ec2sdk.DeleteVpcInput{VpcId: aws.String(vpcID)})
+	})
 
 	// Create a file system to attach mount target to
 	createOut, err := client.CreateFileSystem(ctx, &efs.CreateFileSystemInput{
@@ -120,7 +144,7 @@ func TestIntegration_EFS_MountTargetLifecycle(t *testing.T) {
 	// CreateMountTarget
 	mtOut, err := client.CreateMountTarget(ctx, &efs.CreateMountTargetInput{
 		FileSystemId: aws.String(fsID),
-		SubnetId:     aws.String("subnet-12345678"),
+		SubnetId:     aws.String(subnetID),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, mtOut)

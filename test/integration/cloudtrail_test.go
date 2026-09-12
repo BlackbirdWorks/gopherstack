@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudtrail"
 	cloudtrailtypes "github.com/aws/aws-sdk-go-v2/service/cloudtrail/types"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,10 +18,33 @@ func TestIntegration_CloudTrail_TrailLifecycle(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudTrailClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
 
 	trailName := "test-trail-" + uuid.NewString()[:8]
 	s3Bucket := "test-bucket-" + uuid.NewString()[:8]
+
+	_, err := s3Client.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String(s3Bucket)})
+	require.NoError(t, err, "CreateBucket should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		listOut, listErr := s3Client.ListObjectsV2(cleanupCtx, &s3sdk.ListObjectsV2Input{
+			Bucket: aws.String(s3Bucket),
+		})
+		if listErr == nil {
+			for _, obj := range listOut.Contents {
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+					Bucket: aws.String(s3Bucket),
+					Key:    obj.Key,
+				})
+			}
+		}
+
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3sdk.DeleteBucketInput{Bucket: aws.String(s3Bucket)})
+	})
 
 	// CreateTrail
 	createOut, err := client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
@@ -89,12 +113,35 @@ func TestIntegration_CloudTrail_ListTrails(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudTrailClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
 
 	trailName := "list-trail-" + uuid.NewString()[:8]
 	s3Bucket := "list-bucket-" + uuid.NewString()[:8]
 
-	_, err := client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
+	_, err := s3Client.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String(s3Bucket)})
+	require.NoError(t, err, "CreateBucket should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		listOut, listErr := s3Client.ListObjectsV2(cleanupCtx, &s3sdk.ListObjectsV2Input{
+			Bucket: aws.String(s3Bucket),
+		})
+		if listErr == nil {
+			for _, obj := range listOut.Contents {
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+					Bucket: aws.String(s3Bucket),
+					Key:    obj.Key,
+				})
+			}
+		}
+
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3sdk.DeleteBucketInput{Bucket: aws.String(s3Bucket)})
+	})
+
+	_, err = client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
 		Name:         aws.String(trailName),
 		S3BucketName: aws.String(s3Bucket),
 	})
@@ -139,12 +186,35 @@ func TestIntegration_CloudTrail_LookupEvents(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createCloudTrailClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
 
 	trailName := "lookup-events-trail-" + uuid.NewString()[:8]
 	s3Bucket := "lookup-events-bucket-" + uuid.NewString()[:8]
 
-	_, err := client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
+	_, err := s3Client.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String(s3Bucket)})
+	require.NoError(t, err, "CreateBucket should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		listOut, listErr := s3Client.ListObjectsV2(cleanupCtx, &s3sdk.ListObjectsV2Input{
+			Bucket: aws.String(s3Bucket),
+		})
+		if listErr == nil {
+			for _, obj := range listOut.Contents {
+				_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+					Bucket: aws.String(s3Bucket),
+					Key:    obj.Key,
+				})
+			}
+		}
+
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3sdk.DeleteBucketInput{Bucket: aws.String(s3Bucket)})
+	})
+
+	_, err = client.CreateTrail(ctx, &cloudtrail.CreateTrailInput{
 		Name:         aws.String(trailName),
 		S3BucketName: aws.String(s3Bucket),
 	})

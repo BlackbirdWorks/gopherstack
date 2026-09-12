@@ -37,6 +37,12 @@ func NewHandler(backend *InMemoryBackend) *Handler {
 	}
 }
 
+// Shutdown stops the backend's scheduled state-transition timers so none
+// outlives the service. Invoked on server shutdown via service.Shutdowner.
+func (h *Handler) Shutdown(_ context.Context) { h.Backend.Close() }
+
+var _ service.Shutdowner = (*Handler)(nil)
+
 // Name returns the service name.
 func (h *Handler) Name() string { return "MGN" }
 
@@ -220,8 +226,7 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 
 	body := map[string]any{"message": err.Error()}
 
-	var apiErr *apiError
-	if errors.As(err, &apiErr) {
+	if apiErr, ok := errors.AsType[*apiError](err); ok {
 		addErrorFields(body, apiErr)
 	}
 
