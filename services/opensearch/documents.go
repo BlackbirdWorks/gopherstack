@@ -65,17 +65,18 @@ func (b *InMemoryBackend) findIndexLocked(domainName, indexName, action string) 
 
 // IndexDocument stores (or replaces) a document in an index and keeps the index
 // document count accurate. When docID is empty a fresh ID is generated. It
-// returns the effective document ID and whether a new document was created.
+// returns the effective document ID, whether a new document was created, and
+// the document's real per-write _version/_seq_no (see DomainIndex.DocMeta).
 func (b *InMemoryBackend) IndexDocument(
 	domainName, indexName, docID string,
 	doc map[string]any,
-) (string, bool, error) {
+) (string, bool, DocumentMeta, error) {
 	b.mu.Lock("IndexDocument")
 	defer b.mu.Unlock()
 
 	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpPut)
 	if err != nil {
-		return "", false, err
+		return "", false, DocumentMeta{}, err
 	}
 
 	if idx.Documents == nil {
@@ -90,25 +91,28 @@ func (b *InMemoryBackend) IndexDocument(
 	_, existed := idx.Documents[docID]
 	idx.Documents[docID] = cloneDoc(doc)
 	idx.DocumentCount = len(idx.Documents)
+	meta := idx.bumpDocMetaLocked(docID)
 
-	return docID, !existed, nil
+	return docID, !existed, meta, nil
 }
 
-// GetDocument returns a stored document by ID.
+// GetDocument returns a stored document by ID along with its current real
+// _version/_seq_no (see DomainIndex.DocMeta). A read does not itself advance
+// either counter.
 func (b *InMemoryBackend) GetDocument(
 	domainName, indexName, docID string,
-) (map[string]any, error) {
+) (map[string]any, DocumentMeta, error) {
 	b.mu.RLock("GetDocument")
 	defer b.mu.RUnlock()
 
 	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpGet)
 	if err != nil {
-		return nil, err
+		return nil, DocumentMeta{}, err
 	}
 
 	doc, ok := idx.Documents[docID]
 	if !ok {
-		return nil, fmt.Errorf(
+		return nil, DocumentMeta{}, fmt.Errorf(
 			"%w: document %s not found in index %s",
 			ErrConnectionNotFound,
 			docID,
@@ -116,21 +120,23 @@ func (b *InMemoryBackend) GetDocument(
 		)
 	}
 
-	return cloneDoc(doc), nil
+	return cloneDoc(doc), idx.DocMeta[docID], nil
 }
 
-// DeleteDocument removes a document by ID and updates the document count.
-func (b *InMemoryBackend) DeleteDocument(domainName, indexName, docID string) error {
+// DeleteDocument removes a document by ID, updates the document count, and
+// returns the deleted document's real post-delete _version/_seq_no (real
+// OpenSearch bumps both on delete too, keeping a tombstone version).
+func (b *InMemoryBackend) DeleteDocument(domainName, indexName, docID string) (DocumentMeta, error) {
 	b.mu.Lock("DeleteDocument")
 	defer b.mu.Unlock()
 
 	idx, err := b.findIndexLocked(domainName, indexName, actionESHttpDelete)
 	if err != nil {
-		return err
+		return DocumentMeta{}, err
 	}
 
 	if _, ok := idx.Documents[docID]; !ok {
-		return fmt.Errorf(
+		return DocumentMeta{}, fmt.Errorf(
 			"%w: document %s not found in index %s",
 			ErrConnectionNotFound,
 			docID,
@@ -140,8 +146,26 @@ func (b *InMemoryBackend) DeleteDocument(domainName, indexName, docID string) er
 
 	delete(idx.Documents, docID)
 	idx.DocumentCount = len(idx.Documents)
+	meta := idx.bumpDocMetaLocked(docID)
 
-	return nil
+	return meta, nil
+}
+
+// bumpDocMetaLocked advances docID's real _version/_seq_no after a write
+// (index or delete) and returns the new value. The caller must hold the
+// backend write lock.
+func (idx *DomainIndex) bumpDocMetaLocked(docID string) DocumentMeta {
+	if idx.DocMeta == nil {
+		idx.DocMeta = make(map[string]DocumentMeta)
+	}
+
+	meta := idx.DocMeta[docID]
+	meta.Version++
+	meta.SeqNo = idx.NextSeqNo
+	idx.NextSeqNo++
+	idx.DocMeta[docID] = meta
+
+	return meta
 }
 
 // CountDocuments returns the number of documents stored in an index.

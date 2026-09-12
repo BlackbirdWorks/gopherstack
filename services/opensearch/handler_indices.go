@@ -109,19 +109,22 @@ func (h *Handler) handleIndexGetRoute(w http.ResponseWriter, r *http.Request, tr
 
 			return true
 		}
-		h.writeJSON(r, w, map[string]any{"count": count})
+		h.writeJSON(r, w, map[string]any{"count": count, jsonKeyDocShards: readOpShards()})
 	case indexOpDoc:
-		doc, err := h.Backend.GetDocument(sp.domain, sp.index, sp.docID)
+		doc, meta, err := h.Backend.GetDocument(sp.domain, sp.index, sp.docID)
 		if err != nil {
 			h.writeIndexError(r, w, err)
 
 			return true
 		}
 		h.writeJSON(r, w, map[string]any{
-			jsonKeyDocIndex: sp.index,
-			jsonKeyDocID:    sp.docID,
-			"found":         true,
-			"_source":       doc,
+			jsonKeyDocIndex:    sp.index,
+			jsonKeyDocID:       sp.docID,
+			jsonKeyDocVersion:  meta.Version,
+			jsonKeyDocSeqNo:    meta.SeqNo,
+			jsonKeyDocPrimTerm: docPrimaryTerm,
+			"found":            true,
+			"_source":          doc,
 		})
 	case "":
 		idx, err := h.Backend.GetIndex(sp.domain, sp.index)
@@ -138,27 +141,46 @@ func (h *Handler) handleIndexGetRoute(w http.ResponseWriter, r *http.Request, tr
 	return true
 }
 
-// indexResponseJSON is the metadata view of an index. It deliberately omits the
-// raw document store (which can be large) while surfacing the real document
-// count.
-type indexResponseJSON struct {
-	Mappings      map[string]any `json:"Mappings,omitempty"`
-	Settings      map[string]any `json:"Settings,omitempty"`
-	Aliases       map[string]any `json:"Aliases,omitempty"`
-	IndexName     string         `json:"IndexName"`
-	IndexStatus   string         `json:"IndexStatus"`
-	DocumentCount int            `json:"DocumentCount"`
+// docPrimaryTerm is the real OpenSearch REST document API's _primary_term
+// value. This backend models a single-node, single-primary index for its
+// entire lifetime, so the primary term never advances past its initial 1 --
+// an honest constant, not a fabricated one (there is no primary-failover
+// concept here to make it change).
+const docPrimaryTerm = 1
+
+const (
+	jsonKeyShardsTotal      = "total"
+	jsonKeyShardsSuccessful = "successful"
+	jsonKeyShardsFailed     = "failed"
+	jsonKeyShardsSkipped    = "skipped"
+	// singleShardOK is this single-node emulator's constant shard
+	// count/success value -- there is no replica or shard-failure model.
+	singleShardOK = 1
+)
+
+// writeOpShards is the _shards envelope real OpenSearch document writes
+// (index/delete) return (https://docs.opensearch.org/latest/api-reference/
+// document-apis/index-document/, https://docs.opensearch.org/latest/
+// api-reference/document-apis/delete-document/): total/successful/failed,
+// no "skipped" (that member is read-op-only, see readOpShards). This backend
+// models one node with no replicas, so total/successful are always 1.
+func writeOpShards() map[string]any {
+	return map[string]any{
+		jsonKeyShardsTotal:      singleShardOK,
+		jsonKeyShardsSuccessful: singleShardOK,
+		jsonKeyShardsFailed:     0,
+	}
 }
 
-// toIndexResponseJSON builds the index metadata response from a backend index.
-func toIndexResponseJSON(idx *DomainIndex) indexResponseJSON {
-	return indexResponseJSON{
-		IndexName:     idx.IndexName,
-		IndexStatus:   idx.IndexStatus,
-		Mappings:      idx.Mappings,
-		Settings:      idx.Settings,
-		Aliases:       idx.Aliases,
-		DocumentCount: idx.DocumentCount,
+// readOpShards is the _shards envelope real OpenSearch _count/_search
+// responses return (https://docs.opensearch.org/latest/api-reference/
+// search-apis/count/): total/successful/skipped/failed.
+func readOpShards() map[string]any {
+	return map[string]any{
+		jsonKeyShardsTotal:      singleShardOK,
+		jsonKeyShardsSuccessful: singleShardOK,
+		jsonKeyShardsSkipped:    0,
+		jsonKeyShardsFailed:     0,
 	}
 }
 
@@ -166,10 +188,9 @@ func toIndexResponseJSON(idx *DomainIndex) indexResponseJSON {
 // is its only field (api_op_GetIndex.go: "The JSON schema of the index
 // including mappings, settings, and semantic enrichment configuration.
 // This member is required."), an opaque smithy document.Interface value --
-// NOT the IndexName/IndexStatus/DocumentCount metadata shape
-// toIndexResponseJSON builds (that shape belongs to no real op; it predates
-// this fix and was reused here by mistake, leaving the real client's
-// required IndexSchema permanently nil).
+// NOT an IndexName/IndexStatus/DocumentCount metadata shape (that shape
+// belongs to no real op; it predates this fix and was reused here by
+// mistake, leaving the real client's required IndexSchema permanently nil).
 type getIndexResponseJSON struct {
 	IndexSchema any `json:"IndexSchema"`
 }
@@ -260,24 +281,40 @@ func (h *Handler) handleCreateIndexRoute(
 	return true
 }
 
-// handleCreateIndex creates an index and returns its metadata.
+// handleCreateIndex serves this backend's raw OpenSearch-REST-style create
+// index route ({domainName}/index/{indexName}, not an AWS SDK op -- see the
+// package doc on the data-plane surface). Real OpenSearch's Create Index API
+// (https://docs.opensearch.org/latest/api-reference/index-apis/create-index/)
+// takes lowercase "settings"/"mappings"/"aliases" and responds
+// {"acknowledged":true,"shards_acknowledged":true,"index":"<name>"} -- this
+// used to accept the AWS-control-plane-style PascalCase keys instead (a
+// different, unrelated op's shape) and echo back GetIndex's metadata
+// envelope, silently dropping every real client's request body and never
+// answering with the real response shape.
 func (h *Handler) handleCreateIndex(w http.ResponseWriter, r *http.Request, sp indexSubPath) {
 	body, _ := httputils.ReadBody(r)
+
 	var req struct {
-		Mappings map[string]any `json:"Mappings"`
-		Settings map[string]any `json:"Settings"`
-		Aliases  map[string]any `json:"Aliases"`
+		Mappings map[string]any `json:"mappings"`
+		Settings map[string]any `json:"settings"`
+		Aliases  map[string]any `json:"aliases"`
 	}
+
 	if len(body) > 0 {
 		_ = json.Unmarshal(body, &req)
 	}
-	idx, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases, nil)
-	if err != nil {
+
+	if _, err := h.Backend.CreateIndex(sp.domain, sp.index, req.Mappings, req.Settings, req.Aliases, nil); err != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
 
 		return
 	}
-	h.writeJSON(r, w, toIndexResponseJSON(idx))
+
+	h.writeJSON(r, w, map[string]any{
+		"acknowledged":        true,
+		"shards_acknowledged": true,
+		"index":               sp.index,
+	})
 }
 
 // handleIndexDocument stores a document in an index.
@@ -292,7 +329,7 @@ func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp
 		}
 	}
 
-	id, created, err := h.Backend.IndexDocument(sp.domain, sp.index, sp.docID, doc)
+	id, created, meta, err := h.Backend.IndexDocument(sp.domain, sp.index, sp.docID, doc)
 	if err != nil {
 		h.writeIndexError(r, w, err)
 
@@ -305,10 +342,13 @@ func (h *Handler) handleIndexDocument(w http.ResponseWriter, r *http.Request, sp
 	}
 
 	h.writeJSON(r, w, map[string]any{
-		jsonKeyDocIndex: sp.index,
-		jsonKeyDocID:    id,
-		"result":        result,
-		"created":       created,
+		jsonKeyDocIndex:    sp.index,
+		jsonKeyDocID:       id,
+		jsonKeyDocVersion:  meta.Version,
+		jsonKeyDocSeqNo:    meta.SeqNo,
+		jsonKeyDocPrimTerm: docPrimaryTerm,
+		"result":           result,
+		jsonKeyDocShards:   writeOpShards(),
 	})
 }
 
@@ -339,19 +379,37 @@ func (h *Handler) handleSearchIndex(w http.ResponseWriter, r *http.Request, sp i
 		return
 	}
 
+	// matchScore is the constant relevance score this backend reports: it has
+	// no scoring engine (see documents.go's compileQuery), so every hit that
+	// passes a predicate is an equally exact match, matching real
+	// OpenSearch's behavior for a bare {"match_all":{}} query (max_score 1.0
+	// for every hit) rather than fabricating a distribution this backend
+	// cannot compute.
+	const matchScore = 1.0
+
 	hits := make([]map[string]any, 0, len(res.Hits))
 	for _, hit := range res.Hits {
 		hits = append(hits, map[string]any{
 			jsonKeyDocIndex: hit.Index,
 			jsonKeyDocID:    hit.ID,
+			"_score":        matchScore,
 			"_source":       hit.Source,
 		})
 	}
 
+	var maxScore any = matchScore
+	if res.Total == 0 {
+		maxScore = nil
+	}
+
 	h.writeJSON(r, w, map[string]any{
+		"took":           0,
+		"timed_out":      false,
+		jsonKeyDocShards: readOpShards(),
 		"hits": map[string]any{
-			"total": map[string]any{"value": res.Total, "relation": "eq"},
-			"hits":  hits,
+			"total":     map[string]any{"value": res.Total, "relation": "eq"},
+			"max_score": maxScore,
+			"hits":      hits,
 		},
 	})
 }
@@ -382,15 +440,20 @@ func (h *Handler) handleIndexDeleteRoute(w http.ResponseWriter, r *http.Request,
 	}
 
 	if sp.op == indexOpDoc {
-		if err := h.Backend.DeleteDocument(sp.domain, sp.index, sp.docID); err != nil {
+		meta, err := h.Backend.DeleteDocument(sp.domain, sp.index, sp.docID)
+		if err != nil {
 			h.writeIndexError(r, w, err)
 
 			return true
 		}
 		h.writeJSON(r, w, map[string]any{
-			jsonKeyDocIndex: sp.index,
-			jsonKeyDocID:    sp.docID,
-			"result":        "deleted",
+			jsonKeyDocIndex:    sp.index,
+			jsonKeyDocID:       sp.docID,
+			jsonKeyDocVersion:  meta.Version,
+			jsonKeyDocSeqNo:    meta.SeqNo,
+			jsonKeyDocPrimTerm: docPrimaryTerm,
+			"result":           "deleted",
+			jsonKeyDocShards:   writeOpShards(),
 		})
 
 		return true

@@ -280,7 +280,10 @@ func (b *InMemoryBackend) GetAutoTune(domainName string) ([]*AutoTune, error) {
 
 	out := []*AutoTune{
 		{
-			AutoTuneType: "SCHEDULED",
+			// types.AutoTuneType (opensearch@v1.75.4 types/enums.go) has
+			// exactly one value, "SCHEDULED_ACTION" -- "SCHEDULED" is not a
+			// member.
+			AutoTuneType: "SCHEDULED_ACTION",
 			AutoTuneDetails: AutoTuneDetails{
 				ScheduledAutoTuneDetails: ScheduledAutoTuneDetails{
 					Date:       float64(time.Now().Add(autoTuneScheduleLookahead).Unix()),
@@ -569,31 +572,22 @@ func (b *InMemoryBackend) ListInstanceTypeDetails(_, _ string) []map[string]any 
 	}
 }
 
-// GetCompatibleVersions returns static compatible version pairs.
-// If domainName is non-empty, target versions are filtered to those
-// reachable from the domain's current EngineVersion.
+// GetCompatibleVersions returns the real AWS-documented compatible version
+// pairs (see versions.go's file-level citation). If domainName is non-empty,
+// the result is a single entry for that domain's current EngineVersion.
 func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]any {
-	static := []map[string]any{
-		{
-			jsonKeySourceVersion:  engineVersionOpenSearch29,
-			jsonKeyTargetVersions: []string{engineVersionOpenSearch211},
-		},
-		{
-			jsonKeySourceVersion:  engineVersionOpenSearch27,
-			jsonKeyTargetVersions: []string{engineVersionOpenSearch29, engineVersionOpenSearch211},
-		},
-		{
-			jsonKeySourceVersion:  engineVersionOpenSearch13,
-			jsonKeyTargetVersions: []string{engineVersionOpenSearch27},
-		},
-		{
-			jsonKeySourceVersion:  engineVersionOpenSearch211,
-			jsonKeyTargetVersions: []string{},
-		},
-	}
-
 	if domainName == "" {
-		return static
+		all := allSupportedEngineVersions()
+		out := make([]map[string]any, len(all))
+
+		for i, v := range all {
+			out[i] = map[string]any{
+				jsonKeySourceVersion:  v,
+				jsonKeyTargetVersions: compatibleTargetVersions(v),
+			}
+		}
+
+		return out
 	}
 
 	b.mu.RLock("GetCompatibleVersions")
@@ -601,16 +595,13 @@ func (b *InMemoryBackend) GetCompatibleVersions(domainName string) []map[string]
 	b.mu.RUnlock()
 
 	if !exists {
-		return static
-	}
-
-	for _, entry := range static {
-		if entry["SourceVersion"] == d.EngineVersion {
-			return []map[string]any{entry}
-		}
+		return []map[string]any{}
 	}
 
 	return []map[string]any{
-		{jsonKeySourceVersion: d.EngineVersion, jsonKeyTargetVersions: []string{}},
+		{
+			jsonKeySourceVersion:  d.EngineVersion,
+			jsonKeyTargetVersions: compatibleTargetVersions(d.EngineVersion),
+		},
 	}
 }

@@ -141,10 +141,6 @@ const (
 	jsonKeyCognitoEnabled          = "CognitoEnabled"
 	jsonKeyEncryptEnabled          = "EncryptionEnabled"
 	jsonKeyWarmEnabled             = "WarmEnabled"
-	engineVersionOpenSearch211     = "OpenSearch_2.11"
-	engineVersionOpenSearch29      = "OpenSearch_2.9"
-	engineVersionOpenSearch27      = "OpenSearch_2.7"
-	engineVersionOpenSearch13      = "OpenSearch_1.3"
 	nodeRoleData                   = "Data"
 	jsonKeyAdvancedSecurityEnabled = "AdvancedSecurityEnabled"
 	jsonKeyInstanceRole            = "InstanceRole"
@@ -382,9 +378,15 @@ type DomainIndex struct {
 	// than parsed into Mappings/Settings/Aliases.
 	IndexSchema any `json:"IndexSchema,omitempty"`
 	// Documents holds the real per-index document store keyed by document ID.
-	Documents   map[string]map[string]any `json:"Documents,omitempty"`
-	IndexName   string                    `json:"IndexName"`
-	IndexStatus string                    `json:"IndexStatus"`
+	Documents map[string]map[string]any `json:"Documents,omitempty"`
+	// DocMeta tracks the real OpenSearch per-document _version/_seq_no
+	// (updated on every index or delete of that document ID) -- the raw
+	// data-plane REST surface this backend serves under /index/{name}/_doc
+	// (not an AWS SDK op; see documents.go) echoes these back like a real
+	// OpenSearch node does.
+	DocMeta     map[string]DocumentMeta `json:"DocMeta,omitempty"`
+	IndexName   string                  `json:"IndexName"`
+	IndexStatus string                  `json:"IndexStatus"`
 	// DomainName identifies the owning domain and is used only to key the
 	// pkgs/store composite table (domainName#indexName); it is never
 	// serialized on the wire, matching how the domain name was already
@@ -392,6 +394,16 @@ type DomainIndex struct {
 	DomainName string `json:"-"`
 	// DocumentCount is the number of documents currently stored in the index.
 	DocumentCount int `json:"DocumentCount"`
+	// NextSeqNo is the real per-index _seq_no counter (this backend models
+	// one shard per index, so it is tracked per index rather than per shard).
+	NextSeqNo int `json:"NextSeqNo,omitempty"`
+}
+
+// DocumentMeta is the real per-document _version/_seq_no pair for the
+// data-plane document store (see DomainIndex.DocMeta).
+type DocumentMeta struct {
+	Version int `json:"Version"`
+	SeqNo   int `json:"SeqNo"`
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.

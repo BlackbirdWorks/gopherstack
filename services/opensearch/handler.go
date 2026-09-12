@@ -101,11 +101,15 @@ const (
 	jsonKeyCreatedAt     = "createdAt"
 	jsonKeyLastUpdatedAt = "lastUpdatedAt"
 	// Index data-plane operation segments and document response keys.
-	indexOpDoc      = "_doc"
-	indexOpSearch   = "_search"
-	indexOpCount    = "_count"
-	jsonKeyDocIndex = "_index"
-	jsonKeyDocID    = "_id"
+	indexOpDoc         = "_doc"
+	indexOpSearch      = "_search"
+	indexOpCount       = "_count"
+	jsonKeyDocIndex    = "_index"
+	jsonKeyDocID       = "_id"
+	jsonKeyDocVersion  = "_version"
+	jsonKeyDocSeqNo    = "_seq_no"
+	jsonKeyDocPrimTerm = "_primary_term"
+	jsonKeyDocShards   = "_shards"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -571,11 +575,16 @@ func (h *Handler) dispatchDomainGetStatusRoutes(
 
 	switch {
 	case strings.HasSuffix(trimmed, "/autoTunes"):
-		// DescribeDomainAutoTunes
+		// DescribeDomainAutoTunes. GetAutoTune returns ErrDomainNotFound for
+		// an unknown domain -- this must not silently succeed with a
+		// fabricated empty list (same missing-error class as the
+		// GetUpgradeHistory/GetUpgradeStatus fix, handler_advanced.go).
 		domainName, _ := strings.CutSuffix(trimmed, "/autoTunes")
 		autoTunes, err := h.Backend.GetAutoTune(domainName)
 		if err != nil {
-			autoTunes = []*AutoTune{}
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
 		}
 
 		h.writeJSON(r, w, map[string]any{"AutoTunes": autoTunes})

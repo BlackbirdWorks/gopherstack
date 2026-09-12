@@ -8,9 +8,12 @@ import (
 	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-// handleVersionsRoutes handles GET /2021-01-01/opensearch/versions → ListVersions.
+// handleVersionsRoutes handles GET /2021-01-01/opensearch/versions →
+// ListVersions. Versions come from versions.go's AWS-documented table, not an
+// invented catalog.
 func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", "route not found")
@@ -18,39 +21,27 @@ func (h *Handler) handleVersionsRoutes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	versions := []string{
-		"OpenSearch_2.17", "OpenSearch_2.15", "OpenSearch_2.13",
-		engineVersionOpenSearch211, "OpenSearch_2.10",
-		engineVersionOpenSearch29, "OpenSearch_2.8",
-		engineVersionOpenSearch27, "Elasticsearch_8.11",
-		"Elasticsearch_7.10", "Elasticsearch_6.8",
-	}
+	q := r.URL.Query()
 
-	// Support nextToken-based pagination offset.
-	if tok := r.URL.Query().Get("nextToken"); tok != "" {
-		for i, v := range versions {
-			if v == tok {
-				versions = versions[i:]
-
-				break
-			}
-		}
-	}
-
-	// Support maxResults limit.
-	maxResults := len(versions)
-	if mr := r.URL.Query().Get("maxResults"); mr != "" {
-		if n, err := strconv.Atoi(mr); err == nil && n > 0 && n < maxResults {
+	var maxResults int
+	if mr := q.Get("maxResults"); mr != "" {
+		if n, err := strconv.Atoi(mr); err == nil && n > 0 {
 			maxResults = n
 		}
 	}
 
-	result := map[string]any{
-		"Versions": versions[:maxResults],
+	all := allSupportedEngineVersions()
+
+	limit := maxResults
+	if limit <= 0 {
+		limit = len(all)
 	}
 
-	if maxResults < len(versions) {
-		result["NextToken"] = versions[maxResults]
+	p := page.New(all, q.Get("nextToken"), limit, limit)
+
+	result := map[string]any{"Versions": p.Data}
+	if p.Next != "" {
+		result["NextToken"] = p.Next
 	}
 
 	h.writeJSON(r, w, result)
