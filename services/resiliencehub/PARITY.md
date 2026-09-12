@@ -996,3 +996,30 @@ that has findings or coverage warnings, and resiliencehub now has neither
 0 findings, 0 warnings) -- not a tool bug, its designed silent-clean-bill
 behavior. Full-repo total dropped from 131 to 129 class-A findings
 service-tree-wide, exactly the 2 fixed here.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 11 remaining typed-client-blind ops
+(`DeleteAppInputSource`, `DescribeAppVersion`, `DescribeAppVersionAppComponent`,
+`DescribeAppVersionResource`, `ListAppComponentCompliances`,
+`ListAppInputSources`, `ListAppVersionAppComponents`,
+`ListAppVersionResourceMappings`, `RejectResourceGroupingRecommendations`,
+`RemoveDraftAppVersionResourceMappings`, `UpdateAppVersion`) through the
+real aws-sdk-go-v2 client for the first time
+(`typed_slice21_realclient_test.go`, 5 subtests). **Zero bugs** -- every
+op decoded and matched its documented shape on the first real-client run,
+consistent with this service's unusually deep prior per-op field-diff
+audit history (the `ops:` table's individual `wire: ok` verdicts, most
+citing their own deserializer). `RejectResourceGroupingRecommendations`
+was exercised against its documented always-fails honest-gap behavior
+(no resource-grouping ML output exists in this backend, per
+`structural_gaps`) -- proves the real `FailedEntries` wire shape rather
+than a successful exclusion, which is the only behavior this backend can
+ever produce for that op. Repo-wide typed-client census: resiliencehub
+52/63 -> 63/63 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/resiliencehub/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes (every op exercised
+reads existing persisted state or is response-only). No version bump.

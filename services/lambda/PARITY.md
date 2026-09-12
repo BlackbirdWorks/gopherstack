@@ -16,7 +16,17 @@ families:
   capacity_providers: {status: ok, note: "gopherstack-m53b (required-member sweep pass 4). CreateCapacityProvider read a top-level \"Name\" field that does not exist on the wire -- the real required field is CapacityProviderName (api_op_CreateCapacityProvider.go:28-45 vs the old models.go CreateCapacityProviderInput) -- so every real client request 400'd with \"Name is required\" before ever reaching the backend; PermissionsConfig and VpcConfig, both also required, were dropped entirely. Full-shape read (per this sweep's standing instruction) found the drop was worse than the three named fields: CapacityProvider/CreateCapacityProviderInput/UpdateCapacityProviderInput had a wholesale-fabricated shape -- a TargetOnDemandConcurrency field that appears nowhere in the real API (removed), Status/LastModifiedTime field names that are actually State/LastModified on the wire (renamed), an ACTIVE status value where the real CapacityProviderState enum is title-cased Active/Pending/Failed/Deleting (fixed), and CapacityProviderScalingConfig/InstanceRequirements/KmsKeyArn/PropagateTags/TelemetryConfig(partially)/VpcConfig were entirely un-modeled despite being real CapacityProvider members. Rebuilt CreateCapacityProviderInput/UpdateCapacityProviderInput/CapacityProvider field-for-field against types.CapacityProvider (types/types.go:206-249) and its nested types (CapacityProviderPermissionsConfig/VpcConfig/ScalingConfig/TelemetryConfig, InstanceRequirements, PropagateTags, TargetTrackingScalingPolicy); UpdateCapacityProvider (not itself one of the five named bugs, but sharing the same CapacityProvider model and left broken by a narrower fix) was corrected alongside it -- CapacityProviderName is a URI label there, not a body field (serializers.go:7098-7113), matching the existing name-from-path handler wiring. Get/List now correctly echo the real state instead of a fabricated shape. Existing tests (capacity_providers_test.go) encoded the broken \"Name\"/TargetOnDemandConcurrency shape end to end (3 create/update/list tests + 1 telemetry test); corrected to the real field names, and a Test_SDKRoundTrip_CreateCapacityProvider/Test_SDKRoundTrip_UpdateCapacityProvider pair added, driving the real aws-sdk-go-v2 lambda client end to end -- both fail against the unfixed decode (hand-reverted and confirmed). TestHandlerReset_ClearsState (dispatch_test.go) also encoded the old \"Name\" shape and was corrected. gopherstack-r80d (required-OUTPUT-member sweep): DeleteCapacityProvider returned bare 204 No Content, but DeleteCapacityProviderOutput.CapacityProvider is required on the wire (api_op_DeleteCapacityProvider.go:44-46) -- real AWS returns 200 with the deleted provider's state. The real SDK deserializer treats an empty 204 body as JSON-decode-EOF (not an error), so the old code produced a client-side success with CapacityProvider left nil -- exactly the zero-value-on-success-path bug class. Fixed: DeleteCapacityProvider now returns the pre-deletion snapshot, handler responds 200 with {CapacityProvider}. Test_SDKRoundTrip_DeleteCapacityProvider added, driving the real client; fails against the unfixed handler with 'Expected value not to be nil' on CapacityProvider (hand-reverted and confirmed). Full sweep of the other 20 required-output-member ops in this service's SDK surface (CheckpointDurableExecution, Create/Get/List/UpdateCapacityProvider, Create/Get/UpdateCodeSigningConfig, GetDurableExecution/-History/-State, GetFunctionCodeSigningConfig, Create/Get/List/UpdateFunctionUrlConfig, ListFunctionVersionsByCapacityProvider, PutFunctionCodeSigningConfig, PutRuntimeManagementConfig, StopDurableExecution) found all correctly populated on their success paths -- this was the only miss."}
   route_reachability: {status: ok, note: "gopherstack-l5ir (2026-08-13). All 85 real lambda ops extracted from serializers.go (request.Method + httpbinding.SplitURI in each op's awsRestjson1_serializeOp<Op>.HandleSerialize) and diffed against the route table. Found and fixed 12 ops that were unreachable or misrouted at their true path/method, beyond the two routing bugs durable_execution's rewrite already caught (see that family's note): GetLayerVersionByArn was wired to a fictional literal path /2018-10-31/layers-by-arn -- the real op shares ListLayers' bare /2018-10-31/layers path, disambiguated only by a ?find=LayerVersion query flag (the query-parameter-discriminator class this sweep was told to watch for specifically); ListFunctionEventInvokeConfigs checked a fictional plural suffix /event-invoke-configs instead of the real /event-invoke-config/list; GetFunctionRecursionConfig/PutFunctionRecursionConfig used date 2024-08-28 instead of the real 2024-08-31; GetFunctionScalingConfig/PutFunctionScalingConfig used date 2023-10-26 AND path segment scaling-config instead of the real 2025-11-30 and function-scaling-config (both wrong, independently); ListTags/TagResource/UntagResource used date 2015-03-31 instead of the real 2017-03-31 -- all three tagging operations were unreachable; InvokeAsync's suffix predicate required a trailing slash (/invoke-async/) the real client never sends (real path has none); ListLayerVersions/PublishLayerVersion resolved via a separate parallel implementation (extractLayerOperation, used by ExtractOperation and IAMAction, NOT by the real HTTP dispatch table which was already correct) that left its discriminating segment empty for exactly this path shape, so both ops always fell through to empty/Unknown -- a real IAM-action and CloudTrail-naming gap even though the request itself was correctly handled. Also corrected, not a bug: ExtractOperation previously returned the lambdaOpRoutes table's first-matching entry for POST .../invocations, which was the literal string \"InvokeFunction\" -- that is the correct IAM *action* name for this op (a documented AWS naming quirk where the IAM action differs from the API operation name) but the wrong *operation* name; ExtractOperation now special-cases this path to return the real op name \"Invoke\" while IAMAction is untouched and still correctly returns lambda:InvokeFunction. ExtractOperation, previously covering only ~30 of 85 ops (CRUD, layers, durable exec), was extended to mirror dispatchSpecialRoutes/lambdaOpRoutes/layerOpTable op-for-op so TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go, one subtest per op) exercises the real dispatch tree directly -- 85/85 pass. Existing tests that encoded the old wrong paths/dates/expected-op-names (tags_test.go, handler_tags_iam_test.go, function_settings_test.go, event_invoke_config_test.go, layers_http_test.go, invocation_test.go, handler_routing_test.go) were corrected to the real shapes rather than preserved. VERIFIED 2026-09-11 (gopherstack-9coa re-audit): the IAMAction/ExtractOperation divergence described above was already fixed in this same pass; re-confirmed against lambda@v1.107.0's api_op_Invoke.go:65 (`c.invokeOperation(ctx, \"Invoke\", ...)` — the real SDK op name, which is also CloudTrail's eventName per https://docs.aws.amazon.com/lambda/latest/dg/logging-using-cloudtrail.html). What remained from that issue was cleanup only: lambdaOpRoutes (handler_dispatch.go) still carried the later, unreachable duplicate `{POST, hasSuffixInvocations, opInvoke}` entry the issue named (first-match-wins made it dead for both IAMAction and ExtractOperation's fallback loop) — removed, and a landmine comment added on the surviving \"InvokeFunction\" entry explaining the IAM-action/op-name split. New test TestHandler_InvokeOp_IAMActionVsExtractOperation (handler_tags_iam_test.go) drives both consumers off the same request table to prove the divergence and that other ops are unaffected."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "ListDurableExecutionsByFunction always returns zero DurableExecutions for
+    any function: DurableExecution.FunctionARN is never assigned anywhere in
+    the package (durable_execution.go) because CheckpointDurableExecution --
+    the only test/client-reachable creation path -- carries no function
+    identity, and its DurableExecutionArn is intentionally treated as
+    client-opaque. Same root cause as the durable_execution family note's
+    documented FunctionArn-always-empty gap (no StartDurableExecution/Invoke
+    entry point); this is that gap's consequence for the List op
+    specifically. Fixing needs the same out-of-scope Invoke rewiring that
+    gap already defers to. See 2026-09-12 dated section."
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
@@ -860,3 +870,73 @@ Gates: `go build ./...` (whole module, clean), `go vet`,
 -count=1` (all pass, including the three corrected pre-existing tests).
 `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
 fields changed by any of the three fixes). No version bump.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove the entire `DurableExecution` family (9 ops named as this slice's
+remaining coverage gap above) through the real aws-sdk-go-v2 client for
+the first time (`typed_slice21_realclient_test.go`, 3 subtests: checkpoint
+lifecycle, callbacks, list-by-function). `CheckpointDurableExecution` is
+the only creation path available outside a real Docker `Invoke`, used as
+documented rather than a fabricated backdoor.
+
+**One real wire-shape bug, found and fixed**: `StopDurableExecutionInput.Error`
+and `SendDurableExecutionCallbackFailureInput.Error` are each the
+request's entire top-level JSON body (confirmed against serializers.go's
+`awsRestjson1_serializeOpStopDurableExecution` /
+`-CallbackFailure`, both of which stream
+`awsRestjson1_serializeDocumentErrorObject`'s output directly as the
+body — `ErrorType`/`ErrorMessage`/etc. at the top level, never wrapped).
+Both handlers instead unmarshalled into a `struct{ Error *ErrorObject
+}`-shaped wrapper expecting a nonexistent `"Error"` key, so a real
+client's `Error` was silently dropped every time; `StopDurableExecution`
+always fell back to its generic default `"Stopped"` / "The durable
+execution was stopped by StopDurableExecution." message regardless of
+what the caller sent. Fixed both handlers to parse the body directly as
+`*ErrorObject` (new `isEmptyErrorObject` helper distinguishes a real
+client's `{}` no-error body from an actual populated one, preserving the
+existing default-message behavior for a bare stop). Two pre-existing
+tests (`durable_execution_test.go`'s `TestDurableExecution_StopVariants`
+and `TestDurableExecution_CallbackFailure`) had hand-crafted the wrong,
+wrapped `{"Error":{...}}` body — only the pre-fix bug made that shape
+"work" — corrected to the real unwrapped shape.
+`SendDurableExecutionCallbackFailure`'s fix is not independently
+observable: `CallbackFailedDetails` is one of the ~19 type-specific Event
+`*Details` structs this emulator deliberately never populates (see the
+`durable_execution` family note), so the parsed `Error` still has no
+response field to surface in — fixed for wire-shape consistency with
+`StopDurableExecution`'s identical bug, not because a test can assert a
+difference. Hand-reverted `handler_durable_execution.go` and
+`durable_execution.go` to `HEAD`, re-ran the new test — reproduced the
+exact `"Stopped"` / generic-message failure verbatim — then restored the
+fix byte-identical (diffed clean) and reconfirmed passing.
+
+**Accept-and-drop / architecture-gap finding, disclosed in
+`items_still_open`, not fixed**: `ListDurableExecutionsByFunction`
+permanently returns zero `DurableExecutions` for any function on this
+backend. Root cause: `DurableExecution.FunctionARN` (durable_execution.go)
+is declared and read (`matchesListFilter`) but never assigned anywhere in
+the package — confirmed by grepping every `FunctionARN` reference in
+services/lambda, all reads, zero writes. `CheckpointDurableExecution`,
+the only creation path, carries no function identity in its request at
+all (`DurableExecutionArn` alone, deliberately treated as
+"client-opaque, server-never-parses-structure-from-it" per
+`deriveDurableExecutionName`'s own doc comment), so there is nothing to
+derive `FunctionARN` from without the same Invoke-entry-point rewiring
+the existing `durable_execution` family note already defers as
+out-of-scope. The op still round-trips correctly through the real SDK
+(empty list, no decode error) — proven in this slice's `list by function`
+subtest — so this is a functional/architecture gap, not a wire-shape bug;
+added to `items_still_open` since it was previously undisclosed there
+(the family note only covered `GetDurableExecutionOutput.FunctionArn`
+being empty on one execution, not that the List op can never match any).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/lambda/...` clean (including the two corrected
+pre-existing tests). `golangci-lint run --new-from-rev=HEAD` 0 issues
+(one justified `//nolint:exhaustive` on a 2-case switch over
+`types.EventType` in the new test — that op family produces ~20 real
+enum values, only 2 are relevant here). `go run ./cmd/paritylint`: 0 FAIL
+throughout. No `snapshot_inventory.json` changes (durable_execution is
+not wired into persistence — pre-existing, documented in Notes above).
+No version bump.

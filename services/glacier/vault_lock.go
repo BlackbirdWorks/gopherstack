@@ -32,8 +32,11 @@ func (b *InMemoryBackend) expireLockIfStale(vArn string) {
 	}
 }
 
-// GetVaultLock returns the vault lock state.  If no lock has been initiated,
-// the returned VaultLock has State "Unlocked".
+// GetVaultLock returns the vault lock state. Real AWS returns a 404
+// ResourceNotFoundException, not a 200 response, when the vault has no
+// lock-policy subresource set (api_op_GetVaultLock.go's own doc comment) --
+// covers never-initiated, aborted, and expired alike, since all three leave
+// no vaultLocks record.
 func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*VaultLock, error) {
 	b.mu.Lock("GetVaultLock")
 	defer b.mu.Unlock()
@@ -48,7 +51,7 @@ func (b *InMemoryBackend) GetVaultLock(accountID, region, vaultName string) (*Va
 
 	lock, ok := b.vaultLocks.Get(vArn)
 	if !ok {
-		return &VaultLock{State: lockStateUnlocked}, nil
+		return nil, ErrVaultLockNotFound
 	}
 
 	cp := *lock

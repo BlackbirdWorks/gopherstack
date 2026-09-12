@@ -35,6 +35,11 @@ var (
 	// ErrVaultLockDenied is returned when a vault lock policy's Deny statement
 	// matches the requested operation. See vault_lock_policy_eval.go.
 	ErrVaultLockDenied = errors.New("AccessDeniedException: denied by vault lock policy")
+	// ErrVaultLockNotFound is returned by GetVaultLock when the vault has no
+	// lock-policy subresource set (never initiated, aborted, or expired),
+	// per api_op_GetVaultLock.go's own doc comment: if there is no vault
+	// lock policy set on the vault, the operation returns a 404 error.
+	ErrVaultLockNotFound = errors.New("ResourceNotFoundException: no vault lock policy set on this vault")
 )
 
 // Handler-level sentinel errors used as wrapping targets to satisfy err113.

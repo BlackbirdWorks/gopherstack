@@ -162,8 +162,11 @@ func TestDurableExecution_CallbackFailure(t *testing.T) {
 	callInMemoryHandler(t, h, http.MethodPost, durableExecURL("/checkpoint"),
 		`{"Updates":[{"Id":"cb-failure","Type":"CALLBACK","Action":"START"}]}`)
 
+	// Real SendDurableExecutionCallbackFailureInput.Error is the request's
+	// top-level JSON body, not wrapped in an "Error" key (same shape as
+	// StopDurableExecution's Error -- see that test's comment, slice 21).
 	rec := callInMemoryHandler(t, h, http.MethodPost, durableExecCallbackURL("cb-failure", "/fail"),
-		`{"Error":{"ErrorMessage":"boom"}}`)
+		`{"ErrorMessage":"boom"}`)
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = callInMemoryHandler(t, h, http.MethodGet, durableExecURL("/state"), "{}")
@@ -523,7 +526,13 @@ func TestDurableExecution_StopVariants(t *testing.T) {
 				t.Helper()
 				callInMemoryHandler(t, h, http.MethodPost, durableExecURL("/checkpoint"), `{}`)
 			},
-			body:       `{"Error":{"ErrorMessage":"cancelled by operator"}}`,
+			// Real StopDurableExecutionInput.Error serializes as the request's
+			// top-level JSON body (serializers.go:
+			// awsRestjson1_serializeDocumentErrorObject writes ErrorMessage
+			// etc. directly, not wrapped in an "Error" key) -- this test
+			// previously hand-crafted the wrong wrapped shape, which only
+			// the pre-fix handler bug happened to accept (slice 21).
+			body:       `{"ErrorMessage":"cancelled by operator"}`,
 			wantStatus: http.StatusOK,
 		},
 		{

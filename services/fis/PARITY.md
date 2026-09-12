@@ -483,3 +483,25 @@ still emitted there despite not being decodable.
 No code behavior changed. `go build ./services/fis/...`, `go vet
 ./services/fis/...`, `go test -race -count=1 ./services/fis/...` (pass),
 `golangci-lint run ./services/fis/...` (0 issues).
+
+### 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 12 remaining typed-client-blind ops
+(`DeleteTargetAccountConfiguration`, `GetAction`, `GetExperiment`,
+`GetExperimentTargetAccountConfiguration`, `GetTargetAccountConfiguration`,
+`GetTargetResourceType`, `ListExperimentResolvedTargets`,
+`ListExperimentTargetAccountConfigurations`,
+`ListTargetAccountConfigurations`, `StopExperiment`,
+`UpdateExperimentTemplate`, `UpdateTargetAccountConfiguration`) through
+the real aws-sdk-go-v2 client for the first time
+(`typed_slice21_realclient_test.go`, 3 subtests: action/target-resource-type
+catalog lookups, experiment template + target-account-configuration CRUD,
+full experiment lifecycle incl. Start/Get/Stop and its target-account-config
+and resolved-target reads). **Zero bugs** -- every op decoded and matched
+its documented shape on the first real-client run. Repo-wide typed-client
+census: fis 14/26 -> 26/26 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/fis/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes. No version bump.

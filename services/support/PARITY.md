@@ -216,3 +216,30 @@ value applied wrong -- both are a rejection that never fires.
 Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
 `golangci-lint run` all pass. No production code changed; `cases_test.go`
 gained one new test (assertions: +9, 0 dropped).
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+This package had no real-client (httptest+`NewFromConfig`) helper at all
+before this slice -- built one from scratch
+(`typed_slice21_realclient_test.go`'s `newSlice21SupportClient`, same
+pattern as identitystore's slice 19). Drove all 12 remaining
+typed-client-blind ops (`AddAttachmentsToSet`, `DescribeAttachment`,
+`DescribeCommunications`, `DescribeCreateCaseOptions`, `DescribeServices`,
+`DescribeSeverityLevels`, `DescribeSupportedLanguages`,
+`DescribeTrustedAdvisorCheckRefreshStatuses`,
+`DescribeTrustedAdvisorCheckResult`, `DescribeTrustedAdvisorCheckSummaries`,
+`DescribeTrustedAdvisorChecks`, `RefreshTrustedAdvisorCheck`) through the
+real client for the first time (3 subtests: attachment/communication
+round trip -- CreateCase -> AddAttachmentsToSet -> AddCommunicationToCase
+-> DescribeCommunications -> DescribeAttachment via the AttachmentId the
+communication echoes back -- catalog ops, and the full Trusted Advisor
+check lifecycle against the built-in "Service Limits" (`Pfx0RwqBli`)
+catalog entry). **Zero bugs** -- every op decoded and matched its
+documented shape on the first real-client run, consistent with this
+service's existing deep static (deserializers.go/service-2.json) audit
+history. Repo-wide typed-client census: support 4/16 -> 16/16 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/support/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes. No version bump.

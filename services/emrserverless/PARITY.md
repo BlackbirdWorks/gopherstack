@@ -583,3 +583,28 @@ deliberately lacks") with no description. Re-derived the specifics:
 Tools re-run after the fix: `GOTOOLCHAIN=go1.27.0 go test -race
 ./services/emrserverless/...` and `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/emrserverless/...`, both clean, 0 issues.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 10 remaining typed-client-blind ops (`GetDashboardForJobRun`,
+`GetResourceDashboard`, `GetSession`, `GetSessionEndpoint`, `ListSessions`,
+`StopApplication`, `TagResource`, `TerminateSession`, `UntagResource`,
+`UpdateApplication`) through the real aws-sdk-go-v2 client for the first
+time (`typed_slice21_realclient_test.go`, 3 subtests: application
+lifecycle incl. tag/untag/update/stop, sessions incl.
+get/list/dashboard/endpoint/terminate, job-run dashboard). **Zero bugs**
+-- every op decoded and matched its documented shape on the first
+real-client run, consistent with this service's unusually deep prior
+per-op field-diff audit history (`ops:` table above already carries
+individual `wire: ok` verdicts for all 10, each with its own deserializer
+citation). `TerminateSession` was initially missed from this slice's
+target list (a census-tool bookkeeping slip, not a service-side gap) and
+added once the post-slice census caught the 21/22 shortfall. Repo-wide
+typed-client census: emrserverless 12/22 -> 22/22 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/emrserverless/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes (every op exercised is
+either derived/response-only or already covered by existing persisted
+fields). No version bump.

@@ -33,7 +33,7 @@ ops:
   InitiateVaultLock:      {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-ygfk (THIS PASS): fixed two bugs found while wiring enforcement. (1) LockId was JSON-body-only; real AWS returns it via the x-amz-lock-id response header only (confirmed via awsRestjson1_deserializeOpHttpBindingsInitiateVaultLockOutput, which never touches the body) -- a real SDK client got a nil LockId and could never call CompleteVaultLock. Header now set; JSON body kept as a harmless bonus, same pattern as UploadArchive. (2) the request body's top-level JSON unmarshal error was silently discarded (_ = json.Unmarshal(...)), so a malformed request body was accepted with an empty Policy rather than rejected -- see families: vault_lock_enforcement for the policy-content validation fix alongside it."}
   AbortVaultLock:         {wire: ok, errors: ok, state: ok, persist: ok}
   CompleteVaultLock:      {wire: ok, errors: ok, state: ok, persist: ok}
-  GetVaultLock:           {wire: ok, errors: ok, state: ok, persist: ok, note: "24h InProgress expiry verified"}
+  GetVaultLock:           {wire: fixed, errors: fixed, state: ok, persist: ok, note: "24h InProgress expiry verified. 2026-09-12 (typed slice 21, gopherstack-n3zi): FIXED a real wire bug this op's own SDK doc comment names outright -- 'If there is no vault lock policy set on the vault, the operation returns a 404 Not found error' -- but gopherstack fabricated a 200 response with an invented State='Unlocked' value (never a real GetVaultLockOutput.State; the doc comment lists only InProgress/Locked) whenever a vault had never been locked, had an aborted lock, or had an expired lock. Never caught before because no typed client had ever driven this op. Fixed: GetVaultLock now returns the new ErrVaultLockNotFound sentinel (404 ResourceNotFoundException) in that case. Corrected 4 pre-existing tests in handler_vault_lock_test.go that had encoded the wrong 200/Unlocked shape as correct."}
   GetDataRetrievalPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FreeTier default matches AWS"}
   SetDataRetrievalPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   InitiateMultipartUpload:   {wire: ok, errors: ok, state: ok, persist: ok, note: "response header-only (Location/x-amz-multipart-upload-id) confirmed"}
@@ -943,3 +943,47 @@ Gates re-run after closing this: `GOTOOLCHAIN=go1.26.6 go build
 ./services/glacier/...` clean; `GOTOOLCHAIN=go1.26.6 go test -race
 -count=1 ./services/glacier/...` PASS; `GOTOOLCHAIN=go1.26.6 golangci-lint
 run services/glacier/...` 0 issues.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 12 remaining typed-client-blind ops
+(`AbortMultipartUpload`, `AbortVaultLock`, `AddTagsToVault`,
+`CompleteMultipartUpload`, `DeleteVaultAccessPolicy`,
+`DeleteVaultNotifications`, `GetDataRetrievalPolicy`, `GetVaultLock`,
+`ListProvisionedCapacity`, `PurchaseProvisionedCapacity`,
+`SetDataRetrievalPolicy`, `UploadMultipartPart`) through the real
+aws-sdk-go-v2 client for the first time
+(`typed_slice21_realclient_test.go`, 7 subtests). Repo-wide typed-client
+census: glacier 21/33 -> 33/33 (100%).
+
+**One real wire-shape bug, found and fixed**: `GetVaultLock` fabricated a
+200 response with an invented `State="Unlocked"` value whenever a vault
+had no lock (never initiated, aborted, or its 24h InProgress window
+expired) -- but `api_op_GetVaultLock.go`'s own doc comment states
+outright: "If there is no vault lock policy set on the vault, the
+operation returns a 404 Not found error." `GetVaultLockOutput.State`'s
+own doc comment lists only `InProgress`/`Locked` as real values, never a
+third "Unlocked" state -- confirming the invented value, not just the
+missing 404, was wrong. A prior audit's `ops:` table entry claimed `wire:
+ok` on this exact op, but that claim was never backed by a typed-client
+exercise (this op is why it was on this slice's uncovered list) -- a
+concrete instance of NOTES.md's standing caution that PARITY.md prose
+predating a typed-client pass can over-claim. Fixed: added
+`ErrVaultLockNotFound` sentinel (`errors.go`), `GetVaultLock`
+(`vault_lock.go`) now returns it instead of a synthesized struct when no
+lock record exists, mapped to 404 `ResourceNotFoundException` in
+`writeBackendError` (`handler.go`). Corrected 4 pre-existing test cases in
+`handler_vault_lock_test.go` that had encoded the wrong 200/"Unlocked"
+shape as correct (never-locked, aborted, and post-expiry cases, plus the
+full-lifecycle test's initial unlocked-state check). Hand-reverted the
+three-file fix to `HEAD`, re-ran `TestTypedSlice21RealClient/vault_lock` --
+reproduced the exact failure (`200`, no error, where a 404 was expected) --
+then restored byte-identical (diffed clean against the fix) and
+reconfirmed passing.
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/glacier/...` clean (including the 4 corrected
+pre-existing tests). `golangci-lint run --new-from-rev=HEAD` 0 issues.
+`go run ./cmd/paritylint` 0 FAIL throughout. No `snapshot_inventory.json`
+changes (the fix changes only the error path, not any persisted struct
+shape). No version bump.

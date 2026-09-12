@@ -572,6 +572,12 @@ linters:
       # coverage slice 13 (gopherstack-n3zi).
       - path: 'opsworks/typed_slice13_realclient_test.go'
         linters: [ staticcheck ]
+      # mediapackage's RotateChannelCredentials is deprecated (superseded by
+      # RotateIngestEndpointCredentials), but is still a real, listed op this
+      # file must drive through a real client for typed coverage slice 21
+      # (gopherstack-n3zi); the SA1019 is expected and unavoidable.
+      - path: 'mediapackage/typed_slice21_realclient_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'
