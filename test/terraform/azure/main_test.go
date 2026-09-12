@@ -357,9 +357,20 @@ func prepareTofu(logger *slog.Logger) string {
 //nolint:gochecknoglobals // fixed derived path, read-only after init -- mirrors tofuProviderCacheDir above
 var stableCertDir = filepath.Join(os.TempDir(), "gopherstack-azurearm-devcert.d")
 
+//nolint:gochecknoglobals // fixed derived paths, read-only after init -- mirror stableCertDir above
 var (
 	stableCertHostPath = filepath.Join(stableCertDir, "cert.pem")
 	stableKeyHostPath  = filepath.Join(stableCertDir, "key.pem")
+)
+
+// Static errors for ensureSecureDir's rejection cases (err113): the
+// offending path is always appended via %w-adjacent context in the caller's
+// message, not interpolated into the sentinel itself.
+var (
+	errCertDirIsSymlink      = errors.New("stable cert directory is a symlink, refusing to use it")
+	errCertDirNotDir         = errors.New("stable cert directory path exists and is not a directory")
+	errCertDirBadPermissions = errors.New("stable cert directory has insecure permissions, want 0700")
+	errCertDirWrongOwner     = errors.New("stable cert directory is owned by a different user")
 )
 
 // ensureSecureDir makes sure dir exists, is a real directory (not a
@@ -378,19 +389,19 @@ func ensureSecureDir(dir string) error {
 	}
 
 	if fi.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s is a symlink, refusing to use it", dir)
+		return fmt.Errorf("%s: %w", dir, errCertDirIsSymlink)
 	}
 
 	if !fi.IsDir() {
-		return fmt.Errorf("%s exists and is not a directory", dir)
+		return fmt.Errorf("%s: %w", dir, errCertDirNotDir)
 	}
 
 	if fi.Mode().Perm() != 0o700 {
-		return fmt.Errorf("%s has insecure permissions %o, want 0700", dir, fi.Mode().Perm())
+		return fmt.Errorf("%s (mode %o): %w", dir, fi.Mode().Perm(), errCertDirBadPermissions)
 	}
 
 	if stat, ok := fi.Sys().(*syscall.Stat_t); ok && stat.Uid != uint32(os.Getuid()) {
-		return fmt.Errorf("%s is owned by uid %d, not the current user", dir, stat.Uid)
+		return fmt.Errorf("%s (uid %d): %w", dir, stat.Uid, errCertDirWrongOwner)
 	}
 
 	return nil
@@ -408,17 +419,17 @@ func writeFileAtomically(dir, path string, data []byte) error {
 
 	tmpName := tmp.Name()
 
-	if _, err := tmp.Write(data); err != nil {
+	if _, writeErr := tmp.Write(data); writeErr != nil {
 		tmp.Close()
 		os.Remove(tmpName)
 
-		return err
+		return writeErr
 	}
 
-	if err := tmp.Close(); err != nil {
+	if closeErr := tmp.Close(); closeErr != nil {
 		os.Remove(tmpName)
 
-		return err
+		return closeErr
 	}
 
 	return os.Rename(tmpName, path)
