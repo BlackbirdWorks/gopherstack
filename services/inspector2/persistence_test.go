@@ -224,7 +224,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// ec2DeepConfig raw struct.
 	ec2Cfg := fresh.GetEc2DeepInspectionConfiguration()
 	assert.Equal(t, []string{"/opt/pkg"}, ec2Cfg.PackagePaths)
-	assert.Equal(t, "ENABLED", ec2Cfg.Status)
+	assert.Equal(t, "ACTIVATED", ec2Cfg.Status)
 
 	// memberEc2Status table.
 	memberStatuses := fresh.BatchGetMemberEc2DeepInspectionStatus([]string{"222222222222"})
@@ -361,7 +361,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	ec2Cfg := b.GetEc2DeepInspectionConfiguration()
 	assert.Empty(t, ec2Cfg.PackagePaths)
-	assert.Equal(t, "DISABLED", ec2Cfg.Status)
+	assert.Equal(t, "DEACTIVATED", ec2Cfg.Status)
 
 	cisCfgs, err := b.ListCisScanConfigurations()
 	require.NoError(t, err)

@@ -82,6 +82,30 @@ overall: A            # systemic invented-field cleanup + several real state-mac
                       # PrivacyBudgetTemplateSummary; ProtectedQuerySummary except the already-disclosed
                       # ReceiverConfigurations gap) re-verified field-by-field against types.go and is
                       # genuinely clean.
+# 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
+# 41/100 -> 100/100 (100%), typed_slice12_realclient_test.go, 12 subtests
+# covering every previously-uncovered op (schema ops against unpopulated
+# state, configured table + association lifecycles incl. analysis rules,
+# intermediate table lifecycle incl. analysis rules/populate/disallow,
+# analysis template update/delete, ID mapping table lifecycle, ID namespace
+# association lifecycle, configured audience model association lifecycle,
+# membership/member lifecycle, privacy budget template lifecycle + preview,
+# protected job/query lifecycle incl. cancel, collaboration change request
+# get/update). ONE real bug found and fixed: ListIntermediateTableVersions
+# returned a nil (not empty) slice for a table with zero versions --
+# ListIntermediateTableVersionsOutput.IntermediateTableVersionSummaries is a
+# required list member (api_op_ListIntermediateTableVersions.go); fixed by
+# normalizing nil to []*IntermediateTableVersionSummary{} before marshaling,
+# matching the empty-list convention already used elsewhere in this handler
+# package. RE-CONFIRMED, not fixed: Schema/SchemaAnalysisRule (BatchGetSchema,
+# BatchGetSchemaAnalysisRule, GetSchema, GetSchemaAnalysisRule, ListSchemas)
+# remain permanently empty/not-found for every real client -- this backend
+# has no Schema-derivation path from ConfiguredTable+ConfiguredTableAssociation
+# state at all (b.schemas is never Put anywhere in production code), the
+# same already-disclosed gap the Schema/SchemaAnalysisRule family note below
+# and this manifest's gaps list already name -- not a new finding, verified
+# by driving the real typed client against it for the first time. No
+# persisted struct fields changed; no version bump.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:

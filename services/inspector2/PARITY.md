@@ -45,6 +45,47 @@ overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name 
 # can't catch a wrong-shape bug. Existing raw-JSON tests asserting the old
 # {label,score} shape were updated to match the real wire shape
 # (handler_findings_core_test.go, handler_findings_query_test.go).
+# 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
+# 21/81 -> 81/81 (100%), typed_slice12_realclient_test.go, 11 subtests
+# covering every previously-uncovered op (enablement/delegated admin,
+# members, CIS scan configuration+session lifecycle, connectors, code
+# security scan configuration+integrations, EC2 deep inspection
+# configuration, encryption keys, coverage+clusters, findings
+# reports+SBOM export+batch-get families, usage+permissions, filter
+# update+tags). Four real bugs found and fixed: (1)
+# GetDelegatedAdminAccountOutput.DelegatedAdmin wire-keys its status member
+# "relationshipStatus" (types.DelegatedAdmin, deserializers.go's
+# awsRestjson1_deserializeDocumentDelegatedAdmin) -- a DIFFERENT key from the
+# sibling ListDelegatedAdminAccounts' types.DelegatedAdminAccount, which
+# really is "status" (awsRestjson1_deserializeDocumentDelegatedAdminAccount);
+# handleGetDelegatedAdminAccount marshaled the shared DelegatedAdminAccount
+# model (json:"status") directly, so a real client's RelationshipStatus
+# always decoded empty. (2) SendCisSessionTelemetryInput.messages is a JSON
+# ARRAY of CisSessionMessage (types.go:1251-1266, confirmed against
+# serializers.go:5719's object.Key("messages") list serialization); the
+# handler decoded it into a map[string]any (an OBJECT), so every real
+# client's call failed json.Unmarshal outright ("cannot unmarshal array into
+# Go struct field"), not merely dropped the payload -- fixed to
+# []map[string]any (interfaces.go's StorageBackend and the InMemoryBackend
+# method signature updated to match; the backend body stays the documented
+# no-op, see deferred). (3) GetCisScanResultDetailsInput's required
+# AccountId/TargetResourceId were never read at all -- every real scoped
+# request returned every check result for the entire scan regardless of
+# which account/resource was asked about; fixed by reading both and
+# filtering scan.Results by them when present (empty-string fallback stays
+# permissive for this package's own pre-existing unit tests, which predate
+# the real-client fix and only ever pass scanArn). (4) The EC2 deep
+# inspection Status field (GetEc2DeepInspectionConfiguration,
+# BatchGetMemberEc2DeepInspectionStatus, BatchUpdateMemberEc2Deep
+# InspectionStatus) used this package's generic statusEnabled/statusDisabled
+# ("ENABLED"/"DISABLED") constants, but the real Ec2DeepInspectionStatus enum
+# (types/enums.go) only has ACTIVATED|DEACTIVATED|PENDING|FAILED -- fixed to
+# the real values; found in the same sweep that
+# BatchUpdateMemberEc2DeepInspectionStatus's backend method also silently
+# discarded the caller's ActivateDeepInspection-derived status and always
+# recorded every account as activated, fixed alongside. No persisted-struct
+# field changes (all fixes are response-shape/request-field-read/enum-value
+# corrections); no version bump.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:

@@ -140,6 +140,38 @@ gaps: []
   #   ListRecoveryPointsByLegalHold empty-list -> ops.ListRecoveryPointsByLegalHold
   #   DescribeBackupVault missing MPA/EncryptionKeyType fields -> ops.DescribeBackupVault
   # New residual gap found and left open this pass (see below).
+  # 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
+  # 47/109 -> 109/109 (100%), typed_slice12_realclient_test.go, 17 subtests
+  # covering every previously-uncovered op (vault MPA/restore-access/policy/
+  # lock/notifications, legal holds, tiering, framework, report plan, backup
+  # plan extras, backup selection, job/copy-job extras, recovery point
+  # extras, restore job extras, global/region settings, PITR malware scan,
+  # tags, restore testing selection delete). Two real bugs found and fixed:
+  # (1) PutRestoreValidationResult read RestoreJobId from the JSON body, but
+  # the real wire binds it as an HTTPLabel (URI path segment) with no body
+  # member at all (backup@v1.64.0 serializers.go:7872-7887's
+  # awsRestjson1_serializeOpHttpBindingsPutRestoreValidationResultInput) --
+  # every real client's call failed "RestoreJobId is required" regardless of
+  # input; fixed by reading the ID from the route resource like every
+  # sibling restore-job op. (2) GetBackupSelection's Conditions member
+  # (StringEquals/StringLike/StringNotEquals/StringNotLike) serialized the
+  # persisted SelectionConditions/StringCondition struct directly, whose
+  # tags are lowercase persistence-only ("stringEquals"/"key"/"value") --
+  # the real wire (types.Conditions/types.ConditionParameter, confirmed
+  # against serializers.go:10073-10125's object.Key("ConditionKey")/
+  # object.Key("StringEquals") calls) uses PascalCase "StringEquals" wrapping
+  # "ConditionKey"/"ConditionValue"; a real client's Conditions always
+  # decoded nil on Get, and the same Key/Value mismatch broke the REQUEST
+  # side too (CreateBackupSelection's Conditions.StringEquals[].ConditionKey
+  # was read as bare "Key", always empty). Fixed the wire-only
+  # stringConditionJSON tags and added selectionConditionsToJSON to render
+  # the response without touching the persisted struct's tags (no version
+  # bump). Accept-and-drop, not fixed: CreateLogicallyAirGappedBackupVault's
+  # response includes a fabricated "VaultType" key with no real
+  # CreateLogicallyAirGappedBackupVaultOutput member at all (real output is
+  # BackupVaultArn/BackupVaultName/CreationDate/VaultState only) -- harmless
+  # (unknown keys are ignored by every real deserializer), left as a minor
+  # cleanup item rather than touched this pass.
 residual_gaps: []
 items_still_open:
   - "2026-08-29 (constraint-not-honoured sweep): ListBackupJobSummaries/ListCopyJobSummaries/ListRestoreJobSummaries/ListScanJobSummaries all ignore AccountId, AggregationPeriod, and MessageCategory (ListBackupJobSummaries/ListCopyJobSummaries only) -- real filters/grouping keys on all four ops (backup@v1.59.4 api_op_List*JobSummaries.go). AccountId/MessageCategory filtering was left unimplemented consistent with the existing precedent immediately below (ListBackupJobs' own messageCategory gap) rather than adding filtering logic this backend can't yet exercise meaningfully (MessageCategory is hardcoded to 'SUCCESS' on every job, see ListBackupJobs' gap note). AggregationPeriod (ONE_DAY/SEVEN_DAYS/FOURTEEN_DAYS historical day-bucketed counts) is the larger gap: this backend produces one point-in-time snapshot per call, not a time series, so honoring it would mean building a new historical-bucketing model across all four job types -- reported as too large for this pass rather than rushed or fabricated. What WAS fixed this pass: ListRestoreJobSummaries/ListScanJobSummaries previously didn't even group by State (always one fabricated {Count} entry for the whole job set, dropping State/AccountId/Region entirely) -- now match the State-grouping ListBackupJobSummaries/ListCopyJobSummaries already had. ListRestoreJobs/ListScanJobs pagination (MaxResults/NextToken, distinct from the Summaries ops above) was also found never read at all and fixed in the same pass -- see ops.ListRestoreJobs/ListScanJobs."

@@ -158,6 +158,32 @@ func selectionConditionsFromJSON(in *selectionConditionsJSON) *SelectionConditio
 	}
 }
 
+func stringConditionsToJSON(in []StringCondition) []stringConditionJSON {
+	out := make([]stringConditionJSON, 0, len(in))
+	for _, sc := range in {
+		out = append(out, stringConditionJSON(sc))
+	}
+
+	return out
+}
+
+// selectionConditionsToJSON renders SelectionConditions for
+// GetBackupSelection with the real wire tags (see stringConditionJSON) --
+// models.go's SelectionConditions/StringCondition carry lowercase
+// persistence-only tags (stringEquals/key/value) unrelated to the wire.
+func selectionConditionsToJSON(sel *SelectionConditions) *selectionConditionsJSON {
+	if sel == nil {
+		return nil
+	}
+
+	return &selectionConditionsJSON{
+		StringEquals:    stringConditionsToJSON(sel.StringEquals),
+		StringLike:      stringConditionsToJSON(sel.StringLike),
+		StringNotEquals: stringConditionsToJSON(sel.StringNotEquals),
+		StringNotLike:   stringConditionsToJSON(sel.StringNotLike),
+	}
+}
+
 func rulesFromJSON(in []backupRuleJSON) []Rule {
 	rules := make([]Rule, 0, len(in))
 	for _, r := range in {
@@ -211,9 +237,14 @@ type tagConditionJSON struct {
 	ConditionValue string `json:"ConditionValue"`
 }
 
+// Key/Value are wire-tagged ConditionKey/ConditionValue: real
+// types.ConditionParameter (backup@v1.64.0 types.go:907-916), confirmed
+// against serializers.go:10073/10095's object.Key("ConditionKey") calls --
+// a real client's CreateBackupSelection Conditions.StringEquals[].ConditionKey
+// was previously read as bare "Key" and always decoded empty.
 type stringConditionJSON struct {
-	Key   string `json:"Key"`
-	Value string `json:"Value"`
+	Key   string `json:"ConditionKey"`
+	Value string `json:"ConditionValue"`
 }
 
 type selectionConditionsJSON struct {

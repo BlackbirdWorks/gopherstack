@@ -111,9 +111,16 @@ func (h *Handler) handleStartRestoreJob(c *echo.Context, defaultRecoveryPointArn
 	return c.JSON(http.StatusOK, map[string]any{keyRestoreJobID: job.RestoreJobID})
 }
 
-func (h *Handler) handlePutRestoreValidationResult(c *echo.Context, body []byte) error {
+// handlePutRestoreValidationResult serves PutRestoreValidationResult.
+// RestoreJobId is an HTTPLabel (URI path segment), not a body member --
+// backup@v1.64.0 serializers.go's
+// awsRestjson1_serializeOpHttpBindingsPutRestoreValidationResultInput binds
+// it via encoder.SetURI, with only ValidationStatus/ValidationStatusMessage
+// in the JSON body. Reading RestoreJobId from the body (as this handler
+// previously did) meant every real client's call failed with
+// "RestoreJobId is required" regardless of input.
+func (h *Handler) handlePutRestoreValidationResult(c *echo.Context, restoreJobID string, body []byte) error {
 	var reqBody struct {
-		RestoreJobID            string `json:"RestoreJobId"`
 		ValidationStatus        string `json:"ValidationStatus"`
 		ValidationStatusMessage string `json:"ValidationStatusMessage"`
 	}
@@ -122,7 +129,7 @@ func (h *Handler) handlePutRestoreValidationResult(c *echo.Context, body []byte)
 	}
 
 	if err := h.Backend.PutRestoreValidationResult(
-		reqBody.RestoreJobID, reqBody.ValidationStatus, reqBody.ValidationStatusMessage,
+		restoreJobID, reqBody.ValidationStatus, reqBody.ValidationStatusMessage,
 	); err != nil {
 		return h.handleError(c, err)
 	}
@@ -174,7 +181,7 @@ func (h *Handler) dispatchRestoreJobOps(
 		return true, h.handleStartRestoreJob(c, route.resource, body)
 	case opPutRestoreValidationResult:
 
-		return true, h.handlePutRestoreValidationResult(c, body)
+		return true, h.handlePutRestoreValidationResult(c, route.resource, body)
 	}
 
 	return false, nil

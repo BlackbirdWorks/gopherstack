@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// PutProtectedResource adds or updates a protected resource record (called internally by StartBackupJob).
+// PutProtectedResource adds or updates a protected resource record. Used
+// only by tests to seed state directly -- production traffic populates this
+// via CompleteBackupJob's inline update.
 func (b *InMemoryBackend) PutProtectedResource(resourceArn, resourceType, vaultName string) {
 	b.mu.Lock("PutProtectedResource")
 	defer b.mu.Unlock()

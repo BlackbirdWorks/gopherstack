@@ -90,7 +90,7 @@ func (h *Handler) handleGetBackupSelection(c *echo.Context, resource string) err
 		selDoc["ListOfTags"] = tags
 	}
 	if sel.Conditions != nil {
-		selDoc["Conditions"] = sel.Conditions
+		selDoc["Conditions"] = selectionConditionsToJSON(sel.Conditions)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{
