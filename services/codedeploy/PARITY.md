@@ -83,6 +83,28 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
 
 ## Notes
 
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving the 22 previously
+  typed-client-uncovered ops (BatchGetApplications, BatchGet/List
+  DeploymentInstances/Targets, BatchGetDeployments, ContinueDeployment,
+  Delete{DeploymentConfig,DeploymentGroup,ResourcesByExternalId},
+  DeregisterOnPremisesInstance, ListApplicationRevisions,
+  ListDeploymentConfigs, ListDeploymentGroups, ListGitHubAccountTokenNames,
+  ListOnPremisesInstances, PutLifecycleEventHookExecutionStatus,
+  RemoveTagsFromOnPremisesInstances, SkipWaitTimeForInstanceTermination,
+  UntagResource, UpdateApplication, UpdateDeploymentGroup) through the real
+  `aws-sdk-go-v2` client. Zero real wire bugs found — consistent with this
+  service's existing A-grade, heavily pre-audited history (6flj wrapper-key
+  sweep, 3pz8 error-code triage, a250 pagination triage all predate this
+  slice and already covered this surface's wire shapes). codedeploy: 25/47
+  -> 47/47 typed-client covered. Three of the newly-covered ops
+  (BatchGetDeploymentInstances, ListDeploymentInstances,
+  SkipWaitTimeForInstanceTermination) are AWS-deprecated in favor of their
+  Target-suffixed/ContinueDeployment replacements; `.golangci.yml` gained a
+  per-file staticcheck exclusion for the expected SA1019s, following this
+  repo's existing iotanalytics/opsworks/mediapackage precedent rather than
+  per-line nolints.
+
 - **Protocol**: awsjson1.1, single POST endpoint, `X-Amz-Target: CodeDeploy_20141006.<Op>`
   dispatch via `RouteMatcher`/`ExtractOperation` in handler.go. Verified every op in
   `GetSupportedOperations()` has a `dispatchTable()` entry and is reachable — no stub

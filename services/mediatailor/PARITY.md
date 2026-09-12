@@ -124,6 +124,16 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
+### 2026-09-12 (typed coverage slice 29, gopherstack-n3zi)
+
+Added `typed_slice29_realclient_test.go`, driving all 23 previously
+typed-client-uncovered ops (channel lifecycle including logs/start/stop,
+channel policy, function delete, source location/live source/vod source
+update+delete, program update+delete, playback configuration/prefetch
+schedule/alerts, tag deletion) through the real `aws-sdk-go-v2` client.
+Zero real wire bugs found -- every op passed on the first real-client
+attempt. mediatailor: 25/48 -> 48/48 typed-client covered.
+
 ### 2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit
 
 mediatailor (6 required output fields / 48 ops, 4 ops-with-required per a

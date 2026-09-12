@@ -75,6 +75,31 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 
 ## Notes
 
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving all 23 previously
+  typed-client-uncovered ops (domain/activity-type/workflow-type
+  deprecate-undeprecate-delete lifecycles, DescribeWorkflowExecution,
+  SignalWorkflowExecution, Count{Open,Closed}WorkflowExecutions,
+  Count/PollForActivityTask, RecordActivityTaskHeartbeat,
+  RespondActivityTask{Completed,Failed,Canceled}, tags) through the real
+  `aws-sdk-go-v2` client. Zero real backend bugs found. One
+  test-authoring trap worth recording for future slices on this service:
+  `StartWorkflowExecution` (`createExecutionLocked`) always
+  auto-schedules the workflow's first decision task; calling the
+  test-only `EnqueueDecisionTaskInternal` helper afterward (a pattern
+  copied from an existing test, `decision_lifecycle_test.go`) pushes a
+  SECOND, malformed decision task (empty `RunID`, since the helper's
+  4th arg was passed `""`) onto the same queue behind the real one. A
+  test that polls only once never notices the stray leftover entry --
+  but a test that polls a SECOND time after a `RespondActivityTaskFailed`
+  auto-re-enqueue (which is real behavior, `enqueueDecisionTaskLocked`)
+  pops that stray malformed entry instead of the real one, and any
+  decision applied against it (e.g. `ScheduleActivityTask`) silently
+  resolves against a nonexistent execution and does nothing. Not a
+  backend bug -- the double-seed is redundant test setup, not something a
+  real client would ever trigger, since a real client only calls
+  `StartWorkflowExecution` once.
+
 ### 2026-08-29: ListOpen/ListClosedWorkflowExecutions dropped ReverseOrder and had no default sort order
 
 Wrapper-key/silent-drop sweep (bd gopherstack-6flj/21my) against

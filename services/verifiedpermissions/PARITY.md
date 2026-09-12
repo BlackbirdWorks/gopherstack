@@ -52,6 +52,27 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
 
 ## Notes
 
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving all 22 previously
+  typed-client-uncovered ops (policy store CRUD, policy store aliases,
+  policy CRUD, PolicyTemplate deletion, identity source CRUD,
+  Put/GetSchema, BatchIsAuthorized, IsAuthorizedWithToken,
+  BatchIsAuthorizedWithToken) through the real `aws-sdk-go-v2` client.
+  Zero real wire bugs found -- this surface had already had deep,
+  citation-backed prior audit passes (see `items_still_open` above,
+  especially the context/entities Cedar-wiring fix). Two test-authoring
+  corrections along the way, not bugs: `CreatePolicyStoreAlias`'s
+  `AliasName` must carry the full `policy-store-alias/` prefix end to end
+  (`GetPolicyStoreAlias`/`ListPolicyStoreAliases`/`DeletePolicyStoreAlias`
+  all key on the prefixed name, matching real AWS's documented alias
+  format); and `IsAuthorizedWithToken`'s `Principal` is correctly omitted
+  when the token lacks a claim satisfying the identity source's configured
+  audience/client-ID restriction (`matchesConfiguredAudience`) -- a token
+  with no `aud`/`cid`/`client_id` claim against an OIDC source configured
+  with `Audiences` correctly resolves no principal (fails closed), not a
+  bug in the handler. verifiedpermissions: 12/34 -> 34/34 typed-client
+  covered.
+
 **2026-08-22 (gopherstack-tpu3): PolicyTemplate.Name missing end-to-end.**
 Filed during the zquj keycheck sweep as structural (not a tag rename), since
 `Name` had no field on the `PolicyTemplate` model at all -- confirmed against

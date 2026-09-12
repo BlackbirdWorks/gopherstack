@@ -157,6 +157,20 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; job/
 
 ## Notes
 
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving all 22 previously
+  typed-client-uncovered ops (every Detect*/BatchDetect* single- and
+  batch-document op, ClassifyDocument, ContainsPiiEntities,
+  DescribeResourcePolicy, ImportModel, List{DocumentClassifier,
+  EntityRecognizer}Summaries, StopTraining{DocumentClassifier,
+  EntityRecognizer}, Tag/UntagResource, ListTagsForResource) through the
+  real `aws-sdk-go-v2` client. Zero real wire bugs found. `opcensus`'s
+  earlier "ambiguous" flag on this service (gopherstack-k9n5, op names built
+  by string concatenation in `buildOperations`) did not affect this slice's
+  op list: every uncovered name resolved was a real, individually
+  registered op in `buildOperations` (handler.go), none a corrupted
+  fragment. comprehend: 8/30 -> 30/30 typed-client covered.
+
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,
 error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and any
 "looks-wrong-but-correct" traps so the next auditor doesn't re-flag them.

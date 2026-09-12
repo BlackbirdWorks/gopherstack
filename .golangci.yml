@@ -578,6 +578,14 @@ linters:
       # (gopherstack-n3zi); the SA1019 is expected and unavoidable.
       - path: 'mediapackage/typed_slice21_realclient_test.go'
         linters: [ staticcheck ]
+      # codedeploy's BatchGetDeploymentInstances/ListDeploymentInstances/
+      # SkipWaitTimeForInstanceTermination are deprecated (superseded by
+      # BatchGetDeploymentTargets/ListDeploymentTargets/ContinueDeployment
+      # with DeploymentWaitType) but are still real, listed ops this file
+      # must drive through a real client for typed coverage slice 29
+      # (gopherstack-n3zi); the SA1019s are expected and unavoidable.
+      - path: 'codedeploy/typed_slice29_realclient_test.go'
+        linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]
       - path: 'pkgs/service/registry_test.go'

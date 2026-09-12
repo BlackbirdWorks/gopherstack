@@ -667,7 +667,7 @@ func (h *Handler) buildDomainRepoOps() map[string]func(*echo.Context, []byte) er
 			return h.handleGetDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain))
 		},
 		opPutDomainPermissionsPolicy: func(c *echo.Context, body []byte) error {
-			return h.handlePutDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain), body)
+			return h.handlePutDomainPermissionsPolicy(c, body)
 		},
 		opDeleteDomainPermissionsPolicy: func(c *echo.Context, _ []byte) error {
 			return h.handleDeleteDomainPermissionsPolicy(c, c.Request().URL.Query().Get(keyDomain))

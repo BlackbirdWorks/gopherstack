@@ -410,10 +410,15 @@ func (b *InMemoryBackend) ListPackageVersionDependencies(
 
 // GetPackageVersionAsset returns the content of an asset previously uploaded via
 // PublishPackageVersion.
+// GetPackageVersionAsset returns an asset's bytes along with its owning
+// PackageVersion, letting the caller populate GetPackageVersionAssetOutput's
+// X-AssetName/X-PackageVersion/X-PackageVersionRevision response headers
+// (deserializers.go's awsRestjson1_deserializeOpHttpBindingsGetPackageVersionAssetOutput
+// -- these three fields are HTTP headers, not body members).
 func (b *InMemoryBackend) GetPackageVersionAsset(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version, asset string,
-) ([]byte, error) {
+) ([]byte, *PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
 	b.mu.RLock("GetPackageVersionAsset")
@@ -422,16 +427,18 @@ func (b *InMemoryBackend) GetPackageVersionAsset(
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
 	pv, ok := b.packageVersions.Get(regionKey(region, key))
 	if !ok {
-		return nil, fmt.Errorf("%w: package version not found", ErrNotFound)
+		return nil, nil, fmt.Errorf("%w: package version not found", ErrNotFound)
 	}
 
 	for _, a := range pv.Assets {
 		if a.Name == asset {
-			return slices.Clone(a.Content), nil
+			cp := *pv
+
+			return slices.Clone(a.Content), &cp, nil
 		}
 	}
 
-	return nil, fmt.Errorf("%w: asset %s not found", ErrNotFound, asset)
+	return nil, nil, fmt.Errorf("%w: asset %s not found", ErrNotFound, asset)
 }
 
 // GetPackageVersionReadme returns the "readme" field parsed from a

@@ -211,6 +211,28 @@ leaks: {status: clean, note: "no goroutines, janitors, or timers in this service
 
 ## Notes
 
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving all 22 previously
+  typed-client-uncovered ops (the entire schema-conversion metadata-model
+  family: every Start/Describe/Cancel* pair, DescribeMetadataModel,
+  DescribeMetadataModelChildren, GetTargetSelectionRules,
+  ExportMetadataModelAssessment, Describe/ModifyConversionConfiguration,
+  Describe/StartExtensionPackAssociation) through the real
+  `aws-sdk-go-v2` client. **One real wire bug**: `ExportMetadataModelAssessment`'s
+  `PdfReport`/`CsvReport` were value-typed `exportResultEntryJSON` structs
+  with a plain (non-`*`) `json:"PdfReport"` tag -- despite the ops table's
+  existing note above claiming both are "legitimately omitted", the actual
+  Go type could never be omitted (a non-pointer struct always serializes,
+  `omitempty` is a no-op on it), so every real client decoded a non-nil
+  `*types.ExportMetadataModelAssessmentResultEntry{}` instead of the
+  documented "might not be populated" nil. This is the same "stale
+  PARITY.md claim, unverified by an actual typed-client decode" trap slice
+  27 flagged for mgn's StartReplication -- the note was correct in intent
+  but the code never matched it. Fixed by changing both fields to
+  `*exportResultEntryJSON` with `omitempty`; the ops-table note above is
+  accurate again as of this fix. dms: 97/119 -> 119/119 typed-client
+  covered.
+
 - **2026-08-20 wrapper-key / nested-shape sweep**: this service's directory
   name (`services/dms`) does NOT match its SDK module name
   (`aws-sdk-go-v2/service/databasemigrationservice`, no `service/dms` module

@@ -463,8 +463,8 @@ type exportResultEntryJSON struct {
 }
 
 type exportMetadataModelAssessmentOutput struct {
-	PdfReport exportResultEntryJSON `json:"PdfReport"`
-	CsvReport exportResultEntryJSON `json:"CsvReport"`
+	PdfReport *exportResultEntryJSON `json:"PdfReport,omitempty"`
+	CsvReport *exportResultEntryJSON `json:"CsvReport,omitempty"`
 }
 
 func (h *Handler) handleExportMetadataModelAssessment(
