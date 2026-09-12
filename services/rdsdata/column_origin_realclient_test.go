@@ -75,21 +75,21 @@ func TestExecuteStatement_ColumnMetadata_TableOrigin(t *testing.T) {
 // that a statement run inside a BeginTransaction transaction leaves
 // SchemaName/TableName/IsAutoIncrement at their zero value: *sql.Tx has no
 // equivalent to *sql.Conn.Raw, so engine.go's columnOriginInfo can't recover
-// the underlying driver connection to call ColumnInfo -- see PARITY.md.
+// the underlying driver connection to call ColumnInfo -- see PARITY.md. This
+// is a permanent structural limitation of database/sql's *sql.Tx, unrelated
+// to the transaction-context-lifetime bug below.
 //
-// This drives the handler in-process (doRDSDataRequest), like this
-// package's other multi-call transaction tests (transactions_test.go),
-// rather than through a live newRoundTripClient server round trip: a real
-// http.Server cancels each request's Context() once that request finishes,
-// and sqlEngine.beginTx (engine.go) opens the engine-side *sql.Tx against
-// the BeginTransaction call's own request context, so database/sql
-// auto-rolls back the transaction as soon as that first HTTP request
-// completes -- confirmed independently while writing this test, filed
-// separately as gopherstack-fdle is scoped to typeHint/ColumnMetadata/array
-// parameters, not transaction-context lifetime. Not a defect this test
-// exists to ratify: doRDSDataRequest's httptest.NewRequest carries a
-// never-canceled context.Background(), sidestepping it entirely so this
-// test exercises only the ColumnMetadata behavior it's named for.
+// This drives the handler in-process (doRDSDataRequest) rather than through
+// a live newRoundTripClient server round trip, matching this package's other
+// multi-call transaction tests (transactions_test.go) -- a plain style
+// choice now, not a workaround. It used to be a required workaround: before
+// gopherstack-wh8gv's fix, sqlEngine.beginTx (engine.go) opened the
+// engine-side *sql.Tx against the BeginTransaction call's own per-request
+// context, so a real http.Server auto-rolled back the transaction the
+// instant that first HTTP request finished, and this test would have
+// spuriously failed over a live server for a reason unrelated to what it's
+// named for. See transaction_context_realclient_test.go for the fix's own
+// coverage, driven over a real httptest.Server on purpose.
 func TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction(t *testing.T) {
 	t.Parallel()
 

@@ -15,7 +15,7 @@ func (b *InMemoryBackend) BeginTransaction(ctx context.Context, resourceARN stri
 
 	b.txCounter[region]++
 	id := fmt.Sprintf("txn-%06d", b.txCounter[region])
-	now := time.Now()
+	now := b.nowFunc()
 
 	b.transactionsStore(region).Put(&Transaction{
 		TransactionID:  id,
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) ListTransactions(ctx context.Context) map[string]Trans
 // (write lock) and have already confirmed txID exists in region.
 func (b *InMemoryBackend) touchTransactionLocked(region, txID string) {
 	if tx, ok := b.transactionsStore(region).Get(txID); ok {
-		tx.LastActivityAt = time.Now()
+		tx.LastActivityAt = b.nowFunc()
 	}
 }
 

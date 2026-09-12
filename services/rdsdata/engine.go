@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	// modernc.org/sqlite registers the pure-Go "sqlite" database/sql driver
 	// (no cgo), so the Data API can execute real SQL against an in-memory
@@ -21,7 +22,10 @@ import (
 )
 
 // errNoEngineTx is returned when a statement references a transaction that has
-// no live engine-side *sql.Tx (e.g. it was created before this process start).
+// no live engine-side *sql.Tx (e.g. it was created before this process start,
+// or the process restored a snapshot that recorded the transaction as still
+// active but couldn't restore its engine-side state -- see Restore in
+// persistence.go).
 var errNoEngineTx = errors.New("no engine transaction")
 
 // resourceDB bundles an in-memory database with the keep-alive connection that
@@ -31,27 +35,63 @@ type resourceDB struct {
 	keepAlive *sql.Conn
 }
 
+// engineTx bundles an open engine-side transaction with the cancel func for
+// the context it was opened under. That context is derived from the engine's
+// own lifetime (sqlEngine.baseCtx), not the caller's per-request context --
+// see beginTx's doc comment for why that distinction is the fix for
+// gopherstack-wh8gv.
+type engineTx struct {
+	tx     *sql.Tx
+	cancel context.CancelFunc
+}
+
 // sqlEngine backs the RDS Data API with real, per-resource in-memory SQLite
 // databases. Each (region, resourceARN) pair maps to its own database so that
 // statements issued against different Aurora clusters stay isolated.
+//
+// baseCtx/baseCancel give every engine-side transaction a lifetime tied to
+// the engine itself rather than to whichever HTTP request happened to call
+// BeginTransaction; see beginTx.
 type sqlEngine struct {
-	dbs   map[string]*resourceDB
-	txs   map[string]*sql.Tx
-	nonce string
-	mu    sync.Mutex
+	dbs        map[string]*resourceDB
+	txs        map[string]*engineTx
+	baseCtx    context.Context
+	baseCancel context.CancelFunc
+	nonce      string
+	mu         sync.Mutex
 }
 
-// newSQLEngine constructs an empty engine. The nonce (the engine's own pointer
-// address) is folded into every database name so that two engine instances
-// never alias the same process-global shared-cache in-memory store.
+// engineSeq is a process-wide counter folded into every engine's nonce
+// (below) so that no two sqlEngine instances ever alias the same
+// process-global shared-cache in-memory SQLite database. A pointer address
+// alone isn't enough: Go's GC doesn't move heap objects, but it does reuse a
+// collected object's address for a later allocation, and none of this
+// package's tests explicitly close their engine's *sql.DB, so a later
+// engine that happens to land at a prior, still-referenced-by-nothing-else
+// engine's old address would otherwise compute the identical dbKey for the
+// same (region, resourceARN) pair -- silently sharing one SQLite database,
+// and its rows, between what should be two fully isolated backends.
+// Confirmed by reproduction: `go test -race -count=20 -run Transaction`
+// intermittently failed with an extra row in a table a test expected to
+// have inserted into only once, before this fix.
+//
+//nolint:gochecknoglobals // process-wide uniqueness counter, not mutable config
+var engineSeq atomic.Uint64
+
+// newSQLEngine constructs an empty engine. See engineSeq for why the nonce
+// is a counter, not just the engine's own pointer address.
 func newSQLEngine() *sqlEngine {
+	baseCtx, baseCancel := context.WithCancel(context.Background())
+
 	e := &sqlEngine{
-		dbs:   make(map[string]*resourceDB),
-		txs:   make(map[string]*sql.Tx),
-		nonce: "",
-		mu:    sync.Mutex{},
+		dbs:        make(map[string]*resourceDB),
+		txs:        make(map[string]*engineTx),
+		baseCtx:    baseCtx,
+		baseCancel: baseCancel,
+		nonce:      "",
+		mu:         sync.Mutex{},
 	}
-	e.nonce = fmt.Sprintf("%p", e)
+	e.nonce = fmt.Sprintf("%d-%p", engineSeq.Add(1), e)
 
 	return e
 }
@@ -116,12 +156,12 @@ func (e *sqlEngine) execute(
 	var originDB *sql.DB
 
 	if transactionID != "" {
-		tx, ok := e.txs[transactionID]
+		et, ok := e.txs[transactionID]
 		if !ok {
 			return nil, nil, 0, nil, errNoEngineTx
 		}
 
-		run = tx
+		run = et.tx
 	} else {
 		db, err := e.dbFor(ctx, region, resourceARN)
 		if err != nil {
@@ -139,9 +179,20 @@ func (e *sqlEngine) execute(
 	return runStatement(ctx, run, originDB, statement, params, getResultSetOptions(ctx))
 }
 
-// beginTx opens an engine-side transaction bound to txID. The caller must have
-// already validated/allocated txID. Errors are advisory; a missing engine tx
-// degrades to autocommit execution.
+// beginTx opens an engine-side transaction bound to txID, under a context
+// derived from the engine's own lifetime (e.baseCtx) rather than ctx (the
+// caller's per-request context). database/sql.DB.BeginTx documents: "The
+// provided context is used until the transaction is committed or rolled
+// back. If the context is canceled, the sql package will roll back the
+// transaction" (database/sql/sql.go:1866-1868, go1.27 stdlib). Binding to a
+// per-request context meant a BeginTransaction call's *sql.Tx was silently
+// rolled back the instant that HTTP response finished, and every later
+// ExecuteStatement/BatchExecuteStatement against that transactionId then hit
+// sql.ErrTxDone -- previously swallowed into a fabricated empty-success
+// envelope (gopherstack-wh8gv). ctx itself is still used to open/pin the
+// resource database (dbFor): that call's context only bounds waiting for a
+// connection, not the returned *sql.DB's lifetime, so it carries no similar
+// landmine. The caller must have already validated/allocated txID.
 func (e *sqlEngine) beginTx(ctx context.Context, region, resourceARN, txID string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -151,22 +202,27 @@ func (e *sqlEngine) beginTx(ctx context.Context, region, resourceARN, txID strin
 		return err
 	}
 
-	tx, err := db.BeginTx(ctx, nil)
+	txCtx, cancel := context.WithCancel(e.baseCtx)
+
+	tx, err := db.BeginTx(txCtx, nil)
 	if err != nil {
+		cancel()
+
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
-	e.txs[txID] = tx
+	e.txs[txID] = &engineTx{tx: tx, cancel: cancel}
 
 	return nil
 }
 
-// finalizeTx commits or rolls back the engine transaction for txID, if any.
+// finalizeTx commits or rolls back the engine transaction for txID, if any,
+// and cancels its engine-owned context (see beginTx).
 func (e *sqlEngine) finalizeTx(txID string, commit bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	tx, ok := e.txs[txID]
+	et, ok := e.txs[txID]
 	if !ok {
 		return
 	}
@@ -174,21 +230,25 @@ func (e *sqlEngine) finalizeTx(txID string, commit bool) {
 	delete(e.txs, txID)
 
 	if commit {
-		_ = tx.Commit()
-
-		return
+		_ = et.tx.Commit()
+	} else {
+		_ = et.tx.Rollback()
 	}
 
-	_ = tx.Rollback()
+	et.cancel()
 }
 
-// reset closes every open database and transaction.
+// reset closes every open database and transaction, then replaces baseCtx/
+// baseCancel so the engine remains usable for new transactions afterward
+// (Reset() is a test/operational reset of backend state, not a permanent
+// shutdown).
 func (e *sqlEngine) reset() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	for id, tx := range e.txs {
-		_ = tx.Rollback()
+	for id, et := range e.txs {
+		_ = et.tx.Rollback()
+		et.cancel()
 		delete(e.txs, id)
 	}
 
@@ -197,6 +257,22 @@ func (e *sqlEngine) reset() {
 		_ = rdb.db.Close()
 		delete(e.dbs, key)
 	}
+
+	e.baseCancel()
+	e.baseCtx, e.baseCancel = context.WithCancel(context.Background())
+}
+
+// isDeadTransactionError reports whether err reflects a transaction id that
+// can no longer be used at the engine level: either txID was never opened
+// there (errNoEngineTx -- e.g. after a snapshot Restore, which cannot
+// reconstruct an open *sql.Tx), or database/sql itself refused a further
+// operation on an already-committed/rolled-back *sql.Tx (sql.ErrTxDone,
+// database/sql/sql.go:2233-2235, go1.27 stdlib: "ErrTxDone is returned by any
+// operation that is performed on a transaction that has already been
+// committed or rolled back"). Both cases mean the same thing to a caller:
+// the transaction id is gone.
+func isDeadTransactionError(err error) bool {
+	return errors.Is(err, errNoEngineTx) || errors.Is(err, sql.ErrTxDone)
 }
 
 // replay best-effort re-applies a sequence of recorded statements to rebuild

@@ -24,7 +24,12 @@ ops:
     the same rowid-alias detection as ExecuteStatement (see Notes).}
   BeginTransaction: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Opaque per-region sequential id (txn-NNNNNN); real engine-side sql.Tx
-    opened alongside so statements tagged with the id share atomic visibility.}
+    opened alongside so statements tagged with the id share atomic visibility.
+    gopherstack-wh8gv (fixed 2026-09-11): that sql.Tx used to be opened under
+    BeginTransaction's own per-request context, so a real net/http.Server
+    auto-rolled it back the instant that HTTP response finished; now opened
+    under an engine-owned context (sqlEngine.baseCtx) cancelled only on
+    Commit/Rollback/janitor expiry/Reset. See the dated section below.}
   CommitTransaction: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Deletes the transaction from the region's table before returning, so
     reuse (execute/commit/rollback) correctly 400s with TransactionNotFoundException.}
@@ -573,30 +578,20 @@ inside-a-transaction zero-value case), `array_parameter_realclient_test.go`
 (ExecuteStatement and BatchExecuteStatement both reject with the updated
 message).
 
-**Aside, out of scope, filed as a separate finding (not fixed here):**
-while writing the in-transaction ColumnMetadata test against a live
-`httptest.Server` + real SDK client (this issue's requested test pattern),
-found that `sqlEngine.beginTx` (engine.go) opens the engine-side `*sql.Tx`
-using `BeginTransaction`'s own per-request `context.Context`. Over a real
-`net/http.Server`, that context is canceled once the `BeginTransaction`
-request finishes being served, and `database/sql` auto-rolls-back a `*sql.Tx`
-whose context is canceled -- so a *separate* subsequent HTTP request
-(`ExecuteStatement` with that `transactionId`) silently hits the already
-"transaction has already been committed or rolled back" error, which
-`statements.go`'s historical lenient-fallback swallows into the ordinary
-empty-success envelope (no client-visible error, just silently-wrong
-empty/zero results). Reproduced directly: a real client's
-`BeginTransaction` then `ExecuteStatement` in two separate HTTP round trips
-against an `httptest.Server` returns `"columnMetadata":[]` where the
-backend, called in-process with a durable context, correctly returns one
-entry. Every other transaction test in this package avoids the confound by
-driving the handler in-process (`doRDSDataRequest`, whose
-`httptest.NewRequest` carries a never-canceled `context.Background()`),
-which is almost certainly why this has gone uncaught. Out of scope for
-gopherstack-fdle (transaction-context lifetime, not typeHint/ColumnMetadata/
-array parameters); worth its own bd issue and a real fix (e.g. binding the
-engine-side transaction to a longer-lived context decoupled from any single
-request).
+**Aside found while writing the in-transaction ColumnMetadata test, filed
+separately and fixed the same day -- see "gopherstack-wh8gv" below:**
+`sqlEngine.beginTx` (engine.go) opened the engine-side `*sql.Tx` using
+`BeginTransaction`'s own per-request `context.Context`. Over a real
+`net/http.Server`, that context was canceled once the `BeginTransaction`
+request finished being served, and `database/sql` auto-rolls back a
+`*sql.Tx` whose context is canceled -- so a *separate* subsequent HTTP
+request (`ExecuteStatement` with that `transactionId`) silently hit
+`sql.ErrTxDone`, which `statements.go`'s historical lenient fallback
+swallowed into the ordinary empty-success envelope (no client-visible
+error, just silently-wrong empty/zero results, i.e. lost writes). Was out
+of scope for this issue (gopherstack-fdle: typeHint/ColumnMetadata/array
+parameters, not transaction-context lifetime); tracked as gopherstack-wh8gv
+and fixed the same day.
 
 **Gates:** `go build ./...` clean; `go vet ./services/rdsdata/...` clean;
 `go test -race -count=1 ./services/rdsdata/... ./pkgs/persistence/...` ok;
@@ -606,3 +601,143 @@ SQLParameter's JSON shape is identical -- only how their fields are
 populated changed; query results were never part of `backendSnapshot` to
 begin with, see `persistence.go`), so `pkgs/persistence/testdata/
 snapshot_inventory.json` needed no update and no version bump.
+
+## gopherstack-wh8gv (2026-09-11): transaction-context lifetime -- silent data loss
+
+Fixed the transaction-context-lifetime bug the gopherstack-fdle pass above
+found and filed separately: `sqlEngine.beginTx` (engine.go) opened its
+engine-side `*sql.Tx` under `BeginTransaction`'s own per-request context.
+`database/sql.DB.BeginTx`'s doc comment (`database/sql/sql.go:1866-1868`,
+go1.27 stdlib) states plainly: "The provided context is used until the
+transaction is committed or rolled back. If the context is canceled, the
+sql package will roll back the transaction." A real `net/http.Server`
+cancels a request's context the instant its response is written, so the
+moment `BeginTransaction`'s HTTP response went out, its `*sql.Tx` was
+already rolled back -- every later `ExecuteStatement`/
+`BatchExecuteStatement` against that `transactionId` then hit
+`sql.ErrTxDone` (`database/sql/sql.go:2233-2235`: "ErrTxDone is returned by
+any operation that is performed on a transaction that has already been
+committed or rolled back"), which `statements.go`'s historical lenient
+fallback swallowed into the ordinary empty-success envelope. Net effect: a
+client that began a transaction, ran an INSERT against it, and committed
+saw two 200 OKs and believed its write succeeded; the row was never there.
+
+**Fix 1 -- engine-owned transaction context.** `sqlEngine` now carries its
+own `baseCtx`/`baseCancel` (`context.WithCancel(context.Background())`,
+created in `newSQLEngine`). `beginTx` derives each transaction's context
+from `baseCtx`, not the caller's `ctx` (`engine.go`'s new `engineTx{tx,
+cancel}` pairs a `*sql.Tx` with its own cancel func). That per-transaction
+context is canceled only by `finalizeTx` (called from `CommitTransaction`/
+`RollbackTransaction` after the real `tx.Commit()`/`tx.Rollback()` call,
+and from the Janitor's `tick` on idle/max-lifetime expiry -- both already
+existing call sites, unchanged) or by `sqlEngine.reset()` (backend
+`Reset()`), which cancels `baseCtx` -- transitively canceling every still-open
+transaction's derived context -- then replaces `baseCtx`/`baseCancel` so the
+engine remains usable afterward. `ctx` (the caller's per-request context) is
+still passed to `dbFor` for opening/pinning the resource `*sql.DB`: that
+call's context only bounds waiting for a connection, not the returned
+`*sql.DB`'s lifetime (unlike `BeginTx`), so it carries no equivalent
+landmine -- confirmed by reading `database/sql.DB.Conn`'s doc comment, which
+makes no such claim.
+
+**Timeout semantics** (unchanged from the existing janitor.go
+implementation, gopherstack-02w): BeginTransaction's own doc comment
+(`rdsdata@v1.35.4 api_op_BeginTransaction.go`) and the live API reference
+(https://docs.aws.amazon.com/rdsdataservice/latest/APIReference/API_BeginTransaction.html,
+refetched this pass) both state, verbatim: "A transaction can run for a
+maximum of 24 hours. A transaction is terminated and rolled back
+automatically after 24 hours." and "A transaction times out if no calls use
+its transaction ID in three minutes. If a transaction times out before it's
+committed, it's rolled back automatically." The pre-existing Janitor
+(`janitor.go`) already enforces both thresholds via `finalizeTx`; this pass
+only changed what `finalizeTx`'s rollback races against (nothing, now,
+instead of an already-dead context) and how "now" is read -- see Fix 3.
+
+**Fix 2 -- dead-transaction execution errors instead of a fabricated
+success.** Even with Fix 1, a transaction id can still legitimately go dead
+between `Has()`'s check and engine execution in one case Fix 1 doesn't
+touch: a snapshot `Restore` records a still-`ACTIVE` `Transaction` in
+`b.transactions` (real AWS bookkeeping metadata, which persists) but
+`engine.reset()` necessarily drops every `*sql.Tx` (an open driver
+connection can't be serialized) -- so `e.txs` has no entry for that id after
+a restart. `statements.go`'s `ExecuteStatement`/`BatchExecuteStatement` now
+check `isDeadTransactionError` (engine.go: `errors.Is(err, errNoEngineTx) ||
+errors.Is(err, sql.ErrTxDone)`) on any engine error while `transactionID !=
+""`, and return `ErrTransactionNotFound` instead of falling through to the
+historical empty-success envelope. The historical lenient fallback is
+otherwise **unchanged** and deliberately still in place for genuine SQL
+problems (bad syntax, DML against a table that was never created, both in
+autocommit and inside a live transaction) -- see this file's "Trap for the
+next auditor" note above; this fix only closes the one path where the
+*transaction itself*, not the SQL, is the problem.
+
+**Error class -- `TransactionNotFoundException`, not `BadRequestException`.**
+The bd issue's initial hypothesis was `BadRequestException` with a "Transaction
+<id> is not found" message. Checking the real error lists first
+(`rdsdata@v1.35.4` `api_op_ExecuteStatement.go`/`api_op_BeginTransaction.go`/
+etc. and the live API reference's Errors sections for BeginTransaction and
+ExecuteStatement, both refetched this pass) shows AWS models this exact
+case as its own distinct exception: `TransactionNotFoundException` --
+"The transaction ID wasn't found." (HTTP 404 per the docs). gopherstack
+already has this modeled end-to-end as `ErrTransactionNotFound`
+(errors.go) and already used it for the unknown/committed/rolled-back cases
+(`CommitTransaction`/`RollbackTransaction`/the pre-existing `Has()` checks
+in `ExecuteStatement`/`BatchExecuteStatement`) -- so this fix reuses that
+existing, already-correct mechanism for the newly-caught dead-engine-tx case
+rather than inventing a second, less-accurate error path. gopherstack
+returns it over HTTP 400 (matching every other error this handler emits),
+not the documented 404: confirmed from `aws-sdk-go-v2`'s own deserializer
+(`rdsdata@v1.35.4 deserializers.go`'s
+`awsRestjson1_deserializeOpErrorExecuteStatement`) that the client selects
+the Go exception type purely from the `__type`/`code` string (header or
+body), never from the HTTP status -- so a real client still gets a typed
+`*types.TransactionNotFoundException` regardless of the status code. The
+400-vs-404 status mismatch is a pre-existing, unrelated gap (this handler
+has always used a flat 400 for every error type) rather than something this
+fix introduces or needed to correct to make the client-visible behavior
+right.
+
+**Fix 3 -- injectable clock.** `InMemoryBackend` had no clock seam;
+`BeginTransaction`/`touchTransactionLocked`/`janitor.go`'s `tick` all called
+`time.Now()` directly. Added `nowFunc func() time.Time` (default
+`time.Now`) and an exported `WithClock` method (store.go), following
+`services/polly/store.go`/`throttle.go`'s existing `WithClock` pattern
+exactly. `BeginTransaction`, `touchTransactionLocked`, and the Janitor's
+`tick` now read `nowFunc()` instead of `time.Now()`, so a test can drive the
+3-minute idle timeout deterministically (advance a fake clock, then call
+the already-exported `Janitor.SweepOnce` directly) with no `time.Sleep` and
+no real wall-clock wait or background goroutine.
+
+**Tests** (`transaction_context_realclient_test.go`, table-driven, real
+`aws-sdk-go-v2/service/rdsdata` client against a real `httptest.Server` via
+the existing `newRoundTripClient` helper, each call its own separate HTTP
+request -- unlike this package's `doRDSDataRequest`-based transaction tests,
+whose `httptest.NewRequest` carries a never-canceled `context.Background()`
+and so could never have caught this): commit makes a live-transaction
+INSERT visible to a later autocommit SELECT (the core regression case --
+confirmed it fails pre-fix: temporarily reverted `beginTx` to use the
+caller's `ctx` and reran, got a real `TransactionNotFoundException` instead
+of a silent empty result, then restored the fix); rollback discards a
+live-transaction INSERT (asserts the insert reported `NumberOfRecordsUpdated
+== 1` before rollback, to prove it ran against a live tx rather than
+"passing" for the old, wrong reason); unknown transaction id and execute
+after commit both return `TransactionNotFoundException` (these two were
+already correct pre-fix via the pre-existing `Has()` check -- kept as
+baseline coverage); idle timeout via `WithClock` + `Janitor.SweepOnce`
+also returns `TransactionNotFoundException`. `column_origin_realclient_test.go`'s
+`TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction` doc
+comment updated to stop describing this bug as a live reason to avoid a
+real server round trip -- it no longer is one; that test still uses
+`doRDSDataRequest` as a plain style choice, not a workaround.
+
+**Gates:** `go build ./...` clean; `go vet ./services/rdsdata/...` clean;
+`go test -race -count=1 ./services/rdsdata/... ./pkgs/persistence/...` ok;
+`go test -race -count=20 -run 'Transaction' ./services/rdsdata/...` ok (all
+20 iterations); `golangci-lint run ./services/rdsdata/...` -- one
+`fieldalignment` finding on the new test file's `fakeClock` struct, fixed by
+reordering fields (`time.Time` before `sync.Mutex`). No `cyclop`/`gocyclo`/
+`gocognit`/`funlen` nolints added. No persisted struct's JSON shape changed
+(`Transaction`'s fields are untouched; the new `nowFunc` is an unexported,
+unpersisted backend field, not part of `backendSnapshot`) -- see
+`persistence.go` -- so `pkgs/persistence/testdata/snapshot_inventory.json`
+needed no update and no version bump.
