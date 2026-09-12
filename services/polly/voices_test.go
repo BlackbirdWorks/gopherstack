@@ -47,14 +47,17 @@ func TestDescribeVoicesFilters(t *testing.T) {
 }
 
 // TestDescribeVoicesInvalidEngine verifies that DescribeVoices rejects an
-// unrecognized Engine value. AWS returns InvalidParameterValueException for
-// engines not in {standard, neural, long-form, generative}.
+// unrecognized Engine value (not in {standard, neural, long-form,
+// generative}). DescribeVoices's own deserializeOpError (polly@v1.60.4
+// deserializers.go) models no generic validation type at all, so
+// "ValidationException" here is the nearest real AWS code, not a verified
+// one -- see PARITY.md.
 func TestDescribeVoicesInvalidEngine(t *testing.T) {
 	t.Parallel()
 
 	rec := request(t, newHandler(), http.MethodGet, "/v1/voices?Engine=quantum", nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
 // TestDescribeVoicesExpandedCatalogue verifies that the built-in voice

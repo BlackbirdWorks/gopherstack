@@ -74,6 +74,19 @@ leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutine
 
 ## Notes
 
+**2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr):** `UploadReadSetPart`'s
+body-read-failure branch (`handler_read_sets.go`) emitted the fabricated
+`InternalFailureException` -- absent from omics@v1.49.5's SDK module
+entirely. `UploadReadSetPart`'s own `deserializeOpError` (deserializers.go)
+declares `InternalServerException`, the real generic-fault type this whole
+service uses; switched to it. New test
+`TestUploadReadSetPart_BodyReadError_InternalServerException`
+(handler_read_sets_test.go) drives an unreadable request body through the
+raw handler (a real client over a live TCP connection can't deterministically
+reproduce a server-side body-read error -- same synthetic-body technique as
+`services/sts/handler_test.go`'s `errReader`) and asserts the decoded
+`__type` field.
+
 **2026-09-04 (gopherstack-42g, missing-delete-precondition sweep):** read
 every `Delete*` op's full doc comment in `omics@v1.49.5` looking for a
 documented precondition the handler didn't enforce (the "highest-yield

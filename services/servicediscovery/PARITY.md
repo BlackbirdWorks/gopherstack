@@ -53,7 +53,7 @@ ops:
   ListServices: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-tuh5: was reusing serviceToMap (the full GetService converter) unscoped, leaking a top-level NamespaceId that types.ServiceSummary does not declare (confirmed against awsAwsjson11_deserializeDocumentServiceSummary; the nested, deprecated DnsConfig.NamespaceId is a distinct field on both shapes and is unaffected). namespaceToMap in this same file was checked and is clean (types.NamespaceSummary matches exactly). serviceToMap now delegates to a dedicated serviceSummaryToMap plus the one extra field. Regression: raw-body assertion (an SDK client discards unrecognised keys and can't observe an over-wide response). Prior pass: Filters now implement NAMESPACE_ID/RESOURCE_OWNER -- fixed, see Notes"}
   DeleteService: {wire: ok, errors: ok, state: ok, persist: ok, note: "was silently auto-deregistering instances instead of failing ResourceInUse -- fixed prior pass"}
   UpdateService: {wire: ok, errors: fixed, state: ok, persist: ok, note: "DnsConfig.RoutingPolicy/DnsRecords[].Type and HealthCheckConfig.Type now validated (see CreateService) -- fixed"}
-  GetServiceAttributes: {wire: fixed, errors: ok, state: ok, persist: ok, note: "response emitted the generic keyArn (\"Arn\") for ServiceAttributes.ServiceArn; real key is \"ServiceArn\" (deserializers.go:6001), distinct from Service/Namespace which really do use \"Arn\" -- fixed 2026-08-23"}
+  GetServiceAttributes: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "response emitted the generic keyArn (\"Arn\") for ServiceAttributes.ServiceArn; real key is \"ServiceArn\" (deserializers.go:6001), distinct from Service/Namespace which really do use \"Arn\" -- fixed 2026-08-23. errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: a service that had never had attributes set (or had them all deleted) errored with the fabricated \"ServiceAttributesNotFound\" (no such type in servicediscovery@v1.43.4 -- 15 types checked). This op's own deserializeOpError models only InvalidInput/ServiceNotFound, no not-found-for-attributes shape, and GetServiceAttributesOutput.ServiceAttributes.Attributes is a plain map[string]string -- so the real fix is behavioral, not a code swap: no-attributes now returns 200 with an empty map, matching real AWS. ErrServiceAttributesNotFound sentinel deleted (dead after the fix)."}
   UpdateServiceAttributes: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "REQUEST decode struct read wire key \"ServiceArn\"; real key is \"ServiceId\" (serializers.go:3040-3043, accepts ID or ARN) -- every real client call failed \"ServiceArn is required\". Fixed 2026-08-23, see Notes. Also: botocore model DOES carry the quota (shape ServiceAttributesMap{max:30,min:1}, ServiceAttributeKey{max:255}, ServiceAttributeValue{max:1024}); the prior pass's 'no documented numbers' excuse was wrong -- ServiceAttributesLimitExceededException and InvalidInput now enforced, see gopherstack-bq50 Notes"}
   DeleteServiceAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterInstance: {wire: ok, errors: ok, state: fixed, persist: ok, note: "custom-attribute quota (30 count/255 key/1024 value/5000 total, documented) and AWS_INIT_HEALTH_STATUS seeding were unenforced/unimplemented -- fixed, see Notes"}
@@ -89,6 +89,33 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr): GetServiceAttributes no-attributes case was never an error
+
+`sentinelErrorCodes`' `ErrServiceAttributesNotFound` entry emitted
+`ServiceAttributesNotFound` as both the Go sentinel text and the wire
+`__type` -- a name absent from servicediscovery@v1.43.4's SDK module
+entirely (15 exception types, grepped, no match). GetServiceAttributes's own
+`deserializeOpError` (deserializers.go) declares only `InvalidInput` and
+`ServiceNotFound`; there is no "attributes not found" shape anywhere in the
+model, and `GetServiceAttributesOutput.ServiceAttributes.Attributes` is a
+plain `map[string]string` (types/types.go) with no not-found wrapper. That
+means the correct fix isn't a code swap -- it's removing the error path:
+`InMemoryBackend.GetServiceAttributes` (services.go) now returns the
+service's ARN with an empty attributes map when none have been set, instead
+of erroring.
+
+This turned out to be an inconsistency fix as much as a bug fix: the
+`delete_all_then_get` case in `TestHandler_ServiceAttributes`
+(services_test.go) already asserted 200-with-empty-map (fixed by an earlier
+pass, per its own inline comment), but the sibling `get_before_update` case
+still asserted 400 for the identical "no attributes exist" state reached a
+different way. Corrected to match.
+
+New test `TestGetServiceAttributes_NoAttributesSet_Succeeds`
+(get_service_attributes_no_error_test.go) drives the real SDK client and
+asserts `NoError` with an empty `Attributes` map for a service that never
+had `UpdateServiceAttributes` called.
 
 **2026-08-15 (gopherstack-3gbe):** investigated whether Cloud Map shares
 Omics' (gopherstack-keee) client-side host-prefix-rewrite reachability gap.

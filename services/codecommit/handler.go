@@ -434,7 +434,7 @@ var errCodeLookup = []errCodeEntry{
 		code:     http.StatusBadRequest,
 		errType:  "InvalidPullRequestEventTypeException",
 	},
-	{sentinel: ErrValidation, code: http.StatusBadRequest, errType: "InvalidParameterException"},
+	{sentinel: ErrCommitSpecifierRequired, code: http.StatusBadRequest, errType: "CommitRequiredException"},
 	{sentinel: ErrInvalidMergeOption, code: http.StatusBadRequest, errType: "InvalidMergeOptionException"},
 	{
 		sentinel: ErrInvalidPullRequestStatus,

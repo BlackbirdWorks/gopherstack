@@ -17,8 +17,6 @@ var (
 	// exists in the same namespace (case-insensitive for DNS namespaces, case-sensitive for
 	// HTTP namespaces -- see CreateService's doc comment on same-case-only collisions).
 	ErrServiceAlreadyExists = awserr.New("ServiceAlreadyExists", awserr.ErrAlreadyExists)
-	// ErrServiceAttributesNotFound is returned when no attributes exist for a service.
-	ErrServiceAttributesNotFound = awserr.New("ServiceAttributesNotFound", awserr.ErrNotFound)
 	// ErrInvalidInput is returned when an input value is invalid.
 	ErrInvalidInput = awserr.New("InvalidInput", awserr.ErrInvalidParameter)
 	// ErrResourceNotFound is returned when a tagged resource ARN is not found.

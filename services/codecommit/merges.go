@@ -124,7 +124,7 @@ func (b *InMemoryBackend) ResolveCommitSpecifier(repoName, specifier string) (st
 // must hold at least the read lock.
 func (b *InMemoryBackend) resolveCommitSpecifier(repoName, specifier string) (string, error) {
 	if specifier == "" {
-		return "", fmt.Errorf("%w: commit specifier is required", ErrValidation)
+		return "", fmt.Errorf("%w: commit specifier is required", ErrCommitSpecifierRequired)
 	}
 	if branch, ok := b.branches.Get(branchKey(repoName, specifier)); ok {
 		return branch.CommitID, nil

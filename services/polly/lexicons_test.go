@@ -166,8 +166,10 @@ func TestLexiconPaginationAndSynthesisUse(t *testing.T) {
 }
 
 // TestPutLexiconNameValidation verifies that PutLexicon rejects lexicon names
-// that are empty, too long (>20 chars), or non-alphanumeric. AWS returns
-// InvalidParameterValueException for invalid names.
+// that are empty, too long (>20 chars), or non-alphanumeric. PutLexicon's own
+// deserializeOpError (polly@v1.60.4 deserializers.go) models no generic
+// validation type at all, so "ValidationException" here is the nearest real
+// AWS code, not a verified one -- see PARITY.md.
 func TestPutLexiconNameValidation(t *testing.T) {
 	t.Parallel()
 
@@ -193,7 +195,7 @@ func TestPutLexiconNameValidation(t *testing.T) {
 				map[string]any{"Content": validContent})
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantCode == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+				assert.Contains(t, rec.Body.String(), "ValidationException")
 			}
 		})
 	}

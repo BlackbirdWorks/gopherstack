@@ -7,9 +7,17 @@ var (
 	ErrLexiconNotFound = errors.New("LexiconNotFoundException")
 	// ErrTaskNotFound is returned when a requested synthesis task is absent.
 	ErrTaskNotFound = errors.New("SynthesisTaskNotFoundException")
-	// ErrValidation is returned when request parameters do not meet Polly constraints
-	// that AWS models as a generic/unlisted validation failure.
-	ErrValidation = errors.New("InvalidParameterValueException")
+	// ErrValidation is returned when request parameters do not meet Polly
+	// constraints that AWS models as a generic/unlisted validation failure.
+	// "InvalidParameterValueException" names no type anywhere in polly's
+	// pinned SDK module (polly@v1.60.4 types/errors.go); "ValidationException"
+	// is a real modeled type (used by StartSpeechSynthesisStream) but is
+	// UNCONFIRMED for the other operations that raise this sentinel -- none
+	// of PutLexicon/DescribeVoices/SynthesizeSpeech/ListSpeechSynthesisTasks/
+	// StartSpeechSynthesisTask/GetSpeechSynthesisTask declare ANY generic
+	// validation type in their own deserializeOpError, so this is the
+	// nearest real code, not a verified one (see PARITY.md).
+	ErrValidation = errors.New("ValidationException")
 	// ErrTextLengthExceeded is returned when Text exceeds the format-specific length limit.
 	ErrTextLengthExceeded = errors.New("TextLengthExceededException")
 	// ErrInvalidSampleRate is returned when SampleRate is not valid for the requested OutputFormat.

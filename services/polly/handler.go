@@ -667,7 +667,7 @@ var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
 		{ErrInvalidS3Bucket, "InvalidS3BucketException", http.StatusBadRequest},
 		{ErrInvalidS3Key, "InvalidS3KeyException", http.StatusBadRequest},
 		{ErrInvalidSnsTopicArn, "InvalidSnsTopicArnException", http.StatusBadRequest},
-		{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
+		{ErrValidation, "ValidationException", http.StatusBadRequest},
 	}
 })
 

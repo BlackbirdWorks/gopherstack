@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	codecommitsdk "github.com/aws/aws-sdk-go-v2/service/codecommit"
 	"github.com/aws/aws-sdk-go-v2/service/codecommit/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/codecommit"
@@ -22,6 +23,15 @@ func newOrphanCodeTestHandler(t *testing.T) *codecommit.Handler {
 	backend := codecommit.NewInMemoryBackend("123456789012", "us-east-1")
 
 	return codecommit.NewHandler(backend)
+}
+
+func createTestRepo(t *testing.T, client *codecommitsdk.Client, name string) {
+	t.Helper()
+
+	_, err := client.CreateRepository(t.Context(), &codecommitsdk.CreateRepositoryInput{
+		RepositoryName: aws.String(name),
+	})
+	require.NoError(t, err)
 }
 
 // TestBatchDescribeMergeConflicts_InvalidMergeOption_InvalidMergeOptionException
@@ -207,4 +217,82 @@ func TestListFileCommitHistory_InvalidNextToken_InvalidContinuationTokenExceptio
 	require.ErrorAsf(
 		t, err, &ict, "expected a real InvalidContinuationTokenException from the SDK deserializer, got %v", err,
 	)
+}
+
+// TestMergeOps_EmptyCommitSpecifier_CommitRequiredException proves an empty
+// commit specifier on GetMergeCommit and the MergeBranchesBy* ops surfaces as
+// CommitRequiredException, not a fabricated "InvalidParameterException" --
+// confirmed against each op's own awsAwsjson11_deserializeOpError<Op>
+// (codecommit@v1.36.4 deserializers.go), which all declare
+// CommitRequiredException and none declare InvalidParameterException.
+func TestMergeOps_EmptyCommitSpecifier_CommitRequiredException(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]func(t *testing.T, client *codecommitsdk.Client) error{
+		"getmergecommit": func(t *testing.T, client *codecommitsdk.Client) error {
+			t.Helper()
+
+			_, err := client.GetMergeCommit(t.Context(), &codecommitsdk.GetMergeCommitInput{
+				RepositoryName:             aws.String("repo"),
+				SourceCommitSpecifier:      aws.String(""),
+				DestinationCommitSpecifier: aws.String("main"),
+			})
+
+			return err
+		},
+		"mergebranchesbysquash": func(t *testing.T, client *codecommitsdk.Client) error {
+			t.Helper()
+			createTestRepo(t, client, "repo")
+
+			_, err := client.MergeBranchesBySquash(t.Context(), &codecommitsdk.MergeBranchesBySquashInput{
+				RepositoryName:             aws.String("repo"),
+				SourceCommitSpecifier:      aws.String(""),
+				DestinationCommitSpecifier: aws.String("main"),
+			})
+
+			return err
+		},
+		"mergebranchesbythreeway": func(t *testing.T, client *codecommitsdk.Client) error {
+			t.Helper()
+			createTestRepo(t, client, "repo")
+
+			_, err := client.MergeBranchesByThreeWay(t.Context(), &codecommitsdk.MergeBranchesByThreeWayInput{
+				RepositoryName:             aws.String("repo"),
+				SourceCommitSpecifier:      aws.String(""),
+				DestinationCommitSpecifier: aws.String("main"),
+			})
+
+			return err
+		},
+		"mergebranchesbyfastforward": func(t *testing.T, client *codecommitsdk.Client) error {
+			t.Helper()
+			createTestRepo(t, client, "repo")
+
+			_, err := client.MergeBranchesByFastForward(t.Context(), &codecommitsdk.MergeBranchesByFastForwardInput{
+				RepositoryName:             aws.String("repo"),
+				SourceCommitSpecifier:      aws.String(""),
+				DestinationCommitSpecifier: aws.String("main"),
+			})
+
+			return err
+		},
+	}
+
+	for name, call := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newOrphanCodeTestHandler(t)
+			client := newTestCodeCommitClient(t, h)
+
+			err := call(t, client)
+			require.Error(t, err)
+
+			var cre *types.CommitRequiredException
+			require.ErrorAsf(
+				t, err, &cre, "expected a real CommitRequiredException from the SDK deserializer, got %v", err,
+			)
+			assert.Equal(t, "CommitRequiredException", cre.ErrorCode())
+		})
+	}
 }
