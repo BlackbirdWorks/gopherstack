@@ -102,7 +102,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 		path   string
 	}{
 		{name: "tables_collection_delete", method: http.MethodDelete, path: "/" + testAccount + "/Tables"},
-		{name: "tables_item_get", method: http.MethodGet, path: "/" + testAccount + "/Tables('foo')"},
+		{name: "tables_item_put", method: http.MethodPut, path: "/" + testAccount + "/Tables('foo')"},
 		{name: "entity_collection_put", method: http.MethodPut, path: "/" + testAccount + "/mytable"},
 		{
 			name: "entity_item_post", method: http.MethodPost,
@@ -380,6 +380,24 @@ func TestGetSupportedOperations(t *testing.T) {
 	h := newTestHandler(t)
 
 	assert.NotEmpty(t, h.GetSupportedOperations())
+	assert.Contains(t, h.GetSupportedOperations(), "GetServiceProperties")
+}
+
+// TestHandler_GetServiceProperties proves GET /<account>?restype=service&
+// comp=properties succeeds -- terraform-provider-azurerm v4.81+ polls this
+// endpoint (via its Table data-plane client) to confirm the data plane is
+// reachable right after creating a storage account, and fails the whole
+// apply if it 400s (AZURE.md section 10.8). Unlike every other azuretable
+// response (JSON/OData), this one uses XML, per the real Table Service REST
+// API's own schema.
+func TestHandler_GetServiceProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"?restype=service&comp=properties", nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<StorageServiceProperties")
 }
 
 func TestName(t *testing.T) {

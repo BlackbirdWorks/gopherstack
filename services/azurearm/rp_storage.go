@@ -35,13 +35,17 @@ func storageAPIVersions() []string {
 // advertises Blob/Queue/Table data-plane endpoints in
 // properties.primaryEndpoints, per AZURE.md section 10.4's
 // endpoint-advertisement design.
+// VHostOverride/VHostPort replace this struct's earlier three separate
+// per-service overrides/ports (Blob/Queue/Table): terraform-provider-azurerm's
+// data-plane SDK requires Blob/Queue/Table to share one domain suffix for
+// account-ID parsing, and since Go's url.URL.Host always includes the port,
+// that forces them onto one shared port too -- see
+// services/azurestoragevhost's package doc comment and AZURE.md section
+// 10.8 for the full derivation. advertiseVHostEndpoint below is the only
+// thing that reads these.
 type StorageEndpointConfig struct {
-	BlobOverride  string
-	QueueOverride string
-	TableOverride string
-	BlobPort      int
-	QueuePort     int
-	TablePort     int
+	VHostOverride string
+	VHostPort     int
 }
 
 // storedStorageAccount is the Storage RP's own internal representation of
@@ -82,16 +86,8 @@ func NewStorageProvider(cfg StorageEndpointConfig, dataPlane StorageAccounts) *S
 		dataPlane = noopStorageAccounts{}
 	}
 
-	if cfg.BlobPort == 0 {
-		cfg.BlobPort = DefaultBlobEndpointPort
-	}
-
-	if cfg.QueuePort == 0 {
-		cfg.QueuePort = DefaultQueueEndpointPort
-	}
-
-	if cfg.TablePort == 0 {
-		cfg.TablePort = DefaultTableEndpointPort
+	if cfg.VHostPort == 0 {
+		cfg.VHostPort = DefaultStorageVHostPort
 	}
 
 	return &StorageProvider{
@@ -371,9 +367,9 @@ func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) m
 	props := map[string]any{
 		"provisioningState": provisioningStateSucceeded,
 		"primaryEndpoints": map[string]any{
-			"blob":  advertiseEndpoint(p.cfg.BlobOverride, acct.host, p.cfg.BlobPort, acct.name),
-			"queue": advertiseEndpoint(p.cfg.QueueOverride, acct.host, p.cfg.QueuePort, acct.name),
-			"table": advertiseEndpoint(p.cfg.TableOverride, acct.host, p.cfg.TablePort, acct.name),
+			"blob":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "blob", acct.name),
+			"queue": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "queue", acct.name),
+			"table": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "table", acct.name),
 		},
 	}
 
@@ -403,18 +399,26 @@ func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) m
 	return body
 }
 
-// advertiseEndpoint builds one primaryEndpoints URL: override if set, else
-// scheme://host:port/account/, defaulting host to "localhost" if unset.
-func advertiseEndpoint(override, host string, port int, account string) string {
-	if override != "" {
-		return strings.TrimSuffix(override, "/") + "/" + account + "/"
+// advertiseVHostEndpoint builds one primaryEndpoints URL in the
+// virtual-hosted-style shape terraform-provider-azurerm's data-plane SDK
+// requires: "http://{account}.{svc}.{hostAndPort}/" (see
+// services/azurestoragevhost's package doc comment for why). hostAndPort is
+// override if set (the externally-reachable "host:port" the shared vhost
+// listener is published on, e.g. "localhost:18010" in CI where the
+// container-internal port differs -- mirrors the AZURE_ARM_ADVERTISE_*
+// override mechanism this replaces), else host:port built from host
+// (defaulting to "localhost" if unset) and the configured vhost port.
+func advertiseVHostEndpoint(override, host string, port int, svc, account string) string {
+	hostAndPort := override
+	if hostAndPort == "" {
+		if host == "" {
+			host = "localhost"
+		}
+
+		hostAndPort = net.JoinHostPort(host, strconv.Itoa(port))
 	}
 
-	if host == "" {
-		host = "localhost"
-	}
-
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/" + account + "/"
+	return "http://" + account + "." + svc + "." + hostAndPort + "/"
 }
 
 // logStorageAdapterError logs a failure from the StorageAccounts adapter.

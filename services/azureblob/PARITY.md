@@ -15,6 +15,9 @@ ops:
   GetBlob: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<container>/<blob>, single-range Range or x-ms-range header supported (start-end, open-ended, and suffix forms; x-ms-range takes precedence when both are present, matching real Azure); multi-range requests are rejected as unsatisfiable rather than served. x-ms-range support added in M4 after the cross-SDK smoke test (AZURE.md section 7) showed the Python (azure-storage-blob) and JS (@azure/storage-blob) Get Blob clients send only x-ms-range, never Range -- Range-only support made single-range downloads unreachable from those SDKs' default download path even though the Go SDK (which sends Range) passed."}
   GetBlobProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "HEAD /<account>/<container>/<blob>. Returns ETag/Last-Modified/Content-Length/Content-Type/x-ms-blob-type; no x-ms-meta-* or lease-state headers."}
   DeleteBlob: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<container>/<blob>. No snapshot/version-scoped delete, no soft-delete."}
+  GetServiceProperties: {wire: partial, errors: n/a, state: n/a, persist: n/a, note: "GET /<account>?restype=service&comp=properties. Added in M8 to satisfy terraform-provider-azurerm v4.81+'s post-create data-plane readiness poll (AZURE.md section 10.8), which hard-fails an apply on any non-200 here. Always returns an empty <StorageServiceProperties/> -- Cors/Logging/HourMetrics/MinuteMetrics/DeleteRetentionPolicy/StaticWebsite are all unset and unconfigurable (Set Service Properties is not implemented)."}
+  GetContainerProperties: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<container>?restype=container. Added in M8 (AZURE.md section 10.8 finding (9)) to satisfy azurerm_storage_container's create-then-read existence check. Returns Last-Modified/Etag/X-Ms-Lease-Status/X-Ms-Lease-State; no metadata (x-ms-meta-*) headers, matching this service's lack of container metadata storage (see gaps)."}
+  SetBlobProperties: {wire: partial, errors: ok, state: gap, persist: gap, note: "PUT /<account>/<container>/<blob>?comp=properties. Added in M8 (AZURE.md section 10.8 finding (9)) to satisfy azurerm_storage_blob's post-upload call. Validates the blob exists (404 if not) but does not persist any property changes -- see gaps."}
 families:
   auth: {status: partial, note: "pkgs/azureauth (SharedKey/SharedKeyLite header parsing + canonicalization + HMAC signing/verification) has landed and is wired in: checkAuth parses a present Authorization header via azureauth.ParseAuthorizationHeader. Verification (azureauth.VerifySharedKey) is implemented in pkgs/azureauth but not yet called from checkAuth -- enforcement is deliberately deferred past M0, matching services/s3's PresignSecret-opt-in philosophy. An absent or invalid header is still accepted."}
   blob_body_headers: {status: ok, note: "x-ms-version, x-ms-request-id, and Date are set on every response (success and error paths) via setCommonHeaders, so azure-sdk-for-go's response parsing does not error on missing headers."}
@@ -29,6 +32,7 @@ gaps:
   - "No snapshot, versioning, soft-delete, lease, or tier (hot/cool/archive) support."
   - "List Containers / List Blobs return every result in one page; no prefix/marker/maxresults pagination."
   - "Auth verification is not enforced -- see families.auth. pkgs/azureauth.VerifySharedKey exists and is unit-tested but checkAuth does not call it yet."
+  - "Set Blob Properties (PUT ?comp=properties, ops.SetBlobProperties) is accepted and validated (404s a nonexistent blob) but not persisted -- StorageBackend has no property-update path (PutBlob only sets content-type at upload time), so content-type/cache-control/etc changes sent via this call are silently discarded. Added in M8 solely to satisfy terraform-provider-azurerm's post-upload call, which only checks for a 200 and never re-reads these properties in the same apply."
   All gaps above are intentional MVP scope per AZURE.md's M0 entry, not oversights; see AZURE.md sections 2 and 8 for the milestone plan.
 deferred:
   - "Initial implementation pass (2026-09-02): seeded this service from scratch per AZURE.md M0. No prior audit history to reconcile."
@@ -102,6 +106,11 @@ meaningful (those headers are not yet enforced -- see gaps -- but the ETags
 themselves are now correct). Container listing ETags (`List Containers`) use
 a separate, simpler hash with no mutation-sequence component, since
 containers have no mutable properties in this MVP.
+
+### M8: Terraform-provisioned coverage
+`test/terraform/azure/storage_dataplane_test.go`'s `TestTerraform_Azure_StorageDataPlane` provisions an `azurerm_storage_container` + `azurerm_storage_blob` (via an unmodified `hashicorp/azurerm` Terraform provider against `services/azurearm`'s Storage RP, M7) and reads the blob back with `azure-sdk-for-go/sdk/storage/azblob`, alongside this service's existing Go-SDK integration coverage (`test/integration/azureblob_test.go`) -- see `AZURE.md` section 10.10's M8 entry for current pass/skip status, which can depend on the running host's TLS-trust behavior independent of this service.
+
+Getting real (unmodified) `terraform-provider-azurerm` traffic to reach this service at all required a new addressing layer -- see `services/azurestoragevhost` and `AZURE.md` section 10.8 finding (9) -- since the provider's data-plane SDK hard-requires virtual-hosted-style URLs (`{account}.blob.{suffix}`) that this service's path-style listener never produced on its own. Reaching this service through that path for the first time also surfaced two REST-surface gaps in `terraform-provider-azurerm`'s create-then-read flow, both now implemented: **Get Container Properties** (`GET ?restype=container`, used by `azurerm_storage_container`'s existence check) and **Set Blob Properties** (`PUT ?comp=properties`, issued after every blob upload).
 
 ## More
 

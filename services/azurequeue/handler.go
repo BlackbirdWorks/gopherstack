@@ -30,16 +30,18 @@ const azureQueueVersion = "2021-08-06"
 // Operation name constants used for metrics (ExtractOperation) and
 // GetSupportedOperations.
 const (
-	opListQueues     = "ListQueues"
-	opCreateQueue    = "CreateQueue"
-	opDeleteQueue    = "DeleteQueue"
-	opPutMessage     = "PutMessage"
-	opGetMessages    = "GetMessages"
-	opPeekMessages   = "PeekMessages"
-	opDeleteMessage  = "DeleteMessage"
-	opUpdateMessage  = "UpdateMessage"
-	opClearMessages  = "ClearMessages"
-	unknownOperation = "Unknown"
+	opListQueues           = "ListQueues"
+	opGetServiceProperties = "GetServiceProperties"
+	opCreateQueue          = "CreateQueue"
+	opQueueExists          = "QueueExists"
+	opDeleteQueue          = "DeleteQueue"
+	opPutMessage           = "PutMessage"
+	opGetMessages          = "GetMessages"
+	opPeekMessages         = "PeekMessages"
+	opDeleteMessage        = "DeleteMessage"
+	opUpdateMessage        = "UpdateMessage"
+	opClearMessages        = "ClearMessages"
+	unknownOperation       = "Unknown"
 )
 
 // messagesSegment is the fixed path segment ("messages") under a queue that
@@ -101,7 +103,9 @@ func (h *Handler) Name() string { return "AzureQueue" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opListQueues,
+		opGetServiceProperties,
 		opCreateQueue,
+		opQueueExists,
 		opDeleteQueue,
 		opPutMessage,
 		opGetMessages,
@@ -258,7 +262,10 @@ func splitPath(p string) (string, string, string) {
 // request handlers.
 const (
 	queryComp              = "comp"
+	queryRestype           = "restype"
 	compList               = "list"
+	compProperties         = "properties"
+	restypeService         = "service"
 	queryNumOfMessages     = "numofmessages"
 	queryVisibilityTimeout = "visibilitytimeout"
 	queryMessageTTL        = "messagettl"
@@ -285,24 +292,32 @@ func operationFor(r *http.Request) string {
 	}
 }
 
-// accountOperationFor covers the one account-level operation, List Queues
-// (GET /<account>?comp=list).
+// accountOperationFor covers the two account-level operations: List Queues
+// (GET /<account>?comp=list) and Get Queue Service Properties
+// (GET /<account>?restype=service&comp=properties).
 func accountOperationFor(r *http.Request) string {
-	if r.Method == http.MethodGet && r.URL.Query().Get(queryComp) == compList {
-		return opListQueues
-	}
+	q := r.URL.Query()
 
-	return unknownOperation
+	switch {
+	case r.Method == http.MethodGet && q.Get(queryComp) == compList:
+		return opListQueues
+	case r.Method == http.MethodGet && q.Get(queryRestype) == restypeService && q.Get(queryComp) == compProperties:
+		return opGetServiceProperties
+	default:
+		return unknownOperation
+	}
 }
 
-// queueOperationFor covers the two queue-scoped operations: Create Queue and
-// Delete Queue.
+// queueOperationFor covers the three queue-scoped operations: Create Queue,
+// Delete Queue, and the bare-GET existence check (getQueueExists).
 func queueOperationFor(method string) string {
 	switch method {
 	case http.MethodPut:
 		return opCreateQueue
 	case http.MethodDelete:
 		return opDeleteQueue
+	case http.MethodGet:
+		return opQueueExists
 	default:
 		return unknownOperation
 	}
@@ -353,6 +368,12 @@ func (h *Handler) serviceEndpoint() string {
 // handleAccountLevel serves GET /<account>?comp=list (List Queues).
 func (h *Handler) handleAccountLevel(c *echo.Context) error {
 	r := c.Request()
+
+	if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
+		c.QueryParam(queryComp) == compProperties {
+		return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+	}
+
 	if r.Method != http.MethodGet || c.QueryParam(queryComp) != compList {
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")
@@ -379,10 +400,29 @@ func (h *Handler) handleQueueLevel(c *echo.Context, queue string) error {
 		return h.createQueue(c, queue)
 	case http.MethodDelete:
 		return h.deleteQueue(c, queue)
+	case http.MethodGet:
+		return h.getQueueExists(c, queue)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+// getQueueExists serves a bare GET /<account>/<queue> (no query params) --
+// not a documented Azure Queue REST operation in its own right, but the one
+// terraform-provider-azurerm's azurerm_storage_queue issues (via
+// jackofallops/giovanni's queue existence check) to decide whether to
+// create the queue or report ImportAsExistsError. 200 if it exists, 404
+// otherwise; no body either way, matching Get Queue Metadata's own
+// no-body-on-success shape since nothing here calls for metadata.
+func (h *Handler) getQueueExists(c *echo.Context, queue string) error {
+	for _, qi := range h.Backend.ListQueues() {
+		if qi.Name == queue {
+			return c.NoContent(http.StatusOK)
+		}
+	}
+
+	return h.writeError(c, http.StatusNotFound, "QueueNotFound", "The specified queue does not exist.")
 }
 
 func (h *Handler) createQueue(c *echo.Context, queue string) error {

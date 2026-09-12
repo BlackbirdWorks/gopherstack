@@ -16,6 +16,8 @@ ops:
   DeleteMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<queue>/messages/<id>?popreceipt=. popreceipt is mandatory (400 InvalidQueryParameterValue if absent); a stale/wrong value is rejected with 400 PopReceiptMismatch, an unknown message id with 404 MessageNotFound."}
   UpdateMessage: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /<account>/<queue>/messages/<id>?popreceipt=&visibilitytimeout=. Both query params are mandatory. Rotates PopReceipt and returns it plus TimeNextVisible via x-ms-popreceipt/x-ms-time-next-visible response headers. An optional body replaces MessageText."}
   ClearMessages: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<queue>/messages (no sub-path). Removes every message from the queue unconditionally."}
+  GetServiceProperties: {wire: partial, errors: n/a, state: n/a, persist: n/a, note: "GET /<account>?restype=service&comp=properties. Added in M8 to satisfy terraform-provider-azurerm v4.81+'s post-create data-plane readiness poll (AZURE.md section 10.8), which hard-fails an apply on any non-200 here. Always returns an empty <StorageServiceProperties/> -- no properties are configurable (Set Service Properties is not implemented)."}
+  QueueExists: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/<queue> (bare, no sub-path). Added in M8 (AZURE.md section 10.8 finding (9)) to satisfy azurerm_storage_queue's create-then-read existence check -- 200 if the queue exists, 404 QueueNotFound otherwise. No response body/headers beyond the standard common ones."}
 families:
   auth: {status: partial, note: "Identical stance to services/azureblob: checkAuth parses a present Authorization header via pkgs/azureauth.ParseAuthorizationHeader (structural only). azureauth.VerifySharedKey exists and is unit-tested but is not called from checkAuth -- verification enforcement is deliberately deferred, matching services/s3's PresignSecret-opt-in philosophy. An absent or invalid header is still accepted."}
   queue_body_headers: {status: ok, note: "x-ms-version, x-ms-request-id, and Date are set on every response (success and error paths) via setCommonHeaders, so azure-sdk-for-go's response parsing does not error on missing headers. Every error response also carries x-ms-error-code, matching real Azure Storage."}
@@ -79,6 +81,11 @@ time (`TestInMemoryBackend_GetMessages_HidesUntilVisibilityTimeoutElapses`,
 rotates a message's `PopReceipt`; `DeleteMessage`/`UpdateMessage` reject a
 stale or mismatched value with `PopReceiptMismatch` rather than silently
 accepting it.
+
+### M8: Terraform-provisioned coverage
+`test/terraform/azure/storage_dataplane_test.go`'s `TestTerraform_Azure_StorageDataPlane` provisions an `azurerm_storage_queue` (via an unmodified `hashicorp/azurerm` Terraform provider against `services/azurearm`'s Storage RP, M7) and sends/receives a message through it with `azure-sdk-for-go/sdk/storage/azqueue` (Terraform itself has no message resource), alongside this service's existing Go-SDK integration coverage (`test/integration/azurequeue_test.go`) -- see `AZURE.md` section 10.10's M8 entry for current pass/skip status, which can depend on the running host's TLS-trust behavior independent of this service.
+
+Getting real (unmodified) `terraform-provider-azurerm` traffic to reach this service at all required a new addressing layer -- see `services/azurestoragevhost` and `AZURE.md` section 10.8 finding (9) -- since the provider's data-plane SDK hard-requires virtual-hosted-style URLs (`{account}.queue.{suffix}`) that this service's path-style listener never produced on its own. Reaching this service through that path for the first time surfaced one REST-surface gap: **Queue Exists** (a bare `GET /{queue}`, used by `azurerm_storage_queue`'s create-then-read existence check), now implemented.
 
 ## More
 

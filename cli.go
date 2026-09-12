@@ -86,6 +86,7 @@ import (
 	azureblobbackend "github.com/blackbirdworks/gopherstack/services/azureblob"
 	azurequeuebackend "github.com/blackbirdworks/gopherstack/services/azurequeue"
 	azureservicebusbackend "github.com/blackbirdworks/gopherstack/services/azureservicebus"
+	azurestoragevhostbackend "github.com/blackbirdworks/gopherstack/services/azurestoragevhost"
 	azuretablebackend "github.com/blackbirdworks/gopherstack/services/azuretable"
 	backupbackend "github.com/blackbirdworks/gopherstack/services/backup"
 	batchbackend "github.com/blackbirdworks/gopherstack/services/batch"
@@ -417,62 +418,63 @@ type CLI struct {
 	globalConfig                  *config.GlobalConfig
 	portAlloc                     *portalloc.Allocator
 	shutdownDeadline              time.Time
-	ElastiCacheEngine             string                          `                                    name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
-	EC2Provider                   string                          `                                    name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerImage                string                          `                                    name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerNetwork              string                          `                                    name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHHostIP            string                          `                                    name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                 //nolint:lll // config struct tags are intentionally verbose
-	Port                          string                          `                                    name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	DataDir                       string                          `                                    name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
-	DNSListenAddr                 string                          `                                    name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                     //nolint:lll // config struct tags are intentionally verbose
-	LogLevel                      string                          `                                    name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	Region                        string                          `                                    name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                       //nolint:lll // config struct tags are intentionally verbose
-	OpenSearchEngine              string                          `                                    name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                   //nolint:lll // config struct tags are intentionally verbose
-	ElasticsearchEngine           string                          `                                    name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
-	DNSResolveIP                  string                          `                                    name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
-	AccountID                     string                          `                                    name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	TLSCertFile                   string                          `                                    name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`   //nolint:lll // config struct tags are intentionally verbose
-	TLSKeyFile                    string                          `                                    name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                           //nolint:lll // config struct tags are intentionally verbose
-	SigV4Secret                   string                          `                                    name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`           //nolint:lll // config struct tags are intentionally verbose
-	InitScripts                   []string                        `                                    name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
-	S3InitBuckets                 []string                        `                                    name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
-	AzureARM                      azurearmbackend.Settings        `embed:"" prefix:"azure-arm-"`
-	S3                            s3backend.Settings              `embed:"" prefix:"s3-"`
-	CosmosDB                      cosmosdbbackend.Settings        `embed:"" prefix:"cosmosdb-"`
-	Lambda                        lambdabackend.Settings          `embed:"" prefix:"lambda-"`
-	DynamoDB                      ddbbackend.Settings             `embed:"" prefix:"dynamodb-"`
-	EC2                           ec2backend.Settings             `embed:"" prefix:"ec2-"`
-	Batch                         batchbackend.Settings           `embed:"" prefix:"batch-"`
-	StepFunctions                 sfnbackend.Settings             `embed:"" prefix:"stepfunctions-"`
-	CodeBuild                     codebuildbackend.Settings       `embed:"" prefix:"codebuild-"`
-	Backup                        backupbackend.Settings          `embed:"" prefix:"backup-"`
-	SSM                           ssmbackend.Settings             `embed:"" prefix:"ssm-"`
-	XRay                          xraybackend.Settings            `embed:"" prefix:"xray-"`
-	SES                           sesbackend.Settings             `embed:"" prefix:"ses-"`
-	FIS                           fisbackend.Settings             `embed:"" prefix:"fis-"`
-	EMR                           emrbackend.Settings             `embed:"" prefix:"emr-"`
-	Athena                        athenabackend.Settings          `embed:"" prefix:"athena-"`
-	CloudWatchLogs                cwlogsbackend.Settings          `embed:"" prefix:"cloudwatchlogs-"`
-	KMS                           kmsbackend.Settings             `embed:"" prefix:"kms-"`
-	Kinesis                       kinesisbackend.Settings         `embed:"" prefix:"kinesis-"`
-	STS                           stsbackend.Settings             `embed:"" prefix:"sts-"`
-	AzureBlob                     azureblobbackend.Settings       `embed:"" prefix:"azure-blob-"`
-	AzureQueue                    azurequeuebackend.Settings      `embed:"" prefix:"azure-queue-"`
-	AzureTable                    azuretablebackend.Settings      `embed:"" prefix:"azure-table-"`
-	AzureServiceBus               azureservicebusbackend.Settings `embed:"" prefix:"azure-servicebus-"`
-	PortRangeStart                int                             `                                    name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
-	PortRangeEnd                  int                             `                                    name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMin           int                             `                                    name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
-	EC2DockerSSHPortMax           int                             `                                    name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX" default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	InitScriptTimeout             time.Duration                   `                                    name:"init-timeout"            env:"INIT_TIMEOUT"            default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	JanitorTimeout                time.Duration                   `                                    name:"janitor-timeout"         env:"JANITOR_TIMEOUT"         default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
-	LatencyMs                     int                             `                                    name:"latency-ms"              env:"LATENCY_MS"              default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
-	AutoPurgeTTL                  time.Duration                   `                                    name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                  help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
-	EnforceIAM                    bool                            `                                    name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
-	Persist                       bool                            `                                    name:"persist"                 env:"PERSIST"                 default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
-	Demo                          bool                            `                                    name:"demo"                    env:"DEMO"                    default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
-	TLS                           bool                            `                                    name:"tls"                     env:"TLS"                     default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
-	ValidateSigV4                 bool                            `                                    name:"validate-sigv4"          env:"VALIDATE_SIGV4"          default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
+	ElastiCacheEngine             string                            `                                       name:"elasticache-engine"      env:"ELASTICACHE_ENGINE"      default:"embedded"      help:"ElastiCache engine mode: embedded (miniredis), stub, or docker."`                                      //nolint:lll // config struct tags are intentionally verbose
+	EC2Provider                   string                            `                                       name:"ec2-provider"            env:"EC2_PROVIDER"            default:"inmemory"      help:"EC2 compute provider: inmemory (stub) or docker (launches real containers as instances)."`             //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerImage                string                            `                                       name:"ec2-docker-image"        env:"EC2_DOCKER_IMAGE"        default:"amazonlinux:2" help:"Docker image used by the EC2 docker provider when launching instances."`                               //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerNetwork              string                            `                                       name:"ec2-docker-network"      env:"EC2_DOCKER_NETWORK"      default:""              help:"Docker network EC2 docker-provider containers attach to (empty = daemon default bridge)."`             //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHHostIP            string                            `                                       name:"ec2-docker-ssh-host-ip"  env:"EC2_DOCKER_SSH_HOST_IP"  default:"127.0.0.1"     help:"Host IP that mapped EC2-docker SSH ports bind to (use 0.0.0.0 to expose externally)."`                 //nolint:lll // config struct tags are intentionally verbose
+	Port                          string                            `                                       name:"port"                    env:"PORT"                    default:"8000"          help:"HTTP server port."`                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	DataDir                       string                            `                                       name:"data-dir"                env:"GOPHERSTACK_DATA_DIR"    default:""              help:"Directory for persistence data files (default: ~/.gopherstack/data, or /data in containers)."`         //nolint:lll // config struct tags are intentionally verbose
+	DNSListenAddr                 string                            `                                       name:"dns-addr"                env:"DNS_ADDR"                default:""              help:"Address for embedded DNS server (e.g. :10053). Empty = disabled."`                                     //nolint:lll // config struct tags are intentionally verbose
+	LogLevel                      string                            `                                       name:"log-level"               env:"LOG_LEVEL"               default:"info"          help:"Log level (debug|info|warn|error)."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	Region                        string                            `                                       name:"region"                  env:"REGION"                  default:"us-east-1"     help:"AWS region (also read from AWS_DEFAULT_REGION and AWS_REGION)."`                                       //nolint:lll // config struct tags are intentionally verbose
+	OpenSearchEngine              string                            `                                       name:"opensearch-engine"       env:"OPENSEARCH_ENGINE"       default:"stub"          help:"OpenSearch engine mode: stub (API-only) or docker."`                                                   //nolint:lll // config struct tags are intentionally verbose
+	ElasticsearchEngine           string                            `                                       name:"elasticsearch-engine"    env:"ELASTICSEARCH_ENGINE"    default:"stub"          help:"Elasticsearch engine mode: stub (API-only) or docker."`                                                //nolint:lll // config struct tags are intentionally verbose
+	DNSResolveIP                  string                            `                                       name:"dns-resolve-ip"          env:"DNS_RESOLVE_IP"          default:"127.0.0.1"     help:"IP address synthetic hostnames resolve to."`                                                           //nolint:lll // config struct tags are intentionally verbose
+	AccountID                     string                            `                                       name:"account-id"              env:"ACCOUNT_ID"              default:"000000000000"  help:"Mock AWS account ID used in ARNs."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	TLSCertFile                   string                            `                                       name:"tls-cert"                env:"TLS_CERT"                default:""              help:"Path to a TLS certificate (PEM). Enables an HTTPS listener; requires --tls-key. Empty = HTTP only."`   //nolint:lll // config struct tags are intentionally verbose
+	TLSKeyFile                    string                            `                                       name:"tls-key"                 env:"TLS_KEY"                 default:""              help:"Path to a TLS private key (PEM). Required with --tls-cert."`                                           //nolint:lll // config struct tags are intentionally verbose
+	SigV4Secret                   string                            `                                       name:"sigv4-secret"            env:"SIGV4_SECRET"            default:"test"          help:"Secret access key SigV4 validation signs against (used only when --validate-sigv4 is set)."`           //nolint:lll // config struct tags are intentionally verbose
+	InitScripts                   []string                          `                                       name:"init-script"             env:"INIT_SCRIPTS"                                    help:"Shell scripts to run on startup (may be specified multiple times)."`                                   //nolint:lll // config struct tags are intentionally verbose
+	S3InitBuckets                 []string                          `                                       name:"s3-bucket"               env:"S3_BUCKETS"                                      help:"S3 bucket names to create on startup (may be specified multiple times or as a comma-separated list)."` //nolint:lll // config struct tags are intentionally verbose
+	AzureARM                      azurearmbackend.Settings          `embed:"" prefix:"azure-arm-"`
+	S3                            s3backend.Settings                `embed:"" prefix:"s3-"`
+	CosmosDB                      cosmosdbbackend.Settings          `embed:"" prefix:"cosmosdb-"`
+	Lambda                        lambdabackend.Settings            `embed:"" prefix:"lambda-"`
+	DynamoDB                      ddbbackend.Settings               `embed:"" prefix:"dynamodb-"`
+	EC2                           ec2backend.Settings               `embed:"" prefix:"ec2-"`
+	Batch                         batchbackend.Settings             `embed:"" prefix:"batch-"`
+	StepFunctions                 sfnbackend.Settings               `embed:"" prefix:"stepfunctions-"`
+	CodeBuild                     codebuildbackend.Settings         `embed:"" prefix:"codebuild-"`
+	Backup                        backupbackend.Settings            `embed:"" prefix:"backup-"`
+	SSM                           ssmbackend.Settings               `embed:"" prefix:"ssm-"`
+	XRay                          xraybackend.Settings              `embed:"" prefix:"xray-"`
+	SES                           sesbackend.Settings               `embed:"" prefix:"ses-"`
+	FIS                           fisbackend.Settings               `embed:"" prefix:"fis-"`
+	EMR                           emrbackend.Settings               `embed:"" prefix:"emr-"`
+	Athena                        athenabackend.Settings            `embed:"" prefix:"athena-"`
+	CloudWatchLogs                cwlogsbackend.Settings            `embed:"" prefix:"cloudwatchlogs-"`
+	KMS                           kmsbackend.Settings               `embed:"" prefix:"kms-"`
+	Kinesis                       kinesisbackend.Settings           `embed:"" prefix:"kinesis-"`
+	STS                           stsbackend.Settings               `embed:"" prefix:"sts-"`
+	AzureBlob                     azureblobbackend.Settings         `embed:"" prefix:"azure-blob-"`
+	AzureQueue                    azurequeuebackend.Settings        `embed:"" prefix:"azure-queue-"`
+	AzureTable                    azuretablebackend.Settings        `embed:"" prefix:"azure-table-"`
+	AzureServiceBus               azureservicebusbackend.Settings   `embed:"" prefix:"azure-servicebus-"`
+	AzureStorageVHost             azurestoragevhostbackend.Settings `embed:"" prefix:"azure-storage-vhost-"`
+	PortRangeStart                int                               `                                       name:"port-range-start"        env:"PORT_RANGE_START"        default:"10000"         help:"Start of the port range for resource endpoints."`                                                                                                                                              //nolint:lll // config struct tags are intentionally verbose
+	PortRangeEnd                  int                               `                                       name:"port-range-end"          env:"PORT_RANGE_END"          default:"10100"         help:"End (exclusive) of the port range for resource endpoints."`                                                                                                                                    //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMin           int                               `                                       name:"ec2-docker-ssh-port-min" env:"EC2_DOCKER_SSH_PORT_MIN" default:"0"             help:"Lower bound of the host TCP port range used to map EC2-docker SSH (0 = let Docker pick)."`                                                                                                     //nolint:lll // config struct tags are intentionally verbose
+	EC2DockerSSHPortMax           int                               `                                       name:"ec2-docker-ssh-port-max" env:"EC2_DOCKER_SSH_PORT_MAX" default:"0"             help:"Upper bound of the host TCP port range used to map EC2-docker SSH."`                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	InitScriptTimeout             time.Duration                     `                                       name:"init-timeout"            env:"INIT_TIMEOUT"            default:"30s"           help:"Per-script timeout for init hooks."`                                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	JanitorTimeout                time.Duration                     `                                       name:"janitor-timeout"         env:"JANITOR_TIMEOUT"         default:"30s"           help:"Per-task timeout for janitor operations (TTL sweeps, table cleaners, etc.). Zero disables per-task timeouts. Higher values prevent deadlocks; lower values keep the janitor loop responsive."` //nolint:lll // config struct tags are intentionally verbose
+	LatencyMs                     int                               `                                       name:"latency-ms"              env:"LATENCY_MS"              default:"0"             help:"Inject random latency [0,N) ms per request (0 = disabled). Values near the 30 s write timeout may cause connection errors."`                                                                   //nolint:lll // config struct tags are intentionally verbose
+	AutoPurgeTTL                  time.Duration                     `                                       name:"auto-purge-ttl"          env:"AUTO_PURGE_TTL"                                  help:"If set, automatically reset all services on a timer based on the TTL (e.g., 10m)."`                                                                                                            //nolint:lll // config struct tags are intentionally verbose
+	EnforceIAM                    bool                              `                                       name:"enforce-iam"             env:"GOPHERSTACK_ENFORCE_IAM" default:"false"         help:"Enable IAM policy enforcement. When true, every AWS API request is evaluated against attached IAM policies."`                                                                                  //nolint:lll // config struct tags are intentionally verbose
+	Persist                       bool                              `                                       name:"persist"                 env:"PERSIST"                 default:"false"         help:"Enable snapshot-based persistence across restarts."`                                                                                                                                           //nolint:lll // config struct tags are intentionally verbose
+	Demo                          bool                              `                                       name:"demo"                    env:"DEMO"                    default:"false"         help:"Load demo data on startup."`                                                                                                                                                                   //nolint:lll // config struct tags are intentionally verbose
+	TLS                           bool                              `                                       name:"tls"                     env:"TLS"                     default:"false"         help:"Serve over HTTPS. With --tls-cert/--tls-key uses those files; otherwise a self-signed certificate is generated on demand."`                                                                    //nolint:lll // config struct tags are intentionally verbose
+	ValidateSigV4                 bool                              `                                       name:"validate-sigv4"          env:"VALIDATE_SIGV4"          default:"false"         help:"Cryptographically validate AWS SigV4 request signatures (opt-in). Signed requests whose signature does not match --sigv4-secret are rejected."`                                                //nolint:lll // config struct tags are intentionally verbose
 }
 
 // GetGlobalConfig returns the centralised account ID and region (config.Provider).
@@ -553,6 +555,22 @@ func (c *CLI) GetAzureServiceBusSettings() azureservicebusbackend.Settings {
 // (azurearm.ConfigProvider).
 func (c *CLI) GetAzureARMSettings() azurearmbackend.Settings {
 	return c.AzureARM
+}
+
+// GetAzureStorageVHostSettings returns the shared Azure Storage
+// virtual-hosted listener's settings
+// (azurestoragevhost.ConfigProvider).
+func (c *CLI) GetAzureStorageVHostSettings() azurestoragevhostbackend.Settings {
+	return c.AzureStorageVHost
+}
+
+// GetAzureStorageVHostPort returns the shared Azure Storage virtual-hosted
+// listener's actual configured port (azurearm.VHostPortProvider), so
+// azurearm.Provider.Init can fail fast if it disagrees with
+// --azure-arm-storage-vhost-port instead of silently advertising a port
+// nothing answers on.
+func (c *CLI) GetAzureStorageVHostPort() int {
+	return c.AzureStorageVHost.Port
 }
 
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
@@ -1927,6 +1945,17 @@ func reserveFixedServicePorts(ctx context.Context, log *slog.Logger, alloc *port
 	if err := alloc.Reserve(cli.AzureTable.Port, "azuretable"); err != nil {
 		log.WarnContext(ctx, "failed to reserve AzureTable's fixed port in the shared pool",
 			"port", cli.AzureTable.Port, "error", err)
+	}
+
+	// AzureStorageVHost's dedicated listener (services/azurestoragevhost)
+	// binds its own fixed port the same way AzureBlob/AzureQueue/AzureTable
+	// do above -- see AZURE.md section 10.8 for why a shared virtual-hosted
+	// listener exists alongside those three's own path-style ports. It sits
+	// in the same PortRangeStart/PortRangeEnd default range, so it needs
+	// the same reservation.
+	if err := alloc.Reserve(cli.AzureStorageVHost.Port, "azurestoragevhost"); err != nil {
+		log.WarnContext(ctx, "failed to reserve AzureStorageVHost's fixed port in the shared pool",
+			"port", cli.AzureStorageVHost.Port, "error", err)
 	}
 
 	// CosmosDB's dedicated listener (services/cosmosdb) binds its own fixed,
@@ -3609,6 +3638,12 @@ func wireCWLogsMetricEmitters(byName map[string]service.Registerable) {
 // SecretsManager's Lambda rotation invoker and KMS encryption, and IoT rule
 // action dispatch.
 func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
+	// Wire the shared Azure Storage virtual-hosted listener to Blob/Queue/
+	// Table's already-initialized handlers, so it can delegate to them (see
+	// services/azurestoragevhost's package doc comment and AZURE.md section
+	// 10.8).
+	wireAzureStorageVHost(byName["AzureBlob"], byName["AzureQueue"], byName["AzureTable"], byName["AzureStorageVHost"])
+
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
 	// accepting the stream and never delivering anything (gopherstack-vjmc).
@@ -3995,6 +4030,7 @@ func getMostRecentServiceProviders() []service.Provider {
 		&azurequeuebackend.Provider{},
 		&azuretablebackend.Provider{},
 		&azureservicebusbackend.Provider{},
+		&azurestoragevhostbackend.Provider{},
 		&cosmosdbbackend.Provider{},
 		&azurearmbackend.Provider{},
 		&pinpointbackend.Provider{},
@@ -12428,6 +12464,32 @@ func wireEC2DNS(ec2Reg service.Registerable, dns ec2backend.DNSRegistrar) {
 
 	if ec2Bk, bkOk := ec2H.Backend.(*ec2backend.InMemoryBackend); bkOk {
 		ec2Bk.SetDNSRegistrar(dns)
+	}
+}
+
+// wireAzureStorageVHost gives the shared Azure Storage virtual-hosted
+// listener (services/azurestoragevhost) references to Blob/Queue/Table's
+// already-initialized handlers, so it can delegate virtual-hosted-style
+// requests to them (see that package's doc comment and AZURE.md section
+// 10.8). A missing/wrong-typed dependency is a silent no-op, same as every
+// other wire* helper in this file -- the vhost listener's own Handler()
+// returns 400 for any service that never got wired.
+func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registerable) {
+	vhostH, ok := vhostReg.(*azurestoragevhostbackend.Handler)
+	if !ok {
+		return
+	}
+
+	if blobH, blobOk := blobReg.(*azureblobbackend.Handler); blobOk {
+		vhostH.Blob = blobH
+	}
+
+	if queueH, queueOk := queueReg.(*azurequeuebackend.Handler); queueOk {
+		vhostH.Queue = queueH
+	}
+
+	if tableH, tableOk := tableReg.(*azuretablebackend.Handler); tableOk {
+		vhostH.Table = tableH
 	}
 }
 

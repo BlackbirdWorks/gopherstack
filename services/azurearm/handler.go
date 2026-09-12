@@ -375,6 +375,16 @@ var armResourceRoutes = []armRoute{
 		},
 	},
 	{
+		match: func(segs []string, r *http.Request) bool {
+			return len(segs) >= 2 && r.Method == http.MethodGet &&
+				strings.EqualFold(segs[len(segs)-1], "default") &&
+				strings.HasSuffix(strings.ToLower(segs[len(segs)-2]), "services")
+		},
+		handle: func(h *Handler, c *echo.Context, segs []string) error {
+			return h.handleAccountSubServiceDefault(c, segs[:len(segs)-2])
+		},
+	},
+	{
 		match: func(segs []string, _ *http.Request) bool {
 			return len(segs) == 5 && isSubscriptionScoped(segs) &&
 				segAt(segs, providersOrResourceGroupsIdx, providersSegment)
@@ -491,8 +501,25 @@ func hostFromHostHeader(hostport string) string {
 // baseURLFor builds this ARM listener's own externally-visible base URL
 // (scheme://host:port) from the request, always https (AZURE.md section
 // 10.8).
+//
+// Uses the port from the request's Host header when present, falling back
+// to h.Port (the listener's own bind port) only when the header carries
+// none. Always substituting h.Port was a real bug: when the container's
+// ARM port is published under a different host port (as
+// test/terraform/azure's fixed 10006->18006 mapping does), a client
+// connecting on the published port received metadata endpoints pointing
+// back at the unreachable container-internal port, and every subsequent
+// request -- including the OAuth token exchange -- failed with "connection
+// refused". The Host header a client sends is exactly the address it
+// dialed, so trusting its port is both simpler and correct where
+// substituting h.Port was not.
 func (h *Handler) baseURLFor(r *http.Request) string {
-	return "https://" + net.JoinHostPort(hostFromHostHeader(r.Host), strconv.Itoa(h.Port))
+	host, port, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		host, port = r.Host, strconv.Itoa(h.Port)
+	}
+
+	return "https://" + net.JoinHostPort(host, port)
 }
 
 // decodeJSONBody decodes r's body as a JSON object. An empty body decodes to
@@ -603,14 +630,62 @@ const (
 	azureARMIdleTimeout       = 120 * time.Second
 )
 
-// StartWorker binds AzureARM's dedicated fixed port and serves HTTPS with a
-// self-signed certificate (pkgs/devtls), synchronously, failing fast if the
-// port is unavailable rather than falling back into the shared PortAlloc
-// pool -- exactly like services/azureblob/azurequeue/azuretable/cosmosdb's
-// StartWorker (see AZURE.md section 10.7). Unlike those, ARM serves HTTPS
-// unconditionally: azurerm's metadata_host handling hardcodes
-// "https://" (AZURE.md section 10.8), so a plain-HTTP listener here would
-// make provider initialization fail outright, not merely warn.
+// errAzureARMTLSKeyMissing/errAzureARMTLSCertMissing report a half-configured
+// --azure-arm-tls-cert/--azure-arm-tls-key pair -- deliberately rejected
+// rather than silently falling back to a self-signed certificate, which
+// would mask a misconfiguration (e.g. a typo'd flag) behind an
+// unexpectedly-different cert.
+var (
+	errAzureARMTLSKeyMissing  = errors.New("azurearm: --azure-arm-tls-cert set without --azure-arm-tls-key")
+	errAzureARMTLSCertMissing = errors.New("azurearm: --azure-arm-tls-key set without --azure-arm-tls-cert")
+)
+
+// loadOrGenerateCert returns the TLS certificate StartWorker's listener
+// should serve: a stable cert loaded from Settings.TLSCertFile/TLSKeyFile
+// when both are set, else a freshly generated self-signed certificate
+// (pkgs/devtls), matching every other Azure listener's default behavior.
+//
+// A stable, caller-supplied certificate exists for test harnesses (and any
+// other caller) that need the ARM listener's certificate to be the same
+// PEM bytes across process restarts -- e.g. so a child process (tofu/
+// terraform) can trust it once via SSL_CERT_FILE instead of re-trusting a
+// fresh self-signed certificate on every run (see
+// test/terraform/azure/main_test.go).
+func (h *Handler) loadOrGenerateCert() (tls.Certificate, error) {
+	certFile, keyFile := h.Settings.TLSCertFile, h.Settings.TLSKeyFile
+
+	switch {
+	case certFile != "" && keyFile == "":
+		return tls.Certificate{}, errAzureARMTLSKeyMissing
+	case certFile == "" && keyFile != "":
+		return tls.Certificate{}, errAzureARMTLSCertMissing
+	case certFile != "" && keyFile != "":
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("azurearm: load TLS certificate %s/%s: %w", certFile, keyFile, err)
+		}
+
+		return cert, nil
+	default:
+		cert, err := devtls.GenerateSelfSignedCert()
+		if err != nil {
+			return tls.Certificate{}, fmt.Errorf("azurearm: generate self-signed certificate: %w", err)
+		}
+
+		return cert, nil
+	}
+}
+
+// StartWorker binds AzureARM's dedicated fixed port and serves HTTPS --
+// either with a stable caller-supplied certificate or a freshly generated
+// self-signed one (see loadOrGenerateCert) -- synchronously, failing fast if
+// the port is unavailable rather than falling back into the shared
+// PortAlloc pool -- exactly like
+// services/azureblob/azurequeue/azuretable/cosmosdb's StartWorker (see
+// AZURE.md section 10.7). Unlike those, ARM serves HTTPS unconditionally:
+// azurerm's metadata_host handling hardcodes "https://" (AZURE.md section
+// 10.8), so a plain-HTTP listener here would make provider initialization
+// fail outright, not merely warn.
 func (h *Handler) StartWorker(ctx context.Context) error {
 	var listenConfig net.ListenConfig
 
@@ -619,11 +694,11 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 		return fmt.Errorf("azurearm: bind port %d: %w", h.Port, err)
 	}
 
-	cert, err := devtls.GenerateSelfSignedCert()
+	cert, err := h.loadOrGenerateCert()
 	if err != nil {
 		_ = listener.Close()
 
-		return fmt.Errorf("azurearm: generate self-signed certificate: %w", err)
+		return err
 	}
 
 	tlsConfig := &tls.Config{

@@ -181,3 +181,71 @@ func TestDeleteTable(t *testing.T) {
 		assert.Equal(t, "InvalidInput", rec.Header().Get("X-Ms-Error-Code"))
 	})
 }
+
+// TestGetTable proves GET /<account>/Tables('name') -- real Azure's
+// single-table lookup, and the exact request
+// terraform-provider-azurerm's azurerm_storage_table issues (via
+// jackofallops/giovanni's tables.Client.Exists) to check whether a table
+// already exists before creating it.
+func TestGetTable(t *testing.T) {
+	t.Parallel()
+
+	t.Run("found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"m8table"}`))
+
+		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/Tables('m8table')", nil)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		assert.Equal(t, "m8table", body["TableName"])
+	})
+
+	t.Run("not_found", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/Tables('nope')", nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+		assert.Equal(t, "TableNotFound", rec.Header().Get("X-Ms-Error-Code"))
+	})
+
+	t.Run("invalid_literal", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/Tables(nope)", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "InvalidInput", rec.Header().Get("X-Ms-Error-Code"))
+	})
+}
+
+// TestSetTableACL proves PUT /<account>/<table>?comp=acl -- real Azure's
+// "Set Table ACL", issued by terraform-provider-azurerm's
+// azurerm_storage_table (via jackofallops/giovanni's tables.Client.SetACL)
+// on every apply that leaves the table's (unsupported) stored access
+// policies unchanged.
+func TestSetTableACL(t *testing.T) {
+	t.Parallel()
+
+	t.Run("existing_table", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		doRequest(t, h, http.MethodPost, "/"+testAccount+"/Tables", []byte(`{"TableName":"m8table"}`))
+
+		rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/m8table?comp=acl", nil)
+		assert.Equal(t, http.StatusNoContent, rec.Code)
+	})
+
+	t.Run("missing_table", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/nope?comp=acl", nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}

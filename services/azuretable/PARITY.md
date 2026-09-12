@@ -17,6 +17,9 @@ ops:
   MergeEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH (aztables' real wire method), literal MERGE, or POST/PUT/PATCH carrying an X-Http-Method: MERGE tunneling header (honored only on those three methods, never GET/DELETE) /<account>/<table>(..), same If-Match semantics as ReplaceEntity but merges properties (unlisted properties survive) instead of replacing wholesale."}
   DeleteEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /<account>/<table>(..). If-Match is mandatory (400 InvalidInput if absent) -- * or a specific ETag; 412 on mismatch, 404 ResourceNotFound if absent."}
   Batch: {wire: deferred, errors: ok, state: deferred, persist: n/a, note: "POST /<account>/$batch (multipart/mixed changesets) returns a clean 501 NotImplemented pointing at this file, rather than a confusing 404/400. See deferred section."}
+  GetServiceProperties: {wire: partial, errors: n/a, state: n/a, persist: n/a, note: "GET /<account>?restype=service&comp=properties. Added in M8 to satisfy terraform-provider-azurerm v4.81+'s post-create data-plane readiness poll (AZURE.md section 10.8), which hard-fails an apply on any non-200 here. Always returns an empty <StorageServiceProperties/> -- the one XML response on this otherwise JSON/OData service, no properties are configurable (Set Service Properties is not implemented)."}
+  GetTable: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /<account>/Tables('name'). Added in M8 (AZURE.md section 10.8 finding (9)) to satisfy azurerm_storage_table's create-then-read existence check (jackofallops/giovanni's tables.Client.Exists). 200 + entity body honoring $select/odata level, 404 TableNotFound if absent, 400 InvalidInput on a malformed OData literal."}
+  SetTableACL: {wire: partial, errors: ok, state: gap, persist: n/a, note: "PUT /<account>/<table>?comp=acl. Added in M8 (AZURE.md section 10.8 finding (9)) to satisfy azurerm_storage_table's every-apply call (jackofallops/giovanni's tables.Client.SetACL). Compatibility-only: 204 if the table exists (404 if not), but stored access policies are neither parsed from the request body nor persisted -- this service has no ACL storage at all (see gaps)."}
 families:
   auth: {status: partial, note: "Identical stance to services/azurequeue: checkAuth parses a present Authorization header via pkgs/azureauth.ParseAuthorizationHeader (structural only, SharedKey and SharedKeyLite both accepted). Verification is not enforced; an absent or malformed header is still accepted."}
   wire_protocol: {status: ok, note: "REST+JSON/OData. Honors the Accept header's odata= level (nometadata/minimalmetadata/fullmetadata), responding with a matching Content-Type. x-ms-version (pinned to 2019-02-02, the literal value azure-sdk-for-go/sdk/data/aztables' generated client sends and expects), x-ms-request-id, Date, and DataServiceVersion: 3.0; are set on every response; x-ms-error-code is set on every error."}
@@ -30,7 +33,7 @@ gaps:
   - "No continuation-token pagination on List Tables or Query Entities -- both return every matching result in one page. x-ms-continuation-NextPartitionKey/NextRowKey response headers are not set."
   - "$select is honored for custom properties, but PartitionKey/RowKey/Timestamp are always returned regardless of the $select list (real Table Storage honors $select literally for these too); documented deviation chosen for simplicity and because every SDK round-trip needs the key properties anyway."
   - "A whole-number Edm.Double value (e.g. 4.0) round-trips as Edm.Int32 when written without an explicit @odata.type annotation -- an inherent ambiguity in the unannotated-number wire format that aztables' own client has too (see families.edm_types)."
-  - "No SAS / Set-Get Table ACL support."
+  - "No SAS support. Set Table ACL (ops.SetTableACL, M8) is a compatibility-only no-op -- it 204s for an existing table but never parses or stores stored access policies from the request body; Get Table ACL is unimplemented."
   - "No queue-style janitor: Table Storage entities have no TTL/expiry concept, so there is nothing to sweep (this is a deliberate scope decision, not an oversight -- see provider.go's Provider doc comment)."
   - "Auth verification is not enforced -- see families.auth."
   All gaps above are intentional MVP scope per AZURE.md's M2 entry (see AZURE.md section 8), not oversights.
@@ -137,6 +140,11 @@ two mutations to the same entity within the same clock tick must not produce
 identical ETags, so `store.go`'s `bumpTimestamp` forces at least a 100ns
 forward step past the entity's previous `Timestamp` even when the injected
 clock hasn't advanced.
+
+### M8: Terraform-provisioned coverage
+`test/terraform/azure/storage_dataplane_test.go`'s `TestTerraform_Azure_StorageDataPlane` provisions an `azurerm_storage_table` (via an unmodified `hashicorp/azurerm` Terraform provider against `services/azurearm`'s Storage RP, M7) and inserts/queries an entity through it with `azure-sdk-for-go/sdk/data/aztables` (Terraform itself has no entity resource), alongside this service's existing Go-SDK integration coverage (`test/integration/azuretable_test.go`) -- see `AZURE.md` section 10.10's M8 entry for current pass/skip status, which can depend on the running host's TLS-trust behavior independent of this service.
+
+Getting real (unmodified) `terraform-provider-azurerm` traffic to reach this service at all required a new addressing layer -- see `services/azurestoragevhost` and `AZURE.md` section 10.8 finding (9) -- since the provider's data-plane SDK hard-requires virtual-hosted-style URLs (`{account}.table.{suffix}`) that this service's path-style listener never produced on its own. Reaching this service through that path for the first time also surfaced two REST-surface gaps in `terraform-provider-azurerm`'s create-then-read flow, both now implemented: **Get Table** (`GET /Tables('name')`, `jackofallops/giovanni`'s `tables.Client.Exists`) and **Set Table ACL** (`PUT ?comp=acl`, issued on every apply to leave stored access policies unchanged).
 
 ## More
 

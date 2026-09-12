@@ -221,7 +221,7 @@ func dockerfileFor() (string, error) {
 		}
 
 		logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-		if err := buildcheck.CheckFreshness(logger, binInfo); err != nil {
+		if err := buildcheck.CheckFreshness(logger, binInfo, "../.."); err != nil {
 			return "", err
 		}
 

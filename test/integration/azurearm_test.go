@@ -93,11 +93,10 @@ func TestIntegration_AzureARM_MetadataAndToken(t *testing.T) {
 	resp := armRequest(t, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var docs []map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&docs))
-	require.Len(t, docs, 1)
-	assert.Equal(t, "gopherstack", docs[0]["name"])
-	assert.NotEmpty(t, docs[0]["resourceManagerEndpoint"])
+	var doc map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&doc))
+	assert.Equal(t, "gopherstack", doc["name"])
+	assert.NotEmpty(t, doc["resourceManagerEndpoint"])
 
 	tenant := "00000000-0000-0000-0000-000000000000"
 
@@ -150,7 +149,7 @@ func TestIntegration_AzureARM_ResourceGroupAndStorageAccountLifecycle(t *testing
 
 	resp = armRequest(t, http.MethodPut, resourcePath,
 		[]byte(`{"location":"local","sku":{"name":"Standard_LRS"},"kind":"StorageV2"}`))
-	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	acctBody := armDecodeJSON(t, resp)
 	assert.Equal(t, acct, acctBody["name"])

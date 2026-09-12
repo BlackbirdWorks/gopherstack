@@ -117,6 +117,17 @@ type queueEntry struct {
 	Name string `xml:"Name"`
 }
 
+// storageServiceProperties is the minimal (all-empty) response body for Get
+// Queue Service Properties (GET /<account>?restype=service&comp=properties).
+// Every field in the real schema is optional, so an empty element
+// round-trips through every SDK's XML decoder. This endpoint exists solely
+// to satisfy terraform-provider-azurerm v4.81+'s post-create data-plane
+// readiness poll (AZURE.md section 10.8) -- it has no configurable state.
+// Mirrors services/azureblob's storageServiceProperties.
+type storageServiceProperties struct {
+	XMLName xml.Name `xml:"StorageServiceProperties"`
+}
+
 // queueMessagesList is the top-level shape returned by Put/Get/Peek
 // Messages -- always a list, even for Put Message's single-element result.
 type queueMessagesList struct {

@@ -142,9 +142,7 @@ func TestStorageProvider_EndpointOverrides(t *testing.T) {
 	t.Parallel()
 
 	sp := azurearm.NewStorageProvider(azurearm.StorageEndpointConfig{
-		BlobOverride:  "http://blob.example.com",
-		QueueOverride: "http://queue.example.com",
-		TableOverride: "http://table.example.com",
+		VHostOverride: "storage.example.com:18010",
 	}, nil)
 
 	body, err := sp.Put(t.Context(), storageAccountID("acct1"), map[string]any{"location": "westus"})
@@ -155,9 +153,9 @@ func TestStorageProvider_EndpointOverrides(t *testing.T) {
 	endpoints, ok := props["primaryEndpoints"].(map[string]any)
 	require.True(t, ok)
 
-	assert.Equal(t, "http://blob.example.com/acct1/", endpoints["blob"])
-	assert.Equal(t, "http://queue.example.com/acct1/", endpoints["queue"])
-	assert.Equal(t, "http://table.example.com/acct1/", endpoints["table"])
+	assert.Equal(t, "http://acct1.blob.storage.example.com:18010/", endpoints["blob"])
+	assert.Equal(t, "http://acct1.queue.storage.example.com:18010/", endpoints["queue"])
+	assert.Equal(t, "http://acct1.table.storage.example.com:18010/", endpoints["table"])
 }
 
 func storageAccountIDIn(rg, name string) azurearm.ResourceID {
