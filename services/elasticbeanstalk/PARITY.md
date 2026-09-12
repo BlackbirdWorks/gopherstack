@@ -95,6 +95,9 @@ items_still_open:
   - "(gopherstack-6flj) EventDescription.RequestId is not modeled -- this handler has no per-call unique request-ID generation anywhere at all (every op's ResponseMetadata.RequestID is a fixed literal like \"eb-create-app\"), not something specific to events to invent now."
   - "(gopherstack-6flj) DescribeEnvironmentHealth's AttributeNames request filter (restricts which of ApplicationMetrics/Causes/Color/HealthStatus/InstancesHealth/RefreshedAt/Status are populated) is not honored -- this backend always returns its small fixed field set regardless. ApplicationMetrics/Causes/InstancesHealth (real DescribeEnvironmentHealthOutput members) are not modeled at all -- no request-metrics or per-instance health data exists in this backend (same root cause as DescribeInstancesHealth's always-empty list)."
   - "(gopherstack-6flj) DescribeEnvironments' IncludeDeleted/IncludedDeletedBackTo filter is not modeled -- TerminateEnvironment removes the environment record outright (environmentDeleteKey), so there is no deleted-environment history to include."
+  - "(2026-09-12, gopherstack-n3zi slice 31) ListAvailableSolutionStacksOutput.SolutionStackDetails ([]types.SolutionStackDescription, each carrying PermittedFileTypes -- confirmed real via elasticbeanstalk@v1.37.4 api_op_ListAvailableSolutionStacks.go:37) is not modeled at all; listAvailableSolutionStacksResponse only emits the parallel SolutionStacks string list. PermittedFileTypes has no honest source in this backend (no per-solution-stack file-type table exists) -- disclosed rather than fabricated."
+  - "(2026-09-12, gopherstack-n3zi slice 31) CreateApplicationInput.ResourceLifecycleConfig (confirmed real via api_op_CreateApplication.go:42) is accepted nowhere in handleCreateApplication -- only UpdateApplicationResourceLifecycle's own ServiceRole is read. ApplicationResourceLifecycleConfig.VersionLifecycleConfig (MaxAgeRule/MaxCountRule, each with Enabled/DeleteSourceFromS3/MaxAgeInDays-or-MaxCount) is unread by BOTH ops -- a real client setting either rule via Create or Update always gets it silently dropped, and a real client reading it back via DescribeApplications always sees nil regardless of what it set. Not fixed this pass (scope: adding two new sub-shapes plus their storage); this pass's own round-trip test only exercises the already-correct ServiceRole field, deliberately not asserting on VersionLifecycleConfig so as not to mask the gap as tested."
+  - "(2026-09-12, gopherstack-n3zi slice 31) ComposeEnvironmentsInput.VersionLabels (the source-bundle version labels naming env.yaml manifests that this op is documented to create NEW environments from) is parsed nowhere -- InMemoryBackend.ComposeEnvironments(ctx, appName) simply returns the application's existing environments. A real client's ComposeEnvironments does not create environments in this backend at all, unlike real AWS. Full manifest-driven environment creation is a structural gap (no env.yaml parsing anywhere in this backend), not something this pass's typed-coverage scope could honestly add; this pass's own test exercises only the current (simplified) list-existing-environments behavior."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - DescribeConfigurationOptions full per-platform option catalog
   - CreateApplication idempotency-on-duplicate-name confirmation
@@ -323,3 +326,46 @@ deserializer call site.
 Newly recorded gap, not a bug: a configuration option description carries a
 regex restriction field in the real API that this backend never emits, because
 it tracks no such restriction data.
+
+## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+
+Added `typed_slice31_realclient_test.go` (6 top-level `t.Parallel()` tests) driving every
+op named in the typed-client census's uncovered list for this service at pick time
+(AbortEnvironmentUpdate, AssociateEnvironmentOperationsRole, CheckDNSAvailability,
+ComposeEnvironments, CreateStorageLocation, DeleteConfigurationTemplate,
+DeleteEnvironmentConfiguration, DescribeAccountAttributes, DescribeConfigurationOptions,
+DescribeConfigurationSettings, DescribeEnvironmentManagedActions,
+DisassociateEnvironmentOperationsRole, ListAvailableSolutionStacks, RebuildEnvironment,
+RequestEnvironmentInfo, RestartAppServer, RetrieveEnvironmentInfo, SwapEnvironmentCNAMEs,
+TerminateEnvironment, UpdateApplication, UpdateApplicationResourceLifecycle,
+UpdateApplicationVersion, UpdateConfigurationTemplate, UpdateTagsForResource,
+ValidateConfigurationSettings -- 25 ops; 47/47 ops now covered) via the existing
+`newTestEBClient`/`newTestHandler` helpers from `handler_create_tags_test.go`/
+`handler_test.go`.
+
+No wire-shape bugs found among the 25 ops -- every one decoded correctly on the first
+typed-client attempt (this service already carries an extensive `items_still_open` list
+from prior deep audits, e.g. gopherstack-6flj).
+
+**Three accept-and-drop / never-emitted-member findings, disclosed in `items_still_open`
+above rather than fixed this pass** (each requires modeling a new sub-shape this backend
+has no honest data source for, out of scope for a coverage pass):
+
+1. `ListAvailableSolutionStacksOutput.SolutionStackDetails` (`[]types.SolutionStackDescription`)
+   is never emitted -- only the parallel `SolutionStacks` string list is.
+2. `CreateApplicationInput`/`UpdateApplicationResourceLifecycleInput`'s
+   `ResourceLifecycleConfig.VersionLifecycleConfig` (`MaxAgeRule`/`MaxCountRule`) is unread
+   by both ops -- only `ServiceRole` round-trips. `CreateApplicationInput.ResourceLifecycleConfig`
+   is not read AT ALL (not even `ServiceRole`).
+3. `ComposeEnvironmentsInput.VersionLabels` is unread -- this backend's `ComposeEnvironments`
+   just lists the application's existing environments rather than creating new ones from
+   env.yaml manifests, unlike real AWS.
+
+Each finding's test deliberately asserts only the currently-correct subset of each op's
+shape (e.g. `UpdateApplicationResourceLifecycle`'s `ServiceRole` only), so as not to mask
+the gap as exercised-and-passing.
+
+Gates: `go build ./...` clean (whole module). `go vet ./services/elasticbeanstalk/...`
+clean. `go test -race -count=1 ./services/elasticbeanstalk/... ./pkgs/persistence/...`
+clean. `golangci-lint run --new-from-rev=HEAD ./services/elasticbeanstalk/...` 0 issues.
+No persisted struct fields added -- no `snapshot_inventory.json` change, no version bump.

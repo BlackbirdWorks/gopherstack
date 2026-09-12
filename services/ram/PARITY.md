@@ -801,3 +801,51 @@ Gates: `go build ./...` (whole module, clean); `go vet ./services/ram/...
 ./services/glue/...` (0 issues); `golangci-lint run --new-from-rev=HEAD .` (0 issues).
 
 Closes gopherstack-kvyy.
+
+## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+
+Added `typed_slice31_realclient_test.go` (7 top-level `t.Parallel()` tests) driving every
+op named in the typed-client census's uncovered list for this service at pick time
+(AcceptResourceShareInvitation, DeleteResourceShare, DisassociateResourceShare,
+DisassociateResourceSharePermission, EnableSharingWithAwsOrganization, GetPermission,
+GetResourcePolicies, GetResourceShareAssociations, GetResourceShareInvitations,
+ListPendingInvitationResources, ListPermissionVersions, ListPermissions, ListPrincipals,
+ListReplacePermissionAssociationsWork, ListResourceSharePermissions, ListResourceTypes,
+ListResources, ListSourceAssociations, PromotePermissionCreatedFromPolicy,
+RejectResourceShareInvitation, ReplacePermissionAssociations, SetDefaultPermissionVersion,
+TagResource, UntagResource -- 23 ops; 35/35 ops now covered) via `ramsdk.NewFromConfig`
+against an `httptest` server running the real `pkgs/service` router, following the existing
+`newTestRAMClient` pattern from `permission_version_shape_test.go`.
+
+An external-principal `CreateResourceShare` call (`AllowExternalPrincipals: true`,
+a 12-digit account-ID principal different from the backend's own) was used to drive the
+invitation family (`GetResourceShareInvitations`/`ListPendingInvitationResources`/
+`AcceptResourceShareInvitation`/`RejectResourceShareInvitation`) through the same real
+mechanism AWS itself uses (an invitation is a side effect of associating an external
+principal, not a directly creatable resource) -- no test-only invitation-seeding helper was
+needed. `PromotePermissionCreatedFromPolicy` was driven off a `PutPolicyBasedShare` setup
+call (RAM's non-wire seam that Glue's `PutResourcePolicy` uses internally, per this file's
+own `items_still_open`/Notes on the RAM<-Glue policy-sharing mechanism): there is no RAM SDK
+operation that creates `CREATED_FROM_POLICY` permission state directly, matching how real
+AWS also only reaches it indirectly via another service.
+
+**Accept-and-drop finding, not fixed (out of scope for a coverage pass, recorded for a
+future one):** `handleListTagsForResource`/`ListTagsForResource` (`handler_tags.go`) is
+wired as an internal-only route -- real AWS RAM has **no** `ListTagsForResource` operation
+at all (confirmed: no `api_op_ListTagsForResource.go` in
+`aws-sdk-go-v2/service/ram@v1.39.4`, and it does not appear in `GetSupportedOperations()`'s
+real-op census either). A real client reads a resource share's tags back through
+`GetResourceShares`' `ResourceShare.Tags` field instead, which is what this pass's
+`Test_SDKRoundTrip_MiscOps` uses. `handleListTagsForResource` itself is unreachable by any
+real client and costs nothing left as-is, but is worth deleting in a future de-stub/dead-code
+pass rather than left implying a real op exists.
+
+No wire bugs found among the 23 ops driven this pass -- this service was already deeply
+audited (wrapper-key sweep 2026-08-19, route-matcher sweep, gopherstack-kvyy's 2026-09-11
+pass) and every op decoded correctly on the first typed-client attempt.
+
+Gates: `go build ./...` clean (whole module). `go vet ./services/ram/...` clean.
+`go test -race -count=1 ./services/ram/... ./pkgs/persistence/...` clean.
+`golangci-lint run --new-from-rev=HEAD ./services/ram/...` 0 issues. No persisted struct
+fields added -- no `snapshot_inventory.json` change, no version bump. `items_still_open`
+unchanged (no listed gap was touched by this pass).

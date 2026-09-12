@@ -93,7 +93,7 @@ ops:
   CreateUser: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: userObject dropped a fabricated \"Engine\" field -- confirmed absent from types.User's 7-key deserializer case list (AccessString, ACLNames, ARN, Authentication, MinimumEngineVersion, Name, Status)"}
   DescribeUsers: {wire: partial, errors: ok, state: ok, persist: ok, note: "2026-08-15 (gopherstack-6flj): DescribeUsersInput.Filters ([]types.Filter, a generic Name/Values matcher) is a real, never-modeled request member (confirmed via api_op_DescribeUsers.go) -- disclosed, not implemented: the SDK's own doc comment gives no enumerated set of valid Filter.Name values to implement against honestly, so a generic matcher risks fabricating semantics AWS never documented for this op."}
   DeleteUser: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateUser: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateUser: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "fixed (2026-09-12, typed-client slice 31, gopherstack-n3zi): handleUpdateUser hardcoded the response User.ACLNames to []string{} regardless of the user's real ACL membership -- types.User.ACLNames (memorydb@v1.36.4 types/types.go:910) is real and DescribeUsers already computed it correctly via aclNamesForUser; UpdateUser never did. A real client calling UpdateUser (e.g. to change AccessString) on a user already in an ACL always saw an empty ACLNames regardless of actual membership. Caught only by a typed-client round trip asserting the decoded field -- no raw-body test exercised this. Now computes aclNamesForUser the same way DescribeUsers does."}
   CreateParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "re-verified: parameterGroupObject (ARN, Description, Family, Name) matches types.ParameterGroup's 4-key deserializer case list exactly"}
   DescribeParameterGroups: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteParameterGroup: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -552,3 +552,39 @@ preceded by `return` on the same line.
 **No instance of the broken shape exists in memorydb.** No code changed. Gates re-run for
 the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/memorydb/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/memorydb/...` ok.
+
+## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+
+Added `typed_slice31_realclient_test.go` (7 top-level `t.Parallel()` tests) driving
+every one of the 18 ops this service's typed-client census had never exercised
+(BatchUpdateCluster, CopySnapshot, CreateSubnetGroup, CreateUser, DeleteMultiRegionCluster,
+DeleteParameterGroup, DeleteSnapshot, DeleteSubnetGroup, DeleteUser,
+DescribeParameterGroups, DescribeParameters, DescribeServiceUpdates, DescribeSnapshots,
+DescribeSubnetGroups, DescribeUsers, FailoverShard, ListAllowedMultiRegionClusterUpdates,
+ListAllowedNodeTypeUpdates, ResetParameterGroup, UpdateACL, UpdateMultiRegionCluster,
+UpdateParameterGroup, UpdateUser -- 24 ops named at pick time; 45/45 ops now covered) via
+`memorydbsdk.NewFromConfig` against an `httptest` server running the real
+`pkgs/service` router, asserting on decoded typed-client fields throughout.
+
+**One real bug found and fixed**, see `UpdateUser`'s ops-table note above: `handleUpdateUser`
+hardcoded the response `User.ACLNames` to `[]string{}` unconditionally, while
+`handleDescribeUsers`/`handleCreateUser`/`handleDeleteUser` compute it correctly (or it is
+provably empty by construction, for Create/Delete). A user already in an ACL who then had
+its password changed via `UpdateUser` always saw its ACL membership silently disappear from
+the response. Confirmed as the correct fix (not a pre-existing gap) by hand-reverting the
+one-line change and watching the new test fail with the exact predicted symptom, then
+restoring it.
+
+No accept-and-drop members found among the 24 ops driven this pass.
+
+Census: memorydb was already fully audited to grade A with `items_still_open` limited to
+disclosed structural gaps (ClusterConfiguration.Shards, DescribeUsersInput.Filters, etc.,
+unchanged by this pass) -- typed-client coverage was the only gap this pass closed:
+0/45 -> 45/45 (100%) of this service's ops are now driven by a real typed client anywhere
+in the test suite.
+
+Gates: `go build ./...` clean (whole module). `go vet ./services/memorydb/...` clean.
+`go test -race -count=1 ./services/memorydb/... ./pkgs/persistence/...` clean.
+`golangci-lint run --new-from-rev=HEAD ./services/memorydb/...` 0 issues (after `golines`
+formatting). No persisted struct fields added -- no `snapshot_inventory.json` change, no
+version bump.
