@@ -58,6 +58,29 @@ func TestBuildMetadataEndpoints(t *testing.T) {
 	assert.Contains(t, doc.Portal, "host:10006")
 }
 
+// TestBuildMetadataEndpoints_StorageSuffixTracksVHostPort proves
+// Suffixes.Storage is derived dynamically from the request's own host and
+// the configured storage VHost port -- jackofallops/giovanni's
+// ParseAccountID needs this exact "host:port" as its domainSuffix to
+// successfully strip "{account}.{blob,queue,table}." (AZURE.md section
+// 10.8) -- and that settings.AdvertiseStorageVHost overrides it entirely
+// when set.
+func TestBuildMetadataEndpoints_StorageSuffixTracksVHostPort(t *testing.T) {
+	t.Parallel()
+
+	settings := azurearm.DefaultSettings()
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
+	assert.Equal(t, "host:10010", doc.Suffixes.Storage)
+
+	settings.StorageVHostPort = 18010
+	doc = azurearm.BuildMetadataEndpoints("https://localhost:18006", settings)
+	assert.Equal(t, "localhost:18010", doc.Suffixes.Storage)
+
+	settings.AdvertiseStorageVHost = "example.com:9999"
+	doc = azurearm.BuildMetadataEndpoints("https://localhost:18006", settings)
+	assert.Equal(t, "example.com:9999", doc.Suffixes.Storage)
+}
+
 // TestBuildMetadataEndpoints_IPv6Host proves hostnameOnly correctly strips
 // an IPv6 host's brackets (baseURLFor can produce "https://[::1]:10006"),
 // rather than a naive first-colon scan returning just "[" (CodeRabbit-flagged).

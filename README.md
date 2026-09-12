@@ -701,6 +701,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [AppStream 2.0](services/appstream/README.md) | A | 44 | clean |
 | [Azurearm](services/azurearm/README.md) | B | 12 | 6 gaps; 1 deferred |
+| [Azurestoragevhost](services/azurestoragevhost/README.md) | B | 2 | 2 gaps; 1 structural gap; 1 deferred |
 | [Cloudfrontkeyvaluestore](services/cloudfrontkeyvaluestore/README.md) | B | 6 | 3 gaps; 1 structural gap |
 | [Directconnect](services/directconnect/README.md) | A | 64 | 3 gaps; 8 structural gaps; 1 deferred |
 | [Grafana](services/grafana/README.md) | A | 25 | 2 gaps; 1 structural gap |

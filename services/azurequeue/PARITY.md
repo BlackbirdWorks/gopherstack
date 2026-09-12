@@ -84,6 +84,8 @@ accepting it.
 ### M8: Terraform-provisioned coverage
 `test/terraform/azure/storage_dataplane_test.go`'s `TestTerraform_Azure_StorageDataPlane` provisions an `azurerm_storage_queue` (via an unmodified `hashicorp/azurerm` Terraform provider against `services/azurearm`'s Storage RP, M7) and sends/receives a message through it with `azure-sdk-for-go/sdk/storage/azqueue` (Terraform itself has no message resource), alongside this service's existing Go-SDK integration coverage (`test/integration/azurequeue_test.go`) -- see `AZURE.md` section 10.10's M8 entry for current pass/skip status, which can depend on the running host's TLS-trust behavior independent of this service.
 
+Getting real (unmodified) `terraform-provider-azurerm` traffic to reach this service at all required a new addressing layer -- see `services/azurestoragevhost` and `AZURE.md` section 10.8 finding (9) -- since the provider's data-plane SDK hard-requires virtual-hosted-style URLs (`{account}.queue.{suffix}`) that this service's path-style listener never produced on its own. Reaching this service through that path for the first time surfaced one REST-surface gap: **Queue Exists** (a bare `GET /{queue}`, used by `azurerm_storage_queue`'s create-then-read existence check), now implemented.
+
 ## More
 
 - [Full parity audit](PARITY.md)

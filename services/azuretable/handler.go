@@ -41,6 +41,8 @@ const (
 	opGetServiceProperties = "GetServiceProperties"
 	opCreateTable          = "CreateTable"
 	opDeleteTable          = "DeleteTable"
+	opGetTable             = "GetTable"
+	opSetTableACL          = "SetTableACL"
 	opInsertEntity         = "InsertEntity"
 	opGetEntity            = "GetEntity"
 	opQueryEntities        = "QueryEntities"
@@ -62,6 +64,7 @@ const (
 	queryComp      = "comp"
 	restypeService = "service"
 	compProperties = "properties"
+	compACL        = "acl"
 )
 
 // storageServiceProperties is the minimal (all-empty) response body for Get
@@ -146,6 +149,8 @@ func (h *Handler) GetSupportedOperations() []string {
 		opGetServiceProperties,
 		opCreateTable,
 		opDeleteTable,
+		opGetTable,
+		opSetTableACL,
 		opInsertEntity,
 		opGetEntity,
 		opQueryEntities,
@@ -393,13 +398,16 @@ func operationFor(r *http.Request) string {
 	case resourceTablesCollection:
 		return tablesCollectionOperationFor(r.Method)
 	case resourceTablesItem:
-		if r.Method == http.MethodDelete {
+		switch r.Method {
+		case http.MethodDelete:
 			return opDeleteTable
+		case http.MethodGet:
+			return opGetTable
+		default:
+			return unknownOperation
 		}
-
-		return unknownOperation
 	case resourceEntityCollection:
-		return entityCollectionOperationFor(r.Method)
+		return entityCollectionOperationFor(r)
 	case resourceEntityItem:
 		return entityItemOperationFor(r.Method)
 	default:
@@ -418,12 +426,14 @@ func tablesCollectionOperationFor(method string) string {
 	}
 }
 
-func entityCollectionOperationFor(method string) string {
-	switch method {
-	case http.MethodPost:
+func entityCollectionOperationFor(r *http.Request) string {
+	switch {
+	case r.Method == http.MethodPost:
 		return opInsertEntity
-	case http.MethodGet:
+	case r.Method == http.MethodGet:
 		return opQueryEntities
+	case r.Method == http.MethodPut && r.URL.Query().Get(queryComp) == compACL:
+		return opSetTableACL
 	default:
 		return unknownOperation
 	}
@@ -467,24 +477,56 @@ func (h *Handler) handleTablesCollection(c *echo.Context) error {
 }
 
 func (h *Handler) handleTablesItem(c *echo.Context, quotedName string) error {
-	if c.Request().Method != http.MethodDelete {
-		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
-			"The resource doesn't support the specified HTTP verb.")
-	}
-
-	return h.deleteTable(c, quotedName)
-}
-
-func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
 	switch c.Request().Method {
-	case http.MethodPost:
-		return h.insertEntity(c, table)
+	case http.MethodDelete:
+		return h.deleteTable(c, quotedName)
 	case http.MethodGet:
-		return h.queryEntities(c, table)
+		return h.getTable(c, quotedName)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
+	switch {
+	case c.Request().Method == http.MethodPost:
+		return h.insertEntity(c, table)
+	case c.Request().Method == http.MethodGet:
+		return h.queryEntities(c, table)
+	case c.Request().Method == http.MethodPut && c.QueryParam(queryComp) == compACL:
+		return h.setTableACL(c, table)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
+			"The resource doesn't support the specified HTTP verb.")
+	}
+}
+
+// setTableACL serves PUT /<account>/<table>?comp=acl -- real Azure's "Set
+// Table ACL", used by terraform-provider-azurerm's azurerm_storage_table
+// (via jackofallops/giovanni's tables.Client.SetACL) whenever the resource
+// exists check finds nothing to update on create, and unconditionally on
+// every subsequent plan/apply that leaves the table unchanged (SignedIdentifier
+// stored access policies aren't part of this resource's schema, so the
+// provider always sends an empty list). Accepted but not persisted: this
+// service has no stored-access-policy support (see PARITY.md's known
+// gaps). Returns 404 if the table doesn't exist, matching real Azure.
+func (h *Handler) setTableACL(c *echo.Context, table string) error {
+	found := false
+
+	for _, ti := range h.Backend.ListTables() {
+		if ti.Name == table {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return h.writeTableNotFoundError(c)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) error {

@@ -102,7 +102,7 @@ func TestHandler_MethodNotAllowed(t *testing.T) {
 		path   string
 	}{
 		{name: "tables_collection_delete", method: http.MethodDelete, path: "/" + testAccount + "/Tables"},
-		{name: "tables_item_get", method: http.MethodGet, path: "/" + testAccount + "/Tables('foo')"},
+		{name: "tables_item_put", method: http.MethodPut, path: "/" + testAccount + "/Tables('foo')"},
 		{name: "entity_collection_put", method: http.MethodPut, path: "/" + testAccount + "/mytable"},
 		{
 			name: "entity_item_post", method: http.MethodPost,

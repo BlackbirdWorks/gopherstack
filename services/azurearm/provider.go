@@ -64,9 +64,8 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 	registry := NewRegistry(backend)
 
 	storageCfg := StorageEndpointConfig{
-		BlobOverride:  settings.AdvertiseBlobEndpoint,
-		QueueOverride: settings.AdvertiseQueueEndpoint,
-		TableOverride: settings.AdvertiseTableEndpoint,
+		VHostOverride: settings.AdvertiseStorageVHost,
+		VHostPort:     settings.StorageVHostPort,
 	}
 	registry.Register(NewStorageProvider(storageCfg, dataPlane))
 

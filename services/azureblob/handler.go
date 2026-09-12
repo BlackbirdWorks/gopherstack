@@ -35,16 +35,18 @@ const blockBlobType = "BlockBlob"
 // Operation name constants used for metrics (ExtractOperation) and
 // GetSupportedOperations.
 const (
-	opListContainers       = "ListContainers"
-	opGetServiceProperties = "GetServiceProperties"
-	opCreateContainer      = "CreateContainer"
-	opDeleteContainer      = "DeleteContainer"
-	opListBlobs            = "ListBlobs"
-	opPutBlob              = "PutBlob"
-	opGetBlob              = "GetBlob"
-	opGetBlobProperties    = "GetBlobProperties"
-	opDeleteBlob           = "DeleteBlob"
-	unknownOperation       = "Unknown"
+	opListContainers         = "ListContainers"
+	opGetServiceProperties   = "GetServiceProperties"
+	opCreateContainer        = "CreateContainer"
+	opDeleteContainer        = "DeleteContainer"
+	opListBlobs              = "ListBlobs"
+	opGetContainerProperties = "GetContainerProperties"
+	opPutBlob                = "PutBlob"
+	opSetBlobProperties      = "SetBlobProperties"
+	opGetBlob                = "GetBlob"
+	opGetBlobProperties      = "GetBlobProperties"
+	opDeleteBlob             = "DeleteBlob"
+	unknownOperation         = "Unknown"
 )
 
 // Handler is the Echo HTTP handler for Azure Blob Storage operations.
@@ -91,7 +93,9 @@ func (h *Handler) GetSupportedOperations() []string {
 		opCreateContainer,
 		opDeleteContainer,
 		opListBlobs,
+		opGetContainerProperties,
 		opPutBlob,
+		opSetBlobProperties,
 		opGetBlob,
 		opGetBlobProperties,
 		opDeleteBlob,
@@ -264,7 +268,7 @@ func operationFor(r *http.Request) string {
 
 	switch {
 	case blob != "":
-		return blobOperationFor(r.Method)
+		return blobOperationFor(r)
 	case container != "":
 		return containerOperationFor(r)
 	default:
@@ -288,8 +292,9 @@ func accountOperationFor(r *http.Request) string {
 	}
 }
 
-// containerOperationFor covers the three container-scoped operations:
-// Create Container, Delete Container, and List Blobs.
+// containerOperationFor covers the four container-scoped operations:
+// Create Container, Delete Container, List Blobs, and Get Container
+// Properties.
 func containerOperationFor(r *http.Request) string {
 	restype := r.URL.Query().Get(queryRestype)
 	comp := r.URL.Query().Get(queryComp)
@@ -301,22 +306,26 @@ func containerOperationFor(r *http.Request) string {
 		return opDeleteContainer
 	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
 		return opListBlobs
+	case r.Method == http.MethodGet && restype == restypeContainer && comp == "":
+		return opGetContainerProperties
 	default:
 		return unknownOperation
 	}
 }
 
-// blobOperationFor covers the four blob-scoped operations, dispatched purely
-// by HTTP method (mirrors handleBlobLevel).
-func blobOperationFor(method string) string {
-	switch method {
-	case http.MethodPut:
+// blobOperationFor covers the five blob-scoped operations (mirrors
+// handleBlobLevel).
+func blobOperationFor(r *http.Request) string {
+	switch {
+	case r.Method == http.MethodPut && r.URL.Query().Get(queryComp) == compProperties:
+		return opSetBlobProperties
+	case r.Method == http.MethodPut:
 		return opPutBlob
-	case http.MethodGet:
+	case r.Method == http.MethodGet:
 		return opGetBlob
-	case http.MethodHead:
+	case r.Method == http.MethodHead:
 		return opGetBlobProperties
-	case http.MethodDelete:
+	case r.Method == http.MethodDelete:
 		return opDeleteBlob
 	default:
 		return unknownOperation
@@ -382,10 +391,38 @@ func (h *Handler) handleContainerLevel(c *echo.Context, container string) error 
 		return h.deleteContainer(c, container)
 	case r.Method == http.MethodGet && restype == restypeContainer && comp == compList:
 		return h.listBlobs(c, container)
+	case r.Method == http.MethodGet && restype == restypeContainer && comp == "":
+		return h.getContainerProperties(c, container)
 	default:
 		return h.writeError(c, http.StatusBadRequest, "InvalidQueryParameterValue",
 			"A query parameter is not supported for this operation.")
 	}
+}
+
+// getContainerProperties serves GET /<account>/<container>?restype=container
+// (no comp) -- real Azure's "Get Container Properties", used by
+// terraform-provider-azurerm's azurerm_storage_container to check whether a
+// container already exists before creating it (jackofallops/giovanni's
+// containers.Client.GetProperties). Headers reflect a container with no
+// lease and private access -- Set Container ACL/lease support aren't
+// implemented (see PARITY.md), so these are always their unlocked/private
+// defaults.
+func (h *Handler) getContainerProperties(c *echo.Context, container string) error {
+	for _, ci := range h.Backend.ListContainers() {
+		if ci.Name != container {
+			continue
+		}
+
+		hdr := c.Response().Header()
+		hdr.Set("Last-Modified", ci.CreatedAt.Format(http.TimeFormat))
+		hdr.Set("Etag", computeContainerETag(ci.Name, ci.CreatedAt))
+		hdr.Set("X-Ms-Lease-Status", "unlocked")
+		hdr.Set("X-Ms-Lease-State", "available")
+
+		return c.NoContent(http.StatusOK)
+	}
+
+	return h.writeError(c, http.StatusNotFound, "ContainerNotFound", "The specified container does not exist.")
 }
 
 func (h *Handler) createContainer(c *echo.Context, container string) error {
@@ -439,21 +476,41 @@ func (h *Handler) listBlobs(c *echo.Context, container string) error {
 	return h.writeXML(c, http.StatusOK, result)
 }
 
-// handleBlobLevel dispatches the four blob-scoped operations by HTTP method.
+// handleBlobLevel dispatches the blob-scoped operations by HTTP method (and,
+// for PUT, by comp=properties vs a plain Put Blob).
 func (h *Handler) handleBlobLevel(c *echo.Context, container, blob string) error {
-	switch c.Request().Method {
-	case http.MethodPut:
+	switch {
+	case c.Request().Method == http.MethodPut && c.QueryParam(queryComp) == compProperties:
+		return h.setBlobProperties(c, container, blob)
+	case c.Request().Method == http.MethodPut:
 		return h.putBlob(c, container, blob)
-	case http.MethodGet:
+	case c.Request().Method == http.MethodGet:
 		return h.getBlob(c, container, blob)
-	case http.MethodHead:
+	case c.Request().Method == http.MethodHead:
 		return h.headBlob(c, container, blob)
-	case http.MethodDelete:
+	case c.Request().Method == http.MethodDelete:
 		return h.deleteBlob(c, container, blob)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+// setBlobProperties serves PUT /<account>/<container>/<blob>?comp=properties
+// -- real Azure's "Set Blob Properties", used by
+// terraform-provider-azurerm's azurerm_storage_blob to update
+// content-type/cache-control/etc after upload. Unlike Put Blob, this never
+// sends x-ms-blob-type (it isn't (re-)uploading content), so it's routed
+// here rather than through putBlob's x-ms-blob-type check. Accepted but not
+// persisted: this service has no property-update path in StorageBackend
+// (PutBlob only sets content-type at upload time) -- see PARITY.md's known
+// gaps. Returns 404 if the blob doesn't exist, matching real Azure.
+func (h *Handler) setBlobProperties(c *echo.Context, container, blob string) error {
+	if _, err := h.Backend.HeadBlob(container, blob); err != nil {
+		return h.writeBlobNotFoundError(c, err)
+	}
+
+	return c.NoContent(http.StatusOK)
 }
 
 func (h *Handler) putBlob(c *echo.Context, container, blob string) error {

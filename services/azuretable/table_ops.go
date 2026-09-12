@@ -71,6 +71,28 @@ func (h *Handler) listTables(c *echo.Context) error {
 	return h.writeJSON(c, http.StatusOK, map[string]any{"value": values})
 }
 
+// getTable serves GET /<account>/Tables('name') -- real Azure's "Query
+// Table" (a single-table Query Tables lookup), used by
+// terraform-provider-azurerm's azurerm_storage_table (via
+// jackofallops/giovanni's tables.Client.Exists) to check whether the table
+// already exists before creating it.
+func (h *Handler) getTable(c *echo.Context, quotedName string) error {
+	name, ok := unquoteODataString(quotedName)
+	if !ok {
+		return h.writeError(c, http.StatusBadRequest, "InvalidInput", "The specified table name is invalid.")
+	}
+
+	for _, ti := range h.Backend.ListTables() {
+		if ti.Name == name {
+			level := odataLevelFromAccept(c.Request().Header.Get("Accept"))
+
+			return h.writeJSON(c, http.StatusOK, h.tableEntityBody(ti.Name, level))
+		}
+	}
+
+	return h.writeTableNotFoundError(c)
+}
+
 func (h *Handler) deleteTable(c *echo.Context, quotedName string) error {
 	name, ok := unquoteODataString(quotedName)
 	if !ok {

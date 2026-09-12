@@ -53,6 +53,13 @@ const (
 	hostPortBlob  = "18000"
 	hostPortQueue = "18001"
 	hostPortTable = "18002"
+	// hostPortStorageVHost is services/azurestoragevhost's published port --
+	// see that package's doc comment and AZURE.md section 10.8: unlike
+	// hostPortBlob/Queue/Table above (used only for this suite's own direct
+	// Go-SDK verification calls), this is the port terraform-provider-azurerm
+	// itself actually talks to for azurerm_storage_container/_blob/_queue/
+	// _table, since its data-plane SDK requires virtual-hosted-style URLs.
+	hostPortStorageVHost = "18010"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -236,28 +243,31 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				options.PullParent = false
 			},
 		},
-		AutoRemove:   true,
-		ExposedPorts: []string{"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp"},
+		AutoRemove: true,
+		ExposedPorts: []string{
+			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp",
+		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
 				"10006/tcp": hostPortARM,
 				"10000/tcp": hostPortBlob,
 				"10001/tcp": hostPortQueue,
 				"10002/tcp": hostPortTable,
+				"10010/tcp": hostPortStorageVHost,
 			})
 		},
-		// M8: services/azurearm's advertiseEndpoint (rp_storage.go) defaults to
-		// scheme://<ARM request Host's hostname>:<the storage service's
-		// CONFIGURED (in-container) port> -- 10000/10001/10002 -- not the
-		// published HOST port this suite maps them to (18000/18001/18002). A
-		// tofu process running on the host cannot reach container-internal
-		// 10000/10001/10002, so without these overrides ARM would advertise
-		// unreachable endpoints and every direct-data-plane resource
+		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
+		// defaults to http://{account}.{svc}.<ARM request Host's
+		// hostname>:<the configured, IN-CONTAINER vhost port> -- 10010, not
+		// the published HOST port this suite maps it to (18010). A tofu
+		// process running on the host cannot reach container-internal
+		// 10010, so without this override ARM would advertise unreachable
+		// endpoints and every direct-data-plane resource
 		// (azurerm_storage_container/_blob/_queue/_table) would fail to
-		// apply. AZURE.md section 10.4 anticipated exactly this and provided
-		// the AZURE_ARM_ADVERTISE_*_ENDPOINT env vars for it; this is a test
-		// harness fix, not a service-code change -- see rp_storage.go's
-		// advertiseEndpoint for the override branch these env vars select.
+		// apply. This is a test harness fix, not a service-code change --
+		// see rp_storage.go's advertiseVHostEndpoint for the override
+		// branch this env var selects, and AZURE.md section 10.8 for why a
+		// shared virtual-hosted listener/port exists at all.
 		// LOG_LEVEL=debug lets TestTerraform_Azure_StorageDataPlane inspect
 		// container logs to confirm storage_use_azuread=false actually forces
 		// the SharedKey auth path (a malformed/non-SharedKey Authorization
@@ -265,10 +275,18 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		// "malformed Authorization header accepted" DebugContext line -- see
 		// each service's checkAuth).
 		Env: map[string]string{
-			"AZURE_ARM_ADVERTISE_BLOB_ENDPOINT":  "http://localhost:" + hostPortBlob,
-			"AZURE_ARM_ADVERTISE_QUEUE_ENDPOINT": "http://localhost:" + hostPortQueue,
-			"AZURE_ARM_ADVERTISE_TABLE_ENDPOINT": "http://localhost:" + hostPortTable,
-			"LOG_LEVEL":                          "debug",
+			// AZURE_ARM_ADVERTISE_STORAGE_VHOST points ARM's primaryEndpoints at
+			// this suite's published virtual-hosted-listener port
+			// (services/azurestoragevhost binds container-internal 10010,
+			// published here as hostPortStorageVHost) rather than the
+			// container-internal one a host-side tofu process can't reach --
+			// see services/azurestoragevhost's package doc comment and
+			// AZURE.md section 10.8 for why terraform-provider-azurerm's
+			// azurerm_storage_container/_blob/_queue/_table need this
+			// (host:port only, no scheme -- it's also the domainSuffix
+			// jackofallops/giovanni's ParseAccountID needs).
+			"AZURE_ARM_ADVERTISE_STORAGE_VHOST": "localhost:" + hostPortStorageVHost,
+			"LOG_LEVEL":                         "debug",
 			// A stable cert/key (see prepareStableCert), copied into the
 			// container below via Files, rather than services/azurearm's
 			// default of generating a fresh self-signed certificate on every

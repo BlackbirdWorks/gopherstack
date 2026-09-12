@@ -2,6 +2,7 @@ package azurearm
 
 import (
 	"net"
+	"strconv"
 	"strings"
 )
 
@@ -100,13 +101,38 @@ func BuildMetadataEndpoints(baseURL string, settings Settings) EnvironmentDescri
 		ResourceManager:         baseURL + "/",
 		ResourceManagerEndpoint: baseURL + "/",
 		Suffixes: EnvironmentSuffixes{
-			Storage:           "localhost",
+			Storage:           storageVHostHostAndPort(baseURL, settings),
 			KeyVaultDNS:       ".vault." + hostnameOnly(baseURL),
 			SQLServerHostname: ".database." + hostnameOnly(baseURL),
 			ACRLoginServer:    ".azurecr." + hostnameOnly(baseURL),
 		},
 		MicrosoftGraphResourceID: baseURL + "/graph",
 	}
+}
+
+// storageVHostHostAndPort returns the "host:port" the shared
+// services/azurestoragevhost listener is reachable on -- exactly the
+// domainSuffix jackofallops/giovanni's ParseAccountID needs to successfully
+// strip "{account}.{blob,queue,table}." and parse the remaining label as
+// the account name (see services/azurestoragevhost's package doc comment
+// and AZURE.md section 10.8). settings.AdvertiseStorageVHost overrides this
+// the same way AZURE_ARM_ADVERTISE_* used to override the old per-service
+// endpoints (needed whenever the vhost listener's externally-reachable port
+// differs from its configured one, e.g. a published Docker port); absent an
+// override, it's derived from this ARM request's own Host (so it tracks
+// whatever host the client actually dialed, mirroring baseURLFor) and the
+// configured vhost port.
+func storageVHostHostAndPort(baseURL string, settings Settings) string {
+	if settings.AdvertiseStorageVHost != "" {
+		return settings.AdvertiseStorageVHost
+	}
+
+	port := settings.StorageVHostPort
+	if port == 0 {
+		port = DefaultStorageVHostPort
+	}
+
+	return net.JoinHostPort(hostnameOnly(baseURL), strconv.Itoa(port))
 }
 
 // hostnameOnly strips scheme and port from baseURL, returning just the

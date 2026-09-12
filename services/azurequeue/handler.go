@@ -33,6 +33,7 @@ const (
 	opListQueues           = "ListQueues"
 	opGetServiceProperties = "GetServiceProperties"
 	opCreateQueue          = "CreateQueue"
+	opQueueExists          = "QueueExists"
 	opDeleteQueue          = "DeleteQueue"
 	opPutMessage           = "PutMessage"
 	opGetMessages          = "GetMessages"
@@ -104,6 +105,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		opListQueues,
 		opGetServiceProperties,
 		opCreateQueue,
+		opQueueExists,
 		opDeleteQueue,
 		opPutMessage,
 		opGetMessages,
@@ -306,14 +308,16 @@ func accountOperationFor(r *http.Request) string {
 	}
 }
 
-// queueOperationFor covers the two queue-scoped operations: Create Queue and
-// Delete Queue.
+// queueOperationFor covers the three queue-scoped operations: Create Queue,
+// Delete Queue, and the bare-GET existence check (getQueueExists).
 func queueOperationFor(method string) string {
 	switch method {
 	case http.MethodPut:
 		return opCreateQueue
 	case http.MethodDelete:
 		return opDeleteQueue
+	case http.MethodGet:
+		return opQueueExists
 	default:
 		return unknownOperation
 	}
@@ -396,10 +400,29 @@ func (h *Handler) handleQueueLevel(c *echo.Context, queue string) error {
 		return h.createQueue(c, queue)
 	case http.MethodDelete:
 		return h.deleteQueue(c, queue)
+	case http.MethodGet:
+		return h.getQueueExists(c, queue)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+// getQueueExists serves a bare GET /<account>/<queue> (no query params) --
+// not a documented Azure Queue REST operation in its own right, but the one
+// terraform-provider-azurerm's azurerm_storage_queue issues (via
+// jackofallops/giovanni's queue existence check) to decide whether to
+// create the queue or report ImportAsExistsError. 200 if it exists, 404
+// otherwise; no body either way, matching Get Queue Metadata's own
+// no-body-on-success shape since nothing here calls for metadata.
+func (h *Handler) getQueueExists(c *echo.Context, queue string) error {
+	for _, qi := range h.Backend.ListQueues() {
+		if qi.Name == queue {
+			return c.NoContent(http.StatusOK)
+		}
+	}
+
+	return h.writeError(c, http.StatusNotFound, "QueueNotFound", "The specified queue does not exist.")
 }
 
 func (h *Handler) createQueue(c *echo.Context, queue string) error {
