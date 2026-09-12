@@ -7,7 +7,12 @@ import (
 
 // Errors for placement group operations.
 var (
-	ErrPlacementGroupNotFound      = errors.New("InvalidPlacementGroup.NotFound")
+	// ErrPlacementGroupNotFound backs the real EC2 error code
+	// "InvalidPlacementGroup.Unknown" (docs.aws.amazon.com/AWSEC2/latest/
+	// APIReference/errors-overview.html: "The specified placement group
+	// cannot be found") -- there is no "InvalidPlacementGroup.NotFound"
+	// code in real EC2 (gopherstack-ggu4a).
+	ErrPlacementGroupNotFound      = errors.New("InvalidPlacementGroup.Unknown")
 	ErrDuplicatePlacementGroupName = errors.New("InvalidPlacementGroup.Duplicate")
 )
 

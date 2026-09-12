@@ -25,7 +25,12 @@ func (h *Handler) handleDescribeAddressesAttribute(vals url.Values, reqID string
 	ids := parseMemberList(vals, "AllocationId")
 	attrs := h.Backend.DescribeAddressesAttribute(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +129,10 @@ type subnetCidrReservationItem struct {
 	TagSet                  []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toSubnetCidrReservationItem(r *SubnetCIDRReservation, tags map[string]string) subnetCidrReservationItem {
+func toSubnetCidrReservationItem(
+	r *SubnetCIDRReservation,
+	tags map[string]string,
+) subnetCidrReservationItem {
 	return subnetCidrReservationItem{
 		SubnetCidrReservationID: r.SubnetCIDRReservationID,
 		SubnetID:                r.SubnetID,
@@ -189,7 +197,12 @@ func (h *Handler) handleDescribeAddressTransfers(vals url.Values, reqID string) 
 	ids := parseMemberList(vals, "AllocationId")
 	transfers := h.Backend.DescribeAddressTransfers(ids)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -274,10 +287,13 @@ func (h *Handler) handleDescribeMovingAddresses(vals url.Values, reqID string) (
 
 	resp := &describeMovingAddressesResponse{RequestID: reqID, NextToken: nextToken}
 	for _, st := range statuses {
-		resp.MovingAddressStatusSet.Items = append(resp.MovingAddressStatusSet.Items, movingAddressStatusItem{
-			PublicIP:   st.PublicIP,
-			MoveStatus: st.MoveStatus,
-		})
+		resp.MovingAddressStatusSet.Items = append(
+			resp.MovingAddressStatusSet.Items,
+			movingAddressStatusItem{
+				PublicIP:   st.PublicIP,
+				MoveStatus: st.MoveStatus,
+			},
+		)
 	}
 
 	return resp, nil
@@ -479,13 +495,26 @@ func (h *Handler) handleDescribeAddresses(vals url.Values, reqID string) (any, e
 	ids := parseMemberList(vals, "AllocationId")
 	addrs := h.Backend.DescribeAddresses(ids)
 
+	if err := requireAllIDsPresent(
+		ids, addrs, func(a *Address) string { return a.AllocationID }, ErrAddressNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	filters := parseEC2Filters(vals)
 
 	// DescribeAddressesInput.PublicIps (serializers.go:76230, FlatKey "PublicIp")
 	// is a direct request member, not a Filter -- fold it into the existing
 	// "public-ip" filter matcher rather than silently dropping it.
-	if publicIPs := parseMemberList(vals, "PublicIp"); len(publicIPs) > 0 {
+	publicIPs := parseMemberList(vals, "PublicIp")
+	if len(publicIPs) > 0 {
 		filters["public-ip"] = append(filters["public-ip"], publicIPs...)
+
+		if err := requireAllIDsPresent(
+			publicIPs, addrs, func(a *Address) string { return a.PublicIP }, ErrPublicIPNotFound,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	addrs = applyAddressFilters(addrs, filters, h.Backend)

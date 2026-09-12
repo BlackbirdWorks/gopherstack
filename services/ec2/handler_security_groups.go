@@ -141,7 +141,12 @@ func (h *Handler) handleDescribeStaleSecurityGroups(vals url.Values, reqID strin
 	}
 	stale := h.Backend.DescribeStaleSecurityGroups(vpcID)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +174,12 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 	sgIDs := parseMemberList(vals, "GroupId")
 	assocs := h.Backend.DescribeSecurityGroupVpcAssociations(sgIDs)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +224,12 @@ func (h *Handler) handleGetSecurityGroupsForVpc(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -515,7 +530,12 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 // rather than inserts and rejects duplicates (validateSecurityGroupRules), so
 // the tail of the direction-filtered, index-ordered list is exactly the set
 // just added.
-func newlyAddedRuleDetails(b Backend, groupID string, n int, egress bool) ([]*SecurityGroupRuleDetail, error) {
+func newlyAddedRuleDetails(
+	b Backend,
+	groupID string,
+	n int,
+	egress bool,
+) ([]*SecurityGroupRuleDetail, error) {
 	all, err := b.DescribeSecurityGroupRules(groupID)
 	if err != nil {
 		return nil, err
@@ -703,8 +723,20 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 				groups = append(groups, sg)
 			}
 		}
+
+		if err := requireAllIDsPresent(
+			names, groups, func(sg *SecurityGroup) string { return sg.Name }, ErrSecurityGroupNotFound,
+		); err != nil {
+			return nil, err
+		}
 	} else {
 		groups = h.Backend.DescribeSecurityGroups(ids)
+
+		if err := requireAllIDsPresent(
+			ids, groups, func(sg *SecurityGroup) string { return sg.ID }, ErrSecurityGroupNotFound,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply named filters: vpc-id, group-name, group-id.

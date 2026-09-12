@@ -486,6 +486,13 @@ func (h *Handler) handleDescribeCapacityReservations(vals url.Values, reqID stri
 
 	reservations := h.Backend.DescribeCapacityReservations(ids)
 
+	if err := requireAllIDsPresent(
+		ids, reservations, func(cr *CapacityReservation) string { return cr.CapacityReservationID },
+		ErrCapacityReservationNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
 		return nil, err
@@ -582,6 +589,9 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 		ids = append(ids, id)
 	}
 
+	// HostId.N is a soft filter here, not a hard lookup: TestHostReservations_HTTP_Lifecycle
+	// pins "released/unknown host id -> empty result, no error" (gopherstack-ggu4a:
+	// verified, not the silent-omission bug for this particular op).
 	hosts := h.Backend.DescribeHosts(ids)
 
 	resp := &describeHostsResponse{

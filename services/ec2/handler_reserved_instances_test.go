@@ -280,7 +280,7 @@ func TestHandler_ModifyReservedInstances(t *testing.T) {
 
 		_, err := ec2.ExportDispatch(h, vals)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "InvalidReservedInstancesId.NotFound")
+		assert.Contains(t, err.Error(), "InvalidReservedInstancesId")
 	})
 
 	t.Run("valid modification is honored and round-trips on describe", func(t *testing.T) {

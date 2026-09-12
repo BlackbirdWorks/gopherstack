@@ -257,6 +257,13 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayVpcAttachments(ids)
 
+	if err := requireAllIDsPresent(
+		ids, atts, func(a *TransitGatewayVpcAttachment) string { return a.TransitGatewayAttachmentID },
+		ErrTransitGatewayAttachmentNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeTransitGatewayVpcAttachmentsResponse{RequestID: reqID}
 
 	for _, att := range atts {

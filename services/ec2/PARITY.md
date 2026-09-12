@@ -358,6 +358,17 @@ items_still_open:
     base64-SHA256 fingerprint algorithm, or a real PPK binary encoder (PuTTY's format,
     including its MAC) — both buildable, neither attempted this pass to keep scope bounded.
     (gopherstack-8pce, 2026-08-07)"
+  - "Volume/snapshot recycle bins are never populated by any real write path: DeleteVolume
+    and DeleteSnapshot both hard-delete unconditionally (volumes.go/snapshots.go) rather than
+    moving the resource into recycleBinVolumes/recycleBinSnapshots the way real AWS's Recycle
+    Bin retention rules would, so ListVolumesInRecycleBin/ListSnapshotsInRecycleBin always
+    return empty and RestoreVolumeFromRecycleBin/RestoreSnapshotFromRecycleBin always
+    InvalidVolume.NotFound/InvalidSnapshotID.NotFound for any real ID. Confirmed via
+    TestSlice2_RealClient/recycle_bin_ops (gopherstack-n3zi slice 2, 2026-09-12); the snapshot
+    side of this gap was already documented in-code (handler_snapshots.go) but not here.
+    Same shape as the pre-existing ListImagesInRecycleBin gap noted elsewhere in this file —
+    a real Recycle Bin retention-rule feature (CreateRule/GetRule with per-resource-type
+    RetentionPeriod), not modeled for any of the three resource types."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -383,6 +394,148 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-12 (gopherstack-ggu4a describe-by-id sweep + gopherstack-n3zi slice 2)
+
+**Describe-by-id sweep (gopherstack-ggu4a).** Swept every Describe* op taking
+an explicit id/name list for the slice-1-identified silent-omission bug
+(explicit id filter drops an unknown id instead of erroring). Wired the
+existing `describeByIDsOrNotFound`/new `requireAllIDsPresent` helpers
+(describe_helpers.go) into: DescribeSubnets, DescribeSecurityGroups (both
+GroupId and GroupName paths), DescribeVolumes, DescribeKeyPairs, DescribeImages
+(unknown ImageId), DescribeLaunchTemplates (both LaunchTemplateId and
+LaunchTemplateName paths — distinct error codes, see below), DescribeNatGateways,
+DescribeAddresses (both AllocationId and PublicIp paths), DescribeNetworkInterfaces,
+DescribePlacementGroups, DescribeTransitGateways, DescribeTransitGatewayAttachments,
+DescribeTransitGatewayVpcAttachments, DescribeTransitGatewayRouteTables,
+DescribeVpnConnections, DescribeVpnGateways, DescribeCapacityReservations,
+DescribeHosts (reverted, see below), DescribeReservedInstances,
+DescribeIpamScopes, DescribeIpamPools, DescribeVerifiedAccessEndpoints/Groups/
+Instances/TrustProviders. `DescribeSpotFleetRequests` already hard-failed
+correctly (only its error code was unmapped, see below).
+
+**NOT fixed, verified per-op rather than assumed:** DescribeVpcEndpoints,
+DescribeIpams and DescribeHosts (hard-fail was added, then reverted after it
+broke three pre-existing, deliberately-written tests —
+TestVpcEndpoint_DeleteReturnsDeleted, TestVpcEndpointLifecycle_RealClient,
+TestDescribeIpams_IpamIdFilter_RealClient, TestHostReservations_HTTP_Lifecycle
+— all of which pin "unknown/deleted id -> empty result, no error" as the
+correct behavior for these three ops specifically; DescribeIpams's and
+DescribeNatGateways's/DescribeFlowLogs' real API doc pages list no
+operation-specific error at all, unlike the ops above where an
+`Invalid<Resource>.NotFound`-family code is documented). DescribeFlowLogs was
+also investigated and left alone for the same reason (no operation-specific
+error documented; FlowLogId.N reads as a filter). This is exactly the
+per-op variance the issue asked to verify rather than assume.
+
+**Real bugs found and fixed while wiring/verifying error codes:**
+
+1. **52 sentinel errors were actively returned by real backend code
+   (DescribeLaunchTemplateVersions, DescribeIpams/IpamScopes/IpamPools,
+   spot fleet requests, route servers, network insights, local gateway,
+   TGW Connect/multicast, capacity block/manager, fleet, carrier gateway,
+   managed prefix lists, instance connect endpoints, egress-only IGW, VPC
+   endpoint connection notifications, subnet CIDR reservations, and more)
+   but were never added to `errCodeLookup` — every one of them surfaced as
+   `500 InternalFailure` to a real client instead of its correct `400` code.
+   Added all 52 (handler.go). This is the single highest-yield fix this
+   pass: a mechanical, pre-verified-code table addition that silently fixed
+   dozens of already-correct not-found paths across the file.
+2. **`ErrPlacementGroupNotFound`'s code was fabricated**: gopherstack used
+   `"InvalidPlacementGroup.NotFound"`, but real EC2 has no such code — the
+   correct one, confirmed against errors-overview.html, is
+   `"InvalidPlacementGroup.Unknown"` ("The specified placement group cannot
+   be found"). Fixed (placement_groups.go, handler.go); updated the one
+   stale test that had encoded the fabricated code as expected
+   (handler_core_test.go).
+3. **`ErrReservedInstancesNotFound`'s code had a fabricated `.NotFound`
+   suffix**: real EC2's code is `"InvalidReservedInstancesId"` (no suffix;
+   confirmed against errors-overview.html), and the same sentinel was also
+   being reused for a *different* real resource (Reserved Instances
+   Offerings, which has its own distinct `"InvalidReservedInstancesOfferingId"`
+   code). Split into `ErrReservedInstancesNotFound` (fixed code) and new
+   `ErrReservedInstancesOfferingNotFound`, re-pointed the two offering-lookup
+   call sites in reserved_instances.go (PurchaseReservedInstancesOffering,
+   GetReservedInstancesExchangeQuote's target-offering lookup) at the new
+   sentinel. Updated three tests that had encoded the old fabricated/conflated
+   codes (reserved_instances_exchange_test.go, handler_accept_ops_test.go,
+   handler_reserved_instances_test.go).
+4. **`ErrLaunchTemplateNotFound`'s code had the wrong case**:
+   `"InvalidLaunchTemplateID.NotFound"` (capital ID) vs. real EC2's
+   `"InvalidLaunchTemplateId.NotFound"` (lowercase Id) — confirmed against
+   errors-overview.html, which is unusually inconsistent about this casing
+   across its other `...ID.NotFound` codes. Also added the previously-missing,
+   genuinely distinct `ErrLaunchTemplateNameNotFound`
+   ("InvalidLaunchTemplateName.NotFoundException") for the by-name lookup
+   path, which real AWS reports with a different code entirely from the
+   by-ID path.
+5. **`Subnet.MapPublicIpOnLaunch`/`DefaultForAz` were never wired into the
+   wire response at all** (found by typed slice 2, not the sweep): the
+   backend's `ModifySubnetAttribute` correctly updates `Subnet.MapPublicIPOnLaunch`,
+   but `subnetItem`/`toSubnetItem` (handler_subnets.go) never had a field for
+   it, so no real client could ever observe the change via DescribeSubnets.
+   Confirmed against ec2@v1.329.0 deserializers.go's
+   `awsEc2query_deserializeDocumentSubnet` (`mapPublicIpOnLaunch`,
+   `defaultForAz`). Fixed.
+6. **`RestoreSnapshotTier` was a disguised stub**: it returned the shared
+   `stubResponse{Return: bool}` shape, but real `RestoreSnapshotTierOutput`
+   has no `Return` member at all — it returns `SnapshotId`,
+   `IsPermanentRestore`, `RestoreDuration`, `RestoreStartTime`, none of which
+   `stubResponse` can carry, so all four came back empty/zero to any real
+   client despite the call reporting success. Confirmed against
+   deserializers.go's `awsEc2query_deserializeOpDocumentRestoreSnapshotTierOutput`.
+   Fixed with a dedicated `restoreSnapshotTierResponse` type; the request-side
+   `PermanentRestore`/`TemporaryRestoreDays` inputs are now read (previously
+   silently dropped) though the backend still doesn't model an actual
+   temporary-vs-permanent tier state distinction (see items_still_open).
+
+`ErrVolumeModificationNotFound`/`ErrReplaceRootTaskNotFound` remain genuinely
+dead sentinels (declared, never returned anywhere) — DescribeVolumesModifications/
+DescribeReplaceRootVolumeTasks still silently filter by id with no hard-fail
+path; not fixed this pass (not in the task's named priority list, and adding
+a never-before-reachable error path without a clear precedent risked the same
+kind of assumption failure the DescribeIpams/VpcEndpoints/Hosts reverts above
+guarded against).
+
+**Typed coverage (gopherstack-n3zi slice 2).** Added
+`typed_slice2_realclient_test.go`: one table-driven test, 12 subtests, each a
+real-SDK-client round trip against a fresh handler+backend. Covers ~58
+previously-uncovered ops across VPC Block Public Access
+(Modify/DescribeOptions, Create/Modify/Delete/DescribeExclusions), VPC peering
+lifecycle (Accept/Modify.../Reject/Delete), volume lifecycle extras
+(ModifyVolume, EnableVolumeIO, DescribeVolumeStatus,
+DescribeVolumesModifications, Create/DescribeReplaceRootVolumeTask(s)),
+snapshot lifecycle extras (Modify/RestoreSnapshotTier,
+Get/Enable/DisableSnapshotBlockPublicAccess, ResetSnapshotAttribute,
+DescribeFastSnapshotRestores), recycle bin ops (List/RestoreSnapshot/Volume
+FromRecycleBin — asserting the real, achievable empty-list/NotFound behavior
+given the never-populated gap above, not a fabricated round trip), image
+lifecycle extras (CreateImage, Enable/DisableImage(Deprecation/
+DeregistrationProtection), ResetImageAttribute), Allowed Images Settings
+(Enable/Disable/Get/ReplaceImageCriteria), security group extras
+(DescribeSecurityGroupReferences/StaleSecurityGroups, ModifySecurityGroupRules),
+NAT gateway address lifecycle (Associate/Disassociate/UnassignPrivateNatGatewayAddress
+plus Describe/DeleteNatGateway), network interface extras (Detach,
+Create/DeleteNetworkInterfacePermission, ResetNetworkInterfaceAttribute),
+subnet/IGW extras (ModifySubnetAttribute, Delete/CreateSubnetCidrReservation,
+Create/DeleteEgressOnlyInternetGateway, ReplaceRouteTableAssociation), and
+transit gateway extras (DescribeTransitGateways, ModifyTransitGateway,
+Modify/DeleteTransitGatewayVpcAttachment). Bugs 5 and 6 above were both found
+by this test file's assertions failing against real decoded field values, not
+by any raw-body or handler-level test.
+
+Census: ec2 typed coverage 375/785 (47.8%) -> 433/785 (55.2%). ~352 ops remain
+uncovered, still mostly IPAM (~40 across scopes/pools/resource-discovery/
+prefix-list-resolvers), Transit Gateway peripherals (route tables/policy
+tables/prefix-list references/metering policies/multicast groups), VPN/Client
+VPN, Verified Access, Capacity Block/Reservation edge ops, Traffic Mirror,
+Route Server, BYOIP/COIP, and Application Status Checks — not reached this
+slice.
+
+Gates: `go build ./...`, `go vet ./services/ec2/...`,
+`go test -race -count=1 ./services/ec2/... ./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/ec2/...` all clean. No new
+cyclop/gocyclo/gocognit/funlen nolints.
 
 ### 2026-09-11 (gopherstack-n3zi slice 1: typed real-client coverage)
 

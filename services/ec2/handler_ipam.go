@@ -49,6 +49,11 @@ func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
 
 func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamId")
+	// DescribeIpams treats IpamId.N as a soft filter, not a hard lookup: real
+	// AWS documents no operation-specific error for this op (errors-overview.html
+	// lists none), and TestDescribeIpams_IpamIdFilter_RealClient already pins
+	// "unknown id -> empty result, no error" (gopherstack-ggu4a: verified,
+	// not the silent-omission bug for this particular op).
 	ipams := h.Backend.DescribeIpams(ids)
 
 	resp := &describeIpamsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
@@ -118,6 +123,12 @@ func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, err
 func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamScopeId")
 	scopes := h.Backend.DescribeIpamScopes(ids)
+
+	if err := requireAllIDsPresent(
+		ids, scopes, func(s *IpamScope) string { return s.IpamScopeID }, ErrIpamScopeNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeIpamScopesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
@@ -248,6 +259,12 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamPoolId")
 	pools := h.Backend.DescribeIpamPools(ids)
+
+	if err := requireAllIDsPresent(
+		ids, pools, func(p *IpamPool) string { return p.IpamPoolID }, ErrIpamPoolNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeIpamPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

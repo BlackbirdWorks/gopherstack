@@ -106,7 +106,10 @@ type unassignPrivateNatGatewayAddressResponse struct {
 	NatGatewayAddresses natGatewayAddressSet `xml:"natGatewayAddressSet"`
 }
 
-func (h *Handler) handleUnassignPrivateNatGatewayAddress(vals url.Values, reqID string) (any, error) {
+func (h *Handler) handleUnassignPrivateNatGatewayAddress(
+	vals url.Values,
+	reqID string,
+) (any, error) {
 	natGatewayID := vals.Get("NatGatewayId")
 	privateIPs := parseMemberList(vals, "PrivateIpAddress")
 
@@ -220,7 +223,10 @@ func toNatGatewayItem(ngw *NatGateway, tags map[string]string) natGatewayItem {
 	}
 
 	for _, ip := range ngw.SecondaryPrivateIPs {
-		items = append(items, natGatewayAddressItem{PrivateIP: ip, AvailabilityZone: ngw.AvailabilityZone})
+		items = append(
+			items,
+			natGatewayAddressItem{PrivateIP: ip, AvailabilityZone: ngw.AvailabilityZone},
+		)
 	}
 
 	return natGatewayItem{
@@ -277,6 +283,12 @@ func (h *Handler) handleDeleteNatGateway(vals url.Values, reqID string) (any, er
 func (h *Handler) handleDescribeNatGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "NatGatewayId")
 	ngws := h.Backend.DescribeNatGateways(ids)
+
+	if err := requireAllIDsPresent(
+		ids, ngws, func(n *NatGateway) string { return n.ID }, ErrNatGatewayNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	ngws = applyNatGWFilters(ngws, filters, h.Backend)

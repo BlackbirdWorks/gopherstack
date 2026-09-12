@@ -180,8 +180,13 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 }
 
 func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any, error) {
+	// VpcEndpointId.N is a soft filter here, not a hard lookup:
+	// TestVpcEndpoint_DeleteReturnsDeleted and TestVpcEndpointLifecycle_RealClient
+	// both pin "unknown/deleted id -> empty result, no error" (gopherstack-ggu4a:
+	// verified, not the silent-omission bug for this particular op).
 	ids := parseMemberList(vals, "VpcEndpointId")
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
+
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		items = append(items, toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))

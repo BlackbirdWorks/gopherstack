@@ -150,7 +150,7 @@ func seedReservedInstance(t *testing.T, b *ec2.InMemoryBackend, offeringID, offe
 // TestHandler_AcceptReservedInstancesExchangeQuote verifies exchange quote
 // acceptance applies the same eligibility rules as
 // GetReservedInstancesExchangeQuote (gopherstack-1qth): an unknown RI ID is
-// InvalidReservedInstancesId.NotFound, and a non-convertible (standard) RI
+// InvalidReservedInstancesId, and a non-convertible (standard) RI
 // is InvalidParameterValue -- Accept has no IsValidExchange soft-failure
 // field, so an ineligible exchange must fail the call outright.
 func TestHandler_AcceptReservedInstancesExchangeQuote(t *testing.T) {
@@ -180,7 +180,7 @@ func TestHandler_AcceptReservedInstancesExchangeQuote(t *testing.T) {
 				return "&ReservedInstanceId.1=ri-doesnotexist"
 			},
 			wantCode: http.StatusBadRequest,
-			wantBody: "InvalidReservedInstancesId.NotFound",
+			wantBody: "InvalidReservedInstancesId",
 		},
 		{
 			name: "standard_ri_rejected",

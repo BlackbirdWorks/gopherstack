@@ -14,8 +14,18 @@ var (
 	ErrAddressTransferNotFound = errors.New("InvalidAddressTransfer.NotFound")
 	// ErrCapacityReservationNotFound is returned when a capacity reservation is not found.
 	ErrCapacityReservationNotFound = errors.New("InvalidCapacityReservationId.NotFound")
-	// ErrReservedInstancesNotFound is returned when reserved instances are not found.
-	ErrReservedInstancesNotFound = errors.New("InvalidReservedInstancesId.NotFound")
+	// ErrReservedInstancesNotFound backs the real EC2 error code
+	// "InvalidReservedInstancesId" (docs.aws.amazon.com/AWSEC2/latest/
+	// APIReference/errors-overview.html: "The specified Reserved Instance
+	// does not exist" -- no ".NotFound" suffix, unlike most other EC2
+	// not-found codes).
+	ErrReservedInstancesNotFound = errors.New("InvalidReservedInstancesId")
+	// ErrReservedInstancesOfferingNotFound backs the real EC2 error code
+	// "InvalidReservedInstancesOfferingId" (same errors-overview.html page:
+	// "The specified Reserved Instances offering does not exist") -- a
+	// distinct code from ErrReservedInstancesNotFound, previously conflated
+	// with it (gopherstack-ggu4a).
+	ErrReservedInstancesOfferingNotFound = errors.New("InvalidReservedInstancesOfferingId")
 	// ErrTransitGatewayAttachmentNotFound is returned when a TGW attachment is not found.
 	ErrTransitGatewayAttachmentNotFound = errors.New("InvalidTransitGatewayAttachmentID.NotFound")
 	// ErrVpcPeeringConnectionNotFound is returned when a VPC peering connection is not found.

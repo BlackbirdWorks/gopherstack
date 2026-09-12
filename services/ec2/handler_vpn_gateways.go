@@ -40,7 +40,15 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 // see applyVpnGatewayFilters (handler_filters.go).
 func (h *Handler) handleDescribeVpnGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpnGatewayId")
-	vgws := applyVpnGatewayFilters(h.Backend.DescribeVpnGateways(ids), parseEC2Filters(vals), h.Backend)
+	unfiltered := h.Backend.DescribeVpnGateways(ids)
+
+	if err := requireAllIDsPresent(
+		ids, unfiltered, func(vgw *VpnGateway) string { return vgw.VpnGatewayID }, ErrVpnGatewayNotFound,
+	); err != nil {
+		return nil, err
+	}
+
+	vgws := applyVpnGatewayFilters(unfiltered, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeVpnGatewaysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

@@ -325,6 +325,12 @@ func (h *Handler) handleDescribeReservedInstances(vals url.Values, reqID string)
 	ids := parseMemberList(vals, "ReservedInstancesId")
 	ris := h.Backend.DescribeReservedInstances(ids)
 
+	if err := requireAllIDsPresent(
+		ids, ris, func(ri *ReservedInstance) string { return ri.ReservedInstancesID }, ErrReservedInstancesNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeReservedInstancesResponse{RequestID: reqID}
 	for _, ri := range ris {
 		resp.ReservedInstancesSet.Items = append(

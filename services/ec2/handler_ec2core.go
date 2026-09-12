@@ -495,6 +495,12 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 	ids := parseMemberList(vals, "TransitGatewayRouteTableIds")
 	rts := h.Backend.DescribeTransitGatewayRouteTables(ids)
 
+	if err := requireAllIDsPresent(
+		ids, rts, func(rt *TransitGatewayRouteTable) string { return rt.RouteTableID }, ErrTGWRouteTableNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}
 
 	for _, rt := range rts {

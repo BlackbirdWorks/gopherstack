@@ -124,7 +124,7 @@ func TestGetReservedInstancesExchangeQuote(t *testing.T) {
 			check: func(t *testing.T, quote *ec2.ReservedInstancesExchangeQuote, err error) {
 				t.Helper()
 				require.Error(t, err)
-				require.ErrorIs(t, err, ec2.ErrReservedInstancesNotFound)
+				require.ErrorIs(t, err, ec2.ErrReservedInstancesOfferingNotFound)
 				assert.Nil(t, quote)
 			},
 		},

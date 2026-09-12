@@ -78,6 +78,12 @@ func (h *Handler) handleDescribeKeyPairs(vals url.Values, reqID string) (any, er
 	names := parseMemberList(vals, "KeyName")
 	kps := h.Backend.DescribeKeyPairs(names)
 
+	if err := requireAllIDsPresent(
+		names, kps, func(kp *KeyPair) string { return kp.Name }, ErrKeyPairNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	filters := parseEC2Filters(vals)
 	kps = applyKeyPairFilters(kps, filters, h.Backend)
 

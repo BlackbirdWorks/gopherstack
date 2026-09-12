@@ -101,6 +101,12 @@ func (h *Handler) handleDescribeVpnConnections(vals url.Values, reqID string) (a
 	ids := parseMemberList(vals, "VpnConnectionId")
 	conns := h.Backend.DescribeVpnConnections(ids)
 
+	if err := requireAllIDsPresent(
+		ids, conns, func(c *VpnConnection) string { return c.VpnConnectionID }, ErrVpnConnectionNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVpnConnectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, conn := range conns {

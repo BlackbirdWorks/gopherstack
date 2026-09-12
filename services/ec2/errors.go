@@ -63,13 +63,23 @@ var (
 
 // Network ACL / launch template / snapshot / vpc-attr constants (formerly refinement2).
 var (
-	ErrSnapshotNotFound       = errors.New("InvalidSnapshotID.NotFound")
-	ErrNetworkACLNotFound     = errors.New("InvalidNetworkAclID.NotFound")
-	ErrLaunchTemplateNotFound = errors.New("InvalidLaunchTemplateID.NotFound")
+	ErrSnapshotNotFound   = errors.New("InvalidSnapshotID.NotFound")
+	ErrNetworkACLNotFound = errors.New("InvalidNetworkAclID.NotFound")
+	// ErrLaunchTemplateNotFound backs the real EC2 error code
+	// "InvalidLaunchTemplateId.NotFound" (docs.aws.amazon.com/AWSEC2/latest/
+	// APIReference/errors-overview.html) -- note lowercase "Id", unlike most
+	// other EC2 "...ID.NotFound" codes; gopherstack previously used
+	// "InvalidLaunchTemplateID.NotFound" (wrong casing, gopherstack-ggu4a).
+	ErrLaunchTemplateNotFound = errors.New("InvalidLaunchTemplateId.NotFound")
 	// ErrLaunchTemplateVersionNotFound: "The specified launch template version does
 	// not exist" (docs.aws.amazon.com/AWSEC2/latest/APIReference/errors-overview.html,
 	// InvalidLaunchTemplateId.VersionNotFound).
 	ErrLaunchTemplateVersionNotFound = errors.New("InvalidLaunchTemplateId.VersionNotFound")
+	// ErrLaunchTemplateNameNotFound backs the real EC2 error code
+	// "InvalidLaunchTemplateName.NotFoundException" (same errors-overview.html
+	// page) -- a distinct code from ErrLaunchTemplateNotFound, returned when
+	// looking up a launch template by name rather than by ID.
+	ErrLaunchTemplateNameNotFound = errors.New("InvalidLaunchTemplateName.NotFoundException")
 )
 
 // naclDefaultDenyRuleNumber is the AWS-defined default-deny rule number placed at the end of every NACL.

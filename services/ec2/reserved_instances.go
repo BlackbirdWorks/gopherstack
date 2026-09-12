@@ -76,7 +76,7 @@ func (b *InMemoryBackend) PurchaseReservedInstancesOffering(
 
 	offering, ok := b.reservedInstancesOfferings.Get(offeringID)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, offeringID)
+		return nil, fmt.Errorf("%w: %s", ErrReservedInstancesOfferingNotFound, offeringID)
 	}
 
 	id := "r-" + uuid.New().String()[:8]
@@ -399,9 +399,10 @@ func targetReservationValueFor(offering *ReservedInstancesOffering, count int) R
 
 // GetReservedInstancesExchangeQuote computes a quote for exchanging
 // reservedInstanceIDs (which must all be Convertible Reserved Instances) for
-// the given target offerings. An unknown reservedInstanceID or target
-// OfferingID returns ErrReservedInstancesNotFound
-// (InvalidReservedInstancesId.NotFound). A non-convertible source RI is not
+// the given target offerings. An unknown reservedInstanceID returns
+// ErrReservedInstancesNotFound (InvalidReservedInstancesId); an unknown
+// target OfferingID returns ErrReservedInstancesOfferingNotFound
+// (InvalidReservedInstancesOfferingId). A non-convertible source RI is not
 // an error: it yields IsValidExchange=false with ValidationFailureReason
 // set, matching "If the exchange cannot be performed, the reason is
 // returned in the response" (api_op_GetReservedInstancesExchangeQuote.go).
@@ -461,7 +462,7 @@ func (b *InMemoryBackend) GetReservedInstancesExchangeQuote(
 	for _, t := range targets {
 		offering, ok := b.reservedInstancesOfferings.Get(t.OfferingID)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, t.OfferingID)
+			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesOfferingNotFound, t.OfferingID)
 		}
 
 		count := t.InstanceCount

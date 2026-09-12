@@ -826,6 +826,10 @@ func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, err
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.DescribeVolumes(ids)
 
+	if err := requireAllIDsPresent(ids, vols, func(v *Volume) string { return v.ID }, ErrVolumeNotFound); err != nil {
+		return nil, err
+	}
+
 	filters := parseEC2Filters(vals)
 	vols = applyVolumeFilters(vols, filters, h.Backend)
 

@@ -71,6 +71,12 @@ func (h *Handler) handleDescribePlacementGroups(vals url.Values, reqID string) (
 	names := parseMemberList(vals, "GroupName")
 	pgs := h.Backend.DescribePlacementGroups(names)
 
+	if err := requireAllIDsPresent(
+		names, pgs, func(pg *PlacementGroup) string { return pg.Name }, ErrPlacementGroupNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	items := make([]placementGroupItem, 0, len(pgs))
 	for _, pg := range pgs {
 		items = append(items, placementGroupItem{

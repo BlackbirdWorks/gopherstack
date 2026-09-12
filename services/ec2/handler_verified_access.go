@@ -197,6 +197,13 @@ func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID s
 	ids := parseMemberList(vals, "VerifiedAccessEndpointId")
 	eps := h.Backend.DescribeVerifiedAccessEndpoints(ids)
 
+	if err := requireAllIDsPresent(
+		ids, eps, func(e *VerifiedAccessEndpoint) string { return e.VerifiedAccessEndpointID },
+		ErrVerifiedAccessEndpointNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVerifiedAccessEndpointsResponse{RequestID: reqID}
 	for _, ep := range eps {
 		resp.VerifiedAccessEndpointSet.Items = append(
@@ -273,6 +280,13 @@ func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID stri
 	ids := parseMemberList(vals, "VerifiedAccessGroupId")
 	groups := h.Backend.DescribeVerifiedAccessGroups(ids)
 
+	if err := requireAllIDsPresent(
+		ids, groups, func(g *VerifiedAccessGroup) string { return g.VerifiedAccessGroupID },
+		ErrVerifiedAccessGroupNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVerifiedAccessGroupsResponse{RequestID: reqID}
 	for _, grp := range groups {
 		resp.VerifiedAccessGroupSet.Items = append(
@@ -327,6 +341,13 @@ type deleteVerifiedAccessInstanceResponse struct {
 func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VerifiedAccessInstanceId")
 	instances := h.Backend.DescribeVerifiedAccessInstances(ids)
+
+	if err := requireAllIDsPresent(
+		ids, instances, func(i *VerifiedAccessInstance) string { return i.VerifiedAccessInstanceID },
+		ErrVerifiedAccessInstanceNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeVerifiedAccessInstancesResponse{RequestID: reqID}
 	for _, inst := range instances {
@@ -387,6 +408,13 @@ func (h *Handler) handleDescribeVerifiedAccessTrustProviders(
 ) (any, error) {
 	ids := parseMemberList(vals, "VerifiedAccessTrustProviderId")
 	providers := h.Backend.DescribeVerifiedAccessTrustProviders(ids)
+
+	if err := requireAllIDsPresent(
+		ids, providers, func(tp *VerifiedAccessTrustProvider) string { return tp.VerifiedAccessTrustProviderID },
+		ErrVerifiedAccessTrustProviderNF,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeVerifiedAccessTrustProvidersResponse{RequestID: reqID}
 	for _, tp := range providers {
