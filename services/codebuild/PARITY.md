@@ -137,7 +137,7 @@ ops:
   BatchGetSandboxes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSandboxes:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortOrder/maxResults via paginateIDs"}
   ListSandboxesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListSandboxes"}
-  StartSandboxConnection: {wire: partial, errors: ok, state: ok, persist: n/a, note: "returns a synthesized wss:// endpoint; real interactive terminal not modeled, acceptable for an emulator"}
+  StartSandboxConnection: {wire: partial, errors: ok, state: ok, persist: n/a, note: "2026-09-12 (typed slice 34): FIXED a real wire bug -- response was {\"endpoint\": \"wss://...\"}, a field the real StartSandboxConnectionOutput does not have at all (real member: ssmSession, an SSMSession{sessionId,streamUrl,tokenValue} object, codebuild@v1.72.4 api_op_StartSandboxConnection.go:38-41); a real client's out.SsmSession was always nil. Now emits the documented shape with synthesized placeholder values. Still partial: no real Session Manager streaming is simulated, same as before -- real interactive terminal not modeled, acceptable for an emulator."}
   StartCommandExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: ExitCode was modeled as int32; real wire type is string (deserializer: expected NonEmptyString to be of type string) -- latent hard-decode-error risk once ever populated (it never was, pre-fix). standardErrContent wire key was misspelled standardErrorContent, so real AWS's field was always nil"}
   BatchGetCommandExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCommandExecutionsForSandbox: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly returns full CommandExecution objects, not just IDs. FIXED 2026-08-29 (wrapper-key sweep): maxResults/nextToken/sortOrder were real ListCommandExecutionsForSandboxInput fields (aws-sdk-go-v2 api_op_ListCommandExecutionsForSandbox.go) that listCommandExecutionsForSandboxInput didn't even declare -- json.Unmarshal silently dropped them, so every call returned every execution, unpaginated, always ascending-ID order. Now uses a new paginateCommandExecutions helper (pagination.go), the same nextToken/sortOrder semantics as every other List op's shared paginateIDs, generalized to page full objects since this op (unlike its siblings) returns CommandExecution records directly rather than bare IDs for a separate BatchGet* step. See TestCodeBuild_CommandExecutionsForSandbox/pagination_and_sort_order."}
@@ -955,3 +955,53 @@ Gates: `go build ./...` (whole module), `go vet ./...`, `go test -count=1
 before code existed and 0 issues after (`fieldalignment -fix` applied to the four new
 structs; `unused`/`goconst`/`golines`/`nolintlint`/`govet-shadow` findings during
 development were all fixed, not suppressed).
+
+## 2026-09-12 (typed client coverage slice 34, gopherstack-n3zi)
+
+Drove the 38 previously-typed-client-uncovered ops through a real aws-sdk-go-v2
+client in `typed_slice34_realclient_test.go`: fleet lifecycle
+(CreateFleet/BatchGetFleets/ListFleets/UpdateFleet/DeleteFleet), report group +
+report lifecycle (DeleteReport/DescribeCodeCoverages/DescribeTestCases/
+GetReportGroupTrend/ListReportGroups/ListReports/ListReportsForReportGroup/
+ListSharedReportGroups/UpdateReportGroup, reports seeded via the existing
+`AddReportInternal` test helper since CodeBuild has no direct report-create
+API), build batch + build lifecycle (DeleteBuildBatch/ListBuildBatches/
+ListBuildBatchesForProject/RetryBuildBatch/ListBuilds/StopBuild/
+BatchDeleteBuilds), sandbox + command execution lifecycle
+(BatchGetCommandExecutions/ListCommandExecutionsForSandbox/ListSandboxes/
+ListSandboxesForProject/StartSandboxConnection/StopSandbox),
+ImportSourceCredentials/ListSourceCredentials, CreateWebhook/UpdateWebhook/
+DeleteWebhook, PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy,
+ListCuratedEnvironmentImages, UpdateProjectVisibility/ListSharedProjects, and
+InvalidateProjectCache.
+
+**One real wire bug found and fixed**: `StartSandboxConnection`'s response was
+a fabricated `{"endpoint": "wss://..."}` object -- a field the real
+`StartSandboxConnectionOutput` does not have at all. The real member is
+`ssmSession`, an `SSMSession{sessionId,streamUrl,tokenValue}` object
+(codebuild@v1.72.4 `api_op_StartSandboxConnection.go:38-41`,
+`types/types.go:2805`, confirmed against the deserializer's own
+`case "ssmSession"` at `deserializers.go:16919`). A real client's
+`out.SsmSession` was always `nil` regardless of what gopherstack sent --
+this op's wire grade was already disclosed as `partial` in PARITY.md's ops
+table for a different, legitimate reason (no real Session Manager streaming
+is simulated), but the *shape* itself being wrong was undiscovered until
+decoded through a real typed client. Fixed by adding an `SSMSession` type
+(models.go) and emitting it with synthesized placeholder values; the
+"no real interactive terminal" limitation remains and is unchanged (see
+ops-table note). This is not a persisted (`backendSnapshot`) field --
+`StartSandboxConnection`'s output is ephemeral, not stored on `Sandbox` --
+so no `snapshot_inventory.json` change was needed for this fix, confirmed by
+`TestSnapshotVersionGuard` staying green throughout.
+
+No other bugs found across the remaining 37 ops; all passed on the first
+correctly-shaped request, consistent with this service's dense prior audit
+history (2026-08-13/23/29/31, 2026-09-04 passes already listed above).
+
+Gates: `go build ./...` (whole module, clean). `go vet ./services/codebuild/...`
+clean. `go test -race -count=1 ./services/codebuild/...` and
+`./pkgs/persistence/...` clean (no snapshot diff). `golangci-lint run
+--new-from-rev=HEAD ./services/codebuild/...` 0 issues. `go run
+./cmd/paritylint` stayed at 0 FAIL (missing-items-still-open) throughout. No
+version bump; no `items_still_open` changes needed (the one bug found was
+fixed outright, not disclosed as a new gap).

@@ -792,3 +792,51 @@ Gates: `go build ./services/neptune/...` (clean); `go test -race
 `*xmlDBSubnetGroup` field to the front of `xmlDBInstance` to satisfy
 `fieldalignment`, which regressed the struct from 224 to 232 leading
 pointer bytes when the field was appended after the existing string run).
+
+## 2026-09-12 (typed client coverage slice 34, gopherstack-n3zi)
+
+Drove all 38 previously-typed-client-uncovered ops through a real
+aws-sdk-go-v2 client in `typed_slice34_realclient_test.go`: DB cluster
+lifecycle and roles (ModifyDBCluster/StopDBCluster/StartDBCluster/
+AddRoleToDBCluster/RemoveRoleFromDBCluster/PromoteReadReplicaDBCluster),
+FailoverDBCluster (with a real writer+reader pair),
+RestoreDBClusterToPointInTime, and ModifyDBClusterEndpoint, DB instance ops
+(ModifyDBInstance/
+RebootDBInstance/DescribeDBEngineVersions/
+DescribeOrderableDBInstanceOptions/DescribeValidDBInstanceModifications/
+DescribePendingMaintenanceActions), the DB cluster parameter group family
+(CopyDBClusterParameterGroup/DeleteDBClusterParameterGroup/
+DescribeDBClusterParameterGroups/DescribeDBClusterParameters/
+ModifyDBClusterParameterGroup/ResetDBClusterParameterGroup), the DB
+parameter group family (CopyDBParameterGroup/DeleteDBParameterGroup/
+DescribeDBParameterGroups/DescribeDBParameters/ResetDBParameterGroup), the
+DB cluster snapshot family (CopyDBClusterSnapshot/DeleteDBClusterSnapshot/
+DescribeDBClusterSnapshots), the event subscription family
+(AddSourceIdentifierToSubscription/
+RemoveSourceIdentifierFromSubscription/DeleteEventSubscription/
+DescribeEventCategories), the DB subnet group family
+(DeleteDBSubnetGroup/DescribeDBSubnetGroups/ModifyDBSubnetGroup), and
+AddTagsToResource/RemoveTagsFromResource.
+
+**Zero bugs found** -- every op passed on the first correctly-shaped
+request, decoded values asserted throughout (role ARNs after
+Add/RemoveRoleToDBCluster, writer-flip after FailoverDBCluster, modified
+parameter values round-tripping through DescribeDBClusterParameters,
+subnet counts after ModifyDBSubnetGroup, tag presence/absence after
+Add/RemoveTagsFromResource). Consistent with this service's own recorded
+history of prior dedicated wire-fidelity passes (parameter-group,
+DBSubnetGroup, and DBInstance shape audits already referenced above) --
+the thick-prior-audit / thin-bug-yield correlation this campaign's notes
+have repeatedly observed elsewhere.
+
+No persisted struct field was added, removed, or retyped -- no
+`snapshot_inventory.json` change needed, confirmed by
+`TestSnapshotVersionGuard` staying green. No version bump.
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/neptune/...` clean. `go test -race -count=1
+./services/neptune/...` and `./pkgs/persistence/...` clean (no snapshot
+diff). `golangci-lint run --new-from-rev=HEAD ./services/neptune/...` 0
+issues. `go run ./cmd/paritylint` stayed at 0 FAIL
+(missing-items-still-open) throughout. `items_still_open` unchanged (no
+new gap disclosed; no listed gap touched).

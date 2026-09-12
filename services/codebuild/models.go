@@ -534,6 +534,18 @@ type Sandbox struct {
 	QueuedTimeoutInMinutes  int32                  `json:"queuedTimeoutInMinutes,omitempty"`
 }
 
+// SSMSession is the Session Manager session info StartSandboxConnection
+// returns (aws-sdk-go-v2/service/codebuild@v1.72.4 types.SSMSession,
+// types/types.go:2805 -- SessionId/StreamUrl/TokenValue). No real Session
+// Manager streaming is simulated; the values are synthesized placeholders
+// so a real client at least decodes the documented shape instead of a
+// permanently-nil SsmSession.
+type SSMSession struct {
+	SessionID  string `json:"sessionId,omitempty"`
+	StreamURL  string `json:"streamUrl,omitempty"`
+	TokenValue string `json:"tokenValue,omitempty"`
+}
+
 // WebhookFilter represents a single filter criterion in a webhook filter group.
 type WebhookFilter struct {
 	Type                  string `json:"type"`
