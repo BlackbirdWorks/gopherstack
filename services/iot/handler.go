@@ -322,18 +322,18 @@ func (h *Handler) handleDescribeEndpoint(c *echo.Context) error {
 func (h *Handler) handleAcceptCertificateTransfer(c *echo.Context) error {
 	certID := strings.TrimPrefix(c.Request().URL.Path, "/accept-certificate-transfer/")
 
-	var body struct {
-		SetAsActive bool `json:"setAsActive"`
-	}
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
-		!errors.Is(err, io.EOF) {
-		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
-	}
+	// setAsActive is bound as an HTTPQuery param, not a JSON body member
+	// (iot@v1.83.0 schemas.go:17413 AcceptCertificateTransferRequest_setAsActive)
+	// -- the same wire-shape bug as CreateCertificateFromCsr's setAsActive
+	// (see handleCreateCertificateFromCsr): reading it from the JSON body
+	// meant a real client's setAsActive=true was always silently dropped, so
+	// AcceptCertificateTransfer never reactivated a certificate regardless
+	// of what was requested.
+	setAsActive := c.QueryParam("setAsActive") == keyBoolTrue
 
 	if err := h.Backend.AcceptCertificateTransfer(&AcceptCertificateTransferInput{
 		CertificateID: certID,
-		SetAsActive:   body.SetAsActive,
+		SetAsActive:   setAsActive,
 	}); err != nil {
 		return h.handleError(c, err)
 	}

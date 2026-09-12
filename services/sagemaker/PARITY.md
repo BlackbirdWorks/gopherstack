@@ -6506,3 +6506,86 @@ into smaller named helpers rather than suppressed; zero `nolint:{cyclop,gocyclo,
 funlen}` added, per this campaign's standing rule).
 
 Nothing left in this family's originally-scoped gap. Snapshot version not bumped.
+
+## 2026-09-12 (gopherstack-n3zi slice 4, typed-client coverage sweep)
+
+`typed_slice4_realclient_test.go` added: 16 subtests covering tags
+(AddTags/DeleteTags), domains (create/describe/list/update/delete, user
+profiles, apps, presigned domain URL), endpoint/endpoint-config extras
+(update, update-weights-and-capacities, list, delete), notebook instance
+extras (presigned URL, start/stop/delete, lifecycle configs), algorithms,
+code repositories, model package group policy (put/get/delete) plus
+DeleteModelPackage, pipeline extras (describe-definition-for-execution,
+update/stop execution, list versions, delete pipeline), experiment/trial
+extras (associate/disassociate trial component, update trial, delete
+experiment/trial/trial-component), project extras, image extras, hyperparameter
+tuning extras (stop/delete/list-training-jobs), model card extras
+(list-versions, delete), HyperPod cluster extras (start-health-check,
+list/describe cluster events, delete cluster), feature group extras
+(describe/update feature metadata, delete), and GetSearchSuggestions. Every
+subtest creates real state through the typed aws-sdk-go-v2 client and asserts
+decoded response values. Typed coverage: 211/403 -> 276/403 (192 -> 127
+uncovered).
+
+**No new wire-shape bugs found this pass.** Every one of the 65 newly
+covered ops passed on the first correctly-constructed request — consistent
+with this service's PARITY.md already recording 25+ prior parity-audit
+passes, most of which specifically targeted required-field/wire-shape
+correctness. Two test-authoring corrections were needed while writing the
+suite (not backend bugs): `CreateAlgorithm`'s `ChannelSpecification` also
+requires `SupportedInputModes` (client-side SDK validation, not modeled as
+optional as initially assumed), and `StopHyperParameterTuningJob` correctly
+leaves the job in `Stopping` immediately after the call — the
+`Stopping`->`Stopped` transition is asynchronous
+(`hpTuningJobStoppingToStopped` delay via `runDelayed`), matching this
+service's established async-transition convention for every other stoppable
+job family.
+
+**Remaining 127 uncovered ops**, lower priority per this issue's own
+ordering: the AI-job families (`CreateAIBenchmarkJob`,
+`Delete/DescribeAIBenchmarkJob`, `DeleteAIRecommendationJob`,
+`DeleteAIWorkloadConfig`, `ListAIWorkloadConfigs`, `Stop*AIBenchmarkJob`,
+`StopAIRecommendationJob`), AutoML (`DescribeAutoMLJob(V2)`,
+`ListAutoMLJobs`, `ListCandidatesForAutoMLJob`, `StopAutoMLJob`), lineage
+(`DeleteAction/Context`, `UpdateAction/Artifact/Context`, `DeleteAssociation`,
+`ListAssociations`, `DescribeContext`, `DescribeLineageGroup`,
+`GetLineageGroupPolicy`), edge/device-fleet (`CreateEdgeDeploymentStage`,
+`Delete/StopEdgeDeploymentStage`, `DeleteEdgeDeploymentPlan`,
+`DeleteDeviceFleet`, `DeregisterDevices`, `GetDeviceFleetReport`,
+`UpdateDevices`, `StopEdgePackagingJob`), monitoring (`DeleteDataQuality/
+ModelBias/ModelExplainability/ModelQualityJobDefinition`,
+`Describe*JobDefinition`, `DeleteMonitoringSchedule`, `StartMonitoringSchedule`,
+`StopMonitoringSchedule`, `ListMonitoringAlertHistory`, `ListMonitoringAlerts`,
+`ListMonitoringExecutions`, `UpdateMonitoringAlert`), job-family
+Delete/Describe/Stop/List quads for training/processing/transform/compilation/
+optimization/labeling jobs (`DeleteTrainingJob`, `DeleteProcessingJob`,
+`DeleteCompilationJob`, `DeleteOptimizationJob`, `DeleteJob`, `DescribeJob`,
+`CreateJob`, `StopJob`, `ListJobs`, `DescribeLabelingJob`, `CreateLabelingJob`,
+`StopLabelingJob`, `ListLabelingJobs(ForWorkteam)`, `CreateTransformJob`,
+`StopTransformJob`, `ListTransformJobs`, `StopCompilationJob`,
+`ListCompilationJobs`, `DescribeOptimizationJob`, `StopOptimizationJob`,
+`DescribeJobSchemaVersion`, `ListJobSchemaVersions`), hub/mlflow/partner-app
+(`Delete/DescribeHub(Content)`, `UpdateHubContent(Reference)`,
+`Delete/CreatePresignedMlflowApp/TrackingServer`, `DeletePartnerApp`,
+`CreatePartnerAppPresignedUrl`), inference components/experiments
+(`DeleteInferenceComponent`, `DescribeInferenceComponent`,
+`ListInferenceComponents`, `UpdateInferenceComponent(RuntimeConfig)`,
+`StartInferenceExperiment`, `UpdateInferenceExperiment`,
+`ListInferenceRecommendationsJobSteps`, `StopInferenceRecommendationsJob`),
+workforce/workteam (`DeleteWorkforce/Workteam`, `Describe/ListWorkforces`,
+`DescribeSubscribedWorkteam`, `ListSubscribedWorkteams`,
+`DescribeWorkteam`, `ListWorkteams`, `UpdateWorkforce/Workteam`),
+servicecatalog portfolio (`Enable/DisableSagemakerServicecatalogPortfolio`,
+`GetSagemakerServicecatalogPortfolioStatus`), studio/space
+(`DeleteSpace`, `Delete/DescribeStudioLifecycleConfig`), and singletons
+(`RenderUiTemplate`, `StartSession`, `ListModelMetadata`,
+`ListResourceCatalogs`, `ListUltraServersByReservedCapacity`,
+`UpdateClusterSoftware`, `UpdatePipelineVersion`,
+`DescribeTrainingPlanExtensionHistory`, `DeleteAppImageConfig`,
+`DeleteFlowDefinition`, `DeleteHumanTaskUi`).
+
+Gates: `go build ./...`, `go vet ./services/sagemaker/...`, `go test -race
+-count=1 ./services/sagemaker/...` (green), `golangci-lint run
+--new-from-rev=HEAD ./services/sagemaker/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL. No version bump — no `backendSnapshot` struct field
+touched.

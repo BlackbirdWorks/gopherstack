@@ -280,16 +280,33 @@ func (h *Handler) handleEnableTopicRule(c *echo.Context) error {
 func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 	ruleName := strings.TrimPrefix(c.Request().URL.Path, "/rules/")
 
-	var body struct {
-		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
-	}
-
-	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
-		!errors.Is(err, io.EOF) {
+	rawBody, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
-	payload := body.TopicRulePayload
+	// topicRulePayload is bound as the httpPayload (iot@v1.83.0 schemas.go
+	// ReplaceTopicRuleRequest_topicRulePayload), so a real client's JSON body
+	// IS the flat TopicRulePayload -- no "topicRulePayload" wrapper key, the
+	// same shape CreateTopicRule already accepts (see handleCreateTopicRule's
+	// wrapped/flat fallback). Reading only the wrapped shape here meant every
+	// real client's ReplaceTopicRule silently wiped the rule's SQL/actions to
+	// their zero values instead of applying the requested replacement.
+	var wrapped struct {
+		TopicRulePayload *TopicRulePayload `json:"topicRulePayload"`
+	}
+	if jsonErr := json.Unmarshal(rawBody, &wrapped); jsonErr != nil && !errors.Is(jsonErr, io.EOF) {
+		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, jsonErr.Error()})
+	}
+
+	payload := wrapped.TopicRulePayload
+	if payload == nil {
+		var flat TopicRulePayload
+		if jsonErr := json.Unmarshal(rawBody, &flat); jsonErr == nil && flat.SQL != "" {
+			payload = &flat
+		}
+	}
+
 	if payload == nil {
 		payload = &TopicRulePayload{}
 	}

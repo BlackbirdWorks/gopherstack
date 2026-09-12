@@ -202,8 +202,10 @@ func TestPolicyPrincipalListing_Pagination(t *testing.T) {
 			}))
 		}
 
+		// Real wire header is x-amzn-iot-policy, not X-Amzn-Policy-Name
+		// (iot@v1.83.0 schemas.go ListPolicyPrincipalsRequest_policyName).
 		rec := doRefRequest(t, h, http.MethodGet, "/policy-principals?pageSize=1", nil,
-			map[string]string{"X-Amzn-Policy-Name": "pag-policy-a"})
+			map[string]string{"x-amzn-iot-policy": "pag-policy-a"})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var out map[string]any

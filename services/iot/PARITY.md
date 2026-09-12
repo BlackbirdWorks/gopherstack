@@ -1971,3 +1971,108 @@ No code changes this pass -- only the regression test above, which locks
 present behavior rather than changing it. Gates: `go test -race
 ./services/iot/...` pass, `golangci-lint run ./services/iot/...` `0
 issues`.
+
+## 2026-09-12 (gopherstack-n3zi slice 4, typed-client coverage sweep)
+
+`typed_slice4_realclient_test.go` added: 22 subtests covering thing
+types/groups/dynamic groups, things (principals/connectivity), certificates
+and CA certificates (including transfer lifecycle), policies and policy
+versions, topic rules and destinations, job extras (execution
+cancel/delete/list, job document, managed job templates), commands, fleet
+indexing (search/aggregations), provisioning (templates/claims/RegisterThing),
+OTA updates and streams, security profiles and on-demand/scheduled audits,
+mitigation actions, domain configurations, billing groups, role aliases,
+authorizers, custom metrics/dimensions, fleet metrics, and packages. Every
+subtest creates real state through the typed aws-sdk-go-v2 client and asserts
+decoded response values. Typed coverage: 87/276 -> 229/272 (189 -> 43
+uncovered; denominator moved slightly, opcensus is not perfectly
+deterministic run to run).
+
+**Five real bugs found and fixed, all confirmed against
+aws-sdk-go-v2/service/iot@v1.83.0's schemas.go smithy traits:**
+
+1. `CreateCertificateFromCsr`'s `setAsActive` is bound as an `HTTPQuery` param
+   (`schemas.go` `CreateCertificateFromCsrRequest_setAsActive`), not a JSON
+   body member — `handleCreateCertificateFromCsr` read it from the body,
+   which a real client never populates (the field travels in the query
+   string), so every real client's `setAsActive=true` was silently dropped
+   and the certificate always came back `INACTIVE`. Fixed by reading
+   `c.QueryParam("setAsActive")`. `AcceptCertificateTransfer` had the
+   identical bug (`AcceptCertificateTransferRequest_setAsActive`, same
+   HTTPQuery trait) — fixed the same way in `handleAcceptCertificateTransfer`.
+2. `ReplaceTopicRule`'s `topicRulePayload` is bound as the `httpPayload`
+   (`schemas.go` `ReplaceTopicRuleRequest_topicRulePayload`), so a real
+   client's JSON body IS the flat `TopicRulePayload` struct with no
+   `{"topicRulePayload": {...}}` wrapper — the same shape `CreateTopicRule`
+   already handles via its wrapped/flat fallback. `handleReplaceTopicRule`
+   only read the wrapped shape, so every real client's `ReplaceTopicRule`
+   silently wiped the rule's SQL/actions to their zero values instead of
+   applying the replacement. Fixed by reusing the same wrapped/flat fallback
+   `handleCreateTopicRule` already uses.
+3. `ListAttachedPolicies`'s `target` is bound as an `HTTPLabel` (URI path
+   segment, `schemas.go` `ListAttachedPoliciesRequest_target`) and
+   `recursive` as an `HTTPQuery`, neither a JSON body member —
+   `handleListAttachedPolicies` read both from the body, so `Target` was
+   always empty and the op could never match a real attachment. Fixed by
+   extracting the target from the `/attached-policies/{target}` URI (the
+   bare `/attached-policies` body-based path is kept as a non-canonical
+   fallback for this package's own tests).
+4. `ListPolicyPrincipals`'s `policyName` is bound as `HTTPHeader{Name:
+   "x-amzn-iot-policy"}` (`schemas.go`
+   `ListPolicyPrincipalsRequest_policyName`) — `handleListPolicyPrincipals`
+   read a header named `X-Amzn-Policy-Name`, which nothing sets, so the op
+   always saw an empty policy name. Fixed by reading the correct header name
+   (Go's `http.Header.Get` canonicalizes, so case doesn't matter, only the
+   name).
+5. `CancelAuditTask` updated only the internal `b.auditTasks` status map, not
+   `b.auditTaskObjects` (the store `DescribeAuditTask`/`ListAuditTasks`
+   actually read) — a real client calling `CancelAuditTask` successfully,
+   then `DescribeAuditTask`, saw a stale `IN_PROGRESS` forever instead of
+   `CANCELED`. The sibling `CancelAuditMitigationActionsTask` a few lines
+   above already updates both representations; `CancelAuditTask` just never
+   got the same treatment. Fixed by mirroring that pattern.
+
+All five were caught only by asserting the *decoded typed-client* value after
+the round trip — every one of them returns `200 OK` with no error, so no
+existing status-code-only test caught them. Existing tests that encoded the
+old (buggy) behavior were updated to use the real wire shape (query param
+instead of body field, correct header name) rather than weakened; each was
+confirmed to still test the same intent.
+
+**Accept-and-drop note (not fixed, low severity, out of scope for this
+pass):** `RegisterCertificate`'s real `CaCertificatePem` field
+(`aws-sdk-go-v2/service/iot@v1.83.0` `api_op_RegisterCertificate.go`) is
+never read by `handleRegisterCertificate` — this predates this pass (already
+listed in this file's "audited and found already correct" set) and isn't
+newly introduced, but is worth flagging again since nothing echoes it back
+so a client can't detect the drop from the response alone.
+
+**Remaining 43 uncovered ops**, lower priority per this issue's own
+ordering: SBOM validation (`AssociateSbomWithPackageVersion`,
+`DisassociateSbomFromPackageVersion`, `ListSbomValidationResults`), detect/
+audit-mitigation task lifecycle (`CancelAuditMitigationActionsTask`,
+`CancelDetectMitigationActionsTask`, `DescribeAuditMitigationActionsTask`,
+`ListAuditMitigationActionsTasks`), audit suppressions and account
+configuration (`CreateAuditSuppression`, `Delete/Describe/UpdateAuditSuppression`,
+`ListAuditSuppressions`, `Delete/Describe/UpdateAccountAuditConfiguration`),
+audit findings (`DescribeAuditFinding`, `ListRelatedResourcesForAuditFinding`),
+V1/V2 logging options (`Get/SetLoggingOptions`, `Get/SetV2LoggingOptions`,
+`Set/DeleteV2LoggingLevel`, `ListV2LoggingLevels`), certificate providers
+(`Delete/DescribeCertificateProvider`, `UpdateCertificateProvider`),
+top-level tag ops (`TagResource`/`UntagResource` — distinct from the
+resource-family tag ops already covered), event configurations
+(`Describe/UpdateEventConfigurations`), encryption configuration
+(`UpdateEncryptionConfiguration`), thing-group/thing-registration misc
+(`DescribeThingGroup`, `ListThingsInThingGroup`, `ListThingRegistrationTasks`,
+`ListThingRegistrationTaskReports`, `StopThingRegistrationTask`),
+`ConfirmTopicRuleDestination` (needs a pending HTTP destination's internal
+confirmation token, not exposed by any exported test helper), `DescribeEndpoint`,
+`GetEffectivePolicies`, `GetBehaviorModelTrainingSummaries`, `ListMetricValues`,
+`PutVerificationStateOnViolation`.
+
+Gates: `go build ./...`, `go vet ./services/iot/...`, `go test -race
+-count=1 ./services/iot/...` (all green, including pre-existing tests
+updated for the wire-shape fixes above), `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays at
+0 FAIL. No version bump — no `backendSnapshot` struct field added, removed,
+or retyped.

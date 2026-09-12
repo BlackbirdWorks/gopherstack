@@ -80,6 +80,9 @@ func (b *InMemoryBackend) CancelAuditTask(input *CancelAuditTaskInput) error {
 	}
 
 	b.auditTasks[input.AuditTaskID] = "CANCELED"
+	if task, found := b.auditTaskObjects.Get(input.AuditTaskID); found {
+		task.TaskStatus = "CANCELED"
+	}
 
 	return nil
 }

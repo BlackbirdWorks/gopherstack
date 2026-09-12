@@ -140,15 +140,21 @@ func (h *Handler) dispatchCertificateProviderOps(c *echo.Context, op string) (bo
 func (h *Handler) handleCreateCertificateFromCsr(c *echo.Context) error {
 	var body struct {
 		CertificateSigningRequest string `json:"certificateSigningRequest"`
-		SetAsActive               bool   `json:"setAsActive"`
 	}
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil &&
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
+	// setAsActive is bound as an HTTPQuery param, not a JSON body member
+	// (iot@v1.83.0 schemas.go:17561 CreateCertificateFromCsrRequest_setAsActive) --
+	// a real client's setAsActive=true query param was previously read from
+	// the (always-absent) JSON body and silently ignored, so every real
+	// client's CreateCertificateFromCsr certificate came back INACTIVE
+	// regardless of what was requested.
+	setAsActive := c.QueryParam("setAsActive") == keyBoolTrue
 	cert, err := h.Backend.CreateCertificateFromCsr(&CreateCertificateFromCsrInput{
 		CertificateSigningRequest: body.CertificateSigningRequest,
-		SetAsActive:               body.SetAsActive,
+		SetAsActive:               setAsActive,
 	})
 	if err != nil {
 		return h.handleError(c, err)

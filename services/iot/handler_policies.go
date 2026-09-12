@@ -319,6 +319,25 @@ func (h *Handler) handleDetachPolicy(c *echo.Context) error {
 	return c.NoContent(http.StatusOK)
 }
 
+// listAttachedPoliciesTarget extracts the target from the real
+// "/attached-policies/{target}" URI label (iot@v1.83.0 schemas.go
+// ListAttachedPoliciesRequest_target: HTTPLabel, not a JSON body member) --
+// a real client's target ARN was previously read from the always-empty JSON
+// body, so ListAttachedPolicies could never match any real attachment. The
+// bare "/attached-policies" path is kept as a non-canonical fallback reading
+// the body, for this package's own tests.
+func listAttachedPoliciesTarget(c *echo.Context, body struct {
+	Target    string `json:"target"`
+	Recursive bool   `json:"recursive"`
+},
+) string {
+	if target, ok := strings.CutPrefix(c.Request().URL.Path, "/attached-policies/"); ok {
+		return target
+	}
+
+	return body.Target
+}
+
 func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 	var body struct {
 		Target    string `json:"target"`
@@ -328,8 +347,12 @@ func (h *Handler) handleListAttachedPolicies(c *echo.Context) error {
 		!errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
+
+	target := listAttachedPoliciesTarget(c, body)
+	recursive := body.Recursive || c.QueryParam("recursive") == keyBoolTrue
+
 	policies, err := h.Backend.ListAttachedPolicies(
-		&ListAttachedPoliciesInput{Target: body.Target, Recursive: body.Recursive},
+		&ListAttachedPoliciesInput{Target: target, Recursive: recursive},
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -524,7 +547,12 @@ func (h *Handler) handleListPrincipalPolicies(c *echo.Context) error {
 }
 
 func (h *Handler) handleListPolicyPrincipals(c *echo.Context) error {
-	policyName := c.Request().Header.Get("X-Amzn-Policy-Name")
+	// Real wire header is x-amzn-iot-policy (iot@v1.83.0 schemas.go
+	// ListPolicyPrincipalsRequest_policyName: HTTPHeader), not
+	// X-Amzn-Policy-Name -- a real client's policy name was previously read
+	// from a header nothing ever sets, so ListPolicyPrincipals always saw an
+	// empty policyName.
+	policyName := c.Request().Header.Get("X-Amzn-Iot-Policy")
 	principals := h.Backend.ListPolicyPrincipals(policyName)
 	if principals == nil {
 		principals = []string{}
