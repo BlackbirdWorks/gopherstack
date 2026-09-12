@@ -1,3 +1,14 @@
+resource "aws_s3_bucket" "textract" {
+  bucket        = "{{.Bucket}}"
+  force_destroy = true
+}
+
+resource "aws_s3_object" "document" {
+  bucket  = aws_s3_bucket.textract.id
+  key     = "{{.Key}}"
+  content = "tf-textract-fixture-document"
+}
+
 resource "terraform_data" "textract_start_detection" {
   triggers_replace = {
     endpoint = "{{.Endpoint}}"
@@ -13,4 +24,6 @@ resource "terraform_data" "textract_start_detection" {
     }
     command = "aws --endpoint-url '{{.Endpoint}}' textract start-document-text-detection --document-location '{\"S3Object\":{\"Bucket\":\"{{.Bucket}}\",\"Name\":\"{{.Key}}\"}}'"
   }
+
+  depends_on = [aws_s3_object.document]
 }

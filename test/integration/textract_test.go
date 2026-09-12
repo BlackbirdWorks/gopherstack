@@ -1,11 +1,14 @@
 package integration_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	s3sdk "github.com/aws/aws-sdk-go-v2/service/s3"
 	textractsdk "github.com/aws/aws-sdk-go-v2/service/textract"
 	textracttypes "github.com/aws/aws-sdk-go-v2/service/textract/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,12 +21,36 @@ func TestIntegration_Textract_DetectDocumentText(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createTextractClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
+
+	bucket := "it-textract-bucket-" + uuid.NewString()[:8]
+
+	_, err := s3Client.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err, "CreateBucket should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String("doc.png"),
+		})
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3sdk.DeleteBucketInput{Bucket: aws.String(bucket)})
+	})
+
+	_, err = s3Client.PutObject(ctx, &s3sdk.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String("doc.png"),
+		Body:   strings.NewReader("fake-png-bytes"),
+	})
+	require.NoError(t, err, "PutObject should succeed")
 
 	out, err := client.DetectDocumentText(ctx, &textractsdk.DetectDocumentTextInput{
 		Document: &textracttypes.Document{
 			S3Object: &textracttypes.S3Object{
-				Bucket: aws.String("it-textract-bucket"),
+				Bucket: aws.String(bucket),
 				Name:   aws.String("doc.png"),
 			},
 		},
@@ -44,7 +71,42 @@ func TestIntegration_Textract_AnalyzeDocument_AdaptersConfig(t *testing.T) {
 	dumpContainerLogsOnFailure(t)
 
 	client := createTextractClient(t)
+	s3Client := createS3Client(t)
 	ctx := t.Context()
+
+	bucket := "it-textract-bucket-" + uuid.NewString()[:8]
+
+	_, err := s3Client.CreateBucket(ctx, &s3sdk.CreateBucketInput{Bucket: aws.String(bucket)})
+	require.NoError(t, err, "CreateBucket should succeed")
+
+	t.Cleanup(func() {
+		cleanupCtx, cancel := cleanupContext(t)
+		defer cancel()
+
+		_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String("manifest.jsonl"),
+		})
+		_, _ = s3Client.DeleteObject(cleanupCtx, &s3sdk.DeleteObjectInput{
+			Bucket: aws.String(bucket),
+			Key:    aws.String("doc.png"),
+		})
+		_, _ = s3Client.DeleteBucket(cleanupCtx, &s3sdk.DeleteBucketInput{Bucket: aws.String(bucket)})
+	})
+
+	_, err = s3Client.PutObject(ctx, &s3sdk.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String("manifest.jsonl"),
+		Body:   strings.NewReader(`{}`),
+	})
+	require.NoError(t, err, "PutObject should succeed")
+
+	_, err = s3Client.PutObject(ctx, &s3sdk.PutObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String("doc.png"),
+		Body:   strings.NewReader("fake-png-bytes"),
+	})
+	require.NoError(t, err, "PutObject should succeed")
 
 	adapterOut, err := client.CreateAdapter(ctx, &textractsdk.CreateAdapterInput{
 		AdapterName:  aws.String("it-adapter"),
@@ -59,12 +121,12 @@ func TestIntegration_Textract_AnalyzeDocument_AdaptersConfig(t *testing.T) {
 		AdapterId: aws.String(adapterID),
 		DatasetConfig: &textracttypes.AdapterVersionDatasetConfig{
 			ManifestS3Object: &textracttypes.S3Object{
-				Bucket: aws.String("it-textract-bucket"),
+				Bucket: aws.String(bucket),
 				Name:   aws.String("manifest.jsonl"),
 			},
 		},
 		OutputConfig: &textracttypes.OutputConfig{
-			S3Bucket: aws.String("it-textract-bucket"),
+			S3Bucket: aws.String(bucket),
 		},
 	})
 	require.NoError(t, err)
@@ -74,7 +136,7 @@ func TestIntegration_Textract_AnalyzeDocument_AdaptersConfig(t *testing.T) {
 
 	doc := &textracttypes.Document{
 		S3Object: &textracttypes.S3Object{
-			Bucket: aws.String("it-textract-bucket"),
+			Bucket: aws.String(bucket),
 			Name:   aws.String("doc.png"),
 		},
 	}

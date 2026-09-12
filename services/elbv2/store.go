@@ -9,6 +9,8 @@ import (
 )
 
 type InMemoryBackend struct {
+	ec2Resolver   EC2Resolver
+	certResolver  CertificateResolver
 	registry      *store.Registry
 	loadBalancers *store.Table[LoadBalancer] // keyed by ARN
 	targetGroups  *store.Table[TargetGroup]  // keyed by ARN
@@ -30,9 +32,12 @@ type InMemoryBackend struct {
 	targetDrainingUntil map[string]map[string]time.Time // tgArn → targetKey → drainExpiresAt
 	mu                  *lockmetrics.RWMutex
 	stopCh              chan struct{}
-	accountID           string
-	region              string
-	ruleCounter         int // monotonically increasing counter for rule ARN generation
+	// healthDone is closed by runHealthReconciler when it returns, so Close
+	// can join it and guarantee the goroutine is gone before returning.
+	healthDone  chan struct{}
+	accountID   string
+	region      string
+	ruleCounter int // monotonically increasing counter for rule ARN generation
 	// revocationIDCounter mints RevocationId values for AddTrustStoreRevocations.
 	// Real AWS assigns RevocationId (int64) itself when it parses an uploaded
 	// revocation file -- callers never supply one -- so this emulator hands out a
@@ -52,6 +57,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		targetReadyAt:       make(map[string]map[string]time.Time),
 		targetDrainingUntil: make(map[string]map[string]time.Time),
 		stopCh:              make(chan struct{}),
+		healthDone:          make(chan struct{}),
 	}
 
 	registerAllTables(b)
@@ -61,13 +67,37 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
-// Close stops the background health reconciler.
+// SetEC2Resolver wires the backend to validate SecurityGroups/Subnets
+// against the real services/ec2 backend -- see EC2Resolver's doc comment.
+// Called from cli.go's wireELBv2CrossService.
+func (b *InMemoryBackend) SetEC2Resolver(r EC2Resolver) {
+	b.mu.Lock("SetEC2Resolver")
+	defer b.mu.Unlock()
+
+	b.ec2Resolver = r
+}
+
+// SetCertificateResolver wires the backend to validate listener
+// CertificateArns and report their attach/detach to ACM -- see
+// CertificateResolver's doc comment. Called from cli.go's
+// wireELBv2CrossService.
+func (b *InMemoryBackend) SetCertificateResolver(r CertificateResolver) {
+	b.mu.Lock("SetCertificateResolver")
+	defer b.mu.Unlock()
+
+	b.certResolver = r
+}
+
+// Close stops the background health reconciler, waiting for it to exit so
+// no goroutine outlives the backend. Safe to call more than once.
 func (b *InMemoryBackend) Close() {
 	select {
 	case <-b.stopCh:
 	default:
 		close(b.stopCh)
 	}
+
+	<-b.healthDone
 }
 
 // validatePort returns ErrInvalidParameter if port is not in the valid range 1-65535.

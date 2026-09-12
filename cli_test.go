@@ -105,6 +105,14 @@ import (
 	xraybackend "github.com/blackbirdworks/gopherstack/services/xray"
 )
 
+// shutdownWaitTimeout bounds how long a test waits on errCh for run() to
+// return after canceling its context. It must exceed shutdownTimeout (the
+// budget the shutdown path itself gets, cli.go) with real margin: waiting
+// exactly shutdownTimeout races the production deadline byte-for-byte, and
+// loses under load from scheduling/channel-propagation overhead alone even
+// when shutdown itself completes on time (gopherstack-becu).
+const shutdownWaitTimeout = shutdownTimeout + 3*time.Second
+
 // parseCLI parses the given args (key=value env pairs) into a CLI value
 // by setting environment variables then parsing an empty argument list.
 func parseCLI(t *testing.T, envPairs map[string]string) CLI {
@@ -306,7 +314,7 @@ func TestServerStartupAndShutdown(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err, "server should shutdown cleanly without error")
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -395,7 +403,7 @@ func TestServerStartup_WithInitScript(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -428,7 +436,7 @@ func TestServerStartup_WithDNS(t *testing.T) {
 	select {
 	case runErr := <-errCh:
 		require.NoError(t, runErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -455,7 +463,7 @@ func TestServerStartup_InvalidDNSConfig(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -482,7 +490,7 @@ func TestServerStartup_InvalidPortRange(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -524,7 +532,7 @@ func TestHealthCmd_Success(t *testing.T) {
 	select {
 	case err := <-errCh:
 		require.NoError(t, err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -1019,7 +1027,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				redshiftBk := redshiftbackend.NewInMemoryBackend(accountID, region)
-				_, err := redshiftBk.CreateCluster("wiring-test-cluster", "dc2.large", "dev", "admin")
+				_, err := redshiftBk.CreateCluster("wiring-test-cluster", "dc2.large", "dev", "admin", nil, "")
 				require.NoError(t, err)
 				require.NoError(t, redshiftBk.CreateTags(
 					"wiring-test-cluster", map[string]string{wantTagKey: wantTagValue},
@@ -2010,9 +2018,10 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				aasBk := applicationautoscalingbackend.NewInMemoryBackend(accountID, region)
+				minCap, maxCap := int32(1), int32(10)
 				target, err := aasBk.RegisterScalableTarget(
 					"ecs", "service/wiring-cluster/wiring-svc", "ecs:service:DesiredCount",
-					1, 10, map[string]string{wantTagKey: wantTagValue}, "", nil,
+					&minCap, &maxCap, map[string]string{wantTagKey: wantTagValue}, "", nil,
 				)
 				require.NoError(t, err)
 
@@ -2149,7 +2158,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				schBk := schedulerbackend.NewInMemoryBackend(accountID, region)
 				g, err := schBk.CreateScheduleGroup(
-					context.Background(), "wiring-test-group", "", map[string]string{wantTagKey: wantTagValue},
+					context.Background(), "wiring-test-group", map[string]string{wantTagKey: wantTagValue},
 				)
 				require.NoError(t, err)
 
@@ -2478,7 +2487,7 @@ func TestWireResourceGroupsTagging_TagResourcesRoundTrip(t *testing.T) {
 				t.Helper()
 
 				redshiftBk := redshiftbackend.NewInMemoryBackend(accountID, region)
-				_, err := redshiftBk.CreateCluster("roundtrip-cluster", "dc2.large", "dev", "admin")
+				_, err := redshiftBk.CreateCluster("roundtrip-cluster", "dc2.large", "dev", "admin", nil, "")
 				require.NoError(t, err)
 
 				wireTaggingRedshift(bk, redshiftbackend.NewHandler(redshiftBk))
@@ -3057,7 +3066,7 @@ func TestHealthEndpoint_GoroutineAndMemStats(t *testing.T) {
 	select {
 	case shutdownErr := <-errCh:
 		require.NoError(t, shutdownErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }
@@ -3164,7 +3173,7 @@ func TestLocalstackCompatibilityEndpoints(t *testing.T) {
 	select {
 	case shutdownErr := <-errCh:
 		require.NoError(t, shutdownErr)
-	case <-time.After(5 * time.Second):
+	case <-time.After(shutdownWaitTimeout):
 		require.FailNow(t, "server did not shut down within timeout")
 	}
 }

@@ -25,7 +25,10 @@ var (
 	ErrResourceNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
 )
 
-// RejectedRecord describes a single record that could not be written due to a version conflict.
+// RejectedRecord describes a single record that could not be written, per one of
+// RejectedRecordsException's three documented causes: a version conflict, a
+// timestamp outside the memory store's retention window, or a dimension/measure
+// limit violation -- see each RejectedRecord's own Reason.
 type RejectedRecord struct {
 	Reason          string `json:"Reason"`
 	ExistingVersion int64  `json:"ExistingVersion,omitempty"`
@@ -33,14 +36,14 @@ type RejectedRecord struct {
 }
 
 // RejectedRecordsError is returned by WriteRecords when one or more records are
-// rejected due to version conflicts.
+// rejected; see each RejectedRecord.Reason for the specific cause.
 type RejectedRecordsError struct {
 	RejectedRecords []RejectedRecord
 }
 
 func (e *RejectedRecordsError) Error() string {
 	return fmt.Sprintf(
-		"RejectedRecordsException: %d record(s) rejected due to version conflict",
+		"RejectedRecordsException: %d record(s) rejected",
 		len(e.RejectedRecords),
 	)
 }

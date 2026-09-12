@@ -421,12 +421,16 @@ func TestIntegration_APIGateway_DataPlane_PathVariable(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, userResp2.StatusCode)
 
-	// Invoke /items/unknown/path — should NOT match (wrong depth).
+	// Invoke /items/unknown/path — should NOT match (wrong depth). Real API
+	// Gateway returns 403 "Missing Authentication Token" for an unmatched
+	// resource, not 404 (see apigateway/proxy.go's
+	// writeMissingAuthenticationTokenResponse).
 	userResp3 := apigwDo(t,
 		"/restapis/"+apiID+"/test/_user_request_/items/99/extra")
 	defer userResp3.Body.Close()
 
-	assert.Equal(t, http.StatusNotFound, userResp3.StatusCode)
+	assert.Equal(t, http.StatusForbidden, userResp3.StatusCode)
+	assert.Equal(t, "MissingAuthenticationTokenException", userResp3.Header.Get("X-Amzn-Errortype"))
 }
 
 // TestIntegration_APIGateway_Authorizer_Lifecycle verifies full authorizer CRUD.

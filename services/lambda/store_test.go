@@ -693,7 +693,7 @@ func TestFunctionURLConfig_HTTPEndpoint(t *testing.T) {
 	assert.Contains(t, cfg.FunctionURL, "127.0.0.1", "URL should use loopback when no DNS")
 
 	// The listener is running — make an HTTP request to it.
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := newHTTPClient(t, 5*time.Second)
 	req, err := http.NewRequestWithContext(
 		t.Context(), http.MethodGet, cfg.FunctionURL, nil,
 	)
@@ -784,7 +784,7 @@ func TestInMemoryBackend_Close_StopsFunctionURLServers(t *testing.T) {
 	require.NoError(t, err)
 
 	// Server should be reachable before Close.
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newHTTPClient(t, 2*time.Second)
 	req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, cfg.FunctionURL, nil)
 	require.NoError(t, reqErr)
 
@@ -851,7 +851,7 @@ func TestInMemoryBackend_Close_MultipleURLServers(t *testing.T) {
 	}
 
 	// All servers should respond before Close.
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newHTTPClient(t, 2*time.Second)
 
 	for _, u := range urls {
 		req, reqErr := http.NewRequestWithContext(t.Context(), http.MethodGet, u, nil)

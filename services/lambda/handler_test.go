@@ -26,6 +26,7 @@ type mockBackend struct {
 	invokeErr    error
 	functions    map[string]*lambda.FunctionConfiguration
 	invokeResult []byte
+	invokeCount  int
 	mu           sync.RWMutex
 }
 
@@ -106,6 +107,11 @@ func (m *mockBackend) InvokeFunction(
 	invocationType lambda.InvocationType,
 	_ []byte,
 ) ([]byte, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.invokeCount++
+
 	if m.invokeErr != nil {
 		return nil, http.StatusInternalServerError, m.invokeErr
 	}
@@ -128,6 +134,13 @@ func (m *mockBackend) InvokeFunction(
 	}
 
 	return result, http.StatusOK, nil
+}
+
+func (m *mockBackend) InvokeCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.invokeCount
 }
 
 func (m *mockBackend) Purge(_ context.Context, _ time.Time) {}
@@ -665,6 +678,7 @@ func TestInvoke(t *testing.T) {
 		wantErrType  string
 		wantContains string
 		wantCode     int
+		wantNoInvoke bool
 	}{
 		{
 			name: "request_response",
@@ -723,6 +737,39 @@ func TestInvoke(t *testing.T) {
 			body:     "",
 			wantCode: http.StatusOK,
 		},
+		{
+			// validateInvocationHeaders (handler_invocation.go) used to write
+			// its rejection via h.writeError and return that call's
+			// (always-nil) result, so handleInvoke's `if valErr != nil` never
+			// fired and the function was invoked anyway on top of the
+			// already-written 400 (gopherstack-3t96, the gopherstack-8haq
+			// shape). wantNoInvoke asserts the backend was never called, not
+			// just the status code -- a status-only assertion passes against
+			// this bug, since httptest.ResponseRecorder keeps the first
+			// WriteHeader call.
+			name: "invalid_invocation_type_not_invoked",
+			setup: func(bk *mockBackend) {
+				bk.functions["bad-invtype-func"] = &lambda.FunctionConfiguration{FunctionName: "bad-invtype-func"}
+			},
+			funcName:     "bad-invtype-func",
+			body:         `{}`,
+			headers:      map[string]string{"X-Amz-Invocation-Type": "Bogus"},
+			wantCode:     http.StatusBadRequest,
+			wantErrType:  "InvalidParameterValueException",
+			wantNoInvoke: true,
+		},
+		{
+			name: "invalid_log_type_not_invoked",
+			setup: func(bk *mockBackend) {
+				bk.functions["bad-logtype-func"] = &lambda.FunctionConfiguration{FunctionName: "bad-logtype-func"}
+			},
+			funcName:     "bad-logtype-func",
+			body:         `{}`,
+			headers:      map[string]string{"X-Amz-Log-Type": "Bogus"},
+			wantCode:     http.StatusBadRequest,
+			wantErrType:  "InvalidParameterValueException",
+			wantNoInvoke: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -744,6 +791,10 @@ func TestInvoke(t *testing.T) {
 			)
 			assert.Equal(t, tt.wantCode, rec.Code)
 
+			if tt.wantNoInvoke {
+				assert.Equal(t, 0, bk.InvokeCount(), "a rejected invocation header must not reach the backend")
+			}
+
 			if tt.wantErrType != "" {
 				assertLambdaError(t, rec, tt.wantErrType)
 			}
@@ -753,4 +804,35 @@ func TestInvoke(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMockBackend_InvokeFunction_ConcurrentAccess is a deterministic
+// reproducer for gopherstack-cedf: InvokeFunction mutated invokeCount and
+// read functions without m.mu, racing against every other goroutine calling
+// it concurrently (as TestExtractOperation_SDKRouteTable's parallel subtests
+// do against a shared mockBackend). N goroutines call InvokeFunction on a
+// shared mockBackend, joined by a WaitGroup, then the final count is
+// asserted.
+func TestMockBackend_InvokeFunction_ConcurrentAccess(t *testing.T) {
+	t.Parallel()
+
+	bk := newMockBackend()
+	bk.functions["race-func"] = &lambda.FunctionConfiguration{FunctionName: "race-func"}
+
+	const goroutines = 50
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	for range goroutines {
+		go func() {
+			defer wg.Done()
+
+			_, _, _ = bk.InvokeFunction(context.Background(), "race-func", lambda.InvocationTypeRequestResponse, nil)
+		}()
+	}
+
+	wg.Wait()
+
+	assert.Equal(t, goroutines, bk.InvokeCount())
 }

@@ -1,7 +1,9 @@
 package integration_test
 
 import (
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/timestreamwrite"
@@ -176,8 +178,11 @@ func TestIntegration_TimestreamWrite_WriteRecords(t *testing.T) {
 				MeasureName:      aws.String("cpu_utilization"),
 				MeasureValue:     aws.String("42.5"),
 				MeasureValueType: types.MeasureValueTypeDouble,
-				Time:             aws.String("1609459200000"),
-				TimeUnit:         types.TimeUnitMilliseconds,
+				// A fixed 2021 epoch here lies outside the table's default 6-hour
+				// memory-store retention window (records.go recordOutsideRetention) and
+				// gets rejected, not written -- use a recent timestamp instead.
+				Time:     aws.String(strconv.FormatInt(time.Now().Add(-time.Minute).UnixMilli(), 10)),
+				TimeUnit: types.TimeUnitMilliseconds,
 				Dimensions: []types.Dimension{
 					{Name: aws.String("host"), Value: aws.String("server-1")},
 				},

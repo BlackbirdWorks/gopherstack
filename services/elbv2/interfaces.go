@@ -66,3 +66,9 @@ type StorageBackend interface {
 	DescribeListenerCertificates(listenerArn string) ([]Certificate, error)
 	RemoveListenerCertificates(listenerArn string, certArns []string) error
 }
+
+// closer is an optional interface implemented by backends that own a
+// background goroutine to stop on shutdown. Type-asserted rather than added
+// to StorageBackend so that interface does not carry lifecycle concerns --
+// see services/sns/interfaces.go's deliveryWaiter for the same idiom.
+type closer interface{ Close() }

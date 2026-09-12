@@ -287,7 +287,7 @@ func TestRuntimeServer_HTTPEndpoints(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := newHTTPClient(t, 0).Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
@@ -430,6 +430,8 @@ func simulateContainerNext(t *testing.T, port int) string {
 	// not durably blocking. require.Eventually is the fallback.
 	var requestID string
 
+	client := newHTTPClient(t, 0)
+
 	require.Eventually(t, func() bool {
 		req, err := http.NewRequestWithContext(
 			t.Context(),
@@ -439,7 +441,7 @@ func simulateContainerNext(t *testing.T, port int) string {
 		)
 		require.NoError(t, err)
 
-		resp, doErr := http.DefaultClient.Do(req)
+		resp, doErr := client.Do(req)
 		if doErr != nil {
 			return false
 		}
@@ -468,7 +470,7 @@ func simulateContainerResponse(t *testing.T, port int, requestID, responseBody s
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := newHTTPClient(t, 0).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -486,7 +488,7 @@ func simulateContainerError(t *testing.T, port int, requestID, errorBody string)
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := newHTTPClient(t, 0).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
@@ -744,6 +746,8 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 			// scan (rather than sleeping first) until one port answers.
 			var runtimePort int
 
+			client := newHTTPClient(t, 200*time.Millisecond)
+
 			require.Eventually(t, func() bool {
 				for p := tt.portRange[0]; p < tt.portRange[1]; p++ {
 					req, reqErr := http.NewRequestWithContext(
@@ -754,7 +758,6 @@ func TestBackend_InvokeFunction_RequestResponse_WithMockDocker(t *testing.T) {
 						continue
 					}
 
-					client := &http.Client{Timeout: 200 * time.Millisecond}
 					resp, doErr := client.Do(req)
 
 					if doErr == nil && resp != nil {
@@ -892,7 +895,7 @@ func sendContainerResponse(t *testing.T, port int, requestID, responseBody strin
 	)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := newHTTPClient(t, 0).Do(req)
 	require.NoError(t, err)
 
 	_ = resp.Body.Close()

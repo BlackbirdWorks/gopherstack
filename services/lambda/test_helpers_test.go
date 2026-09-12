@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,24 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
+
+// newHTTPClient returns an *http.Client with its own private Transport
+// (never http.DefaultTransport) and registers a t.Cleanup that closes its
+// idle connections. Tests hitting a real loopback server (runtime API,
+// function URL) must use this instead of http.DefaultClient or a
+// zero-Transport &http.Client{} literal -- those share
+// http.DefaultTransport's keep-alive pool across the whole package, and the
+// parked persistConn.readLoop/writeLoop goroutines race goleak's post-test
+// sample (gopherstack-neiq). timeout of 0 means no client-level timeout,
+// matching http.DefaultClient.
+func newHTTPClient(t *testing.T, timeout time.Duration) *http.Client {
+	t.Helper()
+
+	c := &http.Client{Transport: &http.Transport{}, Timeout: timeout}
+	t.Cleanup(c.CloseIdleConnections)
+
+	return c
+}
 
 // --- DurableExecution real-state tests ---
 

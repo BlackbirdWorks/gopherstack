@@ -218,6 +218,16 @@ jobs:
           check-latest: true
           cache: true
 
+      # cmd/errcodeaudit/cmd/errtargetaudit read pinned SDK modules straight
+      # off disk as ground truth, without importing them -- round-robin
+      # sharding below is order-dependent, so a chunk that doesn't also
+      # build the one package that DOES import a given module never
+      # downloads it, and the ground truth silently comes back empty
+      # (gopherstack-w052). Downloading everything go.mod requires, on
+      # every chunk, decouples that from which packages this chunk got.
+      - name: Download full Go module cache
+        run: go mod download
+
       - name: Compute package shard for chunk
         id: pkgs
         run: |
