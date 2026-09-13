@@ -350,6 +350,62 @@
 //     services regressed (no tier-1 count increased) across the full
 //     repo scan.
 //
+// THIRD FIX (gopherstack-99nj's own remaining blind spot, formreads.go):
+// the query-protocol form-read detection above only matched a PLAIN
+// string literal argument -- `vals.Get("Name")`. This repo's own
+// indexed-list/nested-prefix helpers never spell the key that way: ec2's
+// parseEC2Filters reads `vals.Get(fmt.Sprintf("Filter.%d.Name", i))`, and
+// ec2's parseDhcpConfigurations/parseImageCriteria and rds's
+// parseSubnetIDMembers/parseTagEntries build the same shape via string
+// concatenation, sometimes through an intermediate local
+// (`prefix := "ImageCriterion." + strconv.Itoa(i)` used two lines later).
+// resolveLiteralPrefix follows both: an fmt.Sprintf call's own format
+// string (truncated at its first verb, cutAtFormatVerb), and a
+// left-recursive `+` chain, resolving an Ident operand against
+// localLits -- every local in the SAME function body this same walk has
+// already resolved a literal prefix for, in source order
+// (recordLocalPrefixAssign). SEPARATELY, rds's paginateDescribe[T any]
+// generic helper is itself a bare pass-through: the handler calls it
+// directly (hop 0->1, scanBody's normal single-hop recursion reaches it),
+// but IT calls a second helper, parseDescribePagination(vals), whose own
+// body is where `vals.Get("MaxRecords")` actually lives -- two calls from
+// the handler, past scanBody's maxHop=1 cap on every OTHER decode signal.
+// scanURLValuesFuncBody chases this chain with NO depth limit (only a
+// visited-set cycle guard, chainVisited) -- safe at any depth because,
+// unlike the return-type struct resolution scanBody caps at one hop
+// specifically to avoid gopherstack-id70's same-named-different-receiver
+// hazard, every step here is gated by three independent conditions
+// regardless of depth: the callee's own first parameter must be
+// url.Values (structural), the caller must pass one of its OWN
+// already-confirmed url.Values locals into it (dataflow), and a match
+// still only counts against THIS operation's own SDK field names
+// (formKeys). A dynamic per-key loop with no literal wire name at all
+// (`for key := range vals { if strings.HasPrefix(key, someExpr) ... }`)
+// is deliberately NOT guessed at -- formLoopRanges flags it as
+// FormLoopUnresolved instead, reported as a separate count, so it stays
+// visible rather than silently passing as either "declared" or "clean".
+// Validated against ground truth (before/after -dir counts, hand
+// confirmed against source for every drop): ec2 116->106 (all ten drops
+// read AND applied -- DeleteTags.Tags, five DescribeX.Filters ops,
+// DescribeImages.ImageIds, DescribeVpcPeeringConnections.
+// VpcPeeringConnectionIds, ModifyIpamPolicyAllocationRules.
+// AllocationRules; the five .Filters ops STILL tier-1 after this fix
+// -- DescribeCapacityReservations, DescribeLaunchTemplateVersions,
+// DescribeTransitGateway(RouteTables) -- hand-confirmed as real gaps,
+// none of them call parseEC2Filters at all), rds 141->125 (sixteen drops,
+// mostly MaxRecords via the paginateDescribe chain, all confirmed read
+// AND applied; the ~20 remaining Describe*.MaxRecords findings hand-
+// confirmed as real gaps -- e.g. handleDescribeDBProxies/
+// DescribeDBSecurityGroups/DescribeSourceRegions never call any
+// pagination helper at all), elasticache 28->17, neptune 27->26, docdb
+// 22->20, autoscaling 11->10, sns 3->2 -- zero services regressed across
+// the full repo scan (repo-wide tier-1 835->793). redshift and
+// cloudformation were unchanged (49 and 45): hand-checked several of
+// each's remaining findings (redshift's handleDescribeClusterVersions
+// takes `_ url.Values`, discarding it outright; handleDescribeEvents
+// never reads MaxRecords/Duration at all) -- real gaps, not a shape this
+// fix was built to reach.
+//
 // Usage:
 //
 //	go run ./cmd/reqfielddiff                       # scan every services/<dir>

@@ -52,11 +52,12 @@ var queryParamSelectors = map[string]bool{
 // opResolution is what one operation's emulator-side declaration search
 // found.
 type opResolution struct {
-	Fields      map[string]emuField
-	FromHandler string
-	StructsUsed []string
-	Found       bool
-	HasSignal   bool
+	Fields             map[string]emuField
+	FromHandler        string
+	StructsUsed        []string
+	Found              bool
+	HasSignal          bool
+	FormLoopUnresolved bool
 }
 
 // resolveOp finds the emulator's declared field set for op op. It tries
@@ -94,6 +95,10 @@ func mergeResolution(dst *opResolution, src opResolution) {
 
 	if src.HasSignal {
 		dst.HasSignal = true
+	}
+
+	if src.FormLoopUnresolved {
+		dst.FormLoopUnresolved = true
 	}
 
 	if dst.FromHandler == "" {
@@ -241,15 +246,27 @@ func scanBody(
 	bindings := collectLocalBindings(fl, ctx.fset, ctx.structs)
 	urlValuesNames := urlValuesParamNames(fl)
 	mapNames := mapAnyNames(fl, ctx)
+	localLits := map[string]string{}
+	formChainVisited := map[*ast.FuncDecl]bool{}
 
 	if hop == 0 {
 		matchOwnParamNames(fl, formKeys, res)
 		matchPathSegmentLocalNames(fl, ctx, formKeys, res)
 	}
 
+	if formLoopRanges(fl, urlValuesNames) {
+		res.FormLoopUnresolved = true
+	}
+
 	ast.Inspect(fl.Body, func(n ast.Node) bool {
 		if idx, ok := n.(*ast.IndexExpr); ok {
 			matchMapIndexExpr(idx, mapNames, ctx, res)
+
+			return true
+		}
+
+		if as, ok := n.(*ast.AssignStmt); ok {
+			recordLocalPrefixAssign(as, localLits)
 
 			return true
 		}
@@ -265,7 +282,7 @@ func scanBody(
 		matchQueryAccessorWrapperCall(call, ctx, res)
 		matchReturnsStructCall(call, ctx, res)
 		matchGenericCallbackCall(call, ctx, res)
-		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res)
+		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res, localLits, formChainVisited)
 		matchHeaderReadCall(call, formKeys, res)
 		matchMapFieldCall(call, mapNames, ctx, res)
 
