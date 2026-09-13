@@ -233,6 +233,9 @@ type vpnTunnelOptionItem struct {
 type vpnConnectionOptionsItem struct {
 	LocalIpv4NetworkCidr  string `xml:"localIpv4NetworkCidr,omitempty"`
 	RemoteIpv4NetworkCidr string `xml:"remoteIpv4NetworkCidr,omitempty"`
+	LocalIpv6NetworkCidr  string `xml:"localIpv6NetworkCidr,omitempty"`
+	RemoteIpv6NetworkCidr string `xml:"remoteIpv6NetworkCidr,omitempty"`
+	TunnelBandwidth       string `xml:"tunnelBandwidth,omitempty"`
 	// Real field name is "tunnelOptionSet", not "tunnelOptions"
 	// (ec2@v1.319.1 deserializers.go: awsEc2query_deserializeDocumentVpnConnectionOptions).
 	TunnelOptionsSet struct {
@@ -293,6 +296,9 @@ func (h *Handler) toVpnConnectionItem(conn *VpnConnection) vpnConnectionItem {
 	item.Options.StaticRoutesOnly = conn.Options.StaticRoutesOnly
 	item.Options.LocalIpv4NetworkCidr = conn.Options.LocalIPv4NetworkCIDR
 	item.Options.RemoteIpv4NetworkCidr = conn.Options.RemoteIPv4NetworkCIDR
+	item.Options.LocalIpv6NetworkCidr = conn.Options.LocalIPv6NetworkCIDR
+	item.Options.RemoteIpv6NetworkCidr = conn.Options.RemoteIPv6NetworkCIDR
+	item.Options.TunnelBandwidth = conn.Options.TunnelBandwidth
 
 	for _, t := range conn.Options.TunnelOptions {
 		tItem := vpnTunnelOptionItem{
@@ -522,6 +528,8 @@ type ipamItem struct {
 	TagSet                            []simpleTagItem `xml:"tagSet>item"`
 	ScopeCount                        int32           `xml:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount int32           `xml:"resourceDiscoveryAssociationCount,omitempty"`
+	MeteredAccount                    string          `xml:"meteredAccount,omitempty"`
+	EnablePrivateGua                  bool            `xml:"enablePrivateGua,omitempty"`
 }
 
 func (h *Handler) toIpamItem(ipam *Ipam) ipamItem {
@@ -540,6 +548,8 @@ func (h *Handler) toIpamItem(ipam *Ipam) ipamItem {
 		DefaultResourceDiscoveryAssociationID: ipam.DefaultResourceDiscoveryAssociationID,
 		ResourceDiscoveryAssociationCount:     ipam.ResourceDiscoveryAssociationCount,
 		Tier:                                  ipam.Tier,
+		MeteredAccount:                        ipam.MeteredAccount,
+		EnablePrivateGua:                      ipam.EnablePrivateGua,
 	}
 
 	for _, r := range ipam.OperatingRegions {
@@ -650,6 +660,7 @@ type ipamPoolItem struct {
 	AllocationMaxNetmaskLength     int32           `xml:"allocationMaxNetmaskLength,omitempty"`
 	PubliclyAdvertisable           bool            `xml:"publiclyAdvertisable,omitempty"`
 	AutoImport                     bool            `xml:"autoImport,omitempty"`
+	PublicIPSource                 string          `xml:"publicIpSource,omitempty"`
 }
 
 func (h *Handler) toIpamPoolItem(pool *IpamPool) ipamPoolItem {
@@ -667,6 +678,7 @@ func (h *Handler) toIpamPoolItem(pool *IpamPool) ipamPoolItem {
 		AllocationMinNetmaskLength:     pool.AllocationMinNetmaskLength,
 		AllocationMaxNetmaskLength:     pool.AllocationMaxNetmaskLength,
 		AllocationDefaultNetmaskLength: pool.AllocationDefaultNetmaskLength,
+		PublicIPSource:                 pool.PublicIPSource,
 		TagSet:                         tagItemsFromMap(h.Backend.TagsForResource(pool.IpamPoolID)),
 	}
 }

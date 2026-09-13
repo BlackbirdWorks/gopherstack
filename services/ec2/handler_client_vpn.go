@@ -166,39 +166,41 @@ type exportClientVpnClientCertificateRevocationListResponse struct {
 
 func toClientVpnEndpointItem(ep *ClientVpnEndpoint, tags map[string]string) clientVpnEndpointItem {
 	return clientVpnEndpointItem{
-		ClientVpnEndpointID:  ep.ClientVpnEndpointID,
-		DNSName:              ep.DNSName,
-		Status:               clientVpnEndpointStatusItem{Code: ep.Status},
-		Description:          ep.Description,
-		ClientCidrBlock:      ep.ClientCidrBlock,
-		DNSServers:           stringItemSet{Items: ep.DNSServers},
-		VpnProtocol:          ep.VpnProtocol,
-		TransportProtocol:    ep.TransportProtocol,
-		VpcID:                ep.VPCID,
-		VpnPort:              ep.VpnPort,
-		SplitTunnel:          ep.SplitTunnel,
-		SecurityGroupIDSet:   stringItemSet{Items: ep.SecurityGroupIDs},
-		TagSet:               tagItemsFromMap(tags),
-		ServerCertificateArn: ep.ServerCertificateArn,
-		SessionTimeoutHours:  ep.SessionTimeoutHours,
-		SelfServicePortalURL: ep.SelfServicePortalURL,
-		CreationTime:         ep.CreationTime,
+		ClientVpnEndpointID:        ep.ClientVpnEndpointID,
+		DNSName:                    ep.DNSName,
+		Status:                     clientVpnEndpointStatusItem{Code: ep.Status},
+		Description:                ep.Description,
+		ClientCidrBlock:            ep.ClientCidrBlock,
+		DNSServers:                 stringItemSet{Items: ep.DNSServers},
+		VpnProtocol:                ep.VpnProtocol,
+		TransportProtocol:          ep.TransportProtocol,
+		VpcID:                      ep.VPCID,
+		VpnPort:                    ep.VpnPort,
+		SplitTunnel:                ep.SplitTunnel,
+		SecurityGroupIDSet:         stringItemSet{Items: ep.SecurityGroupIDs},
+		TagSet:                     tagItemsFromMap(tags),
+		ServerCertificateArn:       ep.ServerCertificateArn,
+		SessionTimeoutHours:        ep.SessionTimeoutHours,
+		SelfServicePortalURL:       ep.SelfServicePortalURL,
+		CreationTime:               ep.CreationTime,
+		EndpointIPAddressType:      ep.EndpointIPAddressType,
+		TrafficIPAddressType:       ep.TrafficIPAddressType,
+		DisconnectOnSessionTimeout: ep.DisconnectOnSessionTimeout,
 	}
 }
 
 // parseClientVpnEndpointOptions extracts the optional advanced Client VPN
 // endpoint fields shared by CreateClientVpnEndpoint and ModifyClientVpnEndpoint.
-
-// parseClientVpnEndpointOptions extracts the optional advanced Client VPN
-// endpoint fields shared by CreateClientVpnEndpoint and ModifyClientVpnEndpoint.
 func parseClientVpnEndpointOptions(vals url.Values) ClientVpnEndpointOptions {
 	opts := ClientVpnEndpointOptions{
-		ServerCertificateArn: vals.Get("ServerCertificateArn"),
-		TransportProtocol:    vals.Get("TransportProtocol"),
-		VpcID:                vals.Get("VpcId"),
-		SecurityGroupIDs:     parseMemberList(vals, "SecurityGroupId"),
-		SelfServicePortalURL: vals.Get("SelfServicePortal"),
-		TransitGatewayID:     vals.Get("TransitGatewayConfiguration.TransitGatewayId"),
+		ServerCertificateArn:  vals.Get("ServerCertificateArn"),
+		TransportProtocol:     vals.Get("TransportProtocol"),
+		VpcID:                 vals.Get("VpcId"),
+		SecurityGroupIDs:      parseMemberList(vals, "SecurityGroupId"),
+		SelfServicePortalURL:  vals.Get("SelfServicePortal"),
+		TransitGatewayID:      vals.Get("TransitGatewayConfiguration.TransitGatewayId"),
+		EndpointIPAddressType: vals.Get("EndpointIpAddressType"),
+		TrafficIPAddressType:  vals.Get("TrafficIpAddressType"),
 
 		VpnPort:             parseInt32Value(vals.Get("VpnPort")),
 		SessionTimeoutHours: parseInt32Value(vals.Get("SessionTimeoutHours"))}
@@ -206,6 +208,11 @@ func parseClientVpnEndpointOptions(vals url.Values) ClientVpnEndpointOptions {
 	if v := vals.Get("SplitTunnel"); v != "" {
 		splitTunnel := v == ec2BooleanTrue
 		opts.SplitTunnel = &splitTunnel
+	}
+
+	if v := vals.Get("DisconnectOnSessionTimeout"); v != "" {
+		disconnect := v == ec2BooleanTrue
+		opts.DisconnectOnSessionTimeout = &disconnect
 	}
 
 	return opts

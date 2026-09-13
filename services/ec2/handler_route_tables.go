@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"strconv"
 )
 
 func (h *Handler) handleReplaceRoute(vals url.Values, reqID string) (any, error) {
@@ -11,8 +12,9 @@ func (h *Handler) handleReplaceRoute(vals url.Values, reqID string) (any, error)
 	destCIDR := vals.Get("DestinationCidrBlock")
 	gatewayID := vals.Get("GatewayId")
 	natGatewayID := vals.Get("NatGatewayId")
+	localTarget, _ := strconv.ParseBool(vals.Get("LocalTarget"))
 
-	if err := h.Backend.ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID); err != nil {
+	if err := h.Backend.ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID, localTarget); err != nil {
 		return nil, err
 	}
 

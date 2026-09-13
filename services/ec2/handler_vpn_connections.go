@@ -126,9 +126,9 @@ func (h *Handler) handleDeleteVpnConnection(vals url.Values, reqID string) (any,
 
 // ---- VPN Connection tunnel/option modification handlers ----
 
-// handleModifyVpnConnectionOptions handles ModifyVpnConnectionOptions. Real AWS accepts only
-// the local/remote IPv4 (and IPv6) network CIDRs here — StaticRoutesOnly is fixed at
-// CreateVpnConnection time and is not one of this action's parameters, so it is never
+// handleModifyVpnConnectionOptions handles ModifyVpnConnectionOptions. Real AWS accepts the
+// local/remote IPv4 and IPv6 network CIDRs plus TunnelBandwidth here — StaticRoutesOnly is
+// fixed at CreateVpnConnection time and is not one of this action's parameters, so it is never
 // overridden from the request (nil below leaves it unchanged).
 func (h *Handler) handleModifyVpnConnectionOptions(vals url.Values, reqID string) (any, error) {
 	conn, err := h.Backend.ModifyVpnConnectionOptions(
@@ -136,6 +136,11 @@ func (h *Handler) handleModifyVpnConnectionOptions(vals url.Values, reqID string
 		vals.Get("LocalIpv4NetworkCidr"),
 		vals.Get("RemoteIpv4NetworkCidr"),
 		nil,
+		VpnConnectionExtraOptions{
+			LocalIPv6CIDR:   vals.Get("LocalIpv6NetworkCidr"),
+			RemoteIPv6CIDR:  vals.Get("RemoteIpv6NetworkCidr"),
+			TunnelBandwidth: vals.Get("TunnelBandwidth"),
+		},
 	)
 	if err != nil {
 		return nil, err

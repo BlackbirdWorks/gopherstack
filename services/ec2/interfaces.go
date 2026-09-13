@@ -146,7 +146,7 @@ type Backend interface {
 
 	// CreateVolume creates a new EBS volume, optionally restored from an
 	// existing EBS snapshot (snapshotID may be empty).
-	CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error)
+	CreateVolume(az, volType string, size int, snapshotID string, volumeInitializationRate ...int32) (*Volume, error)
 
 	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
 	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
@@ -161,7 +161,7 @@ type Backend interface {
 	DeleteVolume(id string) error
 
 	// AttachVolume attaches a volume to an instance.
-	AttachVolume(volumeID, instanceID, device string) (*VolumeAttachment, error)
+	AttachVolume(volumeID, instanceID, device string, ebsCardIndex ...int32) (*VolumeAttachment, error)
 
 	// DetachVolume detaches a volume; force flag is accepted but ignored in mock.
 	DetachVolume(volumeID string, force bool) (*VolumeAttachment, error)
@@ -321,6 +321,7 @@ type Backend interface {
 	CreateVpcEndpointWithRouteTableIDs(
 		vpcID, serviceName, endpointType string,
 		subnetIDs, routeTableIDs []string,
+		opts ...VpcEndpointCreateOptions,
 	) (*VpcEndpoint, error)
 
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
@@ -340,7 +341,7 @@ type Backend interface {
 	DescribeNetworkInterfaces(ids []string) []*NetworkInterface
 
 	// CreateNetworkInterface creates a new ENI in the given subnet.
-	CreateNetworkInterface(subnetID, description string) (*NetworkInterface, error)
+	CreateNetworkInterface(subnetID, description string, interfaceType ...string) (*NetworkInterface, error)
 
 	// DeleteNetworkInterface removes a network interface by ID.
 	DeleteNetworkInterface(id string) error
@@ -369,11 +370,13 @@ type Backend interface {
 
 	// ---- spot instances ----
 
-	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
+	// RequestSpotInstances creates InstanceCount spot instance requests (mock:
+	// immediately fulfilled), defaulting to 1 when omitted.
 	RequestSpotInstances(
 		imageID, instanceType, subnetID, spotPrice string,
 		tags map[string]string,
-	) (*SpotInstanceRequest, error)
+		opts ...RequestSpotInstancesOptions,
+	) ([]*SpotInstanceRequest, error)
 
 	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
 	DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest
@@ -901,10 +904,11 @@ type Backend interface {
 	// GetVpnConnectionRoutes returns the static routes registered against a VPN connection.
 	GetVpnConnectionRoutes(vpnConnectionID string) []*VpnConnectionRoute
 
-	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4 CIDRs and the
-	// static-routes-only flag of a VPN connection.
+	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4/IPv6 CIDRs,
+	// tunnel bandwidth, and the static-routes-only flag of a VPN connection.
 	ModifyVpnConnectionOptions(
 		vpnConnectionID, localIPv4CIDR, remoteIPv4CIDR string, staticRoutesOnly *bool,
+		extra ...VpnConnectionExtraOptions,
 	) (*VpnConnection, error)
 
 	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
@@ -962,7 +966,7 @@ type Backend interface {
 	ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
 
 	// DeleteIpam removes an IPAM instance.
-	DeleteIpam(id string) error
+	DeleteIpam(id string, cascade ...bool) error
 
 	// CreateIpamScope creates an additional (non-default) private IPAM scope.
 	CreateIpamScope(ipamID, description string) (*IpamScope, error)
@@ -1190,7 +1194,7 @@ type Backend interface {
 
 	// ---- batch1: EBS volume lifecycle ----
 
-	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
+	ModifyVolume(volumeID, volumeType string, size, iops int, throughput ...int) (*VolumeModification, error)
 	DescribeVolumeStatus(ids []string) []VolumeStatusItem
 	DescribeVolumesModifications(ids []string) []*VolumeModification
 	CopySnapshot(sourceSnapshotID, description string, encryptOverride bool, kmsKeyID string) (*Snapshot, error)
@@ -1288,7 +1292,7 @@ type Backend interface {
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
 	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) ([]string, error)
-	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, resetPolicy ...bool) error
 
 	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
 	// endpoint's usage within the given charge scope.
@@ -1317,6 +1321,7 @@ type Backend interface {
 	GetImageBlockPublicAccessState() string
 	EnableImageDeprecation(imageID, deprecateAt string) error
 	DisableImageDeprecation(imageID string) error
+	ImageDeprecation() map[string]string
 	EnableImageDeregistrationProtection(imageID string) error
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
@@ -1354,10 +1359,13 @@ type Backend interface {
 		subnetID string,
 		securityGroupIDs []string,
 		preserveClientIP bool,
+		ipAddressType ...string,
 	) (*InstanceConnectEndpoint, error)
 	DeleteInstanceConnectEndpoint(id string) (*InstanceConnectEndpoint, error)
 	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
-	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error
+	ModifyInstanceConnectEndpoint(
+		id string, preserveClientIP bool, extra ...InstanceConnectEndpointModifyOptions,
+	) error
 	CreateInstanceEventWindow(name, cronExpression string) (*InstanceEventWindow, error)
 	DeleteInstanceEventWindow(id string) error
 	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
@@ -1366,6 +1374,7 @@ type Backend interface {
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
+	SetImageMetadata(imageID, imdsSupport, virtualizationType string)
 	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
@@ -1388,7 +1397,7 @@ type Backend interface {
 	GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery) []string
 	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
 	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
-	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
+	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string, localTarget ...bool) error
 	RegisterInstanceEventNotificationAttributes(includeAllTags bool)
 	ResetEbsDefaultKmsKeyID()
 	UpdateSecurityGroupRuleDescriptionsIngress(groupID string, rules []SecurityGroupRule) error
@@ -1553,7 +1562,9 @@ type Backend interface {
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
 	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
-	ModifyTrafficMirrorFilterRule(id, action, description string) (*TrafficMirrorFilterRule, error)
+	ModifyTrafficMirrorFilterRule(
+		id, action, description string, removeFields ...string,
+	) (*TrafficMirrorFilterRule, error)
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
@@ -1562,7 +1573,9 @@ type Backend interface {
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
 	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
-	ModifyTrafficMirrorSession(id, targetID, filterID, description string) (*TrafficMirrorSession, error)
+	ModifyTrafficMirrorSession(
+		id, targetID, filterID, description string, removeFields ...string,
+	) (*TrafficMirrorSession, error)
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
 		tags map[string]string,

@@ -213,6 +213,14 @@ type VpcEndpoint struct {
 	// PayerResponsibilities holds the payer-responsibility settings set via
 	// ModifyVpcEndpointPayerResponsibility. Empty until first modified.
 	PayerResponsibilities []PayerResponsibilityEntry `json:"payerResponsibilities,omitempty"`
+	// PolicyDocument/PrivateDNSEnabled/SecurityGroupIDs/ServiceRegion are
+	// CreateVpcEndpoint declare+echo fields; this backend has no PrivateLink
+	// DNS-entry generation or security-group traffic enforcement to apply
+	// them against (see vpc_endpoints PARITY.md note).
+	PolicyDocument    string   `json:"policyDocument,omitempty"`
+	ServiceRegion     string   `json:"serviceRegion,omitempty"`
+	SecurityGroupIDs  []string `json:"securityGroupIDs,omitempty"`
+	PrivateDNSEnabled bool     `json:"privateDnsEnabled,omitempty"`
 }
 
 // PayerResponsibilityEntry records who is billed for a VPC endpoint's usage,

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/xml"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -321,7 +322,8 @@ func (h *Handler) handleModifyVpcEndpoint(vals url.Values, reqID string) (any, e
 	endpointID := vals.Get("VpcEndpointId")
 	addSubnets := parseMemberList(vals, "AddSubnetId")
 	removeSubnets := parseMemberList(vals, "RemoveSubnetId")
-	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets); err != nil {
+	resetPolicy, _ := strconv.ParseBool(vals.Get("ResetPolicy"))
+	if err := h.Backend.ModifyVpcEndpoint(endpointID, addSubnets, removeSubnets, resetPolicy); err != nil {
 		return nil, err
 	}
 

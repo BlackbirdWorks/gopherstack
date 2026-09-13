@@ -688,7 +688,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 				req, _ := h.Backend.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 
 				return "Action=CancelSpotInstanceRequests&Version=2016-11-15&SpotInstanceRequestId.1=" + url.QueryEscape(
-					req.ID,
+					req[0].ID,
 				)
 			},
 			wantCode:     http.StatusOK,
