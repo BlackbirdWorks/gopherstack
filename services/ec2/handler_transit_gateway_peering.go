@@ -53,8 +53,9 @@ type describeTransitGatewayConnectsResponse struct {
 // fields (ec2@v1.319.1 deserializers.go,
 // awsEc2query_deserializeDocumentTransitGatewayConnectPeerConfiguration).
 type tgwConnectPeerConfigurationItem struct {
-	PeerAddress      string   `xml:"peerAddress,omitempty"`
-	InsideCidrBlocks []string `xml:"insideCidrBlocks>item,omitempty"`
+	PeerAddress           string   `xml:"peerAddress,omitempty"`
+	TransitGatewayAddress string   `xml:"transitGatewayAddress,omitempty"`
+	InsideCidrBlocks      []string `xml:"insideCidrBlocks>item,omitempty"`
 }
 
 type tgwConnectPeerItem struct {
@@ -336,8 +337,9 @@ func toTGWConnectPeerItem(peer *TransitGatewayConnectPeer, tags map[string]strin
 		TransitGatewayAttachmentID:  peer.TransitGatewayAttachmentID,
 		State:                       peer.State,
 		ConnectPeerConfiguration: tgwConnectPeerConfigurationItem{
-			PeerAddress:      peer.PeerAddress,
-			InsideCidrBlocks: peer.InsideCidrBlocks,
+			PeerAddress:           peer.PeerAddress,
+			TransitGatewayAddress: peer.TransitGatewayAddress,
+			InsideCidrBlocks:      peer.InsideCidrBlocks,
 		},
 		TagSet: tagItemsFromMap(tags),
 	}
@@ -346,9 +348,10 @@ func toTGWConnectPeerItem(peer *TransitGatewayConnectPeer, tags map[string]strin
 func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID string) (any, error) {
 	connectID := vals.Get("TransitGatewayAttachmentId")
 	peerAddress := vals.Get("PeerAddress")
+	tgwAddress := vals.Get("TransitGatewayAddress")
 	insideCidrs := parseMemberList(vals, "InsideCidrBlocks")
 
-	peer, err := h.Backend.CreateTransitGatewayConnectPeer(connectID, peerAddress, insideCidrs)
+	peer, err := h.Backend.CreateTransitGatewayConnectPeer(connectID, peerAddress, tgwAddress, insideCidrs)
 	if err != nil {
 		return nil, err
 	}

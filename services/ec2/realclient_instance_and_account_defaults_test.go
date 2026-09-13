@@ -1054,7 +1054,7 @@ func runReservedInstancesAndHosts(t *testing.T, backend *ec2.InMemoryBackend, cl
 		"offering-slice24-test", "m5.large", "us-east-1a", "Linux/UNIX",
 		"No Upfront", "convertible", 31536000, 0, 0.05,
 	)
-	offerings := backend.DescribeReservedInstancesOfferings("", "", "", "")
+	offerings := backend.DescribeReservedInstancesOfferings(ec2.DescribeReservedInstancesOfferingsParams{})
 	require.NotEmpty(t, offerings)
 	ri, err := backend.PurchaseReservedInstancesOffering(offerings[0].ReservedInstancesOfferingID, 1)
 	require.NoError(t, err)

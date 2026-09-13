@@ -311,6 +311,7 @@ type TransitGatewayConnectPeer struct {
 	TransitGatewayConnectPeerID string   `json:"transitGatewayConnectPeerId,omitempty"`
 	TransitGatewayAttachmentID  string   `json:"transitGatewayAttachmentId,omitempty"`
 	PeerAddress                 string   `json:"peerAddress,omitempty"`
+	TransitGatewayAddress       string   `json:"transitGatewayAddress,omitempty"`
 	State                       string   `json:"state,omitempty"`
 	InsideCidrBlocks            []string `json:"insideCidrBlocks,omitempty"`
 }
@@ -541,6 +542,7 @@ type ReservedInstancesOffering struct {
 	ProductDescription          string  `json:"productDescription,omitempty"`
 	OfferingType                string  `json:"offeringType,omitempty"`
 	OfferingClass               string  `json:"offeringClass,omitempty"`
+	Tenancy                     string  `json:"tenancy,omitempty"`
 	Duration                    int64   `json:"duration"`
 	FixedPrice                  float64 `json:"fixedPrice"`
 	UsagePrice                  float64 `json:"usagePrice"`

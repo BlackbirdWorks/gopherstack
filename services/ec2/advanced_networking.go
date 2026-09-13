@@ -103,6 +103,7 @@ type VpnGateway struct {
 	Type            string `json:"type,omitempty"`
 	AttachedVPCID   string `json:"attachedVpcId,omitempty"`
 	AttachmentState string `json:"attachmentState,omitempty"`
+	AmazonSideAsn   int64  `json:"amazonSideAsn,omitempty"`
 }
 
 // CustomerGateway represents a customer gateway.

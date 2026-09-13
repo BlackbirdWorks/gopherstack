@@ -204,7 +204,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				vgw, err := b.CreateVpnGateway("ipsec.1")
+				vgw, err := b.CreateVpnGateway("ipsec.1", 0)
 				require.NoError(t, err)
 
 				return vgw.VpnGatewayID

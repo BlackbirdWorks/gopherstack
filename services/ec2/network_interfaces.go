@@ -37,6 +37,7 @@ type NetworkInterface struct {
 	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
 	DeviceIndex           int      `json:"deviceIndex,omitempty"`
 	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
+	SecurityGroupIDs      []string `json:"securityGroupIDs,omitempty"`
 	// DeleteOnTermination mirrors real AWS's per-attachment default: true for
 	// the primary interface auto-created at instance launch, false for any
 	// interface created separately (CreateNetworkInterface) and later attached
@@ -311,6 +312,30 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	default:
 		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attr)
 	}
+
+	return nil
+}
+
+// SetNetworkInterfaceSecurityGroups replaces an ENI's security group
+// membership (ModifyNetworkInterfaceAttribute's Groups field, wire key
+// SecurityGroupId.N). All groupIDs must already exist, matching real AWS's
+// InvalidGroup.NotFound rejection.
+func (b *InMemoryBackend) SetNetworkInterfaceSecurityGroups(eniID string, groupIDs []string) error {
+	b.mu.Lock("SetNetworkInterfaceSecurityGroups")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces.Get(eniID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	for _, gid := range groupIDs {
+		if !b.securityGroups.Has(gid) {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, gid)
+		}
+	}
+
+	eni.SecurityGroupIDs = groupIDs
 
 	return nil
 }

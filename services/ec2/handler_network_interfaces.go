@@ -311,6 +311,7 @@ type networkInterfaceItem struct {
 	OwnerID                string                       `xml:"ownerId,omitempty"`
 	PrivateIPAddressesSet  networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
 	TagSet                 []simpleTagItem              `xml:"tagSet>item"`
+	GroupSet               instanceGroupSet             `xml:"groupSet"`
 	SourceDestCheck        bool                         `xml:"sourceDestCheck"`
 }
 
@@ -344,7 +345,7 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 
 	items := make([]networkInterfaceItem, 0, len(enis))
 	for _, eni := range enis {
-		items = append(items, toNetworkInterfaceItem(eni, h.Backend.TagsForResource(eni.ID)))
+		items = append(items, toNetworkInterfaceItem(eni, h.Backend.TagsForResource(eni.ID), h.Backend))
 	}
 
 	return &describeNetworkInterfacesResponse{
@@ -360,7 +361,7 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 
 // ---- network interface helpers ----
 
-func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string) networkInterfaceItem {
+func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string, b Backend) networkInterfaceItem {
 	privateIPs := make([]networkInterfacePrivateIPItem, 0, 1+len(eni.SecondaryPrivateIPs))
 	privateIPs = append(privateIPs, networkInterfacePrivateIPItem{
 		PrivateIPAddress: eni.PrivateIP,
@@ -374,6 +375,16 @@ func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string) netwo
 		})
 	}
 
+	sgNames := make(map[string]string, len(eni.SecurityGroupIDs))
+	for _, sg := range b.DescribeSecurityGroups(eni.SecurityGroupIDs) {
+		sgNames[sg.ID] = sg.Name
+	}
+
+	groupItems := make([]instanceGroupItem, 0, len(eni.SecurityGroupIDs))
+	for _, sgID := range eni.SecurityGroupIDs {
+		groupItems = append(groupItems, instanceGroupItem{GroupID: sgID, GroupName: sgNames[sgID]})
+	}
+
 	item := networkInterfaceItem{
 		NetworkInterfaceID:    eni.ID,
 		SubnetID:              eni.SubnetID,
@@ -385,6 +396,7 @@ func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string) netwo
 		SourceDestCheck:       eni.SourceDestCheck,
 		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
 		TagSet:                tagItemsFromMap(tags),
+		GroupSet:              instanceGroupSet{Items: groupItems},
 	}
 
 	if eni.PublicDNSHostnameType != "" {
@@ -429,7 +441,7 @@ func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (a
 	return &createNetworkInterfaceResponse{
 		Xmlns:            ec2XMLNS,
 		RequestID:        reqID,
-		NetworkInterface: toNetworkInterfaceItem(eni, tags),
+		NetworkInterface: toNetworkInterfaceItem(eni, tags, h.Backend),
 	}, nil
 }
 
@@ -623,12 +635,17 @@ func (h *Handler) handleModifyNetworkInterfaceAttribute(
 	_, hasDesc := vals["Description.Value"]
 	_, hasSdc := vals["SourceDestCheck.Value"]
 	_, hasAttachment := vals["Attachment.AttachmentId"]
+	groupIDs := parseMemberList(vals, "SecurityGroupId")
 
 	switch {
 	case hasAttachment:
 		attachmentID := vals.Get("Attachment.AttachmentId")
 		del := vals.Get("Attachment.DeleteOnTermination") == ec2BooleanTrue
 		if err := h.Backend.SetNetworkInterfaceDeleteOnTermination(attachmentID, del); err != nil {
+			return nil, err
+		}
+	case len(groupIDs) > 0:
+		if err := h.Backend.SetNetworkInterfaceSecurityGroups(eniID, groupIDs); err != nil {
 			return nil, err
 		}
 	default:

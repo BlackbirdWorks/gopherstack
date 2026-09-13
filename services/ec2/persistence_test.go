@@ -195,7 +195,7 @@ func TestPersistenceExtended(t *testing.T) {
 		{
 			name: "vpn_gateway_persists",
 			setup: func(b *ec2.InMemoryBackend) {
-				_, err := b.CreateVpnGateway("ipsec.1")
+				_, err := b.CreateVpnGateway("ipsec.1", 0)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
@@ -379,7 +379,7 @@ func TestPersistenceExtended(t *testing.T) {
 				cgw, err := b.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
 				require.NoError(t, err)
 
-				vgw, err := b.CreateVpnGateway("ipsec.1")
+				vgw, err := b.CreateVpnGateway("ipsec.1", 0)
 				require.NoError(t, err)
 
 				conn, err := b.CreateVpnConnection("ipsec.1", cgw.CustomerGatewayID, vgw.VpnGatewayID)
@@ -1021,7 +1021,7 @@ func TestPersistence_Parity4Fields(t *testing.T) {
 	require.NoError(t, err)
 
 	// Capacity Reservation cancellation quote.
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 2, nil)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 2, nil)
 	require.NoError(t, err)
 	quote, err := b.CreateCapacityReservationCancellationQuote(cr.CapacityReservationID, nil)
 	require.NoError(t, err)

@@ -19,7 +19,7 @@ func setupVpnConnection(t *testing.T, bk *ec2.InMemoryBackend) *ec2.VpnConnectio
 	cgw, err := bk.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
 	require.NoError(t, err)
 
-	vgw, err := bk.CreateVpnGateway("ipsec.1")
+	vgw, err := bk.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 
 	conn, err := bk.CreateVpnConnection("ipsec.1", cgw.CustomerGatewayID, vgw.VpnGatewayID)
@@ -291,7 +291,7 @@ func TestModifyVpnConnection_Backend(t *testing.T) {
 	bk := newTestBackend()
 	conn := setupVpnConnection(t, bk)
 
-	newVgw, err := bk.CreateVpnGateway("ipsec.1")
+	newVgw, err := bk.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 
 	require.NoError(t, bk.ModifyVpnConnection(conn.VpnConnectionID, newVgw.VpnGatewayID))

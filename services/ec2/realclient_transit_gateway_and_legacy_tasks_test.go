@@ -1613,7 +1613,7 @@ func runSingletonsB(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.C
 	)
 	require.NoError(t, err)
 
-	cr, err := backend.CreateCapacityReservation("t3.micro", "us-east-1a", 2, nil)
+	cr, err := backend.CreateCapacityReservation("t3.micro", "us-east-1a", "open", "default", 2, nil)
 	require.NoError(t, err)
 
 	modCROut, err := client.ModifyCapacityReservation(
@@ -1648,7 +1648,7 @@ func runSingletonsB(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.C
 
 	lt, err := backend.CreateLaunchTemplate("slice26-lt", "ami-test", "t3.micro", nil)
 	require.NoError(t, err)
-	_, err = backend.CreateLaunchTemplateVersion(lt.ID, "ami-test2", "t3.small")
+	_, err = backend.CreateLaunchTemplateVersion(lt.ID, "ami-test2", "t3.small", "")
 	require.NoError(t, err)
 
 	modLTOut, err := client.ModifyLaunchTemplate(

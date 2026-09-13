@@ -30,6 +30,8 @@ type capacityReservationItem struct {
 	AvailabilityZone       string          `xml:"availabilityZone"`
 	OwnedBy                string          `xml:"ownerId,omitempty"`
 	State                  string          `xml:"state"`
+	InstanceMatchCriteria  string          `xml:"instanceMatchCriteria,omitempty"`
+	Tenancy                string          `xml:"tenancy,omitempty"`
 	TagSet                 []simpleTagItem `xml:"tagSet>item"`
 	AvailableInstanceCount int             `xml:"availableInstanceCount"`
 	TotalInstanceCount     int             `xml:"totalInstanceCount"`
@@ -479,6 +481,8 @@ func (h *Handler) handleDescribeCapacityReservations(vals url.Values, reqID stri
 	); err != nil {
 		return nil, err
 	}
+
+	reservations = applyCapacityReservationFilters(reservations, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {

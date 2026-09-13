@@ -139,6 +139,7 @@ type vpnGatewayItem struct {
 	AttachedVPCID   string          `xml:"attachments>item>vpcId,omitempty"`
 	AttachmentState string          `xml:"attachments>item>state,omitempty"`
 	TagSet          []simpleTagItem `xml:"tagSet>item"`
+	AmazonSideAsn   int64           `xml:"amazonSideAsn,omitempty"`
 }
 
 type createVpnGatewayResponse struct {

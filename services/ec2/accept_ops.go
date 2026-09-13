@@ -61,6 +61,8 @@ type CapacityReservation struct {
 	// for Capacity Block purchases; empty for plain CreateCapacityReservation
 	// calls that predate this field.
 	InstancePlatform       string `json:"instancePlatform,omitempty"`
+	InstanceMatchCriteria  string `json:"instanceMatchCriteria,omitempty"`
+	Tenancy                string `json:"tenancy,omitempty"`
 	AvailableInstanceCount int    `json:"availableInstanceCount,omitempty"`
 	TotalInstanceCount     int    `json:"totalInstanceCount,omitempty"`
 }
@@ -123,6 +125,8 @@ type VpcPeeringConnection struct {
 	VpcPeeringConnectionID string    `json:"vpcPeeringConnectionID,omitempty"`
 	RequesterVpcID         string    `json:"requesterVpcID,omitempty"`
 	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
+	AccepterOwnerID        string    `json:"accepterOwnerID,omitempty"`
+	AccepterRegion         string    `json:"accepterRegion,omitempty"`
 	State                  string    `json:"state,omitempty"`
 }
 

@@ -351,6 +351,19 @@ items_still_open:
     DescribeApplicationStatusCheckAssociationsOutput.Tags ('tags associated with the application status checks')
     is always empty: its exact aggregation semantics across multiple checks are ambiguous from the SDK doc alone
     and getting it wrong risked being worse than an honest omission."
+  - "ec2query filter/field sweep (2026-09-13, gopherstack-xhu2t/99nj): ModifyCapacityReservation.Accept is
+    documented 'Reserved. Capacity Reservations you have created are accepted by default' -- no real semantics
+    exist for it to drive, so it is accepted but not applied. CreateLaunchTemplateVersion.ResolveAlias and
+    DescribeLaunchTemplateVersions.ResolveAlias both depend on Systems Manager parameter-backed AMI IDs
+    (resolving a 'resolve:ssm:/...' ImageId to a real AMI ID vs echoing the parameter string) -- this backend
+    has no SSM parameter store integration for ImageId anywhere, so there is nothing to resolve; accepted but
+    not applied. DescribeReservedInstancesOfferings.MaxInstanceCount has no backing field: ReservedInstancesOffering
+    models a catalogue entry, not a specific purchase, and never carried an instance-count dimension to filter
+    against (AvailabilityZoneId/IncludeMarketplace/ReservedInstancesOfferingIds were already documented as
+    unread missing-feature gaps in the 2026-08-31 reserved-instances-listings section above and remain so,
+    out of this pass's scope). GetConsoleOutput.Latest has no observable effect: this backend synthesizes one
+    static console-output string per instance rather than an append-only real log, so there is no 'cached vs
+    freshly retrieved' distinction to honour."
   - "NetworkAcl associations (gopherstack-n3zi, 2026-09-12): this backend does not
     model a NetworkAclAssociationId distinct from the subnet it associates -- confirmed
     already disclosed in-code (handler_filters.go's applyNetworkACLFilters doc comment:
@@ -5300,3 +5313,196 @@ no `snapshot_inventory.json` changes (no persisted struct shape changed).
 `items_still_open` gained two new entries (`RestoreImageFromRecycleBin`
 and `CancelImportTask`'s structurally-unreachable happy paths, both
 documented above).
+
+## 2026-09-13 -- ec2query filter/field sweep, tier-1 real gaps (gopherstack-xhu2t/99nj)
+
+`go run ./cmd/reqfielddiff -dir ec2 -json` reported 106 tier-1 findings after
+the campaign's query-form recogniser learned to follow computed keys and
+helper chains (99nj comment 2026-09-13 12:09, 116->106). Spot-checked as
+genuinely real gaps per that comment (e.g. `DescribeTransitGateways`/
+`DescribeCapacityReservations`/`DescribeLaunchTemplateVersions` never
+called `parseEC2Filters`). Worked family by family, gating after each:
+
+**Filters wired via the existing `parseEC2Filters` + a new
+`applyXxxFilters` matcher in `handler_filters.go`**, restricted in every
+case to filter names the SDK's `Input.Filters` doc comment lists AND this
+backend has a backing field for:
+
+- `DescribeCapacityReservations.Filters` -- `instance-type`, `owner-id`,
+  `availability-zone`, `instance-platform`, `instance-match-criteria`,
+  `tenancy`, `state`. `outpost-arn`/`placement-group-arn`/`start-date`/
+  `end-date`/`end-date-type` documented but unmodeled (no such fields on
+  `CapacityReservation`) -- not implemented, not fabricated.
+- `DescribeTransitGateways.Filters` -- `owner-id`, `state`,
+  `transit-gateway-id`, `tag-key`, `tag:<key>`, and every `options.*`
+  filter backed by `TransitGatewayOptions` (`amazon-side-asn`,
+  `auto-accept-shared-attachments`, `default-route-table-association`,
+  `default-route-table-propagation`, `dns-support`, `vpn-ecmp-support`).
+  `options.propagation-default-route-table-id`/
+  `options.association-default-route-table-id` documented but unmodeled.
+- `DescribeTransitGatewayRouteTables.Filters` -- `default-association-
+  route-table`, `default-propagation-route-table`, `state`,
+  `transit-gateway-id`, `transit-gateway-route-table-id` (all backed;
+  fully covered).
+- `DescribeLaunchTemplateVersions.Filters` -- `image-id`, `instance-type`,
+  `is-default-version`, applied to the handler's existing single
+  merged-view item (this op's other documented filters -- `create-time`,
+  `ebs-optimized`, `http-*`, `kernel-id`, etc. -- have no backing field on
+  `launchTemplateVersionItem`). `DescribeLaunchTemplateVersions.Versions`
+  and `ModifyLaunchTemplate.DefaultVersion` were confirmed ALREADY
+  correctly read (`LaunchTemplateVersion.N`/`SetDefaultVersion.Value`
+  respectively via plain `vals.Get`) -- tool false positives, no code
+  changed.
+- `DescribeReservedInstancesOfferings.Filters`/`InstanceTenancy`/
+  `MinDuration`/`MaxDuration` -- `availability-zone`, `duration`,
+  `fixed-price`, `instance-type`, `product-description`,
+  `reserved-instances-offering-id`, `usage-price` filters; `InstanceTenancy`
+  added as a new `Tenancy` field on `ReservedInstancesOffering` (default
+  `"default"`, matching the documented default) and on the export-only
+  `SeedReservedInstancesOffering` test helper via a new trailing variadic
+  `tenancy ...string` param -- back-compatible with all 19 existing call
+  sites, not a new export. `DescribeReservedInstancesOfferings` changed
+  from four positional params to a `DescribeReservedInstancesOfferingsParams`
+  struct (`instanceType, az, productDesc, offeringClass` was already at its
+  practical param-list limit). `MaxInstanceCount` recorded as a gap (see
+  `items_still_open`); `AvailabilityZoneId`/`IncludeMarketplace`/
+  `ReservedInstancesOfferingIds` were already-documented pre-existing gaps
+  from the 2026-08-31 pass, untouched this pass (out of the 106-finding
+  tier-1 scope).
+
+**Non-filter fields, declare+apply+describe-back:**
+
+- `CreateCapacityReservation.InstanceMatchCriteria`/`Tenancy` -- new fields
+  on `CapacityReservation`, defaulted `"open"`/`"default"` matching the
+  SDK doc's stated defaults, echoed on `CreateCapacityReservationResponse`
+  and `DescribeCapacityReservations`, and now filterable (see above).
+- `CreateInterruptibleCapacityReservationAllocation.ZeroSizePreference`/
+  `UpdateInterruptibleCapacityReservationAllocation.ZeroSizePreference`
+  -- new `ZeroSizePreference` field on `InterruptibleCapacityReservationAllocation`.
+  Real, testable effect on `Update...`: reducing `TargetInstanceCount` to
+  0 with `ZeroSizePreference=retain` keeps `Status=active` at zero
+  capacity (per the doc: "keep the interruptible Capacity Reservation
+  active at zero capacity so you can allocate instances to it again
+  later"); the default (`"default"` / omitted) transitions `Status` to
+  `canceled` instead, matching `types.InterruptibleCapacityReservationAllocationStatusCanceled`.
+- `CreateTransitGatewayConnectPeer.TransitGatewayAddress` -- new field on
+  `TransitGatewayConnectPeer`/response's `ConnectPeerConfiguration`. An
+  explicit override round-trips; when omitted, a new
+  `firstTGWCidrHostAddressLocked` helper auto-assigns the first host
+  address of the parent transit gateway's first `TransitGatewayCidrBlocks`
+  entry, matching the documented default ("Amazon automatically assigns
+  the first available IP address from the transit gateway CIDR block").
+- `CreateLaunchTemplateVersion.SourceVersion` -- when set, the new version
+  now inherits `ImageID`/`InstanceType` from the resolved source version
+  (via the existing `resolveLaunchTemplateVersion` helper already used by
+  `GetLaunchTemplate`) before `imageID`/`instanceType` overrides are
+  applied, instead of always inheriting from the launch template's current
+  merged state (which silently picked up whatever the immediately-prior
+  `CreateLaunchTemplateVersion` call had set, regardless of `SourceVersion`).
+- `ModifyInstanceAttribute.Groups` -- previously not read at all (only
+  `GroupId.N`-shaped params were never checked, so a `Groups`-only request
+  hit the "must contain exactly one modifiable attribute" rejection); new
+  `Backend.SetInstanceSecurityGroups` validates every group ID exists
+  (`ErrSecurityGroupNotFound` otherwise) and replaces
+  `Instance.SecurityGroups`, already echoed by `DescribeInstances`'
+  pre-existing `GroupSet`.
+- `ModifyNetworkInterfaceAttribute.Groups` -- same shape, new
+  `NetworkInterface.SecurityGroupIDs` field (this backend previously
+  tracked no per-ENI security-group membership at all -- the `deferred:`
+  entry's "per-ENI security-group tracking, a materially larger separate
+  feature" gap is now closed for the attribute-level case), new
+  `Backend.SetNetworkInterfaceSecurityGroups`, and a new `groupSet` on
+  `DescribeNetworkInterfaces`' `networkInterfaceItem` (reusing the
+  existing `instanceGroupItem`/`instanceGroupSet` XML shape, group names
+  resolved via `Backend.DescribeSecurityGroups`). `CreateNetworkInterface`
+  does not yet accept an initial `SecurityGroupId.N` at creation time --
+  out of this pass's tier-1 scope, not attempted.
+- `CreateVpcPeeringConnection.PeerOwnerId`/`PeerRegion` -- new
+  `AccepterOwnerID`/`AccepterRegion` fields on `VpcPeeringConnection`,
+  defaulted to this backend's own account/region when omitted (matching
+  same-account/same-region peering, the common case), rendered under
+  `accepterVpcInfo>ownerId`/`accepterVpcInfo>region`. Cross-service caller
+  fixed: `services/cloudformation/resources_ec2_network.go`'s
+  `AWS::EC2::VPCPeeringConnection` resource now threads its own
+  `PeerOwnerId`/`PeerRegion` properties through instead of dropping them.
+- `CreateVpnGateway.AmazonSideAsn` -- new field on `VpnGateway`, echoed on
+  create and `DescribeVpnGateways`.
+
+**Recorded, not fixed** (all four added to `items_still_open`, reasoning
+there): `ModifyCapacityReservation.Accept` (documented "Reserved", no real
+semantics), `CreateLaunchTemplateVersion.ResolveAlias`/
+`DescribeLaunchTemplateVersions.ResolveAlias` (no SSM-parameter-backed
+AMI-ID resolution modeled anywhere in this backend),
+`DescribeReservedInstancesOfferings.MaxInstanceCount` (no instance-count
+dimension on a catalogue-entry offering), `GetConsoleOutput.Latest` (one
+static per-instance console-output string, no cached-vs-fresh distinction
+exists to honour).
+
+Families reached: Capacity Reservations (incl. interruptible allocations),
+Transit Gateway (Describe + Connect Peer), Launch Templates, Reserved
+Instances Offerings, and the Groups fields of ModifyInstanceAttribute/
+ModifyNetworkInterfaceAttribute, plus CreateVpcPeeringConnection and
+CreateVpnGateway. Families in the original 106-finding queue NOT reached
+this pass (budget): Images (CopyImage/CreateImage/DeregisterImage/
+DescribeImages/RegisterImage/ImportImage/ImportSnapshot -- note
+CopyImage.Encrypted/KmsKeyId, DeregisterImage.DeleteAssociatedSnapshots,
+and StopInstances/TerminateInstances' Force/Hibernate/SkipOsShutdown were
+already recorded as gaps by the pre-existing 2026-08-31 section, not
+re-litigated), Volumes/Snapshots (CreateVolume/CreateSnapshot(s)/
+CreateReplaceRootVolumeTask/ModifyVolume), IPAM (CreateIpam/ModifyIpam/
+CreateIpamPool/ModifyIpamPool/DeleteIpam/GetIpamAddressHistory/
+GetIpamPrefixListResolverVersions/ProvisionIpamPoolCidr), Client VPN
+(CreateClientVpnEndpoint/ModifyClientVpnEndpoint), VPN Connection
+(ModifyVpnConnectionOptions), Spot (DescribeSpotFleetRequestHistory/
+RequestSpotInstances), NAT Gateway address drain
+(DisassociateNatGatewayAddress/UnassignPrivateNatGatewayAddress), Traffic
+Mirror (ModifyTrafficMirrorFilterRule/ModifyTrafficMirrorSession), VPC
+Endpoints (CreateVpcEndpoint/ModifyVpcEndpoint/ModifyInstanceConnectEndpoint/
+CreateInstanceConnectEndpoint), and a long tail of single-field misses
+(AllocateHosts, AttachNetworkInterface.NetworkCardIndex,
+AttachVolume.EbsCardIndex, CreateApplicationStatusCheck.HealthCheckPaths --
+already recorded, CreateDefaultSubnet.Ipv6Native, CreateFleet.ValidFrom,
+CreateFlowLogs.LogFormat/MaxAggregationInterval, CreateKeyPair.KeyFormat/
+KeyType -- already recorded, CreateMacSystemIntegrityProtectionModificationTask.MacCredentials,
+CreateNatGateway.AvailabilityZoneAddresses, CreateNetworkInterface.InterfaceType,
+DescribeImageReferences.IncludeAllResourceTypes,
+DescribeInstanceTypes.IncludeUnsupportedInRegion,
+GetManagedPrefixListEntries.TargetVersion, ModifyIpamPool.ClearAllocationDefaultNetmaskLength,
+ProvisionByoipCidr.PubliclyAdvertisable, ProvisionIpamPoolCidr.VerificationMethod,
+RegisterImage.ImdsSupport/VirtualizationType, ReplaceRoute.LocalTarget,
+RunInstances.CreditSpecification/PrivateDnsNameOptions).
+`UpdateSecurityGroupRuleDescriptionsEgress.GroupName`/`...Ingress.GroupName`
+confirmed ALREADY correctly read via the existing `resolveSecurityGroupID`
+helper -- tool false positives, no code changed.
+
+**Gates**: `go build ./...` (whole module, clean -- caught and fixed the
+`services/cloudformation` cross-service caller of
+`CreateVpcPeeringConnection`). `go vet ./services/ec2/... .`,
+`go vet -tags integration ./...`, `go vet -tags e2e ./...` all clean.
+`go test -race -count=1 -p 2 ./services/ec2/...` `ok`. `go test -count=1
+./pkgs/persistence/...` fails only on `rds` rows (another agent's
+in-progress, uncommitted work in this shared worktree); `ec2`'s own rows
+are stable -- confirmed by hand-inserting exactly the 9 new field lines
+this pass's struct changes need (`CapacityReservation.InstanceMatchCriteria`/
+`.Tenancy`, `InterruptibleCapacityReservationAllocation.ZeroSizePreference`,
+`NetworkInterface.SecurityGroupIDs`, `ReservedInstancesOffering.Tenancy`,
+`TransitGatewayConnectPeer.TransitGatewayAddress`,
+`VpcPeeringConnection.AccepterOwnerID`/`.AccepterRegion`,
+`VpnGateway.AmazonSideAsn`) into `pkgs/persistence/testdata/snapshot_inventory.json`
+by hand rather than running `-update` (which would have also captured the
+other agent's live, uncommitted rds struct changes). No `ec2SnapshotVersion`
+bump -- purely additive. `golangci-lint run --new-from-rev=HEAD
+./services/ec2/... ./services/cloudformation/...` 0 issues. `go run
+./cmd/paritylint` stays at 0 FAIL repo-wide. Proof: new table-driven
+`TestRealClient_CapacityTransitLaunchTemplate` (8 subtests),
+`TestRealClient_ReservedInstancesOfferingFilters` (3 subtests), and
+`TestRealClient_InstanceGroupsVPCVPN` (4 subtests), all against the real
+typed SDK client, asserting the observable effect of every fix above.
+0 regressions. `go run ./cmd/reqfielddiff -dir ec2` re-run at the end:
+106 -> 89 tier-1 (19 fields fixed across 14 ops; two of those fields --
+`ModifyInstanceAttribute.Groups`/`ModifyNetworkInterfaceAttribute.Groups`,
+both proven fixed via the real typed client -- did not move the tool's
+count at all: their wire keys are `GroupId.N`/`SecurityGroupId.N`, renamed
+from the Go field name `Groups`, a query-form blind-spot shape already
+tracked on gopherstack-99nj. The other 17 fields removed from the tool's
+count map exactly to the remaining 12 ops above.).

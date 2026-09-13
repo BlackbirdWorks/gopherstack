@@ -10,7 +10,7 @@ import (
 // ---- VPN Gateways ----
 
 // CreateVpnGateway creates a new virtual private gateway.
-func (b *InMemoryBackend) CreateVpnGateway(gatewayType string) (*VpnGateway, error) {
+func (b *InMemoryBackend) CreateVpnGateway(gatewayType string, amazonSideAsn int64) (*VpnGateway, error) {
 	if gatewayType == "" {
 		gatewayType = vpnTypeIPSec
 	}
@@ -19,9 +19,10 @@ func (b *InMemoryBackend) CreateVpnGateway(gatewayType string) (*VpnGateway, err
 	defer b.mu.Unlock()
 
 	vgw := &VpnGateway{
-		VpnGatewayID: "vgw-" + uuid.New().String()[:8],
-		State:        stateAvailable,
-		Type:         gatewayType,
+		VpnGatewayID:  "vgw-" + uuid.New().String()[:8],
+		State:         stateAvailable,
+		Type:          gatewayType,
+		AmazonSideAsn: amazonSideAsn,
 	}
 	b.vpnGateways.Put(vgw)
 

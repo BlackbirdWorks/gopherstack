@@ -287,6 +287,8 @@ func (rc *ResourceCreator) createEC2VPCPeeringConnection(
 	pc, err := rc.backends.EC2.Backend.CreateVpcPeeringConnection(
 		strProp(props, "VpcId", params, physicalIDs),
 		strProp(props, "PeerVpcId", params, physicalIDs),
+		strProp(props, "PeerOwnerId", params, physicalIDs),
+		strProp(props, "PeerRegion", params, physicalIDs),
 	)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 VPC peering connection: %w", err)

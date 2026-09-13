@@ -381,9 +381,13 @@ func (b *InMemoryBackend) ModifyLaunchTemplate(
 	return &cp, nil
 }
 
-// CreateLaunchTemplateVersion adds a new version to an existing launch template.
+// CreateLaunchTemplateVersion adds a new version to an existing launch
+// template. When sourceVersion is set, the new version inherits ImageID/
+// InstanceType from that version before imageID/instanceType overrides are
+// applied, per api_op_CreateLaunchTemplateVersion.go's SourceVersion doc
+// comment.
 func (b *InMemoryBackend) CreateLaunchTemplateVersion(
-	id, imageID, instanceType string,
+	id, imageID, instanceType, sourceVersion string,
 ) (*LaunchTemplateVersion, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
@@ -397,15 +401,29 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
 
+	baseImageID, baseInstanceType := lt.ImageID, lt.InstanceType
+
+	if sourceVersion != "" {
+		src, err := resolveLaunchTemplateVersion(lt, sourceVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		baseImageID, baseInstanceType = src.ImageID, src.InstanceType
+	}
+
 	lt.LatestVersionNumber++
 
 	if imageID != "" {
-		lt.ImageID = imageID
+		baseImageID = imageID
 	}
 
 	if instanceType != "" {
-		lt.InstanceType = instanceType
+		baseInstanceType = instanceType
 	}
+
+	lt.ImageID = baseImageID
+	lt.InstanceType = baseInstanceType
 
 	ver := &LaunchTemplateVersion{
 		LaunchTemplateID:   lt.ID,

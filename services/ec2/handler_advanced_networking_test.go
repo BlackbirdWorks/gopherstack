@@ -68,7 +68,7 @@ func TestEC2Core_Handler_VpnGatewayCRUD(t *testing.T) {
 	bk := newTestBackend()
 
 	// Create via backend to test all paths.
-	vgw, err := bk.CreateVpnGateway("ipsec.1")
+	vgw, err := bk.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 	assert.NotEmpty(t, vgw.VpnGatewayID)
 
@@ -136,7 +136,7 @@ func TestEC2Core_Handler_VpnConnection(t *testing.T) {
 
 	bk := newTestBackend()
 
-	vgw, err := bk.CreateVpnGateway("ipsec.1")
+	vgw, err := bk.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 
 	cgw, err := bk.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
