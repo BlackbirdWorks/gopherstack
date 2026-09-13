@@ -315,12 +315,21 @@ type GeneratedTemplate struct {
 
 // ResourceScan holds the status of a resource scan.
 type ResourceScan struct {
-	ResourceScanID      string  `xml:"ResourceScanId,omitempty"      json:"resourceScanID,omitempty"`
-	Status              string  `xml:"Status,omitempty"              json:"status,omitempty"`
+	ResourceScanID string `xml:"ResourceScanId,omitempty" json:"resourceScanID,omitempty"`
+	Status         string `xml:"Status,omitempty"         json:"status,omitempty"`
+	// ScanType mirrors types.ResourceScanSummary.ScanType (FULL|PARTIAL) --
+	// StartResourceScan (generated_templates.go) always performs a full
+	// scan, so this backend only ever produces "FULL".
+	ScanType            string  `xml:"ScanType,omitempty"            json:"scanType,omitempty"`
 	PercentageCompleted float64 `xml:"PercentageCompleted,omitempty" json:"percentageCompleted,omitempty"`
 }
 
-// TypeSummary holds a brief summary of a CloudFormation type.
+// TypeSummary holds a brief summary of a CloudFormation type. Visibility is
+// computed for filtering (see ListTypes) but, like every field below with an
+// xml tag no handler actually serializes, is not itself wire-visible on the
+// real ListTypesOutput.TypeSummary shape (confirmed against
+// awsAwsquery_deserializeDocumentTypeSummary, cloudformation@v1.76.1
+// deserializers.go).
 type TypeSummary struct {
 	TypeName         string `xml:"TypeName,omitempty"`
 	TypeArn          string `xml:"TypeArn,omitempty"`

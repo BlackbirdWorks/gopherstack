@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -374,7 +375,24 @@ func (h *Handler) handleDescribeNodeConfigurationOptions(vals url.Values) (any, 
 		options = filtered
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Slice(options, func(i, j int) bool {
+		if options[i].NodeType != options[j].NodeType {
+			return options[i].NodeType < options[j].NodeType
+		}
+
+		return options[i].NumberOfNodes < options[j].NumberOfNodes
+	})
+
+	options, nextMarker := paginateByMarker(options, vals.Get("Marker"), maxRecords,
+		func(o nodeConfigOptionXML) string { return o.NodeType + "#" + strconv.Itoa(o.NumberOfNodes) })
+
 	resp := &describeNodeConfigurationOptionsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.NodeConfigurationOptionList = options
 
 	return resp, nil

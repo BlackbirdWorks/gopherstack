@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"sort"
 	"strconv"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -69,6 +70,7 @@ type xmlSnapshotCopyGrantList struct {
 type describeSnapshotCopyGrantsResponse struct {
 	XMLName xml.Name                 `xml:"DescribeSnapshotCopyGrantsResponse"`
 	Xmlns   string                   `xml:"xmlns,attr"`
+	Marker  string                   `xml:"DescribeSnapshotCopyGrantsResult>Marker,omitempty"`
 	Grants  xmlSnapshotCopyGrantList `xml:"DescribeSnapshotCopyGrantsResult>SnapshotCopyGrants"`
 }
 
@@ -78,6 +80,11 @@ func (h *Handler) handleDescribeSnapshotCopyGrants(vals url.Values) (any, error)
 	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	grants, err := h.Backend.DescribeSnapshotCopyGrants(name)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -96,8 +103,17 @@ func (h *Handler) handleDescribeSnapshotCopyGrants(vals url.Values) (any, error)
 		})
 	}
 
+	sort.Slice(
+		members,
+		func(i, j int) bool { return members[i].SnapshotCopyGrantName < members[j].SnapshotCopyGrantName },
+	)
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(g xmlSnapshotCopyGrant) string { return g.SnapshotCopyGrantName })
+
 	return &describeSnapshotCopyGrantsResponse{
 		Xmlns:  redshiftXMLNS,
+		Marker: nextMarker,
 		Grants: xmlSnapshotCopyGrantList{Grants: members},
 	}, nil
 }

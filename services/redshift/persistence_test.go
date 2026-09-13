@@ -26,7 +26,15 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 		{
 			name: "round_trip_preserves_state",
 			setup: func(b *redshift.InMemoryBackend) string {
-				cluster, err := b.CreateCluster("test-cluster", "ra3.xlplus", "admin", "Pass1234!", nil, "")
+				cluster, err := b.CreateCluster(
+					"test-cluster",
+					"ra3.xlplus",
+					"admin",
+					"Pass1234!",
+					nil,
+					"",
+					redshift.CreateClusterOptions{},
+				)
 				if err != nil {
 					return ""
 				}
@@ -87,7 +95,15 @@ func TestRedshiftHandler_Persistence(t *testing.T) {
 	backend := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	h := redshift.NewHandler(backend)
 
-	_, err := backend.CreateCluster("snap-cluster", "ra3.xlplus", "admin", "Pass1234!", nil, "")
+	_, err := backend.CreateCluster(
+		"snap-cluster",
+		"ra3.xlplus",
+		"admin",
+		"Pass1234!",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	snap := h.Snapshot(t.Context())
@@ -168,7 +184,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateCluster("rt-cluster", "ra3.xlplus", "rtdb", "admin", nil, "")
+	_, err := b.CreateCluster("rt-cluster", "ra3.xlplus", "rtdb", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	b.AddReservedNodeInternal(&redshift.ReservedNode{ReservedNodeID: "rn-1"})
@@ -215,7 +231,7 @@ func TestInMemoryBackend_FullStateRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateTableRestoreStatus("rt-cluster", "rt-snapshot", "srcdb", "srctbl", "dstdb", "dsttbl")
+	_, err = b.CreateTableRestoreStatus("rt-cluster", "rt-snapshot", "srcdb", "srctbl", "dstdb", "dsttbl", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateHsmClientCertificate("rt-hsmcert", nil)
@@ -533,7 +549,7 @@ func TestBackend_SnapshotRestore_NewMaps(t *testing.T) {
 		Status:             "available",
 	})
 
-	_, err := b.CreateCluster("resize-persist-cluster", "", "", "", nil, "")
+	_, err := b.CreateCluster("resize-persist-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 	b.AddActiveResizeInternal("resize-persist-cluster", &redshift.ResizeProgress{
 		Status:            "IN_PROGRESS",
@@ -573,7 +589,7 @@ func TestPersistence_RoundTrip(t *testing.T) {
 	t.Parallel()
 
 	b1 := redshift.NewInMemoryBackend("123456789012", "us-west-2")
-	_, err := b1.CreateCluster("p-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := b1.CreateCluster("p-cluster", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	b1.AddReservedNodeInternal(&redshift.ReservedNode{ReservedNodeID: "rn-p1", NodeType: "dc2.large", State: "active"})

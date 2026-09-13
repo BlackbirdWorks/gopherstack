@@ -37,9 +37,12 @@ type StorageBackend interface {
 		params []Parameter,
 		capabilities []string,
 		tags []Tag,
+		opts CreateChangeSetOptions,
 	) (*ChangeSet, error)
 	DescribeChangeSet(stackName, changeSetName string) (*ChangeSet, error)
-	ExecuteChangeSet(ctx context.Context, stackName, changeSetName string) error
+	ExecuteChangeSet(
+		ctx context.Context, stackName, changeSetName string, disableRollback, retainExceptOnCreate bool,
+	) error
 	DeleteChangeSet(stackName, changeSetName string) error
 	ListChangeSets(stackName, nextToken string) (page.Page[ChangeSetSummary], error)
 	GetTemplate(nameOrID string) (string, error)
@@ -108,8 +111,8 @@ type StorageBackend interface {
 	// Resource scans
 	StartResourceScan() (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
-	ListResourceScans(maxResults int, nextToken string) (page.Page[ResourceScan], error)
-	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
+	ListResourceScans(maxResults int, nextToken, scanTypeFilter string) (page.Page[ResourceScan], error)
+	ListResourceScanResources(scanID, nextToken string, maxResults int) (page.Page[ScannedResource], error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
 	ActivateType(typeName, typeArn string) (string, error)
@@ -122,14 +125,18 @@ type StorageBackend interface {
 	BatchDescribeTypeConfigurations(
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
-	ListTypes(_ string, maxResults int, nextToken string) (page.Page[TypeSummary], error)
+	ListTypes(
+		visibilityFilter, provisioningTypeFilter string, maxResults int, nextToken string,
+	) (page.Page[TypeSummary], error)
 	ListTypeVersions(
 		typeName, deprecatedStatus string, maxResults int, nextToken string,
 	) (page.Page[string], error)
-	ListTypeRegistrations(typeName, typeFilter string, maxResults int, nextToken string) (page.Page[string], error)
+	ListTypeRegistrations(
+		typeName, typeFilter, registrationStatusFilter string, maxResults int, nextToken string,
+	) (page.Page[string], error)
 	DescribeTypeRegistration(registrationToken string) (status, typeArn string, err error)
 	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
-	TestType(typeName, arn string) (string, error)
+	TestType(typeName, arn, versionID string) (string, error)
 	RegisterPublisher(connectionArn string) (string, error)
 	DescribePublisher(publisherID string) (string, error)
 	// Stack refactor

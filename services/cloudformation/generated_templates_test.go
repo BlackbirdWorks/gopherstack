@@ -382,7 +382,7 @@ func TestListResourceScans_PageWalkReproducesFullSet(t *testing.T) {
 
 		token := ""
 		for range total/pageSize + 2 {
-			p, err := b.ListResourceScans(0, token)
+			p, err := b.ListResourceScans(0, token, "")
 			require.NoError(t, err)
 
 			for _, rs := range p.Data {

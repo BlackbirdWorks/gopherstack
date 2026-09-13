@@ -37,7 +37,7 @@ func TestRedshiftCreateCluster(t *testing.T) {
 			name:      "already_exists",
 			clusterID: "dup-cluster",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("dup-cluster", "", "", "", nil, "")
+				_, _ = b.CreateCluster("dup-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 			},
 			wantErr: redshift.ErrClusterAlreadyExists,
 		},
@@ -50,7 +50,15 @@ func TestRedshiftCreateCluster(t *testing.T) {
 			if tt.setup != nil {
 				tt.setup(b)
 			}
-			c, err := b.CreateCluster(tt.clusterID, tt.nodeType, tt.dbName, tt.masterUser, nil, "")
+			c, err := b.CreateCluster(
+				tt.clusterID,
+				tt.nodeType,
+				tt.dbName,
+				tt.masterUser,
+				nil,
+				"",
+				redshift.CreateClusterOptions{},
+			)
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tt.wantErr)
@@ -72,7 +80,7 @@ func TestRedshiftDeleteCluster(t *testing.T) {
 	t.Parallel()
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateCluster("del-cluster", "", "", "", nil, "")
+	_, err := b.CreateCluster("del-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	deleted, err := b.DeleteCluster("del-cluster")
@@ -93,7 +101,7 @@ func TestRedshiftDeleteCluster_ClearsLoggingStatuses(t *testing.T) {
 	t.Parallel()
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	_, err := b.CreateCluster("reused-cluster", "", "", "", nil, "")
+	_, err := b.CreateCluster("reused-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	_, err = b.EnableLogging("reused-cluster", "my-bucket", "")
@@ -103,7 +111,7 @@ func TestRedshiftDeleteCluster_ClearsLoggingStatuses(t *testing.T) {
 	_, err = b.DeleteCluster("reused-cluster")
 	require.NoError(t, err)
 
-	_, err = b.CreateCluster("reused-cluster", "", "", "", nil, "")
+	_, err = b.CreateCluster("reused-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	status, err := b.GetLoggingStatus("reused-cluster")
@@ -126,8 +134,8 @@ func TestRedshiftDescribeClusters(t *testing.T) {
 		{
 			name: "multiple",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("cluster-1", "", "", "", nil, "")
-				_, _ = b.CreateCluster("cluster-2", "", "", "", nil, "")
+				_, _ = b.CreateCluster("cluster-1", "", "", "", nil, "", redshift.CreateClusterOptions{})
+				_, _ = b.CreateCluster("cluster-2", "", "", "", nil, "", redshift.CreateClusterOptions{})
 			},
 			clusterID: "",
 			wantCount: 2,
@@ -174,7 +182,15 @@ func TestRedshiftCreateTags(t *testing.T) {
 			name:      "success",
 			clusterID: "tagged-cluster",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("tagged-cluster", "dc2.large", "mydb", "admin", nil, "")
+				_, _ = b.CreateCluster(
+					"tagged-cluster",
+					"dc2.large",
+					"mydb",
+					"admin",
+					nil,
+					"",
+					redshift.CreateClusterOptions{},
+				)
 			},
 			tags:     map[string]string{"env": "prod", "team": "platform"},
 			wantTags: map[string]string{"env": "prod", "team": "platform"},
@@ -183,7 +199,7 @@ func TestRedshiftCreateTags(t *testing.T) {
 			name:      "overwrite",
 			clusterID: "overwrite-cluster",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("overwrite-cluster", "", "", "", nil, "")
+				_, _ = b.CreateCluster("overwrite-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 				_ = b.CreateTags("overwrite-cluster", map[string]string{"env": "dev"})
 			},
 			tags:     map[string]string{"env": "prod"},
@@ -238,7 +254,7 @@ func TestRedshiftDeleteTags(t *testing.T) {
 			name:      "success",
 			clusterID: "del-tags-cluster",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("del-tags-cluster", "", "", "", nil, "")
+				_, _ = b.CreateCluster("del-tags-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 				_ = b.CreateTags("del-tags-cluster", map[string]string{"env": "prod", "team": "platform"})
 			},
 			keysToRemove:   []string{"env"},
@@ -284,7 +300,7 @@ func TestRedshiftDescribeTags(t *testing.T) {
 	t.Parallel()
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
-	_, _ = b.CreateCluster("empty-tags-cluster", "", "", "", nil, "")
+	_, _ = b.CreateCluster("empty-tags-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 
 	allTags := b.DescribeTags()
 	tags, ok := allTags["empty-tags-cluster"]
@@ -299,7 +315,7 @@ func TestBackend_Reset(t *testing.T) {
 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "")
+	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	b.AddSnapshotInternal(
@@ -334,7 +350,7 @@ func TestExportCountHelpers(t *testing.T) {
 	assert.Equal(t, 0, redshift.EndpointAuthCount(b))
 	assert.Equal(t, 0, redshift.ActiveResizeCount(b))
 
-	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "")
+	_, err := b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, redshift.ClusterCount(b))
 

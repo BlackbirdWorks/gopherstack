@@ -2,7 +2,10 @@ package redshift
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -116,8 +119,13 @@ type xmlEventList struct {
 type describeEventsResponse struct {
 	XMLName xml.Name     `xml:"DescribeEventsResponse"`
 	Xmlns   string       `xml:"xmlns,attr"`
+	Marker  string       `xml:"DescribeEventsResult>Marker,omitempty"`
 	Events  xmlEventList `xml:"DescribeEventsResult>Events"`
 }
+
+// defaultEventDurationMinutes is DescribeEventsInput.Duration's documented
+// default ("Default: 60" -- redshift@v1.65.4 api_op_DescribeEvents.go).
+const defaultEventDurationMinutes = 60
 
 func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 	sourceID := vals.Get("SourceIdentifier")
@@ -128,8 +136,29 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	durationMinutes := defaultEventDurationMinutes
+	if v := vals.Get("Duration"); v != "" {
+		n, convErr := strconv.Atoi(v)
+		if convErr != nil {
+			return nil, fmt.Errorf("%w: Duration must be an integer", ErrInvalidParameter)
+		}
+
+		durationMinutes = n
+	}
+
+	cutoff := time.Now().Add(-time.Duration(durationMinutes) * time.Minute)
+
 	members := make([]xmlEvent, 0, len(events))
 	for _, e := range events {
+		if e.Date.Before(cutoff) {
+			continue
+		}
+
 		members = append(members, xmlEvent{
 			Date:             e.Date.Format(time.RFC3339),
 			SourceIdentifier: e.SourceIdentifier,
@@ -140,8 +169,14 @@ func (h *Handler) handleDescribeEvents(vals url.Values) (any, error) {
 		})
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].EventID < members[j].EventID })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(e xmlEvent) string { return e.EventID })
+
 	return &describeEventsResponse{
 		Xmlns:  redshiftXMLNS,
+		Marker: nextMarker,
 		Events: xmlEventList{Members: members},
 	}, nil
 }
@@ -358,6 +393,7 @@ func (h *Handler) handleDeleteEventSubscription(vals url.Values) (any, error) {
 type describeEventSubscriptionsResponse struct {
 	XMLName            xml.Name                 `xml:"DescribeEventSubscriptionsResponse"`
 	Xmlns              string                   `xml:"xmlns,attr"`
+	Marker             string                   `xml:"DescribeEventSubscriptionsResult>Marker,omitempty"`
 	EventSubscriptions xmlEventSubscriptionList `xml:"DescribeEventSubscriptionsResult>EventSubscriptionsList"`
 }
 
@@ -369,14 +405,25 @@ func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error)
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlEventSubscription, 0, len(subs))
 	for _, s := range subs {
 		sp := s
 		members = append(members, eventSubscriptionToXML(&sp))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].CustSubscriptionID < members[j].CustSubscriptionID })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(s xmlEventSubscription) string { return s.CustSubscriptionID })
+
 	return &describeEventSubscriptionsResponse{
 		Xmlns:              redshiftXMLNS,
+		Marker:             nextMarker,
 		EventSubscriptions: xmlEventSubscriptionList{Members: members},
 	}, nil
 }

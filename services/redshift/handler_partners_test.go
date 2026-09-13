@@ -95,7 +95,7 @@ func TestBackend_AddPartner(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("p-cluster", "", "", "", nil, "")
+				_, _ = b.CreateCluster("p-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 			},
 			accountID: "000000000000",
 			clusterID: "p-cluster",
@@ -414,7 +414,7 @@ func TestBackend_DeletePartner(t *testing.T) {
 		{
 			name: "success",
 			setup: func(b *redshift.InMemoryBackend) {
-				_, _ = b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "")
+				_, _ = b.CreateCluster("c1", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 				_, _ = b.AddPartner("acc", "c1", "mydb", "partner1")
 			},
 			cluster: "c1",

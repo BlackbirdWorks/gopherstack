@@ -63,7 +63,7 @@ func TestHandler_DescribeTableRestoreStatus_DefaultOmitsSucceeded(t *testing.T) 
 	b := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	h := redshift.NewHandler(b)
 
-	tr, err := b.CreateTableRestoreStatus("trs-narrow", "snap-1", "db1", "t1", "db1", "t1_new")
+	tr, err := b.CreateTableRestoreStatus("trs-narrow", "snap-1", "db1", "t1", "db1", "t1_new", "", "")
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -147,7 +147,7 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
 				tr, err := b.CreateTableRestoreStatus(
-					"my-cluster", "my-snap", "db1", "table1", "db1", "table1_restored",
+					"my-cluster", "my-snap", "db1", "table1", "db1", "table1_restored", "", "",
 				)
 				require.NoError(t, err)
 				assert.Equal(t, "IN_PROGRESS", tr.Status)
@@ -165,7 +165,7 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
 				_, err := b.CreateTableRestoreStatus(
-					"succeeded-cluster", "snap-1", "db1", "t1", "db1", "t1_new",
+					"succeeded-cluster", "snap-1", "db1", "t1", "db1", "t1_new", "", "",
 				)
 				require.NoError(t, err)
 
@@ -180,7 +180,7 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			name: "describe_returns_created",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateTableRestoreStatus("my-cluster", "snap-1", "db1", "t1", "db1", "t1_new")
+				_, err := b.CreateTableRestoreStatus("my-cluster", "snap-1", "db1", "t1", "db1", "t1_new", "", "")
 				require.NoError(t, err)
 				statuses, err := b.DescribeTableRestoreStatus("my-cluster")
 				require.NoError(t, err)
@@ -191,7 +191,7 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			name: "missing_cluster_id_returns_error",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateTableRestoreStatus("", "snap-1", "db1", "t1", "db1", "t1_new")
+				_, err := b.CreateTableRestoreStatus("", "snap-1", "db1", "t1", "db1", "t1_new", "", "")
 				require.Error(t, err)
 				assert.ErrorIs(t, err, redshift.ErrInvalidParameter)
 			},
@@ -200,9 +200,9 @@ func TestBackend_TableRestoreStatus(t *testing.T) {
 			name: "multiple_restores_unique_ids",
 			run: func(t *testing.T, b *redshift.InMemoryBackend) {
 				t.Helper()
-				tr1, err := b.CreateTableRestoreStatus("c1", "snap-1", "db1", "t1", "db1", "t1_new")
+				tr1, err := b.CreateTableRestoreStatus("c1", "snap-1", "db1", "t1", "db1", "t1_new", "", "")
 				require.NoError(t, err)
-				tr2, err := b.CreateTableRestoreStatus("c1", "snap-1", "db1", "t2", "db1", "t2_new")
+				tr2, err := b.CreateTableRestoreStatus("c1", "snap-1", "db1", "t2", "db1", "t2_new", "", "")
 				require.NoError(t, err)
 				assert.NotEqual(t, tr1.TableRestoreRequestID, tr2.TableRestoreRequestID)
 			},

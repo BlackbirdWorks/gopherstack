@@ -43,6 +43,18 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 		publiclyAccessible = &b
 	}
 
+	var allowVersionUpgrade *bool
+	if v := vals.Get("AllowVersionUpgrade"); v != "" {
+		b := v == paramValueTrue
+		allowVersionUpgrade = &b
+	}
+
+	var extraComputeForAutomaticOptimization *bool
+	if v := vals.Get("ExtraComputeForAutomaticOptimization"); v != "" {
+		b := v == paramValueTrue
+		extraComputeForAutomaticOptimization = &b
+	}
+
 	numberOfNodes := 0
 
 	if numberOfNodesStr != "" {
@@ -65,17 +77,42 @@ func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 		port = p
 	}
 
+	var automatedSnapshotRetentionPeriod *int
+	if v := vals.Get("AutomatedSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: AutomatedSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
+		}
+
+		automatedSnapshotRetentionPeriod = &n
+	}
+
+	var manualSnapshotRetentionPeriod *int
+	if v := vals.Get("ManualSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return nil, fmt.Errorf("%w: ManualSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
+		}
+
+		manualSnapshotRetentionPeriod = &n
+	}
+
 	cluster, err := h.Backend.ModifyCluster(id, ModifyClusterOptions{
-		NodeType:            vals.Get("NodeType"),
-		MasterUserPassword:  vals.Get("MasterUserPassword"),
-		ClusterVersion:      vals.Get("ClusterVersion"),
-		VpcSecurityGroupIDs: parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
-		NumberOfNodes:       numberOfNodes,
-		Port:                port,
-		Encrypted:           encrypted,
-		EnhancedVpcRouting:  enhancedVpcRouting,
-		PubliclyAccessible:  publiclyAccessible,
-		ApplyImmediately:    applyImmediatelyStr != "false",
+		NodeType:                             vals.Get("NodeType"),
+		MasterUserPassword:                   vals.Get("MasterUserPassword"),
+		ClusterVersion:                       vals.Get("ClusterVersion"),
+		ClusterParameterGroupName:            vals.Get("ClusterParameterGroupName"),
+		VpcSecurityGroupIDs:                  parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
+		NumberOfNodes:                        numberOfNodes,
+		Port:                                 port,
+		Encrypted:                            encrypted,
+		EnhancedVpcRouting:                   enhancedVpcRouting,
+		PubliclyAccessible:                   publiclyAccessible,
+		AllowVersionUpgrade:                  allowVersionUpgrade,
+		ExtraComputeForAutomaticOptimization: extraComputeForAutomaticOptimization,
+		AutomatedSnapshotRetentionPeriod:     automatedSnapshotRetentionPeriod,
+		ManualSnapshotRetentionPeriod:        manualSnapshotRetentionPeriod,
+		ApplyImmediately:                     applyImmediatelyStr != "false",
 	})
 	if err != nil {
 		return nil, err
@@ -224,8 +261,9 @@ func (h *Handler) handleModifyClusterIamRoles(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	addRoles := parseStringList(vals, "AddIamRoles.IamRoleArn.")
 	removeRoles := parseStringList(vals, "RemoveIamRoles.IamRoleArn.")
+	defaultIamRoleArn := vals.Get("DefaultIamRoleArn")
 
-	cluster, err := h.Backend.ModifyClusterIamRoles(id, addRoles, removeRoles)
+	cluster, err := h.Backend.ModifyClusterIamRoles(id, addRoles, removeRoles, defaultIamRoleArn)
 	if err != nil {
 		return nil, err
 	}
@@ -271,12 +309,18 @@ type describeClusterDBRevisionsResponse struct {
 	XMLName xml.Name `xml:"DescribeClusterDBRevisionsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker             string                 `xml:"Marker,omitempty"`
 		ClusterDBRevisions []clusterDBRevisionXML `xml:"ClusterDBRevisions>ClusterDbRevision"`
 	} `xml:"DescribeClusterDBRevisionsResult"`
 }
 
 func (h *Handler) handleDescribeClusterDBRevisions(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
+
+	if _, err := parseRedshiftMaxRecords(vals); err != nil {
+		return nil, err
+	}
+
 	resp := &describeClusterDBRevisionsResponse{Xmlns: redshiftXMLNS}
 
 	if id != "" {

@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 )
 
@@ -57,6 +58,7 @@ type xmlReservedNodeList struct {
 type describeReservedNodesResponse struct {
 	XMLName       xml.Name            `xml:"DescribeReservedNodesResponse"`
 	Xmlns         string              `xml:"xmlns,attr"`
+	Marker        string              `xml:"DescribeReservedNodesResult>Marker,omitempty"`
 	ReservedNodes xmlReservedNodeList `xml:"DescribeReservedNodesResult>ReservedNodes"`
 }
 
@@ -68,14 +70,25 @@ func (h *Handler) handleDescribeReservedNodes(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlReservedNode, 0, len(nodes))
 	for _, n := range nodes {
 		np := n
 		members = append(members, reservedNodeToXML(&np))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].ReservedNodeID < members[j].ReservedNodeID })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(n xmlReservedNode) string { return n.ReservedNodeID })
+
 	return &describeReservedNodesResponse{
 		Xmlns:         redshiftXMLNS,
+		Marker:        nextMarker,
 		ReservedNodes: xmlReservedNodeList{Members: members},
 	}, nil
 }
@@ -101,6 +114,7 @@ func reservedNodeToXML(n *ReservedNode) xmlReservedNode {
 type describeReservedNodeOfferingsResponse struct {
 	XMLName               xml.Name                    `xml:"DescribeReservedNodeOfferingsResponse"`
 	Xmlns                 string                      `xml:"xmlns,attr"`
+	Marker                string                      `xml:"DescribeReservedNodeOfferingsResult>Marker,omitempty"`
 	ReservedNodeOfferings xmlReservedNodeOfferingList `xml:"DescribeReservedNodeOfferingsResult>ReservedNodeOfferings"`
 }
 
@@ -112,13 +126,27 @@ func (h *Handler) handleDescribeReservedNodeOfferings(vals url.Values) (any, err
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlReservedNodeOffering, 0, len(offerings))
 	for _, o := range offerings {
 		members = append(members, xmlReservedNodeOffering(o))
 	}
 
+	sort.Slice(
+		members,
+		func(i, j int) bool { return members[i].ReservedNodeOfferingID < members[j].ReservedNodeOfferingID },
+	)
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(o xmlReservedNodeOffering) string { return o.ReservedNodeOfferingID })
+
 	return &describeReservedNodeOfferingsResponse{
 		Xmlns:                 redshiftXMLNS,
+		Marker:                nextMarker,
 		ReservedNodeOfferings: xmlReservedNodeOfferingList{Members: members},
 	}, nil
 }

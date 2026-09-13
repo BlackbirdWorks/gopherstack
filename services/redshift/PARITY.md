@@ -87,11 +87,137 @@ gaps: []          # bd gopherstack-0eyk (IdcApplication missing inner <RedshiftI
                    # wrapper) FIXED this pass -- see families.IdcApplication above for detail.
 items_still_open:
   - "2026-09-12 (typed slice 5, gopherstack-n3zi): GetReservedNodeExchangeConfigurationOptions (fixed this pass from a disguised stub -- see the dated section below) accepts ClusterIdentifier/SnapshotIdentifier/ActionType but does not scope its ReservedNodeConfigurationOptionList by them: this backend does not track which specific cluster/snapshot a reservation applies to, so it returns one configuration option per account-wide reserved node against the static offering catalog, unfiltered. Documented rather than fabricating a cluster/snapshot-to-reservation link that does not exist."
+  - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier remains unread -- this backend never executes queries against a restored table (no SQL engine), so there is no identifier case-sensitivity behavior to gate; left honestly unimplemented rather than accepted-then-discarded with a fabricated effect. SourceSchemaName/TargetSchemaName (same op) were genuinely dropped and are now fixed -- see 2026-09-13 Notes section."
+  - "2026-09-13 (gopherstack-xhu2t tier-1 sweep): GetClusterCredentials.DbGroups remains unread -- the real field adds the temporary user to existing database groups for the session; this backend has no real database/session/group-membership model to add to (GetClusterCredentials only mints a pseudo-password/Expiration pair), so there is nothing observable a test could assert. DurationSeconds (same op, and GetClusterCredentialsWithIAM's) was genuinely dropped and is now fixed -- see 2026-09-13 Notes section."
 deferred: []      # all 17 prior deferred families field-diffed in the 2026-07-22 pass, see families above
 leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconciler use a WaitGroup + stop channel, idempotent, no per-cluster goroutines. New Qev2IdcApplication store.Table this pass introduces no goroutines/tickers -- registered through the existing store.Registry the same way every other table is (store_setup.go), snapshotted/restored generically via registry.SnapshotAll/RestoreAll, no bespoke persistence code added."}
 ---
 
 ## Notes
+
+### 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 49 tier-1 undeclared-request-field findings, 47 fixed, 2 recorded
+
+`cmd/reqfielddiff -dir redshift` reported 49 tier-1 findings. All 49
+hand-verified against `redshift@v1.65.4`'s `serializers.go` (request key
+spelling) and `deserializers.go` (response echo shape) before fixing.
+Grouped by mechanism:
+
+**Pagination (18 Describe ops, 1 mechanism)**: `DescribeClusterDbRevisions`,
+`DescribeClusterParameterGroups`, `DescribeClusterParameters`,
+`DescribeClusterVersions`, `DescribeDefaultClusterParameters`,
+`DescribeEventSubscriptions`, `DescribeEvents`,
+`DescribeHsmClientCertificates`, `DescribeHsmConfigurations`,
+`DescribeInboundIntegrations`, `DescribeIntegrations`,
+`DescribeNodeConfigurationOptions`, `DescribeOrderableClusterOptions`,
+`DescribeReservedNodeOfferings`, `DescribeReservedNodes`,
+`DescribeScheduledActions`, `DescribeSnapshotCopyGrants`,
+`DescribeUsageLimits` all silently ignored `MaxRecords`/`Marker` entirely --
+three (`DescribeClusterVersions`/`DescribeClusterTracks`/
+`DescribeOrderableClusterOptions`) took `_ url.Values` outright, the rest
+just never read the two keys. New shared helper
+(`handler_pagination.go`: `parseRedshiftMaxRecords` validating the
+documented `Default: 100, Constraints: minimum 20, maximum 100` range, and
+generic `paginateByMarker[V any]`) applied uniformly, mirroring this
+service's own pre-existing `DescribeClusters`/`paginateTaggedByName`
+Marker convention (last-seen-identifier cursor, not `pkgs/page`'s
+opaque-index convention -- kept consistent with what was already here
+rather than introducing a second style). Proven two ways: `MaxRecords`
+range-validation rejection for all 18 (cheap, uniform, provable even for
+the several ops backed by small static catalogs too short to truncate),
+plus real create-N/truncate/continue-via-Marker proof against two
+differently-shaped backends (`DescribeHsmClientCertificates`'s plain-slice
+`Backend.DescribeX` path, `DescribeClusterParameterGroups`'
+`store.Table`-backed path) -- both in `realclient_describe_pagination_test.go`.
+
+**Documented filters dropped alongside pagination**: `DescribeEvents.Duration`
+(minutes-prior-to-now window, default 60) was also unread -- fixed
+alongside its Marker/MaxRecords fix, proven via a new
+`AddEventInternal` test-seed method (`events.go`) since production code
+never itself populates the events table (pre-existing structural fact,
+not new this pass) so no prior test could exercise it either.
+`DescribeOrderableClusterOptions.ClusterVersion` (documented filter,
+flagged tier5 "no strong signal" by the census but verifiably unread) is
+now honored: this backend's only modeled version is `"1.0"`, so a mismatched
+filter value returns an empty list rather than being silently ignored.
+
+**Create/modify cluster attributes (24 findings, 1 mechanism)**:
+`CreateCluster` dropped `AllowVersionUpgrade`, `AutomatedSnapshotRetentionPeriod`,
+`AvailabilityZone`, `ClusterSubnetGroupName`, `DefaultIamRoleArn`,
+`ExtraComputeForAutomaticOptimization`, `ManualSnapshotRetentionPeriod`,
+`Port`, `VpcSecurityGroupIds` entirely -- none of the first seven existed
+on the `Cluster` model at all; `Port`/`VpcSecurityGroupIds` existed but
+were never read by `CreateCluster` specifically (a sibling op,
+`ModifyCluster`, already read `VpcSecurityGroupIds` correctly, confirming
+the wire key). `ModifyCluster` was missing five of the same seven
+(`AllowVersionUpgrade`, `AutomatedSnapshotRetentionPeriod`,
+`ClusterParameterGroupName`, `ExtraComputeForAutomaticOptimization`,
+`ManualSnapshotRetentionPeriod`). `RestoreFromClusterSnapshot` took only
+`ClusterIdentifier`/`SnapshotIdentifier`, dropping all eight of
+`AllowVersionUpgrade`, `AutomatedSnapshotRetentionPeriod`,
+`AvailabilityZone`, `ClusterParameterGroupName`, `DefaultIamRoleArn`,
+`ManualSnapshotRetentionPeriod`, `Port`, `VpcSecurityGroupIds`. Fixed by
+adding the seven new fields to `Cluster` (`models.go`) and `xmlCluster`
+(`handler.go`, flat elements, confirmed against
+`awsAwsquery_deserializeDocumentCluster`), a new `CreateClusterOptions`
+struct (`store.go`) and `RestoreFromClusterSnapshotOptions` struct
+(`snapshots.go`), threading validated values through (0-35 range for
+automated retention, -1-or-1..3653 for manual retention, matching this
+service's existing `handler_snapshots.go` precedent for the same
+constraint on `ModifySnapshotCopyRetentionPeriod`). `AutomatedSnapshotRetentionPeriod`
+is genuinely tracked in real `PendingModifiedValues`
+(`types.PendingModifiedValues`, confirmed) so `ModifyCluster` gates it the
+same ApplyImmediately-conditional way as `NodeType`/`NumberOfNodes`/etc;
+the other four new `ModifyCluster` fields are NOT in `PendingModifiedValues`
+so apply unconditionally, matching the existing `VpcSecurityGroupIds`/`Port`
+precedent in this same function.
+`CreateCluster`'s positional signature grew a trailing `CreateClusterOptions`
+parameter -- ~90 call sites across this package's tests plus three external
+callers (`cli_test.go`, `services/cloudformation/resources_redshift.go`,
+`test/e2e/redshift_test.go`) updated; all shared the literal trailing
+`, nil, "")` pattern except two `fmt.Sprintf`-built IDs in
+`reconciler_test.go`, fixed by hand.
+
+**Standalone create/modify/delete-op fields (5 findings, distinct
+mechanisms each)**: `DeleteCluster.FinalClusterSnapshotRetentionPeriod`
+(-1-or-1..3653, default -1) was dropped -- `CreateClusterSnapshot` always
+hardcoded the final snapshot's `ManualSnapshotRetentionPeriod` to -1; fixed
+by validating the field then applying it via the existing
+`ModifyClusterSnapshot` method right after the final snapshot is created.
+`ModifyClusterIamRoles.DefaultIamRoleArn` was dropped entirely (only
+`AddIamRoles`/`RemoveIamRoles` were read) -- added as a new parameter,
+applied to `Cluster.DefaultIamRoleArn` when non-empty.
+`RestoreTableFromClusterSnapshot.SourceSchemaName`/`TargetSchemaName` were
+dropped (`TargetSchemaName` itself only tier5-flagged, fixed alongside its
+tier1 sibling since both share the same "public" documented default and
+the same `types.TableRestoreStatus` echo-back fields) -- added to
+`TableRestoreStatus` (`models.go`) and `xmlTableRestoreStatus`
+(`handler_table_restore.go`), defaulting to `"public"` per
+`RestoreTableFromClusterSnapshotInput`'s own doc text.
+`GetClusterCredentials.DurationSeconds`/`GetClusterCredentialsWithIAM.DurationSeconds`
+(900-3600, default 900) were dropped -- both hardcoded `Expiration` to
+`now + 1 hour` regardless of the request; fixed via a shared
+`resolveCredentialsDuration` helper (`credentials.go`).
+`EnableCaseSensitiveIdentifier`/`DbGroups` recorded as genuine gaps (no
+SQL engine / session model to apply either to) -- see `items_still_open`.
+
+All fixes proven via two new table-driven real-typed-client test files,
+`realclient_cluster_lifecycle_fields_test.go`
+(`TestRealClient_ClusterLifecycleFields`, 8 subtests: create/modify/restore
+cluster fields, delete-cluster retention, iam-roles default arn,
+table-restore schema names, both credentials-duration ops) and
+`realclient_describe_pagination_test.go`
+(`TestRealClient_DescribePagination`, 5 subtests including the 18-op
+MaxRecords-validation table). `go build ./...`, `go vet .`,
+`go vet ./services/redshift/... ./services/cloudformation/...`,
+`go test -race -count=1 -p 2 ./services/redshift/...` all clean.
+`golangci-lint run --concurrency 2 --new-from-rev=HEAD ./services/redshift/...`
+clean. `go run ./cmd/paritylint` 0 missing-items-still-open FAIL. Cluster
+is a persisted struct -- 7 new field rows added by hand to
+`pkgs/persistence/testdata/snapshot_inventory.json` (sorted), plus 1 for
+`ClusterPendingModifiedValues.AutomatedSnapshotRetentionPeriod` and 2 for
+`TableRestoreStatus.SourceSchemaName`/`TargetSchemaName`; no snapshot
+version bump (additive fields only, all with Go zero-value defaults for
+already-persisted clusters).
 
 ### 2026-09-12 (gopherstack-n3zi): Redshift Serverless typed-client round trips, 150/198 -> 198/198
 
