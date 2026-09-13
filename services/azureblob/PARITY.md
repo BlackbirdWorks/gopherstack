@@ -20,8 +20,7 @@ families:
   blob_body_headers: {status: ok, note: "x-ms-version, x-ms-request-id, and Date are set on every response (success and error paths) via setCommonHeaders, so azure-sdk-for-go's response parsing does not error on missing headers."}
   routing_isolation: {status: ok, note: "Runs on its own dedicated *http.Server, bound synchronously in StartWorker to a fixed port (default 10000 via --azure-blob-port/AZURE_BLOB_PORT, no fallback pool -- fails fast if unavailable, mirroring services/iot's MQTT broker), never registered into the shared AWS single-port Router -- see provider.go's Provider doc comment and AZURE.md section 4 for the full rationale. cli.go's reserveFixedServicePorts additionally reserves this port in the shared PortAlloc pool (pkgs/portalloc.Allocator.Reserve) at startup, since 10000 sits inside --port-range-start/--port-range-end's own default range and would otherwise be handed to an unrelated Acquire caller (fixed in M0 review)."}
   observability: {status: ok, note: "StartWorker wraps its Echo handler with telemetry.WrapEchoHandler so ExtractOperation/ExtractResource feed Prometheus metrics, and derives its listener logger via logger.WithWorker(ctx, \"azureblob\", \"listener\"). InMemoryBackend and the server-lifecycle mutex both use *lockmetrics.RWMutex instead of raw sync.RWMutex/Mutex, matching repo convention."}
-gaps: []
-items_still_open:
+gaps:
   - "Put Block / Put Block List (large-object multipart upload) is not implemented -- Put Blob only accepts a single whole-body BlockBlob PUT. Deliberate M0 scope per AZURE.md; not currently assigned to a later milestone (see AZURE.md section 8's M0 entry for the full deferred-gaps list)."
   - "No ACL / container public-access-level support (x-ms-blob-public-access, Set/Get Container ACL are unimplemented)."
   - "No blob or container metadata (x-ms-meta-* headers) -- neither stored on PUT/Create nor returned on GET/HEAD/List."

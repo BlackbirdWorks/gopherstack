@@ -70,7 +70,7 @@ func discoverManifests(servicesDir string) ([]manifest, error) {
 
 	var slugs []string
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir() && !isNonAWSService(e.Name()) {
 			slugs = append(slugs, e.Name())
 		}
 	}
@@ -253,4 +253,11 @@ func (m manifest) otherText(excludeStart, excludeEnd int) string {
 
 func (m manifest) fullText() string {
 	return strings.Join(m.lines, "\n")
+}
+
+// isNonAWSService reports the Azure emulation dirs, which are owned by a
+// separate workstream and carry their own manifest conventions; the AWS
+// parity lint must never require edits there.
+func isNonAWSService(slug string) bool {
+	return strings.HasPrefix(slug, "azure") || slug == "cosmosdb"
 }
