@@ -52,6 +52,26 @@ func TestParseGenericResourcePath(t *testing.T) {
 				Names: []string{"acct1", "db1", "c1"},
 			},
 		},
+		{
+			name: "service bus namespace/topic/subscription (3 pairs)",
+			path: "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.ServiceBus/" +
+				"namespaces/ns1/topics/t1/subscriptions/s1",
+			wantID: azurearm.ResourceID{
+				SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
+				Types: []string{"namespaces", "topics", "subscriptions"},
+				Names: []string{"ns1", "t1", "s1"},
+			},
+		},
+		{
+			name: "service bus namespace/authorizationRule (2 pairs, sibling of queues/topics)",
+			path: "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.ServiceBus/" +
+				"namespaces/ns1/authorizationRules/rule1",
+			wantID: azurearm.ResourceID{
+				SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
+				Types: []string{"namespaces", "authorizationRules"},
+				Names: []string{"ns1", "rule1"},
+			},
+		},
 		{name: "too short", path: "/subscriptions/sub1/resourceGroups/rg1", expectError: true},
 		{name: "not subscriptions", path: "/subscription/sub1/resourceGroups/rg1/providers/ns/t/n", expectError: true},
 		{

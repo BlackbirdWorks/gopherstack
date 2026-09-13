@@ -61,6 +61,14 @@ const (
 	// itself actually talks to for azurerm_storage_container/_blob/_queue/
 	// _table, since its data-plane SDK requires virtual-hosted-style URLs.
 	hostPortStorageVHost = "18010"
+	// hostPortServiceBus is services/azureservicebus's published port
+	// (AZURE.md section 10.10's M9 entry) -- the port
+	// TestTerraform_Azure_ServiceBus's REST send->peek-lock->complete
+	// round-trip talks to directly, and what
+	// AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT below points ARM's
+	// serviceBusEndpoint at (container-internal 10003 isn't reachable from
+	// the host-side tofu process, mirroring hostPortStorageVHost's rationale).
+	hostPortServiceBus = "18003"
 )
 
 // containerCertPath/containerKeyPath are where the stable dev certificate
@@ -244,7 +252,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 		},
 		AutoRemove: true,
 		ExposedPorts: []string{
-			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp",
+			"10006/tcp", "10000/tcp", "10001/tcp", "10002/tcp", "10010/tcp", "10003/tcp",
 		},
 		HostConfigModifier: func(hc *dockercontainer.HostConfig) {
 			hc.PortBindings = mustFixedPortMap(map[string]string{
@@ -253,6 +261,7 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 				"10001/tcp": hostPortQueue,
 				"10002/tcp": hostPortTable,
 				"10010/tcp": hostPortStorageVHost,
+				"10003/tcp": hostPortServiceBus,
 			})
 		},
 		// M8: services/azurearm's advertiseVHostEndpoint (rp_storage.go)
@@ -285,7 +294,13 @@ func startGopherstackContainer(ctx context.Context, logger *slog.Logger) (testco
 			// (host:port only, no scheme -- it's also the domainSuffix
 			// jackofallops/giovanni's ParseAccountID needs).
 			"AZURE_ARM_ADVERTISE_STORAGE_VHOST": "localhost:" + hostPortStorageVHost,
-			"LOG_LEVEL":                         "debug",
+			// AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT: same rationale as
+			// AZURE_ARM_ADVERTISE_STORAGE_VHOST above -- ARM's default
+			// serviceBusEndpoint advertisement would otherwise point at
+			// container-internal port 10003, which a host-side tofu process
+			// cannot reach.
+			"AZURE_ARM_ADVERTISE_SERVICEBUS_ENDPOINT": "localhost:" + hostPortServiceBus,
+			"LOG_LEVEL": "debug",
 			// A stable cert/key (see prepareStableCert), copied into the
 			// container below via Files, rather than services/azurearm's
 			// default of generating a fresh self-signed certificate on every

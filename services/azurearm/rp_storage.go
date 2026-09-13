@@ -350,8 +350,8 @@ func (p *StorageProvider) ListKeys(_ context.Context, id ResourceID) (map[string
 
 	return map[string]any{
 		"keys": []map[string]any{
-			{"keyName": "key1", fieldValue: azureauth.DefaultAccountKey, "permissions": "Full"},
-			{"keyName": "key2", fieldValue: azureauth.DefaultAccountKey, "permissions": "Full"},
+			{fieldKeyName: "key1", fieldValue: azureauth.DefaultAccountKey, "permissions": "Full"},
+			{fieldKeyName: "key2", fieldValue: azureauth.DefaultAccountKey, "permissions": "Full"},
 		},
 	}, nil
 }
@@ -365,7 +365,7 @@ func (p *StorageProvider) ListKeys(_ context.Context, id ResourceID) (map[string
 // ever available (e.g. a unit test constructing the provider directly).
 func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) map[string]any {
 	props := map[string]any{
-		"provisioningState": provisioningStateSucceeded,
+		fieldProvisioningState: provisioningStateSucceeded,
 		"primaryEndpoints": map[string]any{
 			"blob":  advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "blob", acct.name),
 			"queue": advertiseVHostEndpoint(p.cfg.VHostOverride, acct.host, p.cfg.VHostPort, "queue", acct.name),
@@ -387,7 +387,7 @@ func (p *StorageProvider) buildBody(id ResourceID, acct *storedStorageAccount) m
 	if len(acct.sku) > 0 {
 		body["sku"] = acct.sku
 	} else {
-		body["sku"] = map[string]any{"name": "Standard_LRS", "tier": "Standard"}
+		body["sku"] = map[string]any{"name": "Standard_LRS", "tier": skuTierStandard}
 	}
 
 	if acct.kind != "" {
