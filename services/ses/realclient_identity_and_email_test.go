@@ -551,14 +551,23 @@ func TestRealClient_IdentityAndEmail(t *testing.T) {
 				t.Helper()
 
 				ctx := t.Context()
-				client := newRealClient(t)
 
-				_, err := client.VerifyEmailIdentity(ctx, &sessdk.VerifyEmailIdentityInput{
+				// Each backend enforces MaxSendRate at 1 email/second
+				// (sending_stats.go), so every send that consumes the quota
+				// gets its own backend here -- otherwise two sends landing
+				// in the same wall-clock second would flake on Throttling.
+				// SendBounce is the exception: it never calls
+				// checkSendingAllowedLocked (see SendBounce), so it's safe
+				// to run right after the SendEmail it bounces on the same
+				// backend.
+				emailClient := newRealClient(t)
+
+				_, err := emailClient.VerifyEmailIdentity(ctx, &sessdk.VerifyEmailIdentityInput{
 					EmailAddress: aws.String("sender@example.com"),
 				})
 				require.NoError(t, err)
 
-				sent, err := client.SendEmail(ctx, &sessdk.SendEmailInput{
+				sent, err := emailClient.SendEmail(ctx, &sessdk.SendEmailInput{
 					Source: aws.String("sender@example.com"),
 					Destination: &types.Destination{
 						ToAddresses: []string{"success@simulator.amazonses.com"},
@@ -573,19 +582,46 @@ func TestRealClient_IdentityAndEmail(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotEmpty(t, aws.ToString(sent.MessageId))
 
+				bounced, err := emailClient.SendBounce(ctx, &sessdk.SendBounceInput{
+					OriginalMessageId: aws.String(aws.ToString(sent.MessageId)),
+					BounceSender:      aws.String("sender@example.com"),
+					BouncedRecipientInfoList: []types.BouncedRecipientInfo{
+						{
+							Recipient:  aws.String("success@simulator.amazonses.com"),
+							BounceType: types.BounceTypeContentRejected,
+						},
+					},
+				})
+				require.NoError(t, err)
+				assert.NotEmpty(t, aws.ToString(bounced.MessageId))
+
+				rawClient := newRealClient(t)
+
+				_, err = rawClient.VerifyEmailIdentity(ctx, &sessdk.VerifyEmailIdentityInput{
+					EmailAddress: aws.String("sender@example.com"),
+				})
+				require.NoError(t, err)
+
 				rawMsg := "From: sender@example.com\r\n" +
 					"To: raw-dest@example.com\r\n" +
 					"Subject: Slice18 raw subject\r\n" +
 					"\r\n" +
 					"Slice18 raw body\r\n"
 
-				rawSent, err := client.SendRawEmail(ctx, &sessdk.SendRawEmailInput{
+				rawSent, err := rawClient.SendRawEmail(ctx, &sessdk.SendRawEmailInput{
 					RawMessage: &types.RawMessage{Data: []byte(rawMsg)},
 				})
 				require.NoError(t, err)
 				assert.NotEmpty(t, aws.ToString(rawSent.MessageId))
 
-				_, err = client.CreateTemplate(ctx, &sessdk.CreateTemplateInput{
+				templatedClient := newRealClient(t)
+
+				_, err = templatedClient.VerifyEmailIdentity(ctx, &sessdk.VerifyEmailIdentityInput{
+					EmailAddress: aws.String("sender@example.com"),
+				})
+				require.NoError(t, err)
+
+				_, err = templatedClient.CreateTemplate(ctx, &sessdk.CreateTemplateInput{
 					Template: &types.Template{
 						TemplateName: aws.String("slice18-send-template"),
 						SubjectPart:  aws.String("Hi {{name}}"),
@@ -594,7 +630,7 @@ func TestRealClient_IdentityAndEmail(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				templatedSent, err := client.SendTemplatedEmail(ctx, &sessdk.SendTemplatedEmailInput{
+				templatedSent, err := templatedClient.SendTemplatedEmail(ctx, &sessdk.SendTemplatedEmailInput{
 					Source: aws.String("sender@example.com"),
 					Destination: &types.Destination{
 						ToAddresses: []string{"success@simulator.amazonses.com"},
@@ -605,7 +641,23 @@ func TestRealClient_IdentityAndEmail(t *testing.T) {
 				require.NoError(t, err)
 				assert.NotEmpty(t, aws.ToString(templatedSent.MessageId))
 
-				bulkSent, err := client.SendBulkTemplatedEmail(ctx, &sessdk.SendBulkTemplatedEmailInput{
+				bulkClient := newRealClient(t)
+
+				_, err = bulkClient.VerifyEmailIdentity(ctx, &sessdk.VerifyEmailIdentityInput{
+					EmailAddress: aws.String("sender@example.com"),
+				})
+				require.NoError(t, err)
+
+				_, err = bulkClient.CreateTemplate(ctx, &sessdk.CreateTemplateInput{
+					Template: &types.Template{
+						TemplateName: aws.String("slice18-send-template"),
+						SubjectPart:  aws.String("Hi {{name}}"),
+						TextPart:     aws.String("Hello {{name}}"),
+					},
+				})
+				require.NoError(t, err)
+
+				bulkSent, err := bulkClient.SendBulkTemplatedEmail(ctx, &sessdk.SendBulkTemplatedEmailInput{
 					Source:              aws.String("sender@example.com"),
 					Template:            aws.String("slice18-send-template"),
 					DefaultTemplateData: aws.String(`{"name":"Default"}`),
@@ -620,19 +672,6 @@ func TestRealClient_IdentityAndEmail(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, bulkSent.Status, 1)
 				assert.NotEmpty(t, aws.ToString(bulkSent.Status[0].MessageId))
-
-				bounced, err := client.SendBounce(ctx, &sessdk.SendBounceInput{
-					OriginalMessageId: aws.String(aws.ToString(sent.MessageId)),
-					BounceSender:      aws.String("sender@example.com"),
-					BouncedRecipientInfoList: []types.BouncedRecipientInfo{
-						{
-							Recipient:  aws.String("success@simulator.amazonses.com"),
-							BounceType: types.BounceTypeContentRejected,
-						},
-					},
-				})
-				require.NoError(t, err)
-				assert.NotEmpty(t, aws.ToString(bounced.MessageId))
 			},
 		},
 	}
