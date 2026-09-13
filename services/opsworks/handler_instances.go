@@ -9,15 +9,15 @@ import (
 // handleCreateInstance handles CreateInstance requests.
 func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		InstallUpdatesOnBoot *bool    `json:"InstallUpdatesOnBoot"`
 		StackID              string   `json:"StackId"`
 		InstanceType         string   `json:"InstanceType"`
-		LayerIDs             []string `json:"LayerIds"`
 		AgentVersion         string   `json:"AgentVersion"`
 		Architecture         string   `json:"Architecture"`
 		Os                   string   `json:"Os"`
 		SubnetID             string   `json:"SubnetId"`
 		Tenancy              string   `json:"Tenancy"`
-		InstallUpdatesOnBoot *bool    `json:"InstallUpdatesOnBoot"`
+		LayerIDs             []string `json:"LayerIds"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -137,11 +137,11 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 // handleUpdateInstance handles UpdateInstance requests.
 func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 		InstanceID           string `json:"InstanceId"`
 		Hostname             string `json:"Hostname"`
 		AgentVersion         string `json:"AgentVersion"`
 		Os                   string `json:"Os"`
-		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

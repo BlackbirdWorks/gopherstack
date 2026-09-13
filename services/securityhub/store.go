@@ -332,51 +332,16 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.hubEnabled = snap.HubEnabled
 	b.hub = snap.Hub
 
-	b.findings = snap.Findings
-	if b.findings == nil {
-		b.findings = make(map[string]map[string]any)
-	}
-
-	b.findingHistory = snap.FindingHistory
-	if b.findingHistory == nil {
-		b.findingHistory = make(map[string][]map[string]any)
-	}
+	b.restoreMapFields(&snap)
 
 	b.insightSeq = snap.InsightSeq
 	b.standardsSeq = snap.StandardsSeq
 	b.actionTargetSeq = snap.ActionTargetSeq
-
-	b.productSubscriptions = snap.ProductSubscriptions
-	if b.productSubscriptions == nil {
-		b.productSubscriptions = make(map[string]string)
-	}
-
-	b.controlParams = snap.ControlParams
-	if b.controlParams == nil {
-		b.controlParams = make(map[string]map[string]any)
-	}
-
 	b.automationRuleSeq = snap.AutomationRuleSeq
-
-	b.tags = snap.Tags
-	if b.tags == nil {
-		b.tags = make(map[string]map[string]string)
-	}
 
 	// Members / Invitations / Admin
 	b.adminAccount = snap.AdminAccount
 	b.orgConfig = snap.OrgConfig
-
-	b.orgAdminAccounts = snap.OrgAdminAccounts
-	if b.orgAdminAccounts == nil {
-		b.orgAdminAccounts = make(map[string]string)
-	}
-
-	b.orgAdminAccountFeatures = snap.OrgAdminAccountFeatures
-	if b.orgAdminAccountFeatures == nil {
-		b.orgAdminAccountFeatures = make(map[string]string)
-	}
-
 	b.memberSeq = snap.MemberSeq
 	// Finding Aggregator
 	b.findingAggregatorSeq = snap.FindingAggregatorSeq
@@ -392,6 +357,46 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.cspmConnectorSeq = snap.CspmConnectorSeq
 
 	return nil
+}
+
+// restoreMapFields restores the map-typed snapshot fields, defaulting each to
+// an empty map when the snapshot carried nil. Split out of Restore to keep
+// that method under the funlen limit.
+func (b *InMemoryBackend) restoreMapFields(snap *snapshot) {
+	b.findings = snap.Findings
+	if b.findings == nil {
+		b.findings = make(map[string]map[string]any)
+	}
+
+	b.findingHistory = snap.FindingHistory
+	if b.findingHistory == nil {
+		b.findingHistory = make(map[string][]map[string]any)
+	}
+
+	b.productSubscriptions = snap.ProductSubscriptions
+	if b.productSubscriptions == nil {
+		b.productSubscriptions = make(map[string]string)
+	}
+
+	b.controlParams = snap.ControlParams
+	if b.controlParams == nil {
+		b.controlParams = make(map[string]map[string]any)
+	}
+
+	b.tags = snap.Tags
+	if b.tags == nil {
+		b.tags = make(map[string]map[string]string)
+	}
+
+	b.orgAdminAccounts = snap.OrgAdminAccounts
+	if b.orgAdminAccounts == nil {
+		b.orgAdminAccounts = make(map[string]string)
+	}
+
+	b.orgAdminAccountFeatures = snap.OrgAdminAccountFeatures
+	if b.orgAdminAccountFeatures == nil {
+		b.orgAdminAccountFeatures = make(map[string]string)
+	}
 }
 
 // filterOrAll returns values from m for the given arns, or all values if arns

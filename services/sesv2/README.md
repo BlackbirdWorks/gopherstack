@@ -9,9 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 112 (110 ok, 2 partial) |
 | Feature families | 1 (1 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- Contact.AttributesData (CreateContactInput/UpdateContactInput's AttributesData, api_op_CreateContact.go/api_op_UpdateContact.go) is completely unmodeled: no field on the Contact struct, not decoded by createContactInput/updateContactInput, not echoed by any Get/List response. Found 2026-09-12 (gopherstack-n3zi typed slice 11) while fixing the adjacent UnsubscribeAll accept-and-drop bug on the same two ops. Not fixed this pass: unlike UnsubscribeAll (an existing field just never wired through), this requires adding a new field to the Contact model, its JSON wire tag, and both Get/List echo paths -- a small but real feature addition, not a one-line wiring fix, so left disclosed rather than rushed.
 
 ## More
 

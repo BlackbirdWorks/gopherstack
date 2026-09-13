@@ -29,8 +29,8 @@ type deleteColumnStatisticsForPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
 	ColumnName      string   `json:"ColumnName"`
-	PartitionValues []string `json:"PartitionValues"`
 	CatalogID       string   `json:"CatalogId,omitempty"`
+	PartitionValues []string `json:"PartitionValues"`
 }
 
 func (h *Handler) handleDeleteColumnStatisticsForPartition(
@@ -106,9 +106,9 @@ func (h *Handler) handleDeleteColumnStatisticsTaskSettings(
 type getColumnStatisticsForPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
 	PartitionValues []string `json:"PartitionValues"`
 	ColumnNames     []string `json:"ColumnNames,omitempty"`
-	CatalogID       string   `json:"CatalogId,omitempty"`
 }
 
 // getColumnStatisticsForPartitionOutput holds the result for GetColumnStatisticsForPartition.
@@ -152,8 +152,8 @@ func (h *Handler) handleGetColumnStatisticsForPartition(
 type getColumnStatisticsForTableInput struct {
 	DatabaseName string   `json:"DatabaseName"`
 	TableName    string   `json:"TableName"`
-	ColumnNames  []string `json:"ColumnNames,omitempty"`
 	CatalogID    string   `json:"CatalogId,omitempty"`
+	ColumnNames  []string `json:"ColumnNames,omitempty"`
 }
 
 // getColumnStatisticsForTableOutput holds the result for GetColumnStatisticsForTable.
@@ -422,9 +422,9 @@ func (h *Handler) handleStopColumnStatisticsTaskRunSchedule(
 type updateColumnStatisticsForPartitionInput struct {
 	DatabaseName         string              `json:"DatabaseName"`
 	TableName            string              `json:"TableName"`
+	CatalogID            string              `json:"CatalogId,omitempty"`
 	PartitionValues      []string            `json:"PartitionValues"`
 	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
-	CatalogID            string              `json:"CatalogId,omitempty"`
 }
 
 // updateColumnStatisticsForPartitionOutput holds the result for UpdateColumnStatisticsForPartition.
@@ -464,8 +464,8 @@ func (h *Handler) handleUpdateColumnStatisticsForPartition(
 type updateColumnStatisticsForTableInput struct {
 	DatabaseName         string              `json:"DatabaseName"`
 	TableName            string              `json:"TableName"`
-	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
 	CatalogID            string              `json:"CatalogId,omitempty"`
+	ColumnStatisticsList []*ColumnStatistics `json:"ColumnStatisticsList"`
 }
 
 // updateColumnStatisticsForTableOutput holds the result for UpdateColumnStatisticsForTable.

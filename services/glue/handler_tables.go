@@ -8,8 +8,8 @@ import (
 
 type createTableInput struct {
 	DatabaseName string     `json:"DatabaseName"`
-	TableInput   TableInput `json:"TableInput"`
 	CatalogID    string     `json:"CatalogId,omitempty"`
+	TableInput   TableInput `json:"TableInput"`
 }
 
 func (h *Handler) handleCreateTable(_ context.Context, in *createTableInput) (*emptyOutput, error) {
@@ -121,8 +121,8 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 
 type updateTableInput struct {
 	DatabaseName string     `json:"DatabaseName"`
-	TableInput   TableInput `json:"TableInput"`
 	CatalogID    string     `json:"CatalogId,omitempty"`
+	TableInput   TableInput `json:"TableInput"`
 	SkipArchive  bool       `json:"SkipArchive,omitempty"`
 }
 
@@ -175,8 +175,8 @@ func (h *Handler) handleDeleteTable(_ context.Context, in *deleteTableInput) (*e
 
 type batchDeleteTableInput struct {
 	DatabaseName   string   `json:"DatabaseName"`
-	TablesToDelete []string `json:"TablesToDelete"`
 	CatalogID      string   `json:"CatalogId,omitempty"`
+	TablesToDelete []string `json:"TablesToDelete"`
 }
 
 type batchDeleteTableOutput struct {
@@ -218,8 +218,8 @@ func (h *Handler) handleBatchDeleteTable(
 type batchDeleteTableVersionInput struct {
 	DatabaseName string   `json:"DatabaseName"`
 	TableName    string   `json:"TableName"`
-	VersionIDs   []string `json:"VersionIds"`
 	CatalogID    string   `json:"CatalogId,omitempty"`
+	VersionIDs   []string `json:"VersionIds"`
 }
 
 type batchDeleteTableVersionOutput struct {
@@ -314,8 +314,8 @@ type getTableVersionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
 	NextToken    string `json:"NextToken,omitempty"`
-	MaxResults   int32  `json:"MaxResults,omitempty"`
 	CatalogID    string `json:"CatalogId,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
 }
 
 // getTableVersionsOutput holds the result for GetTableVersions.

@@ -1348,8 +1348,8 @@
 				new UpdateDashboardPermissionsCommand({
 					AwsAccountId: awsAccountId,
 					DashboardId: viewedDashboard.DashboardId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			dashboardPermissions = fromResourcePermissions(resp.Permissions);
@@ -1365,8 +1365,8 @@
 				new UpdateDashboardPermissionsCommand({
 					AwsAccountId: awsAccountId,
 					DashboardId: viewedDashboard.DashboardId,
-					GrantLinkPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokeLinkPermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantLinkPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokeLinkPermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			dashboardLinkPermissions = fromResourcePermissions(resp.LinkSharingConfiguration?.Permissions);
@@ -1607,8 +1607,8 @@
 				new UpdateAnalysisPermissionsCommand({
 					AwsAccountId: awsAccountId,
 					AnalysisId: viewedAnalysis.AnalysisId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			analysisPermissions = fromResourcePermissions(resp.Permissions);
@@ -1799,8 +1799,8 @@
 				new UpdateDataSetPermissionsCommand({
 					AwsAccountId: awsAccountId,
 					DataSetId: viewedDataSet.DataSetId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			await loadDataSetPermissions(viewedDataSet.DataSetId);
@@ -2099,8 +2099,8 @@
 				new UpdateDataSourcePermissionsCommand({
 					AwsAccountId: awsAccountId,
 					DataSourceId: viewedDataSource.DataSourceId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			await loadDataSourcePermissions(viewedDataSource.DataSourceId);
@@ -2269,8 +2269,8 @@
 				new UpdateFolderPermissionsCommand({
 					AwsAccountId: awsAccountId,
 					FolderId: viewedFolder.FolderId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			folderPermissions = fromResourcePermissions(resp.Permissions);
@@ -2653,8 +2653,8 @@
 				new UpdateTemplatePermissionsCommand({
 					AwsAccountId: awsAccountId,
 					TemplateId: viewedTemplate.TemplateId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			templatePermissions = fromResourcePermissions(resp.Permissions);
@@ -2839,8 +2839,8 @@
 				new UpdateThemePermissionsCommand({
 					AwsAccountId: awsAccountId,
 					ThemeId: viewedTheme.ThemeId,
-					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
-					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+					GrantPermissions: grant.length > 0 ? grant.map((p) => toResourcePermission(p)) : undefined,
+					RevokePermissions: revoke.length > 0 ? revoke.map((p) => toResourcePermission(p)) : undefined
 				})
 			);
 			themePermissions = fromResourcePermissions(resp.Permissions);

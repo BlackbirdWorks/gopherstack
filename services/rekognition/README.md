@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 50 (47 ok, 3 partial) |
 | Feature families | 3 (3 ok) |
-| Known gaps | 3 |
+| Known gaps | 6 |
 | Deferred items | 4 |
 | Resource leaks | clean |
 
@@ -18,6 +18,9 @@
 - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
 - 2026-09-06 (gopherstack-eshx): IndexFaces never parses IndexFacesInput.Image at all (indexFacesReq has CollectionId/ExternalImageId only) -- a required member of a real IndexFaces request is silently dropped, not just unchecked against S3. Structural gap, out of this pass's scope (adding S3Object existence checking, not adding a missing wire field); IndexFaces is therefore excluded from this pass's InvalidS3ObjectException enforcement. Needs its own fix.
 - 2026-09-06 (gopherstack-eshx): CreateDataset never parses CreateDatasetInput.DatasetSource (createDatasetReq has ProjectArn/DatasetType only) -- DatasetSource.GroundTruthManifest.S3Object, the one Image-shaped field this op accepts, is silently dropped. Same structural-gap reasoning as IndexFaces above; excluded from this pass's InvalidS3ObjectException enforcement.
+- gopherstack-xhu2t slice 7 (2026-09-12): GetPersonTracking.SortBy is not honored: GetPersonTrackingOutput.Persons is always a synthesized-empty []struct{} (this backend performs no real video person-tracking analysis), and unlike GetLabelDetection/GetContentModeration, GetPersonTrackingOutput has no RequestMetadata-shaped field to even echo the requested sort order into. Same root cause as the pre-existing getJobReq.NextToken/.MaxResults disclosure (PARITY.md Notes): a field that shapes an always-empty result has nothing to demonstrate an effect on.
+- gopherstack-xhu2t slice 7 (2026-09-12): IndexFaces.DetectionAttributes is not honored: real DetectionAttributes controls how much FaceDetail metadata (Landmarks/Pose/Quality/Emotions/etc.) is attached to each FaceRecord, but IndexFaces already has a documented structural gap (see the IndexFaces.Image entry above, gopherstack-eshx) -- no face detection ever runs, so FaceRecord.Face carries only FaceId/ImageId/ExternalImageId/Confidence and there is no FaceDetail object for DetectionAttributes to shape at all. Fixing this needs IndexFaces.Image to be parsed first, out of this slice's scope.
+- gopherstack-xhu2t slice 7 (2026-09-12): DetectLabels.Features' IMAGE_PROPERTIES option is not honored (GENERAL_LABELS is -- see ops fix this pass): real IMAGE_PROPERTIES returns DetectLabelsOutput.ImageProperties (dominant colors, brightness/sharpness/contrast quality scores), which would mean fabricating a color/quality analysis this backend has no data model for. Left unimplemented rather than inventing plausible-looking numbers with no image behind them.
 
 ### Deferred
 

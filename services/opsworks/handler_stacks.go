@@ -18,12 +18,12 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
 		Attributes                map[string]string `json:"Attributes"`
-		Name                      string            `json:"Name"`
-		Region                    string            `json:"Region"`
+		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		AgentVersion              string            `json:"AgentVersion"`
 		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
 		ServiceRoleArn            string            `json:"ServiceRoleArn"`
 		VpcID                     string            `json:"VpcId"`
-		AgentVersion              string            `json:"AgentVersion"`
+		Region                    string            `json:"Region"`
 		CustomJSON                string            `json:"CustomJson"`
 		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
 		DefaultOs                 string            `json:"DefaultOs"`
@@ -31,7 +31,7 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
 		DefaultSubnetID           string            `json:"DefaultSubnetId"`
 		HostnameTheme             string            `json:"HostnameTheme"`
-		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		Name                      string            `json:"Name"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -88,21 +88,21 @@ func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) 
 			BerkshelfVersion string `json:"BerkshelfVersion"`
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
-		SourceStackID             string `json:"SourceStackId"`
-		Name                      string `json:"Name"`
-		Region                    string `json:"Region"`
+		UseOpsworksSecurityGroups *bool  `json:"UseOpsworksSecurityGroups"`
+		CustomJSON                string `json:"CustomJson"`
+		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
 		ServiceRoleArn            string `json:"ServiceRoleArn"`
 		VpcID                     string `json:"VpcId"`
 		AgentVersion              string `json:"AgentVersion"`
-		CustomJSON                string `json:"CustomJson"`
+		Name                      string `json:"Name"`
 		DefaultAvailabilityZone   string `json:"DefaultAvailabilityZone"`
-		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
+		Region                    string `json:"Region"`
 		DefaultOs                 string `json:"DefaultOs"`
 		DefaultRootDeviceType     string `json:"DefaultRootDeviceType"`
 		DefaultSSHKeyName         string `json:"DefaultSshKeyName"`
 		DefaultSubnetID           string `json:"DefaultSubnetId"`
 		HostnameTheme             string `json:"HostnameTheme"`
-		UseOpsworksSecurityGroups *bool  `json:"UseOpsworksSecurityGroups"`
+		SourceStackID             string `json:"SourceStackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -175,19 +175,19 @@ func (h *Handler) handleUpdateStack(_ context.Context, body []byte) (any, error)
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
 		Attributes                map[string]string `json:"Attributes"`
-		StackID                   string            `json:"StackId"`
-		Name                      string            `json:"Name"`
+		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
 		AgentVersion              string            `json:"AgentVersion"`
 		CustomJSON                string            `json:"CustomJson"`
 		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
-		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
+		Name                      string            `json:"Name"`
 		DefaultOs                 string            `json:"DefaultOs"`
 		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
 		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
 		DefaultSubnetID           string            `json:"DefaultSubnetId"`
 		HostnameTheme             string            `json:"HostnameTheme"`
 		ServiceRoleArn            string            `json:"ServiceRoleArn"`
-		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		StackID                   string            `json:"StackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

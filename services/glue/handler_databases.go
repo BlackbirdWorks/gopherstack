@@ -7,8 +7,8 @@ import (
 
 type createDatabaseInput struct {
 	Tags          map[string]string `json:"Tags,omitempty"`
-	DatabaseInput DatabaseInput     `json:"DatabaseInput"`
 	CatalogID     string            `json:"CatalogId,omitempty"`
+	DatabaseInput DatabaseInput     `json:"DatabaseInput"`
 }
 
 func (h *Handler) handleCreateDatabase(_ context.Context, in *createDatabaseInput) (*emptyOutput, error) {
@@ -89,8 +89,8 @@ func (h *Handler) handleGetDatabases(_ context.Context, in *getDatabasesInput) (
 
 type updateDatabaseInput struct {
 	Name          string        `json:"Name"`
-	DatabaseInput DatabaseInput `json:"DatabaseInput"`
 	CatalogID     string        `json:"CatalogId,omitempty"`
+	DatabaseInput DatabaseInput `json:"DatabaseInput"`
 }
 
 func (h *Handler) handleUpdateDatabase(_ context.Context, in *updateDatabaseInput) (*emptyOutput, error) {

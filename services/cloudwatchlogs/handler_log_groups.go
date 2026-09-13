@@ -109,67 +109,79 @@ type listLogGroupsOutput struct {
 
 func (h *Handler) logGroupActions() map[string]actionFn {
 	return map[string]actionFn{
-		"CreateLogGroup": func(ctx context.Context, b []byte) (any, error) {
-			var input createLogGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			group, err := h.Backend.CreateLogGroup(
-				ctx,
-				input.LogGroupName,
-				input.LogGroupClass,
-				input.KmsKeyID,
-			)
-			if err != nil {
-				return nil, err
-			}
-			if len(input.Tags) > 0 {
-				// Real clients read tags via ListTagsForResource(ARN), the
-				// non-deprecated path -- ListTagsLogGroup(name) below is legacy.
-				h.setTags(group.Arn, input.Tags)
-				h.setTags(input.LogGroupName, input.Tags)
-			}
-
-			if input.DeletionProtectionEnabled {
-				if b := cwlBackend(h); b != nil {
-					if dpErr := b.SetLogGroupDeletionProtection(input.LogGroupName, true); dpErr != nil {
-						return nil, dpErr
-					}
-				}
-			}
-
-			return &createLogGroupOutput{}, nil
-		},
-		"DeleteLogGroup": func(ctx context.Context, b []byte) (any, error) {
-			var input deleteLogGroupInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			if err := h.Backend.DeleteLogGroup(ctx, input.LogGroupName); err != nil {
-				return nil, err
-			}
-
-			return &deleteLogGroupOutput{}, nil
-		},
-		"DescribeLogGroups": func(ctx context.Context, b []byte) (any, error) {
-			var input describeLogGroupsInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-			groups, next, err := h.Backend.DescribeLogGroups(
-				ctx,
-				input.LogGroupNamePrefix,
-				input.NextToken,
-				input.LogGroupClass,
-				input.Limit,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
-		},
+		"CreateLogGroup":    h.handleCreateLogGroup,
+		"DeleteLogGroup":    h.handleDeleteLogGroup,
+		"DescribeLogGroups": h.handleDescribeLogGroups,
 	}
+}
+
+// handleCreateLogGroup, handleDeleteLogGroup, and handleDescribeLogGroups
+// are split out of logGroupActions (rather than inlined as closures) to
+// keep that function's cognitive complexity under the gocognit limit.
+func (h *Handler) handleCreateLogGroup(ctx context.Context, b []byte) (any, error) {
+	var input createLogGroupInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	group, err := h.Backend.CreateLogGroup(
+		ctx,
+		input.LogGroupName,
+		input.LogGroupClass,
+		input.KmsKeyID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(input.Tags) > 0 {
+		// Real clients read tags via ListTagsForResource(ARN), the
+		// non-deprecated path -- ListTagsLogGroup(name) below is legacy.
+		h.setTags(group.Arn, input.Tags)
+		h.setTags(input.LogGroupName, input.Tags)
+	}
+
+	if input.DeletionProtectionEnabled {
+		if backend := cwlBackend(h); backend != nil {
+			if dpErr := backend.SetLogGroupDeletionProtection(input.LogGroupName, true); dpErr != nil {
+				return nil, dpErr
+			}
+		}
+	}
+
+	return &createLogGroupOutput{}, nil
+}
+
+func (h *Handler) handleDeleteLogGroup(ctx context.Context, b []byte) (any, error) {
+	var input deleteLogGroupInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+	if err := h.Backend.DeleteLogGroup(ctx, input.LogGroupName); err != nil {
+		return nil, err
+	}
+
+	return &deleteLogGroupOutput{}, nil
+}
+
+func (h *Handler) handleDescribeLogGroups(ctx context.Context, b []byte) (any, error) {
+	var input describeLogGroupsInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	groups, next, err := h.Backend.DescribeLogGroups(
+		ctx,
+		input.LogGroupNamePrefix,
+		input.NextToken,
+		input.LogGroupClass,
+		input.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeLogGroupsOutput{LogGroups: groups, NextToken: next}, nil
 }
 
 func (h *Handler) retentionActions() map[string]actionFn {

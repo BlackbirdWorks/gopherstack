@@ -510,26 +510,26 @@ type CarrierGateway struct {
 // ReservedInstance holds a reserved instance.
 
 type ReservedInstance struct {
-	ReservedInstancesID string `json:"reservedInstancesId,omitempty"`
-	InstanceType        string `json:"instanceType,omitempty"`
-	AvailabilityZone    string `json:"availabilityZone,omitempty"`
-	ProductDescription  string `json:"productDescription,omitempty"`
-	State               string `json:"state,omitempty"`
-	OfferingType        string `json:"offeringType,omitempty"`
-	// OfferingClass is "standard" or "convertible" (types.OfferingClassType,
-	// ec2@v1.329.0 types/enums.go:9660-9661). Only "convertible" RIs are
-	// eligible for GetReservedInstancesExchangeQuote/
-	// AcceptReservedInstancesExchangeQuote.
-	OfferingClass string  `json:"offeringClass,omitempty"`
-	InstanceCount int     `json:"instanceCount,omitempty"`
-	Duration      int64   `json:"duration"`
-	FixedPrice    float64 `json:"fixedPrice"`
-	UsagePrice    float64 `json:"usagePrice"`
 	// Start/End mirror types.ReservedInstances.Start/End (ec2@v1.329.0
 	// types/types.go:19737,19770); set at purchase time so
 	// GetReservedInstancesExchangeQuote can compute remaining term value.
 	Start time.Time `json:"start"`
 	End   time.Time `json:"end"`
+	// OfferingClass is "standard" or "convertible" (types.OfferingClassType,
+	// ec2@v1.329.0 types/enums.go:9660-9661). Only "convertible" RIs are
+	// eligible for GetReservedInstancesExchangeQuote/
+	// AcceptReservedInstancesExchangeQuote.
+	OfferingClass       string  `json:"offeringClass,omitempty"`
+	ProductDescription  string  `json:"productDescription,omitempty"`
+	State               string  `json:"state,omitempty"`
+	OfferingType        string  `json:"offeringType,omitempty"`
+	ReservedInstancesID string  `json:"reservedInstancesId,omitempty"`
+	AvailabilityZone    string  `json:"availabilityZone,omitempty"`
+	InstanceType        string  `json:"instanceType,omitempty"`
+	InstanceCount       int     `json:"instanceCount,omitempty"`
+	Duration            int64   `json:"duration"`
+	FixedPrice          float64 `json:"fixedPrice"`
+	UsagePrice          float64 `json:"usagePrice"`
 }
 
 // ReservedInstancesOffering holds a reserved instances offering.

@@ -106,10 +106,10 @@ func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUs
 }
 
 type associateFacesReq struct {
-	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId             string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
-	FaceIds            []string `json:"FaceIds"`      //nolint:revive // existing issue.
 	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
+	CollectionID       string   `json:"CollectionId"`
+	UserID             string   `json:"UserId"`
+	FaceIDs            []string `json:"FaceIds"`
 }
 
 type associatedFaceEntry struct {
@@ -126,15 +126,15 @@ type associateFacesResp struct {
 	UnsuccessfulFaceAssociations []unsuccessfulFaceAssociationEntry `json:"UnsuccessfulFaceAssociations"`
 }
 
-func (h *Handler) handleAssociateFaces( //nolint:dupl // existing issue.
+func (h *Handler) handleAssociateFaces(
 	_ context.Context,
 	req *associateFacesReq,
 ) (*associateFacesResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	if req.UserId == "" {
+	if req.UserID == "" {
 		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
 	}
 
@@ -143,7 +143,7 @@ func (h *Handler) handleAssociateFaces( //nolint:dupl // existing issue.
 		threshold = float64(*req.UserMatchThreshold)
 	}
 
-	associated, unsuccessful, err := h.Backend.AssociateFaces(req.CollectionId, req.UserId, req.FaceIds, threshold)
+	associated, unsuccessful, err := h.Backend.AssociateFaces(req.CollectionID, req.UserID, req.FaceIDs, threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ type disassociateFacesResp struct {
 	UnsuccessfulFaceDisassociations []unsuccessfulFaceDisassociationEntry `json:"UnsuccessfulFaceDisassociations"`
 }
 
-func (h *Handler) handleDisassociateFaces( //nolint:dupl // existing issue.
+func (h *Handler) handleDisassociateFaces(
 	_ context.Context, req *disassociateFacesReq,
 ) (*disassociateFacesResp, error) {
 	if req.CollectionId == "" {
@@ -225,11 +225,11 @@ func (h *Handler) handleDisassociateFaces( //nolint:dupl // existing issue.
 }
 
 type searchUsersReq struct {
-	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId             string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
-	FaceId             string   `json:"FaceId"`       //nolint:revive,staticcheck // existing issue.
-	MaxUsers           int32    `json:"MaxUsers"`
 	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
+	CollectionID       string   `json:"CollectionId"`
+	UserID             string   `json:"UserId"`
+	FaceID             string   `json:"FaceId"`
+	MaxUsers           int32    `json:"MaxUsers"`
 }
 
 type userMatchEntry struct {
@@ -254,11 +254,11 @@ type searchUsersResp struct {
 // associated with a User. Previously only UserId was accepted --
 // gopherstack-2wvq.
 func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*searchUsersResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
-	if req.UserId == "" && req.FaceId == "" {
+	if req.UserID == "" && req.FaceID == "" {
 		return nil, fmt.Errorf("%w: UserId or FaceId is required", ErrValidation)
 	}
 
@@ -272,10 +272,10 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 		err     error
 	)
 
-	if req.UserId != "" {
-		matches, err = h.Backend.SearchUsers(req.CollectionId, req.UserId, req.MaxUsers, threshold)
+	if req.UserID != "" {
+		matches, err = h.Backend.SearchUsers(req.CollectionID, req.UserID, req.MaxUsers, threshold)
 	} else {
-		matches, err = h.Backend.SearchUsersByFace(req.CollectionId, req.FaceId, req.MaxUsers)
+		matches, err = h.Backend.SearchUsersByFace(req.CollectionID, req.FaceID, req.MaxUsers)
 	}
 	if err != nil {
 		return nil, err
@@ -297,21 +297,21 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 		UserMatches:      entries,
 	}
 
-	if req.UserId != "" {
-		resp.SearchedUser = &userEntry{UserId: req.UserId, UserStatus: "ACTIVE"}
+	if req.UserID != "" {
+		resp.SearchedUser = &userEntry{UserId: req.UserID, UserStatus: "ACTIVE"}
 	} else {
-		resp.SearchedFace = &searchedFaceEntry{FaceId: req.FaceId}
+		resp.SearchedFace = &searchedFaceEntry{FaceId: req.FaceID}
 	}
 
 	return resp, nil
 }
 
 type searchUsersByImageReq struct {
-	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
+	CollectionID       string   `json:"CollectionId"`
 	QualityFilter      string   `json:"QualityFilter"`
 	Image              imageRef `json:"Image"`
 	MaxUsers           int32    `json:"MaxUsers"`
-	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
 }
 
 type searchUsersByImageResp struct {
@@ -322,7 +322,7 @@ type searchUsersByImageResp struct {
 func (h *Handler) handleSearchUsersByImage(
 	ctx context.Context, req *searchUsersByImageReq,
 ) (*searchUsersByImageResp, error) {
-	if req.CollectionId == "" {
+	if req.CollectionID == "" {
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
@@ -339,7 +339,7 @@ func (h *Handler) handleSearchUsersByImage(
 		threshold = float64(*req.UserMatchThreshold)
 	}
 
-	matches, err := h.Backend.SearchUsersByImage(req.CollectionId, req.MaxUsers, imageRefKey(req.Image), threshold)
+	matches, err := h.Backend.SearchUsersByImage(req.CollectionID, req.MaxUsers, imageRefKey(req.Image), threshold)
 	if err != nil {
 		return nil, err
 	}

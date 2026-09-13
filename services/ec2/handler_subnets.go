@@ -381,9 +381,9 @@ type subnetItem struct {
 	AvailabilityZone    string          `xml:"availabilityZone"`
 	OutpostArn          string          `xml:"outpostArn,omitempty"`
 	State               string          `xml:"state"`
+	TagSet              []simpleTagItem `xml:"tagSet>item"`
 	MapPublicIPOnLaunch bool            `xml:"mapPublicIpOnLaunch"`
 	DefaultForAz        bool            `xml:"defaultForAz"`
-	TagSet              []simpleTagItem `xml:"tagSet>item"`
 }
 
 type subnetItemSet struct {

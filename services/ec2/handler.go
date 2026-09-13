@@ -30,7 +30,13 @@ const (
 	// errCodeInvalidAssociationIDNotFound is the EC2 "InvalidAssociationID.NotFound" API error
 	// code, shared by several distinct "association not found" sentinel errors below.
 	errCodeInvalidAssociationIDNotFound = "InvalidAssociationID.NotFound"
-	ec2PaginationSalt                   = "ec2-opaque-pagination-v1"
+	// errCodeInvalidTGWAttachmentIDNotFound is the EC2 "InvalidTransitGatewayAttachmentID.NotFound"
+	// API error code, shared by several distinct TGW attachment sentinel errors below.
+	errCodeInvalidTGWAttachmentIDNotFound = "InvalidTransitGatewayAttachmentID.NotFound"
+	// errCodeIncorrectState is the EC2 "IncorrectState" API error code, shared by several
+	// distinct "not in a state that allows this operation" sentinel errors below.
+	errCodeIncorrectState = "IncorrectState"
+	ec2PaginationSalt     = "ec2-opaque-pagination-v1"
 )
 
 // Handler is the Echo HTTP handler for EC2 operations.
@@ -700,7 +706,7 @@ var errCodeLookup = []struct {
 	{ErrCapacityReservationNotFound, "InvalidCapacityReservationId.NotFound"},
 	{ErrReservedInstancesNotFound, "InvalidReservedInstancesId"},
 	{ErrReservedInstancesOfferingNotFound, "InvalidReservedInstancesOfferingId"},
-	{ErrTransitGatewayAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTransitGatewayAttachmentNotFound, errCodeInvalidTGWAttachmentIDNotFound},
 	{ErrVpcPeeringConnectionNotFound, "InvalidVpcPeeringConnectionID.NotFound"},
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
 	{ErrByoipCidrNotFound, "InvalidByoipCidr.NotFound"},
@@ -735,7 +741,7 @@ var errCodeLookup = []struct {
 	{ErrTransitGatewayNotFound, "InvalidTransitGatewayID.NotFound"},
 	{ErrTGWRouteTableNotFound, "InvalidTransitGatewayRouteTableId.NotFound"},
 	{ErrTGWMeteringPolicyNotFound, "InvalidTransitGatewayMeteringPolicyId.NotFound"},
-	{ErrTGWAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTGWAttachmentNotFound, errCodeInvalidTGWAttachmentIDNotFound},
 	{ErrTGWPrefixListRefNotFound, "InvalidTransitGatewayPrefixListReferenceId.NotFound"},
 	{ErrVerifiedAccessEndpointNotFound, "InvalidVerifiedAccessEndpointId.NotFound"},
 	{ErrVerifiedAccessGroupNotFound, "InvalidVerifiedAccessGroupId.NotFound"},
@@ -755,7 +761,7 @@ var errCodeLookup = []struct {
 	{ErrConversionTaskNotFound, "InvalidConversionTaskId.NotFound"},
 	{ErrExportTaskNotFound, "InvalidExportTaskID.NotFound"},
 	{ErrImportTaskNotFound, errCodeInvalidParameterValue},
-	{ErrTaskNotCancellable, "IncorrectState"},
+	{ErrTaskNotCancellable, errCodeIncorrectState},
 	{ErrTrunkAssociationNotFound, errCodeInvalidAssociationIDNotFound},
 	{ErrEnclaveCertRoleAssociationNotFound, errCodeInvalidParameterValue},
 	{ErrTooManyEnclaveCertRoles, "LimitExceeded"},
@@ -780,7 +786,7 @@ var errCodeLookup = []struct {
 	{ErrOutpostArnNotFound, errCodeInvalidParameterValue},
 	{ErrInsufficientInstanceCapacity, "InsufficientInstanceCapacity"},
 	{ErrResourceCountExceeded, "ResourceCountExceeded"},
-	{ErrIAMInstanceProfileAlreadyAssociated, "IncorrectState"},
+	{ErrIAMInstanceProfileAlreadyAssociated, errCodeIncorrectState},
 	{ErrIAMAssociationNotFound, errCodeInvalidAssociationIDNotFound},
 	{ErrInvalidInstanceType, "InvalidInstanceType"},
 	// The 52 entries below (gopherstack-ggu4a, 2026-09-12) were sentinel
@@ -814,9 +820,9 @@ var errCodeLookup = []struct {
 		ErrIpamResourceDiscoveryAssociationNotFound,
 		"InvalidIpamResourceDiscoveryAssociationId.NotFound",
 	},
-	{ErrIpamResourceDiscoveryInUse, "IncorrectState"},
+	{ErrIpamResourceDiscoveryInUse, errCodeIncorrectState},
 	{ErrIpamResourceDiscoveryNotFound, "InvalidIpamResourceDiscoveryId.NotFound"},
-	{ErrIpamScopeDefault, "IncorrectState"},
+	{ErrIpamScopeDefault, errCodeIncorrectState},
 	{ErrIpamScopeNotFound, "InvalidIpamScopeId.NotFound"},
 	{ErrIpamVerificationTokenNotFound, "InvalidIpamExternalResourceVerificationTokenId.NotFound"},
 	{ErrLaunchTemplateNotFound, "InvalidLaunchTemplateId.NotFound"},
@@ -850,7 +856,7 @@ var errCodeLookup = []struct {
 	{ErrSpotFleetNotFound, "InvalidSpotFleetRequestId.NotFound"},
 	{ErrSubnetCIDRNotFound, "InvalidSubnetCidrBlockAssociationID.NotFound"},
 	{ErrTGWMulticastDomainNotFound, "InvalidTransitGatewayMulticastDomainId.NotFound"},
-	{ErrTransitGatewayConnectNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTransitGatewayConnectNotFound, errCodeInvalidTGWAttachmentIDNotFound},
 	{ErrTransitGatewayConnectPeerNotFound, "InvalidTransitGatewayConnectPeerId.NotFound"},
 }
 

@@ -10,6 +10,7 @@ import (
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
 		Tags                        map[string]string `json:"tags"`
+		CreatorPaymentConfiguration map[string]any    `json:"creatorPaymentConfiguration"`
 		Name                        string            `json:"name"`
 		Description                 string            `json:"description"`
 		CreatorDisplayName          string            `json:"creatorDisplayName"`
@@ -17,7 +18,6 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		JobLogStatus                string            `json:"jobLogStatus"`
 		CreatorMemberAbilities      []string          `json:"creatorMemberAbilities"`
 		Members                     []MemberSpec      `json:"members"`
-		CreatorPaymentConfiguration map[string]any    `json:"creatorPaymentConfiguration"`
 		IsMetricsEnabled            bool              `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)

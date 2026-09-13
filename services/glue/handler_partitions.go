@@ -34,8 +34,8 @@ func (h *Handler) handleBatchCreatePartition(
 type batchDeletePartitionInput struct {
 	DatabaseName       string               `json:"DatabaseName"`
 	TableName          string               `json:"TableName"`
-	PartitionsToDelete []PartitionValueList `json:"PartitionsToDelete"`
 	CatalogID          string               `json:"CatalogId,omitempty"`
+	PartitionsToDelete []PartitionValueList `json:"PartitionsToDelete"`
 }
 
 type batchDeletePartitionOutput struct {
@@ -107,8 +107,8 @@ func awserrFromDetail(d ErrorDetail) error {
 type batchGetPartitionInput struct {
 	DatabaseName    string               `json:"DatabaseName"`
 	TableName       string               `json:"TableName"`
-	PartitionsToGet []PartitionValueList `json:"PartitionsToGet"`
 	CatalogID       string               `json:"CatalogId,omitempty"`
+	PartitionsToGet []PartitionValueList `json:"PartitionsToGet"`
 }
 
 // batchGetPartitionOutput holds the result for BatchGetPartition.
@@ -232,8 +232,8 @@ func (h *Handler) handleCreatePartition(
 type deletePartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
-	PartitionValues []string `json:"PartitionValues"`
 	CatalogID       string   `json:"CatalogId,omitempty"`
+	PartitionValues []string `json:"PartitionValues"`
 }
 
 func (h *Handler) handleDeletePartition(
@@ -267,8 +267,8 @@ func (h *Handler) handleDeletePartition(
 type getPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
-	PartitionValues []string `json:"PartitionValues"`
 	CatalogID       string   `json:"CatalogId,omitempty"`
+	PartitionValues []string `json:"PartitionValues"`
 }
 
 // getPartitionOutput holds the result for GetPartition.
@@ -328,46 +328,13 @@ func (h *Handler) handleGetPartitions(
 		return nil, err
 	}
 
-	if in.CatalogID != "" {
-		filtered := partitions[:0]
-
-		for _, p := range partitions {
-			if p.CatalogID == in.CatalogID {
-				filtered = append(filtered, p)
-			}
-		}
-
-		partitions = filtered
-	}
+	partitions = filterPartitionsByCatalogID(partitions, in.CatalogID)
 
 	if in.Expression != "" {
-		var tbl *Table
-
-		tbl, err = h.Backend.GetTable(in.DatabaseName, in.TableName)
+		partitions, err = h.filterPartitionsByExpression(partitions, in)
 		if err != nil {
 			return nil, err
 		}
-
-		keyNames := make([]string, len(tbl.PartitionKeys))
-		for i, col := range tbl.PartitionKeys {
-			keyNames[i] = col.Name
-		}
-
-		var pred partitionExpr
-
-		pred, err = parsePartitionExpr(in.Expression)
-		if err != nil {
-			return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
-		}
-
-		filtered := partitions[:0]
-		for _, p := range partitions {
-			if pred.eval(keyNames, p.Values) {
-				filtered = append(filtered, p)
-			}
-		}
-
-		partitions = filtered
 	}
 
 	limit := maxGetPartitionsResults
@@ -378,6 +345,55 @@ func (h *Handler) handleGetPartitions(
 	page, next := paginateSlice(partitions, in.NextToken, limit)
 
 	return &getPartitionsOutput{Partitions: page, NextToken: next}, nil
+}
+
+// filterPartitionsByCatalogID is split out of handleGetPartitions to keep
+// that function's cognitive complexity under the gocognit limit.
+func filterPartitionsByCatalogID(partitions []*Partition, catalogID string) []*Partition {
+	if catalogID == "" {
+		return partitions
+	}
+
+	filtered := partitions[:0]
+
+	for _, p := range partitions {
+		if p.CatalogID == catalogID {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return filtered
+}
+
+// filterPartitionsByExpression is split out of handleGetPartitions to keep
+// that function's cognitive complexity under the gocognit limit.
+func (h *Handler) filterPartitionsByExpression(
+	partitions []*Partition,
+	in *getPartitionsInput,
+) ([]*Partition, error) {
+	tbl, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+	if err != nil {
+		return nil, err
+	}
+
+	keyNames := make([]string, len(tbl.PartitionKeys))
+	for i, col := range tbl.PartitionKeys {
+		keyNames[i] = col.Name
+	}
+
+	pred, err := parsePartitionExpr(in.Expression)
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid Expression: %w", ErrValidation, err)
+	}
+
+	filtered := partitions[:0]
+	for _, p := range partitions {
+		if pred.eval(keyNames, p.Values) {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return filtered, nil
 }
 
 // getUnfilteredPartitionMetadataInput holds input for GetUnfilteredPartitionMetadata.
@@ -420,8 +436,8 @@ func (h *Handler) handleGetUnfilteredPartitionMetadata(
 type getUnfilteredPartitionsMetadataInput struct {
 	DatabaseName             string   `json:"DatabaseName"`
 	TableName                string   `json:"TableName"`
-	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
 	CatalogID                string   `json:"CatalogId,omitempty"`
+	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
 }
 
 // unfilteredPartitionEntry wraps a Partition for the unfiltered metadata response.
@@ -475,9 +491,9 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 type updatePartitionInput struct {
 	DatabaseName       string         `json:"DatabaseName"`
 	TableName          string         `json:"TableName"`
+	CatalogID          string         `json:"CatalogId,omitempty"`
 	PartitionValueList []string       `json:"PartitionValueList"`
 	PartitionInput     PartitionInput `json:"PartitionInput"`
-	CatalogID          string         `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleUpdatePartition(

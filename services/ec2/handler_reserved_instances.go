@@ -169,21 +169,21 @@ type targetReservationValueItem struct {
 // api_op_GetReservedInstancesExchangeQuote.go); wire keys verified against
 // deserializers.go:221192 (awsEc2query_deserializeOpDocumentGetReservedInstancesExchangeQuoteOutput).
 type getReservedInstancesExchangeQuoteResponse struct {
+	ReservedInstanceValueRollup         *reservationValueItem `xml:"reservedInstanceValueRollup,omitempty"`
+	TargetConfigurationValueRollup      *reservationValueItem `xml:"targetConfigurationValueRollup,omitempty"`
 	XMLName                             xml.Name              `xml:"GetReservedInstancesExchangeQuoteResponse"`
 	RequestID                           string                `xml:"requestId"`
 	CurrencyCode                        string                `xml:"currencyCode,omitempty"`
 	OutputReservedInstancesWillExpireAt string                `xml:"outputReservedInstancesWillExpireAt,omitempty"`
 	PaymentDue                          string                `xml:"paymentDue,omitempty"`
 	ValidationFailureReason             string                `xml:"validationFailureReason,omitempty"`
-	IsValidExchange                     bool                  `xml:"isValidExchange"`
-	ReservedInstanceValueRollup         *reservationValueItem `xml:"reservedInstanceValueRollup,omitempty"`
 	ReservedInstanceValueSet            struct {
 		Items []reservedInstanceReservationValueItem `xml:"item"`
 	} `xml:"reservedInstanceValueSet"`
-	TargetConfigurationValueRollup *reservationValueItem `xml:"targetConfigurationValueRollup,omitempty"`
-	TargetConfigurationValueSet    struct {
+	TargetConfigurationValueSet struct {
 		Items []targetReservationValueItem `xml:"item"`
 	} `xml:"targetConfigurationValueSet"`
+	IsValidExchange bool `xml:"isValidExchange"`
 }
 
 // deleteQueuedRIErrorItem mirrors types.DeleteQueuedReservedInstancesError.

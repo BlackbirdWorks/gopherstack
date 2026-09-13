@@ -16,6 +16,7 @@ const defaultEDSPageSize = 1000
 // --- CreateEventDataStore ---
 
 type createEventDataStoreBody struct {
+	StartIngestion         *bool                   `json:"StartIngestion"`
 	Name                   string                  `json:"Name"`
 	BillingMode            string                  `json:"BillingMode"`
 	KMSKeyID               string                  `json:"KmsKeyId"`
@@ -24,7 +25,6 @@ type createEventDataStoreBody struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"TagsList"`
-	StartIngestion               *bool `json:"StartIngestion"`
 	RetentionPeriod              int32 `json:"RetentionPeriod"`
 	MultiRegionEnabled           bool  `json:"MultiRegionEnabled"`
 	OrganizationEnabled          bool  `json:"OrganizationEnabled"`

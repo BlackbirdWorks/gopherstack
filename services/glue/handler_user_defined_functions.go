@@ -11,8 +11,8 @@ import (
 type createUserDefinedFunctionInput struct {
 	Tags          map[string]string   `json:"Tags,omitempty"`
 	DatabaseName  string              `json:"DatabaseName"`
-	FunctionInput UserDefinedFunction `json:"FunctionInput"`
 	CatalogID     string              `json:"CatalogId,omitempty"`
+	FunctionInput UserDefinedFunction `json:"FunctionInput"`
 }
 
 func (h *Handler) handleCreateUserDefinedFunction(
@@ -125,8 +125,8 @@ func (h *Handler) handleGetUserDefinedFunctions(
 type updateUserDefinedFunctionInput struct {
 	DatabaseName  string              `json:"DatabaseName"`
 	FunctionName  string              `json:"FunctionName"`
-	FunctionInput UserDefinedFunction `json:"FunctionInput"`
 	CatalogID     string              `json:"CatalogId,omitempty"`
+	FunctionInput UserDefinedFunction `json:"FunctionInput"`
 }
 
 func (h *Handler) handleUpdateUserDefinedFunction(

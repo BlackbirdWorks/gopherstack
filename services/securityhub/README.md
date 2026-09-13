@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 116 (115 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -20,6 +20,7 @@
 - BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding.
 - (parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change.
 - (gopherstack-uox6 value-semantics sweep) GetFindingsV2's OcsfMapFilter (findings_v2.go matchesOcsfMapFilter/compareMapFilter) does not apply the same-field CONTAINS/EQUALS-joined-by-OR, NOT_CONTAINS/NOT_EQUALS-joined-by-AND combination rule that MapFilter's own doc comment documents (the same rule fixed this pass for V1's []StringFilter in matchesStringFilter) -- multiple OcsfMapFilter entries in one CompositeFilter's MapFilters list are instead combined via that CompositeFilter's explicit Operator (AND/OR), per matchesCompositeFilterDepth. Left unresolved rather than guessed: GetFindingsV2's OcsfFindingFilters model already exposes an explicit per-CompositeFilter Operator that V1's AwsSecurityFindingFilters has no equivalent of, and neither the MapFilter doc comment nor the OcsfFindingFilters/CompositeFilter doc comments state whether the legacy implicit per-field rule still applies underneath that explicit Operator, or is superseded by it, when a field's name repeats within one CompositeFilter's MapFilters list. Not attempted this pass -- the documentation does not specify this precisely enough to implement without fabricating a rule.
+- 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): GetFindingsV2/GetFindingStatisticsV2/GetResourcesV2/GetResourcesStatisticsV2's Scopes (types.FindingScopes/ResourceScopes, currently AwsOrganizations-only) is accepted-and-dropped on all four ops. Its own doc comment: 'lets you aggregate [findings/resources] from your entire organization or from specific organizational units.' This backend models organization member accounts as a flat list (organizations.go) with no organizational-unit tree at all, so there is no OU membership to filter Scopes.AwsOrganizations's OU-ARN list against without fabricating an OU hierarchy. Not implemented.
 
 ## More
 

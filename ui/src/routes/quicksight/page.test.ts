@@ -354,7 +354,9 @@ describe("QuickSight Page", () => {
     await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
     await waitFor(() => screen.getByRole("cell", { name: "Sales Dataset" }));
 
-    mockSend.mockResolvedValueOnce({ DataSet: exampleDataSet }); // DescribeDataSet
+    // DescribeDataSet
+    mockSend.mockResolvedValueOnce({ DataSet: exampleDataSet });
+    // DescribeDataSetPermissions
     mockSend.mockResolvedValueOnce({
       Permissions: [
         {
@@ -362,8 +364,9 @@ describe("QuickSight Page", () => {
           Actions: ["quicksight:DescribeDataSet"],
         },
       ],
-    }); // DescribeDataSetPermissions
-    mockSend.mockResolvedValueOnce({ Ingestions: [] }); // ListIngestions
+    });
+    // ListIngestions
+    mockSend.mockResolvedValueOnce({ Ingestions: [] });
     await fireEvent.click(screen.getByTitle("View"));
 
     await waitFor(() => {
@@ -395,7 +398,9 @@ describe("QuickSight Page", () => {
       target: { value: "arn:aws:quicksight:us-east-1:123456789012:user/default/bob" },
     });
 
-    mockSend.mockResolvedValueOnce({}); // UpdateDataSetPermissions (no Permissions field on the response)
+    // UpdateDataSetPermissions (no Permissions field on the response)
+    mockSend.mockResolvedValueOnce({});
+    // re-describe
     mockSend.mockResolvedValueOnce({
       Permissions: [
         {
@@ -403,7 +408,7 @@ describe("QuickSight Page", () => {
           Actions: ["quicksight:DescribeDataSet"],
         },
       ],
-    }); // re-describe
+    });
     await fireEvent.click(screen.getByRole("button", { name: "Grant" }));
 
     await waitFor(() => {
@@ -460,11 +465,13 @@ describe("QuickSight Page", () => {
       target: { value: "ing-1" },
     });
 
+    // CreateIngestion
     mockSend.mockResolvedValueOnce({
       Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds/ingestion/ing-1",
       IngestionId: "ing-1",
       IngestionStatus: "INITIALIZED",
-    }); // CreateIngestion
+    });
+    // ListIngestions (refresh)
     mockSend.mockResolvedValueOnce({
       Ingestions: [
         {
@@ -474,7 +481,7 @@ describe("QuickSight Page", () => {
           CreatedTime: new Date("2024-03-01T00:00:00Z"),
         },
       ],
-    }); // ListIngestions (refresh)
+    });
     await fireEvent.click(screen.getByRole("button", { name: "Start ingestion" }));
 
     await waitFor(() => {
@@ -482,6 +489,7 @@ describe("QuickSight Page", () => {
       expect(screen.getByText("RUNNING")).toBeInTheDocument();
     });
 
+    // DescribeIngestion
     mockSend.mockResolvedValueOnce({
       Ingestion: {
         Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds/ingestion/ing-1",
@@ -490,7 +498,7 @@ describe("QuickSight Page", () => {
         CreatedTime: new Date("2024-03-01T00:00:00Z"),
         RowInfo: { RowsIngested: 100, RowsDropped: 0, TotalRowsInDataset: 100 },
       },
-    }); // DescribeIngestion
+    });
     await fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
 
     await waitFor(() => {
@@ -506,21 +514,28 @@ describe("QuickSight Page", () => {
     render(QuickSightPage);
     await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
 
-    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard }); // DescribeDashboard
-    mockSend.mockResolvedValueOnce({ Permissions: [] }); // DescribeDashboardPermissions
+    // DescribeDashboard
+    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard });
+    // DescribeDashboardPermissions
+    mockSend.mockResolvedValueOnce({ Permissions: [] });
+    // ListDashboardVersions
     mockSend.mockResolvedValueOnce({
       DashboardVersionSummaryList: [
         { VersionNumber: 1, Status: "CREATION_SUCCESSFUL" },
         { VersionNumber: 2, Status: "CREATION_SUCCESSFUL" },
       ],
-    }); // ListDashboardVersions
+    });
     await fireEvent.click(screen.getByTitle("View"));
 
     const versionSelect = (await screen.findByLabelText("Version to publish")) as HTMLSelectElement;
     await fireEvent.change(versionSelect, { target: { value: "2" } });
 
-    mockSend.mockResolvedValueOnce({ DashboardId: "example", DashboardArn: exampleDashboard.Arn }); // UpdateDashboardPublishedVersion
-    mockSend.mockResolvedValueOnce({ Dashboard: { ...exampleDashboard, Version: { VersionNumber: 2 } } }); // re-describe
+    // UpdateDashboardPublishedVersion
+    mockSend.mockResolvedValueOnce({ DashboardId: "example", DashboardArn: exampleDashboard.Arn });
+    // re-describe
+    mockSend.mockResolvedValueOnce({
+      Dashboard: { ...exampleDashboard, Version: { VersionNumber: 2 } },
+    });
     await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
 
     await waitFor(() => {
@@ -581,14 +596,17 @@ describe("QuickSight Page", () => {
 
     const namespacePrincipal = "arn:aws:quicksight:us-east-1:123456789012:namespace/default";
 
-    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard }); // DescribeDashboard
+    // DescribeDashboard
+    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard });
+    // DescribeDashboardPermissions
     mockSend.mockResolvedValueOnce({
       Permissions: [],
       LinkSharingConfiguration: {
         Permissions: [{ Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] }],
       },
-    }); // DescribeDashboardPermissions
-    mockSend.mockResolvedValueOnce({ DashboardVersionSummaryList: [] }); // ListDashboardVersions
+    });
+    // ListDashboardVersions
+    mockSend.mockResolvedValueOnce({ DashboardVersionSummaryList: [] });
     await fireEvent.click(screen.getByTitle("View"));
 
     await waitFor(() => {
@@ -603,19 +621,25 @@ describe("QuickSight Page", () => {
       target: { value: linkViewer },
     });
 
+    // UpdateDashboardPermissions
     mockSend.mockResolvedValueOnce({
       LinkSharingConfiguration: {
         Permissions: [
           { Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] },
           {
             Principal: linkViewer,
-            Actions: ["quicksight:DescribeDashboard", "quicksight:ListDashboardVersions", "quicksight:QueryDashboard"],
+            Actions: [
+              "quicksight:DescribeDashboard",
+              "quicksight:ListDashboardVersions",
+              "quicksight:QueryDashboard",
+            ],
           },
         ],
       },
-    }); // UpdateDashboardPermissions
+    });
     const grantButtons = screen.getAllByRole("button", { name: "Grant" });
-    await fireEvent.click(grantButtons[1]); // second ResourcePermissions instance is "Link sharing"
+    // second ResourcePermissions instance is "Link sharing"
+    await fireEvent.click(grantButtons[1]);
 
     await waitFor(() => {
       expect(screen.getByText(linkViewer)).toBeInTheDocument();

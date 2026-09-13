@@ -112,18 +112,18 @@ func (l *storedLayer) toLayer() *Layer {
 type storedInstance struct {
 	CreatedAt            time.Time `json:"createdAt"`
 	InstallUpdatesOnBoot *bool     `json:"installUpdatesOnBoot,omitempty"`
-	StackID              string    `json:"stackId"`
-	LayerIDs             []string  `json:"layerIds"`
+	AgentVersion         string    `json:"agentVersion,omitempty"`
 	InstanceID           string    `json:"instanceId"`
 	Arn                  string    `json:"arn"`
 	Hostname             string    `json:"hostname"`
 	InstanceType         string    `json:"instanceType"`
 	Status               string    `json:"status"`
-	AgentVersion         string    `json:"agentVersion,omitempty"`
+	StackID              string    `json:"stackId"`
 	Architecture         string    `json:"architecture,omitempty"`
 	Os                   string    `json:"os,omitempty"`
 	SubnetID             string    `json:"subnetId,omitempty"`
 	Tenancy              string    `json:"tenancy,omitempty"`
+	LayerIDs             []string  `json:"layerIds"`
 	Registered           bool      `json:"registered"`
 }
 

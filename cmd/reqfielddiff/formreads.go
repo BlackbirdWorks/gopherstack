@@ -65,39 +65,57 @@ func singularVariant(name string) (string, bool) {
 func urlValuesParamNames(fl funcLike) map[string]bool {
 	out := map[string]bool{}
 
-	if fl.Params != nil {
-		for _, field := range fl.Params.List {
-			if !isURLValuesType(field.Type) {
-				continue
-			}
-
-			for _, n := range field.Names {
-				out[n.Name] = true
-			}
-		}
-	}
-
-	if fl.Body != nil {
-		ast.Inspect(fl.Body, func(n ast.Node) bool {
-			as, ok := n.(*ast.AssignStmt)
-			if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
-				return true
-			}
-
-			call, ok := as.Rhs[0].(*ast.CallExpr)
-			if !ok || !isURLQueryCall(call) {
-				return true
-			}
-
-			if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent && id.Name != "_" {
-				out[id.Name] = true
-			}
-
-			return true
-		})
-	}
+	addURLValuesParams(fl.Params, out)
+	addURLValuesReassignments(fl.Body, out)
 
 	return out
+}
+
+// addURLValuesParams records the names of fl's direct url.Values-typed
+// parameters into out. Split out of urlValuesParamNames to keep that
+// function's cognitive complexity under the gocognit limit.
+func addURLValuesParams(params *ast.FieldList, out map[string]bool) {
+	if params == nil {
+		return
+	}
+
+	for _, field := range params.List {
+		if !isURLValuesType(field.Type) {
+			continue
+		}
+
+		for _, n := range field.Names {
+			out[n.Name] = true
+		}
+	}
+}
+
+// addURLValuesReassignments records the names of locals in body reassigned
+// from a `.Query()` call (e.g. `q := c.Request().URL.Query()`) into out.
+// Split out of urlValuesParamNames to keep that function's cognitive
+// complexity under the gocognit limit.
+func addURLValuesReassignments(body *ast.BlockStmt, out map[string]bool) {
+	if body == nil {
+		return
+	}
+
+	ast.Inspect(body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+
+		call, ok := as.Rhs[0].(*ast.CallExpr)
+		if !ok || !isURLQueryCall(call) {
+			return true
+		}
+
+		if id, isIdent := as.Lhs[0].(*ast.Ident); isIdent && id.Name != "_" {
+			out[id.Name] = true
+		}
+
+		return true
+	})
 }
 
 func isURLValuesType(t ast.Expr) bool {

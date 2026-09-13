@@ -9,9 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 9 (9 ok) |
 | Feature families | 33 (32 ok, 1 partial) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- 2026-09-12 (typed slice 5, gopherstack-n3zi): GetReservedNodeExchangeConfigurationOptions (fixed this pass from a disguised stub -- see the dated section below) accepts ClusterIdentifier/SnapshotIdentifier/ActionType but does not scope its ReservedNodeConfigurationOptionList by them: this backend does not track which specific cluster/snapshot a reservation applies to, so it returns one configuration option per account-wide reserved node against the static offering catalog, unfiltered. Documented rather than fabricating a cluster/snapshot-to-reservation link that does not exist.
 
 ## More
 

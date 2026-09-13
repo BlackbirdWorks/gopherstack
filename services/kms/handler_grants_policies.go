@@ -49,48 +49,55 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 
 			return h.Backend.ListRetirableGrants(ctx, &input)
 		},
-		"PutKeyPolicy": func(ctx context.Context, b []byte) (any, error) {
-			var input PutKeyPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			// AWS KMS only supports the "default" policy name (api_op_PutKeyPolicy.go:
-			// "The only valid value is default."). UnsupportedOperationException's
-			// doc -- "a specified parameter is not supported" -- covers exactly this,
-			// PutKeyPolicy declares it, and it's the same reuse pattern as the
-			// KeySpec/KeyPairSpec enum checks ErrUnsupportedParameter already covers
-			// (gopherstack-i4q8).
-			if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
-				return nil, fmt.Errorf(
-					"%w: PolicyName must be %q; got %q",
-					ErrUnsupportedParameter, defaultKeyPolicyName, input.PolicyName,
-				)
-			}
-
-			if input.PolicyName == "" {
-				input.PolicyName = defaultKeyPolicyName
-			}
-
-			return struct{}{}, h.Backend.PutKeyPolicy(ctx, &input)
-		},
-		"GetKeyPolicy": func(ctx context.Context, b []byte) (any, error) {
-			var input GetKeyPolicyInput
-			if err := json.Unmarshal(b, &input); err != nil {
-				return nil, err
-			}
-
-			// Same "only default is valid" constraint PutKeyPolicy already
-			// enforces above (api_op_GetKeyPolicy.go: "The only valid name is
-			// default.").
-			if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
-				return nil, fmt.Errorf(
-					"%w: PolicyName must be %q; got %q",
-					ErrUnsupportedParameter, defaultKeyPolicyName, input.PolicyName,
-				)
-			}
-
-			return h.Backend.GetKeyPolicy(ctx, &input)
-		},
+		"PutKeyPolicy": h.handlePutKeyPolicy,
+		"GetKeyPolicy": h.handleGetKeyPolicy,
 	}
+}
+
+// handlePutKeyPolicy and handleGetKeyPolicy are split out of
+// buildGrantPolicyActions (rather than inlined as closures) to keep that
+// function's cognitive complexity under the gocognit limit.
+func (h *Handler) handlePutKeyPolicy(ctx context.Context, b []byte) (any, error) {
+	var input PutKeyPolicyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	// AWS KMS only supports the "default" policy name (api_op_PutKeyPolicy.go:
+	// "The only valid value is default."). UnsupportedOperationException's
+	// doc -- "a specified parameter is not supported" -- covers exactly this,
+	// PutKeyPolicy declares it, and it's the same reuse pattern as the
+	// KeySpec/KeyPairSpec enum checks ErrUnsupportedParameter already covers
+	// (gopherstack-i4q8).
+	if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be %q; got %q",
+			ErrUnsupportedParameter, defaultKeyPolicyName, input.PolicyName,
+		)
+	}
+
+	if input.PolicyName == "" {
+		input.PolicyName = defaultKeyPolicyName
+	}
+
+	return struct{}{}, h.Backend.PutKeyPolicy(ctx, &input)
+}
+
+func (h *Handler) handleGetKeyPolicy(ctx context.Context, b []byte) (any, error) {
+	var input GetKeyPolicyInput
+	if err := json.Unmarshal(b, &input); err != nil {
+		return nil, err
+	}
+
+	// Same "only default is valid" constraint PutKeyPolicy already
+	// enforces above (api_op_GetKeyPolicy.go: "The only valid name is
+	// default.").
+	if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
+		return nil, fmt.Errorf(
+			"%w: PolicyName must be %q; got %q",
+			ErrUnsupportedParameter, defaultKeyPolicyName, input.PolicyName,
+		)
+	}
+
+	return h.Backend.GetKeyPolicy(ctx, &input)
 }

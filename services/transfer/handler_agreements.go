@@ -107,7 +107,7 @@ func (h *Handler) handleDescribeAgreement(
 	return &describeAgreementOutput{
 		Agreement: map[string]any{
 			"AgreementId":       ag.AgreementID,
-			"ServerId":          ag.ServerID,
+			keyServerID:         ag.ServerID,
 			keyDescription:      ag.Description,
 			keyStatus:           ag.Status,
 			keyLocalProfileID:   ag.LocalProfileID,
@@ -150,7 +150,7 @@ func (h *Handler) handleListAgreements(
 	for i, ag := range page {
 		out[i] = map[string]any{
 			"AgreementId":       ag.AgreementID,
-			"ServerId":          ag.ServerID,
+			keyServerID:         ag.ServerID,
 			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
 			keyDescription:      ag.Description,
 			keyStatus:           ag.Status,

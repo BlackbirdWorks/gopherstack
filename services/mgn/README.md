@@ -9,14 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 95 (87 ok, 8 partial) |
 | Feature families | 14 (11 ok, 3 partial) |
-| Known gaps | 1 |
+| Known gaps | 2 |
 | Structural gaps (can't be emulated) | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
-- StartImport's CSV schema (2026-08-06 fix, see StartImport's ops: entry) implements only the SourceServer-scoped subset of AWS's documented mgn:server:* parameters. AWS's MGN User Guide also documents mgn:app:*/mgn:wave:*/mgn:launch:* parameters for implicit Application/Wave creation and per-row LaunchConfiguration overrides during import -- real, doc-confirmed, and genuinely buildable (Applications/Waves already have real backends), but acting on the mgn:launch:* sub-fields (instance profile, per-NIC subnet/security-group/private-IP, placement, licensing, volume type) would require adding a dozen fields this backend's LaunchConfiguration type doesn't have at all -- a materially larger feature than the schema fix this pass scoped in. Left as an explicit, proportionate scope decision (s3import.go's doc comment), the same class of remaining gap other A-grade services in this repo carry (e.g. services/grafana/PARITY.md's DisassociateLicense limitation). (bd: gopherstack-xd34)
+- StartImport's CSV schema (2026-09-11, see StartImport's ops: entry) now implements the SourceServer/Application/Wave-scoped subset of AWS's documented parameters (import-parameters.html). mgn:launch:*/mgn:replication:* (per-row LaunchConfiguration/ReplicationConfiguration overrides) remain out of scope: acting on them would require adding roughly two dozen fields (instance profile, per-NIC subnet/security-group/private-IP, placement, licensing, volume type, staging area routing/encryption/storage-type) this backend's LaunchConfiguration/ReplicationConfiguration types don't have at all -- a materially larger feature than a column-schema fix. mgn:account-id (delegated member-account import) and mgn:region (single-region backend, nothing to select) are also unimplemented -- neither has a cross-account/multi-region concept anywhere else in this backend to hook into. Left as an explicit, proportionate scope decision (s3import.go's doc comment), the same class of remaining gap other A-grade services in this repo carry (e.g. services/grafana/PARITY.md's DisassociateLicense limitation). (bd: gopherstack-i6oz)
+- mgn:server:hostname/mgn:server:fqdn/mgn:server:aws-instance-id/mgn:server:vmware-uuid/mgn:server:vmpath (server identification columns, pre-dating this pass) are NOT in AWS's published Inventory Import parameters table (confirmed by this pass's own fetch of import-parameters.html: the table's only server identification columns are mgn:server:fqdn-for-action-framework, mgn:server:id, and mgn:server:user-provided-id) -- they remain this package's own best-effort extension of the mgn:server:* naming convention onto the SDK's real IdentificationHints fields, already disclosed as such in s3import.go's doc comment. Left unchanged this pass: ~20 existing test call sites (seedSourceServerViaImport and its callers, across sdk_roundtrip_test.go/sdk_roundtrip_nested_test.go/sourceserver_lifecycle_precondition_test.go/list_filter_params_test.go/and others) depend on this exact schema, and correcting it was out of this pass's scope (mgn:app:*/mgn:wave:* creation). A follow-up narrowing this schema to only the real published columns, updating every dependent test, would need its own pass.
 
 ### Structural gaps
 

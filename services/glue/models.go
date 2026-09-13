@@ -7,17 +7,17 @@ import (
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
-	Parameters                    map[string]string      `json:"Parameters,omitempty"`
-	TargetDatabase                *DatabaseIdentifier    `json:"TargetDatabase,omitempty"`
-	Name                          string                 `json:"Name"`
-	Description                   string                 `json:"Description,omitempty"`
-	LocationURI                   string                 `json:"LocationUri,omitempty"`
-	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
+	Parameters     map[string]string   `json:"Parameters,omitempty"`
+	TargetDatabase *DatabaseIdentifier `json:"TargetDatabase,omitempty"`
+	Name           string              `json:"Name"`
+	Description    string              `json:"Description,omitempty"`
+	LocationURI    string              `json:"LocationUri,omitempty"`
 	// CatalogID carries CreateDatabaseInput's top-level CatalogId (not a
 	// DatabaseInput member on the wire) into CreateDatabase; handlers set it
 	// before calling the backend. No json tag: never decoded from the
 	// nested DatabaseInput wire object.
-	CatalogID string `json:"-"`
+	CatalogID                     string                 `json:"-"`
+	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
 }
 
 // Database represents a Glue catalog database.
@@ -95,18 +95,18 @@ type StorageDescriptor struct {
 
 // TableInput is the input for creating or updating a Glue table.
 type TableInput struct {
-	Parameters        map[string]string `json:"Parameters,omitempty"`
-	Name              string            `json:"Name"`
-	Description       string            `json:"Description,omitempty"`
-	Owner             string            `json:"Owner,omitempty"`
-	TableType         string            `json:"TableType,omitempty"`
-	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
-	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
-	Retention         int               `json:"Retention,omitempty"`
+	Parameters  map[string]string `json:"Parameters,omitempty"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description,omitempty"`
+	Owner       string            `json:"Owner,omitempty"`
+	TableType   string            `json:"TableType,omitempty"`
 	// CatalogID carries CreateTableInput's top-level CatalogId (not a
 	// TableInput member on the wire) into CreateTable; handlers set it
 	// before calling the backend.
-	CatalogID string `json:"-"`
+	CatalogID         string            `json:"-"`
+	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
+	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
+	Retention         int               `json:"Retention,omitempty"`
 	// SkipArchive carries UpdateTableInput's top-level SkipArchive into
 	// UpdateTable, unused by CreateTable.
 	SkipArchive bool `json:"-"`
@@ -289,32 +289,32 @@ type JobCommand struct {
 
 // Job represents a Glue job.
 type Job struct {
-	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
 	Tags                 map[string]string     `json:"-"`
 	DefaultArguments     map[string]string     `json:"DefaultArguments,omitempty"`
+	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
 	Command              JobCommand            `json:"Command,omitzero"`
-	WorkerType           string                `json:"WorkerType,omitempty"`
-	Role                 string                `json:"Role,omitempty"`
-	GlueVersion          string                `json:"GlueVersion,omitempty"`
-	Name                 string                `json:"Name"`
-	ARN                  string                `json:"Arn,omitempty"`
-	Description          string                `json:"Description,omitempty"`
-	Connections          ConnectionsList       `json:"Connections,omitzero"`
-	NotificationProperty NotificationProperty  `json:"NotificationProperty,omitzero"`
-	NumberOfWorkers      int                   `json:"NumberOfWorkers,omitempty"`
-	MaxRetries           int                   `json:"MaxRetries,omitempty"`
-	Timeout              int                   `json:"Timeout,omitempty"`
+	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
+	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
+	JobMode         string          `json:"JobMode,omitempty"`
+	WorkerType      string          `json:"WorkerType,omitempty"`
+	Role            string          `json:"Role,omitempty"`
+	GlueVersion     string          `json:"GlueVersion,omitempty"`
+	Name            string          `json:"Name"`
+	ARN             string          `json:"Arn,omitempty"`
+	Description     string          `json:"Description,omitempty"`
+	Connections     ConnectionsList `json:"Connections,omitzero"`
+	NumberOfWorkers int             `json:"NumberOfWorkers,omitempty"`
+	MaxRetries      int             `json:"MaxRetries,omitempty"`
+	Timeout         int             `json:"Timeout,omitempty"`
 	// MaxCapacity is the DPU capacity for jobs that use it instead of
 	// WorkerType+NumberOfWorkers (e.g. Python shell jobs, or Spark jobs on
 	// Glue versions that predate worker-type based capacity). AWS rejects a
 	// request that sets both MaxCapacity and WorkerType/NumberOfWorkers.
-	MaxCapacity       float64           `json:"MaxCapacity,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
-	CreatedOn         float64           `json:"CreatedOn,omitempty"`
-	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
-	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
-	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
-	JobMode string `json:"JobMode,omitempty"`
+	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
+	CreatedOn            float64              `json:"CreatedOn,omitempty"`
+	LastModifiedOn       float64              `json:"LastModifiedOn,omitempty"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 }
 
 // NotificationProperty specifies the delay, in minutes, after which a job run
@@ -399,10 +399,10 @@ type Connection struct {
 	ConnectionType                 string                          `json:"ConnectionType,omitempty"`
 	ARN                            string                          `json:"Arn,omitempty"`
 	Description                    string                          `json:"Description,omitempty"`
+	CatalogID                      string                          `json:"CatalogId,omitempty"`
 	MatchCriteria                  []string                        `json:"MatchCriteria,omitempty"`
 	CreationTime                   float64                         `json:"CreationTime,omitempty"`
 	LastUpdatedTime                float64                         `json:"LastUpdatedTime,omitempty"`
-	CatalogID                      string                          `json:"CatalogId,omitempty"`
 }
 
 // PhysicalConnectionRequirements specifies the VPC/subnet/security-group

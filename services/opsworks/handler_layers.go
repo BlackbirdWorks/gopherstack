@@ -9,11 +9,11 @@ import (
 // handleCreateLayer handles CreateLayer requests.
 func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 		StackID              string `json:"StackId"`
 		Type                 string `json:"Type"`
 		Name                 string `json:"Name"`
 		Shortname            string `json:"Shortname"`
-		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -52,9 +52,9 @@ func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, err
 // handleUpdateLayer handles UpdateLayer requests.
 func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 		LayerID              string `json:"LayerId"`
 		Name                 string `json:"Name"`
-		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

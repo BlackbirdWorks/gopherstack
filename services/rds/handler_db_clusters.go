@@ -10,46 +10,43 @@ import (
 	"time"
 )
 
-func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
-	id := vals.Get("DBClusterIdentifier")
-	engine := vals.Get("Engine")
-	masterUser := vals.Get("MasterUsername")
-	dbName := vals.Get("DatabaseName")
-	paramGroupName := vals.Get("DBClusterParameterGroupName")
-	rawPort := vals.Get("Port")
-	port := 0
-	if rawPort != "" {
-		var err error
-		port, err = strconv.Atoi(rawPort)
+// dbClusterNumericParams holds the numeric CreateDBCluster form fields,
+// parsed together to keep handleCreateDBCluster under the funlen limit.
+type dbClusterNumericParams struct {
+	port               int
+	backtrackWindow    int64
+	monitoringInterval int
+	backupRetention    int
+}
+
+func parseDBClusterNumericParams(vals url.Values) (dbClusterNumericParams, error) {
+	p := dbClusterNumericParams{backupRetention: minClusterBackupRetention}
+
+	if rawPort := vals.Get("Port"); rawPort != "" {
+		port, err := strconv.Atoi(rawPort)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid Port %q", ErrInvalidParameter, rawPort)
+			return p, fmt.Errorf("%w: invalid Port %q", ErrInvalidParameter, rawPort)
 		}
+
+		p.port = port
 	}
 
-	serverlessV2Cfg, parseErr := parseServerlessV2ScalingConfig(vals)
-	if parseErr != nil && !errors.Is(parseErr, ErrNoServerlessV2Config) {
-		return nil, parseErr
-	}
-
-	backtrackWindow := int64(0)
 	if rawBW := vals.Get("BacktrackWindow"); rawBW != "" {
 		if v, err := strconv.ParseInt(rawBW, 10, 64); err == nil {
-			backtrackWindow = v
+			p.backtrackWindow = v
 		}
 	}
 
-	monitoringInterval := 0
 	if rawMI := vals.Get("MonitoringInterval"); rawMI != "" {
 		if v, err := strconv.Atoi(rawMI); err == nil {
-			monitoringInterval = v
+			p.monitoringInterval = v
 		}
 	}
 
-	backupRetention := minClusterBackupRetention
 	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
 		v, err := strconv.Atoi(rawBR)
 		if err != nil {
-			return nil, fmt.Errorf(
+			return p, fmt.Errorf(
 				"%w: invalid BackupRetentionPeriod %q",
 				ErrInvalidParameter,
 				rawBR,
@@ -57,16 +54,20 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		}
 
 		if v < minClusterBackupRetention || v > maxClusterBackupRetention {
-			return nil, fmt.Errorf(
+			return p, fmt.Errorf(
 				"%w: BackupRetentionPeriod must be between %d and %d; got %d",
 				ErrInvalidParameter, minClusterBackupRetention, maxClusterBackupRetention, v,
 			)
 		}
 
-		backupRetention = v
+		p.backupRetention = v
 	}
 
-	clusterOpts := DBClusterOptions{
+	return p, nil
+}
+
+func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBClusterOptions {
+	return DBClusterOptions{
 		EngineVersion:               vals.Get("EngineVersion"),
 		KmsKeyID:                    vals.Get("KmsKeyId"),
 		PreferredBackupWindow:       vals.Get("PreferredBackupWindow"),
@@ -84,15 +85,35 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 			vals,
 			"AvailabilityZones.AvailabilityZone",
 		),
-		BacktrackWindow:       backtrackWindow,
-		BackupRetentionPeriod: backupRetention,
-		MonitoringInterval:    monitoringInterval,
+		BacktrackWindow:       numeric.backtrackWindow,
+		BackupRetentionPeriod: numeric.backupRetention,
+		MonitoringInterval:    numeric.monitoringInterval,
 		MultiAZ:               vals.Get("MultiAZ") == formTrue,
 		StorageEncrypted:      vals.Get("StorageEncrypted") == formTrue,
 		CopyTagsToSnapshot:    vals.Get("CopyTagsToSnapshot") == formTrue,
 		DeletionProtection:    vals.Get("DeletionProtection") == formTrue,
 		OptimizedWrites:       vals.Get("EnableOptimizedWrites") == formTrue,
 	}
+}
+
+func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
+	id := vals.Get("DBClusterIdentifier")
+	engine := vals.Get("Engine")
+	masterUser := vals.Get("MasterUsername")
+	dbName := vals.Get("DatabaseName")
+	paramGroupName := vals.Get("DBClusterParameterGroupName")
+
+	numeric, err := parseDBClusterNumericParams(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	serverlessV2Cfg, parseErr := parseServerlessV2ScalingConfig(vals)
+	if parseErr != nil && !errors.Is(parseErr, ErrNoServerlessV2Config) {
+		return nil, parseErr
+	}
+
+	clusterOpts := buildDBClusterOptions(vals, numeric)
 
 	cluster, err := h.Backend.CreateDBCluster(
 		id,
@@ -100,7 +121,7 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 		masterUser,
 		dbName,
 		paramGroupName,
-		port,
+		numeric.port,
 		serverlessV2Cfg,
 		clusterOpts,
 	)

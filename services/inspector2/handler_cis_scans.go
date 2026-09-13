@@ -230,8 +230,8 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 	}
 
 	var req struct {
-		Messages  []map[string]any `json:"messages"`
 		ScanJobID string           `json:"scanJobId"`
+		Messages  []map[string]any `json:"messages"`
 	}
 
 	if len(body) > 0 {

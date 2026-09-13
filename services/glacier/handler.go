@@ -720,39 +720,43 @@ func (h *Handler) writeError(c *echo.Context, status int, code, message string) 
 	})
 }
 
+// backendErrMapping maps a sentinel backend error to its Glacier HTTP status/code.
+type backendErrMapping struct {
+	err    error
+	code   string
+	status int
+}
+
+const (
+	errCodeResourceNotFoundException      = "ResourceNotFoundException"
+	errCodeInvalidParameterValueException = "InvalidParameterValueException"
+)
+
+//nolint:gochecknoglobals // package-level mapping, analogous to a lookup table
+var glacierBackendErrMappings = []backendErrMapping{
+	{err: ErrVaultNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
+	{err: ErrArchiveNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
+	{err: ErrJobNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
+	{err: ErrUploadNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
+	{err: ErrVaultNotEmpty, status: http.StatusConflict, code: "ConflictException"},
+	{err: ErrResourceInUse, status: http.StatusConflict, code: "ResourceInUseException"},
+	{err: ErrLockConflict, status: http.StatusConflict, code: errCodeInvalidParameterValueException},
+	{err: ErrLockAlreadyLocked, status: http.StatusConflict, code: errCodeInvalidParameterValueException},
+	{err: ErrTooManyTags, status: http.StatusBadRequest, code: "LimitExceededException"},
+	{err: ErrProvisionedCapacityLimit, status: http.StatusBadRequest, code: "LimitExceededException"},
+	{err: ErrInvalidTag, status: http.StatusBadRequest, code: errCodeInvalidParameterValueException},
+	{err: ErrValidation, status: http.StatusBadRequest, code: errCodeInvalidParameterValueException},
+	{err: ErrMissingParameter, status: http.StatusBadRequest, code: "MissingParameterValueException"},
+	{err: ErrVaultLockDenied, status: http.StatusForbidden, code: "AccessDeniedException"},
+	{err: ErrVaultLockNotFound, status: http.StatusNotFound, code: errCodeResourceNotFoundException},
+}
+
 // writeBackendError maps a backend error to an HTTP error response.
 func (h *Handler) writeBackendError(c *echo.Context, err error) error {
-	switch {
-	case errors.Is(err, ErrVaultNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrArchiveNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrJobNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrUploadNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
-	case errors.Is(err, ErrVaultNotEmpty):
-		return h.writeError(c, http.StatusConflict, "ConflictException", err.Error())
-	case errors.Is(err, ErrResourceInUse):
-		return h.writeError(c, http.StatusConflict, "ResourceInUseException", err.Error())
-	case errors.Is(err, ErrLockConflict):
-		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
-	case errors.Is(err, ErrLockAlreadyLocked):
-		return h.writeError(c, http.StatusConflict, "InvalidParameterValueException", err.Error())
-	case errors.Is(err, ErrTooManyTags):
-		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
-	case errors.Is(err, ErrProvisionedCapacityLimit):
-		return h.writeError(c, http.StatusBadRequest, "LimitExceededException", err.Error())
-	case errors.Is(err, ErrInvalidTag):
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-	case errors.Is(err, ErrValidation):
-		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException", err.Error())
-	case errors.Is(err, ErrMissingParameter):
-		return h.writeError(c, http.StatusBadRequest, "MissingParameterValueException", err.Error())
-	case errors.Is(err, ErrVaultLockDenied):
-		return h.writeError(c, http.StatusForbidden, "AccessDeniedException", err.Error())
-	case errors.Is(err, ErrVaultLockNotFound):
-		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+	for _, m := range glacierBackendErrMappings {
+		if errors.Is(err, m.err) {
+			return h.writeError(c, m.status, m.code, err.Error())
+		}
 	}
 
 	return h.writeError(

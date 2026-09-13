@@ -9,13 +9,16 @@
 | --- | --- |
 | PARITY entries audited | 97 (96 ok, 1 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | 4 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - CHECKED 2026-09-07 (gopherstack-z1sd triage), found FALSE: the claim 'migration project has no status' misdescribes the real API, not this backend. The real MigrationProject type (databasemigrationservice@v1.66.4 types/types.go:2044-2088) has no Status/MigrationProjectStatus field at all -- confirmed by full field listing (Description, InstanceProfileArn, InstanceProfileName, MigrationProjectArn, MigrationProjectCreationTime, MigrationProjectName, SchemaConversionApplicationAttributes, Source/TargetDataProviderDescriptors, TransformationRules) and by grep across the whole SDK module for MigrationProjectStatus (zero hits). CreateMigrationProject/ModifyMigrationProject/DeleteMigrationProject/DescribeMigrationProjects (ops rows above) already match this shape exactly, including the 2026-08-11 fix that removed a fabricated MigrationProjectIdentifier response field. There is no gap here.
+- 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): ImportCertificateInput.KmsKeyId is accepted-and-dropped -- the real types.Certificate response (databasemigrationservice@v1.66.4 types/types.go:59-84) has no KmsKeyId member at all to round-trip it onto, and this emulator has no cross-service KMS-key-existence check anywhere in the service (same documented precedent as kms's own CreateGrant GrantConstraints.SourceArn: no cross-service request-context plumbing exists). Nothing observable to fix.
+- 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): DescribeApplicableIndividualAssessmentsInput's ReplicationConfigArn/ReplicationInstanceArn/ReplicationTaskArn task-modeling parameters are accepted-and-ignored -- the op always returns defaultApplicableIndividualAssessments(), a static representative catalog (assessment_runs.go) with no per-engine/per-migration-type support metadata behind it. Honoring these would require fabricating which individual assessments apply to which source/target engine and migration-type combination, which is not modeled anywhere in this backend and is not something this pass will invent.
+- 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): DescribeDataMigrationsInput.WithoutStatistics is accepted-and-ignored -- DataMigration (models.go) carries no DataMigrationStatistics field at all; this backend never runs a real data migration and so never populates statistics for one to hide. WithoutSettings (the sibling field, real DataMigrationSettings state) was already fixed in the 2026-08-29 pass; this one has nothing to suppress.
 
 ## More
 

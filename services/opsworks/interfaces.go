@@ -292,18 +292,18 @@ type Layer struct {
 type Instance struct {
 	CreatedAt            time.Time
 	InstallUpdatesOnBoot *bool
-	StackID              string
-	LayerIDs             []string
+	AgentVersion         string
 	InstanceID           string
 	Arn                  string
 	Hostname             string
 	InstanceType         string
 	Status               string
-	AgentVersion         string
+	StackID              string
 	Architecture         string
 	Os                   string
 	SubnetID             string
 	Tenancy              string
+	LayerIDs             []string
 	// Registered indicates this is an on-premises registered instance.
 	Registered bool
 }

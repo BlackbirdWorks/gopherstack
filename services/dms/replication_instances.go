@@ -33,8 +33,8 @@ type ReplicationInstanceSettings struct {
 	NetworkType                string
 	PreferredMaintenanceWindow string
 	ReplicationSubnetGroupID   string
-	VpcSecurityGroupIDs        []string
 	ResourceIdentifier         string
+	VpcSecurityGroupIDs        []string
 }
 
 // CreateReplicationInstance creates a new DMS replication instance.

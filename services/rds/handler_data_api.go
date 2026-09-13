@@ -8,15 +8,15 @@ import (
 type enableHTTPEndpointResponse struct {
 	XMLName     xml.Name `xml:"EnableHttpEndpointResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
-	HTTPEnabled bool     `xml:"EnableHttpEndpointResult>HttpEndpointEnabled"`
 	ResourceArn string   `xml:"EnableHttpEndpointResult>ResourceArn,omitempty"`
+	HTTPEnabled bool     `xml:"EnableHttpEndpointResult>HttpEndpointEnabled"`
 }
 
 type disableHTTPEndpointResponse struct {
 	XMLName     xml.Name `xml:"DisableHttpEndpointResponse"`
 	Xmlns       string   `xml:"xmlns,attr"`
-	HTTPEnabled bool     `xml:"DisableHttpEndpointResult>HttpEndpointEnabled"`
 	ResourceArn string   `xml:"DisableHttpEndpointResult>ResourceArn,omitempty"`
+	HTTPEnabled bool     `xml:"DisableHttpEndpointResult>HttpEndpointEnabled"`
 }
 
 func (h *Handler) handleEnableHTTPEndpoint(vals url.Values) (any, error) {

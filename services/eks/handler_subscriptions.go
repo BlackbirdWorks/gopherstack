@@ -209,8 +209,8 @@ func (h *Handler) handleListEksAnywhereSubscriptions(c *echo.Context) error {
 // never real members of this request; a real client's required AutoRenew
 // value was previously never read at all.
 type updateSubscriptionBody struct {
-	AutoRenew          bool   `json:"autoRenew"`
 	ClientRequestToken string `json:"clientRequestToken"`
+	AutoRenew          bool   `json:"autoRenew"`
 }
 
 func (h *Handler) handleUpdateEksAnywhereSubscription(c *echo.Context, id string, body []byte) error {

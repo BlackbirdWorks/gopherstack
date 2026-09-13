@@ -99,23 +99,23 @@ type TableDescription struct {
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
 	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
-	TableName                 string                            `json:"TableName"`
+	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
 	TableStatus               string                            `json:"TableStatus"`
 	TableArn                  string                            `json:"TableArn,omitempty"`
 	TableID                   string                            `json:"TableId,omitempty"`
-	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
+	TableName                 string                            `json:"TableName"`
 	LatestStreamLabel         string                            `json:"LatestStreamLabel,omitempty"`
 	GlobalTableVersion        string                            `json:"GlobalTableVersion,omitempty"`
-	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
-	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
+	MultiRegionConsistency    string                            `json:"MultiRegionConsistency,omitempty"`
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
+	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
-	MultiRegionConsistency    string                            `json:"MultiRegionConsistency,omitempty"`
+	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
 	TableSizeBytes            int64                             `json:"TableSizeBytes"`
-	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 	ItemCount                 int                               `json:"ItemCount"`
+	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 }
 
 type SSEDescription struct {

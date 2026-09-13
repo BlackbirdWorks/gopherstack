@@ -409,7 +409,7 @@ describe("Direct Connect Page", () => {
       ],
     });
     const loadButtons = screen.getAllByRole("button", { name: "Load" });
-    await fireEvent.click(loadButtons[loadButtons.length - 1]);
+    await fireEvent.click(loadButtons.at(-1)!);
 
     await waitFor(() => {
       expect(screen.getByRole("cell", { name: "on-interconnect-conn" })).toBeInTheDocument();

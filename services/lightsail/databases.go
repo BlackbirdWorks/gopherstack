@@ -121,8 +121,6 @@ func (b *InMemoryBackend) CreateRelationalDatabase(
 	}
 
 	now := nowUTC()
-	//nolint:gosec // G101 false positive: MasterUserPassword is assigned from a caller-supplied
-	// variable (validated/defaulted above), not a hardcoded credential literal.
 	db := &RelationalDatabase{
 		Name:                       name,
 		Arn:                        b.regionalARN(ResourceTypeRelationalDatabase, newUUID()),

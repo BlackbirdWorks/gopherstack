@@ -124,8 +124,6 @@ func (b *InMemoryBackend) DeleteServiceNetworkResourceAssociation(
 }
 
 // ListServiceNetworkResourceAssociations lists SNRAs with optional filters.
-//
-//nolint:dupl // structurally mirrors ListServiceNetworkServiceAssociations but filters a distinct table/type
 func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	ctx context.Context,
 	serviceNetworkIdentifier, resourceConfigurationIdentifier string,
@@ -153,25 +151,11 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 			continue
 		}
 
-		if serviceNetworkIdentifier != "" && s.ServiceNetworkID != serviceNetworkIdentifier &&
-			s.ServiceNetworkARN != serviceNetworkIdentifier {
+		matches := b.matchesSNRAFilters(
+			s, serviceNetworkIdentifier, resourceConfigurationIdentifier, includeChildren, groupID, groupResolved,
+		)
+		if !matches {
 			continue
-		}
-
-		if resourceConfigurationIdentifier != "" {
-			matchesSelf := s.ResourceConfigurationID == resourceConfigurationIdentifier ||
-				s.ResourceConfigurationARN == resourceConfigurationIdentifier
-
-			matchesChild := false
-			if includeChildren && groupResolved {
-				if rc, ok := b.resourceConfigurations.Get(s.ResourceConfigurationID); ok {
-					matchesChild = rc.ResourceConfigurationGroupID == groupID
-				}
-			}
-
-			if !matchesSelf && !matchesChild {
-				continue
-			}
 		}
 
 		all = append(all, s.toSummary())
@@ -182,6 +166,37 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	p := page.New(all, nextToken, int(maxResults), defaultMaxResults)
 
 	return p.Data, p.Next, nil
+}
+
+// matchesSNRAFilters is split out of ListServiceNetworkResourceAssociations
+// to keep that function's cognitive complexity under the gocognit limit.
+func (b *InMemoryBackend) matchesSNRAFilters(
+	s *storedSNRA,
+	serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+	includeChildren bool,
+	groupID string,
+	groupResolved bool,
+) bool {
+	if serviceNetworkIdentifier != "" && s.ServiceNetworkID != serviceNetworkIdentifier &&
+		s.ServiceNetworkARN != serviceNetworkIdentifier {
+		return false
+	}
+
+	if resourceConfigurationIdentifier == "" {
+		return true
+	}
+
+	matchesSelf := s.ResourceConfigurationID == resourceConfigurationIdentifier ||
+		s.ResourceConfigurationARN == resourceConfigurationIdentifier
+
+	matchesChild := false
+	if includeChildren && groupResolved {
+		if rc, ok := b.resourceConfigurations.Get(s.ResourceConfigurationID); ok {
+			matchesChild = rc.ResourceConfigurationGroupID == groupID
+		}
+	}
+
+	return matchesSelf || matchesChild
 }
 
 // ------- ResourceEndpointAssociation / ServiceNetworkVpcEndpointAssociation -------

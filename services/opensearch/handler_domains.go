@@ -511,11 +511,11 @@ type cancelServiceSoftwareUpdateRequest struct {
 // date. *int64 with omitempty (always nil here) reports the honest absence
 // instead of a value in the wrong JSON type.
 type serviceSoftwareOptionsJSON struct {
+	AutomatedUpdateDate *int64 `json:"AutomatedUpdateDate,omitempty"`
 	CurrentVersion      string `json:"CurrentVersion"`
 	NewVersion          string `json:"NewVersion"`
 	UpdateStatus        string `json:"UpdateStatus"`
 	Description         string `json:"Description"`
-	AutomatedUpdateDate *int64 `json:"AutomatedUpdateDate,omitempty"`
 	UpdateAvailable     bool   `json:"UpdateAvailable"`
 	Cancellable         bool   `json:"Cancellable"`
 	OptionalDeployment  bool   `json:"OptionalDeployment"`

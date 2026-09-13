@@ -7,15 +7,19 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 59 (58 ok, 1 partial) |
+| PARITY entries audited | 59 (57 ok, 2 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | 1 |
+| Known gaps | 5 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
 ### Known gaps
 
+- DescribeCodeCoverages/DescribeTestCases/GetReportGroupTrend always return empty content (codeCoverages/testCases/stats) because no report actually populates coverage/test-case/trend data anywhere in the backend (reports are seed-only via the AddReportInternal test helper — there is no real CodeBuild API to push test-case/coverage content; on real AWS it's ingested by the managed build agent parsing buildspec `reports` sections and artifact files, which this emulator's build execution does not model). This remains genuinely correct to leave empty rather than fabricate numbers a client cannot distinguish from real data. Implementing this for real would require modeling report-content ingestion from build artifacts, which is out of scope for this pass. NOTE: as of the 2026-08-11 pass, this is now *only* a content gap -- the request validation these three ops perform (required fields, ARN existence where real AWS declares it, trendField enum) is complete and correct; see ops: above.
 - FIXED 2026-09-04 (see ListBuildsForProject above): the 2026-08-31 (gopherstack-uox6) ListBuildsForProjectInput.SortOrder>100-builds gap is closed.
+- gopherstack-9ckk (2026-09-11): BuildBatchConfig.CombineArtifacts and .BatchReportMode are carried as passthrough config (round-trip through CreateProject/StartBuildBatch's BuildBatchConfigOverride and back out on BatchGetBuildBatches) but have no behavioral effect -- no real artifact merging (CombineArtifacts) or source-provider status reporting (BatchReportMode, ReportBuildBatchStatusOverride) is simulated anywhere in this service, matching every other CodeBuild op that doesn't talk to a real Git host.
+- gopherstack-9ckk (2026-09-11): build-matrix batch definitions are recognized (selectBatchNodes, batchspec.go) and rejected with InvalidInputException rather than expanded into per-combination BuildGroups -- combinatorial matrix expansion (static/dynamic env + buildspec cross product) was judged not cheap relative to build-list/build-graph, which cover the dependency-graph question this issue was filed to answer. Only StartBuildBatch on a build-matrix-only buildspec is affected; build-list and build-graph are fully implemented.
+- gopherstack-9ckk (2026-09-11): RetryBuildBatch doesn't enforce real AWS's 'only a FAILED batch can be retried' precondition, and doesn't distinguish RetryType (RETRY_ALL_BUILDS vs RETRY_FAILED_BUILDS -- every retry re-runs every group fresh, i.e. always behaves as RETRY_ALL_BUILDS). Enforcing the precondition would have required a failure-injection mechanism this emulator doesn't otherwise have (nothing here ever organically fails a build), and RETRY_FAILED_BUILDS's partial re-run (carrying successful groups forward into PriorBuildSummaryList) is a distinct, non-trivial feature; see RetryBuildBatch above.
 
 ### Deferred
 

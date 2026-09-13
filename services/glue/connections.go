@@ -32,8 +32,8 @@ func cloneConnection(c *Connection) *Connection {
 type ConnectionOptions struct {
 	PhysicalConnectionRequirements *PhysicalConnectionRequirements
 	Description                    string
-	MatchCriteria                  []string
 	CatalogID                      string
+	MatchCriteria                  []string
 }
 
 // BatchDeleteConnection deletes multiple connections. The real

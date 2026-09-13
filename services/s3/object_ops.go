@@ -7,8 +7,8 @@ import (
 )
 
 type objectCommonDetails struct {
-	ChecksumSHA256            *string
-	ChecksumCRC32             *string
+	ETag                      *string
+	ChecksumCRC64NVME         *string
 	ContentType               *string
 	ContentLength             *int64
 	LastModified              *time.Time
@@ -16,19 +16,19 @@ type objectCommonDetails struct {
 	TagCount                  *int32
 	ExpiresString             *string
 	ChecksumCRC32C            *string
-	ChecksumSHA1              *string
-	ETag                      *string
-	ChecksumCRC64NVME         *string
 	Metadata                  map[string]string
+	ChecksumCRC32             *string
+	ChecksumSHA256            *string
+	ChecksumSHA1              *string
 	ObjectLockRetainUntilDate *time.Time
-	StorageClass              string
+	Restore                   *string
 	SSECAlgorithm             string
 	SSECKeyMD5                string
 	SSEKMSKeyID               string
 	ObjectLockMode            string
 	ObjectLockLegalHoldStatus string
 	SSEAlgorithm              string
-	Restore                   *string
+	StorageClass              string
 }
 
 func (h *S3Handler) handleObjectOperation(

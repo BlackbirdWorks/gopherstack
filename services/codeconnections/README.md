@@ -9,9 +9,14 @@
 | --- | --- |
 | PARITY entries audited | 27 (27 ok) |
 | Feature families | 6 (6 ok) |
-| Known gaps | none |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- SyncBlocker.Contexts (types.SyncBlockerContext) is never emitted by GetSyncBlockerSummary/UpdateSyncBlocker -- disclosed 2026-08-19, out of scope for that pass (Layer-3/never-emitted-member hunt), not fixed.
+- CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are never checked for existence -- disclosed 2026-09-04, deliberately NOT fixed: unlike UpdateRepositoryLink (gopherstack-2y2.1), neither CreateRepositoryLink's nor CreateSyncConfiguration's own error deserializer switch (awsAwsjson10_deserializeOpErrorCreateRepositoryLink / ...CreateSyncConfiguration) contains ResourceNotFoundException at all, so there is no real error type this service's error set offers for 'referenced resource does not exist' on these two ops -- adding one would itself be the exact wire-shape bug this campaign exists to catch. Cannot be determined from the SDK whether real AWS validates these fields at all (and if so, via which mechanism); declining to guess.
 
 ## More
 

@@ -31,8 +31,6 @@ func (b *InMemoryBackend) requireSolutionVersion(solutionVersionArn string) erro
 }
 
 // CreateBatchInferenceJob creates a new batch inference job.
-//
-//nolint:dupl // structurally identical to CreateBatchSegmentJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchInferenceJob(
 	jobName, solutionVersionArn, roleArn, jobMode string,
 	jobInput, jobOutput map[string]any,
@@ -117,8 +115,6 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 // --- BatchSegmentJob ---
 
 // CreateBatchSegmentJob creates a new batch segment job.
-//
-//nolint:dupl // structurally identical to CreateBatchInferenceJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchSegmentJob(
 	jobName, solutionVersionArn, roleArn string,
 	jobInput, jobOutput map[string]any,

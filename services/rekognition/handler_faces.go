@@ -151,10 +151,10 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 }
 
 type searchFacesReq struct {
+	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 	CollectionID       string   `json:"CollectionId"`
 	FaceID             string   `json:"FaceId"`
 	MaxFaces           int32    `json:"MaxFaces"`
-	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 }
 
 type faceMatchEntry struct {
@@ -209,11 +209,11 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 }
 
 type searchFacesByImageReq struct {
+	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 	CollectionID       string   `json:"CollectionId"`
 	QualityFilter      string   `json:"QualityFilter"`
 	Image              imageRef `json:"Image"`
 	MaxFaces           int32    `json:"MaxFaces"`
-	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 }
 
 type searchFacesByImageResp struct {

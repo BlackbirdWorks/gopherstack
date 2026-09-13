@@ -83,6 +83,7 @@ func sortByMemory(names []string) {
 		if mi, mj := nodeTypeMemoryGiB[names[i]], nodeTypeMemoryGiB[names[j]]; mi != mj {
 			return mi < mj
 		}
+
 		return names[i] < names[j]
 	})
 }

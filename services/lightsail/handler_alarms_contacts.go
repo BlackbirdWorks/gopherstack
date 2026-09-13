@@ -60,6 +60,7 @@ func alarmToWire(a *Alarm) alarmWire {
 }
 
 type putAlarmRequest struct {
+	NotificationEnabled   *bool     `json:"notificationEnabled,omitempty"`
 	AlarmName             string    `json:"alarmName"`
 	ComparisonOperator    string    `json:"comparisonOperator"`
 	MetricName            string    `json:"metricName"`
@@ -71,7 +72,6 @@ type putAlarmRequest struct {
 	Threshold             float64   `json:"threshold"`
 	DatapointsToAlarm     int32     `json:"datapointsToAlarm,omitempty"`
 	EvaluationPeriods     int32     `json:"evaluationPeriods"`
-	NotificationEnabled   *bool     `json:"notificationEnabled,omitempty"`
 }
 
 func (h *Handler) handlePutAlarm(_ context.Context, body []byte) ([]byte, error) {

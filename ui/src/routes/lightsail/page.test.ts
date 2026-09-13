@@ -340,7 +340,12 @@ describe("Lightsail page", () => {
 
     mockSend.mockResolvedValueOnce({
       tlsPolicies: [
-        { name: "TLS-1-2-2019-08", isDefault: true, protocols: ["TLSv1.2"], description: "default policy" },
+        {
+          name: "TLS-1-2-2019-08",
+          isDefault: true,
+          protocols: ["TLSv1.2"],
+          description: "default policy",
+        },
       ],
     });
     await fireEvent.click(screen.getByRole("button", { name: "Load TLS policies" }));

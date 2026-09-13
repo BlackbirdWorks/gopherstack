@@ -16,16 +16,7 @@ func (b *InMemoryBackend) CreateDBCluster(
 	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
 	opts DBClusterOptions,
 ) (*DBCluster, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
-	}
-	if err := validateDBClusterEngine(engine); err != nil {
-		return nil, err
-	}
-	if err := ValidateStorageTypeForCluster(opts.StorageType); err != nil {
-		return nil, err
-	}
-	if err := ValidateEngineLifecycleSupport(opts.EngineLifecycleSupport); err != nil {
+	if err := validateCreateDBClusterInput(id, engine, opts); err != nil {
 		return nil, err
 	}
 	b.mu.Lock("CreateDBCluster")
@@ -46,6 +37,49 @@ func (b *InMemoryBackend) CreateDBCluster(
 			)
 		}
 	}
+
+	cluster := b.newDBCluster(id, engine, masterUser, dbName, paramGroupName, port, serverlessV2Cfg, opts)
+	b.clusters.Put(cluster)
+
+	if replicationSource != nil {
+		replicationSource.ReadReplicaIdentifiers = append(
+			replicationSource.ReadReplicaIdentifiers,
+			id,
+		)
+	}
+
+	if opts.BackupRetentionPeriod > 0 {
+		b.registerClusterAutomatedBackupLocked(cluster)
+	}
+
+	cp := *cluster
+
+	return &cp, nil
+}
+
+func validateCreateDBClusterInput(id, engine string, opts DBClusterOptions) error {
+	if id == "" {
+		return fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
+	}
+	if err := validateDBClusterEngine(engine); err != nil {
+		return err
+	}
+	if err := ValidateStorageTypeForCluster(opts.StorageType); err != nil {
+		return err
+	}
+
+	return ValidateEngineLifecycleSupport(opts.EngineLifecycleSupport)
+}
+
+// newDBCluster applies engine/paramGroupName/port/networkType defaults and
+// builds the DBCluster record. Split out of CreateDBCluster to keep that
+// method under the funlen limit.
+func (b *InMemoryBackend) newDBCluster(
+	id, engine, masterUser, dbName, paramGroupName string,
+	port int,
+	serverlessV2Cfg *ServerlessV2ScalingConfiguration,
+	opts DBClusterOptions,
+) *DBCluster {
 	if engine == "" {
 		engine = "aurora-postgresql"
 	}
@@ -66,7 +100,8 @@ func (b *InMemoryBackend) CreateDBCluster(
 	if networkType == "" {
 		networkType = "IPV4"
 	}
-	cluster := &DBCluster{
+
+	return &DBCluster{
 		ClusterCreateTime:            time.Now().UTC(),
 		DBClusterIdentifier:          id,
 		DBClusterArn:                 b.rdsARN("cluster", id),
@@ -101,22 +136,6 @@ func (b *InMemoryBackend) CreateDBCluster(
 		ReplicationSourceIdentifier:  opts.ReplicationSourceIdentifier,
 		DBClusterMembers:             []DBClusterMember{},
 	}
-	b.clusters.Put(cluster)
-
-	if replicationSource != nil {
-		replicationSource.ReadReplicaIdentifiers = append(
-			replicationSource.ReadReplicaIdentifiers,
-			id,
-		)
-	}
-
-	if opts.BackupRetentionPeriod > 0 {
-		b.registerClusterAutomatedBackupLocked(cluster)
-	}
-
-	cp := *cluster
-
-	return &cp, nil
 }
 
 // DescribeDBClusters returns clusters. If id is non-empty, returns only that cluster.

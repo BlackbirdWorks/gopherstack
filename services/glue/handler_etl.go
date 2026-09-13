@@ -481,9 +481,9 @@ type getPlanCatalogEntry struct {
 // getPlanInput holds input for GetPlan.
 type getPlanInput struct {
 	Source                   *getPlanCatalogEntry `json:"Source,omitempty"`
+	AdditionalPlanOptionsMap map[string]string    `json:"AdditionalPlanOptionsMap,omitempty"`
 	Language                 string               `json:"Language"`
 	Mapping                  []MappingEntry       `json:"Mapping"`
-	AdditionalPlanOptionsMap map[string]string    `json:"AdditionalPlanOptionsMap,omitempty"`
 }
 
 // getPlanOutput holds the result for GetPlan.

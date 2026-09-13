@@ -19,11 +19,11 @@ type cancelSoftwareUpdateRequest struct {
 // -- a plain string field here always failed a real client's decode even when
 // empty. Omitted entirely: this backend tracks no scheduled-update date.
 type serviceSoftwareOptionsJSON struct {
+	AutomatedUpdateDate *float64 `json:"AutomatedUpdateDate,omitempty"`
 	CurrentVersion      string   `json:"CurrentVersion"`
 	NewVersion          string   `json:"NewVersion"`
 	UpdateStatus        string   `json:"UpdateStatus"`
 	Description         string   `json:"Description"`
-	AutomatedUpdateDate *float64 `json:"AutomatedUpdateDate,omitempty"`
 	UpdateAvailable     bool     `json:"UpdateAvailable"`
 	Cancellable         bool     `json:"Cancellable"`
 	OptionalDeployment  bool     `json:"OptionalDeployment"`

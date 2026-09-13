@@ -311,11 +311,11 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 		payload = &TopicRulePayload{}
 	}
 
-	if err := h.Backend.ReplaceTopicRule(&ReplaceTopicRuleInput{
+	if replaceErr := h.Backend.ReplaceTopicRule(&ReplaceTopicRuleInput{
 		RuleName:         ruleName,
 		TopicRulePayload: payload,
-	}); err != nil {
-		return h.handleError(c, err)
+	}); replaceErr != nil {
+		return h.handleError(c, replaceErr)
 	}
 
 	return c.NoContent(http.StatusOK)

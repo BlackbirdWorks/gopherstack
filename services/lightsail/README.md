@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 28 (19 ok, 9 partial) |
-| Known gaps | 11 |
+| Known gaps | 15 |
 | Deferred items | 2 |
 | Resource leaks | clean |
 
@@ -25,6 +25,10 @@
 - No ListTagsForResource op exists in this 161-op surface (confirmed unchanged); TagResource/UntagResource resolve by ResourceName, matching the original audit's spec exactly, implemented in tagging_vpc_misc.go.
 - Container services are explicitly, disclosedly state-machine bookkeeping only -- no image is ever pulled or run via pkgs/container (containers.go's own file header states this as a scope decision, not a silent gap), matching the 'legitimate, honestly-labeled MVP' option the pre-implementation audit explicitly allowed for.
 - EnableAddOn's AutoSnapshot add-on seeds exactly one AutoSnapshotDetails entry at enable time (addons.go) but runs no ongoing scheduled daily-snapshot cadence afterward -- a minor, real scope limitation this re-audit found that is not disclosed at its own call site (unlike nearly everything else in this package).
+- 2026-09-12 (reqfielddiff slice 4): CreateRelationalDatabaseFromSnapshotInput's RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName trio (the point-in-time-restore-from-a-live-source-database path, distinct from restoring by RelationalDatabaseSnapshotName) is decoded nowhere and CreateRelationalDatabaseFromSnapshot's backend signature has no parameters for it -- this backend only models restore-from-a-named-snapshot, never restore-from-a-source-database's automated backups at a point in time, so there is no state UseLatestRestorableTime could meaningfully toggle without inventing an entire automated-backup-timeline feature. Not fabricated.
+- 2026-09-12 (reqfielddiff slice 4): GetBucketsInput.IncludeCors is decoded nowhere -- Bucket (models.go) has no CORS-configuration field at all, and neither does UpdateBucket's own request struct (its own AccessRules/Cors/Versioning are the same class of gap, tier-5 in the same sweep). No bucket op in this backend models CORS in either direction; adding a read-only IncludeCors toggle with nothing behind it to include would be fabrication.
+- 2026-09-12 (reqfielddiff slice 4): GetRelationalDatabaseLogEventsInput.StartFromHead is decoded nowhere. Structurally unobservable, not merely undisclosed: GetRelationalDatabaseLogEvents (databases.go) deliberately always returns an EMPTY log-event page (documented at its own doc comment -- no real MySQL server runs here to produce genuine log lines, and fabricating plausible-looking log text would violate parity-principles.md exactly like the metric-data ops). An ordering flag has no effect on an empty list, so honoring it costs nothing (an empty page is the same reversed), but does not represent a fix over the existing intentional design.
+- 2026-09-12 (reqfielddiff slice 4): UpdateRelationalDatabaseInput.ApplyImmediately is decoded nowhere. Real AWS defers some modifications to the next preferred maintenance window when false; this backend has no pending-modifications queue or maintenance-window scheduler -- every UpdateRelationalDatabase change (databases.go) already applies synchronously and immediately regardless of this flag. Modeling the true deferred-apply semantics would require building an entire maintenance-window state machine this backend does not have; not fabricated.
 
 ### Deferred
 

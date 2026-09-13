@@ -95,8 +95,8 @@ func (h *Handler) handleCreateReplicationTask(
 type describeReplicationTasksInput struct {
 	Marker          *string       `json:"Marker"`
 	MaxRecords      *int32        `json:"MaxRecords"`
-	Filters         []filterEntry `json:"Filters"`
 	WithoutSettings *bool         `json:"WithoutSettings"`
+	Filters         []filterEntry `json:"Filters"`
 }
 
 type describeReplicationTasksOutput struct {

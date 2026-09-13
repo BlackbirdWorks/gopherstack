@@ -512,7 +512,7 @@ func matchThingGroupTerm(g *ThingGroup, term string) bool {
 	}
 
 	switch {
-	case key == "thingGroupName":
+	case key == keyThingGroupName:
 		return strings.EqualFold(g.ThingGroupName, value)
 	case key == "parentGroupNames":
 		return strings.EqualFold(g.ParentGroupName, value)

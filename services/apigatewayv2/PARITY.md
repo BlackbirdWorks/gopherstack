@@ -44,7 +44,7 @@ overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member swe
                        # all, pre-existing and out of this pass's scope -- newly disclosed, see
                        # gaps).
                        # ---- prior pass's note follows ----
-overall: A            # 2026-09-08 (gopherstack-wsvb, P1): enforceRouteThrottle/enforceRouteAuth
+                       # 2026-09-08 (gopherstack-wsvb, P1): enforceRouteThrottle/enforceRouteAuth
                        # (http_proxy.go) and enforceIAMAuth/enforceRequestAuthorizer/
                        # finishAuthDecision (authorizers.go) rejected a request by writing its
                        # 429/401/403 via writeErr and returning that call's result -- c.JSON
