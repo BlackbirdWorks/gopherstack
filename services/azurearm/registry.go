@@ -119,7 +119,7 @@ func (r *Registry) SetServiceBusEntities(e ServiceBusEntities) {
 		return
 	}
 
-	if sb, ok := p.(*ServiceBusProvider); ok {
+	if sb, sbOk := p.(*ServiceBusProvider); sbOk {
 		sb.dataPlane = e
 	}
 }

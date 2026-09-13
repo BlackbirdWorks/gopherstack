@@ -43,7 +43,7 @@ func (g ResourceGroup) Body(subscriptionID string) map[string]any {
 		fieldLocation: g.Location,
 		fieldTags:     tagsOrEmpty(g.Tags),
 		fieldProperties: map[string]any{
-			"provisioningState": provisioningStateSucceeded,
+			fieldProvisioningState: provisioningStateSucceeded,
 		},
 	}
 }
@@ -79,13 +79,36 @@ const (
 	fieldValue      = "value"
 )
 
+// fieldProvisioningState is the properties-object key (not to be confused
+// with provisioningStateSucceeded, the value always stored under it) shared
+// by ResourceGroup.Body, Resource.Body, rp_storage.go, and rp_servicebus.go's
+// response bodies (goconst: 6+ occurrences across this file and those two).
+const fieldProvisioningState = "provisioningState"
+
+// fieldKeyName is the ListKeys response field name shared by
+// rp_storage.go's and rp_servicebus.go's ListKeys implementations (goconst:
+// 3+ occurrences across both).
+const fieldKeyName = "keyName"
+
+// skuTierStandard is the ARM SKU tier/name value shared by Storage's and
+// ServiceBus's default SKU bodies (goconst: 3+ occurrences across
+// rp_storage.go and rp_servicebus.go). Storage's SKU *name* is
+// "Standard_LRS" (a distinct string), but both providers' SKU *tier* is
+// exactly "Standard".
+const skuTierStandard = "Standard"
+
+// armErrorCodeResourceNotFound is the ARM error "code" value handler.go's
+// errorEntry table uses for every "resource wasn't found" case across
+// Storage and ServiceBus (goconst: 6 occurrences in handler.go).
+const armErrorCodeResourceNotFound = "ResourceNotFound"
+
 // Body returns the ARM wire response body for r.
 func (r Resource) Body() map[string]any {
 	props := map[string]any{}
 
 	maps.Copy(props, r.Properties)
 
-	props["provisioningState"] = provisioningStateSucceeded
+	props[fieldProvisioningState] = provisioningStateSucceeded
 
 	body := map[string]any{
 		"id":            r.ID.ARMID(),

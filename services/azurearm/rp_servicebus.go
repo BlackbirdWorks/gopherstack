@@ -164,17 +164,27 @@ const (
 	sbKindSubscription
 )
 
+// Type-segment-pair counts classifyServiceBusPath switches on: a bare
+// namespace is 1 pair deep, a queue/topic/authorizationRule is 2 pairs deep,
+// and a topic's subscription is 3 pairs deep (see this file's top-of-file
+// comment for the full shape table).
+const (
+	sbNamespacePairCount    = 1
+	sbQueueOrTopicPairCount = 2
+	sbSubscriptionPairCount = 3
+)
+
 // classifyServiceBusPath validates id's Types shape and returns which of the
 // four resource kinds it addresses -- generalizing checkResourceType's
 // single-constant-equality check (rp_storage.go), since unlike Storage,
 // ServiceBus serves multiple resource types at different nesting depths.
 func classifyServiceBusPath(id ResourceID) sbPathKind {
 	switch len(id.Types) {
-	case 1:
+	case sbNamespacePairCount:
 		if strings.EqualFold(id.Types[0], sbNamespacesType) {
 			return sbKindNamespace
 		}
-	case 2:
+	case sbQueueOrTopicPairCount:
 		if !strings.EqualFold(id.Types[0], sbNamespacesType) {
 			return sbKindUnsupported
 		}
@@ -187,7 +197,7 @@ func classifyServiceBusPath(id ResourceID) sbPathKind {
 		case strings.EqualFold(id.Types[1], sbAuthRulesType):
 			return sbKindAuthRule
 		}
-	case 3:
+	case sbSubscriptionPairCount:
 		if strings.EqualFold(id.Types[0], sbNamespacesType) &&
 			strings.EqualFold(id.Types[1], sbTopicsType) &&
 			strings.EqualFold(id.Types[2], sbSubscriptionsType) {
@@ -229,7 +239,11 @@ func (p *ServiceBusProvider) Put(ctx context.Context, id ResourceID, body map[st
 	}
 }
 
-func (p *ServiceBusProvider) putNamespace(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ServiceBusProvider) putNamespace(
+	ctx context.Context,
+	id ResourceID,
+	body map[string]any,
+) (map[string]any, error) {
 	name := id.LeafName()
 	key := sbKey(id.ResourceGroup, name)
 
@@ -308,8 +322,8 @@ func (p *ServiceBusProvider) putQueue(ctx context.Context, id ResourceID, body m
 	p.queues[sbKey(id.ResourceGroup, nsName, name)] = q
 	p.mu.Unlock()
 
-	if err := p.dataPlane.CreateQueue(name, lockDuration, defaultTTL, maxDeliveryCount); err != nil {
-		logServiceBusAdapterError(ctx, "CreateQueue", name, err)
+	if createErr := p.dataPlane.CreateQueue(name, lockDuration, defaultTTL, maxDeliveryCount); createErr != nil {
+		logServiceBusAdapterError(ctx, "CreateQueue", name, createErr)
 	}
 
 	return p.buildQueueBody(id, q), nil
@@ -336,14 +350,18 @@ func (p *ServiceBusProvider) putTopic(ctx context.Context, id ResourceID, body m
 	p.topics[sbKey(id.ResourceGroup, nsName, name)] = t
 	p.mu.Unlock()
 
-	if err := p.dataPlane.CreateTopic(name, defaultTTL); err != nil {
-		logServiceBusAdapterError(ctx, "CreateTopic", name, err)
+	if createErr := p.dataPlane.CreateTopic(name, defaultTTL); createErr != nil {
+		logServiceBusAdapterError(ctx, "CreateTopic", name, createErr)
 	}
 
 	return p.buildTopicBody(id, t), nil
 }
 
-func (p *ServiceBusProvider) putSubscription(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, error) {
+func (p *ServiceBusProvider) putSubscription(
+	ctx context.Context,
+	id ResourceID,
+	body map[string]any,
+) (map[string]any, error) {
 	p.mu.Lock("Put/subscription")
 
 	if err := p.requireNamespace(id); err != nil {
@@ -378,8 +396,8 @@ func (p *ServiceBusProvider) putSubscription(ctx context.Context, id ResourceID,
 	p.subscriptions[sbKey(id.ResourceGroup, nsName, topicName, name)] = s
 	p.mu.Unlock()
 
-	if err := p.dataPlane.CreateSubscription(topicName, name, lockDuration, maxDeliveryCount); err != nil {
-		logServiceBusAdapterError(ctx, "CreateSubscription", name, err)
+	if createErr := p.dataPlane.CreateSubscription(topicName, name, lockDuration, maxDeliveryCount); createErr != nil {
+		logServiceBusAdapterError(ctx, "CreateSubscription", name, createErr)
 	}
 
 	return p.buildSubscriptionBody(id, s), nil
@@ -423,7 +441,9 @@ func (p *ServiceBusProvider) putAuthRule(id ResourceID, body map[string]any) (ma
 // body's properties object. A field's absence is treated as zero/unset, not
 // an error -- real ARM defaults these when omitted, and this emulator's own
 // buildBody functions substitute their own defaults for a zero value.
-func parseSBEntityProperties(body map[string]any) (lockDuration, defaultTTL time.Duration, maxDeliveryCount int, err error) {
+func parseSBEntityProperties(
+	body map[string]any,
+) (lockDuration, defaultTTL time.Duration, maxDeliveryCount int, err error) {
 	props, _ := body["properties"].(map[string]any)
 
 	if s, ok := props["lockDuration"].(string); ok && s != "" {
@@ -574,57 +594,19 @@ func (p *ServiceBusProvider) List(_ context.Context, id ResourceID) ([]map[strin
 
 	switch classifyServiceBusPath(id) {
 	case sbKindNamespace:
-		for _, ns := range p.namespaces {
-			if id.ResourceGroup != "" && !resourceGroupsEqual(ns.resourceGroup, id.ResourceGroup) {
-				continue
-			}
-
-			nsID := ResourceID{
-				SubscriptionID: id.SubscriptionID, ResourceGroup: ns.resourceGroup,
-				Namespace: namespaceMicrosoftServiceBus, Types: []string{sbNamespacesType}, Names: []string{ns.name},
-			}
-			out = append(out, p.buildNamespaceBody(nsID, ns))
-		}
+		out = p.listNamespaces(id)
 	case sbKindQueue:
-		for _, q := range p.queues {
-			if id.ResourceGroup != "" && !resourceGroupsEqual(q.resourceGroup, id.ResourceGroup) {
-				continue
-			}
-
-			qID := ResourceID{
-				SubscriptionID: id.SubscriptionID, ResourceGroup: q.resourceGroup,
-				Namespace: namespaceMicrosoftServiceBus,
-				Types:     []string{sbNamespacesType, sbQueuesType}, Names: []string{q.namespace, q.name},
-			}
-			out = append(out, p.buildQueueBody(qID, q))
-		}
+		out = p.listQueues(id)
 	case sbKindTopic:
-		for _, t := range p.topics {
-			if id.ResourceGroup != "" && !resourceGroupsEqual(t.resourceGroup, id.ResourceGroup) {
-				continue
-			}
-
-			tID := ResourceID{
-				SubscriptionID: id.SubscriptionID, ResourceGroup: t.resourceGroup,
-				Namespace: namespaceMicrosoftServiceBus,
-				Types:     []string{sbNamespacesType, sbTopicsType}, Names: []string{t.namespace, t.name},
-			}
-			out = append(out, p.buildTopicBody(tID, t))
-		}
+		out = p.listTopics(id)
 	case sbKindSubscription:
-		for _, s := range p.subscriptions {
-			if id.ResourceGroup != "" && !resourceGroupsEqual(s.resourceGroup, id.ResourceGroup) {
-				continue
-			}
-
-			sID := ResourceID{
-				SubscriptionID: id.SubscriptionID, ResourceGroup: s.resourceGroup,
-				Namespace: namespaceMicrosoftServiceBus,
-				Types:     []string{sbNamespacesType, sbTopicsType, sbSubscriptionsType},
-				Names:     []string{s.namespace, s.topic, s.name},
-			}
-			out = append(out, p.buildSubscriptionBody(sID, s))
-		}
+		out = p.listSubscriptions(id)
+	case sbKindUnsupported, sbKindAuthRule:
+		// Neither shape is listable: authorizationRules only ever supports
+		// per-rule Put/listKeys (AZURE.md section 10.10), and an unsupported
+		// path has nothing to enumerate. Both fall through to an empty list
+		// rather than an error, matching real ARM's List semantics for a
+		// collection URL it doesn't otherwise recognize as erroring.
 	}
 
 	sort.Slice(out, func(i, j int) bool {
@@ -632,6 +614,91 @@ func (p *ServiceBusProvider) List(_ context.Context, id ResourceID) ([]map[strin
 	})
 
 	return out, nil
+}
+
+// listNamespaces builds the List response for every stored namespace scoped
+// to id.ResourceGroup (or every namespace in the subscription if unset).
+func (p *ServiceBusProvider) listNamespaces(id ResourceID) []map[string]any {
+	var out []map[string]any
+
+	for _, ns := range p.namespaces {
+		if id.ResourceGroup != "" && !resourceGroupsEqual(ns.resourceGroup, id.ResourceGroup) {
+			continue
+		}
+
+		nsID := ResourceID{
+			SubscriptionID: id.SubscriptionID, ResourceGroup: ns.resourceGroup,
+			Namespace: namespaceMicrosoftServiceBus, Types: []string{sbNamespacesType}, Names: []string{ns.name},
+		}
+		out = append(out, p.buildNamespaceBody(nsID, ns))
+	}
+
+	return out
+}
+
+// listQueues builds the List response for every stored queue scoped to
+// id.ResourceGroup (or every queue in the subscription if unset).
+func (p *ServiceBusProvider) listQueues(id ResourceID) []map[string]any {
+	var out []map[string]any
+
+	for _, q := range p.queues {
+		if id.ResourceGroup != "" && !resourceGroupsEqual(q.resourceGroup, id.ResourceGroup) {
+			continue
+		}
+
+		qID := ResourceID{
+			SubscriptionID: id.SubscriptionID, ResourceGroup: q.resourceGroup,
+			Namespace: namespaceMicrosoftServiceBus,
+			Types:     []string{sbNamespacesType, sbQueuesType}, Names: []string{q.namespace, q.name},
+		}
+		out = append(out, p.buildQueueBody(qID, q))
+	}
+
+	return out
+}
+
+// listTopics builds the List response for every stored topic scoped to
+// id.ResourceGroup (or every topic in the subscription if unset).
+func (p *ServiceBusProvider) listTopics(id ResourceID) []map[string]any {
+	var out []map[string]any
+
+	for _, t := range p.topics {
+		if id.ResourceGroup != "" && !resourceGroupsEqual(t.resourceGroup, id.ResourceGroup) {
+			continue
+		}
+
+		tID := ResourceID{
+			SubscriptionID: id.SubscriptionID, ResourceGroup: t.resourceGroup,
+			Namespace: namespaceMicrosoftServiceBus,
+			Types:     []string{sbNamespacesType, sbTopicsType}, Names: []string{t.namespace, t.name},
+		}
+		out = append(out, p.buildTopicBody(tID, t))
+	}
+
+	return out
+}
+
+// listSubscriptions builds the List response for every stored subscription
+// scoped to id.ResourceGroup (or every subscription in the subscription if
+// unset).
+func (p *ServiceBusProvider) listSubscriptions(id ResourceID) []map[string]any {
+	var out []map[string]any
+
+	for _, s := range p.subscriptions {
+		if id.ResourceGroup != "" && !resourceGroupsEqual(s.resourceGroup, id.ResourceGroup) {
+			continue
+		}
+
+		sID := ResourceID{
+			SubscriptionID: id.SubscriptionID, ResourceGroup: s.resourceGroup,
+			Namespace: namespaceMicrosoftServiceBus,
+			Types:     []string{sbNamespacesType, sbTopicsType, sbSubscriptionsType},
+			Names:     []string{s.namespace, s.topic, s.name},
+		}
+		out = append(out, p.buildSubscriptionBody(sID, s))
+	}
+
+	return out
 }
 
 // Reset implements ResourceProvider (Registry.ResetAll, the
@@ -650,26 +717,35 @@ func (p *ServiceBusProvider) Reset() {
 // delete when a resource group is deleted).
 func (p *ServiceBusProvider) DeleteResourcesInGroup(ctx context.Context, resourceGroup string) {
 	p.mu.Lock("DeleteResourcesInGroup")
+	deletedQueues, deletedTopics, deletedSubs := p.deleteGroupResourcesLocked(resourceGroup)
+	p.mu.Unlock()
 
-	var deletedQueues, deletedTopics, deletedSubs []string
+	p.cascadeDeleteFromDataPlane(ctx, deletedQueues, deletedTopics, deletedSubs)
+}
 
+// deleteGroupResourcesLocked removes every queue/topic/subscription/
+// namespace owned by resourceGroup from p's in-memory maps -- caller must
+// hold p.mu for writing. Returns the names of the deleted queues/topics
+// (for cascadeDeleteFromDataPlane to also clean up in the data plane) and
+// the "topic/name" pairs of the deleted subscriptions.
+func (p *ServiceBusProvider) deleteGroupResourcesLocked(resourceGroup string) (queues, topics, subs []string) {
 	for key, q := range p.queues {
 		if resourceGroupsEqual(q.resourceGroup, resourceGroup) {
-			deletedQueues = append(deletedQueues, q.name)
+			queues = append(queues, q.name)
 			delete(p.queues, key)
 		}
 	}
 
 	for key, t := range p.topics {
 		if resourceGroupsEqual(t.resourceGroup, resourceGroup) {
-			deletedTopics = append(deletedTopics, t.name)
+			topics = append(topics, t.name)
 			delete(p.topics, key)
 		}
 	}
 
 	for key, s := range p.subscriptions {
 		if resourceGroupsEqual(s.resourceGroup, resourceGroup) {
-			deletedSubs = append(deletedSubs, s.topic+"/"+s.name)
+			subs = append(subs, s.topic+"/"+s.name)
 			delete(p.subscriptions, key)
 		}
 	}
@@ -680,8 +756,18 @@ func (p *ServiceBusProvider) DeleteResourcesInGroup(ctx context.Context, resourc
 		}
 	}
 
-	p.mu.Unlock()
+	return queues, topics, subs
+}
 
+// cascadeDeleteFromDataPlane best-effort deletes the given queues/topics/
+// subscriptions (the latter as "topic/name" pairs) from the ServiceBus data
+// plane, logging (not failing) any individual error -- mirroring Delete's
+// own dataPlane-failure handling. Must be called without p.mu held, since
+// the data-plane adapter call may block.
+func (p *ServiceBusProvider) cascadeDeleteFromDataPlane(
+	ctx context.Context,
+	deletedQueues, deletedTopics, deletedSubs []string,
+) {
 	for _, name := range deletedQueues {
 		if err := p.dataPlane.DeleteQueue(name); err != nil {
 			logServiceBusAdapterError(ctx, "DeleteQueue", name, err)
@@ -733,14 +819,14 @@ func (p *ServiceBusProvider) ListKeys(_ context.Context, id ResourceID) (map[str
 		"secondaryConnectionString": connStr,
 		"primaryKey":                sbDefaultKeyValue,
 		"secondaryKey":              sbDefaultKeyValue,
-		"keyName":                   sbDefaultKeyName,
+		fieldKeyName:                sbDefaultKeyName,
 	}, nil
 }
 
 func (p *ServiceBusProvider) buildNamespaceBody(id ResourceID, ns *storedSBNamespace) map[string]any {
 	sku := ns.sku
 	if len(sku) == 0 {
-		sku = map[string]any{"name": "Standard", "tier": "Standard"}
+		sku = map[string]any{"name": skuTierStandard, "tier": skuTierStandard}
 	}
 
 	return map[string]any{
@@ -751,9 +837,9 @@ func (p *ServiceBusProvider) buildNamespaceBody(id ResourceID, ns *storedSBNames
 		fieldTags:     tagsOrEmpty(ns.tags),
 		"sku":         sku,
 		fieldProperties: map[string]any{
-			"provisioningState":  provisioningStateSucceeded,
-			"status":             "Active",
-			"serviceBusEndpoint": advertiseServiceBusEndpoint(p.cfg.Override, ns.host, p.cfg.Port),
+			fieldProvisioningState: provisioningStateSucceeded,
+			"status":               "Active",
+			"serviceBusEndpoint":   advertiseServiceBusEndpoint(p.cfg.Override, ns.host, p.cfg.Port),
 		},
 	}
 }
@@ -765,7 +851,7 @@ func (p *ServiceBusProvider) buildQueueBody(id ResourceID, q *storedSBQueue) map
 		fieldType:     namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbQueuesType,
 		fieldLocation: "",
 		fieldProperties: map[string]any{
-			"provisioningState":                provisioningStateSucceeded,
+			fieldProvisioningState:             provisioningStateSucceeded,
 			"lockDuration":                     iso8601.Format(q.lockDuration),
 			"defaultMessageTimeToLive":         iso8601.Format(q.defaultMessageTTL),
 			"maxDeliveryCount":                 q.maxDeliveryCount,
@@ -781,7 +867,7 @@ func (p *ServiceBusProvider) buildTopicBody(id ResourceID, t *storedSBTopic) map
 		fieldName: t.name,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbTopicsType,
 		fieldProperties: map[string]any{
-			"provisioningState":          provisioningStateSucceeded,
+			fieldProvisioningState:       provisioningStateSucceeded,
 			"defaultMessageTimeToLive":   iso8601.Format(t.defaultMessageTTL),
 			"requiresDuplicateDetection": false,
 			"supportOrdering":            false,
@@ -795,7 +881,7 @@ func (p *ServiceBusProvider) buildSubscriptionBody(id ResourceID, s *storedSBSub
 		fieldName: s.name,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbTopicsType + "/" + sbSubscriptionsType,
 		fieldProperties: map[string]any{
-			"provisioningState":                provisioningStateSucceeded,
+			fieldProvisioningState:             provisioningStateSucceeded,
 			"lockDuration":                     iso8601.Format(s.lockDuration),
 			"maxDeliveryCount":                 s.maxDeliveryCount,
 			"deadLetteringOnMessageExpiration": false,

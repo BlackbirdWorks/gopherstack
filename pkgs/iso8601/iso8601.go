@@ -94,12 +94,17 @@ func Parse(s string) (time.Duration, error) {
 // used by Format for a non-positive input.
 const Zero = "PT0S"
 
-// Format is Parse's inverse. A non-positive duration formats as Zero.
-func Format(d time.Duration) string {
-	if d <= 0 {
-		return Zero
-	}
+// durationParts holds the D/H/M/S components (plus any sub-second
+// remainder) that Format decomposes a positive time.Duration into.
+type durationParts struct {
+	days, hours, minutes, seconds int64
+	fracNanos                     int64
+}
 
+// decompose breaks a positive time.Duration down into its ISO 8601
+// D/H/M/S components. d must be > 0; Format handles the non-positive case
+// itself before calling this.
+func decompose(d time.Duration) durationParts {
 	totalWhole := int64(d / time.Second)
 	fracNanos := int64(d % time.Second)
 
@@ -110,35 +115,55 @@ func Format(d time.Duration) string {
 	minutes := rem / secondsPerMinute
 	seconds := rem % secondsPerMinute
 
+	return durationParts{days: days, hours: hours, minutes: minutes, seconds: seconds, fracNanos: fracNanos}
+}
+
+// formatSeconds renders the "nS" or "n.fffS" trailing component for the
+// given whole seconds and sub-second nanosecond remainder, or "" if both
+// are zero (i.e. there's no seconds component to emit at all).
+func formatSeconds(seconds, fracNanos int64) string {
+	switch {
+	case fracNanos > 0:
+		secondsFloat := float64(seconds) + float64(fracNanos)/float64(time.Second)
+		return strconv.FormatFloat(secondsFloat, 'f', -1, 64) + "S"
+	case seconds > 0:
+		return strconv.FormatInt(seconds, 10) + "S"
+	default:
+		return ""
+	}
+}
+
+// Format is Parse's inverse. A non-positive duration formats as Zero.
+func Format(d time.Duration) string {
+	if d <= 0 {
+		return Zero
+	}
+
+	p := decompose(d)
+
 	var b strings.Builder
 
 	b.WriteString("P")
 
-	if days > 0 {
-		fmt.Fprintf(&b, "%dD", days)
+	if p.days > 0 {
+		fmt.Fprintf(&b, "%dD", p.days)
 	}
 
-	if hours == 0 && minutes == 0 && seconds == 0 && fracNanos == 0 {
+	if p.hours == 0 && p.minutes == 0 && p.seconds == 0 && p.fracNanos == 0 {
 		return b.String()
 	}
 
 	b.WriteString("T")
 
-	if hours > 0 {
-		fmt.Fprintf(&b, "%dH", hours)
+	if p.hours > 0 {
+		fmt.Fprintf(&b, "%dH", p.hours)
 	}
 
-	if minutes > 0 {
-		fmt.Fprintf(&b, "%dM", minutes)
+	if p.minutes > 0 {
+		fmt.Fprintf(&b, "%dM", p.minutes)
 	}
 
-	switch {
-	case fracNanos > 0:
-		secondsFloat := float64(seconds) + float64(fracNanos)/float64(time.Second)
-		fmt.Fprintf(&b, "%sS", strconv.FormatFloat(secondsFloat, 'f', -1, 64))
-	case seconds > 0:
-		fmt.Fprintf(&b, "%dS", seconds)
-	}
+	b.WriteString(formatSeconds(p.seconds, p.fracNanos))
 
 	return b.String()
 }

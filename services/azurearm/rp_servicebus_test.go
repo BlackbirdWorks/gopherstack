@@ -14,11 +14,11 @@ import (
 // assert exactly which of ServiceBusProvider's Put paths call into the data
 // plane (namespace Put must NOT; queue/topic/subscription Put MUST).
 type fakeServiceBusEntities struct {
-	calls []string
-
 	queues        map[string]bool
 	topics        map[string]bool
 	subscriptions map[string]bool
+
+	calls []string
 }
 
 func newFakeServiceBusEntities() *fakeServiceBusEntities {
@@ -95,9 +95,11 @@ func sbQueueID(rg, ns, name string) azurearm.ResourceID {
 	}
 }
 
-func sbTopicID(rg, ns, name string) azurearm.ResourceID {
+// sbTopicID's ResourceGroup is always "rg1" -- every test call site needs
+// the same resource group, so it's hardcoded rather than a parameter.
+func sbTopicID(ns, name string) azurearm.ResourceID {
 	return azurearm.ResourceID{
-		SubscriptionID: "sub1", ResourceGroup: rg, Namespace: "Microsoft.ServiceBus",
+		SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
 		Types: []string{"namespaces", "topics"}, Names: []string{ns, name},
 	}
 }
@@ -109,9 +111,11 @@ func sbAuthRuleID(rg, ns, name string) azurearm.ResourceID {
 	}
 }
 
-func sbSubscriptionID(rg, ns, topic, name string) azurearm.ResourceID {
+// sbSubscriptionID's ResourceGroup is always "rg1" -- every test call site
+// needs the same resource group, so it's hardcoded rather than a parameter.
+func sbSubscriptionID(ns, topic, name string) azurearm.ResourceID {
 	return azurearm.ResourceID{
-		SubscriptionID: "sub1", ResourceGroup: rg, Namespace: "Microsoft.ServiceBus",
+		SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
 		Types: []string{"namespaces", "topics", "subscriptions"}, Names: []string{ns, topic, name},
 	}
 }
@@ -232,7 +236,7 @@ func TestServiceBusProvider_TopicPutGetDelete(t *testing.T) {
 	require.NoError(t, err)
 	fake.calls = nil
 
-	id := sbTopicID("rg1", "ns1", "t1")
+	id := sbTopicID("ns1", "t1")
 	body, err := sp.Put(ctx, id, map[string]any{
 		"properties": map[string]any{"defaultMessageTimeToLive": "P1D"},
 	})
@@ -264,7 +268,7 @@ func TestServiceBusProvider_Topic_ParentNamespaceMissing(t *testing.T) {
 
 	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
 
-	_, err := sp.Put(t.Context(), sbTopicID("rg1", "missingns", "t1"), map[string]any{})
+	_, err := sp.Put(t.Context(), sbTopicID("missingns", "t1"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }
 
@@ -277,11 +281,11 @@ func TestServiceBusProvider_SubscriptionPutGetDelete(t *testing.T) {
 
 	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
-	_, err = sp.Put(ctx, sbTopicID("rg1", "ns1", "t1"), map[string]any{})
+	_, err = sp.Put(ctx, sbTopicID("ns1", "t1"), map[string]any{})
 	require.NoError(t, err)
 	fake.calls = nil
 
-	id := sbSubscriptionID("rg1", "ns1", "t1", "sub1")
+	id := sbSubscriptionID("ns1", "t1", "sub1")
 	body, err := sp.Put(ctx, id, map[string]any{
 		"properties": map[string]any{
 			"lockDuration":     "PT1M",
@@ -321,7 +325,7 @@ func TestServiceBusProvider_Subscription_ParentTopicMissing(t *testing.T) {
 	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
 
-	_, err = sp.Put(ctx, sbSubscriptionID("rg1", "ns1", "missingtopic", "s1"), map[string]any{})
+	_, err = sp.Put(ctx, sbSubscriptionID("ns1", "missingtopic", "s1"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusTopicNotFound)
 }
 
@@ -330,7 +334,7 @@ func TestServiceBusProvider_Subscription_ParentNamespaceMissing(t *testing.T) {
 
 	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
 
-	_, err := sp.Put(t.Context(), sbSubscriptionID("rg1", "missingns", "t1", "s1"), map[string]any{})
+	_, err := sp.Put(t.Context(), sbSubscriptionID("missingns", "t1", "s1"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }
 
@@ -501,9 +505,9 @@ func TestServiceBusProvider_DeleteResourcesInGroup(t *testing.T) {
 	require.NoError(t, err)
 	_, err = sp.Put(ctx, sbQueueID("rg1", "ns1", "q1"), map[string]any{})
 	require.NoError(t, err)
-	_, err = sp.Put(ctx, sbTopicID("rg1", "ns1", "t1"), map[string]any{})
+	_, err = sp.Put(ctx, sbTopicID("ns1", "t1"), map[string]any{})
 	require.NoError(t, err)
-	_, err = sp.Put(ctx, sbSubscriptionID("rg1", "ns1", "t1", "s1"), map[string]any{})
+	_, err = sp.Put(ctx, sbSubscriptionID("ns1", "t1", "s1"), map[string]any{})
 	require.NoError(t, err)
 
 	_, err = sp.Put(ctx, sbNamespaceID("rg2", "ns2"), map[string]any{"location": "westus"})
@@ -515,9 +519,9 @@ func TestServiceBusProvider_DeleteResourcesInGroup(t *testing.T) {
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 	_, err = sp.Get(ctx, sbQueueID("rg1", "ns1", "q1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusQueueNotFound)
-	_, err = sp.Get(ctx, sbTopicID("rg1", "ns1", "t1"))
+	_, err = sp.Get(ctx, sbTopicID("ns1", "t1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusTopicNotFound)
-	_, err = sp.Get(ctx, sbSubscriptionID("rg1", "ns1", "t1", "s1"))
+	_, err = sp.Get(ctx, sbSubscriptionID("ns1", "t1", "s1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusSubscriptionNotFound)
 
 	assert.Contains(t, fake.calls, "DeleteQueue:q1")

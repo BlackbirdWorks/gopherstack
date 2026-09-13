@@ -101,7 +101,11 @@ type azureServiceBusEntitiesAdapter struct {
 	backend azureservicebus.StorageBackend
 }
 
-func (a *azureServiceBusEntitiesAdapter) CreateQueue(name string, lockDuration, defaultMessageTTL time.Duration, maxDeliveryCount int) error {
+func (a *azureServiceBusEntitiesAdapter) CreateQueue(
+	name string,
+	lockDuration, defaultMessageTTL time.Duration,
+	maxDeliveryCount int,
+) error {
 	_, err := a.backend.CreateQueue(name, azureservicebus.EntityConfig{
 		LockDuration:      lockDuration,
 		DefaultMessageTTL: defaultMessageTTL,
@@ -131,7 +135,11 @@ func (a *azureServiceBusEntitiesAdapter) TopicExists(name string) bool {
 	return a.backend.TopicExists(name)
 }
 
-func (a *azureServiceBusEntitiesAdapter) CreateSubscription(topic, name string, lockDuration time.Duration, maxDeliveryCount int) error {
+func (a *azureServiceBusEntitiesAdapter) CreateSubscription(
+	topic, name string,
+	lockDuration time.Duration,
+	maxDeliveryCount int,
+) error {
 	_, err := a.backend.CreateSubscription(topic, name, azureservicebus.EntityConfig{
 		LockDuration:     lockDuration,
 		MaxDeliveryCount: maxDeliveryCount,

@@ -120,11 +120,22 @@ func TestTerraform_Azure_ServiceBus(t *testing.T) {
 
 	applyAzureTofu(t, dir, hcl)
 
-	t.Run("terraform-created queue send/peek-lock/complete round-trips against services/azureservicebus", func(t *testing.T) {
-		verifyServiceBusQueueRoundTrip(t)
-	})
+	// Both subtests exercise independent, already-Terraform-created
+	// resources (the queue vs. the topic/subscription pair) against
+	// services/azureservicebus's own listener, so -- unlike storage_dataplane_
+	// test.go's SharedKey-auth-path subtest, which must observe traffic its
+	// siblings already generated -- there's no ordering dependency between
+	// them, and both can run in parallel.
+	t.Run(
+		"terraform-created queue send/peek-lock/complete round-trips against services/azureservicebus",
+		func(t *testing.T) {
+			t.Parallel()
+			verifyServiceBusQueueRoundTrip(t)
+		},
+	)
 
 	t.Run("terraform-created topic/subscription round-trips against services/azureservicebus", func(t *testing.T) {
+		t.Parallel()
 		verifyServiceBusTopicSubscriptionRoundTrip(t)
 	})
 }
