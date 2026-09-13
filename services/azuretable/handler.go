@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"net"
@@ -36,18 +37,44 @@ const dataServiceVersion = "3.0;"
 // Operation name constants used for metrics (ExtractOperation) and
 // GetSupportedOperations.
 const (
-	opListTables     = "ListTables"
-	opCreateTable    = "CreateTable"
-	opDeleteTable    = "DeleteTable"
-	opInsertEntity   = "InsertEntity"
-	opGetEntity      = "GetEntity"
-	opQueryEntities  = "QueryEntities"
-	opReplaceEntity  = "ReplaceEntity"
-	opMergeEntity    = "MergeEntity"
-	opDeleteEntity   = "DeleteEntity"
-	opBatch          = "Batch"
-	unknownOperation = "Unknown"
+	opListTables           = "ListTables"
+	opGetServiceProperties = "GetServiceProperties"
+	opCreateTable          = "CreateTable"
+	opDeleteTable          = "DeleteTable"
+	opGetTable             = "GetTable"
+	opSetTableACL          = "SetTableACL"
+	opInsertEntity         = "InsertEntity"
+	opGetEntity            = "GetEntity"
+	opQueryEntities        = "QueryEntities"
+	opReplaceEntity        = "ReplaceEntity"
+	opMergeEntity          = "MergeEntity"
+	opDeleteEntity         = "DeleteEntity"
+	opBatch                = "Batch"
+	unknownOperation       = "Unknown"
 )
+
+// Query-parameter names/values for Get Table Service Properties
+// (GET /<account>?restype=service&comp=properties) -- the one account-level
+// (no <resource> segment) operation this service supports, needed to
+// satisfy terraform-provider-azurerm v4.81+'s post-create data-plane
+// readiness poll (AZURE.md section 10.8). Mirrors services/azureblob and
+// services/azurequeue's identical query-parameter convention.
+const (
+	queryRestype   = "restype"
+	queryComp      = "comp"
+	restypeService = "service"
+	compProperties = "properties"
+	compACL        = "acl"
+)
+
+// storageServiceProperties is the minimal (all-empty) response body for Get
+// Table Service Properties. Every field in the real schema is optional, so
+// an empty element round-trips through every SDK's XML decoder. Unlike
+// every other azuretable response (JSON/OData), this one endpoint uses XML
+// per the real Table Service REST API's own schema.
+type storageServiceProperties struct {
+	XMLName xml.Name `xml:"StorageServiceProperties"`
+}
 
 // tablesResourceName is the fixed "Tables" collection resource segment used
 // for table-CRUD operations (POST/GET /<account>/Tables, DELETE
@@ -119,8 +146,11 @@ func (h *Handler) Name() string { return "AzureTable" }
 func (h *Handler) GetSupportedOperations() []string {
 	return []string{
 		opListTables,
+		opGetServiceProperties,
 		opCreateTable,
 		opDeleteTable,
+		opGetTable,
+		opSetTableACL,
 		opInsertEntity,
 		opGetEntity,
 		opQueryEntities,
@@ -176,7 +206,17 @@ func (h *Handler) Handler() echo.HandlerFunc {
 		h.checkAuth(r)
 
 		account, resource := splitPath(r.URL.Path)
-		if account == "" || resource == "" {
+		if account == "" {
+			return h.writeError(c, http.StatusBadRequest, "InvalidUri",
+				"The requested URI does not represent any resource on the server.")
+		}
+
+		if resource == "" {
+			if r.Method == http.MethodGet && c.QueryParam(queryRestype) == restypeService &&
+				c.QueryParam(queryComp) == compProperties {
+				return h.writeXML(c, http.StatusOK, storageServiceProperties{})
+			}
+
 			return h.writeError(c, http.StatusBadRequest, "InvalidUri",
 				"The requested URI does not represent any resource on the server.")
 		}
@@ -341,6 +381,15 @@ func resolveTunneledMergeMethod(r *http.Request) {
 // effects.
 func operationFor(r *http.Request) string {
 	_, resource := splitPath(r.URL.Path)
+	if resource == "" {
+		if r.Method == http.MethodGet && r.URL.Query().Get(queryRestype) == restypeService &&
+			r.URL.Query().Get(queryComp) == compProperties {
+			return opGetServiceProperties
+		}
+
+		return unknownOperation
+	}
+
 	kind, _, _ := parseResource(resource)
 
 	switch kind {
@@ -349,13 +398,16 @@ func operationFor(r *http.Request) string {
 	case resourceTablesCollection:
 		return tablesCollectionOperationFor(r.Method)
 	case resourceTablesItem:
-		if r.Method == http.MethodDelete {
+		switch r.Method {
+		case http.MethodDelete:
 			return opDeleteTable
+		case http.MethodGet:
+			return opGetTable
+		default:
+			return unknownOperation
 		}
-
-		return unknownOperation
 	case resourceEntityCollection:
-		return entityCollectionOperationFor(r.Method)
+		return entityCollectionOperationFor(r)
 	case resourceEntityItem:
 		return entityItemOperationFor(r.Method)
 	default:
@@ -374,12 +426,14 @@ func tablesCollectionOperationFor(method string) string {
 	}
 }
 
-func entityCollectionOperationFor(method string) string {
-	switch method {
-	case http.MethodPost:
+func entityCollectionOperationFor(r *http.Request) string {
+	switch {
+	case r.Method == http.MethodPost:
 		return opInsertEntity
-	case http.MethodGet:
+	case r.Method == http.MethodGet:
 		return opQueryEntities
+	case r.Method == http.MethodPut && r.URL.Query().Get(queryComp) == compACL:
+		return opSetTableACL
 	default:
 		return unknownOperation
 	}
@@ -423,24 +477,56 @@ func (h *Handler) handleTablesCollection(c *echo.Context) error {
 }
 
 func (h *Handler) handleTablesItem(c *echo.Context, quotedName string) error {
-	if c.Request().Method != http.MethodDelete {
-		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
-			"The resource doesn't support the specified HTTP verb.")
-	}
-
-	return h.deleteTable(c, quotedName)
-}
-
-func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
 	switch c.Request().Method {
-	case http.MethodPost:
-		return h.insertEntity(c, table)
+	case http.MethodDelete:
+		return h.deleteTable(c, quotedName)
 	case http.MethodGet:
-		return h.queryEntities(c, table)
+		return h.getTable(c, quotedName)
 	default:
 		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
 			"The resource doesn't support the specified HTTP verb.")
 	}
+}
+
+func (h *Handler) handleEntityCollection(c *echo.Context, table string) error {
+	switch {
+	case c.Request().Method == http.MethodPost:
+		return h.insertEntity(c, table)
+	case c.Request().Method == http.MethodGet:
+		return h.queryEntities(c, table)
+	case c.Request().Method == http.MethodPut && c.QueryParam(queryComp) == compACL:
+		return h.setTableACL(c, table)
+	default:
+		return h.writeError(c, http.StatusMethodNotAllowed, "UnsupportedHttpVerb",
+			"The resource doesn't support the specified HTTP verb.")
+	}
+}
+
+// setTableACL serves PUT /<account>/<table>?comp=acl -- real Azure's "Set
+// Table ACL", used by terraform-provider-azurerm's azurerm_storage_table
+// (via jackofallops/giovanni's tables.Client.SetACL) whenever the resource
+// exists check finds nothing to update on create, and unconditionally on
+// every subsequent plan/apply that leaves the table unchanged (SignedIdentifier
+// stored access policies aren't part of this resource's schema, so the
+// provider always sends an empty list). Accepted but not persisted: this
+// service has no stored-access-policy support (see PARITY.md's known
+// gaps). Returns 404 if the table doesn't exist, matching real Azure.
+func (h *Handler) setTableACL(c *echo.Context, table string) error {
+	found := false
+
+	for _, ti := range h.Backend.ListTables() {
+		if ti.Name == table {
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		return h.writeTableNotFoundError(c)
+	}
+
+	return c.NoContent(http.StatusNoContent)
 }
 
 func (h *Handler) handleEntityItem(c *echo.Context, table, keyPredicate string) error {
@@ -579,6 +665,18 @@ func (h *Handler) writeJSON(c *echo.Context, status int, v any) error {
 	contentType := fmt.Sprintf("application/json;odata=%s;streaming=true;charset=utf-8", level)
 
 	return c.Blob(status, contentType, body)
+}
+
+// writeXML writes an XML response body -- used only by Get Table Service
+// Properties, the one endpoint on this JSON/OData service whose real Azure
+// schema is XML. Mirrors services/azureblob's writeXML.
+func (h *Handler) writeXML(c *echo.Context, status int, v any) error {
+	body, err := xml.Marshal(v)
+	if err != nil {
+		return h.writeErrorNoRecurse(c, http.StatusInternalServerError, "InternalError", "Failed to marshal response.")
+	}
+
+	return c.XMLBlob(status, body)
 }
 
 // writeError writes the standard Azure Table Storage JSON error envelope,

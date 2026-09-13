@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
@@ -12,28 +11,36 @@ import (
 // TestBuildMetadataEndpoints asserts the presence of every field
 // hashicorp/go-azure-sdk's environments.FromEndpoint requires or reads --
 // AZURE.md section 10.8 is explicit that missing name, resourceManagerEndpoint,
-// or resourceIdentifiers.microsoftGraphResourceId is a hard failure in the
-// real provider, and that graph/graphAudience/suffixes/authentication are
-// all part of the schema FromEndpoint parses.
+// or microsoftGraphResourceId (a top-level field, not nested under a
+// resourceIdentifiers object) is a hard failure in the real provider, and
+// that graph/graphAudience/suffixes/authentication are all part of the
+// schema FromEndpoint parses.
+//
+// It also asserts the return type is a single EnvironmentDescriptor, not a
+// slice: FromEndpoint's underlying client (go-azure-sdk's GetMetaData)
+// unmarshals the response body into a single JSON object and hard-fails on
+// an array (AZURE.md section 10.8) -- a real M7 bug this test would not have
+// caught if it still indexed into docs[0] the way it originally did.
 func TestBuildMetadataEndpoints(t *testing.T) {
 	t.Parallel()
 
 	settings := azurearm.DefaultSettings()
-	docs := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
-
-	require.Len(t, docs, 1)
-
-	doc := docs[0]
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
 
 	// Every one of these must be non-empty: FromEndpoint hard-fails without them.
 	assert.Equal(t, settings.Environment, doc.Name, "name must equal the configured environment")
 	assert.NotEmpty(t, doc.ResourceManager)
 	assert.NotEmpty(t, doc.ResourceManagerEndpoint)
-	assert.NotEmpty(t, doc.ResourceIdentifiers.MicrosoftGraphResourceID)
+	assert.NotEmpty(t, doc.MicrosoftGraphResourceID)
 
 	assert.NotEmpty(t, doc.Authentication.LoginEndpoint)
 	assert.NotEmpty(t, doc.Authentication.Audiences)
-	assert.Equal(t, settings.TenantID, doc.Authentication.Tenant)
+	// Tenant must be "common" and IdentityProvider "AAD" regardless of
+	// settings.TenantID: hashicorp/go-azure-sdk's Environment.IsAzureStack()
+	// treats any other value as an Azure Stack environment, which
+	// terraform-provider-azurerm refuses to run against.
+	assert.Equal(t, "common", doc.Authentication.Tenant)
+	assert.Equal(t, "AAD", doc.Authentication.IdentityProvider)
 
 	assert.NotEmpty(t, doc.Graph)
 	assert.NotEmpty(t, doc.GraphAudience)
@@ -51,6 +58,29 @@ func TestBuildMetadataEndpoints(t *testing.T) {
 	assert.Contains(t, doc.Portal, "host:10006")
 }
 
+// TestBuildMetadataEndpoints_StorageSuffixTracksVHostPort proves
+// Suffixes.Storage is derived dynamically from the request's own host and
+// the configured storage VHost port -- jackofallops/giovanni's
+// ParseAccountID needs this exact "host:port" as its domainSuffix to
+// successfully strip "{account}.{blob,queue,table}." (AZURE.md section
+// 10.8) -- and that settings.AdvertiseStorageVHost overrides it entirely
+// when set.
+func TestBuildMetadataEndpoints_StorageSuffixTracksVHostPort(t *testing.T) {
+	t.Parallel()
+
+	settings := azurearm.DefaultSettings()
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
+	assert.Equal(t, "host:10010", doc.Suffixes.Storage)
+
+	settings.StorageVHostPort = 18010
+	doc = azurearm.BuildMetadataEndpoints("https://localhost:18006", settings)
+	assert.Equal(t, "localhost:18010", doc.Suffixes.Storage)
+
+	settings.AdvertiseStorageVHost = "example.com:9999"
+	doc = azurearm.BuildMetadataEndpoints("https://localhost:18006", settings)
+	assert.Equal(t, "example.com:9999", doc.Suffixes.Storage)
+}
+
 // TestBuildMetadataEndpoints_IPv6Host proves hostnameOnly correctly strips
 // an IPv6 host's brackets (baseURLFor can produce "https://[::1]:10006"),
 // rather than a naive first-colon scan returning just "[" (CodeRabbit-flagged).
@@ -58,10 +88,7 @@ func TestBuildMetadataEndpoints_IPv6Host(t *testing.T) {
 	t.Parallel()
 
 	settings := azurearm.DefaultSettings()
-	docs := azurearm.BuildMetadataEndpoints("https://[::1]:10006", settings)
-
-	require.Len(t, docs, 1)
-	doc := docs[0]
+	doc := azurearm.BuildMetadataEndpoints("https://[::1]:10006", settings)
 
 	assert.NotContains(t, doc.Suffixes.KeyVaultDNS, "[")
 	assert.NotContains(t, doc.Suffixes.SQLServerHostname, "[")
@@ -75,8 +102,7 @@ func TestBuildMetadataEndpoints_CustomEnvironmentName(t *testing.T) {
 	settings := azurearm.DefaultSettings()
 	settings.Environment = "my-custom-cloud"
 
-	docs := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
+	doc := azurearm.BuildMetadataEndpoints("https://host:10006", settings)
 
-	require.Len(t, docs, 1)
-	assert.Equal(t, "my-custom-cloud", docs[0].Name)
+	assert.Equal(t, "my-custom-cloud", doc.Name)
 }

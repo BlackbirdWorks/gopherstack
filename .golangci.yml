@@ -495,6 +495,13 @@ linters:
       # therefore run sequentially, so paralleltest is not applicable here.
       - path: 'dax/dataplane_integration_test.go'
         linters: [ paralleltest ]
+      # storage_dataplane_test.go's SharedKey-auth-path subtest deliberately
+      # runs non-parallel, after its three sibling subtests: it inspects the
+      # whole container log for a non-SharedKey Authorization header, so it
+      # must run once those subtests have actually generated their own
+      # traffic, not concurrently with them.
+      - path: 'test/terraform/azure/storage_dataplane_test.go'
+        linters: [ paralleltest ]
       # isolation_test.go uses unexported types and must be in the same package.
       - path: 'elasticache/isolation_test.go'
         linters: [ testpackage, paralleltest ]

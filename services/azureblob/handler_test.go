@@ -193,6 +193,64 @@ func TestPutBlob_RequiresBlockBlobType(t *testing.T) {
 	}
 }
 
+// TestSetBlobProperties proves PUT /<account>/<container>/<blob>?comp=properties
+// -- real Azure's "Set Blob Properties", used by
+// terraform-provider-azurerm's azurerm_storage_blob -- succeeds without an
+// x-ms-blob-type header (unlike Put Blob), and 404s for a nonexistent blob.
+func TestSetBlobProperties(t *testing.T) {
+	t.Parallel()
+
+	t.Run("existing_blob", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createContainer(t, h, "mycontainer")
+		doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/myblob.txt", []byte("x"),
+			map[string]string{"X-Ms-Blob-Type": "BlockBlob"})
+
+		rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/myblob.txt?comp=properties", nil, nil)
+		assert.Equal(t, http.StatusOK, rec.Code)
+	})
+
+	t.Run("missing_blob", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createContainer(t, h, "mycontainer")
+
+		rec := doRequest(t, h, http.MethodPut, "/"+testAccount+"/mycontainer/nope.txt?comp=properties", nil, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}
+
+// TestGetContainerProperties proves GET /<account>/<container>?restype=container
+// (no comp) -- real Azure's "Get Container Properties", used by
+// terraform-provider-azurerm's azurerm_storage_container to check whether a
+// container already exists.
+func TestGetContainerProperties(t *testing.T) {
+	t.Parallel()
+
+	t.Run("existing_container", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		createContainer(t, h, "mycontainer")
+
+		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/mycontainer?restype=container", nil, nil)
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.NotEmpty(t, rec.Header().Get("ETag"))
+	})
+
+	t.Run("missing_container", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+
+		rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"/nope?restype=container", nil, nil)
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+	})
+}
+
 func TestPutBlob_MissingContainerReturns404(t *testing.T) {
 	t.Parallel()
 
@@ -432,6 +490,22 @@ func TestHandler_GetSupportedOperations(t *testing.T) {
 	assert.Contains(t, ops, "PutBlob")
 	assert.Contains(t, ops, "GetBlob")
 	assert.Contains(t, ops, "ListContainers")
+	assert.Contains(t, ops, "GetServiceProperties")
+}
+
+// TestHandler_GetServiceProperties proves GET /<account>?restype=service&
+// comp=properties succeeds -- terraform-provider-azurerm v4.81+ polls this
+// endpoint to confirm the data plane is reachable right after creating a
+// storage account, and fails the whole apply if it 400s (AZURE.md section
+// 10.8).
+func TestHandler_GetServiceProperties(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	rec := doRequest(t, h, http.MethodGet, "/"+testAccount+"?restype=service&comp=properties", nil, nil)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), "<StorageServiceProperties")
 }
 
 // TestErrNilAppContext and TestProviderInit live in provider_test.go.

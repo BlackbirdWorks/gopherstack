@@ -11,10 +11,13 @@ import (
 )
 
 type fakeConfig struct {
-	settings azurearm.Settings
+	settings  azurearm.Settings
+	vhostPort int
 }
 
 func (c fakeConfig) GetAzureARMSettings() azurearm.Settings { return c.settings }
+
+func (c fakeConfig) GetAzureStorageVHostPort() int { return c.vhostPort }
 
 func TestProvider_Init(t *testing.T) {
 	t.Parallel()
@@ -42,6 +45,32 @@ func TestProvider_Init(t *testing.T) {
 			}},
 			wantPort: 19999,
 		},
+		{
+			name: "matching vhost ports succeed",
+			appCtx: &service.AppContext{Config: fakeConfig{
+				settings:  azurearm.Settings{Port: 19999, StorageVHostPort: 10010},
+				vhostPort: 10010,
+			}},
+			wantPort: 19999,
+		},
+		{
+			name: "mismatched vhost ports error",
+			appCtx: &service.AppContext{Config: fakeConfig{
+				settings:  azurearm.Settings{Port: 19999, StorageVHostPort: 10010},
+				vhostPort: 10011,
+			}},
+			wantErr: true,
+		},
+		{
+			name: "AdvertiseStorageVHost override skips the mismatch check",
+			appCtx: &service.AppContext{Config: fakeConfig{
+				settings: azurearm.Settings{
+					Port: 19999, StorageVHostPort: 10010, AdvertiseStorageVHost: "storage.example.com:9999",
+				},
+				vhostPort: 10011,
+			}},
+			wantPort: 19999,
+		},
 	}
 
 	for _, tt := range tests {
@@ -53,7 +82,12 @@ func TestProvider_Init(t *testing.T) {
 			reg, err := p.Init(tt.appCtx)
 			if tt.wantErr {
 				require.Error(t, err)
-				require.ErrorIs(t, err, azurearm.ErrNilAppContext)
+
+				if tt.appCtx == nil {
+					require.ErrorIs(t, err, azurearm.ErrNilAppContext)
+				} else {
+					require.ErrorIs(t, err, azurearm.ErrStorageVHostPortMismatch)
+				}
 
 				return
 			}

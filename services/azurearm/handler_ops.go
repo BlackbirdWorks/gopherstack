@@ -13,9 +13,9 @@ import (
 // handleMetadataEndpoints serves GET /metadata/endpoints?api-version=2022-09-01.
 func (h *Handler) handleMetadataEndpoints(c *echo.Context) error {
 	baseURL := h.baseURLFor(c.Request())
-	docs := BuildMetadataEndpoints(baseURL, h.Settings)
+	doc := BuildMetadataEndpoints(baseURL, h.Settings)
 
-	return h.writeJSON(c, http.StatusOK, docs)
+	return h.writeJSON(c, http.StatusOK, doc)
 }
 
 // handleOpenIDConfiguration serves GET /{tenant}/v2.0/.well-known/openid-configuration.
@@ -237,6 +237,69 @@ func (h *Handler) handleListKeys(c *echo.Context, resourceSegs []string) error {
 	return h.writeJSON(c, http.StatusOK, resp)
 }
 
+// handleAccountSubServiceDefault serves GET
+// /subscriptions/{sub}/resourceGroups/{rg}/providers/Microsoft.Storage/storageAccounts/{name}/{x}Services/default
+// for any {x}Services segment (fileServices, blobServices, ...).
+//
+// These are ARM management-plane sub-resources, not data-plane readiness
+// checks, but two independent terraform-provider-azurerm code paths depend
+// on a 200 here for every StorageV2/Standard account regardless of what the
+// caller's config actually touches (AZURE.md section 10.8's M8 entry, bugs
+// (7)/(8)):
+//
+//  1. The post-create data-plane readiness poll
+//     (waitForDataPlaneToBecomeAvailableForAccount)'s File Share check
+//     (custompollers.DataPlaneFileShareAvailabilityPoller) calls
+//     FileServicesClient.GetServiceProperties directly against ARM and --
+//     critically -- treats a 404 not as "this feature doesn't exist" but as
+//     PollingStatusInProgress, retrying every 10 seconds until it succeeds
+//     or the caller's context is cancelled. A 404 here therefore doesn't
+//     just fail the create, it hangs it for the full 15-minute test
+//     timeout.
+//  2. resourceStorageAccountRead unconditionally calls
+//     BlobServices.GetServiceProperties (guarded only by
+//     supportLevel.supportBlob, which is true for every StorageV2 account)
+//     to populate the `blob_properties` computed block, and hard-fails the
+//     whole read on any error.
+//
+// Since gopherstack has no Blob/File-Share-properties service to back
+// either sub-resource (see PARITY.md's known gaps), the generic ARM
+// resource dispatcher's checkResourceType correctly rejected both
+// "fileServices" and "blobServices" as unsupported Microsoft.Storage leaf
+// types with a 404 -- exactly the response that trips both of the above.
+//
+// Fixed the same way as the Blob/Queue/Table data-plane readiness
+// endpoints (bug (7) below): return 200 with an empty
+// {Blob,File}ServiceProperties-shaped body (every field in the real schema
+// is optional) so both call sites see success immediately. This does not
+// implement blob/file service properties themselves -- Set/Get {Blob,File}
+// Service Properties remain unimplemented, and actual azurerm_storage_share
+// resources are still out of scope (PARITY.md) -- it only unblocks the two
+// gates above that every StorageV2/Standard account triggers regardless of
+// whether the caller ever touches these features.
+func (h *Handler) handleAccountSubServiceDefault(c *echo.Context, accountSegs []string) error {
+	id, err := ParseGenericResourcePath("/" + joinSegs(accountSegs))
+	if err != nil {
+		return h.writeAPIError(c, err)
+	}
+
+	// Both real call sites (bug (7)/(8) above) only ever query this shape
+	// under Microsoft.Storage/storageAccounts; restricting it here stops an
+	// unrelated resource type (e.g. Microsoft.Network/virtualNetworks/foo/
+	// somethingServices/default) from also matching the route's generic
+	// "ends in {x}Services/default" check and 200ing.
+	if !strings.EqualFold(id.Namespace, namespaceMicrosoftStorage) ||
+		len(id.Types) != 1 || !strings.EqualFold(id.Types[0], storageAccountsType) {
+		return h.writeAPIError(c, ErrResourceNotFound)
+	}
+
+	if _, getErr := h.Registry.Get(c.Request().Context(), id); getErr != nil {
+		return h.writeAPIError(c, getErr)
+	}
+
+	return h.writeJSON(c, http.StatusOK, map[string]any{})
+}
+
 // handleListResources serves both list forms:
 // GET /subscriptions/{sub}/providers/{ns}/{type} and
 // GET /subscriptions/{sub}/resourceGroups/{rg}/providers/{ns}/{type}.
@@ -283,17 +346,25 @@ func (h *Handler) putGenericResource(c *echo.Context, id ResourceID) error {
 		return h.writeAPIError(c, err)
 	}
 
-	respBody, created, err := h.Registry.Put(c.Request().Context(), id, body)
+	respBody, _, err := h.Registry.Put(c.Request().Context(), id, body)
 	if err != nil {
 		return h.writeAPIError(c, err)
 	}
 
-	status := http.StatusOK
-	if created {
-		status = http.StatusCreated
-	}
-
-	return h.writeJSON(c, status, respBody)
+	// Always 200, never 201, regardless of whether this created or updated
+	// the resource. hashicorp/go-azure-sdk's generated per-resource clients
+	// each hardcode their own ExpectedStatusCodes for a PUT, and these
+	// disagree by resource type: resourcegroups.CreateOrUpdate accepts
+	// {200, 201}, but storageaccounts.Create -- and, per go-azure-sdk's
+	// consistent pattern, other data-resource clients M9/M10 will add --
+	// accepts only {200, 202}, hard-failing on 201 with "unexpected status
+	// 201 (201 Created)" before even reaching go-azure-sdk's
+	// provisioningState poller (which itself treats 200 as
+	// already-complete, same as it does 201). 200 is the one status code
+	// every such client accepts, and it costs nothing here since AZURE.md
+	// section 10.3 already commits this emulator to always-synchronous
+	// (no real LRO) semantics.
+	return h.writeJSON(c, http.StatusOK, respBody)
 }
 
 func (h *Handler) getGenericResource(c *echo.Context, id ResourceID) error {

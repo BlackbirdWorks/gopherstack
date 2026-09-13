@@ -5,11 +5,14 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/aadauth"
+	"github.com/blackbirdworks/gopherstack/pkgs/devtls"
 	"github.com/blackbirdworks/gopherstack/services/azurearm"
 )
 
@@ -76,6 +80,12 @@ func doRequest(t *testing.T, h *azurearm.Handler, method, path string, body []by
 	return rec.Code, decoded
 }
 
+// TestHandler_MetadataEndpoints proves the wire response is a single JSON
+// object, not an array -- hashicorp/go-azure-sdk's metadata_host client
+// (GetMetaData) unmarshals into a single struct and hard-fails on an array
+// (AZURE.md section 10.8), which is exactly the shape M7 originally shipped
+// and no test caught, since this decoded into a slice unconditionally
+// instead of asserting the wire shape a real consumer requires.
 func TestHandler_MetadataEndpoints(t *testing.T) {
 	t.Parallel()
 
@@ -84,11 +94,10 @@ func TestHandler_MetadataEndpoints(t *testing.T) {
 	status, body := doRequestRaw(t, h, http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", nil)
 	require.Equal(t, http.StatusOK, status)
 
-	var docs []map[string]any
+	var doc map[string]any
 
-	require.NoError(t, json.Unmarshal(body, &docs))
-	require.Len(t, docs, 1)
-	assert.Equal(t, "gopherstack", docs[0]["name"])
+	require.NoError(t, json.Unmarshal(body, &doc))
+	assert.Equal(t, "gopherstack", doc["name"])
 }
 
 func TestHandler_OpenIDConfigurationAndInstanceDiscovery(t *testing.T) {
@@ -204,7 +213,7 @@ func TestHandler_GenericResourceAndListKeys(t *testing.T) {
 		resourcePath,
 		[]byte(`{"location":"westus","sku":{"name":"Standard_LRS"}}`),
 	)
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, "acct1", body["name"])
 
 	status, body = doRequest(t, h, http.MethodGet, resourcePath, nil)
@@ -227,6 +236,72 @@ func TestHandler_GenericResourceAndListKeys(t *testing.T) {
 
 	status, _ = doRequest(t, h, http.MethodDelete, resourcePath, nil)
 	assert.Equal(t, http.StatusOK, status)
+}
+
+// TestHandler_AccountSubServiceDefault_ReturnsOK proves GET
+// .../storageAccounts/{name}/{x}Services/default returns 200 for an
+// existing account -- terraform-provider-azurerm's post-create data-plane
+// readiness poll for File Share (which mistakes a 404 here for "still
+// provisioning" and retries forever, AZURE.md section 10.8's M8 bug (7))
+// and its unconditional blob_properties read (bug (8)) both depend on
+// this succeeding.
+func TestHandler_AccountSubServiceDefault_ReturnsOK(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	status, _ := doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusCreated, status)
+
+	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
+	status, _ = doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusOK, status)
+
+	for _, sub := range []string{"fileServices", "blobServices", "queueServices", "tableServices"} {
+		subStatus, _ := doRequest(t, h, http.MethodGet, acctPath+"/"+sub+"/default", nil)
+		assert.Equal(t, http.StatusOK, subStatus, "expected 200 for %s/default", sub)
+	}
+}
+
+// TestHandler_AccountSubServiceDefault_UnknownAccountIs404 proves the route
+// still 404s for an account that genuinely doesn't exist, rather than
+// blindly returning 200 for any path shaped like .../{x}Services/default.
+func TestHandler_AccountSubServiceDefault_UnknownAccountIs404(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	status, _ := doRequest(t, h, http.MethodGet,
+		base+"/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/nope/fileServices/default", nil)
+	assert.Equal(t, http.StatusNotFound, status)
+}
+
+// TestHandler_AccountSubServiceDefault_NonStorageResourceIs404 proves the
+// route only ever answers for Microsoft.Storage/storageAccounts, not any
+// resource type whose path happens to end in "{x}Services/default" -- a
+// generic (non-Storage) resource existing under that shape must not also
+// 200, even though the outer route match only checks the trailing path
+// segments (see handleAccountSubServiceDefault's namespace/type check).
+func TestHandler_AccountSubServiceDefault_NonStorageResourceIs404(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	sub := h.Settings.SubscriptionID
+	base := "/subscriptions/" + sub
+
+	status, _ := doRequest(t, h, http.MethodPut, base+"/resourcegroups/rg1", []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusCreated, status)
+
+	widgetPath := base + "/resourceGroups/rg1/providers/Microsoft.SomeFutureThing/widgets/w1"
+	status, _ = doRequest(t, h, http.MethodPut, widgetPath, []byte(`{"location":"westus"}`))
+	require.Equal(t, http.StatusOK, status)
+
+	status, _ = doRequest(t, h, http.MethodGet, widgetPath+"/blobServices/default", nil)
+	assert.Equal(t, http.StatusNotFound, status)
 }
 
 func TestHandler_ProviderRegistration(t *testing.T) {
@@ -298,7 +373,7 @@ func TestHandler_ResetClearsState(t *testing.T) {
 
 	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
 	status, _ := doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 
 	h.Reset()
 
@@ -326,7 +401,7 @@ func TestHandler_DeleteResourceGroup_CascadesToStorageProvider(t *testing.T) {
 
 	acctPath := base + "/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/acct1"
 	status, _ := doRequest(t, h, http.MethodPut, acctPath, []byte(`{"location":"westus"}`))
-	require.Equal(t, http.StatusCreated, status)
+	require.Equal(t, http.StatusOK, status)
 
 	status, _ = doRequest(t, h, http.MethodDelete, base+"/resourcegroups/rg1", nil)
 	require.Equal(t, http.StatusOK, status)
@@ -415,6 +490,33 @@ func doRequestWithAuth(t *testing.T, h *azurearm.Handler, method, path, authHead
 // middleware -- these tests exercise wire behavior, not observability), so
 // httptest.NewRecorder-based requests can be dispatched exactly like
 // StartWorker's real listener would.
+// TestHandler_MetadataEndpoints_HonorsRequestHostPort proves the metadata
+// document's URLs reflect the port a client actually connected on, not
+// h.Port (the listener's own bind port). This matters whenever the ARM
+// port is published under a different host port than it's configured to
+// listen on -- e.g. test/terraform/azure's fixed 10006(container)->18006
+// (host) mapping -- where substituting h.Port would point every subsequent
+// request (including the OAuth token exchange) at an unreachable address.
+func TestHandler_MetadataEndpoints_HonorsRequestHostPort(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	h.Port = 10006
+
+	req := httptest.NewRequest(http.MethodGet, "/metadata/endpoints?api-version=2022-09-01", http.NoBody)
+	req.Host = "localhost:18006"
+
+	rec := httptest.NewRecorder()
+	newEchoServer(h).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+
+	assert.Equal(t, "https://localhost:18006/", doc["resourceManagerEndpoint"])
+}
+
 func newEchoServer(h *azurearm.Handler) http.Handler {
 	e := echo.New()
 	e.Any("/*", h.Handler())
@@ -486,6 +588,100 @@ func TestHandler_StartWorker_BindsServesHTTPS(t *testing.T) {
 
 		return resp.StatusCode == http.StatusOK
 	}, 2*time.Second, 10*time.Millisecond, "dedicated HTTPS listener should become reachable")
+}
+
+// TestHandler_StartWorker_TLSCertOverride covers loadOrGenerateCert's three
+// branches: both --azure-arm-tls-cert/--azure-arm-tls-key set (the listener
+// must serve exactly that stable certificate, not a freshly generated
+// self-signed one -- the whole point of the override, see
+// test/terraform/azure/main_test.go), only one of the pair set (rejected
+// rather than silently falling back to self-signed, which would mask a
+// misconfiguration), and an unreadable cert path.
+func TestHandler_StartWorker_TLSCertOverride(t *testing.T) {
+	t.Parallel()
+
+	certPEM, keyPEM, err := devtls.GenerateSelfSignedCertPEM()
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "cert.pem")
+	keyPath := filepath.Join(dir, "key.pem")
+	require.NoError(t, os.WriteFile(certPath, certPEM, 0o600))
+	require.NoError(t, os.WriteFile(keyPath, keyPEM, 0o600))
+
+	tests := []struct {
+		name        string
+		certFile    string
+		keyFile     string
+		wantErrText string
+	}{
+		{
+			name:     "both set: the stable cert is served, not a fresh self-signed one",
+			certFile: certPath, keyFile: keyPath,
+		},
+		{name: "cert without key is rejected", certFile: certPath, keyFile: "", wantErrText: "tls-key"},
+		{name: "key without cert is rejected", certFile: "", keyFile: keyPath, wantErrText: "tls-cert"},
+		{
+			name:        "unreadable cert path fails loading, not a silent self-signed fallback",
+			certFile:    filepath.Join(dir, "does-not-exist.pem"),
+			keyFile:     keyPath,
+			wantErrText: "load TLS certificate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			port := freeEphemeralPort(t)
+			h := newTestHandler(t)
+			h.Port = port
+			h.Settings.TLSCertFile = tt.certFile
+			h.Settings.TLSKeyFile = tt.keyFile
+
+			startErr := h.StartWorker(t.Context())
+
+			if tt.wantErrText != "" {
+				require.Error(t, startErr)
+				assert.Contains(t, startErr.Error(), tt.wantErrText)
+
+				return
+			}
+
+			require.NoError(t, startErr)
+			t.Cleanup(func() {
+				shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				h.Shutdown(shutdownCtx)
+			})
+
+			var peerRaw []byte
+
+			require.Eventually(t, func() bool {
+				conn, dialErr := tls.Dial(
+					"tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{InsecureSkipVerify: true},
+				)
+				if dialErr != nil {
+					return false
+				}
+				defer conn.Close()
+
+				certs := conn.ConnectionState().PeerCertificates
+				if len(certs) == 0 {
+					return false
+				}
+
+				peerRaw = certs[0].Raw
+
+				return true
+			}, 2*time.Second, 10*time.Millisecond, "dedicated HTTPS listener should become reachable")
+
+			block, _ := pem.Decode(certPEM)
+			require.NotNil(t, block)
+			assert.Equal(t, block.Bytes, peerRaw,
+				"served certificate should be the stable TLSCertFile cert, not a freshly generated one")
+		})
+	}
 }
 
 func TestHandler_StartWorker_BindFailureIsSynchronous(t *testing.T) {
