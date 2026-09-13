@@ -27,6 +27,27 @@ items_still_open:
     entry point); this is that gap's consequence for the List op
     specifically. Fixing needs the same out-of-scope Invoke rewiring that
     gap already defers to. See 2026-09-12 dated section."
+  - "2026-09-12 (reqfielddiff slice 4), same root cause as the item above:
+    InvokeInput.DurableExecutionName (an httpHeader binding,
+    X-Amz-Durable-Execution-Name, confirmed against
+    awsRestjson1_serializeOpHttpBindingsInvokeInput) is read nowhere in
+    handler_invocation.go, and InvokeOutput.DurableExecutionArn (the real,
+    optional response field a durable invocation would echo) does not exist
+    anywhere in this package's Invoke response shape. Invoke has zero
+    durable-execution awareness today -- the only way to create a
+    DurableExecution is to call CheckpointDurableExecution directly against
+    an already-known arn, bypassing Invoke entirely. Wiring this properly
+    (Invoke resolves/creates a DurableExecution, sets its real FunctionARN,
+    and returns DurableExecutionArn) is the same Invoke-rewiring this file
+    already defers ListDurableExecutionsByFunction's FunctionARN gap to, not
+    a standalone one-field fix -- not fabricated a bare pass-through with no
+    backing execution semantics.
+    ListDurableExecutionsByFunctionInput.Qualifier (httpQuery,
+    matchesListFilter has no version/qualifier comparison) is unobservable
+    for the identical reason: DurableExecution.Version is declared
+    (durable_execution.go) but never assigned anywhere, since nothing
+    resolves which function version/alias a durable execution actually ran
+    under absent the same Invoke entry point."
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
@@ -940,3 +961,82 @@ enum values, only 2 are relevant here). `go run ./cmd/paritylint`: 0 FAIL
 throughout. No `snapshot_inventory.json` changes (durable_execution is
 not wired into persistence — pre-existing, documented in Notes above).
 No version bump.
+
+## reqfielddiff slice 4 (2026-09-12, bd gopherstack-xhu2t)
+
+Worked all 26 tier-1 findings from `cmd/reqfielddiff -dir lambda`. This
+service is restjson1; every finding below was checked against the pinned
+`aws-sdk-go-v2/service/lambda@v1.107.0` serializer to confirm whether the
+field is httpQuery/httpLabel/httpHeader or body before deciding where (and
+whether) it should be read.
+
+**21 false positives**, two distinct shapes:
+
+- Query-param blind spot (gopherstack-99nj): `GetDurableExecution.IncludeExecutionData`,
+  `GetDurableExecutionHistory.IncludeExecutionData`/`.MaxItems`/`.ReverseOrder`,
+  `GetDurableExecutionState.MaxItems`, `ListDurableExecutionsByFunction.MaxItems`/`.ReverseOrder`
+  are all httpQuery per the SDK serializer, and this package reads them via
+  `c.Request().URL.Query().Get(...)`/`parsePaginationParams(c.Request())`
+  (`handler_durable_execution.go`, `handler_functions.go`) -- a different
+  literal shape from `c.QueryParam` but the same class of tool blind spot.
+- httpHeader binding, already read from the exact header: `Invoke.InvocationType`
+  (`X-Amz-Invocation-Type`, `handler_invocation.go:257`) and
+  `InvokeWithResponseStream.InvocationType` (same header,
+  `handler_invocation.go:257`, with its own comment citing the serializer).
+- Plain tool misses on already-declared-and-applied body fields (type
+  mismatch likely confuses the detector -- `int`/`bool` here vs `*int32`/`*bool`
+  on the real SDK): `CreateEventSourceMapping`/`UpdateEventSourceMapping`'s
+  `BatchSize`/`Enabled`/`MaximumBatchingWindowInSeconds`/`MaximumRecordAgeInSeconds`/
+  `MaximumRetryAttempts` (event_source_mapping.go, handler_event_source_mappings.go),
+  `PutFunctionRecursionConfig.RecursiveLoop`, `PutRuntimeManagementConfig.UpdateRuntimeOn`.
+
+**3 dropped parameters fixed** (all restjson1 body fields):
+
+- `CreateEventSourceMapping.KMSKeyArn`/`UpdateEventSourceMapping.KMSKeyArn`
+  -- decoded nowhere; `EventSourceMapping` had no field for it at all. Added
+  `EventSourceMapping.KMSKeyArn`, threaded through
+  `CreateEventSourceMappingInput`/`UpdateEventSourceMappingInput`/`applyESMUpdate`,
+  and echoed on `jsonESMResponse` (`KMSKeyArn`, matching
+  `types.EventSourceMappingConfiguration.KMSKeyArn`). Observable via
+  Create/Update's own response and a follow-up `GetEventSourceMapping`.
+- `UpdateFunctionCode.S3ObjectStorageMode` -- decoded nowhere. Added
+  `FunctionConfiguration.S3ObjectStorageMode` (internal bookkeeping,
+  `json:"-"`, defaults to `COPY` when omitted per the documented default)
+  and a new `FunctionCodeLocation.ResolvedS3Object`/`ResolvedS3Object`
+  struct (matching the real, optional `types.ResolvedS3Object` --
+  S3Bucket/S3Key -- populated only in `REFERENCE` mode, confirmed against
+  `types.FunctionCodeLocation`). `UpdateFunctionCodeOutput` itself carries
+  no `Code` member on the real API (it is `FunctionConfiguration`-shaped,
+  not `GetFunctionOutput`-shaped), so the fix is observable via a follow-up
+  `GetFunction` only, not on Update's own response -- confirmed by hand
+  against `api_op_UpdateFunctionCode.go`'s output field list before writing
+  the test this way, not assumed.
+
+**2 recorded as gaps tied to a single existing, already-disclosed root
+cause** (extended `items_still_open`'s existing entry rather than
+duplicating it): `Invoke.DurableExecutionName` (an httpHeader,
+`X-Amz-Durable-Execution-Name`, read nowhere -- Invoke has zero
+durable-execution awareness, and `InvokeOutput.DurableExecutionArn` doesn't
+exist anywhere in this package's response shape) and
+`ListDurableExecutionsByFunction.Qualifier` (httpQuery, unobservable
+because `DurableExecution.Version` is declared but never assigned, for the
+identical "no Invoke entry point" reason `PARITY.md` already documents for
+`ListDurableExecutionsByFunction`'s `FunctionARN` gap). Both would require
+the same out-of-scope Invoke rewiring already deferred there -- not
+standalone one-field fixes.
+
+Proof: `reqfield_slice4_realclient_test.go`, driving the real
+`aws-sdk-go-v2/service/lambda` typed client (`newTestLambdaClient`, shared
+with `typed_slice21_realclient_test.go`).
+
+Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...`,
+`go test -race -count=1 ./services/lambda/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/lambda/...` (0 issues). No persisted-struct
+field changed (`EventSourceMapping.KMSKeyArn`/
+`FunctionConfiguration.S3ObjectStorageMode` are both new fields on structs
+already in the persistence snapshot -- see gate results below for the
+`pkgs/persistence` inventory rows added), no version bump. `go build
+./...`/`go vet ./...` at repo root currently fail, but only in
+`services/quicksight` (`GetDashboardEmbedURL` arity mismatch) -- confirmed
+via `git status` as a concurrent sibling agent's uncommitted in-progress
+edit (16 modified quicksight files), not touched by this pass.

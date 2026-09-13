@@ -85,7 +85,7 @@ func (h *Handler) handleDeleteKeyPair(_ context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	op, delErr := h.Backend.DeleteKeyPair(req.KeyPairName)
+	op, delErr := h.Backend.DeleteKeyPair(req.KeyPairName, req.ExpectedFingerprint)
 	if delErr != nil {
 		return nil, delErr
 	}

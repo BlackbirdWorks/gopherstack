@@ -30,6 +30,19 @@ func defaultPaymentConfig(abilities []string, explicit map[string]any) map[strin
 	}
 }
 
+// membershipSpec carries the CreateMembership fields that createMembershipLocked
+// applies verbatim, keeping that function's own parameter list bounded.
+type membershipSpec struct {
+	DefaultResultConfiguration    map[string]any
+	DefaultJobResultConfiguration map[string]any
+	PaymentConfiguration          map[string]any
+	Tags                          map[string]string
+	QueryLogStatus                string
+	JobLogStatus                  string
+	MemberAbilities               []string
+	IsMetricsEnabled              bool
+}
+
 // createMembershipLocked creates a membership under collab. Callers must
 // hold b.mu (write lock) and have already validated collab is non-nil. Used
 // both by the public CreateMembership entry point and by
@@ -37,22 +50,20 @@ func defaultPaymentConfig(abilities []string, explicit map[string]any) map[strin
 // Collaboration response carries membershipArn/membershipId for the caller's
 // own membership -- automatically creates a membership for the
 // collaboration creator.
-func (b *InMemoryBackend) createMembershipLocked(
-	collab *Collaboration,
-	queryLogStatus string,
-	memberAbilities []string,
-	defaultResultConfiguration map[string]any,
-	paymentConfiguration map[string]any,
-	tags map[string]string,
-) *Membership {
+func (b *InMemoryBackend) createMembershipLocked(collab *Collaboration, spec membershipSpec) *Membership {
 	id := uuid.NewString()
 	ts := b.now()
+	memberAbilities := spec.MemberAbilities
 	if memberAbilities == nil {
 		// MemberAbilities is required on the wire (Membership/MembershipSummary);
 		// a nil Go slice marshals as JSON null, which a real client's deserializer
 		// treats identically to the key being absent -- must be non-nil so it
 		// marshals as [] (gopherstack-r80d).
 		memberAbilities = []string{}
+	}
+	jobLogStatus := spec.JobLogStatus
+	if jobLogStatus == "" {
+		jobLogStatus = jobLogStatusDisabled
 	}
 	m := &Membership{
 		MembershipIdentifier:            id,
@@ -63,28 +74,31 @@ func (b *InMemoryBackend) createMembershipLocked(
 		CollaborationCreatorDisplayName: collab.CreatorDisplayName,
 		CollaborationName:               collab.Name,
 		Status:                          statusActive,
-		QueryLogStatus:                  queryLogStatus,
+		QueryLogStatus:                  spec.QueryLogStatus,
+		JobLogStatus:                    jobLogStatus,
+		IsMetricsEnabled:                spec.IsMetricsEnabled,
 		MemberAbilities:                 memberAbilities,
-		DefaultResultConfiguration:      defaultResultConfiguration,
-		PaymentConfiguration:            defaultPaymentConfig(memberAbilities, paymentConfiguration),
+		DefaultResultConfiguration:      spec.DefaultResultConfiguration,
+		DefaultJobResultConfiguration:   spec.DefaultJobResultConfiguration,
+		PaymentConfiguration:            defaultPaymentConfig(memberAbilities, spec.PaymentConfiguration),
 		CreateTime:                      ts,
 		UpdateTime:                      ts,
 		ID:                              id,
 		CollaborationID:                 collab.ID,
 	}
 	b.memberships.Put(m)
-	if len(tags) > 0 {
-		b.tagsByArn[m.Arn] = maps.Clone(tags)
+	if len(spec.Tags) > 0 {
+		b.tagsByArn[m.Arn] = maps.Clone(spec.Tags)
 	}
 
 	return m
 }
 
 func (b *InMemoryBackend) CreateMembership(
-	collaborationID, queryLogStatus string,
+	collaborationID, queryLogStatus, jobLogStatus string,
 	memberAbilities []string,
-	defaultResultConfiguration map[string]any,
-	paymentConfiguration map[string]any,
+	defaultResultConfiguration, defaultJobResultConfiguration, paymentConfiguration map[string]any,
+	isMetricsEnabled bool,
 	tags map[string]string,
 ) (*Membership, error) {
 	b.mu.Lock("CreateMembership")
@@ -97,9 +111,16 @@ func (b *InMemoryBackend) CreateMembership(
 		return nil, ErrNotFound
 	}
 
-	return b.createMembershipLocked(
-		collab, queryLogStatus, memberAbilities, defaultResultConfiguration, paymentConfiguration, tags,
-	), nil
+	return b.createMembershipLocked(collab, membershipSpec{
+		QueryLogStatus:                queryLogStatus,
+		JobLogStatus:                  jobLogStatus,
+		IsMetricsEnabled:              isMetricsEnabled,
+		MemberAbilities:               memberAbilities,
+		DefaultResultConfiguration:    defaultResultConfiguration,
+		DefaultJobResultConfiguration: defaultJobResultConfiguration,
+		PaymentConfiguration:          paymentConfiguration,
+		Tags:                          tags,
+	}), nil
 }
 
 func (b *InMemoryBackend) GetMembership(id string) (*Membership, error) {
@@ -150,8 +171,8 @@ func (b *InMemoryBackend) ListMemberships(
 }
 
 func (b *InMemoryBackend) UpdateMembership(
-	id, queryLogStatus string,
-	defaultResultConfiguration map[string]any,
+	id, queryLogStatus, jobLogStatus string,
+	defaultResultConfiguration, defaultJobResultConfiguration map[string]any,
 ) (*Membership, error) {
 	b.mu.Lock("UpdateMembership")
 	defer b.mu.Unlock()
@@ -162,8 +183,14 @@ func (b *InMemoryBackend) UpdateMembership(
 	if queryLogStatus != "" {
 		m.QueryLogStatus = queryLogStatus
 	}
+	if jobLogStatus != "" {
+		m.JobLogStatus = jobLogStatus
+	}
 	if defaultResultConfiguration != nil {
 		m.DefaultResultConfiguration = defaultResultConfiguration
+	}
+	if defaultJobResultConfiguration != nil {
+		m.DefaultJobResultConfiguration = defaultJobResultConfiguration
 	}
 	m.UpdateTime = b.now()
 

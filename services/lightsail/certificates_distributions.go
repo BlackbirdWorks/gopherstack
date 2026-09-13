@@ -247,6 +247,7 @@ type UpdateDistributionRequest struct {
 	CertificateName       string
 	ViewerMinTLSVersion   string
 	CacheBehaviors        []CacheBehaviorPerPath
+	UseDefaultCertificate bool
 }
 
 // UpdateDistribution updates the named distribution's IsEnabled/
@@ -267,6 +268,10 @@ func (b *InMemoryBackend) UpdateDistribution(req UpdateDistributionRequest) (*Op
 
 	if req.CertificateName != "" {
 		d.CertificateName = req.CertificateName
+	}
+
+	if req.UseDefaultCertificate {
+		d.CertificateName = ""
 	}
 
 	if req.IsEnabled != nil {

@@ -141,11 +141,11 @@ func TestDeleteMembership_RejectsWhileResourcesRemain(t *testing.T) {
 
 			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 			collab, err := b.CreateCollaboration(
-				"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED", nil,
+				"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED", "", false, nil, nil,
 			)
 			require.NoError(t, err)
 			membership, err := b.CreateMembership(
-				collab.ID, "ENABLED", []string{"CAN_QUERY"}, nil, nil, nil,
+				collab.ID, "ENABLED", "", []string{"CAN_QUERY"}, nil, nil, nil, false, nil,
 			)
 			require.NoError(t, err)
 
@@ -166,10 +166,12 @@ func TestDeleteMembership_SucceedsWhenEmpty(t *testing.T) {
 
 	b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 	collab, err := b.CreateCollaboration(
-		"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED", nil,
+		"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED", "", false, nil, nil,
 	)
 	require.NoError(t, err)
-	membership, err := b.CreateMembership(collab.ID, "ENABLED", []string{"CAN_QUERY"}, nil, nil, nil)
+	membership, err := b.CreateMembership(
+		collab.ID, "ENABLED", "", []string{"CAN_QUERY"}, nil, nil, nil, false, nil,
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteMembership(membership.ID))

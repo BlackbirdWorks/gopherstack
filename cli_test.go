@@ -2055,7 +2055,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				crBk := cleanroomsbackend.NewInMemoryBackend(accountID, region)
 				collab, err := crBk.CreateCollaboration(
-					"wiring-test-collab", "", "creator", nil, nil, "",
+					"wiring-test-collab", "", "creator", nil, nil, "", "", false, nil,
 					map[string]string{wantTagKey: wantTagValue},
 				)
 				require.NoError(t, err)

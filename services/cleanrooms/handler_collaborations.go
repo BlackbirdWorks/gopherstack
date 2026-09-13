@@ -9,13 +9,16 @@ import (
 
 func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		Tags                   map[string]string `json:"tags"`
-		Name                   string            `json:"name"`
-		Description            string            `json:"description"`
-		CreatorDisplayName     string            `json:"creatorDisplayName"`
-		QueryLogStatus         string            `json:"queryLogStatus"`
-		CreatorMemberAbilities []string          `json:"creatorMemberAbilities"`
-		Members                []MemberSpec      `json:"members"`
+		Tags                        map[string]string `json:"tags"`
+		Name                        string            `json:"name"`
+		Description                 string            `json:"description"`
+		CreatorDisplayName          string            `json:"creatorDisplayName"`
+		QueryLogStatus              string            `json:"queryLogStatus"`
+		JobLogStatus                string            `json:"jobLogStatus"`
+		CreatorMemberAbilities      []string          `json:"creatorMemberAbilities"`
+		Members                     []MemberSpec      `json:"members"`
+		CreatorPaymentConfiguration map[string]any    `json:"creatorPaymentConfiguration"`
+		IsMetricsEnabled            bool              `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
 	c, err := h.Backend.CreateCollaboration(
@@ -25,6 +28,9 @@ func (h *Handler) handleCreateCollaboration(_ context.Context, body []byte) ([]b
 		req.CreatorMemberAbilities,
 		req.Members,
 		req.QueryLogStatus,
+		req.JobLogStatus,
+		req.IsMetricsEnabled,
+		req.CreatorPaymentConfiguration,
 		req.Tags,
 	)
 	if err != nil {

@@ -17,6 +17,10 @@ const (
 	// both PENDING and APPROVED transitions in changeRequestNextStatus.
 	changeRequestActionCancel = "CANCEL"
 
+	// jobLogStatusDisabled is the documented default for both
+	// CreateCollaborationInput.JobLogStatus and CreateMembershipInput.JobLogStatus.
+	jobLogStatusDisabled = "DISABLED"
+
 	// ChangeSpecificationType enum values (types.ChangeSpecificationTypeMember/
 	// -Collaboration).
 	changeSpecTypeMember        = "MEMBER"
@@ -107,6 +111,7 @@ type Collaboration struct {
 	ID                      string            `json:"id"`
 	CreatorDisplayName      string            `json:"creatorDisplayName"`
 	QueryLogStatus          string            `json:"queryLogStatus,omitempty"`
+	JobLogStatus            string            `json:"jobLogStatus,omitempty"`
 	CollaborationIdentifier string            `json:"-"`
 	MembershipID            string            `json:"membershipId,omitempty"`
 	MemberAbilities         []string          `json:"-"`
@@ -114,6 +119,7 @@ type Collaboration struct {
 	AutoApprovedChangeTypes []string          `json:"autoApprovedChangeTypes,omitempty"`
 	CreateTime              float64           `json:"createTime,omitempty"`
 	UpdateTime              float64           `json:"updateTime,omitempty"`
+	IsMetricsEnabled        bool              `json:"isMetricsEnabled"`
 }
 
 // CollaborationSummary is the wire shape returned by ListCollaborations.
@@ -140,16 +146,17 @@ type CollaborationSummary struct {
 // awsRestjson1_deserializeDocumentMembership: real keys are arn,
 // collaborationArn, collaborationCreatorAccountId,
 // collaborationCreatorDisplayName, collaborationId, collaborationName,
-// createTime, defaultJobResultConfiguration (not modeled),
-// defaultResultConfiguration, id, isMetricsEnabled (not modeled),
-// jobLogStatus (not modeled), memberAbilities, mlMemberAbilities (not
-// modeled), paymentConfiguration, queryLogStatus, status, updateTime. No
-// "membershipIdentifier" or "collaborationIdentifier" key (those are
-// request-only parameter names).
+// createTime, defaultJobResultConfiguration, defaultResultConfiguration,
+// id, isMetricsEnabled, jobLogStatus, memberAbilities,
+// mlMemberAbilities (not modeled), paymentConfiguration, queryLogStatus,
+// status, updateTime. No "membershipIdentifier" or
+// "collaborationIdentifier" key (those are request-only parameter names).
 type Membership struct {
 	DefaultResultConfiguration      map[string]any `json:"defaultResultConfiguration,omitempty"`
+	DefaultJobResultConfiguration   map[string]any `json:"defaultJobResultConfiguration,omitempty"`
 	PaymentConfiguration            map[string]any `json:"paymentConfiguration"`
 	QueryLogStatus                  string         `json:"queryLogStatus,omitempty"`
+	JobLogStatus                    string         `json:"jobLogStatus,omitempty"`
 	CollaborationIdentifier         string         `json:"-"`
 	CollaborationCreatorAccountID   string         `json:"collaborationCreatorAccountId"`
 	CollaborationCreatorDisplayName string         `json:"collaborationCreatorDisplayName"`
@@ -163,6 +170,7 @@ type Membership struct {
 	MemberAbilities                 []string       `json:"memberAbilities"`
 	UpdateTime                      float64        `json:"updateTime,omitempty"`
 	CreateTime                      float64        `json:"createTime,omitempty"`
+	IsMetricsEnabled                bool           `json:"isMetricsEnabled"`
 }
 
 // MembershipSummary is the wire shape for ListMemberships. Verified against

@@ -16,10 +16,15 @@ package lightsail
 import (
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
+
+// defaultEventDurationMinutes is GetRelationalDatabaseEventsInput.DurationInMinutes's
+// documented default ("to get all events from the past 2 hours, enter 120... Default: 60").
+const defaultEventDurationMinutes = 60
 
 const (
 	opTypeCreateRelationalDatabase           = "CreateRelationalDatabase"
@@ -75,7 +80,8 @@ func defaultRDSParameters() map[string]RelationalDatabaseParameter {
 // of Values() listing only one value.
 func (b *InMemoryBackend) CreateRelationalDatabase(
 	name, masterDatabaseName, masterUsername, masterUserPassword,
-	blueprintID, bundleID, availabilityZone string, publiclyAccessible bool,
+	blueprintID, bundleID, availabilityZone, preferredBackupWindow, preferredMaintenanceWindow string,
+	publiclyAccessible bool,
 	userTags map[string]string,
 ) ([]Operation, error) {
 	rdsBd, ok := findRDSBundle(bundleID)
@@ -104,6 +110,16 @@ func (b *InMemoryBackend) CreateRelationalDatabase(
 		az = availabilityZoneA(b.region)
 	}
 
+	backupWindow := preferredBackupWindow
+	if backupWindow == "" {
+		backupWindow = defaultPreferredBackupWindow
+	}
+
+	maintenanceWindow := preferredMaintenanceWindow
+	if maintenanceWindow == "" {
+		maintenanceWindow = defaultPreferredMaintenanceWindow
+	}
+
 	now := nowUTC()
 	//nolint:gosec // G101 false positive: MasterUserPassword is assigned from a caller-supplied
 	// variable (validated/defaulted above), not a hardcoded credential literal.
@@ -124,8 +140,8 @@ func (b *InMemoryBackend) CreateRelationalDatabase(
 		RAMSizeInGb:                rdsBd.RAMSizeInGb,
 		PubliclyAccessible:         publiclyAccessible,
 		BackupRetentionEnabled:     true,
-		PreferredBackupWindow:      "07:00-07:30",
-		PreferredMaintenanceWindow: "sun:08:00-sun:08:30",
+		PreferredBackupWindow:      backupWindow,
+		PreferredMaintenanceWindow: maintenanceWindow,
 		CreatedAt:                  now,
 		LatestRestorableTime:       now,
 		Location:                   ResourceLocation{RegionName: b.region, AvailabilityZone: az},
@@ -417,9 +433,12 @@ func (b *InMemoryBackend) UpdateRelationalDatabase(
 	return b.newOperationsLocked(opTypeUpdateRelationalDatabase, ResourceTypeRelationalDatabase, []string{name}), nil
 }
 
-// GetRelationalDatabaseEvents returns the named database's recorded events,
-// paginated.
-func (b *InMemoryBackend) GetRelationalDatabaseEvents(name, token string) (page.Page[RelationalDatabaseEvent], error) {
+// GetRelationalDatabaseEvents returns the named database's recorded events
+// from the last durationInMinutes (default 60, per
+// GetRelationalDatabaseEventsInput's documented default), paginated.
+func (b *InMemoryBackend) GetRelationalDatabaseEvents(
+	name, token string, durationInMinutes int32,
+) (page.Page[RelationalDatabaseEvent], error) {
 	b.mu.RLock("GetRelationalDatabaseEvents")
 	defer b.mu.RUnlock()
 
@@ -428,7 +447,21 @@ func (b *InMemoryBackend) GetRelationalDatabaseEvents(name, token string) (page.
 		return page.Page[RelationalDatabaseEvent]{}, notFoundError("RelationalDatabase", name)
 	}
 
-	events := append([]RelationalDatabaseEvent(nil), db.Events...)
+	duration := durationInMinutes
+	if duration <= 0 {
+		duration = defaultEventDurationMinutes
+	}
+
+	cutoff := nowUTC().Add(-time.Duration(duration) * time.Minute)
+
+	events := make([]RelationalDatabaseEvent, 0, len(db.Events))
+
+	for _, e := range db.Events {
+		if !e.CreatedAt.Before(cutoff) {
+			events = append(events, e)
+		}
+	}
+
 	sort.Slice(events, func(i, j int) bool { return events[i].CreatedAt.Before(events[j].CreatedAt) })
 
 	return paginateGeneric(events, token)
