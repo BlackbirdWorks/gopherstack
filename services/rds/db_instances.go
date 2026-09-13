@@ -94,48 +94,54 @@ func (b *InMemoryBackend) createDBInstanceLocked(
 	}
 
 	inst := &DBInstance{
-		InstanceCreateTime:               time.Now().UTC(),
-		DBInstanceIdentifier:             id,
-		DBInstanceArn:                    b.rdsARN("db", id),
-		DbiResourceID:                    id,
-		DBInstanceClass:                  instanceClass,
-		DBClusterIdentifier:              opts.DBClusterIdentifier,
-		Engine:                           engine,
-		EngineVersion:                    opts.EngineVersion,
-		DBInstanceStatus:                 instanceStatusCreating,
-		MasterUsername:                   masterUser,
-		DBName:                           dbName,
-		Endpoint:                         endpoint,
-		Port:                             port,
-		AllocatedStorage:                 allocatedStorage,
-		DBParameterGroupName:             paramGroupName,
-		DBSubnetGroupName:                opts.DBSubnetGroupName,
-		OptionGroupName:                  opts.OptionGroupName,
-		MultiAZ:                          opts.MultiAZ,
-		StorageType:                      opts.StorageType,
-		StorageEncrypted:                 opts.StorageEncrypted,
-		AvailabilityZone:                 opts.AvailabilityZone,
-		BackupRetentionPeriod:            opts.BackupRetentionPeriod,
-		IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
-		DeletionProtection:               opts.DeletionProtection,
-		Iops:                             opts.Iops,
-		StorageThroughput:                opts.StorageThroughput,
-		LicenseModel:                     opts.LicenseModel,
-		MonitoringInterval:               opts.MonitoringInterval,
-		MonitoringRoleArn:                opts.MonitoringRoleArn,
-		PreferredMaintenanceWindow:       opts.PreferredMaintenanceWindow,
-		PreferredBackupWindow:            opts.PreferredBackupWindow,
-		KmsKeyID:                         opts.KmsKeyID,
-		CopyTagsToSnapshot:               opts.CopyTagsToSnapshot,
-		EnabledCloudwatchLogsExports:     opts.EnabledCloudwatchLogsExports,
-		VpcSecurityGroups:                vpcSGs,
-		DBSecurityGroups:                 dbSGs,
-		ReadReplicaIdentifiers:           []string{},
-		PubliclyAccessible:               opts.PubliclyAccessible,
-		PerformanceInsightsEnabled:       opts.PerformanceInsightsEnabled,
-		StorageOptimized:                 opts.StorageOptimized,
-		OptimizedWrites:                  opts.OptimizedWrites,
-		EngineLifecycleSupport:           opts.EngineLifecycleSupport,
+		InstanceCreateTime:                 time.Now().UTC(),
+		DBInstanceIdentifier:               id,
+		DBInstanceArn:                      b.rdsARN("db", id),
+		DbiResourceID:                      id,
+		DBInstanceClass:                    instanceClass,
+		DBClusterIdentifier:                opts.DBClusterIdentifier,
+		Engine:                             engine,
+		EngineVersion:                      opts.EngineVersion,
+		DBInstanceStatus:                   instanceStatusCreating,
+		MasterUsername:                     masterUser,
+		DBName:                             dbName,
+		Endpoint:                           endpoint,
+		Port:                               port,
+		AllocatedStorage:                   allocatedStorage,
+		DBParameterGroupName:               paramGroupName,
+		DBSubnetGroupName:                  opts.DBSubnetGroupName,
+		OptionGroupName:                    opts.OptionGroupName,
+		MultiAZ:                            opts.MultiAZ,
+		StorageType:                        opts.StorageType,
+		StorageEncrypted:                   opts.StorageEncrypted,
+		AvailabilityZone:                   opts.AvailabilityZone,
+		BackupRetentionPeriod:              opts.BackupRetentionPeriod,
+		IAMDatabaseAuthenticationEnabled:   opts.IAMDatabaseAuthenticationEnabled,
+		DeletionProtection:                 opts.DeletionProtection,
+		Iops:                               opts.Iops,
+		StorageThroughput:                  opts.StorageThroughput,
+		LicenseModel:                       opts.LicenseModel,
+		MonitoringInterval:                 opts.MonitoringInterval,
+		MonitoringRoleArn:                  opts.MonitoringRoleArn,
+		PreferredMaintenanceWindow:         opts.PreferredMaintenanceWindow,
+		PreferredBackupWindow:              opts.PreferredBackupWindow,
+		KmsKeyID:                           opts.KmsKeyID,
+		CopyTagsToSnapshot:                 opts.CopyTagsToSnapshot,
+		EnabledCloudwatchLogsExports:       opts.EnabledCloudwatchLogsExports,
+		VpcSecurityGroups:                  vpcSGs,
+		DBSecurityGroups:                   dbSGs,
+		ReadReplicaIdentifiers:             []string{},
+		PubliclyAccessible:                 opts.PubliclyAccessible,
+		PerformanceInsightsEnabled:         opts.PerformanceInsightsEnabled,
+		StorageOptimized:                   opts.StorageOptimized,
+		OptimizedWrites:                    opts.OptimizedWrites,
+		EngineLifecycleSupport:             opts.EngineLifecycleSupport,
+		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
+		BackupTarget:                       opts.BackupTarget,
+		MultiTenant:                        opts.MultiTenant,
+		PromotionTier:                      opts.PromotionTier,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
 	b.instances.Put(inst)
 	b.publishInstanceEventLocked(id, "DB instance created")
@@ -508,6 +514,24 @@ func (b *InMemoryBackend) applyImmediateFields(inst *DBInstance, opts DBInstance
 	if len(opts.EnabledCloudwatchLogsExports) > 0 {
 		inst.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
 	}
+	if opts.PromotionTier > 0 {
+		inst.PromotionTier = opts.PromotionTier
+	}
+	if opts.ReplicaMode != "" {
+		inst.ReplicaMode = opts.ReplicaMode
+	}
+	if opts.UseDefaultProcessorFeatures {
+		inst.UseDefaultProcessorFeatures = true
+	}
+	if opts.PerformanceInsightsKMSKeyID != "" {
+		inst.PerformanceInsightsKMSKeyID = opts.PerformanceInsightsKMSKeyID
+	}
+	if opts.PerformanceInsightsRetentionPeriod > 0 {
+		inst.PerformanceInsightsRetentionPeriod = opts.PerformanceInsightsRetentionPeriod
+	}
+	if opts.DBPortNumber > 0 {
+		inst.Port = opts.DBPortNumber
+	}
 
 	return nil
 }
@@ -706,26 +730,30 @@ func (b *InMemoryBackend) RestoreDBInstanceToPointInTime(
 
 		endpoint = fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 		inst := &DBInstance{
-			DBInstanceIdentifier: id,
-			DBInstanceArn:        b.rdsARN("db", id),
-			DbiResourceID:        id,
-			DBInstanceClass:      source.DBInstanceClass,
-			Engine:               source.Engine,
-			EngineVersion:        source.EngineVersion,
-			DBInstanceStatus:     instanceStatusAvailable,
-			MasterUsername:       source.MasterUsername,
-			DBName:               source.DBName,
-			Endpoint:             endpoint,
-			Port:                 source.Port,
-			AllocatedStorage:     source.AllocatedStorage,
-			DBParameterGroupName: opts.DBParameterGroupName,
-			OptionGroupName:      opts.OptionGroupName,
-			StorageType:          opts.StorageType,
-			StorageEncrypted:     source.StorageEncrypted,
-			AvailabilityZone:     opts.AvailabilityZone,
-			MultiAZ:              opts.MultiAZ,
-			DeletionProtection:   opts.DeletionProtection,
+			DBInstanceIdentifier:             id,
+			DBInstanceArn:                    b.rdsARN("db", id),
+			DbiResourceID:                    id,
+			DBInstanceClass:                  source.DBInstanceClass,
+			Engine:                           source.Engine,
+			EngineVersion:                    source.EngineVersion,
+			DBInstanceStatus:                 instanceStatusAvailable,
+			MasterUsername:                   source.MasterUsername,
+			DBName:                           source.DBName,
+			Endpoint:                         endpoint,
+			Port:                             source.Port,
+			AllocatedStorage:                 source.AllocatedStorage,
+			DBParameterGroupName:             opts.DBParameterGroupName,
+			OptionGroupName:                  opts.OptionGroupName,
+			StorageType:                      opts.StorageType,
+			StorageEncrypted:                 source.StorageEncrypted,
+			AvailabilityZone:                 opts.AvailabilityZone,
+			MultiAZ:                          opts.MultiAZ,
+			DeletionProtection:               opts.DeletionProtection,
+			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
+			BackupTarget:                     opts.BackupTarget,
 		}
+		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
 		b.publishInstanceEventLocked(id, "DB instance restored to point in time")
 		cp := *inst
@@ -799,6 +827,7 @@ func (b *InMemoryBackend) StopDBInstance(id string) (*DBInstance, error) {
 // unimplemented rather than guessed.
 func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 	id, sourceID, sourceRegion, paramGroupName, optionGroupName string,
+	opts DBInstanceOptions,
 ) (*DBInstance, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: DBInstanceIdentifier must not be empty", ErrInvalidParameter)
@@ -840,21 +869,28 @@ func (b *InMemoryBackend) CreateDBInstanceReadReplica(
 
 	endpoint := fmt.Sprintf("%s.%s.%s.rds.amazonaws.com", id, b.accountID, b.region)
 	replica := &DBInstance{
-		DBInstanceIdentifier:              id,
-		DBInstanceArn:                     b.rdsARN("db", id),
-		DbiResourceID:                     id,
-		DBInstanceClass:                   instanceClass,
-		Engine:                            engine,
-		EngineVersion:                     engineVersion,
-		DBInstanceStatus:                  instanceStatusAvailable,
-		MasterUsername:                    masterUser,
-		Endpoint:                          endpoint,
-		Port:                              port,
-		AllocatedStorage:                  allocatedStorage,
-		ReplicaSourceDBInstanceIdentifier: sourceID,
-		DBParameterGroupName:              paramGroupName,
-		OptionGroupName:                   optionGroupName,
+		DBInstanceIdentifier:               id,
+		DBInstanceArn:                      b.rdsARN("db", id),
+		DbiResourceID:                      id,
+		DBInstanceClass:                    instanceClass,
+		Engine:                             engine,
+		EngineVersion:                      engineVersion,
+		DBInstanceStatus:                   instanceStatusAvailable,
+		MasterUsername:                     masterUser,
+		Endpoint:                           endpoint,
+		Port:                               port,
+		AllocatedStorage:                   allocatedStorage,
+		ReplicaSourceDBInstanceIdentifier:  sourceID,
+		DBParameterGroupName:               paramGroupName,
+		OptionGroupName:                    optionGroupName,
+		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
+		IAMDatabaseAuthenticationEnabled:   opts.IAMDatabaseAuthenticationEnabled,
+		ReplicaMode:                        opts.ReplicaMode,
+		UseDefaultProcessorFeatures:        opts.UseDefaultProcessorFeatures,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
+	applyVpcSecurityGroups(replica, opts.VpcSecurityGroupIDs)
 	b.instances.Put(replica)
 	b.publishInstanceEventLocked(id, "DB read replica created")
 
@@ -1047,6 +1083,7 @@ func (b *InMemoryBackend) SwitchoverReadReplica(instanceID string) (*DBInstance,
 func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 	id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
 	paramGroupName, optionGroupName string,
+	opts DBInstanceOptions,
 ) (*DBInstance, error) {
 	if s3Bucket == "" {
 		return nil, fmt.Errorf("%w: s3BucketName is required", ErrInvalidParameter)
@@ -1078,15 +1115,20 @@ func (b *InMemoryBackend) RestoreDBInstanceFromS3(
 		return nil, fmt.Errorf("%w: %s", ErrInstanceAlreadyExists, id)
 	}
 	inst := &DBInstance{
-		DBInstanceIdentifier: id,
-		DBInstanceArn:        b.rdsARN("db", id),
-		DBInstanceClass:      dbInstanceClass,
-		Engine:               engine,
-		DBInstanceStatus:     "creating",
-		AllocatedStorage:     defaultAllocatedStorage,
-		StorageType:          "gp2",
-		DBParameterGroupName: paramGroupName,
-		OptionGroupName:      optionGroupName,
+		DBInstanceIdentifier:               id,
+		DBInstanceArn:                      b.rdsARN("db", id),
+		DBInstanceClass:                    dbInstanceClass,
+		Engine:                             engine,
+		DBInstanceStatus:                   "creating",
+		AllocatedStorage:                   defaultAllocatedStorage,
+		StorageType:                        "gp2",
+		DBParameterGroupName:               paramGroupName,
+		OptionGroupName:                    optionGroupName,
+		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
+		IAMDatabaseAuthenticationEnabled:   opts.IAMDatabaseAuthenticationEnabled,
+		UseDefaultProcessorFeatures:        opts.UseDefaultProcessorFeatures,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
 	b.instances.Put(inst)
 	b.instanceReadyAt[id] = time.Now().Add(instanceReadyDelaySeconds * time.Second)

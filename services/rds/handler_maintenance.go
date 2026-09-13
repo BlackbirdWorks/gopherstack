@@ -54,6 +54,7 @@ type xmlPendingMaintenanceActionResourceList struct {
 }
 
 type xmlPendingActionsWrapper struct {
+	Marker  string                                  `xml:"Marker,omitempty"`
 	Actions xmlPendingMaintenanceActionResourceList `xml:"PendingMaintenanceActions"`
 }
 
@@ -70,20 +71,31 @@ func (h *Handler) handleDescribePendingMaintenanceActions(vals url.Values) (any,
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlResourcePendingMaintenanceActions, 0, len(actions))
-	for _, a := range actions {
-		members = append(members, xmlResourcePendingMaintenanceActions{
+	members, marker, err := paginateDescribe(vals, actions, func(a, b PendingMaintenanceAction) bool {
+		if a.ResourceIdentifier != b.ResourceIdentifier {
+			return a.ResourceIdentifier < b.ResourceIdentifier
+		}
+
+		return a.Action < b.Action
+	}, func(a PendingMaintenanceAction) xmlResourcePendingMaintenanceActions {
+		return xmlResourcePendingMaintenanceActions{
 			ResourceIdentifier: a.ResourceIdentifier,
 			PendingMaintenanceActionDetails: xmlPendingMaintenanceActionList{
 				Members: []xmlPendingMaintenanceAction{
 					{Action: a.Action, Description: a.Description},
 				},
 			},
-		})
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describePendingMaintenanceActionsResponse{
-		Xmlns:  rdsXMLNS,
-		Result: xmlPendingActionsWrapper{Actions: xmlPendingMaintenanceActionResourceList{Members: members}},
+		Xmlns: rdsXMLNS,
+		Result: xmlPendingActionsWrapper{
+			Marker:  marker,
+			Actions: xmlPendingMaintenanceActionResourceList{Members: members},
+		},
 	}, nil
 }

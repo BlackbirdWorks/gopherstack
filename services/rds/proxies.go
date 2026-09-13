@@ -21,21 +21,24 @@ func proxyRandSuffix() string {
 
 // DBProxy represents an RDS DB proxy.
 type DBProxy struct {
-	CreatedDate          time.Time            `json:"createdDate"`
-	UpdatedDate          time.Time            `json:"updatedDate"`
-	RoleARN              string               `json:"roleArn"`
-	Status               string               `json:"status"`
-	Endpoint             string               `json:"endpoint"`
-	EngineFamily         string               `json:"engineFamily"`
-	DBProxyARN           string               `json:"dbProxyArn"`
-	DBProxyName          string               `json:"dbProxyName"`
-	VpcSecurityGroupIDs  []string             `json:"vpcSecurityGroupIds"`
-	Auth                 []UserAuthConfig     `json:"auth"`
-	VpcSubnetIDs         []string             `json:"vpcSubnetIds"`
-	ConnectionPoolConfig ConnectionPoolConfig `json:"connectionPoolConfig"`
-	IdleClientTimeout    int                  `json:"idleClientTimeout"`
-	DebugLogging         bool                 `json:"debugLogging"`
-	RequireTLS           bool                 `json:"requireTls"`
+	CreatedDate                 time.Time            `json:"createdDate"`
+	UpdatedDate                 time.Time            `json:"updatedDate"`
+	RoleARN                     string               `json:"roleArn"`
+	Status                      string               `json:"status"`
+	Endpoint                    string               `json:"endpoint"`
+	EngineFamily                string               `json:"engineFamily"`
+	DBProxyARN                  string               `json:"dbProxyArn"`
+	DBProxyName                 string               `json:"dbProxyName"`
+	VpcSecurityGroupIDs         []string             `json:"vpcSecurityGroupIds"`
+	Auth                        []UserAuthConfig     `json:"auth"`
+	VpcSubnetIDs                []string             `json:"vpcSubnetIds"`
+	ConnectionPoolConfig        ConnectionPoolConfig `json:"connectionPoolConfig"`
+	DefaultAuthScheme           string               `json:"defaultAuthScheme,omitempty"`
+	EndpointNetworkType         string               `json:"endpointNetworkType,omitempty"`
+	TargetConnectionNetworkType string               `json:"targetConnectionNetworkType,omitempty"`
+	IdleClientTimeout           int                  `json:"idleClientTimeout"`
+	DebugLogging                bool                 `json:"debugLogging"`
+	RequireTLS                  bool                 `json:"requireTls"`
 }
 
 // UserAuthConfig holds authentication details for a DB proxy.
@@ -92,6 +95,7 @@ type DBProxyEndpoint struct {
 	TargetRole          string    `json:"targetRole"`
 	VpcSecurityGroupIDs []string  `json:"vpcSecurityGroupIds"`
 	VpcSubnetIDs        []string  `json:"vpcSubnetIds"`
+	EndpointNetworkType string    `json:"endpointNetworkType,omitempty"`
 	IsDefault           bool      `json:"isDefault"`
 }
 
@@ -100,6 +104,7 @@ func (b *InMemoryBackend) CreateDBProxy(
 	name, engineFamily, roleARN string,
 	auth []UserAuthConfig,
 	vpcSubnetIDs, vpcSecurityGroupIDs []string,
+	defaultAuthScheme, endpointNetworkType, targetConnectionNetworkType string,
 ) (*DBProxy, error) {
 	b.mu.Lock("CreateDBProxy")
 	defer b.mu.Unlock()
@@ -109,18 +114,21 @@ func (b *InMemoryBackend) CreateDBProxy(
 	}
 
 	proxy := &DBProxy{
-		DBProxyName:         name,
-		DBProxyARN:          arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy:prx-%s", name)),
-		Status:              instanceStatusAvailable,
-		Endpoint:            fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
-		EngineFamily:        engineFamily,
-		RoleARN:             roleARN,
-		Auth:                auth,
-		VpcSubnetIDs:        vpcSubnetIDs,
-		VpcSecurityGroupIDs: vpcSecurityGroupIDs,
-		IdleClientTimeout:   proxyDefaultIdleClientTimeout,
-		CreatedDate:         time.Now(),
-		UpdatedDate:         time.Now(),
+		DBProxyName:                 name,
+		DBProxyARN:                  arn.Build("rds", b.region, b.accountID, fmt.Sprintf("db-proxy:prx-%s", name)),
+		Status:                      instanceStatusAvailable,
+		Endpoint:                    fmt.Sprintf("%s.proxy-%s.%s.rds.amazonaws.com", name, proxyRandSuffix(), b.region),
+		EngineFamily:                engineFamily,
+		RoleARN:                     roleARN,
+		Auth:                        auth,
+		VpcSubnetIDs:                vpcSubnetIDs,
+		VpcSecurityGroupIDs:         vpcSecurityGroupIDs,
+		IdleClientTimeout:           proxyDefaultIdleClientTimeout,
+		CreatedDate:                 time.Now(),
+		UpdatedDate:                 time.Now(),
+		DefaultAuthScheme:           defaultAuthScheme,
+		EndpointNetworkType:         endpointNetworkType,
+		TargetConnectionNetworkType: targetConnectionNetworkType,
 		ConnectionPoolConfig: ConnectionPoolConfig{
 			MaxConnectionsPercent:     proxyDefaultMaxConnectionsPct,
 			MaxIdleConnectionsPercent: proxyDefaultMaxIdleConnectionsPct,
@@ -200,6 +208,7 @@ func (b *InMemoryBackend) ModifyDBProxy(
 	requireTLS *bool,
 	idleClientTimeout *int,
 	auth []UserAuthConfig,
+	defaultAuthScheme string,
 ) (*DBProxy, error) {
 	b.mu.Lock("ModifyDBProxy")
 	defer b.mu.Unlock()
@@ -217,6 +226,9 @@ func (b *InMemoryBackend) ModifyDBProxy(
 	}
 	if len(auth) > 0 {
 		proxy.Auth = auth
+	}
+	if defaultAuthScheme != "" {
+		proxy.DefaultAuthScheme = defaultAuthScheme
 	}
 	proxy.UpdatedDate = time.Now()
 	cp := *proxy
@@ -375,6 +387,7 @@ func (b *InMemoryBackend) ModifyDBProxyTargetGroup(
 func (b *InMemoryBackend) CreateDBProxyEndpoint(
 	proxyName, endpointName, targetRole string,
 	vpcSubnetIDs, vpcSGIDs []string,
+	endpointNetworkType string,
 ) (*DBProxyEndpoint, error) {
 	b.mu.Lock("CreateDBProxyEndpoint")
 	defer b.mu.Unlock()
@@ -404,6 +417,7 @@ func (b *InMemoryBackend) CreateDBProxyEndpoint(
 		VpcSecurityGroupIDs: vpcSGIDs,
 		IsDefault:           false,
 		CreatedDate:         time.Now(),
+		EndpointNetworkType: endpointNetworkType,
 	}
 
 	b.proxyEndpoints.Put(ep)

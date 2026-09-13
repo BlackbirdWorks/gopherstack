@@ -34,7 +34,7 @@ func TestReset_ClearsAccountAndInstanceState(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, rds.ClusterReadyAtCountForTest(b), "setup: reboot didn't schedule a ready-at deadline")
 
-	cert, err := b.ModifyCertificates("rds-ca-2019")
+	cert, err := b.ModifyCertificates("rds-ca-2019", false)
 	require.NoError(t, err)
 	require.Equal(t, "rds-ca-2019", cert.CertificateIdentifier, "setup: ModifyCertificates didn't take")
 

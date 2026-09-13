@@ -75,7 +75,7 @@ func TestModifyCertificates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
-			got, err := b.ModifyCertificates(tt.certID)
+			got, err := b.ModifyCertificates(tt.certID, false)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.ErrorIs(t, err, tt.wantErrIs)

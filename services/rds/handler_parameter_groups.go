@@ -229,6 +229,7 @@ type copyDBParameterGroupResponse struct {
 
 type engineDefaults struct {
 	DBParameterGroupFamily string             `xml:"DBParameterGroupFamily"`
+	Marker                 string             `xml:"Marker,omitempty"`
 	Parameters             xmlDBParameterList `xml:"Parameters"`
 }
 
@@ -245,18 +246,23 @@ func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, e
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBParameter, 0, len(params))
-	for _, p := range params {
-		members = append(members, xmlDBParameter{
+	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
+		return a.ParameterName < b.ParameterName
+	}, func(p DBParameter) xmlDBParameter {
+		return xmlDBParameter{
 			ParameterName:  p.ParameterName,
 			ParameterValue: p.ParameterValue,
-		})
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeEngineDefaultParametersResponse{
 		Xmlns: rdsXMLNS,
 		Result: engineDefaults{
 			DBParameterGroupFamily: family,
+			Marker:                 marker,
 			Parameters:             xmlDBParameterList{Members: members},
 		},
 	}, nil

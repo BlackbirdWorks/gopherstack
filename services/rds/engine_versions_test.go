@@ -119,7 +119,7 @@ func TestCustomDBEV_CRUD(t *testing.T) {
 
 	b := newBatch2Backend()
 
-	cev, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c")
+	cev, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c", "")
 	require.NoError(t, err)
 	assert.Equal(t, "custom-oracle-ee", cev.Engine)
 	assert.Equal(t, "available", cev.Status)
@@ -138,7 +138,7 @@ func TestCustomDBEV_ModifyStatus(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-cdb", "19.0.1.0", "Oracle 19c CDB")
+	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-cdb", "19.0.1.0", "Oracle 19c CDB", "")
 	require.NoError(t, err)
 
 	updated, err := b.ModifyCustomDBEngineVersion(
@@ -155,10 +155,10 @@ func TestCustomDBEV_Duplicate(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-se2", "19.0.2.0", "test")
+	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee-se2", "19.0.2.0", "test", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateCustomDBEngineVersion("custom-oracle-ee-se2", "19.0.2.0", "duplicate")
+	_, err = b.CreateCustomDBEngineVersion("custom-oracle-ee-se2", "19.0.2.0", "duplicate", "")
 	require.Error(t, err)
 }
 
@@ -176,8 +176,7 @@ func TestCustomDBEV_Concurrent(t *testing.T) {
 			_, errs[idx] = b.CreateCustomDBEngineVersion(
 				"custom-oracle-ee",
 				fmt.Sprintf("19.0.%d.0", idx),
-				fmt.Sprintf("Oracle 19.0.%d", idx),
-			)
+				fmt.Sprintf("Oracle 19.0.%d", idx), "")
 		}(i)
 	}
 	wg.Wait()
@@ -275,9 +274,9 @@ func TestPersistence_CustomEngineVersions(t *testing.T) {
 
 	b := newBatch2Backend()
 
-	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c")
+	_, err := b.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c", "")
 	require.NoError(t, err)
-	_, err = b.CreateCustomDBEngineVersion("custom-oracle-ee", "21.0.0.0", "Oracle 21c")
+	_, err = b.CreateCustomDBEngineVersion("custom-oracle-ee", "21.0.0.0", "Oracle 21c", "")
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -288,11 +287,11 @@ func TestPersistence_CustomEngineVersions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify: creating the same engine again should fail (already exists)
-	_, err = b2.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c again")
+	_, err = b2.CreateCustomDBEngineVersion("custom-oracle-ee", "19.0.0.0", "Oracle 19c again", "")
 	require.Error(t, err, "duplicate should fail after restore")
 
 	// New version should succeed
-	_, err = b2.CreateCustomDBEngineVersion("custom-oracle-ee", "23.0.0.0", "Oracle 23c")
+	_, err = b2.CreateCustomDBEngineVersion("custom-oracle-ee", "23.0.0.0", "Oracle 23c", "")
 	require.NoError(t, err)
 }
 
@@ -310,10 +309,10 @@ func TestDescribeCustomDBEngineVersions_AfterCreate(t *testing.T) {
 
 	b := newBatch3Backend()
 
-	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.0.0.0.ru-2024-04.rur-2024-04.r1", "test cev")
+	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.0.0.0.ru-2024-04.rur-2024-04.r1", "test cev", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateCustomDBEngineVersion("oracle-ee", "19.0.0.0.ru-2023-10.rur-2023-10.r1", "older cev")
+	_, err = b.CreateCustomDBEngineVersion("oracle-ee", "19.0.0.0.ru-2023-10.rur-2023-10.r1", "older cev", "")
 	require.NoError(t, err)
 
 	all := b.DescribeCustomDBEngineVersions("", "")
@@ -329,10 +328,10 @@ func TestDescribeCustomDBEngineVersions_EngineFilter(t *testing.T) {
 
 	b := newBatch3Backend()
 
-	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v1", "oracle")
+	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v1", "oracle", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateCustomDBEngineVersion("oracle-se2", "19.v2", "oracle se2")
+	_, err = b.CreateCustomDBEngineVersion("oracle-se2", "19.v2", "oracle se2", "")
 	require.NoError(t, err)
 
 	filtered := b.DescribeCustomDBEngineVersions("oracle-ee", "")
@@ -345,10 +344,10 @@ func TestDescribeCustomDBEngineVersions_SortedResults(t *testing.T) {
 
 	b := newBatch3Backend()
 
-	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v2", "v2")
+	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.v2", "v2", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateCustomDBEngineVersion("oracle-ee", "19.v1", "v1")
+	_, err = b.CreateCustomDBEngineVersion("oracle-ee", "19.v1", "v1", "")
 	require.NoError(t, err)
 
 	all := b.DescribeCustomDBEngineVersions("oracle-ee", "")
@@ -370,7 +369,7 @@ func TestDescribeCustomDBEngineVersions_ViaHandler(t *testing.T) {
 	b := newBatch3Backend()
 	h := rds.NewHandler(b)
 
-	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.test.v1", "test cev")
+	_, err := b.CreateCustomDBEngineVersion("oracle-ee", "19.test.v1", "test cev", "")
 	require.NoError(t, err)
 
 	rec := postRDSForm(t, h,
@@ -455,7 +454,7 @@ func TestDescribeCustomDBEngineVersions_ConcurrentSafe(t *testing.T) {
 		go func(n int) {
 			defer func() { done <- struct{}{} }()
 			ver := "19.v" + string(rune('a'+n))
-			_, err := b.CreateCustomDBEngineVersion("oracle-ee", ver, "concurrent")
+			_, err := b.CreateCustomDBEngineVersion("oracle-ee", ver, "concurrent", "")
 			if err != nil {
 				return
 			}

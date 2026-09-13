@@ -10,22 +10,24 @@ func (h *Handler) handleStartActivityStream(vals url.Values) (any, error) {
 	resourceARN := vals.Get("ResourceArn")
 	kmsKeyID := vals.Get("KmsKeyId")
 	mode := vals.Get("Mode")
+	engineNativeAuditFieldsIncluded := vals.Get("EngineNativeAuditFieldsIncluded") == formTrue
 
 	// The resource ARN encodes the cluster identifier at the end
 	clusterID := arnToClusterID(resourceARN)
 
-	cluster, err := h.Backend.StartActivityStream(clusterID, kmsKeyID, mode)
+	cluster, err := h.Backend.StartActivityStream(clusterID, kmsKeyID, mode, engineNativeAuditFieldsIncluded)
 	if err != nil {
 		return nil, err
 	}
 
 	return startActivityStreamResponse{
-		Xmlns:             rdsXMLNS,
-		KinesisStreamName: cluster.ActivityStreamKinesisStreamName,
-		KMSKeyID:          cluster.ActivityStreamKMSKeyID,
-		Status:            cluster.ActivityStreamStatus,
-		Mode:              cluster.ActivityStreamMode,
-		ApplyImmediately:  true,
+		Xmlns:                           rdsXMLNS,
+		KinesisStreamName:               cluster.ActivityStreamKinesisStreamName,
+		KMSKeyID:                        cluster.ActivityStreamKMSKeyID,
+		Status:                          cluster.ActivityStreamStatus,
+		Mode:                            cluster.ActivityStreamMode,
+		ApplyImmediately:                true,
+		EngineNativeAuditFieldsIncluded: cluster.ActivityStreamEngineNativeAuditFieldsIncluded,
 	}, nil
 }
 
@@ -81,13 +83,14 @@ func arnToClusterID(arn string) string {
 }
 
 type startActivityStreamResponse struct {
-	XMLName           xml.Name `xml:"StartActivityStreamResponse"`
-	Xmlns             string   `xml:"xmlns,attr"`
-	KinesisStreamName string   `xml:"StartActivityStreamResult>KinesisStreamName,omitempty"`
-	KMSKeyID          string   `xml:"StartActivityStreamResult>KmsKeyId,omitempty"`
-	Status            string   `xml:"StartActivityStreamResult>Status,omitempty"`
-	Mode              string   `xml:"StartActivityStreamResult>Mode,omitempty"`
-	ApplyImmediately  bool     `xml:"StartActivityStreamResult>ApplyImmediately,omitempty"`
+	XMLName                         xml.Name `xml:"StartActivityStreamResponse"`
+	Xmlns                           string   `xml:"xmlns,attr"`
+	KinesisStreamName               string   `xml:"StartActivityStreamResult>KinesisStreamName,omitempty"`
+	KMSKeyID                        string   `xml:"StartActivityStreamResult>KmsKeyId,omitempty"`
+	Status                          string   `xml:"StartActivityStreamResult>Status,omitempty"`
+	Mode                            string   `xml:"StartActivityStreamResult>Mode,omitempty"`
+	ApplyImmediately                bool     `xml:"StartActivityStreamResult>ApplyImmediately,omitempty"`
+	EngineNativeAuditFieldsIncluded bool     `xml:"StartActivityStreamResult>EngineNativeAuditFieldsIncluded,omitempty"`
 }
 
 type stopActivityStreamResponse struct {

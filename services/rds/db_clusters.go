@@ -102,39 +102,50 @@ func (b *InMemoryBackend) newDBCluster(
 	}
 
 	return &DBCluster{
-		ClusterCreateTime:            time.Now().UTC(),
-		DBClusterIdentifier:          id,
-		DBClusterArn:                 b.rdsARN("cluster", id),
-		DBClusterResourceID:          "cluster-" + id,
-		Engine:                       engine,
-		EngineVersion:                opts.EngineVersion,
-		Status:                       instanceStatusAvailable,
-		MasterUsername:               masterUser,
-		DatabaseName:                 dbName,
-		DBClusterParameterGroupName:  paramGroupName,
-		Endpoint:                     endpoint,
-		ReaderEndpoint:               readerEndpoint,
-		NetworkType:                  networkType,
-		StorageType:                  opts.StorageType,
-		EngineLifecycleSupport:       opts.EngineLifecycleSupport,
-		OptimizedWrites:              opts.OptimizedWrites,
-		Port:                         port,
-		ServerlessV2ScalingConfig:    serverlessV2Cfg,
-		KmsKeyID:                     opts.KmsKeyID,
-		PreferredBackupWindow:        opts.PreferredBackupWindow,
-		PreferredMaintenanceWindow:   opts.PreferredMaintenanceWindow,
-		MonitoringRoleArn:            opts.MonitoringRoleArn,
-		EnabledCloudwatchLogsExports: opts.EnabledCloudwatchLogsExports,
-		AvailabilityZones:            opts.AvailabilityZones,
-		BacktrackWindow:              opts.BacktrackWindow,
-		BackupRetentionPeriod:        opts.BackupRetentionPeriod,
-		MonitoringInterval:           opts.MonitoringInterval,
-		MultiAZ:                      opts.MultiAZ,
-		StorageEncrypted:             opts.StorageEncrypted,
-		CopyTagsToSnapshot:           opts.CopyTagsToSnapshot,
-		DeletionProtection:           opts.DeletionProtection,
-		ReplicationSourceIdentifier:  opts.ReplicationSourceIdentifier,
-		DBClusterMembers:             []DBClusterMember{},
+		ClusterCreateTime:                  time.Now().UTC(),
+		DBClusterIdentifier:                id,
+		DBClusterArn:                       b.rdsARN("cluster", id),
+		DBClusterResourceID:                "cluster-" + id,
+		Engine:                             engine,
+		EngineVersion:                      opts.EngineVersion,
+		Status:                             instanceStatusAvailable,
+		MasterUsername:                     masterUser,
+		DatabaseName:                       dbName,
+		DBClusterParameterGroupName:        paramGroupName,
+		Endpoint:                           endpoint,
+		ReaderEndpoint:                     readerEndpoint,
+		NetworkType:                        networkType,
+		StorageType:                        opts.StorageType,
+		EngineLifecycleSupport:             opts.EngineLifecycleSupport,
+		OptimizedWrites:                    opts.OptimizedWrites,
+		Port:                               port,
+		ServerlessV2ScalingConfig:          serverlessV2Cfg,
+		KmsKeyID:                           opts.KmsKeyID,
+		PreferredBackupWindow:              opts.PreferredBackupWindow,
+		PreferredMaintenanceWindow:         opts.PreferredMaintenanceWindow,
+		MonitoringRoleArn:                  opts.MonitoringRoleArn,
+		EnabledCloudwatchLogsExports:       opts.EnabledCloudwatchLogsExports,
+		AvailabilityZones:                  opts.AvailabilityZones,
+		BacktrackWindow:                    opts.BacktrackWindow,
+		BackupRetentionPeriod:              opts.BackupRetentionPeriod,
+		MonitoringInterval:                 opts.MonitoringInterval,
+		MultiAZ:                            opts.MultiAZ,
+		StorageEncrypted:                   opts.StorageEncrypted,
+		CopyTagsToSnapshot:                 opts.CopyTagsToSnapshot,
+		DeletionProtection:                 opts.DeletionProtection,
+		ReplicationSourceIdentifier:        opts.ReplicationSourceIdentifier,
+		DBClusterMembers:                   []DBClusterMember{},
+		OptionGroupName:                    opts.OptionGroupName,
+		ClusterScalabilityType:             opts.ClusterScalabilityType,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
+		AutoMinorVersionUpgrade:            opts.AutoMinorVersionUpgrade,
+		PubliclyAccessible:                 opts.PubliclyAccessible,
+		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
+		EnableGlobalWriteForwarding:        opts.EnableGlobalWriteForwarding,
+		EnableLocalWriteForwarding:         opts.EnableLocalWriteForwarding,
+		PerformanceInsightsEnabled:         opts.PerformanceInsightsEnabled,
+		HTTPEndpointEnabled:                opts.EnableHTTPEndpoint,
 	}
 }
 
@@ -247,7 +258,7 @@ func matchesAllDBClusterFilters(c DBCluster, filters map[string][]string) bool {
 // need AWS-accurate DeleteDBCluster behavior should use
 // DeleteDBClusterWithOptions.
 func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
-	return b.DeleteDBClusterWithOptions(id, true, "")
+	return b.DeleteDBClusterWithOptions(id, true, "", true)
 }
 
 // DeleteDBClusterWithOptions removes the DB cluster with the given identifier,
@@ -258,7 +269,7 @@ func (b *InMemoryBackend) DeleteDBCluster(id string) (*DBCluster, error) {
 //   - SkipFinalSnapshot=true is mutually exclusive with a non-empty
 //     finalSnapshotID (AWS: InvalidParameterCombination either way).
 func (b *InMemoryBackend) DeleteDBClusterWithOptions(
-	id string, skipFinalSnapshot bool, finalSnapshotID string,
+	id string, skipFinalSnapshot bool, finalSnapshotID string, deleteAutomatedBackups bool,
 ) (*DBCluster, error) {
 	b.mu.Lock("DeleteDBCluster")
 	defer b.mu.Unlock()
@@ -327,6 +338,11 @@ func (b *InMemoryBackend) DeleteDBClusterWithOptions(
 	delete(b.fisFailoverFaults, canonicalID)
 	delete(b.clusterRoles, canonicalID)
 	b.deleteClusterEndpointsLocked(canonicalID)
+	if deleteAutomatedBackups {
+		if backup, hasBackup := b.clusterAutomatedBackups.Get(canonicalID); hasBackup {
+			b.clusterAutomatedBackups.Delete(clusterAutomatedBackupsKeyFn(backup))
+		}
+	}
 
 	return &cp, nil
 }
@@ -401,6 +417,15 @@ func applyDBClusterStringOpts(cluster *DBCluster, paramGroupName string, opts DB
 	if opts.EngineLifecycleSupport != "" {
 		cluster.EngineLifecycleSupport = opts.EngineLifecycleSupport
 	}
+	if opts.OptionGroupName != "" {
+		cluster.OptionGroupName = opts.OptionGroupName
+	}
+	if opts.PerformanceInsightsKMSKeyID != "" {
+		cluster.PerformanceInsightsKMSKeyID = opts.PerformanceInsightsKMSKeyID
+	}
+	if opts.PerformanceInsightsRetentionPeriod > 0 {
+		cluster.PerformanceInsightsRetentionPeriod = opts.PerformanceInsightsRetentionPeriod
+	}
 }
 
 // applyDBClusterBoolOpts applies boolean fields from opts to cluster.
@@ -422,6 +447,27 @@ func applyDBClusterBoolOpts(cluster *DBCluster, opts DBClusterOptions) {
 	if opts.OptimizedWrites {
 		cluster.OptimizedWrites = true
 	}
+	if opts.AutoMinorVersionUpgrade {
+		cluster.AutoMinorVersionUpgrade = true
+	}
+	if opts.PubliclyAccessible {
+		cluster.PubliclyAccessible = true
+	}
+	if opts.EnableIAMDatabaseAuthentication {
+		cluster.IAMDatabaseAuthenticationEnabled = true
+	}
+	if opts.EnableGlobalWriteForwarding {
+		cluster.EnableGlobalWriteForwarding = true
+	}
+	if opts.EnableLocalWriteForwarding {
+		cluster.EnableLocalWriteForwarding = true
+	}
+	if opts.PerformanceInsightsEnabled {
+		cluster.PerformanceInsightsEnabled = true
+	}
+	if opts.EnableHTTPEndpointSet {
+		cluster.HTTPEndpointEnabled = opts.EnableHTTPEndpoint
+	}
 }
 
 // ModifyDBCluster modifies a DB cluster.
@@ -436,9 +482,26 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrClusterNotFound, id)
 	}
 	applyDBClusterOpts(cluster, paramGroupName, opts)
+	if opts.DBInstanceParameterGroupName != "" {
+		cluster.DBInstanceParameterGroupName = opts.DBInstanceParameterGroupName
+		b.cascadeInstanceParameterGroupLocked(cluster, opts.DBInstanceParameterGroupName)
+	}
 	cp := *cluster
 
 	return &cp, nil
+}
+
+// cascadeInstanceParameterGroupLocked applies DBInstanceParameterGroupName
+// (rds@v1.124.1 api_op_ModifyDBCluster.go's DBInstanceParameterGroupName:
+// "the DB parameter group to apply to all instances of the DB cluster") to
+// every current member instance's own DBParameterGroupName. Callers must
+// hold b.mu for writing.
+func (b *InMemoryBackend) cascadeInstanceParameterGroupLocked(cluster *DBCluster, groupName string) {
+	for _, m := range cluster.DBClusterMembers {
+		if inst, ok := b.instances.Get(normalizeID(m.DBInstanceIdentifier)); ok {
+			inst.DBParameterGroupName = groupName
+		}
+	}
 }
 
 // StartDBCluster starts a stopped DB cluster.
@@ -478,6 +541,7 @@ func (b *InMemoryBackend) StopDBCluster(id string) (*DBCluster, error) {
 // RestoreDBClusterFromSnapshot creates a new DB cluster from the given snapshot.
 func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	clusterID, snapshotID, engine string,
+	opts DBClusterOptions,
 ) (*DBCluster, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -503,13 +567,18 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
 	cluster := &DBCluster{
-		DBClusterIdentifier:         clusterID,
-		DBClusterArn:                b.rdsARN("cluster", clusterID),
-		Engine:                      engine,
-		Status:                      instanceStatusAvailable,
-		DBClusterParameterGroupName: "default." + engine,
-		Endpoint:                    endpoint,
-		Port:                        enginePort(engine),
+		DBClusterIdentifier:                clusterID,
+		DBClusterArn:                       b.rdsARN("cluster", clusterID),
+		Engine:                             engine,
+		Status:                             instanceStatusAvailable,
+		DBClusterParameterGroupName:        "default." + engine,
+		Endpoint:                           endpoint,
+		Port:                               enginePort(engine),
+		OptionGroupName:                    opts.OptionGroupName,
+		PubliclyAccessible:                 opts.PubliclyAccessible,
+		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
@@ -520,6 +589,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 // RestoreDBClusterToPointInTime creates a new DB cluster as a point-in-time restore of the source cluster.
 func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	clusterID, sourceClusterID string,
+	opts DBClusterOptions,
 ) (*DBCluster, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -545,15 +615,20 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	}
 	endpoint := fmt.Sprintf("%s.cluster.%s.%s.rds.amazonaws.com", clusterID, b.accountID, b.region)
 	cluster := &DBCluster{
-		DBClusterIdentifier:         clusterID,
-		DBClusterArn:                b.rdsARN("cluster", clusterID),
-		Engine:                      source.Engine,
-		Status:                      instanceStatusAvailable,
-		MasterUsername:              source.MasterUsername,
-		DatabaseName:                source.DatabaseName,
-		DBClusterParameterGroupName: source.DBClusterParameterGroupName,
-		Endpoint:                    endpoint,
-		Port:                        source.Port,
+		DBClusterIdentifier:                clusterID,
+		DBClusterArn:                       b.rdsARN("cluster", clusterID),
+		Engine:                             source.Engine,
+		Status:                             instanceStatusAvailable,
+		MasterUsername:                     source.MasterUsername,
+		DatabaseName:                       source.DatabaseName,
+		DBClusterParameterGroupName:        source.DBClusterParameterGroupName,
+		Endpoint:                           endpoint,
+		Port:                               source.Port,
+		OptionGroupName:                    opts.OptionGroupName,
+		PubliclyAccessible:                 opts.PubliclyAccessible,
+		IAMDatabaseAuthenticationEnabled:   opts.EnableIAMDatabaseAuthentication,
+		PerformanceInsightsKMSKeyID:        opts.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: opts.PerformanceInsightsRetentionPeriod,
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster
@@ -991,6 +1066,7 @@ func (b *InMemoryBackend) ModifyCurrentDBClusterCapacity(
 // required but not persisted -- there's no real state to echo them into.
 func (b *InMemoryBackend) RestoreDBClusterFromS3(
 	id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+	opts DBClusterOptions,
 ) (*DBCluster, error) {
 	if s3Bucket == "" {
 		return nil, fmt.Errorf("%w: s3BucketName is required", ErrInvalidParameter)
@@ -1019,11 +1095,12 @@ func (b *InMemoryBackend) RestoreDBClusterFromS3(
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, id)
 	}
 	cluster := &DBCluster{
-		DBClusterIdentifier: id,
-		DBClusterArn:        b.rdsARN("cluster", id),
-		Engine:              engine,
-		MasterUsername:      masterUsername,
-		Status:              "creating",
+		DBClusterIdentifier:              id,
+		DBClusterArn:                     b.rdsARN("cluster", id),
+		Engine:                           engine,
+		MasterUsername:                   masterUsername,
+		Status:                           "creating",
+		IAMDatabaseAuthenticationEnabled: opts.EnableIAMDatabaseAuthentication,
 	}
 	b.clusters.Put(cluster)
 	cp := *cluster

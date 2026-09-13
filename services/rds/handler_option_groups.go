@@ -91,7 +91,16 @@ func (h *Handler) handleModifyOptionGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDescribeOptionGroupOptions(_ url.Values) (any, error) {
+// handleDescribeOptionGroupOptions validates MaxRecords the way every other
+// Describe op does, even though the result is always empty (see
+// describeOptionGroupOptionsResponse's doc comment on the unmodeled
+// per-engine catalog): real AWS rejects an out-of-range MaxRecords before
+// it ever gets to paging.
+func (h *Handler) handleDescribeOptionGroupOptions(vals url.Values) (any, error) {
+	if _, _, err := parseDescribePagination(vals); err != nil {
+		return nil, err
+	}
+
 	return &describeOptionGroupOptionsResponse{Xmlns: rdsXMLNS}, nil
 }
 

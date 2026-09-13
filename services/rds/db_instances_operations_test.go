@@ -568,7 +568,7 @@ func TestRestoreDBInstanceFromS3(t *testing.T) {
 			got, err := b.RestoreDBInstanceFromS3(
 				p.id, p.engine, p.dbInstanceClass, p.s3Bucket,
 				p.s3IngestionRoleArn, p.sourceEngine, p.sourceEngineVersion,
-				"", "",
+				"", "", rds.DBInstanceOptions{},
 			)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -659,8 +659,8 @@ func TestVpcSecurityGroupsPersisted(t *testing.T) {
 		"Engine":               {"postgres"},
 		"MasterUsername":       {"admin"},
 		"AllocatedStorage":     {"20"},
-		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-11111111"},
-		"VpcSecurityGroupIds.VpcSecurityGroupID.2": {"sg-22222222"},
+		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-11111111"},
+		"VpcSecurityGroupIds.VpcSecurityGroupId.2": {"sg-22222222"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
