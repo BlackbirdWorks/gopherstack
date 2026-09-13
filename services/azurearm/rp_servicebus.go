@@ -995,7 +995,22 @@ func (p *ServiceBusProvider) buildSubscriptionBody(id ResourceID, s *storedSBSub
 		fieldName: s.name,
 		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbTopicsType + "/" + sbSubscriptionsType,
 		fieldProperties: map[string]any{
-			fieldProvisioningState:             provisioningStateSucceeded,
+			fieldProvisioningState: provisioningStateSucceeded,
+			// "status" must never be omitted here: unlike the queue/topic
+			// Read functions (servicebus_queue_resource.go's
+			// pointer.From(props.Status), servicebus_topic_resource.go's
+			// nil-guarded "if v := props.Status; v != nil"),
+			// terraform-provider-azurerm v4.81.0's
+			// resourceServiceBusSubscriptionRead unconditionally
+			// dereferences *props.Status
+			// (servicebus_subscription_resource.go:315) with no nil check
+			// at all -- omitting this field (as this function used to do)
+			// makes the SDK decode a nil *EntityStatus and panics the whole
+			// provider plugin process on every subscription create/read.
+			// Confirmed via a local reproduction (TF_LOG=debug tofu apply)
+			// that captured the exact panic stack trace; see AZURE.md
+			// section 10.10's M9 entry, bug (4).
+			"status":                           "Active",
 			"lockDuration":                     iso8601.Format(s.lockDuration),
 			"maxDeliveryCount":                 s.maxDeliveryCount,
 			"deadLetteringOnMessageExpiration": false,

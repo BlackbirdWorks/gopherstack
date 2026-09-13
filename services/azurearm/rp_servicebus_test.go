@@ -314,6 +314,14 @@ func TestServiceBusProvider_SubscriptionPutGetDelete(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "PT1M", props["lockDuration"])
 	assert.InDelta(t, 5, props["maxDeliveryCount"], 0)
+	// Regression guard for AZURE.md section 10.10's M9 bug (4):
+	// terraform-provider-azurerm v4.81.0's resourceServiceBusSubscriptionRead
+	// unconditionally dereferences *props.Status with no nil check (unlike
+	// queue/topic's Read functions, which both guard it) -- omitting this
+	// field panics the whole provider plugin process on every subscription
+	// create/read. It must always be present and non-empty.
+	status, _ := props["status"].(string)
+	assert.NotEmpty(t, status, "subscription body must always set a non-empty status")
 
 	// Critical assertion: subscription Put MUST call into ServiceBusEntities.
 	require.Contains(t, fake.calls, "CreateSubscription:t1/sub1")
