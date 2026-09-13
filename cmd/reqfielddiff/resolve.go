@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // maxHop bounds how far body scanning follows a handler's own calls into
@@ -22,11 +23,17 @@ const maxHop = 1
 
 // decodeCallVerbs is matched case-insensitively against a CallExpr's own
 // selector/ident name to recognise a decode call: json.Unmarshal,
-// xml.Unmarshal, echo's c.Bind, and this repo's local readJSON/ReadJSON
-// helpers (omics) all match "unmarshal" or "bind" or "readjson".
+// xml.Unmarshal, echo's c.Bind, this repo's local readJSON/ReadJSON helpers
+// (omics) all match "unmarshal" or "bind" or "readjson", and
+// json.NewDecoder(r.Body).Decode(&x) -- apigatewayv2's own most common
+// decode shape (handleCreateAPI et al.) -- matches "decode". A false match
+// requires an unrelated call whose name happens to contain one of these
+// substrings AND passes `&x` for x already bound to a KNOWN emulator
+// struct type (matchDecodeCall's own gate); this repo has no such
+// coincidence today.
 //
 //nolint:gochecknoglobals // read-only lookup table, same pattern as sdkfields.go's dirModuleOverride
-var decodeCallVerbs = []string{"unmarshal", "bind", "readjson"}
+var decodeCallVerbs = []string{"unmarshal", "bind", "readjson", "decode"}
 
 // queryParamSelectors is matched exactly against a CallExpr's selector name
 // to harvest a wire-declared name straight from a literal string argument,
@@ -122,15 +129,12 @@ func resolveDispatchValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[str
 }
 
 func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[string]string) (opResolution, bool) {
-	if reqType, ok := resolveWrapOpReqType(expr, ctx); ok {
-		def := ctx.structs[reqType]
+	if def, ok := resolveWrapOpReqType(expr, ctx); ok {
+		return reqTypeResolution(def), true
+	}
 
-		return opResolution{
-			Fields:      fieldMap(def),
-			StructsUsed: []string{reqType},
-			Found:       true,
-			HasSignal:   true,
-		}, true
+	if def, ok := resolveGenericCallbackReqType(expr, ctx); ok {
+		return reqTypeResolution(def), true
 	}
 
 	switch v := expr.(type) {
@@ -142,6 +146,19 @@ func resolveCallLikeValue(expr ast.Expr, ctx handlerResolveCtx, formKeys map[str
 		return resolveCalleeBody(v, ctx, formKeys)
 	default:
 		return opResolution{}, false
+	}
+}
+
+// reqTypeResolution builds the opResolution for a request struct resolved
+// directly from a function's own signature (resolveWrapOpReqType,
+// resolveGenericCallbackReqType) -- no body scan needed, the struct's own
+// field set IS the declared set.
+func reqTypeResolution(def structDef) opResolution {
+	return opResolution{
+		Fields:      fieldMap(def),
+		StructsUsed: []string{def.Name},
+		Found:       true,
+		HasSignal:   true,
 	}
 }
 
@@ -189,14 +206,26 @@ func scanTopLevel(fl funcLike, ctx handlerResolveCtx, label string, formKeys map
 }
 
 // scanBody walks fl's body for: (1) a decode call binding a known struct's
-// worth of fields, (2) an echo query/path/form param read with a literal
-// name, (3) a call whose own return type resolves to a known struct
-// (cloudfront's decodeXBody(c) shape), (4) a query-protocol form read keyed
-// by op's own SDK field names (formKeys -- see formreads.go), and (5) at
-// hop 0 only, one hop of recursion into a *Handler method or bare package
-// func it calls directly -- never into h.Backend.X or any other selector
-// chain, so backend-internal field names never leak in as false "declared"
-// matches.
+// worth of fields, directly or through a local dst-any wrapper (iot's
+// readBody(c, &input) -- decodeDstWrappers, wrappers.go), (2) an echo
+// query/path/form param read with a literal name, directly or through a
+// name-forwarding wrapper (cleanrooms' qp(c,"key"), iot's
+// parseInt32QueryParam(c,"name") -- queryAccessorWrappers, wrappers.go),
+// (3) a call whose own return type resolves to a known struct
+// (cloudfront's decodeXBody(c) shape), or whose own callback ARGUMENT
+// carries the request struct (a local generic decode-dispatch wrapper --
+// genericDecodeWrappers, wrappers.go), (4) a query-protocol form read or a
+// header read keyed by op's own SDK field names (formKeys -- see
+// formreads.go), (5) a map[string]any body field read (quicksight's
+// strField/mapField/body["Key"] -- mapfields.go), (6) the scanned
+// function's OWN scalar parameter names matched against formKeys (a
+// REST-path value threaded in as a plain argument rather than read by any
+// call at all -- apigatewayv2's handleUpdateStage(c, apiID, stageName
+// string), hop 0 only: a deeper hop's parameter names are some helper's own
+// locals, not this op's wire values), and (7) at hop 0 only, one hop of
+// recursion into a *Handler method or bare package func it calls directly
+// -- never into h.Backend.X or any other selector chain, so
+// backend-internal field names never leak in as false "declared" matches.
 func scanBody(
 	fl funcLike,
 	ctx handlerResolveCtx,
@@ -211,17 +240,34 @@ func scanBody(
 
 	bindings := collectLocalBindings(fl, ctx.fset, ctx.structs)
 	urlValuesNames := urlValuesParamNames(fl)
+	mapNames := mapAnyNames(fl, ctx)
+
+	if hop == 0 {
+		matchOwnParamNames(fl, formKeys, res)
+		matchPathSegmentLocalNames(fl, ctx, formKeys, res)
+	}
 
 	ast.Inspect(fl.Body, func(n ast.Node) bool {
+		if idx, ok := n.(*ast.IndexExpr); ok {
+			matchMapIndexExpr(idx, mapNames, ctx, res)
+
+			return true
+		}
+
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
 		}
 
 		matchDecodeCall(call, bindings, ctx, res)
+		matchDecodeDstWrapperCall(call, bindings, ctx, res)
 		matchQueryParamCall(call, res)
+		matchQueryAccessorWrapperCall(call, ctx, res)
 		matchReturnsStructCall(call, ctx, res)
+		matchGenericCallbackCall(call, ctx, res)
 		matchFormReadCall(call, urlValuesNames, formKeys, ctx, res)
+		matchHeaderReadCall(call, formKeys, res)
+		matchMapFieldCall(call, mapNames, ctx, res)
 
 		if hop < maxHop {
 			matchRecursableCall(call, ctx, hop, visited, res, formKeys)
@@ -257,6 +303,68 @@ func matchDecodeCall(call *ast.CallExpr, bindings map[string]string, ctx handler
 
 		addStructFields(typeName, ctx, res)
 	}
+}
+
+// matchDecodeDstWrapperCall recognises a call to a local thin decode-dst
+// wrapper (iot's readBody(c, dst any) error, which internally does
+// json.NewDecoder(...).Decode(dst) with NO address-of needed since dst is
+// already `any` holding whatever pointer the caller passed --
+// decodeDstWrappers, wrappers.go) with a `&boundVar` argument at the
+// wrapper's own dst position.
+func matchDecodeDstWrapperCall(
+	call *ast.CallExpr,
+	bindings map[string]string,
+	ctx handlerResolveCtx,
+	res *opResolution,
+) {
+	id, ok := call.Fun.(*ast.Ident)
+	if !ok {
+		return
+	}
+
+	idx, ok := ctx.decodeDstWrappers[id.Name]
+	if !ok || idx >= len(call.Args) {
+		return
+	}
+
+	unary, ok := call.Args[idx].(*ast.UnaryExpr)
+	if !ok || unary.Op != token.AND {
+		return
+	}
+
+	target, ok := unwrapExpr(unary.X).(*ast.Ident)
+	if !ok {
+		return
+	}
+
+	typeName, ok := bindings[target.Name]
+	if !ok {
+		return
+	}
+
+	addStructFields(typeName, ctx, res)
+}
+
+// matchGenericCallbackCall recognises a call to a local generic
+// decode-dispatch wrapper (genericDecodeWrappers, wrappers.go) appearing as
+// a plain statement inside an already-resolved handler's own body --
+// apigatewayv2's `return handleCreate(c, apiID, "authorizer", err,
+// func(input CreateAuthorizerInput) (*Authorizer, error) {...})`, as
+// opposed to resolveGenericCallbackReqType's dispatch-table-VALUE entry
+// point (ssm's `"Op": jsonOp(h.Backend.Op)`). Both resolve the same way --
+// the wrapper's own callback argument carries the request struct -- but a
+// dispatch-table value is resolved before any body is scanned, while this
+// one is found while a body is ALREADY being scanned.
+func matchGenericCallbackCall(call *ast.CallExpr, ctx handlerResolveCtx, res *opResolution) {
+	def, ok := resolveGenericCallbackReqType(call, ctx)
+	if !ok {
+		return
+	}
+
+	res.StructsUsed = append(res.StructsUsed, def.Name)
+	res.HasSignal = true
+
+	maps.Copy(res.Fields, fieldMap(def))
 }
 
 func isDecodeVerb(name string) bool {
@@ -300,8 +408,39 @@ func matchQueryParamCall(call *ast.CallExpr, res *opResolution) {
 		return
 	}
 
+	declareLiteralField(res, name)
+}
+
+// declareLiteralField records name as a declared wire field with no struct
+// behind it -- the shared tail of every "a literal string argument passed
+// to a known accessor IS a declaration" recognizer in this file.
+func declareLiteralField(res *opResolution, name string) {
 	res.Fields[normalizeWireName(name)] = emuField{WireName: name, GoName: name}
 	res.HasSignal = true
+}
+
+// matchQueryAccessorWrapperCall recognises a call to a local thin
+// name-forwarding query/path accessor (cleanrooms' qp(c,"key"), iot's
+// parseInt32QueryParam(c,"name") -- queryAccessorWrappers, wrappers.go)
+// with a literal (or resolvable package const) argument at the wrapper's
+// own forwarded-name position.
+func matchQueryAccessorWrapperCall(call *ast.CallExpr, ctx handlerResolveCtx, res *opResolution) {
+	id, ok := call.Fun.(*ast.Ident)
+	if !ok {
+		return
+	}
+
+	idx, ok := ctx.queryAccessorWrappers[id.Name]
+	if !ok || idx >= len(call.Args) {
+		return
+	}
+
+	name, ok := resolveStringExpr(call.Args[idx], ctx.pkgConsts)
+	if !ok || name == "" {
+		return
+	}
+
+	declareLiteralField(res, name)
 }
 
 // matchReturnsStructCall recognises a call to a package func, or a method on
@@ -453,6 +592,10 @@ func findHandlerByName(op string, ctx handlerResolveCtx) (*ast.FuncDecl, []strin
 		lowerFirst(op) + "Action",
 		op + "Action",
 		lowerFirst(op),
+	}
+
+	if abbrev, ok := abbreviatedHandlerName(op); ok {
+		candidates = append(candidates, abbrev)
 	}
 
 	for _, name := range candidates {
@@ -623,4 +766,67 @@ func lowerFirst(s string) string {
 	}
 
 	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// minAbbrevWords is the fewest PascalCase words an op name needs before
+// abbreviatedHandlerName will construct a candidate at all -- a single-word
+// op has no "remaining words" to abbreviate, and a two-word op's remaining
+// single word abbreviated to one letter is too weak a signal to be worth
+// trying (this repo's one confirmed instance, lambda's ESM family, always
+// abbreviates three or more trailing words).
+const minAbbrevWords = 3
+
+// abbreviatedHandlerName builds ONE fully-deterministic exact-name
+// candidate, "handle"+verb+ACRONYM, for an op name whose remaining words
+// this repo sometimes abbreviates to their initials -- lambda's
+// handleCreateESM for CreateEventSourceMapping (Event/Source/Mapping ->
+// ESM), routed through a per-family path/method switch this scan cannot
+// statically map to an operation name at all (see collectSwitchDispatchEntries's
+// doc), so an abbreviated handler name is otherwise unreachable by ANY
+// existing candidate or fold match. This is a single constructed string
+// checked by exact lookup, not a fuzzy search: the collision risk is
+// whatever package happens to declare a function spelled EXACTLY this way
+// for unrelated reasons, which is vanishingly unlikely.
+func abbreviatedHandlerName(op string) (string, bool) {
+	words := pascalWords(op)
+	if len(words) < minAbbrevWords {
+		return "", false
+	}
+
+	var acronym strings.Builder
+
+	for _, w := range words[1:] {
+		acronym.WriteByte(w[0])
+	}
+
+	return "handle" + words[0] + strings.ToUpper(acronym.String()), true
+}
+
+// pascalWords splits a PascalCase identifier into words, keeping a run of
+// capitals together as one word up to (but not including) the final
+// capital before a lowercase run -- "EventSourceMapping" -> [Event Source
+// Mapping], "IPAddress" -> [IP Address].
+func pascalWords(s string) []string {
+	var words []string
+
+	runes := []rune(s)
+	start := 0
+
+	for i := 1; i < len(runes); i++ {
+		if !unicode.IsUpper(runes[i]) {
+			continue
+		}
+
+		prevLower := !unicode.IsUpper(runes[i-1])
+		nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+
+		if prevLower || nextLower {
+			words = append(words, string(runes[start:i]))
+			start = i
+		}
+	}
+
+	words = append(words, string(runes[start:]))
+
+	return words
 }

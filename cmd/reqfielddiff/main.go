@@ -224,13 +224,21 @@
 //     signature, not by name) carrying a PascalCase string-literal
 //     argument. A nested-prefix literal ("AssociationTarget.InstanceId") is
 //     matched by its first dot-segment against the top-level field this
-//     scan is scoped to. NOT covered, deliberately left as findings rather
-//     than guessed at: a url.Values held in a reassigned local rather than
-//     a parameter (`q := c.Request().URL.Query()`); a chained accessor
-//     (`c.Request().Form.Get(...)`); a helper that is a method rather than
-//     a bare package function; a nested-prefix literal more than one
-//     dot-segment deep; and irregular English plurals singularVariant's
-//     simple suffix-strip doesn't cover. Validated against ground truth:
+//     scan is scoped to. A url.Values held in a reassigned local
+//     (`q := c.Request().URL.Query()`) and a fully chained accessor with no
+//     intermediate variable at all (`c.Request().URL.Query().Get(...)`) are
+//     both now covered too (isURLQueryCall, matchFormGetCall's second
+//     branch -- lambda's durable-execution family and apigatewayv2's
+//     ImportApi/validateFailOnWarnings are the confirmed instances; the
+//     latter drops addFormReadLiteral's uppercase-first-letter gate, since
+//     non-query-protocol services spell these camelCase). NOT covered,
+//     deliberately left as findings rather than guessed at: a helper that
+//     is a method rather than a bare package function; a nested-prefix
+//     literal more than one dot-segment deep; irregular English plurals
+//     singularVariant's simple suffix-strip doesn't cover; and an indexed
+//     read directly off url.Values itself (`q["Statuses"]`, distinct from
+//     mapFieldRead's map[string]any indexing below). Validated against
+//     ground truth:
 //     ec2's 26 hand-verified identifier-list fields and the six
 //     MaxResults/NextToken fields fixed
 //     in 427bd2b15 are no longer reported (both confirmed present before
@@ -247,6 +255,100 @@
 //     the coverage guard reports for it -- a case where the guard's own
 //     loud failure is the CORRECT caution (a human must still read the
 //     flagged service to learn this), not a false alarm to silence.
+//
+// SECOND ROUND OF FIXES (wrappers.go, mapfields.go, gopherstack-99nj's
+// xhu2t slices 1-4 and gopherstack-7fve), closing five more blind spots
+// gopherstack-xhu2t found roughly halve tier-1 on the services they hit --
+// all "already correctly read, invisible to this scan by construction",
+// the same class as the query-form fix above, not real gaps:
+//
+//  1. A NAMED decode struct one indirection away from any call this scan
+//     recognised as a decode: iot's readBody(c, dst any) error decodes
+//     directly into its own `any`-typed parameter with no address-of at
+//     all, since the caller already passed one (`&input`) --
+//     collectLocalDecodeDstWrappers finds every such wrapper structurally
+//     (a decode-verb call inside the function passing one of the
+//     function's OWN `any` params directly), matchDecodeDstWrapperCall
+//     then treats a call to it exactly like a direct decode call.
+//  2. A LOCAL GENERIC dispatch-wrapper function (not service.WrapOp
+//     itself, and not a package-level function forwarding verbatim to it
+//     either -- collectLocalWrapOpWrappers' existing, narrower check)
+//     whose callback parameter's OWN signature carries the request struct:
+//     ssm's jsonOp[I,O](fn func(ctx,*I)(O,error)), apigatewayv2's
+//     handleCreate/handleCreateMulti/handleUpdate[I,O](...,
+//     backendFn func(I)(*O,error)) (request passed BY VALUE, not pointer),
+//     and dynamodb's handleOp[WireIn,...](..., toSDK func(*WireIn)*SDKIn,
+//     ...). collectGenericDecodeWrapperFuncs recognises the shape
+//     structurally (a generic func with a func-typed parameter whose own
+//     last parameter targets one of the wrapper's type parameters, body
+//     unexamined); resolveGenericCallbackReqType/matchGenericCallbackCall
+//     then resolve the CALL SITE's own callback argument (a dispatch-table
+//     value or a plain statement inside an already-resolved handler) to a
+//     concrete struct -- which only ever succeeds when that argument's own
+//     signature names a struct this scan already knows about, so matching
+//     an unrelated same-shaped generic helper (a Map/Filter utility, say)
+//     can never manufacture a false "declared" field on its own. One of
+//     these callback arguments is itself a subpackage-qualified selector
+//     (dynamodb's `models.ToSDKCreateTableInput`) -- see point 5.
+//  3. QUERY, HEADER, and PATH-VALUE reads this scan's existing per-op
+//     literal matching couldn't reach at all: a local helper forwarding
+//     one of its own string parameters straight into a queryParamSelectors
+//     call (cleanrooms' qp(c,"key"), iot's parseInt32QueryParam(c,"name")
+//     -- collectQueryAccessorWrappers/matchQueryAccessorWrapperCall,
+//     recognised structurally the same way collectLocalDecodeDstWrappers
+//     is); an HTTP header read (`<expr>.Header.Get("X-Amz-Acl")`,
+//     gopherstack-7fve's own confirmed s3 instance) matched after
+//     stripping a known header prefix (matchHeaderReadCall,
+//     stripHeaderPrefix, formreads.go); and a REST-path value that never
+//     appears in any call at all because an upstream dispatcher already
+//     extracted it and threaded it straight through as a plain scalar
+//     parameter (matchOwnParamNames, apigatewayv2's
+//     handleUpdateStage(c, apiID, stageName string)) or a local bound from
+//     a `func([]string, T) string`-shaped path-segment accessor
+//     (matchPathSegmentLocalNames, quicksight's `namespace := seg(segs,
+//     segResID)`) -- both gated to hop 0 only and to formKeys, this op's
+//     own SDK field names, exactly like the query-form fix above.
+//  4. A hand-decoded `body map[string]any` request (quicksight's own
+//     documented shape, and personalize's independent instance of the
+//     identical pattern): a field read via a strField/mapField/
+//     boolField-style accessor call (isMapFieldAccessorSig, structurally
+//     any func(map[string]any, string) ...), or via direct `body["Key"]`
+//     indexing -- mapfields.go, gated to a scan-recognised map[string]any
+//     local exactly the way form-reads are gated to a recognised
+//     url.Values local, including a local established one call removed
+//     via a multi-return wrapper (`body, err := readBody(c)`).
+//  5. A dispatch table built from a composite literal of a package-level
+//     `type X = map[string]F` alias (or `type X map[string]F` defined
+//     type) rather than a literal map type -- appstream's `opTable{...}`,
+//     spelled as a bare *ast.Ident at the composite-literal site, entirely
+//     invisible to a check gated on *ast.MapType alone
+//     (collectNamedDispatchMapTypes). And, orthogonally, a per-family
+//     REST path/method switch this scan cannot statically map to an
+//     operation name at all (lambda's dispatchSpecialRoutes ->
+//     handleESMRoute), reached instead through ONE new fully-deterministic
+//     exact-name candidate -- "handle"+verb+ACRONYM, built from the op
+//     name's own PascalCase words (abbreviatedHandlerName, pascalWords) --
+//     for the one confirmed instance of this repo abbreviating a handler
+//     name to initials (handleCreateESM for CreateEventSourceMapping).
+//     Finally, dynamodb's handleOp callback argument
+//     (`models.ToSDKCreateTableInput`, point 2 above) is itself a bare
+//     function in an imported IN-REPO SUBPACKAGE (services/dynamodb/
+//     models), one level of indirection past what a single-package
+//     struct/func collector can ever see on its own -- collectInRepoSubPackages
+//     finds every import textually rooted at this exact service's own
+//     "/services/<dir>/" path (never an arbitrary unrelated package by
+//     coincidence) and buildSubPackageIndexes parses it into the same
+//     structural index handlerResolveCtx keeps for the service package
+//     itself; resolveHandlerReqType and resolveTypeExprDef both consult it
+//     wherever a qualified selector appears, whether as a callback
+//     argument or as a LOCAL wrapper's own qualified parameter type
+//     (dynamodb's `toSDKPutItemInputChecked(input *models.PutItemInput)`).
+//     Validated against ground truth (before/after -dir counts, hand
+//     confirmed against source for every drop not already in this set):
+//     ssm 52->1, iot 36->6, quicksight 37->14, lambda 25->4, cleanrooms
+//     22->1, apigatewayv2 22->1, appstream 19->0, dynamodb 17->3 -- zero
+//     services regressed (no tier-1 count increased) across the full
+//     repo scan.
 //
 // Usage:
 //
