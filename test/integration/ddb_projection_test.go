@@ -118,7 +118,13 @@ func TestIntegration_DDB_ProjectionExpressions(t *testing.T) {
 					ExpressionAttributeValues: map[string]types.AttributeValue{
 						":pk": &types.AttributeValueMemberS{Value: "user1"},
 					},
-					ProjectionExpression: aws.String("profile.name, status"),
+					// "name" and "status" are both DynamoDB reserved words --
+					// must be aliased.
+					ProjectionExpression: aws.String("profile.#n, #st"),
+					ExpressionAttributeNames: map[string]string{
+						"#n":  "name",
+						"#st": "status",
+					},
 				})
 			},
 			verify: func(t *testing.T, result any, err error) {

@@ -129,9 +129,13 @@ func TestIntegration_DDB_ComplexDataModel(t *testing.T) {
 					":type":      &types.AttributeValueMemberS{Value: modelType},
 					":orgPrefix": &types.AttributeValueMemberS{Value: "ORG#org-123"},
 				},
+				// "Source" is a DynamoDB reserved word -- must be aliased.
 				ProjectionExpression: aws.String(
-					"sk, DeepData.Config.Theme, DeepData.Meta.Source, Tags",
+					"sk, DeepData.Config.Theme, DeepData.Meta.#src, Tags",
 				),
+				ExpressionAttributeNames: map[string]string{
+					"#src": "Source",
+				},
 			},
 			verify: func(t *testing.T, out *dynamodb.QueryOutput) {
 				t.Helper()
