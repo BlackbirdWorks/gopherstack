@@ -92,27 +92,15 @@ func TestCreateOrder_Lifecycle(t *testing.T) {
 	require.Equal(t, types.SubscriptionTypeOriginal, billing.Subscriptions[0].SubscriptionType)
 }
 
-// TestCreateOrder_LifecycleTransitions proves the order genuinely moves
+// TestCreateOrder_LifecycleTransitions proved the order genuinely moves
 // through the real intermediate SDK-declared states, not just PREPARING and
-// COMPLETED -- and that LineItems move in lockstep at each hop.
-func TestCreateOrder_LifecycleTransitions(t *testing.T) {
-	t.Parallel()
-
-	_, client := newTestHandlerAndClient(t)
-	siteID := createTestSite(t, client)
-	created := createTestOutpost(t, client, siteID)
-
-	out := createTestOrder(t, client, created.OutpostId)
-
-	got := waitForOrderStatus(t, client, out.Order.OrderId, types.OrderStatusInProgress)
-	require.Equal(t, types.LineItemStatusBuilding, got.Order.LineItems[0].Status)
-
-	got = waitForOrderStatus(t, client, out.Order.OrderId, types.OrderStatusDelivered)
-	require.Equal(t, types.LineItemStatusDelivered, got.Order.LineItems[0].Status)
-
-	got = waitForOrderStatus(t, client, out.Order.OrderId, types.OrderStatusCompleted)
-	require.Equal(t, types.LineItemStatusInstalled, got.Order.LineItems[0].Status)
-}
+// COMPLETED -- and that LineItems move in lockstep at each hop. That proof
+// now lives in TestCreateOrder_LifecycleTransitions_Synctest
+// (transitions_synctest_test.go), run against a fake clock: asserting a
+// real-timer-driven mid-chain status over the network via require.Eventually
+// can miss the window entirely under -race -shuffle scheduler contention
+// (gopherstack-yf2hu). TestCreateOrder_Lifecycle above keeps the SDK-level,
+// terminal-state-only coverage.
 
 // TestCreateOrder_ConcurrentReadDuringAsyncCompletion exercises a copy of an
 // Order returned to a caller (via CreateOrder/GetOrder/ListOrders)
@@ -203,6 +191,12 @@ func TestCreateOrder_UnknownCatalogItem(t *testing.T) {
 	require.ErrorAs(t, err, &nfe)
 }
 
+// TestCancelOrder covers the "while preparing" case, which has no async
+// wait to miss (PREPARING is the status set synchronously by CreateOrder, so
+// there is no window a poller could skip over). The "while in progress"
+// case -- which does have such a window -- is covered deterministically
+// against a fake clock by TestCancelOrder_Synctest
+// (transitions_synctest_test.go); see gopherstack-yf2hu.
 func TestCancelOrder(t *testing.T) {
 	t.Parallel()
 
@@ -211,7 +205,6 @@ func TestCancelOrder(t *testing.T) {
 		name    string
 	}{
 		{name: "while preparing", waitFor: types.OrderStatusPreparing},
-		{name: "while in progress", waitFor: types.OrderStatusInProgress},
 	}
 
 	for _, tt := range tests {
@@ -249,28 +242,13 @@ func TestCancelOrder(t *testing.T) {
 	}
 }
 
-// TestCancelOrder_RejectedOnceDelivered proves the cancellable window closes
+// TestCancelOrder_RejectedOnceDelivered proved the cancellable window closes
 // once the order reaches DELIVERED -- the real hardware is presumed already
-// shipped/delivered at that point.
-func TestCancelOrder_RejectedOnceDelivered(t *testing.T) {
-	t.Parallel()
-
-	_, client := newTestHandlerAndClient(t)
-	siteID := createTestSite(t, client)
-	created := createTestOutpost(t, client, siteID)
-
-	out := createTestOrder(t, client, created.OutpostId)
-	waitForOrderStatus(t, client, out.Order.OrderId, types.OrderStatusDelivered)
-
-	_, err := client.CancelOrder(
-		t.Context(),
-		&outpostssdk.CancelOrderInput{OrderId: out.Order.OrderId},
-	)
-	require.Error(t, err)
-
-	var ce *types.ConflictException
-	require.ErrorAs(t, err, &ce)
-}
+// shipped/delivered at that point. That proof now lives in
+// TestCancelOrder_RejectedOnceDelivered_Synctest (transitions_synctest_test.go),
+// run against a fake clock: reaching DELIVERED (two hops deep) via
+// require.Eventually over the network can miss the window entirely under
+// -race -shuffle scheduler contention (gopherstack-yf2hu).
 
 // TestCreateOrder_CompletionSetsContractEndDate proves a completed order
 // establishes the Outpost's ContractEndDate from the order's own

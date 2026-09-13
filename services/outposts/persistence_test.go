@@ -119,93 +119,14 @@ func TestPersistence_SnapshotRestoreRoundTrip(t *testing.T) {
 	require.Len(t, gotAssets.Assets, 1)
 }
 
-// TestPersistence_SnapshotRestoreRoundTrip_MidFlightOrderTransition proves
-// an Order's intermediate status (not just the initial or final one)
-// survives a snapshot/restore round trip. Restore does not re-arm the
-// pending async timer (worker.Group timers are never persisted, matching
-// services/grafana's identical behavior for its own workspace transitions),
-// so the restored copy is expected to stay parked at whatever intermediate
-// status it was snapshotted in rather than continue advancing on its own --
-// snapshotting happens immediately after observing IN_PROGRESS, with no
-// other slow operation in between, so it does not race the next hop.
-func TestPersistence_SnapshotRestoreRoundTrip_MidFlightOrderTransition(t *testing.T) {
-	t.Parallel()
-
-	h, client := newTestHandlerAndClient(t)
-
-	siteID := createTestSite(t, client)
-	created := createTestOutpost(t, client, siteID)
-
-	order := createTestOrder(t, client, created.OutpostId)
-	waitForOrderStatus(t, client, order.Order.OrderId, types.OrderStatusInProgress)
-
-	snapshot := h.Snapshot(t.Context())
-	require.NotEmpty(t, snapshot)
-
-	restoredBackend := outposts.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
-	t.Cleanup(restoredBackend.Close)
-	require.NoError(t, restoredBackend.Restore(t.Context(), snapshot))
-
-	restoredClient := newRoundTripClient(t, outposts.NewHandler(restoredBackend))
-
-	gotOrder, err := restoredClient.GetOrder(
-		t.Context(),
-		&outpostssdk.GetOrderInput{OrderId: order.Order.OrderId},
-	)
-	require.NoError(t, err)
-	require.Equal(t, types.OrderStatusInProgress, gotOrder.Order.Status)
-	require.Equal(t, types.LineItemStatusBuilding, gotOrder.Order.LineItems[0].Status)
-}
-
-// TestPersistence_SnapshotRestoreRoundTrip_MidFlightCapacityTaskTransition is
-// TestPersistence_SnapshotRestoreRoundTrip_MidFlightOrderTransition's
-// CapacityTask counterpart.
-func TestPersistence_SnapshotRestoreRoundTrip_MidFlightCapacityTaskTransition(t *testing.T) {
-	t.Parallel()
-
-	h, client := newTestHandlerAndClient(t)
-
-	siteID := createTestSite(t, client)
-	created := createTestOutpost(t, client, siteID)
-
-	assets, err := client.ListAssets(
-		t.Context(),
-		&outpostssdk.ListAssetsInput{OutpostIdentifier: created.OutpostId},
-	)
-	require.NoError(t, err)
-
-	task, err := client.StartCapacityTask(t.Context(), &outpostssdk.StartCapacityTaskInput{
-		OutpostIdentifier: created.OutpostId,
-		AssetId:           assets.Assets[0].AssetId,
-		InstancePools: []types.InstanceTypeCapacity{
-			{InstanceType: aws.String("m5.xlarge"), Count: 1},
-		},
-	})
-	require.NoError(t, err)
-	waitForCapacityTaskStatus(
-		t,
-		client,
-		created.OutpostId,
-		task.CapacityTaskId,
-		types.CapacityTaskStatusInProgress,
-	)
-
-	snapshot := h.Snapshot(t.Context())
-	require.NotEmpty(t, snapshot)
-
-	restoredBackend := outposts.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
-	t.Cleanup(restoredBackend.Close)
-	require.NoError(t, restoredBackend.Restore(t.Context(), snapshot))
-
-	restoredClient := newRoundTripClient(t, outposts.NewHandler(restoredBackend))
-
-	gotTask, err := restoredClient.GetCapacityTask(t.Context(), &outpostssdk.GetCapacityTaskInput{
-		OutpostIdentifier: created.OutpostId,
-		CapacityTaskId:    task.CapacityTaskId,
-	})
-	require.NoError(t, err)
-	require.Equal(t, types.CapacityTaskStatusInProgress, gotTask.CapacityTaskStatus)
-}
+// TestPersistence_SnapshotRestoreRoundTrip_MidFlightOrderTransition and
+// TestPersistence_SnapshotRestoreRoundTrip_MidFlightCapacityTaskTransition
+// (proving an Order/CapacityTask's intermediate status survives a
+// snapshot/restore round trip) now live in persistence_synctest_test.go,
+// package outposts: waiting for a mid-chain transient status over the
+// network via require.Eventually could miss the window entirely under
+// -race -shuffle scheduler contention (gopherstack-yf2hu), so they now drive
+// the backend directly inside a synctest bubble instead.
 
 // TestPersistence_IncompatibleVersionStartsEmpty proves Restore discards
 // (rather than partially decodes) a snapshot whose version does not match
