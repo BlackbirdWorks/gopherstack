@@ -2,12 +2,15 @@ package ec2
 
 import (
 	"net/url"
+	"strconv"
 )
 
 // ---- VPN Gateway handlers ----
 
 func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, error) {
-	vgw, err := h.Backend.CreateVpnGateway(vals.Get("Type"))
+	amazonSideAsn, _ := strconv.ParseInt(vals.Get("AmazonSideAsn"), 10, 64)
+
+	vgw, err := h.Backend.CreateVpnGateway(vals.Get("Type"), amazonSideAsn)
 	if err != nil {
 		return nil, err
 	}
@@ -25,6 +28,7 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 		Type:            vgw.Type,
 		AttachedVPCID:   vgw.AttachedVPCID,
 		AttachmentState: vgw.AttachmentState,
+		AmazonSideAsn:   vgw.AmazonSideAsn,
 		TagSet:          tagItemsFromMap(tags),
 	}
 
@@ -60,6 +64,7 @@ func (h *Handler) handleDescribeVpnGateways(vals url.Values, reqID string) (any,
 			AttachedVPCID:   vgw.AttachedVPCID,
 			AttachmentState: vgw.AttachmentState,
 			TagSet:          tagItemsFromMap(h.Backend.TagsForResource(vgw.VpnGatewayID)),
+			AmazonSideAsn:   vgw.AmazonSideAsn,
 		})
 	}
 

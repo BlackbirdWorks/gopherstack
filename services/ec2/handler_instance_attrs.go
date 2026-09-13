@@ -456,6 +456,21 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
 	}
 
+	// Groups (wire key GroupId.N, api_op_ModifyInstanceAttribute.go's Groups
+	// field) is a list, not a single Attribute.Value pair, so it's handled
+	// as its own path rather than through parseModifyInstanceAttributeValue.
+	if groupIDs := parseMemberList(vals, "GroupId"); len(groupIDs) > 0 {
+		if err := h.Backend.SetInstanceSecurityGroups(instanceID, groupIDs); err != nil {
+			return nil, err
+		}
+
+		return &modifyInstanceAttributeResponse{
+			Xmlns:     ec2XMLNS,
+			RequestID: reqID,
+			Return:    true,
+		}, nil
+	}
+
 	// Determine which attribute is being set and its new value.
 	// AWS uses different value wrappers per attribute type.
 	attrName, attrValue := parseModifyInstanceAttributeValue(vals)

@@ -157,7 +157,7 @@ func TestVpnGatewayFamily_TagSet_RealClient(t *testing.T) {
 	h := ec2.NewHandler(b)
 	client := newTestEC2Client(t, h)
 
-	vgw, err := b.CreateVpnGateway("ipsec.1")
+	vgw, err := b.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 	cgw, err := b.CreateCustomerGateway("ipsec.1", "203.0.113.1", "65000")
 	require.NoError(t, err)

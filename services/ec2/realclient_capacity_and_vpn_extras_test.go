@@ -106,7 +106,7 @@ func runCapacityReservationExtras(
 		cancelOut.SuccessfulFleetCancellations[0].CurrentFleetState,
 	)
 
-	src, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10, nil)
+	src, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
 	splitOut, err := client.CreateCapacityReservationBySplitting(
@@ -131,7 +131,7 @@ func runCapacityReservationExtras(
 	require.NoError(t, err)
 	assert.Equal(t, int32(2), aws.ToInt32(moveOut.InstanceCount))
 
-	billingCR, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1, nil)
+	billingCR, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", "open", "default", 1, nil)
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -150,7 +150,7 @@ func runCapacityReservationExtras(
 	require.NoError(t, err)
 	assert.True(t, aws.ToBool(disOut.Return))
 
-	billingCR2, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1, nil)
+	billingCR2, err := backend.CreateCapacityReservation("m5.xlarge", "us-east-1a", "open", "default", 1, nil)
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -177,7 +177,7 @@ func runCapacityReservationExtras(
 	require.NoError(t, err)
 	assert.NotNil(t, groupsOut.CapacityReservationGroups)
 
-	interCR, err := backend.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
+	interCR, err := backend.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
 	allocOut, err := client.CreateInterruptibleCapacityReservationAllocation(

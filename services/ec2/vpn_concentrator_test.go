@@ -67,7 +67,7 @@ func TestVpnTunnelExtras(t *testing.T) { //nolint:paralleltest // existing issue
 	cgw, err := b.CreateCustomerGateway("ipsec.1", "203.0.113.1", "65000")
 	require.NoError(t, err)
 
-	vgw, err := b.CreateVpnGateway("ipsec.1")
+	vgw, err := b.CreateVpnGateway("ipsec.1", 0)
 	require.NoError(t, err)
 
 	conn, err := b.CreateVpnConnection("ipsec.1", cgw.CustomerGatewayID, vgw.VpnGatewayID)

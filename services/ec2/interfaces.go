@@ -16,6 +16,7 @@ type Backend interface {
 	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
 	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
 	SetInstanceAttribute(instanceID, attribute, value string) error
+	SetInstanceSecurityGroups(instanceID string, groupIDs []string) error
 
 	// SetInstanceLaunchConfig sets the key pair name and security groups on an instance.
 	SetInstanceLaunchConfig(instanceID, keyName string, securityGroups []string) error
@@ -364,6 +365,7 @@ type Backend interface {
 	// SetNetworkInterfaceDeleteOnTermination updates the DeleteOnTermination
 	// flag for the attachment identified by attachmentID.
 	SetNetworkInterfaceDeleteOnTermination(attachmentID string, del bool) error
+	SetNetworkInterfaceSecurityGroups(eniID string, groupIDs []string) error
 
 	// ---- spot instances ----
 
@@ -466,7 +468,9 @@ type Backend interface {
 	DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection
 
 	// CreateVpcPeeringConnection creates a new pending VPC peering connection.
-	CreateVpcPeeringConnection(requesterVPCID, accepterVPCID string) (*VpcPeeringConnection, error)
+	CreateVpcPeeringConnection(
+		requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
+	) (*VpcPeeringConnection, error)
 
 	// DeleteVpcPeeringConnection removes a VPC peering connection.
 	DeleteVpcPeeringConnection(id string) error
@@ -552,7 +556,7 @@ type Backend interface {
 	ModifyLaunchTemplate(id string, defaultVersion int64) (*LaunchTemplate, error)
 
 	// CreateLaunchTemplateVersion adds a new version to a launch template.
-	CreateLaunchTemplateVersion(id, imageID, instanceType string) (*LaunchTemplateVersion, error)
+	CreateLaunchTemplateVersion(id, imageID, instanceType, sourceVersion string) (*LaunchTemplateVersion, error)
 
 	// DeleteLaunchTemplateVersions removes specific versions from a launch template.
 	DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error)
@@ -858,7 +862,7 @@ type Backend interface {
 	// ---- VPN Gateways ----
 
 	// CreateVpnGateway creates a new virtual private gateway.
-	CreateVpnGateway(gatewayType string) (*VpnGateway, error)
+	CreateVpnGateway(gatewayType string, amazonSideAsn int64) (*VpnGateway, error)
 
 	// DescribeVpnGateways returns virtual private gateways, optionally filtered by IDs.
 	DescribeVpnGateways(ids []string) []*VpnGateway
@@ -1339,7 +1343,7 @@ type Backend interface {
 	// ---- batch3 ----
 
 	CreateCapacityReservation(
-		instanceType, availabilityZone string,
+		instanceType, availabilityZone, instanceMatchCriteria, tenancy string,
 		instanceCount int,
 		tags map[string]string,
 	) (*CapacityReservation, error)
@@ -1471,7 +1475,7 @@ type Backend interface {
 	DeleteTransitGatewayConnect(id string) (*TransitGatewayConnect, error)
 	DescribeTransitGatewayConnects(ids []string) []*TransitGatewayConnect
 	CreateTransitGatewayConnectPeer(
-		connectAttachmentID, peerAddress string,
+		connectAttachmentID, peerAddress, transitGatewayAddress string,
 		insideCidrBlocks []string,
 	) (*TransitGatewayConnectPeer, error)
 	DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error)
@@ -1604,7 +1608,7 @@ type Backend interface {
 
 	// ---- batch5: ReservedInstances ----
 	DescribeReservedInstances(ids []string) []*ReservedInstance
-	DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass string) []*ReservedInstancesOffering
+	DescribeReservedInstancesOfferings(params DescribeReservedInstancesOfferingsParams) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
 	CreateReservedInstancesListing(
 		reservedInstancesID string, instanceCount int, schedules []PriceScheduleEntry,
@@ -2084,10 +2088,10 @@ type Backend interface {
 	DescribeTransitGatewayAttachments(ids []string) []*TransitGatewayAttachmentSummary
 
 	CreateInterruptibleCapacityReservationAllocation(
-		sourceCapacityReservationID string, instanceCount int32,
+		sourceCapacityReservationID, zeroSizePreference string, instanceCount int32,
 	) (*InterruptibleCapacityReservationAllocation, error)
 	UpdateInterruptibleCapacityReservationAllocation(
-		sourceCapacityReservationID string, targetInstanceCount int32,
+		sourceCapacityReservationID, zeroSizePreference string, targetInstanceCount int32,
 	) (*InterruptibleCapacityReservationAllocation, error)
 	GetCapacityReservationUsage(id string) (*CapacityReservationUsage, error)
 	DescribeCapacityReservationTopology(ids []string) []*CapacityReservationTopologyEntry

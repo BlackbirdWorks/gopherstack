@@ -679,6 +679,30 @@ var stoppedRequiredAttrs = map[string]bool{
 	attrRamdisk:      true,
 }
 
+// SetInstanceSecurityGroups replaces an instance's security group
+// membership (ModifyInstanceAttribute's Groups field, wire key GroupId.N).
+// All groupIDs must already exist, matching real AWS's InvalidGroup.NotFound
+// rejection.
+func (b *InMemoryBackend) SetInstanceSecurityGroups(instanceID string, groupIDs []string) error {
+	b.mu.Lock("SetInstanceSecurityGroups")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	for _, gid := range groupIDs {
+		if !b.securityGroups.Has(gid) {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, gid)
+		}
+	}
+
+	inst.SecurityGroups = groupIDs
+
+	return nil
+}
+
 // SetInstanceAttribute persists a modifiable attribute on an instance.
 // Attributes requiring stopped state (instanceType, userData, etc.) reject
 // requests against running instances with ErrInvalidInstanceState.

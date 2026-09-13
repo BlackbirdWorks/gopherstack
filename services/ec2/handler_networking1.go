@@ -482,6 +482,7 @@ func (h *Handler) handleCreateLaunchTemplateVersion(vals url.Values, reqID strin
 		ltID,
 		vals.Get("LaunchTemplateData.ImageId"),
 		vals.Get("LaunchTemplateData.InstanceType"),
+		vals.Get("SourceVersion"),
 	)
 	if err != nil {
 		return nil, err

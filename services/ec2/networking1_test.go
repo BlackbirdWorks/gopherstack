@@ -185,7 +185,7 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 	assert.Equal(t, ltIDLocal, modified.ID)
 
 	// Create new version.
-	ver, err := bk3.CreateLaunchTemplateVersion(ltIDLocal, "ami-456", "t3.micro")
+	ver, err := bk3.CreateLaunchTemplateVersion(ltIDLocal, "ami-456", "t3.micro", "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), ver.VersionNumber)
 
@@ -201,10 +201,10 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 	_, err3 := bk3.ModifyLaunchTemplate("nonexistent", 1)
 	require.Error(t, err3)
 
-	_, err4 := bk3.CreateLaunchTemplateVersion("", "", "")
+	_, err4 := bk3.CreateLaunchTemplateVersion("", "", "", "")
 	require.Error(t, err4)
 
-	_, err5 := bk3.CreateLaunchTemplateVersion("nonexistent", "", "")
+	_, err5 := bk3.CreateLaunchTemplateVersion("nonexistent", "", "", "")
 	require.Error(t, err5)
 
 	_, err6 := bk3.DeleteLaunchTemplateVersions("", nil)
