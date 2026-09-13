@@ -7,10 +7,10 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 15 (11 ok, 2 partial, 2 gap) |
+| PARITY entries audited | 16 (11 ok, 2 partial, 3 gap) |
 | Feature families | 4 (4 ok) |
 | Known gaps | 8 |
-| Deferred items | 2 |
+| Deferred items | 3 |
 | Resource leaks | clean |
 
 ### Known gaps
@@ -28,6 +28,7 @@
 
 - M7 initial implementation. No prior audit passes to report.
 - M9 added the Microsoft.ServiceBus RP (ServiceBusNamespaceCRUD/ServiceBusQueueTopicSubscriptionCRUD/ServiceBusAuthorizationRuleListKeys). QC pass over the pre-existing implementation found and fixed two real bugs before any Terraform run (List not filtering by resource group for queues/topics/subscriptions; DeleteResourcesInGroup's cascade delete never matching due to a double-pipe key-prefix bug) -- see AZURE.md section 10.10's M9 entry for full detail.
+- M9's first real-CI run (PR #2466, terraform-tests (6) job on Linux, past the macOS TLS-trust gap) surfaced a third real bug: classifyServiceBusPath had no case for namespaces/{ns}/networkRuleSets/default, which terraform-provider-azurerm's namespace Read calls unconditionally on every namespace regardless of SKU or config -- see ops.ServiceBusNamespaceNetworkRuleSet above and AZURE.md section 10.10's M9 entry for full detail. Checked queue/topic/subscription/authorizationRule Read functions in the same pinned source for the same class of unconditional sub-resource probe; none exists (each Read function only calls its own client.Get).
 
 ## More
 

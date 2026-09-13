@@ -14,21 +14,31 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 )
 
-// Resource type segments for Microsoft.ServiceBus, and the four shapes this
+// Resource type segments for Microsoft.ServiceBus, and the five shapes this
 // RP serves (AZURE.md section 10.10's M9 entry):
 //
 //	namespaces/{ns}                                   (1 pair)
 //	namespaces/{ns}/queues/{q}                        (2 pairs)
 //	namespaces/{ns}/topics/{t}                        (2 pairs)
 //	namespaces/{ns}/authorizationRules/{rule}         (2 pairs, sibling of queues/topics)
+//	namespaces/{ns}/networkRuleSets/{name}            (2 pairs, sibling of queues/topics -- always "default")
 //	namespaces/{ns}/topics/{t}/subscriptions/{s}      (3 pairs)
 const (
-	sbNamespacesType    = "namespaces"
-	sbQueuesType        = "queues"
-	sbTopicsType        = "topics"
-	sbSubscriptionsType = "subscriptions"
-	sbAuthRulesType     = "authorizationRules"
+	sbNamespacesType     = "namespaces"
+	sbQueuesType         = "queues"
+	sbTopicsType         = "topics"
+	sbSubscriptionsType  = "subscriptions"
+	sbAuthRulesType      = "authorizationRules"
+	sbNetworkRuleSetType = "networkRuleSets"
 )
+
+// sbDefaultNetworkRuleSetName is the only network rule set name real Azure
+// (and terraform-provider-azurerm@v4.81.0's namespaces.NamespacesClient.
+// GetNetworkRuleSet, which hardcodes the path "%s/networkRuleSets/default")
+// ever addresses -- Service Bus namespaces have exactly one rule set, unlike
+// Storage's per-service {blob,file,queue,table}Services/default sub-
+// resources.
+const sbDefaultNetworkRuleSetName = "default"
 
 const namespaceMicrosoftServiceBus = "Microsoft.ServiceBus"
 
@@ -107,7 +117,10 @@ type ServiceBusProvider struct {
 	queues        map[string]*storedSBQueue
 	topics        map[string]*storedSBTopic
 	subscriptions map[string]*storedSBSubscription
-	cfg           ServiceBusEndpointConfig
+	// networkRuleSets is keyed by sbKey(resourceGroup, namespace); the value
+	// is the raw "properties" object from the last Put, or nil if never set.
+	networkRuleSets map[string]map[string]any
+	cfg             ServiceBusEndpointConfig
 }
 
 // NewServiceBusProvider creates a ServiceBusProvider. dataPlane may be nil,
@@ -119,13 +132,14 @@ func NewServiceBusProvider(cfg ServiceBusEndpointConfig, dataPlane ServiceBusEnt
 	}
 
 	return &ServiceBusProvider{
-		mu:            lockmetrics.New("azurearm.servicebusprovider"),
-		namespaces:    make(map[string]*storedSBNamespace),
-		queues:        make(map[string]*storedSBQueue),
-		topics:        make(map[string]*storedSBTopic),
-		subscriptions: make(map[string]*storedSBSubscription),
-		cfg:           cfg,
-		dataPlane:     dataPlane,
+		mu:              lockmetrics.New("azurearm.servicebusprovider"),
+		namespaces:      make(map[string]*storedSBNamespace),
+		queues:          make(map[string]*storedSBQueue),
+		topics:          make(map[string]*storedSBTopic),
+		subscriptions:   make(map[string]*storedSBSubscription),
+		networkRuleSets: make(map[string]map[string]any),
+		cfg:             cfg,
+		dataPlane:       dataPlane,
 	}
 }
 
@@ -143,6 +157,7 @@ func (p *ServiceBusProvider) ResourceTypes() []ResourceTypeDef {
 		{Type: sbNamespacesType + "/" + sbQueuesType, APIVersions: versions, HasChildren: false},
 		{Type: sbNamespacesType + "/" + sbTopicsType, APIVersions: versions, HasChildren: true},
 		{Type: sbNamespacesType + "/" + sbAuthRulesType, APIVersions: versions, HasChildren: false},
+		{Type: sbNamespacesType + "/" + sbNetworkRuleSetType, APIVersions: versions, HasChildren: false},
 		{
 			Type:        sbNamespacesType + "/" + sbTopicsType + "/" + sbSubscriptionsType,
 			APIVersions: versions,
@@ -151,7 +166,7 @@ func (p *ServiceBusProvider) ResourceTypes() []ResourceTypeDef {
 	}
 }
 
-// sbPathKind identifies which of the four ServiceBus resource shapes id
+// sbPathKind identifies which of the five ServiceBus resource shapes id
 // addresses.
 type sbPathKind int
 
@@ -162,6 +177,7 @@ const (
 	sbKindTopic
 	sbKindAuthRule
 	sbKindSubscription
+	sbKindNetworkRuleSet
 )
 
 // Type-segment-pair counts classifyServiceBusPath switches on: a bare
@@ -175,7 +191,7 @@ const (
 )
 
 // classifyServiceBusPath validates id's Types shape and returns which of the
-// four resource kinds it addresses -- generalizing checkResourceType's
+// five resource kinds it addresses -- generalizing checkResourceType's
 // single-constant-equality check (rp_storage.go), since unlike Storage,
 // ServiceBus serves multiple resource types at different nesting depths.
 func classifyServiceBusPath(id ResourceID) sbPathKind {
@@ -196,6 +212,8 @@ func classifyServiceBusPath(id ResourceID) sbPathKind {
 			return sbKindTopic
 		case strings.EqualFold(id.Types[1], sbAuthRulesType):
 			return sbKindAuthRule
+		case strings.EqualFold(id.Types[1], sbNetworkRuleSetType):
+			return sbKindNetworkRuleSet
 		}
 	case sbSubscriptionPairCount:
 		if strings.EqualFold(id.Types[0], sbNamespacesType) &&
@@ -234,6 +252,8 @@ func (p *ServiceBusProvider) Put(ctx context.Context, id ResourceID, body map[st
 		return p.putSubscription(ctx, id, body)
 	case sbKindAuthRule:
 		return p.putAuthRule(id, body)
+	case sbKindNetworkRuleSet:
+		return p.putNetworkRuleSet(id, body)
 	default:
 		return nil, errUnsupportedServiceBusType(id)
 	}
@@ -435,6 +455,81 @@ func (p *ServiceBusProvider) putAuthRule(id ResourceID, body map[string]any) (ma
 	}, nil
 }
 
+// putNetworkRuleSet handles PUT .../namespaces/{ns}/networkRuleSets/default.
+// classifyServiceBusPath's generic 2-pair path walker recognizes this shape
+// the same way it already recognizes queues/topics/authorizationRules
+// (AZURE.md section 10.10) -- terraform-provider-azurerm@v4.81.0's
+// createNetworkRuleSetForNamespace (internal/services/servicebus/
+// servicebus_namespace_resource.go) only calls this when the caller's config
+// sets a `network_rule_set` block, so most namespaces never PUT one; Get
+// (below) must still succeed unconditionally since resourceServiceBus
+// NamespaceFlatten's Read calls client.GetNetworkRuleSet on every namespace
+// regardless of whether one was ever configured.
+func (p *ServiceBusProvider) putNetworkRuleSet(id ResourceID, body map[string]any) (map[string]any, error) {
+	p.mu.Lock("Put/networkRuleSet")
+	defer p.mu.Unlock()
+
+	if err := p.requireNamespace(id); err != nil {
+		return nil, err
+	}
+
+	props, _ := body[fieldProperties].(map[string]any)
+
+	key := sbKey(id.ResourceGroup, id.Names[0])
+	p.networkRuleSets[key] = props
+
+	return p.buildNetworkRuleSetBody(id, props), nil
+}
+
+// buildNetworkRuleSetBody returns the NetworkRuleSet-shaped response body for
+// id, matching hashicorp/go-azure-sdk@resource-manager/servicebus/
+// 2024-01-01/namespaces's NetworkRuleSetProperties struct field names
+// (defaultAction, ipRules, publicNetworkAccess, trustedServiceAccessEnabled,
+// virtualNetworkRules -- all pointer/optional in that struct, so the zero
+// values below decode cleanly). props is nil when no Put has ever been
+// made for this namespace, in which case this returns the same defaults
+// real Azure reports for a namespace with no custom network rules
+// configured: DefaultAction "Allow", PublicNetworkAccess "Enabled", and
+// empty rule lists -- mirroring rp_storage.go's GetServiceProperties-style
+// "don't implement what nothing needs beyond satisfying the check"
+// philosophy (PARITY.md).
+func (p *ServiceBusProvider) buildNetworkRuleSetBody(id ResourceID, props map[string]any) map[string]any {
+	defaultAction := "Allow"
+	if v, ok := props["defaultAction"].(string); ok && v != "" {
+		defaultAction = v
+	}
+
+	publicNetworkAccess := "Enabled"
+	if v, ok := props["publicNetworkAccess"].(string); ok && v != "" {
+		publicNetworkAccess = v
+	}
+
+	trustedServiceAccessEnabled, _ := props["trustedServiceAccessEnabled"].(bool)
+
+	ipRules, _ := props["ipRules"].([]any)
+	if ipRules == nil {
+		ipRules = []any{}
+	}
+
+	vnetRules, _ := props["virtualNetworkRules"].([]any)
+	if vnetRules == nil {
+		vnetRules = []any{}
+	}
+
+	return map[string]any{
+		"id":      id.ARMID(),
+		fieldName: sbDefaultNetworkRuleSetName,
+		fieldType: namespaceMicrosoftServiceBus + "/" + sbNamespacesType + "/" + sbNetworkRuleSetType,
+		fieldProperties: map[string]any{
+			"defaultAction":               defaultAction,
+			"publicNetworkAccess":         publicNetworkAccess,
+			"trustedServiceAccessEnabled": trustedServiceAccessEnabled,
+			"ipRules":                     ipRules,
+			"virtualNetworkRules":         vnetRules,
+		},
+	}
+}
+
 // parseSBEntityProperties extracts lockDuration/defaultMessageTimeToLive
 // (ISO 8601, parsed via pkgs/iso8601) and maxDeliveryCount (a plain integer,
 // not a duration -- see pkgs/iso8601's own doc comment) from an ARM request
@@ -501,6 +596,12 @@ func (p *ServiceBusProvider) Get(_ context.Context, id ResourceID) (map[string]a
 		}
 
 		return p.buildSubscriptionBody(id, s), nil
+	case sbKindNetworkRuleSet:
+		if err := p.requireNamespace(id); err != nil {
+			return nil, err
+		}
+
+		return p.buildNetworkRuleSetBody(id, p.networkRuleSets[sbKey(id.ResourceGroup, id.Names[0])]), nil
 	default:
 		return nil, errUnsupportedServiceBusType(id)
 	}
@@ -601,12 +702,15 @@ func (p *ServiceBusProvider) List(_ context.Context, id ResourceID) ([]map[strin
 		out = p.listTopics(id)
 	case sbKindSubscription:
 		out = p.listSubscriptions(id)
-	case sbKindUnsupported, sbKindAuthRule:
-		// Neither shape is listable: authorizationRules only ever supports
-		// per-rule Put/listKeys (AZURE.md section 10.10), and an unsupported
-		// path has nothing to enumerate. Both fall through to an empty list
-		// rather than an error, matching real ARM's List semantics for a
-		// collection URL it doesn't otherwise recognize as erroring.
+	case sbKindUnsupported, sbKindAuthRule, sbKindNetworkRuleSet:
+		// None of these three shapes is listable: authorizationRules only
+		// ever supports per-rule Put/listKeys, networkRuleSets only ever has
+		// the one "default" name and is addressed directly (never listed) by
+		// terraform-provider-azurerm (AZURE.md section 10.10), and an
+		// unsupported path has nothing to enumerate. All three fall through
+		// to an empty list rather than an error, matching real ARM's List
+		// semantics for a collection URL it doesn't otherwise recognize as
+		// erroring.
 	}
 
 	sort.Slice(out, func(i, j int) bool {

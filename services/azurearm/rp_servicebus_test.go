@@ -120,6 +120,17 @@ func sbSubscriptionID(ns, topic, name string) azurearm.ResourceID {
 	}
 }
 
+// sbNetworkRuleSetID addresses namespaces/{ns}/networkRuleSets/default -- the
+// only name real Azure (and terraform-provider-azurerm@v4.81.0's
+// NamespacesClient.GetNetworkRuleSet, which hardcodes the "default" path
+// segment) ever uses.
+func sbNetworkRuleSetID(rg, ns string) azurearm.ResourceID {
+	return azurearm.ResourceID{
+		SubscriptionID: "sub1", ResourceGroup: rg, Namespace: "Microsoft.ServiceBus",
+		Types: []string{"namespaces", "networkRuleSets"}, Names: []string{ns, "default"},
+	}
+}
+
 func TestServiceBusProvider_NamespacePutGetDelete(t *testing.T) {
 	t.Parallel()
 
@@ -585,4 +596,99 @@ func TestServiceBusProvider_EndpointOverride(t *testing.T) {
 	props, ok := body["properties"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "http://servicebus.example.com:18003/", props["serviceBusEndpoint"])
+}
+
+// TestServiceBusProvider_NetworkRuleSet_GetWithoutPut is the substitute
+// confirmation for the CI failure this fix addresses (PR #2466's
+// terraform-tests (6) job): "retrieving network rule set Namespace ...
+// unexpected status 404". terraform-provider-azurerm@v4.81.0's
+// resourceServiceBusNamespaceFlatten (internal/services/servicebus/
+// servicebus_namespace_resource.go) calls client.GetNetworkRuleSet on every
+// namespace Read, unconditionally -- regardless of SKU and regardless of
+// whether the caller's config ever sets a `network_rule_set` block (this
+// milestone's own fixture, test/terraform/azure/servicebus_test.go, sets
+// neither). A GET against namespaces/{ns}/networkRuleSets/default therefore
+// has to succeed even when no Put was ever made against that sub-resource,
+// which this test asserts directly by calling Get with no prior
+// networkRuleSets Put -- only the sibling namespace Put that real Terraform
+// always does first.
+func TestServiceBusProvider_NetworkRuleSet_GetWithoutPut(t *testing.T) {
+	t.Parallel()
+
+	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
+	ctx := t.Context()
+
+	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
+	require.NoError(t, err)
+
+	id := sbNetworkRuleSetID("rg1", "ns1")
+
+	got, err := sp.Get(ctx, id)
+	require.NoError(t, err, "GET networkRuleSets/default must succeed even when no PUT was ever made against it")
+	assert.Equal(t, "default", got["name"])
+	assert.Equal(t, "Microsoft.ServiceBus/namespaces/networkRuleSets", got["type"])
+
+	props, ok := got["properties"].(map[string]any)
+	require.True(t, ok)
+	// Defaults matching a namespace with no custom network rules configured
+	// in real Azure -- see buildNetworkRuleSetBody's doc comment.
+	assert.Equal(t, "Allow", props["defaultAction"])
+	assert.Equal(t, "Enabled", props["publicNetworkAccess"])
+	assert.Equal(t, false, props["trustedServiceAccessEnabled"])
+	assert.Empty(t, props["ipRules"])
+	assert.Empty(t, props["virtualNetworkRules"])
+}
+
+// TestServiceBusProvider_NetworkRuleSet_PutThenGet confirms a Put'd
+// networkRuleSets/default body decodes into
+// hashicorp/go-azure-sdk@resource-manager/servicebus/2024-01-01/namespaces's
+// NetworkRuleSetProperties field names and round-trips through a subsequent
+// Get, exercising the path terraform-provider-azurerm's
+// createNetworkRuleSetForNamespace takes when a caller's config does set a
+// `network_rule_set` block.
+func TestServiceBusProvider_NetworkRuleSet_PutThenGet(t *testing.T) {
+	t.Parallel()
+
+	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
+	ctx := t.Context()
+
+	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
+	require.NoError(t, err)
+
+	id := sbNetworkRuleSetID("rg1", "ns1")
+
+	putBody, err := sp.Put(ctx, id, map[string]any{
+		"properties": map[string]any{
+			"defaultAction":               "Deny",
+			"publicNetworkAccess":         "Disabled",
+			"trustedServiceAccessEnabled": true,
+			"ipRules":                     []any{map[string]any{"ipMask": "10.0.0.0/24", "action": "Allow"}},
+		},
+	})
+	require.NoError(t, err)
+
+	props, ok := putBody["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Deny", props["defaultAction"])
+	assert.Equal(t, "Disabled", props["publicNetworkAccess"])
+	assert.Equal(t, true, props["trustedServiceAccessEnabled"])
+	assert.Len(t, props["ipRules"], 1)
+
+	got, err := sp.Get(ctx, id)
+	require.NoError(t, err)
+	gotProps, ok := got["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "Deny", gotProps["defaultAction"])
+}
+
+func TestServiceBusProvider_NetworkRuleSet_ParentNamespaceMissing(t *testing.T) {
+	t.Parallel()
+
+	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
+
+	_, err := sp.Get(t.Context(), sbNetworkRuleSetID("rg1", "missingns"))
+	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
+
+	_, err = sp.Put(t.Context(), sbNetworkRuleSetID("rg1", "missingns"), map[string]any{})
+	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }
