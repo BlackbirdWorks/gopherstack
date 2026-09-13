@@ -201,8 +201,18 @@ func TestSearchFaces_RealFaceId_ReturnsMatches(t *testing.T) {
 
 	doRequest(t, h, "CreateCollection", map[string]any{"CollectionId": "search-real-coll"})
 
+	// All three faces share one ExternalImageId, so faceSimilarity's
+	// exact-identity path (100.0) applies deterministically regardless of
+	// the random per-call UUID FaceIds -- otherwise this test's expected
+	// match count would depend on random UUIDs clearing FaceMatchThreshold's
+	// documented default (80), which is flaky (gopherstack-xhu2t slice 7).
+	const sharedExternalImageID = "search-real-coll-shared"
+
 	// Index 3 faces, capture the first face ID.
-	rec := doRequest(t, h, "IndexFaces", map[string]any{"CollectionId": "search-real-coll"})
+	rec := doRequest(t, h, "IndexFaces", map[string]any{
+		"CollectionId":    "search-real-coll",
+		"ExternalImageId": sharedExternalImageID,
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var idx1 map[string]any
@@ -214,8 +224,14 @@ func TestSearchFaces_RealFaceId_ReturnsMatches(t *testing.T) {
 	faceID := face1["FaceId"].(string)
 
 	// Index 2 more faces to match against.
-	doRequest(t, h, "IndexFaces", map[string]any{"CollectionId": "search-real-coll"})
-	doRequest(t, h, "IndexFaces", map[string]any{"CollectionId": "search-real-coll"})
+	doRequest(t, h, "IndexFaces", map[string]any{
+		"CollectionId":    "search-real-coll",
+		"ExternalImageId": sharedExternalImageID,
+	})
+	doRequest(t, h, "IndexFaces", map[string]any{
+		"CollectionId":    "search-real-coll",
+		"ExternalImageId": sharedExternalImageID,
+	})
 
 	// SearchFaces returns the other 2 faces.
 	rec = doRequest(t, h, "SearchFaces", map[string]any{
@@ -454,7 +470,16 @@ func TestSearchFaces_SimilarityDeterministic(t *testing.T) {
 	require.NotEmpty(t, decodeFaceIDs(t, rec2.Body.Bytes())[0])
 
 	getSim := func() float64 {
-		rec := doRequest(t, h, "SearchFaces", map[string]any{"CollectionId": "sim-coll", "FaceId": queryID})
+		// FaceMatchThreshold explicitly set to 0: this test asserts
+		// determinism and range of the raw similarity score, independent of
+		// whether alice/bob's particular deterministic score happens to
+		// clear FaceMatchThreshold's documented default of 80
+		// (gopherstack-xhu2t slice 7).
+		rec := doRequest(t, h, "SearchFaces", map[string]any{
+			"CollectionId":       "sim-coll",
+			"FaceId":             queryID,
+			"FaceMatchThreshold": 0,
+		})
 		require.Equal(t, http.StatusOK, rec.Code)
 
 		var resp struct {
@@ -565,8 +590,15 @@ func TestFaceRoundTrip_IndexSearchListDelete(t *testing.T) {
 	require.NoError(t, json.Unmarshal(listRec.Body.Bytes(), &list))
 	require.Len(t, list.Faces, 2)
 
-	// SearchFaces from id1 finds id2.
-	searchRec := doRequest(t, h, "SearchFaces", map[string]any{"CollectionId": "rt-coll", "FaceId": id1})
+	// SearchFaces from id1 finds id2. FaceMatchThreshold explicitly 0: this
+	// test is about the index/search/list/delete round trip, not about
+	// whether "a"/"b"'s particular deterministic similarity clears
+	// FaceMatchThreshold's documented default of 80 (gopherstack-xhu2t slice 7).
+	searchRec := doRequest(t, h, "SearchFaces", map[string]any{
+		"CollectionId":       "rt-coll",
+		"FaceId":             id1,
+		"FaceMatchThreshold": 0,
+	})
 	require.Equal(t, http.StatusOK, searchRec.Code)
 
 	var search struct {

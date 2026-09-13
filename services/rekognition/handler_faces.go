@@ -151,9 +151,10 @@ func (h *Handler) handleListFaces(_ context.Context, req *listFacesReq) (*listFa
 }
 
 type searchFacesReq struct {
-	CollectionID string `json:"CollectionId"`
-	FaceID       string `json:"FaceId"`
-	MaxFaces     int32  `json:"MaxFaces"`
+	CollectionID       string   `json:"CollectionId"`
+	FaceID             string   `json:"FaceId"`
+	MaxFaces           int32    `json:"MaxFaces"`
+	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 }
 
 type faceMatchEntry struct {
@@ -176,7 +177,12 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 		return nil, fmt.Errorf("%w: FaceId is required", ErrValidation)
 	}
 
-	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces)
+	threshold := defaultFaceMatchThreshold
+	if req.FaceMatchThreshold != nil {
+		threshold = float64(*req.FaceMatchThreshold)
+	}
+
+	matches, err := h.Backend.SearchFaces(req.CollectionID, req.FaceID, req.MaxFaces, threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -203,10 +209,11 @@ func (h *Handler) handleSearchFaces(_ context.Context, req *searchFacesReq) (*se
 }
 
 type searchFacesByImageReq struct {
-	CollectionID  string   `json:"CollectionId"`
-	QualityFilter string   `json:"QualityFilter"`
-	Image         imageRef `json:"Image"`
-	MaxFaces      int32    `json:"MaxFaces"`
+	CollectionID       string   `json:"CollectionId"`
+	QualityFilter      string   `json:"QualityFilter"`
+	Image              imageRef `json:"Image"`
+	MaxFaces           int32    `json:"MaxFaces"`
+	FaceMatchThreshold *float32 `json:"FaceMatchThreshold"`
 }
 
 type searchFacesByImageResp struct {
@@ -246,8 +253,13 @@ func (h *Handler) handleSearchFacesByImage(
 		return nil, err
 	}
 
+	threshold := defaultFaceMatchThreshold
+	if req.FaceMatchThreshold != nil {
+		threshold = float64(*req.FaceMatchThreshold)
+	}
+
 	imageKey := imageRefKey(req.Image)
-	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces, imageKey)
+	matches, err := h.Backend.SearchFacesByImage(req.CollectionID, req.MaxFaces, imageKey, threshold)
 	if err != nil {
 		return nil, err
 	}

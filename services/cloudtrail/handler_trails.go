@@ -39,6 +39,7 @@ type createTrailBody struct {
 	IncludeGlobalServiceEvents bool `json:"IncludeGlobalServiceEvents"`
 	IsMultiRegionTrail         bool `json:"IsMultiRegionTrail"`
 	EnableLogFileValidation    bool `json:"EnableLogFileValidation"`
+	IsOrganizationTrail        bool `json:"IsOrganizationTrail"`
 }
 
 func (h *Handler) handleCreateTrail(c *echo.Context, body []byte) error {
@@ -67,6 +68,7 @@ func (h *Handler) handleCreateTrail(c *echo.Context, body []byte) error {
 		in.CloudWatchLogsLogGroupArn, in.CloudWatchLogsRoleArn, in.KMSKeyID,
 		in.IncludeGlobalServiceEvents, in.IsMultiRegionTrail, in.EnableLogFileValidation,
 		kv,
+		in.IsOrganizationTrail,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -130,6 +132,7 @@ type updateTrailBody struct {
 	IncludeGlobalServiceEvents *bool  `json:"IncludeGlobalServiceEvents"`
 	IsMultiRegionTrail         *bool  `json:"IsMultiRegionTrail"`
 	EnableLogFileValidation    *bool  `json:"EnableLogFileValidation"`
+	IsOrganizationTrail        *bool  `json:"IsOrganizationTrail"`
 	Name                       string `json:"Name"`
 	S3BucketName               string `json:"S3BucketName"`
 	S3KeyPrefix                string `json:"S3KeyPrefix"`
@@ -156,6 +159,7 @@ func (h *Handler) handleUpdateTrail(c *echo.Context, body []byte) error {
 		in.Name, in.S3BucketName, in.S3KeyPrefix, in.SnsTopicName,
 		in.CloudWatchLogsLogGroupArn, in.CloudWatchLogsRoleArn, in.KMSKeyID,
 		in.IncludeGlobalServiceEvents, in.IsMultiRegionTrail, in.EnableLogFileValidation,
+		in.IsOrganizationTrail,
 	)
 	if err != nil {
 		return h.handleError(c, err)

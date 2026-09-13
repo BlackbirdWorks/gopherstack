@@ -187,7 +187,11 @@ func TestSearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 			},
 		},
 		{
-			name:   "SearchUsersByImage returns matches",
+			// gopherstack-xhu2t slice 7: UserMatchThreshold now filters
+			// matches (documented default 80); of user1/user2's
+			// deterministic similarity against this empty-image query key
+			// (76.168 and 84.025), only user2 clears the default threshold.
+			name:   "SearchUsersByImage returns matches at default threshold",
 			action: "SearchUsersByImage",
 			body: map[string]any{
 				"CollectionId": "search-coll",
@@ -201,7 +205,25 @@ func TestSearchUsers(t *testing.T) { //nolint:paralleltest // existing issue.
 				assert.Equal(t, faceModelVersion, resp["FaceModelVersion"])
 				matches, ok := resp["UserMatches"].([]any)
 				require.True(t, ok)
-				assert.GreaterOrEqual(t, len(matches), 2)
+				assert.Len(t, matches, 1)
+			},
+		},
+		{
+			name:   "SearchUsersByImage with lowered threshold returns both users",
+			action: "SearchUsersByImage",
+			body: map[string]any{
+				"CollectionId":       "search-coll",
+				"MaxUsers":           10,
+				"UserMatchThreshold": 70,
+			},
+			wantCode: http.StatusOK,
+			check: func(t *testing.T, body []byte) {
+				t.Helper()
+				var resp map[string]any
+				require.NoError(t, json.Unmarshal(body, &resp))
+				matches, ok := resp["UserMatches"].([]any)
+				require.True(t, ok)
+				assert.Len(t, matches, 2)
 			},
 		},
 		{

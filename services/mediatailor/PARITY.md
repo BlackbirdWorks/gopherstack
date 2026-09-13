@@ -113,6 +113,7 @@ families:
 gaps: []
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
+  - "gopherstack-xhu2t slice 7 (2026-09-12): ListAlerts.MaxResults is not honored -- ListAlerts always returns an empty Items list (already documented ops row: alerts aren't modeled/generated anywhere in this backend, matching a fresh account with no alerts). Paginating an always-empty list has nothing to demonstrate an effect on, same class as this file's other honestly-empty-collection notes."
   - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. Reconfirmed this pass (gopherstack-vdrs item 2): genuinely structural, not attempted. (needs bd issue if manifest-avail-detection is ever prioritized). Reconfirmed AGAIN by gopherstack-6flj (2026-08-15): this pass nearly proposed deriving ScheduleAdBreaks from Program.AdBreaks before reading this note -- exactly the fabrication this note already warns against. Left untouched."
   - "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ProgramScheduleEntry.Audiences (flagged unconfirmed by gopherstack-6flj 2026-08-15) is now populated from Program.AudienceMedia -- see GetChannelSchedule's note above for why this pass committed to that mapping."
   - "GetChannelScheduleInput.DurationMinutes (*string*, own doc comment: 'The duration in minutes of the channel schedule') is not applied. No reference point is specified anywhere in the pinned SDK -- unlike Audience (a plain membership filter against real per-program data), DurationMinutes would require inventing a windowing baseline (from-now? from-earliest-entry? something else?) this service's own model does not document. Left disclosed rather than guessed (needs a bd issue + real-AWS-account confirmation if prioritized)."
@@ -657,3 +658,41 @@ all -- no per-item-status seam exists to check.
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 2 fixed, 1 recorded as `items_still_open`, 7
+false positives (all httpQuery-param or hand-decoded-`map[string]any`-body
+blind spots — every List op except `ListPrefetchSchedules` binds
+`MaxResults`/`maxResults` as an httpQuery param, and this service's
+`extractPaginationParams`/`extractBodyPaginationParams` already read both
+case variants correctly).
+
+- **Fixed**:
+  - `PutPlaybackConfiguration.InsertionMode` (body field, serializers.go:3471-3473):
+    was declared nowhere, so a config created without it never got the
+    documented default (`STITCHED_ONLY`) applied — the key was simply
+    absent from the response instead of showing the real default. Now
+    defaulted and validated (`STITCHED_ONLY`/`PLAYER_SELECT`) before being
+    folded into the existing generic `extra` pass-through.
+  - `CreatePrefetchSchedule.StreamId` — already read correctly
+    (`handler_prefetch_schedules.go`'s `body["StreamId"].(string)`); no code
+    change needed, but a real-client test was added since none existed for
+    this exact field.
+- **Recorded**: `ListAlerts.MaxResults` (alerts are never modeled anywhere
+  in this backend, so `ListAlerts` always returns empty — pagination has
+  nothing to demonstrate an effect on).
+- **False positives** (7, all already correctly handled): `ListChannels`/
+  `ListFunctions`/`ListLiveSources`/`ListPlaybackConfigurations`/
+  `ListSourceLocations`/`ListVodSources`.`MaxResults` are httpQuery params
+  already read by `extractPaginationParams` (handler_helpers.go, reads both
+  `MaxResults` and `maxResults` case variants) and applied via real
+  `pkgs/page`-backed pagination in each `InMemoryBackend.List*` method.
+  `ListPrefetchSchedules.MaxResults` is a body field already read via
+  `extractBodyPaginationParams` and applied the same way.
+
+Gates: `go build ./...`, `go vet ./services/mediatailor/...`, `go test -race
+-count=1 ./services/mediatailor/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/mediatailor/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (`InsertionMode` rides in the existing
+opaque `Extra` map), no `snapshot_inventory.json` rows, no version bump.

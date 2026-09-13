@@ -74,6 +74,7 @@ ops:
   ListInsightsMetricData: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-6flj: this pass's prior 'wire: ok' claim was WRONG -- the real ListInsightsMetricDataOutput is a flat time series (ErrorCode/EventName/EventSource/InsightType/NextToken/Timestamps/TrailARN/Values), not a '{Values: [...]}' wrapped list of records (confirmed against cloudtrail@v1.58.4's awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput). Fixed: now echoes EventName/EventSource/InsightType (all required, validated) plus optional ErrorCode/TrailARN (TrailName resolved to TrailARN via the existing trail lookup), and returns Timestamps/Values as the real flat arrays. Data itself is still always empty -- no Insights metric computation exists."}
 gaps: []
 items_still_open:
+  - "gopherstack-xhu2t slice 7 (2026-09-12): ListInsightsData.MaxResults, ListInsightsMetricData.DataType/EndTime/MaxResults/Period/StartTime, ListPublicKeys.EndTime/StartTime, and SearchSampleQueries.MaxResults are all unhonored filter/page-size/time-range parameters on ops whose backing data this emulator never populates -- ListInsightsData/ListInsightsMetricData/ListPublicKeys/SearchSampleQueries all return a hardcoded empty list unconditionally (event_selectors.go:154-163, trails.go:297-299, queries.go:201-203), since CloudTrail Insights (anomaly detection over event volume), legacy digest-file signing public keys, and the AWS-curated sample-query catalog are none of them modeled by this backend. Filtering, paging, or time-bounding an always-empty list has no observable effect to test against; wiring the parameters without real backing data would be inert plumbing, not a verified fix."
   - "gopherstack-53eh (2026-09-11): GetQueryResults' SQL execution understands a larger but still bounded grammar: SELECT <*|item[,item...]> FROM <eds> [WHERE <bool-expr>] [GROUP BY col[,...]] [LIMIT n], where item is a column or COUNT(*|col) and bool-expr supports AND/OR/NOT, parenthesised precedence, =/!=/<>, LIKE ('%'/'_' wildcards, case-sensitive), and IN. Not implemented, disclosed rather than silently wrong: JOINs and set operations (UNION/UNION ALL/EXCEPT/INTERSECT/LEFT|RIGHT|INNER JOIN) across event data stores -- a real, genuinely large CloudTrail Lake feature (docs.aws.amazon.com/awscloudtrail/latest/userguide/query-limitations.html#query-aggregates-condition-operators, 'Supported join operators'); SUM/AVG/MIN/MAX (CloudTrail Lake supports all Trino functions per the same page, but these don't fall out of the COUNT/GROUP BY accumulator for free -- would need per-value numeric coercion over JSON-flattened string fields with real failure modes, e.g. non-numeric columns, that COUNT sidesteps entirely); subqueries, HAVING, ORDER BY, DISTINCT. Per this issue's third requirement, every one of these (and anything else the hand-written parser -- query_lex.go/query_parse.go/query_where.go -- doesn't recognize) now reaches QueryStatus FAILED with a populated ErrorMessage on first read, not a silent empty FINISHED (DescribeQueryOutput.ErrorMessage/QueryStatus's FAILED value, cloudtrail@v1.58.4 api_op_DescribeQuery.go:69, types/enums.go:384) -- see query_exec.go's file doc comment and TestQueryGrammar_JoinReachesFailed."
   - "gopherstack-53eh (2026-09-11): an unaliased COUNT(*)/COUNT(col) in the SELECT list is named \"_col<N>\" by SELECT-list position (0-indexed), matching Trino/Presto's convention for an unaliased computed expression -- CloudTrail Lake's own SQL reference does not itself document this naming (it only says 'CloudTrail Lake supports all valid Trino SQL SELECT statements, functions, and operators'), so this is inferred from the underlying engine (trino.io/docs/current/sql/select.html), not SDK/AWS-doc-verified."
   - "RegisterOrganizationDelegatedAdmin / DeregisterOrganizationDelegatedAdmin validate input but track no org-admin state (no GetOrganizationDelegatedAdmins-equivalent op exists in gopherstack's CloudTrail service to read it back anyway, and none exists in the real upstream API either)."
@@ -493,3 +494,33 @@ new typed-client tests), `golangci-lint run --new-from-rev=HEAD
 ./services/cloudtrail/...` (0 issues). `cmd/paritylint` stays at 0 FAIL
 (missing-items-still-open). Typed-client census: cloudtrail 25/60 -> 60/60
 (100%).
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+12 tier-1 findings reviewed. 3 fixed, 9 recorded as `items_still_open`.
+
+- **Fixed**:
+  - `CreateEventDataStore.StartIngestion` (default true, serializers.go:4461-4463)
+    was undeclared; an event data store created with `StartIngestion: false`
+    always came up `ENABLED` instead of `STOPPED_INGESTION`. Backend's
+    `CreateEventDataStore` now takes a `startIngestion bool` param and sets
+    the initial `Status` accordingly, matching `StopEventDataStoreIngestion`'s
+    existing status value.
+  - `CreateTrail.IsOrganizationTrail` / `UpdateTrail.IsOrganizationTrail`
+    (serializers.go:4510-4512/5688-5690) were undeclared even though
+    `Trail.IsOrganizationTrail` already existed and was echoed on every
+    response — it just could never be set to true. Both ops now read and
+    apply it.
+- **Recorded** (9 fields across `ListInsightsData`/`ListInsightsMetricData`/
+  `ListPublicKeys`/`SearchSampleQueries`): all four ops return a hardcoded
+  empty list unconditionally, since CloudTrail Insights, legacy digest-file
+  signing public keys, and the AWS-curated sample-query catalog are none of
+  them modeled by this backend — see `items_still_open` for the full field
+  list and reasoning.
+
+Gates: `go build ./...`, `go vet ./services/cloudtrail/...`,
+`go test -race -count=1 ./services/cloudtrail/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/cloudtrail/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (`Trail.IsOrganizationTrail` and
+`EventDataStore.Status` both pre-existed); no `snapshot_inventory.json` rows
+needed, no version bump.

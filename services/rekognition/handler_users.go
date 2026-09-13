@@ -106,9 +106,10 @@ func (h *Handler) handleListUsers(_ context.Context, req *listUsersReq) (*listUs
 }
 
 type associateFacesReq struct {
-	CollectionId string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId       string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
-	FaceIds      []string `json:"FaceIds"`      //nolint:revive // existing issue.
+	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserId             string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	FaceIds            []string `json:"FaceIds"`      //nolint:revive // existing issue.
+	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
 }
 
 type associatedFaceEntry struct {
@@ -137,7 +138,12 @@ func (h *Handler) handleAssociateFaces( //nolint:dupl // existing issue.
 		return nil, fmt.Errorf("%w: UserId is required", ErrValidation)
 	}
 
-	associated, unsuccessful, err := h.Backend.AssociateFaces(req.CollectionId, req.UserId, req.FaceIds)
+	threshold := defaultAssociateFacesUserMatchThreshold
+	if req.UserMatchThreshold != nil {
+		threshold = float64(*req.UserMatchThreshold)
+	}
+
+	associated, unsuccessful, err := h.Backend.AssociateFaces(req.CollectionId, req.UserId, req.FaceIds, threshold)
 	if err != nil {
 		return nil, err
 	}
@@ -219,10 +225,11 @@ func (h *Handler) handleDisassociateFaces( //nolint:dupl // existing issue.
 }
 
 type searchUsersReq struct {
-	CollectionId string `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	UserId       string `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
-	FaceId       string `json:"FaceId"`       //nolint:revive,staticcheck // existing issue.
-	MaxUsers     int32  `json:"MaxUsers"`
+	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	UserId             string   `json:"UserId"`       //nolint:revive,staticcheck // existing issue.
+	FaceId             string   `json:"FaceId"`       //nolint:revive,staticcheck // existing issue.
+	MaxUsers           int32    `json:"MaxUsers"`
+	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
 }
 
 type userMatchEntry struct {
@@ -255,13 +262,18 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 		return nil, fmt.Errorf("%w: UserId or FaceId is required", ErrValidation)
 	}
 
+	threshold := defaultUserMatchThreshold
+	if req.UserMatchThreshold != nil {
+		threshold = float64(*req.UserMatchThreshold)
+	}
+
 	var (
 		matches []*UserMatch
 		err     error
 	)
 
 	if req.UserId != "" {
-		matches, err = h.Backend.SearchUsers(req.CollectionId, req.UserId, req.MaxUsers)
+		matches, err = h.Backend.SearchUsers(req.CollectionId, req.UserId, req.MaxUsers, threshold)
 	} else {
 		matches, err = h.Backend.SearchUsersByFace(req.CollectionId, req.FaceId, req.MaxUsers)
 	}
@@ -295,9 +307,11 @@ func (h *Handler) handleSearchUsers(_ context.Context, req *searchUsersReq) (*se
 }
 
 type searchUsersByImageReq struct {
-	CollectionId string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
-	Image        imageRef `json:"Image"`
-	MaxUsers     int32    `json:"MaxUsers"`
+	CollectionId       string   `json:"CollectionId"` //nolint:revive,staticcheck // existing issue.
+	QualityFilter      string   `json:"QualityFilter"`
+	Image              imageRef `json:"Image"`
+	MaxUsers           int32    `json:"MaxUsers"`
+	UserMatchThreshold *float32 `json:"UserMatchThreshold"`
 }
 
 type searchUsersByImageResp struct {
@@ -312,11 +326,20 @@ func (h *Handler) handleSearchUsersByImage(
 		return nil, fmt.Errorf("%w: CollectionId is required", ErrValidation)
 	}
 
+	if !isValidQualityFilter(req.QualityFilter) {
+		return nil, fmt.Errorf("%w: QualityFilter value %q is not valid", ErrValidation, req.QualityFilter)
+	}
+
 	if err := h.checkImageRef(ctx, req.Image); err != nil {
 		return nil, err
 	}
 
-	matches, err := h.Backend.SearchUsersByImage(req.CollectionId, req.MaxUsers, imageRefKey(req.Image))
+	threshold := defaultUserMatchThreshold
+	if req.UserMatchThreshold != nil {
+		threshold = float64(*req.UserMatchThreshold)
+	}
+
+	matches, err := h.Backend.SearchUsersByImage(req.CollectionId, req.MaxUsers, imageRefKey(req.Image), threshold)
 	if err != nil {
 		return nil, err
 	}

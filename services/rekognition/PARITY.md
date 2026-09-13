@@ -71,6 +71,9 @@ items_still_open:
   - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
   - "2026-09-06 (gopherstack-eshx): IndexFaces never parses IndexFacesInput.Image at all (indexFacesReq has CollectionId/ExternalImageId only) -- a required member of a real IndexFaces request is silently dropped, not just unchecked against S3. Structural gap, out of this pass's scope (adding S3Object existence checking, not adding a missing wire field); IndexFaces is therefore excluded from this pass's InvalidS3ObjectException enforcement. Needs its own fix."
   - "2026-09-06 (gopherstack-eshx): CreateDataset never parses CreateDatasetInput.DatasetSource (createDatasetReq has ProjectArn/DatasetType only) -- DatasetSource.GroundTruthManifest.S3Object, the one Image-shaped field this op accepts, is silently dropped. Same structural-gap reasoning as IndexFaces above; excluded from this pass's InvalidS3ObjectException enforcement."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): GetPersonTracking.SortBy is not honored: GetPersonTrackingOutput.Persons is always a synthesized-empty []struct{} (this backend performs no real video person-tracking analysis), and unlike GetLabelDetection/GetContentModeration, GetPersonTrackingOutput has no RequestMetadata-shaped field to even echo the requested sort order into. Same root cause as the pre-existing getJobReq.NextToken/.MaxResults disclosure (PARITY.md Notes): a field that shapes an always-empty result has nothing to demonstrate an effect on."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): IndexFaces.DetectionAttributes is not honored: real DetectionAttributes controls how much FaceDetail metadata (Landmarks/Pose/Quality/Emotions/etc.) is attached to each FaceRecord, but IndexFaces already has a documented structural gap (see the IndexFaces.Image entry above, gopherstack-eshx) -- no face detection ever runs, so FaceRecord.Face carries only FaceId/ImageId/ExternalImageId/Confidence and there is no FaceDetail object for DetectionAttributes to shape at all. Fixing this needs IndexFaces.Image to be parsed first, out of this slice's scope."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): DetectLabels.Features' IMAGE_PROPERTIES option is not honored (GENERAL_LABELS is -- see ops fix this pass): real IMAGE_PROPERTIES returns DetectLabelsOutput.ImageProperties (dominant colors, brightness/sharpness/contrast quality scores), which would mean fabricating a color/quality analysis this backend has no data model for. Left unimplemented rather than inventing plausible-looking numbers with no image behind them."
 deferred:
   - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
   - ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
@@ -786,3 +789,54 @@ issues, `go test -race -count=1 ./services/rekognition/...` green (including
 the three corrected `handler_datasets_test.go` cases),
 `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
 changes; no version bump (both fixes are wire-shape-only).
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 7 fixed, 3 recorded as `items_still_open` (two
+of them extending IndexFaces' pre-existing gopherstack-eshx disclosure, one
+new). This slice also fixed two flaky tests it exposed (see below).
+
+- **Fixed**:
+  - `AssociateFaces.UserMatchThreshold` (default 75): added a deterministic
+    `associateFaceMatchConfidence` (same seeded-range convention as
+    `faceSimilarity`/`userSimilarity`), gating association with a new
+    `LOW_MATCH_CONFIDENCE` unsuccessful-reason path.
+  - `SearchFaces.FaceMatchThreshold`/`SearchFacesByImage.FaceMatchThreshold`
+    (default 80): both backends already compute a real per-candidate
+    `Similarity`; now filtered against the threshold.
+  - `SearchUsers.UserMatchThreshold`/`SearchUsersByImage.UserMatchThreshold`
+    (default 80): same filtering pattern against `userSimilarity`.
+  - `SearchUsersByImage.QualityFilter`: added enum validation matching the
+    existing `CompareFaces`/`SearchFacesByImage` precedent (gopherstack-qlqz)
+    — validated but not applied, consistent with that precedent's own
+    disclosed scope (see PARITY.md Notes #7); this field was previously
+    declared nowhere on this op at all.
+  - `DetectLabels.Features`: GENERAL_LABELS is now honored (Labels list
+    populated only when Features is empty or includes it); IMAGE_PROPERTIES
+    recorded separately (see `items_still_open`, fabrication risk).
+- **Recorded**: `GetPersonTracking.SortBy` (Persons always empty, no
+  RequestMetadata echo field either), `IndexFaces.DetectionAttributes`
+  (blocked on the same pre-existing IndexFaces.Image gap, gopherstack-eshx),
+  `DetectLabels.Features`'s IMAGE_PROPERTIES half (would require fabricating
+  a color/quality analysis).
+- **Flaky tests found and fixed while proving the FaceMatchThreshold fix**
+  (all confirmed to fail intermittently pre-fix, under `-count=50`):
+  `TestSearchFaces_RealFaceId_ReturnsMatches` used three `IndexFaces` calls
+  with no `ExternalImageId`, so `SearchFaces`' new default threshold (80)
+  sometimes dropped a match derived from the run's random UUIDs — fixed by
+  giving all three the same `ExternalImageId` (forces `faceSimilarity`'s
+  exact-match path, deterministically 100). `TestSearchFaces_SimilarityDeterministic`
+  and `TestFaceRoundTrip_IndexSearchListDelete` weren't testing threshold
+  behavior at all — fixed by passing `FaceMatchThreshold: 0` explicitly so
+  they stay about what they actually assert. `TestSearchUsers`'s
+  `SearchUsersByImage` case genuinely dropped from 2 matches to 1 at the new
+  default threshold (deterministic, not flaky — "bytes:0" vs user1/user2
+  compute to 76.168/84.025) — corrected to assert 1 at default and added a
+  second case at threshold 70 proving both are reachable when it's lowered.
+
+Gates: `go build ./...`, `go vet ./services/rekognition/...`, `go test
+-race -count=1 ./services/rekognition/...` (also `-count=50` to confirm the
+threshold-related flakiness above is fully resolved), `golangci-lint run
+--new-from-rev=HEAD ./services/rekognition/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (all new fields are request-only), no
+`snapshot_inventory.json` rows, no version bump.

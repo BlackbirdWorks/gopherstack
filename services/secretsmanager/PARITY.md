@@ -315,3 +315,37 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   replica-link marker, which was my own first-draft test assertion mistake, not a backend bug.
   Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
   --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields changed; no version bump.
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 0 fixed, 0 newly recorded, 10 false positives
+(one of them a re-confirmation of an already-disclosed item, gopherstack-zurl
+— respected, not relitigated).
+
+- `CreateSecret.ForceOverwriteReplicaSecret`: already disclosed and tracked
+  in `items_still_open` (gopherstack-zurl). Not touched this pass.
+- `ReplicateSecretToRegions.ForceOverwriteReplicaSecret`: already
+  implemented and tested (replication.go:46-48) — gopherstack-zurl's own
+  text notes this exact field is "already present, already tested" with a
+  narrower-than-real-AWS collision semantic that issue explicitly leaves out
+  of scope. No new gap recorded; not relitigated.
+- `DeleteSecret.ForceDeleteWithoutRecovery`/`RecoveryWindowInDays`
+  (secrets.go:327-386), `GetRandomPassword.PasswordLength`
+  (random_password.go:26-36), `ListSecrets.IncludePlannedDeletion`/`SortBy`
+  (secrets.go:448,459), `RotateSecret.RotateImmediately`
+  (rotation.go:122-123, handler_rotation.go:93-94): all directly declared on
+  their Input structs and applied by the backend already — plain tool
+  misses on directly-resolvable decode structs, not a new blind-spot shape.
+- `ListSecretVersionIds.IncludeDeprecated` (secret_versions.go:328) and
+  `PutResourcePolicy.BlockPublicPolicy` (resource_policy.go:68-69): both
+  dispatch through `decodeAction(func(ctx, input *XInput) (any, error) {...})`
+  — the same generic-dispatch-wrapper blind spot recorded for ssm in slice 1
+  (gopherstack-99nj): reqfielddiff can't resolve the decode target through
+  the generic wrapper's inner closure parameter type. Both already correctly
+  declared and applied.
+
+Gates: `go build ./...`, `go vet ./services/secretsmanager/...`, `go test
+-race -count=1 ./services/secretsmanager/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/secretsmanager/...` — all clean, no code
+changed. No new test file (no dropped-parameter fix to prove). No persisted
+fields changed, no `snapshot_inventory.json` rows, no version bump.
