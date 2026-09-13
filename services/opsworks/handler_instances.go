@@ -9,16 +9,31 @@ import (
 // handleCreateInstance handles CreateInstance requests.
 func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		StackID      string   `json:"StackId"`
-		InstanceType string   `json:"InstanceType"`
-		LayerIDs     []string `json:"LayerIds"`
+		StackID              string   `json:"StackId"`
+		InstanceType         string   `json:"InstanceType"`
+		LayerIDs             []string `json:"LayerIds"`
+		AgentVersion         string   `json:"AgentVersion"`
+		Architecture         string   `json:"Architecture"`
+		Os                   string   `json:"Os"`
+		SubnetID             string   `json:"SubnetId"`
+		Tenancy              string   `json:"Tenancy"`
+		InstallUpdatesOnBoot *bool    `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	instance, err := h.Backend.CreateInstance(req.StackID, req.LayerIDs, req.InstanceType)
+	opts := CreateInstanceOptions{
+		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
+		AgentVersion:         req.AgentVersion,
+		Architecture:         req.Architecture,
+		Os:                   req.Os,
+		SubnetID:             req.SubnetID,
+		Tenancy:              req.Tenancy,
+	}
+
+	instance, err := h.Backend.CreateInstance(req.StackID, req.LayerIDs, req.InstanceType, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -122,15 +137,24 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 // handleUpdateInstance handles UpdateInstance requests.
 func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceID string `json:"InstanceId"`
-		Hostname   string `json:"Hostname"`
+		InstanceID           string `json:"InstanceId"`
+		Hostname             string `json:"Hostname"`
+		AgentVersion         string `json:"AgentVersion"`
+		Os                   string `json:"Os"`
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateInstance(req.InstanceID, req.Hostname); err != nil {
+	opts := UpdateInstanceOptions{
+		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
+		AgentVersion:         req.AgentVersion,
+		Os:                   req.Os,
+	}
+
+	if err := h.Backend.UpdateInstance(req.InstanceID, req.Hostname, opts); err != nil {
 		return nil, err
 	}
 
@@ -209,14 +233,20 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 	result := make([]map[string]any, 0, len(instances))
 	for _, i := range instances {
 		result = append(result, map[string]any{
-			keyInstanceID:  i.InstanceID,
-			keyStackID:     i.StackID,
-			"LayerIds":     instanceLayerIDs(i.LayerIDs),
-			keyArn:         i.Arn,
-			"Hostname":     i.Hostname,
-			"InstanceType": i.InstanceType,
-			keyStatus:      i.Status,
-			keyCreatedAt:   formatOpsWorksTime(i.CreatedAt),
+			keyInstanceID:          i.InstanceID,
+			keyStackID:             i.StackID,
+			"LayerIds":             instanceLayerIDs(i.LayerIDs),
+			keyArn:                 i.Arn,
+			"Hostname":             i.Hostname,
+			"InstanceType":         i.InstanceType,
+			keyStatus:              i.Status,
+			keyCreatedAt:           formatOpsWorksTime(i.CreatedAt),
+			"AgentVersion":         i.AgentVersion,
+			"Architecture":         i.Architecture,
+			"Os":                   i.Os,
+			"SubnetId":             i.SubnetID,
+			"Tenancy":              i.Tenancy,
+			"InstallUpdatesOnBoot": i.InstallUpdatesOnBoot,
 		})
 	}
 

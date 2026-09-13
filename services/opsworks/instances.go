@@ -15,7 +15,9 @@ import (
 // LayerIds is genuinely plural on the real wire ("An array that contains
 // the instance's layer IDs"), so every requested layer is validated and
 // stored, not just the first.
-func (b *InMemoryBackend) CreateInstance(stackID string, layerIDs []string, instanceType string) (*Instance, error) {
+func (b *InMemoryBackend) CreateInstance(
+	stackID string, layerIDs []string, instanceType string, opts CreateInstanceOptions,
+) (*Instance, error) {
 	if stackID == "" || len(layerIDs) == 0 || instanceType == "" {
 		return nil, ErrValidation
 	}
@@ -39,14 +41,20 @@ func (b *InMemoryBackend) CreateInstance(stackID string, layerIDs []string, inst
 	hostname := fmt.Sprintf("gopherstack-%s", id[:8])
 
 	i := &storedInstance{
-		CreatedAt:    now,
-		StackID:      stackID,
-		LayerIDs:     slices.Clone(layerIDs),
-		InstanceID:   id,
-		Arn:          b.instanceARN(id),
-		Hostname:     hostname,
-		InstanceType: instanceType,
-		Status:       instanceStatusStopped,
+		CreatedAt:            now,
+		InstallUpdatesOnBoot: opts.InstallUpdatesOnBoot,
+		StackID:              stackID,
+		LayerIDs:             slices.Clone(layerIDs),
+		InstanceID:           id,
+		Arn:                  b.instanceARN(id),
+		Hostname:             hostname,
+		InstanceType:         instanceType,
+		Status:               instanceStatusStopped,
+		AgentVersion:         opts.AgentVersion,
+		Architecture:         opts.Architecture,
+		Os:                   opts.Os,
+		SubnetID:             opts.SubnetID,
+		Tenancy:              opts.Tenancy,
 	}
 	b.instances.Put(i)
 
@@ -192,8 +200,8 @@ func (b *InMemoryBackend) DescribeInstances(stackID, layerID string, instanceIDs
 	return result, nil
 }
 
-// UpdateInstance updates an instance's hostname.
-func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string) error {
+// UpdateInstance updates an instance's hostname and attributes.
+func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string, opts UpdateInstanceOptions) error {
 	b.mu.Lock("UpdateInstance")
 	defer b.mu.Unlock()
 
@@ -204,6 +212,15 @@ func (b *InMemoryBackend) UpdateInstance(instanceID, hostname string) error {
 
 	if hostname != "" {
 		i.Hostname = hostname
+	}
+	if opts.InstallUpdatesOnBoot != nil {
+		i.InstallUpdatesOnBoot = opts.InstallUpdatesOnBoot
+	}
+	if opts.AgentVersion != "" {
+		i.AgentVersion = opts.AgentVersion
+	}
+	if opts.Os != "" {
+		i.Os = opts.Os
 	}
 
 	return nil

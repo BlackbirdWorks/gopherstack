@@ -287,7 +287,10 @@ gaps: []
   # two additional, previously-undiscovered bugs that check turned up (a RouteMatcher-whitelist
   # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name
   # bugs on the same two ops plus ListTargetsForSecurityProfile).
-items_still_open: []
+items_still_open:
+  - "CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask's ClientRequestToken is not honored for idempotent-replay dedup (CreateCustomMetric/CreateDimension decode it into their input struct but never read the value; the other three don't even declare it). Real semantics need a token->result cache keyed per op plus rejecting a same-token-different-params replay, and this newer SDK codegen (v1.83.0, schema-based, no per-op deserializeOpError functions) doesn't resolve to a specific declared exception type for the mismatch case the way older-gen services (see eks/fsx's ClientRequestToken idempotency) do -- implementing it without a confirmed wire error code risks inventing behavior. StartAuditMitigationActionsTask/StartDetectMitigationActionsTask already reject a reused taskId (the real practical replay-safety case) via TaskAlreadyExistsException, independent of this token (gopherstack-xhu2t slice 2)."
+  - "DeleteOTAUpdate's ForceDeleteAWSJob is not honored: CreateOTAUpdate fabricates an AWSIoTJobId/AWSIoTJobArn string but never creates a real entry in this backend's jobs table, so there is no actual Job resource for force to act on (DeleteOTAUpdate has no state to gate on either way). Modeling this for real would mean CreateOTAUpdate actually calling CreateJob and DeleteOTAUpdate checking that job's status, a structural change out of this pass's bounds (gopherstack-xhu2t slice 2)."
+  - "GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2)."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -2107,3 +2110,123 @@ test -race -count=1 ./services/iot/...` (all green). `golangci-lint run
 --new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays
 at 0 FAIL. No version bump -- no `backendSnapshot` field added, removed, or
 retyped; no `pkgs/persistence` golden diff for this service.
+
+## 2026-09-12 (gopherstack-xhu2t slice 2, reqfielddiff tier-1 sweep: 46 -> 7)
+
+Worked all 46 tier-1 `cmd/reqfielddiff` findings for this service (iot,dir).
+Per-op serializer reads (`aws-sdk-go-v2/service/iot@v1.83.0`'s
+`schemas.go`) classified each into three buckets:
+
+**20 real dropped/wrong-shape parameters, fixed:**
+- `CancelJob.Force`, `DeleteJob.Force` -- not read at all (handlers only
+  ever read `comment`/nothing); Force is an **httpQuery** parameter, not
+  body. `CancelJob` now cascades cancellation to QUEUED (always) and
+  IN_PROGRESS (only if force) `JobExecution`s. `DeleteJob` now rejects an
+  IN_PROGRESS job unless `force=true`, matching the real documented rule.
+- `CancelJobExecution.Force` -- **wrong bug class**: previously read from
+  the JSON body (`body.Force`), but the real field is bound to an
+  **httpQuery** parameter (schemas.go's `CancelJobExecutionRequest_force`
+  carries `&smithytraits.HTTPQuery{}`); a real SDK client's `force=true`
+  was silently never seen. Fixed to read `c.QueryParam("force")`.
+- `CreateProvisioningTemplateVersion.SetAsDefault` -- same wrong-bug-class
+  shape: read from body, real field is httpQuery. Fixed.
+- `CreateDomainConfiguration`/`UpdateDomainConfiguration`'s
+  `ApplicationProtocol`/`AuthenticationType` -- entirely unmodeled; added
+  to `DomainConfiguration`, both Create/Update input decode structs, and
+  the describe-back wire (struct is JSON-marshaled directly, so no handler
+  change needed there).
+- `GetStatistics.IndexName` -- decoded into `AggregationInput.IndexName`
+  but never read; `GetStatistics` always aggregated the `AWS_Things` index
+  regardless. Now dispatches on `AWS_Things`/`AWS_ThingGroups` exactly like
+  `SearchIndex` already did (new `matchedThingGroups`/
+  `aggregationFieldValueGroup`/`numericFieldValuesGroups` helpers mirroring
+  the Things-side ones).
+- `RegisterCACertificate.CertificateMode`/`.VerificationCertificate` --
+  `VerificationCertificate` was decoded and discarded; `CertificateMode`
+  wasn't decoded at all. Both now enforce the real documented rule
+  verbatim (api_op_RegisterCACertificate.go: SNI_ONLY requires an empty
+  verification cert, DEFAULT/unset requires a non-empty one) and
+  `CertificateMode` is stored/described back. No crypto verification is
+  performed (this backend does not model CA private-key possession) --
+  presence/absence only.
+- `ListAuditTasks.MaxResults`, `ListMitigationActions.MaxResults`,
+  `ListScheduledAudits.MaxResults`, `ListCustomMetrics.MaxResults` -- these
+  four List ops returned every item with no pagination at all.
+  `ListAuditFindings.MaxResults` decoded the field but never applied it.
+  All five now paginate via `parseIoTPagination`/`paginateMaps` (Audit
+  ops) or an inline equivalent (ListAuditFindings' body-carried
+  MaxResults/NextToken), returning `nextToken` on a partial page.
+- `ListCommands.MaxResults`/`.Namespace`/`.SortOrder`,
+  `ListCommandExecutions.SortOrder` -- `ListCommands` had no
+  filter/sort/pagination whatsoever; `ListCommandExecutions`' real
+  `sortOrder` (body field, descending-by-default per its own doc comment)
+  was never read. Both fixed.
+
+**19 false positives -- already correctly declared/read/applied, the tool
+did not detect them.** Two recurring blind spots, worth fixing in
+`cmd/reqfielddiff` (gopherstack-99nj is the existing tracking issue for the
+tool's query-protocol blind spot; this is a second, non-query one):
+  1. **A field decoded into a *named* struct type declared in a different
+     file** (e.g. `CreateAuthorizerInput`/`CreateFleetMetricInput` in
+     `authorizers.go`/`metrics.go`, decoded via `var input
+     CreateAuthorizerInput; readBody(c, &input)` in `handler_authorizers.go`)
+     is invisible to the tool, which apparently only resolves decode
+     targets declared as an anonymous struct literal inline in the handler
+     function itself. Confirmed false positives of this shape:
+     `CreateAuthorizer.EnableCachingForHttp` (authorizers.go:74),
+     `CreateFleetMetric.Unit` (metrics.go:55,68),
+     `CreateDynamicThingGroup.QueryVersion`/`UpdateDynamicThingGroup.QueryVersion`
+     (thing_groups.go:269,333-334), `CreateRoleAlias.CredentialDurationSeconds`
+     (provisioning.go:18,58), `CreateSecurityProfile`/`UpdateSecurityProfile`'s
+     `AdditionalMetricsToRetain`/`AdditionalMetricsToRetainV2`
+     (security_profiles.go:102-103,320-321,478-482),
+     `CreateProvisioningTemplate.Type` (provisioning.go:189,267,309),
+     `UpdatePackage.DefaultVersionName`/`.UnsetDefaultVersion`
+     (packages.go:41,107-109, handler_packages.go:172-180),
+     `UpdateProvisioningTemplate.DefaultVersionId` (provisioning.go:379-401,
+     handler_provisioning.go:326-339), `SetV2LoggingOptions.DefaultLogLevel`/
+     `.DisableAllLogs` (handler_logging.go:44-55).
+  2. **A field read via an `echo.Context` query-param helper**
+     (`c.QueryParam`/`parseInt32QueryParam`) rather than a JSON body decode
+     is also invisible to the tool, even when it's a plain top-level
+     handler statement. Confirmed: `DescribeManagedJobTemplate.TemplateVersion`
+     (handler_thing_registration.go:195, `c.QueryParam(keyTemplateVersion)`)
+     and `GetBehaviorModelTrainingSummaries.MaxResults`
+     (handler_devicedefender.go:525, `parseInt32QueryParam(c, "maxResults")`).
+  3. One plain same-file-anonymous-struct false positive:
+     `CancelJobExecution.StatusDetails` (handler_jobs.go:363-364) -- declared
+     and read correctly; only the sibling `Force` field on the same struct
+     had the real (wrong-shape) bug.
+
+**7 recorded as `items_still_open`** (see front matter): the five
+`ClientRequestToken` fields (idempotency dedup needs new cross-request
+state and this SDK generation gives no confirmed mismatch-error type to
+implement against), `DeleteOTAUpdate.ForceDeleteAWSJob` (no real backing
+Job resource exists to gate), `GetThingConnectivityData.IncludeSocketInformation`
+(no socket-level fields modeled anywhere in this backend to conditionally
+include).
+
+New test file `reqfield_slice2_realclient_test.go`: drives every fixed
+field through the real typed SDK client (`newIoTTestClient`), asserting
+the observable effect (job-execution cancellation cascades, pagination
+`nextToken`/page-length, sort order, domain-config round-trip,
+AWS_ThingGroups vs AWS_Things aggregation producing genuinely different
+statistics, CA-cert-mode validation rejecting/accepting per the documented
+rule). Added `AddCommandInternal` (commands.go) alongside the existing
+`AddCommandExecutionInternal`/`AddAuditTaskInternal`/`AddCACertificateInternal`
+seeding-helper family, needed to give `ListCommands.SortOrder` two commands
+with distinct `CreationDate` values without depending on wall-clock
+second-resolution timing between two real `CreateCommand` calls.
+`handler_certificates_test.go`/`handler_tags_wire_test.go`'s pre-existing
+CA-cert-registration tests were updated to pass `certificateMode:
+SNI_ONLY` -- they previously pinned the (now-fixed) permissive behavior of
+accepting a DEFAULT-mode registration with no verification certificate.
+
+Gates: `go build ./...` (whole module), `go vet ./services/iot/...`, `go
+test -race -count=1 ./services/iot/...` (all green). `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays
+at 0 FAIL. No version bump -- `CACertificate.CertificateMode`,
+`DomainConfiguration.ApplicationProtocol`/`.AuthenticationType` are new
+struct fields but all `omitempty`, so an old snapshot missing them decodes
+fine (zero value) and a new snapshot read by old code just drops the
+unknown key.

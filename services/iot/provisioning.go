@@ -137,6 +137,8 @@ type DomainConfiguration struct {
 	ServiceType               string            `json:"serviceType,omitempty"`
 	DomainConfigurationStatus string            `json:"domainConfigurationStatus"`
 	DomainType                string            `json:"domainType,omitempty"`
+	ApplicationProtocol       string            `json:"applicationProtocol,omitempty"`
+	AuthenticationType        string            `json:"authenticationType,omitempty"`
 	CreationDate              float64           `json:"creationDate,omitempty"`
 	LastModifiedDate          float64           `json:"lastModifiedDate,omitempty"`
 }
@@ -156,6 +158,8 @@ type CreateDomainConfigurationInput struct {
 	DomainConfigurationName string `json:"domainConfigurationName"`
 	DomainName              string `json:"domainName,omitempty"`
 	ServiceType             string `json:"serviceType,omitempty"`
+	ApplicationProtocol     string `json:"applicationProtocol,omitempty"`
+	AuthenticationType      string `json:"authenticationType,omitempty"`
 	// []types.Tag on the wire, not a map (serializers.go:2450, aws-sdk-go-v2/service/iot@v1.77.4).
 	Tags []tags.KV `json:"tags,omitempty"`
 }
@@ -180,6 +184,8 @@ func (b *InMemoryBackend) CreateDomainConfiguration(
 		DomainName:                input.DomainName,
 		ServiceType:               input.ServiceType,
 		DomainConfigurationStatus: "ENABLED",
+		ApplicationProtocol:       input.ApplicationProtocol,
+		AuthenticationType:        input.AuthenticationType,
 		Tags:                      tags.MapFromKV(input.Tags),
 		CreationDate:              now,
 		LastModifiedDate:          now,
@@ -218,7 +224,7 @@ func (b *InMemoryBackend) ListDomainConfigurations() []*DomainConfiguration {
 }
 
 func (b *InMemoryBackend) UpdateDomainConfiguration(
-	name, status string,
+	name, status, applicationProtocol, authenticationType string,
 ) (*DomainConfiguration, error) {
 	b.mu.Lock("UpdateDomainConfiguration")
 	defer b.mu.Unlock()
@@ -229,6 +235,12 @@ func (b *InMemoryBackend) UpdateDomainConfiguration(
 	}
 	if status != "" {
 		dc.DomainConfigurationStatus = status
+	}
+	if applicationProtocol != "" {
+		dc.ApplicationProtocol = applicationProtocol
+	}
+	if authenticationType != "" {
+		dc.AuthenticationType = authenticationType
 	}
 	dc.LastModifiedDate = float64(time.Now().Unix())
 

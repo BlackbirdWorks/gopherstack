@@ -9,17 +9,18 @@ import (
 // handleCreateLayer handles CreateLayer requests.
 func (h *Handler) handleCreateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		StackID   string `json:"StackId"`
-		Type      string `json:"Type"`
-		Name      string `json:"Name"`
-		Shortname string `json:"Shortname"`
+		StackID              string `json:"StackId"`
+		Type                 string `json:"Type"`
+		Name                 string `json:"Name"`
+		Shortname            string `json:"Shortname"`
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	layer, err := h.Backend.CreateLayer(req.StackID, req.Type, req.Name, req.Shortname)
+	layer, err := h.Backend.CreateLayer(req.StackID, req.Type, req.Name, req.Shortname, req.InstallUpdatesOnBoot)
 	if err != nil {
 		return nil, err
 	}
@@ -51,15 +52,16 @@ func (h *Handler) handleDescribeLayers(_ context.Context, body []byte) (any, err
 // handleUpdateLayer handles UpdateLayer requests.
 func (h *Handler) handleUpdateLayer(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		LayerID string `json:"LayerId"`
-		Name    string `json:"Name"`
+		LayerID              string `json:"LayerId"`
+		Name                 string `json:"Name"`
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateLayer(req.LayerID, req.Name); err != nil {
+	if err := h.Backend.UpdateLayer(req.LayerID, req.Name, req.InstallUpdatesOnBoot); err != nil {
 		return nil, err
 	}
 
@@ -87,13 +89,14 @@ func layersToJSON(layers []*Layer) []map[string]any {
 	result := make([]map[string]any, 0, len(layers))
 	for _, l := range layers {
 		result = append(result, map[string]any{
-			keyLayerID:   l.LayerID,
-			keyStackID:   l.StackID,
-			keyArn:       l.Arn,
-			keyType:      l.Type,
-			keyName:      l.Name,
-			"Shortname":  l.Shortname,
-			keyCreatedAt: formatOpsWorksTime(l.CreatedAt),
+			keyLayerID:             l.LayerID,
+			keyStackID:             l.StackID,
+			keyArn:                 l.Arn,
+			keyType:                l.Type,
+			keyName:                l.Name,
+			"Shortname":            l.Shortname,
+			keyCreatedAt:           formatOpsWorksTime(l.CreatedAt),
+			"InstallUpdatesOnBoot": l.InstallUpdatesOnBoot,
 		})
 	}
 

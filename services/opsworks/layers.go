@@ -26,7 +26,9 @@ func isValidLayerType(layerType string) bool {
 // (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
 // api_op_CreateLayer.go), and Type is restricted to the LayerType enum, not
 // a free string.
-func (b *InMemoryBackend) CreateLayer(stackID, layerType, name, shortname string) (*Layer, error) {
+func (b *InMemoryBackend) CreateLayer(
+	stackID, layerType, name, shortname string, installUpdatesOnBoot *bool,
+) (*Layer, error) {
 	if name == "" || shortname == "" || stackID == "" || !isValidLayerType(layerType) {
 		return nil, ErrValidation
 	}
@@ -42,13 +44,14 @@ func (b *InMemoryBackend) CreateLayer(stackID, layerType, name, shortname string
 	now := time.Now().UTC()
 
 	l := &storedLayer{
-		CreatedAt: now,
-		StackID:   stackID,
-		LayerID:   id,
-		Arn:       b.layerARN(id),
-		Type:      layerType,
-		Name:      name,
-		Shortname: shortname,
+		CreatedAt:            now,
+		InstallUpdatesOnBoot: installUpdatesOnBoot,
+		StackID:              stackID,
+		LayerID:              id,
+		Arn:                  b.layerARN(id),
+		Type:                 layerType,
+		Name:                 name,
+		Shortname:            shortname,
 	}
 	b.layers.Put(l)
 
@@ -83,8 +86,8 @@ func (b *InMemoryBackend) DescribeLayers(stackID string, layerIDs []string) ([]*
 	return result, nil
 }
 
-// UpdateLayer updates a layer's name.
-func (b *InMemoryBackend) UpdateLayer(layerID, name string) error {
+// UpdateLayer updates a layer's name and installUpdatesOnBoot setting.
+func (b *InMemoryBackend) UpdateLayer(layerID, name string, installUpdatesOnBoot *bool) error {
 	b.mu.Lock("UpdateLayer")
 	defer b.mu.Unlock()
 
@@ -95,6 +98,9 @@ func (b *InMemoryBackend) UpdateLayer(layerID, name string) error {
 
 	if name != "" {
 		l.Name = name
+	}
+	if installUpdatesOnBoot != nil {
+		l.InstallUpdatesOnBoot = installUpdatesOnBoot
 	}
 
 	return nil

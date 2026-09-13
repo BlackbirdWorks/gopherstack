@@ -268,7 +268,8 @@ func (h *Handler) handleUpdateJob(c *echo.Context) error {
 
 func (h *Handler) handleDeleteJob(c *echo.Context) error {
 	jobID := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
-	if err := h.Backend.DeleteJob(jobID); err != nil {
+	force := c.QueryParam("force") == keyBoolTrue
+	if err := h.Backend.DeleteJob(jobID, force); err != nil {
 		return respondErr(c, err)
 	}
 
@@ -276,7 +277,7 @@ func (h *Handler) handleDeleteJob(c *echo.Context) error {
 }
 
 func (h *Handler) handleCancelJob(c *echo.Context) error {
-	// PUT /jobs/{jobId}/cancel
+	// PUT /jobs/{jobId}/cancel?force=<bool>
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/jobs/")
 	jobID := strings.TrimSuffix(trimmed, "/cancel")
 	var req struct {
@@ -285,7 +286,8 @@ func (h *Handler) handleCancelJob(c *echo.Context) error {
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	job, err := h.Backend.CancelJob(jobID, req.Comment)
+	force := c.QueryParam("force") == keyBoolTrue
+	job, err := h.Backend.CancelJob(jobID, req.Comment, force)
 	if err != nil {
 		// CancelJob's own deserializeOpError switch declares no
 		// InvalidStateTransitionException case -- InvalidRequestException is
@@ -360,22 +362,26 @@ func (h *Handler) handleDescribeJobExecution(c *echo.Context) error {
 }
 
 func (h *Handler) handleCancelJobExecution(c *echo.Context) error {
-	// PUT /things/{thingName}/jobs/{jobId}/cancel
+	// PUT /things/{thingName}/jobs/{jobId}/cancel?force=<bool>
 	path := strings.TrimSuffix(c.Request().URL.Path, "/cancel")
 	thingName, jobID := parseThingJobPath(path)
 
 	var body struct {
 		StatusDetails   map[string]string `json:"statusDetails"`
 		ExpectedVersion int64             `json:"expectedVersion"`
-		Force           bool              `json:"force"`
 	}
 
 	if err := json.NewDecoder(c.Request().Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
+	// force is bound to an HTTP query parameter, not the body (confirmed
+	// against aws-sdk-go-v2/service/iot@v1.83.0's schemas.go:
+	// CancelJobExecutionRequest_force carries &smithytraits.HTTPQuery{}).
+	force := c.QueryParam("force") == keyBoolTrue
+
 	err := h.Backend.CancelJobExecution(jobID, thingName, CancelJobExecutionOptions{
-		Force:           body.Force,
+		Force:           force,
 		StatusDetails:   body.StatusDetails,
 		ExpectedVersion: body.ExpectedVersion,
 	})
@@ -394,7 +400,7 @@ func (h *Handler) handleDeleteJobExecution(c *echo.Context) error {
 	}
 
 	thingName, jobID := parseThingJobPath(path)
-	force := c.QueryParam("force") == "true"
+	force := c.QueryParam("force") == keyBoolTrue
 
 	if err := h.Backend.DeleteJobExecution(jobID, thingName, force); err != nil {
 		return respondErr(c, err)

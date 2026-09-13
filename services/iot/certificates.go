@@ -420,6 +420,7 @@ type CACertificate struct {
 	CertificatePem     string             `json:"certificatePem,omitempty"`
 	OwnedBy            string             `json:"ownedBy,omitempty"`
 	AutoRegistration   string             `json:"autoRegistrationStatus,omitempty"`
+	CertificateMode    string             `json:"certificateMode,omitempty"`
 	CreationDate       float64            `json:"creationDate,omitempty"`
 	LastModifiedDate   float64            `json:"lastModifiedDate,omitempty"`
 }
@@ -434,13 +435,38 @@ func (b *InMemoryBackend) caCertARN(id string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cacert/%s", id))
 }
 
+// RegisterCACertificate registers a CA certificate. certificateMode/
+// verificationCertificate enforce the real documented rule (confirmed
+// against aws-sdk-go-v2/service/iot@v1.83.0's api_op_RegisterCACertificate.go:
+// "If certificateMode is SNI_ONLY, the verificationCertificate field must be
+// empty. If certificateMode is DEFAULT or not provided, the
+// verificationCertificate field must not be empty") -- this backend does not
+// model CA private-key possession, so it validates presence/absence per that
+// rule but does not cryptographically verify the certificate.
 func (b *InMemoryBackend) RegisterCACertificate(
-	pem, status string,
+	pem, status, certificateMode, verificationCertificate string,
 	tags map[string]string,
 	regConfig RegistrationConfig,
 ) (*CACertificate, error) {
 	b.mu.Lock("RegisterCACertificate")
 	defer b.mu.Unlock()
+
+	switch certificateMode {
+	case certModeSNIOnly:
+		if verificationCertificate != "" {
+			return nil, fmt.Errorf(
+				"%w: verificationCertificate must be empty when certificateMode is SNI_ONLY",
+				ErrValidation,
+			)
+		}
+	default:
+		if verificationCertificate == "" {
+			return nil, fmt.Errorf(
+				"%w: verificationCertificate is required when certificateMode is DEFAULT or not provided",
+				ErrValidation,
+			)
+		}
+	}
 
 	id := uuid.NewString()[:12]
 	now := float64(time.Now().Unix())
@@ -449,6 +475,7 @@ func (b *InMemoryBackend) RegisterCACertificate(
 		CertificateARN:     b.caCertARN(id),
 		Status:             status,
 		CertificatePem:     pem,
+		CertificateMode:    certificateMode,
 		CreationDate:       now,
 		LastModifiedDate:   now,
 		OwnedBy:            b.accountID,
@@ -457,6 +484,9 @@ func (b *InMemoryBackend) RegisterCACertificate(
 	}
 	if ca.Status == "" {
 		ca.Status = "ACTIVE"
+	}
+	if ca.CertificateMode == "" {
+		ca.CertificateMode = certModeDefault
 	}
 	b.caCertificates.Put(ca)
 	b.putResourceTagsLocked(ca.CertificateARN, tags)

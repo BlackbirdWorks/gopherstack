@@ -530,6 +530,7 @@ func resolveCACertLegacyOps(path, method string) string {
 func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 	var req struct {
 		CACertificate           string             `json:"caCertificate"`
+		CertificateMode         string             `json:"certificateMode,omitempty"`
 		VerificationCertificate string             `json:"verificationCertificate,omitempty"`
 		RegistrationConfig      RegistrationConfig `json:"registrationConfig"`
 		// []types.Tag on the wire, not a map (serializers.go:18065, aws-sdk-go-v2/service/iot@v1.77.4).
@@ -539,7 +540,8 @@ func (h *Handler) handleRegisterCACertificate(c *echo.Context) error {
 		return err
 	}
 	ca, err := h.Backend.RegisterCACertificate(
-		req.CACertificate, "ACTIVE", tags.MapFromKV(req.Tags), req.RegistrationConfig,
+		req.CACertificate, "ACTIVE", req.CertificateMode, req.VerificationCertificate,
+		tags.MapFromKV(req.Tags), req.RegistrationConfig,
 	)
 	if err != nil {
 		return respondErr(c, err)

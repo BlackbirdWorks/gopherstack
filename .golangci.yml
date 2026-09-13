@@ -572,6 +572,10 @@ linters:
       # coverage slice 13 (gopherstack-n3zi).
       - path: 'opsworks/typed_slice13_realclient_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as opsworks/sdk_roundtrip_test.go above -- reqfielddiff
+      # tier-1 campaign slice 2 (gopherstack-xhu2t).
+      - path: 'opsworks/reqfield_slice2_realclient_test.go'
+        linters: [ staticcheck ]
       # mediapackage's RotateChannelCredentials is deprecated (superseded by
       # RotateIngestEndpointCredentials), but is still a real, listed op this
       # file must drive through a real client for typed coverage slice 21

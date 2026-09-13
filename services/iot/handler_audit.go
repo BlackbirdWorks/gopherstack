@@ -111,7 +111,15 @@ func (h *Handler) handleListAuditTasks(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyTasksField: summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{keyTasksField: page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // resolveAuditSuppressionOps resolves the audit-suppression op family.
@@ -350,8 +358,10 @@ func (h *Handler) handleListAuditFindings(c *echo.Context) error {
 		ResourceIdentifier     *ResourceIdentifier `json:"resourceIdentifier"`
 		CheckName              string              `json:"checkName"`
 		TaskID                 string              `json:"taskId"`
+		NextToken              string              `json:"nextToken"`
 		StartTime              float64             `json:"startTime"`
 		EndTime                float64             `json:"endTime"`
+		MaxResults             int                 `json:"maxResults"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
@@ -366,7 +376,26 @@ func (h *Handler) handleListAuditFindings(c *echo.Context) error {
 		ResourceIdentifier:     req.ResourceIdentifier,
 	})
 
-	return c.JSON(http.StatusOK, map[string]any{"findings": items})
+	pageSize := req.MaxResults
+	if pageSize <= 0 {
+		pageSize = iotDefaultPageSize
+	}
+
+	start := 0
+	if req.NextToken != "" {
+		if n, err := strconv.Atoi(req.NextToken); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	page, nextToken := paginateMaps(items, pageSize, start)
+
+	resp := map[string]any{"findings": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeEventConfigurations(c *echo.Context) error {
@@ -461,7 +490,15 @@ func (h *Handler) handleListScheduledAudits(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"scheduledAudits": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"scheduledAudits": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateScheduledAudit(c *echo.Context) error {
@@ -536,7 +573,15 @@ func (h *Handler) handleListMitigationActions(c *echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"actionIdentifiers": summaries})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(summaries, pageSize, start)
+
+	resp := map[string]any{"actionIdentifiers": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateMitigationAction(c *echo.Context) error {

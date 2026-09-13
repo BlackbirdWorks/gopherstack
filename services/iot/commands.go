@@ -51,6 +51,22 @@ func (b *InMemoryBackend) commandARN(id string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("command/%s", id))
 }
 
+// AddCommandInternal seeds an IoTCommand with a caller-chosen CreationDate
+// directly into the backend for testing (mirrors AddCommandExecutionInternal/
+// AddAuditTaskInternal), letting tests control ListCommands' sortOrder
+// without depending on real-clock second-resolution timing.
+func (b *InMemoryBackend) AddCommandInternal(cmd IoTCommand) {
+	b.mu.Lock("AddCommandInternal")
+	defer b.mu.Unlock()
+
+	if cmd.CommandARN == "" {
+		cmd.CommandARN = b.commandARN(cmd.CommandID)
+	}
+
+	cp := cloneIoTCommand(&cmd)
+	b.commands.Put(cp)
+}
+
 func (b *InMemoryBackend) CreateCommand(
 	id, displayName, description, namespace string,
 	payload map[string]any,

@@ -28,6 +28,7 @@ type storedStack struct {
 	CreatedAt                 time.Time                  `json:"createdAt"`
 	ConfigurationManager      *StackConfigurationManager `json:"configurationManager,omitempty"`
 	ChefConfiguration         *ChefConfiguration         `json:"chefConfiguration,omitempty"`
+	UseOpsworksSecurityGroups *bool                      `json:"useOpsworksSecurityGroups,omitempty"`
 	Tags                      map[string]string          `json:"tags"`
 	Attributes                map[string]string          `json:"attributes,omitempty"`
 	StackID                   string                     `json:"stackId"`
@@ -37,6 +38,14 @@ type storedStack struct {
 	DefaultInstanceProfileArn string                     `json:"defaultInstanceProfileArn"`
 	ServiceRoleArn            string                     `json:"serviceRoleArn"`
 	VpcID                     string                     `json:"vpcId,omitempty"`
+	AgentVersion              string                     `json:"agentVersion,omitempty"`
+	CustomJSON                string                     `json:"customJson,omitempty"`
+	DefaultAvailabilityZone   string                     `json:"defaultAvailabilityZone,omitempty"`
+	DefaultOs                 string                     `json:"defaultOs,omitempty"`
+	DefaultRootDeviceType     string                     `json:"defaultRootDeviceType,omitempty"`
+	DefaultSSHKeyName         string                     `json:"defaultSshKeyName,omitempty"`
+	DefaultSubnetID           string                     `json:"defaultSubnetId,omitempty"`
+	HostnameTheme             string                     `json:"hostnameTheme,omitempty"`
 }
 
 func (s *storedStack) toStack() *Stack {
@@ -53,6 +62,7 @@ func (s *storedStack) toStack() *Stack {
 		CreatedAt:                 s.CreatedAt,
 		ConfigurationManager:      s.ConfigurationManager,
 		ChefConfiguration:         s.ChefConfiguration,
+		UseOpsworksSecurityGroups: s.UseOpsworksSecurityGroups,
 		Tags:                      tags,
 		Attributes:                attrs,
 		StackID:                   s.StackID,
@@ -62,43 +72,59 @@ func (s *storedStack) toStack() *Stack {
 		DefaultInstanceProfileArn: s.DefaultInstanceProfileArn,
 		ServiceRoleArn:            s.ServiceRoleArn,
 		VpcID:                     s.VpcID,
+		AgentVersion:              s.AgentVersion,
+		CustomJSON:                s.CustomJSON,
+		DefaultAvailabilityZone:   s.DefaultAvailabilityZone,
+		DefaultOs:                 s.DefaultOs,
+		DefaultRootDeviceType:     s.DefaultRootDeviceType,
+		DefaultSSHKeyName:         s.DefaultSSHKeyName,
+		DefaultSubnetID:           s.DefaultSubnetID,
+		HostnameTheme:             s.HostnameTheme,
 	}
 }
 
 // storedLayer holds a layer with all fields.
 type storedLayer struct {
-	CreatedAt time.Time `json:"createdAt"`
-	StackID   string    `json:"stackId"`
-	LayerID   string    `json:"layerId"`
-	Arn       string    `json:"arn"`
-	Type      string    `json:"type"`
-	Name      string    `json:"name"`
-	Shortname string    `json:"shortname"`
+	CreatedAt            time.Time `json:"createdAt"`
+	InstallUpdatesOnBoot *bool     `json:"installUpdatesOnBoot,omitempty"`
+	StackID              string    `json:"stackId"`
+	LayerID              string    `json:"layerId"`
+	Arn                  string    `json:"arn"`
+	Type                 string    `json:"type"`
+	Name                 string    `json:"name"`
+	Shortname            string    `json:"shortname"`
 }
 
 func (l *storedLayer) toLayer() *Layer {
 	return &Layer{
-		CreatedAt: l.CreatedAt,
-		StackID:   l.StackID,
-		LayerID:   l.LayerID,
-		Arn:       l.Arn,
-		Type:      l.Type,
-		Name:      l.Name,
-		Shortname: l.Shortname,
+		CreatedAt:            l.CreatedAt,
+		InstallUpdatesOnBoot: l.InstallUpdatesOnBoot,
+		StackID:              l.StackID,
+		LayerID:              l.LayerID,
+		Arn:                  l.Arn,
+		Type:                 l.Type,
+		Name:                 l.Name,
+		Shortname:            l.Shortname,
 	}
 }
 
 // storedInstance holds an instance with all fields.
 type storedInstance struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	StackID      string    `json:"stackId"`
-	LayerIDs     []string  `json:"layerIds"`
-	InstanceID   string    `json:"instanceId"`
-	Arn          string    `json:"arn"`
-	Hostname     string    `json:"hostname"`
-	InstanceType string    `json:"instanceType"`
-	Status       string    `json:"status"`
-	Registered   bool      `json:"registered"`
+	CreatedAt            time.Time `json:"createdAt"`
+	InstallUpdatesOnBoot *bool     `json:"installUpdatesOnBoot,omitempty"`
+	StackID              string    `json:"stackId"`
+	LayerIDs             []string  `json:"layerIds"`
+	InstanceID           string    `json:"instanceId"`
+	Arn                  string    `json:"arn"`
+	Hostname             string    `json:"hostname"`
+	InstanceType         string    `json:"instanceType"`
+	Status               string    `json:"status"`
+	AgentVersion         string    `json:"agentVersion,omitempty"`
+	Architecture         string    `json:"architecture,omitempty"`
+	Os                   string    `json:"os,omitempty"`
+	SubnetID             string    `json:"subnetId,omitempty"`
+	Tenancy              string    `json:"tenancy,omitempty"`
+	Registered           bool      `json:"registered"`
 }
 
 // UnmarshalJSON tolerates a pre-slice13 snapshot's singular "layerId"
@@ -127,15 +153,21 @@ func (i *storedInstance) UnmarshalJSON(data []byte) error {
 
 func (i *storedInstance) toInstance() *Instance {
 	return &Instance{
-		CreatedAt:    i.CreatedAt,
-		StackID:      i.StackID,
-		LayerIDs:     slices.Clone(i.LayerIDs),
-		InstanceID:   i.InstanceID,
-		Arn:          i.Arn,
-		Hostname:     i.Hostname,
-		InstanceType: i.InstanceType,
-		Status:       i.Status,
-		Registered:   i.Registered,
+		CreatedAt:            i.CreatedAt,
+		InstallUpdatesOnBoot: i.InstallUpdatesOnBoot,
+		StackID:              i.StackID,
+		LayerIDs:             slices.Clone(i.LayerIDs),
+		InstanceID:           i.InstanceID,
+		Arn:                  i.Arn,
+		Hostname:             i.Hostname,
+		InstanceType:         i.InstanceType,
+		Status:               i.Status,
+		AgentVersion:         i.AgentVersion,
+		Architecture:         i.Architecture,
+		Os:                   i.Os,
+		SubnetID:             i.SubnetID,
+		Tenancy:              i.Tenancy,
+		Registered:           i.Registered,
 	}
 }
 
@@ -169,6 +201,7 @@ type storedDeployment struct {
 	DeploymentID string    `json:"deploymentId"`
 	Command      string    `json:"command"`
 	Status       string    `json:"status"`
+	CustomJSON   string    `json:"customJson,omitempty"`
 	Duration     int32     `json:"duration"`
 }
 
@@ -181,6 +214,7 @@ func (d *storedDeployment) toDeployment() *Deployment {
 		DeploymentID: d.DeploymentID,
 		Command:      d.Command,
 		Status:       d.Status,
+		CustomJSON:   d.CustomJSON,
 		Duration:     d.Duration,
 	}
 }

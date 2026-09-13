@@ -317,7 +317,7 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 func seedCertsStreamsMetrics(t *testing.T, b *iot.InMemoryBackend) string {
 	t.Helper()
 
-	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", nil, iot.RegistrationConfig{})
+	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", "SNI_ONLY", "", nil, iot.RegistrationConfig{})
 	require.NoError(t, err)
 
 	_, err = b.CreateStream(&iot.CreateStreamInput{

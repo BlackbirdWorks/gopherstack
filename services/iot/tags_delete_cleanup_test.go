@@ -207,7 +207,10 @@ func tagCleanupCases() []tagCleanupCase {
 
 				return arnOrErr(out, err, func(o *iot.Job) string { return o.JobARN })
 			},
-			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteJob(key) },
+			// force=true: a freshly created job starts IN_PROGRESS
+			// (CreateJob's own doc comment), and this test only cares
+			// about tag cleanup, not the delete-state guard.
+			del: func(b *iot.InMemoryBackend, key string) error { return b.DeleteJob(key, true) },
 		},
 		{
 			name: "job_template",

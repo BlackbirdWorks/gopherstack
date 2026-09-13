@@ -573,6 +573,20 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	return nil
 }
 
+// jobExecutionsForJob returns every JobExecution belonging to jobID (caller
+// holds the lock). Mirrors DeleteJob's own prefix-match loop.
+func (b *InMemoryBackend) jobExecutionsForJob(jobID string) []*JobExecution {
+	var result []*JobExecution
+	for _, exec := range b.jobExecutions.All() {
+		k := jobExecKey(exec.JobID, exec.ThingName)
+		if len(k) > len(jobID)+1 && k[:len(jobID)] == jobID {
+			result = append(result, exec)
+		}
+	}
+
+	return result
+}
+
 // CancelJob cancels a job. Real AWS IoT rejects canceling a job already in a
 // terminal state (CancelJobInput has no Force-independent override for this
 // -- Force only affects whether IN_PROGRESS job EXECUTIONS are canceled,
@@ -580,8 +594,9 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 // Status unconditionally, silently "re-canceling" an already-COMPLETED or
 // already-CANCELED job instead of returning InvalidStateTransitionException,
 // the same class of terminal-state guard CancelJobExecution/CancelAuditTask
-// already enforce.
-func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
+// already enforce. force additionally determines whether IN_PROGRESS job
+// executions are canceled too (QUEUED executions are always canceled).
+func (b *InMemoryBackend) CancelJob(jobID, _ string, force bool) (*Job, error) {
 	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
@@ -595,15 +610,37 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	j.Status = JobStatusCanceled
 	j.LastUpdatedAt = float64(time.Now().Unix())
 
+	now := float64(time.Now().Unix())
+	for _, exec := range b.jobExecutionsForJob(jobID) {
+		switch {
+		case exec.Status == JobExecQueued:
+			exec.Status = JobExecCanceled
+			exec.LastUpdatedAt = now
+		case exec.Status == JobExecInProgress && force:
+			exec.Status = JobExecCanceled
+			exec.ForceCanceled = true
+			exec.LastUpdatedAt = now
+		}
+	}
+
 	return cloneJob(j), nil
 }
 
-func (b *InMemoryBackend) DeleteJob(jobID string) error {
+// DeleteJob deletes a job. Real AWS IoT rejects deleting a job that is
+// IN_PROGRESS unless force is true (confirmed against
+// aws-sdk-go-v2/service/iot@v1.83.0's api_op_DeleteJob.go doc comment:
+// "you can only delete a job which is in a terminal state ('COMPLETED' or
+// 'CANCELED') or an exception will occur").
+func (b *InMemoryBackend) DeleteJob(jobID string, force bool) error {
 	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
-	if !b.jobs.Has(jobID) {
+	j, ok := b.jobs.Get(jobID)
+	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
+	}
+	if j.Status == JobStatusInProgress && !force {
+		return fmt.Errorf("%w: job %q is IN_PROGRESS, set force=true to delete it", ErrInvalidStateTransition, jobID)
 	}
 	b.jobs.Delete(jobID)
 	delete(b.resourceTags, b.jobARN(jobID))

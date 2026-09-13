@@ -21,7 +21,8 @@ func TestCACertificate(t *testing.T) {
 	// Register, including registrationConfig -- a real client can send this
 	// as a JSON object (types.RegistrationConfig, iot@v1.77.4), not a string.
 	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
-		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"caCertificate":   "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"certificateMode": "SNI_ONLY",
 		"registrationConfig": map[string]any{
 			"templateName": "my-template",
 			"roleArn":      "arn:aws:iam::000000000000:role/ProvisioningRole",
@@ -81,7 +82,8 @@ func TestUpdateCACertificate_QueryParamsAndBodyFields(t *testing.T) {
 	h := newIoTHandler(t)
 
 	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
-		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"caCertificate":   "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"certificateMode": "SNI_ONLY",
 	})
 	certID, _ := out["certificateId"].(string)
 	require.NotEmpty(t, certID)

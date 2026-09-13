@@ -76,7 +76,7 @@ items_still_open:
   - "No test/integration/*_parity_test.go suite exists for opsworks. The deprecated SDK IS now a go.mod dependency (added by gopherstack-n3zi's typed-coverage slices for services/opsworks/*_test.go's in-process httptest round trips) -- a prior version of this note incorrectly said otherwise. A Docker-backed test/integration suite is still not built; this is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though the in-process typed-client suite (sdk_roundtrip_test.go, list_filter_params_test.go, typed_slice13_realclient_test.go) now covers all 74 ops through the real SDK client end to end. Building the Docker-backed suite is a real, nontrivial follow-on task, not done this pass."
   - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
 deferred:                 # consciously not audited/implemented this pass (scope)
-  - "CreateStack's VpcId/Attributes/ConfigurationManager/ChefConfiguration are now modeled (gopherstack-4uhx), but the rest of CreateStack's optional surface (AgentVersion, CustomCookbooksSource, CustomJson, DefaultAvailabilityZone, DefaultOs, DefaultRootDeviceType, DefaultSshKeyName, DefaultSubnetId, HostnameTheme, UseCustomCookbooks, UseOpsworksSecurityGroups) is not, and CreateLayer/CreateApp/CreateInstance's full optional surfaces (CloudWatchLogsConfiguration, LifecycleEventConfiguration, VolumeConfigurations, AppSource, DataSources, Environment, SslConfiguration, BlockDeviceMappings, etc.) remain entirely unmodeled -- only the fields this backend's Handler already decodes were audited for wire-shape correctness."
+  - "gopherstack-xhu2t slice 2 (2026-09-12) modeled CreateStack/CloneStack/UpdateStack's AgentVersion/CustomJson/DefaultAvailabilityZone/DefaultOs/DefaultRootDeviceType/DefaultSshKeyName/DefaultSubnetId/HostnameTheme/UseOpsworksSecurityGroups (plus VpcId/DefaultInstanceProfileArn/ServiceRoleArn/ConfigurationManager for Clone/Update, which previously only Create had), and CreateInstance/UpdateInstance's AgentVersion/Architecture/InstallUpdatesOnBoot/Os/SubnetId/Tenancy, CreateLayer/UpdateLayer's InstallUpdatesOnBoot, and CreateDeployment's CustomJson -- see this file's 2026-09-12 dated section. Still unmodeled: CreateStack/CloneStack/UpdateStack's CustomCookbooksSource/UseCustomCookbooks (would mean fetching from a git/svn/s3/http repository, no model for that here), and CreateLayer/CreateApp/CreateInstance's remaining optional surfaces (CloudWatchLogsConfiguration, LifecycleEventConfiguration, VolumeConfigurations, AppSource, DataSources, Environment, SslConfiguration, BlockDeviceMappings, etc.) -- only the fields flagged by this pass's reqfielddiff tier-1 sweep were audited, not every optional member of every op."
 leaks: {status: clean, note: "No goroutines, timers, or background schedulers in this package — every op is synchronous, so there is nothing to leak. Confirmed no time.AfterFunc/go func/Ticker usage anywhere in services/opsworks/."}
 ---
 
@@ -836,3 +836,79 @@ existing opsworks SA1019-deprecation exclusion list, same pattern as the
 service's three prior typed-client test files), `go test -race -count=1
 ./services/opsworks/...` and `./pkgs/persistence/...` both green,
 `go run ./cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 (gopherstack-xhu2t slice 2, reqfielddiff tier-1 sweep: 45 -> 0)
+
+Worked all 45 tier-1 `cmd/reqfielddiff` findings for this service. Unlike
+iot's slice 2 (a mix of real bugs and tool false positives), every single
+opsworks finding was a genuine dropped parameter of the same shape: a
+real, optional, describe-back stack/instance/layer/deployment attribute
+that this backend's `CreateStackOptions`/`CreateInstance`/`CreateLayer`/
+`CreateDeployment` signatures simply never carried, confirmed field-by-field
+against `aws-sdk-go-v2/service/opsworks@v1.31.0`'s `api_op_*.go`/`types.go`
+(all body fields -- awsjson1.1 has no httpQuery/httpLabel/httpHeader
+bindings, so there was no wrong-shape-read class to check for here, unlike
+iot's restJson1). Fixed, none recorded as missing-feature or false
+positive:
+
+- **Stack** (`CreateStack`/`CloneStack`/`UpdateStack`): `AgentVersion`,
+  `CustomJson`, `DefaultAvailabilityZone`, `DefaultOs`,
+  `DefaultRootDeviceType`, `DefaultSshKeyName`, `DefaultSubnetId`,
+  `HostnameTheme`, `UseOpsworksSecurityGroups` are now modeled end to end
+  (stored on `storedStack`/`Stack`, decoded in all three handlers,
+  described back in `stacksToJSON`). `CloneStack` additionally gained
+  `DefaultInstanceProfileArn`/`ServiceRoleArn`/`VpcId`/`ConfigurationManager`/
+  `ChefConfiguration` overrides (previously silently always inherited from
+  the source stack with no override path at all) and now requires
+  `ServiceRoleArn` ("This member is required" on the real
+  `CloneStackInput`, confirmed against `api_op_CloneStack.go`) -- every
+  other stack-attribute override inherits the source's value when left at
+  its zero value, matching each field's own doc comment (e.g. `DefaultOs`:
+  "The default option is the parent stack's operating system").
+  `UpdateStack` gained the matching set (`DefaultInstanceProfileArn`/
+  `ServiceRoleArn`/`ConfigurationManager` were also previously
+  Create-only). Signatures changed: `CloneStack(sourceStackID, name,
+  region, serviceRoleArn string, opts CloneStackOptions)`, `UpdateStack(stackID,
+  name string, opts UpdateStackOptions)` (both new option structs), `CreateStack`
+  keeps its signature but `CreateStackOptions` grew the new fields.
+- **Instance** (`CreateInstance`/`UpdateInstance`): `AgentVersion`,
+  `Architecture`, `InstallUpdatesOnBoot`, `Os`, `SubnetId` (Create-only,
+  matching the real `CreateInstanceInput`/`UpdateInstanceInput` field
+  sets -- `UpdateInstanceInput` has no `SubnetId`), `Tenancy` (Create-only)
+  now modeled via new `CreateInstanceOptions`/`UpdateInstanceOptions`
+  structs.
+- **Layer** (`CreateLayer`/`UpdateLayer`): `InstallUpdatesOnBoot` now a
+  plain `*bool` parameter on both (not worth a dedicated options struct for
+  one field).
+- **Deployment** (`CreateDeployment`): `CustomJson` now modeled (stored on
+  `storedDeployment`/`Deployment`, described back).
+
+One existing test (`stacks_test.go`'s `TestCloneStack`) pinned the old
+permissive behavior of cloning without `ServiceRoleArn` -- corrected to
+supply it (two subtests) and added a new subtest asserting the now-real
+400 ValidationException when it's omitted, rather than weakening the
+required-field check to keep the old assertions passing.
+
+New test file `reqfield_slice2_realclient_test.go` drives every fixed
+field through the real typed SDK client (`newTestClient`, this service's
+existing `sdk_roundtrip_helper_test.go` helper), asserting the observable
+round-trip: `CreateStack`/`UpdateStack` describe back every new attribute;
+`CloneStack` proves both explicit-override-wins and
+omitted-inherits-from-source for each field, plus the required
+`ServiceRoleArn` rejection; `CreateInstance`/`UpdateInstance` describe back
+their new attributes; `CreateLayer`/`UpdateLayer` describe back
+`InstallUpdatesOnBoot`; `CreateDeployment`/`DescribeDeployments` round-trip
+`CustomJson`.
+
+Gates: `go build ./...` (whole module), `go vet ./services/opsworks/...`,
+`go test -race -count=1 ./services/opsworks/...` and
+`./pkgs/persistence/...` (both green). `golangci-lint run
+--new-from-rev=HEAD ./services/opsworks/...` (0 issues, after adding
+`reqfield_slice2_realclient_test.go` to `.golangci.yml`'s existing opsworks
+SA1019-deprecation exclusion list, same pattern as the service's four
+prior typed-client test files). `cmd/paritylint` stays at 0 FAIL. No
+version bump -- every new struct field is either a plain string/`*bool`
+zero-valued on an old snapshot, or (this service's JSON tags already
+mostly lack `omitempty` on the affected structs, but `encoding/json`
+tolerates an absent key on decode regardless) additive; no existing field
+was retyped or removed.

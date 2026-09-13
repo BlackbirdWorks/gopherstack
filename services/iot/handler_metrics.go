@@ -168,7 +168,15 @@ func (h *Handler) handleListCustomMetrics(c *echo.Context) error {
 		names[i] = cm.MetricName
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"metricNames": names})
+	pageSize, start := parseIoTPagination(c)
+	page, nextToken := paginateMaps(names, pageSize, start)
+
+	resp := map[string]any{"metricNames": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateCustomMetric(c *echo.Context) error {

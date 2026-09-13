@@ -590,6 +590,58 @@ func aggregationFieldValue(t *Thing, field string) (string, bool) {
 	}
 }
 
+// matchedThingGroups returns the ThingGroups (AWS_ThingGroups index) that
+// satisfy queryString. Callers must hold at least a read lock.
+func (b *InMemoryBackend) matchedThingGroups(queryString string) []*ThingGroup {
+	out := make([]*ThingGroup, 0, b.thingGroups.Len())
+
+	for _, v := range b.thingGroups.Snapshot() {
+		g := v
+		if matchesThingGroupQuery(g, queryString) {
+			out = append(out, g)
+		}
+	}
+
+	return out
+}
+
+// aggregationFieldValueGroup mirrors aggregationFieldValue for a ThingGroup
+// (AWS_ThingGroups index).
+func aggregationFieldValueGroup(g *ThingGroup, field string) (string, bool) {
+	switch {
+	case field == "thingGroupName":
+		return g.ThingGroupName, true
+	case field == keyVersion:
+		return strconv.FormatInt(g.Version, 10), true
+	case strings.HasPrefix(field, "attributes."):
+		v, ok := g.Attributes[strings.TrimPrefix(field, "attributes.")]
+
+		return v, ok
+	default:
+		v, ok := g.Attributes[field]
+
+		return v, ok
+	}
+}
+
+// numericFieldValuesGroups mirrors numericFieldValues for ThingGroups.
+func numericFieldValuesGroups(groups []*ThingGroup, field string) []float64 {
+	values := make([]float64, 0, len(groups))
+
+	for _, g := range groups {
+		raw, ok := aggregationFieldValueGroup(g, field)
+		if !ok {
+			continue
+		}
+
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			values = append(values, f)
+		}
+	}
+
+	return values
+}
+
 // numericFieldValues extracts the parseable float64 values of field across things.
 func numericFieldValues(things []*Thing, field string) []float64 {
 	values := make([]float64, 0, len(things))
@@ -630,7 +682,11 @@ func (b *InMemoryBackend) GetCardinality(input *AggregationInput) (int64, error)
 }
 
 // GetStatistics computes count/min/max/sum/average/stdDeviation of
-// AggregationField (interpreted numerically) among Things matching QueryString.
+// AggregationField (interpreted numerically) among the fleet-index
+// documents matching QueryString. IndexName selects AWS_Things (default) or
+// AWS_ThingGroups -- same two-index dispatch as SearchIndex; previously
+// declared on AggregationInput but never read, so a caller aggregating
+// AWS_ThingGroups silently got Things-index results instead.
 func (b *InMemoryBackend) GetStatistics(input *AggregationInput) (*Statistics, error) {
 	if input == nil || input.AggregationField == "" {
 		return nil, fmt.Errorf("%w: aggregationField is required", ErrValidation)
@@ -639,7 +695,21 @@ func (b *InMemoryBackend) GetStatistics(input *AggregationInput) (*Statistics, e
 	b.mu.RLock("GetStatistics")
 	defer b.mu.RUnlock()
 
-	return computeStatistics(numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)), nil
+	indexName := input.IndexName
+	if indexName == "" {
+		indexName = indexNameThings
+	}
+
+	switch indexName {
+	case indexNameThings:
+		return computeStatistics(numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)), nil
+	case indexNameThingGroups:
+		return computeStatistics(
+			numericFieldValuesGroups(b.matchedThingGroups(input.QueryString), input.AggregationField),
+		), nil
+	default:
+		return nil, fmt.Errorf("%w: unknown index %q", ErrValidation, indexName)
+	}
 }
 
 func computeStatistics(values []float64) *Statistics {

@@ -99,8 +99,8 @@ type StorageBackend interface {
 	DescribeJob(jobID string) (*Job, error)
 	ListJobs() []*Job
 	UpdateJob(jobID string, input *UpdateJobInput) error
-	CancelJob(jobID, comment string) (*Job, error)
-	DeleteJob(jobID string) error
+	CancelJob(jobID, comment string, force bool) (*Job, error)
+	DeleteJob(jobID string, force bool) error
 	GetJobDocument(jobID string) (string, error)
 	DescribeJobExecution(jobID, thingName string) (*JobExecution, error)
 	CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error
@@ -127,7 +127,9 @@ type StorageBackend interface {
 	CreateDomainConfiguration(input *CreateDomainConfigurationInput) (*DomainConfiguration, error)
 	DescribeDomainConfiguration(name string) (*DomainConfiguration, error)
 	ListDomainConfigurations() []*DomainConfiguration
-	UpdateDomainConfiguration(name, status string) (*DomainConfiguration, error)
+	UpdateDomainConfiguration(
+		name, status, applicationProtocol, authenticationType string,
+	) (*DomainConfiguration, error)
 	DeleteDomainConfiguration(name string) error
 
 	// ProvisioningTemplate operations.
@@ -188,7 +190,7 @@ type StorageBackend interface {
 
 	// Batch 2: CACertificate operations.
 	RegisterCACertificate(
-		pem, status string,
+		pem, status, certificateMode, verificationCertificate string,
 		tags map[string]string,
 		regConfig RegistrationConfig,
 	) (*CACertificate, error)
