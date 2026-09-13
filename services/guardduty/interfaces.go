@@ -8,7 +8,7 @@ type StorageBackend interface {
 	GetDetector(detectorID string) (*Detector, error)
 	UpdateDetector(detectorID string, enable *bool, frequency string, features []DetectorFeature) error
 	DeleteDetector(detectorID string) error
-	ListDetectors() []string
+	ListDetectors(maxResults int32, nextToken string) ([]string, string, error)
 
 	CreateFilter(
 		detectorID, name, description, action string,

@@ -459,6 +459,7 @@ func (h *Handler) handleUpdateNodegroupConfig(
 
 type updateNodegroupVersionBody struct {
 	Version            string `json:"version"`
+	ReleaseVersion     string `json:"releaseVersion"`
 	ClientRequestToken string `json:"clientRequestToken"`
 }
 
@@ -471,7 +472,7 @@ func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nod
 	}
 
 	return h.withIdempotency(c, opUpdateNodegroupVersion, in.ClientRequestToken, body, func() (int, any, error) {
-		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version)
+		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version, in.ReleaseVersion)
 		if err != nil {
 			return 0, nil, err
 		}

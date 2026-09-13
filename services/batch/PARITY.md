@@ -568,3 +568,48 @@ distinguish "this file proved a related fix" from "this op was called."
 Gates: `go build ./services/batch/...`, `go vet`, `go test -race -count=1`
 (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields: `CreateComputeEnvironment.
+ServiceRole`, `CreateConsumableResource.ResourceType`, `CreateQuotaShare.
+State`, `CreateServiceEnvironment.State`, `RegisterJobDefinition.Parameters`,
+`SubmitJob.ContainerOverrides`, `SubmitServiceJob.TimeoutConfig`. All seven
+are false positives -- every one is already decoded on its named request
+struct and threaded through to the backend:
+
+- `ServiceRole`: handler_compute_environments.go:66 decode, :151 passed to
+  `CreateComputeEnvironment`, stored at compute_environments.go:209, echoed
+  automatically (`ComputeEnvironment.ServiceRole` carries `json:"serviceRole,
+  omitempty"` and `DescribeComputeEnvironments` marshals `*ComputeEnvironment`
+  directly, handler_compute_environments.go:173-198 -- no manual map builder
+  for this op family).
+- `ResourceType`: handler_consumable_resources.go:13,33, applied at
+  consumable_resources.go:51.
+- `State` (both ops): handler_quota_shares.go:20,44 and
+  handler_service_environments.go:31, both passed straight through to their
+  backend constructors.
+- `Parameters`: handler_job_definitions.go:143,349, applied at
+  job_definitions.go:85.
+- `ContainerOverrides`: handler_jobs.go:207,229-235, actually merged onto the
+  job's `ContainerDetail` by `applyContainerOverrides` (jobs.go:562-580,
+  real per-field override semantics, not a pass-through no-op).
+- `TimeoutConfig`: handler_service_jobs.go:18,52,136, applied at
+  service_jobs.go:118.
+
+Root cause (new blind-spot shape for gopherstack-99nj): every op in this
+service is registered as `service.WrapOp(h.handle<Op>)`
+(`pkgs/service/jsondisp.go:58`, `func WrapOp[In, Out any](fn func(context.
+Context, *In) (*Out, error)) JSONOpFunc`) -- structurally the same generic-
+dispatch-wrapper pattern as ssm's `jsonOp`/lambda's per-family switch already
+on 99nj's blind-spot list, but keyed off a `h.handle<Op>` *Handler* method
+name rather than a `Backend.<Op>` method reference, so the existing generic-
+wrapper recognizer doesn't match it: reqfielddiff cannot resolve a decode
+struct for any batch op through this path, and ranks every field of every
+op by signal strength as if wholly undeclared (confirmed by the full
+per-op finding list -- every field of these 7 ops appears at some tier,
+not just the flagged tier-1 ones).
+
+No code changes this pass. Gates unaffected (nothing touched):
+`go build ./services/batch/...`, `go vet`, `go test -race -count=1` clean;
+`cmd/paritylint` stays at 0 FAIL.

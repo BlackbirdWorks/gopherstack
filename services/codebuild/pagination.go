@@ -65,3 +65,14 @@ func paginateCommandExecutions(
 
 	return page.New(ordered, nextToken, int(maxResults), defaultListPageSize), nil
 }
+
+// paginateTestCases applies nextToken/maxResults pagination to a TestCase
+// slice (DescribeTestCasesInput has no sortOrder member, unlike the List*
+// ops paginateIDs/paginateCommandExecutions serve).
+func paginateTestCases(all []TestCase, nextToken string, maxResults int32) (page.Page[TestCase], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[TestCase]{}, fmt.Errorf("%w: invalid nextToken", ErrValidation)
+	}
+
+	return page.New(all, nextToken, int(maxResults), defaultListPageSize), nil
+}

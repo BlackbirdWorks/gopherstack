@@ -316,6 +316,8 @@ items_still_open:
   - "parity-25 (gopherstack-oc9v): algorithm's TrainingSpecification/InferenceSpecification/ValidationSpecification (all now required-checked/present, see families: algorithm) remain opaque json.RawMessage passthrough rather than fully-typed structs — TrainingSpecification alone nests ChannelSpecification/MetricDefinition/HyperParameterSpecification, deep and low-traffic; every field a client sends round-trips exactly. (no bd issue filed yet)"
   - "parity-25 (gopherstack-oc9v): model_endpoint_config_crud's CreateEndpointConfigInput.ExplainerConfig (types.ExplainerConfig -> ClarifyExplainerConfig -> ClarifyShapConfig/...) is stored+echoed as opaque json.RawMessage rather than fully modeled, same passthrough convention as algorithm's specs above; every field a client sends round-trips exactly, proven via a real-SDK-client test. (no bd issue filed yet)"
   - "parity-25 (gopherstack-oc9v): presigned_session's CreatePresignedDomainUrlInput.ExpiresInSeconds/LandingUri/SessionExpirationDurationInSeconds are decoded but are disclosed no-ops — CreatePresignedDomainUrlOutput has no field to reflect them into, and this backend's synthetic authorized-URL token carries no verified real query-parameter format to encode them, the same stance already established for PartnerApps' identical fields. (no bd issue filed yet)"
+  - "2026-09-13 (gopherstack-xhu2t): UpdateProjectInput.ServiceCatalogProvisioningUpdateDetails/TemplateProvidersToUpdate are not decoded (pre-existing, see handler_projects.go's doc comment and the parity-25/Notes writeup below) -- applying either for real requires simulating an actual Service Catalog provisioned-product update, out of scope. Promoted here from body-only prose into items_still_open, the one authoritative open-item list, per gopherstack-anjf."
+  - "2026-09-13 (gopherstack-xhu2t): DeleteDomainInput.RetentionPolicy (real semantics: HomeEfsFileSystem Retain (default) vs Delete, governing whether the domain's EFS-backed home directory data survives deletion) has no state to act on -- Domain (domains.go) tracks no EFS file-system content/ID at all, only HomeEfsFileSystemCreation (a distinct field, the creation *mode*, not a resource this backend can independently retain or delete). Not fixed: there is no simulated EFS resource for the field to govern."
 deferred:                 # consciously not (fully) audited this pass (scope) — next pass targets
   - model_package_model_package_group (beyond ModelPackageStatusDetails fix; InferenceSpecification etc. not audited)
   - edge_deployment_device_fleet (EdgeDeploymentPlan portion; DeviceFleet/Device fixed parity-earlier, EdgePackagingJob's Create/List wire surface fixed parity-24 — see families: edge_deployment_device_fleet)
@@ -6768,3 +6770,39 @@ JSON wire encoding). `golangci-lint run --new-from-rev=HEAD
 `AIBenchmarkJob.MarshalJSON` convention). `go run ./cmd/paritylint` stays
 at 0 FAIL. No persisted struct fields changed; snapshot inventory not
 touched; no version bump.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields. Four were false positives,
+already declared and applied: `UpdateEndpoint.RetainAllVariantProperties`/
+`RetainDeploymentConfig` (handler_endpoints.go:64-84, applied at
+endpoints.go:364/416) and `ListTrainingJobs.SortBy`/`SortOrder`
+(handler_training_jobs.go:245-262, applied at training_jobs.go:520-522 via
+`lessTrainingJobBySortBy`).
+
+The other three were real gaps, none fixed -- all recorded (or, for two,
+promoted from body-only prose into `items_still_open`, the one
+authoritative open-item list per gopherstack-anjf):
+
+- `DeleteDomain.RetentionPolicy` (new): no EFS file-system content/ID is
+  modeled on `Domain` at all (only `HomeEfsFileSystemCreation`, the
+  creation *mode*), so there is no resource for `RetentionPolicy` to
+  independently retain or delete.
+- `UpdateProject.ServiceCatalogProvisioningUpdateDetails`/
+  `TemplateProvidersToUpdate`: pre-existing, deliberate non-implementation
+  (handler_projects.go's doc comment) -- applying it for real needs a
+  simulated Service Catalog provisioned-product update. Was previously
+  disclosed only in body prose (line ~3350); now also in
+  `items_still_open`.
+- `CreateImageVersion.ClientToken`: consistent with this service's
+  established, extensively-documented convention of omitting
+  idempotency-only `ClientToken` fields across every Create/Update op (see
+  images.go:397's own comment, "matching every other Create op in this
+  service", and the half-dozen other `ClientToken` disclosures already in
+  this file) -- not a new or isolated gap, so not given its own
+  `items_still_open` line on top of the existing repo-wide one.
+
+No code changes this pass (all four real fields already correct or already
+consciously out of scope). Gates unaffected: `go build ./...` clean; `go
+vet ./services/sagemaker/...` clean; `go test -race -count=1 -p 2
+./services/sagemaker/...` `ok`; `go run ./cmd/paritylint` 0 FAIL.

@@ -40,7 +40,9 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	err = b.Restore(ctx, []byte(`{"version":999,"tables":{}}`))
 	require.NoError(t, err)
 
-	assert.Empty(t, b.ListDetectors())
+	ids, _, err := b.ListDetectors(0, "")
+	require.NoError(t, err)
+	assert.Empty(t, ids)
 
 	_, err = b.GetDetector(d.DetectorID)
 	require.Error(t, err)
@@ -65,7 +67,9 @@ func TestInMemoryBackend_RestoreOldSnapshotDecodesAsZero(t *testing.T) {
 	err = b.Restore(ctx, []byte(oldShape))
 	require.NoError(t, err)
 
-	assert.Empty(t, b.ListDetectors())
+	ids, _, err := b.ListDetectors(0, "")
+	require.NoError(t, err)
+	assert.Empty(t, ids)
 }
 
 // TestInMemoryBackend_SnapshotRestore_FullState exercises a Snapshot->Restore
@@ -175,7 +179,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "us-west-2", restored.Region())
 
 	// detectors ("clean").
-	assert.Equal(t, []string{detectorID}, restored.ListDetectors())
+	restoredIDs, _, err := restored.ListDetectors(0, "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{detectorID}, restoredIDs)
 	gotDetector, err := restored.GetDetector(detectorID)
 	require.NoError(t, err)
 	assert.Equal(t, d.Tags, gotDetector.Tags)

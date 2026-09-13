@@ -43,7 +43,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 					DeploymentMode:     "SINGLE_INSTANCE",
 					PubliclyAccessible: aws.Bool(false),
 					Users: []mqtypes.User{
-						{Username: aws.String("admin"), Password: aws.String("supersecretpassword1")},
+						{
+							Username: aws.String("admin"),
+							Password: aws.String("supersecretpassword1"),
+						},
 					},
 				})
 				require.NoError(t, err)
@@ -54,7 +57,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				tagsOut, err := client.ListTags(ctx, &mqsdk.ListTagsInput{ResourceArn: aws.String(brokerArn)})
+				tagsOut, err := client.ListTags(
+					ctx,
+					&mqsdk.ListTagsInput{ResourceArn: aws.String(brokerArn)},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, "platform", tagsOut.Tags["team"])
 
@@ -63,7 +69,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				tagsOut2, err := client.ListTags(ctx, &mqsdk.ListTagsInput{ResourceArn: aws.String(brokerArn)})
+				tagsOut2, err := client.ListTags(
+					ctx,
+					&mqsdk.ListTagsInput{ResourceArn: aws.String(brokerArn)},
+				)
 				require.NoError(t, err)
 				assert.NotContains(t, tagsOut2.Tags, "team")
 			},
@@ -85,7 +94,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 					DeploymentMode:     "SINGLE_INSTANCE",
 					PubliclyAccessible: aws.Bool(false),
 					Users: []mqtypes.User{
-						{Username: aws.String("admin"), Password: aws.String("supersecretpassword1")},
+						{
+							Username: aws.String("admin"),
+							Password: aws.String("supersecretpassword1"),
+						},
 					},
 				})
 				require.NoError(t, err)
@@ -110,7 +122,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				require.NotNil(t, descOut.Pending)
 				assert.Equal(t, mqtypes.ChangeTypeCreate, descOut.Pending.PendingChange)
 
-				listOut, err := client.ListUsers(ctx, &mqsdk.ListUsersInput{BrokerId: aws.String(brokerID)})
+				listOut, err := client.ListUsers(
+					ctx,
+					&mqsdk.ListUsersInput{BrokerId: aws.String(brokerID)},
+				)
 				require.NoError(t, err)
 
 				names := make([]string, 0, len(listOut.Users))
@@ -135,7 +150,12 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 					BrokerId: aws.String(brokerID), Username: aws.String("alice"),
 				})
 				require.NoError(t, err)
-				assert.Equal(t, []string{"admins"}, descOut2.Groups, "groups must not change before a reboot")
+				assert.Equal(
+					t,
+					[]string{"admins"},
+					descOut2.Groups,
+					"groups must not change before a reboot",
+				)
 				require.NotNil(t, descOut2.Pending)
 				assert.ElementsMatch(t, []string{"admins", "ops"}, descOut2.Pending.Groups)
 				assert.True(t, aws.ToBool(descOut2.Pending.ConsoleAccess))
@@ -143,16 +163,27 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				// DescribeBroker/ListBrokers apply any pending reboot-time changes
 				// once BrokerState is REBOOT_IN_PROGRESS (brokers.go's
 				// promoteBrokerReboot).
-				_, err = client.RebootBroker(ctx, &mqsdk.RebootBrokerInput{BrokerId: aws.String(brokerID)})
+				_, err = client.RebootBroker(
+					ctx,
+					&mqsdk.RebootBrokerInput{BrokerId: aws.String(brokerID)},
+				)
 				require.NoError(t, err)
-				_, err = client.DescribeBroker(ctx, &mqsdk.DescribeBrokerInput{BrokerId: aws.String(brokerID)})
+				_, err = client.DescribeBroker(
+					ctx,
+					&mqsdk.DescribeBrokerInput{BrokerId: aws.String(brokerID)},
+				)
 				require.NoError(t, err)
 
 				descOut3, err := client.DescribeUser(ctx, &mqsdk.DescribeUserInput{
 					BrokerId: aws.String(brokerID), Username: aws.String("alice"),
 				})
 				require.NoError(t, err)
-				assert.ElementsMatch(t, []string{"admins", "ops"}, descOut3.Groups, "groups apply after reboot")
+				assert.ElementsMatch(
+					t,
+					[]string{"admins", "ops"},
+					descOut3.Groups,
+					"groups apply after reboot",
+				)
 				assert.True(t, aws.ToBool(descOut3.ConsoleAccess))
 				assert.Nil(t, descOut3.Pending)
 
@@ -171,15 +202,25 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				require.NotNil(t, descOut4.Pending)
 				assert.Equal(t, mqtypes.ChangeTypeDelete, descOut4.Pending.PendingChange)
 
-				_, err = client.RebootBroker(ctx, &mqsdk.RebootBrokerInput{BrokerId: aws.String(brokerID)})
+				_, err = client.RebootBroker(
+					ctx,
+					&mqsdk.RebootBrokerInput{BrokerId: aws.String(brokerID)},
+				)
 				require.NoError(t, err)
-				_, err = client.DescribeBroker(ctx, &mqsdk.DescribeBrokerInput{BrokerId: aws.String(brokerID)})
+				_, err = client.DescribeBroker(
+					ctx,
+					&mqsdk.DescribeBrokerInput{BrokerId: aws.String(brokerID)},
+				)
 				require.NoError(t, err)
 
 				_, err = client.DescribeUser(ctx, &mqsdk.DescribeUserInput{
 					BrokerId: aws.String(brokerID), Username: aws.String("alice"),
 				})
-				require.Error(t, err, "user no longer exists once the pending delete is applied on reboot")
+				require.Error(
+					t,
+					err,
+					"user no longer exists once the pending delete is applied on reboot",
+				)
 			},
 		},
 		{
@@ -192,16 +233,21 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				ctx := t.Context()
 
 				cfgOut, err := client.CreateConfiguration(ctx, &mqsdk.CreateConfigurationInput{
-					Name: aws.String("s23-config"), EngineType: "ACTIVEMQ", EngineVersion: aws.String("5.15.14"),
+					Name: aws.String(
+						"s23-config",
+					), EngineType: "ACTIVEMQ", EngineVersion: aws.String("5.15.14"),
 				})
 				require.NoError(t, err)
 				configID := aws.ToString(cfgOut.Id)
 				revision := cfgOut.LatestRevision.Revision
 
-				revOut, err := client.DescribeConfigurationRevision(ctx, &mqsdk.DescribeConfigurationRevisionInput{
-					ConfigurationId:       aws.String(configID),
-					ConfigurationRevision: aws.String(strconv.Itoa(int(aws.ToInt32(revision)))),
-				})
+				revOut, err := client.DescribeConfigurationRevision(
+					ctx,
+					&mqsdk.DescribeConfigurationRevisionInput{
+						ConfigurationId:       aws.String(configID),
+						ConfigurationRevision: aws.String(strconv.Itoa(int(aws.ToInt32(revision)))),
+					},
+				)
 				require.NoError(t, err)
 				assert.Equal(t, configID, aws.ToString(revOut.ConfigurationId))
 				assert.NotEmpty(t, aws.ToString(revOut.Data))
@@ -226,18 +272,69 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				client := newTestMQClient(t, mq.NewHandler(backend))
 				ctx := t.Context()
 
-				engineOut, err := client.DescribeBrokerEngineTypes(ctx, &mqsdk.DescribeBrokerEngineTypesInput{
-					EngineType: aws.String("ACTIVEMQ"),
-				})
+				engineOut, err := client.DescribeBrokerEngineTypes(
+					ctx,
+					&mqsdk.DescribeBrokerEngineTypesInput{
+						EngineType: aws.String("ACTIVEMQ"),
+					},
+				)
 				require.NoError(t, err)
 				require.NotEmpty(t, engineOut.BrokerEngineTypes)
-				assert.Equal(t, mqtypes.EngineTypeActivemq, engineOut.BrokerEngineTypes[0].EngineType)
+				assert.Equal(
+					t,
+					mqtypes.EngineTypeActivemq,
+					engineOut.BrokerEngineTypes[0].EngineType,
+				)
 
-				instOut, err := client.DescribeBrokerInstanceOptions(ctx, &mqsdk.DescribeBrokerInstanceOptionsInput{
-					EngineType: aws.String("ACTIVEMQ"),
-				})
+				instOut, err := client.DescribeBrokerInstanceOptions(
+					ctx,
+					&mqsdk.DescribeBrokerInstanceOptionsInput{
+						EngineType: aws.String("ACTIVEMQ"),
+					},
+				)
 				require.NoError(t, err)
 				require.NotEmpty(t, instOut.BrokerInstanceOptions)
+
+				unfilteredEngines, err := client.DescribeBrokerEngineTypes(
+					ctx,
+					&mqsdk.DescribeBrokerEngineTypesInput{},
+				)
+				require.NoError(t, err)
+				require.Len(
+					t,
+					unfilteredEngines.BrokerEngineTypes,
+					2,
+					"sanity: ACTIVEMQ + RABBITMQ",
+				)
+
+				pagedEngines, err := client.DescribeBrokerEngineTypes(
+					ctx,
+					&mqsdk.DescribeBrokerEngineTypesInput{
+						MaxResults: aws.Int32(1),
+					},
+				)
+				require.NoError(t, err)
+				assert.Len(
+					t,
+					pagedEngines.BrokerEngineTypes,
+					1,
+					"MaxResults=1 must truncate the 2-entry engine type list",
+				)
+				require.NotNil(t, pagedEngines.NextToken)
+
+				pagedInstOpts, err := client.DescribeBrokerInstanceOptions(
+					ctx,
+					&mqsdk.DescribeBrokerInstanceOptionsInput{
+						MaxResults: aws.Int32(1),
+					},
+				)
+				require.NoError(t, err)
+				assert.Len(
+					t,
+					pagedInstOpts.BrokerInstanceOptions,
+					1,
+					"MaxResults=1 must truncate the 3-entry instance option list",
+				)
 
 				brokerOut, err := client.CreateBroker(ctx, &mqsdk.CreateBrokerInput{
 					BrokerName:         aws.String("s23-shared-broker"),
@@ -247,16 +344,32 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 					DeploymentMode:     "SINGLE_INSTANCE",
 					PubliclyAccessible: aws.Bool(false),
 					Users: []mqtypes.User{
-						{Username: aws.String("admin"), Password: aws.String("supersecretpassword1")},
+						{
+							Username: aws.String("admin"),
+							Password: aws.String("supersecretpassword1"),
+						},
 					},
 				})
 				require.NoError(t, err)
 
-				sharedOut, err := client.DescribeSharedResources(ctx, &mqsdk.DescribeSharedResourcesInput{
-					BrokerId: brokerOut.BrokerId,
-				})
+				sharedOut, err := client.DescribeSharedResources(
+					ctx,
+					&mqsdk.DescribeSharedResourcesInput{
+						BrokerId: brokerOut.BrokerId,
+					},
+				)
 				require.NoError(t, err)
 				assert.Empty(t, sharedOut.SharedResources)
+
+				_, err = client.DescribeSharedResources(ctx, &mqsdk.DescribeSharedResourcesInput{
+					BrokerId:  brokerOut.BrokerId,
+					NextToken: aws.String("not-valid-base64!!"),
+				})
+				require.Error(
+					t,
+					err,
+					"a malformed nextToken must now be rejected instead of silently ignored",
+				)
 			},
 		},
 		{
@@ -270,10 +383,15 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 
 				replicaOut, err := client.CreateBroker(ctx, &mqsdk.CreateBrokerInput{
 					BrokerName: aws.String("s23-replica-broker"), EngineType: "ACTIVEMQ",
-					EngineVersion: aws.String("5.15.14"), HostInstanceType: aws.String("mq.t3.micro"),
+					EngineVersion: aws.String(
+						"5.15.14",
+					), HostInstanceType: aws.String("mq.t3.micro"),
 					DeploymentMode: "SINGLE_INSTANCE", PubliclyAccessible: aws.Bool(false),
 					Users: []mqtypes.User{
-						{Username: aws.String("admin"), Password: aws.String("supersecretpassword1")},
+						{
+							Username: aws.String("admin"),
+							Password: aws.String("supersecretpassword1"),
+						},
 					},
 					DataReplicationMode: mqtypes.DataReplicationModeCrdr,
 					DataReplicationPrimaryBrokerArn: aws.String(
@@ -289,7 +407,11 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, descBefore.DataReplicationMetadata)
-				assert.Equal(t, "REPLICA", aws.ToString(descBefore.DataReplicationMetadata.DataReplicationRole))
+				assert.Equal(
+					t,
+					"REPLICA",
+					aws.ToString(descBefore.DataReplicationMetadata.DataReplicationRole),
+				)
 
 				promoteOut, err := client.Promote(ctx, &mqsdk.PromoteInput{
 					BrokerId: aws.String(replicaID), Mode: mqtypes.PromoteModeSwitchover,
@@ -303,7 +425,11 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				)
 				require.NoError(t, err)
 				require.NotNil(t, descAfter.DataReplicationMetadata)
-				assert.Equal(t, "PRIMARY", aws.ToString(descAfter.DataReplicationMetadata.DataReplicationRole))
+				assert.Equal(
+					t,
+					"PRIMARY",
+					aws.ToString(descAfter.DataReplicationMetadata.DataReplicationRole),
+				)
 			},
 		},
 		{
@@ -323,7 +449,10 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 					DeploymentMode:     "SINGLE_INSTANCE",
 					PubliclyAccessible: aws.Bool(false),
 					Users: []mqtypes.User{
-						{Username: aws.String("admin"), Password: aws.String("supersecretpassword1")},
+						{
+							Username: aws.String("admin"),
+							Password: aws.String("supersecretpassword1"),
+						},
 					},
 				})
 				require.NoError(t, err)
@@ -331,7 +460,11 @@ func TestRealClient_UsersConfigBroker(t *testing.T) {
 				_, err = client.Promote(ctx, &mqsdk.PromoteInput{
 					BrokerId: brokerOut.BrokerId, Mode: mqtypes.PromoteModeFailover,
 				})
-				require.Error(t, err, "Promote is documented as operating only on a CRDR replica broker")
+				require.Error(
+					t,
+					err,
+					"Promote is documented as operating only on a CRDR replica broker",
+				)
 			},
 		},
 	}

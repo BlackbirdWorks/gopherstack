@@ -1,12 +1,33 @@
 package codebuild
 
+import "fmt"
+
 // ImportSourceCredentials imports source credentials and returns the ARN.
-func (b *InMemoryBackend) ImportSourceCredentials(authType, serverType, token string) (string, error) {
+// shouldOverwrite mirrors ImportSourceCredentialsInput.ShouldOverwrite ("Set
+// to false to prevent overwriting the repository source credentials. The
+// default value is true.") -- when false and a credential for serverType
+// already exists, the import is rejected with ResourceAlreadyExistsException
+// instead of silently replacing it.
+func (b *InMemoryBackend) ImportSourceCredentials(
+	authType, serverType, token string,
+	shouldOverwrite bool,
+) (string, error) {
 	b.mu.Lock("ImportSourceCredentials")
 	defer b.mu.Unlock()
 
 	_ = token
 	arnStr := "arn:aws:codebuild:" + b.region + ":" + b.accountID + ":token/" + serverType
+
+	if !shouldOverwrite {
+		if _, ok := b.sourceCredentials.Get(arnStr); ok {
+			return "", fmt.Errorf(
+				"%w: source credentials for %s already exist",
+				ErrAlreadyExists,
+				serverType,
+			)
+		}
+	}
+
 	b.sourceCredentials.Put(&SourceCredentials{
 		Arn:        arnStr,
 		ServerType: serverType,

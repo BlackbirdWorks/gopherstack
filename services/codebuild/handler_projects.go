@@ -235,15 +235,26 @@ func (h *Handler) handleInvalidateProjectCache(
 	return &invalidateProjectCacheOutput{}, nil
 }
 
-type listSharedProjectsInput struct{}
+type listSharedProjectsInput struct {
+	NextToken  string `json:"nextToken"`
+	SortBy     string `json:"sortBy"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults,omitempty"`
+}
 
 type listSharedProjectsOutput struct {
-	Projects []string `json:"projects"`
+	NextToken string   `json:"nextToken,omitempty"`
+	Projects  []string `json:"projects"`
 }
 
 func (h *Handler) handleListSharedProjects(
 	_ context.Context,
-	_ *listSharedProjectsInput,
+	in *listSharedProjectsInput,
 ) (*listSharedProjectsOutput, error) {
-	return &listSharedProjectsOutput{Projects: h.Backend.ListSharedProjects()}, nil
+	pg, err := paginateIDs(h.Backend.ListSharedProjects(), in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listSharedProjectsOutput{Projects: pg.Data, NextToken: pg.Next}, nil
 }

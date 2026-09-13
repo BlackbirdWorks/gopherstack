@@ -359,9 +359,11 @@ func removeTaints(existing []NodegroupTaint, toRemove []NodegroupTaint) []Nodegr
 	return result
 }
 
-// UpdateNodegroupVersion updates the node group Kubernetes version.
+// UpdateNodegroupVersion updates the node group Kubernetes version and/or
+// its AMI release version (UpdateNodegroupVersionInput.ReleaseVersion, "the
+// AMI version of the Amazon EKS optimized AMI to use for the update").
 func (b *InMemoryBackend) UpdateNodegroupVersion(
-	clusterName, nodegroupName, version string,
+	clusterName, nodegroupName, version, releaseVersion string,
 ) (*Update, error) {
 	b.mu.Lock("UpdateNodegroupVersion")
 	defer b.mu.Unlock()
@@ -379,13 +381,20 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 		ng.Version = version
 	}
 
+	params := []UpdateParam{{Type: "Version", Value: version}}
+
+	if releaseVersion != "" {
+		ng.ReleaseVersion = releaseVersion
+		params = append(params, UpdateParam{Type: "ReleaseVersion", Value: releaseVersion})
+	}
+
 	u := &Update{
 		ID:            stableID(clusterName + "/" + nodegroupName + "/version-update/" + time.Now().String()),
 		ClusterName:   clusterName,
 		NodegroupName: nodegroupName,
 		Status:        statusInProgress,
 		Type:          typeVersionUpdate,
-		Params:        []UpdateParam{{Type: "Version", Value: version}},
+		Params:        params,
 		CreatedAt:     time.Now().UTC(),
 	}
 	b.storeUpdateLocked(u)

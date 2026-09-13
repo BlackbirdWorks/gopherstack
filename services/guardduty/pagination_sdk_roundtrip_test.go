@@ -84,3 +84,36 @@ func TestListFilters_SDKRoundTrip_BoundaryWalkAndStaleToken(t *testing.T) {
 		assert.Nil(t, out.NextToken)
 	})
 }
+
+// TestListDetectors_SDKRoundTrip_HonoursNextToken proves ListDetectors reads
+// and applies its MaxResults/NextToken query parameters (it previously
+// ignored both, always returning the unpaginated full set). GuardDuty caps
+// an account/region to exactly one detector, so no fixture here can ever
+// produce a second page -- instead this proves the parameter is actually
+// wired by checking a malformed NextToken is now rejected instead of
+// silently ignored (the pre-fix behaviour: any input past a valid detector
+// ID was a no-op).
+func TestListDetectors_SDKRoundTrip_HonoursNextToken(t *testing.T) {
+	t.Parallel()
+
+	h := guardduty.NewHandler(guardduty.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestGuardDutyClient(t, h)
+
+	empty, err := client.ListDetectors(t.Context(), &guarddutysdk.ListDetectorsInput{})
+	require.NoError(t, err)
+	assert.Empty(t, empty.DetectorIds)
+	assert.Nil(t, empty.NextToken)
+
+	det, err := client.CreateDetector(t.Context(), &guarddutysdk.CreateDetectorInput{Enable: aws.Bool(true)})
+	require.NoError(t, err)
+
+	one, err := client.ListDetectors(t.Context(), &guarddutysdk.ListDetectorsInput{MaxResults: aws.Int32(1)})
+	require.NoError(t, err)
+	assert.Equal(t, []string{aws.ToString(det.DetectorId)}, one.DetectorIds)
+	assert.Nil(t, one.NextToken)
+
+	_, err = client.ListDetectors(t.Context(), &guarddutysdk.ListDetectorsInput{
+		NextToken: aws.String("not-valid-base64!!"),
+	})
+	require.Error(t, err, "a malformed NextToken must now be rejected instead of silently ignored")
+}

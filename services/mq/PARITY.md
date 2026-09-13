@@ -139,3 +139,49 @@ Fixed both sites to `errType = "InternalServerErrorException"`.
 `errors.As(err, &types.InternalServerErrorException{})` with
 `ErrorFault() == smithy.FaultServer`; confirmed it fails pre-fix with the
 old `"InternalError"` code (hand-reverted, byte-identical restore after).
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields, all `MaxResults`. Four were
+false positives -- `ListBrokers`, `ListConfigurations`,
+`ListConfigurationRevisions`, `ListUsers` already read `maxResults`/
+`nextToken` via `c.Request().URL.Query()` (handler_brokers.go:112-121,
+handler_configurations.go:78-86, handler_configuration_revisions.go:12-25,
+handler_users.go:98-108) -- a query-read blind spot the tool can't see
+through inline `q.Get("maxResults")` reads rather than a named decode
+struct (same class as gopherstack-99nj).
+
+The other three were real:
+
+- `DescribeBrokerEngineTypes.MaxResults`/`DescribeBrokerInstanceOptions.
+  MaxResults`: neither handler read any query parameter besides the
+  existing `engineType`/`hostInstanceType`/`storageType` filters -- the
+  full static catalog (2 engine types, 3 instance options) was always
+  returned in one page. Unlike most MaxResults gaps in this campaign, this
+  one has real, non-empty, multi-entry data to truncate, so it's a genuine
+  observable bug, not just an unread field over always-empty state. Fixed:
+  both now paginate via the shared `page.New` (new `mqPaginationParams`
+  helper, mirroring `ListBrokers`'s existing inline pattern), page size
+  bounded 5-100 per each op's own doc comment (`api_op_DescribeBroker*
+  Types/InstanceOptions.go`), default `mqDefaultPageSize`.
+- `DescribeSharedResources.MaxResults`/`NextToken`: this backend models no
+  AWS RAM cross-account resource sharing (see the pre-existing
+  `items_still_open` entry -- `sharedResources` is always `[]`), so
+  `MaxResults` has nothing to truncate. `NextToken` is still validated now
+  (`page.ValidateToken`): a malformed token is rejected instead of being
+  silently ignored, the same "prove it's wired via rejection, not
+  truncation" pattern used elsewhere in this campaign when the backing
+  data can never exceed one page.
+
+New assertions in the existing `TestRealClient_UsersConfigBroker`'s
+"broker engine types and instance options and shared resources" case
+(realclient_users_config_broker_test.go) prove `MaxResults=1` truncates
+both the 2-entry engine-type list and the 3-entry instance-option list
+with a real `NextToken`, and that a malformed `NextToken` on
+`DescribeSharedResources` is now rejected.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/mq/...`
+clean; `go test -race -count=1 -p 2 ./services/mq/...` `ok`; `golangci-lint
+run --concurrency 2 --new-from-rev=HEAD ./services/mq/...` 0 issues; `go run
+./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
+no version bump.

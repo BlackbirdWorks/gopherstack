@@ -107,6 +107,7 @@ items_still_open:
   - "gopherstack-lruaw (2026-09-11): CertificateAuthority.ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is unmodeled -- no published derivation formula from the CA's validity period exists in the pinned SDK's doc comments or the EKS user guide"
   - "gopherstack-lruaw (2026-09-11): ActivateCertificateAuthority's RollbackAvailable window ('For a limited period after activation, CA rollback is available') is set true on the retired outgoing CA but never expires -- no TTL sweep exists for it, the same disclosed simplification as the ClientRequestToken 24h window above"
   - "gopherstack-lruaw (2026-09-11): DeleteCertificateAuthority's second documented protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger here -- every CA in this backend has CreatedBy=CUSTOMER, since nothing auto-provisions an EKS-created initial cluster CA into the new certificateAuthorities table (the pre-existing, unrelated Cluster.CertificateAuthority placeholder field is untouched by this pass)"
+  - "CreateCluster.BootstrapSelfManagedAddons is decoded nowhere and has no backend effect: this backend never auto-installs the default vpc-cni/coredns/kube-proxy addons at cluster-creation time in the first place (they only ever appear via an explicit CreateAddon call), so there is no auto-install behavior for the flag to suppress. Not fabricated -- the field is also not echoed on the Cluster response shape at all in the real SDK (types.Cluster has no such member), so a real client cannot observe this backend's non-handling either way"
 deferred:
   - "gopherstack-wf8f (2026-09-11) closeout of the prior pass's error-code-granularity item: ResourceLimitExceededException is now enforced (item 4) for every op that declares it and has a real, published AWS quota this backend can plausibly hit (CreateAccessEntry, CreateCapability, CreateCluster, CreateEksAnywhereSubscription, CreateFargateProfile, CreateNodegroup, CreatePodIdentityAssociation, RegisterCluster -- see limits.go). ClientException/ServerException/ServiceUnavailableException/ThrottlingException are declared by this SDK's deserializers.go on some ops but remain structurally unreachable from this backend: re-ran cmd/errtargetaudit -dir eks this pass (0 class-A findings, matching the 2026-08-31 eks-is-clean sweep) and found no new reachable case for any of them -- ClientException/ServerException model IAM-permission-denial and server-side-fault conditions this backend has no authorization-denial or fault-injection mechanism for; ServiceUnavailableException/ThrottlingException model transient infrastructure conditions an in-memory backend structurally cannot produce. Consistent with every other gopherstack service's treatment of these codes, not unique to eks"
 leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions, plus gopherstack-lruaw's new certificate authority distribution/activation transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). CertificateAuthority carries no tags.Tags (real types.CertificateAuthority/CertificateAuthoritySummary have no tags member), so Reset/Delete need no new tag-closing code for it. No new goroutine/ticker primitive was introduced this pass -- scheduleCertificateAuthorityDistribution/scheduleCertificateAuthorityActivation reuse the existing b.work (*worker.Group), the same mechanism as every sibling CREATING->ACTIVE transition"}
@@ -1068,3 +1069,69 @@ test -race -count=1` (eks + pkgs/persistence), `golangci-lint run
 --new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint` stays
 at 0 FAIL. No persisted struct fields changed (a backend method's
 parameter list, not `AnywhereSubscription`'s own fields); no version bump.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 8 tier-1 fields. Two were false positives:
+`ListCapabilities.MaxResults` and `ListCertificateAuthorities.MaxResults` are
+already read via the shared `eksPaginationParams`/`page.New` helpers
+(handler_capabilities.go/handler_certificate_authorities.go), a query-read
+blind spot the tool can't see through a shared parsing helper rather than a
+named decode struct (same class as gopherstack-99nj).
+
+The other six were real, all in `CreateCluster`'s `createClusterBody`, which
+never even declared `Logging`/`UpgradePolicy`/`DeletionProtection` fields:
+
+- `CreateCluster.DeletionProtection`: now decoded, stored on `Cluster`, and
+  enforced -- `DeleteCluster` now rejects (`ResourceInUseException`, the same
+  sentinel as the nodegroup/fargate-profile-still-attached cases) while it's
+  enabled, matching the real doc text ("the cluster cannot be deleted unless
+  deletion protection is first disabled"). Echoed on `DescribeCluster`.
+- `CreateCluster.Logging`: now decoded (reusing
+  `updateClusterConfigLogging`'s shape, the same one `UpdateClusterConfig`
+  already applies) and stored as `Cluster.ClusterLogging` at creation time
+  instead of only being settable after the fact via `UpdateClusterConfig`.
+- `CreateCluster.UpgradePolicy`: now decoded and stored as
+  `Cluster.UpgradePolicySupportType`, echoed as `upgradePolicy.supportType`
+  on every `DescribeCluster`/`CreateCluster` response. Defaults to `EXTENDED`
+  when unset or on a pre-existing snapshot with no persisted value, matching
+  the real doc text ("New clusters, by default, have extended support
+  enabled").
+- `DescribeClusterVersions.DefaultOnly`: this backend's static version-
+  support table already carries a `Default` bool per entry (used to build
+  `defaultVersion` in the response) but the query param was never read;
+  `DescribeClusterVersions` now takes a `defaultOnly bool` and filters the
+  table by it.
+- `UpdateNodegroupVersion.ReleaseVersion`: decoded nowhere; the backend now
+  applies it to the nodegroup the same way `CreateNodegroup`'s own
+  `ReleaseVersion` already does, and records it in the returned `Update`'s
+  params alongside `Version`.
+- `CreateCluster.BootstrapSelfManagedAddons` is a genuine gap, not fixed --
+  recorded in `items_still_open` (this backend never auto-installs default
+  addons at cluster-creation time in the first place, so the flag has no
+  state to act on, and the field isn't even echoed on the real `Cluster`
+  response shape).
+
+New `TestRealClient_ClusterCreateOptions` (DeletionProtection/Logging/
+UpgradePolicy, table-driven),
+`TestRealClient_DescribeClusterVersionsDefaultOnly`, and
+`TestRealClient_UpdateNodegroupVersionReleaseVersion`
+(realclient_cluster_create_options_test.go) drive all five through the real
+`aws-sdk-go-v2/service/eks` client and assert the observable effect (delete
+now rejected, logging/upgradePolicy round-trip on Describe, DefaultOnly
+narrows the version list, ReleaseVersion lands on DescribeNodegroup).
+
+`Cluster` gained two persisted fields (`DeletionProtection`,
+`UpgradePolicySupportType`); two rows added by hand to
+`pkgs/persistence/testdata/snapshot_inventory.json` in the eks block's
+existing alphabetical order. No snapshot version bump -- both fields are
+`omitempty` and additive, so a pre-existing snapshot decodes with
+`DeletionProtection=false`/`UpgradePolicySupportType=""`, and the latter is
+defaulted to `EXTENDED` in the response builder regardless of whether it
+came from a fresh create or an old restored snapshot.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/eks/...`
+clean; `go test -race -count=1 -p 2 ./services/eks/...` and
+`./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
+--new-from-rev=HEAD ./services/eks/...` 0 issues; `go run ./cmd/paritylint`
+0 FAIL.
