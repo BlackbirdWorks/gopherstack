@@ -576,6 +576,22 @@ func errorDetails(err error) errorEntry {
 		},
 		{ErrSubscriptionNotFound, errorEntry{"SubscriptionNotFound", "Subscription not found.", http.StatusNotFound}},
 		{
+			ErrServiceBusNamespaceNotFound,
+			errorEntry{"ResourceNotFound", "The Service Bus namespace was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusQueueNotFound,
+			errorEntry{"ResourceNotFound", "The Service Bus queue was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusTopicNotFound,
+			errorEntry{"ResourceNotFound", "The Service Bus topic was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusSubscriptionNotFound,
+			errorEntry{"ResourceNotFound", "The Service Bus subscription was not found.", http.StatusNotFound},
+		},
+		{
 			errAccountExistsInOtherResourceGroup,
 			errorEntry{
 				"StorageAccountAlreadyExists",

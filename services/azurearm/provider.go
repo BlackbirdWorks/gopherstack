@@ -44,6 +44,23 @@ type StorageAccountsProvider interface {
 	GetAzureARMStorageAccounts() StorageAccounts
 }
 
+// ErrServiceBusPortMismatch is returned when Settings.ServiceBusPort (what
+// ARM advertises as serviceBusEndpoint) disagrees with the actual
+// services/azureservicebus listener's own configured port -- the same
+// fail-fast rationale as ErrStorageVHostPortMismatch.
+var ErrServiceBusPortMismatch = errors.New(
+	"azurearm: --azure-arm-servicebus-port must match --azure-servicebus-port",
+)
+
+// ServiceBusPortProvider is a private interface AppContext.Config may
+// implement to expose the actual services/azureservicebus listener's
+// configured port, so Init can cross-check it against
+// Settings.ServiceBusPort. cli.go implements this via
+// CLI.GetAzureServiceBusPort.
+type ServiceBusPortProvider interface {
+	GetAzureServiceBusPort() int
+}
+
 // Provider implements service.Provider for the ARM emulation.
 //
 // Like services/azureblob/azurequeue/azuretable/cosmosdb/azureservicebus,
@@ -88,6 +105,15 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		}
 	}
 
+	if settings.AdvertiseServiceBus == "" {
+		if sp, ok := ctx.Config.(ServiceBusPortProvider); ok {
+			if actual := sp.GetAzureServiceBusPort(); actual != 0 && actual != settings.ServiceBusPort {
+				return nil, fmt.Errorf("%w: azure-arm-servicebus-port=%d, azure-servicebus-port=%d",
+					ErrServiceBusPortMismatch, settings.ServiceBusPort, actual)
+			}
+		}
+	}
+
 	backend := NewInMemoryBackend()
 	registry := NewRegistry(backend)
 
@@ -96,6 +122,12 @@ func (p *Provider) Init(ctx *service.AppContext) (service.Registerable, error) {
 		VHostPort:     settings.StorageVHostPort,
 	}
 	registry.Register(NewStorageProvider(storageCfg, dataPlane))
+
+	sbCfg := ServiceBusEndpointConfig{
+		Override: settings.AdvertiseServiceBus,
+		Port:     settings.ServiceBusPort,
+	}
+	registry.Register(NewServiceBusProvider(sbCfg, nil))
 
 	issuer, err := aadauth.NewIssuer()
 	if err != nil {

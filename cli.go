@@ -573,6 +573,15 @@ func (c *CLI) GetAzureStorageVHostPort() int {
 	return c.AzureStorageVHost.Port
 }
 
+// GetAzureServiceBusPort returns the Azure Service Bus listener's actual
+// configured port (azurearm.ServiceBusPortProvider), so
+// azurearm.Provider.Init can fail fast if it disagrees with
+// --azure-arm-servicebus-port instead of silently advertising a port
+// nothing answers on.
+func (c *CLI) GetAzureServiceBusPort() int {
+	return c.AzureServiceBus.Port
+}
+
 // GetS3Endpoint returns the configured S3 endpoint (s3.ConfigProvider).
 func (c *CLI) GetS3Endpoint() string {
 	s3Port := strings.TrimPrefix(c.Port, ":")
@@ -3643,6 +3652,11 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// services/azurestoragevhost's package doc comment and AZURE.md section
 	// 10.8).
 	wireAzureStorageVHost(byName["AzureBlob"], byName["AzureQueue"], byName["AzureTable"], byName["AzureStorageVHost"])
+
+	// Wire ARM's Microsoft.ServiceBus resource provider to
+	// services/azureservicebus's already-initialized handler (AZURE.md
+	// section 10.10's M9 entry).
+	wireAzureARMResourceProviders(byName["AzureARM"], byName["AzureServiceBus"])
 
 	// Wire CloudWatch → Firehose so a PutMetricStream/CreateMetricStream
 	// delivery stream actually receives matched metric data instead of
@@ -12491,6 +12505,29 @@ func wireAzureStorageVHost(blobReg, queueReg, tableReg, vhostReg service.Registe
 	if tableH, tableOk := tableReg.(*azuretablebackend.Handler); tableOk {
 		vhostH.Table = tableH
 	}
+}
+
+// wireAzureARMResourceProviders gives ARM's registered Microsoft.ServiceBus
+// resource provider a real ServiceBusEntities adapter over
+// services/azureservicebus's already-constructed Handler, replacing its
+// no-op default (AZURE.md section 10.10's M9 entry). This can't be wired at
+// azurearm.Provider.Init time the way StorageAccountsProvider is (M7's
+// pattern assumes the adapter is known at CLI-config-construction time) --
+// ServiceBus's real backend is a sibling service's already-constructed
+// runtime handler, only available here, at wireCrossServiceDependencies
+// time, mirroring wireAzureStorageVHost's post-construction injection.
+func wireAzureARMResourceProviders(armReg, sbReg service.Registerable) {
+	armH, ok := armReg.(*azurearmbackend.Handler)
+	if !ok {
+		return
+	}
+
+	sbH, ok := sbReg.(*azureservicebusbackend.Handler)
+	if !ok {
+		return
+	}
+
+	armH.Registry.SetServiceBusEntities(&azureServiceBusEntitiesAdapter{backend: sbH.Backend})
 }
 
 // wireServiceDiscoveryDNS sets the DNS registrar on the Cloud Map backend so

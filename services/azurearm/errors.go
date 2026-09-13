@@ -14,6 +14,11 @@ var (
 	ErrInvalidRequestBody     = errors.New("azurearm: invalid request body")
 	ErrStorageAccountNotFound = errors.New("azurearm: storage account not found")
 
+	ErrServiceBusNamespaceNotFound    = errors.New("azurearm: service bus namespace not found")
+	ErrServiceBusQueueNotFound        = errors.New("azurearm: service bus queue not found")
+	ErrServiceBusTopicNotFound        = errors.New("azurearm: service bus topic not found")
+	ErrServiceBusSubscriptionNotFound = errors.New("azurearm: service bus subscription not found")
+
 	// ErrSnapshotResourceGroupNull/ErrSnapshotResourceNull are returned by
 	// Restore when a persisted snapshot's map holds a JSON null entry, which
 	// decodes to a nil pointer that would panic on first dereference if
