@@ -144,10 +144,13 @@ func (h *Handler) handleDescribeCodeCoverages(
 }
 
 type describeTestCasesInput struct {
-	ReportArn string `json:"reportArn"`
+	ReportArn  string `json:"reportArn"`
+	NextToken  string `json:"nextToken,omitempty"`
+	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
 type describeTestCasesOutput struct {
+	NextToken string     `json:"nextToken,omitempty"`
 	TestCases []TestCase `json:"testCases"`
 }
 
@@ -164,7 +167,12 @@ func (h *Handler) handleDescribeTestCases(
 		return nil, err
 	}
 
-	return &describeTestCasesOutput{TestCases: cases}, nil
+	pg, err := paginateTestCases(cases, in.NextToken, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeTestCasesOutput{TestCases: pg.Data, NextToken: pg.Next}, nil
 }
 
 type getReportGroupTrendInput struct {
@@ -304,17 +312,28 @@ func (h *Handler) handleListReportsForReportGroup(
 	return &listReportsForReportGroupOutput{Reports: pg.Data, NextToken: pg.Next}, nil
 }
 
-type listSharedReportGroupsInput struct{}
+type listSharedReportGroupsInput struct {
+	NextToken  string `json:"nextToken"`
+	SortBy     string `json:"sortBy"`
+	SortOrder  string `json:"sortOrder"`
+	MaxResults int32  `json:"maxResults,omitempty"`
+}
 
 type listSharedReportGroupsOutput struct {
+	NextToken    string   `json:"nextToken,omitempty"`
 	ReportGroups []string `json:"reportGroups"`
 }
 
 func (h *Handler) handleListSharedReportGroups(
 	_ context.Context,
-	_ *listSharedReportGroupsInput,
+	in *listSharedReportGroupsInput,
 ) (*listSharedReportGroupsOutput, error) {
-	return &listSharedReportGroupsOutput{ReportGroups: h.Backend.ListSharedReportGroups()}, nil
+	pg, err := paginateIDs(h.Backend.ListSharedReportGroups(), in.NextToken, in.SortOrder, in.MaxResults)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listSharedReportGroupsOutput{ReportGroups: pg.Data, NextToken: pg.Next}, nil
 }
 
 type updateReportGroupInput struct {

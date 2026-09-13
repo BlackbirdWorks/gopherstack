@@ -155,6 +155,7 @@ items_still_open:
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): UserMigration_ForgotPassword trigger source and domain AWSAccountId/ManagedLoginVersion/S3Bucket, the two items explicitly named but not reached in the SRP-6a pass -- see families.ForgotPassword and families.domains above for detail."
   - "CLOSED 2026-08-08 (gopherstack-n7gh follow-up): op-by-op re-walk of user_import_jobs/devices/webauthn/managed_login_branding/risk_config/terms/log_delivery plus a full field diff of identity_providers/resource_servers, the remaining named scope item. Found and fixed 4 real bugs beyond the headline items: webauthn's wrong wire key (FriendlyName vs FriendlyCredentialName) and missing required AuthenticatorTransports; managed_login_branding's Settings/Assets/UseCognitoProvidedValues completely discarded; SetLogDeliveryConfiguration's disguised-nil-stub; CreateUserImportJob's dropped CloudWatchLogsRoleArn/PasswordHashingAlgorithm. See families above for each. terms/ was found to be built on a fictional wire model entirely and needs a full redesign -- explicitly NOT fixed this pass, see deferred below."
   - "CLOSED 2026-09-12 (gopherstack-n3zi): GetUser's real wire response (types.GetUserOutput, cognitoidentityprovider@1.67.4 api_op_GetUser.go:72) carries a legacy MFAOptions field that handleGetUserAccurate never populated -- a real client calling SetUserSettings then GetUser always saw an empty MFAOptions slice regardless of what was just set, even though the sibling AdminGetUser path already surfaced the same user.MFAOptions via toMFAOptionsWire. Fixed by adding MFAOptions to getUserWithMFAOutput and populating it the same way AdminGetUser does. Found only by a typed-client round trip (realclient_managed_login_and_provisioning_test.go); see the dated Notes section for detail. Also closes cognitoidp's typed-client coverage gap entirely: 0 of 129 ops now uncovered (was 32 before this pass)."
+  - "CLOSED 2026-09-13 (gopherstack-xhu2t): CreateUserPoolClient/UpdateUserPoolClient never decoded DefaultRedirectURI/ReadAttributes/WriteAttributes at all -- any value sent by a real client was silently dropped, never stored, never echoed on Describe/Create/Update responses. Fixed: all three now round-trip through UserPoolClient (new DefaultRedirectURI/ReadAttributes/WriteAttributes fields) and clientDataAccurate. CreateUserPool's Schema was also entirely undecoded; now custom:/dev:-prefixed entries are stored into the same CustomAttributes list AddCustomAttributes already populates post-creation (unprefixed standard-attribute entries in Schema, e.g. email/phone_number, are accepted but not modeled -- this backend tracks no schema for built-in standard attributes at all, a pre-existing simplification DescribeUserPool's custom-only SchemaAttributes list already embodies, not a new gap introduced by this fix)."
 deferred:
   - "CLOSED 2026-09-11 (gopherstack-n3zi): devices' deviceType.DeviceStatus is confirmed an extra field NOT present on the real DeviceType wire shape (types/types.go:677-698, only DeviceAttributes/DeviceCreateDate/DeviceKey/DeviceLastAuthenticatedDate/DeviceLastModifiedDate exist) -- the prior entry's finding stands. What changed: this was not just a spec-purity concern but a real functional gap, confirmed by a real typed-client test (TestDevices_RealClient): since DeviceStatus decodes to nothing on the real DeviceType, UpdateDeviceStatus/AdminUpdateDeviceStatus's effect was completely unobservable by any real client through GetDevice/ListDevices/AdminGetDevice/AdminListDevices -- the existing raw-body tests asserting the fabricated top-level field passed only because they inspected gopherstack's own invented shape, not the real one. Fixed by mirroring the status into DeviceAttributes as \"device_status\" (the key real Cognito uses for this) in toDeviceType (handler_devices.go), alongside the still-present fabricated top-level field (kept, unremoved, for the same existing-test-compatibility reason as before)."
   - "CLOSED 2026-08-29 (bd gopherstack-6flj/21my continuation): risk_config's RiskConfigurationType.LastModifiedDate is now tracked -- TypedRiskConfiguration gained a LastModifiedAt field, stamped by SetTypedRiskConfiguration on every SetRiskConfiguration call and echoed by both DescribeRiskConfiguration and SetRiskConfigurationOutput via toRiskConfigJSON. See TestSetRiskConfiguration_LastModifiedDatePopulated (wire_field_fixes_test.go) for the real-SDK-client round trip."
@@ -1577,3 +1578,43 @@ clean), `go vet ./services/cognitoidp/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/cognitoidp/...` (pass),
 `golangci-lint run ./services/cognitoidp/...` (0 issues). Work left
 uncommitted per this pass's instructions.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields, all real: `CreateUserPool.Schema`,
+`CreateUserPoolClient.DefaultRedirectURI`/`ReadAttributes`/`WriteAttributes`,
+`UpdateUserPoolClient.DefaultRedirectURI`/`ReadAttributes`/`WriteAttributes`.
+None of the seven appeared anywhere in `models_user_pool_clients.go`/
+`models_user_pools.go`/`user_pool_clients.go`/`user_pools.go` before this
+pass -- not decoded, not stored, not echoed.
+
+Fixed (see `items_still_open` for the full writeup): `UserPoolClient` gained
+`DefaultRedirectURI`/`ReadAttributes`/`WriteAttributes`, threaded through
+`UserPoolClientOptions` -> `CreateUserPoolClientWithOpts`/
+`UpdateUserPoolClientWithOpts` (the latter via `applyUserPoolClientListOpts`
+for the two list fields, the same `!= nil`-only-if-supplied pattern every
+other list field there already uses) -> `clientDataAccurate`'s wire output.
+`CreateUserPool.Schema` is filtered to `custom:`/`dev:`-prefixed entries and
+appended to the pool's existing `CustomAttributes` (same list
+`AddCustomAttributes` populates and `DescribeUserPool`'s `SchemaAttributes`
+already echoes).
+
+New `TestRealClient_UserPoolClientAttributeFields`
+(realclient_user_pool_client_attributes_test.go, table-driven) drives all
+four fixes through the real `aws-sdk-go-v2/service/cognitoidentityprovider`
+client: create+describe round-trip for the three client fields, an update
+round-trip for the same three, and a create+describe round-trip proving a
+`custom:`-prefixed `Schema` entry is stored while an unprefixed standard one
+is correctly not fabricated into the custom-attribute list.
+
+`UserPoolClient` gained three persisted fields (`DefaultRedirectURI`,
+`ReadAttributes`, `WriteAttributes`); three rows added by hand to
+`pkgs/persistence/testdata/snapshot_inventory.json` in the cognitoidp
+block's existing alphabetical order. No snapshot version bump -- all three
+are `omitempty` and additive.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/cognitoidp/...`
+clean; `go test -race -count=1 -p 2 ./services/cognitoidp/...` and
+`./pkgs/persistence/...` both `ok`; `golangci-lint run --concurrency 2
+--new-from-rev=HEAD ./services/cognitoidp/...` 0 issues; `go run
+./cmd/paritylint` 0 FAIL.

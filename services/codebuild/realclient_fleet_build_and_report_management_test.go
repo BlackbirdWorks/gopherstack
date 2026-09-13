@@ -476,6 +476,110 @@ func TestSourceCredentialsLifecycle_RealClient(t *testing.T) {
 	assert.True(t, found, "imported credential must appear in ListSourceCredentials")
 }
 
+// TestImportSourceCredentials_ShouldOverwrite proves ShouldOverwrite=false
+// rejects a re-import for a serverType that already has credentials
+// (previously decoded nowhere, so any value silently overwrote).
+func TestImportSourceCredentials_ShouldOverwrite(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+
+	_, err := client.ImportSourceCredentials(t.Context(), &codebuildsdk.ImportSourceCredentialsInput{
+		Token:      aws.String("first-token"),
+		AuthType:   cbtypes.AuthTypePersonalAccessToken,
+		ServerType: cbtypes.ServerTypeGithub,
+	})
+	require.NoError(t, err)
+
+	_, err = client.ImportSourceCredentials(t.Context(), &codebuildsdk.ImportSourceCredentialsInput{
+		Token:           aws.String("second-token"),
+		AuthType:        cbtypes.AuthTypePersonalAccessToken,
+		ServerType:      cbtypes.ServerTypeGithub,
+		ShouldOverwrite: aws.Bool(false),
+	})
+	require.Error(t, err, "ShouldOverwrite=false must reject re-importing an existing serverType's credentials")
+
+	_, err = client.ImportSourceCredentials(t.Context(), &codebuildsdk.ImportSourceCredentialsInput{
+		Token:           aws.String("third-token"),
+		AuthType:        cbtypes.AuthTypePersonalAccessToken,
+		ServerType:      cbtypes.ServerTypeGithub,
+		ShouldOverwrite: aws.Bool(true),
+	})
+	require.NoError(t, err, "ShouldOverwrite=true (the default) must still overwrite")
+}
+
+// TestPaginationParams_HonourMalformedNextToken proves DescribeTestCases,
+// ListSharedProjects and ListSharedReportGroups all now decode and apply
+// their MaxResults/NextToken query params (previously not decoded at all).
+// None of these three ever has more than one page of data in this backend
+// (no test-case-content ingestion pipeline, and no cross-account resource
+// sharing model exists), so truncation itself can't be observed -- instead
+// this proves the token is actually read by checking a malformed NextToken
+// is now rejected instead of silently ignored.
+func TestPaginationParams_HonourMalformedNextToken(t *testing.T) {
+	t.Parallel()
+
+	backend := codebuild.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestCodeBuildClient(t, codebuild.NewHandler(backend))
+
+	rg, err := client.CreateReportGroup(t.Context(), &codebuildsdk.CreateReportGroupInput{
+		Name: aws.String("malformed-token-report-group"),
+		Type: cbtypes.ReportTypeTest,
+		ExportConfig: &cbtypes.ReportExportConfig{
+			ExportConfigType: cbtypes.ReportExportConfigTypeNoExport,
+		},
+	})
+	require.NoError(t, err)
+	rgArn := aws.ToString(rg.ReportGroup.Arn)
+
+	backend.AddReportInternal(&codebuild.Report{
+		Arn:            rgArn + ":report",
+		ReportGroupArn: rgArn,
+		Type:           string(cbtypes.ReportTypeTest),
+		Status:         "SUCCEEDED",
+	})
+	reportArn := rgArn + ":report"
+
+	const badToken = "not-valid-base64!!"
+
+	cases := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{name: "DescribeTestCases", run: func(t *testing.T) {
+			t.Helper()
+
+			_, tcErr := client.DescribeTestCases(t.Context(), &codebuildsdk.DescribeTestCasesInput{
+				ReportArn: aws.String(reportArn),
+				NextToken: aws.String(badToken),
+			})
+			require.Error(t, tcErr)
+		}},
+		{name: "ListSharedProjects", run: func(t *testing.T) {
+			t.Helper()
+
+			_, spErr := client.ListSharedProjects(t.Context(), &codebuildsdk.ListSharedProjectsInput{
+				NextToken: aws.String(badToken),
+			})
+			require.Error(t, spErr)
+		}},
+		{name: "ListSharedReportGroups", run: func(t *testing.T) {
+			t.Helper()
+
+			_, rgErr := client.ListSharedReportGroups(t.Context(), &codebuildsdk.ListSharedReportGroupsInput{
+				NextToken: aws.String(badToken),
+			})
+			require.Error(t, rgErr)
+		}}}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tc.run(t)
+		})
+	}
+}
+
 // TestWebhookLifecycle_RealClient drives CreateWebhook, UpdateWebhook and
 // DeleteWebhook through a real client.
 func TestWebhookLifecycle_RealClient(t *testing.T) {

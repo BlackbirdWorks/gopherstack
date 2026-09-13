@@ -2,6 +2,7 @@ package mq
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -367,12 +368,17 @@ func (h *Handler) handleRebootBroker(c *echo.Context, brokerID string) error {
 // AWS RAM. This backend does not model RAM resource sharing (see
 // InMemoryBackend.DescribeSharedResources), so a valid broker always yields
 // an empty (non-null) sharedResources list -- there is nothing to paginate,
-// so maxResults/nextToken are accepted per the SDK's input shape but do not
-// affect the (always empty) result.
+// so maxResults has no effect, but nextToken is still validated: a malformed
+// token is rejected rather than silently ignored, matching every other
+// paginated op in this package.
 func (h *Handler) handleDescribeSharedResources(c *echo.Context, brokerID string) error {
 	resources, err := h.Backend.DescribeSharedResources(brokerID)
 	if err != nil {
 		return h.writeError(c, err)
+	}
+
+	if tokErr := page.ValidateToken(c.Request().URL.Query().Get("nextToken")); tokErr != nil {
+		return h.writeError(c, fmt.Errorf("%w: invalid nextToken", ErrValidation))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"sharedResources": resources})
@@ -471,11 +477,36 @@ func toBrokerResponse(br *Broker) brokerResponse {
 
 // --- Broker Engine Types and Instance Options handlers ---
 
+// mqPaginationParams parses the shared maxResults/nextToken query
+// parameters (5-100 per the SDK's doc comment on each op that declares
+// them; out-of-range or unparseable maxResults falls back to 0, letting
+// page.New apply mqDefaultPageSize).
+func mqPaginationParams(c *echo.Context) (int, string) {
+	q := c.Request().URL.Query()
+	maxResults := 0
+
+	if s := q.Get("maxResults"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 100 {
+			maxResults = n
+		}
+	}
+
+	return maxResults, q.Get("nextToken")
+}
+
 func (h *Handler) handleDescribeBrokerEngineTypes(c *echo.Context) error {
 	engineType := c.Request().URL.Query().Get("engineType")
 	types := h.Backend.DescribeBrokerEngineTypes(engineType)
 
-	return c.JSON(http.StatusOK, map[string]any{"brokerEngineTypes": types})
+	maxResults, nextToken := mqPaginationParams(c)
+	pg := page.New(types, nextToken, maxResults, mqDefaultPageSize)
+
+	resp := map[string]any{"brokerEngineTypes": pg.Data}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeBrokerInstanceOptions(c *echo.Context) error {
@@ -486,7 +517,15 @@ func (h *Handler) handleDescribeBrokerInstanceOptions(c *echo.Context) error {
 
 	opts := h.Backend.DescribeBrokerInstanceOptions(engineType, hostInstanceType, storageType)
 
-	return c.JSON(http.StatusOK, map[string]any{"brokerInstanceOptions": opts})
+	maxResults, nextToken := mqPaginationParams(c)
+	pg := page.New(opts, nextToken, maxResults, mqDefaultPageSize)
+
+	resp := map[string]any{"brokerInstanceOptions": pg.Data}
+	if pg.Next != "" {
+		resp["nextToken"] = pg.Next
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- Promote handler ---

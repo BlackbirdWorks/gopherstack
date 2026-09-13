@@ -365,7 +365,7 @@ func (h *Handler) dispatch(
 	op, path, query string,
 	body []byte,
 ) (any, int, error) {
-	if result, code, ok, err := h.dispatchDetectorOps(op, path, body); ok {
+	if result, code, ok, err := h.dispatchDetectorOps(op, path, query, body); ok {
 		return result, code, err
 	}
 

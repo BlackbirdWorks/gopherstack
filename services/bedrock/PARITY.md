@@ -256,6 +256,7 @@ items_still_open:
     (bedrockagent@v1.58.4 deserializers.go's awsRestjson1_deserializeOpDocumentDeletePromptOutput
     — DeletePrompt with a promptVersion set is the real op backing this internal route) declares
     only \"id\" and \"version\", no status. Fixed to {id, version}. See wire_field_fixes_test.go."
+  - "2026-09-13 (gopherstack-xhu2t): CreatePromptRouter.ClientRequestToken is not decoded at all -- unlike CreateModelInvocationJob's ClientToken (handler_model_invocation_jobs.go), which IS decoded and stored, but is itself never echoed on any response and never used for real create-dedup (a genuine retry with the same token still hits the sibling-name uniqueness check like any other call, not a token-keyed idempotency cache). Since the already-established sibling pattern in this same service has zero observable effect, decoding CreatePromptRouter's token the same way would be dead plumbing with nothing to prove via a real-client test -- not fixed, recorded instead."
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
 # PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was
@@ -1202,3 +1203,25 @@ Gates: `go build ./...` (whole module), `go vet ./services/bedrock/...`,
 `golangci-lint run --new-from-rev=HEAD ./services/bedrock/...` (0 issues),
 `go test -race -count=1 ./services/bedrock/... ./pkgs/persistence/...` --
 all clean. `go run ./cmd/paritylint`: 0 FAIL. No version bump.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 6 tier-1 fields. Five were false positives,
+already declared and applied: `CreateAdvancedPromptOptimizationJob.
+EncryptionKeyArn` (handler_advanced_prompt_optimization_jobs.go:68-89,
+stored+echoed), `CreateModelInvocationJob.RoleArn`
+(handler_model_invocation_jobs.go:61-80, stored+echoed via the variadic
+opts pattern), `CreatePromptRouter.FallbackModel`
+(handler_prompt_routers.go:79-99, applied), `CreateProvisionedModelThroughput.
+ModelUnits` (handler_provisioned_throughput.go:53-72, range-validated and
+stored), and `ListPromptRouters.Type`
+(handler_prompt_routers.go:152-154, `q.Get("type")` applied as a real
+filter in `ListPromptRouters` -- a query-read blind spot, same class as
+gopherstack-99nj).
+
+The sixth, `CreatePromptRouter.ClientRequestToken`, was recorded rather
+than fixed -- see `items_still_open`.
+
+No code changes this pass. Gates unaffected: `go build ./...` clean; `go
+vet ./services/bedrock/...` clean; `go test -race -count=1 -p 2
+./services/bedrock/...` `ok`; `go run ./cmd/paritylint` 0 FAIL.

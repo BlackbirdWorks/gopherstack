@@ -316,6 +316,21 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 	autoVerified := make([]string, len(opts.AutoVerifiedAttributes))
 	copy(autoVerified, opts.AutoVerifiedAttributes)
 
+	// Schema entries for custom attributes are recorded the same way
+	// AddCustomAttributes stores them (custom:/dev:-prefixed, per
+	// SchemaAttributeType.Name's doc comment). Standard-attribute entries
+	// (email, phone_number, etc, unprefixed) aren't modeled -- this backend
+	// tracks no schema for built-in standard attributes at all, the same
+	// pre-existing simplification DescribeUserPool's SchemaAttributes
+	// (custom attributes only) already embodies.
+	var customSchema []SchemaAttribute
+
+	for _, a := range opts.Schema {
+		if strings.HasPrefix(a.Name, "custom:") || strings.HasPrefix(a.Name, "dev:") {
+			customSchema = append(customSchema, a)
+		}
+	}
+
 	pool := &UserPool{
 		ID:                     poolID,
 		Name:                   name,
@@ -330,6 +345,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		AccountRecoverySetting: opts.AccountRecoverySetting,
 		DeletionProtection:     opts.DeletionProtection,
 		MfaConfiguration:       opts.MfaConfiguration,
+		CustomAttributes:       customSchema,
 	}
 
 	b.pools.Put(pool)

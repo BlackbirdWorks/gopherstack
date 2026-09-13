@@ -29,10 +29,11 @@ func (h *Handler) handleDeleteSourceCredentials(
 }
 
 type importSourceCredentialsInput struct {
-	AuthType   string `json:"authType"`
-	ServerType string `json:"serverType"`
-	Token      string `json:"token"`
-	Username   string `json:"username"`
+	AuthType        string `json:"authType"`
+	ServerType      string `json:"serverType"`
+	Token           string `json:"token"`
+	Username        string `json:"username"`
+	ShouldOverwrite *bool  `json:"shouldOverwrite,omitempty"`
 }
 
 type importSourceCredentialsOutput struct {
@@ -47,7 +48,12 @@ func (h *Handler) handleImportSourceCredentials(
 		return nil, fmt.Errorf("%w: token is required", errInvalidRequest)
 	}
 
-	arnStr, err := h.Backend.ImportSourceCredentials(in.AuthType, in.ServerType, in.Token)
+	shouldOverwrite := true
+	if in.ShouldOverwrite != nil {
+		shouldOverwrite = *in.ShouldOverwrite
+	}
+
+	arnStr, err := h.Backend.ImportSourceCredentials(in.AuthType, in.ServerType, in.Token, shouldOverwrite)
 	if err != nil {
 		return nil, err
 	}

@@ -63,7 +63,7 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 	_, err = b.CreateWebhook(proj.Name, "main", "GITHUB", nil, codebuild.WebhookConfig{})
 	require.NoError(t, err)
 
-	_, err = b.ImportSourceCredentials("PERSONAL_ACCESS_TOKEN", "GITHUB", "tok")
+	_, err = b.ImportSourceCredentials("PERSONAL_ACCESS_TOKEN", "GITHUB", "tok", true)
 	require.NoError(t, err)
 
 	require.NoError(t, b.PutResourcePolicy(rg.Arn, `{"Version":"2012-10-17"}`))
