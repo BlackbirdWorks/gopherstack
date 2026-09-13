@@ -91,6 +91,8 @@ func (b *InMemoryBackend) CreateIpam(opts ...IpamOptions) (*Ipam, error) {
 		DefaultResourceDiscoveryID:            discovery.IpamResourceDiscoveryID,
 		DefaultResourceDiscoveryAssociationID: assoc.IpamResourceDiscoveryAssociationID,
 		ResourceDiscoveryAssociationCount:     1,
+		MeteredAccount:                        o.MeteredAccount,
+		EnablePrivateGua:                      o.EnablePrivateGua,
 	}
 	if ipam.Tier == "" {
 		ipam.Tier = "advanced"
@@ -158,6 +160,14 @@ func (b *InMemoryBackend) ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
 		ipam.Tier = opts.Tier
 	}
 
+	if opts.MeteredAccount != "" {
+		ipam.MeteredAccount = opts.MeteredAccount
+	}
+
+	if opts.EnablePrivateGua {
+		ipam.EnablePrivateGua = true
+	}
+
 	ipam.State = ipamStateModifyComplete
 
 	cp := *ipam
@@ -166,8 +176,13 @@ func (b *InMemoryBackend) ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
 	return &cp, nil
 }
 
-// DeleteIpam removes an IPAM instance and its default scopes/resource discovery.
-func (b *InMemoryBackend) DeleteIpam(id string) error {
+// DeleteIpam removes an IPAM instance and its default scopes/resource
+// discovery. cascade is an optional trailing arg (api_op_DeleteIpam.go's
+// Cascade: without it, delete is refused -- DependencyViolation, the same
+// code this backend already uses for other still-has-dependents refusals
+// -- if the IPAM still has non-default scopes or any pools; with it, those
+// are torn down first.
+func (b *InMemoryBackend) DeleteIpam(id string, cascade ...bool) error {
 	if id == "" {
 		return fmt.Errorf("%w: IpamId is required", ErrInvalidParameter)
 	}
@@ -179,6 +194,39 @@ func (b *InMemoryBackend) DeleteIpam(id string) error {
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrIpamNotFound, id)
 	}
+
+	forceCascade := len(cascade) > 0 && cascade[0]
+
+	var dependentPools, dependentScopes []string
+	for _, pool := range b.ipamPools.All() {
+		if pool.IpamID == id {
+			dependentPools = append(dependentPools, pool.IpamPoolID)
+		}
+	}
+	for _, scope := range b.ipamScopes.All() {
+		if scope.IpamID == id && !scope.IsDefault {
+			dependentScopes = append(dependentScopes, scope.IpamScopeID)
+		}
+	}
+
+	if !forceCascade && (len(dependentPools) > 0 || len(dependentScopes) > 0) {
+		return fmt.Errorf(
+			"%w: IPAM %s has %d pool(s) and %d non-default scope(s); use Cascade to delete them",
+			ErrDependencyViolation, id, len(dependentPools), len(dependentScopes),
+		)
+	}
+
+	for _, poolID := range dependentPools {
+		b.ipamPools.Delete(poolID)
+		delete(b.tags, poolID)
+		delete(b.ipamPoolCidrs, poolID)
+	}
+
+	for _, scopeID := range dependentScopes {
+		b.ipamScopes.Delete(scopeID)
+		delete(b.tags, scopeID)
+	}
+
 	b.ipamScopes.Delete(ipam.PublicDefaultScopeID)
 	delete(b.tags, ipam.PublicDefaultScopeID)
 	b.ipamScopes.Delete(ipam.PrivateDefaultScopeID)
@@ -363,6 +411,10 @@ func (b *InMemoryBackend) CreateIpamPool(
 		AllocationMinNetmaskLength:     o.AllocationMinNetmaskLength,
 		AllocationMaxNetmaskLength:     o.AllocationMaxNetmaskLength,
 		AllocationDefaultNetmaskLength: o.AllocationDefaultNetmaskLength,
+		PublicIPSource:                 o.PublicIPSource,
+	}
+	if pool.PublicIPSource == "" {
+		pool.PublicIPSource = "byoip" // api_op_CreateIpamPool.go: "Default is byoip"
 	}
 	b.ipamPools.Put(pool)
 
@@ -431,7 +483,10 @@ func (b *InMemoryBackend) ModifyIpamPool(id string, opts IpamPoolOptions) (*Ipam
 		pool.AllocationMaxNetmaskLength = opts.AllocationMaxNetmaskLength
 	}
 
-	if opts.AllocationDefaultNetmaskLength > 0 {
+	switch {
+	case opts.ClearAllocationDefaultNetmaskLength:
+		pool.AllocationDefaultNetmaskLength = 0
+	case opts.AllocationDefaultNetmaskLength > 0:
 		pool.AllocationDefaultNetmaskLength = opts.AllocationDefaultNetmaskLength
 	}
 

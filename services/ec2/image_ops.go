@@ -234,6 +234,7 @@ func (b *InMemoryBackend) CreateRestoreImageTask(bucket, objectKey, name string)
 		Name:         name,
 		Architecture: archX8664,
 		State:        stateAvailable,
+		OwnerID:      b.AccountID,
 	}
 	b.images.Put(img)
 

@@ -231,7 +231,12 @@ func (b *InMemoryBackend) DisassociateRouteTable(assocID string) error {
 }
 
 // ReplaceRoute replaces an existing route in a route table.
-func (b *InMemoryBackend) ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error {
+// ReplaceRoute replaces the target of an existing route. localTarget is an
+// optional trailing arg (api_op_ReplaceRoute.go's LocalTarget: "Specifies
+// whether to reset the local route to its default target (local)") -- when
+// true, it overrides gatewayID/natGatewayID and resets the route to the
+// implicit "local" target.
+func (b *InMemoryBackend) ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string, localTarget ...bool) error {
 	if rtID == "" || destCIDR == "" {
 		return fmt.Errorf(
 			"%w: RouteTableId and DestinationCidrBlock are required",
@@ -245,6 +250,10 @@ func (b *InMemoryBackend) ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID s
 	rt, ok := b.routeTables.Get(rtID)
 	if !ok {
 		return fmt.Errorf("%w: route table %s not found", ErrInvalidParameter, rtID)
+	}
+
+	if len(localTarget) > 0 && localTarget[0] {
+		gatewayID, natGatewayID = "local", ""
 	}
 
 	for i, route := range rt.Routes {

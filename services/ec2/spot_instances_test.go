@@ -33,9 +33,10 @@ func TestSpotInstanceOperations(t *testing.T) {
 			case "request":
 				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.05", nil)
 				require.NoError(t, err)
-				assert.NotEmpty(t, req.ID)
-				assert.Equal(t, "active", req.State)
-				assert.NotEmpty(t, req.InstanceID)
+				require.Len(t, req, 1)
+				assert.NotEmpty(t, req[0].ID)
+				assert.Equal(t, "active", req[0].State)
+				assert.NotEmpty(t, req[0].InstanceID)
 
 			case "request_bad_image":
 				_, err := b.RequestSpotInstances("", "t2.micro", "", "0.05", nil)
@@ -50,16 +51,16 @@ func TestSpotInstanceOperations(t *testing.T) {
 			case "describe_by_id":
 				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 				require.NoError(t, err)
-				reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
+				reqs := b.DescribeSpotInstanceRequests([]string{req[0].ID})
 				require.Len(t, reqs, 1)
-				assert.Equal(t, req.ID, reqs[0].ID)
+				assert.Equal(t, req[0].ID, reqs[0].ID)
 
 			case "cancel":
 				req, err := b.RequestSpotInstances("ami-123", "t2.micro", "", "0.01", nil)
 				require.NoError(t, err)
-				err = b.CancelSpotInstanceRequests([]string{req.ID})
+				err = b.CancelSpotInstanceRequests([]string{req[0].ID})
 				require.NoError(t, err)
-				reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
+				reqs := b.DescribeSpotInstanceRequests([]string{req[0].ID})
 				require.Len(t, reqs, 1)
 				assert.Equal(t, "cancelled", reqs[0].State)
 

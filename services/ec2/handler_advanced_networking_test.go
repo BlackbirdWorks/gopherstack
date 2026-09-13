@@ -373,9 +373,11 @@ func TestEC2Core_Handler_IPAMViaHandler(t *testing.T) {
 		descPoolsRec := postForm(t, h, "Action=DescribeIpamPools&Version=2016-11-15")
 		assert.Equal(t, http.StatusOK, descPoolsRec.Code)
 
-		// Delete IPAM.
+		// Delete IPAM. Cascade is required: the IPAM still has the pool
+		// created above, and real AWS refuses a non-Cascade delete of a
+		// non-empty IPAM (DependencyViolation).
 		delRec := postForm(t, h, fmt.Sprintf(
-			"Action=DeleteIpam&Version=2016-11-15&IpamId=%s",
+			"Action=DeleteIpam&Version=2016-11-15&IpamId=%s&Cascade=true",
 			ipamID,
 		))
 		assert.Equal(t, http.StatusOK, delRec.Code)

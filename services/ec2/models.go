@@ -28,6 +28,8 @@ type VolumeModification struct {
 	OrigSize          int       `json:"origSize,omitempty"`
 	TargetIops        int       `json:"targetIops,omitempty"`
 	OrigIops          int       `json:"origIops,omitempty"`
+	TargetThroughput  int       `json:"targetThroughput,omitempty"`
+	OrigThroughput    int       `json:"origThroughput,omitempty"`
 	Progress          int64     `json:"progress"`
 }
 
@@ -84,6 +86,7 @@ const (
 	stateImageBlockNew       = "block-new-sharing"
 	stateDefaultCredit       = "standard"
 	addressTransferOfferDays = 3
+	addressFamilyIPv4        = "ipv4"
 )
 
 // VpcEndpointConnectionNotification tracks a VPC endpoint connection notification.
@@ -145,8 +148,16 @@ type InstanceConnectEndpoint struct {
 	SubnetID                   string    `json:"subnetId,omitempty"`
 	VPCID                      string    `json:"vpcId,omitempty"`
 	State                      string    `json:"state,omitempty"`
+	IPAddressType              string    `json:"ipAddressType,omitempty"`
 	SecurityGroupIDs           []string  `json:"securityGroupIds,omitempty"`
 	PreserveClientIP           bool      `json:"preserveClientIp,omitempty"`
+}
+
+// InstanceConnectEndpointModifyOptions carries ModifyInstanceConnectEndpoint's
+// remaining declare+echo fields, added as a trailing variadic struct to stay
+// back-compatible with existing call sites.
+type InstanceConnectEndpointModifyOptions struct {
+	SecurityGroupIDs []string
 }
 
 // InstanceEventWindow represents a scheduled maintenance window for instances.
@@ -236,26 +247,29 @@ type ClientVpnTargetNetwork struct {
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ServerCertificateArn      string                    `json:"serverCertificateArn,omitempty"`
-	DNSName                   string                    `json:"dnsName,omitempty"`
-	Status                    string                    `json:"status,omitempty"`
-	Description               string                    `json:"description,omitempty"`
-	ClientCidrBlock           string                    `json:"clientCidrBlock,omitempty"`
-	ClientVpnEndpointID       string                    `json:"clientVpnEndpointId,omitempty"`
-	VpnProtocol               string                    `json:"vpnProtocol,omitempty"`
-	TransportProtocol         string                    `json:"transportProtocol,omitempty"`
-	VPCID                     string                    `json:"vpcId,omitempty"`
-	CertificateRevocationList string                    `json:"certificateRevocationList,omitempty"`
-	CreationTime              string                    `json:"creationTime,omitempty"`
-	SelfServicePortalURL      string                    `json:"selfServicePortalUrl,omitempty"`
-	DNSServers                []string                  `json:"dnsServers,omitempty"`
-	SecurityGroupIDs          []string                  `json:"securityGroupIds,omitempty"`
-	TargetNetworks            []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
-	Routes                    []ClientVpnRoute          `json:"routes,omitempty"`
-	AuthRules                 []ClientVpnAuthRule       `json:"authRules,omitempty"`
-	SessionTimeoutHours       int32                     `json:"sessionTimeoutHours,omitempty"`
-	VpnPort                   int32                     `json:"vpnPort,omitempty"`
-	SplitTunnel               bool                      `json:"splitTunnel,omitempty"`
+	ServerCertificateArn       string                    `json:"serverCertificateArn,omitempty"`
+	DNSName                    string                    `json:"dnsName,omitempty"`
+	Status                     string                    `json:"status,omitempty"`
+	Description                string                    `json:"description,omitempty"`
+	ClientCidrBlock            string                    `json:"clientCidrBlock,omitempty"`
+	ClientVpnEndpointID        string                    `json:"clientVpnEndpointId,omitempty"`
+	VpnProtocol                string                    `json:"vpnProtocol,omitempty"`
+	TransportProtocol          string                    `json:"transportProtocol,omitempty"`
+	VPCID                      string                    `json:"vpcId,omitempty"`
+	CertificateRevocationList  string                    `json:"certificateRevocationList,omitempty"`
+	CreationTime               string                    `json:"creationTime,omitempty"`
+	SelfServicePortalURL       string                    `json:"selfServicePortalUrl,omitempty"`
+	DNSServers                 []string                  `json:"dnsServers,omitempty"`
+	SecurityGroupIDs           []string                  `json:"securityGroupIds,omitempty"`
+	TargetNetworks             []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
+	Routes                     []ClientVpnRoute          `json:"routes,omitempty"`
+	AuthRules                  []ClientVpnAuthRule       `json:"authRules,omitempty"`
+	SessionTimeoutHours        int32                     `json:"sessionTimeoutHours,omitempty"`
+	VpnPort                    int32                     `json:"vpnPort,omitempty"`
+	SplitTunnel                bool                      `json:"splitTunnel,omitempty"`
+	EndpointIPAddressType      string                    `json:"endpointIpAddressType,omitempty"`
+	TrafficIPAddressType       string                    `json:"trafficIpAddressType,omitempty"`
+	DisconnectOnSessionTimeout bool                      `json:"disconnectOnSessionTimeout,omitempty"`
 }
 
 // ClientVpnRoute holds a single route for a Client VPN endpoint.

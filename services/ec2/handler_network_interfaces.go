@@ -313,6 +313,7 @@ type networkInterfaceItem struct {
 	TagSet                 []simpleTagItem              `xml:"tagSet>item"`
 	GroupSet               instanceGroupSet             `xml:"groupSet"`
 	SourceDestCheck        bool                         `xml:"sourceDestCheck"`
+	InterfaceType          string                       `xml:"interfaceType,omitempty"`
 }
 
 type publicIPDNSNameOptionsItem struct {
@@ -397,6 +398,7 @@ func toNetworkInterfaceItem(eni *NetworkInterface, tags map[string]string, b Bac
 		PrivateIPAddressesSet: networkInterfacePrivateIPSet{Items: privateIPs},
 		TagSet:                tagItemsFromMap(tags),
 		GroupSet:              instanceGroupSet{Items: groupItems},
+		InterfaceType:         eni.InterfaceType,
 	}
 
 	if eni.PublicDNSHostnameType != "" {
@@ -426,7 +428,7 @@ func (h *Handler) handleCreateNetworkInterface(vals url.Values, reqID string) (a
 
 	description := vals.Get("Description")
 
-	eni, err := h.Backend.CreateNetworkInterface(subnetID, description)
+	eni, err := h.Backend.CreateNetworkInterface(subnetID, description, vals.Get("InterfaceType"))
 	if err != nil {
 		return nil, err
 	}
@@ -492,18 +494,25 @@ func (h *Handler) handleAttachNetworkInterface(vals url.Values, reqID string) (a
 		_, _ = fmt.Sscan(v, &deviceIndex) // parse best-effort; deviceIndex stays 1 on error
 	}
 
+	// api_op_AttachNetworkInterface.go: "The index of the network card...
+	// The default is network card index 0." This backend doesn't model
+	// multi-card instance types, so it echoes back whatever was requested
+	// rather than always reporting 0.
+	var networkCardIndex int
+	if v := vals.Get("NetworkCardIndex"); v != "" {
+		_, _ = fmt.Sscan(v, &networkCardIndex)
+	}
+
 	attachmentID, err := h.Backend.AttachNetworkInterface(eniID, instanceID, deviceIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	return &attachNetworkInterfaceResponse{
-		Xmlns:        ec2XMLNS,
-		RequestID:    reqID,
-		AttachmentID: attachmentID,
-		// This backend only ever attaches to network card 0 (no multi-card
-		// instance types modeled), matching AWS's documented default.
-		NetworkCardIndex: 0,
+		Xmlns:            ec2XMLNS,
+		RequestID:        reqID,
+		AttachmentID:     attachmentID,
+		NetworkCardIndex: networkCardIndex,
 	}, nil
 }
 

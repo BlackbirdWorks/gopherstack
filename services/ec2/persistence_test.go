@@ -168,9 +168,9 @@ func TestPersistenceNewTypes(t *testing.T) {
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	// Verify spot requests persisted
-	reqs := b2.DescribeSpotInstanceRequests([]string{req.ID})
+	reqs := b2.DescribeSpotInstanceRequests([]string{req[0].ID})
 	require.Len(t, reqs, 1)
-	assert.Equal(t, req.ID, reqs[0].ID)
+	assert.Equal(t, req[0].ID, reqs[0].ID)
 
 	// Verify placement groups persisted
 	pgs := b2.DescribePlacementGroups([]string{"persist-pg"})

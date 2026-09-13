@@ -65,23 +65,26 @@ type stringItemSet struct {
 }
 
 type clientVpnEndpointItem struct {
-	VpcID                string                      `xml:"vpcId,omitempty"`
-	SelfServicePortalURL string                      `xml:"selfServicePortalUrl,omitempty"`
-	Status               clientVpnEndpointStatusItem `xml:"status"`
-	Description          string                      `xml:"description,omitempty"`
-	ClientCidrBlock      string                      `xml:"clientCidrBlock,omitempty"`
-	DNSName              string                      `xml:"dnsName,omitempty"`
-	VpnProtocol          string                      `xml:"vpnProtocol,omitempty"`
-	ClientVpnEndpointID  string                      `xml:"clientVpnEndpointId"`
-	TransportProtocol    string                      `xml:"transportProtocol,omitempty"`
-	CreationTime         string                      `xml:"creationTime,omitempty"`
-	ServerCertificateArn string                      `xml:"serverCertificateArn,omitempty"`
-	DNSServers           stringItemSet               `xml:"dnsServer"`
-	SecurityGroupIDSet   stringItemSet               `xml:"securityGroupIdSet"`
-	TagSet               []simpleTagItem             `xml:"tagSet>item"`
-	VpnPort              int32                       `xml:"vpnPort,omitempty"`
-	SessionTimeoutHours  int32                       `xml:"sessionTimeoutHours,omitempty"`
-	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
+	VpcID                      string                      `xml:"vpcId,omitempty"`
+	SelfServicePortalURL       string                      `xml:"selfServicePortalUrl,omitempty"`
+	Status                     clientVpnEndpointStatusItem `xml:"status"`
+	Description                string                      `xml:"description,omitempty"`
+	ClientCidrBlock            string                      `xml:"clientCidrBlock,omitempty"`
+	DNSName                    string                      `xml:"dnsName,omitempty"`
+	VpnProtocol                string                      `xml:"vpnProtocol,omitempty"`
+	ClientVpnEndpointID        string                      `xml:"clientVpnEndpointId"`
+	TransportProtocol          string                      `xml:"transportProtocol,omitempty"`
+	CreationTime               string                      `xml:"creationTime,omitempty"`
+	ServerCertificateArn       string                      `xml:"serverCertificateArn,omitempty"`
+	DNSServers                 stringItemSet               `xml:"dnsServer"`
+	SecurityGroupIDSet         stringItemSet               `xml:"securityGroupIdSet"`
+	TagSet                     []simpleTagItem             `xml:"tagSet>item"`
+	VpnPort                    int32                       `xml:"vpnPort,omitempty"`
+	SessionTimeoutHours        int32                       `xml:"sessionTimeoutHours,omitempty"`
+	SplitTunnel                bool                        `xml:"splitTunnel,omitempty"`
+	EndpointIPAddressType      string                      `xml:"endpointIpAddressType,omitempty"`
+	TrafficIPAddressType       string                      `xml:"trafficIpAddressType,omitempty"`
+	DisconnectOnSessionTimeout bool                        `xml:"disconnectOnSessionTimeout,omitempty"`
 }
 
 func toManagedPrefixListItem(pl *ManagedPrefixList, tags map[string]string) managedPrefixListItem {

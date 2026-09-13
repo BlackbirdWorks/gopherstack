@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
@@ -354,6 +355,12 @@ func (h *Handler) handleRegisterImage(vals url.Values, reqID string) (any, error
 	if err != nil {
 		return nil, err
 	}
+
+	virtType := vals.Get("VirtualizationType")
+	if virtType == "" {
+		virtType = "paravirtual" // api_op_RegisterImage.go: "Default: paravirtual"
+	}
+	h.Backend.SetImageMetadata(img.ImageID, vals.Get("ImdsSupport"), virtType)
 
 	return &registerImageResponse{
 		RequestID: reqID,
@@ -766,6 +773,19 @@ func (h *Handler) handleDescribeImageReferences(vals url.Values, reqID string) (
 
 	refs := h.Backend.DescribeImageReferences(imageIDs)
 
+	// IncludeAllResourceTypes and ResourceType.N.ResourceType are the
+	// documented either/or selectors (api_op_DescribeImageReferences.go);
+	// this backend only models ec2:Instance/ec2:LaunchTemplate, so an
+	// explicit ResourceTypes list restricts to those.
+	includeAll, _ := strconv.ParseBool(vals.Get("IncludeAllResourceTypes"))
+	if !includeAll {
+		if types := parseResourceTypeRequestTypes(vals); len(types) > 0 {
+			refs = slices.DeleteFunc(slices.Clone(refs), func(r *ImageReferenceEntry) bool {
+				return !slices.Contains(types, r.ResourceType)
+			})
+		}
+	}
+
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
 		return nil, err
@@ -784,6 +804,22 @@ func (h *Handler) handleDescribeImageReferences(vals url.Values, reqID string) (
 	}
 
 	return resp, nil
+}
+
+// parseResourceTypeRequestTypes reads the DescribeImageReferences
+// "ResourceType.N.ResourceType" struct list
+// (awsEc2query_serializeDocumentResourceTypeRequestList); ResourceTypeOption
+// sub-fields have no backing behavior in this backend and are ignored.
+func parseResourceTypeRequestTypes(vals url.Values) []string {
+	var out []string
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("ResourceType.%d.ResourceType", i))
+		if v == "" {
+			return out
+		}
+		out = append(out, v)
+	}
 }
 
 type imageAncestryEntryItem struct {
@@ -884,14 +920,33 @@ func imagesSupportedOperations() []string {
 }
 
 type amiItem struct {
-	ImageID        string          `xml:"imageId"`
-	Name           string          `xml:"name"`
-	Description    string          `xml:"description,omitempty"`
-	Architecture   string          `xml:"architecture"`
-	Platform       string          `xml:"platform,omitempty"`
-	State          string          `xml:"imageState"`
-	RootDeviceName string          `xml:"rootDeviceName,omitempty"`
-	TagSet         []simpleTagItem `xml:"tagSet>item,omitempty"`
+	ImageID        string `xml:"imageId"`
+	Name           string `xml:"name"`
+	Description    string `xml:"description,omitempty"`
+	Architecture   string `xml:"architecture"`
+	Platform       string `xml:"platform,omitempty"`
+	State          string `xml:"imageState"`
+	RootDeviceName string `xml:"rootDeviceName,omitempty"`
+	// OwnerID/OwnerAlias are distinct real wire fields
+	// (deserializers.go's awsEc2query_deserializeDocumentImage: "imageOwnerId"
+	// is always the numeric account ID, "imageOwnerAlias" the well-known
+	// alias string e.g. "amazon" -- there is no plain "ownerId" key).
+	OwnerID            string          `xml:"imageOwnerId,omitempty"`
+	OwnerAlias         string          `xml:"imageOwnerAlias,omitempty"`
+	ImdsSupport        string          `xml:"imdsSupport,omitempty"`
+	VirtualizationType string          `xml:"virtualizationType,omitempty"`
+	DeprecationTime    string          `xml:"deprecationTime,omitempty"`
+	TagSet             []simpleTagItem `xml:"tagSet>item,omitempty"`
+}
+
+// knownImageOwnerAliases holds this backend's well-known non-numeric AMIStub.OwnerID
+// values (imageOwnerAlias), distinguishing them from a real numeric account ID
+// (imageOwnerId). Only "amazon" is ever set by this backend today.
+//
+//nolint:gochecknoglobals // small lookup table, not mutated
+var knownImageOwnerAliases = map[string]bool{
+	imageOwnerAliasAmazon: true,
+	"aws-marketplace":     true,
 }
 
 type amiItemSet struct {
@@ -1002,6 +1057,59 @@ func filterVisibleImages(idFiltered []*AMIStub, requested map[string]struct{}, i
 	return visible
 }
 
+// filterDeprecatedImages excludes deprecated AMIs by default
+// (api_op_DescribeImages.go's IncludeDeprecated doc comment: "Default: No
+// deprecated AMIs are included in the response. If you are the AMI owner,
+// all deprecated AMIs where the AMI ID matches a value in the ImageIds
+// parameter are shown, regardless of the value of IncludeDeprecated").
+func filterDeprecatedImages(
+	idFiltered []*AMIStub, requested map[string]struct{}, deprecated map[string]string, includeDeprecated bool,
+) []*AMIStub {
+	if includeDeprecated {
+		return idFiltered
+	}
+
+	visible := idFiltered[:0]
+
+	for _, a := range idFiltered {
+		_, isDeprecated := deprecated[a.ImageID]
+		_, explicit := requested[a.ImageID]
+
+		if !isDeprecated || explicit {
+			visible = append(visible, a)
+		}
+	}
+
+	return visible
+}
+
+// filterImagesByOwner applies DescribeImages' Owner.N list
+// (awsEc2query_serializeDocumentOwnerStringList), resolving the "self"
+// alias to the caller's own account ID.
+func filterImagesByOwner(idFiltered []*AMIStub, owners []string, accountID string) []*AMIStub {
+	if len(owners) == 0 {
+		return idFiltered
+	}
+
+	want := make(map[string]struct{}, len(owners))
+	for _, o := range owners {
+		if o == "self" {
+			o = accountID
+		}
+		want[o] = struct{}{}
+	}
+
+	visible := idFiltered[:0]
+
+	for _, a := range idFiltered {
+		if _, ok := want[a.OwnerID]; ok {
+			visible = append(visible, a)
+		}
+	}
+
+	return visible
+}
+
 func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, error) {
 	amis := h.Backend.DescribeImages()
 	requested := collectRequestedImageIDs(vals)
@@ -1027,6 +1135,11 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 	idFiltered = applyImageFilters(idFiltered, filters, h.Backend)
 	idFiltered = filterVisibleImages(idFiltered, requested, vals.Get("IncludeDisabled") == ec2BooleanTrue)
 
+	deprecation := h.Backend.ImageDeprecation()
+	includeDeprecated := vals.Get("IncludeDeprecated") == ec2BooleanTrue
+	idFiltered = filterDeprecatedImages(idFiltered, requested, deprecation, includeDeprecated)
+	idFiltered = filterImagesByOwner(idFiltered, parseMemberList(vals, "Owner"), h.AccountID)
+
 	filtered := make([]amiItem, 0, len(idFiltered))
 	for _, a := range idFiltered {
 		st := a.State
@@ -1034,15 +1147,25 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			st = stateAvailable
 		}
 
+		ownerID, ownerAlias := a.OwnerID, ""
+		if knownImageOwnerAliases[a.OwnerID] {
+			ownerID, ownerAlias = "", a.OwnerID
+		}
+
 		filtered = append(filtered, amiItem{
-			ImageID:        a.ImageID,
-			Name:           a.Name,
-			Description:    a.Description,
-			Architecture:   a.Architecture,
-			Platform:       a.Platform,
-			State:          st,
-			RootDeviceName: a.RootDeviceName,
-			TagSet:         tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
+			ImageID:            a.ImageID,
+			Name:               a.Name,
+			Description:        a.Description,
+			Architecture:       a.Architecture,
+			Platform:           a.Platform,
+			State:              st,
+			RootDeviceName:     a.RootDeviceName,
+			OwnerID:            ownerID,
+			OwnerAlias:         ownerAlias,
+			ImdsSupport:        a.ImdsSupport,
+			VirtualizationType: a.VirtualizationType,
+			DeprecationTime:    deprecation[a.ImageID],
+			TagSet:             tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
 		})
 	}
 

@@ -20,23 +20,56 @@ type SpotLaunchSpecification struct {
 
 // SpotInstanceRequest represents an EC2 spot instance request.
 type SpotInstanceRequest struct {
-	CreateTime  time.Time               `json:"createTime"`
-	CancelledAt time.Time               `json:"cancelledAt"`
-	LaunchSpec  SpotLaunchSpecification `json:"launchSpec"`
-	ID          string                  `json:"id,omitempty"`
-	InstanceID  string                  `json:"instanceID,omitempty"`
-	State       string                  `json:"state,omitempty"`
-	SpotPrice   string                  `json:"spotPrice,omitempty"`
-	Type        string                  `json:"type,omitempty"`
+	CreateTime                   time.Time               `json:"createTime"`
+	CancelledAt                  time.Time               `json:"cancelledAt"`
+	ValidUntil                   time.Time               `json:"validUntil"`
+	LaunchSpec                   SpotLaunchSpecification `json:"launchSpec"`
+	ID                           string                  `json:"id,omitempty"`
+	InstanceID                   string                  `json:"instanceID,omitempty"`
+	State                        string                  `json:"state,omitempty"`
+	SpotPrice                    string                  `json:"spotPrice,omitempty"`
+	Type                         string                  `json:"type,omitempty"`
+	AvailabilityZoneGroup        string                  `json:"availabilityZoneGroup,omitempty"`
+	LaunchGroup                  string                  `json:"launchGroup,omitempty"`
+	InstanceInterruptionBehavior string                  `json:"instanceInterruptionBehavior,omitempty"`
 }
 
-// RequestSpotInstances creates a spot instance request and immediately fulfils it with a running instance.
+// RequestSpotInstancesOptions carries RequestSpotInstances' remaining
+// declare+echo fields, added as a trailing variadic struct to stay
+// back-compatible with existing call sites.
+type RequestSpotInstancesOptions struct {
+	ValidUntil                   time.Time
+	AvailabilityZoneGroup        string
+	LaunchGroup                  string
+	InstanceInterruptionBehavior string
+	InstanceCount                int
+}
+
+// RequestSpotInstances creates one spot instance request per InstanceCount
+// (api_op_RequestSpotInstances.go: "The maximum number of Spot Instances to
+// launch" -- one SpotInstanceRequest is created per instance, not one
+// request covering all of them) and immediately fulfils each with a running
+// instance.
 func (b *InMemoryBackend) RequestSpotInstances(
 	imageID, instanceType, subnetID, spotPrice string,
 	tags map[string]string,
-) (*SpotInstanceRequest, error) {
+	opts ...RequestSpotInstancesOptions,
+) ([]*SpotInstanceRequest, error) {
 	if imageID == "" {
 		return nil, fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	o := RequestSpotInstancesOptions{InstanceInterruptionBehavior: "terminate"}
+	if len(opts) > 0 {
+		o = opts[0]
+		if o.InstanceInterruptionBehavior == "" {
+			o.InstanceInterruptionBehavior = "terminate"
+		}
+	}
+
+	count := o.InstanceCount
+	if count <= 0 {
+		count = 1
 	}
 
 	b.mu.Lock("RequestSpotInstances")
@@ -54,37 +87,47 @@ func (b *InMemoryBackend) RequestSpotInstances(
 		vpcID = sub.VPCID
 	}
 
-	instanceID := newInstanceID()
-	inst := &Instance{
-		ID:           instanceID,
-		ImageID:      imageID,
-		InstanceType: instanceType,
-		State:        StateRunning,
-		VPCID:        vpcID,
-		SubnetID:     subnetID,
-		LaunchTime:   time.Now(),
-		PrivateIP:    b.allocPrivateIP(),
-	}
-	b.instances.Put(inst)
+	out := make([]*SpotInstanceRequest, 0, count)
 
-	reqID := "sir-" + uuid.New().String()[:8]
-	req := &SpotInstanceRequest{
-		ID:         reqID,
-		InstanceID: instanceID,
-		State:      stateActive,
-		SpotPrice:  spotPrice,
-		Type:       "one-time",
-		CreateTime: time.Now(),
-		LaunchSpec: SpotLaunchSpecification{
+	for range count {
+		instanceID := newInstanceID()
+		inst := &Instance{
+			ID:           instanceID,
 			ImageID:      imageID,
 			InstanceType: instanceType,
+			State:        StateRunning,
+			VPCID:        vpcID,
 			SubnetID:     subnetID,
-		},
-	}
-	b.spotRequests.Put(req)
-	b.setTagsLocked(reqID, tags)
+			LaunchTime:   time.Now(),
+			PrivateIP:    b.allocPrivateIP(),
+		}
+		b.instances.Put(inst)
 
-	return req, nil
+		reqID := "sir-" + uuid.New().String()[:8]
+		req := &SpotInstanceRequest{
+			ID:                           reqID,
+			InstanceID:                   instanceID,
+			State:                        stateActive,
+			SpotPrice:                    spotPrice,
+			Type:                         "one-time",
+			CreateTime:                   time.Now(),
+			ValidUntil:                   o.ValidUntil,
+			AvailabilityZoneGroup:        o.AvailabilityZoneGroup,
+			LaunchGroup:                  o.LaunchGroup,
+			InstanceInterruptionBehavior: o.InstanceInterruptionBehavior,
+			LaunchSpec: SpotLaunchSpecification{
+				ImageID:      imageID,
+				InstanceType: instanceType,
+				SubnetID:     subnetID,
+			},
+		}
+		b.spotRequests.Put(req)
+		b.setTagsLocked(reqID, tags)
+
+		out = append(out, req)
+	}
+
+	return out, nil
 }
 
 // DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.

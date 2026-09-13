@@ -17,7 +17,9 @@ type instanceConnectEndpointItem struct {
 	SubnetID                  string          `xml:"subnetId"`
 	VPCID                     string          `xml:"vpcId"`
 	State                     string          `xml:"state"`
+	IPAddressType             string          `xml:"ipAddressType,omitempty"`
 	TagSet                    []simpleTagItem `xml:"tagSet>item"`
+	SecurityGroupIDSet        stringItemSet   `xml:"securityGroupIdSet"`
 	PreserveClientIP          bool            `xml:"preserveClientIp"`
 }
 

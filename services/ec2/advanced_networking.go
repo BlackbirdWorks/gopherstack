@@ -150,6 +150,9 @@ type VpnTunnelOption struct {
 type VpnConnectionOptions struct {
 	LocalIPv4NetworkCIDR  string            `json:"localIpv4NetworkCidr,omitempty"`
 	RemoteIPv4NetworkCIDR string            `json:"remoteIpv4NetworkCidr,omitempty"`
+	LocalIPv6NetworkCIDR  string            `json:"localIpv6NetworkCidr,omitempty"`
+	RemoteIPv6NetworkCIDR string            `json:"remoteIpv6NetworkCidr,omitempty"`
+	TunnelBandwidth       string            `json:"tunnelBandwidth,omitempty"`
 	TunnelOptions         []VpnTunnelOption `json:"tunnelOptions,omitempty"`
 	StaticRoutesOnly      bool              `json:"staticRoutesOnly,omitempty"`
 }
@@ -230,13 +233,17 @@ type Ipam struct {
 	OperatingRegions                      []string `json:"operatingRegions,omitempty"`
 	ScopeCount                            int32    `json:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount     int32    `json:"resourceDiscoveryAssociationCount,omitempty"`
+	MeteredAccount                        string   `json:"meteredAccount,omitempty"`
+	EnablePrivateGua                      bool     `json:"enablePrivateGua,omitempty"`
 }
 
 // IpamOptions holds optional parameters accepted by CreateIpam and ModifyIpam.
 type IpamOptions struct {
 	Description      string
 	Tier             string
+	MeteredAccount   string
 	OperatingRegions []string
+	EnablePrivateGua bool
 }
 
 // IpamScope represents an IPAM scope: a private or public routing domain within an IPAM.
@@ -268,17 +275,20 @@ type IpamPool struct {
 	AllocationMinNetmaskLength     int32  `json:"allocationMinNetmaskLength,omitempty"`
 	AllocationMaxNetmaskLength     int32  `json:"allocationMaxNetmaskLength,omitempty"`
 	AllocationDefaultNetmaskLength int32  `json:"allocationDefaultNetmaskLength,omitempty"`
+	PublicIPSource                 string `json:"publicIpSource,omitempty"`
 }
 
 // IpamPoolOptions holds optional parameters accepted by CreateIpamPool and ModifyIpamPool.
 type IpamPoolOptions struct {
-	IpamScopeID                    string
-	Description                    string
-	AutoImport                     bool
-	PubliclyAdvertisable           bool
-	AllocationMinNetmaskLength     int32
-	AllocationMaxNetmaskLength     int32
-	AllocationDefaultNetmaskLength int32
+	IpamScopeID                         string
+	Description                         string
+	PublicIPSource                      string
+	AutoImport                          bool
+	PubliclyAdvertisable                bool
+	AllocationMinNetmaskLength          int32
+	AllocationMaxNetmaskLength          int32
+	AllocationDefaultNetmaskLength      int32
+	ClearAllocationDefaultNetmaskLength bool
 }
 
 // IpamPoolCidr represents a CIDR range provisioned to an IPAM pool via ProvisionIpamPoolCidr.

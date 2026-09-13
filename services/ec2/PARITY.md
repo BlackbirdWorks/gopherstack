@@ -364,6 +364,31 @@ items_still_open:
     out of this pass's scope). GetConsoleOutput.Latest has no observable effect: this backend synthesizes one
     static console-output string per instance rather than an append-only real log, so there is no 'cached vs
     freshly retrieved' distinction to honour."
+  - "ec2query filter/field sweep, second pass (2026-09-13, gopherstack-xhu2t/99nj):
+    DisassociateNatGatewayAddress/UnassignPrivateNatGatewayAddress.MaxDrainDurationSeconds -- both ops already
+    remove NAT gateway secondary addresses synchronously and immediately (no intermediate 'draining' address
+    state, no timed release), so there is no async drain pipeline to bound with a duration.
+    CreateImage.NoReboot/SnapshotLocation -- this backend's CreateImage does not stop/restart the source
+    instance or model per-volume EBS snapshots at all (see the pre-existing CreateImageTags note above), so
+    neither field has anything to apply against. ImportImage.RoleName/ImportSnapshot.RoleName -- neither
+    ImportImageOutput nor ImportSnapshotOutput echoes RoleName on the real wire (confirmed against
+    api_op_ImportImage.go/api_op_ImportSnapshot.go), and this backend performs no S3/IAM permission check
+    during import (synchronous, unconditional success), so there is no observable effect to prove.
+    GetIpamAddressHistory.EndTime/StartTime -- GetIpamAddressHistory already always returns an empty (but
+    correctly shaped) history record set (this backend has no live discovery pipeline), so there is nothing
+    for a time bound to filter. ProvisionIpamPoolCidr.VerificationMethod -- no output field echoes it
+    (confirmed against IpamPoolCidr/ProvisionByoipCidrOutput in types.go) and no BYOIP ownership-verification
+    pipeline exists to apply it against. GetManagedPrefixListEntries.TargetVersion -- this backend's managed
+    prefix lists have no historical per-version entry snapshots; RestoreManagedPrefixListVersion only bumps
+    the version counter without restoring the prior entry set, a pre-existing, separate gap.
+    ProvisionByoipCidr.PubliclyAdvertisable -- no field on the real ByoipCidr output type to echo (confirmed
+    against types.go). DescribeInstanceTypes.IncludeUnsupportedInRegion -- this backend serves a single global
+    static instance-type catalog with no per-region availability modeling, so there is no 'unsupported in
+    region' subset to select. CreateReplaceRootVolumeTask.VolumeInitializationRate -- neither
+    ReplaceRootVolumeTask nor CreateReplaceRootVolumeTaskOutput echoes it on the real wire (confirmed against
+    types.go/api_op_CreateReplaceRootVolumeTask.go). CreateSnapshot.Location/CreateSnapshots.Location -- only
+    applies to Local Zone volumes, which this backend does not model at all (no Local Zone volume/subnet
+    distinction anywhere in the codebase)."
   - "NetworkAcl associations (gopherstack-n3zi, 2026-09-12): this backend does not
     model a NetworkAclAssociationId distinct from the subnet it associates -- confirmed
     already disclosed in-code (handler_filters.go's applyNetworkACLFilters doc comment:
@@ -5506,3 +5531,230 @@ count at all: their wire keys are `GroupId.N`/`SecurityGroupId.N`, renamed
 from the Go field name `Groups`, a query-form blind-spot shape already
 tracked on gopherstack-99nj. The other 17 fields removed from the tool's
 count map exactly to the remaining 12 ops above.).
+
+### 2026-09-13 (continued) -- ec2query filter/field sweep, second pass (gopherstack-xhu2t/99nj)
+
+Continuation of the same-day pass above: `go run ./cmd/reqfielddiff -dir ec2
+-json` reported 89 tier-1 findings at the start of this pass. Worked the
+families the first pass listed as not-reached, family by family, gating
+after each.
+
+**Images.** `DescribeImageReferences.ResourceType.N`/`IncludeAllResourceTypes`
+now filter to the requested resource types (previously always returned both
+instance and launch-template references regardless of what was asked for).
+`DescribeImages.Owner.N`/`IncludeDeprecated` now filter as documented
+(`IncludeDeprecated` follows the same "hidden by default, explicit ImageId
+still shows it" precedent `IncludeDisabled` already used). Fixing `Owner.N`
+surfaced a real bug while proving it with a typed client: `amiItem.OwnerID`
+was rendered under the wire key `ownerId`, which doesn't exist on the real
+`Image` type at all (confirmed against `deserializers.go`'s
+`awsEc2query_deserializeDocumentImage`) -- the real keys are `imageOwnerId`
+(numeric account ID) and `imageOwnerAlias` (e.g. `"amazon"`), two distinct
+fields. Fixed: `amiItem` now has both `OwnerID`/`OwnerAlias`, split at render
+time by whether the AMI's `OwnerID` is a known alias. `RegisterImage`'s
+`ImdsSupport`/`VirtualizationType` are now declared, applied, and echoed
+(`VirtualizationType` defaults to `"paravirtual"` per the SDK doc when
+omitted). `CreateImage.NoReboot`/`SnapshotLocation` recorded, not fixed (see
+items_still_open) -- this backend's `CreateImage` doesn't stop/restart the
+source instance or model per-volume EBS snapshots at all, so neither field
+has anything to apply against. `CopyImage.Encrypted`/`KmsKeyId`,
+`DeregisterImage.DeleteAssociatedSnapshots`, and
+`StopInstances`/`TerminateInstances`' `Force`/`Hibernate`/`SkipOsShutdown`
+remain the pre-existing 2026-08-31 gaps, not re-litigated.
+
+**Volumes.** `AttachVolume.EbsCardIndex` is now declared, applied (new
+`VolumeAttachment.EbsCardIndex`), and echoed on both `AttachVolume` and
+`DescribeVolumes`. `ModifyVolume.Throughput` now applies to the volume and
+is reported via `VolumeModification.TargetThroughput`/`OriginalThroughput`
+(previously silently dropped, even though `Volume.Throughput` already
+existed as a field only `CreateVolume`'s post-hoc `SetVolumePerformance`
+call populated). `CreateVolume.VolumeInitializationRate` is now declared,
+stored, and echoed (new `Volume.VolumeInitializationRate` -- this backend
+has no real fast-snapshot-restore/lazy-load pipeline to rate-limit, so it's
+a pure round-trip). `CreateReplaceRootVolumeTask.VolumeInitializationRate`
+and `CreateSnapshot`/`CreateSnapshots.Location` recorded, not fixed: neither
+`ReplaceRootVolumeTask`/`CreateReplaceRootVolumeTaskOutput` nor
+`Snapshot`/`CreateSnapshotOutput` echoes either field on the real wire
+(confirmed against `types.go`), and `Location` only applies to Local Zone
+volumes, which this backend doesn't model at all.
+
+**IPAM.** `CreateIpam`/`ModifyIpam.EnablePrivateGua`/`MeteredAccount` are now
+declared, applied, and echoed. `CreateIpamPool.PublicIpSource` is now
+declared, applied (defaulting to `"byoip"` per the doc), and echoed.
+`ModifyIpamPool.ClearAllocationDefaultNetmaskLength` now resets
+`AllocationDefaultNetmaskLength` to zero, taking precedence over a
+same-request `AllocationDefaultNetmaskLength` value (mutually exclusive in
+practice). `GetIpamPrefixListResolverVersions.IpamPrefixListResolverVersion.N`
+now filters the returned version list instead of always returning every
+version. `DeleteIpam.Cascade` was a **real correctness bug**, not just a
+missing field: the op unconditionally deleted an IPAM and its default scopes
+regardless of whether it still had pools or non-default scopes attached.
+Real AWS refuses that (a real client gets an error) unless `Cascade=true`.
+Fixed: `DeleteIpam` now checks for dependent pools/non-default scopes and
+refuses with `DependencyViolation` (the same code this backend already uses
+for other still-has-dependents refusals) unless `Cascade=true`, in which case
+they're torn down first. `GetIpamAddressHistory.EndTime`/`StartTime` and
+`ProvisionIpamPoolCidr.VerificationMethod` recorded, not fixed:
+`GetIpamAddressHistory` already always returns an empty (but correctly
+shaped) history record set (pre-existing, documented gap -- no live
+discovery pipeline), so there's nothing for a time bound to filter; and
+`VerificationMethod` has no output field to echo (confirmed against
+`IpamPoolCidr`/`ProvisionByoipCidrOutput`) and no BYOIP ownership-verification
+pipeline exists to apply it against.
+
+**Client VPN.** `CreateClientVpnEndpoint.DisconnectOnSessionTimeout`
+(tri-state `*bool`, defaulting to `true` per the doc when omitted, mirroring
+the existing `SplitTunnel` pattern), `EndpointIpAddressType`, and
+`TrafficIpAddressType` (both defaulting to `"ipv4"`) are now declared,
+applied, and echoed on `DescribeClientVpnEndpoints`.
+`ModifyClientVpnEndpoint.DisconnectOnSessionTimeout` now updates the stored
+value.
+
+**VPN connection options.** `ModifyVpnConnectionOptions.LocalIpv6NetworkCidr`/
+`RemoteIpv6NetworkCidr`/`TunnelBandwidth` are now declared, applied, and
+echoed (new `VpnConnectionOptions.LocalIPv6NetworkCIDR`/
+`.RemoteIPv6NetworkCIDR`/`.TunnelBandwidth`, the last defaulting to
+`"standard"` at `CreateVpnConnection` time per the doc).
+
+**Traffic Mirror.** `ModifyTrafficMirrorFilterRule.RemoveFields` and
+`ModifyTrafficMirrorSession.RemoveFields` now reset the named property to
+its documented default (`destination-port-range`/`source-port-range`/
+`protocol`/`description` on the filter rule; `packet-length`/`description`/
+`virtual-network-id` on the session, the last recomputed via the existing
+`trafficMirrorSessionVNI` helper).
+
+**VPC Endpoints.** `CreateVpcEndpoint.PolicyDocument`/`SecurityGroupIds`/
+`ServiceRegion` are now declared, stored, and echoed (`ServiceRegion`
+defaults to the backend's own region). `PrivateDnsEnabled` is now declared,
+stored, and echoed, defaulting to `true` for Interface endpoints (matching
+the documented default) and `false` otherwise -- this backend has no real
+PrivateLink DNS-entry generation to enforce it against, so it's a pure
+round-trip. `SecurityGroupIds` render via the existing
+`instanceGroupItem`/`DescribeSecurityGroups` name-resolution pattern already
+used for ENI groups. `ModifyVpcEndpoint.ResetPolicy` now resets
+`PolicyDocument` to the empty-string default. `VpcEndpoint.PolicyDocument`/
+`SecurityGroupIds`/DNS-entries/IP-prefixes remain otherwise unmodeled (see
+the pre-existing vpc_endpoints deferred note) -- this pass only closes the
+declare/apply/echo gap for the fields actually flagged, not the deeper
+PrivateLink-managed-service feature set.
+
+**Instance Connect Endpoint.** `CreateInstanceConnectEndpoint.IpAddressType`
+is now declared, stored, and echoed, defaulting to `"ipv4"` (this backend has
+no IPv6-subnet CIDR modeling to derive dual-stack/ipv6 from, so it doesn't
+fabricate that detection). `ModifyInstanceConnectEndpoint.SecurityGroupIds`
+now updates the stored security groups. Proving this surfaced a second gap:
+`InstanceConnectEndpoint.SecurityGroupIds` was never rendered on
+`Describe`/`Create`/`Delete` responses at all (`securityGroupIdSet` wire key,
+confirmed against `deserializers.go`) -- fixed alongside, since the Modify
+fix would otherwise have been unobservable.
+
+**Spot Instances.** `RequestSpotInstances.InstanceCount` was a **real
+correctness bug**: the op always created exactly one `SpotInstanceRequest`
+regardless of the requested count (the SDK's own doc: "one SpotInstanceRequest
+is created per instance"). Fixed: `RequestSpotInstances` now returns
+`[]*SpotInstanceRequest`, one per requested instance (defaulting to 1),
+each with its own instance and request ID. `AvailabilityZoneGroup`,
+`LaunchGroup`, and `InstanceInterruptionBehavior` (defaulting to
+`"terminate"`) are now declared, applied, and echoed; `ValidUntil` is now
+declared, stored, and echoed. `DescribeSpotFleetRequestHistory.EventType` not
+reached this pass (budget).
+
+**NAT Gateway address drain.** `DisassociateNatGatewayAddress`/
+`UnassignPrivateNatGatewayAddress.MaxDrainDurationSeconds` recorded, not
+fixed: both ops already remove NAT gateway secondary addresses synchronously
+and immediately (no intermediate "draining" address state, no timed release)
+-- there is no async drain pipeline to bound with a duration.
+
+**Long tail.** `AttachNetworkInterface.NetworkCardIndex` was a **real
+correctness bug**: the response always hardcoded `NetworkCardIndex: 0`
+regardless of what was requested. Fixed: now echoes back whatever was
+requested (defaulting to 0). `CreateNetworkInterface.InterfaceType` is now
+declared, stored (new `NetworkInterface.InterfaceType`, defaulting to
+`"interface"`), and echoed. `ReplaceRoute.LocalTarget` now overrides
+`GatewayId`/`NatGatewayId` and resets the route to the implicit `"local"`
+target when true. `GetManagedPrefixListEntries.TargetVersion`,
+`ProvisionByoipCidr.PubliclyAdvertisable`, and
+`DescribeInstanceTypes.IncludeUnsupportedInRegion` recorded, not fixed: this
+backend's managed prefix lists have no historical per-version entry
+snapshots (`RestoreManagedPrefixListVersion` only bumps the version counter,
+a pre-existing, separate gap); `PubliclyAdvertisable` has no field on the
+real `ByoipCidr` output type to echo (confirmed against `types.go`); and
+`DescribeInstanceTypes` serves a single global static instance-type catalog
+with no per-region availability modeling, so there's no "unsupported in
+region" subset to select. `AllocateHosts.AutoPlacement`/`HostRecovery`,
+`CreateDefaultSubnet.Ipv6Native`, `CreateFleet.ValidFrom`,
+`CreateFlowLogs.LogFormat`/`MaxAggregationInterval`,
+`CreateMacSystemIntegrityProtectionModificationTask.MacCredentials`,
+`CreateNatGateway.AvailabilityZoneAddresses`,
+`ModifyInstanceAttribute.BlockDeviceMappings`/`SourceDestCheck`, and
+`RunInstances.CreditSpecification`/`PrivateDnsNameOptions` not reached this
+pass (budget). `CreateKeyPair.KeyFormat`/`KeyType`,
+`CreateApplicationStatusCheck.HealthCheckPaths`,
+`ModifyCapacityReservation.Accept`, `CreateLaunchTemplateVersion.ResolveAlias`/
+`DescribeLaunchTemplateVersions.ResolveAlias`,
+`DescribeReservedInstancesOfferings.MaxInstanceCount`, `GetConsoleOutput.Latest`,
+and `UpdateSecurityGroupRuleDescriptionsEgress`/`...Ingress.GroupName` remain
+the pre-existing recorded gaps/false positives from earlier passes, not
+re-litigated. `ModifyInstanceAttribute.Groups`/`ModifyNetworkInterfaceAttribute.Groups`
+remain the query-form wire-key blind spot (`GroupId.N`/`SecurityGroupId.N`)
+already fixed in the first pass above and tracked on gopherstack-99nj -- the
+tool still can't see through it, no new action taken.
+
+**Gates**: `go build ./...` clean. `go vet ./services/ec2/... .`,
+`go vet -tags integration ./...` clean (`-tags e2e` fails only in
+`services/cloudformation`, another agent's in-progress, uncommitted work in
+this shared worktree, unrelated to ec2). `go test -race -count=1 -p 1
+./services/ec2/...` `ok`, including two new table-driven real-typed-client
+test files (`TestRealClient_ImagesVolumesIpamVpnFields`, 6 subtests;
+`TestRealClient_VpnEndpointsAndSpot`, 6 subtests;
+`TestRealClient_NetworkAndRouteFields`, 3 subtests) proving every fix above
+against the real SDK client. One pre-existing test
+(`TestEC2Core_Handler_IPAMViaHandler`) pinned the `DeleteIpam.Cascade` bug as
+correct behavior; corrected it to pass `Cascade=true` (it deletes an IPAM
+that still has a pool it just created) rather than weaken the new check.
+`go test -count=1 ./pkgs/persistence/...`: `ec2`'s own snapshot-version
+guard passes clean, with 17 inventory rows added by hand to
+`pkgs/persistence/testdata/snapshot_inventory.json` (sorted; exact text
+below) -- fails only on `cloudformation` rows, the other agent's in-progress
+work, not touched. No `ec2SnapshotVersion` bump -- purely additive except one
+pure Go-identifier rename (`IpamPoolOptions.PublicIpSource` ->
+`.PublicIPSource`, a `revive` var-naming fix; the JSON tag, and therefore the
+on-disk shape, is unchanged, so the golden row's Go-side text was updated in
+place rather than treated as a field add/remove). `golangci-lint run
+--concurrency 2 --new-from-rev=HEAD ./services/ec2/...`: 0 issues. `go run
+./cmd/paritylint`: 0 `missing-items-still-open` FAIL (1477 advisory
+`undisclosed-open-item` findings repo-wide, pre-existing, not part of this
+pass's gate). `go run ./cmd/reqfielddiff -dir ec2` re-run at the end: 89 ->
+49 tier-1 (40 fields fixed/resolved across ~30 ops; families named above
+fully triaged -- either fixed or recorded with a reason, none silently
+dropped).
+
+Inventory rows added (`pkgs/persistence/testdata/snapshot_inventory.json`,
+sorted, exact text):
+`AMIStub.ImdsSupport string \`json:"imdsSupport,omitempty"\``,
+`AMIStub.OwnerID string \`json:"ownerID,omitempty"\``,
+`AMIStub.VirtualizationType string \`json:"virtualizationType,omitempty"\``,
+`ClientVpnEndpoint.DisconnectOnSessionTimeout bool \`json:"disconnectOnSessionTimeout,omitempty"\``,
+`ClientVpnEndpoint.EndpointIPAddressType string \`json:"endpointIpAddressType,omitempty"\``,
+`ClientVpnEndpoint.TrafficIPAddressType string \`json:"trafficIpAddressType,omitempty"\``,
+`InstanceConnectEndpoint.IPAddressType string \`json:"ipAddressType,omitempty"\``,
+`Ipam.EnablePrivateGua bool \`json:"enablePrivateGua,omitempty"\``,
+`Ipam.MeteredAccount string \`json:"meteredAccount,omitempty"\``,
+`IpamPool.PublicIPSource string \`json:"publicIpSource,omitempty"\`` (renamed
+from `.PublicIpSource` in place, wire tag unchanged),
+`NetworkInterface.InterfaceType string \`json:"interfaceType,omitempty"\``,
+`SpotInstanceRequest.AvailabilityZoneGroup string \`json:"availabilityZoneGroup,omitempty"\``,
+`SpotInstanceRequest.InstanceInterruptionBehavior string \`json:"instanceInterruptionBehavior,omitempty"\``,
+`SpotInstanceRequest.LaunchGroup string \`json:"launchGroup,omitempty"\``,
+`SpotInstanceRequest.ValidUntil time.Time \`json:"validUntil"\``,
+`VolumeAttachment.EbsCardIndex int32 \`json:"ebsCardIndex,omitempty"\``,
+`VolumeModification.OrigThroughput int \`json:"origThroughput,omitempty"\``,
+`VolumeModification.TargetThroughput int \`json:"targetThroughput,omitempty"\``,
+`Volume.VolumeInitializationRate int32 \`json:"volumeInitializationRate,omitempty"\``,
+`VpcEndpoint.PolicyDocument string \`json:"policyDocument,omitempty"\``,
+`VpcEndpoint.PrivateDNSEnabled bool \`json:"privateDnsEnabled,omitempty"\``,
+`VpcEndpoint.SecurityGroupIDs []string \`json:"securityGroupIDs,omitempty"\``,
+`VpcEndpoint.ServiceRegion string \`json:"serviceRegion,omitempty"\``,
+`VpnConnectionOptions.LocalIPv6NetworkCIDR string \`json:"localIpv6NetworkCidr,omitempty"\``,
+`VpnConnectionOptions.RemoteIPv6NetworkCIDR string \`json:"remoteIpv6NetworkCidr,omitempty"\``,
+`VpnConnectionOptions.TunnelBandwidth string \`json:"tunnelBandwidth,omitempty"\``.

@@ -45,6 +45,10 @@ type NetworkInterface struct {
 	// this to true - only the launch path and ModifyNetworkInterfaceAttribute's
 	// Attachment.DeleteOnTermination can.
 	DeleteOnTermination bool `json:"deleteOnTermination,omitempty"`
+	// InterfaceType is CreateNetworkInterface's declare+echo-only type
+	// (default "interface"); this backend has no EFA/trunk network-card
+	// simulation to apply it against.
+	InterfaceType string `json:"interfaceType,omitempty"`
 }
 
 // DescribeNetworkInterfaces returns network interfaces, optionally filtered by IDs.
@@ -85,6 +89,7 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 // CreateNetworkInterface creates a new ENI in the given subnet.
 func (b *InMemoryBackend) CreateNetworkInterface(
 	subnetID, description string,
+	interfaceType ...string,
 ) (*NetworkInterface, error) {
 	if subnetID == "" {
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
@@ -98,6 +103,11 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
+	ifaceType := "interface" // api_op_CreateNetworkInterface.go: "The default is interface."
+	if len(interfaceType) > 0 && interfaceType[0] != "" {
+		ifaceType = interfaceType[0]
+	}
+
 	id := newENIID()
 	eni := &NetworkInterface{
 		ID:              id,
@@ -108,6 +118,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		Status:          stateAvailable,
 		OwnerID:         b.AccountID,
 		SourceDestCheck: true,
+		InterfaceType:   ifaceType,
 	}
 	b.networkInterfaces.Put(eni)
 	b.indexENILocked(id, eni)

@@ -173,17 +173,24 @@ func (b *InMemoryBackend) RestoreManagedPrefixListVersion(id string, version int
 // fields available via CreateClientVpnEndpointWithOptions and
 // ModifyClientVpnEndpointWithOptions.
 type ClientVpnEndpointOptions struct {
-	SplitTunnel          *bool
-	ServerCertificateArn string
-	TransportProtocol    string
-	VpcID                string
-	SelfServicePortalURL string
+	SplitTunnel *bool
+	// DisconnectOnSessionTimeout is a *bool tri-state matching
+	// SplitTunnel's shape: nil means "not specified" (defaults to true, the
+	// documented default), so an explicit false can still be told apart
+	// from omission.
+	DisconnectOnSessionTimeout *bool
+	ServerCertificateArn       string
+	TransportProtocol          string
+	VpcID                      string
+	SelfServicePortalURL       string
 	// TransitGatewayID associates the endpoint with a Transit Gateway instead
 	// of a VPC (TransitGatewayConfiguration.TransitGatewayId on the wire).
 	// When set, CreateClientVpnEndpointWithOptions creates a pending
 	// TransitGatewayClientVpnAttachment for it.
-	TransitGatewayID    string
-	SecurityGroupIDs    []string
-	VpnPort             int32
-	SessionTimeoutHours int32
+	TransitGatewayID      string
+	EndpointIPAddressType string
+	TrafficIPAddressType  string
+	SecurityGroupIDs      []string
+	VpnPort               int32
+	SessionTimeoutHours   int32
 }

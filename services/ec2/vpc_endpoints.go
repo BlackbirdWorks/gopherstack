@@ -238,10 +238,15 @@ func (b *InMemoryBackend) ModifyVpcEndpointServicePermissions(
 
 // ---- ModifyVpcEndpoint ----
 
-// ModifyVpcEndpoint modifies a VPC endpoint (adds/removes subnets, SGs, route tables).
+// ModifyVpcEndpoint modifies a VPC endpoint (adds/removes subnets, SGs,
+// route tables). resetPolicy is an optional trailing arg
+// (api_op_ModifyVpcEndpoint.go's ResetPolicy: "reset the policy document to
+// the default policy"); this backend's default policy is the empty string,
+// matching CreateVpcEndpoint's own unset default.
 func (b *InMemoryBackend) ModifyVpcEndpoint(
 	endpointID string,
 	addSubnetIDs, removeSubnetIDs []string,
+	resetPolicy ...bool,
 ) error {
 	if endpointID == "" {
 		return fmt.Errorf("%w: VpcEndpointId is required", ErrInvalidParameter)
@@ -267,6 +272,10 @@ func (b *InMemoryBackend) ModifyVpcEndpoint(
 		}
 	}
 	ep.SubnetIDs = filtered
+
+	if len(resetPolicy) > 0 && resetPolicy[0] {
+		ep.PolicyDocument = ""
+	}
 	ep.SubnetIDs = append(ep.SubnetIDs, addSubnetIDs...)
 
 	return nil

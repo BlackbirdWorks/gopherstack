@@ -10,6 +10,10 @@ import (
 	"github.com/google/uuid"
 )
 
+// vpnTunnelBandwidthStandard is api_op_ModifyVpnConnectionOptions.go's
+// documented TunnelBandwidth default.
+const vpnTunnelBandwidthStandard = "standard"
+
 // ModifyVpnConnection moves a VPN connection onto a different VPN Gateway. An empty
 // vpnGatewayID leaves the connection's gateway attachment unchanged.
 func (b *InMemoryBackend) ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error {
@@ -130,7 +134,10 @@ func (b *InMemoryBackend) CreateVpnConnection(
 		Type:              connType,
 		Category:          "VPN",
 	}
-	conn.Options = VpnConnectionOptions{TunnelOptions: generateVpnTunnels(b.vpnConnections.Len())}
+	conn.Options = VpnConnectionOptions{
+		TunnelOptions:   generateVpnTunnels(b.vpnConnections.Len()),
+		TunnelBandwidth: vpnTunnelBandwidthStandard, // api_op_ModifyVpnConnectionOptions.go: "The default value is standard."
+	}
 	conn.VgwTelemetry = vgwTelemetryFromTunnels(conn.Options.TunnelOptions)
 	conn.CustomerGatewayConfiguration = buildCustomerGatewayConfiguration(conn)
 	b.vpnConnections.Put(conn)
@@ -329,11 +336,22 @@ func buildCustomerGatewayConfiguration(conn *VpnConnection) string {
 	return sb.String()
 }
 
-// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4 network CIDRs and the
-// static-routes-only flag of a VPN connection. Empty strings and a nil staticRoutesOnly leave
-// the corresponding field unchanged.
+// VpnConnectionExtraOptions carries ModifyVpnConnectionOptions' IPv6/
+// tunnel-bandwidth fields (api_op_ModifyVpnConnectionOptions.go), added as a
+// trailing variadic struct on ModifyVpnConnectionOptions to stay
+// back-compatible with existing call sites.
+type VpnConnectionExtraOptions struct {
+	LocalIPv6CIDR   string
+	RemoteIPv6CIDR  string
+	TunnelBandwidth string
+}
+
+// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4/IPv6 network CIDRs,
+// tunnel bandwidth, and the static-routes-only flag of a VPN connection. Empty strings and a
+// nil staticRoutesOnly leave the corresponding field unchanged.
 func (b *InMemoryBackend) ModifyVpnConnectionOptions(
 	vpnConnectionID, localIPv4CIDR, remoteIPv4CIDR string, staticRoutesOnly *bool,
+	extra ...VpnConnectionExtraOptions,
 ) (*VpnConnection, error) {
 	if vpnConnectionID == "" {
 		return nil, fmt.Errorf("%w: VpnConnectionId is required", ErrInvalidParameter)
@@ -357,6 +375,21 @@ func (b *InMemoryBackend) ModifyVpnConnectionOptions(
 
 	if staticRoutesOnly != nil {
 		conn.Options.StaticRoutesOnly = *staticRoutesOnly
+	}
+
+	if len(extra) > 0 {
+		ex := extra[0]
+		if ex.LocalIPv6CIDR != "" {
+			conn.Options.LocalIPv6NetworkCIDR = ex.LocalIPv6CIDR
+		}
+
+		if ex.RemoteIPv6CIDR != "" {
+			conn.Options.RemoteIPv6NetworkCIDR = ex.RemoteIPv6CIDR
+		}
+
+		if ex.TunnelBandwidth != "" {
+			conn.Options.TunnelBandwidth = ex.TunnelBandwidth
+		}
 	}
 
 	return copyVpnConnection(conn), nil
