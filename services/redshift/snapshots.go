@@ -340,27 +340,70 @@ func (b *InMemoryBackend) CopyClusterSnapshot(
 	return result, nil
 }
 
-// RestoreFromClusterSnapshot creates a new cluster from an existing snapshot.
-func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID string) (*Cluster, error) {
-	if clusterID == "" {
-		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
-	}
-	if snapshotID == "" {
-		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+// RestoreFromClusterSnapshotOptions groups RestoreFromClusterSnapshot's
+// documented-default optional fields (real RestoreFromClusterSnapshotInput,
+// redshift@v1.65.4 api_op_RestoreFromClusterSnapshot.go, has ~35 fields;
+// this backend models the documented-default subset gopherstack-xhu2t
+// scoped in). AllowVersionUpgrade is tri-state for the same reason as
+// CreateClusterOptions.AllowVersionUpgrade.
+type RestoreFromClusterSnapshotOptions struct {
+	AllowVersionUpgrade              *bool
+	AutomatedSnapshotRetentionPeriod *int
+	ManualSnapshotRetentionPeriod    *int
+	AvailabilityZone                 string
+	ClusterParameterGroupName        string
+	DefaultIamRoleArn                string
+	VpcSecurityGroupIDs              []string
+	Port                             int
+}
+
+// resolveRestoreClusterSnapshotRetention validates and defaults
+// RestoreFromClusterSnapshotOptions' AutomatedSnapshotRetentionPeriod/
+// ManualSnapshotRetentionPeriod/AllowVersionUpgrade, split out of
+// RestoreFromClusterSnapshot to keep it under this project's gocognit
+// ceiling (no //nolint:gocognit, per repo convention).
+func resolveRestoreClusterSnapshotRetention(
+	opts RestoreFromClusterSnapshotOptions,
+) (int, int, bool, error) {
+	automatedRetention := defaultAutomatedSnapshotRetentionPeriod
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		automatedRetention = *opts.AutomatedSnapshotRetentionPeriod
+		if automatedRetention < minAutomatedSnapshotRetentionPeriod ||
+			automatedRetention > maxAutomatedSnapshotRetentionPeriod {
+			return 0, 0, false, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
 	}
 
-	b.mu.Lock("RestoreFromClusterSnapshot")
-	defer b.mu.Unlock()
-
-	snap, exists := b.snapshots.Get(snapshotID)
-	if !exists {
-		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	manualRetention := defaultManualSnapshotRetentionPeriod
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		manualRetention = *opts.ManualSnapshotRetentionPeriod
+		if manualRetention != indefiniteManualSnapshotRetentionPeriod &&
+			(manualRetention < minManualSnapshotRetentionPeriod || manualRetention > maxManualSnapshotRetentionPeriod) {
+			return 0, 0, false, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
 	}
 
-	if _, clusterExists := b.clusters.Get(clusterID); clusterExists {
-		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	allowVersionUpgrade := true
+	if opts.AllowVersionUpgrade != nil {
+		allowVersionUpgrade = *opts.AllowVersionUpgrade
 	}
 
+	return automatedRetention, manualRetention, allowVersionUpgrade, nil
+}
+
+// restoreClusterDefaultsFromSnapshot resolves the restored cluster's
+// NodeType/DBName/MasterUsername/NumberOfNodes from the source snapshot,
+// falling back to this backend's usual defaults when the snapshot itself
+// doesn't carry a value -- split out of RestoreFromClusterSnapshot to keep
+// it under this project's cyclop ceiling (no //nolint:cyclop, per repo
+// convention).
+func restoreClusterDefaultsFromSnapshot(snap *Snapshot) (string, string, string, int) {
 	nodeType := snap.NodeType
 	if nodeType == "" {
 		nodeType = defaultNodeType
@@ -380,6 +423,52 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 	if numberOfNodes == 0 {
 		numberOfNodes = 1
 	}
+
+	return nodeType, dbName, masterUser, numberOfNodes
+}
+
+// RestoreFromClusterSnapshot creates a new cluster from an existing snapshot.
+func (b *InMemoryBackend) RestoreFromClusterSnapshot(
+	clusterID, snapshotID string, opts RestoreFromClusterSnapshotOptions,
+) (*Cluster, error) {
+	if clusterID == "" {
+		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+	if snapshotID == "" {
+		return nil, fmt.Errorf("%w: SnapshotIdentifier is required", ErrInvalidParameter)
+	}
+
+	automatedRetention, manualRetention, allowVersionUpgrade, err := resolveRestoreClusterSnapshotRetention(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	b.mu.Lock("RestoreFromClusterSnapshot")
+	defer b.mu.Unlock()
+
+	snap, exists := b.snapshots.Get(snapshotID)
+	if !exists {
+		return nil, fmt.Errorf("%w: snapshot %s not found", ErrSnapshotNotFound, snapshotID)
+	}
+
+	if _, clusterExists := b.clusters.Get(clusterID); clusterExists {
+		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, clusterID)
+	}
+
+	if opts.ClusterParameterGroupName != "" {
+		if _, pgExists := b.parameterGroups.Get(opts.ClusterParameterGroupName); !pgExists {
+			return nil, fmt.Errorf(
+				"%w: parameter group %s not found", ErrParameterGroupNotFound, opts.ClusterParameterGroupName,
+			)
+		}
+	}
+
+	port := opts.Port
+	if port == 0 {
+		port = defaultPort
+	}
+
+	nodeType, dbName, masterUser, numberOfNodes := restoreClusterDefaultsFromSnapshot(snap)
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", clusterID, b.accountID, b.region)
 
@@ -404,7 +493,7 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 		Status:            initialStatus,
 		DBName:            dbName,
 		MasterUsername:    masterUser,
-		Port:              defaultPort,
+		Port:              port,
 		NumberOfNodes:     numberOfNodes,
 		// Every cluster must own a live Tags collection: CreateCluster does
 		// this, and DescribeTags/CreateTags/DeleteTags call methods on
@@ -412,7 +501,14 @@ func (b *InMemoryBackend) RestoreFromClusterSnapshot(clusterID, snapshotID strin
 		// nil Tags here previously caused a nil-pointer panic the moment
 		// DescribeTags (or a tag-filtered DescribeClusters) ran after any
 		// restore.
-		Tags: tags.New("redshift.cluster." + clusterID + ".tags"),
+		Tags:                             tags.New("redshift.cluster." + clusterID + ".tags"),
+		ClusterParameterGroupName:        opts.ClusterParameterGroupName,
+		VpcSecurityGroupIDs:              opts.VpcSecurityGroupIDs,
+		AvailabilityZone:                 opts.AvailabilityZone,
+		DefaultIamRoleArn:                opts.DefaultIamRoleArn,
+		AllowVersionUpgrade:              allowVersionUpgrade,
+		AutomatedSnapshotRetentionPeriod: automatedRetention,
+		ManualSnapshotRetentionPeriod:    manualRetention,
 	}
 
 	b.clusters.Put(cluster)

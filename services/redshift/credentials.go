@@ -8,10 +8,39 @@ import (
 
 const credentialSeedLength = 8
 
+// GetClusterCredentials(WithIAM)'s documented DurationSeconds constraint
+// ("Constraint: minimum 900, maximum 3600. Default: 900" -- confirmed
+// against redshift@v1.65.4 api_op_GetClusterCredentials.go and
+// api_op_GetClusterCredentialsWithIAM.go, which share the same range).
+const (
+	defaultCredentialsDurationSeconds = 900
+	minCredentialsDurationSeconds     = 900
+	maxCredentialsDurationSeconds     = 3600
+)
+
+// resolveCredentialsDuration validates and defaults DurationSeconds, shared
+// by GetClusterCredentials and GetClusterCredentialsWithIAM. A nil
+// durationSeconds means the caller omitted it (default 900).
+func resolveCredentialsDuration(durationSeconds *int) (time.Duration, error) {
+	d := defaultCredentialsDurationSeconds
+	if durationSeconds != nil {
+		d = *durationSeconds
+		if d < minCredentialsDurationSeconds || d > maxCredentialsDurationSeconds {
+			return 0, fmt.Errorf(
+				"%w: DurationSeconds must be between %d and %d",
+				ErrInvalidParameter, minCredentialsDurationSeconds, maxCredentialsDurationSeconds,
+			)
+		}
+	}
+
+	return time.Duration(d) * time.Second, nil
+}
+
 // GetClusterCredentials generates temporary credentials for a cluster user.
 func (b *InMemoryBackend) GetClusterCredentials(
 	clusterID, dbUser string,
 	_ bool,
+	durationSeconds *int,
 ) (*ClusterCredentials, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -19,6 +48,11 @@ func (b *InMemoryBackend) GetClusterCredentials(
 
 	if dbUser == "" {
 		return nil, fmt.Errorf("%w: DbUser is required", ErrInvalidParameter)
+	}
+
+	duration, err := resolveCredentialsDuration(durationSeconds)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.RLock("GetClusterCredentials")
@@ -37,14 +71,22 @@ func (b *InMemoryBackend) GetClusterCredentials(
 	return &ClusterCredentials{
 		DBUser:     dbUser,
 		DBPassword: "Tmp1_" + seed,
-		Expiration: time.Now().Add(time.Hour),
+		Expiration: time.Now().Add(duration),
 	}, nil
 }
 
 // GetClusterCredentialsWithIAM returns temporary cluster credentials including an IAM role.
-func (b *InMemoryBackend) GetClusterCredentialsWithIAM(clusterID, _ string) (*ClusterCredentials, error) {
+func (b *InMemoryBackend) GetClusterCredentialsWithIAM(
+	clusterID, _ string,
+	durationSeconds *int,
+) (*ClusterCredentials, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	duration, err := resolveCredentialsDuration(durationSeconds)
+	if err != nil {
+		return nil, err
 	}
 
 	b.mu.RLock("GetClusterCredentialsWithIAM")
@@ -57,6 +99,6 @@ func (b *InMemoryBackend) GetClusterCredentialsWithIAM(clusterID, _ string) (*Cl
 	return &ClusterCredentials{
 		DBUser:     "IAMUser:" + clusterID,
 		DBPassword: "Tmp1_iam" + clusterID,
-		Expiration: time.Now().Add(time.Hour),
+		Expiration: time.Now().Add(duration),
 	}, nil
 }

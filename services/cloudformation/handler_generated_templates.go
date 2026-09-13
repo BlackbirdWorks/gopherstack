@@ -291,14 +291,15 @@ func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListResourceScans(parseFormMaxResults(form), form.Get("NextToken"))
+	p, _ := h.Backend.ListResourceScans(parseFormMaxResults(form), form.Get("NextToken"), form.Get("ScanTypeFilter"))
 	type scanXML struct {
 		ResourceScanID string `xml:"ResourceScanId"`
 		Status         string `xml:"Status"`
+		ScanType       string `xml:"ScanType,omitempty"`
 	}
 	members := make([]scanXML, 0, len(p.Data))
 	for _, s := range p.Data {
-		members = append(members, scanXML{ResourceScanID: s.ResourceScanID, Status: s.Status})
+		members = append(members, scanXML{ResourceScanID: s.ResourceScanID, Status: s.Status, ScanType: s.ScanType})
 	}
 	type result struct {
 		NextToken             string    `xml:"NextToken,omitempty"`
@@ -337,12 +338,14 @@ type xmlScannedResource struct {
 }
 
 func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Context) error {
-	scanned, err := h.Backend.ListResourceScanResources(form.Get("ResourceScanId"), "")
+	p, err := h.Backend.ListResourceScanResources(
+		form.Get("ResourceScanId"), form.Get("NextToken"), parseFormMaxResults(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "ResourceScanNotFound", err.Error())
 	}
-	members := make([]xmlScannedResource, 0, len(scanned))
-	for _, s := range scanned {
+	members := make([]xmlScannedResource, 0, len(p.Data))
+	for _, s := range p.Data {
 		entries := make([]xmlResourceIdentifierEntry, 0, len(s.ResourceIdentifier))
 		for _, k := range collections.SortedKeys(s.ResourceIdentifier) {
 			entries = append(entries, xmlResourceIdentifierEntry{Key: k, Value: s.ResourceIdentifier[k]})
@@ -354,6 +357,7 @@ func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Conte
 		})
 	}
 	type result struct {
+		NextToken string               `xml:"NextToken,omitempty"`
 		Resources []xmlScannedResource `xml:"Resources>member"`
 	}
 	type response struct {
@@ -367,7 +371,7 @@ func (h *Handler) handleListResourceScanResources(form url.Values, c *echo.Conte
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{Resources: members},
+			Result:    result{Resources: members, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)

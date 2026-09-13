@@ -803,6 +803,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		cloudformation.CreateChangeSetOptions{},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "cs-base", cs.StackName)
@@ -819,7 +820,7 @@ func TestChangeSet_CreateExecuteDelete(t *testing.T) {
 	assert.Len(t, list.Data, 1)
 
 	// Execute.
-	err = b.ExecuteChangeSet(t.Context(), "cs-base", "my-cs")
+	err = b.ExecuteChangeSet(t.Context(), "cs-base", "my-cs", false, false)
 	require.NoError(t, err)
 
 	// Delete should fail — already executed.
@@ -840,7 +841,17 @@ func TestChangeSet_Delete(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(t.Context(), "cs-del", "del-cs", simpleTemplate, "", nil, nil, nil)
+	_, err = b.CreateChangeSet(
+		t.Context(),
+		"cs-del",
+		"del-cs",
+		simpleTemplate,
+		"",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
 
 	err = b.DeleteChangeSet("cs-del", "del-cs")

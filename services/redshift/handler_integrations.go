@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"net/url"
 	"slices"
+	"sort"
 	"strconv"
 	"time"
 
@@ -96,6 +97,7 @@ type describeIntegrationsResponse struct {
 	XMLName xml.Name `xml:"DescribeIntegrationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker       string           `xml:"Marker,omitempty"`
 		Integrations []integrationXML `xml:"Integrations>Integration"`
 	} `xml:"DescribeIntegrationsResult"`
 }
@@ -169,6 +171,11 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]integrationXML, 0, len(igs))
 
 	for i := range igs {
@@ -179,7 +186,13 @@ func (h *Handler) handleDescribeIntegrations(vals url.Values) (any, error) {
 		members = append(members, integrationToXML(&igs[i]))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].IntegrationArn < members[j].IntegrationArn })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(ig integrationXML) string { return ig.IntegrationArn })
+
 	resp := &describeIntegrationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.Integrations = members
 
 	return resp, nil
@@ -217,6 +230,7 @@ type describeInboundIntegrationsResponse struct {
 	XMLName xml.Name `xml:"DescribeInboundIntegrationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker              string                  `xml:"Marker,omitempty"`
 		InboundIntegrations []inboundIntegrationXML `xml:"InboundIntegrations>InboundIntegration"`
 	} `xml:"DescribeInboundIntegrationsResult"`
 }
@@ -234,6 +248,11 @@ func (h *Handler) handleDescribeInboundIntegrations(vals url.Values) (any, error
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]inboundIntegrationXML, 0, len(igs))
 
 	for i := range igs {
@@ -244,7 +263,13 @@ func (h *Handler) handleDescribeInboundIntegrations(vals url.Values) (any, error
 		members = append(members, inboundIntegrationToXML(&igs[i]))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].IntegrationArn < members[j].IntegrationArn })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(ig inboundIntegrationXML) string { return ig.IntegrationArn })
+
 	resp := &describeInboundIntegrationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.InboundIntegrations = members
 
 	return resp, nil

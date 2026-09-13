@@ -261,10 +261,20 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 
 // ListTypes returns registered/activated types, paginated by
 // MaxResults/NextToken (real query-protocol form fields, ListTypes
-// serializers.go:9145-9153).
-func (b *InMemoryBackend) ListTypes(_ string, maxResults int, nextToken string) (page.Page[TypeSummary], error) {
+// serializers.go:9145-9153). visibilityFilter/provisioningTypeFilter mirror
+// ListTypesInput's own Visibility/ProvisioningType fields; an empty filter
+// imposes no constraint (the documented default: PRIVATE for Visibility,
+// unfiltered for ProvisioningType).
+func (b *InMemoryBackend) ListTypes(
+	visibilityFilter, provisioningTypeFilter string, maxResults int, nextToken string,
+) (page.Page[TypeSummary], error) {
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
+
+	if provisioningTypeFilter != "" && provisioningTypeFilter != provisioningTypeFullyMutable {
+		return page.New([]TypeSummary{}, nextToken, maxResults, cfnDefaultPageSize), nil
+	}
+
 	result := make([]TypeSummary, 0, b.typeRegistry.Len())
 	for _, t := range b.typeRegistry.All() {
 		if t.Status == typeStatusDeprecated {
@@ -275,6 +285,11 @@ func (b *InMemoryBackend) ListTypes(_ string, maxResults int, nextToken string) 
 			if t.IsPublished {
 				visibility = typeVisibilityPublic
 			}
+
+			if visibilityFilter != "" && visibilityFilter != visibility {
+				continue
+			}
+
 			result = append(result, TypeSummary{
 				TypeName:         t.TypeName,
 				TypeArn:          t.TypeArn,
@@ -332,16 +347,31 @@ func (b *InMemoryBackend) ListTypeVersions(
 // serializers.go's awsAwsquery_serializeOpDocumentListTypeRegistrationsInput).
 // Snapshot (not All) for a deterministic, sortable-by-Token order --
 // required for stable pagination across calls.
+// ListTypeRegistrations: registrationStatusFilter mirrors
+// ListTypeRegistrationsInput.RegistrationStatusFilter (default IN_PROGRESS,
+// api_op_ListTypeRegistrations.go); every registration this backend creates
+// completes synchronously (see DescribeTypeRegistration's own doc comment),
+// so filtering by COMPLETE matches every registration and IN_PROGRESS/FAILED
+// match none, honestly reflecting that this backend never produces those
+// states rather than fabricating an in-progress window. The Type
+// (RESOURCE/MODULE/HOOK) filter remains unimplemented -- TypeRegistrationRecord
+// doesn't track a type kind at all, a separate, pre-existing gap.
 func (b *InMemoryBackend) ListTypeRegistrations(
-	typeName, _ string, maxResults int, nextToken string,
+	typeName, _ /* typeKind */, registrationStatusFilter string, maxResults int, nextToken string,
 ) (page.Page[string], error) {
 	b.mu.RLock("ListTypeRegistrations")
 	defer b.mu.RUnlock()
 	tokens := make([]string, 0, b.typeRegistrations.Len())
 	for _, rec := range b.typeRegistrations.Snapshot() {
-		if typeName == "" || rec.TypeName == typeName {
-			tokens = append(tokens, rec.Token)
+		if typeName != "" && rec.TypeName != typeName {
+			continue
 		}
+
+		if registrationStatusFilter != "" && rec.Status != registrationStatusFilter {
+			continue
+		}
+
+		tokens = append(tokens, rec.Token)
 	}
 
 	return page.New(tokens, nextToken, maxResults, cfnDefaultPageSize), nil
@@ -363,7 +393,13 @@ func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (st
 	return rec.Status, rec.TypeArn, nil
 }
 
-func (b *InMemoryBackend) TestType(typeName, typeArn string) (string, error) {
+// TestType starts a test run for a registered extension. versionID mirrors
+// TestTypeInput.VersionId (api_op_TestType.go: "You can specify the version
+// id with either Arn, or with TypeName and Type. If you don't specify a
+// version, CloudFormation uses the default version"); when given, it is
+// validated as a real registered version of the target type rather than
+// silently ignored.
+func (b *InMemoryBackend) TestType(typeName, typeArn, versionID string) (string, error) {
 	b.mu.Lock("TestType")
 	defer b.mu.Unlock()
 	token := uuid.New().String()
@@ -371,6 +407,23 @@ func (b *InMemoryBackend) TestType(typeName, typeArn string) (string, error) {
 	if key == "" {
 		key = "arn:aws:cloudformation:::type/resource/" + typeName
 	}
+
+	if versionID != "" {
+		found := false
+
+		for _, v := range b.typeVersions[key] {
+			if v.VersionID == versionID {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return "", fmt.Errorf("%w: %s version %s", ErrTypeVersionNotFound, key, versionID)
+		}
+	}
+
 	b.typeRegistrations.Put(&TypeRegistrationRecord{
 		Token:    token,
 		TypeName: typeName,

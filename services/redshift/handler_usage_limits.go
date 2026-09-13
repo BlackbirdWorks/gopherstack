@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"sort"
 	"strconv"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -86,6 +87,7 @@ type xmlUsageLimitList struct {
 type describeUsageLimitsResponse struct {
 	XMLName xml.Name          `xml:"DescribeUsageLimitsResponse"`
 	Xmlns   string            `xml:"xmlns,attr"`
+	Marker  string            `xml:"DescribeUsageLimitsResult>Marker,omitempty"`
 	Limits  xmlUsageLimitList `xml:"DescribeUsageLimitsResult>UsageLimits"`
 }
 
@@ -96,6 +98,11 @@ func (h *Handler) handleDescribeUsageLimits(vals url.Values) (any, error) {
 	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	limits, err := h.Backend.DescribeUsageLimits(clusterID, featureType)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +118,14 @@ func (h *Handler) handleDescribeUsageLimits(vals url.Values) (any, error) {
 		members = append(members, usageLimitToXML(&ulCopy))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].UsageLimitID < members[j].UsageLimitID })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(ul xmlUsageLimit) string { return ul.UsageLimitID })
+
 	return &describeUsageLimitsResponse{
 		Xmlns:  redshiftXMLNS,
+		Marker: nextMarker,
 		Limits: xmlUsageLimitList{Limits: members},
 	}, nil
 }

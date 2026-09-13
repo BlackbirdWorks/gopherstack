@@ -408,10 +408,17 @@ func (h *Handler) handleBatchDescribeTypeConfigurations(form url.Values, c *echo
 }
 
 func (h *Handler) handleListTypes(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListTypes("", parseFormMaxResults(form), form.Get("NextToken"))
+	p, err := h.Backend.ListTypes(
+		form.Get("Visibility"), form.Get("ProvisioningType"), parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
+	// Visibility/ProvisioningType are read as request-side filters (below)
+	// but are NOT echoed here: confirmed against
+	// awsAwsquery_deserializeDocumentTypeSummary (cloudformation@v1.76.1
+	// deserializers.go) that real TypeSummary carries neither field on the
+	// wire -- adding them here would be fabrication, not a fix.
 	type typeXML struct {
 		TypeName         string `xml:"TypeName,omitempty"`
 		TypeArn          string `xml:"TypeArn,omitempty"`
@@ -492,7 +499,7 @@ func (h *Handler) handleListTypeVersions(form url.Values, c *echo.Context) error
 
 func (h *Handler) handleListTypeRegistrations(form url.Values, c *echo.Context) error {
 	p, err := h.Backend.ListTypeRegistrations(
-		form.Get("TypeName"), form.Get("Type"),
+		form.Get("TypeName"), form.Get("Type"), form.Get("RegistrationStatusFilter"),
 		parseFormMaxResults(form), form.Get("NextToken"),
 	)
 	if err != nil {
@@ -527,6 +534,13 @@ func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Contex
 	type result struct {
 		ProgressStatus string `xml:"ProgressStatus"`
 		TypeArn        string `xml:"TypeArn,omitempty"`
+		// TypeVersionArn is a real, distinct DescribeTypeRegistrationOutput
+		// member (the ARN of this specific registered version, vs TypeArn's
+		// ARN of the extension as a whole -- api_op_DescribeTypeRegistration.go)
+		// that was previously declared nowhere and never emitted. This
+		// backend doesn't model a separate per-version ARN suffix, so it
+		// shares TypeArn's value rather than fabricating one.
+		TypeVersionArn string `xml:"TypeVersionArn,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"DescribeTypeRegistrationResponse"`
@@ -539,15 +553,19 @@ func (h *Handler) handleDescribeTypeRegistration(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{ProgressStatus: status, TypeArn: typeArn},
+			Result:    result{ProgressStatus: status, TypeArn: typeArn, TypeVersionArn: typeArn},
 			RequestID: uuid.New().String(),
 		},
 	)
 }
 
 func (h *Handler) handleTestType(form url.Values, c *echo.Context) error {
-	token, err := h.Backend.TestType(form.Get("TypeName"), form.Get("Arn"))
+	token, err := h.Backend.TestType(form.Get("TypeName"), form.Get("Arn"), form.Get("VersionId"))
 	if err != nil {
+		if errors.Is(err, ErrTypeVersionNotFound) {
+			return h.xmlError(c, "TypeNotFoundException", err.Error())
+		}
+
 		return h.xmlError(c, "CFNRegistryException", err.Error())
 	}
 	type result struct {
@@ -571,6 +589,15 @@ func (h *Handler) handleTestType(form url.Values, c *echo.Context) error {
 }
 
 func (h *Handler) handleRegisterPublisher(form url.Values, c *echo.Context) error {
+	// AcceptTermsAndConditions is required to register as a publisher of
+	// public extensions (api_op_RegisterPublisher.go: "You must accept the
+	// Terms and Conditions ... in order to register to publish public
+	// extensions to the CloudFormation registry"); omitting or explicitly
+	// declining it is rejected rather than silently accepted.
+	if !strings.EqualFold(form.Get("AcceptTermsAndConditions"), "true") {
+		return h.xmlError(c, "ValidationError", "AcceptTermsAndConditions must be true")
+	}
+
 	id, err := h.Backend.RegisterPublisher(form.Get("ConnectionArn"))
 	if err != nil {
 		return h.xmlError(c, "CFNRegistryException", err.Error())

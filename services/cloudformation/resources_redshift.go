@@ -3,6 +3,8 @@ package cloudformation
 import (
 	"fmt"
 	"strings"
+
+	redshiftbackend "github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
 // ---- Redshift ----
@@ -25,7 +27,9 @@ func (rc *ResourceCreator) createRedshiftCluster(
 	dbName := strProp(props, "DBName", params, physicalIDs)
 	masterUser := strProp(props, "MasterUsername", params, physicalIDs)
 
-	cluster, err := rc.backends.Redshift.Backend.CreateCluster(id, nodeType, dbName, masterUser, nil, "")
+	cluster, err := rc.backends.Redshift.Backend.CreateCluster(
+		id, nodeType, dbName, masterUser, nil, "", redshiftbackend.CreateClusterOptions{},
+	)
 	if err != nil {
 		return "", fmt.Errorf("create Redshift cluster %s: %w", id, err)
 	}

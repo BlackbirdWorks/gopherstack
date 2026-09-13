@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"sort"
 	"strconv"
 )
 
@@ -87,6 +88,7 @@ func (h *Handler) handleDeleteClusterParameterGroup(vals url.Values) (any, error
 type describeClusterParameterGroupsResponse struct {
 	XMLName         xml.Name                     `xml:"DescribeClusterParameterGroupsResponse"`
 	Xmlns           string                       `xml:"xmlns,attr"`
+	Marker          string                       `xml:"DescribeClusterParameterGroupsResult>Marker,omitempty"`
 	ParameterGroups xmlClusterParameterGroupList `xml:"DescribeClusterParameterGroupsResult>ParameterGroups"`
 }
 
@@ -98,14 +100,25 @@ func (h *Handler) handleDescribeClusterParameterGroups(vals url.Values) (any, er
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlClusterParameterGroup, 0, len(groups))
 	for _, g := range groups {
 		gp := g
 		members = append(members, paramGroupToXML(&gp))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].ParameterGroupName < members[j].ParameterGroupName })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(g xmlClusterParameterGroup) string { return g.ParameterGroupName })
+
 	return &describeClusterParameterGroupsResponse{
 		Xmlns:           redshiftXMLNS,
+		Marker:          nextMarker,
 		ParameterGroups: xmlClusterParameterGroupList{Members: members},
 	}, nil
 }
@@ -115,6 +128,7 @@ func (h *Handler) handleDescribeClusterParameterGroups(vals url.Values) (any, er
 type describeClusterParametersResponse struct {
 	XMLName    xml.Name                `xml:"DescribeClusterParametersResponse"`
 	Xmlns      string                  `xml:"xmlns,attr"`
+	Marker     string                  `xml:"DescribeClusterParametersResult>Marker,omitempty"`
 	Parameters xmlClusterParameterList `xml:"DescribeClusterParametersResult>Parameters"`
 }
 
@@ -123,6 +137,11 @@ func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) 
 	source := vals.Get("Source")
 
 	params, err := h.Backend.DescribeClusterParameters(groupName)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +155,14 @@ func (h *Handler) handleDescribeClusterParameters(vals url.Values) (any, error) 
 		members = append(members, xmlClusterParameter(p))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].ParameterName < members[j].ParameterName })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(p xmlClusterParameter) string { return p.ParameterName })
+
 	return &describeClusterParametersResponse{
 		Xmlns:      redshiftXMLNS,
+		Marker:     nextMarker,
 		Parameters: xmlClusterParameterList{Members: members},
 	}, nil
 }
@@ -197,6 +222,7 @@ func (h *Handler) handleResetClusterParameterGroup(vals url.Values) (any, error)
 
 type xmlDefaultClusterParametersResult struct {
 	Family     string                  `xml:"DefaultClusterParameters>ParameterGroupFamily"`
+	Marker     string                  `xml:"DefaultClusterParameters>Marker,omitempty"`
 	Parameters xmlClusterParameterList `xml:"DefaultClusterParameters>Parameters"`
 }
 
@@ -214,6 +240,11 @@ func (h *Handler) handleDescribeDefaultClusterParameters(vals url.Values) (any, 
 		return nil, err
 	}
 
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	members := make([]xmlClusterParameter, 0, len(params))
 	for _, p := range params {
 		members = append(members, xmlClusterParameter{
@@ -227,10 +258,16 @@ func (h *Handler) handleDescribeDefaultClusterParameters(vals url.Values) (any, 
 		})
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].ParameterName < members[j].ParameterName })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(p xmlClusterParameter) string { return p.ParameterName })
+
 	return &describeDefaultClusterParametersResponse{
 		Xmlns: redshiftXMLNS,
 		Result: xmlDefaultClusterParametersResult{
 			Family:     family,
+			Marker:     nextMarker,
 			Parameters: xmlClusterParameterList{Members: members},
 		},
 	}, nil

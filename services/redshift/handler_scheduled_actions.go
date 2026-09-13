@@ -3,6 +3,7 @@ package redshift
 import (
 	"encoding/xml"
 	"net/url"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -231,6 +232,7 @@ type describeScheduledActionsResponse struct {
 	XMLName xml.Name `xml:"DescribeScheduledActionsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker           string               `xml:"Marker,omitempty"`
 		ScheduledActions []scheduledActionXML `xml:"ScheduledActions>ScheduledAction"`
 	} `xml:"DescribeScheduledActionsResult"`
 }
@@ -238,6 +240,11 @@ type describeScheduledActionsResponse struct {
 func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 	name := vals.Get("ScheduledActionName")
 	actions, err := h.Backend.DescribeScheduledActions(name)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +271,13 @@ func (h *Handler) handleDescribeScheduledActions(vals url.Values) (any, error) {
 		members = append(members, scheduledActionToXML(&actions[i]))
 	}
 
+	sort.Slice(members, func(i, j int) bool { return members[i].ScheduledActionName < members[j].ScheduledActionName })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(a scheduledActionXML) string { return a.ScheduledActionName })
+
 	resp := &describeScheduledActionsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.ScheduledActions = members
 
 	return resp, nil

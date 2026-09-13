@@ -16,16 +16,21 @@ import (
 // a setting (e.g. to decrypt a cluster). A plain bool cannot distinguish
 // "not sent" from "explicitly false".
 type ModifyClusterOptions struct {
-	Encrypted           *bool
-	EnhancedVpcRouting  *bool
-	PubliclyAccessible  *bool
-	NodeType            string
-	MasterUserPassword  string
-	ClusterVersion      string
-	VpcSecurityGroupIDs []string
-	NumberOfNodes       int
-	Port                int
-	ApplyImmediately    bool
+	Encrypted                            *bool
+	EnhancedVpcRouting                   *bool
+	PubliclyAccessible                   *bool
+	AllowVersionUpgrade                  *bool
+	ExtraComputeForAutomaticOptimization *bool
+	AutomatedSnapshotRetentionPeriod     *int
+	ManualSnapshotRetentionPeriod        *int
+	NodeType                             string
+	MasterUserPassword                   string
+	ClusterVersion                       string
+	ClusterParameterGroupName            string
+	VpcSecurityGroupIDs                  []string
+	NumberOfNodes                        int
+	Port                                 int
+	ApplyImmediately                     bool
 }
 
 // ModifyCluster modifies a cluster's attributes.
@@ -57,12 +62,55 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 		)
 	}
 
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		v := *opts.ManualSnapshotRetentionPeriod
+		if v != indefiniteManualSnapshotRetentionPeriod &&
+			(v < minManualSnapshotRetentionPeriod || v > maxManualSnapshotRetentionPeriod) {
+			return nil, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		v := *opts.AutomatedSnapshotRetentionPeriod
+		if v < minAutomatedSnapshotRetentionPeriod || v > maxAutomatedSnapshotRetentionPeriod {
+			return nil, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	if opts.ClusterParameterGroupName != "" {
+		if _, pgExists := b.parameterGroups.Get(opts.ClusterParameterGroupName); !pgExists {
+			return nil, fmt.Errorf(
+				"%w: parameter group %s not found", ErrParameterGroupNotFound, opts.ClusterParameterGroupName,
+			)
+		}
+
+		cluster.ClusterParameterGroupName = opts.ClusterParameterGroupName
+	}
+
 	if opts.VpcSecurityGroupIDs != nil {
 		cluster.VpcSecurityGroupIDs = opts.VpcSecurityGroupIDs
 	}
 
 	if opts.Port > 0 {
 		cluster.Port = opts.Port
+	}
+
+	if opts.AllowVersionUpgrade != nil {
+		cluster.AllowVersionUpgrade = *opts.AllowVersionUpgrade
+	}
+
+	if opts.ExtraComputeForAutomaticOptimization != nil {
+		cluster.ExtraComputeForAutomaticOptimization = *opts.ExtraComputeForAutomaticOptimization
+	}
+
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		cluster.ManualSnapshotRetentionPeriod = *opts.ManualSnapshotRetentionPeriod
 	}
 
 	if !opts.ApplyImmediately {
@@ -92,6 +140,10 @@ func pendingModifiedValuesFrom(opts ModifyClusterOptions) *ClusterPendingModifie
 		pending.NumberOfNodes = opts.NumberOfNodes
 	}
 
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		pending.AutomatedSnapshotRetentionPeriod = *opts.AutomatedSnapshotRetentionPeriod
+	}
+
 	if opts.Encrypted != nil {
 		pending.Encrypted = *opts.Encrypted
 	}
@@ -116,6 +168,10 @@ func applyModifyClusterImmediate(cluster *Cluster, opts ModifyClusterOptions) {
 
 	if opts.NumberOfNodes > 0 {
 		cluster.NumberOfNodes = opts.NumberOfNodes
+	}
+
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		cluster.AutomatedSnapshotRetentionPeriod = *opts.AutomatedSnapshotRetentionPeriod
 	}
 
 	if opts.Encrypted != nil {
@@ -299,7 +355,11 @@ func (b *InMemoryBackend) RotateEncryptionKey(id string) (*Cluster, error) {
 }
 
 // ModifyClusterIamRoles adds and removes IAM roles on a cluster.
-func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error) {
+func (b *InMemoryBackend) ModifyClusterIamRoles(
+	id string,
+	addRoles, removeRoles []string,
+	defaultIamRoleArn string,
+) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -340,6 +400,10 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles
 
 	sort.Strings(roles)
 	cluster.IamRoles = roles
+
+	if defaultIamRoleArn != "" {
+		cluster.DefaultIamRoleArn = defaultIamRoleArn
+	}
 
 	cp := cloneCluster(cluster)
 

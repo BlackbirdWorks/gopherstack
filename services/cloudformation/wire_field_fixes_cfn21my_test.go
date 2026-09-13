@@ -578,7 +578,8 @@ func TestDescribePublisher_PublisherId_RealClient(t *testing.T) {
 	client := newTestHandlerAndClient(t)
 
 	regOut, err := client.RegisterPublisher(t.Context(), &cfnsdk.RegisterPublisherInput{
-		ConnectionArn: aws.String("arn:aws:codestar-connections:us-east-1:123456789012:connection/cfn21my"),
+		ConnectionArn:            aws.String("arn:aws:codestar-connections:us-east-1:123456789012:connection/cfn21my"),
+		AcceptTermsAndConditions: aws.Bool(true),
 	})
 	require.NoError(t, err)
 	publisherID := aws.ToString(regOut.PublisherId)

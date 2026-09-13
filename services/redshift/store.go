@@ -34,6 +34,18 @@ const (
 	defaultMasterUsername        = "admin"
 	defaultPort                  = 5439
 	qev2IdcOnboardStatusComplete = "COMPLETED"
+
+	// defaultAutomatedSnapshotRetentionPeriod/defaultManualSnapshotRetentionPeriod
+	// match CreateClusterInput's documented defaults (redshift@v1.65.4
+	// api_op_CreateCluster.go: "Default: 1" / ManualSnapshotRetentionPeriod's
+	// "-1" meaning retained indefinitely).
+	defaultAutomatedSnapshotRetentionPeriod = 1
+	defaultManualSnapshotRetentionPeriod    = -1
+	minAutomatedSnapshotRetentionPeriod     = 0
+	maxAutomatedSnapshotRetentionPeriod     = 35
+	indefiniteManualSnapshotRetentionPeriod = -1
+	minManualSnapshotRetentionPeriod        = 1
+	maxManualSnapshotRetentionPeriod        = 3653
 )
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
@@ -203,6 +215,28 @@ func (b *InMemoryBackend) validateClusterAssociationsLocked(
 	return nil
 }
 
+// CreateClusterOptions groups CreateCluster's optional fields not already
+// covered by its required positional arguments (real CreateClusterInput,
+// redshift@v1.65.4 api_op_CreateCluster.go, has ~40 fields; this backend
+// models the documented-default subset gopherstack-xhu2t scoped in).
+//
+// AllowVersionUpgrade and ExtraComputeForAutomaticOptimization are tri-state
+// pointers because their zero value ("not specified") must be distinguished
+// from an explicit "false" -- both default true/false respectively per their
+// own docs, matching ModifyClusterOptions' existing Encrypted/
+// EnhancedVpcRouting/PubliclyAccessible convention.
+type CreateClusterOptions struct {
+	AllowVersionUpgrade                  *bool
+	AutomatedSnapshotRetentionPeriod     *int
+	ManualSnapshotRetentionPeriod        *int
+	AvailabilityZone                     string
+	ClusterSubnetGroupName               string
+	DefaultIamRoleArn                    string
+	VpcSecurityGroupIDs                  []string
+	Port                                 int
+	ExtraComputeForAutomaticOptimization bool
+}
+
 // CreateCluster creates a new Redshift cluster. clusterSecurityGroups and
 // clusterParameterGroupName associate the cluster with existing
 // ClusterSecurityGroup/ClusterParameterGroup resources (real
@@ -214,6 +248,7 @@ func (b *InMemoryBackend) CreateCluster(
 	id, nodeType, dbName, masterUser string,
 	clusterSecurityGroups []string,
 	clusterParameterGroupName string,
+	opts CreateClusterOptions,
 ) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
@@ -226,6 +261,35 @@ func (b *InMemoryBackend) CreateCluster(
 				"not contain consecutive hyphens, max 63 chars)",
 			ErrInvalidParameter, id,
 		)
+	}
+
+	automatedRetention := defaultAutomatedSnapshotRetentionPeriod
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		automatedRetention = *opts.AutomatedSnapshotRetentionPeriod
+		if automatedRetention < minAutomatedSnapshotRetentionPeriod ||
+			automatedRetention > maxAutomatedSnapshotRetentionPeriod {
+			return nil, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	manualRetention := defaultManualSnapshotRetentionPeriod
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		manualRetention = *opts.ManualSnapshotRetentionPeriod
+		if manualRetention != indefiniteManualSnapshotRetentionPeriod &&
+			(manualRetention < minManualSnapshotRetentionPeriod || manualRetention > maxManualSnapshotRetentionPeriod) {
+			return nil, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	allowVersionUpgrade := true
+	if opts.AllowVersionUpgrade != nil {
+		allowVersionUpgrade = *opts.AllowVersionUpgrade
 	}
 
 	b.mu.Lock("CreateCluster")
@@ -249,6 +313,11 @@ func (b *InMemoryBackend) CreateCluster(
 		masterUser = defaultMasterUsername
 	}
 
+	port := opts.Port
+	if port == 0 {
+		port = defaultPort
+	}
+
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 
 	initialStatus := clusterStatusAvailable
@@ -257,18 +326,26 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	cluster := &Cluster{
-		ClusterIdentifier:         id,
-		NodeType:                  nodeType,
-		ClusterType:               clusterTypeMultiNode,
-		Endpoint:                  endpoint,
-		Status:                    initialStatus,
-		DBName:                    dbName,
-		MasterUsername:            masterUser,
-		Port:                      defaultPort,
-		NumberOfNodes:             1,
-		Tags:                      tags.New("redshift.cluster." + id + ".tags"),
-		ClusterSecurityGroups:     clusterSecurityGroups,
-		ClusterParameterGroupName: clusterParameterGroupName,
+		ClusterIdentifier:                    id,
+		NodeType:                             nodeType,
+		ClusterType:                          clusterTypeMultiNode,
+		Endpoint:                             endpoint,
+		Status:                               initialStatus,
+		DBName:                               dbName,
+		MasterUsername:                       masterUser,
+		Port:                                 port,
+		NumberOfNodes:                        1,
+		Tags:                                 tags.New("redshift.cluster." + id + ".tags"),
+		ClusterSecurityGroups:                clusterSecurityGroups,
+		ClusterParameterGroupName:            clusterParameterGroupName,
+		VpcSecurityGroupIDs:                  opts.VpcSecurityGroupIDs,
+		AvailabilityZone:                     opts.AvailabilityZone,
+		ClusterSubnetGroupName:               opts.ClusterSubnetGroupName,
+		DefaultIamRoleArn:                    opts.DefaultIamRoleArn,
+		AllowVersionUpgrade:                  allowVersionUpgrade,
+		AutomatedSnapshotRetentionPeriod:     automatedRetention,
+		ManualSnapshotRetentionPeriod:        manualRetention,
+		ExtraComputeForAutomaticOptimization: opts.ExtraComputeForAutomaticOptimization,
 	}
 	b.clusters.Put(cluster)
 

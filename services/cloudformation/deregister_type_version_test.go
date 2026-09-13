@@ -62,7 +62,7 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "DEPRECATED", details.DeprecatedStatus)
 
-		types, err := b.ListTypes("", 0, "")
+		types, err := b.ListTypes("", "", 0, "")
 		require.NoError(t, err)
 		for _, ty := range types.Data {
 			assert.NotEqual(t, "Acme::Solo::B", ty.TypeName, "deregistered type must not be listed")

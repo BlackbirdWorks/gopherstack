@@ -56,12 +56,12 @@ func TestResourceScan_PopulatesFromStacks(t *testing.T) {
 			assert.Equal(t, "COMPLETE", scan.Status)
 			assert.InEpsilon(t, float64(100), scan.PercentageCompleted, 0.001)
 
-			resources, err := b.ListResourceScanResources(scanID, "")
+			p, err := b.ListResourceScanResources(scanID, "", 0)
 			require.NoError(t, err)
-			assert.GreaterOrEqual(t, len(resources), tc.wantMinItems)
+			assert.GreaterOrEqual(t, len(p.Data), tc.wantMinItems)
 
-			types := make([]string, 0, len(resources))
-			for _, r := range resources {
+			types := make([]string, 0, len(p.Data))
+			for _, r := range p.Data {
 				types = append(types, r.ResourceType)
 			}
 			for _, want := range tc.wantContains {

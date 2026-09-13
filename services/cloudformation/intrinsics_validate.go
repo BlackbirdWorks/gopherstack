@@ -117,6 +117,49 @@ func validateResourceTypes(tmpl *Template) error {
 	return nil
 }
 
+// resourceTypeAllowed reports whether resourceType matches one of the
+// documented ResourceTypes wildcard patterns (CreateStackInput.ResourceTypes,
+// api_op_CreateStack.go): an exact match, "AWS::*"/"Custom::*" (all
+// resources of that family), or "AWS::Service::*" (all resources of one
+// service).
+func resourceTypeAllowed(resourceType string, allowed []string) bool {
+	for _, pattern := range allowed {
+		if pattern == resourceType {
+			return true
+		}
+
+		if prefix, ok := strings.CutSuffix(pattern, "*"); ok && strings.HasPrefix(resourceType, prefix) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// validateResourceTypesAllowed enforces CreateStack/UpdateStack/
+// CreateChangeSet's optional ResourceTypes allowlist: when non-empty, every
+// resource Type in the template must match one of its documented wildcard
+// patterns, or the operation fails (real doc: "If the list of resource
+// types doesn't include a resource type that you're updating, the stack
+// update fails"). An empty allowlist imposes no constraint (the documented
+// default: any resource type is permitted).
+func validateResourceTypesAllowed(tmpl *Template, allowed []string) error {
+	if len(allowed) == 0 || tmpl == nil {
+		return nil
+	}
+
+	for logicalID, res := range tmpl.Resources {
+		if !resourceTypeAllowed(res.Type, allowed) {
+			return fmt.Errorf(
+				"%w: resource %s has type %q",
+				ErrResourceTypeNotAllowed, logicalID, res.Type,
+			)
+		}
+	}
+
+	return nil
+}
+
 // validateGetAttRefs walks a value and errors on any Fn::GetAtt whose logical
 // resource ID is not a declared resource.
 func validateGetAttRefs(v any, resources map[string]struct{}) error {

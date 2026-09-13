@@ -119,6 +119,9 @@ families:
   stack_policy_enforcement: {status: ok, note: "FIXED this pass (gopherstack-cqy3): UpdateStack never consulted b.stackPolicies at all -- SetStackPolicy wrote, GetStackPolicy echoed, nothing in between read. A Deny on Update:Delete/Update:Replace protecting a resource did nothing; the write succeeded and the protection was cosmetic. Fixed via stack_policy_eval.go (new): parses the policy as Statement[].{Effect,Action,Resource,Condition}, evaluated per resource change UpdateStack computes via the SAME diffTemplates/computeChanges CreateChangeSet already uses (Add/Modify/Remove + a Replacement classification from requiresRecreation) -- confirms the backend CAN determine per-resource update actions today, it just wasn't asked to. checkStackPolicy (stack_policy.go) runs before any stack mutation, so a denied update fails the whole UpdateStack call atomically rather than partially transitioning state. Implemented: Effect Allow/Deny (Deny overrides Allow), Action Update:Modify/Update:Replace/Update:Delete/Update:* with '*' wildcards, Resource LogicalResourceId/<id> with '*' wildcards, Condition StringEquals/StringLike on ResourceType, default-deny-once-a-policy-exists (an update is denied unless some statement explicitly allows it), StackPolicyDuringUpdateBody as a non-persisted one-call override. Disclosed as NOT implemented, not approximated: NotAction/NotResource -- AWS's own docs describe their evaluation as a two-axis (logical-ID-space and resource-type-space evaluated independently, denied only if both axes deny) model distinct from ordinary statement matching, and explicitly recommend against relying on them; statements using them are parsed but never match. Evaluation semantics (Effect/Action/Resource/Condition, default-deny, Deny-overrides-Allow, the NotAction/NotResource two-axis quirk) are TRANSCRIBED FROM AWS'S DOCUMENTATION (https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/protect-stack-resources.html), not the SDK -- the policy body is an opaque string with no wire type in aws-sdk-go-v2, so there is no types/types.go line to cite for it, same disclosure shape as dynamodb's mutual-exclusion messages. StackPolicyDuringUpdateBody's field name/position IS SDK-cited (UpdateStackInput, api_op_UpdateStack.go:223). Verified via TestUpdateStack_StackPolicyEnforcement, driven through the real aws-sdk-go-v2 client: denies block the specific action and leave the resource/template provably unchanged, a permitted action under the same policy still succeeds, default-deny protects a resource no statement names, no-policy-set allows everything, and the override neither leaks into nor is missing from the persisted policy. Hand-reverted the enforcement call and confirmed 5 of the 8 subtests fail (the other 3 are policy-absent/permitted-path/malformed-input assertions that hold regardless of enforcement, by design)."}
   timestamps: {status: ok, note: "Pattern-hunt pass (timestamp encoding class, 2026-08-29): protocol confirmed Query/XML (awsAwsquery_* serializer prefix, cloudformation@v1.76.1) and every *time.Time deserializer call in deserializers.go is smithytime.ParseDateTime, never ParseEpochSeconds -- no per-field trait override anywhere in this SDK. Checked 44 *time.Time occurrences across types/types.go + api_op_*.go (35 in types.go, 9 more Output-only members: DescribeResourceScan.Start/EndTime, GetHookResult.InvokedAt, DescribeChangeSet.CreationTime, DescribeGeneratedTemplate.Creation/LastUpdatedTime, DescribeStackDriftDetectionStatus.Timestamp, DescribeType.LastUpdated/TimeCreated). Every field gopherstack actually emits goes through one of two paths, both verified compatible with ParseDateTime (which tries time.RFC3339Nano and time.RFC3339 among its formats): (1) models.go structs tagged xml:\"Field\" on a plain time.Time -- encoding/xml invokes time.Time.MarshalText (RFC3339Nano), confirmed by a throwaway xml.Marshal repro; (2) handler-local response structs that manually format via .UTC().Format(\"2006-01-02T15:04:05Z\") (handler_stacks.go, handler_stack_resources.go, handler_change_sets.go, handler_drift_detection.go) -- fits time.RFC3339 exactly. 0 wrong-format bugs found. The 9 Output-only fields plus StackSetOperation.CreationTimestamp/EndTimestamp are ABSENT (dropped-field class, not this pass's scope, not fabricated) -- ResourceScan/GeneratedTemplate/TypeSummary/HookResult models have no backing field at all for them."}
   ecr_repository_empty_on_delete: {status: ok, note: "FIXED (gopherstack-gyfh): deleteECRRepository (resources_ecs.go) always passed force=true to ecr.DeleteRepository during stack teardown, so a non-empty AWS::ECR::Repository was silently force-deleted regardless of template content -- a deliberate placeholder left by gopherstack-e4qn (moving the not-empty check into DeleteRepository required every caller to pass force explicitly; force=true exactly preserved the pre-e4qn behavior, which had no emptiness check at all). Now reads the resource's EmptyOnDelete property (props[\"EmptyOnDelete\"].(bool), same props[key].(bool) pattern used throughout resources.go for other boolean properties, e.g. resources_cloudtrail.go/resources_efs.go) and threads it through as force; absent/false blocks deletion of a non-empty repository (ErrRepositoryNotEmpty propagates to a DELETE_FAILED stack event), true force-deletes through existing images. SOURCING: EmptyOnDelete is a real AWS::ECR::Repository property but CloudFormation resource-property schemas are not part of aws-sdk-go-v2, so there is no types/types.go line to cite -- TRANSCRIBED FROM AWS'S CURRENT DOCUMENTATION (https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecr-repository.html, fetched live this pass: \"If true, deleting the repository force deletes the contents of the repository. If false, the repository must be empty before attempting to delete it.\"), same disclosure shape as stack_policy_enforcement below. The default (absent == false == must-be-empty) is not stated as an explicit \"Default:\" line on that page (unlike some other properties there) but follows directly from the property's own if-true/if-false description and from real `aws ecr delete-repository` semantics (a bare boolean CFN property with no stated default and an explicit false-branch description defaults to its zero value); threading props required adding a props parameter to the shared delete-dispatch chain (deleteExtendedResource -> deleteServiceResource -> deleteDataPlatformResource -> deleteNewServiceResource -> deleteComputeStorageResource -> deleteECRRepository), which the top-level Delete already received (res.Properties from stacks.go) but never forwarded past deleteCoreResource. Verified via TestDeleteECRRepository_EmptyOnDelete (table test, both directions: EmptyOnDelete=true forces through a repo holding a pushed image; EmptyOnDelete absent and explicit-false both fail with RepositoryNotEmptyException against the same non-empty repo). No pre-existing test exercised a non-empty repository during CFN teardown (the existing lifecycle tests only create-then-delete freshly-created, always-empty repos), so nothing regressed."}
+  call_as: {status: ok, note: "FIXED this pass (gopherstack-xhu2t, 2026-09-13): CallAs (StackSet identity for delegated-administrator calls) was declared on 20 operations' Input structs and silently dropped on every one -- an invalid enum value was accepted as if it were SELF, and DELEGATED_ADMIN was never checked against the target StackSet's PermissionModel. Fixed via validateCallAs (enum check: SELF/DELEGATED_ADMIN only) and validateCallAsForStackSet (rejects DELEGATED_ADMIN against a PermissionModel != SERVICE_MANAGED StackSet, the one observable constraint this backend can honor without simulating an AWS Organizations management/delegated-administrator identity), wired into all 20 ops (see handler_stack_sets.go, handler_template_ops.go). Verified via TestRealClient_StackSetCallAs (realclient_stackset_callas_test.go): invalid enum rejected across a representative spread of ops, DELEGATED_ADMIN rejected against SELF_MANAGED and accepted against SERVICE_MANAGED, SELF (and omitted CallAs) always accepted regardless of PermissionModel."}
+  disable_rollback_and_retain_except_on_create: {status: ok, note: "FIXED this pass (gopherstack-xhu2t, 2026-09-13): two real pre-existing bugs found alongside the reqfielddiff sweep, not just dropped fields. (1) stack.DisableRollback (CreateStackInput.DisableRollback) was stored on the Stack but never consulted anywhere -- provisionResources' rollback-on-resource-failure path and failAndRollback's rollback-on-preflight-validation-failure path both always rolled back regardless. Now both check stack.DisableRollback and leave the stack CREATE_FAILED (no rollback events) when set. (2) rollbackCreateResources ignored each resource's DeletionPolicy entirely and always force-deleted during CreateStack rollback -- a Retain/Snapshot-policy resource was silently deleted anyway, the opposite of RetainExceptOnCreate's documented default (\"the default already honors DeletionPolicy on rollback\"). Fixed: rollbackCreateResources now skips the physical delete for a Retain/Snapshot resource unless the caller's RetainExceptOnCreate=true forces it, while still untracking the resource from the stack (matching the pre-existing DeleteStack/deleteStaleResources convention -- untracked-but-not-deleted, exactly like real AWS). CreateStackInput.ResourceTypes (allowlist) and DisableValidation (skip validateIntrinsics) were also previously dropped on CreateStack/UpdateStack and are now enforced (resourceTypeAllowed/validateResourceTypesAllowed, intrinsics_validate.go). Verified via TestRealClient_StackOptions (realclient_stack_options_test.go, 14 subtests): resource-types allowlist rejects a disallowed Type, disable-validation lets an otherwise-invalid template through, retain-except-on-create is proven by HeadBucket-ing the underlying S3 bucket directly after a forced rollback (not DescribeStackResource, which correctly reports not-found once untracked), and disable-rollback is proven by driving ExecuteChangeSet's CreateStack fallback against a nonexistent stack name with a template containing an unsupported resource type, landing on CREATE_FAILED instead of ROLLBACK_COMPLETE."}
+  type_registry_filters_and_registration: {status: ok, note: "FIXED this pass (gopherstack-xhu2t, 2026-09-13): ListTypes' Visibility/ProvisioningType, ListTypeRegistrations' RegistrationStatusFilter, and TestType's VersionId were all declared request-side filters that were read nowhere. Now enforced (type_registry.go's ListTypes/ListTypeRegistrations/TestType signatures gained the filter params; TestType validates VersionId against the stored typeVersions). RegisterPublisher now requires AcceptTermsAndConditions=true (was silently accepted with the field absent, contradicting the real API's mandatory-acceptance contract) -- fixed 2 pre-existing tests that had been driving RegisterPublisher without the field (wire_field_fixes_cfn21my_test.go, type_registry_test.go), not weakened, since they were exercising the bug rather than pinning real behavior. Adjacent bug found and fixed: DescribeTypeRegistration only ever populated TypeArn, never the distinct TypeVersionArn field the real response also carries -- now both are emitted. CORRECTION during this pass: an earlier draft of this fix incorrectly added Visibility/ProvisioningType fields to the ListTypes response wire shape (typeXML) and a ProvisioningType field to the TypeSummary model, assuming they were echoed back -- a real-SDK-typed compile error (types.TypeSummary has no such field) caught this; verified against deserializers.go's awsAwsquery_deserializeDocumentTypeSummary that neither is wire-visible on the response (both are request-only filters), and reverted. Verified via TestRealClient_StackOptions's list_types/list_type_registrations/test_type_version_id/register_publisher subtests."}
 gaps: []
 items_still_open:
   - "changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h"
@@ -139,6 +142,11 @@ items_still_open:
     pre-existing correct behavior, not a bug. See families: stacksets and the dated note at the end
     of this file for the full writeup and tests."
   - "Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend"
+  - "CreateChangeSet's DisableValidation, ResourceTypes, and IncludeNestedStacks (api_op_CreateChangeSet.go:192,254,209) are read nowhere by handleCreateChangeSet/CreateChangeSet — unlike CreateStack/UpdateStack, which this pass wired to the equivalent StackOptions fields, a change set's own pre-flight validation/allowlist/nested-stack-inclusion path was out of this pass's scope; changeset_diff.go's computeChanges has no nested-stack (AWS::CloudFormation::Stack) awareness at all today, so IncludeNestedStacks has no tree to include or exclude yet either way (gopherstack-xhu2t, 2026-09-13)"
+  - "UpdateStack.RetainExceptOnCreate is accepted and validated but has no update-path rollback machinery to apply it to: this backend's UpdateStack has no resource-level rollback at all (rollbackUpdateResources restores prior state on failure, it never deletes newly-created resources the way CreateStack's rollbackCreateResources does), so RetainExceptOnCreate — which only ever governs delete-on-rollback of resources newly created during THIS operation — has nothing to act on outside CreateStack/ExecuteChangeSet's create-fallback path, which IS wired (gopherstack-xhu2t, 2026-09-13)"
+  - "RollbackStack (stack_lifecycle.go) is a status-only stub (flips StackStatus to ROLLBACK_COMPLETE, replays nothing against real resources) and handleRollbackStack reads only StackName -- RollbackStackInput's RoleARN and RetainExceptOnCreate are both dropped, not just the latter; same root cause as the UpdateStack line above (no resource-level rollback machinery to apply either to), not fixed this pass (gopherstack-xhu2t, 2026-09-13)"
+  - "ListResourceScanRelatedResources ignores MaxResults/NextToken entirely (handleListResourceScanRelatedResources reads only ResourceScanId) and ListResourceScanRelatedResources's own second Resources param is unused -- the backend always returns an empty related-resources list (this backend does not compute cross-resource relationships for a scan), so there is nothing to paginate over yet either way; not fixed this pass, same class as the other resource-scan gaps above (gopherstack-xhu2t, 2026-09-13)"
+  - "ActivateType's AutoUpdate/MajorVersion/VersionBump/LoggingConfig/ExecutionRoleArn are all dropped -- handleActivateType reads only TypeName and PublicTypeArn. This backend has no multi-version type catalog or update scheduler (RegisterType stores exactly one version per type name, ActivateType hardcodes VersionID \"00000001\"), so there is no later-version-adoption behavior for AutoUpdate to gate or MajorVersion to pin — same class of gap as SetTypeConfiguration's permissiveness above (gopherstack-xhu2t, 2026-09-13)"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
 
@@ -1472,3 +1480,95 @@ run --new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint`
 stays at 0 FAIL. No persisted struct fields changed (the Action fix
 corrects an existing string field's *value*, not its shape); no version
 bump.
+
+## 2026-09-13 (gopherstack-xhu2t tier-1 sweep, awsquery reqfielddiff)
+
+`cmd/reqfielddiff -dir cloudformation` (a request-field, not response-field,
+scan -- known to undercount on this awsquery-protocol service, gopherstack-99nj)
+went from 45 tier-1 findings to 0 after this pass. Findings grouped by
+mechanism:
+
+1. **CallAs dropped on 20 StackSet-family ops** (the dominant finding).
+   Fixed via `validateCallAs`/`validateCallAsForStackSet` (handler_stack_sets.go)
+   -- see `families: call_as` above for the full writeup. Ops touched:
+   CreateStackSet, UpdateStackSet, DeleteStackSet, DescribeStackSet,
+   ListStackSets, CreateStackInstances, DeleteStackInstances,
+   UpdateStackInstances, ListStackInstances, DescribeStackInstance,
+   DetectStackSetDrift, ListStackSetOperations, DescribeStackSetOperation,
+   StopStackSetOperation, ListStackSetAutoDeploymentTargets,
+   ImportStacksToStackSet, ListStackInstanceResourceDrifts,
+   DescribeOrganizationsAccess, ListStackSetOperationResults,
+   GetTemplateSummary.
+2. **CreateStack options dropped**: ResourceTypes (allowlist),
+   DisableValidation, EnableTerminationProtection (StackOptions had no field
+   for it at all -- CreateStackInput.EnableTerminationProtection was
+   silently discarded end to end, so a stack created with it set to true
+   was deletable like any other), RetainExceptOnCreate.
+   See `families: disable_rollback_and_retain_except_on_create` above --
+   this also surfaced two genuine pre-existing bugs (DisableRollback never
+   consulted; DeletionPolicy ignored during rollback, force-deleting Retain
+   resources) beyond the reqfielddiff findings themselves.
+3. **CreateChangeSet.ChangeSetType dropped**: CREATE/UPDATE/IMPORT was
+   accepted but never validated against whether the target stack already
+   existed -- a CREATE against an existing stack, or UPDATE/IMPORT against a
+   missing one, silently proceeded instead of erroring. Fixed via
+   `resolveChangeSetType` (change_sets.go). `ExecuteChangeSet.DisableRollback`
+   and `.RetainExceptOnCreate` were also dropped -- now threaded into the
+   internal StackOptions passed to CreateStack/UpdateStack.
+4. **ListResourceScans.ResourceScanType filter and
+   ListResourceScanResources.MaxResults/NextToken dropped**: fixed --
+   ListResourceScans now filters by scan type (StartResourceScan always
+   produces FULL, so ResourceScan gained a `ScanType` field to filter on);
+   ListResourceScanResources now paginates via `pkgs/page` instead of
+   returning every result unpaginated.
+5. **Type Registry family** (ListTypes.Visibility/ProvisioningType,
+   ListTypeRegistrations.RegistrationStatusFilter, TestType.VersionId,
+   RegisterPublisher.AcceptTermsAndConditions): fixed -- see
+   `families: type_registry_filters_and_registration` above, including the
+   self-caught Visibility/ProvisioningType response-field fabrication that
+   was reverted after a real-SDK-typed compile error surfaced it.
+6. **GetTemplate.TemplateStage / GetTemplateSummary.CallAs**: TemplateStage
+   (Original|Processed) was accepted but not validated against its enum;
+   now rejects an out-of-enum value with ValidationError via
+   `isValidGetTemplateStage`.
+
+Recorded, not fixed (added to `items_still_open` above with full reasoning):
+CreateChangeSet.DisableValidation/ResourceTypes/IncludeNestedStacks (no
+change-set-level validation/allowlist/nested-stack-tree path exists yet);
+UpdateStack.RetainExceptOnCreate and RollbackStack.RetainExceptOnCreate/RoleARN
+(no resource-level rollback machinery on either path to apply them to --
+RollbackStack is a status-only stub); ListResourceScanRelatedResources.
+MaxResults/NextToken (the op's own Resources data is always empty, nothing
+to paginate); ActivateType.AutoUpdate/MajorVersion/VersionBump/
+LoggingConfig/ExecutionRoleArn (no multi-version type catalog or update
+scheduler to apply them to).
+
+New real-client tests, both table-driven with `t.Parallel()` at every
+level: `realclient_stackset_callas_test.go`
+(`TestRealClient_StackSetCallAs`, 4 subtests) and
+`realclient_stack_options_test.go` (`TestRealClient_StackOptions`, 14
+subtests).
+
+Persisted-struct changes: `ResourceScan` gained `ScanType string`
+(additive, no version bump; `pkgs/persistence/testdata/snapshot_inventory.json`
+updated by hand, not via `-update`, since the guard also flagged a
+gofmt struct-tag realignment on `ResourceScan`'s two pre-existing fields as
+a false-positive "field changed" -- confirmed via a throwaway diff against
+the live scan that only whitespace, not any json/xml tag key, changed).
+
+Gates (whole module, foreground): `go build ./...` clean. `go vet .` and
+`go vet ./services/cloudformation/...` clean. `go test -race -count=1 -p 2
+./services/cloudformation/...` -- PASS (all 14 TestRealClient_StackOptions
+subtests, all 4 TestRealClient_StackSetCallAs subtests, full existing suite).
+`go test -count=1 ./pkgs/persistence/...` -- PASS for cloudformation and
+redshift after the by-hand inventory fix (a concurrent agent's own
+in-progress elasticache edits in this shared worktree separately fail this
+same suite at times; unrelated to this pass, not touched, confirmed via
+`git status --short services/elasticache`). `go test -count=1 -short .`
+(root) -- PASS. `go vet -tags integration ./...` and `go vet -tags e2e
+./services/cloudformation/... ./services/redshift/... .` -- clean (a
+repo-wide `-tags e2e ./...` transiently failed on the same
+concurrently-edited elasticache file mid-refactor by the other agent; not
+this service, not this pass). `golangci-lint run --concurrency 2
+--new-from-rev=HEAD ./services/cloudformation/...` -- 0 issues. `go run
+./cmd/paritylint` -- 0 missing-items-still-open FAIL.

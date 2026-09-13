@@ -26,9 +26,25 @@ func TestDescribeClusters_TagKeysFilter(t *testing.T) {
 	client := newTestRedshiftClient(t, h)
 	ctx := t.Context()
 
-	_, createErr := backend.CreateCluster("tagged-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, createErr := backend.CreateCluster(
+		"tagged-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, createErr)
-	_, createErr = backend.CreateCluster("untagged-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, createErr = backend.CreateCluster(
+		"untagged-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, createErr)
 	require.NoError(t, backend.CreateTags("tagged-cluster", map[string]string{"env": "prod"}))
 
@@ -106,7 +122,7 @@ func TestDescribeClusters_TagKeysFilter_PaginationOrdering(t *testing.T) {
 	// first" implementation puts non-matches in the early raw pages.
 	ids := []string{"a-match", "b-nomatch", "c-match", "d-nomatch", "e-match", "f-nomatch"}
 	for _, id := range ids {
-		_, err := backend.CreateCluster(id, "dc2.large", "dev", "admin", nil, "")
+		_, err := backend.CreateCluster(id, "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 		require.NoError(t, err)
 	}
 

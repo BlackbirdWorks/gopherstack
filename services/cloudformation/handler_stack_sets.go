@@ -92,7 +92,7 @@ func (h *Handler) dispatchStackSetInstanceOps(
 // dispatchOrganizationsAccessOps handles AWS Organizations trusted-access operations.
 func (h *Handler) dispatchOrganizationsAccessOps(
 	action string,
-	_ url.Values,
+	form url.Values,
 	c *echo.Context,
 ) (bool, error) {
 	switch action {
@@ -101,7 +101,7 @@ func (h *Handler) dispatchOrganizationsAccessOps(
 	case "DeactivateOrganizationsAccess":
 		return true, h.handleDeactivateOrganizationsAccess(c)
 	case "DescribeOrganizationsAccess":
-		return true, h.handleDescribeOrganizationsAccess(c)
+		return true, h.handleDescribeOrganizationsAccess(form, c)
 	default:
 		return false, nil
 	}
@@ -146,11 +146,76 @@ func stackInstancesErrorCode(err error) string {
 	return "ValidationError"
 }
 
+// callAsDelegatedAdmin is CallAs' non-default enum value (see validateCallAs).
+const callAsDelegatedAdmin = "DELEGATED_ADMIN"
+
+// ErrInvalidCallAs is returned for a CallAs value outside its documented
+// SELF/DELEGATED_ADMIN enum, or for DELEGATED_ADMIN against a StackSet
+// whose PermissionModel isn't SERVICE_MANAGED.
+var ErrInvalidCallAs = errors.New("invalid CallAs value")
+
+// validateCallAs enforces CallAs' documented enum (SELF/DELEGATED_ADMIN,
+// default SELF -- every StackSet-family op's own api_op_*.go doc text,
+// confirmed identical wording across all twenty). A value outside that set
+// is rejected the same way real AWS rejects any unrecognized enum member.
+func validateCallAs(callAs string) error {
+	switch callAs {
+	case "", "SELF", callAsDelegatedAdmin:
+		return nil
+	default:
+		return fmt.Errorf("%w: CallAs must be SELF or DELEGATED_ADMIN, got %q", ErrInvalidCallAs, callAs)
+	}
+}
+
+// validateCallAsForStackSet additionally enforces the one real,
+// documented CallAs constraint this backend can honor without simulating
+// an AWS Organizations management/delegated-administrator identity:
+// DELEGATED_ADMIN is only valid against a StackSet whose PermissionModel
+// is SERVICE_MANAGED ("Your Amazon Web Services account must be
+// registered as a delegated administrator ... valid only for StackSets
+// with service-managed permissions"). A stackSetName that doesn't
+// resolve to an existing StackSet is deliberately not an error here --
+// each operation's own not-found handling fires normally afterward.
+func (h *Handler) validateCallAsForStackSet(stackSetName, callAs string) error {
+	if err := validateCallAs(callAs); err != nil {
+		return err
+	}
+
+	if callAs != callAsDelegatedAdmin {
+		return nil
+	}
+
+	ss, describeErr := h.Backend.DescribeStackSet(stackSetName)
+	if describeErr != nil {
+		return nil //nolint:nilerr // stack set not found: let the caller's own not-found handling fire
+	}
+
+	if ss.PermissionModel != stackSetPermissionServiceManaged {
+		return fmt.Errorf(
+			"%w: CallAs DELEGATED_ADMIN requires a StackSet with SERVICE_MANAGED permissions",
+			ErrInvalidCallAs,
+		)
+	}
+
+	return nil
+}
+
 func (h *Handler) handleCreateStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	callAs := form.Get("CallAs")
+	if err := validateCallAs(callAs); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
+	if callAs == callAsDelegatedAdmin && form.Get("PermissionModel") != stackSetPermissionServiceManaged {
+		return h.xmlError(c, "ValidationError",
+			"CallAs DELEGATED_ADMIN requires PermissionModel SERVICE_MANAGED")
+	}
+
 	ss, err := h.Backend.CreateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
 	)
@@ -182,6 +247,11 @@ func (h *Handler) handleUpdateStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	_, opID, err := h.Backend.UpdateStackSet(
 		name, form.Get("Description"), form.Get("TemplateBody"), parseStackSetOptions(form),
 	)
@@ -209,6 +279,11 @@ func (h *Handler) handleDeleteStackSet(form url.Values, c *echo.Context) error {
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if err := h.Backend.DeleteStackSet(name); err != nil {
 		if errors.Is(err, ErrStackSetNotEmpty) {
 			return h.xmlError(c, "StackSetNotEmptyException", err.Error())
@@ -336,6 +411,11 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	ss, err := h.Backend.DescribeStackSet(name)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
@@ -349,6 +429,10 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
+	if err := validateCallAs(form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	p, err := h.Backend.ListStackSets(parseFormMaxResults(form), form.Get("NextToken"), form.Get("Status"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
@@ -416,6 +500,11 @@ func (h *Handler) handleStackInstancesOp(
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if ft := unsupportedAccountFilterType(form); ft != "" {
 		return h.xmlError(c, "ValidationError",
 			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
@@ -470,6 +559,11 @@ func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) e
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName is required")
 	}
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if ft := unsupportedAccountFilterType(form); ft != "" {
 		return h.xmlError(c, "ValidationError",
 			fmt.Sprintf("DeploymentTargets.AccountFilterType %s is not supported", ft))
@@ -526,6 +620,11 @@ func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	p, err := h.Backend.ListStackInstances(
 		name, parseFormMaxResults(form), form.Get("NextToken"), parseStackInstanceFilters(form),
 	)
@@ -587,6 +686,11 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 	name := form.Get("StackSetName")
 	account := form.Get("StackInstanceAccount")
 	region := form.Get("StackInstanceRegion")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	inst, err := h.Backend.DescribeStackInstance(name, account, region)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {
@@ -639,6 +743,11 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 
 func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	opID, err := h.Backend.DetectStackSetDrift(name)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
@@ -661,6 +770,11 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 
 func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	p, _ := h.Backend.ListStackSetOperations(name, parseFormMaxResults(form), form.Get("NextToken"))
 	type opXML struct {
 		OperationID       string `xml:"OperationId"`
@@ -701,6 +815,11 @@ func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context)
 func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
 	opID := form.Get("OperationId")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	op, err := h.Backend.DescribeStackSetOperation(name, opID)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {
@@ -737,6 +856,10 @@ func (h *Handler) handleDescribeStackSetOperation(form url.Values, c *echo.Conte
 }
 
 func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) error {
+	if err := h.validateCallAsForStackSet(form.Get("StackSetName"), form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	if err := h.Backend.StopStackSetOperation(form.Get("StackSetName"), form.Get("OperationId")); err != nil {
 		code := "OperationNotFoundException"
 		if errors.Is(err, ErrOperationNotRunning) {
@@ -757,6 +880,10 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
+	if err := h.validateCallAsForStackSet(form.Get("StackSetName"), form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	p, err := h.Backend.ListStackSetAutoDeploymentTargets(
 		form.Get("StackSetName"), parseFormMaxResults(form), form.Get("NextToken"),
 	)
@@ -789,6 +916,11 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 
 func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
+
+	if err := h.validateCallAsForStackSet(name, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	stackIDs := parseMemberList(form, "StackIds.")
 	opID, err := h.Backend.ImportStacksToStackSet(name, stackIDs)
 	if err != nil {
@@ -811,6 +943,10 @@ func (h *Handler) handleImportStacksToStackSet(form url.Values, c *echo.Context)
 }
 
 func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo.Context) error {
+	if err := h.validateCallAsForStackSet(form.Get("StackSetName"), form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	drifts, _ := h.Backend.ListStackInstanceResourceDrifts(
 		form.Get("StackSetName"), form.Get("OperationId"),
 		form.Get("StackInstanceAccount"), form.Get("StackInstanceRegion"),
@@ -857,7 +993,11 @@ func (h *Handler) handleDeactivateOrganizationsAccess(c *echo.Context) error {
 	return writeXML(c, response{Xmlns: cfnNS, RequestID: uuid.New().String()})
 }
 
-func (h *Handler) handleDescribeOrganizationsAccess(c *echo.Context) error {
+func (h *Handler) handleDescribeOrganizationsAccess(form url.Values, c *echo.Context) error {
+	if err := validateCallAs(form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
+
 	status, _ := h.Backend.DescribeOrganizationsAccess()
 	type result struct {
 		Status string `xml:"Status"`
@@ -882,6 +1022,10 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 
 	if stackSetName == "" || operationID == "" {
 		return h.xmlError(c, "ValidationError", "StackSetName and OperationId are required")
+	}
+
+	if err := h.validateCallAsForStackSet(stackSetName, form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
 	}
 
 	p, err := h.Backend.ListStackSetOperationResults(
