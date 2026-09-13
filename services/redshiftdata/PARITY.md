@@ -722,9 +722,9 @@ clean bill. This service's earlier A-grade verdict holds.
 Gates: not re-run (no change); `go build`/`go vet ./...` confirmed clean as
 part of this session's repo-wide checks.
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage (gopherstack-n3zi)
 
-Added `typed_slice19_realclient_test.go` driving all 9 previously
+Added `wire_sdk_roundtrip_statements_and_schemas_test.go` driving all 9 previously
 typed-client-uncovered ops through a real `aws-sdk-go-v2/service/redshiftdata`
 client: `CancelStatement`, `DescribeStatement`, `DescribeTable`,
 `GetStatementResult`, `GetStatementResultV2`, `ListSchemas`, `ListSessions`,

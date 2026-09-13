@@ -235,12 +235,12 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
   `Wed Jul 29 22:13:36 2026 -0500`, the same day as the recorded audit date. No gap, no false
   provenance. Refreshed this pass to the current HEAD (`bf7f0944b`) and today (2026-08-20).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeleteScheduledAction,
 DescribeScalingActivities, DescribeScheduledActions, PutScheduledAction,
 TagResource, UntagResource driven through the real aws-sdk-go-v2 client for
-the first time (`typed_slice15_realclient_test.go`, 3 subtests: tags,
+the first time (`realclient_scheduled_actions_and_tags_test.go`, 3 cases: tags,
 scheduled action lifecycle, scaling activities). applicationautoscaling
 moved from 8/14 to 14/14 typed-covered per `cmd/clientcoverage`.
 

@@ -240,7 +240,7 @@ ops:
   UpdateStage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now rejects any modification of a quick-create $default stage (gopherstack-2tx, see Notes #14)"}
   DeleteStage: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessLogSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRouteSettings: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 9, first typed-client coverage): the sole apigatewayv2 op whose real URI embeds a RouteKey as a path label (\".../stages/{StageName}/routesettings/{RouteKey}\", apigatewayv2@v1.37.4 serializers.go:3532) rather than an opaque ID. A RouteKey routinely contains its own \"/\" (e.g. \"GET /users\"); net/http's URL parsing decodes that segment's percent-encoded \"/\" back into a literal \"/\" in Request.URL.Path before this handler's naive strings.Split(path, \"/\") ever sees it, producing one extra path segment -- the dispatch table's segment-count match always missed, so every real client's DeleteRouteSettings 404'd unconditionally for any route whose key contained a \"/\" (i.e. almost every real HTTP-API route). Fixed in pathSegments (handler.go): when the path matches .../stages/{x}/routesettings/{y...}, everything after \"routesettings\" is rejoined into one RouteKey segment before dispatch. Proven via TestTypedSlice9RealClient/delete_settings_families (real aws-sdk-go-v2 client, route key \"GET /s9\")."}
+  DeleteRouteSettings: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi, first typed-client coverage): the sole apigatewayv2 op whose real URI embeds a RouteKey as a path label (\".../stages/{StageName}/routesettings/{RouteKey}\", apigatewayv2@v1.37.4 serializers.go:3532) rather than an opaque ID. A RouteKey routinely contains its own \"/\" (e.g. \"GET /users\"); net/http's URL parsing decodes that segment's percent-encoded \"/\" back into a literal \"/\" in Request.URL.Path before this handler's naive strings.Split(path, \"/\") ever sees it, producing one extra path segment -- the dispatch table's segment-count match always missed, so every real client's DeleteRouteSettings 404'd unconditionally for any route whose key contained a \"/\" (i.e. almost every real HTTP-API route). Fixed in pathSegments (handler.go): when the path matches .../stages/{x}/routesettings/{y...}, everything after \"routesettings\" is rejoined into one RouteKey segment before dispatch. Proven via TestRealClient_APIManagement/delete_settings_families (real aws-sdk-go-v2 client, route key \"GET /s9\")."}
   DeleteRouteRequestParameter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCorsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDeployment: {wire: ok, errors: ok, state: fixed, persist: fixed, note: "autoDeploy interaction verified. FIXED 2026-09-06 (gopherstack-cfr1): now snapshots the API's current routes and integrations onto the created Deployment (internal-only fields, not on the wire) -- see gaps and Notes #19."}
@@ -1042,11 +1042,11 @@ rechecked). No other instance of this shape exists in `services/apigatewayv2/`.
 packages, zero failures (`services/stepfunctions`, owned by another concurrent change, also
 passed unaffected).
 
-## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi -- first typed-client coverage)
 
 apigatewayv2: 66/103 (64.1%) -> 103/103 (100%) typed-covered (37 -> 0
-uncovered), 37 ops newly covered, `typed_slice9_realclient_test.go` added
-(one outer `t.Parallel()` test, 7 subtests covering every named priority
+uncovered), 37 ops newly covered, `realclient_api_management_test.go` added
+(one table-driven `t.Parallel()` test, 7 cases covering every named priority
 family: models, integration responses, route responses, deployments +
 domain names + API mappings, the delete-settings family (CORS/access-log/
 route-request-parameter/route-settings + reset-authorizers-cache), routing
@@ -1064,7 +1064,7 @@ run --new-from-rev=HEAD` (0 issues), `go test -race -count=1` (all pass).
 `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
 fields changed). No version bump.
 
-## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+## 2026-09-12 (reqfielddiff, gopherstack-xhu2t)
 
 23 tier-1 findings triaged; 22 FALSE POSITIVES, 1 FIXED, 0 recorded gaps.
 21 of the false positives are the "named decode struct in a different file"
@@ -1084,7 +1084,7 @@ was never a JSON field to decode in the first place. **Fixed**:
 `ExportApi.ExportVersion` is a real httpQuery param (confirmed same way) that
 was read nowhere -- AWS docs say "Currently, the only supported version is
 1.0"; `handleExportAPI` (handler_apis.go) now rejects any other value with a
-400, proven via `reqfield_slice5_realclient_test.go` against the real typed
+400, proven via `realclient_export_api_version_test.go` against the real typed
 client (1.0 and omitted succeed, 2.0 is rejected).
 
 Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1

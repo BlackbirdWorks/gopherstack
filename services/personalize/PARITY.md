@@ -112,7 +112,7 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
 
 ## Notes
 
-- **2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)**: worked all 13
+- **2026-09-12 (reqfielddiff, gopherstack-xhu2t)**: worked all 13
   tier-1 findings. **4 real fixes**: `CreateBatchInferenceJob.BatchInferenceJobMode`
   (undeclared; now validated to BATCH_INFERENCE/THEME_GENERATION, defaults
   to BATCH_INFERENCE, round-trips through Describe and List --
@@ -135,7 +135,7 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
   `CreateSolutionVersion.TrainingMode` (handler_solutions.go),
   `ListBatchInferenceJobs`/`ListBatchSegmentJobs.MaxResults`
   (handler_batch_jobs.go). No recorded gaps. Proven via
-  `reqfield_slice6_realclient_test.go` driving the real `personalize`
+  `realclient_field_defaults_test.go` driving the real `personalize`
   client. `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint`
   all clean; no persistence-schema version bump (3 inventory rows added by
   hand: `BatchInferenceJob.BatchInferenceJobMode`,
@@ -607,9 +607,9 @@ same `const (...)` block are what keeps an unused sibling from being flagged nex
 Folding that comment into the single block-level doc comment above `const (` instead restored the
 clean `0 issues.` result without changing which constants are declared).
 
-## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+## 2026-09-12: typed-client coverage (gopherstack-n3zi)
 
-Added `typed_slice14_realclient_test.go`, 14 subtests driving every op the
+Added `realclient_resource_lifecycle_test.go`, 14 subtests driving every op the
 repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
 listed as uncovered for this service (57 ops: schema/dataset/dataset-job
 lifecycles, solution/solution-version extras, campaign lifecycle, event

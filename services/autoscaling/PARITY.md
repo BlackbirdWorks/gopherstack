@@ -139,7 +139,7 @@ gaps: []
 items_still_open:
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
   - "PutScalingPolicy's parsePredictiveScalingMetricSpecifications (gopherstack-r80d batch 29, reviewed not fixed): a MetricSpecifications element carrying only a Customized*/Predefined* sub-field with no TargetValue is accepted with TargetValue defaulted to 0.0 instead of rejected, even though AWS's own doc comment on this exact field says \"TargetValue is required ... on every element\" and its client-side validator (validators.go:1660 validatePredictiveScalingMetricSpecification) unconditionally rejects a nil TargetValue. Out of scope for this cut (an input-validation permissiveness gap, not a dropped required OUTPUT field -- the wire-side TargetValue member has no omitempty and is always echoed correctly) and, per this campaign's proof standard, not reachable via any real aws-sdk-go-v2 client anyway (the SDK's own validator blocks the request before it is ever sent) -- same \"unreachable via any real Go SDK client\" class apprunner's batch 10 SourceCodeVersion hit. Left unfixed."
-  - "LaunchInstancesOutput.Instances[].AvailabilityZoneId/MarketType/SubnetId (gopherstack-n3zi slice 35, 2026-09-12): the real types.InstanceCollection models 6 members, this backend's Instance struct tracks none of AZ-ID/market-type/subnet -- no honest source value exists (no AttachInstances/LaunchInstances caller ever supplies a subnet either). Structural modeling gap, not a dropped value; documented simplification."
+  - "LaunchInstancesOutput.Instances[].AvailabilityZoneId/MarketType/SubnetId (gopherstack-n3zi, 2026-09-12): the real types.InstanceCollection models 6 members, this backend's Instance struct tracks none of AZ-ID/market-type/subnet -- no honest source value exists (no AttachInstances/LaunchInstances caller ever supplies a subnet either). Structural modeling gap, not a dropped value; documented simplification."
 deferred: []
 leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
@@ -1107,9 +1107,9 @@ anywhere) -- `golangci-lint run ./services/autoscaling/...` and `golangci-lint r
 `--fix` resolved fieldalignment (both new structs) and a `modernize` `int32Ptr` rewrite in the
 autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `make docs`.
 
-## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 
-`typed_slice35_realclient_test.go` added: 8 subtests driving all 32 previously
+`realclient_lifecycle_scaling_and_notifications_test.go` added: 8 cases driving all 32 previously
 typed-coverage-blind ops (34/66 -> 66/66) through the real aws-sdk-go-v2
 client -- instance lifecycle (AttachInstances/DetachInstances/EnterStandby/
 ExitStandby/SetInstanceHealth/SetDesiredCapacity/

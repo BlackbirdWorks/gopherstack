@@ -118,9 +118,9 @@ items_still_open:
 ---
 
 ## Notes
-- Sweep 14 (2026-09-11, gopherstack-n3zi slice 1): added typed real-SDK-client
+- Sweep 14 (2026-09-11, gopherstack-n3zi): added typed real-SDK-client
   round-trip coverage for 74 previously-untyped-uncovered ops (see
-  typed_slice1_realclient_test.go), grouped by family (inline policies,
+  realclient_policies_credentials_and_organizations_test.go), grouped by family (inline policies,
   managed-policy getters, Tag/Untag pairs, server certificates, SSH keys,
   account password policy/aliases, MFA cleanup, service-specific
   credentials, access-key-last-used, role/user/group updates, credential

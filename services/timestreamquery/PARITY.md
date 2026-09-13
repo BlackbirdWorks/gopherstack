@@ -581,12 +581,12 @@ but because the surface does not exist, same structural verdict as
 cloudfront/apigateway/cloudformation/elbv2 earlier in this campaign. No
 files changed.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: CancelQuery, DescribeAccountSettings,
 PrepareQuery, TagResource, UntagResource, UpdateAccountSettings,
 UpdateScheduledQuery driven through the real aws-sdk-go-v2 client for the
-first time (`typed_slice15_realclient_test.go`, 3 subtests: cancel/prepare
+first time (`realclient_query_and_scheduled_query_test.go`, 3 subtests: cancel/prepare
 query, account settings, scheduled query update + tags -- the latter
 confirms tag ops correctly route to the TimestreamWrite handler in
 production, per this file's own `tags: {status: deferred}` family note).

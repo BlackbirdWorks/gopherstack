@@ -802,9 +802,9 @@ Gates: `go build ./...` (whole module, clean); `go vet ./services/ram/...
 
 Closes gopherstack-kvyy.
 
-## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice31_realclient_test.go` (7 top-level `t.Parallel()` tests) driving every
+Added `realclient_share_permission_lifecycle_test.go` (7 top-level `t.Parallel()` tests) driving every
 op named in the typed-client census's uncovered list for this service at pick time
 (AcceptResourceShareInvitation, DeleteResourceShare, DisassociateResourceShare,
 DisassociateResourceSharePermission, EnableSharingWithAwsOrganization, GetPermission,

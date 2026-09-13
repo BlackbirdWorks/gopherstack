@@ -901,9 +901,9 @@ gocognit trips from the added logic were resolved by extracting
 `copyIPAddressesWithIDs` as separate functions, not by nolint -- this repo
 bans cyclop/gocognit/funlen nolints).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 16)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice16_realclient_test.go`: 13 subtests driving every op the
+Added `realclient_firewall_and_resolver_config_test.go`: 13 subtests driving every op the
 census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
 `aws-sdk-go-v2/service/route53resolver` client (52 ops -- firewall domain
 list tail, firewall rule group family incl. policy sharing, firewall rule

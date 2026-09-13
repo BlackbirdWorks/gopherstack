@@ -82,9 +82,9 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 
 ## Notes
 
-### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the 42-op tail, 29/71 -> 71/71
+### 2026-09-12 (gopherstack-n3zi): typed-client round trips for the 42-op tail, 29/71 -> 71/71
 
-Added `typed_slice32_realclient_test.go`: 16 tests, each building a real
+Added `realclient_access_agreement_and_connector_test.go`: 16 tests, each building a real
 `transfer` SDK client against `Handler` and round-tripping every previously-
 untyped op (Access/Agreement/Certificate/Connector/HostKey/Profile/WebApp/
 Workflow lifecycles, SshPublicKey import+delete, TestConnection,
@@ -99,7 +99,7 @@ omitted `ServerId` from each summary entry, even though `DescribeAgreement`'s
 own per-item map includes it and real `types.ListedAgreement` (confirmed
 against transfer@v1.75.4/types/types.go:1843, `ServerId *string`) declares
 the member. Fixed by adding `"ServerId": ag.ServerID` to the list's per-item
-map. Locked by `TestSlice32Transfer_AgreementLifecycle`, which asserts
+map. Locked by `TestRealClient_AgreementLifecycle`, which asserts
 `listed.Agreements[0].ServerId` decodes to the real value.
 
 **Accept-and-drop finding, not fixed**: `TagResource`/`UntagResource`

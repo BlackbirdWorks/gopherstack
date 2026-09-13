@@ -961,11 +961,11 @@ matcher-object check), but the error message degrades to a confusing
 "unknown matcher %q for field \"$or\"" naming the wrong thing. Keep the
 explicit branch.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeletePipe, ListPipes, ListTagsForResource,
 StartPipe, StopPipe, TagResource, UntagResource driven through the real
-aws-sdk-go-v2 client for the first time (`typed_slice15_realclient_test.go`,
+aws-sdk-go-v2 client for the first time (`realclient_pipe_lifecycle_test.go`,
 2 subtests: tags, start/stop/delete/list). pipes moved from 3/10 to 10/10
 typed-covered per `cmd/clientcoverage`.
 

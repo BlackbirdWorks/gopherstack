@@ -636,11 +636,11 @@ ops in this same catalog family, not previously called out by field name:
 Gates: `go build ./services/wafv2/...`, `go vet ./services/wafv2/...`,
 `go test -race -count=1 ./services/wafv2/...`, `golangci-lint run ./services/wafv2/...`.
 
-## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+## 2026-09-12: typed-client coverage (gopherstack-n3zi)
 
 Drove every previously-uncovered op (23/59 -> 59/59 typed-client-covered)
 through the real `aws-sdk-go-v2/service/wafv2` client
-(`typed_slice36_realclient_test.go`, 12 subtests covering the IPSet
+(`realclient_ipset_webacl_and_managed_rules_test.go`, 12 tests covering the IPSet
 lifecycle, RegexPatternSet lifecycle, RuleGroup delete/list, WebACL
 delete/association family (DisassociateWebACL, DeleteFirewallManagerRuleGroups),
 APIKey delete, logging configuration round trip, permission policy round

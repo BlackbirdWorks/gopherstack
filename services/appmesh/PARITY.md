@@ -58,7 +58,7 @@ ops:
   UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
   DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
   ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GatewayRouteSummary correctly includes virtualGatewayName — present on the real GatewayRouteRef type too, not fabricated"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn as a QUERY param (tags only in JSON body) — FIXED 2026-09-12 (gopherstack-n3zi slice 19): prior note claiming resourceArn was in the body was wrong and untested by any real client; handler read it from c.Bind only, which never sees query params on a PUT, so every real SDK call failed with BadRequestException. See awsRestjson1_serializeOpHttpBindingsTagResourceInput in serializers.go."}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn as a QUERY param (tags only in JSON body) — FIXED 2026-09-12 (gopherstack-n3zi): prior note claiming resourceArn was in the body was wrong and untested by any real client; handler read it from c.Bind only, which never sees query params on a PUT, so every real SDK call failed with BadRequestException. See awsRestjson1_serializeOpHttpBindingsTagResourceInput in serializers.go."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn as a QUERY param (tagKeys only in JSON body) — same bug/fix as TagResource, see awsRestjson1_serializeOpHttpBindingsUntagResourceInput"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params; confirmed by a real client round trip this pass"}
 families:
@@ -469,10 +469,10 @@ return value) was left untouched as out of this pass's scope. No
 production code changed this pass — test-only additions confirming
 correctness.
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage sweep (gopherstack-n3zi)
 
 Drove all 9 previously-uncovered ops with a real `aws-sdk-go-v2/service/appmesh`
-client (`typed_slice19_realclient_test.go`): `ListVirtualNodes`, `ListVirtualRouters`,
+client (`realclient_list_families_and_tags_test.go`): `ListVirtualNodes`, `ListVirtualRouters`,
 `ListVirtualServices`, `ListVirtualGateways`, `ListRoutes`, `ListGatewayRoutes`,
 `TagResource`, `UntagResource`, `ListTagsForResource`. appmesh is now 38/38 typed-covered.
 

@@ -601,11 +601,11 @@ the errors.As-matching concern this whole error-code campaign exists to catch.
 Gates: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/pinpoint/...` -- 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/pinpoint/...` -- ok.
 
-## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 
 Typed-coverage pass (not a general audit): drove 75 previously
 typed-client-blind ops through the real `aws-sdk-go-v2/service/pinpoint`
-client (`typed_slice7_realclient_test.go`, 10 subtests) -- census
+client (`realclient_campaigns_and_channels_test.go`, 10 subtests) -- census
 47/122 -> 122/122 typed-covered (0 remaining). Three real wire/logic bugs
 found and fixed, every one caught only by a decoded typed-client value:
 

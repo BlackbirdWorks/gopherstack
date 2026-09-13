@@ -656,10 +656,10 @@ Gates re-run: `GOTOOLCHAIN=go1.26.6 go build ./services/workmail/...`
 ./services/workmail/...` (pass, unchanged), `GOTOOLCHAIN=go1.26.6
 golangci-lint run services/workmail/...` (0 issues).
 
-## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
 Typed-client coverage: 34/92 (37.0%) -> 92/92 (100%) ops now driven by a
-real aws-sdk-go-v2 workmail client end to end (`typed_slice13_realclient_test.go`,
+real aws-sdk-go-v2 workmail client end to end (`realclient_mailbox_and_access_config_test.go`,
 17 subtests, family-per-row, each a fresh backend: tags, aliases,
 availability configurations, IAM Identity Center application + identity
 provider configuration, impersonation roles (incl. AssumeImpersonationRole

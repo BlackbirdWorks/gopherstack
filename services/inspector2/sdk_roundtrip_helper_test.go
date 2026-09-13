@@ -61,3 +61,14 @@ func newRoundTripTestClient(t *testing.T) *inspector2sdk.Client {
 
 	return newRoundTripClient(t, h)
 }
+
+// newRealClient is newRoundTripTestClient, but also returns the backend for
+// subtests that need to seed state directly (e.g. SeedCoverage, SeedFinding).
+func newRealClient(t *testing.T) (*inspector2.InMemoryBackend, *inspector2sdk.Client) {
+	t.Helper()
+
+	backend := inspector2.NewInMemoryBackend(rtTestAccountID, rtTestRegion)
+	h := inspector2.NewHandler(backend)
+
+	return backend, newRoundTripClient(t, h)
+}

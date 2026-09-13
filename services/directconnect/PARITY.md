@@ -882,11 +882,11 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    Direct-Connect-specific wrinkle relative to every other tagging-wiring precedent audited in
    this campaign so far.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 15 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/directconnect` client for the first time
-(`typed_slice23_realclient_test.go`): a hosted-connection Allocate->Confirm
+(`realclient_virtual_interface_and_gateway_association_test.go`): a hosted-connection Allocate->Confirm
 lifecycle plus ConfirmCustomerAgreement, Allocate+Confirm for both public
 and transit VIFs plus AssociateVirtualInterface, a full Direct Connect
 gateway association proposal lifecycle (Update/Describe gateway, Create

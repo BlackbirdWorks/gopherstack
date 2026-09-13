@@ -793,10 +793,10 @@ Gates: `go build ./services/neptune/...` (clean); `go test -race
 `fieldalignment`, which regressed the struct from 224 to 232 leading
 pointer bytes when the field was appended after the existing string run).
 
-## 2026-09-12 (typed client coverage slice 34, gopherstack-n3zi)
+## 2026-09-12 (typed client coverage, gopherstack-n3zi)
 
 Drove all 38 previously-typed-client-uncovered ops through a real
-aws-sdk-go-v2 client in `typed_slice34_realclient_test.go`: DB cluster
+aws-sdk-go-v2 client in `realclient_cluster_instance_paramgroup_test.go`: DB cluster
 lifecycle and roles (ModifyDBCluster/StopDBCluster/StartDBCluster/
 AddRoleToDBCluster/RemoveRoleFromDBCluster/PromoteReadReplicaDBCluster),
 FailoverDBCluster (with a real writer+reader pair),

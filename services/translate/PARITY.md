@@ -399,9 +399,9 @@ cursor still resolves -- none deleted an item or forged a token between pages.
 `go test -race -count=1 ./services/translate/...` all pass; `golangci-lint run
 ./services/translate/...` reports 0 issues.
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage (gopherstack-n3zi)
 
-Added `typed_slice19_realclient_test.go` driving all 10 previously
+Added `wire_sdk_roundtrip_languages_and_jobs_test.go` driving all 10 previously
 typed-client-uncovered ops through a real `aws-sdk-go-v2/service/translate`
 client: `DeleteParallelData`, `DescribeTextTranslationJob`, `ListLanguages`,
 `ListParallelData`, `ListTagsForResource`, `StopTextTranslationJob`,

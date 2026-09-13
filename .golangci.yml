@@ -531,21 +531,21 @@ linters:
       - path: 'iotanalytics/list_summaries_missing_members_test.go'
         linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above --
-      # typed coverage slice 17 (gopherstack-n3zi).
-      - path: 'iotanalytics/typed_slice17_realclient_test.go'
+      # typed coverage (gopherstack-n3zi).
+      - path: 'iotanalytics/realclient_tags_and_update_ops_test.go'
         linters: [ staticcheck ]
       # rdsdata's ExecuteSql is a deprecated legacy op (superseded by
       # ExecuteStatement/BatchExecuteStatement); this file's sole purpose is
-      # driving it through a real client for typed coverage slice 17
+      # driving it through a real client for typed coverage
       # (gopherstack-n3zi), so every call carries an expected SA1019.
-      - path: 'rdsdata/typed_slice17_realclient_test.go'
+      - path: 'rdsdata/realclient_execute_sql_test.go'
         linters: [ staticcheck ]
       # securityhub's AcceptInvitation/GetMasterAccount are deprecated
       # (superseded by AcceptAdministratorInvitation/GetAdministratorAccount);
       # this file also covers the non-deprecated UpdateConnectorV2 typed
-      # coverage slice 17 (gopherstack-n3zi), but the deprecated pair's
+      # coverage (gopherstack-n3zi), but the deprecated pair's
       # SA1019 is expected and unavoidable while still exercising the real op.
-      - path: 'securityhub/typed_slice17_realclient_test.go'
+      - path: 'securityhub/realclient_accept_invitation_and_connector_test.go'
         linters: [ staticcheck ]
       # Same reasoning as iotanalytics/handler_create_tags_test.go above -- this
       # cli.go composition-root wiring test also drives the deprecated iotanalytics
@@ -569,34 +569,61 @@ linters:
       - path: 'opsworks/list_filter_params_test.go'
         linters: [ staticcheck ]
       # Same reasoning as opsworks/sdk_roundtrip_test.go above -- typed
-      # coverage slice 13 (gopherstack-n3zi).
-      - path: 'opsworks/typed_slice13_realclient_test.go'
+      # coverage (gopherstack-n3zi).
+      - path: 'opsworks/sdk_roundtrip_resource_coverage_test.go'
         linters: [ staticcheck ]
       # Same reasoning as opsworks/sdk_roundtrip_test.go above -- reqfielddiff
-      # tier-1 campaign slice 2 (gopherstack-xhu2t).
-      - path: 'opsworks/reqfield_slice2_realclient_test.go'
+      # tier-1 campaign (gopherstack-xhu2t).
+      - path: 'opsworks/sdk_roundtrip_stack_field_fixes_test.go'
         linters: [ staticcheck ]
       # mediapackage's RotateChannelCredentials is deprecated (superseded by
       # RotateIngestEndpointCredentials), but is still a real, listed op this
-      # file must drive through a real client for typed coverage slice 21
+      # file must drive through a real client for typed coverage
       # (gopherstack-n3zi); the SA1019 is expected and unavoidable.
-      - path: 'mediapackage/typed_slice21_realclient_test.go'
+      - path: 'mediapackage/wire_sdk_roundtrip_channel_and_harvest_test.go'
         linters: [ staticcheck ]
       # codedeploy's BatchGetDeploymentInstances/ListDeploymentInstances/
       # SkipWaitTimeForInstanceTermination are deprecated (superseded by
       # BatchGetDeploymentTargets/ListDeploymentTargets/ContinueDeployment
       # with DeploymentWaitType) but are still real, listed ops this file
-      # must drive through a real client for typed coverage slice 29
+      # must drive through a real client for typed coverage
       # (gopherstack-n3zi); the SA1019s are expected and unavoidable.
-      - path: 'codedeploy/typed_slice29_realclient_test.go'
+      - path: 'codedeploy/realclient_application_and_deployment_management_test.go'
         linters: [ staticcheck ]
       # UpdateCertificateOptions' only real member,
       # Options.CertificateTransparencyLoggingPreference, carries an AWS
       # SA1019 deprecation notice (opt-out is no longer available) but is
       # still the real wire contract this op mutates -- typed coverage
-      # slice 33 (gopherstack-n3zi) must set/read it through the real
-      # client to cover the op at all.
-      - path: 'acm/typed_slice33_realclient_test.go'
+      # (gopherstack-n3zi) must set/read it through the real client to
+      # cover the op at all.
+      - path: 'acm/realclient_certificate_lifecycle_acme_test.go'
+        linters: [ staticcheck ]
+      # TagLogGroup/ListTagsLogGroup/UntagLogGroup are deprecated (superseded
+      # by the generic TagResource/ListTagsForResource/UntagResource) but are
+      # still real, listed ops this file must drive through a real client for
+      # typed coverage (gopherstack-n3zi); the SA1019s are expected and
+      # unavoidable.
+      - path: 'cloudwatchlogs/realclient_log_groups_deliveries_and_policies_test.go'
+        linters: [ staticcheck ]
+      # AllocateConnectionOnInterconnect and DescribeInterconnectLoa are both
+      # deprecated but are still real, listed ops this file must drive
+      # through a real client for typed coverage (gopherstack-n3zi); the
+      # SA1019s are expected and unavoidable.
+      - path: 'directconnect/realclient_virtual_interface_and_gateway_association_test.go'
+        linters: [ staticcheck ]
+      # CreateTags/DescribeTags/DeleteTags are deprecated (superseded by
+      # TagResource/ListTagsForResource/UntagResource) but are still real,
+      # listed ops this file must drive through a real client for typed
+      # coverage (gopherstack-n3zi); the SA1019s are expected and
+      # unavoidable.
+      - path: 'efs/realclient_file_system_configuration_and_policy_test.go'
+        linters: [ staticcheck ]
+      # AcceptInvitation/GetMasterAccount/DisassociateFromMasterAccount are
+      # deprecated (superseded by their Administrator-named equivalents) but
+      # are still real, listed ops this file must drive through a real
+      # client for typed coverage (gopherstack-n3zi); the SA1019s are
+      # expected and unavoidable.
+      - path: 'guardduty/realclient_detector_findings_and_member_management_test.go'
         linters: [ staticcheck ]
       - path: 'pkgs/service/cloudtrail_capture_test.go'
         linters: [ testpackage ]

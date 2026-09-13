@@ -39,20 +39,20 @@ ops:
   RemoveTags: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (2026-09-04 pass) -- same discarded-error/always-200 bug as AddTags above; same ValidationException fix. See Notes."}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok}
   StartElasticsearchServiceSoftwareUpdate: {wire: ok, errors: ok, state: ok, persist: ok, note: "route bug fixed this pass -- see Notes"}
-  CancelElasticsearchServiceSoftwareUpdate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 35) -- AutomatedUpdateDate was a plain string (restjson1 unixTimestamp requires a JSON Number), which failed a real client's decode outright; now *float64 with omitempty, always nil (no scheduled-update date tracked)."}
+  CancelElasticsearchServiceSoftwareUpdate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi) -- AutomatedUpdateDate was a plain string (restjson1 unixTimestamp requires a JSON Number), which failed a real client's decode outright; now *float64 with omitempty, always nil (no scheduled-update date tracked)."}
   DeleteElasticsearchServiceRole: {wire: ok, errors: ok, state: ok, persist: n/a}
   UpgradeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUpgradeHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no upgrade-history state tracked; always returns empty list"}
   GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state. Disclosed gap (gopherstack-6flj): real UpgradeName (*string, optional, api_op_GetUpgradeStatus.go) is never emitted -- this backend has no upgrade-name/upgrade-history state at all (GetUpgradeHistory always returns empty), so there is no honest value to source it from; a fabricated 'Upgrade to X' string would be invented state. Not fixed -- see gaps"}
   DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled"}
-  DescribeDomainChangeProgress: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-12, gopherstack-n3zi slice 35) -- response used a fabricated \"Status\" key (types.ChangeProgressStatusDetails has no such member; real key is ConfigChangeStatus) and the wrong enum casing (\"COMPLETED\" vs real \"Completed\"). Always ConfigChangeStatus=Completed; changes apply synchronously."}
+  DescribeDomainChangeProgress: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-12, gopherstack-n3zi) -- response used a fabricated \"Status\" key (types.ChangeProgressStatusDetails has no such member; real key is ConfigChangeStatus) and the wrong enum casing (\"COMPLETED\" vs real \"Completed\"). Always ConfigChangeStatus=Completed; changes apply synchronously."}
   GetCompatibleElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListElasticsearchInstanceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
   DescribeElasticsearchInstanceTypeLimits: {wire: ok, errors: ok, state: ok, persist: n/a}
   CreatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added required PackageSource (S3BucketName/S3Key) validation; also deleted invented ZIP-PLUGIN package type -- see Notes. 2026-08-10: added CreatedAt/LastUpdatedAt"}
   DescribePackages: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-10: response now includes CreatedAt/LastUpdatedAt; ErrorDetails always omitted (no COPY_FAILED state modeled)"}
-  UpdatePackage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-10: LastUpdatedAt now advances on update. FIXED (2026-09-12, gopherstack-n3zi slice 35) -- the required PackageSource field was silently discarded entirely (handler only read PackageID/PackageDescription); every real client's new S3BucketName/S3Key was lost on every call. Backend UpdatePackage now takes and stores PackageSource."}
+  UpdatePackage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-10: LastUpdatedAt now advances on update. FIXED (2026-09-12, gopherstack-n3zi) -- the required PackageSource field was silently discarded entirely (handler only read PackageID/PackageDescription); every real client's new S3BucketName/S3Key was lost on every call. Backend UpdatePackage now takes and stores PackageSource."}
   DeletePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociatePackage: {wire: ok, errors: ok, state: ok, persist: ok}
   DissociatePackage: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): DomainPackageStatus was the non-member string \"DISSOCIATED\" -- types.DomainPackageStatus only has ASSOCIATING/ASSOCIATION_FAILED/ACTIVE/DISSOCIATING/DISSOCIATION_FAILED (types/enums.go:189-198), no terminal DISSOCIATED. Now emits DISSOCIATING (the transitional state a real client sees on a successful call; this backend completes the removal synchronously, but that is an implementation detail, not a wire value). See TestDissociatePackage_DomainPackageStatus_RealSDKClient (wire_field_fixes_test.go)."}
@@ -71,7 +71,7 @@ ops:
   CreateOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- request/response SourceDomainInfo/DestinationDomainInfo were tagged LocalDomainInfo/RemoteDomainInfo (sibling-copy from this package's own internal OutboundConnection struct); both are required request members with no matching wire key, so a real client's connection was always created with empty domain info on both ends. ALSO -- the response was wrapped in {CrossClusterSearchConnection: ...} like Delete/Accept/Reject, but CreateOutboundCrossClusterSearchConnectionOutput is genuinely flat at the response root (api_op_CreateOutboundCrossClusterSearchConnection.go/deserializers.go:1253); every field was nested one level too deep to ever decode. Prior wire: ok was false on both counts. Sibling InboundConnection already used the correct SourceDomainInfo/DestinationDomainInfo names throughout -- report per this issue's sibling-check instruction"}
   DescribeOutboundCrossClusterSearchConnections: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename as Create above. ALSO a routing bug: matchElasticsearchCorePaths used `path == elasticsearchCCSOutbound` (exact match against the bare path), so the real op's path (.../outboundConnection/search) never matched and every real client's call 404'd before reaching the handler at all -- unlike the correctly prefix-matched Inbound sibling. Now `strings.HasPrefix`, matching Inbound's pattern. Prior wire: ok was false"}
   DeleteOutboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-6flj) -- same SourceDomainInfo/DestinationDomainInfo rename and same routing-prefix fix as the two rows above (.../outboundConnection/{id} also never matched the exact-match core-path check). Prior wire: ok was false"}
-  AcceptInboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 35) -- set ConnectionStatus to the wrong enum entirely (\"ACTIVE\", which belongs only to OutboundCrossClusterSearchConnectionStatusCode); real InboundCrossClusterSearchConnectionStatusCode has no ACTIVE value, correct is APPROVED."}
+  AcceptInboundCrossClusterSearchConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi) -- set ConnectionStatus to the wrong enum entirely (\"ACTIVE\", which belongs only to OutboundCrossClusterSearchConnectionStatusCode); real InboundCrossClusterSearchConnectionStatusCode has no ACTIVE value, correct is APPROVED."}
   RejectInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInboundCrossClusterSearchConnections: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -780,9 +780,9 @@ Gates: `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/elasticsearch/...
 `GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/elasticsearch/...` --
 both clean (see command output in the issue's closing report).
 
-## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 
-`typed_slice35_realclient_test.go` added: 8 subtests driving all 33
+`realclient_domain_lifecycle_and_vpc_endpoints_test.go` added: 8 cases driving all 33
 previously typed-coverage-blind ops (18/51 -> 51/51) through the real
 aws-sdk-go-v2 client -- tags (AddTags/ListTags/RemoveTags), VPC endpoints
 (AuthorizeVpcEndpointAccess/DescribeVpcEndpoints/UpdateVpcEndpoint/

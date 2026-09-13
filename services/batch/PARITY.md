@@ -542,9 +542,9 @@ have a mechanical re-scan behind them and hold, this one field excepted.
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/batch/...` and `./cmd/reqfieldscan/...`).
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice19_realclient_test.go` driving all 10 previously
+Added `realclient_job_and_resource_lifecycle_test.go` driving all 10 previously
 typed-client-uncovered ops through a real `aws-sdk-go-v2/service/batch`
 client: `CancelJob`, `DeleteQuotaShare`, `GetJobQueueSnapshot`,
 `ListJobsByConsumableResource`, `ListQuotaShares`, `TerminateJob`,

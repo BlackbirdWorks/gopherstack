@@ -401,11 +401,11 @@ previously invisible to `ListTagsForResource`), so a regression to "field bound 
 "forwarded but not applied" would now fail these tests directly rather than passing silently as it did
 before this pass.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go` (reusing `newTestAppConfigClient`
-from `handler_error_type_test.go`): one outer `t.Parallel()` test, 9
-subtests (all also parallel) driving every one of this service's 28
+Added `realclient_deployment_config_and_experiments_test.go` (reusing
+`newTestAppConfigClient` from `handler_error_type_test.go`): one
+table-driven `t.Parallel()` test, 9 cases (all also parallel) driving every one of this service's 28
 typed-client-uncovered ops (per `cmd/clientcoverage`) — deployment
 strategies, hosted configuration versions, configuration profile deletion,
 application/environment updates, ValidateConfiguration, tags, the full

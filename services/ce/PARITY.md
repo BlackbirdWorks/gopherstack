@@ -669,11 +669,11 @@ Regression tests: `cost_usage_granularity_test.go`
 `cost_usage_timeperiod_test.go` (`TestGetCostAndUsage_UnparseableTimePeriodRejected`), both
 confirmed failing against unmodified code before the fix.
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 28/47 -> 47/47 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
-subtests driving every previously-untested op through a real
+`realclient_cost_management_and_anomalies_test.go`, one table-driven
+`t.Parallel()` test with 6 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/costexplorer` client: DeleteAnomalySubscription,
 DeleteCostCategoryDefinition, GetApproximateUsageRecords,
 GetCostAndUsageWithResources, GetCostComparisonDrivers,

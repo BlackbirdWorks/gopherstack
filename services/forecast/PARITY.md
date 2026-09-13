@@ -586,9 +586,9 @@ never returned would just restate the dispatch table already enforcing it.
 Gates: `golangci-lint run ./services/forecast/...` (0 issues),
 `go test -race ./services/forecast/...` (pass) -- no source changed.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering forecast's last four
+Added `realclient_tags_and_resource_lifecycle_test.go` covering forecast's last four
 typed-client-uncovered ops: `TagResource`, `UntagResource`,
 `ResumeResource`, `DeleteResourceTree`. Creates a dataset group, tags and
 untags it (asserting via `ListTagsForResource`), stops and resumes it

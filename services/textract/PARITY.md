@@ -444,11 +444,11 @@ compiles, confirmed test failure, restored byte-identical).
 Gates: `go test -race ./services/textract/...`, `golangci-lint run services/textract/...` —
 both clean.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 14 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/textract` client for the first time
-(`typed_slice23_realclient_test.go`): adapter CRUD plus TagResource/
+(`realclient_adapters_and_analysis_test.go`): adapter CRUD plus TagResource/
 UntagResource, an adapter-version CRUD sub-lifecycle, synchronous
 AnalyzeExpense/AnalyzeID, and Get{Document,Expense,Lending}Analysis plus
 GetLendingAnalysisSummary against jobs started on `NewInMemoryBackendSync`

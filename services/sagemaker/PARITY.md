@@ -6507,9 +6507,9 @@ funlen}` added, per this campaign's standing rule).
 
 Nothing left in this family's originally-scoped gap. Snapshot version not bumped.
 
-## 2026-09-12 (gopherstack-n3zi slice 4, typed-client coverage sweep)
+## 2026-09-12 (gopherstack-n3zi, typed-client coverage sweep)
 
-`typed_slice4_realclient_test.go` added: 16 subtests covering tags
+`realclient_domains_pipelines_and_tags_test.go` added: 16 subtests covering tags
 (AddTags/DeleteTags), domains (create/describe/list/update/delete, user
 profiles, apps, presigned domain URL), endpoint/endpoint-config extras
 (update, update-weights-and-capacities, list, delete), notebook instance
@@ -6590,9 +6590,9 @@ Gates: `go build ./...`, `go vet ./services/sagemaker/...`, `go test -race
 stays at 0 FAIL. No version bump — no `backendSnapshot` struct field
 touched.
 
-## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice10_realclient_test.go` (`TestSlice10_SageMaker_RealClient`,
+Added `realclient_inference_and_hub_test.go` (`TestRealClient_InferenceAndHub`,
 one outer `t.Parallel()` test, 10 subtests), covering the highest-priority
 families named by this slice's sweep: inference components (Create/
 Describe/Update/List/Delete), hub + hub content (Create/DescribeHub,
@@ -6633,11 +6633,11 @@ named there).
 FAIL. No persisted struct fields changed; snapshot inventory not touched;
 no version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 20 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice20_realclient_test.go` (`TestSlice20_SageMaker_RealClient`,
-one outer `t.Parallel()` test, 6 subtests), covering the families slice
-10's write-up above named as the next tier: lineage (Action update/delete,
+Added `realclient_lineage_and_automl_test.go` (`TestRealClient_LineageAndAutoML`,
+one outer `t.Parallel()` test, 6 subtests), covering the families the prior
+entry's write-up above named as the next tier: lineage (Action update/delete,
 Context update/describe/delete, Artifact update, Association add/list/
 delete, LineageGroup describe/policy), AutoML V1+V2 (describe/list/stop,
 candidates list, V2 describe), compilation job (delete/stop/list),
@@ -6698,11 +6698,11 @@ named there).
 No persisted struct fields changed; snapshot inventory not touched; no
 version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 28 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice28_realclient_test.go` (`TestSlice28_SageMaker_RealClient`,
-one outer `t.Parallel()` test, 24 subtests), covering every op slice 20
-left uncovered: AI benchmark/recommendation jobs (Create/Describe/Stop/
+Added `realclient_jobs_and_edge_deployment_test.go` (`TestRealClient_JobsAndEdgeDeployment`,
+one outer `t.Parallel()` test, 24 subtests), covering every op the prior
+entry left uncovered: AI benchmark/recommendation jobs (Create/Describe/Stop/
 Delete), AI workload configs (list/delete), edge deployment (stage create/
 start/stop/delete, plan delete, device fleet report), device management
 (delete fleet, deregister/update devices), edge packaging job stop, the

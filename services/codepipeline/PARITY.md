@@ -572,11 +572,11 @@ across the ops checked. Gates re-run to confirm no regression: `go build`,
 `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` -- all
 clean (`./services/codepipeline/...`), 0 diff.
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 27/44 -> 44/44 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
-subtests driving every previously-untested op through a real
+`realclient_pipeline_execution_and_webhooks_test.go`, one table-driven
+`t.Parallel()` test with 6 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/codepipeline` client: DeleteWebhook,
 DeregisterWebhookWithThirdParty, EnableStageTransition, GetActionType,
 GetJobDetails, GetPipelineExecution, ListActionTypes, ListRuleExecutions,

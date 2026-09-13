@@ -1362,12 +1362,12 @@ Gates: `go build ./services/networkmanager/...` (clean), `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/networkmanager/...`
 (pass), `golangci-lint run ./services/networkmanager/...` (0 issues).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: GetConnectAttachment, GetDevices, GetLinks,
 GetTransitGatewayConnectPeerAssociations, UpdateDevice, UpdateLink,
 UpdateSite driven through the real aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 2 subtests: device/site/link
+(`sdk_roundtrip_device_connect_test.go`, 2 subtests: device/site/link
 lifecycle, connect attachment + transit gateway Connect peer
 associations). networkmanager moved from 88/95 to 95/95 typed-covered per
 `cmd/clientcoverage`.

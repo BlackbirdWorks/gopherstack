@@ -595,12 +595,12 @@ golangci-lint run ./services/polly/...                  -> 0 issues
 
 No snapshot inventory changes; `pollySnapshotVersion` stays at 2.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DescribeVoices, GetSpeechSynthesisTask,
 ListSpeechSynthesisTasks, StartSpeechSynthesisTask, and
 StartSpeechSynthesisStream driven through the real aws-sdk-go-v2 client for
-the first time (`typed_slice15_realclient_test.go`; polly moved from 5/10 to
+the first time (`wire_sdk_roundtrip_voices_and_synthesis_test.go`; polly moved from 5/10 to
 10/10 typed-covered per `cmd/clientcoverage`).
 
 **Corrects the prior session's "real duplex out of scope" conclusion above**

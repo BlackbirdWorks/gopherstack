@@ -42,7 +42,7 @@ var (
 // (StringAttributeConstraints/NumberAttributeConstraints), matching the real wire shape.
 // A structural reshape, not a rename or addition -- an old snapshot's flattened numeric
 // fields are simply gone, so decoding it as the new shape would silently lose them.
-// NOT bumped for gopherstack-n3zi slice 1's GlobalSignOut same-wall-clock-second
+// NOT bumped for gopherstack-n3zi's GlobalSignOut same-wall-clock-second
 // fix (see auth_tokens.go): TokenRevokedBeforeSeq (map[string]int64) and TokenSeq
 // were added ADDITIVELY alongside the pre-existing TokenRevokedBefore
 // (map[string]time.Time), which is kept unchanged, same name, same json tag.

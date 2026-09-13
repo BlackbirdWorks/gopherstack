@@ -434,10 +434,10 @@ generic already-attributed codes as other ops rather than a distinct sentinel re
 Gates: `go test -race -count=1 ./services/shield/...` ok (1.5s); `golangci-lint run
 services/shield/...` 0 issues.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
 This service had no prior typed-client helper (grep found none). Added
-`typed_slice33_realclient_test.go` with `newTestShieldClient` (httptest +
+`realclient_protection_and_drt_test.go` with `newTestShieldClient` (httptest +
 `service.NewRegistry`/`NewServiceRouter`), plus one outer `t.Parallel()`
 test with 8 subtests (all also parallel) driving every one of this
 service's 29 typed-client-uncovered ops (per `cmd/clientcoverage`) —

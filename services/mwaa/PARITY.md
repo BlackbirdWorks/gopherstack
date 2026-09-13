@@ -539,9 +539,9 @@ before touching the backend. This is the same "checked-bool-helper" shape as ela
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/mwaa/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/mwaa/...` ok.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering mwaa's last two typed-
+Added `realclient_web_login_and_update_env_test.go` covering mwaa's last two typed-
 client-uncovered ops, `CreateWebLoginToken` and `UpdateEnvironment`.
 Reuses `newMWAAHostPrefixTestClient(t, true)`
 (`host_prefix_reachability_test.go`, gopherstack-3gbe) since every mwaa op

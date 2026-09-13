@@ -347,9 +347,9 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
   all twelve families (a pre-existing design choice, not touched this pass). Left
   unimplemented; recorded in `gaps`.
 
-## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice8_realclient_test.go` (16 subtests) driving every WAF
+Added `realclient_match_sets_and_rules_test.go` (16 subtests) driving every WAF
 Classic condition-set family (IPSet, ByteMatch, SqlInjectionMatch,
 SizeConstraint, XssMatch, GeoMatch, RegexPattern, RegexMatch), Rule/
 RuleGroup, RateBasedRule, WebACL, logging configuration, permission policy,

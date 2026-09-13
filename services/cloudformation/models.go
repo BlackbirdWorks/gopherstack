@@ -338,7 +338,7 @@ type StackSetOperation struct {
 	StackSetName string
 	// Action is one of the real StackSetOperationAction values: CREATE /
 	// UPDATE / DELETE / DETECT_DRIFT. IMPORT is not a real value either
-	// (gopherstack-n3zi slice 11).
+	// (gopherstack-n3zi).
 	Action string
 	Status string // RUNNING / SUCCEEDED / STOPPED / STOPPING / FAILED
 }

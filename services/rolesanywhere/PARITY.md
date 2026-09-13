@@ -424,10 +424,10 @@ diff.
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/rolesanywhere/...` both pass, unchanged from
 before this pass (no code touched).
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
 This service had no prior typed-client helper at all (`grep -rn "func newTest.*Client"`
-found nothing). Added `typed_slice33_realclient_test.go` with
+found nothing). Added `realclient_profile_trustanchor_crl_test.go` with
 `newTestRolesAnywhereClient` (httptest + `service.NewRegistry`/`NewServiceRouter`,
 the same pattern as services/swf's `wire_sdk_roundtrip_test.go`), plus one outer
 `t.Parallel()` test with 7 subtests (all also parallel) driving every one of this

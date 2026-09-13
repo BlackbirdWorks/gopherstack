@@ -245,10 +245,11 @@ file. No dropped filter, no wrong key, no wrong cardinality found across any of 
 Gates: `go build ./services/datasync/...` (no changes made, nothing to build-verify beyond
 confirming the tree is unchanged). Work left uncommitted per this pass's instructions.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go` (reusing `newTestDataSyncClient`
-from `wire_field_fixes_test.go`): one outer `t.Parallel()` test, 9 subtests
+Added `realclient_location_agent_and_task_test.go` (its own `newRealClient`
+wraps `newTestDataSyncClient` from `wire_field_fixes_test.go`): one
+table-driven `t.Parallel()` test, 9 cases
 (all also parallel) driving every one of this service's 30
 typed-client-uncovered ops (per `cmd/clientcoverage`) — every location
 family's Create/Describe/Update trio (AzureBlob, FsxLustre, FsxOntap,

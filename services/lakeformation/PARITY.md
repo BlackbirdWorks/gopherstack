@@ -606,11 +606,11 @@ No code or test changes. Gates: `go test -race -count=1 ./services/lakeformation
 `cmd/errtargetaudit`: lakeformation count unchanged at 2 class A findings -- both dismissed
 above as false positives, not remaining work.
 
-## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+## 2026-09-12: typed-client coverage (gopherstack-n3zi)
 
 Drove every previously-uncovered op (27/61 -> 61/61 typed-client-covered) through
 the real `aws-sdk-go-v2/service/lakeformation` client
-(`typed_slice36_realclient_test.go`, 14 subtests covering LF-tags-on-resource,
+(`realclient_tags_permissions_transactions_test.go`, 14 tests covering LF-tags-on-resource,
 batch grant/revoke permissions, the transaction lifecycle, DataCellsFilter
 update, LFTagExpression lifecycle, LakeFormationOptIn lifecycle, identity
 center delete, GetDataLakePrincipal, table objects + storage optimizer,

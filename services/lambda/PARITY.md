@@ -828,10 +828,10 @@ Gates after the fix: `golangci-lint run ./services/lambda/...` 0 issues; 25 sepa
 invocations of `go test -p 1 -race -count=1 ./services/lambda/...` (a shell loop, not
 `-count=25`), 0/25 failures.
 
-## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi -- first typed-client coverage)
 
 lambda: 45/85 (52.9%) -> 76/85 (89.4%) typed-covered (40 -> 9 uncovered),
-31 ops newly covered, `typed_slice9_realclient_test.go` added (one outer
+31 ops newly covered, `realclient_config_and_invocation_test.go` added (one outer
 `t.Parallel()` test, 13 subtests covering every named priority family:
 permissions, aliases, code signing configs, concurrency, event invoke
 config, function URL configs, account settings, layers, recursion config,
@@ -892,11 +892,11 @@ Gates: `go build ./...` (whole module, clean), `go vet`,
 `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
 fields changed by any of the three fixes). No version bump.
 
-## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
-Drove the entire `DurableExecution` family (9 ops named as this slice's
+Drove the entire `DurableExecution` family (9 ops named as the prior entry's
 remaining coverage gap above) through the real aws-sdk-go-v2 client for
-the first time (`typed_slice21_realclient_test.go`, 3 subtests: checkpoint
+the first time (`realclient_durable_execution_test.go`, 3 subtests: checkpoint
 lifecycle, callbacks, list-by-function). `CheckpointDurableExecution` is
 the only creation path available outside a real Docker `Invoke`, used as
 documented rather than a fabricated backdoor.
@@ -1025,9 +1025,9 @@ identical "no Invoke entry point" reason `PARITY.md` already documents for
 the same out-of-scope Invoke rewiring already deferred there -- not
 standalone one-field fixes.
 
-Proof: `reqfield_slice4_realclient_test.go`, driving the real
+Proof: `realclient_event_source_mapping_kms_test.go`, driving the real
 `aws-sdk-go-v2/service/lambda` typed client (`newTestLambdaClient`, shared
-with `typed_slice21_realclient_test.go`).
+with `realclient_durable_execution_test.go`).
 
 Gates: `go build ./services/lambda/...`, `go vet ./services/lambda/...`,
 `go test -race -count=1 ./services/lambda/...`, `golangci-lint run

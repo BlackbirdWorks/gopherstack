@@ -4,7 +4,7 @@ last_audit_commit: 92bc04738b4b8e24fcc4a0800b2ff62be0eed47a
 last_audit_date: 2026-08-29
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
-# 2026-09-12 (gopherstack-n3zi typed slice 23): drove the 13 typed-coverage-blind
+# 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
 # ops (CreateTags/CreateUser/DeleteConfiguration/DeleteTags/DeleteUser/
 # DescribeBrokerEngineTypes/DescribeBrokerInstanceOptions/
 # DescribeConfigurationRevision/DescribeSharedResources/DescribeUser/ListUsers/
@@ -22,7 +22,7 @@ overall: A                # genuine fixes found (reboot-gated staging, persisten
 # broker via CreateBroker's DataReplicationPrimaryBrokerArn field, and a new
 # "promote_non_replica_broker" case added asserting the 400. All other 12 ops
 # clean -- already had deep prior sweep history (2026-08-29 passes above).
-# typed_slice23_realclient_test.go.
+# realclient_users_config_broker_test.go.
 
 # 2026-08-29 (gopherstack-21my, parameter-honoring sweep, same-day continuation): measured all 12
 # collection-returning ops. 2 real bugs found and fixed: (1) ListBrokers/ListConfigurations shared a

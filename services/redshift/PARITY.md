@@ -93,9 +93,9 @@ leaks: {status: clean, note: "reviewed reconciler.go: StartReconciler/StopReconc
 
 ## Notes
 
-### 2026-09-12 (typed slice 32, gopherstack-n3zi): Redshift Serverless typed-client round trips, 150/198 -> 198/198
+### 2026-09-12 (gopherstack-n3zi): Redshift Serverless typed-client round trips, 150/198 -> 198/198
 
-Added `typed_slice32_realclient_test.go`: 17 table-driven tests, each
+Added `realclient_namespace_workgroup_snapshot_test.go`: 17 tests, each
 building a real `redshiftserverless` SDK client against `ServerlessHandler`
 and round-tripping every previously-untyped op (Namespace/Workgroup/Snapshot
 CRUD, GetCredentials, UsageLimit/ScheduledAction Get-List-Update,
@@ -2079,9 +2079,9 @@ Gates this pass: `golangci-lint run ./services/redshift/...` (0 issues),
 `go test -race ./services/redshift/...` (pass), plus the two new tests
 individually under `-race -count=10` (10/10 pass each).
 
-## gopherstack-n3zi (2026-09-12): typed slice 5 -- 80+ classic-Redshift ops covered by a real client, 2 wire bugs found
+## gopherstack-n3zi (2026-09-12): 80+ classic-Redshift ops covered by a real client, 2 wire bugs found
 
-`typed_slice5_realclient_test.go` added: one outer `t.Parallel()` test, 16
+`realclient_cluster_and_classic_ops_test.go` added: one outer `t.Parallel()` test, 16
 subtests (family-per-row), covering cluster lifecycle (modify/reboot/pause/
 resume/resize/rotate-key/restore-from-snapshot/delete/IAM roles/
 maintenance/AQUA), parameter/subnet/security groups, snapshots and copy

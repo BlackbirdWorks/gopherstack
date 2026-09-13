@@ -402,11 +402,11 @@ golangci-lint run ./services/codestarconnections/...` (0 issues), dependents
 `./services/cloudformation/...` and `./services/codeconnections/...` (both
 pass, unchanged).
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 9/27 -> 27/27 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 3
-subtests driving every previously-untested op through a real
+`realclient_host_repository_link_and_sync_config_test.go`, one table-driven
+`t.Parallel()` test with 3 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/codestarconnections` client: CreateSyncConfiguration,
 DeleteHost, DeleteRepositoryLink, GetHost, GetRepositoryLink,
 GetRepositorySyncStatus, GetResourceSyncStatus, GetSyncBlockerSummary,

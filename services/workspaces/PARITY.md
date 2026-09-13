@@ -677,9 +677,9 @@ this pass**:
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/workspaces/...` and `./cmd/reqfieldscan/...`).
 
-## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice18_realclient_test.go` covering all 51 of workspaces's
+Added `sdk_roundtrip_accounts_and_workspaces_test.go` covering all 51 of workspaces's
 typed-client-uncovered ops (per `cmd/clientcoverage`): account link
 accept/reject/get, IP group authorize/revoke/update/disassociate, tags
 create/delete, Connect client add-in delete/update, connection alias

@@ -787,9 +787,9 @@ clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
   wiring change). `awsconfigSnapshotVersion` NOT bumped (additive table
   only, confirmed by the version guard test).
 
-## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice8_realclient_test.go` (12 subtests) driving recorders/
+Added `realclient_config_rules_and_remediation_test.go` (12 cases) driving recorders/
 delivery, config rules + compliance/evaluations, conformance packs,
 remediation, aggregators/authorizations, resource config history/select,
 retention, stored queries, organization rules/packs, connectors, tags, and
@@ -834,9 +834,10 @@ No persisted struct fields changed; no version bump. Gates: `go build ./...`,
 --new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering awsconfig's last seven
+Added `realclient_service_linked_recorders_and_aggregate_compliance_test.go`
+covering awsconfig's last seven
 typed-client-uncovered ops: `PutServiceLinkedConfigurationRecorder`,
 `DeleteServiceLinkedConfigurationRecorder`,
 `PutThirdPartyServiceLinkedConfigurationRecorder`,
@@ -874,7 +875,7 @@ Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
 --new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
 
-## 2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3)
+## 2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t)
 
 Worked all 33 tier-1 findings from `cmd/reqfielddiff` for this service.
 awsconfig is not the generic `jsonOp(h.Backend.<Op>)` shape (slice-1's blind
@@ -948,8 +949,8 @@ could interrupt).
 0 false positives this slice (see the "not the generic wrapper shape" note
 above).
 
-New test: `reqfield_slice3_realclient_test.go` --
-`TestReqFieldSlice3_AWSConfig_Pagination`, 20 subtests, each driving the real
+New test: `realclient_pagination_test.go` --
+`TestRealClient_Pagination`, 20 cases, each driving the real
 typed `aws-sdk-go-v2/service/configservice` client against a from-scratch
 backend, seeding >=2 items, and asserting both page-1 truncation and the
 `NextToken`-driven page 2 (or, for the two sort fields, the resulting order).

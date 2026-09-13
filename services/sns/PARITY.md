@@ -734,9 +734,9 @@ no exported signature changed), `go test -race -count=1 ./services/sns/...`
 (pass), `golangci-lint run ./services/sns/...` (0 issues, no `nolint` in
 any edited file).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 8
+Added `realclient_subscription_and_sms_test.go`, covering this service's last 8
 typed-client-blind ops (CheckIfPhoneNumberIsOptedOut, ConfirmSubscription,
 GetDataProtectionPolicy, GetSMSAttributes, GetSMSSandboxAccountStatus,
 ListPhoneNumbersOptedOut, ListSMSSandboxPhoneNumbers,

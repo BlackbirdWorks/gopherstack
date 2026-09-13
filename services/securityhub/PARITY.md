@@ -185,7 +185,7 @@ anywhere for the tool to find. **4 recorded gaps** (see `items_still_open`):
 `GetFindingsV2`/`GetFindingStatisticsV2`/`GetResourcesV2`/
 `GetResourcesStatisticsV2.Scopes` (AwsOrganizations-OU filtering; this
 backend has no organizational-unit tree to filter against). Proven via
-`reqfield_slice6_realclient_test.go` driving the real `securityhub` client.
+`realclient_control_finding_generator_and_misc_fields_test.go` driving the real `securityhub` client.
 `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint` all clean;
 no persistence-schema version bump (new `orgAdminAccountFeatures` field is
 additive with `omitempty`, old fields unchanged; 1 inventory row added by
@@ -1354,9 +1354,9 @@ both clean after the fix. Full `go test ./services/...` also green (see gopherst
 cross-service report for the combined blast-radius run covering lambda, securityhub, and
 organizations).
 
-## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice8_realclient_test.go` (12 subtests) driving hub v1/v2
+Added `realclient_hub_standards_and_automation_test.go` (12 subtests) driving hub v1/v2
 lifecycle, standards/controls, security control definitions, organization
 admin, invitations/members, automation rules (v1+v2), configuration
 policies, finding aggregators, connectors (v1+v2), aggregators v2,
@@ -1389,9 +1389,9 @@ No persisted struct fields changed; no version bump. Gates: `go build
 ./services/securityhub/...` (pass), `golangci-lint run --new-from-rev=HEAD
 ./services/securityhub/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering securityhub's last two
+Added `realclient_accept_invitation_and_connector_test.go` covering securityhub's last two
 typed-client-uncovered ops: the deprecated `AcceptInvitation` (an alias
 for `AcceptAdministratorInvitation`, `invitations.go`) and
 `UpdateConnectorV2`.

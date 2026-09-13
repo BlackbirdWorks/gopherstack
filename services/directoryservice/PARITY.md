@@ -615,9 +615,9 @@ anonymous-inline-struct request decodes (opsworks-style handlers implementing
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/directoryservice/...`).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 16)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice16_realclient_test.go`: 20 subtests driving every op the
+Added `realclient_directory_lifecycle_and_configuration_test.go`: 20 cases driving every op the
 census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
 `aws-sdk-go-v2/service/directoryservice` client (53 ops -- directory alias/
 computer/reset-password/limits, ConnectDirectory, resource tags,

@@ -140,8 +140,8 @@ gaps: []
   #   ListRecoveryPointsByLegalHold empty-list -> ops.ListRecoveryPointsByLegalHold
   #   DescribeBackupVault missing MPA/EncryptionKeyType fields -> ops.DescribeBackupVault
   # New residual gap found and left open this pass (see below).
-  # 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
-  # 47/109 -> 109/109 (100%), typed_slice12_realclient_test.go, 17 subtests
+  # 2026-09-12 (gopherstack-n3zi): typed-client coverage
+  # 47/109 -> 109/109 (100%), realclient_vault_plan_and_job_lifecycle_test.go, 17 cases
   # covering every previously-uncovered op (vault MPA/restore-access/policy/
   # lock/notifications, legal holds, tiering, framework, report plan, backup
   # plan extras, backup selection, job/copy-job extras, recovery point

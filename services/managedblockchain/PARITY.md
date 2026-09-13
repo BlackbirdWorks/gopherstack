@@ -576,11 +576,11 @@ Gates re-run for the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/managedblockchain/...` 0 issues; `GOTOOLCHAIN=go1.27.0 go test -race
 -count=1 ./services/managedblockchain/...` ok.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 14 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/managedblockchain` client for the first time
-(`typed_slice23_realclient_test.go`): accessor CRUD, a full proposal
+(`realclient_accessor_proposal_member_test.go`): accessor CRUD, a full proposal
 lifecycle (create, vote, threshold-approve, invitation, reject) on a
 single-member network, and member update + node lifecycle. **One real bug
 found and fixed**: `DeleteAccessor` hard-deleted the accessor row (Get/

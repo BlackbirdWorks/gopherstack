@@ -137,7 +137,7 @@ ops:
   BatchGetSandboxes: {wire: ok, errors: ok, state: ok, persist: ok}
   ListSandboxes:   {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass: nextToken/sortOrder/maxResults via paginateIDs"}
   ListSandboxesForProject: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass, same as ListSandboxes"}
-  StartSandboxConnection: {wire: partial, errors: ok, state: ok, persist: n/a, note: "2026-09-12 (typed slice 34): FIXED a real wire bug -- response was {\"endpoint\": \"wss://...\"}, a field the real StartSandboxConnectionOutput does not have at all (real member: ssmSession, an SSMSession{sessionId,streamUrl,tokenValue} object, codebuild@v1.72.4 api_op_StartSandboxConnection.go:38-41); a real client's out.SsmSession was always nil. Now emits the documented shape with synthesized placeholder values. Still partial: no real Session Manager streaming is simulated, same as before -- real interactive terminal not modeled, acceptable for an emulator."}
+  StartSandboxConnection: {wire: partial, errors: ok, state: ok, persist: n/a, note: "2026-09-12 (gopherstack-n3zi): FIXED a real wire bug -- response was {\"endpoint\": \"wss://...\"}, a field the real StartSandboxConnectionOutput does not have at all (real member: ssmSession, an SSMSession{sessionId,streamUrl,tokenValue} object, codebuild@v1.72.4 api_op_StartSandboxConnection.go:38-41); a real client's out.SsmSession was always nil. Now emits the documented shape with synthesized placeholder values. Still partial: no real Session Manager streaming is simulated, same as before -- real interactive terminal not modeled, acceptable for an emulator."}
   StartCommandExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28: ExitCode was modeled as int32; real wire type is string (deserializer: expected NonEmptyString to be of type string) -- latent hard-decode-error risk once ever populated (it never was, pre-fix). standardErrContent wire key was misspelled standardErrorContent, so real AWS's field was always nil"}
   BatchGetCommandExecutions: {wire: ok, errors: ok, state: ok, persist: ok}
   ListCommandExecutionsForSandbox: {wire: ok, errors: ok, state: ok, persist: ok, note: "correctly returns full CommandExecution objects, not just IDs. FIXED 2026-08-29 (wrapper-key sweep): maxResults/nextToken/sortOrder were real ListCommandExecutionsForSandboxInput fields (aws-sdk-go-v2 api_op_ListCommandExecutionsForSandbox.go) that listCommandExecutionsForSandboxInput didn't even declare -- json.Unmarshal silently dropped them, so every call returned every execution, unpaginated, always ascending-ID order. Now uses a new paginateCommandExecutions helper (pagination.go), the same nextToken/sortOrder semantics as every other List op's shared paginateIDs, generalized to page full objects since this op (unlike its siblings) returns CommandExecution records directly rather than bare IDs for a separate BatchGet* step. See TestCodeBuild_CommandExecutionsForSandbox/pagination_and_sort_order."}
@@ -956,10 +956,10 @@ before code existed and 0 issues after (`fieldalignment -fix` applied to the fou
 structs; `unused`/`goconst`/`golines`/`nolintlint`/`govet-shadow` findings during
 development were all fixed, not suppressed).
 
-## 2026-09-12 (typed client coverage slice 34, gopherstack-n3zi)
+## 2026-09-12 (typed client coverage sweep, gopherstack-n3zi)
 
 Drove the 38 previously-typed-client-uncovered ops through a real aws-sdk-go-v2
-client in `typed_slice34_realclient_test.go`: fleet lifecycle
+client in `realclient_fleet_build_and_report_management_test.go`: fleet lifecycle
 (CreateFleet/BatchGetFleets/ListFleets/UpdateFleet/DeleteFleet), report group +
 report lifecycle (DeleteReport/DescribeCodeCoverages/DescribeTestCases/
 GetReportGroupTrend/ListReportGroups/ListReports/ListReportsForReportGroup/

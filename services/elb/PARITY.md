@@ -646,7 +646,7 @@ Gates: `go build ./...` (whole module) clean; `go vet ./services/elb/...` clean;
 `go test -count=1 ./services/elb/...` ok; `go test -race -count=1 ./services/elb/...` ok;
 `golangci-lint run ./services/elb/...` 0 issues.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: ApplySecurityGroupsToLoadBalancer,
 DescribeAccountLimits, DescribeLoadBalancerAttributes,
@@ -654,7 +654,7 @@ DescribeLoadBalancerPolicies, DetachLoadBalancerFromSubnets,
 DisableAvailabilityZonesForLoadBalancer,
 EnableAvailabilityZonesForLoadBalancer, ModifyLoadBalancerAttributes
 driven through the real aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 3 subtests: AZ/attributes/account
+(`realclient_attributes_and_network_config_test.go`, 3 cases: AZ/attributes/account
 limits on a classic (EC2) LB, subnets/security groups on a VPC LB, load
 balancer policies). elb moved from 21/29 to 29/29 typed-covered per
 `cmd/clientcoverage`.

@@ -157,9 +157,9 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 
 ## Notes
 
-### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 39 ops, 22/63 -> 63/63
+### 2026-09-12 (gopherstack-n3zi): typed-client round trips for the remaining 39 ops, 22/63 -> 63/63
 
-Added `typed_slice32_realclient_test.go`: 13 tests, each building a real
+Added `realclient_account_and_policy_test.go`: 13 tests, each building a real
 `organizations` SDK client against `Handler` and round-tripping every
 previously-untyped op -- Account lifecycle (Create/DescribeCreateAccountStatus/
 ListCreateAccountStatus/MoveAccount/ListAccountsForParent/CloseAccount/

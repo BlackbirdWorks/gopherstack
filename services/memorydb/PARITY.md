@@ -553,9 +553,9 @@ preceded by `return` on the same line.
 the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/memorydb/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/memorydb/...` ok.
 
-## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice31_realclient_test.go` (7 top-level `t.Parallel()` tests) driving
+Added `realclient_lifecycle_test.go` (7 top-level `t.Parallel()` tests) driving
 every one of the 18 ops this service's typed-client census had never exercised
 (BatchUpdateCluster, CopySnapshot, CreateSubnetGroup, CreateUser, DeleteMultiRegionCluster,
 DeleteParameterGroup, DeleteSnapshot, DeleteSubnetGroup, DeleteUser,

@@ -1535,9 +1535,9 @@ No code changed as a result (a confirmed-clean audit, not a fix). Gates run to c
 the baseline: `golangci-lint run ./services/cloudfront/...` 0 issues; `go test -race
 -count=1 ./services/cloudfront/...` ok (1.6s); `go build ./test/integration/...` ok.
 
-## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice8_realclient_test.go` (13 subtests) driving cache/
+Added `realclient_policies_and_distribution_config_test.go` (13 cases) driving cache/
 origin-request/response-headers policies, origin access identities/
 controls, key groups/public keys, field-level encryption (config +
 profile), continuous deployment policies, functions, key value store,
@@ -1617,10 +1617,10 @@ version bump. Gates: `go build ./...`, `go vet ./services/cloudfront/...`,
 (pass), `golangci-lint run --new-from-rev=HEAD ./services/cloudfront/...`
 (0 issues). `cmd/paritylint` stays at 0 FAIL.
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage sweep (gopherstack-n3zi)
 
-Drove the last 9 typed-client-uncovered ops (`typed_slice19_realclient_test.go`,
-4 subtests) named by slice 8 as remaining: `GetDistributionConfig`,
+Drove the last 9 typed-client-uncovered ops (`realclient_tenant_and_connection_config_test.go`,
+4 cases) named by the prior pass as remaining: `GetDistributionConfig`,
 `CreateInvalidationForDistributionTenant`, `GetInvalidationForDistributionTenant`,
 `ListDistributionTenantsByCustomization`, `VerifyDnsConfiguration`,
 `UpdateDistributionTenant`, `CreateConnectionGroup`/`UpdateConnectionGroup`,

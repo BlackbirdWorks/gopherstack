@@ -520,11 +520,11 @@ No bug found or fixed in this service from this sweep -- the honest result
 is a bound (zero, in this service) on how much damage the pre-fix
 nondeterminism actually did, not an unmeasured gap.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 15 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/amplify` client for the first time
-(`typed_slice23_realclient_test.go`): CreateDeployment+StartDeployment
+(`realclient_app_lifecycle_management_test.go`): CreateDeployment+StartDeployment
 into a Get/Stop/DeleteJob lifecycle, webhook CRUD, backend environment
 CRUD, a domain association update+GenerateAccessLogs+delete lifecycle, and
 UpdateApp/UpdateBranch. Zero bugs -- confirms the `ops:` table's existing

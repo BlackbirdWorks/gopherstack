@@ -1429,9 +1429,9 @@ Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
 pass, including `TestSnapshotVersionGuard`; `golangci-lint run ./services/opensearch/...`
 -- 0 issues.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 16)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice16_realclient_test.go`: 14 subtests driving every op the
+Added `realclient_domains_and_packages_test.go`: 14 subtests driving every op the
 census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
 `aws-sdk-go-v2/service/opensearch` client (52 ops -- domain lifecycle tail,
 domain config/maintenance, VPC endpoint family, inbound/outbound connection

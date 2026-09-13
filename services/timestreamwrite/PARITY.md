@@ -326,9 +326,9 @@ anywhere in this service's pinned SDK. Zero bugs found; the service is
 structurally too small (2 real filter parameters total) to carry most of
 this class's known sub-shapes. No files changed.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering timestreamwrite's last
+Added `wire_sdk_roundtrip_resume_batch_load_test.go` covering timestreamwrite's last
 typed-client-uncovered op, `ResumeBatchLoadTask`. A batch load task only
 resumes from `PROGRESS_STOPPED`/`FAILED` (`batch_load_tasks.go`'s
 `ResumeBatchLoadTask`), states the backend never reaches on its own

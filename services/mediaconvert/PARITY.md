@@ -617,10 +617,10 @@ pre-existing tests asserting `ConcurrentJobs` as a plain value; both
 corrected in place to assert through the pointer instead of weakened or
 deleted.
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 21/34 -> 34/34 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
+`realclient_job_and_queue_test.go`, one outer `t.Parallel()` test with 7
 subtests driving every previously-untested op through a real
 `aws-sdk-go-v2/service/mediaconvert` client: CancelJob, DeleteJobTemplate,
 DescribeEndpoints, GetJobTemplate, ListJobs, ListVersions, Probe,

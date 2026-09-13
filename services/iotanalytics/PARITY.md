@@ -440,9 +440,9 @@ Gates: `go build ./...`, `go vet ./services/iotanalytics/...`,
 — all pass (no cross-service wiring touches `CreatePipeline`'s shape, so no CFN teardown or
 Lambda/IoT wiring regression).
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering iotanalytics's last four
+Added `realclient_tags_and_update_ops_test.go` covering iotanalytics's last four
 typed-client-uncovered ops: `TagResource`, `UntagResource`,
 `UpdateDataset`, `UpdatePipeline`.
 

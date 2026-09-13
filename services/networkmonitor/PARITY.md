@@ -252,11 +252,11 @@ Recorded as a known unverifiable-by-oracle item (Notes above). Constants
 left unchanged -- no evidence they're wrong, just no second source to check
 them against.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeleteProbe, GetMonitor, GetProbe,
 ListMonitors, UpdateMonitor, UpdateProbe driven through the real
-aws-sdk-go-v2 client for the first time (`typed_slice15_realclient_test.go`,
+aws-sdk-go-v2 client for the first time (`realclient_monitor_probe_test.go`,
 2 subtests: monitor lifecycle, probe lifecycle). networkmonitor moved from
 6/12 to 12/12 typed-covered per `cmd/clientcoverage`.
 

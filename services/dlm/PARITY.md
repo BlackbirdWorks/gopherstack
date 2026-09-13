@@ -149,9 +149,9 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
   `maxDevEndpointsPerAccount`, `services/applicationautoscaling`'s
   `ErrLimitExceeded`).
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering dlm's last three typed-
+Added `realclient_lifecycle_policy_test.go` covering dlm's last three typed-
 client-uncovered ops: `GetLifecyclePolicies`, `GetLifecyclePolicy`,
 `UpdateLifecyclePolicy`. No real-client test helper existed for dlm at all
 previously (its only prior typed coverage came from

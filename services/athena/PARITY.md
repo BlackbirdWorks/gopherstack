@@ -476,9 +476,9 @@ field) -- `SessionSummary` is a derived list-view type, not part of `backendSnap
 (confirmed against `persistence.go`), so no snapshot version bump was needed;
 `TestSnapshotVersionGuard` run anyway per this session's mandate and passed.
 
-## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice18_realclient_test.go` covering all 51 of athena's
+Added `realclient_notebooks_sessions_and_catalogs_test.go` covering all 51 of athena's
 typed-client-uncovered ops (per `cmd/clientcoverage`): capacity
 reservation lifecycle, notebook lifecycle (create/export/import/update/
 metadata/presigned URL/delete), session read/list/dashboard/terminate

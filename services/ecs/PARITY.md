@@ -1029,9 +1029,9 @@ run ./services/ecs/...` (0 issues, after decomposing `CreateService`
 into `filterAccountSettings`/`effectiveAccountSettings`). Work left
 uncommitted per this pass's instructions.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 18
+Added `realclient_cluster_task_and_service_management_test.go`, covering this service's last 18
 typed-client-blind ops (ContinueServiceDeployment, DeleteDaemon,
 DeleteDaemonTaskDefinition, DeleteTaskDefinitions, DeregisterTaskDefinition,
 DescribeCapacityProviders, DescribeDaemonDeployments,

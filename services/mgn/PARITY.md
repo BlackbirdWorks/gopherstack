@@ -1684,10 +1684,10 @@ dedup-by-name, explicit-id update, explicit-id-not-found as a row error carrying
 referenced id, orphaned-property silent drop) plus the existing `TestStartImport_CSVSchema`/
 `TestStartImport_ModifiedCount` suite, all passing unchanged.
 
-## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 19 typed-client-uncovered ops through the real aws-sdk-go-v2 mgn
-client for the first time (`typed_slice27_realclient_test.go`): application
+client for the first time (`sdk_roundtrip_apps_waves_replication_test.go`): application
 archive/unarchive/update, wave archive/unarchive/update, DeleteJob, the
 full replication lifecycle (StartReplication/PauseReplication/
 ResumeReplication/RetryDataReplication/StopReplication),

@@ -963,9 +963,9 @@ stays at `2` -- every change here is a new field on an already-registered
 snapshot as a zero value with no version bump required (the guard's own
 purpose, per its doc comment in `pkgs/persistence`).
 
-## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice18_realclient_test.go` covering all 48 of appstream's
+Added `realclient_fleets_apps_images_and_users_test.go` covering all 48 of appstream's
 typed-client-uncovered ops (per `cmd/clientcoverage`): fleet start/stop/
 disassociate + list-associated-fleets/stacks, tags, app block delete +
 app block builder start/stop/streaming-URL/associate-disassociate-describe/
@@ -978,7 +978,7 @@ user disable/enable/delete, user-stack association describe/batch-
 disassociate, session drain/expire, usage report subscription delete,
 and theme describe/delete.
 
-**Zero real bugs found** -- 14 subtests, all passed against the existing
+**Zero real bugs found** -- 14 cases, all passed against the existing
 handlers once the test's own setup was corrected (test-only mistakes:
 `CreateApplicationInput.AppBlockArn`/`InstanceFamilies` are both real
 required members omitted from the first draft; `DescribeAppLicenseUsageInput.
@@ -1009,7 +1009,7 @@ Gates: `go build ./...` (whole module, clean). `go vet
 ./services/appstream/...` (pass). `golangci-lint run --new-from-rev=HEAD
 ./services/appstream/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
 
-## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+## 2026-09-12 (reqfielddiff, gopherstack-xhu2t)
 
 19 tier-1 findings triaged: 16 FALSE POSITIVES (already declared/applied --
 `EnableDefaultInternetAccess` on Fleet/ImageBuilder, `Validity` on all three
@@ -1026,7 +1026,7 @@ easy to miss for exactly that reason. Added to `AppBlockBuilder`/
 op had no pagination at all (always returned every matching session in one
 call, no NextToken); now uses `pkgs/page` with AWS's documented default (20)
 and max (50), sorted by session ID for stable pages. Both proved via
-`reqfield_slice5_realclient_test.go` against the real typed client.
+`realclient_limit_pagination_and_field_persistence_test.go` against the real typed client.
 **Tool blind spot found** (gopherstack-99nj-class): reqfielddiff's tier-1
 count for this service did not move for these two fixes even after
 confirming by hand (and by real-client test) that both are now genuinely

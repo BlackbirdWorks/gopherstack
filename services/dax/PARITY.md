@@ -721,13 +721,13 @@ the coverage line is unchanged (21/77, 21/21 of dax's own ops -- see explanation
 Gates: `go test -race -count=1 ./services/dax/...` (pass, including
 `./services/dax/dataplane/...`), `golangci-lint run services/dax/...` (0 issues).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeleteCluster, DescribeClusters,
 DescribeDefaultParameters, DescribeParameters, IncreaseReplicationFactor,
 UpdateCluster, UpdateParameterGroup, UpdateSubnetGroup driven through the
 real aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 3 subtests: cluster lifecycle,
+(`realclient_cluster_parameter_and_subnet_group_test.go`, 3 cases: cluster lifecycle,
 parameter group lifecycle, subnet group update). dax moved from 13/21 to
 21/21 typed-covered per `cmd/clientcoverage`.
 

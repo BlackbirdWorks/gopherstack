@@ -1029,9 +1029,9 @@ Gates: `go build ./...`, `go vet ./services/eks/...`, `go test -race
 -count=1 ./services/eks/... ./pkgs/persistence/...`, `golangci-lint run
 ./services/eks/...` all clean.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 31
+Added `realclient_access_and_addon_management_test.go`, covering this service's last 31
 typed-client-blind ops (AssociateIdentityProviderConfig, CancelUpdate,
 DeleteAccessEntry, DeleteAddon, DeleteCapability,
 DeleteEksAnywhereSubscription, DeleteFargateProfile,

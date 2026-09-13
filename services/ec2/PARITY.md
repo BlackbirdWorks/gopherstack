@@ -351,7 +351,7 @@ items_still_open:
     DescribeApplicationStatusCheckAssociationsOutput.Tags ('tags associated with the application status checks')
     is always empty: its exact aggregation semantics across multiple checks are ambiguous from the SDK doc alone
     and getting it wrong risked being worse than an honest omission."
-  - "NetworkAcl associations (gopherstack-n3zi slice 24, 2026-09-12): this backend does not
+  - "NetworkAcl associations (gopherstack-n3zi, 2026-09-12): this backend does not
     model a NetworkAclAssociationId distinct from the subnet it associates -- confirmed
     already disclosed in-code (handler_filters.go's applyNetworkACLFilters doc comment:
     'there is no separately-modeled association ID'). Real types.NetworkAclAssociation
@@ -381,18 +381,18 @@ items_still_open:
     Bin retention rules would, so ListVolumesInRecycleBin/ListSnapshotsInRecycleBin always
     return empty and RestoreVolumeFromRecycleBin/RestoreSnapshotFromRecycleBin always
     InvalidVolume.NotFound/InvalidSnapshotID.NotFound for any real ID. Confirmed via
-    TestSlice2_RealClient/recycle_bin_ops (gopherstack-n3zi slice 2, 2026-09-12); the snapshot
+    TestRealClient_VPCAndResourceLifecycleExtras/recycle_bin_ops (gopherstack-n3zi, 2026-09-12); the snapshot
     side of this gap was already documented in-code (handler_snapshots.go) but not here.
     Same shape as the pre-existing ListImagesInRecycleBin gap noted elsewhere in this file —
     a real Recycle Bin retention-rule feature (CreateRule/GetRule with per-resource-type
     RetentionPeriod), not modeled for any of the three resource types."
   - "RestoreImageFromRecycleBin (images.go): the restore logic itself is correct (confirmed
-    2026-09-12, gopherstack-n3zi slice 26 — re-read images.go end to end), but nothing in this
+    2026-09-12, gopherstack-n3zi — re-read images.go end to end), but nothing in this
     backend's write paths ever calls recycleBinImages.Put(): DeregisterImage always hard-deletes
     (matching the same shape as the volume/snapshot recycle-bin gap above), so the bin is
     permanently empty and a real client's RestoreImageFromRecycleBin always returns
     InvalidAMIID.NotFound regardless of which image ID is supplied. Exercised via
-    TestSlice26_RealClient/singletons_b, asserting the correct NotFound error rather than
+    TestRealClient_TransitGatewayAndLegacyTasks/singletons_b, asserting the correct NotFound error rather than
     fabricating a reachable success path. Same missing feature as the volume/snapshot recycle
     bins: a real Recycle Bin retention-rule mechanism, not implemented for any of the three
     resource types."
@@ -402,7 +402,7 @@ items_still_open:
     TestBackend_CancelImportTask_AlreadyCompletedFails. A real client's CancelImportTask
     therefore always reports IncorrectState for any import task from this backend's normal
     create paths — the happy (still-cancellable) path is structurally unreachable. Confirmed
-    2026-09-12 (gopherstack-n3zi slice 26); exercised via TestSlice26_RealClient/
+    2026-09-12 (gopherstack-n3zi); exercised via TestRealClient_TransitGatewayAndLegacyTasks/
     legacy_bundle_conversion_export_import, asserting the correct wire-level IncorrectState
     error rather than weakening the test to force a fabricated success."
 structural_gaps:
@@ -431,10 +431,10 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 
 ## Notes
 
-### 2026-09-12 (gopherstack-ggu4a describe-by-id sweep + gopherstack-n3zi slice 2)
+### 2026-09-12 (gopherstack-ggu4a describe-by-id sweep + gopherstack-n3zi)
 
 **Describe-by-id sweep (gopherstack-ggu4a).** Swept every Describe* op taking
-an explicit id/name list for the slice-1-identified silent-omission bug
+an explicit id/name list for a previously-identified silent-omission bug
 (explicit id filter drops an unknown id instead of erroring). Wired the
 existing `describeByIDsOrNotFound`/new `requireAllIDsPresent` helpers
 (describe_helpers.go) into: DescribeSubnets, DescribeSecurityGroups (both
@@ -506,7 +506,7 @@ per-op variance the issue asked to verify rather than assume.
    path, which real AWS reports with a different code entirely from the
    by-ID path.
 5. **`Subnet.MapPublicIpOnLaunch`/`DefaultForAz` were never wired into the
-   wire response at all** (found by typed slice 2, not the sweep): the
+   wire response at all** (found by the typed-coverage pass, not the sweep): the
    backend's `ModifySubnetAttribute` correctly updates `Subnet.MapPublicIPOnLaunch`,
    but `subnetItem`/`toSubnetItem` (handler_subnets.go) never had a field for
    it, so no real client could ever observe the change via DescribeSubnets.
@@ -533,8 +533,8 @@ a never-before-reachable error path without a clear precedent risked the same
 kind of assumption failure the DescribeIpams/VpcEndpoints/Hosts reverts above
 guarded against).
 
-**Typed coverage (gopherstack-n3zi slice 2).** Added
-`typed_slice2_realclient_test.go`: one table-driven test, 12 subtests, each a
+**Typed coverage (gopherstack-n3zi).** Added
+`realclient_vpc_and_resource_lifecycle_extras_test.go`: one table-driven test, 12 subtests, each a
 real-SDK-client round trip against a fresh handler+backend. Covers ~58
 previously-uncovered ops across VPC Block Public Access
 (Modify/DescribeOptions, Create/Modify/Delete/DescribeExclusions), VPC peering
@@ -573,18 +573,18 @@ Gates: `go build ./...`, `go vet ./services/ec2/...`,
 `golangci-lint run --new-from-rev=HEAD ./services/ec2/...` all clean. No new
 cyclop/gocyclo/gocognit/funlen nolints.
 
-### 2026-09-11 (gopherstack-n3zi slice 1: typed real-client coverage)
+### 2026-09-11 (gopherstack-n3zi: typed real-client coverage)
 
 Added typed real-SDK-client round-trip coverage for ~40 of 446 previously-untyped
--uncovered ops (typed_slice1_realclient_test.go; ec2 has by far the largest single
-uncovered count of any service measured, so this slice covers key pairs, default
+-uncovered ops (realclient_core_networking_and_lifecycle_test.go; ec2 has by far the largest single
+uncovered count of any service measured, so this pass covers key pairs, default
 VPC/subnet, Internet Gateway lifecycle, DHCP options, route table + route CRUD,
 EBS volume/snapshot lifecycle, Elastic IP association, Network ACL lifecycle, VPN/
 Customer Gateway lifecycle, DescribeAvailabilityZones/Regions/VpcAttribute/
 InstanceAttribute, VPC Endpoint lifecycle, and VPC/subnet secondary CIDR
 association -- the remaining ~400 uncovered ops, mostly IPAM, Transit Gateway
 sub-families, Verified Access, Local Gateway, and Capacity Reservation edge ops,
-were not reached this slice).
+were not reached this pass).
 
 Eight real bugs found and fixed, every one confirmed only by driving the real
 typed client (raw-body/handler-level tests had exercised none of these paths
@@ -4932,11 +4932,11 @@ editing. `services/ec2` was git-clean when this file was added.
 `InstanceRequirementsQuery` struct. No persisted struct changed; snapshot inventory not
 touched.
 
-## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice10_realclient_test.go` (`TestSlice10_RealClient`, one outer
+Added `realclient_ipam_and_traffic_mirror_test.go` (`TestRealClient_IPAMAndTrafficMirror`, one outer
 `t.Parallel()` test, 6 subtests), covering the highest-priority families
-named by this slice's sweep: IPAM core (Ipam/IpamScope/IpamPool CRUD),
+named by this pass's sweep: IPAM core (Ipam/IpamScope/IpamPool CRUD),
 IPAM pool CIDR + resource discovery + external verification token, BYOIP/
 COIP/public IPv4 pools, Traffic Mirror (filter/rule/session/target
 lifecycle), Route Server (server/endpoint/peer/association/propagation),
@@ -4995,9 +4995,9 @@ one `lll` line-length fix). `go run ./cmd/paritylint` stays at 0 FAIL. No
 persisted struct fields changed; snapshot inventory not touched; no
 version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 20 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-`typed_slice20_realclient_test.go` added, 6 subtests: Capacity Reservation
+`realclient_capacity_and_vpn_extras_test.go` added, 6 subtests: Capacity Reservation
 extras (fleet create/modify/cancel, split/move, billing owner
 disassociate/reject, groups-for-reservation, interruptible allocation
 create/update, usage), Verified Access extras (trust provider create/
@@ -5032,7 +5032,7 @@ struct field added (existing `ManagedPrefixList.Entries` field, now
 actually populated at create time); no version bump.
 
 **Accept-and-drop, not fixed**: `ProvisionPublicIpv4PoolCidr`'s
-`IpamPoolId` gap (already disclosed in slice 10's section above) was not
+`IpamPoolId` gap (already disclosed in the prior pass's section above) was not
 re-touched this slice.
 
 Census: 501/785 (63.8%) -> 560/785 (71.3%) typed-covered (regenerated via
@@ -5059,14 +5059,14 @@ not previously named there).
 (the fix populates an existing field, doesn't add one); snapshot inventory
 not touched; no version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 24 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
 Per task assignment: walk the uncovered list DESCENDING from the largest
 remaining count (bedrock excluded -- a sibling slice-23 agent's territory,
 walking ascending on bedrockagent/mediastore/mq). ec2 was by far the
-largest remainder (560/785, 225 uncovered) after 6 prior ec2 slices
-(1/2/4/5/7/8/10/20); took it as the sole target given its size.
-`typed_slice24_realclient_test.go` added, one outer `t.Parallel()` test,
+largest remainder (560/785, 225 uncovered) after 6 prior ec2 typed-coverage passes
+(1/2/4/5/7/8/10/20 by op family); took it as the sole target given its size.
+`realclient_instance_and_account_defaults_test.go` added, one outer `t.Parallel()` test,
 12 subtests: core instance lifecycle (Start/Reboot/Monitor/Unmonitor/
 GetConsoleOutput/GetConsoleScreenshot/GetPasswordData/
 SendDiagnosticInterrupt), VPC/network attribute extras (VPC attribute/
@@ -5170,9 +5170,9 @@ IP, not the persisted struct's shape). `golangci-lint run
 --new-from-rev=HEAD ./services/ec2/...` 0 issues (after `goimports`
 formatting). `go run ./cmd/paritylint` stays at 0 FAIL. No version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 26, final ec2 tier (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage, final ec2 tier (gopherstack-n3zi)
 
-Per task assignment: ec2's last 124 uncovered ops (measured at slice 24's
+Per task assignment: ec2's last 124 uncovered ops (measured at the prior pass's
 end), walking the specific families the task named rather than a size-
 descending sweep: Transit Gateway peripherals (peering/VPC/Connect/
 multicast/Client VPN attachment accept/reject/delete, policy tables, route
@@ -5180,14 +5180,14 @@ table announcements/associations/propagations/routes/search/export,
 metering policies, prefix list references), IPAM prefix-list-resolver/
 BYOASN/resource-discovery/pool-allocation families, legacy Bundle/
 Conversion/Import/Export task families, FPGA images, and the remaining
-singletons. `typed_slice26_realclient_test.go` added, one outer
+singletons. `realclient_transit_gateway_and_legacy_tasks_test.go` added, one outer
 `t.Parallel()` test, 14 subtests, three shared setup helpers per the task's
 own instruction (`setupTGWWithTwoVPCAttachments`, `setupInstanceWithVolume`,
 plus reusing `backend.CreateIpam()` directly for the IPAM helper since it
 already returns a ready scope+pool-capable IPAM).
 
 All 124 originally-uncovered ops were already backed by real (non-stub)
-handler+backend implementations before this slice -- confirmed by grepping
+handler+backend implementations before this pass -- confirmed by grepping
 every op name against non-test `.go` files: none were registered only in
 `handler_unimplemented_operations.go` (that file's op-name strings turned
 out to be a documentation-only `stubSupportedOperations()` list for
@@ -5241,7 +5241,7 @@ typed client for the first time on these exact ops:**
    mode `gopherstack-n3zi`'s own notes describe; fixed alongside the
    handler.
 3. `ModifyManagedResourceVisibility`/`GetManagedResourceVisibility`
-   (already-correct wire shape, listed here only because slice 26's
+   (already-correct wire shape, listed here only because this pass's
    initial test draft used the wrong SDK Go field names --
    `ManagedResourceVisibility` instead of the real, nested
    `Visibility.DefaultVisibility` -- NOT a backend bug, a test-authoring

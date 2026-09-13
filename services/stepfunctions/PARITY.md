@@ -1156,9 +1156,9 @@ by re-grepping `*_test.go` for `StateMachineDoesNotExist` near
 `DescribeStateMachineForExecution`; none found). Landmine comment at
 executions.go:784-793 left as-is, now cross-referenced by this entry.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 7
+Added `realclient_activities_and_execution_test.go`, covering this service's last 7
 typed-client-blind ops (DescribeActivity, ListActivities, ListStateMachines,
 RedriveExecution, SendTaskFailure, SendTaskHeartbeat, UpdateStateMachine) --
 typed coverage 30/37 -> 37/37 (0 uncovered). Zero real bugs found. Confirmed

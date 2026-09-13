@@ -1068,12 +1068,12 @@ Locked by `TestDeleteOps_ExactWireKeySet`
 SDK deserializer member set -- a typed client can't observe either a
 missing real key or an extra fabricated one.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove `PutResourcePolicy`/`GetResourcePolicy`/`DeleteResourcePolicy` -- this
 package's only three typed-coverage-blind ops -- through a real
 `aws-sdk-go-v2/service/bedrockagent` client for the first time
-(`typed_slice23_realclient_test.go`): full lifecycle (put, get, revision-
+(`realclient_resource_policy_test.go`): full lifecycle (put, get, revision-
 mismatch conflict on both put and delete, re-put with the correct
 `expectedRevisionId`, delete, get-after-delete 404) plus a non-knowledge-
 base `resourceArn` rejection. Zero bugs -- confirms the `ops:` table's

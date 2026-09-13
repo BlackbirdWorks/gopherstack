@@ -584,13 +584,13 @@ Tools re-run after the fix: `GOTOOLCHAIN=go1.27.0 go test -race
 ./services/emrserverless/...` and `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/emrserverless/...`, both clean, 0 issues.
 
-## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove this service's 10 remaining typed-client-blind ops (`GetDashboardForJobRun`,
 `GetResourceDashboard`, `GetSession`, `GetSessionEndpoint`, `ListSessions`,
 `StopApplication`, `TagResource`, `TerminateSession`, `UntagResource`,
 `UpdateApplication`) through the real aws-sdk-go-v2 client for the first
-time (`typed_slice21_realclient_test.go`, 3 subtests: application
+time (`realclient_application_and_session_lifecycle_test.go`, 3 cases: application
 lifecycle incl. tag/untag/update/stop, sessions incl.
 get/list/dashboard/endpoint/terminate, job-run dashboard). **Zero bugs**
 -- every op decoded and matched its documented shape on the first

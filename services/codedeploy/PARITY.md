@@ -83,8 +83,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
 
 ## Notes
 
-- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
-  `typed_slice29_realclient_test.go`, driving the 22 previously
+- **2026-09-12 (typed coverage sweep, gopherstack-n3zi)**: added
+  `realclient_application_and_deployment_management_test.go`, driving the 22 previously
   typed-client-uncovered ops (BatchGetApplications, BatchGet/List
   DeploymentInstances/Targets, BatchGetDeployments, ContinueDeployment,
   Delete{DeploymentConfig,DeploymentGroup,ResourcesByExternalId},

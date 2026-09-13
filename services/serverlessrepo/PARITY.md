@@ -307,13 +307,13 @@ every named cursor still resolves.
 `go test -race -count=1 ./services/serverlessrepo/...` all pass; `golangci-lint run
 ./services/serverlessrepo/...` reports 0 issues.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: CreateApplicationVersion,
 CreateCloudFormationChangeSet, ListApplicationDependencies,
 ListApplicationVersions, UnshareApplication driven through the real
 aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 4 subtests). serverlessrepo moved from
+(`wire_sdk_roundtrip_application_lifecycle_test.go`, 4 subtests). serverlessrepo moved from
 9/14 to 14/14 typed-covered per `cmd/clientcoverage`.
 
 No real bugs found -- every op passed on the first correctly-shaped

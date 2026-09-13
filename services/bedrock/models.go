@@ -957,7 +957,7 @@ type Flow struct {
 // UpdateFlowAliasOutput (bedrockagent@v1.58.4 api_op_GetFlowAlias.go) --
 // previously entirely absent from this type, so CreateFlowAlias/
 // UpdateFlowAlias silently dropped the real, required routingConfiguration
-// request member (gopherstack-n3zi slice 30).
+// request member (gopherstack-n3zi).
 type FlowAlias struct {
 	CreatedAt            time.Time          `json:"createdAt"`
 	UpdatedAt            time.Time          `json:"updatedAt"`
@@ -1013,7 +1013,7 @@ type PromptVersion struct {
 	Name      string    `json:"name,omitempty"`
 }
 
-// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi
 // renamed the wire-incorrect "promptId" key to the real "id" -- an older
 // snapshot's promptId value is still recovered into PromptID instead of
 // being silently dropped.
@@ -1054,7 +1054,7 @@ type AgentVersion struct {
 	AgentStatus       string    `json:"agentStatus"`
 }
 
-// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi
 // renamed the wire-incorrect "agentVersion" key to the real "version" -- an
 // older snapshot's agentVersion value is still recovered into AgentVersion
 // instead of being silently dropped.
@@ -1095,7 +1095,7 @@ type AgentCollaborator struct {
 	RelayConversation        string    `json:"relayConversationHistory,omitempty"`
 }
 
-// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi
 // replaced the wire-incorrect "collaboratorArn" field with the real
 // "agentAliasArn" -- an older snapshot's collaboratorArn value is still
 // recovered into AgentAliasArn instead of being silently dropped.

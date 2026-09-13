@@ -110,10 +110,10 @@ carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
 
-## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+## 2026-09-12 typed-client coverage (gopherstack-n3zi)
 
-Added `typed_slice19_realclient_test.go` (this package had no real-client
-helper at all before this slice) driving all 11 previously typed-client-
+Added `realclient_group_membership_test.go` (this package had no real-client
+helper at all before this) driving all 11 previously typed-client-
 uncovered ops through a real `aws-sdk-go-v2/service/identitystore` client:
 `CreateGroupMembership`, `DeleteGroupMembership`, `DescribeGroupMembership`,
 `GetGroupId`, `GetGroupMembershipId`, `IsMemberInGroups`,

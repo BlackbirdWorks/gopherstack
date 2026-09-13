@@ -62,11 +62,11 @@ ops:
   ListApis: {wire: ok, errors: ok, state: ok, persist: ok, note: "response was wrapped as \"items\" instead of the real \"apis\" — disguised no-op, a real client always saw an empty list; fixed, added pagination"}
   UpdateApi: {wire: ok, errors: ok, state: ok, persist: ok, note: "was unreachable (PUT/PATCH-only); fixed, PUT/PATCH kept as alias. 2026-08-15: EventConfig.LogConfig now round-trips, see CreateApi note"}
   DeleteApi: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidAPICacheType was missing R4_LARGE/R4_XLARGE and invented a nonexistent R4_1XLARGE; isValidAPICachingBehavior was missing OPERATION_LEVEL_CACHING and invented a nonexistent FULL_REQUEST_DATA_CACHING. Both now derive from types.ApiCacheType.Values()/types.ApiCachingBehavior.Values(). 2026-09-12 (typed slice 34, gopherstack-n3zi): APICache.HealthMetrics was a bool with json tag \"healthMetricsConfig\", but the real member is the string enum CacheHealthMetricsConfig (\"ENABLED\"/\"DISABLED\", appsync@v1.60.0 types/types.go:128, types/enums.go:176-181) -- a real client's CreateApiCache call with HealthMetricsConfig set failed json.Unmarshal outright. Fixed: field renamed to HealthMetricsConfig string; also never threaded through on Update, fixed there too."}
+  CreateApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-hnyl): isValidAPICacheType was missing R4_LARGE/R4_XLARGE and invented a nonexistent R4_1XLARGE; isValidAPICachingBehavior was missing OPERATION_LEVEL_CACHING and invented a nonexistent FULL_REQUEST_DATA_CACHING. Both now derive from types.ApiCacheType.Values()/types.ApiCachingBehavior.Values(). 2026-09-12 (gopherstack-n3zi): APICache.HealthMetrics was a bool with json tag \"healthMetricsConfig\", but the real member is the string enum CacheHealthMetricsConfig (\"ENABLED\"/\"DISABLED\", appsync@v1.60.0 types/types.go:128, types/enums.go:176-181) -- a real client's CreateApiCache call with HealthMetricsConfig set failed json.Unmarshal outright. Fixed: field renamed to HealthMetricsConfig string; also never threaded through on Update, fixed there too."}
   DeleteApiCache: {wire: ok, errors: ok, state: ok, persist: ok}
   FlushApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path is DELETE /v1/apis/{apiId}/FlushCache, not /ApiCaches/entries — was unreachable; fixed, old path kept as alias"}
-  GetApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-12 (typed slice 34): HealthMetricsConfig now round-trips as the real string enum, see CreateApiCache note"}
-  UpdateApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path is POST /v1/apis/{apiId}/ApiCaches/update, not PUT to the collection path — was unreachable; fixed, old path kept as alias. 2026-09-12 (typed slice 34): HealthMetricsConfig now threaded through on update, see CreateApiCache note"}
+  GetApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-12 (gopherstack-n3zi): HealthMetricsConfig now round-trips as the real string enum, see CreateApiCache note"}
+  UpdateApiCache: {wire: ok, errors: ok, state: ok, persist: ok, note: "real path is POST /v1/apis/{apiId}/ApiCaches/update, not PUT to the collection path — was unreachable; fixed, old path kept as alias. 2026-09-12 (gopherstack-n3zi): HealthMetricsConfig now threaded through on update, see CreateApiCache note"}
   CreateApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-04: default expiry was wrong (365 days; real default per CreateApiKeyInput.Expires doc is 7 days) and both the max-keys-exceeded and out-of-bounds-expiry cases returned generic BadRequestException instead of the real ApiKeyLimitExceededException/ApiKeyValidityOutOfBoundsException. Also, an out-of-bounds expiry (real bound: 1-365 days, ApiKeyValidityOutOfBoundsException doc) was silently clamped into range instead of rejected. All fixed."}
   DeleteApiKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ListApiKeys: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -137,9 +137,9 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 
 ## Notes
 
-**2026-09-12 (typed client coverage slice 34, gopherstack-n3zi):** drove the
+**2026-09-12 (typed client coverage sweep, gopherstack-n3zi):** drove the
 39 previously-typed-client-uncovered ops (39/74 gap) through a real
-aws-sdk-go-v2 client in `typed_slice34_realclient_test.go`: the v2 Api
+aws-sdk-go-v2 client in `realclient_api_lifecycle_and_evaluation_test.go`: the v2 Api
 (Event API) family (ListApis/UpdateApi/DeleteApi) plus its ChannelNamespace
 subresource, ApiKey lifecycle (ListApiKeys/UpdateApiKey/DeleteApiKey),
 ApiCache lifecycle (CreateApiCache/GetApiCache/UpdateApiCache/

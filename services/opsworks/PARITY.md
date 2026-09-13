@@ -73,7 +73,7 @@ items_still_open:
   - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
   - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
   - "FIXED 2026-08-23 (batch14): AssignVolume's required VolumeId member (RegisterVolume's own required StackId was fixed in gopherstack-4uhx, see families.Volume) is now pre-validated for emptiness -- an empty VolumeId now returns ValidationException instead of falling through to the volume-lookup's ResourceNotFoundException. Confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignVolume.go / validateOpAssignVolumeInput (VolumeId required, InstanceId not). TestAssignVolumeValidation (volumes_test.go), hand-reverted to confirm it fails with 404 ResourceNotFoundException pre-fix."
-  - "No test/integration/*_parity_test.go suite exists for opsworks. The deprecated SDK IS now a go.mod dependency (added by gopherstack-n3zi's typed-coverage slices for services/opsworks/*_test.go's in-process httptest round trips) -- a prior version of this note incorrectly said otherwise. A Docker-backed test/integration suite is still not built; this is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though the in-process typed-client suite (sdk_roundtrip_test.go, list_filter_params_test.go, typed_slice13_realclient_test.go) now covers all 74 ops through the real SDK client end to end. Building the Docker-backed suite is a real, nontrivial follow-on task, not done this pass."
+  - "No test/integration/*_parity_test.go suite exists for opsworks. The deprecated SDK IS now a go.mod dependency (added by gopherstack-n3zi's typed-coverage slices for services/opsworks/*_test.go's in-process httptest round trips) -- a prior version of this note incorrectly said otherwise. A Docker-backed test/integration suite is still not built; this is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though the in-process typed-client suite (sdk_roundtrip_test.go, list_filter_params_test.go, sdk_roundtrip_resource_coverage_test.go) now covers all 74 ops through the real SDK client end to end. Building the Docker-backed suite is a real, nontrivial follow-on task, not done this pass."
   - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
 deferred:                 # consciously not audited/implemented this pass (scope)
   - "gopherstack-xhu2t slice 2 (2026-09-12) modeled CreateStack/CloneStack/UpdateStack's AgentVersion/CustomJson/DefaultAvailabilityZone/DefaultOs/DefaultRootDeviceType/DefaultSshKeyName/DefaultSubnetId/HostnameTheme/UseOpsworksSecurityGroups (plus VpcId/DefaultInstanceProfileArn/ServiceRoleArn/ConfigurationManager for Clone/Update, which previously only Create had), and CreateInstance/UpdateInstance's AgentVersion/Architecture/InstallUpdatesOnBoot/Os/SubnetId/Tenancy, CreateLayer/UpdateLayer's InstallUpdatesOnBoot, and CreateDeployment's CustomJson -- see this file's 2026-09-12 dated section. Still unmodeled: CreateStack/CloneStack/UpdateStack's CustomCookbooksSource/UseCustomCookbooks (would mean fetching from a git/svn/s3/http repository, no model for that here), and CreateLayer/CreateApp/CreateInstance's remaining optional surfaces (CloudWatchLogsConfiguration, LifecycleEventConfiguration, VolumeConfigurations, AppSource, DataSources, Environment, SslConfiguration, BlockDeviceMappings, etc.) -- only the fields flagged by this pass's reqfielddiff tier-1 sweep were audited, not every optional member of every op."
@@ -796,11 +796,11 @@ green; `GOTOOLCHAIN=go1.26.6 golangci-lint run services/opsworks/...`
 orchestrator must commit/push. Only `services/opsworks/*` files touched;
 `services/s3control/` never read or written.
 
-## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
 Typed-client coverage: 15/74 (20.3%) -> 74/74 (100%) ops now driven by a
-real aws-sdk-go-v2 opsworks client end to end (`typed_slice13_realclient_test.go`,
-15 subtests, family-per-row, each a fresh backend). Two real bugs found and
+real aws-sdk-go-v2 opsworks client end to end (`sdk_roundtrip_resource_coverage_test.go`,
+15 cases, family-per-row, each a fresh backend). Two real bugs found and
 fixed via decoded typed-client values, both already noted above under
 `ops.CreateInstance`/`ops.AssignInstance` and `families.UserProfile`:
 
@@ -831,16 +831,16 @@ pass added `sdk_roundtrip_helper_test.go`) and the matching
 
 Gates: `go build ./...` (whole module, clean), `go vet ./services/opsworks/...`
 clean, `golangci-lint run --new-from-rev=HEAD services/opsworks/...` 0
-issues (after adding `typed_slice13_realclient_test.go` to `.golangci.yml`'s
+issues (after adding `sdk_roundtrip_resource_coverage_test.go` to `.golangci.yml`'s
 existing opsworks SA1019-deprecation exclusion list, same pattern as the
 service's three prior typed-client test files), `go test -race -count=1
 ./services/opsworks/...` and `./pkgs/persistence/...` both green,
 `go run ./cmd/paritylint` stays at 0 FAIL.
 
-## 2026-09-12 (gopherstack-xhu2t slice 2, reqfielddiff tier-1 sweep: 45 -> 0)
+## 2026-09-12 (gopherstack-xhu2t, reqfielddiff tier-1 sweep: 45 -> 0)
 
 Worked all 45 tier-1 `cmd/reqfielddiff` findings for this service. Unlike
-iot's slice 2 (a mix of real bugs and tool false positives), every single
+iot's own sweep (a mix of real bugs and tool false positives), every single
 opsworks finding was a genuine dropped parameter of the same shape: a
 real, optional, describe-back stack/instance/layer/deployment attribute
 that this backend's `CreateStackOptions`/`CreateInstance`/`CreateLayer`/
@@ -889,7 +889,7 @@ supply it (two subtests) and added a new subtest asserting the now-real
 400 ValidationException when it's omitted, rather than weakening the
 required-field check to keep the old assertions passing.
 
-New test file `reqfield_slice2_realclient_test.go` drives every fixed
+New test file `sdk_roundtrip_stack_field_fixes_test.go` drives every fixed
 field through the real typed SDK client (`newTestClient`, this service's
 existing `sdk_roundtrip_helper_test.go` helper), asserting the observable
 round-trip: `CreateStack`/`UpdateStack` describe back every new attribute;
@@ -904,7 +904,7 @@ Gates: `go build ./...` (whole module), `go vet ./services/opsworks/...`,
 `go test -race -count=1 ./services/opsworks/...` and
 `./pkgs/persistence/...` (both green). `golangci-lint run
 --new-from-rev=HEAD ./services/opsworks/...` (0 issues, after adding
-`reqfield_slice2_realclient_test.go` to `.golangci.yml`'s existing opsworks
+`sdk_roundtrip_stack_field_fixes_test.go` to `.golangci.yml`'s existing opsworks
 SA1019-deprecation exclusion list, same pattern as the service's four
 prior typed-client test files). `cmd/paritylint` stays at 0 FAIL. No
 version bump -- every new struct field is either a plain string/`*bool`

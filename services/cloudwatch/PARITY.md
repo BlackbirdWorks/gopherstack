@@ -1243,9 +1243,9 @@ for cyclop; the new `standardUnitValues` lookup table carries the same
 enum` precedent already used by `knownDashboardWidgetTypes` in this
 package).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 11
+Added `realclient_anomaly_metric_and_insight_rules_test.go`, covering this service's last 11
 typed-client-blind ops (DeleteAnomalyDetector, DeleteMetricStream,
 DescribeInsightRules, DisableInsightRules, DisassociateDatasetKmsKey,
 EnableInsightRules, GetDataset, GetMetricData, GetOTelEnrichment,

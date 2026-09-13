@@ -1595,11 +1595,11 @@ per instructions.
 Gates: `go test -race -count=1 ./services/medialive/...`,
 `golangci-lint run services/medialive/...` -- both clean.
 
-## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+## gopherstack-n3zi: typed-client coverage sweep (2026-09-12)
 
 Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 36/123 (29.3%)
 -> 122/123 (99.2%) ops driven by a real aws-sdk-go-v2 client anywhere in
-this repo's tests. `services/medialive/typed_slice6_realclient_test.go`
+this repo's tests. `services/medialive/realclient_core_resources_test.go`
 added, 19 subtests covering channels (lifecycle/alerts/versions/class),
 account configuration, channel placement groups, clusters, networks, nodes
 (+registration script), input devices (claim/transfer lifecycle incl.
@@ -1632,16 +1632,16 @@ issues), `go test -race -count=1 ./services/medialive/...` — all clean. No
 backend struct fields changed in medialive this pass, no
 `pkgs/persistence` impact, no version bump.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Closed the one op the slice-6 pass above left uncovered. Slice 6 was
+Closed the one op the prior pass above left uncovered. That pass was
 correct that `PurchaseOffering`'s term length can't be fast-forwarded by a
 real client, but missed that this package already carries a test-only
 export for exactly this purpose: `export_test.go`'s `ForceReservationEnd`
 backdates a reservation's `End` directly, letting `DeleteReservation`'s
 `EXPIRED`-only precondition (`reservations.go`'s `effectiveState()`) be
 reached without a real time-travel hook. Added
-`typed_slice17_realclient_test.go`: purchase an offering through the real
+`realclient_delete_reservation_test.go`: purchase an offering through the real
 client, backdate its `End` via `ForceReservationEnd`, then delete it
 through the real client and assert the decoded `CANCELED` state and a
 subsequent `DescribeReservation` 404. Zero bugs found -- the op already

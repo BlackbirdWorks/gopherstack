@@ -611,10 +611,10 @@ Verdict: zero bugs caused or hidden by the collision defect. One
 pre-existing, already-flagged, out-of-scope gap noted (idempotency token is
 a no-op across 8 create/update/register operations in this package).
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 14/30 -> 30/30 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
+`realclient_instance_and_namespace_test.go`, one outer `t.Parallel()` test with 5
 subtests driving every previously-untested op through a real
 `aws-sdk-go-v2/service/servicediscovery` client: DeleteNamespace,
 DeleteService, DeleteServiceAttributes, DeregisterInstance, GetInstance,

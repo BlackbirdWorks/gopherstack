@@ -471,11 +471,11 @@ Gates: `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/kinesisanalytics/
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/kinesisanalytics/...` (0 issues) -- both run
 against the unmodified tree since no fix was made.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 14 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/kinesisanalytics` client for the first time
-(`typed_slice23_realclient_test.go`): a single application's full
+(`realclient_application_config_test.go`): a single application's full
 configuration lifecycle -- CloudWatch logging option add/delete, input add
 plus input-processing-configuration add/delete, output add/delete,
 reference-data-source add/delete, UpdateApplication (ApplicationCodeUpdate),

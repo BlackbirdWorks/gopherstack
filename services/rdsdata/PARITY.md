@@ -743,9 +743,9 @@ unpersisted backend field, not part of `backendSnapshot`) -- see
 `persistence.go` -- so `pkgs/persistence/testdata/snapshot_inventory.json`
 needed no update and no version bump.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering rdsdata's last typed-
+Added `realclient_execute_sql_test.go` covering rdsdata's last typed-
 client-uncovered op: the deprecated `ExecuteSql` batch-statement entry
 point (superseded by `ExecuteStatement`/`BatchExecuteStatement`, still a
 real, callable op in the pinned SDK). Creates a table, inserts a row, and

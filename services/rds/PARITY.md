@@ -1400,9 +1400,9 @@ confirming the emitted code was `DBClusterNotFoundFault` before the fix.
 Gates: `go test -race -count=1 ./services/rds/...` (pass, 0 failures),
 `golangci-lint run ./services/rds/...` (0 issues).
 
-## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice8_realclient_test.go` (14 subtests) driving instance/
+Added `realclient_instance_cluster_lifecycle_test.go` (14 subtests) driving instance/
 cluster lifecycle, read replicas, security groups, parameter/option/
 subnet groups, event subscriptions, snapshots, global clusters, blue/green
 deployments, DB shard groups, tenant databases, integrations, reserved
@@ -1457,10 +1457,10 @@ parameters); no version bump. Gates: `go build ./...`, `go vet
 `golangci-lint run --new-from-rev=HEAD ./services/rds/...` (0 issues).
 `cmd/paritylint` stays at 0 FAIL.
 
-## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice17_realclient_test.go` covering four of the five ops
-slice 8 left uncovered: `DeleteDBInstanceAutomatedBackup` (via
+Added `realclient_cluster_endpoint_and_backup_test.go` covering four of the five ops
+the prior pass left uncovered: `DeleteDBInstanceAutomatedBackup` (via
 `DbiResourceId`, seeded by `CreateDBInstance` with
 `BackupRetentionPeriod>0`), `DisableHttpEndpoint`, `ModifyDBClusterEndpoint`
 (via `CreateDBClusterEndpoint`), `ModifyDBRecommendation` (via

@@ -52,8 +52,8 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBa
 
 ## Notes
 
-- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
-  `typed_slice29_realclient_test.go`, driving all 22 previously
+- **2026-09-12 (typed coverage, gopherstack-n3zi)**: added
+  `realclient_policy_store_and_authorization_test.go`, driving all 22 previously
   typed-client-uncovered ops (policy store CRUD, policy store aliases,
   policy CRUD, PolicyTemplate deletion, identity source CRUD,
   Put/GetSchema, BatchIsAuthorized, IsAuthorizedWithToken,

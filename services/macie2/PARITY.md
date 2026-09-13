@@ -599,9 +599,9 @@ category sample findings; no actor/API-call data source in this backend) was
 already recorded in the 2026-08-15 pass notes above -- confirmed still
 accurate, no new gap found.
 
-## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+## 2026-09-12: typed-client coverage (gopherstack-n3zi)
 
-Added `typed_slice14_realclient_test.go`, 19 subtests driving every op the
+Added `realclient_admin_and_findings_test.go`, 19 subtests driving every op the
 repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
 listed as uncovered for this service (56 ops: Macie session
 enable/disable/update, allow-list lifecycle, custom data identifier

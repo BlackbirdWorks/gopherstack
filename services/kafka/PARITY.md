@@ -632,9 +632,9 @@ panicking pre-fix, passes now. Gates: `go build ./services/kafka/...`, `go vet
 ./services/kafka/...`, `go test -race -count=1 ./services/kafka/...`, `golangci-lint run
 ./services/kafka/...` (0 issues). Work left uncommitted per this pass's instructions.
 
-## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 
-`typed_slice35_realclient_test.go` added: 9 subtests driving all 34
+`realclient_cluster_ops_test.go` added: 9 subtests driving all 34
 previously typed-coverage-blind ops (30/64 -> 64/64) through the real
 aws-sdk-go-v2 client -- cluster update ops (RebootBroker/UpdateBrokerStorage/
 UpdateBrokerType/UpdateClusterConfiguration/UpdateClusterKafkaVersion/

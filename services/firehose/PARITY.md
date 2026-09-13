@@ -734,9 +734,9 @@ Not reached this pass: `AmazonOpenSearchServerlessDestinationConfiguration`
 Database source real polling (structural gap, `cli.go` wiring forbidden),
 Redshift `RedshiftDataExecutor` `cli.go` wiring (pre-existing disclosed gap).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 6
+Added `realclient_tags_records_and_encryption_test.go`, covering this service's last 6
 typed-client-blind ops (ListTagsForDeliveryStream, PutRecordBatch,
 StartDeliveryStreamEncryption, StopDeliveryStreamEncryption,
 TagDeliveryStream, UntagDeliveryStream) -- typed coverage 6/12 -> 12/12 (0

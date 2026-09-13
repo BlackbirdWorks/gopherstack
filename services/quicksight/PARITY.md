@@ -285,7 +285,7 @@ items_still_open:
     unverified claim parity-principles.md warns against. Both families do share
     the SAME TopicId/Arn/Name/Description/Permissions -- see topics_v2.go's doc
     comment and TestQuickSight_TopicV2_SharesResourceWithV1.
-  - "CLOSED 2026-09-12 (gopherstack-n3zi slice 3): ListFoldersForResource's route classifier (classifyResourceFoldersPaths, handler_folders.go) and its handler both assumed a resource ARN fits in exactly one URI path segment. Every real QuickSight resource ARN contains a literal `/` (e.g. `arn:aws:quicksight:region:account:dashboard/id`), which net/http decodes back from the real client's percent-encoded `%2F` before this router sees it -- so the op 501'd (opUnknown) for any real client, always. Found only by a typed round trip using a real ARN (typed_slice3_realclient_test.go); no raw-body test had exercised this op with an ARN containing `/`. Fixed by reconstructing the ARN via strings.Join(segs[segResID:n-1], \"/\"), the same pattern classifyTagResourcePaths already used correctly for /resources/{arn}/tags. See the dated Notes section for detail; NOT swept broadly across every other ARN-in-URI op this pass."
+  - "CLOSED 2026-09-12 (gopherstack-n3zi slice 3): ListFoldersForResource's route classifier (classifyResourceFoldersPaths, handler_folders.go) and its handler both assumed a resource ARN fits in exactly one URI path segment. Every real QuickSight resource ARN contains a literal `/` (e.g. `arn:aws:quicksight:region:account:dashboard/id`), which net/http decodes back from the real client's percent-encoded `%2F` before this router sees it -- so the op 501'd (opUnknown) for any real client, always. Found only by a typed round trip using a real ARN (realclient_datasets_and_dashboards_test.go); no raw-body test had exercised this op with an ARN containing `/`. Fixed by reconstructing the ARN via strings.Join(segs[segResID:n-1], \"/\"), the same pattern classifyTagResourcePaths already used correctly for /resources/{arn}/tags. See the dated Notes section for detail; NOT swept broadly across every other ARN-in-URI op this pass."
   - "2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3): GetDashboardEmbedUrl's ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (all real httpQuery members) are decoded nowhere. This backend's embed URL (embedurl.go's generateEmbedURL) is an opaque generated string with a fixed format and no session-config channel -- there is no rendering surface or other observable state these three toggles could affect without fabricating a URL format real AWS doesn't document. Namespace (the fourth undecoded query field on this op) IS now fixed -- see ops table."
   - "2026-09-12 (same sweep): StartAssetBundleExportJob.ValidationStrategy (real, optional) is decoded nowhere. This backend's export job has no validation engine at all (it always reaches QUEUED/SUCCESSFUL with no per-resource checks), so there is nothing for StrictModeForAllResources to loosen or tighten."
   - "2026-09-12 (same sweep): CreateDashboard.Parameters (real, on the wire) is decoded nowhere. No Describe* op echoes it back (verified against quicksight@v1.129.0's DescribeDashboardDefinitionOutput, which has no Parameters member at all -- unlike the sibling DashboardPublishOptions field, fixed this pass), and this backend's Dashboard.Definition is an opaque blob with no parameter-driven rendering to apply initial overrides to. Storing it with nowhere to prove it landed would violate this campaign's no-fabrication rule."
@@ -298,9 +298,9 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 
 ## Notes
 
-### 2026-09-12 (gopherstack-n3zi slice 3: typed real-client coverage)
+### 2026-09-12 (gopherstack-n3zi: typed real-client coverage)
 
-Added `typed_slice3_realclient_test.go` (`TestSlice3_QuickSight_RealClient`,
+Added `realclient_datasets_and_dashboards_test.go` (`TestRealClient_DatasetsAndDashboards`,
 one outer `t.Parallel()` test with 13 `t.Run` subtests, each also
 `t.Parallel()`), targeting the highest-priority uncovered families named by
 the sweep: data sources, data sets, analyses, dashboards, templates, themes,
@@ -1979,9 +1979,9 @@ grant.
 including `TestSnapshotVersionGuard`; `golangci-lint run ./services/quicksight/...` --
 `0 issues`.
 
-## 2026-09-12 -- typed real-client coverage slice 10 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice10_realclient_test.go` (`TestSlice10_QuickSight_RealClient`,
+Added `realclient_connections_and_spaces_test.go` (`TestRealClient_ConnectionsAndSpaces`,
 one outer `t.Parallel()` test, 14 subtests), covering the highest-priority
 families named by this slice's sweep: VPC connections, custom permissions,
 OAuth client applications, asset bundle export jobs, dataset refresh
@@ -2020,10 +2020,10 @@ scope was previously named there).
 FAIL. No persisted struct fields changed; snapshot inventory not touched;
 no version bump.
 
-## 2026-09-12 -- typed real-client coverage slice 28 (gopherstack-n3zi)
+## 2026-09-12 -- typed real-client coverage (gopherstack-n3zi)
 
-Added `typed_slice28_realclient_test.go` (`TestSlice28_QuickSight_RealClient`,
-one outer `t.Parallel()` test, 22 subtests), covering every op slice 10 left
+Added `realclient_permissions_and_identity_test.go` (`TestRealClient_PermissionsAndIdentity`,
+one outer `t.Parallel()` test, 22 subtests), covering every op the prior pass left
 uncovered: TopicV2 (full CRUD/list/search/permissions), topic reviewed
 answers (batch create/delete, list), topic refresh (describe/create/
 describe/update/delete schedules), IAM policy assignment (full CRUD/list,
@@ -2156,7 +2156,7 @@ false positive, file:line, for all 25:
   (`handler_themes.go`), applied in `UpdateTheme` (themes.go).
 
 7 of 37 were DROPPED PARAMETER, fixed with tests in
-`reqfield_slice3_realclient_test.go` (`TestReqFieldSlice3_QuickSight`, 6
+`realclient_field_defaults_test.go` (`TestRealClient_FieldDefaults`, 6
 subtests, real typed `aws-sdk-go-v2/service/quicksight` client):
 
 - `RegisterUser.CustomPermissionsName` / `UpdateUser.CustomPermissionsName`:

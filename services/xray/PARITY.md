@@ -70,10 +70,10 @@ deferred:
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
 ---
 
-## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 21 typed-client-uncovered ops through the real aws-sdk-go-v2 xray
-client for the first time (`typed_slice27_realclient_test.go`): tag family
+client for the first time (`realclient_tags_policies_and_traces_test.go`): tag family
 (TagResource/UntagResource/ListTagsForResource), resource policies
 (Put/List/Delete), indexing rules (Get/Update), the insight family
 (Get/GetEvents/GetImpactGraph), trace retrieval (Start/Get/Cancel), sampling

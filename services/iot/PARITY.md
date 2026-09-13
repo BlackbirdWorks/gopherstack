@@ -1975,9 +1975,9 @@ present behavior rather than changing it. Gates: `go test -race
 ./services/iot/...` pass, `golangci-lint run ./services/iot/...` `0
 issues`.
 
-## 2026-09-12 (gopherstack-n3zi slice 4, typed-client coverage sweep)
+## 2026-09-12 (gopherstack-n3zi, typed-client coverage sweep)
 
-`typed_slice4_realclient_test.go` added: 22 subtests covering thing
+`realclient_core_resources_test.go` added: 22 subtests covering thing
 types/groups/dynamic groups, things (principals/connectivity), certificates
 and CA certificates (including transfer lifecycle), policies and policy
 versions, topic rules and destinations, job extras (execution
@@ -2080,10 +2080,10 @@ updated for the wire-shape fixes above), `golangci-lint run
 0 FAIL. No version bump — no `backendSnapshot` struct field added, removed,
 or retyped.
 
-## 2026-09-12 (gopherstack-n3zi slice 30, typed-client coverage: 229/272 -> 272/272)
+## 2026-09-12 (gopherstack-n3zi, typed-client coverage: 229/272 -> 272/272)
 
-`typed_slice30_realclient_test.go` added: 14 subtests covering every op left
-uncovered by slice 4 (see its entry above for the exact list) -- audit
+`realclient_audit_and_misc_test.go` added: 14 subtests covering every op left
+uncovered by the prior sweep (see its entry above for the exact list) -- audit
 suppressions, account audit configuration, audit findings and related
 resources, audit- and detect-mitigation task lifecycle, event
 configurations, v1/v2 logging, certificate provider extras, SBOM
@@ -2206,7 +2206,7 @@ Job resource exists to gate), `GetThingConnectivityData.IncludeSocketInformation
 (no socket-level fields modeled anywhere in this backend to conditionally
 include).
 
-New test file `reqfield_slice2_realclient_test.go`: drives every fixed
+New test file `realclient_request_field_wiring_test.go`: drives every fixed
 field through the real typed SDK client (`newIoTTestClient`), asserting
 the observable effect (job-execution cancellation cascades, pagination
 `nextToken`/page-length, sort order, domain-config round-trip,

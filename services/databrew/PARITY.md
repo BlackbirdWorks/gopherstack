@@ -181,11 +181,11 @@ anonymous-inline-struct request decodes (opsworks-style handlers implementing
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/databrew/...`).
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 27/44 -> 44/44 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
-subtests driving every previously-untested op through a real
+`realclient_dataset_job_and_schedule_lifecycle_test.go`, one table-driven
+`t.Parallel()` test with 5 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/databrew` client: DeleteDataset, DeleteJob,
 DeleteProject, DeleteRecipeVersion, DeleteRuleset, DeleteSchedule,
 ListJobs, ListProjects, ListSchedules, SendProjectSessionAction,

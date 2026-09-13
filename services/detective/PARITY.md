@@ -57,7 +57,7 @@ deferred:                 # consciously not audited this pass (scope) — next p
 leaks: {status: clean, note: "DeleteGraph purges investigations/datasources/orgConfigs for the deleted graph ARN (not just members/tags). DisableOrganizationAdminAccount now reuses the same deleteGraphLocked cascade (see EnableOrganizationAdminAccount/DisableOrganizationAdminAccount notes above), so org-graph deletion via Disable is leak-free too. Verified via TestDeleteGraph_CleansUpDependentState and TestDisableOrganizationAdminAccount_DeletesGraph, both asserting the deleted ARN is absent from a post-delete Snapshot()/ListGraphs()."}
 ---
 
-## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 19 typed-client-uncovered ops (BatchGetGraphMemberDatasources,
 BatchGetMembershipDatasources, CreateMembers, DeleteMembers,
@@ -67,7 +67,7 @@ GetMembers, ListDatasourcePackages, ListInvestigations, ListMembers,
 ListOrganizationAdminAccounts, RejectInvitation, StartMonitoringMember,
 UpdateDatasourcePackages, UpdateInvestigationState,
 UpdateOrganizationConfiguration) through the real aws-sdk-go-v2 detective
-client for the first time (`typed_slice27_realclient_test.go`). Zero wire
+client for the first time (`realclient_member_investigation_and_org_admin_test.go`). Zero wire
 bugs found -- this PARITY.md's prior A-grade audit history already verified
 every one of these ops' wire shape by hand; the typed client confirmed it.
 RejectInvitation/DisassociateMembership/StartMonitoringMember needed

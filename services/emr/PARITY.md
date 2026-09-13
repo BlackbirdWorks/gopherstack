@@ -774,9 +774,9 @@ clean. `git status --short` at the end of this batch shows only
 `services/emr/wire_output_required_r80d_test.go` (new) from this batch, plus
 the pre-existing untouched `services/sagemaker/*` concurrent-agent dirt.
 
-## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage sweep, gopherstack-n3zi)
 
-Added `typed_slice18_realclient_test.go` covering all 44 of emr's
+Added `realclient_cluster_configuration_and_studios_test.go` covering all 44 of emr's
 typed-client-uncovered ops (per `cmd/clientcoverage`): instance group and
 instance fleet lifecycle (Add/List/Modify for both), security
 configuration lifecycle, release label describe/instance-type listing,

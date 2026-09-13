@@ -452,9 +452,9 @@ to keep creating >100 rule sets for an unrelated pagination assertion now
 that the real 40-per-account cap is enforced -- see
 `families.limit_exceeded_enforcement` for why.
 
-## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
-Added `typed_slice18_realclient_test.go` covering all 44 of ses's
+Added `realclient_identity_and_email_test.go` covering all 44 of ses's
 typed-client-uncovered ops (per `cmd/clientcoverage`): identity
 verification/DKIM/policies, legacy verified-email-address ops, account
 sending/quota, custom verification templates, template render,

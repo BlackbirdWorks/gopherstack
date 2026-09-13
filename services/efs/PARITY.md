@@ -665,9 +665,9 @@ Gates: `go build ./services/efs/...`, `go vet ./services/efs/...`, `go vet ./...
 ./services/efs/...`, `golangci-lint run ./services/efs/...`. Work left uncommitted
 per this pass's instructions.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 18
+Added `realclient_file_system_configuration_and_policy_test.go`, covering this service's last 18
 typed-client-blind ops (CreateTags, DeleteAccessPoint,
 DeleteFileSystemPolicy, DeleteReplicationConfiguration, DeleteTags,
 DescribeAccessPoints, DescribeAccountPreferences, DescribeFileSystemPolicy,

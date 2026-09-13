@@ -75,8 +75,8 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 
 ## Notes
 
-- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
-  `typed_slice29_realclient_test.go`, driving all 23 previously
+- **2026-09-12 (typed coverage, gopherstack-n3zi)**: added
+  `wire_sdk_roundtrip_workflow_and_activity_test.go`, driving all 23 previously
   typed-client-uncovered ops (domain/activity-type/workflow-type
   deprecate-undeprecate-delete lifecycles, DescribeWorkflowExecution,
   SignalWorkflowExecution, Count{Open,Closed}WorkflowExecutions,

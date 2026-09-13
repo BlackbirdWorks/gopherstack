@@ -733,12 +733,12 @@ testdata/` is out of scope for this change) reports scheduler's golden
 entry as stale, as expected; refreshing it is for whoever owns
 `pkgs/persistence/testdata/`.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeleteSchedule, DeleteScheduleGroup,
 GetScheduleGroup, ListScheduleGroups, TagResource, UntagResource,
 UpdateSchedule driven through the real aws-sdk-go-v2 client for the first
-time (`typed_slice15_realclient_test.go`, 2 subtests: schedule group
+time (`realclient_schedule_group_lifecycle_test.go`, 2 subtests: schedule group
 lifecycle + tags, schedule update/delete). scheduler moved from 5/12 to
 12/12 typed-covered per `cmd/clientcoverage`.
 

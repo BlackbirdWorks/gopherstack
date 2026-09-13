@@ -157,8 +157,8 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; job/
 
 ## Notes
 
-- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
-  `typed_slice29_realclient_test.go`, driving all 22 previously
+- **2026-09-12 (typed coverage sweep, gopherstack-n3zi)**: added
+  `realclient_document_detection_and_model_management_test.go`, driving all 22 previously
   typed-client-uncovered ops (every Detect*/BatchDetect* single- and
   batch-document op, ClassifyDocument, ContainsPiiEntities,
   DescribeResourcePolicy, ImportModel, List{DocumentClassifier,

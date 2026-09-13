@@ -636,15 +636,15 @@ all clean on `services/mediapackage/...` (HEAD `4d7407a11`).
 
 No other bugs found this pass.
 
-## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove this service's 12 remaining typed-client-blind ops (`ConfigureLogs`,
 `CreateHarvestJob`, `DeleteOriginEndpoint`, `DescribeHarvestJob`,
 `ListHarvestJobs`, `ListOriginEndpoints`, `RotateChannelCredentials`,
 `RotateIngestEndpointCredentials`, `TagResource`, `UntagResource`,
 `UpdateChannel`, `UpdateOriginEndpoint`) through the real aws-sdk-go-v2
-client for the first time (`typed_slice21_realclient_test.go`, 4
-subtests: channel lifecycle incl. logs/credential rotation, origin
+client for the first time (`wire_sdk_roundtrip_channel_and_harvest_test.go`, 4
+cases: channel lifecycle incl. logs/credential rotation, origin
 endpoint lifecycle, harvest jobs, tag/untag). **Zero bugs** -- every op
 decoded and matched its documented shape on the first real-client run.
 `RotateChannelCredentials` is AWS-deprecated (superseded by

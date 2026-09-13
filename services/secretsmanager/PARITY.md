@@ -292,7 +292,7 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   lower-confidence question deferred rather than changed speculatively). Gates
   (`build`/`test -race`/`golangci-lint`/`go vet .` at repo root) all pass clean; no snapshot version
   bump (new fields are additive `omitempty`, verified round-tripping through `Snapshot`/`Restore`).
-- **2026-09-12 (gopherstack-n3zi typed slice 11)**: added `typed_slice11_realclient_test.go`,
+- **2026-09-12 (gopherstack-n3zi)**: added `realclient_rotation_and_replication_test.go`,
   covering this service's last 6 typed-client-blind ops (BatchGetSecretValue, CancelRotateSecret,
   RemoveRegionsFromReplication, ReplicateSecretToRegions, StopReplicationToReplica,
   ValidateResourcePolicy) -- typed coverage 17/23 -> 23/23 (0 uncovered). One real bug found and

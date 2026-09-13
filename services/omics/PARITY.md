@@ -900,9 +900,9 @@ issues, `golangci-lint run --fix` used once for fieldalignment on the new
 structs, re-verified with plain `run` afterward). Work left uncommitted per
 this pass's instructions.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 16)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice16_realclient_test.go`: 15 subtests driving every op the
+Added `realclient_stores_and_runs_test.go`: 15 subtests driving every op the
 census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
 `aws-sdk-go-v2/service/omics` client (55 ops -- SequenceStore CRUD tail,
 Reference/ReferenceImportJob family, ReadSet/ReadSetActivationJob/

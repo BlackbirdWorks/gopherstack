@@ -154,7 +154,7 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
   `CreateCustomKeyStore`/`UpdateCustomKeyStore.XksProxyVpcEndpointServiceOwner`
   (no response field to round-trip it onto, no XKS-proxy state modeled at
   all, matching the pre-existing `deferred` entry). Proven via
-  `reqfield_slice6_realclient_test.go` driving the real `kms` client.
+  `realclient_encryption_algorithm_and_key_policy_test.go` driving the real `kms` client.
   `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint` all clean;
   no persistence-schema version bump (the new `EncryptInput`/`DecryptInput`/
   `ReEncryptInput`/`PutKeyPolicyInput` fields are request-only, not part of
@@ -910,9 +910,9 @@ Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
 6.2s); `golangci-lint run ./services/kms/...` clean, 0 issues, no
 cyclop/gocyclo/gocognit/funlen nolints added.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 13
+Added `realclient_key_lifecycle_test.go`, covering this service's last 13
 typed-client-blind ops (CancelKeyDeletion, DeleteAlias, EnableKey,
 GetKeyLastUsage, GetKeyPolicy, ListKeyPolicies, ListKeyRotations,
 PutKeyPolicy, RotateKeyOnDemand, UpdateAlias, UpdateCustomKeyStore,

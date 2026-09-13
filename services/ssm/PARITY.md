@@ -1410,9 +1410,9 @@ picked up a concurrent agent's in-flight ec2 rows
 `TransitGatewayPeeringAttachment`) -- left in place per this pass's
 instructions, not hand-removed.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering all 64 of this
+Added `realclient_maintenance_windows_and_ops_test.go`, covering all 64 of this
 service's remaining typed-client-blind ops through the real
 aws-sdk-go-v2 ssm client, in 20 subtests grouped by subsystem
 (maintenance window targets/tasks; maintenance window lifecycle; patch
@@ -1515,7 +1515,7 @@ point anywhere in the real API's response chain for this op, and this
 backend's execution preview does no version-sensitive document
 processing to begin with).
 
-Test coverage: `reqfield_slice1_realclient_test.go`, 4 subtests (one per
+Test coverage: `realclient_reqfield_wiring_test.go`, 4 subtests (one per
 real fix), each driving the real `aws-sdk-go-v2` ssm client and asserting
 an observable effect (reversed step order, an empty shared-parameter list,
 a dualstack URL host, and a round-tripped `CutoffBehavior`).

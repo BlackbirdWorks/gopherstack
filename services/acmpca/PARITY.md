@@ -717,11 +717,11 @@ assertion counts, no new tests needed since no behavior changed);
 post-pass: still 6 class-A findings, identical sites -- expected, since no
 code changed.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 23)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove all 15 of this package's typed-coverage-blind ops through a real
 `aws-sdk-go-v2/service/acmpca` client for the first time
-(`typed_slice23_realclient_test.go`): audit report create+describe, CA
+(`realclient_ca_lifecycle_permissions_test.go`): audit report create+describe, CA
 certificate/CSR retrieval, permissions CRUD, resource policy CRUD, CA tags
 (Tag/Untag/List), and a delete+restore lifecycle -- all against a ROOT CA,
 which this backend auto-self-signs and activates on creation

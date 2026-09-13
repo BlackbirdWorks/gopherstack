@@ -472,9 +472,9 @@ trimming, etc.) is unrelated to the fields now being enforced.
   real AWS clients never parse `NextToken` — it's opaque by contract — so this doesn't
   need to match any particular AWS-internal format.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 9
+Added `realclient_language_and_vocabulary_test.go`: one outer `t.Parallel()` test, 9
 subtests (all also parallel) driving every one of this service's 25
 typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
 aws-sdk-go-v2 client — language models, vocabulary/vocabulary-filter/medical-

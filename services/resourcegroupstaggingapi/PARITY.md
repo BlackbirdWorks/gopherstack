@@ -251,12 +251,12 @@ tagsPerPage) -- correctly inclusive of the exact `TagsPerPage` value.
 
 No bugs found; no code changes in this service this pass.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DescribeReportCreation, GetComplianceSummary,
 GetTagKeys, GetTagValues, ListRequiredTags, StartReportCreation,
 TagResources, UntagResources driven through the real aws-sdk-go-v2 client
-for the first time (`typed_slice15_realclient_test.go`, 3 subtests: tag
+for the first time (`realclient_tags_and_compliance_test.go`, 3 subtests: tag
 keys/values via a registered test provider, tag/untag resources via a
 registered ARNTagger/ARNUntagger, compliance summary + required tags +
 report creation). resourcegroupstaggingapi moved from 1/9 to 9/9

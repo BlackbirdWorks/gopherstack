@@ -497,9 +497,9 @@ carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 16
+Added `realclient_target_group_and_listener_configuration_test.go`, covering this service's last 16
 typed-client-blind ops (DeleteSharedTrustStoreAssociation, DeleteTrustStore,
 DescribeAccountLimits, DescribeListenerAttributes, DescribeSSLPolicies,
 DescribeTargetGroupAttributes, DescribeTrustStoreAssociations,

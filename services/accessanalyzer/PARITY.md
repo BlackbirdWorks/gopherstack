@@ -692,11 +692,11 @@ plus new regression tests).
 Gates: `go test -race ./services/accessanalyzer/...` and
 `golangci-lint run services/accessanalyzer/...` both clean, 0 issues.
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 22/39 -> 39/39 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
-subtests driving every previously-untested op through a real
+`realclient_policy_checks_and_analyzers_test.go`, one table-driven
+`t.Parallel()` test with 7 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/accessanalyzer` client: CheckAccessNotGranted,
 CheckNoNewAccess, CheckNoPublicAccess, CreateServiceLinkedAnalyzer,
 DeleteServiceLinkedAnalyzer, GetAnalyzedResource, GetFinding,

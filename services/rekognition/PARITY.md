@@ -735,11 +735,11 @@ uncommitted per this pass's instructions.
     services/rekognition/...` (`0 issues.` — required reordering the new
     test's table struct fields, `fieldalignment` flagged the first attempt).
 
-## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+## 2026-09-12 (typed-client coverage, gopherstack-n3zi)
 
 Typed-client coverage: 17/75 (22.7%) -> 75/75 (100%) ops now driven by a
 real aws-sdk-go-v2 rekognition client end to end
-(`typed_slice13_realclient_test.go`, 14 subtests, family-per-row, each a
+(`realclient_detection_and_recognition_test.go`, 14 subtests, family-per-row, each a
 fresh backend: stateless detect ops, faces + collections, users + face
 association/search, celebrity info + async recognition, async video jobs
 (face detection/search, label detection, content moderation, person
@@ -790,7 +790,7 @@ the three corrected `handler_datasets_test.go` cases),
 `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
 changes; no version bump (both fixes are wire-shape-only).
 
-## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+## 2026-09-12 (gopherstack-xhu2t — reqfielddiff tier-1 sweep)
 
 10 tier-1 findings reviewed. 7 fixed, 3 recorded as `items_still_open` (two
 of them extending IndexFaces' pre-existing gopherstack-eshx disclosure, one

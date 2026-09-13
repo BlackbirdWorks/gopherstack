@@ -313,11 +313,11 @@ immediately preceded by `return` on the same line.
 for the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/iotwireless/...` 0
 issues; `GOTOOLCHAIN=go1.27.0 go test -race ./services/iotwireless/...` ok.
 
-## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+## gopherstack-n3zi: typed-client coverage sweep (2026-09-12)
 
 Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 20/112 (17.9%)
 -> 112/112 (100%) ops driven by a real aws-sdk-go-v2 client anywhere in this
-repo's tests. `services/iotwireless/typed_slice6_realclient_test.go` added,
+repo's tests. `services/iotwireless/realclient_devices_gateways_and_config_test.go` added,
 17 subtests covering destinations, device profiles, wireless gateways
 (+certificate association), wireless devices (thing association/statistics/
 send-data/queued-messages/test/deregister), wireless gateway tasks +
@@ -362,7 +362,7 @@ gained one additive string field (`ID`); `pkgs/persistence`'s
 golden inventory was refreshed via `-update` (one line added). No version
 bump.
 
-## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+## 2026-09-12 (gopherstack-xhu2t — reqfielddiff tier-1 sweep)
 
 12 tier-1 findings reviewed. 1 fixed, 11 recorded as `items_still_open`.
 

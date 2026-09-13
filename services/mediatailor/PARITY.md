@@ -125,9 +125,9 @@ leaks: {status: clean, note: "no goroutines, timers, or janitors in this service
 
 ## Notes
 
-### 2026-09-12 (typed coverage slice 29, gopherstack-n3zi)
+### 2026-09-12 (typed coverage, gopherstack-n3zi)
 
-Added `typed_slice29_realclient_test.go`, driving all 23 previously
+Added `realclient_channel_source_playback_test.go`, driving all 23 previously
 typed-client-uncovered ops (channel lifecycle including logs/start/stop,
 channel policy, function delete, source location/live source/vod source
 update+delete, program update+delete, playback configuration/prefetch
@@ -659,7 +659,7 @@ all -- no per-item-status seam exists to check.
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
 
-## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+## 2026-09-12 (gopherstack-xhu2t — reqfielddiff tier-1 sweep)
 
 10 tier-1 findings reviewed. 2 fixed, 1 recorded as `items_still_open`, 7
 false positives (all httpQuery-param or hand-decoded-`map[string]any`-body

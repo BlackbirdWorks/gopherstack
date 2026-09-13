@@ -997,7 +997,7 @@ that has findings or coverage warnings, and resiliencehub now has neither
 behavior. Full-repo total dropped from 131 to 129 class-A findings
 service-tree-wide, exactly the 2 fixed here.
 
-## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Drove this service's 11 remaining typed-client-blind ops
 (`DeleteAppInputSource`, `DescribeAppVersion`, `DescribeAppVersionAppComponent`,
@@ -1006,7 +1006,7 @@ Drove this service's 11 remaining typed-client-blind ops
 `ListAppVersionResourceMappings`, `RejectResourceGroupingRecommendations`,
 `RemoveDraftAppVersionResourceMappings`, `UpdateAppVersion`) through the
 real aws-sdk-go-v2 client for the first time
-(`typed_slice21_realclient_test.go`, 5 subtests). **Zero bugs** -- every
+(`sdk_roundtrip_app_version_and_resources_test.go`, 5 subtests). **Zero bugs** -- every
 op decoded and matched its documented shape on the first real-client run,
 consistent with this service's unusually deep prior per-op field-diff
 audit history (the `ops:` table's individual `wire: ok` verdicts, most

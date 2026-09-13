@@ -1422,9 +1422,9 @@ Gates (gopherstack-b3pm): `go build ./...` (whole module) clean, `go vet
 ./...` clean, `go test -count=1 ./services/cloudformation/... ./pkgs/persistence/...`
 pass, `golangci-lint run ./services/cloudformation/...` 0 issues.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 12
+Added `realclient_stack_management_and_resource_scans_test.go`, covering this service's last 12
 typed-client-blind ops (DescribeChangeSetHooks, DescribeGeneratedTemplate,
 DescribeOrganizationsAccess, DescribeResourceScan, DescribeTypeRegistration,
 ExecuteStackRefactor, GetGeneratedTemplate, ListHookResults,

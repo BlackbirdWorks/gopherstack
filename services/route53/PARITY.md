@@ -781,9 +781,9 @@ stored-then-checked error from any response-writer helper.
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/route53/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/route53/...` ok.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 13
+Added `realclient_hosted_zone_and_health_check_test.go`, covering this service's last 13
 typed-client-blind ops (DeleteTrafficPolicy, GetChange, GetCheckerIpRanges,
 GetHealthCheckCount, GetHealthCheckLastFailureReason, GetHealthCheckStatus,
 GetHostedZoneCount, GetReusableDelegationSetLimit, GetTrafficPolicy,

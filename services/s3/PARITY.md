@@ -1344,9 +1344,9 @@ Gates: `go build ./...` clean; `go vet ./services/s3/...` clean; `go test
 test -race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
 ./services/s3/...` 0 issues.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go` covering 24 of s3's remaining
+Added `realclient_bucket_config_and_object_ops_test.go` covering 24 of s3's remaining
 typed-client-blind ops (47 real ops driven through the real aws-sdk-go-v2
 client; `PostObject`/`PresignedGetObject`/`PresignedPutObject` excluded --
 confirmed no such method exists on the pinned SDK's `*s3.Client`, matching

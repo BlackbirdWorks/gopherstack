@@ -429,11 +429,11 @@ Gates: `GOTOOLCHAIN=go1.26.6 go build ./services/codeconnections/...`,
 -race -count=1 ./services/cloudformation/...` and
 `./services/codestarconnections/...` (both pass, unmodified).
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 9/27 -> 27/27 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 3
-subtests driving every previously-untested op through a real
+`realclient_repository_link_and_sync_config_test.go`, one table-driven
+`t.Parallel()` test with 3 cases driving every previously-untested op through a real
 `aws-sdk-go-v2/service/codeconnections` client: CreateRepositoryLink,
 CreateSyncConfiguration, DeleteHost, DeleteRepositoryLink,
 GetRepositoryLink, GetRepositorySyncStatus, GetResourceSyncStatus,

@@ -411,12 +411,12 @@ scope per gopherstack-0c1r and would be worse than leaving the constant
 unreachable.
 
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: Converse, CountTokens, GetAsyncInvoke,
 InvokeGuardrailChecks, InvokeModelWithBidirectionalStream, StartAsyncInvoke
 driven through the real aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 5 subtests). bedrockruntime moved from
+(`realclient_converse_and_invoke_test.go`, 5 cases). bedrockruntime moved from
 5/11 to 11/11 typed-covered per `cmd/clientcoverage`.
 
 No real bugs found; `estimateTokenCount`'s existing `input.invokeModel`/

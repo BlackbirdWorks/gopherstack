@@ -685,9 +685,9 @@ once.
 (0 issues) all pass. No banned `nolint:cyclop/gocyclo/gocognit/funlen`
 added.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go` (reusing `newTestS3TablesClient`
+Added `realclient_bucket_and_table_extras_test.go` (reusing `newTestS3TablesClient`
 from `handler_sdk_roundtrip_test.go`): one outer `t.Parallel()` test, 8
 subtests (all also parallel) driving every one of this service's 26
 typed-client-uncovered ops (per `cmd/clientcoverage`) — table-bucket

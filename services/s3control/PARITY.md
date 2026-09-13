@@ -1018,11 +1018,11 @@ Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
 ./services/s3control/...` 0 issues, 0 new nolints. No persisted-field
 changes, so `pkgs/persistence` was not touched for this fix.
 
-## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+## 2026-09-12 (gopherstack-n3zi: typed-client coverage)
 
 Typed-coverage pass (not a general audit): drove 76 previously
 typed-client-blind ops through the real `aws-sdk-go-v2/service/s3control`
-client (`typed_slice7_realclient_test.go`, 9 subtests) -- census
+client (`sdk_roundtrip_access_points_and_jobs_test.go`, 9 subtests) -- census
 21/97 -> 97/97 typed-covered (0 remaining). Five real wire/logic bugs found
 and fixed, every one caught only by a decoded typed-client value:
 

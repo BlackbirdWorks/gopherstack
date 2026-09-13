@@ -1384,9 +1384,9 @@ folded into its hash input, so the address stays a pure, reproducible
 function of (name, generation) instead of drawing on `time.Now` or
 `crypto/rand`.
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go` (reusing `newTestClient` from
+Added `sdk_roundtrip_resource_coverage_test.go` (reusing `newTestClient` from
 `sdk_roundtrip_helper_test.go`): one outer `t.Parallel()` test, 9 subtests
 (all also parallel) driving every one of this service's 29
 typed-client-uncovered ops (per `cmd/clientcoverage`) — instance public
@@ -1478,9 +1478,9 @@ anti-fabrication design -- an ordering flag has nothing to order),
 `UpdateRelationalDatabase.ApplyImmediately` (no maintenance-window
 deferral queue -- every update already applies immediately).
 
-Proof: `reqfield_slice4_realclient_test.go`, driving the real
+Proof: `sdk_roundtrip_field_fixes_test.go`, driving the real
 `aws-sdk-go-v2/service/lightsail` typed client (`newTestClient`, shared
-with `typed_slice33_realclient_test.go`) for 4 of the 5 table cases. The
+with `sdk_roundtrip_resource_coverage_test.go`) for 4 of the 5 table cases. The
 `GetRelationalDatabaseEvents.DurationInMinutes` case additionally uses a
 real `Backend.Snapshot`/`Backend.Restore` round trip (the same production
 persistence path, not a test-only shim) to backdate one recorded event's

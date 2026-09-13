@@ -975,9 +975,9 @@ stack as the bd issue), `TestPattern_AnythingBut_DefenseInDepth_NoPanicWhenValid
 Gates: `go build`, `go test -race -count=1`, `golangci-lint run` — all
 clean (`./services/eventbridge/...`).
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering this service's last 20
+Added `realclient_rule_endpoint_and_api_destination_test.go`, covering this service's last 20
 typed-client-blind ops (DeactivateEventSource, DeleteApiDestination,
 DeleteArchive, DeleteConnection, DeleteEndpoint, DeletePartnerEventSource,
 DescribeApiDestination, DescribeEndpoint, DescribeEventSource,

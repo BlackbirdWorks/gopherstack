@@ -443,10 +443,10 @@ response-writer helper.
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/ssoadmin/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/ssoadmin/...` ok.
 
-## Notes (2026-09-12, gopherstack-n3zi slice 9 -- first typed-client coverage)
+## Notes (2026-09-12, gopherstack-n3zi -- first typed-client coverage)
 
 ssoadmin: 13/79 (16.5%) -> 79/79 (100%) typed-covered (66 -> 0 uncovered),
-66 ops newly covered, `typed_slice9_realclient_test.go` added (one outer
+66 ops newly covered, `realclient_permission_sets_and_applications_test.go` added (one outer
 `t.Parallel()` test, 14 subtests covering every named priority family:
 permission set provisioning + policies (managed/customer-managed/inline/
 permissions-boundary), account assignments (+creation/deletion status),

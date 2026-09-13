@@ -783,9 +783,9 @@ No bugs found in this slice; `finding_criteria.go`/`malware_scan_filter.go` unch
 Gates unaffected (no code touched): `go build`, `go vet`, `go test -race -count=1`,
 `golangci-lint run`, all `./services/guardduty/...`, all clean.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 16)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice16_realclient_test.go`: 11 subtests driving every op the
+Added `realclient_detector_findings_and_member_management_test.go`: 11 cases driving every op the
 census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
 `aws-sdk-go-v2/service/guardduty` client (52 ops -- UpdateDetector,
 organization admin account enable/disable, GetOrganizationStatistics,

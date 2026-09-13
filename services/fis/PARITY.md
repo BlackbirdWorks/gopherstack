@@ -484,7 +484,7 @@ No code behavior changed. `go build ./services/fis/...`, `go vet
 ./services/fis/...`, `go test -race -count=1 ./services/fis/...` (pass),
 `golangci-lint run ./services/fis/...` (0 issues).
 
-### 2026-09-12 (typed slice 21, gopherstack-n3zi)
+### 2026-09-12 (gopherstack-n3zi)
 
 Drove this service's 12 remaining typed-client-blind ops
 (`DeleteTargetAccountConfiguration`, `GetAction`, `GetExperiment`,
@@ -494,7 +494,7 @@ Drove this service's 12 remaining typed-client-blind ops
 `ListTargetAccountConfigurations`, `StopExperiment`,
 `UpdateExperimentTemplate`, `UpdateTargetAccountConfiguration`) through
 the real aws-sdk-go-v2 client for the first time
-(`typed_slice21_realclient_test.go`, 3 subtests: action/target-resource-type
+(`realclient_experiment_template_and_target_config_test.go`, 3 cases: action/target-resource-type
 catalog lookups, experiment template + target-account-configuration CRUD,
 full experiment lifecycle incl. Start/Get/Stop and its target-account-config
 and resolved-target reads). **Zero bugs** -- every op decoded and matched

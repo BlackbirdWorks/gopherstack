@@ -740,9 +740,9 @@ handled; the flicker is a coincidental interaction between the collision
 defect and this tool's separate `Decode()`/path-param-as-argument blind
 spot, not a service bug.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 11)
+## 2026-09-12 (gopherstack-n3zi)
 
-Added `typed_slice11_realclient_test.go`, covering all 62 of this
+Added `realclient_config_and_identity_test.go`, covering all 62 of this
 service's remaining typed-client-blind ops through the real
 aws-sdk-go-v2 sesv2 client, grouped into 16 subtests by resource family
 (configuration set event destinations; configuration set attributes;

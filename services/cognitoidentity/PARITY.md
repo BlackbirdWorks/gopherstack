@@ -455,13 +455,13 @@ carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
 
-## 2026-09-12 (gopherstack-n3zi typed slice 15)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage sweep: DeleteIdentities, GetPrincipalTagAttributeMap,
 ListIdentities, ListTagsForResource, MergeDeveloperIdentities,
 SetPrincipalTagAttributeMap, TagResource, UntagResource driven through the
 real aws-sdk-go-v2 client for the first time
-(`typed_slice15_realclient_test.go`, 4 subtests: tags, principal tag
+(`realclient_identities_and_tags_test.go`, 4 cases: tags, principal tag
 attribute map, identities lifecycle, merge developer identities).
 cognitoidentity moved from 15/23 to 23/23 typed-covered per
 `cmd/clientcoverage`.

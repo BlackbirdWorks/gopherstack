@@ -487,10 +487,10 @@ as such by the doc comment directly above `TestErrorShapes`
 (`handler_test.go:470-475`) and by gaps item 15 above; left unedited since
 no evidenced replacement behavior exists to assert instead.
 
-## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 Typed-client coverage 7/23 -> 23/23 (0 uncovered). Added
-`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
+`realclient_account_and_group_config_test.go`, one outer `t.Parallel()` test with 6
 subtests driving every previously-untested op through a real
 `aws-sdk-go-v2/service/resourcegroups` client: CancelTagSyncTask,
 GetAccountSettings, GetGroupConfiguration, GetGroupQuery, GetTagSyncTask,

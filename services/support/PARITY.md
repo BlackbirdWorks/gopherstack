@@ -217,12 +217,12 @@ Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
 `golangci-lint run` all pass. No production code changed; `cases_test.go`
 gained one new test (assertions: +9, 0 dropped).
 
-## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+## 2026-09-12 (gopherstack-n3zi)
 
 This package had no real-client (httptest+`NewFromConfig`) helper at all
-before this slice -- built one from scratch
-(`typed_slice21_realclient_test.go`'s `newSlice21SupportClient`, same
-pattern as identitystore's slice 19). Drove all 12 remaining
+before this pass -- built one from scratch
+(`realclient_attachments_and_trusted_advisor_test.go`'s `newRealClient`, same
+pattern as identitystore's real-client helper). Drove all 12 remaining
 typed-client-blind ops (`AddAttachmentsToSet`, `DescribeAttachment`,
 `DescribeCommunications`, `DescribeCreateCaseOptions`, `DescribeServices`,
 `DescribeSeverityLevels`, `DescribeSupportedLanguages`,

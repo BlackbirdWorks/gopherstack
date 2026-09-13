@@ -130,7 +130,7 @@ items_still_open:
   - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
-### 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)
+### 2026-09-12 (reqfielddiff, gopherstack-xhu2t)
 
 Worked all 13 tier-1 findings. **3 real fixes**: `CreateService`/
 `UpdateService.IdleTimeoutSeconds` (undeclared; added to `storedService`,
@@ -155,15 +155,15 @@ reads in a different file from the tool's declaration search):
 `CreateResourceConfiguration.AllowAssociationToShareableServiceNetwork`,
 `CreateRule.Action`, `CreateService`/`UpdateService`/`CreateServiceNetwork`/
 `UpdateServiceNetwork.AuthType`, `CreateServiceNetworkVpcAssociation.SecurityGroupIds`.
-No recorded gaps. Proven via `reqfield_slice6_realclient_test.go` driving
+No recorded gaps. Proven via `realclient_service_field_defaults_test.go` driving
 the real `vpclattice` client. `go build/vet/test -race`, `golangci-lint`,
 and `cmd/paritylint` all clean; no persistence-schema version bump (new
 `storedService.IdleTimeoutSeconds` field is additive with `omitempty`, old
 fields unchanged; 1 inventory row added by hand).
 
-### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 42 ops, 31/73 -> 73/73
+### 2026-09-12 (gopherstack-n3zi): typed-client round trips for the remaining 42 ops, 31/73 -> 73/73
 
-Added `typed_slice32_realclient_test.go`: 17 tests, each building a real
+Added `realclient_service_network_and_listener_test.go`: 17 tests, each building a real
 `vpclattice` SDK client against `Handler` and round-tripping every
 previously-untyped op -- ServiceNetwork/Listener/Rule/TargetGroup+Targets/
 AccessLogSubscription lifecycles, ServiceNetworkServiceAssociation/

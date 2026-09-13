@@ -45,8 +45,9 @@ overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name 
 # can't catch a wrong-shape bug. Existing raw-JSON tests asserting the old
 # {label,score} shape were updated to match the real wire shape
 # (handler_findings_core_test.go, handler_findings_query_test.go).
-# 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
-# 21/81 -> 81/81 (100%), typed_slice12_realclient_test.go, 11 subtests
+# 2026-09-12 (gopherstack-n3zi): typed-client coverage
+# 21/81 -> 81/81 (100%), sdk_roundtrip_admin_test.go / sdk_roundtrip_scanning_test.go /
+# sdk_roundtrip_integrations_test.go / sdk_roundtrip_findings_test.go, 11 subtests
 # covering every previously-uncovered op (enablement/delegated admin,
 # members, CIS scan configuration+session lifecycle, connectors, code
 # security scan configuration+integrations, EC2 deep inspection

@@ -1028,10 +1028,10 @@ Gates on `./services/acm/...`: `go build`, `go vet`, `gofmt -l` (empty),
 confirmed-unreachable ResourceNotFoundException sites plus the one landmined
 already-revoked InvalidStateException site).
 
-### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+### 2026-09-12 — typed-client coverage sweep (gopherstack-n3zi)
 
-Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 12
-subtests (all also parallel) driving every one of this service's 26
+Added `realclient_certificate_lifecycle_acme_test.go`: one table-driven
+`t.Parallel()` test, 12 cases (all also parallel) driving every one of this service's 26
 typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
 aws-sdk-go-v2 client — certificate tags, Get/ExportCertificate (seeded via
 ImportCertificate for an instantly-ISSUED cert), Renew/Resend/Revoke/
@@ -1054,7 +1054,7 @@ empty-list/not-found results for a real account URL. This is genuine
 coverage of the real code paths, not a fabricated round trip.
 
 Added one `.golangci.yml` per-file `staticcheck` exemption
-(`acm/typed_slice33_realclient_test.go`) for AWS's own SA1019 deprecation
+(`acm/realclient_certificate_lifecycle_acme_test.go`) for AWS's own SA1019 deprecation
 notice on `CertificateOptions.CertificateTransparencyLoggingPreference` —
 `UpdateCertificateOptions`' only real member — same precedent as the
 existing iotanalytics/opsworks/securityhub/codedeploy exemptions.
