@@ -123,12 +123,13 @@ type appBlockBuilderVpcConfigInput struct {
 }
 
 type createAppBlockBuilderInput struct {
-	Tags         map[string]string              `json:"Tags"`
-	VpcConfig    *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
-	Name         string                         `json:"Name"`
-	Description  string                         `json:"Description"`
-	Platform     string                         `json:"Platform"`
-	InstanceType string                         `json:"InstanceType"`
+	Tags                        map[string]string              `json:"Tags"`
+	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
+	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	Name                        string                         `json:"Name"`
+	Description                 string                         `json:"Description"`
+	Platform                    string                         `json:"Platform"`
+	InstanceType                string                         `json:"InstanceType"`
 }
 
 func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -145,6 +146,7 @@ func (h *Handler) opCreateAppBlockBuilder(_ context.Context, body []byte) (any, 
 
 	bb, err := h.Backend.CreateAppBlockBuilder(
 		req.Name, req.Description, req.Platform, req.InstanceType, vpcConfig, req.Tags,
+		req.EnableDefaultInternetAccess,
 	)
 	if err != nil {
 		return nil, err
@@ -236,10 +238,11 @@ func (h *Handler) opStopAppBlockBuilder(_ context.Context, body []byte) (any, er
 }
 
 type updateAppBlockBuilderInput struct {
-	VpcConfig    *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
-	Name         string                         `json:"Name"`
-	Description  string                         `json:"Description"`
-	InstanceType string                         `json:"InstanceType"`
+	VpcConfig                   *appBlockBuilderVpcConfigInput `json:"VpcConfig"`
+	EnableDefaultInternetAccess *bool                          `json:"EnableDefaultInternetAccess"`
+	Name                        string                         `json:"Name"`
+	Description                 string                         `json:"Description"`
+	InstanceType                string                         `json:"InstanceType"`
 }
 
 func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, error) {
@@ -253,7 +256,9 @@ func (h *Handler) opUpdateAppBlockBuilder(_ context.Context, body []byte) (any, 
 		vpcConfig = &VpcConfig{SecurityGroupIDs: req.VpcConfig.SecurityGroupIDs, SubnetIDs: req.VpcConfig.SubnetIDs}
 	}
 
-	bb, err := h.Backend.UpdateAppBlockBuilder(req.Name, req.Description, req.InstanceType, vpcConfig)
+	bb, err := h.Backend.UpdateAppBlockBuilder(
+		req.Name, req.Description, req.InstanceType, vpcConfig, req.EnableDefaultInternetAccess,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +387,7 @@ func appBlockToResponse(ab *AppBlock) map[string]any {
 }
 
 func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Name":         bb.Name,
 		"Arn":          bb.Arn,
 		"Description":  bb.Description,
@@ -396,4 +401,10 @@ func appBlockBuilderToResponse(bb *AppBlockBuilder) map[string]any {
 			"SubnetIds":        bb.VpcConfig.SubnetIDs,
 		},
 	}
+
+	if bb.EnableDefaultInternetAccess != nil {
+		resp["EnableDefaultInternetAccess"] = *bb.EnableDefaultInternetAccess
+	}
+
+	return resp
 }

@@ -180,6 +180,7 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 	out.BillingMode = types.BillingMode(input.BillingMode)
 	out.GlobalSecondaryIndexUpdates = toSDKGSIUpdates(input.GlobalSecondaryIndexUpdates)
 	out.ReplicaUpdates = toSDKReplicationGroupUpdates(input.ReplicaUpdates)
+	out.MultiRegionConsistency = types.MultiRegionConsistency(input.MultiRegionConsistency)
 
 	return out, nil
 }
@@ -357,6 +358,7 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
 		GlobalTableVersion:        ptrconv.String(td.GlobalTableVersion),
 		DeletionProtectionEnabled: aws.ToBool(td.DeletionProtectionEnabled),
+		MultiRegionConsistency:    string(td.MultiRegionConsistency),
 	}
 
 	if td.BillingModeSummary != nil {

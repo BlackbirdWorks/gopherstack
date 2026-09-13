@@ -116,7 +116,7 @@ func TestCloudWatchLogsBackend_DeleteLogGroup(t *testing.T) {
 
 			require.NoError(t, err)
 
-			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 0)
+			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 0)
 			require.NoError(t, err)
 			assert.Empty(t, groups)
 		})
@@ -171,6 +171,7 @@ func TestCloudWatchLogsBackend_DescribeLogGroups(t *testing.T) {
 				context.Background(),
 				tt.prefix,
 				tt.token,
+				"",
 				tt.limit,
 			)
 			require.NoError(t, err)
@@ -193,17 +194,17 @@ func TestCloudWatchLogsBackend_DescribeLogGroups_Pagination(t *testing.T) {
 		_, _ = b.CreateLogGroup(context.Background(), "/group/"+string(rune('a'+i)), "", "")
 	}
 
-	page1, token, err := b.DescribeLogGroups(context.Background(), "", "", 2)
+	page1, token, err := b.DescribeLogGroups(context.Background(), "", "", "", 2)
 	require.NoError(t, err)
 	assert.Len(t, page1, 2)
 	assert.NotEmpty(t, token)
 
-	page2, token2, err := b.DescribeLogGroups(context.Background(), "", token, 2)
+	page2, token2, err := b.DescribeLogGroups(context.Background(), "", token, "", 2)
 	require.NoError(t, err)
 	assert.Len(t, page2, 2)
 	assert.NotEmpty(t, token2)
 
-	page3, token3, err := b.DescribeLogGroups(context.Background(), "", token2, 2)
+	page3, token3, err := b.DescribeLogGroups(context.Background(), "", token2, "", 2)
 	require.NoError(t, err)
 	assert.Len(t, page3, 1)
 	assert.Empty(t, token3)
@@ -218,7 +219,7 @@ func TestCloudWatchLogsBackend_PaginationToken_Opaque(t *testing.T) {
 		_, _ = b.CreateLogGroup(context.Background(), fmt.Sprintf("/grp-%d", i), "", "")
 	}
 
-	_, token, err := b.DescribeLogGroups(context.Background(), "", "", 2)
+	_, token, err := b.DescribeLogGroups(context.Background(), "", "", "", 2)
 	require.NoError(t, err)
 	require.NotEmpty(t, token)
 
@@ -290,7 +291,7 @@ func TestCloudWatchLogsBackend_SetRetentionPolicy(t *testing.T) {
 			require.NoError(t, err)
 
 			// Verify the retention is reflected in DescribeLogGroups.
-			groups, _, gErr := b.DescribeLogGroups(context.Background(), "", "", 100)
+			groups, _, gErr := b.DescribeLogGroups(context.Background(), "", "", "", 100)
 			require.NoError(t, gErr)
 			require.Len(t, groups, 1)
 
@@ -568,7 +569,7 @@ func TestCloudWatchLogsBackend_ListLogGroups(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			groups, _, err := b.ListLogGroups(context.Background(), tt.prefix, "", 50)
+			groups, _, err := b.ListLogGroups(context.Background(), tt.prefix, "", "", 50)
 
 			require.NoError(t, err)
 			assert.Len(t, groups, tt.wantLen)
@@ -743,7 +744,7 @@ func TestCloudWatchLogsBackend_DescribeLogGroups_ReturnsClass(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 50)
+	groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 50)
 	require.NoError(t, err)
 	require.Len(t, groups, 2)
 

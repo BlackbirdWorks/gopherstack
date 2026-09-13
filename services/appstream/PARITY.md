@@ -1008,3 +1008,46 @@ Gates: `go build ./...` (whole module, clean). `go vet
 ./services/appstream/...` (clean). `go test -race -count=1
 ./services/appstream/...` (pass). `golangci-lint run --new-from-rev=HEAD
 ./services/appstream/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+19 tier-1 findings triaged: 16 FALSE POSITIVES (already declared/applied --
+`EnableDefaultInternetAccess` on Fleet/ImageBuilder, `Validity` on all three
+streaming-URL ops, `CertificateBasedAuthProperties`,
+`IdleDisconnectTimeoutInSeconds`, `StreamView`, `UserSettings`,
+`DescribeSessions.AuthenticationType`, `ListExportImageTasks.MaxResults`), 3
+fields genuinely FIXED, 0 recorded gaps. **Fixed**:
+`CreateAppBlockBuilder`/`UpdateAppBlockBuilderInput`'s
+`EnableDefaultInternetAccess` was a *different, undeclared* field from the
+same-named Fleet/ImageBuilder one the tool's other hits already cover --
+easy to miss for exactly that reason. Added to `AppBlockBuilder`/
+`storedAppBlockBuilder`, threaded through Create/Update, and echoed in
+`appBlockBuilderToResponse`. `DescribeSessions.Limit` was a real gap: this
+op had no pagination at all (always returned every matching session in one
+call, no NextToken); now uses `pkgs/page` with AWS's documented default (20)
+and max (50), sorted by session ID for stable pages. Both proved via
+`reqfield_slice5_realclient_test.go` against the real typed client.
+**Tool blind spot found** (gopherstack-99nj-class): reqfielddiff's tier-1
+count for this service did not move for these two fixes even after
+confirming by hand (and by real-client test) that both are now genuinely
+declared and applied. Root cause: this service's dispatch table is built by
+`buildOps()` merging several small per-resource-family `opTable`-returning
+helpers (`stackFleetOps()`, `appBlockOps()`, ...) via `maps.Copy`, with each
+entry a bound method value (`"CreateAppBlockBuilder": h.opCreateAppBlockBuilder`).
+The same shape affects `CreateFleet`/`CreateImageBuilder`/`UpdateFleet`'s own
+already-correct `EnableDefaultInternetAccess` (also still tier-1 after this
+pass, and confirmed genuinely fine by reading `fleets.go`/`images.go`) --
+so this is not specific to AppBlockBuilder/Sessions, it is this whole
+opTable-via-per-family-helper pattern.
+
+Signature changes (all call sites updated): `DescribeSessions` gained
+`limit int, nextToken string` and now returns `(sessions, nextToken, error)`;
+`CreateAppBlockBuilder`/`UpdateAppBlockBuilder` gained
+`enableDefaultInternetAccess *bool`.
+
+Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
+-count=1 ./services/appstream/... ./pkgs/persistence/...`, `golangci-lint
+run --new-from-rev=HEAD ./services/appstream/...` all clean.
+`storedAppBlockBuilder` gained one field (`EnableDefaultInternetAccess
+*bool`, omitempty) -- `pkgs/persistence/testdata/snapshot_inventory.json`
+updated by hand with that one row; no version bump.

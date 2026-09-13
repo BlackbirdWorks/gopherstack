@@ -154,6 +154,8 @@ items_still_open:
   - "DISCLOSED, not fixed (gopherstack-enpq, third pass): ListIntegrations does not accept IntegrationNamePrefix/IntegrationStatus/IntegrationType (all real, optional ListIntegrationsInput filter members) -- the handler discards its whole request body. Low-impact: this op's own doc comment says 'Currently, only one integration can be created in an account,' so there is at most one row to filter in the first place."
   - "DISCLOSED, not fixed (gopherstack-enpq, third pass): S3TableIntegrationSource's ParentSourceIdentifier and StatusReason (real, optional types.S3TableIntegrationSource members) are not modeled -- this backend does not model nested/derived associations or a health-check-driven failure reason, so every association is a top-level, unconditionally-ACTIVE entry."
   - "2026-08-30 (gopherstack-wksweep-cwl): first genuine EXHAUSTIVE field sweep of this service, as distinct from every prior structfielddiff/manifest-harvest pass -- a go/types-based scanner (scratch tool, not committed) loaded this package, found every json.Unmarshal(body,&X) call site inside a handle* method, recursively expanded X's struct fields (and any nested struct-typed field, cycle-guarded), and reported which field Vars are never referenced by a SelectorExpr anywhere else in the package. Result: 118 dispatch-table entries (confirmed by a temporary test printing len(h.ops)/GetSupportedOperations(), matching exactly, deleted after use, not taken from this file), 105 top-level decode structs / 293 fields on the first pass, 114 structs / 323 fields after adding nested-struct expansion, 18 fields flagged never-read. All 18 were hand-verified: DeliveryS3Configuration.SuffixPath/EnableHiveCompatiblePath, ScheduledQueryDestinationConfig.S3Configuration/LookupTableConfiguration and their nested fields, and QueryParameter.Name/DefaultValue/Description are whole-struct/whole-slice passthroughs (stored and echoed verbatim, e.g. deliveries.go's `S3DeliveryConfiguration: s3Config`, scheduled_queries.go's `DestinationConfiguration: p.DestinationConfiguration`, query_definitions.go's `slices.Clone(parameters)`) -- the scanner's known blind spot (field-level scan can't see through a whole-value copy), confirmed benign by reading each assignment. MetricTransformation.Dimensions/DefaultValue are the pre-existing, still-open metric-emitter gap and the documented DefaultValue non-implementation respectively -- see their entries above. TOOL BLIND SPOT FOUND AND WORKED AROUND: the scanner only matched `*types.Named` struct types, so `var input struct{...}` (an ANONYMOUS struct literal, used by ~13 handlers: handleDescribeConfigurationTemplates/handleDescribeFieldIndexes/handleDescribeImportTaskBatches/handleGetLogFields/handleGetLogObject/handleGetStorageTierPolicy/handleListAggregateLogGroupSummaries/handleListIntegrations/handleStartLiveTail/handleTestTransformer among others) never appeared in its output at all and had to be hand-enumerated separately by diffing the dispatch-table function-name set against the scanner's covered-function set. That hand pass found handleTestTransformer decoding a `LogGroupIdentifier` field with literally no member on the real TestTransformerInput (verified against api_op_TestTransformer.go: only LogEventMessages/TransformerConfig exist) and never read anywhere -- deleted (de-stub hygiene, not a behavioral bug: it was never used regardless of presence). The same hand pass, cross-referenced against each op's own real SDK Input struct (not inferred from a sibling), found three real PRIMARY-class bugs the field-diff/passthrough analysis alone could not have caught, because the request body was discarded ENTIRELY (`_ []byte`) rather than partially misread: DescribeIndexPolicies ignored its required LogGroupIdentifiers filter (unfiltered full list -- the dominant bug shape), and DescribeDeliveryDestinations/DescribeDeliverySources both ignored real Limit/NextToken members. All three fixed; see their ops: entries. A fourth bug, unrelated to field-reading, was found by checking whether a storage key carries the dimension its resource is scoped by (this pass's explicitly-directed hunt, given lookup tables' status as a scoped/versioned concept): CreateLookupTable/DescribeLookupTables used the backend's constant default region instead of the per-request ctx-derived region every sibling resource type uses, so two regions' same-named lookup tables collided on one key -- see CreateLookupTable/DescribeLookupTables ops: entries. A fifth bug was found reviewing every sort.Slice call in the package for non-unique-key-over-map-walk instability (the ordering class this pass also hunted): DescribeAccountPolicies' PolicyName-only sort was non-total because AccountPolicy's real key is PolicyName+PolicyType -- see the DescribeAccountPolicies ops: entry and the corrected sort-ordering note above (this file itself had wrongly claimed that sort was unique-by-construction). Host-prefix reachability (GetLogObject/StartLiveTail's real 'stream-' prefix, api_op_GetLogObject.go:161/api_op_StartLiveTail.go:225) and the metric-dimensions layer-boundary gap were both independently reconfirmed by reading, not inherited from this file's prior claims -- both still accurate. No storage key omitting a required scope dimension was found anywhere else (resource policies' resourceArn+revisionId, per-log-group IndexPolicy/Transformer/SyslogConfiguration keys, StorageTierPolicy's genuine account-level singleton status were all re-verified against their code, not assumed). DescribeConfigurationTemplates/DescribeFieldIndexes reconfirmed as honest structural void-results (no create op backs either, confirmed by grepping the full 118-op dispatch table). No handler discarding its entire request remains except the three legitimately-argument-free/low-impact cases (handleGetStorageTierPolicy -- real input is a zero-field struct; handleDescribeConfigurationTemplates/handleDescribeFieldIndexes -- structural stubs above; handleListIntegrations -- disclosed, low-impact per its own 'only one integration' doc comment). (bd: gopherstack-wksweep-cwl)"
+  - "2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t): DeleteIntegration does not accept Force (real, optional bool -- 'force the deletion of the integration even if vended logs dashboards currently exist'). This backend has no vended-logs-dashboard concept anywhere tied to an integration, so there is nothing a forced deletion would need to bypass; DeleteIntegration already always succeeds once the integration exists. Not fabricated: recorded rather than wired to a flag with no real effect."
+  - "2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t): PutDestinationPolicy does not accept ForceUpdate (real, optional bool -- affirms the caller already updated subscription filters before granting an organization-wide destination policy). This backend has no cross-account/organization subscription-filter validation to bypass, so the flag has nothing to force past; PutDestinationPolicy already always succeeds for an existing destination."
 deferred:
   - Insights query language/stages/parser correctness (insights_expr.go, insights_parse.go, insights_parser.go, insights_stages.go, insights_stats.go) -- not re-verified op-by-op against CloudWatch Logs Insights query syntax this pass.
   - Transformers, Integrations (PutIntegration/GetIntegration/ListIntegrations), Account Policies (top-level shapes spot-checked flat/no-nested-object-bugs, not exhaustively re-audited field-by-field op-by-op) -- see the "account policies, data protection/resource/index policies, transformers, integrations" family note. Resource Policies and Index Policies were subsequently field-diffed for real (gopherstack-enpq, second pass, 2026-08-21) and are no longer deferred -- see their op entries and the dated gaps note.
@@ -976,3 +978,55 @@ stdlib internals) that reproduces with this pass's new test file excluded
 entirely -- confirmed not introduced by this pass, out of scope to fix
 here. `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-
 struct fields changed by either fix). No version bump.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+19 tier-1 findings triaged: 6 fixed, 2 recorded (new), 11 already covered by
+this file's existing gaps (10 disclosed missing-feature entries, 1 false
+positive). **Fixed**: `CreateLogGroup.DeletionProtectionEnabled` was
+genuinely undeclared -- `handler_log_groups.go`'s "CreateLogGroup" now applies
+it via the existing `SetLogGroupDeletionProtection` mechanism
+(`PutLogGroupDeletionProtection` already backs it) right after creation.
+`DescribeLogGroups.LogGroupClass`/`ListLogGroups.LogGroupClass` were real,
+distinct gaps from the already-disclosed IncludeLinkedAccounts/DataSources/
+FieldIndexNames/LogGroupTags family (that entry never mentions LogGroupClass)
+-- both ops now filter against each group's real, already-tracked
+`LogGroupClass`. `ListScheduledQueries.ScheduleType`/`.State` now filter
+against each scheduled query's real tracked fields (ScheduleType is
+currently always CUSTOMER_MANAGED since this backend never creates an
+AWS_MANAGED query, so filtering for AWS_MANAGED correctly returns empty --
+not fabricated). `UpdateAnomaly.Baseline` was a real, never-read bool;
+`applyAnomalySuppression` now moves State to the real `Baseline` enum value
+when set, independent of suppressionType. All six fields proved via
+`reqfield_slice5_realclient_test.go` against the real typed client. **Newly
+recorded** (see items_still_open): `DeleteIntegration.Force` and
+`PutDestinationPolicy.ForceUpdate` both guard behavior (vended-log
+dashboards; cross-account subscription-filter validation) this backend does
+not model, so neither flag has anything to bypass. **Already covered,
+no new entry needed**: `DescribeFieldIndexes.IndexCategories` and
+`DescribeImportTaskBatches.Limit` are subsumed by this file's existing
+DescribeFieldIndexes/DescribeImportTaskBatches structural-stub disclosures
+(no field-indexing engine; no per-task import-batch model); `FilterLogEvents/
+GetLogEvents/GetLogObject/GetLogRecord.Unmask` are subsumed by the existing
+"masking itself is unimplemented, not the flag" entry;
+`ListAggregateLogGroupSummaries.Limit`/`.IncludeLinkedAccounts` and
+`DescribeLogGroups/ListLogGroups.IncludeLinkedAccounts` are subsumed by the
+existing "no per-log-group data-source classification" / "no cross-account
+observability-link model" entries. `FilterLogEvents.StartFromHead` was a
+FALSE POSITIVE (already declared and forwarded in `handler_log_events.go`);
+`ResetAuthorizersCache`/`UpdateStage.StageName`-shaped path-segment reads
+don't apply to this awsJson1.1 service, but the same "declared elsewhere"
+blind spot (gopherstack-99nj) applies to several of the above via the
+handler's own decode structs living in `handler_*.go` files the tool
+resolves correctly here -- no new blind-spot shape found this slice beyond
+the already-catalogued ones.
+
+Signature changes (all call sites updated, none test-weakening):
+`DescribeLogGroups`/`ListLogGroups` gained a `logGroupClass string` param;
+`ListScheduledQueries` gained `scheduleType, state string`; `UpdateAnomaly`
+gained `baseline bool`.
+
+Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
+-count=1 ./services/cloudwatchlogs/... ./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/cloudwatchlogs/...` all
+clean. No persisted field changed; no version bump.

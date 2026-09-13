@@ -42,7 +42,7 @@ type StorageBackend interface {
 	DeleteLogGroup(ctx context.Context, name string) error
 	DescribeLogGroups(
 		ctx context.Context,
-		prefix, nextToken string,
+		prefix, nextToken, logGroupClass string,
 		limit int,
 	) ([]LogGroup, string, error)
 	CreateLogStream(ctx context.Context, groupName, streamName string) (*LogStream, error)
@@ -157,7 +157,7 @@ type StorageBackend interface {
 	// DeleteScheduledQuery deletes a scheduled query by ARN.
 	DeleteScheduledQuery(scheduledQueryArn string) error
 	// ListScheduledQueries lists all scheduled queries with pagination.
-	ListScheduledQueries(limit int, nextToken string) ([]ScheduledQuery, string, error)
+	ListScheduledQueries(limit int, nextToken, scheduleType, state string) ([]ScheduledQuery, string, error)
 	// UpdateScheduledQuery updates the state of a scheduled query.
 	UpdateScheduledQuery(scheduledQueryArn, state string) error
 	// PutAccountPolicy creates or updates an account-level policy.
@@ -227,14 +227,14 @@ type StorageBackend interface {
 	) ([]ScheduledQueryRunSummary, string, error)
 	// UpdateAnomaly updates anomaly suppression settings, by anomalyID or,
 	// when anomalyID is empty, every anomaly sharing patternID.
-	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string) error
+	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string, baseline bool) error
 	// ListLogGroups is the newer paginated list operation. Unlike
 	// DescribeLogGroups, its name filter (namePattern) is a regular
 	// expression, not a literal prefix, and its real response shape is the
 	// narrower LogGroupSummary (see handleListLogGroups).
 	ListLogGroups(
 		ctx context.Context,
-		namePattern, nextToken string,
+		namePattern, nextToken, logGroupClass string,
 		limit int,
 	) ([]LogGroup, string, error)
 }

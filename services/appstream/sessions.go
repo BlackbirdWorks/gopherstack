@@ -2,7 +2,10 @@ package appstream
 
 import (
 	"fmt"
+	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -12,6 +15,11 @@ const (
 	// defaultStreamingURLValiditySeconds matches real AWS's CreateStreamingURL
 	// default (60 seconds) when the caller omits Validity.
 	defaultStreamingURLValiditySeconds = 60
+
+	// defaultDescribeSessionsLimit/maxDescribeSessionsLimit match real AWS's
+	// documented DescribeSessionsInput.Limit default/max (api_op_DescribeSessions.go).
+	defaultDescribeSessionsLimit = 20
+	maxDescribeSessionsLimit     = 50
 )
 
 type storedSession struct {
@@ -52,7 +60,8 @@ func (b *InMemoryBackend) nextSessionID() string {
 // streaming-instance concept) and so isn't filterable.
 func (b *InMemoryBackend) DescribeSessions(
 	stackName, fleetName, userID, authenticationType string,
-) ([]*Session, error) {
+	limit int, nextToken string,
+) ([]*Session, string, error) {
 	b.mu.RLock("DescribeSessions")
 	defer b.mu.RUnlock()
 
@@ -84,7 +93,15 @@ func (b *InMemoryBackend) DescribeSessions(
 		result = append(result, sess)
 	}
 
-	return result, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	if limit > maxDescribeSessionsLimit {
+		limit = maxDescribeSessionsLimit
+	}
+
+	p := page.New(result, nextToken, limit, defaultDescribeSessionsLimit)
+
+	return p.Data, p.Next, nil
 }
 
 // DrainSessionInstance removes a session.

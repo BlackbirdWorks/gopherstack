@@ -37,8 +37,10 @@ type deleteScheduledQueryOutput struct{}
 
 // --- ListScheduledQueries ---.
 type listScheduledQueriesInput struct {
-	NextToken  string `json:"nextToken"`
-	MaxResults int    `json:"maxResults"`
+	NextToken    string `json:"nextToken"`
+	ScheduleType string `json:"scheduleType,omitempty"`
+	State        string `json:"state,omitempty"`
+	MaxResults   int    `json:"maxResults"`
 }
 
 type listScheduledQueriesOutput struct {
@@ -189,7 +191,9 @@ func (h *Handler) handleListScheduledQueries(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	queries, next, err := h.Backend.ListScheduledQueries(input.MaxResults, input.NextToken)
+	queries, next, err := h.Backend.ListScheduledQueries(
+		input.MaxResults, input.NextToken, input.ScheduleType, input.State,
+	)
 	if err != nil {
 		return nil, err
 	}

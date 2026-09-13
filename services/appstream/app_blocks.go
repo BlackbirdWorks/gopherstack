@@ -63,16 +63,17 @@ func (a *storedAppBlock) toAppBlock() *AppBlock {
 }
 
 type storedAppBlockBuilder struct {
-	CreatedTime      time.Time         `json:"createdTime"`
-	Tags             map[string]string `json:"tags"`
-	Name             string            `json:"name"`
-	Arn              string            `json:"arn"`
-	Description      string            `json:"description"`
-	Platform         string            `json:"platform"`
-	InstanceType     string            `json:"instanceType"`
-	State            string            `json:"state"`
-	SecurityGroupIDs []string          `json:"securityGroupIds"`
-	SubnetIDs        []string          `json:"subnetIds"`
+	CreatedTime                 time.Time         `json:"createdTime"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	Tags                        map[string]string `json:"tags"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	Description                 string            `json:"description"`
+	Platform                    string            `json:"platform"`
+	InstanceType                string            `json:"instanceType"`
+	State                       string            `json:"state"`
+	SecurityGroupIDs            []string          `json:"securityGroupIds"`
+	SubnetIDs                   []string          `json:"subnetIds"`
 }
 
 func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
@@ -80,14 +81,15 @@ func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
 	maps.Copy(tags, b.Tags)
 
 	return &AppBlockBuilder{
-		CreatedTime:  b.CreatedTime,
-		Tags:         tags,
-		Name:         b.Name,
-		Arn:          b.Arn,
-		Description:  b.Description,
-		Platform:     b.Platform,
-		InstanceType: b.InstanceType,
-		State:        b.State,
+		CreatedTime:                 b.CreatedTime,
+		EnableDefaultInternetAccess: b.EnableDefaultInternetAccess,
+		Tags:                        tags,
+		Name:                        b.Name,
+		Arn:                         b.Arn,
+		Description:                 b.Description,
+		Platform:                    b.Platform,
+		InstanceType:                b.InstanceType,
+		State:                       b.State,
 		VpcConfig: VpcConfig{
 			SecurityGroupIDs: append([]string(nil), b.SecurityGroupIDs...),
 			SubnetIDs:        append([]string(nil), b.SubnetIDs...),
@@ -223,6 +225,7 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	name, description, platform, instanceType string,
 	vpcConfig VpcConfig,
 	tags map[string]string,
+	enableDefaultInternetAccess *bool,
 ) (*AppBlockBuilder, error) {
 	if instanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
@@ -240,16 +243,17 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	maps.Copy(storedTags, tags)
 
 	bb := &storedAppBlockBuilder{
-		CreatedTime:      time.Now().UTC(),
-		Tags:             storedTags,
-		Name:             name,
-		Arn:              arn,
-		Description:      description,
-		Platform:         platform,
-		InstanceType:     instanceType,
-		State:            builderStateStopped,
-		SecurityGroupIDs: append([]string(nil), vpcConfig.SecurityGroupIDs...),
-		SubnetIDs:        append([]string(nil), vpcConfig.SubnetIDs...),
+		CreatedTime:                 time.Now().UTC(),
+		EnableDefaultInternetAccess: enableDefaultInternetAccess,
+		Tags:                        storedTags,
+		Name:                        name,
+		Arn:                         arn,
+		Description:                 description,
+		Platform:                    platform,
+		InstanceType:                instanceType,
+		State:                       builderStateStopped,
+		SecurityGroupIDs:            append([]string(nil), vpcConfig.SecurityGroupIDs...),
+		SubnetIDs:                   append([]string(nil), vpcConfig.SubnetIDs...),
 	}
 	b.appBlockBuilders.Put(bb)
 	b.tags[arn] = storedTags
@@ -349,6 +353,7 @@ func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 func (b *InMemoryBackend) UpdateAppBlockBuilder(
 	name, description, instanceType string,
 	vpcConfig *VpcConfig,
+	enableDefaultInternetAccess *bool,
 ) (*AppBlockBuilder, error) {
 	b.mu.Lock("UpdateAppBlockBuilder")
 	defer b.mu.Unlock()
@@ -369,6 +374,10 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(
 	if vpcConfig != nil {
 		bb.SecurityGroupIDs = append([]string(nil), vpcConfig.SecurityGroupIDs...)
 		bb.SubnetIDs = append([]string(nil), vpcConfig.SubnetIDs...)
+	}
+
+	if enableDefaultInternetAccess != nil {
+		bb.EnableDefaultInternetAccess = enableDefaultInternetAccess
 	}
 
 	return bb.toAppBlockBuilder(), nil

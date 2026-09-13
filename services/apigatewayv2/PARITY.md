@@ -1063,3 +1063,31 @@ Gates: `go build ./...` (whole module, clean), `go vet`, `golangci-lint
 run --new-from-rev=HEAD` (0 issues), `go test -race -count=1` (all pass).
 `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
 fields changed). No version bump.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+23 tier-1 findings triaged; 22 FALSE POSITIVES, 1 FIXED, 0 recorded gaps.
+21 of the false positives are the "named decode struct in a different file"
+blind spot (gopherstack-99nj): `DisableExecuteApiEndpoint`, `RouteKey`,
+`RouteSelectionExpression`, `Target`, `EnableSimpleResponses`,
+`ConnectionType`, `TimeoutInMillis`, `EndpointConfiguration`, `AutoDeploy`,
+`DefaultRouteSettings`, and `FailOnWarnings` are all declared in
+`models.go`/read via `c.QueryParam` and applied in `apis.go`/`integrations.go`/
+`authorizers.go`/`stages.go`/`portals.go`/`handler_apis.go`, just not visible
+from wherever the tool resolves each op's decode target. The other 2 are a
+DIFFERENT tool blind spot worth flagging: `ResetAuthorizersCache.StageName`
+and `UpdateStage.StageName` are httpLabel (URI path) members on the real SDK
+input (confirmed via `serializers.go`'s `awsRestjson1_serializeOpHttpBindings*`
+functions), not body fields -- both are already correctly read from the
+route's path segment (`handler.go`'s route table -> `resourceID`), so there
+was never a JSON field to decode in the first place. **Fixed**:
+`ExportApi.ExportVersion` is a real httpQuery param (confirmed same way) that
+was read nowhere -- AWS docs say "Currently, the only supported version is
+1.0"; `handleExportAPI` (handler_apis.go) now rejects any other value with a
+400, proven via `reqfield_slice5_realclient_test.go` against the real typed
+client (1.0 and omitted succeed, 2.0 is rejected).
+
+Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1
+./services/apigatewayv2/... ./pkgs/persistence/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/apigatewayv2/...` all clean. No persisted
+field changed; no version bump.

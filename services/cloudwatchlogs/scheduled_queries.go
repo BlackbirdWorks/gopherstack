@@ -189,16 +189,25 @@ func (b *InMemoryBackend) DeleteScheduledQuery(scheduledQueryArn string) error {
 	return nil
 }
 
-// ListScheduledQueries lists all scheduled queries with pagination.
+// ListScheduledQueries lists all scheduled queries with pagination, optionally
+// filtered by scheduleType and/or state.
 func (b *InMemoryBackend) ListScheduledQueries(
 	limit int,
-	nextToken string,
+	nextToken, scheduleType, state string,
 ) ([]ScheduledQuery, string, error) {
 	b.mu.RLock("ListScheduledQueries")
 	defer b.mu.RUnlock()
 
 	all := make([]ScheduledQuery, 0, b.scheduledQueries.Len())
 	for _, sq := range b.scheduledQueries.All() {
+		if scheduleType != "" && sq.ScheduleType != scheduleType {
+			continue
+		}
+
+		if state != "" && sq.State != state {
+			continue
+		}
+
 		all = append(all, *sq)
 	}
 	sort.Slice(all, func(i, j int) bool {

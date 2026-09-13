@@ -169,7 +169,7 @@ func (b *InMemoryBackend) PutBearerTokenAuthentication(
 
 // DescribeLogGroups returns log groups optionally filtered by prefix, with pagination.
 func (b *InMemoryBackend) DescribeLogGroups(
-	ctx context.Context, prefix, nextToken string, limit int,
+	ctx context.Context, prefix, nextToken, logGroupClass string, limit int,
 ) ([]LogGroup, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -183,9 +183,15 @@ func (b *InMemoryBackend) DescribeLogGroups(
 	regionGroups := b.groupsInRegion(region)
 	all := make([]LogGroup, 0, len(regionGroups))
 	for _, g := range regionGroups {
-		if prefix == "" || strings.HasPrefix(g.LogGroupName, prefix) {
-			all = append(all, *g)
+		if prefix != "" && !strings.HasPrefix(g.LogGroupName, prefix) {
+			continue
 		}
+
+		if logGroupClass != "" && g.LogGroupClass != logGroupClass {
+			continue
+		}
+
+		all = append(all, *g)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].LogGroupName < all[j].LogGroupName })
@@ -411,7 +417,7 @@ func (b *InMemoryBackend) GetLogGroupFields(
 // anchors and "|" alternation (aws-sdk-go-v2 api_op_ListLogGroups.go:22), not
 // a literal prefix. An empty pattern matches every log group.
 func (b *InMemoryBackend) ListLogGroups(
-	ctx context.Context, namePattern, nextToken string, limit int,
+	ctx context.Context, namePattern, nextToken, logGroupClass string, limit int,
 ) ([]LogGroup, string, error) {
 	region := getRegion(ctx, b.region)
 
@@ -430,9 +436,15 @@ func (b *InMemoryBackend) ListLogGroups(
 	regionGroups := b.groupsInRegion(region)
 	all := make([]LogGroup, 0, len(regionGroups))
 	for _, g := range regionGroups {
-		if re == nil || re.MatchString(g.LogGroupName) {
-			all = append(all, *g)
+		if re != nil && !re.MatchString(g.LogGroupName) {
+			continue
 		}
+
+		if logGroupClass != "" && g.LogGroupClass != logGroupClass {
+			continue
+		}
+
+		all = append(all, *g)
 	}
 
 	sort.Slice(all, func(i, j int) bool { return all[i].LogGroupName < all[j].LogGroupName })

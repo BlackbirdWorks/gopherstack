@@ -9,10 +9,11 @@ import (
 )
 
 type createLogGroupInput struct {
-	Tags          map[string]string `json:"tags,omitempty"`
-	LogGroupName  string            `json:"logGroupName"`
-	KmsKeyID      string            `json:"kmsKeyId,omitempty"`
-	LogGroupClass string            `json:"logGroupClass,omitempty"`
+	Tags                      map[string]string `json:"tags,omitempty"`
+	LogGroupName              string            `json:"logGroupName"`
+	KmsKeyID                  string            `json:"kmsKeyId,omitempty"`
+	LogGroupClass             string            `json:"logGroupClass,omitempty"`
+	DeletionProtectionEnabled bool              `json:"deletionProtectionEnabled,omitempty"`
 }
 
 type deleteLogGroupInput struct {
@@ -22,6 +23,7 @@ type deleteLogGroupInput struct {
 type describeLogGroupsInput struct {
 	LogGroupNamePrefix string `json:"logGroupNamePrefix"`
 	NextToken          string `json:"nextToken"`
+	LogGroupClass      string `json:"logGroupClass,omitempty"`
 	Limit              int    `json:"limit"`
 }
 
@@ -83,6 +85,7 @@ type getLogGroupFieldsOutput struct {
 type listLogGroupsInput struct {
 	LogGroupNamePattern string `json:"logGroupNamePattern"`
 	NextToken           string `json:"nextToken"`
+	LogGroupClass       string `json:"logGroupClass,omitempty"`
 	Limit               int    `json:"limit"`
 }
 
@@ -127,6 +130,14 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				h.setTags(input.LogGroupName, input.Tags)
 			}
 
+			if input.DeletionProtectionEnabled {
+				if b := cwlBackend(h); b != nil {
+					if dpErr := b.SetLogGroupDeletionProtection(input.LogGroupName, true); dpErr != nil {
+						return nil, dpErr
+					}
+				}
+			}
+
 			return &createLogGroupOutput{}, nil
 		},
 		"DeleteLogGroup": func(ctx context.Context, b []byte) (any, error) {
@@ -149,6 +160,7 @@ func (h *Handler) logGroupActions() map[string]actionFn {
 				ctx,
 				input.LogGroupNamePrefix,
 				input.NextToken,
+				input.LogGroupClass,
 				input.Limit,
 			)
 			if err != nil {
@@ -239,7 +251,9 @@ func (h *Handler) handleListLogGroups(ctx context.Context, b []byte) (any, error
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	groups, next, err := h.Backend.ListLogGroups(ctx, input.LogGroupNamePattern, input.NextToken, input.Limit)
+	groups, next, err := h.Backend.ListLogGroups(
+		ctx, input.LogGroupNamePattern, input.NextToken, input.LogGroupClass, input.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}

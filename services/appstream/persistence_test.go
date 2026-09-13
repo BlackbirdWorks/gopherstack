@@ -57,6 +57,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 		"builder1", "a builder", "WINDOWS", "stream.standard.medium",
 		appstream.VpcConfig{SecurityGroupIDs: []string{"sg-1"}, SubnetIDs: []string{"subnet-1", "subnet-2"}},
 		nil,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -293,7 +294,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
 
-	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "")
+	sessions, _, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "session-0000000001", sessions[0].ID)

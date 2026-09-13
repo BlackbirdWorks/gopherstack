@@ -244,6 +244,8 @@ type describeSessionsInput struct {
 	FleetName          string `json:"FleetName"`
 	UserId             string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
 	AuthenticationType string `json:"AuthenticationType"`
+	NextToken          string `json:"NextToken"`
+	Limit              int    `json:"Limit"`
 }
 
 func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error) {
@@ -254,7 +256,9 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		}
 	}
 
-	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId, req.AuthenticationType)
+	sessions, next, err := h.Backend.DescribeSessions(
+		req.StackName, req.FleetName, req.UserId, req.AuthenticationType, req.Limit, req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +268,12 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		resp = append(resp, sessionToResponse(s))
 	}
 
-	return map[string]any{"Sessions": resp}, nil
+	out := map[string]any{"Sessions": resp}
+	if next != "" {
+		out["NextToken"] = next
+	}
+
+	return out, nil
 }
 
 type sessionIDInput struct {

@@ -229,6 +229,13 @@ items_still_open:
     for shape-correctness even though the success path is never reached. Full vector-index
     support (CreateTable VectorIndex, index storage, real similarity scoring) is out of
     scope for this pass — tracked as a follow-up if vector search ever becomes a priority."
+  - "2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t): RestoreTableFromBackup and
+    RestoreTableToPointInTime both accept VectorIndexOverride ([]types.VectorIndex) to
+    select which vector indexes carry over into the restored table. Same root cause as
+    the 2026-08-05 SearchVectors entry above -- this backend has no vector-index model
+    at all (no field on a table ever represents one), so there is nothing for an override
+    list to filter and no honest way to apply it. Not fabricated; recorded rather than
+    wired to a no-op."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.
@@ -743,3 +750,40 @@ the real typed `*types.ResourceNotFoundException`. Gates: `go build ./...`
 (whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
 --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
 changed; no version bump.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+17 tier-1 findings triaged. 14 were FALSE POSITIVES: reqfielddiff can't see
+`services/dynamodb/models/types.go`, the file where this service's wire
+decode structs actually live (separate from the handler/backend files it
+resolves) -- `RequestItems`, `ReturnItemCollectionMetrics`, `ReturnValues`,
+`ScanIndexForward`, `ConsistentRead`, `BackupType`, `Limit`,
+`ProjectionExpression` were all already declared there and already read by
+the backend (item_ops_crud.go, item_ops_query.go, item_ops_scan.go,
+backup_ops.go). 1 fixed: **UpdateTable.MultiRegionConsistency** was
+genuinely undeclared anywhere -- added to `models.UpdateTableInput` and
+`models.TableDescription`, threaded through `ToSDKUpdateTableInput` and
+`FromSDKTableDescription`, stored on `Table.MultiRegionConsistency`, applied
+in `applyMultiRegionConsistency` (table_ops.go) when a Global Tables v2
+promotion happens via `ReplicaUpdates` (explicit value wins; defaults to
+EVENTUAL per SDK docs when omitted on first promotion), and echoed back on
+both the `UpdateTable` response (`buildUpdateTableOutput`) and `DescribeTable`
+(`buildTableDescription`). Proved via
+`reqfield_slice5_realclient_test.go` driving the real typed client: explicit
+STRONG survives, omitted defaults to EVENTUAL only when paired with a Create
+replica action, and a plain (non-global) table leaves the field empty. 2
+recorded (one items_still_open entry, both fields): RestoreTableFromBackup's
+and RestoreTableToPointInTime's VectorIndexOverride are the same disclosed
+vector-index gap as SearchVectors above -- see items_still_open. Tool
+blind spot re-confirmed (gopherstack-99nj-class): reqfielddiff's tier-1
+count for this service did not move after the MultiRegionConsistency fix
+landed, for the same models/types.go-blind-spot reason as the 14 false
+positives above -- confirmed correct by hand and by
+`reqfield_slice5_realclient_test.go` against the real typed client.
+
+Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
+-count=1 ./services/dynamodb/... ./pkgs/persistence/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/dynamodb/...` all clean. No persisted field
+removed/retyped (MultiRegionConsistency is a new `omitempty` string field on
+an existing exported struct); `pkgs/persistence` snapshot-inventory guard
+unaffected, no version bump.

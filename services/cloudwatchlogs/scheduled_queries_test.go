@@ -85,14 +85,14 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 			case "list":
 				_, _ = b.CreateScheduledQuery(testScheduledQueryParams("q1"))
 				var queries []cloudwatchlogs.ScheduledQuery
-				queries, _, err = b.ListScheduledQueries(50, "")
+				queries, _, err = b.ListScheduledQueries(50, "", "", "")
 				require.NoError(t, err)
 				assert.Len(t, queries, 1)
 
 				return
 			case "delete_first":
 				var queries []cloudwatchlogs.ScheduledQuery
-				queries, _, err = b.ListScheduledQueries(50, "")
+				queries, _, err = b.ListScheduledQueries(50, "", "", "")
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
 				err = b.DeleteScheduledQuery(queries[0].ScheduledQueryArn)
@@ -100,7 +100,7 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 				err = b.DeleteScheduledQuery(tt.arn)
 			case "update_first":
 				var queries []cloudwatchlogs.ScheduledQuery
-				queries, _, err = b.ListScheduledQueries(50, "")
+				queries, _, err = b.ListScheduledQueries(50, "", "", "")
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
 				err = b.UpdateScheduledQuery(queries[0].ScheduledQueryArn, tt.newState)

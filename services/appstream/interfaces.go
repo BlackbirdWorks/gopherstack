@@ -42,12 +42,17 @@ type StorageBackend interface {
 		name, description, platform, instanceType string,
 		vpcConfig VpcConfig,
 		tags map[string]string,
+		enableDefaultInternetAccess *bool,
 	) (*AppBlockBuilder, error)
 	DeleteAppBlockBuilder(name string) error
 	DescribeAppBlockBuilders(names []string) ([]*AppBlockBuilder, error)
 	StartAppBlockBuilder(name string) error
 	StopAppBlockBuilder(name string) error
-	UpdateAppBlockBuilder(name, description, instanceType string, vpcConfig *VpcConfig) (*AppBlockBuilder, error)
+	UpdateAppBlockBuilder(
+		name, description, instanceType string,
+		vpcConfig *VpcConfig,
+		enableDefaultInternetAccess *bool,
+	) (*AppBlockBuilder, error)
 	CreateAppBlockBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
@@ -164,7 +169,10 @@ type StorageBackend interface {
 	DescribeUserStackAssociations(stackName, userName, authType string) ([]*UserStackAssociation, error)
 
 	// Sessions
-	DescribeSessions(stackName, fleetName, userID, authenticationType string) ([]*Session, error)
+	DescribeSessions(
+		stackName, fleetName, userID, authenticationType string,
+		limit int, nextToken string,
+	) ([]*Session, string, error)
 	DrainSessionInstance(sessionID string) error
 	ExpireSession(sessionID string) error
 	CreateStreamingURL(stackName, fleetName, userID string, validitySeconds int64) (string, time.Time, error)
@@ -442,15 +450,16 @@ type CreateAppBlockOptions struct {
 
 // AppBlockBuilder holds AppStream 2.0 app block builder details.
 type AppBlockBuilder struct {
-	CreatedTime  time.Time
-	Tags         map[string]string
-	Name         string
-	Arn          string
-	Description  string
-	Platform     string
-	InstanceType string
-	State        string
-	VpcConfig    VpcConfig
+	CreatedTime                 time.Time
+	EnableDefaultInternetAccess *bool
+	Tags                        map[string]string
+	Name                        string
+	Arn                         string
+	Description                 string
+	Platform                    string
+	InstanceType                string
+	State                       string
+	VpcConfig                   VpcConfig
 }
 
 // VpcConfig mirrors appstream@v1.64.5 types.VpcConfig: the VPC subnets and

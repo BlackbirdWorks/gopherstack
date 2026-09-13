@@ -701,6 +701,7 @@ type tableSnapshot struct {
 	streamViewType            string
 	tableID                   string
 	globalTableName           string
+	multiRegionConsistency    string
 	billingMode               string
 	sseType                   string
 	sseKMSMasterKeyArn        string
@@ -751,6 +752,7 @@ func snapshotTable(table *Table) tableSnapshot {
 		deletionProtectionEnabled: table.DeletionProtectionEnabled,
 		tableClass:                table.TableClass,
 		globalTableName:           table.GlobalTableName,
+		multiRegionConsistency:    table.MultiRegionConsistency,
 		billingMode:               table.BillingMode,
 		sseEnabled:                table.SSEEnabled,
 		sseType:                   table.SSEType,
@@ -826,6 +828,10 @@ func buildTableDescription(tableName *string, table *Table) *types.TableDescript
 	if s.globalTableName != "" || len(s.replicaList) > 0 {
 		gtv := "2019.11.21"
 		td.GlobalTableVersion = &gtv
+
+		if s.multiRegionConsistency != "" {
+			td.MultiRegionConsistency = types.MultiRegionConsistency(s.multiRegionConsistency)
+		}
 	}
 
 	if s.tableClass != "" {
@@ -1048,6 +1054,8 @@ func (db *InMemoryDB) applyUpdateTableLocked(
 		return NewValidationException(replicaErr.Error())
 	}
 
+	applyMultiRegionConsistency(table, input.MultiRegionConsistency, input.ReplicaUpdates)
+
 	if input.DeletionProtectionEnabled != nil {
 		table.DeletionProtectionEnabled = *input.DeletionProtectionEnabled
 	}
@@ -1177,6 +1185,35 @@ func cloneSourceItemsIntoReplicaRLocked(source, replica *Table) {
 	for i, item := range source.Items {
 		replica.Items[i] = deepCopyItem(item)
 		replica.itemSizes[i] = source.itemSizes[i]
+	}
+}
+
+// applyMultiRegionConsistency sets the global table's consistency mode.
+// AWS docs: valid only when creating a global table via a Create action in
+// ReplicaUpdates; defaults to EVENTUAL when the table is being promoted to a
+// global table and the field is omitted (dynamodb SDK
+// serializers.go:7713-7715, types.go:3600).
+func applyMultiRegionConsistency(
+	table *Table,
+	consistency types.MultiRegionConsistency,
+	updates []types.ReplicationGroupUpdate,
+) {
+	if consistency != "" {
+		table.MultiRegionConsistency = string(consistency)
+
+		return
+	}
+
+	if table.MultiRegionConsistency != "" {
+		return
+	}
+
+	for _, u := range updates {
+		if u.Create != nil {
+			table.MultiRegionConsistency = string(types.MultiRegionConsistencyEventual)
+
+			return
+		}
 	}
 }
 
@@ -1589,6 +1626,10 @@ func buildUpdateTableOutput(
 		td.BillingModeSummary = &types.BillingModeSummary{
 			BillingMode: types.BillingMode(table.BillingMode),
 		}
+	}
+
+	if table.MultiRegionConsistency != "" {
+		td.MultiRegionConsistency = types.MultiRegionConsistency(table.MultiRegionConsistency)
 	}
 
 	if table.SSEEnabled {

@@ -32,7 +32,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, id string) {
 				t.Helper()
 
-				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 100)
+				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 100)
 				require.NoError(t, err)
 				require.Len(t, groups, 1)
 				assert.Equal(t, id, groups[0].LogGroupName)
@@ -44,7 +44,7 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend, _ string) {
 				t.Helper()
 
-				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 100)
+				groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 100)
 				require.NoError(t, err)
 				assert.Empty(t, groups)
 			},
@@ -166,7 +166,7 @@ func TestInMemoryBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, fresh.Restore(ctx, snap))
 
 	// --- verify region-qualified tables ---
-	groups, _, err := fresh.DescribeLogGroups(ctx, "", "", 100)
+	groups, _, err := fresh.DescribeLogGroups(ctx, "", "", "", 100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "/full/group", groups[0].LogGroupName)
@@ -340,7 +340,7 @@ func TestInMemoryBackend_RestoreV1ScheduledQueryArnDiscarded(t *testing.T) {
 	require.NoError(t, b.Restore(t.Context(), v1Snapshot),
 		"a v1 snapshot must be discarded via the version guard, not partially decoded")
 
-	queries, _, err := b.ListScheduledQueries(10, "")
+	queries, _, err := b.ListScheduledQueries(10, "", "", "")
 	require.NoError(t, err)
 	assert.Empty(t, queries,
 		"incompatible-version snapshot must reset to empty, not restore a scheduled query with a corrupted arn")
@@ -367,7 +367,7 @@ func TestHandler_SnapshotRestore_PreservesTags(t *testing.T) {
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
 	// Log group should be present in the restored backend.
-	groups, _, gErr := b2.DescribeLogGroups(context.Background(), "", "", 100)
+	groups, _, gErr := b2.DescribeLogGroups(context.Background(), "", "", "", 100)
 	require.NoError(t, gErr)
 	require.Len(t, groups, 1)
 	assert.Equal(t, "tagged-group", groups[0].LogGroupName)
@@ -430,7 +430,7 @@ func TestInMemoryBackend_SnapshotRestore_PreservesRetention(t *testing.T) {
 	b2 := cloudwatchlogs.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
-	groups, _, err := b2.DescribeLogGroups(context.Background(), "", "", 100)
+	groups, _, err := b2.DescribeLogGroups(context.Background(), "", "", "", 100)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	require.NotNil(t, groups[0].RetentionInDays)
@@ -738,7 +738,7 @@ func TestBackend_Reset_ClearsNewMaps(t *testing.T) {
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// Verify log groups are empty (representative check).
-	groups, _, err := fresh.DescribeLogGroups(context.Background(), "", "", 100)
+	groups, _, err := fresh.DescribeLogGroups(context.Background(), "", "", "", 100)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }

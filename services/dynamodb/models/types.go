@@ -111,6 +111,7 @@ type TableDescription struct {
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	MultiRegionConsistency    string                            `json:"MultiRegionConsistency,omitempty"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
 	TableSizeBytes            int64                             `json:"TableSizeBytes"`
 	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
@@ -188,6 +189,7 @@ type UpdateTableInput struct {
 	TableName                   string                       `json:"TableName"`
 	BillingMode                 string                       `json:"BillingMode,omitempty"`
 	TableClass                  string                       `json:"TableClass,omitempty"`
+	MultiRegionConsistency      string                       `json:"MultiRegionConsistency,omitempty"`
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
