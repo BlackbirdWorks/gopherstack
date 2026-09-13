@@ -52,10 +52,10 @@ func (b *InMemoryBackend) GetResourcesV2(
 	return paginateSlice(all, nextToken, maxResults, maxDefaultResults)
 }
 
-func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByFields []string) []map[string]any {
+func (b *InMemoryBackend) GetResourcesStatisticsV2(groupByFields []string, sortOrder string) []map[string]any {
 	resources, _ := b.GetResourcesV2(nil, "", maxDefaultResults)
 
-	return groupByResults(resources, groupByFields, nil)
+	return groupByResults(resources, groupByFields, nil, sortOrder)
 }
 
 // GetResourcesTrendsV2 returns a single ResourcesTrendsMetricsResult data

@@ -34,6 +34,7 @@ type ReplicationInstanceSettings struct {
 	PreferredMaintenanceWindow string
 	ReplicationSubnetGroupID   string
 	VpcSecurityGroupIDs        []string
+	ResourceIdentifier         string
 }
 
 // CreateReplicationInstance creates a new DMS replication instance.
@@ -67,7 +68,12 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		)
 	}
 
-	instanceARN := arn.Build("dms", region, b.accountID, "rep:"+identifier)
+	arnSuffix := identifier
+	if settings.ResourceIdentifier != "" {
+		arnSuffix = settings.ResourceIdentifier
+	}
+
+	instanceARN := arn.Build("dms", region, b.accountID, "rep:"+arnSuffix)
 	t := tags.New("dms.replication-instance." + identifier + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)

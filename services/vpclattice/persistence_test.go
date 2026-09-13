@@ -39,7 +39,7 @@ func newPersistenceTestBackend(t *testing.T) (*vpclattice.InMemoryBackend, persi
 	b := vpclattice.NewInMemoryBackend("000000000000", "us-east-1")
 	ctx := t.Context()
 
-	svc, err := b.CreateService(ctx, "svc1", "", "", "", map[string]string{"env": "test"})
+	svc, err := b.CreateService(ctx, "svc1", "", "", "", 0, map[string]string{"env": "test"})
 	require.NoError(t, err)
 
 	sn, err := b.CreateServiceNetwork(ctx, "sn1", "", nil)
@@ -113,7 +113,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, ids.serviceID, svc.ID)
 	assert.NotEmpty(t, svc.HostedZoneID)
 
-	_, err = fresh.CreateService(t.Context(), "svc1", "", "", "", nil)
+	_, err = fresh.CreateService(t.Context(), "svc1", "", "", "", 0, nil)
 	require.ErrorIs(t, err, vpclattice.ErrAlreadyExists)
 
 	// serviceNetworks table + networksByName index.

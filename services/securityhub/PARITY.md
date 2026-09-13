@@ -147,11 +147,49 @@ items_still_open:
   - "BatchUpdateFindingsV2 MetadataUids-based finding identification can never resolve (always ResourceNotFoundException): this backend has no OCSF ingestion path that would ever hand a real client a metadata.uid to reference back. Only FindingIdentifiers (CloudAccountUid/FindingInfoUid/MetadataProductUid, mapped onto AwsAccountId/Id/ProductArn) can resolve a finding."
   - "(parity-4) CSPM Connector health ConnectorStatus can never leave UNKNOWN, and EnablementStatus can never reach ENABLED: unlike Connectors V2 (which has a dedicated RegisterConnectorV2 to complete an out-of-band OAuth handshake), the real CreateConnector/GetConnector/UpdateConnector/DeleteConnector/ListConnectors surface has NO companion 'complete authorization' operation at all -- establishing connectivity to the Azure account requires a purely external, provider-side step (granting the AWSConfigConnectorArn role access in the Azure portal) that this mock has no API-observable signal for. Auto-advancing a connector to CONNECTED/ENABLED without any real client action causing it would be a fabricated transition, so CreateConnector leaves it at PENDING_ENABLEMENT/UNKNOWN and UpdateConnector leaves it at PENDING_UPDATE permanently. Not attempted this pass -- architectural (no out-of-band signal exists to model), not a bug-fix-sized change."
   - "(gopherstack-uox6 value-semantics sweep) GetFindingsV2's OcsfMapFilter (findings_v2.go matchesOcsfMapFilter/compareMapFilter) does not apply the same-field CONTAINS/EQUALS-joined-by-OR, NOT_CONTAINS/NOT_EQUALS-joined-by-AND combination rule that MapFilter's own doc comment documents (the same rule fixed this pass for V1's []StringFilter in matchesStringFilter) -- multiple OcsfMapFilter entries in one CompositeFilter's MapFilters list are instead combined via that CompositeFilter's explicit Operator (AND/OR), per matchesCompositeFilterDepth. Left unresolved rather than guessed: GetFindingsV2's OcsfFindingFilters model already exposes an explicit per-CompositeFilter Operator that V1's AwsSecurityFindingFilters has no equivalent of, and neither the MapFilter doc comment nor the OcsfFindingFilters/CompositeFilter doc comments state whether the legacy implicit per-field rule still applies underneath that explicit Operator, or is superseded by it, when a field's name repeats within one CompositeFilter's MapFilters list. Not attempted this pass -- the documentation does not specify this precisely enough to implement without fabricating a rule."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): GetFindingsV2/GetFindingStatisticsV2/GetResourcesV2/GetResourcesStatisticsV2's Scopes (types.FindingScopes/ResourceScopes, currently AwsOrganizations-only) is accepted-and-dropped on all four ops. Its own doc comment: 'lets you aggregate [findings/resources] from your entire organization or from specific organizational units.' This backend models organization member accounts as a flat list (organizations.go) with no organizational-unit tree at all, so there is no OU membership to filter Scopes.AwsOrganizations's OU-ARN list against without fabricating an OU hierarchy. Not implemented."
 deferred: []
 leaks: {status: clean, note: "no goroutines, tickers, or background loops in services/securityhub -- pure request-response over an in-memory store.Registry guarded by one lockmetrics.RWMutex. New findingHistory map (findings.go/store.go) follows the same plain-map + coarse-lock pattern as findings/tags -- every read/write path holds b.mu for the duration, no separate lock, no goroutines."}
 ---
 
 ## Notes
+
+### reqfielddiff slice 6 (2026-09-12, gopherstack-xhu2t)
+
+Worked all 13 tier-1 findings. **4 real fixes**: `EnableOrganizationAdminAccount`/
+`DisableOrganizationAdminAccount.Feature` (undeclared; this backend tracked
+one flat, feature-unaware admin-account set -- added `orgAdminAccountFeatures
+map[string]string` alongside the existing `orgAdminAccounts` map so
+`ListOrganizationAdminAccounts`'s existing `Feature` query-param filter,
+previously accepted-and-ignored per its own comment, now actually narrows
+results, and disabling under the wrong feature is a no-op rather than
+removing an admin scoped to a different feature). `EnableSecurityHub.ControlFindingGenerator`
+(undeclared; `EnableHub` hardcoded `"SECURITY_CONTROL"` regardless of what
+was requested -- now honored, validated, defaults to SECURITY_CONTROL).
+`GetFindingStatisticsV2.SortOrder` (undeclared; `GroupByValues` were
+returned in first-seen order regardless of count, ignoring the documented
+"descending is the default" -- `groupByResults`, shared with
+`GetResourcesStatisticsV2`, now sorts by count; both ops' `SortOrder`
+threaded through, though only `GetFindingStatisticsV2.SortOrder` was the
+flagged tier-1 finding). **5 false positives**: `CreateAutomationRule.IsTerminal`
+and `UpdateOrganizationConfiguration.AutoEnable`/`AutoEnableStandards`/
+`UpdateSecurityHubConfiguration.AutoEnableControls` were all already read by
+name. `BatchUpdateFindings.VerificationState` is a different, notable
+blind-spot shape: `handleBatchUpdateFindings` (handler_findings.go) collects
+every body field except `FindingIdentifiers` into a generic `updates` map
+applied wholesale via `maps.Copy` onto the stored ASFF finding
+(findings.go:510) -- the field is genuinely honored (confirmed both by a
+pre-existing test, `TestBatchImportFindings_PreservesCustomerManagedFields`,
+and a new real-SDK-client test), but no per-field declaration exists
+anywhere for the tool to find. **4 recorded gaps** (see `items_still_open`):
+`GetFindingsV2`/`GetFindingStatisticsV2`/`GetResourcesV2`/
+`GetResourcesStatisticsV2.Scopes` (AwsOrganizations-OU filtering; this
+backend has no organizational-unit tree to filter against). Proven via
+`reqfield_slice6_realclient_test.go` driving the real `securityhub` client.
+`go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint` all clean;
+no persistence-schema version bump (new `orgAdminAccountFeatures` field is
+additive with `omitempty`, old fields unchanged; 1 inventory row added by
+hand: `snapshot.OrgAdminAccountFeatures`).
 
 ### parity-4 pass (2026-07-25): 7 new SDK ops from the v1.71.2 -> v1.75.0 bump
 

@@ -84,66 +84,68 @@ type InMemoryBackend struct {
 	// registry.SnapshotAll(), registry.RestoreAll()) instead of hand-rolled
 	// per-map boilerplate. See store_setup.go for the full registration list
 	// and the fields deliberately left as plain maps.
-	registry               *store.Registry
-	configPolicyAssocs     *store.Table[ConfigurationPolicyAssociation]
-	orgConfig              *OrgConfig
-	tags                   map[string]map[string]string
-	automationRules        *store.Table[AutomationRule]
-	hub                    *Hub
-	findings               map[string]map[string]any
-	findingHistory         map[string][]map[string]any
-	insights               *store.Table[Insight]
-	controlParams          map[string]map[string]any
-	productSubscriptions   map[string]string
-	mu                     *lockmetrics.RWMutex
-	actionTargets          *store.Table[ActionTarget]
-	members                *store.Table[Member]
-	invitations            *store.Table[Invitation]
-	adminAccount           *AdminAccount
-	configPolicies         *store.Table[ConfigurationPolicy]
-	orgAdminAccounts       map[string]string
-	recommendedPoliciesV2  *store.Table[RecommendedPolicyV2]
-	findingAggregators     *store.Table[FindingAggregator]
-	controlOverrides       *store.Table[StandardsControl]
-	controlAssocOverrides  *store.Table[StandardsControlAssociation] // composite key: standardsArn|securityControlID
-	ticketsV2              *store.Table[TicketV2]
-	connectorsV2           *store.Table[ConnectorV2]
-	standardsSubscriptions *store.Table[StandardsSubscription]
-	hubV2                  *HubV2
-	aggregatorsV2          *store.Table[AggregatorV2]
-	automationRulesV2      *store.Table[AutomationRuleV2]
-	cspmConnectors         *store.Table[CspmConnector]
-	region                 string
-	accountID              string
-	aggregatorV2Seq        int
-	connectorV2Seq         int
-	automationRuleV2Seq    int
-	configPolicySeq        int
-	memberSeq              int
-	findingAggregatorSeq   int
-	ticketV2Seq            int
-	standardsSeq           int
-	actionTargetSeq        int
-	insightSeq             int
-	automationRuleSeq      int
-	cspmConnectorSeq       int
-	hubEnabled             bool
-	hubV2Enabled           bool
+	registry                *store.Registry
+	configPolicyAssocs      *store.Table[ConfigurationPolicyAssociation]
+	orgConfig               *OrgConfig
+	tags                    map[string]map[string]string
+	automationRules         *store.Table[AutomationRule]
+	hub                     *Hub
+	findings                map[string]map[string]any
+	findingHistory          map[string][]map[string]any
+	insights                *store.Table[Insight]
+	controlParams           map[string]map[string]any
+	productSubscriptions    map[string]string
+	mu                      *lockmetrics.RWMutex
+	actionTargets           *store.Table[ActionTarget]
+	members                 *store.Table[Member]
+	invitations             *store.Table[Invitation]
+	adminAccount            *AdminAccount
+	configPolicies          *store.Table[ConfigurationPolicy]
+	orgAdminAccounts        map[string]string
+	orgAdminAccountFeatures map[string]string
+	recommendedPoliciesV2   *store.Table[RecommendedPolicyV2]
+	findingAggregators      *store.Table[FindingAggregator]
+	controlOverrides        *store.Table[StandardsControl]
+	controlAssocOverrides   *store.Table[StandardsControlAssociation] // composite key: standardsArn|securityControlID
+	ticketsV2               *store.Table[TicketV2]
+	connectorsV2            *store.Table[ConnectorV2]
+	standardsSubscriptions  *store.Table[StandardsSubscription]
+	hubV2                   *HubV2
+	aggregatorsV2           *store.Table[AggregatorV2]
+	automationRulesV2       *store.Table[AutomationRuleV2]
+	cspmConnectors          *store.Table[CspmConnector]
+	region                  string
+	accountID               string
+	aggregatorV2Seq         int
+	connectorV2Seq          int
+	automationRuleV2Seq     int
+	configPolicySeq         int
+	memberSeq               int
+	findingAggregatorSeq    int
+	ticketV2Seq             int
+	standardsSeq            int
+	actionTargetSeq         int
+	insightSeq              int
+	automationRuleSeq       int
+	cspmConnectorSeq        int
+	hubEnabled              bool
+	hubV2Enabled            bool
 }
 
 // NewInMemoryBackend creates a new in-memory backend.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:             store.NewRegistry(),
-		mu:                   lockmetrics.New("securityhub"),
-		accountID:            accountID,
-		region:               region,
-		findings:             make(map[string]map[string]any),
-		findingHistory:       make(map[string][]map[string]any),
-		productSubscriptions: make(map[string]string),
-		controlParams:        make(map[string]map[string]any),
-		tags:                 make(map[string]map[string]string),
-		orgAdminAccounts:     make(map[string]string),
+		registry:                store.NewRegistry(),
+		mu:                      lockmetrics.New("securityhub"),
+		accountID:               accountID,
+		region:                  region,
+		findings:                make(map[string]map[string]any),
+		findingHistory:          make(map[string][]map[string]any),
+		productSubscriptions:    make(map[string]string),
+		controlParams:           make(map[string]map[string]any),
+		tags:                    make(map[string]map[string]string),
+		orgAdminAccounts:        make(map[string]string),
+		orgAdminAccountFeatures: make(map[string]string),
 	}
 
 	registerAllTables(b)
@@ -185,6 +187,7 @@ func (b *InMemoryBackend) resetLocked() {
 	b.adminAccount = nil
 	b.orgConfig = nil
 	b.orgAdminAccounts = make(map[string]string)
+	b.orgAdminAccountFeatures = make(map[string]string)
 	b.memberSeq = 0
 	// Finding Aggregator
 	b.findingAggregatorSeq = 0
@@ -219,9 +222,10 @@ type snapshot struct {
 	Tags                 map[string]map[string]string `json:"tags"`
 	ControlParams        map[string]map[string]any    `json:"controlParams"`
 	// Members / Invitations / Admin
-	AdminAccount     *AdminAccount     `json:"adminAccount"`
-	OrgConfig        *OrgConfig        `json:"orgConfig"`
-	OrgAdminAccounts map[string]string `json:"orgAdminAccounts"`
+	AdminAccount            *AdminAccount     `json:"adminAccount"`
+	OrgConfig               *OrgConfig        `json:"orgConfig"`
+	OrgAdminAccounts        map[string]string `json:"orgAdminAccounts"`
+	OrgAdminAccountFeatures map[string]string `json:"orgAdminAccountFeatures,omitempty"`
 	// V2
 	HubV2   *HubV2                     `json:"hubV2"`
 	Tables  map[string]json.RawMessage `json:"tables"`
@@ -274,10 +278,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AutomationRuleSeq:    b.automationRuleSeq,
 		Tags:                 b.tags,
 		// Members / Invitations / Admin
-		AdminAccount:     b.adminAccount,
-		OrgConfig:        b.orgConfig,
-		OrgAdminAccounts: b.orgAdminAccounts,
-		MemberSeq:        b.memberSeq,
+		AdminAccount:            b.adminAccount,
+		OrgConfig:               b.orgConfig,
+		OrgAdminAccounts:        b.orgAdminAccounts,
+		OrgAdminAccountFeatures: b.orgAdminAccountFeatures,
+		MemberSeq:               b.memberSeq,
 		// Finding Aggregator
 		FindingAggregatorSeq: b.findingAggregatorSeq,
 		// Configuration Policy
@@ -365,6 +370,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.orgAdminAccounts = snap.OrgAdminAccounts
 	if b.orgAdminAccounts == nil {
 		b.orgAdminAccounts = make(map[string]string)
+	}
+
+	b.orgAdminAccountFeatures = snap.OrgAdminAccountFeatures
+	if b.orgAdminAccountFeatures == nil {
+		b.orgAdminAccountFeatures = make(map[string]string)
 	}
 
 	b.memberSeq = snap.MemberSeq

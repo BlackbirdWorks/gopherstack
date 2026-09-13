@@ -313,6 +313,7 @@ type AssessmentRun struct {
 	ServiceAccessRoleArn            string
 	ResultLocationBucket            string
 	ResultLocationFolder            string
+	ResultEncryptionMode            string
 	Region                          string
 	IndividualAssessments           []*IndividualAssessment
 	ResultStatistic                 AssessmentRunResultStatistic

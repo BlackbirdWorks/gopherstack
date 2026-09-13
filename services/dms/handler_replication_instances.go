@@ -25,6 +25,7 @@ type createReplicationInstanceInput struct {
 	PreferredMaintenanceWindow    *string    `json:"PreferredMaintenanceWindow"`
 	ReplicationSubnetGroupID      *string    `json:"ReplicationSubnetGroupIdentifier"`
 	VpcSecurityGroupIDs           []string   `json:"VpcSecurityGroupIds"`
+	ResourceIdentifier            *string    `json:"ResourceIdentifier"`
 	Tags                          []tagEntry `json:"Tags"`
 }
 
@@ -64,6 +65,7 @@ func (h *Handler) handleCreateReplicationInstance(
 			PreferredMaintenanceWindow: ptrconv.String(in.PreferredMaintenanceWindow),
 			ReplicationSubnetGroupID:   ptrconv.String(in.ReplicationSubnetGroupID),
 			VpcSecurityGroupIDs:        in.VpcSecurityGroupIDs,
+			ResourceIdentifier:         ptrconv.String(in.ResourceIdentifier),
 		},
 	)
 	if err != nil {

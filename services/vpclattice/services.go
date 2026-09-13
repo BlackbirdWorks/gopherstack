@@ -28,12 +28,32 @@ func (b *InMemoryBackend) resolveServiceID(identifier string) (string, bool) {
 // ------- Service operations -------
 
 // CreateService creates a new service.
+// defaultServiceIdleTimeoutSeconds/minServiceIdleTimeoutSeconds/
+// maxServiceIdleTimeoutSeconds mirror CreateServiceInput.IdleTimeoutSeconds's
+// own doc comment: "valid range is 60 to 600 seconds. If you don't specify
+// a value, the default is 60 seconds" (vpclattice@v1.25.5
+// api_op_CreateService.go).
+const (
+	defaultServiceIdleTimeoutSeconds = 60
+	minServiceIdleTimeoutSeconds     = 60
+	maxServiceIdleTimeoutSeconds     = 600
+)
+
 func (b *InMemoryBackend) CreateService(
 	ctx context.Context,
 	name, authType, certificateArn, customDomainName string,
+	idleTimeoutSeconds int32,
 	tags map[string]string,
 ) (*Service, error) {
 	if name == "" {
+		return nil, ErrInvalidParameter
+	}
+
+	if idleTimeoutSeconds == 0 {
+		idleTimeoutSeconds = defaultServiceIdleTimeoutSeconds
+	}
+
+	if idleTimeoutSeconds < minServiceIdleTimeoutSeconds || idleTimeoutSeconds > maxServiceIdleTimeoutSeconds {
 		return nil, ErrInvalidParameter
 	}
 
@@ -54,19 +74,20 @@ func (b *InMemoryBackend) CreateService(
 	}
 
 	svc := &storedService{
-		ARN:              svcARN,
-		ID:               id,
-		Name:             name,
-		AuthType:         authType,
-		CertificateArn:   certificateArn,
-		CustomDomainName: customDomainName,
-		DNSName:          id + ".vpc-lattice-svcs." + region + ".on.aws",
-		HostedZoneID:     newHostedZoneID(),
-		Status:           statusActive,
-		Tags:             copyTags(tags),
-		CreatedAt:        now,
-		LastUpdatedAt:    now,
-		Region:           region,
+		ARN:                svcARN,
+		ID:                 id,
+		Name:               name,
+		AuthType:           authType,
+		CertificateArn:     certificateArn,
+		CustomDomainName:   customDomainName,
+		DNSName:            id + ".vpc-lattice-svcs." + region + ".on.aws",
+		HostedZoneID:       newHostedZoneID(),
+		Status:             statusActive,
+		Tags:               copyTags(tags),
+		CreatedAt:          now,
+		LastUpdatedAt:      now,
+		Region:             region,
+		IdleTimeoutSeconds: idleTimeoutSeconds,
 	}
 
 	b.services.Put(svc)
@@ -93,7 +114,13 @@ func (b *InMemoryBackend) GetService(serviceID string) (*Service, error) {
 // UpdateService updates a service.
 func (b *InMemoryBackend) UpdateService(
 	serviceID, authType, certificateArn string,
+	idleTimeoutSeconds int32,
 ) (*Service, error) {
+	if idleTimeoutSeconds != 0 &&
+		(idleTimeoutSeconds < minServiceIdleTimeoutSeconds || idleTimeoutSeconds > maxServiceIdleTimeoutSeconds) {
+		return nil, ErrInvalidParameter
+	}
+
 	b.mu.Lock("UpdateService")
 	defer b.mu.Unlock()
 
@@ -105,6 +132,10 @@ func (b *InMemoryBackend) UpdateService(
 	svc, _ := b.services.Get(id)
 	if authType != "" {
 		svc.AuthType = authType
+	}
+
+	if idleTimeoutSeconds != 0 {
+		svc.IdleTimeoutSeconds = idleTimeoutSeconds
 	}
 
 	svc.CertificateArn = certificateArn

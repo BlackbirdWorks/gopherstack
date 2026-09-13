@@ -32,6 +32,7 @@ type EndpointConnectionSettings struct {
 	ServiceAccessRoleArn      string
 	SslMode                   string
 	ExternalTableDefinition   string
+	ResourceIdentifier        string
 }
 
 // CreateEndpoint creates a new DMS endpoint.
@@ -51,7 +52,11 @@ func (b *InMemoryBackend) CreateEndpoint(
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, identifier)
 	}
 
-	endpointID := uuid.NewString()
+	endpointID := settings.ResourceIdentifier
+	if endpointID == "" {
+		endpointID = uuid.NewString()
+	}
+
 	endpointARN := arn.Build("dms", region, b.accountID, "endpoint:"+endpointID)
 	t := tags.New("dms.endpoint." + identifier + ".tags")
 	if len(kv) > 0 {

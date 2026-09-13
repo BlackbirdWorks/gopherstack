@@ -10,11 +10,14 @@ func (h *Handler) createBatchInferenceJob(input map[string]any) (map[string]any,
 	jobName, _ := input["jobName"].(string)
 	solutionVersionArn, _ := input["solutionVersionArn"].(string)
 	roleArn, _ := input["roleArn"].(string)
+	jobMode, _ := input["batchInferenceJobMode"].(string)
 	jobInput, _ := input["jobInput"].(map[string]any)
 	jobOutput, _ := input["jobOutput"].(map[string]any)
 	tags := extractTags(input)
 
-	job, err := h.Backend.CreateBatchInferenceJob(jobName, solutionVersionArn, roleArn, jobInput, jobOutput, tags)
+	job, err := h.Backend.CreateBatchInferenceJob(
+		jobName, solutionVersionArn, roleArn, jobMode, jobInput, jobOutput, tags,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -61,6 +64,7 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 		keyRoleArn:              job.RoleArn,
 		"jobInput":              job.JobInput,
 		keyJobOutput:            job.JobOutput,
+		"batchInferenceJobMode": job.BatchInferenceJobMode,
 		keyStatus:               job.Status,
 		keyCreationDateTime:     awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(job.LastUpdatedDateTime),
@@ -78,6 +82,7 @@ func batchInferenceJobSummaryToMap(job *BatchInferenceJob) map[string]any {
 		keyBatchInferenceJobArn: job.BatchInferenceJobArn,
 		keyJobName:              job.JobName,
 		keySolutionVersionArn:   job.SolutionVersionArn,
+		"batchInferenceJobMode": job.BatchInferenceJobMode,
 		keyStatus:               job.Status,
 		keyCreationDateTime:     awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime:  awstime.Epoch(job.LastUpdatedDateTime),

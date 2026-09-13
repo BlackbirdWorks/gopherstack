@@ -32,6 +32,7 @@ type assessmentRunJSON struct {
 	ReplicationTaskAssessmentRunArn string `json:"ReplicationTaskAssessmentRunArn,omitempty"`
 	ResultLocationBucket            string `json:"ResultLocationBucket,omitempty"`
 	ResultLocationFolder            string `json:"ResultLocationFolder,omitempty"`
+	ResultEncryptionMode            string `json:"ResultEncryptionMode,omitempty"`
 	ServiceAccessRoleArn            string `json:"ServiceAccessRoleArn,omitempty"`
 	Status                          string `json:"Status,omitempty"`
 
@@ -60,6 +61,7 @@ func runToJSON(run *AssessmentRun) assessmentRunJSON {
 		ReplicationTaskAssessmentRunCreationDate: awstime.Epoch(run.CreationDate),
 		ResultLocationBucket:                     run.ResultLocationBucket,
 		ResultLocationFolder:                     run.ResultLocationFolder,
+		ResultEncryptionMode:                     run.ResultEncryptionMode,
 		ResultStatistic: assessmentRunResultStatisticJSON{
 			Cancelled: run.ResultStatistic.Cancelled,
 			Error:     run.ResultStatistic.Error,
@@ -337,6 +339,7 @@ type startReplicationTaskAssessmentRunInput struct {
 	ServiceAccessRoleArn *string  `json:"ServiceAccessRoleArn"`
 	ResultLocationBucket *string  `json:"ResultLocationBucket"`
 	AssessmentRunName    *string  `json:"AssessmentRunName"`
+	ResultEncryptionMode *string  `json:"ResultEncryptionMode"`
 	IncludeOnly          []string `json:"IncludeOnly"`
 	Exclude              []string `json:"Exclude"`
 }
@@ -358,6 +361,7 @@ func (h *Handler) handleStartReplicationTaskAssessmentRun(
 		ptrconv.String(in.ServiceAccessRoleArn),
 		ptrconv.String(in.ResultLocationBucket),
 		ptrconv.String(in.AssessmentRunName),
+		ptrconv.String(in.ResultEncryptionMode),
 		in.IncludeOnly,
 		in.Exclude,
 	)
@@ -389,6 +393,10 @@ func validateStartAssessmentRunInput(in *startReplicationTaskAssessmentRunInput)
 
 	if len(in.IncludeOnly) > 0 && len(in.Exclude) > 0 {
 		return fmt.Errorf("%w: cannot set both IncludeOnly and Exclude", ErrValidation)
+	}
+
+	if mode := ptrconv.String(in.ResultEncryptionMode); mode != "" && mode != "SSE_S3" && mode != "SSE_KMS" {
+		return fmt.Errorf("%w: invalid ResultEncryptionMode %q; valid: SSE_S3, SSE_KMS", ErrValidation, mode)
 	}
 
 	return nil

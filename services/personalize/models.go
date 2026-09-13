@@ -105,6 +105,7 @@ type DatasetImportJob struct {
 	JobName             string
 	RoleArn             string
 	Status              string
+	ImportMode          string
 }
 
 // DatasetExportJob stores an async dataset export job.
@@ -117,19 +118,21 @@ type DatasetExportJob struct {
 	JobName             string
 	RoleArn             string
 	Status              string
+	IngestionMode       string
 }
 
 // BatchInferenceJob stores an async batch inference job.
 type BatchInferenceJob struct {
-	CreationDateTime     time.Time
-	LastUpdatedDateTime  time.Time
-	JobInput             map[string]any
-	JobOutput            map[string]any
-	BatchInferenceJobArn string
-	SolutionVersionArn   string
-	JobName              string
-	RoleArn              string
-	Status               string
+	CreationDateTime      time.Time
+	LastUpdatedDateTime   time.Time
+	JobInput              map[string]any
+	JobOutput             map[string]any
+	BatchInferenceJobArn  string
+	SolutionVersionArn    string
+	JobName               string
+	RoleArn               string
+	Status                string
+	BatchInferenceJobMode string
 }
 
 // BatchSegmentJob stores an async batch segment job.

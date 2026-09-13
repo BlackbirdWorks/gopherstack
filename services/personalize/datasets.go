@@ -151,7 +151,7 @@ func (b *InMemoryBackend) requireDataset(datasetArn string) error {
 
 // CreateDatasetImportJob creates a new dataset import job.
 func (b *InMemoryBackend) CreateDatasetImportJob(
-	jobName, datasetArn, roleArn string,
+	jobName, datasetArn, roleArn, importMode string,
 	dataSource map[string]any,
 	tags map[string]string,
 ) (*DatasetImportJob, error) {
@@ -165,6 +165,14 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 		return nil, err
 	}
 
+	if importMode == "" {
+		importMode = "FULL"
+	}
+
+	if importMode != "FULL" && importMode != "INCREMENTAL" {
+		return nil, fmt.Errorf("%w: invalid ImportMode %q; valid: FULL, INCREMENTAL", ErrValidation, importMode)
+	}
+
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("dataset-import-job", jobName)
 	job := &DatasetImportJob{
@@ -176,6 +184,7 @@ func (b *InMemoryBackend) CreateDatasetImportJob(
 		Status:              statusActive,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
+		ImportMode:          importMode,
 	}
 	b.datasetImportJobs.Put(job)
 	if len(tags) > 0 {
@@ -222,7 +231,7 @@ func (b *InMemoryBackend) ListDatasetImportJobs(
 
 // CreateDatasetExportJob creates a new dataset export job.
 func (b *InMemoryBackend) CreateDatasetExportJob(
-	jobName, datasetArn, roleArn string,
+	jobName, datasetArn, roleArn, ingestionMode string,
 	jobOutput map[string]any,
 	tags map[string]string,
 ) (*DatasetExportJob, error) {
@@ -236,6 +245,17 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 		return nil, err
 	}
 
+	if ingestionMode == "" {
+		ingestionMode = "PUT"
+	}
+
+	if ingestionMode != "PUT" && ingestionMode != "BULK" && ingestionMode != "ALL" {
+		return nil, fmt.Errorf(
+			"%w: invalid IngestionMode %q; valid: PUT, BULK, ALL",
+			ErrValidation, ingestionMode,
+		)
+	}
+
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("dataset-export-job", jobName)
 	job := &DatasetExportJob{
@@ -247,6 +267,7 @@ func (b *InMemoryBackend) CreateDatasetExportJob(
 		Status:              statusActive,
 		CreationDateTime:    now,
 		LastUpdatedDateTime: now,
+		IngestionMode:       ingestionMode,
 	}
 	b.datasetExportJobs.Put(job)
 	if len(tags) > 0 {

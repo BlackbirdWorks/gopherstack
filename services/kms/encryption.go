@@ -35,6 +35,37 @@ func encryptionAlgorithmForSpec(keySpec string) string {
 	}
 }
 
+// supportedEncryptionAlgorithms mirrors applyAlgorithmFields's
+// KeyMetadata.EncryptionAlgorithms population (keys.go) -- the set of
+// EncryptionAlgorithm values real AWS accepts for a given key spec.
+func supportedEncryptionAlgorithms(keySpec string) []string {
+	switch keySpec {
+	case keySpecRSA2048, keySpecRSA3072, keySpecRSA4096:
+		return []string{algoRSAESOAEPSHA1, encryptionAlgorithmRSAOAEP}
+	default:
+		return []string{encryptionAlgorithmSymmetric}
+	}
+}
+
+// resolveEncryptionAlgorithm validates a caller-supplied EncryptionAlgorithm
+// (Encrypt/Decrypt/ReEncrypt's EncryptionAlgorithm, SourceEncryptionAlgorithm,
+// DestinationEncryptionAlgorithm) against the key's supported set, defaulting
+// to the key's natural algorithm when omitted.
+func resolveEncryptionAlgorithm(requested, keySpec string) (string, error) {
+	if requested == "" {
+		return encryptionAlgorithmForSpec(keySpec), nil
+	}
+
+	if !slices.Contains(supportedEncryptionAlgorithms(keySpec), requested) {
+		return "", fmt.Errorf(
+			"%w: EncryptionAlgorithm %q is not valid for key spec %q",
+			ErrValidation, requested, keySpec,
+		)
+	}
+
+	return requested, nil
+}
+
 // Encrypt encrypts the given plaintext using the specified key.
 func (b *InMemoryBackend) Encrypt(
 	ctx context.Context,
@@ -87,6 +118,11 @@ func (b *InMemoryBackend) Encrypt(
 		return nil, err
 	}
 
+	algorithm, err := resolveEncryptionAlgorithm(input.EncryptionAlgorithm, key.KeySpec)
+	if err != nil {
+		return nil, err
+	}
+
 	if input.DryRun {
 		return nil, ErrDryRun
 	}
@@ -101,7 +137,7 @@ func (b *InMemoryBackend) Encrypt(
 	return &EncryptOutput{
 		CiphertextBlob:      blob,
 		KeyID:               key.Arn,
-		EncryptionAlgorithm: encryptionAlgorithmForSpec(key.KeySpec),
+		EncryptionAlgorithm: algorithm,
 	}, nil
 }
 
@@ -218,6 +254,11 @@ func (b *InMemoryBackend) Decrypt(
 		return nil, err
 	}
 
+	algorithm, err := resolveEncryptionAlgorithm(input.EncryptionAlgorithm, key.KeySpec)
+	if err != nil {
+		return nil, err
+	}
+
 	if input.DryRun {
 		return nil, ErrDryRun
 	}
@@ -250,7 +291,7 @@ func (b *InMemoryBackend) Decrypt(
 	return &DecryptOutput{
 		Plaintext:           plaintext,
 		KeyID:               key.Arn,
-		EncryptionAlgorithm: encryptionAlgorithmForSpec(key.KeySpec),
+		EncryptionAlgorithm: algorithm,
 	}, nil
 }
 
@@ -319,6 +360,16 @@ func (b *InMemoryBackend) ReEncrypt(
 		return nil, err
 	}
 
+	sourceAlgorithm, err := resolveEncryptionAlgorithm(input.SourceEncryptionAlgorithm, sourceKey.KeySpec)
+	if err != nil {
+		return nil, err
+	}
+
+	destAlgorithm, err := resolveEncryptionAlgorithm(input.DestinationEncryptionAlgorithm, destKey.KeySpec)
+	if err != nil {
+		return nil, err
+	}
+
 	if input.DryRun {
 		return nil, ErrDryRun
 	}
@@ -328,7 +379,7 @@ func (b *InMemoryBackend) ReEncrypt(
 		return nil, err
 	}
 
-	blob, err := encryptData(plaintext, destKey.KeyID, input.DestinationEncryptionContext, destKM)
+	blob, err := b.encryptPayload(plaintext, destKey.KeyID, input.DestinationEncryptionContext, destKM)
 	if err != nil {
 		return nil, err
 	}
@@ -340,8 +391,8 @@ func (b *InMemoryBackend) ReEncrypt(
 		CiphertextBlob:                 blob,
 		KeyID:                          destKey.Arn,
 		SourceKeyID:                    sourceKey.Arn,
-		SourceEncryptionAlgorithm:      encryptionAlgorithmForSpec(sourceKey.KeySpec),
-		DestinationEncryptionAlgorithm: encryptionAlgorithmForSpec(destKey.KeySpec),
+		SourceEncryptionAlgorithm:      sourceAlgorithm,
+		DestinationEncryptionAlgorithm: destAlgorithm,
 	}, nil
 }
 
@@ -427,6 +478,10 @@ func (b *InMemoryBackend) reEncryptDecrypt(
 	sourceKM *keyMaterial,
 	input *ReEncryptInput,
 ) ([]byte, error) {
+	if sourceKM.rsaKey != nil {
+		return decryptRSAOAEP(input.CiphertextBlob[keyIDPrefixLen:], sourceKM)
+	}
+
 	plaintext, _, decErr := decryptData(
 		input.CiphertextBlob,
 		input.SourceEncryptionContext,

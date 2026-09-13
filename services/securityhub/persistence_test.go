@@ -32,7 +32,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	// Hub + standards subscriptions (also exercises controlOverrides and the
 	// flattened controlAssocOverrides composite-key table below).
-	require.NoError(t, b.EnableHub(false, map[string]string{"env": "test"}))
+	require.NoError(t, b.EnableHub(false, "", map[string]string{"env": "test"}))
 
 	subs, failures := b.BatchEnableStandards([]map[string]any{
 		{"StandardsArn": "arn:aws:securityhub:us-east-1::standards/pci-dss/v/3.2.1"},
@@ -101,7 +101,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, b.AcceptAdministratorInvitation("222222222222", "invite-abc"))
 	require.NoError(t, b.UpdateOrganizationConfiguration(true, "DEFAULT", "CENTRAL"))
-	require.NoError(t, b.EnableOrganizationAdminAccount("333333333333"))
+	require.NoError(t, b.EnableOrganizationAdminAccount("333333333333", "SecurityHub"))
 
 	// Finding aggregator.
 	agg, err := b.CreateFindingAggregator("ALL_REGIONS", []string{"us-east-1", "us-west-2"})
@@ -243,7 +243,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	orgConfig := b2.DescribeOrganizationConfiguration()
 	assert.True(t, orgConfig.AutoEnable)
 
-	orgAdmins, _ := b2.ListOrganizationAdminAccounts("", 10)
+	orgAdmins, _ := b2.ListOrganizationAdminAccounts("", 10, "SecurityHub")
 	require.Len(t, orgAdmins, 1)
 	assert.Equal(t, "333333333333", orgAdmins[0].AccountId)
 
@@ -324,7 +324,7 @@ func TestInMemoryBackend_RestoreDiscardsIncompatibleSnapshotVersion(t *testing.T
 	t.Parallel()
 
 	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.EnableHub(false, nil))
+	require.NoError(t, b.EnableHub(false, "", nil))
 
 	// Well-formed JSON, but tagged with a version this build does not
 	// recognise (also covers the pre-Phase-3.3 shape, which decodes with
@@ -359,7 +359,7 @@ func Test_Handler_SnapshotRestore(t *testing.T) {
 	// Compile-time proof Handler satisfies the persistence layer's contract.
 	var _ persistence.Persistable = h
 
-	require.NoError(t, b.EnableHub(false, nil))
+	require.NoError(t, b.EnableHub(false, "", nil))
 
 	actionTargetArn, err := b.CreateActionTarget("my-action", "desc", "custom-action-1")
 	require.NoError(t, err)

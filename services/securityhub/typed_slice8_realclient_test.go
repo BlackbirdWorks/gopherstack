@@ -66,7 +66,7 @@ func testSlice8HubV2RealClient(t *testing.T) {
 	backend, client := newSlice8SecurityHubBackendAndClient(t)
 	ctx := t.Context()
 
-	require.NoError(t, backend.EnableHub(true, nil))
+	require.NoError(t, backend.EnableHub(true, "", nil))
 
 	_, err := client.UpdateSecurityHubConfiguration(
 		ctx,
@@ -109,7 +109,7 @@ func testSlice8StandardsControlsRealClient(t *testing.T) {
 	backend, client := newSlice8SecurityHubBackendAndClient(t)
 	ctx := t.Context()
 
-	require.NoError(t, backend.EnableHub(false, nil))
+	require.NoError(t, backend.EnableHub(false, "", nil))
 
 	subs, _ := backend.BatchEnableStandards([]map[string]any{
 		{
@@ -626,7 +626,7 @@ func testSlice8ProductsRealClient(t *testing.T) {
 	backend, client := newSlice8SecurityHubBackendAndClient(t)
 	ctx := t.Context()
 
-	require.NoError(t, backend.EnableHub(false, nil))
+	require.NoError(t, backend.EnableHub(false, "", nil))
 
 	descOut, err := client.DescribeProducts(ctx, &securityhubsdk.DescribeProductsInput{})
 	require.NoError(t, err)
@@ -657,7 +657,7 @@ func testSlice8FindingsMiscRealClient(t *testing.T) {
 	backend, client := newSlice8SecurityHubBackendAndClient(t)
 	ctx := t.Context()
 
-	require.NoError(t, backend.EnableHub(false, nil))
+	require.NoError(t, backend.EnableHub(false, "", nil))
 
 	_, err := client.UpdateFindings(ctx, &securityhubsdk.UpdateFindingsInput{
 		Filters: &types.AwsSecurityFindingFilters{},

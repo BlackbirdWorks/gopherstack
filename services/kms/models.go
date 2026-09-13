@@ -206,7 +206,10 @@ type EncryptInput struct {
 	GrantTokens []string `json:"GrantTokens,omitempty"`
 	KeyID       string   `json:"KeyId"`
 	Plaintext   []byte   `json:"Plaintext"`
-	DryRun      bool     `json:"DryRun,omitempty"`
+	// EncryptionAlgorithm is required only for asymmetric keys; symmetric keys
+	// default to SYMMETRIC_DEFAULT when omitted.
+	EncryptionAlgorithm string `json:"EncryptionAlgorithm,omitempty"`
+	DryRun              bool   `json:"DryRun,omitempty"`
 }
 
 // EncryptOutput is the response payload for Encrypt.
@@ -220,10 +223,11 @@ type EncryptOutput struct {
 type DecryptInput struct {
 	EncryptionContext map[string]string `json:"EncryptionContext,omitempty"`
 	// GrantTokens is an optional list of grant tokens used to authorize the operation.
-	GrantTokens    []string `json:"GrantTokens,omitempty"`
-	KeyID          string   `json:"KeyId,omitempty"`
-	CiphertextBlob []byte   `json:"CiphertextBlob"`
-	DryRun         bool     `json:"DryRun,omitempty"`
+	GrantTokens         []string `json:"GrantTokens,omitempty"`
+	KeyID               string   `json:"KeyId,omitempty"`
+	CiphertextBlob      []byte   `json:"CiphertextBlob"`
+	EncryptionAlgorithm string   `json:"EncryptionAlgorithm,omitempty"`
+	DryRun              bool     `json:"DryRun,omitempty"`
 }
 
 // DecryptOutput is the response payload for Decrypt.
@@ -252,12 +256,14 @@ type GenerateDataKeyOutput struct {
 
 // ReEncryptInput is the request payload for ReEncrypt.
 type ReEncryptInput struct {
-	SourceEncryptionContext      map[string]string `json:"SourceEncryptionContext,omitempty"`
-	DestinationEncryptionContext map[string]string `json:"DestinationEncryptionContext,omitempty"`
-	DestinationKeyID             string            `json:"DestinationKeyId"`
-	SourceKeyID                  string            `json:"SourceKeyId,omitempty"`
-	CiphertextBlob               []byte            `json:"CiphertextBlob"`
-	DryRun                       bool              `json:"DryRun,omitempty"`
+	SourceEncryptionContext        map[string]string `json:"SourceEncryptionContext,omitempty"`
+	DestinationEncryptionContext   map[string]string `json:"DestinationEncryptionContext,omitempty"`
+	DestinationKeyID               string            `json:"DestinationKeyId"`
+	SourceKeyID                    string            `json:"SourceKeyId,omitempty"`
+	CiphertextBlob                 []byte            `json:"CiphertextBlob"`
+	SourceEncryptionAlgorithm      string            `json:"SourceEncryptionAlgorithm,omitempty"`
+	DestinationEncryptionAlgorithm string            `json:"DestinationEncryptionAlgorithm,omitempty"`
+	DryRun                         bool              `json:"DryRun,omitempty"`
 }
 
 // ReEncryptOutput is the response payload for ReEncrypt.
@@ -590,6 +596,10 @@ type PutKeyPolicyInput struct {
 	KeyID      string `json:"KeyId"`
 	PolicyName string `json:"PolicyName"`
 	Policy     string `json:"Policy"`
+	// BypassPolicyLockoutSafetyCheck is accepted as a no-op -- same precedent
+	// as CreateKeyInput/ReplicateKeyInput's field of the same name (models.go),
+	// no IAM layer exists in this mock to enforce the lockout check it waives.
+	BypassPolicyLockoutSafetyCheck bool `json:"BypassPolicyLockoutSafetyCheck,omitempty"`
 }
 
 // GetKeyPolicyInput is the request payload for GetKeyPolicy.

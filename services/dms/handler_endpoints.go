@@ -117,6 +117,7 @@ type createEndpointInput struct {
 	ServiceAccessRoleArn      *string    `json:"ServiceAccessRoleArn"`
 	SslMode                   *string    `json:"SslMode"`
 	ExternalTableDefinition   *string    `json:"ExternalTableDefinition"`
+	ResourceIdentifier        *string    `json:"ResourceIdentifier"`
 	Tags                      []tagEntry `json:"Tags"`
 	engineSettingsFields
 }
@@ -240,6 +241,7 @@ func (h *Handler) handleCreateEndpoint(
 			ServiceAccessRoleArn:      ptrconv.String(in.ServiceAccessRoleArn),
 			SslMode:                   sslMode,
 			ExternalTableDefinition:   ptrconv.String(in.ExternalTableDefinition),
+			ResourceIdentifier:        ptrconv.String(in.ResourceIdentifier),
 		},
 	)
 	if err != nil {

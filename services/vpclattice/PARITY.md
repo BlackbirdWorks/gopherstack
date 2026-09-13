@@ -130,6 +130,37 @@ items_still_open:
   - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
 
+### 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)
+
+Worked all 13 tier-1 findings. **3 real fixes**: `CreateService`/
+`UpdateService.IdleTimeoutSeconds` (undeclared; added to `storedService`,
+validated to the documented 60-600 second range, defaults to 60, round-trips
+on both ops). `ListServiceNetworkResourceAssociations.IncludeChildren`
+(undeclared -- and a genuine `httpQuery`-bound field, not a body field,
+confirmed against `serializers.go`'s
+`awsRestjson1_serializeOpHttpBindingsListServiceNetworkResourceAssociationsInput`:
+`encoder.SetQuery("includeChildren")` alongside `serviceNetworkIdentifier`/
+`resourceConfigurationIdentifier`, which this handler already read via
+`c.QueryParam`; `includeChildren` was simply never read at all): its own
+doc comment is "Include service network resource associations of the child
+resource configuration with the grouped resource configuration... default
+value is false" -- now, when set, associations of `CHILD`-type resource
+configurations are also matched against their `GROUP` parent's identifier
+via the existing `ResourceConfigurationGroupID` field. **10 false
+positives**, all already read via this service's hand-decoded
+`map[string]any` body + named-helper-read shape (the gopherstack-99nj third
+blind-spot class: `extractRuleAction`/`extractRuleMatch`/`bodyInt32`/`bodyStringSlice`
+reads in a different file from the tool's declaration search):
+`CreateListener`/`UpdateListener.DefaultAction`, `CreateListener.Port`,
+`CreateResourceConfiguration.AllowAssociationToShareableServiceNetwork`,
+`CreateRule.Action`, `CreateService`/`UpdateService`/`CreateServiceNetwork`/
+`UpdateServiceNetwork.AuthType`, `CreateServiceNetworkVpcAssociation.SecurityGroupIds`.
+No recorded gaps. Proven via `reqfield_slice6_realclient_test.go` driving
+the real `vpclattice` client. `go build/vet/test -race`, `golangci-lint`,
+and `cmd/paritylint` all clean; no persistence-schema version bump (new
+`storedService.IdleTimeoutSeconds` field is additive with `omitempty`, old
+fields unchanged; 1 inventory row added by hand).
+
 ### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 42 ops, 31/73 -> 73/73
 
 Added `typed_slice32_realclient_test.go`: 17 tests, each building a real

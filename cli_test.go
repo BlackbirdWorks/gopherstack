@@ -1896,7 +1896,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				shBk := securityhubbackend.NewInMemoryBackend(accountID, region)
-				require.NoError(t, shBk.EnableHub(false, map[string]string{wantTagKey: wantTagValue}))
+				require.NoError(t, shBk.EnableHub(false, "", map[string]string{wantTagKey: wantTagValue}))
 
 				hubARN := "arn:aws:securityhub:" + region + ":" + accountID + ":hub/default"
 

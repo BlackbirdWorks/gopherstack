@@ -146,7 +146,7 @@ func (b *InMemoryBackend) StartAssessmentRun(
 	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName string,
 ) (*AssessmentRun, error) {
 	return b.startAssessmentRunWithSelection(
-		ctx, taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName, nil, nil,
+		ctx, taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName, "", nil, nil,
 	)
 }
 
@@ -156,7 +156,7 @@ func (b *InMemoryBackend) StartAssessmentRun(
 // programmatic seeding) stays stable.
 func (b *InMemoryBackend) startAssessmentRunWithSelection(
 	ctx context.Context,
-	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName string,
+	taskArn, serviceAccessRoleArn, resultLocationBucket, assessmentRunName, resultEncryptionMode string,
 	includeOnly, exclude []string,
 ) (*AssessmentRun, error) {
 	b.mu.Lock("StartAssessmentRun")
@@ -175,6 +175,10 @@ func (b *InMemoryBackend) startAssessmentRunWithSelection(
 		if existing.ReplicationTaskArn == rt.ReplicationTaskArn {
 			existing.IsLatestTaskAssessmentRun = false
 		}
+	}
+
+	if resultEncryptionMode == "" {
+		resultEncryptionMode = "SSE_S3"
 	}
 
 	names := resolveAssessmentNames(includeOnly, exclude)
@@ -205,6 +209,7 @@ func (b *InMemoryBackend) startAssessmentRunWithSelection(
 		ServiceAccessRoleArn:            serviceAccessRoleArn,
 		ResultLocationBucket:            resultLocationBucket,
 		ResultLocationFolder:            assessmentRunName,
+		ResultEncryptionMode:            resultEncryptionMode,
 		CreationDate:                    now,
 		Region:                          region,
 		IndividualAssessments:           individual,

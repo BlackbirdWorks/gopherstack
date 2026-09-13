@@ -26,9 +26,10 @@ func (b *InMemoryBackend) mustDescribeReplicationTasks(ctx context.Context) []*R
 // types.ReplicationTask response members (CdcStartTime is request-only,
 // with no matching response field, and is not modeled here).
 type ReplicationTaskCDCSettings struct {
-	CdcStartPosition string
-	CdcStopPosition  string
-	TaskData         string
+	CdcStartPosition   string
+	CdcStopPosition    string
+	TaskData           string
+	ResourceIdentifier string
 }
 
 // CreateReplicationTask creates a new DMS replication task.
@@ -69,7 +70,12 @@ func (b *InMemoryBackend) CreateReplicationTask(
 		)
 	}
 
-	taskARN := arn.Build("dms", region, b.accountID, "task:"+uuid.NewString())
+	taskID := cdcSettings.ResourceIdentifier
+	if taskID == "" {
+		taskID = uuid.NewString()
+	}
+
+	taskARN := arn.Build("dms", region, b.accountID, "task:"+taskID)
 	t := tags.New("dms.task." + identifier + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)

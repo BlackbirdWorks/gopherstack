@@ -112,6 +112,36 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
 
 ## Notes
 
+- **2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)**: worked all 13
+  tier-1 findings. **4 real fixes**: `CreateBatchInferenceJob.BatchInferenceJobMode`
+  (undeclared; now validated to BATCH_INFERENCE/THEME_GENERATION, defaults
+  to BATCH_INFERENCE, round-trips through Describe and List --
+  `BatchInferenceJobSummary` also gained the field for consistency),
+  `CreateDatasetImportJob.ImportMode` (undeclared; validated to
+  FULL/INCREMENTAL, defaults to FULL, round-trips through Describe),
+  `CreateDatasetExportJob.IngestionMode` (undeclared; validated to
+  PUT/BULK/ALL, defaults to PUT, round-trips through Describe), and
+  `ListRecipes.RecipeProvider` (undeclared; real AWS currently defines only
+  one enum value, SERVICE, matching every built-in recipe this backend
+  serves -- now rejects anything else, matching client-side smithy enum
+  validation). **9 false positives**, all already read via this service's
+  hand-decoded `map[string]any` + typed-key-read shape (the
+  gopherstack-99nj third blind-spot class -- `input["fieldName"].(T)` reads
+  in a different file from the tool's declaration search):
+  `CreateCampaign`/`UpdateCampaign.MinProvisionedTPS` (handler_campaigns.go),
+  `CreateDatasetGroup.Domain` (handler_dataset_groups.go),
+  `CreateSolution.PerformAutoML`/`PerformHPO`/`PerformAutoTraining`
+  (handler_solutions.go, the last via `boolFieldDefault` defaulting true),
+  `CreateSolutionVersion.TrainingMode` (handler_solutions.go),
+  `ListBatchInferenceJobs`/`ListBatchSegmentJobs.MaxResults`
+  (handler_batch_jobs.go). No recorded gaps. Proven via
+  `reqfield_slice6_realclient_test.go` driving the real `personalize`
+  client. `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint`
+  all clean; no persistence-schema version bump (3 inventory rows added by
+  hand: `BatchInferenceJob.BatchInferenceJobMode`,
+  `DatasetExportJob.IngestionMode`, `DatasetImportJob.ImportMode` -- all
+  additive, old fields unchanged).
+
 - **Protocol**: awsjson1.1, single POST endpoint, `X-Amz-Target:
   AmazonPersonalize.<Op>` (control plane) or
   `AmazonPersonalizeRuntime.<Op>` (GetRecommendations/GetPersonalizedRanking).

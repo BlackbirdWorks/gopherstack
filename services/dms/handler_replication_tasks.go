@@ -22,6 +22,7 @@ type createReplicationTaskInput struct {
 	CdcStartPosition          *string    `json:"CdcStartPosition"`
 	CdcStopPosition           *string    `json:"CdcStopPosition"`
 	TaskData                  *string    `json:"TaskData"`
+	ResourceIdentifier        *string    `json:"ResourceIdentifier"`
 	Tags                      []tagEntry `json:"Tags"`
 }
 
@@ -78,9 +79,10 @@ func (h *Handler) handleCreateReplicationTask(
 		ptrconv.String(in.ReplicationTaskSettings),
 		kv,
 		ReplicationTaskCDCSettings{
-			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
-			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
-			TaskData:         ptrconv.String(in.TaskData),
+			CdcStartPosition:   ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:    ptrconv.String(in.CdcStopPosition),
+			TaskData:           ptrconv.String(in.TaskData),
+			ResourceIdentifier: ptrconv.String(in.ResourceIdentifier),
 		},
 	)
 	if err != nil {
@@ -91,9 +93,10 @@ func (h *Handler) handleCreateReplicationTask(
 }
 
 type describeReplicationTasksInput struct {
-	Marker     *string       `json:"Marker"`
-	MaxRecords *int32        `json:"MaxRecords"`
-	Filters    []filterEntry `json:"Filters"`
+	Marker          *string       `json:"Marker"`
+	MaxRecords      *int32        `json:"MaxRecords"`
+	Filters         []filterEntry `json:"Filters"`
+	WithoutSettings *bool         `json:"WithoutSettings"`
 }
 
 type describeReplicationTasksOutput struct {
@@ -114,9 +117,16 @@ func (h *Handler) handleDescribeReplicationTasks(
 		return list[i].ReplicationTaskIdentifier < list[j].ReplicationTaskIdentifier
 	})
 
+	withoutSettings := ptrconv.Bool(in.WithoutSettings)
+
 	all := make([]replicationTaskJSON, 0, len(list))
 	for _, rt := range list {
-		all = append(all, rtToJSON(rt))
+		item := rtToJSON(rt)
+		if withoutSettings {
+			item.ReplicationTaskSettings = ""
+		}
+
+		all = append(all, item)
 	}
 
 	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
