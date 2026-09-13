@@ -15,7 +15,10 @@ import (
 func findMainRouteTable(t *testing.T, b *ec2.InMemoryBackend, vpcID string) *ec2.RouteTable {
 	t.Helper()
 
-	for _, rt := range b.DescribeRouteTables(nil) {
+	rts, err := b.DescribeRouteTables(nil)
+	require.NoError(t, err)
+
+	for _, rt := range rts {
 		if rt.VPCID == vpcID && rt.Main {
 			return rt
 		}
@@ -67,7 +70,8 @@ func TestDeleteVpc_MainRouteTableCascades(t *testing.T) {
 
 	require.NoError(t, b.DeleteVpc(vpc.ID), "DeleteVpc must succeed for a VPC with only its main route table")
 
-	assert.Empty(t, b.DescribeRouteTables([]string{main.ID}), "main route table must be deleted with the VPC")
+	_, err = b.DescribeRouteTables([]string{main.ID})
+	require.Error(t, err, "main route table must be deleted with the VPC")
 	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 }
 
@@ -96,7 +100,9 @@ func TestDeleteRouteTable_MainRouteTableRejected(t *testing.T) {
 	// the message to pin the specific guard.
 	assert.Contains(t, err.Error(), "is the main route table for",
 		"must be rejected by the main-table guard, not the subnet-associations guard")
-	assert.NotEmpty(t, b.DescribeRouteTables([]string{main.ID}))
+	stillThere, err := b.DescribeRouteTables([]string{main.ID})
+	require.NoError(t, err)
+	assert.NotEmpty(t, stillThere)
 }
 
 // TestDisassociateRouteTable_MainAssociationRejected verifies the implicit
@@ -120,7 +126,8 @@ func TestDisassociateRouteTable_MainAssociationRejected(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
 
-	rts := b.DescribeRouteTables([]string{main.ID})
+	rts, err := b.DescribeRouteTables([]string{main.ID})
+	require.NoError(t, err)
 	require.Len(t, rts, 1)
 	assert.Len(t, rts[0].Associations, 1, "implicit main association must survive the rejected disassociate")
 }
@@ -150,12 +157,14 @@ func TestReplaceRouteTableAssociation_MainAssociationRejected(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ec2.ErrInvalidParameter)
 
-	rts := b.DescribeRouteTables([]string{main.ID})
+	rts, err := b.DescribeRouteTables([]string{main.ID})
+	require.NoError(t, err)
 	require.Len(t, rts, 1)
 	require.Len(t, rts[0].Associations, 1, "implicit main association must not be removed by a rejected replace")
 	assert.Equal(t, mainAssocID, rts[0].Associations[0].ID)
 
-	rts = b.DescribeRouteTables([]string{other.ID})
+	rts, err = b.DescribeRouteTables([]string{other.ID})
+	require.NoError(t, err)
 	require.Len(t, rts, 1)
 	assert.Empty(t, rts[0].Associations, "association must not have moved to the new table")
 }

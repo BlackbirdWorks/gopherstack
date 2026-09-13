@@ -74,10 +74,11 @@ func (h *Handler) createDatasetImportJob(input map[string]any) (map[string]any, 
 	jobName, _ := input["jobName"].(string)
 	datasetArn, _ := input["datasetArn"].(string)
 	roleArn, _ := input["roleArn"].(string)
+	importMode, _ := input["importMode"].(string)
 	dataSource, _ := input["dataSource"].(map[string]any)
 	tags := extractTags(input)
 
-	job, err := h.Backend.CreateDatasetImportJob(jobName, datasetArn, roleArn, dataSource, tags)
+	job, err := h.Backend.CreateDatasetImportJob(jobName, datasetArn, roleArn, importMode, dataSource, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -122,10 +123,11 @@ func (h *Handler) createDatasetExportJob(input map[string]any) (map[string]any, 
 	jobName, _ := input["jobName"].(string)
 	datasetArn, _ := input["datasetArn"].(string)
 	roleArn, _ := input["roleArn"].(string)
+	ingestionMode, _ := input["ingestionMode"].(string)
 	jobOutput, _ := input["jobOutput"].(map[string]any)
 	tags := extractTags(input)
 
-	job, err := h.Backend.CreateDatasetExportJob(jobName, datasetArn, roleArn, jobOutput, tags)
+	job, err := h.Backend.CreateDatasetExportJob(jobName, datasetArn, roleArn, ingestionMode, jobOutput, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +186,7 @@ func datasetImportJobToMap(job *DatasetImportJob) map[string]any {
 		keyDatasetArn:          job.DatasetArn,
 		keyRoleArn:             job.RoleArn,
 		"dataSource":           job.DataSource,
+		"importMode":           job.ImportMode,
 		keyStatus:              job.Status,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),
@@ -197,6 +200,7 @@ func datasetExportJobToMap(job *DatasetExportJob) map[string]any {
 		keyDatasetArn:          job.DatasetArn,
 		keyRoleArn:             job.RoleArn,
 		keyJobOutput:           job.JobOutput,
+		"ingestionMode":        job.IngestionMode,
 		keyStatus:              job.Status,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),

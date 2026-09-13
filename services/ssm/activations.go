@@ -381,7 +381,7 @@ func (b *InMemoryBackend) DeleteActivation(
 // unknown-key handling ListNodes already established (instances.go).
 func matchesActivationFilter(a Activation, f DescribeActivationsFilter) bool {
 	switch f.FilterKey {
-	case "ActivationIds":
+	case filterKeyActivationIDs:
 		return slices.Contains(f.FilterValues, a.ActivationID)
 	case "DefaultInstanceName":
 		return slices.Contains(f.FilterValues, a.DefaultInstanceName)

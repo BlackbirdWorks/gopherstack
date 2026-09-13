@@ -124,7 +124,14 @@ func (h *Handler) Handler() echo.HandlerFunc {
 	return func(c *echo.Context) error {
 		route := parseRoute(c.Request().Method, c.Request().URL.Path)
 		if route.operation == opUnknown {
-			return writeError(c, http.StatusNotFound, opUnknown, "unknown Polly route")
+			// Previously passed opUnknown ("Unknown") itself as the wire
+			// __type -- not an exception name any deserializeOpError switch
+			// recognizes, so restjson.GetErrorInfo (aws-sdk-go-v2
+			// aws/protocol/restjson/decoder_util.go:15) fed every real
+			// client a code of literally "Unknown" instead of a typed
+			// exception. ValidationException is the only generic client-fault
+			// exception polly's own errors.go models (see ErrValidation above).
+			return writeError(c, http.StatusNotFound, "ValidationException", "unknown Polly route")
 		}
 
 		err := h.dispatch(c, route)
@@ -274,6 +281,18 @@ func (h *Handler) startSpeechSynthesisStream(c *echo.Context) error {
 			ErrStreamValidation, options.Engine)
 	}
 
+	// ServiceQuotaExceededException/ThrottlingException are real, separately
+	// modeled exceptions for this op (see ErrServiceQuotaExceeded/ErrThrottling's
+	// doc comments) -- unlike the ValidationException remapping above, they must
+	// NOT be wrapped in ErrStreamValidation. Checked before reading the request
+	// body, matching real AWS throttling at the front door before any per-request
+	// work.
+	release, err := h.Backend.BeginSpeechSynthesisStream(options.Engine)
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	text, textType, err := decodeStreamText(c.Request().Body)
 	if err != nil {
 		return fmt.Errorf("%w: invalid synthesis stream: %w", ErrStreamValidation, err)
@@ -321,6 +340,17 @@ func splitHeader(values []string) []string {
 	return out
 }
 
+// chunkSignatureHeader is smithy-go eventstream.ChunkSignatureHeader's value
+// (":chunk-signature"). Every real aws-sdk-go-v2 client signs each input
+// event with SigV4 event-stream chunk signing (eventstream.SigningWriter):
+// the application message (with its own ":event-type" header) is nested as
+// the PAYLOAD of an outer, signed frame carrying only ":date" and
+// ":chunk-signature" headers -- an empty-payload signed frame marks
+// end-of-stream (SigningWriter.Close). Unsigned test fixtures that encode
+// TextEvent directly at the top level (no chunk-signature wrapper) still
+// decode correctly since this check only unwraps when the wrapper is present.
+const chunkSignatureHeader = ":chunk-signature"
+
 func decodeStreamText(body io.Reader) (string, string, error) {
 	decoder := eventstream.NewDecoder()
 	textType := textTypeText
@@ -333,6 +363,16 @@ func decodeStreamText(body io.Reader) (string, string, error) {
 		}
 		if err != nil {
 			return "", "", err
+		}
+
+		if message.Headers.Get(chunkSignatureHeader) != nil {
+			if len(message.Payload) == 0 {
+				continue
+			}
+			message, err = eventstream.NewDecoder().Decode(bytes.NewReader(message.Payload), nil)
+			if err != nil {
+				return "", "", err
+			}
 		}
 
 		eventType := message.Headers.Get(eventTypeHeader)
@@ -600,6 +640,12 @@ type pollyErrorEntry struct {
 var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
 	return []pollyErrorEntry{
 		{ErrStreamValidation, "ValidationException", http.StatusBadRequest},
+		{ErrThrottling, "ThrottlingException", http.StatusBadRequest},
+		// ServiceQuotaExceededException's real httpStatusCode is 402 (Payment
+		// Required), not 400 -- confirmed via botocore's
+		// polly/2016-06-10/service-2.json shape metadata (error.httpStatusCode),
+		// which the Go SDK types don't carry themselves.
+		{ErrServiceQuotaExceeded, "ServiceQuotaExceededException", http.StatusPaymentRequired},
 		{ErrLexiconNotFound, "LexiconNotFoundException", http.StatusNotFound},
 		{ErrInvalidTaskID, "InvalidTaskIdException", http.StatusBadRequest},
 		// AWS models SynthesisTaskNotFoundException with httpStatusCode 400, not 404.
@@ -621,7 +667,7 @@ var onceErrorTable = sync.OnceValue(func() []pollyErrorEntry {
 		{ErrInvalidS3Bucket, "InvalidS3BucketException", http.StatusBadRequest},
 		{ErrInvalidS3Key, "InvalidS3KeyException", http.StatusBadRequest},
 		{ErrInvalidSnsTopicArn, "InvalidSnsTopicArnException", http.StatusBadRequest},
-		{ErrValidation, "InvalidParameterValueException", http.StatusBadRequest},
+		{ErrValidation, "ValidationException", http.StatusBadRequest},
 	}
 })
 

@@ -47,7 +47,8 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "unchanged this pass."}
 families:
   error_mapping: {status: ok, note: "unchanged this pass; ConcurrentModificationException mapping (fixed prior pass) also now covers ConditionalToken mismatches (checkAndBumpVersionOrToken returns the same ErrConcurrentModification sentinel as version mismatches)."}
-gaps:
+gaps: []
+items_still_open:
   - FlinkApplicationConfigurationDescription.JobPlanDescription (DescribeApplicationRequest.IncludeAdditionalDetails) remains accepted-but-ignored: it is real AWS's Apache Flink job graph/scheduling plan (see the Apache Flink "Jobs and Scheduling" docs JobPlanDescription's own doc comment links to), which requires an actual Flink job compiler to produce -- structural, same class as DiscoverInputSchema's synthetic-schema limitation. Confirmed still genuinely unmodelable this pass; IncludeAdditionalDetails isn't even parsed by describeApplicationInput. Leniency only.
   - StopApplication's Force field now enforces the Flink-only restriction and is stored, but the pre-stop auto-snapshot itself is still not modeled: real AWS's auto-snapshot naming/visibility convention isn't documented publicly enough to fabricate (re-confirmed this pass via AWS's own "Deep dive into the Amazon Managed Service for Apache Flink application lifecycle" blog, which describes that a snapshot is taken but not how it's named or surfaced) -- deliberately left unimplemented rather than invented.
   - UpdateApplicationMaintenanceConfiguration's ApplicationMaintenanceWindowEndTime is never computed/returned (pre-existing gap, unchanged, low value -- no client observably depends on the exact window end time).
@@ -575,3 +576,28 @@ Gates this pass: `GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/kinesisanaly
 (0 issues, both before this pass's fix and after) and
 `GOTOOLCHAIN=go1.26.6 go test -race -count=1 ./services/kinesisanalyticsv2/...`
 (pass, `ok ... 1.0s`, before/after as described above).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 15/33 -> 33/33 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 5
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/kinesisanalyticsv2` client:
+AddApplicationCloudWatchLoggingOption,
+AddApplicationInputProcessingConfiguration, AddApplicationOutput,
+AddApplicationVpcConfiguration, CreateApplicationPresignedUrl,
+DeleteApplicationCloudWatchLoggingOption,
+DeleteApplicationInputProcessingConfiguration, DeleteApplicationOutput,
+DeleteApplicationReferenceDataSource, DeleteApplicationVpcConfiguration,
+DescribeApplicationOperation, DescribeApplicationSnapshot,
+DescribeApplicationVersion, DiscoverInputSchema, ListApplicationOperations,
+ListApplicationVersions, RollbackApplication,
+UpdateApplicationMaintenanceConfiguration. Zero bugs found -- every op
+decoded correctly on the first well-formed request, consistent with this
+service's deep prior audit history. One test-authoring correction, not a
+bug: once every input/output/reference-data-source is removed and there is
+no non-SQL config either, `ApplicationConfigurationDescription` (and its
+nested `SqlApplicationConfigurationDescription`) is correctly entirely
+absent on the wire, matching real AWS -- the test asserts on that absence
+rather than on empty sub-slices. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

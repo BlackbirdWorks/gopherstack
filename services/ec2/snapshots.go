@@ -604,8 +604,12 @@ func (b *InMemoryBackend) CreateSnapshot(volumeID, description string) (*Snapsho
 	return &cp, nil
 }
 
-// DescribeSnapshots returns snapshots, optionally filtered by IDs.
-func (b *InMemoryBackend) DescribeSnapshots(ids []string) []*Snapshot {
+// DescribeSnapshots returns snapshots, optionally filtered by IDs. Matching
+// real AWS, naming an ID that does not exist fails the whole call with
+// InvalidSnapshotID.NotFound rather than silently omitting it -- a real
+// client asking for a specific (e.g. just-deleted) snapshot got an empty,
+// successful response instead of the NotFound it depends on to detect that.
+func (b *InMemoryBackend) DescribeSnapshots(ids []string) ([]*Snapshot, error) {
 	b.mu.RLock("DescribeSnapshots")
 	defer b.mu.RUnlock()
 
@@ -614,21 +618,31 @@ func (b *InMemoryBackend) DescribeSnapshots(ids []string) []*Snapshot {
 		idSet[id] = true
 	}
 
+	found := make(map[string]bool, len(ids))
 	out := make([]*Snapshot, 0, b.snapshots.Len())
+
 	for _, snap := range b.snapshots.All() {
 		if len(idSet) > 0 && !idSet[snap.SnapshotID] {
 			continue
 		}
 
+		found[snap.SnapshotID] = true
+
 		cp := *snap
 		out = append(out, &cp)
+	}
+
+	for _, id := range ids {
+		if !found[id] {
+			return nil, fmt.Errorf("%w: %s", ErrSnapshotNotFound, id)
+		}
 	}
 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].SnapshotID < out[j].SnapshotID
 	})
 
-	return out
+	return out, nil
 }
 
 // DeleteSnapshot removes a snapshot.
@@ -661,6 +675,6 @@ func (b *InMemoryBackend) DeleteSnapshot(id string) error {
 // ---- AMI lifecycle ----
 
 // DescribeSnapshotsSorted returns snapshots sorted by snapshot ID.
-func (b *InMemoryBackend) DescribeSnapshotsSorted(ids []string) []*Snapshot {
+func (b *InMemoryBackend) DescribeSnapshotsSorted(ids []string) ([]*Snapshot, error) {
 	return b.DescribeSnapshots(ids)
 }

@@ -201,6 +201,8 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 		opGetDomainNameAccessAssociations: func(b []byte) (int, any, error) {
 			var input struct {
 				ResourceOwner string `json:"resourceOwner,omitempty"`
+				Position      string `json:"position,omitempty"`
+				Limit         int    `json:"limit,omitempty"`
 			}
 			if err := json.Unmarshal(b, &input); err != nil {
 				return 0, nil, err
@@ -211,7 +213,12 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 				return 0, nil, err
 			}
 
-			return http.StatusOK, &domainNameAccessAssociationsView{Items: assocs}, nil
+			page, position := paginatePageByKey(
+				assocs, input.Limit, input.Position,
+				func(a DomainNameAccessAssociation) string { return a.DomainNameAccessAssociationARN },
+			)
+
+			return http.StatusOK, &domainNameAccessAssociationsView{Items: page, Position: position}, nil
 		},
 		opDeleteDomainNameAccessAssociation: func(b []byte) (int, any, error) {
 			var input struct {
@@ -247,5 +254,6 @@ func (h *Handler) domainNameAccessAssociationActions() map[string]actionFn {
 
 // domainNameAccessAssociationsView is the response for GetDomainNameAccessAssociations.
 type domainNameAccessAssociationsView struct {
-	Items []DomainNameAccessAssociation `json:"item"`
+	Position string                        `json:"position,omitempty"`
+	Items    []DomainNameAccessAssociation `json:"item"`
 }

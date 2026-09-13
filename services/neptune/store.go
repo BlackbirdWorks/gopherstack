@@ -243,7 +243,8 @@ func copyPreconditions[V any](
 
 // validNeptuneParameterGroupFamily returns true for known Neptune parameter group families.
 func validNeptuneParameterGroupFamily(family string) bool {
-	return family == pgFamilyNeptune12 || family == pgFamilyNeptune13 || family == "neptune1.4"
+	return family == pgFamilyNeptune1 || family == pgFamilyNeptune12 ||
+		family == pgFamilyNeptune13 || family == pgFamilyNeptune14
 }
 
 // AccountID returns the backend's AWS account ID.

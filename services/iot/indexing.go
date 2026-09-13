@@ -119,7 +119,7 @@ func cloneThingGroupIndexingConfiguration(c *ThingGroupIndexingConfiguration) *T
 
 // GetIndexingConfiguration returns the current thing/thing-group indexing configuration.
 func (b *InMemoryBackend) GetIndexingConfiguration() *GetIndexingConfigurationOutput {
-	b.mu.RLock()
+	b.mu.RLock("GetIndexingConfiguration")
 	defer b.mu.RUnlock()
 
 	return &GetIndexingConfigurationOutput{
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) UpdateIndexingConfiguration(input *UpdateIndexingConfi
 		return err
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateIndexingConfiguration")
 	defer b.mu.Unlock()
 
 	if input.ThingIndexingConfiguration != nil {
@@ -194,7 +194,7 @@ func validateThingGroupIndexingConfiguration(tgic *ThingGroupIndexingConfigurati
 // ListIndices returns the names of the fleet indices currently active, derived
 // from the stored indexing configuration.
 func (b *InMemoryBackend) ListIndices() []string {
-	b.mu.RLock()
+	b.mu.RLock("ListIndices")
 	defer b.mu.RUnlock()
 
 	names := make([]string, 0, knownIndexCount)
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) ListIndices() []string {
 
 // DescribeIndex returns the status and schema of a known fleet index.
 func (b *InMemoryBackend) DescribeIndex(indexName string) (*IndexDescription, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeIndex")
 	defer b.mu.RUnlock()
 
 	switch indexName {
@@ -252,7 +252,7 @@ func (b *InMemoryBackend) SearchIndex(input *SearchIndexInput) (*SearchIndexOutp
 }
 
 func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchIndexOutput {
-	b.mu.RLock()
+	b.mu.RLock("searchThingsIndex")
 	defer b.mu.RUnlock()
 
 	matched := make([]*SearchIndexThingResult, 0, b.things.Len())
@@ -280,7 +280,7 @@ func (b *InMemoryBackend) searchThingsIndex(input *SearchIndexInput) *SearchInde
 }
 
 func (b *InMemoryBackend) searchThingGroupsIndex(input *SearchIndexInput) *SearchIndexOutput {
-	b.mu.RLock()
+	b.mu.RLock("searchThingGroupsIndex")
 	defer b.mu.RUnlock()
 
 	matched := make([]*SearchIndexThingGroupResult, 0, b.thingGroups.Len())
@@ -366,7 +366,7 @@ func (b *InMemoryBackend) thingGroupAncestorNames(g *ThingGroup) []string {
 // best-effort-metadata pattern -- the group's own existence is already
 // validated by DescribeThingGroup before this is called.
 func (b *InMemoryBackend) RootToParentThingGroups(thingGroupName string) []GroupNameAndARN {
-	b.mu.RLock()
+	b.mu.RLock("RootToParentThingGroups")
 	defer b.mu.RUnlock()
 
 	g, ok := b.thingGroups.Get(thingGroupName)
@@ -590,6 +590,58 @@ func aggregationFieldValue(t *Thing, field string) (string, bool) {
 	}
 }
 
+// matchedThingGroups returns the ThingGroups (AWS_ThingGroups index) that
+// satisfy queryString. Callers must hold at least a read lock.
+func (b *InMemoryBackend) matchedThingGroups(queryString string) []*ThingGroup {
+	out := make([]*ThingGroup, 0, b.thingGroups.Len())
+
+	for _, v := range b.thingGroups.Snapshot() {
+		g := v
+		if matchesThingGroupQuery(g, queryString) {
+			out = append(out, g)
+		}
+	}
+
+	return out
+}
+
+// aggregationFieldValueGroup mirrors aggregationFieldValue for a ThingGroup
+// (AWS_ThingGroups index).
+func aggregationFieldValueGroup(g *ThingGroup, field string) (string, bool) {
+	switch {
+	case field == "thingGroupName":
+		return g.ThingGroupName, true
+	case field == keyVersion:
+		return strconv.FormatInt(g.Version, 10), true
+	case strings.HasPrefix(field, "attributes."):
+		v, ok := g.Attributes[strings.TrimPrefix(field, "attributes.")]
+
+		return v, ok
+	default:
+		v, ok := g.Attributes[field]
+
+		return v, ok
+	}
+}
+
+// numericFieldValuesGroups mirrors numericFieldValues for ThingGroups.
+func numericFieldValuesGroups(groups []*ThingGroup, field string) []float64 {
+	values := make([]float64, 0, len(groups))
+
+	for _, g := range groups {
+		raw, ok := aggregationFieldValueGroup(g, field)
+		if !ok {
+			continue
+		}
+
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			values = append(values, f)
+		}
+	}
+
+	return values
+}
+
 // numericFieldValues extracts the parseable float64 values of field across things.
 func numericFieldValues(things []*Thing, field string) []float64 {
 	values := make([]float64, 0, len(things))
@@ -615,7 +667,7 @@ func (b *InMemoryBackend) GetCardinality(input *AggregationInput) (int64, error)
 		return 0, fmt.Errorf("%w: aggregationField is required", ErrValidation)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetCardinality")
 	defer b.mu.RUnlock()
 
 	seen := make(map[string]struct{})
@@ -630,16 +682,34 @@ func (b *InMemoryBackend) GetCardinality(input *AggregationInput) (int64, error)
 }
 
 // GetStatistics computes count/min/max/sum/average/stdDeviation of
-// AggregationField (interpreted numerically) among Things matching QueryString.
+// AggregationField (interpreted numerically) among the fleet-index
+// documents matching QueryString. IndexName selects AWS_Things (default) or
+// AWS_ThingGroups -- same two-index dispatch as SearchIndex; previously
+// declared on AggregationInput but never read, so a caller aggregating
+// AWS_ThingGroups silently got Things-index results instead.
 func (b *InMemoryBackend) GetStatistics(input *AggregationInput) (*Statistics, error) {
 	if input == nil || input.AggregationField == "" {
 		return nil, fmt.Errorf("%w: aggregationField is required", ErrValidation)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetStatistics")
 	defer b.mu.RUnlock()
 
-	return computeStatistics(numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)), nil
+	indexName := input.IndexName
+	if indexName == "" {
+		indexName = indexNameThings
+	}
+
+	switch indexName {
+	case indexNameThings:
+		return computeStatistics(numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)), nil
+	case indexNameThingGroups:
+		return computeStatistics(
+			numericFieldValuesGroups(b.matchedThingGroups(input.QueryString), input.AggregationField),
+		), nil
+	default:
+		return nil, fmt.Errorf("%w: unknown index %q", ErrValidation, indexName)
+	}
 }
 
 func computeStatistics(values []float64) *Statistics {
@@ -691,7 +761,7 @@ func (b *InMemoryBackend) GetPercentiles(input *PercentilesInput) ([]PercentileV
 		return nil, fmt.Errorf("%w: aggregationField is required", ErrValidation)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetPercentiles")
 	defer b.mu.RUnlock()
 
 	values := numericFieldValues(b.matchedThings(input.QueryString), input.AggregationField)
@@ -745,7 +815,7 @@ func (b *InMemoryBackend) GetBucketsAggregation(input *BucketsAggregationInput) 
 		maxBuckets = maxBucketsLimit
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("GetBucketsAggregation")
 	defer b.mu.RUnlock()
 
 	counts := make(map[string]int64)

@@ -129,7 +129,8 @@ families:
   error-taxonomy: {status: FIXED, note: "Systemic error-code bug across ~90 validation call sites in ~20 handler_*.go files: every request-validation failure (missing required field, invalid enum value) returned __type=\"ClientException\" instead of AWS's real InvalidParameterException (confirmed as a distinct documented exception in types/errors.go, present in nearly every op's real Errors list). Also fixed the dead-but-wrong mapError case for the backend awserr.ErrInvalidParameter sentinel (was also \"ClientException\"). Left \"invalid body\"/\"invalid JSON\" transport-parse failures and the backend awserr.ErrConflict case as ClientException (defensible: not a documented-parameter-value problem). Every corresponding test assertion updated; see handler_directories_test.go/handler_directories_extra_test.go/handler_test.go for the renamed expectations."}
   directory-domaincontroller-field-diff: {status: FIXED, note: "This pass's primary target: full field-diff of DirectoryDescription and DomainController against types.go (v1.41.0). Closed the DirectoryDescription gaps ConnectSettings/DesiredNumberOfDomainControllers/DnsIpv6Addrs/NetworkType/RadiusSettings/RadiusStatus/RegionsInfo (6 of 13) and the DomainController gaps DnsIpAddr/DnsIpv6Addr/StatusLastUpdatedDateTime/SubnetId/VpcId (5 of 6) with real, derivable data -- none synthesized where a real source existed (VpcSettings/RADIUS state/replication state/request input), only IP addresses use the pre-existing synthesize* deterministic-placeholder convention where AWS's real value is genuinely unknowable to an in-memory backend. HybridSettings/OsVersion/OwnerDirectoryDescription/ShareMethod/ShareNotes/ShareStatus/StageReason (DirectoryDescription) and StatusReason (DomainController) remain unpopulated -- see gaps for why each specifically cannot be derived honestly right now."}
   re-diff-ok-families: {status: FIXED, note: "Re-diffed every family the prior pass's deferred note flagged as untrusted (conditional forwarders, log subscriptions, event topics, schema extensions, radius, shared directories, hybrid AD, AD assessments, settings) against v1.41.0 types.go. Result, matching the prior pass's warning that 'ok' marks were weak evidence: log-subscriptions and event-topics are genuinely clean (verified 1:1 field match, no changes). conditional-forwarders had a real gap (DnsIpv6Addrs missing, FIXED). schema-extensions has a real gap (SchemaExtensionStatusReason missing, NOT fixed -- no real value to derive it from). radius had a real gap (DirectoryDescription never mirrored the RADIUS state at all, FIXED; RadiusServersIpv6 missing from EnableRadius/UpdateRadius input, NOT fixed). shared-directories response shape is genuinely clean; the request shape has a real gap (ShareTarget.Type dropped, NOT fixed). settings has a real gap (DataType/LastRequestedDateTime/RequestDetailedStatus/RequestStatusMessage/Type missing from SettingEntry, NOT fixed -- no safe way to derive DataType/Type without a lookup table this pass couldn't verify). hybrid-AD and AD-assessments both had SEVERE, previously-undetected gaps: AD-assessments had two outright fabricated wire fields (invented 'Region' field, invented 'AssessmentType' field name with hardcoded invalid value 'Operational') -- FIXED (fabrication deleted, real ReportType/CUSTOMER substituted) -- but the operation still can't accept real AssessmentConfiguration input, so most of Assessment's real fields remain unreachable (NOT fixed, large gap). hybrid-AD's CreateHybridAD/UpdateHybridAD/DescribeHybridADUpdate wire shapes are substantially wrong (not just missing fields -- wrong required input members, wrong output members, invented RequestId) -- NOT fixed this pass, see the ops table and gaps. UPDATE (gopherstack-10hx, 2026-07-30 follow-up pass): hybrid-AD's wire-shape gap is now FIXED -- see the ops table and the dated Notes section below. UPDATE (gopherstack-10hx, 2026-07-30 2nd follow-up pass): AD-assessments' AssessmentConfiguration input-capture gap is now also FIXED -- see the ops table and the dated Notes section below. StatusCode/StatusReason/Version remain honestly unpopulated (AWS-internal, no request input, no documented default) -- not a fabrication gap, see gaps."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "DirectoryDescription still does not populate: OsVersion (AWS assigns this internally with no request input and no documented deterministic default -- genuinely unknowable to an in-memory backend); OwnerDirectoryDescription/ShareMethod/ShareNotes/ShareStatus (these describe the directory-CONSUMER's copy of a shared directory -- AcceptSharedDirectory in this backend updates the existing storedSharedDirectory record but never materializes a second Directory entry in the consumer's own DescribeDirectories view, so there is no directory record these fields could attach to; DescribeSharedDirectories already exposes the real ShareMethod/ShareNotes/ShareStatus for the owner-tracked share record, so this data is not lost, just not duplicated onto a nonexistent consumer-side Directory); StageReason (only ever populated by AWS on a failed stage transition, and this backend's Requested->Creating->Active/Restoring->Active lifecycles never fail, so there is genuinely never a reason to report -- always nil is the honest value, not a fabricated placeholder). HybridSettings is now populated (gopherstack-10hx, 2026-07-30) -- see families/hybrid-AD."
   - "DomainController.StatusReason is never populated: AWS only sets this when a domain controller enters a Failed/Impaired state, and this backend's UpdateNumberOfDomainControllers only ever creates controllers directly into Active -- there is no real failure state to describe, and inventing status-message text would be a fabrication."
   - "hybrid-AD (CreateHybridAD/UpdateHybridAD/DescribeHybridADUpdate) wire-shape divergence: FIXED, gopherstack-10hx (2026-07-30) -- see families and the ops table. Residual, deliberately-scoped compromise: CreateHybridAD's AssessmentId must reference an assessment of an EXISTING directory (this backend's only supported StartADAssessment mode), not AWS's normal directory-less pre-creation assessment (AssessmentConfiguration input capture -- see the StartADAssessment gap below -- is what a fully-real fix would need); this backend derives the new hybrid directory's Name/ShortName/Description/Edition from that assessed directory's own real, already-existing values rather than fabricating them. Documented in CreateHybridAD's ops-table note and PARITY.md Notes; not hidden."
@@ -613,3 +614,38 @@ anonymous-inline-struct request decodes (opsworks-style handlers implementing
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run` -- all clean
 (`./services/directoryservice/...`).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 20 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/directoryservice` client (53 ops -- directory alias/
+computer/reset-password/limits, ConnectDirectory, resource tags,
+conditional forwarders, certificate deregistration, event topic
+deregistration, log subscriptions, LDAPS, RADIUS, SSO, client
+authentication, directory data access, shared-directory
+describe/reject/unshare, additional regions, domain controller count,
+snapshots, schema extensions, trusts, hybrid AD update, IP routes). Each
+subtest creates real state through the typed client and asserts decoded
+response values.
+
+**Zero new bugs found** -- every op passed on the first correctly-shaped
+request against the real client, consistent with this service's already
+extensive, repeatedly re-audited PARITY.md history (grade A since
+2026-08-29, multiple dated field-diff and wrong-wire-key sweeps). No new
+accept-and-drop findings beyond what this file already discloses in
+`items_still_open` (ShareTarget.Type, RadiusServersIpv6, the
+synchronous-completion async-state gap); confirmed `StartSchemaExtension`'s
+`LdifContent` request member is accepted and genuinely has nowhere
+observable to echo to (no Get/List op returns it in the real API either),
+so its absence from any response is correct, not a drop.
+
+Coverage: directoryservice 27/80 (33.8%) -> 80/80 (100%) per
+`cmd/clientcoverage`.
+
+Gates: `go build ./services/directoryservice/...` and `go vet
+./services/directoryservice/...` clean; `go test -race -count=1
+./services/directoryservice/...` clean; `golangci-lint run
+--new-from-rev=HEAD ./services/directoryservice/...` 0 issues (after
+`gofmt -w` on the new file). `go run ./cmd/paritylint` stays at 0 FAIL. No
+persisted-struct/snapshot-inventory change; no version bump.

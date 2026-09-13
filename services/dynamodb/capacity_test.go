@@ -255,6 +255,105 @@ func TestConsumedCapacity_Indexes_TableDriven(t *testing.T) {
 			} else {
 				require.NotNil(t, delOut.ConsumedCapacity)
 			}
+
+			// 6. BatchWriteItem: Put with GSI and LSI keys. Like PutItem, the
+			// write lands on the table and every GSI/LSI the item populates,
+			// so INDEXES breaks down the same way. BatchWriteItemOutput
+			// carries ConsumedCapacity as a []types.ConsumedCapacity, one
+			// entry per table addressed.
+			bwOut, err := db.BatchWriteItem(ctx, &dynamodb_sdk.BatchWriteItemInput{
+				RequestItems: map[string][]types.WriteRequest{
+					tableName: {
+						{
+							PutRequest: &types.PutRequest{
+								Item: map[string]types.AttributeValue{
+									"pk":     &types.AttributeValueMemberS{Value: "k2"},
+									"sk":     &types.AttributeValueMemberS{Value: "s2"},
+									"gsi_pk": &types.AttributeValueMemberS{Value: "g2"},
+									"lsi_sk": &types.AttributeValueMemberS{Value: "l2"},
+									"val":    &types.AttributeValueMemberS{Value: "batch"},
+								},
+							},
+						},
+					},
+				},
+				ReturnConsumedCapacity: tt.args.reqCC,
+			})
+			require.NoError(t, err)
+
+			if tt.want.wantNil {
+				assert.Nil(t, bwOut.ConsumedCapacity)
+			} else {
+				require.Len(t, bwOut.ConsumedCapacity, 1)
+				assertConsumedCapacityBreakdown(
+					t, &bwOut.ConsumedCapacity[0], tableName,
+					tt.want.wantMinTotal, tt.want.wantTable, tt.want.wantGSI, tt.want.wantLSI,
+				)
+			}
+
+			// 7. BatchGetItem: always reads the base table by primary key --
+			// KeysAndAttributes carries no IndexName -- so INDEXES only ever
+			// populates .Table, never GSI/LSI (dynamodb SDK
+			// api_op_BatchGetItem.go:163-165).
+			const batchGetMinTotal = 0.5
+
+			bgOut, err := db.BatchGetItem(ctx, &dynamodb_sdk.BatchGetItemInput{
+				RequestItems: map[string]types.KeysAndAttributes{
+					tableName: {
+						Keys: []map[string]types.AttributeValue{
+							{
+								"pk": &types.AttributeValueMemberS{Value: "k2"},
+								"sk": &types.AttributeValueMemberS{Value: "s2"},
+							},
+						},
+					},
+				},
+				ReturnConsumedCapacity: tt.args.reqCC,
+			})
+			require.NoError(t, err)
+
+			if tt.want.wantNil {
+				assert.Nil(t, bgOut.ConsumedCapacity)
+			} else {
+				require.Len(t, bgOut.ConsumedCapacity, 1)
+				assertConsumedCapacityBreakdown(
+					t, &bgOut.ConsumedCapacity[0], tableName,
+					batchGetMinTotal, tt.want.wantTable, false, false,
+				)
+			}
+
+			// 8. TransactWriteItems: Put with GSI and LSI keys. Same
+			// index-write semantics as BatchWriteItem; TransactWriteItemsOutput
+			// also carries ConsumedCapacity as a []types.ConsumedCapacity, one
+			// entry per table addressed by the transaction.
+			twOut, err := db.TransactWriteItems(ctx, &dynamodb_sdk.TransactWriteItemsInput{
+				TransactItems: []types.TransactWriteItem{
+					{
+						Put: &types.Put{
+							TableName: aws.String(tableName),
+							Item: map[string]types.AttributeValue{
+								"pk":     &types.AttributeValueMemberS{Value: "k3"},
+								"sk":     &types.AttributeValueMemberS{Value: "s3"},
+								"gsi_pk": &types.AttributeValueMemberS{Value: "g3"},
+								"lsi_sk": &types.AttributeValueMemberS{Value: "l3"},
+								"val":    &types.AttributeValueMemberS{Value: "transact"},
+							},
+						},
+					},
+				},
+				ReturnConsumedCapacity: tt.args.reqCC,
+			})
+			require.NoError(t, err)
+
+			if tt.want.wantNil {
+				assert.Nil(t, twOut.ConsumedCapacity)
+			} else {
+				require.Len(t, twOut.ConsumedCapacity, 1)
+				assertConsumedCapacityBreakdown(
+					t, &twOut.ConsumedCapacity[0], tableName,
+					tt.want.wantMinTotal, tt.want.wantTable, tt.want.wantGSI, tt.want.wantLSI,
+				)
+			}
 		})
 	}
 }

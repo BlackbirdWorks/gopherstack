@@ -5,9 +5,17 @@ import (
 	"fmt"
 	"maps"
 	"net/url"
+	"strconv"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// snapshotDefaultTemporaryRestoreDays is the real EC2 API's default
+// RestoreDuration for a temporary snapshot tier restore when
+// TemporaryRestoreDays is not specified (docs.aws.amazon.com/AWSEC2/latest/
+// APIReference/API_RestoreSnapshotTier.html: "Default: 1").
+const snapshotDefaultTemporaryRestoreDays = 1
 
 type copySnapshotResponse struct {
 	XMLName    xml.Name        `xml:"CopySnapshotResponse"`
@@ -507,17 +515,47 @@ func (h *Handler) handleRestoreSnapshotFromRecycleBin(vals url.Values, reqID str
 	}, nil
 }
 
+// restoreSnapshotTierResponse matches RestoreSnapshotTierOutput (ec2@v1.329.0
+// deserializers.go's awsEc2query_deserializeOpDocumentRestoreSnapshotTierOutput:
+// snapshotId/isPermanentRestore/restoreDuration/restoreStartTime) -- it has
+// no "return" member at all, so the shared stubResponse{Return: bool} shape
+// this handler used to return decoded every one of these four real fields as
+// empty for any real client (gopherstack-ggu4a, found by
+// TestSlice2_RealClient/snapshot_lifecycle_extras). PermanentRestore/
+// TemporaryRestoreDays aren't tracked by the backend yet, so a temporary
+// restore always reports the real API's 1-day default duration.
+type restoreSnapshotTierResponse struct {
+	XMLName            xml.Name `xml:"RestoreSnapshotTierResponse"`
+	RequestID          string   `xml:"requestId"`
+	SnapshotID         string   `xml:"snapshotId"`
+	RestoreStartTime   string   `xml:"restoreStartTime"`
+	IsPermanentRestore bool     `xml:"isPermanentRestore"`
+	RestoreDuration    int32    `xml:"restoreDuration,omitempty"`
+}
+
 func (h *Handler) handleRestoreSnapshotTier(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("SnapshotId")
 	if err := h.Backend.RestoreSnapshotTier(id); err != nil {
 		return nil, err
 	}
 
-	return &stubResponse{
-		XMLName:   xml.Name{Local: "RestoreSnapshotTierResponse"},
-		RequestID: reqID,
-		Return:    true,
-	}, nil
+	permanent := vals.Get("PermanentRestore") == ec2BooleanTrue
+	resp := &restoreSnapshotTierResponse{
+		RequestID:          reqID,
+		SnapshotID:         id,
+		RestoreStartTime:   time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		IsPermanentRestore: permanent,
+	}
+	if !permanent {
+		resp.RestoreDuration = snapshotDefaultTemporaryRestoreDays
+		if days := vals.Get("TemporaryRestoreDays"); days != "" {
+			if v, convErr := strconv.ParseInt(days, 10, 32); convErr == nil {
+				resp.RestoreDuration = int32(v)
+			}
+		}
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleImportSnapshot(vals url.Values, reqID string) (any, error) {
@@ -678,7 +716,11 @@ func (h *Handler) handleCreateSnapshot(vals url.Values, reqID string) (any, erro
 
 func (h *Handler) handleDescribeSnapshots(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "SnapshotId")
-	snaps := h.Backend.DescribeSnapshots(ids)
+
+	snaps, err := h.Backend.DescribeSnapshots(ids)
+	if err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	snaps = applySnapshotFilters(snaps, filters, h.Backend)

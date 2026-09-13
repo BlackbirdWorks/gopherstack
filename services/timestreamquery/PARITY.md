@@ -37,7 +37,8 @@ ops:
 families:
   tags: {status: deferred, note: "TagResource/UntagResource/ListTagsForResource are in GetSupportedOperations() and have working handlers/backend methods (own ARN-keyed tag map), but RouteMatcher intentionally excludes them (writeServiceTagOps) so production traffic is routed to the TimestreamWrite handler's unified cross-resource tag store instead. Verified TimestreamWrite's TagResource treats ResourceARN as an opaque key (no resource-type-specific lookup), so scheduled-query ARNs tag correctly there. This package's own tag handlers are dead code in production, reachable only via direct unit tests / Handler() bypassing RouteMatcher -- confirmed intentional, not a routing bug."}
   route_matching: {status: ok, note: "X-Amz-Target prefix Timestream_20181101., Content-Type application/x-amz-json-1.0 (awsjson1.0) verified against serializers.go (awsAwsjson10_*). DescribeEndpoints wired for SDK endpoint-discovery (fetchOpQueryDiscoverEndpoint calls DescribeEndpoints first)."}
-gaps:
+gaps: []
+items_still_open:
   - "CreateScheduledQueryInput.KmsKeyId is now stored and echoed on DescribeScheduledQuery (fixed this pass -- see CreateScheduledQuery note), but this emulator still has no at-rest encryption layer, so setting it has no observable effect on how results/error reports are protected. Honestly scoped: 'we do not encrypt', not 'we lose the setting'."
   - "ScheduledQueryDescription.RecentlyFailedRuns (up to 5 most recent failed runs) and ScheduledQueryRunSummary.QueryInsightsResponse are not modeled -- this emulator's ExecuteScheduledQuery always succeeds (see ExecuteScheduledQuery), so there is no failure path to populate RecentlyFailedRuns from, and no scheduled-query-run-level QueryInsights simulation exists. Both are optional response fields; omitting them is wire-safe (omitempty). Enum check: types.ScheduledQueryRunStatus has 4 documented values (enums.go:229-232) -- AUTO_TRIGGER_SUCCESS, AUTO_TRIGGER_FAILURE, MANUAL_TRIGGER_SUCCESS, MANUAL_TRIGGER_FAILURE. This package declares 3 as unexported consts (scheduled_queries.go) but is missing MANUAL_TRIGGER_FAILURE outright, and none of the *_FAILURE values are ever assigned (RunStatus is backend-generated output only, never client-supplied, so there is no exhaustiveness requirement over it) -- consistent with 'no failure path', not a separate drop. (bd: file follow-up if failure simulation is ever added)"
   - "gopherstack-r80d batch 25 reviewed, ruled OUT (not a bug): ScheduledQueryDescription.NotificationConfiguration/ScheduleConfiguration are required at the top level and, once present, their own SnsConfiguration.TopicArn/ScheduleExpression are required one level deeper -- scheduledQueryToView gates emitting each wrapper on the corresponding domain field being non-empty. The real SDK's own client-side validators (validators.go's validateNotificationConfiguration/validateScheduleConfiguration/validateSnsConfiguration/validateScheduleConfiguration) only reject a NIL pointer, not an empty string, so a real client COULD send TopicArn/ScheduleExpression as an explicit empty string and still pass client-side validation. But gopherstack's own handleCreateScheduledQuery independently rejects both as ValidationException if empty (\"NotificationConfiguration.SnsConfiguration.TopicArn is required\" / \"ScheduleConfiguration.ScheduleExpression is required\") -- stricter than the real SDK's client-side check, the same ruled-out class batch 23 established for codeconnections' RepositorySyncDefinition.Parent. Since gopherstack rejects the only path that would produce an empty value, the wrapper-omission gate is unreachable via any real client that gets past CreateScheduledQuery at all."
@@ -579,3 +580,28 @@ Zero bugs found -- not because the surface was checked and came back clean,
 but because the surface does not exist, same structural verdict as
 cloudfront/apigateway/cloudformation/elbv2 earlier in this campaign. No
 files changed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: CancelQuery, DescribeAccountSettings,
+PrepareQuery, TagResource, UntagResource, UpdateAccountSettings,
+UpdateScheduledQuery driven through the real aws-sdk-go-v2 client for the
+first time (`typed_slice15_realclient_test.go`, 3 subtests: cancel/prepare
+query, account settings, scheduled query update + tags -- the latter
+confirms tag ops correctly route to the TimestreamWrite handler in
+production, per this file's own `tags: {status: deferred}` family note).
+timestreamquery moved from 8/15 to 15/15 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found. One pre-existing, already-disclosed gap reconfirmed
+live (not fixed, not new): `PrepareQuery`'s parameter inference only
+recognizes `?` positional markers (`inferColumnsFromSQL`'s own doc
+comment), not real Timestream's `@identifier` named-parameter syntax --
+a query using `@device_id` returns zero `Parameters` for a real client.
+Test written against the `?` syntax this implementation actually supports.
+
+Gates: `go build ./...`, `go vet ./services/timestreamquery/...`,
+`go test -race -count=1 ./services/timestreamquery/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/timestreamquery/...` (0 issues). `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted-struct/snapshot changes.

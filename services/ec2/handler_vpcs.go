@@ -178,6 +178,7 @@ type createVpcPeeringConnectionResponse struct {
 		Status                 struct {
 			Code string `xml:"code"`
 		} `xml:"status"`
+		TagSet []simpleTagItem `xml:"tagSet>item"`
 	} `xml:"vpcPeeringConnection"`
 }
 
@@ -248,11 +249,19 @@ func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "vpc-peering-connection")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pc.VpcPeeringConnectionID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	resp := &createVpcPeeringConnectionResponse{RequestID: reqID}
 	resp.VpcPeeringConnection.VpcPeeringConnectionID = pc.VpcPeeringConnectionID
 	resp.VpcPeeringConnection.RequesterVpcID = pc.RequesterVpcID
 	resp.VpcPeeringConnection.AccepterVpcID = pc.AccepterVpcID
 	resp.VpcPeeringConnection.Status.Code = pc.State
+	resp.VpcPeeringConnection.TagSet = tagItemsFromMap(tags)
 
 	return resp, nil
 }
@@ -301,7 +310,10 @@ func (h *Handler) handleDescribeVpcs(vals url.Values, reqID string) (any, error)
 
 	items := make([]vpcItem, 0, len(vpcs))
 	for _, v := range vpcs {
-		items = append(items, toVPCItem(v, h.Backend.TagsForResource(v.ID), h.Backend.VpcTenancy(v.ID)))
+		items = append(items, toVPCItem(
+			v, h.Backend.TagsForResource(v.ID), h.Backend.VpcTenancy(v.ID),
+			h.Backend.SecondaryCidrBlockAssociationsForVPC(v.ID),
+		))
 	}
 
 	return &describeVpcsResponse{
@@ -391,7 +403,7 @@ func (h *Handler) handleCreateVpc(vals url.Values, reqID string) (any, error) {
 	return &createVpcResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Vpc:       toVPCItem(v, tags, tenancy),
+		Vpc:       toVPCItem(v, tags, tenancy, nil),
 	}, nil
 }
 
@@ -412,29 +424,52 @@ func (h *Handler) handleDeleteVpc(vals url.Values, reqID string) (any, error) {
 	}, nil
 }
 
-func toVPCItem(v *VPC, tags map[string]string, tenancy string) vpcItem {
+// toVPCItem builds a vpcItem, including CidrBlockAssociationSet -- real AWS
+// always includes the primary CIDR block as this set's first entry
+// (ec2@v1.329.0 types.Vpc.CidrBlockAssociationSet doc: "information about
+// the IPv4 CIDR blocks associated with the VPC"), so secondaryAssocs should
+// hold only the VPC's secondary associations, not the primary.
+func toVPCItem(v *VPC, tags map[string]string, tenancy string, secondaryAssocs []*VpcCidrBlockAssociation) vpcItem {
 	isDefault := ec2BooleanFalse
 	if v.IsDefault {
 		isDefault = ec2BooleanTrue
 	}
 
+	cidrSet := make([]vpcCidrBlockAssocItem, 0, 1+len(secondaryAssocs))
+	primary := vpcCidrBlockAssocItem{CidrBlock: v.CIDRBlock}
+	primary.CidrBlockState.State = stateAssociated
+	cidrSet = append(cidrSet, primary)
+
+	for _, assoc := range secondaryAssocs {
+		item := vpcCidrBlockAssocItem{
+			AssociationID: assoc.AssociationID,
+			CidrBlock:     assoc.CidrBlock,
+		}
+		item.CidrBlockState.State = assoc.State
+		cidrSet = append(cidrSet, item)
+	}
+
 	return vpcItem{
-		VpcID:           v.ID,
-		CIDRBlock:       v.CIDRBlock,
-		IsDefault:       isDefault,
-		State:           stateAvailable,
-		TagSet:          tagItemsFromMap(tags),
-		InstanceTenancy: tenancy,
+		VpcID:                   v.ID,
+		CIDRBlock:               v.CIDRBlock,
+		DhcpOptionsID:           v.DHCPOptionsID,
+		CidrBlockAssociationSet: cidrSet,
+		IsDefault:               isDefault,
+		State:                   stateAvailable,
+		TagSet:                  tagItemsFromMap(tags),
+		InstanceTenancy:         tenancy,
 	}
 }
 
 type vpcItem struct {
-	VpcID           string          `xml:"vpcId"`
-	CIDRBlock       string          `xml:"cidrBlock"`
-	IsDefault       string          `xml:"isDefault"`
-	State           string          `xml:"state"`
-	InstanceTenancy string          `xml:"instanceTenancy,omitempty"`
-	TagSet          []simpleTagItem `xml:"tagSet>item"`
+	VpcID                   string                  `xml:"vpcId"`
+	CIDRBlock               string                  `xml:"cidrBlock"`
+	DhcpOptionsID           string                  `xml:"dhcpOptionsId,omitempty"`
+	CidrBlockAssociationSet []vpcCidrBlockAssocItem `xml:"cidrBlockAssociationSet>item,omitempty"`
+	IsDefault               string                  `xml:"isDefault"`
+	State                   string                  `xml:"state"`
+	InstanceTenancy         string                  `xml:"instanceTenancy,omitempty"`
+	TagSet                  []simpleTagItem         `xml:"tagSet>item"`
 }
 
 type vpcItemSet struct {

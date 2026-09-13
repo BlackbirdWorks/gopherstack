@@ -12,13 +12,20 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "vpn-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{vgw.VpnGatewayID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	item := vpnGatewayItem{
 		VpnGatewayID:    vgw.VpnGatewayID,
 		State:           vgw.State,
 		Type:            vgw.Type,
 		AttachedVPCID:   vgw.AttachedVPCID,
 		AttachmentState: vgw.AttachmentState,
-		TagSet:          tagItemsFromMap(h.Backend.TagsForResource(vgw.VpnGatewayID)),
+		TagSet:          tagItemsFromMap(tags),
 	}
 
 	return &createVpnGatewayResponse{
@@ -33,7 +40,15 @@ func (h *Handler) handleCreateVpnGateway(vals url.Values, reqID string) (any, er
 // see applyVpnGatewayFilters (handler_filters.go).
 func (h *Handler) handleDescribeVpnGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpnGatewayId")
-	vgws := applyVpnGatewayFilters(h.Backend.DescribeVpnGateways(ids), parseEC2Filters(vals), h.Backend)
+	unfiltered := h.Backend.DescribeVpnGateways(ids)
+
+	if err := requireAllIDsPresent(
+		ids, unfiltered, func(vgw *VpnGateway) string { return vgw.VpnGatewayID }, ErrVpnGatewayNotFound,
+	); err != nil {
+		return nil, err
+	}
+
+	vgws := applyVpnGatewayFilters(unfiltered, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeVpnGatewaysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
@@ -88,13 +103,31 @@ func (h *Handler) handleDetachVpnGateway(vals url.Values, reqID string) (any, er
 // ---- Customer Gateway handlers ----
 
 func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (any, error) {
+	// IpAddress and PublicIp are two real, distinct wire keys for the same
+	// parameter (ec2@v1.329.0 serializers.go's
+	// awsEc2query_serializeOpDocumentCreateCustomerGatewayInput serializes
+	// CreateCustomerGatewayInput.PublicIp -- the older, still-valid alias --
+	// to "PublicIp", not "IpAddress"); reading only "IpAddress" rejected any
+	// real client that populated the deprecated-but-supported PublicIp field.
+	ipAddress := vals.Get("IpAddress")
+	if ipAddress == "" {
+		ipAddress = vals.Get("PublicIp")
+	}
+
 	cgw, err := h.Backend.CreateCustomerGateway(
 		vals.Get("Type"),
-		vals.Get("IpAddress"),
+		ipAddress,
 		vals.Get("BgpAsn"),
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "customer-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{cgw.CustomerGatewayID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createCustomerGatewayResponse{
@@ -106,7 +139,7 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 			Type:              cgw.Type,
 			BgpAsn:            cgw.BgpAsn,
 			IPAddress:         cgw.IPAddress,
-			TagSet:            tagItemsFromMap(h.Backend.TagsForResource(cgw.CustomerGatewayID)),
+			TagSet:            tagItemsFromMap(tags),
 		},
 	}, nil
 }
@@ -116,7 +149,13 @@ func (h *Handler) handleCreateCustomerGateway(vals url.Values, reqID string) (an
 // it) -- see applyCustomerGatewayFilters (handler_filters.go).
 func (h *Handler) handleDescribeCustomerGateways(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "CustomerGatewayId")
-	cgws := applyCustomerGatewayFilters(h.Backend.DescribeCustomerGateways(ids), parseEC2Filters(vals), h.Backend)
+
+	cgwList, err := h.Backend.DescribeCustomerGateways(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	cgws := applyCustomerGatewayFilters(cgwList, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeCustomerGatewaysResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

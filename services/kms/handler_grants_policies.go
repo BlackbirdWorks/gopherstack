@@ -80,6 +80,16 @@ func (h *Handler) buildGrantPolicyActions() map[string]kmsActionFn {
 				return nil, err
 			}
 
+			// Same "only default is valid" constraint PutKeyPolicy already
+			// enforces above (api_op_GetKeyPolicy.go: "The only valid name is
+			// default.").
+			if input.PolicyName != "" && input.PolicyName != defaultKeyPolicyName {
+				return nil, fmt.Errorf(
+					"%w: PolicyName must be %q; got %q",
+					ErrUnsupportedParameter, defaultKeyPolicyName, input.PolicyName,
+				)
+			}
+
 			return h.Backend.GetKeyPolicy(ctx, &input)
 		},
 	}

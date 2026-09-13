@@ -63,4 +63,14 @@ var (
 	ErrSecurityGroupLimitExceeded = awserr.New("SecurityGroupLimitExceeded", awserr.ErrConflict)
 	// ErrTooManyRequests is returned when a throughput change cooldown is violated.
 	ErrTooManyRequests = awserr.New("TooManyRequests", errThrottled)
+	// ErrFileSystemLimitExceeded is returned when an account has reached its file
+	// system quota (efs@v1.48.0 types/errors.go: "Returned if the Amazon Web
+	// Services account has already created the maximum number of file systems
+	// allowed per account").
+	ErrFileSystemLimitExceeded = awserr.New("FileSystemLimitExceeded", awserr.ErrConflict)
+	// ErrAccessPointLimitExceeded is returned when a file system has reached its
+	// access point quota (efs@v1.48.0 types/errors.go: "Returned if the Amazon Web
+	// Services account has already created the maximum number of access points
+	// allowed per file system").
+	ErrAccessPointLimitExceeded = awserr.New("AccessPointLimitExceeded", awserr.ErrConflict)
 )

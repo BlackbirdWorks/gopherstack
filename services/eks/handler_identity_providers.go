@@ -77,8 +77,9 @@ type oidcConfigJSON struct {
 }
 
 type associateIdentityProviderConfigBody struct {
-	Tags map[string]string `json:"tags"`
-	Oidc *oidcConfigJSON   `json:"oidc"`
+	Tags               map[string]string `json:"tags"`
+	Oidc               *oidcConfigJSON   `json:"oidc"`
+	ClientRequestToken string            `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -119,22 +120,30 @@ func (h *Handler) handleAssociateIdentityProviderConfig(c *echo.Context, cluster
 		params["groupsPrefix"] = in.Oidc.GroupsPrefix
 	}
 
-	cfg, err := h.Backend.AssociateIdentityProviderConfig(
-		clusterName, "oidc", in.Oidc.IdentityProviderConfigName, params, in.Oidc.RequiredClaims, in.Tags,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(
+		c,
+		opAssociateIdentityProviderConfig,
+		in.ClientRequestToken,
+		body,
+		func() (int, any, error) {
+			cfg, err := h.Backend.AssociateIdentityProviderConfig(
+				clusterName, "oidc", in.Oidc.IdentityProviderConfigName, params, in.Oidc.RequiredClaims, in.Tags,
+			)
+			if err != nil {
+				return 0, nil, err
+			}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: map[string]any{
-			"id":           uuid.NewString()[:8],
-			keyStatusField: statusInProgress,
-			keyType:        opAssociateIdentityProviderConfig,
-			keyClusterName: clusterName,
+			return http.StatusOK, map[string]any{
+				keyUpdate: map[string]any{
+					"id":           uuid.NewString()[:8],
+					keyStatusField: statusInProgress,
+					keyType:        opAssociateIdentityProviderConfig,
+					keyClusterName: clusterName,
+				},
+				keyTags: cfg.Tags.Clone(),
+			}, nil
 		},
-		keyTags: cfg.Tags.Clone(),
-	})
+	)
 }
 
 type describeIDPBody struct {
@@ -213,6 +222,7 @@ func (h *Handler) handleListIdentityProviderConfigs(c *echo.Context, clusterName
 
 type disassociateIDPBody struct {
 	IdentityProviderConfig describeIDPBody `json:"identityProviderConfig"`
+	ClientRequestToken     string          `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clusterName string, body []byte) error {
@@ -223,16 +233,25 @@ func (h *Handler) handleDisassociateIdentityProviderConfig(c *echo.Context, clus
 		}
 	}
 
-	if err := h.Backend.DisassociateIdentityProviderConfig(clusterName, in.IdentityProviderConfig.Name); err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(
+		c,
+		opDisassociateIdentityProviderConfig,
+		in.ClientRequestToken,
+		body,
+		func() (int, any, error) {
+			name := in.IdentityProviderConfig.Name
+			if err := h.Backend.DisassociateIdentityProviderConfig(clusterName, name); err != nil {
+				return 0, nil, err
+			}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: map[string]any{
-			"id":           uuid.NewString()[:8],
-			keyStatusField: statusInProgress,
-			keyType:        "DisassociateIdentityProviderConfig",
-			keyClusterName: clusterName,
+			return http.StatusOK, map[string]any{
+				keyUpdate: map[string]any{
+					"id":           uuid.NewString()[:8],
+					keyStatusField: statusInProgress,
+					keyType:        "DisassociateIdentityProviderConfig",
+					keyClusterName: clusterName,
+				},
+			}, nil
 		},
-	})
+	)
 }

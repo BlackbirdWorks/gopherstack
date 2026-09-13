@@ -140,8 +140,12 @@ func (h *Handler) handleStartImportFileEnrichment(_ context.Context, _ *http.Req
 		return nil, err
 	}
 
+	if req.SourceS3Configuration == nil {
+		return nil, validationError("s3BucketSource is required")
+	}
+
 	if req.TargetS3Configuration == nil {
-		return nil, validationError("targetS3Configuration is required")
+		return nil, validationError("s3BucketTarget is required")
 	}
 
 	job, err := h.Backend.StartImportFileEnrichment(&EnrichmentTargetS3Configuration{

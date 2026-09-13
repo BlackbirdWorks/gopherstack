@@ -87,6 +87,13 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		return nil, ErrAlreadyExists
 	}
 
+	if b.jobs.Len() >= b.limits.jobs {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d job limit",
+			ErrResourceNumberLimitExceeded, b.limits.jobs,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	j := &Job{
 		Name:                 input.Name,
@@ -105,12 +112,23 @@ func (b *InMemoryBackend) CreateJob(input Job) (*Job, error) {
 		ExecutionProperty:    input.ExecutionProperty,
 		Connections:          input.Connections,
 		NotificationProperty: input.NotificationProperty,
+		JobMode:              jobModeOrDefault(input.JobMode),
 		CreatedOn:            now,
 		LastModifiedOn:       now,
 	}
 	b.jobs.Put(j)
 
 	return j, nil
+}
+
+// jobModeOrDefault applies CreateJobInput.JobMode's documented default: when
+// missing or null, SCRIPT is assigned (glue@v1.157.0 api_op_CreateJob.go).
+func jobModeOrDefault(mode string) string {
+	if mode == "" {
+		return "SCRIPT"
+	}
+
+	return mode
 }
 
 // validateJobCapacity enforces AWS Glue's mutual-exclusion rule between the
@@ -421,7 +439,7 @@ func (b *InMemoryBackend) StartJobRunWithOptions(
 		bm = &JobBookmark{JobName: jobName}
 		b.jobBookmarks.Put(bm)
 	}
-	bm.ActiveRun = run.ID
+	bm.RunID = run.ID
 	bm.Attempt++
 
 	return run, nil

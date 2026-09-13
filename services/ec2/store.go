@@ -17,17 +17,18 @@ import (
 
 // Errors returned by the EC2 backend.
 var (
-	ErrInstanceNotFound      = errors.New("InvalidInstanceID.NotFound")
-	ErrSecurityGroupNotFound = errors.New("InvalidGroup.NotFound")
-	ErrVPCNotFound           = errors.New("InvalidVpcID.NotFound")
-	ErrSubnetNotFound        = errors.New("InvalidSubnetID.NotFound")
-	ErrInvalidParameter      = errors.New("InvalidParameterValue")
-	ErrDuplicateSGName       = errors.New("InvalidGroup.Duplicate")
-	ErrInvalidInstanceState  = errors.New("IncorrectInstanceState")
-	ErrSpotFleetNotFound     = errors.New("InvalidSpotFleetRequestId.NotFound")
-	ErrCIDRConflict          = errors.New("InvalidVpc.Conflict")
-	ErrDryRunOperation       = errors.New("request would have succeeded, but DryRun flag is set")
-	ErrDuplicatePermission   = errors.New("InvalidPermission.Duplicate")
+	ErrInstanceNotFound          = errors.New("InvalidInstanceID.NotFound")
+	ErrSecurityGroupNotFound     = errors.New("InvalidGroup.NotFound")
+	ErrSecurityGroupRuleNotFound = errors.New("InvalidSecurityGroupRuleId.NotFound")
+	ErrVPCNotFound               = errors.New("InvalidVpcID.NotFound")
+	ErrSubnetNotFound            = errors.New("InvalidSubnetID.NotFound")
+	ErrInvalidParameter          = errors.New("InvalidParameterValue")
+	ErrDuplicateSGName           = errors.New("InvalidGroup.Duplicate")
+	ErrInvalidInstanceState      = errors.New("IncorrectInstanceState")
+	ErrSpotFleetNotFound         = errors.New("InvalidSpotFleetRequestId.NotFound")
+	ErrCIDRConflict              = errors.New("InvalidVpc.Conflict")
+	ErrDryRunOperation           = errors.New("request would have succeeded, but DryRun flag is set")
+	ErrDuplicatePermission       = errors.New("InvalidPermission.Duplicate")
 
 	// ErrDependencyViolation is returned when an operation cannot complete
 	// because another resource still depends on the target resource.
@@ -181,16 +182,21 @@ type Instance struct {
 	EBSOptimized          bool `json:"ebsOptimized,omitempty"`
 }
 
-// LaunchTemplate represents an EC2 launch template.
+// LaunchTemplate represents an EC2 launch template. ImageID/InstanceType mirror
+// whichever version was most recently created or modified (back-compat for callers
+// that want "the current data" without resolving a specific version, e.g. Fleet's
+// override resolution); Versions holds the real per-version history that
+// GetLaunchTemplate resolves $Latest/$Default/numeric/empty version requests against.
 type LaunchTemplate struct {
-	CreateTime           time.Time `json:"createTime"`
-	ID                   string    `json:"id,omitempty"`
-	Name                 string    `json:"name,omitempty"`
-	ImageID              string    `json:"imageID,omitempty"`
-	InstanceType         string    `json:"instanceType,omitempty"`
-	CreatedBy            string    `json:"createdBy,omitempty"`
-	DefaultVersionNumber int64     `json:"defaultVersionNumber"`
-	LatestVersionNumber  int64     `json:"latestVersionNumber"`
+	CreateTime           time.Time               `json:"createTime"`
+	ID                   string                  `json:"id,omitempty"`
+	Name                 string                  `json:"name,omitempty"`
+	ImageID              string                  `json:"imageID,omitempty"`
+	InstanceType         string                  `json:"instanceType,omitempty"`
+	CreatedBy            string                  `json:"createdBy,omitempty"`
+	Versions             []LaunchTemplateVersion `json:"versions,omitempty"`
+	DefaultVersionNumber int64                   `json:"defaultVersionNumber"`
+	LatestVersionNumber  int64                   `json:"latestVersionNumber"`
 }
 
 // VpcEndpoint represents an EC2 VPC endpoint.
@@ -265,12 +271,16 @@ type SecurityGroup struct {
 
 // VPC represents an EC2 VPC.
 type VPC struct {
-	Attributes              map[string]bool `json:"attributes,omitempty"`
-	ID                      string          `json:"id,omitempty"`
-	CIDRBlock               string          `json:"cidrBlock,omitempty"`
-	IsDefault               bool            `json:"isDefault,omitempty"`
-	ClassicLinkEnabled      bool            `json:"classicLinkEnabled,omitempty"`
-	ClassicLinkDNSSupported bool            `json:"classicLinkDnsSupported,omitempty"`
+	Attributes map[string]bool `json:"attributes,omitempty"`
+	ID         string          `json:"id,omitempty"`
+	CIDRBlock  string          `json:"cidrBlock,omitempty"`
+	// DHCPOptionsID is the associated DHCP options set, or "default" when
+	// none has been explicitly associated -- real AWS always reports one of
+	// the two (ec2@v1.329.0 types.Vpc.DhcpOptionsId), never an absent value.
+	DHCPOptionsID           string `json:"dhcpOptionsId,omitempty"`
+	IsDefault               bool   `json:"isDefault,omitempty"`
+	ClassicLinkEnabled      bool   `json:"classicLinkEnabled,omitempty"`
+	ClassicLinkDNSSupported bool   `json:"classicLinkDnsSupported,omitempty"`
 }
 
 // Subnet represents an EC2 Subnet.
@@ -855,9 +865,10 @@ func (b *InMemoryBackend) reconcileInstanceLifecycle() {
 func (b *InMemoryBackend) initDefaults() {
 	defaultVPCID := vpcDefaultName
 	b.vpcs.Put(&VPC{
-		ID:        defaultVPCID,
-		CIDRBlock: "172.31.0.0/16",
-		IsDefault: true,
+		ID:            defaultVPCID,
+		CIDRBlock:     "172.31.0.0/16",
+		IsDefault:     true,
+		DHCPOptionsID: dhcpOptionsDefault,
 	})
 
 	defaultSubnetID := "subnet-default"

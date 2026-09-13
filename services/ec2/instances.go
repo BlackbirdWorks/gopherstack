@@ -742,13 +742,21 @@ func (b *InMemoryBackend) GetConsoleScreenshot(instanceID string) (string, error
 
 // ---- GetInstanceTypesFromInstanceRequirements ----
 
-// GetInstanceTypesFromInstanceRequirements returns a static list of instance types
-// matching the given requirements (simplified mock).
-func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements() []string {
-	return []string{
-		instanceTypeT3Micro, instanceTypeT3Small, instanceTypeT3Medium, "m5.large",
-		instanceTypeM5Xlarge,
+// GetInstanceTypesFromInstanceRequirements returns every instanceTypeCatalog
+// entry (instance_type_catalog.go) matching q, implementing the real
+// attribute-based instance type selection engine. See handler_instance_types.go
+// for the predicate (instanceTypeMatchesRequirements) and its wire-shape/doc
+// citations.
+func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery) []string {
+	var matched []string
+
+	for _, name := range sortedCatalogTypes() {
+		if instanceTypeMatchesRequirements(name, instanceTypeCatalog[name], q) {
+			matched = append(matched, name)
+		}
 	}
+
+	return matched
 }
 
 // ---- GetSubnetCidrReservations ----
@@ -757,9 +765,13 @@ func (b *InMemoryBackend) GetInstanceTypesFromInstanceRequirements() []string {
 // AWS validates every listed instance, not just the first (ec2@v1.319.1
 // serializers.go:91277, ReportInstanceStatusInput.Instances is a required,
 // unbounded list serialized as flat InstanceId.N).
-func (b *InMemoryBackend) ReportInstanceStatus(instanceIDs []string, _ string, _ string) error {
+func (b *InMemoryBackend) ReportInstanceStatus(instanceIDs, reasonCodes []string, _ string, _ string) error {
 	if len(instanceIDs) == 0 {
 		return fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	if len(reasonCodes) == 0 {
+		return fmt.Errorf("%w: ReasonCode is required", ErrInvalidParameter)
 	}
 
 	b.mu.RLock("ReportInstanceStatus")
@@ -802,18 +814,12 @@ func (b *InMemoryBackend) DescribeInstancesByVPC(vpcID string) []*Instance {
 	return out
 }
 
-// DescribeInstanceTypeOfferings returns a static list of instance type / AZ pairs.
+// DescribeInstanceTypeOfferings returns one offering per instanceTypeCatalog
+// entry (instance_type_catalog.go) for each availability zone in the
+// backend's region.
 func (b *InMemoryBackend) DescribeInstanceTypeOfferings() []InstanceTypeOffering {
 	azs := b.DescribeAvailabilityZones(b.Region)
-	types := []string{
-		"t3.nano", instanceTypeT3Micro, "t3.small", instanceTypeT3Medium, "t3.large",
-		"t3.xlarge", "t3.2xlarge",
-		"m5.large", instanceTypeM5Xlarge, "m5.2xlarge", "m5.4xlarge",
-		"c5.large", "c5.xlarge", "c5.2xlarge",
-		"r5.large", "r5.xlarge",
-		"p3.2xlarge",
-		"inf1.xlarge",
-	}
+	types := sortedCatalogTypes()
 
 	out := make([]InstanceTypeOffering, 0, len(types)*len(azs))
 

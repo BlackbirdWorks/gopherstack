@@ -42,7 +42,7 @@ func (b *InMemoryBackend) snapshotClusterConfigFor(c *Cluster) snapshotClusterCo
 
 // CreateSnapshot creates a snapshot of a cluster.
 func (b *InMemoryBackend) CreateSnapshot(ctx context.Context, req *createSnapshotRequest) (*Snapshot, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSnapshot")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) DescribeSnapshots(
 	ctx context.Context,
 	name, clusterName, source string,
 ) ([]*Snapshot, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSnapshots")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -147,7 +147,7 @@ func (b *InMemoryBackend) DescribeSnapshots(
 
 // CopySnapshot copies an existing snapshot to a new name.
 func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotRequest) (*Snapshot, error) {
-	b.mu.Lock()
+	b.mu.Lock("CopySnapshot")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) CopySnapshot(ctx context.Context, req *copySnapshotReq
 
 // DeleteSnapshot removes a snapshot.
 func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, name string) (*Snapshot, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSnapshot")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -226,7 +226,7 @@ func (b *InMemoryBackend) DeleteSnapshot(ctx context.Context, name string) (*Sna
 
 // ExportSnapshot validates the snapshot exists and returns it (export to S3 is a no-op in the mock).
 func (b *InMemoryBackend) ExportSnapshot(ctx context.Context, req *exportSnapshotRequest) (*Snapshot, error) {
-	b.mu.RLock()
+	b.mu.RLock("ExportSnapshot")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -262,7 +262,7 @@ func cloneSnapshot(s *Snapshot) *Snapshot {
 
 // AddSnapshotInternal inserts a snapshot directly into the backend for testing.
 func (b *InMemoryBackend) AddSnapshotInternal(name, clusterName string) *Snapshot {
-	b.mu.Lock()
+	b.mu.Lock("AddSnapshotInternal")
 	defer b.mu.Unlock()
 
 	snapshotARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "snapshot/"+name)

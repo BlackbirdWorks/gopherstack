@@ -21,6 +21,7 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 	// Create training job.
 	recCreate := doSageMakerRequest(t, h, "CreateTrainingJob", map[string]any{
 		"TrainingJobName":        "my-training-job",
+		"RoleArn":                "arn:aws:iam::000000000000:role/training",
 		"AlgorithmSpecification": map[string]any{"TrainingInputMode": "File"},
 		"OutputDataConfig":       map[string]any{"S3OutputPath": "s3://bucket/output"},
 		"ResourceConfig": map[string]any{
@@ -39,6 +40,7 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 	// Describe training job.
 	recDesc := doSageMakerRequest(t, h, "DescribeTrainingJob", map[string]any{
 		"TrainingJobName": "my-training-job",
+		"RoleArn":         "arn:aws:iam::000000000000:role/training",
 	})
 	assert.Equal(t, http.StatusOK, recDesc.Code)
 
@@ -53,12 +55,14 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 	// StopTrainingJob.
 	recStop := doSageMakerRequest(t, h, "StopTrainingJob", map[string]any{
 		"TrainingJobName": "my-training-job",
+		"RoleArn":         "arn:aws:iam::000000000000:role/training",
 	})
 	assert.Equal(t, http.StatusOK, recStop.Code)
 
 	// UpdateTrainingJob.
 	recUpdate := doSageMakerRequest(t, h, "UpdateTrainingJob", map[string]any{
 		"TrainingJobName": "my-training-job",
+		"RoleArn":         "arn:aws:iam::000000000000:role/training",
 	})
 	assert.Equal(t, http.StatusOK, recUpdate.Code)
 
@@ -68,6 +72,7 @@ func TestHandler_TrainingJobLifecycle(t *testing.T) {
 	// DeleteTrainingJob.
 	recDelete := doSageMakerRequest(t, h, "DeleteTrainingJob", map[string]any{
 		"TrainingJobName": "my-training-job",
+		"RoleArn":         "arn:aws:iam::000000000000:role/training",
 	})
 	assert.Equal(t, http.StatusOK, recDelete.Code)
 }
@@ -84,6 +89,7 @@ func TestHandler_DeleteTrainingJob_InProgress(t *testing.T) {
 
 	doSageMakerRequest(t, h, "CreateTrainingJob", map[string]any{
 		"TrainingJobName":        "del-tj",
+		"RoleArn":                "arn:aws:iam::000000000000:role/training",
 		"AlgorithmSpecification": map[string]any{"TrainingInputMode": "File"},
 		"OutputDataConfig":       map[string]any{"S3OutputPath": "s3://bucket/output"},
 		"ResourceConfig": map[string]any{

@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -407,6 +410,60 @@ func TestReadSetMetadata_FilesField_MultipartUpload(t *testing.T) {
 				assert.InDelta(t, float64(len(tc.source2)), source2["contentLength"], 0)
 				assert.InDelta(t, float64(1), source2["totalParts"], 0)
 			}
+		})
+	}
+}
+
+// errBodyRead is the sentinel returned by errReadCloser.
+var errBodyRead = errors.New("simulated body read failure")
+
+// errReadCloser always fails on Read, simulating a body the server cannot
+// consume (e.g. a client that dies mid-upload). This drives
+// handleUploadReadSetPart's io.ReadAll failure path directly: a real client
+// over a live connection can't deterministically reproduce a server-side
+// body-read error, so this uses the same synthetic-body approach as
+// services/sts/handler_test.go's errReader.
+type errReadCloser struct{}
+
+func (errReadCloser) Read(_ []byte) (int, error) {
+	return 0, errBodyRead
+}
+
+func (errReadCloser) Close() error { return nil }
+
+// TestUploadReadSetPart_BodyReadError_InternalServerException proves an
+// unreadable request body surfaces as InternalServerException, not a
+// fabricated "InternalFailureException" -- confirmed against
+// awsRestjson1_deserializeOpErrorUploadReadSetPart (omics@v1.49.5
+// deserializers.go), whose switch declares InternalServerException and no
+// InternalFailureException.
+func TestUploadReadSetPart_BodyReadError_InternalServerException(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		path string
+	}{
+		"unreadable body": {path: "/sequencestore/store-1/upload/upload-1/part?partNumber=1&partSource=SOURCE1"},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			req := httptest.NewRequest(http.MethodPut, tc.path, errReadCloser{})
+			req.Header.Set("Content-Type", "application/octet-stream")
+			rec := httptest.NewRecorder()
+			e := echo.New()
+			c := e.NewContext(req, rec)
+			require.NoError(t, h.Handler()(c))
+
+			require.Equal(t, http.StatusInternalServerError, rec.Code)
+
+			var resp map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+			assert.Equal(t, "InternalServerException", resp["__type"])
 		})
 	}
 }

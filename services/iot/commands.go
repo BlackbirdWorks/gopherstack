@@ -11,19 +11,29 @@ import (
 
 // IoTCommand represents an AWS IoT command.
 //
+// MandatoryParameters is optional (real GetCommandOutput has no "This member
+// is required" on it -- iot@v1.83.0 api_op_GetCommand.go:74-75), so a
+// command created without any legitimately omits the key. Each entry is
+// stored opaquely (whatever JSON object the caller sent under
+// "mandatoryParameters") rather than modeled field-by-field --
+// types.CommandParameter's Value/DefaultValue are their own deep union
+// type -- and echoed back byte-for-byte, matching real caller-supplied
+// state instead of fabricating a shape.
+//
 //nolint:revive // IoTCommand is intentional to maintain AWS API naming clarity
 type IoTCommand struct {
-	Tags            map[string]string `json:"tags,omitempty"`
-	Payload         map[string]any    `json:"payload,omitempty"`
-	CommandARN      string            `json:"commandArn"`
-	CommandID       string            `json:"commandId"`
-	DisplayName     string            `json:"displayName,omitempty"`
-	Description     string            `json:"description,omitempty"`
-	Namespace       string            `json:"namespace,omitempty"`
-	CreationDate    float64           `json:"creationDate,omitempty"`
-	LastUpdated     float64           `json:"lastUpdatedAt,omitempty"`
-	Deprecated      bool              `json:"deprecated"`
-	PendingDeletion bool              `json:"pendingDeletion"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	Payload             map[string]any    `json:"payload,omitempty"`
+	CommandARN          string            `json:"commandArn"`
+	CommandID           string            `json:"commandId"`
+	DisplayName         string            `json:"displayName,omitempty"`
+	Description         string            `json:"description,omitempty"`
+	Namespace           string            `json:"namespace,omitempty"`
+	MandatoryParameters []map[string]any  `json:"mandatoryParameters,omitempty"`
+	CreationDate        float64           `json:"creationDate,omitempty"`
+	LastUpdated         float64           `json:"lastUpdatedAt,omitempty"`
+	Deprecated          bool              `json:"deprecated"`
+	PendingDeletion     bool              `json:"pendingDeletion"`
 }
 
 func cloneIoTCommand(cmd *IoTCommand) *IoTCommand {
@@ -32,6 +42,7 @@ func cloneIoTCommand(cmd *IoTCommand) *IoTCommand {
 	maps.Copy(cp.Tags, cmd.Tags)
 	cp.Payload = make(map[string]any, len(cmd.Payload))
 	maps.Copy(cp.Payload, cmd.Payload)
+	cp.MandatoryParameters = append([]map[string]any(nil), cmd.MandatoryParameters...)
 
 	return &cp
 }
@@ -40,12 +51,29 @@ func (b *InMemoryBackend) commandARN(id string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("command/%s", id))
 }
 
+// AddCommandInternal seeds an IoTCommand with a caller-chosen CreationDate
+// directly into the backend for testing (mirrors AddCommandExecutionInternal/
+// AddAuditTaskInternal), letting tests control ListCommands' sortOrder
+// without depending on real-clock second-resolution timing.
+func (b *InMemoryBackend) AddCommandInternal(cmd IoTCommand) {
+	b.mu.Lock("AddCommandInternal")
+	defer b.mu.Unlock()
+
+	if cmd.CommandARN == "" {
+		cmd.CommandARN = b.commandARN(cmd.CommandID)
+	}
+
+	cp := cloneIoTCommand(&cmd)
+	b.commands.Put(cp)
+}
+
 func (b *InMemoryBackend) CreateCommand(
 	id, displayName, description, namespace string,
 	payload map[string]any,
+	mandatoryParameters []map[string]any,
 	tags map[string]string,
 ) (*IoTCommand, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCommand")
 	defer b.mu.Unlock()
 
 	if b.commands.Has(id) {
@@ -53,15 +81,16 @@ func (b *InMemoryBackend) CreateCommand(
 	}
 	now := float64(time.Now().Unix())
 	cmd := &IoTCommand{
-		CommandID:    id,
-		CommandARN:   b.commandARN(id),
-		DisplayName:  displayName,
-		Description:  description,
-		Namespace:    namespace,
-		Tags:         make(map[string]string),
-		Payload:      make(map[string]any),
-		CreationDate: now,
-		LastUpdated:  now,
+		CommandID:           id,
+		CommandARN:          b.commandARN(id),
+		DisplayName:         displayName,
+		Description:         description,
+		Namespace:           namespace,
+		Tags:                make(map[string]string),
+		Payload:             make(map[string]any),
+		CreationDate:        now,
+		LastUpdated:         now,
+		MandatoryParameters: append([]map[string]any(nil), mandatoryParameters...),
 	}
 	maps.Copy(cmd.Tags, tags)
 	maps.Copy(cmd.Payload, payload)
@@ -72,7 +101,7 @@ func (b *InMemoryBackend) CreateCommand(
 }
 
 func (b *InMemoryBackend) GetCommand(id string) (*IoTCommand, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommand")
 	defer b.mu.RUnlock()
 
 	cmd, ok := b.commands.Get(id)
@@ -84,7 +113,7 @@ func (b *InMemoryBackend) GetCommand(id string) (*IoTCommand, error) {
 }
 
 func (b *InMemoryBackend) UpdateCommand(id, displayName, description string, deprecated bool) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCommand")
 	defer b.mu.Unlock()
 
 	cmd, ok := b.commands.Get(id)
@@ -104,7 +133,7 @@ func (b *InMemoryBackend) UpdateCommand(id, displayName, description string, dep
 }
 
 func (b *InMemoryBackend) DeleteCommand(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCommand")
 	defer b.mu.Unlock()
 
 	if !b.commands.Has(id) {
@@ -117,7 +146,7 @@ func (b *InMemoryBackend) DeleteCommand(id string) error {
 }
 
 func (b *InMemoryBackend) ListCommands() []*IoTCommand {
-	b.mu.RLock()
+	b.mu.RLock("ListCommands")
 	defer b.mu.RUnlock()
 
 	items := b.commands.Snapshot()
@@ -145,7 +174,7 @@ func (b *InMemoryBackend) commandExecutionKey(commandID, executionID string) str
 }
 
 func (b *InMemoryBackend) GetCommandExecution(commandID, executionID string) (*IoTCommandExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommandExecution")
 	defer b.mu.RUnlock()
 
 	key := b.commandExecutionKey(commandID, executionID)
@@ -159,7 +188,7 @@ func (b *InMemoryBackend) GetCommandExecution(commandID, executionID string) (*I
 }
 
 func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListCommandExecutions")
 	defer b.mu.RUnlock()
 
 	prefix := commandID + "/"
@@ -180,7 +209,7 @@ func (b *InMemoryBackend) ListCommandExecutions(commandID string) []*IoTCommandE
 // request shape where executions are addressed by executionId+targetArn,
 // not commandId+executionId (mirrors DeleteCommandExecution below).
 func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string) (*IoTCommandExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetCommandExecutionByID")
 	defer b.mu.RUnlock()
 
 	for _, ex := range b.commandExecutions {
@@ -204,7 +233,7 @@ func (b *InMemoryBackend) GetCommandExecutionByID(executionID, targetARN string)
 // POST /command-executions route. ListCommandExecutions above backs the
 // separate legacy path-scoped route instead.
 func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, status string) []*IoTCommandExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListCommandExecutionsByFilter")
 	defer b.mu.RUnlock()
 
 	var out []*IoTCommandExecution
@@ -231,7 +260,7 @@ func (b *InMemoryBackend) ListCommandExecutionsByFilter(commandARN, targetARN, s
 // AWS's real request shape where executions are addressed by
 // executionId+targetArn rather than commandId.
 func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCommandExecution")
 	defer b.mu.Unlock()
 
 	for key, ex := range b.commandExecutions {
@@ -255,7 +284,7 @@ func (b *InMemoryBackend) DeleteCommandExecution(executionID, targetARN string) 
 // backend for testing (there is no public CreateCommandExecution control-
 // plane operation; executions are normally created by device SDKs).
 func (b *InMemoryBackend) AddCommandExecutionInternal(commandID, executionID string, ex IoTCommandExecution) {
-	b.mu.Lock()
+	b.mu.Lock("AddCommandExecutionInternal")
 	defer b.mu.Unlock()
 
 	cp := ex

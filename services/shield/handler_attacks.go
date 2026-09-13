@@ -142,11 +142,6 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	vectors := make([]map[string]any, 0, len(attack.AttackVectors))
-	for _, v := range attack.AttackVectors {
-		vectors = append(vectors, map[string]any{"VectorType": v.VectorType})
-	}
-
 	counters := make([]map[string]any, 0, len(attack.AttackCounters))
 	for _, c := range attack.AttackCounters {
 		counters = append(counters, map[string]any{
@@ -164,13 +159,18 @@ func (h *Handler) handleDescribeAttack(body []byte) ([]byte, error) {
 		mitigations = append(mitigations, map[string]any{"MitigationName": m.MitigationName})
 	}
 
+	// No "AttackVectors" key: types.AttackDetail (shield@v1.37.4 types/types.go)
+	// has no such member -- that's AttackSummary's field (ListAttacks). The
+	// real member here is AttackProperties ([]AttackProperty: AttackLayer,
+	// AttackPropertyIdentifier, TopContributors, Total, Unit), which this
+	// backend has no per-attack contributor/property data to populate
+	// honestly, so it's correctly left absent rather than fabricated.
 	return json.Marshal(map[string]any{
 		"Attack": map[string]any{
 			keyAttackID:      attack.AttackID,
 			keyResourceArn:   attack.ResourceARN,
 			keyStartTime:     floatSeconds(attack.StartTime),
 			keyEndTime:       floatSeconds(attack.EndTime),
-			"AttackVectors":  vectors,
 			"AttackCounters": counters,
 			"Mitigations":    mitigations,
 		},

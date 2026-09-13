@@ -95,7 +95,7 @@ func TestRunTask_AwslogsLogConfiguration_CreatesLogGroupAndStream(t *testing.T) 
 	})
 	require.NoError(t, err)
 
-	tasks, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-family"})
+	tasks, _, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-family"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -125,7 +125,7 @@ func TestRunTask_AwslogsLogConfiguration_NoStreamPrefix_FallsBackToTaskID(t *tes
 	})
 	require.NoError(t, err)
 
-	tasks, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-noprefix"})
+	tasks, _, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-noprefix"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -158,7 +158,7 @@ func TestRunTask_NonAwslogsDriver_NoLogStreamCreated(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = b.RunTask(RunTaskInput{TaskDefinition: "splunk-family"})
+	_, _, err = b.RunTask(RunTaskInput{TaskDefinition: "splunk-family"})
 	require.NoError(t, err)
 
 	require.Empty(t, mock.calls())
@@ -181,7 +181,7 @@ func TestRunTask_AwslogsLogConfiguration_NoBackendWired_StaysPermissive(t *testi
 	})
 	require.NoError(t, err)
 
-	tasks, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-unwired"})
+	tasks, _, err := b.RunTask(RunTaskInput{TaskDefinition: "awslogs-unwired"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	require.Equal(t, statusRunning, tasks[0].LastStatus)

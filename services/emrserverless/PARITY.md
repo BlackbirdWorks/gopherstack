@@ -33,7 +33,8 @@ families:
   timestamps: {status: ok, note: "all createdAt/updatedAt/startedAt/endedAt/authTokenExpiresAt/jobCreatedAt use epochSeconds() (float64 Unix seconds), matching restjson1 epoch-seconds timestamp serialization -- no ISO8601 string bugs found"}
   session_family: {status: fixed, note: "fully field-diffed against types.Session/SessionSummary and every session op's Input/Output shape in the SDK module; optional resource-usage fields (billedResourceUtilization/totalResourceUtilization/totalExecutionDurationSeconds/idleSince/networkConfiguration) are intentionally omitted since this backend does not simulate real resource billing, matching the same documented omission already accepted for JobRun/Application. This pass (gopherstack-tuh5): that field-diff covered presence of required fields but not absence of extras -- ListSessions was in fact leaking 5 Get-only members (see ops); a dedicated sessionSummaryToMap now scopes it correctly"}
   list_summary_shape: {status: fixed, note: "gopherstack-tuh5: ListApplications/ListJobRuns/ListSessions each reused their Get sibling's full converter (applicationToMap/jobRunToMap/sessionToMap) unscoped. Two prior audit entries (ListApplications, ListSessions) had verified only that each Summary type's required fields were present, and recorded wire: ok on that basis -- a correct check of one direction (presence) presented as a complete wire verdict; the other direction (absence of extras) was never checked, and gopherstack is a wire emulator seen by raw HTTP/non-SDK callers, not only SDK clients that happen to discard unrecognised keys. All three now have a dedicated *SummaryToMap converter built by reading that op's own types.*Summary struct and deserializer individually rather than assumed from a sibling; regression coverage in handler_list_summary_test.go asserts on the raw JSON body, not through an SDK client, which cannot observe this class of bug. codeartifact's sibling sweep in the same pass found a second bug class (a Summary member emitted under the wrong wire key, silently dropped by real deserializers) not present in emrserverless -- checked for here and not found: applicationSummaryToMap/jobRunSummaryToMap/sessionSummaryToMap key every field under the same name its own deserializer recognises."}
-gaps:
+gaps: []
+items_still_open:
   - "Fixed: JobRunState was missing the real SDK's QUEUED constant (types/enums.go:76-84 in aws-sdk-go-v2/service/emrserverless@v1.44.4, also emr-serverless/2021-07-13/service-2.json shapes.JobRunState, both list SUBMITTED/PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/CANCELLED/QUEUED). Added JobRunStateQueued for enum completeness. The lifecycle itself is unaffected: StartJobRun still only ever produces SUBMITTED (or CANCELLED via explicit cancel) -- this backend does not model application capacity/scheduler configuration, which is the only real trigger for QUEUED (see JobRun.queuedDurationMilliseconds / SchedulerConfiguration.queueTimeoutMinutes in service-2.json), so nothing ever enters PENDING/SCHEDULED/RUNNING/SUCCESS/FAILED/CANCELLING/QUEUED either -- not just QUEUED. This is a self-consistent simplification (every client-polled field agrees the run stays SUBMITTED), not an instant-success bug; simulating job execution to make QUEUED observable is out of scope without job-lifecycle simulation (tracked separately if ever undertaken)."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; sessionTokens/applicationTokens/jobRunTokens are plain in-memory maps cleaned up on DeleteApplication and full Reset(), and persisted/restored alongside the store.Table-backed resources -- no unbounded growth path found. Re-verified this pass: no new goroutines/tickers were introduced by the field additions."}
@@ -582,3 +583,28 @@ deliberately lacks") with no description. Re-derived the specifics:
 Tools re-run after the fix: `GOTOOLCHAIN=go1.27.0 go test -race
 ./services/emrserverless/...` and `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/emrserverless/...`, both clean, 0 issues.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 10 remaining typed-client-blind ops (`GetDashboardForJobRun`,
+`GetResourceDashboard`, `GetSession`, `GetSessionEndpoint`, `ListSessions`,
+`StopApplication`, `TagResource`, `TerminateSession`, `UntagResource`,
+`UpdateApplication`) through the real aws-sdk-go-v2 client for the first
+time (`typed_slice21_realclient_test.go`, 3 subtests: application
+lifecycle incl. tag/untag/update/stop, sessions incl.
+get/list/dashboard/endpoint/terminate, job-run dashboard). **Zero bugs**
+-- every op decoded and matched its documented shape on the first
+real-client run, consistent with this service's unusually deep prior
+per-op field-diff audit history (`ops:` table above already carries
+individual `wire: ok` verdicts for all 10, each with its own deserializer
+citation). `TerminateSession` was initially missed from this slice's
+target list (a census-tool bookkeeping slip, not a service-side gap) and
+added once the post-slice census caught the 21/22 shortfall. Repo-wide
+typed-client census: emrserverless 12/22 -> 22/22 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/emrserverless/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes (every op exercised is
+either derived/response-only or already covered by existing persisted
+fields). No version bump.

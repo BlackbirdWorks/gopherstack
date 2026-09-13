@@ -51,16 +51,21 @@ func newPersistenceTestBackend(t *testing.T) (*opsworks.InMemoryBackend, persist
 	)
 	require.NoError(t, err)
 
-	layer, err := b.CreateLayer(stack.StackID, "custom", "layer1", "layer1short")
+	installUpdatesOnBoot := true
+	layer, err := b.CreateLayer(stack.StackID, "custom", "layer1", "layer1short", &installUpdatesOnBoot)
 	require.NoError(t, err)
 
-	instance, err := b.CreateInstance(stack.StackID, layer.LayerID, "t2.micro")
+	instance, err := b.CreateInstance(
+		stack.StackID, []string{layer.LayerID}, "t2.micro",
+		opsworks.CreateInstanceOptions{Os: "Amazon Linux 2"},
+	)
 	require.NoError(t, err)
 
 	app, err := b.CreateApp(stack.StackID, "app1", "other")
 	require.NoError(t, err)
 
-	deployment, err := b.CreateDeployment(stack.StackID, app.AppID, "deploy") // also creates a command
+	// also creates a command
+	deployment, err := b.CreateDeployment(stack.StackID, app.AppID, "deploy", `{"key":"value"}`)
 	require.NoError(t, err)
 
 	require.NoError(t, b.TagResource(stack.Arn, map[string]string{"env": "test"}))

@@ -62,7 +62,7 @@ func TestPublicKeyReferentialIntegrity(t *testing.T) {
 				t.Helper()
 				pk, err := b.CreatePublicKey("cr3", "pk3", "", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
-				_, err = b.CreateFieldLevelEncryptionProfile("prof3", "", []cloudfront.EncryptionEntity{
+				_, err = b.CreateFieldLevelEncryptionProfile("", "prof3", "", []cloudfront.EncryptionEntity{
 					{PublicKeyID: pk.ID, ProviderID: "prov", FieldPatterns: []string{"secret"}},
 				})
 				require.NoError(t, err)

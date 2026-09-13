@@ -44,19 +44,26 @@ type InMemoryBackend struct {
 	sourceCredentials          *store.Table[SourceCredentials]
 	registry                   *store.Registry
 	resourcePolicies           map[string]string // ARN → policy JSON
-	mu                         *lockmetrics.RWMutex
-	accountID                  string
-	region                     string
+	// buildBatchNumbers tracks the next BuildBatchNumber per project, matching
+	// real AWS's per-project monotonic numbering (aws-sdk-go-v2/service/
+	// codebuild/types.BuildBatch.BuildBatchNumber, types/types.go:313 -- "If a
+	// batch build is deleted, the buildBatchNumber of other batch builds does
+	// not change").
+	buildBatchNumbers map[string]int64
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		resourcePolicies: make(map[string]string),
-		registry:         store.NewRegistry(),
-		accountID:        accountID,
-		region:           region,
-		mu:               lockmetrics.New("codebuild"),
+		resourcePolicies:  make(map[string]string),
+		buildBatchNumbers: make(map[string]int64),
+		registry:          store.NewRegistry(),
+		accountID:         accountID,
+		region:            region,
+		mu:                lockmetrics.New("codebuild"),
 	}
 
 	registerAllTables(b)
@@ -74,6 +81,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.resourcePolicies = make(map[string]string)
+	b.buildBatchNumbers = make(map[string]int64)
 }
 
 func randomID() string {

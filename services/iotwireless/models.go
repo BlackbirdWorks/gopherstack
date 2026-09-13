@@ -189,6 +189,7 @@ type WirelessDeviceImportTask struct {
 // SingleWirelessDeviceImportTask represents an IoT Wireless single-device import task.
 type SingleWirelessDeviceImportTask struct {
 	CreatedAt        time.Time `json:"createdAt"`
+	ID               string    `json:"id"`
 	ARN              string    `json:"arn"`
 	WirelessDeviceID string    `json:"wirelessDeviceId"`
 	DestinationName  string    `json:"destinationName"`

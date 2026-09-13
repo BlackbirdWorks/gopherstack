@@ -180,6 +180,7 @@ func ToSDKUpdateTableInput(input *UpdateTableInput) (*dynamodb.UpdateTableInput,
 	out.BillingMode = types.BillingMode(input.BillingMode)
 	out.GlobalSecondaryIndexUpdates = toSDKGSIUpdates(input.GlobalSecondaryIndexUpdates)
 	out.ReplicaUpdates = toSDKReplicationGroupUpdates(input.ReplicaUpdates)
+	out.MultiRegionConsistency = types.MultiRegionConsistency(input.MultiRegionConsistency)
 
 	return out, nil
 }
@@ -357,6 +358,7 @@ func FromSDKTableDescription(td *types.TableDescription) TableDescription {
 		LatestStreamLabel:         ptrconv.String(td.LatestStreamLabel),
 		GlobalTableVersion:        ptrconv.String(td.GlobalTableVersion),
 		DeletionProtectionEnabled: aws.ToBool(td.DeletionProtectionEnabled),
+		MultiRegionConsistency:    string(td.MultiRegionConsistency),
 	}
 
 	if td.BillingModeSummary != nil {
@@ -511,11 +513,43 @@ func FromSDKConsumedCapacity(cc *types.ConsumedCapacity) *ConsumedCapacity {
 	}
 
 	return &ConsumedCapacity{
-		TableName:          ptrconv.String(cc.TableName),
-		CapacityUnits:      ptrconv.Float64(cc.CapacityUnits),
-		ReadCapacityUnits:  ptrconv.Float64(cc.ReadCapacityUnits),
-		WriteCapacityUnits: ptrconv.Float64(cc.WriteCapacityUnits),
+		TableName:              ptrconv.String(cc.TableName),
+		CapacityUnits:          ptrconv.Float64(cc.CapacityUnits),
+		ReadCapacityUnits:      ptrconv.Float64(cc.ReadCapacityUnits),
+		WriteCapacityUnits:     ptrconv.Float64(cc.WriteCapacityUnits),
+		Table:                  fromSDKCapacity(cc.Table),
+		GlobalSecondaryIndexes: fromSDKCapacityMap(cc.GlobalSecondaryIndexes),
+		LocalSecondaryIndexes:  fromSDKCapacityMap(cc.LocalSecondaryIndexes),
 	}
+}
+
+func fromSDKCapacity(c *types.Capacity) *Capacity {
+	if c == nil {
+		return nil
+	}
+
+	return &Capacity{
+		CapacityUnits:      ptrconv.Float64(c.CapacityUnits),
+		ReadCapacityUnits:  ptrconv.Float64(c.ReadCapacityUnits),
+		WriteCapacityUnits: ptrconv.Float64(c.WriteCapacityUnits),
+	}
+}
+
+func fromSDKCapacityMap(m map[string]types.Capacity) map[string]Capacity {
+	if len(m) == 0 {
+		return nil
+	}
+
+	out := make(map[string]Capacity, len(m))
+	for k, v := range m {
+		out[k] = Capacity{
+			CapacityUnits:      ptrconv.Float64(v.CapacityUnits),
+			ReadCapacityUnits:  ptrconv.Float64(v.ReadCapacityUnits),
+			WriteCapacityUnits: ptrconv.Float64(v.WriteCapacityUnits),
+		}
+	}
+
+	return out
 }
 
 func FromSDKItemCollectionMetrics(icm *types.ItemCollectionMetrics) *ItemCollectionMetrics {

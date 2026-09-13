@@ -92,7 +92,10 @@ func (b *InMemoryBackend) AddDataMigrationInternal(name, migrationType string) {
 }
 
 // DeleteDataMigration deletes a data migration by name or ARN.
-func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) DeleteDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("DeleteDataMigration")
 	defer b.mu.Unlock()
 
@@ -117,10 +120,15 @@ func (b *InMemoryBackend) DeleteDataMigration(ctx context.Context, nameOrArn str
 	return nil, fmt.Errorf("%w: data migration %s not found", ErrNotFound, nameOrArn)
 }
 
-// ModifyDataMigration updates a data migration.
+// ModifyDataMigration updates a data migration. Real ModifyDataMigrationInput
+// (api_op_ModifyDataMigration.go) also accepts DataMigrationName -- dropped
+// entirely until this fix, so a real client's rename request silently did
+// nothing. DataMigrationName is this store's primary key (dataMigrationKeyFn,
+// store_setup.go), so a rename re-keys the table via delete+put rather than
+// mutating the field in place.
 func (b *InMemoryBackend) ModifyDataMigration(
 	ctx context.Context,
-	nameOrArn, migrationType, serviceAccessRoleArn string,
+	nameOrArn, newName, migrationType, serviceAccessRoleArn string,
 	numberOfJobs *int32,
 ) (*DataMigration, error) {
 	b.mu.Lock("ModifyDataMigration")
@@ -141,6 +149,13 @@ func (b *InMemoryBackend) ModifyDataMigration(
 
 	if numberOfJobs != nil {
 		dm.NumberOfJobs = *numberOfJobs
+	}
+
+	if newName != "" && newName != dm.DataMigrationName {
+		region := getRegion(ctx, b.region)
+		b.dataMigrations.Delete(regionKey(region, dm.DataMigrationName))
+		dm.DataMigrationName = newName
+		b.dataMigrations.Put(dm)
 	}
 
 	cp := *dm
@@ -164,7 +179,10 @@ func (b *InMemoryBackend) findDataMigration(ctx context.Context, nameOrArn strin
 }
 
 // StartDataMigration transitions a data migration to running status.
-func (b *InMemoryBackend) StartDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) StartDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("StartDataMigration")
 	defer b.mu.Unlock()
 
@@ -180,7 +198,10 @@ func (b *InMemoryBackend) StartDataMigration(ctx context.Context, nameOrArn stri
 }
 
 // StopDataMigration transitions a data migration to stopped status.
-func (b *InMemoryBackend) StopDataMigration(ctx context.Context, nameOrArn string) (*DataMigration, error) {
+func (b *InMemoryBackend) StopDataMigration(
+	ctx context.Context,
+	nameOrArn string,
+) (*DataMigration, error) {
 	b.mu.Lock("StopDataMigration")
 	defer b.mu.Unlock()
 
@@ -195,25 +216,32 @@ func (b *InMemoryBackend) StopDataMigration(ctx context.Context, nameOrArn strin
 	return &cp, nil
 }
 
-// DescribeDataMigrations returns all data migrations (optionally filtered by name/arn).
-func (b *InMemoryBackend) DescribeDataMigrations(ctx context.Context, nameOrArn string) ([]*DataMigration, error) {
+// DescribeDataMigrations returns data migrations matching filters. Real AWS
+// documents no specific filter-name vocabulary for this op
+// (api_op_DescribeDataMigrations.go simply says "Filters applied to the data
+// migrations"); data-migration-identifier is this backend's own choice,
+// matching either the name or the ARN, mirroring the equivalent documented
+// *-identifier filters on sibling ops (data-provider-identifier,
+// instance-profile-identifier, migration-project-identifier).
+func (b *InMemoryBackend) DescribeDataMigrations(
+	ctx context.Context,
+	filters DescribeFilters,
+) ([]*DataMigration, error) {
 	b.mu.RLock("DescribeDataMigrations")
 	defer b.mu.RUnlock()
 
-	if nameOrArn != "" {
-		dm := b.findDataMigration(ctx, nameOrArn)
-		if dm == nil {
-			return []*DataMigration{}, nil
-		}
-
-		cp := *dm
-
-		return []*DataMigration{&cp}, nil
-	}
-
 	items := b.dataMigrationsByRegion.Get(getRegion(ctx, b.region))
 	list := make([]*DataMigration, 0, len(items))
+
 	for _, dm := range items {
+		if !filters.MatchesAny(
+			"data-migration-identifier",
+			dm.DataMigrationName,
+			dm.DataMigrationArn,
+		) {
+			continue
+		}
+
 		cp := *dm
 		list = append(list, &cp)
 	}

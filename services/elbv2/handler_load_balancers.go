@@ -293,10 +293,11 @@ func parseSubnetMappings(vals url.Values) []SubnetMapping {
 		}
 
 		out = append(out, SubnetMapping{
-			SubnetID:           subnetID,
-			AllocationID:       vals.Get(fmt.Sprintf("SubnetMappings.member.%d.AllocationId", i)),
-			PrivateIPv4Address: vals.Get(fmt.Sprintf("SubnetMappings.member.%d.PrivateIPv4Address", i)),
-			IPv6Address:        vals.Get(fmt.Sprintf("SubnetMappings.member.%d.IPv6Address", i)),
+			SubnetID:            subnetID,
+			AllocationID:        vals.Get(fmt.Sprintf("SubnetMappings.member.%d.AllocationId", i)),
+			PrivateIPv4Address:  vals.Get(fmt.Sprintf("SubnetMappings.member.%d.PrivateIPv4Address", i)),
+			IPv6Address:         vals.Get(fmt.Sprintf("SubnetMappings.member.%d.IPv6Address", i)),
+			SourceNatIpv6Prefix: vals.Get(fmt.Sprintf("SubnetMappings.member.%d.SourceNatIpv6Prefix", i)),
 		})
 	}
 

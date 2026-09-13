@@ -49,7 +49,7 @@ func (b *InMemoryBackend) DescribeReservedNodes(
 	ctx context.Context,
 	req *describeReservedNodesRequest,
 ) ([]*ReservedNode, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeReservedNodes")
 
 	defer b.mu.RUnlock()
 
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) DescribeReservedNodesOfferings(
 	_ context.Context,
 	req *describeReservedNodesOfferingsRequest,
 ) ([]*ReservedNodesOffering, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeReservedNodesOfferings")
 	defer b.mu.RUnlock()
 
 	all := defaultReservedNodesOfferings()
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) PurchaseReservedNodesOffering(
 	ctx context.Context,
 	req *purchaseReservedNodesOfferingRequest,
 ) (*ReservedNode, error) {
-	b.mu.Lock()
+	b.mu.Lock("PurchaseReservedNodesOffering")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)

@@ -9,19 +9,31 @@ import (
 type createTableInput struct {
 	DatabaseName string     `json:"DatabaseName"`
 	TableInput   TableInput `json:"TableInput"`
+	CatalogID    string     `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleCreateTable(_ context.Context, in *createTableInput) (*emptyOutput, error) {
-	if _, err := h.Backend.CreateTable(in.DatabaseName, in.TableInput); err != nil {
+	tableInput := in.TableInput
+	tableInput.CatalogID = in.CatalogID
+
+	if _, err := h.Backend.CreateTable(in.DatabaseName, tableInput); err != nil {
 		return nil, err
 	}
 
 	return &emptyOutput{}, nil
 }
 
+// getTableInput holds input for GetTable.
+//
+// AttributesToGet (DEFAULT/LATEST_ICEBERG_METADATA) is not modeled: this
+// backend has no Iceberg table metadata state to return, so there is
+// nothing for the filter to select between -- accepted on the wire and
+// otherwise inert (see PARITY.md).
 type getTableInput struct {
-	DatabaseName string `json:"DatabaseName"`
-	Name         string `json:"Name"`
+	DatabaseName    string   `json:"DatabaseName"`
+	Name            string   `json:"Name"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
+	AttributesToGet []string `json:"AttributesToGet,omitempty"`
 }
 
 type getTableOutput struct {
@@ -32,6 +44,10 @@ func (h *Handler) handleGetTable(_ context.Context, in *getTableInput) (*getTabl
 	t, err := h.Backend.GetTable(in.DatabaseName, in.Name)
 	if err != nil {
 		return nil, err
+	}
+
+	if catalogIDMismatch(in.CatalogID, t.CatalogID) {
+		return nil, ErrNotFound
 	}
 
 	return &getTableOutput{Table: t}, nil
@@ -45,6 +61,7 @@ type getTablesInput struct {
 	Expression   string `json:"Expression,omitempty"`
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 type getTablesOutput struct {
@@ -60,6 +77,18 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 	tables, err := h.Backend.GetTables(in.DatabaseName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.CatalogID != "" {
+		filtered := tables[:0]
+
+		for _, tbl := range tables {
+			if tbl.CatalogID == in.CatalogID {
+				filtered = append(filtered, tbl)
+			}
+		}
+
+		tables = filtered
 	}
 
 	if in.Expression != "" {
@@ -93,10 +122,26 @@ func (h *Handler) handleGetTables(_ context.Context, in *getTablesInput) (*getTa
 type updateTableInput struct {
 	DatabaseName string     `json:"DatabaseName"`
 	TableInput   TableInput `json:"TableInput"`
+	CatalogID    string     `json:"CatalogId,omitempty"`
+	SkipArchive  bool       `json:"SkipArchive,omitempty"`
 }
 
 func (h *Handler) handleUpdateTable(_ context.Context, in *updateTableInput) (*emptyOutput, error) {
-	if err := h.Backend.UpdateTable(in.DatabaseName, in.TableInput); err != nil {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetTable(in.DatabaseName, in.TableInput.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
+	tableInput := in.TableInput
+	tableInput.SkipArchive = in.SkipArchive
+
+	if err := h.Backend.UpdateTable(in.DatabaseName, tableInput); err != nil {
 		return nil, err
 	}
 
@@ -106,9 +151,21 @@ func (h *Handler) handleUpdateTable(_ context.Context, in *updateTableInput) (*e
 type deleteTableInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	Name         string `json:"Name"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteTable(_ context.Context, in *deleteTableInput) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetTable(in.DatabaseName, in.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.DeleteTable(in.DatabaseName, in.Name); err != nil {
 		return nil, err
 	}
@@ -119,6 +176,7 @@ func (h *Handler) handleDeleteTable(_ context.Context, in *deleteTableInput) (*e
 type batchDeleteTableInput struct {
 	DatabaseName   string   `json:"DatabaseName"`
 	TablesToDelete []string `json:"TablesToDelete"`
+	CatalogID      string   `json:"CatalogId,omitempty"`
 }
 
 type batchDeleteTableOutput struct {
@@ -129,7 +187,30 @@ func (h *Handler) handleBatchDeleteTable(
 	_ context.Context,
 	in *batchDeleteTableInput,
 ) (*batchDeleteTableOutput, error) {
-	errs := h.Backend.BatchDeleteTable(in.DatabaseName, in.TablesToDelete)
+	toDelete := in.TablesToDelete
+	errs := make([]TableError, 0, len(toDelete))
+
+	if in.CatalogID != "" {
+		var scoped []string
+
+		for _, name := range toDelete {
+			t, err := h.Backend.GetTable(in.DatabaseName, name)
+			if err == nil && catalogIDMismatch(in.CatalogID, t.CatalogID) {
+				errs = append(errs, TableError{
+					TableName:   name,
+					ErrorDetail: ErrorDetail{ErrorCode: errEntityNotFoundCode, ErrorMessage: "table not found"},
+				})
+
+				continue
+			}
+
+			scoped = append(scoped, name)
+		}
+
+		toDelete = scoped
+	}
+
+	errs = append(errs, h.Backend.BatchDeleteTable(in.DatabaseName, toDelete)...)
 
 	return &batchDeleteTableOutput{Errors: errs}, nil
 }
@@ -138,6 +219,7 @@ type batchDeleteTableVersionInput struct {
 	DatabaseName string   `json:"DatabaseName"`
 	TableName    string   `json:"TableName"`
 	VersionIDs   []string `json:"VersionIds"`
+	CatalogID    string   `json:"CatalogId,omitempty"`
 }
 
 type batchDeleteTableVersionOutput struct {
@@ -148,6 +230,17 @@ func (h *Handler) handleBatchDeleteTableVersion(
 	_ context.Context,
 	in *batchDeleteTableVersionInput,
 ) (*batchDeleteTableVersionOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	errs := h.Backend.BatchDeleteTableVersion(in.DatabaseName, in.TableName, in.VersionIDs)
 
 	return &batchDeleteTableVersionOutput{Errors: errs}, nil
@@ -158,12 +251,24 @@ type deleteTableVersionInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
 	VersionID    string `json:"VersionId"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteTableVersion(
 	_ context.Context,
 	in *deleteTableVersionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	return &emptyOutput{}, h.Backend.DeleteTableVersion(in.DatabaseName, in.TableName, in.VersionID)
 }
 
@@ -172,6 +277,7 @@ type getTableVersionInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
 	VersionID    string `json:"VersionId"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // getTableVersionOutput holds the result for GetTableVersion.
@@ -188,17 +294,33 @@ func (h *Handler) handleGetTableVersion(
 		return nil, err
 	}
 
+	if tv.Table != nil && catalogIDMismatch(in.CatalogID, tv.Table.CatalogID) {
+		return nil, ErrNotFound
+	}
+
 	return &getTableVersionOutput{TableVersion: tv}, nil
 }
 
+// defaultGetTableVersionsLimit is used when GetTableVersionsInput.MaxResults is unset.
+const defaultGetTableVersionsLimit = 100
+
 // getTableVersionsInput holds input for GetTableVersions.
+//
+// MaxResults/NextToken are real GetTableVersionsInput members
+// (glue@v1.157.0 api_op_GetTableVersions.go) previously declared nowhere on
+// this wire struct, so every call returned every stored version in one
+// unbounded response regardless of what a real client requested.
 type getTableVersionsInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	NextToken    string `json:"NextToken,omitempty"`
+	MaxResults   int32  `json:"MaxResults,omitempty"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // getTableVersionsOutput holds the result for GetTableVersions.
 type getTableVersionsOutput struct {
+	NextToken     string          `json:"NextToken,omitempty"`
 	TableVersions []*TableVersion `json:"TableVersions"`
 }
 
@@ -208,7 +330,26 @@ func (h *Handler) handleGetTableVersions(
 ) (*getTableVersionsOutput, error) {
 	versions := h.Backend.GetTableVersions(in.DatabaseName, in.TableName)
 
-	return &getTableVersionsOutput{TableVersions: versions}, nil
+	if in.CatalogID != "" {
+		filtered := versions[:0]
+
+		for _, v := range versions {
+			if v.Table == nil || v.Table.CatalogID == in.CatalogID {
+				filtered = append(filtered, v)
+			}
+		}
+
+		versions = filtered
+	}
+
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetTableVersionsLimit
+	}
+
+	page, next := paginateSlice(versions, in.NextToken, limit)
+
+	return &getTableVersionsOutput{TableVersions: page, NextToken: next}, nil
 }
 
 // getUnfilteredTableMetadataInput holds input for GetUnfilteredTableMetadata.

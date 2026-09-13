@@ -358,7 +358,7 @@ func stubSupportedOperations() []string {
 		// "GetManagedPrefixListEntries", — moved to batch4SupportedOperations
 		"GetNetworkInsightsAccessScopeAnalysisFindings",
 		"GetNetworkInsightsAccessScopeContent",
-		"GetReservedInstancesExchangeQuote",
+		// "GetReservedInstancesExchangeQuote", — real handler in handler_reserved_instances.go, covered there
 		"GetRouteServerAssociations",
 		"GetRouteServerPropagations",
 		"GetRouteServerRoutingDatabase",

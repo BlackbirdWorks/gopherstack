@@ -11,9 +11,21 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
-// isEmpty reports whether none of the bundle's fields have been set.
-func (bundle TrustStoreCertificateBundle) isEmpty() bool {
-	return bundle.S3Bucket == "" && bundle.S3Key == "" && bundle.InlineCertificateBundle == ""
+// isEmpty reports whether none of the bundle source's fields have been set.
+func (bundle TrustStoreCACertificatesBundleSource) isEmpty() bool {
+	return bundle.S3Bucket == "" && bundle.S3Key == "" && bundle.S3Region == ""
+}
+
+// numberOfCaCertificates reports the trust store's CA cert count. CaCertificatesBundleSource is
+// required on CreateTrustStore (cloudfront@v1.67.4 api_op_CreateTrustStore.go:32-34), so any
+// trust store that exists has at least one CA certificate; the emulator has no real bundle
+// content to count beyond that floor.
+func (bundle TrustStoreCACertificatesBundleSource) numberOfCaCertificates() int32 {
+	if bundle.isEmpty() {
+		return 0
+	}
+
+	return 1
 }
 
 func (b *InMemoryBackend) trustStoreARN(id string) string {
@@ -33,7 +45,8 @@ func (b *InMemoryBackend) copyTrustStore(ts *TrustStore) *TrustStore {
 
 // CreateTrustStore creates a new trust store. Name must be unique among existing trust stores.
 func (b *InMemoryBackend) CreateTrustStore(
-	name, comment string, bundle TrustStoreCertificateBundle, tags map[string]string,
+	name string, bundle TrustStoreCACertificatesBundleSource, useClientCertificateOCSPEndpoint bool,
+	tags map[string]string,
 ) (*TrustStore, error) {
 	b.mu.Lock("CreateTrustStore")
 	defer b.mu.Unlock()
@@ -48,15 +61,16 @@ func (b *InMemoryBackend) CreateTrustStore(
 
 	id := generateID()
 	ts := &TrustStore{
-		ID:                                     id,
-		ARN:                                    b.trustStoreARN(id),
-		Name:                                   name,
-		Comment:                                comment,
-		Status:                                 statusDeployed,
-		ETag:                                   uuid.NewString(),
-		LastModifiedTime:                       time.Now().UTC().Format(time.RFC3339),
-		CertificateAuthorityCertificatesBundle: bundle,
-		Tags:                                   make(map[string]string, len(tags)),
+		ID:                               id,
+		ARN:                              b.trustStoreARN(id),
+		Name:                             name,
+		Status:                           trustStoreStatusActive,
+		ETag:                             uuid.NewString(),
+		LastModifiedTime:                 time.Now().UTC().Format(time.RFC3339),
+		CACertificatesBundleSource:       bundle,
+		NumberOfCaCertificates:           bundle.numberOfCaCertificates(),
+		UseClientCertificateOCSPEndpoint: useClientCertificateOCSPEndpoint,
+		Tags:                             make(map[string]string, len(tags)),
 	}
 	maps.Copy(ts.Tags, tags)
 	b.trustStores.Put(ts)
@@ -93,11 +107,12 @@ func (b *InMemoryBackend) ListTrustStores() []*TrustStore {
 	return out
 }
 
-// UpdateTrustStore updates an existing trust store. Empty fields (name, comment, and an empty
-// certificate bundle) leave the corresponding current value unchanged. If name changes, it must
-// remain unique among existing trust stores.
+// UpdateTrustStore updates an existing trust store. UpdateTrustStoreInput has no Name member
+// (cloudfront@v1.67.4 api_op_UpdateTrustStore.go:28-46): real AWS can never rename a trust store
+// through this operation. An empty bundle leaves the current one unchanged; a nil
+// useClientCertificateOCSPEndpoint leaves that setting unchanged.
 func (b *InMemoryBackend) UpdateTrustStore(
-	id, name, comment string, bundle TrustStoreCertificateBundle,
+	id string, bundle TrustStoreCACertificatesBundleSource, useClientCertificateOCSPEndpoint *bool,
 ) (*TrustStore, error) {
 	b.mu.Lock("UpdateTrustStore")
 	defer b.mu.Unlock()
@@ -107,25 +122,13 @@ func (b *InMemoryBackend) UpdateTrustStore(
 		return nil, fmt.Errorf("%w: trust store %s not found", ErrTrustStoreNotFound, id)
 	}
 
-	if name != "" && name != ts.Name {
-		if _, exists := b.trustStoreByName[name]; exists {
-			// UpdateTrustStore's own deserializer (cloudfront@v1.67.4
-			// deserializers.go) has no EntityAlreadyExists case -- unlike
-			// CreateTrustStore, which does. InvalidArgument is the only
-			// client-fault code it models for this.
-			return nil, fmt.Errorf("%w: trust store with name %q already exists", ErrValidation, name)
-		}
-		delete(b.trustStoreByName, ts.Name)
-		b.trustStoreByName[name] = id
-		ts.Name = name
-	}
-
-	if comment != "" {
-		ts.Comment = comment
-	}
-
 	if !bundle.isEmpty() {
-		ts.CertificateAuthorityCertificatesBundle = bundle
+		ts.CACertificatesBundleSource = bundle
+		ts.NumberOfCaCertificates = bundle.numberOfCaCertificates()
+	}
+
+	if useClientCertificateOCSPEndpoint != nil {
+		ts.UseClientCertificateOCSPEndpoint = *useClientCertificateOCSPEndpoint
 	}
 
 	ts.ETag = uuid.NewString()

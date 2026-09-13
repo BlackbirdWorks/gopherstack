@@ -47,7 +47,7 @@ ops:
   ModifyDBClusterSnapshotAttribute: {wire: ok, errors: ok, state: ok, persist: ok}
   # EventSubscription family
   CreateEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed prior pass: error codes were SubscriptionNotFoundFault/SubscriptionAlreadyExistFault, real wire codes are SubscriptionNotFound/SubscriptionAlreadyExist (no Fault). FIXED this pass, two bugs: (1) the handler passed sourceIDs/eventCategories to Backend.CreateEventSubscription in the wrong positional order (the backend signature is (eventCategories, sourceIDs)), so a real client's SourceIds silently came back as EventCategoriesList and vice versa -- invisible to every pre-existing test since none checked both lists in one request; (2) Enabled was accepted on the wire but never parsed/stored/echoed -- now defaults to true (AWS's default for a new subscription) when unspecified and is a real, mutable field."}
-  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: response now carries EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/SubscriptionCreationTime, all previously entirely absent from xmlEventSubscription (see families.EventSubscription)"}
+  DescribeEventSubscriptions: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: response now carries EventCategoriesList/EventSubscriptionArn/Enabled/CustomerAwsId/SubscriptionCreationTime, all previously entirely absent from xmlEventSubscription (see families.EventSubscription). FIXED 2026-09-12 (gopherstack-n3zi typed slice 33): filtering by an unmatched SubscriptionName silently returned an empty list instead of the real SubscriptionNotFoundFault (deserializers.go's awsAwsquery_deserializeOpErrorDescribeEventSubscriptions, docdb@v1.51.4, declares SubscriptionNotFound) -- the same silent-omission-vs-hard-fail bug class already fixed for DescribeDBClusterParameterGroups/DescribeDBSubnetGroups/DescribeDBClusterSnapshots in this service; DescribeEventSubscriptions was the one Describe-by-name op still missing it. events.go's DescribeEventSubscriptions now returns ([]EventSubscription, error)."}
   DeleteEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
   ModifyEventSubscription: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass: Enabled is now a real, wire-visible mutation (was silently dropped, same gap as Create)"}
   AddSourceIdentifierToSubscription: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -82,14 +82,15 @@ families:
   GlobalCluster: {status: ok, note: "FIXED this pass, closing the prior pass's flagged gap: types.GlobalCluster.GlobalClusterMembers now has a real backing field (GlobalClusterMember: DBClusterArn/IsWriter/Readers/SynchronizationStatus). CreateGlobalCluster attaches a resolvable SourceDBClusterIdentifier as the initial writer; FailoverGlobalCluster/SwitchoverGlobalCluster genuinely promote TargetDbClusterIdentifier via promoteGlobalClusterWriter (attaching a resolvable-but-not-yet-tracked real cluster as the new writer when it isn't already a member, matching the already-completed neptune service's identical precedent); RemoveFromGlobalCluster genuinely deletes the matching member. A target this backend cannot resolve at all (neither an existing member, an ARN, nor a known local cluster identifier) is left as a no-op rather than erroring, for the same reason neptune's precedent gives: this backend has no separate \"join global cluster\" operation (real DocDB clusters join via CreateDBCluster-time GlobalClusterIdentifier attachment, not modeled here, matching neptune) to have modeled a genuine not-yet-attached secondary, so it cannot distinguish that case from a typo."}
   Tags: {status: ok, note: "AddTagsToResource/RemoveTagsFromResource/ListTagsForResource verified real (region-scoped ARN keying via regionFromARN, upsert-by-key semantics). Wire shape (TagList>Tag, flat Key/Value) matches awsAwsquery_deserializeDocumentTagList exactly. No changes this pass."}
   ClusterEndpoint: {status: n/a, note: "VERIFIED this pass, not a gap: real Amazon DocumentDB has NO cluster-endpoint API at all (no CreateDBClusterEndpoint/ModifyDBClusterEndpoint/DeleteDBClusterEndpoint/DescribeDBClusterEndpoints anywhere in aws-sdk-go-v2/service/docdb@v1.48.11 -- confirmed by listing every api_op_*.go file in the module). This is an RDS/Neptune-only feature this campaign's task description generically mentioned for the RDS-cluster family, but DocDB's own API surface genuinely does not have it. gopherstack correctly has zero cluster-endpoint code for this service; adding any would be inventing an op that doesn't exist on the real wire."}
-gaps:
-  - "CHECKED 2026-09-07 (gopherstack-z1sd triage), found NOT A BUG: DBClusterSnapshot.Status is set to statusAvailable synchronously in both CreateDBClusterSnapshot and CopyDBClusterSnapshot (db_cluster_snapshots.go) and never any other value -- this backend does not even declare a 'creating'/'copying' status constant for snapshots (grepped models.go/store.go: only statusAvailable and statusDeleting exist, and statusDeleting is a DBCluster-only state). Per this package's own leaks: note, there are no goroutines/tickers anywhere, so there is no async window in which an intermediate status could ever be observed -- unreachable by construction, not a tracked-but-unemitted value. Same reasoning already on record for the sibling neptune service's identical situation (neptune/PARITY.md's DeleteDBClusterSnapshot precondition note, gopherstack-12v: 'every snapshot this backend ever creates is set to \"available\" synchronously and no code path ever assigns any other status') and for gopherstack-h3th/gopherstack-9ojs/gopherstack-0c1r precedent (synchronous emulator collapsing an async AWS status window). Recording here since this service had not previously disclosed it."
+gaps: []
   # gopherstack-6flj pass (2026-08-15): disclosed, not fabricated. Each is a
   # real, optional response member with zero backing state anywhere in this
   # backend -- adding a hardcoded/guessed value would be exactly the
   # fabrication parity-principles #1 forbids, and omitempty makes a
   # present-but-always-empty field byte-identical on the wire to an absent
   # one, so modelling them as always-empty would also be zero-effect churn.
+items_still_open:
+  - "CHECKED 2026-09-07 (gopherstack-z1sd triage), found NOT A BUG: DBClusterSnapshot.Status is set to statusAvailable synchronously in both CreateDBClusterSnapshot and CopyDBClusterSnapshot (db_cluster_snapshots.go) and never any other value -- this backend does not even declare a 'creating'/'copying' status constant for snapshots (grepped models.go/store.go: only statusAvailable and statusDeleting exist, and statusDeleting is a DBCluster-only state). Per this package's own leaks: note, there are no goroutines/tickers anywhere, so there is no async window in which an intermediate status could ever be observed -- unreachable by construction, not a tracked-but-unemitted value. Same reasoning already on record for the sibling neptune service's identical situation (neptune/PARITY.md's DeleteDBClusterSnapshot precondition note, gopherstack-12v: 'every snapshot this backend ever creates is set to \"available\" synchronously and no code path ever assigns any other status') and for gopherstack-h3th/gopherstack-9ojs/gopherstack-0c1r precedent (synchronous emulator collapsing an async AWS status window). Recording here since this service had not previously disclosed it."
   - "DBCluster: AssociatedRoles/CloneGroupId/DbClusterResourceId/EarliestRestorableTime/IOOptimizedNextAllowedModificationTime/LatestRestorableTime/MasterUserSecret/NetworkType/PercentProgress/ServerlessV2ScalingConfiguration/StorageType -- IAM role association, Secrets-Manager-managed credentials, IO-optimized storage tiering, dual-stack networking, and DocDB Serverless v2 are all distinct unimplemented features with no backend state to derive from. CHECKED 2026-09-07 (gopherstack-didn, following the rds twin gopherstack-uao2/1cjz that closed the identical gap in that service): ReplicationSourceIdentifier/ReadReplicaIdentifiers remain dead scaffolding for an unbuilt feature -- confirmed NOT a mechanical port of the rds fix, the two SDKs genuinely diverge here. Both fields are real on docdb's own DBCluster (docdb@v1.51.4 types/types.go:260 ReplicationSourceIdentifier *string; :243 ReadReplicaIdentifiers []string; doc comments read 'Contains the identifier of the source cluster if this cluster is a secondary cluster' and 'Contains one or more identifiers of the secondary clusters that are associated with this cluster' respectively), but unlike rds -- whose CreateDBClusterInput takes ReplicationSourceIdentifier directly (api_op_CreateDBCluster.go:812) -- docdb's CreateDBClusterInput has NO such member at all (grepped api_op_CreateDBCluster.go and every serializer: zero request-side hits; ReplicationSourceIdentifier appears only in the response deserializer, deserializers.go:10265). docdb also has no PromoteReadReplicaDBCluster operation whatsoever (no api_op_PromoteReadReplicaDBCluster.go; the SDK's only 'Promote' hit anywhere is FailoverGlobalCluster's own doc comment). Both fields' 'secondary cluster' wording ties them to Global Clusters, not to an Aurora-style direct replica-cluster create path: the real mechanism that populates them is CreateDBCluster-time GlobalClusterIdentifier attachment (joining an existing global cluster as a non-writer secondary) -- which this file already discloses, twice, as deliberately unmodeled (the GlobalCluster family note above and the unresolvable-Failover/Switchover-target gap below), matching the already-completed neptune service's identical precedent. Building that attachment path now, as a side effect of porting rds's single-flat-field fix, would be materially larger scope than uao2's rds change (a new create-time parameter plus real Global Cluster member wiring, not a mechanical port) and would contradict rather than close this file's own already-recorded scope decision. NOT FIXED this pass; no .go changes made. CreateDBCluster's own declared error list (deserializeOpErrorCreateDBCluster) does include DBClusterNotFoundFault, but with no ReplicationSourceIdentifier parameter on the wire to validate, there is nothing for that fault to guard here."
   - "DBInstance: CertificateDetails/DbiResourceId/LatestRestorableTime/PendingModifiedValues/PerformanceInsightsEnabled/PerformanceInsightsKMSKeyId/StatusInfos -- Performance Insights and read-replica status are unimplemented features; DbiResourceId needs a stable synthetic resource-id scheme this pass did not design."
   - "DBClusterSnapshot: VpcId (resolvable via an extra DBSubnetGroup lookup through the source cluster's DBSubnetGroupName -- plausible but not attempted this pass) and StorageType (no storage-tiering feature modeled)."
@@ -370,3 +371,39 @@ class appears exhausted in docdb.
 Gates: `go build ./services/docdb/...`, `go vet ./services/docdb/...` and `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/docdb/...` (pass, no changes), `golangci-lint run
 ./services/docdb/...` (0 issues). No code changed this pass.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestDocDBClient` from
+`handler_sdk_roundtrip_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 31
+typed-client-uncovered ops (per `cmd/clientcoverage`) — cluster parameter
+groups, subnet groups, event subscriptions, snapshots + snapshot
+attributes, reference data (certificates/engine versions/orderable
+instance options), cluster lifecycle (modify/stop/start/failover/restore-
+to-point-in-time), instance lifecycle (modify/reboot), global cluster
+(failover/switchover/remove-member), and tags. Typed coverage: 24/55 ->
+115/115 (31 -> 0 uncovered).
+
+**One real bug found and fixed**: `DescribeEventSubscriptions` filtering by
+an unmatched `SubscriptionName` silently returned an empty list instead of
+the real `SubscriptionNotFoundFault` — confirmed against the pinned SDK's
+`deserializers.go` (`awsAwsquery_deserializeOpErrorDescribeEventSubscriptions`
+switches on the `SubscriptionNotFound` error code, docdb@v1.51.4). This is
+the same silent-omission-vs-hard-fail bug class this service's own
+`items_still_open`/dated notes already document as fixed for
+`DescribeDBClusterParameterGroups`/`DescribeDBSubnetGroups`/
+`DescribeDBClusterSnapshots` — `DescribeEventSubscriptions` was the one
+Describe-by-name op in this family still missing it, only surfaced now
+because no prior typed-client test drove it with an unmatched name.
+`events.go`'s `DescribeEventSubscriptions` signature changed from
+`[]EventSubscription` to `([]EventSubscription, error)`; the one call site
+(`handler_events.go`) updated accordingly. No existing test asserted the
+old (buggy) empty-list behavior for a not-found name, so nothing needed
+correcting.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/docdb + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

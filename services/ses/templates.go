@@ -22,6 +22,10 @@ func (b *InMemoryBackend) CreateTemplate(tmpl EmailTemplate) error {
 		return fmt.Errorf("%w: template %s already exists", ErrTemplateExists, tmpl.TemplateName)
 	}
 
+	if b.templates.Len() >= b.limits.emailTemplates {
+		return limitExceeded("email templates")
+	}
+
 	b.templates.Put(&tmpl)
 
 	return nil

@@ -24,55 +24,10 @@ families:
   global_table_settings_autoscaling: {status: fixed, note: "2026-08-23 (manifest-harvest pass): UpdateGlobalTableSettingsInput's GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate, GlobalTableGlobalSecondaryIndexSettingsUpdate (global, not per-replica, per-GSI write autoscaling), ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and ReplicaGlobalSecondaryIndexSettingsUpdate[].ProvisionedReadCapacityAutoScalingSettingsUpdate (api_op_UpdateGlobalTableSettings.go, types.go:2891/2962/1881) were all accepted on the wire (handler_global_tables.go's updateGlobalTableSettingsInput had no struct fields for any of them) then silently dropped -- an accept-and-drop wire gap, same class as UpdateTableReplicaAutoScaling's pre-1vv2-fix clobber bug but never wired at all rather than clobbered. Fixed: StoredGlobalTable gained WriteCapacityAutoScaling/GSIWriteCapacityAutoScaling, StoredReplicaSettings/StoredReplicaGSISettings gained ReadCapacityAutoScaling, all reusing the existing autoScalingThroughput persisted shape and throughputFromUpdate/sdkAutoScalingSettingsDescription converters UpdateTableReplicaAutoScaling already has (autoscaling.go) -- no new evaluator. Both UpdateGlobalTableSettings and DescribeGlobalTableSettings now echo the same stored settings (global write-capacity autoscaling applies uniformly across replicas, matching how WriteCapacityUnits already does, since it is a global-table-level setting in the v1 API, not per-replica). Verified via TestGlobalTableSettings_AutoScaling, driven through the real aws-sdk-go-v2 client, hand-reverted (services/dynamodb/{global_tables,handler_global_tables,store}.go) to confirm it fails against unfixed code (nil ReplicaProvisionedWriteCapacityAutoScalingSettings), restored, md5sum identical. Additive-only struct fields; pkgs/persistence snapshot-version guard confirmed no bump needed."}
   kinesis_streaming_disable_echo: {status: fixed, note: "2026-08-23 (manifest-harvest pass): DisableKinesisStreamingDestinationOutput.EnableKinesisStreamingConfiguration (deserializers.go:18931 -- a real modeled response member on Disable despite its SDK doc comment reading 'the destination for the Kinesis streaming information that is being enabled', a codegen doc-comment artifact shared with Enable/Update, not evidence the field is request-only) was never populated; DisableKinesisStreamingDestination always returned it as nil/absent even though the backend already tracked the destination's precision (KinesisDestinationEntry.Precision) right up until deleting it. Fixed: removeKinesisDestinationLocked now returns the removed entry's precision, echoed back as EnableKinesisStreamingConfiguration (defaulting to MILLISECOND, matching Enable/Describe's existing default). Verified via TestDisableKinesisStreamingDestination_EchoesConfig, hand-reverted (kinesis_streaming.go, handler_kinesis_streaming.go) to confirm nil response before the fix, restored, md5sum identical."}
   pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): audited every List/Describe/Query/Scan op with a page-size + continuation member against the pinned SDK. ListGlobalTables' applyGlobalTableLimit only capped the page when the caller supplied an explicit Limit; an omitted Limit (ListGlobalTablesInput.Limit doc, api_op_ListGlobalTables.go:35, 'if the parameter is not specified, DynamoDB defaults to 100') returned every global table uncapped with no LastEvaluatedGlobalTableName. Fixed: applyGlobalTableLimit now falls back to defaultListGlobalTablesLimit=100. TestListGlobalTables_DefaultLimitPagination (wire_field_fixes_test.go) creates 105 global tables, drives the real SDK client through the full pagination loop with no Limit set, and asserts each page is <=100 and the union is exactly the 105 names with no duplicates; hand-reverted to confirm it fails against unfixed code (page of 105), restored. Everything else audited CORRECT: Query/Scan's Limit-as-items-examined + post-limit-filter + ExclusiveStartKey/LastEvaluatedKey semantics (item_ops_query.go/item_ops_scan.go) match AWS's own documented 'LastEvaluatedKey may be non-nil with nothing left to return' behavior -- collectQueryPage emits LastEvaluatedKey whenever the Limit boundary is hit, including on the true last item (no i<len-1 guard, unlike scanPage's), which is correct-but-surprising, not a bug: a client resuming from that key gets an empty page with a nil LastEvaluatedKey next call, one harmless extra round trip, exactly the documented AWS gotcha. ListBackups/ListContributorInsights/ListExports/ListImports/ListTables all correctly consume+truncate+emit. ListTagsOfResource ignores NextToken/returns everything in one call by design: the real op has no MaxResults input member at all and no documented default page size to impose (DO-NOT-INVENT-A-PAGE-SIZE), so returning the full <=50-tag set in one page is the only non-fabricated implementation."}
-gaps:
-  - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
-    never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
-    replicaAutoScalingDescriptionsRLocked only ever echoes table-level Write settings per
-    replica. Per-GSI autoscaling settings ARE stored (autoScalingSettings.GlobalSecondaryIndexes,
-    now correctly merged rather than clobbered -- see autoscaling family) but a real client
-    reading them back via Update or Describe always sees an empty list regardless of what was
-    configured. Pre-existing, found while fixing the clobber bug above; not fixed here since it's
-    an accept-and-drop wire gap, a different bug class from this pass's scope."
-  - "2026-08-15 (gopherstack-6flj, disclosed, not fixed): DescribeContributorInsightsOutput.FailureException
-    (types.FailureException{ExceptionName, ExceptionDescription}, api_op_DescribeContributorInsights.go)
-    remains unmodeled. This backend's UpdateContributorInsights/DescribeContributorInsights
-    never fail to enable/disable contributor insights (no IAM/service-limit failure
-    model exists anywhere in this service), so there is no honest non-nil value to
-    populate this field with -- always leaving it nil is the accurate representation,
-    not a gap being papered over. LastUpdateDateTime (same struct) was the real,
-    fixable gap and is now fixed -- see admin_lists family above."
-  - "2026-08-14 (gopherstack-lze5, CORRECTNESS, PARTIALLY FIXED): Expected,
-    ConditionalOperator, and AttributeUpdates (PutItem/UpdateItem/DeleteItem's
-    legacy pre-expression parameters) are now implemented -- the
-    conditional-check-bypass and no-op-write failure modes this issue was filed
-    for. Fixed by translation, not a second evaluator: legacy_conditions.go
-    converts each legacy Expected/Condition into an equivalent
-    ConditionExpression fragment (aliased #name/:value placeholders synthesized
-    per attribute, joined by ConditionalOperator's AND/OR, default AND -- see
-    legacyConditionalJoiner) and each AttributeUpdates entry into an equivalent
-    UpdateExpression fragment (PUT -> SET, DELETE w/o Value -> REMOVE, DELETE
-    w/ a set Value -> DELETE, ADD -> ADD; action-semantics citations:
-    types/types.go:197-269 AttributeValueUpdate doc), then hands the rewritten
-    request to the SAME evaluator (services/dynamodb/expr, via the existing
-    checkPutCondition/checkUpdateCondition/checkDeleteCondition/doUpdate) real
-    PutItem/UpdateItem/DeleteItem already used for ConditionExpression/
-    UpdateExpression. ComparisonOperator set: EQ/NE/LE/LT/GE/GT/NOT_NULL/NULL/
-    CONTAINS/NOT_CONTAINS/BEGINS_WITH/IN/BETWEEN, all implemented (renderComparison,
-    citing types/types.go:1279-1391 for operator semantics and arg counts).
-    Expected's old Value/Exists style and its Value/Exists-vs-ComparisonOperator
-    mutual exclusion cite types/types.go:1240-1256 verbatim. Mutual exclusion
-    between legacy and expression parameters is enforced per-operation (any of
-    Expected/ConditionalOperator/AttributeUpdates set alongside any of
-    ConditionExpression/UpdateExpression -> ValidationException) -- this specific
-    rejection is well-established real DynamoDB behavior but has no client-side
-    SDK validation to cite a line number against, so the error wording is our
-    own, not a verified verbatim AWS string. Tested driving the real
-    aws-sdk-go-v2 client and asserting behaviour (ConditionalCheckFailedException
-    + item unchanged on a failing Expected, ADD-on-number increments,
-    ADD-on-set unions, DELETE-with-set-value subtracts, DELETE-without-value
-    removes), not just call success -- legacy_conditional_params_test.go; each
-    covered case was hand-verified to fail with unfixed code (e.g. 'An error is
-    expected but got nil... expected: *types.ConditionalCheckFailedException').
+  global_table_settings_rcu_writethrough: {status: fixed, note: "2026-09-11 (gopherstack-l3vv part b): UpdateGlobalTableSettings cached ReplicaSettingsUpdate[].ReplicaProvisionedReadCapacityUnits into gt.ReplicaSettings[region].ReadCapacityUnits and echoed it back on its own response, but never wrote it through to the real replica Table's ProvisionedThroughput.ReadCapacityUnits. DescribeGlobalTableSettings reads that value from the real table (replicaTableCapacityRLocked -> getTableInRegionRLocked/provisionedThroughputRLocked), never from the cache, so after a single UpdateGlobalTableSettings call the two ops could permanently disagree with no way to reconcile. Fixed with a collect-then-apply split rather than nesting locks: updateGlobalTableSettingsLocked (already under db.mu.Lock) now also resolves each updated region's real *Table pointer via the new collectReplicaCapacityWritesLocked and returns it as []pendingReplicaCapacityWrite; UpdateGlobalTableSettings applies them (applyPendingReplicaCapacityWrites, one table.mu.Lock per replica) only after updateGlobalTableSettingsLocked's defer has released db.mu. This package never holds db.mu and a Table's own mu at the same time anywhere -- every table.mu acquisition (getTable/tableStatusRLocked, replicaTableCapacityRLocked/provisionedThroughputRLocked, applyUpdateTableLocked/table_ops.go:1028) happens strictly after the db.mu-holding call that looked the Table pointer up has already returned; the one place in this exact file that mutates a live *Table's fields while db.mu is still held (ensureReplicaTablesLocked's `existing.GlobalTableName = name`/`t.Replicas = ...`) does so WITHOUT table.mu at all, which is a pre-existing lock-bypass, not evidence of a safe nested order -- so no established nested precedent existed to follow, and restructuring to release-then-lock was the correct call per the issue's own guidance. GlobalTableProvisionedWriteCapacityUnits (a global, not per-replica, v1 field) has the identical read-from-real-table-only divergence in replicaTableCapacityRLocked's wcu return, confirmed while fixing this, but is OUT OF SCOPE here (the issue's own triage names only ReplicaProvisionedReadCapacityUnits) -- flagged for a follow-up, not fixed. TestGlobalTableSettings_UpdateWritesThroughToReplicaTable (global_table_settings_writethrough_test.go) drives the real aws-sdk-go-v2 client against two differently-configured region clients, updates RCU on one replica, and asserts both DescribeTable on that replica and DescribeGlobalTableSettings agree on the new value; hand-verified to fail against the pre-fix code (both read back the stale initial RCU). Also fixed in the same file, unrelated to the lock work: buildGlobalTableReplicaDesc built its ReplicaGlobalSecondaryIndexSettings slice by ranging rs.GSISettings (a map) directly -- nondeterministic order; now goes through the new sortedGSISettingsNames. No persisted field added; pkgs/persistence snapshot-version guard unaffected."}
+  expr_partiql_behavioral_audit: {status: fixed, note: "2026-09-11 (gopherstack-hpzv): first fresh behavioral audit of services/dynamodb/expr (condition/filter/update/projection/key-condition expressions) and PartiQL execution (partiql.go, execute_transaction.go) against the DynamoDB developer guide, not just wire-shape diffing. Rules audited (verdict): condition/filter comparators incl. binary/set/cross-type-false (ok, pre-existing), BETWEEN/IN/attribute_exists/attribute_not_exists/attribute_type/begins_with/contains incl. set+list membership (ok), contains(a,a) must error (fixed -- was silently allowed), AND/OR/NOT precedence+parens (ok, verified against ql operator precedence list), document paths incl. nested maps/list indexes (ok), IN capped at 100 values (fixed -- was unbounded), reserved words (unmodeled, see below), SET arithmetic on non-Number operands (fixed -- silently coerced to 0, now errors), list_append/if_not_exists (ok), SET creating a nested path when the parent map does not exist (fixed -- was silently auto-vivifying the parent map; AWS: 'You cannot update nested map attributes if the parent map does not exist ... ValidationException: The document path provided in the update expression is invalid for update' -- Expressions.UpdateExpressions.html), duplicate/overlapping document paths across actions e.g. `SET a = :x, a.b = :y` (fixed -- was unchecked; AWS observed wording 'Two document paths overlap', exact developer-guide text not found so closest-known wording used), each action keyword (SET/REMOVE/ADD/DELETE) usable only once (fixed -- was unchecked; guide: 'each action keyword can appear only once'), REMOVE list index / non-existent path no-op (ok), ADD for Number and Set incl. type-mismatch rejection (fixed -- ADD against an existing non-Number/non-Set attribute, or with a non-Number/non-Set value, silently no-op'd instead of erroring; guide: 'The ADD action supports only number and set data types'), DELETE from sets incl. type-mismatch rejection (fixed -- same silent-no-op class as ADD), multiple update clauses evaluate against the PRE-UPDATE item snapshot, not sequential left-to-right mutation (fixed -- was sequential, so e.g. `REMOVE a SET b = a, c = b` gave `c` the just-assigned `b` instead of the original `a`'s value per the guide's own worked example), key-condition partition-equality + sort comparators/begins_with/BETWEEN + non-key-attribute rejection (ok, pre-existing), projection nested paths/list indexes (ok). PartiQL: SELECT WHERE on key vs non-key (full-table scan allowed, ok/documented), ORDER BY/LIMIT/BEGINS_WITH/CONTAINS/ATTRIBUTE_TYPE/SIZE/MISSING/IN/BETWEEN/nested paths (ok, pre-existing), INSERT duplicate-key DuplicateItemException (ok, pre-existing), UPDATE/DELETE with WHERE, parameters, BatchExecuteStatement per-statement Error entries and the 25-statement cap (ok, pre-existing), RETURNING clause (verified NOT a real feature for write statements -- ql-reference.multiplestatements.transactions.html explicitly states 'This statement doesn't return any values for Write operations (INSERT, UPDATE, or DELETE)'; no RETURNING support exists in real DynamoDB PartiQL to add), EXISTS(SELECT ...) statement for ExecuteTransaction (fixed -- was completely unimplemented, any EXISTS statement failed with ErrInvalidStatement; added as a transaction-only read-as-condition-check per the guide's documented EXISTS-is-the-mixing-exception rule, contributing no Responses[i].Item and failing the statement/cancelling the transaction when the inner SELECT matches nothing), ExecuteTransaction TransactionCanceledException with CancellationReasons (fixed -- a failing statement previously returned its raw underlying error directly with no CancellationReasons array at all; now wrapped with a full-length reasons array, 'None' for untried statements and the real code -- ConditionalCheckFailed or ValidationError -- at the failing index, matching TransactWriteItems' existing shape). Systemic fix, not tied to one rule: raw expr-package errors (parser syntax errors, evaluator errors like an undefined :value/#name placeholder) previously fell through classifyError's default branch to 500 InternalServerError for PutItem/UpdateItem/DeleteItem/TransactWriteItems' condition and update expressions -- now wrapped as ValidationException in EvaluateExpression/applyUpdate. Separately, Query/Scan's FilterExpression/KeyConditionExpression used ParsedCondition.Evaluate, which swallows ALL per-item evaluation errors as a silent non-match -- an undefined placeholder there previously returned zero items with no error rather than rejecting the request; added upfront checkUndefinedExpressionAttributeNames/Values (mirroring the existing checkUnused* pattern) at Put/Update/Delete/Query/Scan so undefined-placeholder is now always a 400 ValidationException, matching AWS's request-validation-time behavior. Three items left unmodeled by this pass were closed by the gopherstack-tjgbr follow-up immediately below. Tests: services/dynamodb/expr/{evaluator_test.go,parser_error_test.go,aws_spec_test.go} (table-driven, t.Parallel()), services/dynamodb/expr_audit_test.go (drives the real backend end-to-end through PutItem/UpdateItem/Query/Scan), services/dynamodb/execute_transaction_test.go (EXISTS pass/fail, CancellationReasons shape) -- every new test hand-verified against pre-fix code (see evaluator_test.go's superseded 'create intermediate map on SET' and DeleteAction subtests, which pinned the old wrong behavior and were rewritten, not just skipped)."}
+  reserved_words_batch_mix_exists_followup: {status: fixed, note: "2026-09-11 (gopherstack-tjgbr, follow-up to gopherstack-hpzv's expr_partiql_behavioral_audit above): closed the three items that audit left unmodeled. (1) Reserved-word enforcement: DynamoDB rejects a bare (unescaped) reserved-word attribute name in an expression -- confirmed real runtime wording 'Invalid <Label>: Attribute name is a reserved keyword; reserved keyword: <WORD>' via https://github.com/aws/aws-sdk-php/issues/1233 (the developer guide's ReservedWords.html and Expressions.ExpressionAttributeNames.html document the underlying rule and the full 573-word list, fetched 2026-09-11, but not this verbatim ValidationException string). Added services/dynamodb/expr/reserved_words.go (the fetched 573-word set, sorted, cited) and reserved_words_check.go (CheckReservedWords walks the parsed AST, checking every non-#placeholder PathElement segment case-insensitively -- so a nested path like a.SIZE is rejected exactly like a bare SIZE, verified: DynamoDB requires an alias at whichever path level the reserved word appears, per the guide's own 'alias each element in the document path' nested-attribute guidance). Wired into all 5 expr entry points in expressions.go (EvaluateExpression/applyUpdate/projectItem/ParseProjector/ParseConditionStr), covering condition, filter, key-condition, update, and projection expressions alike (PartiQL WHERE/SET/REMOVE clauses route through the same functions, so this covers PartiQL too). Found and fixed a real false-positive this introduced: resolveProjection (projection.go) synthesizes a ProjectionExpression string by comma-joining the legacy AttributesToGet parameter's raw names -- AWS never expression-validates AttributesToGet (it is a plain name list, not parsed text), so a table with a reserved-word attribute like 'name' would wrongly reject a plain AttributesToGet=['name'] GetItem/BatchGetItem/Query/Scan. Fixed by having resolveProjection alias each AttributesToGet entry as a synthetic #atgN placeholder (mergeAttrNames merges these into the caller's ExpressionAttributeNames) instead of splicing the raw name into expression text. Existing tests that used a reserved word bare (status/total/data/counter/count/year/missing/name) were fixed to use a non-reserved name or, where testing AttributesToGet specifically, needed no change once the false positive above was fixed. (2) Batch/transaction read-write mixing: BatchExecuteStatement -- 'The entire batch must consist of either read statements or write statements, you cannot mix both in one batch' (verbatim, API_BatchExecuteStatement.html) -- enforced upfront in InMemoryDB.BatchExecuteStatement (backup_interface.go's new validateBatchStatementMix) before any statement runs, same as the pre-existing 25-statement cap. ExecuteTransaction -- 'The entire transaction must consist of either read statements or write statements. You can't mix both in one transaction. The EXISTS function is an exception' (verbatim, ql-reference.multiplestatements.transactions.html) -- enforced upfront in ExecuteTransaction (execute_transaction.go's new validateTransactStatementMix; EXISTS(...) statements are excluded from the read/write tally, matching the documented exception, and TestExecuteTransaction_ExistsWithWrite_StillSucceeds_RealClient confirms the pre-existing EXISTS+write pattern still works). Also verified and enforced the previously-noted BatchExecuteStatement SELECT restriction: 'Each read statement in a BatchExecuteStatement must specify an equality condition on all key attributes. This enforces that each SELECT statement in a batch returns at most a single item' (verbatim, API_BatchExecuteStatement.html) -- new validateBatchSelectIsFullyKeyed (partiql.go) rejects a batch SELECT whose WHERE clause doesn't cover every key attribute with an equality condition; a statement whose table/index can't be resolved is left for real execution to reject with its own accurate error, avoiding a fabricated validation message. (3) EXISTS(SELECT ...) standalone: verified via ql-functions.exists.html -- 'The EXISTS function can only be used in transactions' / 'This function can only be used in transactional operations' (both verbatim on that page) -- so it is NOT valid outside ExecuteTransaction. Rather than wiring the existing EXISTS implementation into standalone ExecuteStatement, added a case in the shared executeStatement dispatcher (partiql.go, used by both ExecuteStatement and BatchExecuteStatement -- ExecuteTransaction never reaches it for EXISTS, since executeTransactionStatement intercepts EXISTS first) that rejects it with that documented wording; own-wording used only for the batch/transaction-mixing messages, which the docs state as a rule but never show as a raised-exception string verbatim. Tests: services/dynamodb/expr/reserved_words_test.go (table-driven AST-walk unit tests for condition/update/projection, incl. nested-path and placeholder-escape cases), services/dynamodb/parity_followup_test.go (drives the real aws-sdk-go-v2 client against httptest for one case per item plus the AttributesToGet false-positive fix and the EXISTS-with-write positive case) -- every new rejection hand-verified to fail against pre-fix code (each was reachable and silently divergent before this pass, per the gaps this closes below)."}
+gaps: []
 
     2026-08-14 (gopherstack-yvs8, follow-up pass, FIXED): KeyConditions,
     QueryFilter (Query) and ScanFilter (Scan) -- the remaining legacy
@@ -153,6 +108,75 @@ gaps:
     instead, wire layer left fixed: same failures reproduced (fields now
     reach the SDK struct but are never read). Restored byte-identical again;
     all gates green with both layers in place."
+items_still_open:
+  - "2026-09-11 (gopherstack-l3vv part c, disclosed, not modeled): ReplicaProvisionedReadCapacityAutoScalingSettings/
+    ReplicaProvisionedWriteCapacityAutoScalingSettings (both top-level, via
+    GlobalTableProvisionedWriteCapacityAutoScalingSettingsUpdate/
+    ReplicaProvisionedReadCapacityAutoScalingSettingsUpdate, and per-GSI) DO echo real
+    MinimumUnits/MaximumUnits/AutoScalingDisabled (fixed 2026-08-23, see
+    global_table_settings_autoscaling above, reusing autoscaling.go's
+    autoScalingThroughput/sdkAutoScalingSettingsDescription), but the real
+    AutoScalingSettingsDescription (dynamodb@v1.67.0 types.go) also carries
+    AutoScalingRoleArn *string and ScalingPolicies []AutoScalingPolicyDescription
+    (each a TargetTrackingScalingPolicyConfiguration with
+    PredefinedMetricSpecification/TargetValue/Scale{In,Out}Cooldown/
+    DisableScaleIn) -- a real IAM-role-backed autoscaling policy object, not
+    a throughput range. This backend tracks no such policy state anywhere for
+    legacy v1 global tables (nor does the separate v2 UpdateTableReplicaAutoScaling
+    path on Table.AutoScaling): AutoScalingRoleArn and ScalingPolicies are always
+    left nil/empty on every AutoScalingSettingsDescription this package emits.
+    Fabricating a role ARN or a policy list with no real policy engine behind it
+    would violate the no-fabricated-data rule; left honestly absent, same category
+    as the already-documented incremental-export and per-replica-autoscaling-via-
+    ReplicaUpdates gaps -- a genuine feature gap, not a wire drop."
+  - "2026-08-21 (gopherstack-1vv2): ReplicaAutoScalingDescription.GlobalSecondaryIndexes (types.go:2642) is
+    never populated by UpdateTableReplicaAutoScaling or DescribeTableReplicaAutoScaling --
+    replicaAutoScalingDescriptionsRLocked only ever echoes table-level Write settings per
+    replica. Per-GSI autoscaling settings ARE stored (autoScalingSettings.GlobalSecondaryIndexes,
+    now correctly merged rather than clobbered -- see autoscaling family) but a real client
+    reading them back via Update or Describe always sees an empty list regardless of what was
+    configured. Pre-existing, found while fixing the clobber bug above; not fixed here since it's
+    an accept-and-drop wire gap, a different bug class from this pass's scope."
+  - "2026-08-15 (gopherstack-6flj, disclosed, not fixed): DescribeContributorInsightsOutput.FailureException
+    (types.FailureException{ExceptionName, ExceptionDescription}, api_op_DescribeContributorInsights.go)
+    remains unmodeled. This backend's UpdateContributorInsights/DescribeContributorInsights
+    never fail to enable/disable contributor insights (no IAM/service-limit failure
+    model exists anywhere in this service), so there is no honest non-nil value to
+    populate this field with -- always leaving it nil is the accurate representation,
+    not a gap being papered over. LastUpdateDateTime (same struct) was the real,
+    fixable gap and is now fixed -- see admin_lists family above."
+  - "2026-08-14 (gopherstack-lze5, CORRECTNESS, PARTIALLY FIXED): Expected,
+    ConditionalOperator, and AttributeUpdates (PutItem/UpdateItem/DeleteItem's
+    legacy pre-expression parameters) are now implemented -- the
+    conditional-check-bypass and no-op-write failure modes this issue was filed
+    for. Fixed by translation, not a second evaluator: legacy_conditions.go
+    converts each legacy Expected/Condition into an equivalent
+    ConditionExpression fragment (aliased #name/:value placeholders synthesized
+    per attribute, joined by ConditionalOperator's AND/OR, default AND -- see
+    legacyConditionalJoiner) and each AttributeUpdates entry into an equivalent
+    UpdateExpression fragment (PUT -> SET, DELETE w/o Value -> REMOVE, DELETE
+    w/ a set Value -> DELETE, ADD -> ADD; action-semantics citations:
+    types/types.go:197-269 AttributeValueUpdate doc), then hands the rewritten
+    request to the SAME evaluator (services/dynamodb/expr, via the existing
+    checkPutCondition/checkUpdateCondition/checkDeleteCondition/doUpdate) real
+    PutItem/UpdateItem/DeleteItem already used for ConditionExpression/
+    UpdateExpression. ComparisonOperator set: EQ/NE/LE/LT/GE/GT/NOT_NULL/NULL/
+    CONTAINS/NOT_CONTAINS/BEGINS_WITH/IN/BETWEEN, all implemented (renderComparison,
+    citing types/types.go:1279-1391 for operator semantics and arg counts).
+    Expected's old Value/Exists style and its Value/Exists-vs-ComparisonOperator
+    mutual exclusion cite types/types.go:1240-1256 verbatim. Mutual exclusion
+    between legacy and expression parameters is enforced per-operation (any of
+    Expected/ConditionalOperator/AttributeUpdates set alongside any of
+    ConditionExpression/UpdateExpression -> ValidationException) -- this specific
+    rejection is well-established real DynamoDB behavior but has no client-side
+    SDK validation to cite a line number against, so the error wording is our
+    own, not a verified verbatim AWS string. Tested driving the real
+    aws-sdk-go-v2 client and asserting behaviour (ConditionalCheckFailedException
+    + item unchanged on a failing Expected, ADD-on-number increments,
+    ADD-on-set unions, DELETE-with-set-value subtracts, DELETE-without-value
+    removes), not just call success -- legacy_conditional_params_test.go; each
+    covered case was hand-verified to fail with unfixed code (e.g. 'An error is
+    expected but got nil... expected: *types.ConditionalCheckFailedException').
   - "2026-08-14 (gopherstack-rkmp/gopherstack-glfv, CORRECTNESS, flagged not fixed):
     ReturnConsumedCapacity=INDEXES never returns a per-index breakdown on any
     operation. capacity.go's buildConsumedCapacityWithIndexes/applyIndexBreakdowns
@@ -205,6 +229,13 @@ gaps:
     for shape-correctness even though the success path is never reached. Full vector-index
     support (CreateTable VectorIndex, index storage, real similarity scoring) is out of
     scope for this pass — tracked as a follow-up if vector search ever becomes a priority."
+  - "2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t): RestoreTableFromBackup and
+    RestoreTableToPointInTime both accept VectorIndexOverride ([]types.VectorIndex) to
+    select which vector indexes carry over into the restored table. Same root cause as
+    the 2026-08-05 SearchVectors entry above -- this backend has no vector-index model
+    at all (no field on a table ever represents one), so there is nothing for an override
+    list to filter and no honest way to apply it. Not fabricated; recorded rather than
+    wired to a no-op."
 deferred:
   - expr/ lexer/parser/evaluator subpackage (has own aws_spec_test.go/evaluator_test.go) — not line-by-line re-audited this sweep; genuinely large surface, out of scope for this streams/transactions-focused follow-up pass. No known bugs, just not freshly field-diffed against the SDK this cycle.
   - PartiQL execution (partiql.go, ~37KB) — not re-audited this sweep, same reason as above.
@@ -662,3 +693,97 @@ Gates: `go build ./services/iam/... ./services/dynamodb/...`, `go vet ./...`
 `golangci-lint run ./services/dynamodb/...` (0 issues). No `nolint`
 directives in either file touched (`handler_import.go`,
 `import_export_s3.go`).
+
+## 2026-09-11 gopherstack-l3vv: legacy Global Tables v1 RCU write-through, plus a stale bd issue
+
+gopherstack-l3vv was filed 2026-08-14 against `services/dynamodb`'s legacy Global Tables v1
+`ReplicaSettingsDescription`/`ReplicaSettingsUpdate` support, with three parts: (a) model
+`ReplicaGlobalSecondaryIndexSettings`/`ReplicaGlobalSecondaryIndexSettingsUpdate`, (b) fix the
+RCU write-through divergence between `UpdateGlobalTableSettings` and
+`DescribeGlobalTableSettings`, (c) disclose (not fabricate) the autoscaling-policy gap. Before
+touching any code, re-read `global_tables.go`/`store.go` against the issue's own description
+and found part (a) had **already been fully implemented and tested** by an undocumented later
+pass (commit `fb80d66cd`, 2026-08-17, and the 2026-08-23 "manifest-harvest pass" recorded above
+as the `global_table_settings_autoscaling` family) -- `StoredReplicaGSISettings`,
+`StoredReplicaSettings.GSISettings`, `replicaGSISettingsRLocked`, and
+`applyGSISettingsUpdates` all exist and are exercised by
+`TestGlobalTableSettings_GSISettings`/`TestGlobalTableSettings_AutoScaling`
+(`global_table_settings_wire_test.go`), both green before this session started. Same shape as
+the sibling `gopherstack-miw` (elb) finding this session: real work landed, the bd issue was
+simply never closed against it. Re-verified against the pinned SDK anyway
+(`dynamodb@v1.67.0` `types/types.go:2891` `ReplicaGlobalSecondaryIndexSettingsUpdate` has only
+`IndexName`/`ProvisionedReadCapacityUnits`/`ProvisionedReadCapacityAutoScalingSettingsUpdate` --
+no write field -- while `types/types.go:2851` `...SettingsDescription` has both read and write;
+the existing code models exactly that asymmetry, landmine comment already correct).
+
+Part (b) was genuinely still open and is fixed this pass -- see the
+`global_table_settings_rcu_writethrough` family entry above for the full writeup, lock-order
+finding (this file has no established db.mu-then-table.mu nested order; the one place that
+looked like precedent, `ensureReplicaTablesLocked`, mutates `*Table` fields under db.mu
+WITHOUT table.mu at all, which is a bypass, not a safe order to imitate), and citations.
+
+Part (c) is disclosed, not modeled -- see the new gaps entry above
+(`AutoScalingRoleArn`/`ScalingPolicies`, dynamodb@v1.67.0 `types.go:314`).
+
+Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
+`go test -count=1 ./services/elb/... ./services/dynamodb/... ./pkgs/persistence/...` ok;
+`go test -race -count=1 ./services/dynamodb/...` ok; `golangci-lint run ./services/elb/...
+./services/dynamodb/...` 0 issues. No persisted field added (`pendingReplicaCapacityWrite` is
+an unexported, transient, non-persisted struct); `pkgs/persistence` snapshot-inventory guard
+passed unchanged, confirming no version bump was needed.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 9
+typed-client-blind ops (DescribeEndpoints, DescribeGlobalTable,
+DescribeKinesisStreamingDestination, DescribeLimits,
+DisableKinesisStreamingDestination, SearchVectors, TagResource,
+UntagResource, UpdateGlobalTable) -- typed coverage 49/58 -> 58/58 (0
+uncovered). Zero real bugs found: tag CRUD, the Kinesis streaming
+destination enable/describe/disable lifecycle, and global table
+describe/update (adding a replica region) all decoded correctly through the
+real client. `SearchVectors`' disclosed honest-gap behavior (this backend
+doesn't model vector indexes, so it always returns a real
+`ResourceNotFoundException` naming the requested index rather than
+fabricating similarity scores) confirmed correct via `errors.As` against
+the real typed `*types.ResourceNotFoundException`. Gates: `go build ./...`
+(whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
+changed; no version bump.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+17 tier-1 findings triaged. 14 were FALSE POSITIVES: reqfielddiff can't see
+`services/dynamodb/models/types.go`, the file where this service's wire
+decode structs actually live (separate from the handler/backend files it
+resolves) -- `RequestItems`, `ReturnItemCollectionMetrics`, `ReturnValues`,
+`ScanIndexForward`, `ConsistentRead`, `BackupType`, `Limit`,
+`ProjectionExpression` were all already declared there and already read by
+the backend (item_ops_crud.go, item_ops_query.go, item_ops_scan.go,
+backup_ops.go). 1 fixed: **UpdateTable.MultiRegionConsistency** was
+genuinely undeclared anywhere -- added to `models.UpdateTableInput` and
+`models.TableDescription`, threaded through `ToSDKUpdateTableInput` and
+`FromSDKTableDescription`, stored on `Table.MultiRegionConsistency`, applied
+in `applyMultiRegionConsistency` (table_ops.go) when a Global Tables v2
+promotion happens via `ReplicaUpdates` (explicit value wins; defaults to
+EVENTUAL per SDK docs when omitted on first promotion), and echoed back on
+both the `UpdateTable` response (`buildUpdateTableOutput`) and `DescribeTable`
+(`buildTableDescription`). Proved via
+`reqfield_slice5_realclient_test.go` driving the real typed client: explicit
+STRONG survives, omitted defaults to EVENTUAL only when paired with a Create
+replica action, and a plain (non-global) table leaves the field empty. 2
+recorded (one items_still_open entry, both fields): RestoreTableFromBackup's
+and RestoreTableToPointInTime's VectorIndexOverride are the same disclosed
+vector-index gap as SearchVectors above -- see items_still_open. Tool
+blind spot re-confirmed (gopherstack-99nj-class): reqfielddiff's tier-1
+count for this service did not move after the MultiRegionConsistency fix
+landed, for the same models/types.go-blind-spot reason as the 14 false
+positives above -- confirmed correct by hand and by
+`reqfield_slice5_realclient_test.go` against the real typed client.
+
+Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
+-count=1 ./services/dynamodb/... ./pkgs/persistence/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/dynamodb/...` all clean. No persisted field
+removed/retyped (MultiRegionConsistency is a new `omitempty` string field on
+an existing exported struct); `pkgs/persistence` snapshot-inventory guard
+unaffected, no version bump.

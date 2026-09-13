@@ -142,9 +142,12 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 		AccountID         string   `xml:"AccountId"`
 	}
 
+	// Marker is required on VpcOriginList (cloudfront@v1.67.4 types/types.go:7030-7040): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	type vpcListXML struct {
 		XMLName     xml.Name        `xml:"VpcOriginList"`
 		XMLNS       string          `xml:"xmlns,attr"`
+		Marker      string          `xml:"Marker"`
 		NextMarker  string          `xml:"NextMarker,omitempty"`
 		Items       []vpcSummaryXML `xml:"Items>VpcOriginSummary"`
 		MaxItems    int             `xml:"MaxItems"`
@@ -164,8 +167,8 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 	}
 
 	list := vpcListXML{
-		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
-		Items: summaries, IsTruncated: isTruncated,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), NextMarker: nextMarker, MaxItems: pageSize,
+		Quantity: len(summaries), Items: summaries, IsTruncated: isTruncated,
 	}
 
 	out, xmlErr := xml.Marshal(list)

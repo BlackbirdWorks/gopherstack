@@ -232,8 +232,9 @@ func TestCreateOpsAcceptListShapedTags(t *testing.T) {
 			method: http.MethodPost,
 			path:   "/cacertificate/register",
 			body: map[string]any{
-				"tags":          []map[string]string{envTag()},
-				"caCertificate": "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+				"tags":            []map[string]string{envTag()},
+				"caCertificate":   "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+				"certificateMode": "SNI_ONLY",
 			},
 		},
 	}
@@ -404,7 +405,7 @@ func TestCreateThenListTagsForResourceRoundTrip(t *testing.T) {
 			name:     "register ca certificate",
 			method:   http.MethodPost,
 			path:     "/cacertificate/register",
-			body:     `{"caCertificate":"fake-pem","tags":[{"Key":"env","Value":"prod"}]}`,
+			body:     `{"caCertificate":"fake-pem","certificateMode":"SNI_ONLY","tags":[{"Key":"env","Value":"prod"}]}`,
 			arnField: "certificateArn",
 		},
 		{

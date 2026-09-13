@@ -20,7 +20,7 @@ func (b *InMemoryBackend) UploadArchive(
 	accountID, region, vaultName, description, checksum string,
 	size int64, data []byte,
 ) (*Archive, error) {
-	b.mu.Lock()
+	b.mu.Lock("UploadArchive")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -59,7 +59,7 @@ func (b *InMemoryBackend) UploadArchive(
 // archiveID not currently present in an existing vault is a silent no-op
 // rather than ErrArchiveNotFound.
 func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteArchive")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -97,7 +97,7 @@ func (b *InMemoryBackend) DeleteArchive(accountID, region, vaultName, archiveID 
 
 // ListArchives returns all archives for the given vault.
 func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*Archive, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListArchives")
 	defer b.mu.RUnlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) ListArchives(accountID, region, vaultName string) ([]*
 
 // GetArchiveData returns the data for an archive.
 func (b *InMemoryBackend) GetArchiveData(archiveID string) ([]byte, bool) {
-	b.mu.RLock()
+	b.mu.RLock("GetArchiveData")
 	defer b.mu.RUnlock()
 
 	data, ok := b.archiveData[archiveID]
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) GetArchiveData(archiveID string) ([]byte, bool) {
 // requires the vault to exist first, so a pre-conversion "orphan" archive
 // entry was equally unreachable.
 func (b *InMemoryBackend) AddArchiveInternal(accountID, region, vaultName string, a *Archive) {
-	b.mu.Lock()
+	b.mu.Lock("AddArchiveInternal")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))

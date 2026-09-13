@@ -55,6 +55,10 @@ func (b *InMemoryBackend) Sign(ctx context.Context, input *SignInput) (*SignOutp
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	messageType := input.MessageType
 	if messageType == "" {
 		messageType = messageTypeRaw
@@ -122,6 +126,10 @@ func (b *InMemoryBackend) Verify(ctx context.Context, input *VerifyInput) (*Veri
 	km, err := b.requireKeyMaterial(region, key)
 	if err != nil {
 		return nil, err
+	}
+
+	if input.DryRun {
+		return nil, ErrDryRun
 	}
 
 	messageType := input.MessageType

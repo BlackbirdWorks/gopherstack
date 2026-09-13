@@ -8,6 +8,7 @@ import (
 
 type batchDeleteConnectionInput struct {
 	ConnectionNameList []string `json:"ConnectionNameList"`
+	CatalogID          string   `json:"CatalogId,omitempty"`
 }
 
 type batchDeleteConnectionOutput struct {
@@ -19,7 +20,31 @@ func (h *Handler) handleBatchDeleteConnection(
 	_ context.Context,
 	in *batchDeleteConnectionInput,
 ) (*batchDeleteConnectionOutput, error) {
-	succeeded, errs := h.Backend.BatchDeleteConnection(in.ConnectionNameList)
+	names := in.ConnectionNameList
+	errs := make(map[string]ErrorDetail, len(names))
+
+	if in.CatalogID != "" {
+		var scoped []string
+
+		for _, name := range names {
+			c, err := h.Backend.GetConnection(name)
+			if err == nil && catalogIDMismatch(in.CatalogID, c.CatalogID) {
+				errs[name] = ErrorDetail{
+					ErrorCode:    errEntityNotFoundCode,
+					ErrorMessage: "connection not found: " + name,
+				}
+
+				continue
+			}
+
+			scoped = append(scoped, name)
+		}
+
+		names = scoped
+	}
+
+	succeeded, batchErrs := h.Backend.BatchDeleteConnection(names)
+	maps.Copy(errs, batchErrs)
 
 	return &batchDeleteConnectionOutput{Succeeded: succeeded, Errors: errs}, nil
 }
@@ -27,6 +52,7 @@ func (h *Handler) handleBatchDeleteConnection(
 type createConnectionInput struct {
 	Tags            map[string]string `json:"Tags,omitempty"`
 	ConnectionInput connectionInput   `json:"ConnectionInput"`
+	CatalogID       string            `json:"CatalogId,omitempty"`
 }
 
 type connectionInput struct {
@@ -55,6 +81,7 @@ func (h *Handler) handleCreateConnection(
 			Description:                    in.ConnectionInput.Description,
 			MatchCriteria:                  in.ConnectionInput.MatchCriteria,
 			PhysicalConnectionRequirements: in.ConnectionInput.PhysicalConnectionRequirements,
+			CatalogID:                      in.CatalogID,
 		},
 	)
 	if err != nil {
@@ -65,11 +92,12 @@ func (h *Handler) handleCreateConnection(
 }
 
 type getConnectionInput struct {
-	Name string `json:"Name"`
+	Name      string `json:"Name"`
+	CatalogID string `json:"CatalogId,omitempty"`
 }
 
 type getConnectionOutput struct {
-	Connection *Connection `json:"Connection"`
+	Connection *connectionWire `json:"Connection"`
 }
 
 func (h *Handler) handleGetConnection(
@@ -81,7 +109,11 @@ func (h *Handler) handleGetConnection(
 		return nil, err
 	}
 
-	return &getConnectionOutput{Connection: c}, nil
+	if catalogIDMismatch(in.CatalogID, c.CatalogID) {
+		return nil, ErrNotFound
+	}
+
+	return &getConnectionOutput{Connection: toConnectionWire(c)}, nil
 }
 
 // defaultGetConnectionsLimit is used when GetConnectionsInput.MaxResults is unset.
@@ -98,11 +130,6 @@ type getConnectionsFilter struct {
 }
 
 // getConnectionsInput holds input for GetConnections.
-//
-// CatalogId is not modeled: Connection (models.go) carries no CatalogId field
-// and this backend keeps connections in one flat namespace, not scoped per
-// catalog, so there is no honest per-catalog subset to return -- it is
-// accepted on the wire and otherwise inert.
 type getConnectionsInput struct {
 	CatalogID    string               `json:"CatalogId,omitempty"`
 	NextToken    string               `json:"NextToken,omitempty"`
@@ -112,8 +139,8 @@ type getConnectionsInput struct {
 }
 
 type getConnectionsOutput struct {
-	NextToken      string        `json:"NextToken,omitempty"`
-	ConnectionList []*Connection `json:"ConnectionList"`
+	NextToken      string            `json:"NextToken,omitempty"`
+	ConnectionList []*connectionWire `json:"ConnectionList"`
 }
 
 func (h *Handler) handleGetConnections(
@@ -122,7 +149,7 @@ func (h *Handler) handleGetConnections(
 ) (*getConnectionsOutput, error) {
 	conns := h.Backend.GetConnections()
 
-	if in.Filter.ConnectionType != "" || len(in.Filter.MatchCriteria) > 0 {
+	if in.Filter.ConnectionType != "" || len(in.Filter.MatchCriteria) > 0 || in.CatalogID != "" {
 		filtered := make([]*Connection, 0, len(conns))
 
 		for _, c := range conns {
@@ -131,6 +158,10 @@ func (h *Handler) handleGetConnections(
 			}
 
 			if len(in.Filter.MatchCriteria) > 0 && !matchesAllCriteria(c.MatchCriteria, in.Filter.MatchCriteria) {
+				continue
+			}
+
+			if in.CatalogID != "" && c.CatalogID != in.CatalogID {
 				continue
 			}
 
@@ -160,7 +191,7 @@ func (h *Handler) handleGetConnections(
 		}
 	}
 
-	return &getConnectionsOutput{ConnectionList: page, NextToken: next}, nil
+	return &getConnectionsOutput{ConnectionList: toConnectionWireList(page), NextToken: next}, nil
 }
 
 // matchesAllCriteria reports whether every entry in want is present in have,
@@ -182,12 +213,24 @@ func matchesAllCriteria(have, want []string) bool {
 
 type deleteConnectionInput struct {
 	ConnectionName string `json:"ConnectionName"`
+	CatalogID      string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeleteConnection(
 	_ context.Context,
 	in *deleteConnectionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetConnection(in.ConnectionName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.DeleteConnection(in.ConnectionName); err != nil {
 		return nil, err
 	}
@@ -242,12 +285,24 @@ func (h *Handler) handleTestConnection(_ context.Context, in *testConnectionInpu
 type updateConnectionInput struct {
 	Name            string          `json:"Name"`
 	ConnectionInput connectionInput `json:"ConnectionInput"`
+	CatalogID       string          `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleUpdateConnection(
 	_ context.Context,
 	in *updateConnectionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetConnection(in.Name)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.UpdateConnectionWithOptions(
 		in.Name,
 		in.ConnectionInput.ConnectionType,

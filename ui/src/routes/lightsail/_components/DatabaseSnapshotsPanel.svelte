@@ -2,6 +2,7 @@
 	// Relational database snapshots -- family P (4 ops).
 	import {
 		GetRelationalDatabaseSnapshotsCommand,
+		GetRelationalDatabaseSnapshotCommand,
 		CreateRelationalDatabaseSnapshotCommand,
 		DeleteRelationalDatabaseSnapshotCommand,
 		CreateRelationalDatabaseFromSnapshotCommand,
@@ -170,9 +171,18 @@
 	let detailModal = $state<Modal | null>(null);
 	let viewed = $state<RelationalDatabaseSnapshot | null>(null);
 
-	function openDetail(s: RelationalDatabaseSnapshot): void {
+	async function openDetail(s: RelationalDatabaseSnapshot): Promise<void> {
 		viewed = s;
 		detailModal?.open();
+		if (!s.name) return;
+		try {
+			const resp = await client().send(
+				new GetRelationalDatabaseSnapshotCommand({ relationalDatabaseSnapshotName: s.name })
+			);
+			viewed = resp.relationalDatabaseSnapshot ?? s;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
 	async function addTag(key: string, value: string): Promise<void> {

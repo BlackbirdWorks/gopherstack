@@ -260,12 +260,12 @@ func TestInMemoryBackend_ELBv2Registrar_ServiceWithoutLoadBalancers_NoOp(t *test
 	}
 }
 
-// TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity documents
-// the known limitation: EC2-launch-type tasks in this backend have no ENI/
-// private-IP modeling (see privateIPFromAttachments), so there is no usable
-// ELBv2 target identity to register for them — registration is skipped
-// rather than fabricating an identity.
-func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity(t *testing.T) {
+// TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance
+// documents that an EC2-launch-type task cannot be placed at all when the
+// cluster has no registered container instance: RunTask reports a
+// placement failure (see createTaskEntriesLocked) instead of creating a
+// task with no usable ELBv2 target identity.
+func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance(t *testing.T) {
 	t.Parallel()
 
 	b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
@@ -296,11 +296,109 @@ func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity(t *testin
 		t.Fatalf("CreateService: %v", svcErr)
 	}
 
-	if err := b.StartTaskForService("cl-ec2", "svc-ec2", td.TaskDefinitionArn); err != nil {
-		t.Fatalf("StartTaskForService: %v", err)
+	if err := b.StartTaskForService("cl-ec2", "svc-ec2", td.TaskDefinitionArn); err == nil {
+		t.Fatal("StartTaskForService: want a placement-failure error with no container instance registered, got nil")
 	}
 
 	if got := reg.registeredCount(); got != 0 {
-		t.Fatalf("registeredCount = %d, want 0 (EC2-launch-type tasks have no ENI private IP)", got)
+		t.Fatalf("registeredCount = %d, want 0 (task was never placed)", got)
+	}
+}
+
+// TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort
+// is gopherstack-fpro's core fix: a bridge-mode EC2-launch-type task placed
+// on a registered container instance registers as an "instance" target-type
+// ELBv2 target {ec2InstanceId, allocated hostPort}, and deregisters the same
+// target on stop -- see resolveELBTargetLocked/host_ports.go.
+func TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort(t *testing.T) {
+	t.Parallel()
+
+	b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
+	reg := &fakeELBv2Registrar{}
+	b.SetELBv2Registrar(reg)
+
+	if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "cl-bridge"}); err != nil {
+		t.Fatalf("CreateCluster: %v", err)
+	}
+
+	ci, ciErr := b.RegisterContainerInstance("cl-bridge", "i-bridge0001")
+	if ciErr != nil {
+		t.Fatalf("RegisterContainerInstance: %v", ciErr)
+	}
+
+	td, tdErr := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:      "svc-bridge",
+		NetworkMode: networkModeBridge,
+		ContainerDefinitions: []ContainerDefinition{
+			{Name: "app", Image: "nginx", PortMappings: []PortMapping{{ContainerPort: 8080}}},
+		},
+	})
+	if tdErr != nil {
+		t.Fatalf("RegisterTaskDefinition: %v", tdErr)
+	}
+
+	if _, svcErr := b.CreateService(CreateServiceInput{
+		Cluster:        "cl-bridge",
+		ServiceName:    "svc-bridge",
+		TaskDefinition: td.TaskDefinitionArn,
+		LaunchType:     launchTypeEC2Test,
+		LoadBalancers: []LoadBalancer{
+			{TargetGroupArn: testTGArn, ContainerName: "app", ContainerPort: 8080},
+		},
+	}); svcErr != nil {
+		t.Fatalf("CreateService: %v", svcErr)
+	}
+
+	if err := b.StartTaskForService("cl-bridge", "svc-bridge", td.TaskDefinitionArn); err != nil {
+		t.Fatalf("StartTaskForService: %v", err)
+	}
+
+	if got := reg.registeredCount(); got != 1 {
+		t.Fatalf("registeredCount = %d, want 1", got)
+	}
+
+	call := reg.registered[0]
+	if call.targetGroupARN != testTGArn {
+		t.Errorf("targetGroupARN = %q, want %q", call.targetGroupARN, testTGArn)
+	}
+
+	if len(call.targets) != 1 {
+		t.Fatalf("targets = %v, want 1 entry", call.targets)
+	}
+
+	if call.targets[0].ID != ci.EC2InstanceID {
+		t.Errorf("target ID = %q, want ec2InstanceId %q", call.targets[0].ID, ci.EC2InstanceID)
+	}
+
+	hostPort := call.targets[0].Port
+	if hostPort < ephemeralPortRangeMin || hostPort > ephemeralPortRangeMax {
+		t.Errorf(
+			"target port = %d, want dynamic port in [%d,%d]",
+			hostPort,
+			ephemeralPortRangeMin,
+			ephemeralPortRangeMax,
+		)
+	}
+
+	tasks, _, describeErr := b.DescribeTasks("cl-bridge", nil)
+	if describeErr != nil {
+		t.Fatalf("DescribeTasks: %v", describeErr)
+	}
+
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+
+	if _, stopErr := b.StopTask("cl-bridge", tasks[0].TaskArn, "test stop"); stopErr != nil {
+		t.Fatalf("StopTask: %v", stopErr)
+	}
+
+	if got := reg.deregisteredCount(); got != 1 {
+		t.Fatalf("deregisteredCount = %d, want 1", got)
+	}
+
+	deregCall := reg.deregistered[0]
+	if deregCall.targets[0].ID != ci.EC2InstanceID || deregCall.targets[0].Port != hostPort {
+		t.Errorf("unexpected deregister call: %+v, want ID=%q Port=%d", deregCall, ci.EC2InstanceID, hostPort)
 	}
 }

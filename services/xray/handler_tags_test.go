@@ -125,6 +125,18 @@ func TestHandler_ListTagsForResource_WithTags(t *testing.T) {
 	}
 }
 
+// tagsToWireList converts a map into the real TagResource wire shape: a
+// JSON array of {Key, Value} objects (types.Tag), not a map -- see
+// handler_tags.go's tagWire.
+func tagsToWireList(tags map[string]string) []map[string]string {
+	out := make([]map[string]string, 0, len(tags))
+	for k, v := range tags {
+		out = append(out, map[string]string{"Key": k, "Value": v})
+	}
+
+	return out
+}
+
 func TestTags_RoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -151,7 +163,7 @@ func TestTags_RoundTrip(t *testing.T) {
 
 			tagRec := doXrayRequest(t, h, "/TagResource", map[string]any{
 				"ResourceARN": arn,
-				"Tags":        tt.tags,
+				"Tags":        tagsToWireList(tt.tags),
 			})
 			require.Equal(t, http.StatusOK, tagRec.Code)
 
@@ -178,7 +190,7 @@ func TestTags_UntagResource(t *testing.T) {
 
 	tagRec := doXrayRequest(t, h, "/TagResource", map[string]any{
 		"ResourceARN": arn,
-		"Tags":        map[string]string{"key1": "val1", "key2": "val2"},
+		"Tags":        tagsToWireList(map[string]string{"key1": "val1", "key2": "val2"}),
 	})
 	require.Equal(t, http.StatusOK, tagRec.Code)
 
@@ -205,7 +217,7 @@ func TestTags_TagResource_UnknownResourceReturns400(t *testing.T) {
 
 	rec := doXrayRequest(t, h, "/TagResource", map[string]any{
 		"ResourceARN": "arn:aws:xray:us-east-1:000000000000:group/default/nope",
-		"Tags":        map[string]string{"env": "prod"},
+		"Tags":        tagsToWireList(map[string]string{"env": "prod"}),
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 
@@ -243,7 +255,7 @@ func TestTags_TagResource_ExceedsMaxTagsReturns400(t *testing.T) {
 
 	rec := doXrayRequest(t, h, "/TagResource", map[string]any{
 		"ResourceARN": arn,
-		"Tags":        tags,
+		"Tags":        tagsToWireList(tags),
 	})
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 

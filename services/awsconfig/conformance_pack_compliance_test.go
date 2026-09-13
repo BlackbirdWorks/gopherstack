@@ -148,7 +148,7 @@ func TestAWSConfigBackend_ListConformancePackComplianceScores_Full(t *testing.T)
 		b := newCompliancePackBackend(t)
 		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", "", nil))
 
-		scores := b.ListConformancePackComplianceScores(nil)
+		scores := b.ListConformancePackComplianceScores(nil, "", "")
 		require.Len(t, scores, 2)
 	})
 
@@ -157,7 +157,7 @@ func TestAWSConfigBackend_ListConformancePackComplianceScores_Full(t *testing.T)
 
 		b := newCompliancePackBackend(t)
 
-		scores := b.ListConformancePackComplianceScores([]string{"pack1"})
+		scores := b.ListConformancePackComplianceScores([]string{"pack1"}, "", "")
 		require.Len(t, scores, 1)
 		assert.NotEqual(t, "INSUFFICIENT_DATA", scores[0].Score)
 	})
@@ -168,7 +168,7 @@ func TestAWSConfigBackend_ListConformancePackComplianceScores_Full(t *testing.T)
 		b := awsconfig.NewInMemoryBackend()
 		require.NoError(t, b.PutConformancePack("empty-pack", "", "", "", "", "", nil))
 
-		scores := b.ListConformancePackComplianceScores([]string{"empty-pack"})
+		scores := b.ListConformancePackComplianceScores([]string{"empty-pack"}, "", "")
 		require.Len(t, scores, 1)
 		assert.Equal(t, "INSUFFICIENT_DATA", scores[0].Score)
 	})

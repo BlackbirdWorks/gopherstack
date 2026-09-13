@@ -24,6 +24,7 @@ type createEventDataStoreBody struct {
 		Key   string `json:"Key"`
 		Value string `json:"Value"`
 	} `json:"TagsList"`
+	StartIngestion               *bool `json:"StartIngestion"`
 	RetentionPeriod              int32 `json:"RetentionPeriod"`
 	MultiRegionEnabled           bool  `json:"MultiRegionEnabled"`
 	OrganizationEnabled          bool  `json:"OrganizationEnabled"`
@@ -41,6 +42,11 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 		kv[tag.Key] = tag.Value
 	}
 
+	startIngestion := true
+	if in.StartIngestion != nil {
+		startIngestion = *in.StartIngestion
+	}
+
 	eds, err := h.Backend.CreateEventDataStore(
 		in.Name,
 		in.MultiRegionEnabled,
@@ -51,6 +57,7 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 		in.BillingMode,
 		in.KMSKeyID,
 		kv,
+		startIngestion,
 	)
 	if err != nil {
 		return h.handleError(c, err)

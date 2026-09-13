@@ -5,11 +5,14 @@ package stepfunctions
 // here, as a *store.Table[T] on b.registry. See pkgs/store's package doc and
 // the services/ec2 (12e611a4) / sqs (0f09d77c) conversions this follows.
 //
-// Three secondary store.Index instances group child resources by their
-// (immutable) parent state machine or execution ARN, replacing the
-// smVersions / smExecutions / execMapRuns hand-maintained []string index
-// maps:
+// Four secondary store.Index instances group child resources by their
+// (immutable, or immutable-once-set) parent state machine, execution, or map
+// run ARN, replacing the smVersions / smExecutions / execMapRuns
+// hand-maintained []string index maps:
 //   - executionsByStateMachine (on executions, keyed by StateMachineArn)
+//   - executionsByMapRun (on executions, keyed by MapRunArn -- set once, at
+//     creation, for a Distributed Map child execution; empty for every other
+//     execution, so its "" bucket is simply never queried)
 //   - versionsByStateMachine (on versions, keyed by StateMachineArn)
 //   - mapRunsByExecution (on mapRuns, keyed by ExecutionArn)
 //
@@ -41,9 +44,10 @@ func mapRunsKeyFn(v *MapRun) string                           { return v.MapRunA
 func executionsByStateMachineKeyFn(v *Execution) string         { return v.StateMachineArn }
 func versionsByStateMachineKeyFn(v *StateMachineVersion) string { return v.StateMachineArn }
 func mapRunsByExecutionKeyFn(v *MapRun) string                  { return v.ExecutionArn }
+func executionsByMapRunKeyFn(v *Execution) string               { return v.MapRunArn }
 
 // registerAllTables registers every converted resource map on b.registry
-// exactly once, plus the three secondary indexes documented above. It must
+// exactly once, plus the four secondary indexes documented above. It must
 // be called during construction only (immediately after b.registry is
 // created), never on every Reset() -- store.Register panics on a duplicate
 // name, so runtime resets go through b.registry.ResetAll() instead (see
@@ -69,6 +73,7 @@ var tableRegistrations = []func(*InMemoryBackend){
 	func(b *InMemoryBackend) {
 		b.executions = store.Register(b.registry, "executions", store.New(executionsKeyFn))
 		b.executionsByStateMachine = b.executions.AddIndex("byStateMachine", executionsByStateMachineKeyFn)
+		b.executionsByMapRun = b.executions.AddIndex("byMapRun", executionsByMapRunKeyFn)
 	},
 	func(b *InMemoryBackend) {
 		b.activities = store.Register(b.registry, "activities", store.New(activitiesKeyFn))

@@ -122,12 +122,68 @@ ops:
 families:
   routing: {status: ok, note: "handleREST (was a ~50-case switch, nolint:gocyclo,cyclop,funlen, gocyclo=57) and classifyPath (was a flat switch, nolint:gocyclo,cyclop,funlen, gocyclo=31) were both decomposed into sync.OnceValue-built lookup tables (op-name -> handler adapter; path-collection -> create/list op + sub-classifier; method -> op for the auth-policy/resource-policy/tags singleton routes), matching the inspector2/apigatewayv2 onceOpTable convention already used elsewhere in the fleet. Both banned nolints are gone; gocyclo/cyclop/funlen all report 0 issues on the package now. Every (method, path, op) triple was preserved verbatim during the refactor -- the full existing routing/handler test suite (handler_test.go, handler_routing coverage via ExtractOperation/ExtractResource, and all handler_*_test.go CRUD tests) passes unchanged, confirming no method/path collisions or unreachable-op regressions were introduced. RouteMatcher is unchanged (still a boolean prefix chain for route eligibility, not a method/path->op mapping, so the same treatment doesn't apply there)."
   timestamps: {status: ok, note: "all createdAt/lastUpdatedAt use time.Time.Format(\"2006-01-02T15:04:05.000Z\") which smithytime.ParseDateTime (restjson1 DateTime shape) accepts; not epoch, correctly ISO-8601."}
-gaps:
+gaps: []
+items_still_open:
   - "GetServiceOutput/GetServiceNetworkVpcAssociationOutput failureCode/failureMessage fields (populated when a resource is stuck in a *_FAILED state) are never set because this backend's Create paths are synchronous and never fail after validation — acceptable since there's no in-progress/failed state machine to represent, but worth knowing if async failure simulation is ever added."
   - "ResourceEndpointAssociation and ServiceNetworkVpcEndpointAssociation lists are always empty (bd: gopherstack-lx2k). Both are populated in real AWS exclusively by EC2 CreateVpcEndpoint (VPC endpoints of type Resource/ServiceNetwork referencing a ResourceConfiguration/ServiceNetwork ARN) — vpc-lattice itself exposes no Create operation for either, and this backend has no EC2 VPC-endpoint cross-service integration to source one from. Buildable with enough cross-service work (not structural), just out of scope this pass; the wire shape and empty-vs-error behavior is honest (List returns real empty, Delete honestly 404s) rather than fabricated."
   - "DomainVerification.Status can never advance past PENDING to VERIFIED (bd: gopherstack-lx2k). Real AWS polls public DNS for a caller-provisioned TXT record; this backend has no DNS to observe. Deliberately left PENDING rather than fabricating VERIFIED — a caller relying on verification completing will need to poll forever, which is the honest reflection of what this mock can and can't do."
   - "GetResourceGateway's ManagedBy field (set when a resource gateway is provisioned by another AWS service, not directly by the caller) stays unset -- this backend has no cross-service provisioning path that would ever set it, so every resource gateway here is caller-managed and real AWS would omit it too. serviceManaged was FIXED 2026-08-28: previously omitted entirely (a silent drop of a real, always-present field), now always emitted as false, its correct value for every gateway this backend can create."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)
+
+Worked all 13 tier-1 findings. **3 real fixes**: `CreateService`/
+`UpdateService.IdleTimeoutSeconds` (undeclared; added to `storedService`,
+validated to the documented 60-600 second range, defaults to 60, round-trips
+on both ops). `ListServiceNetworkResourceAssociations.IncludeChildren`
+(undeclared -- and a genuine `httpQuery`-bound field, not a body field,
+confirmed against `serializers.go`'s
+`awsRestjson1_serializeOpHttpBindingsListServiceNetworkResourceAssociationsInput`:
+`encoder.SetQuery("includeChildren")` alongside `serviceNetworkIdentifier`/
+`resourceConfigurationIdentifier`, which this handler already read via
+`c.QueryParam`; `includeChildren` was simply never read at all): its own
+doc comment is "Include service network resource associations of the child
+resource configuration with the grouped resource configuration... default
+value is false" -- now, when set, associations of `CHILD`-type resource
+configurations are also matched against their `GROUP` parent's identifier
+via the existing `ResourceConfigurationGroupID` field. **10 false
+positives**, all already read via this service's hand-decoded
+`map[string]any` body + named-helper-read shape (the gopherstack-99nj third
+blind-spot class: `extractRuleAction`/`extractRuleMatch`/`bodyInt32`/`bodyStringSlice`
+reads in a different file from the tool's declaration search):
+`CreateListener`/`UpdateListener.DefaultAction`, `CreateListener.Port`,
+`CreateResourceConfiguration.AllowAssociationToShareableServiceNetwork`,
+`CreateRule.Action`, `CreateService`/`UpdateService`/`CreateServiceNetwork`/
+`UpdateServiceNetwork.AuthType`, `CreateServiceNetworkVpcAssociation.SecurityGroupIds`.
+No recorded gaps. Proven via `reqfield_slice6_realclient_test.go` driving
+the real `vpclattice` client. `go build/vet/test -race`, `golangci-lint`,
+and `cmd/paritylint` all clean; no persistence-schema version bump (new
+`storedService.IdleTimeoutSeconds` field is additive with `omitempty`, old
+fields unchanged; 1 inventory row added by hand).
+
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 42 ops, 31/73 -> 73/73
+
+Added `typed_slice32_realclient_test.go`: 17 tests, each building a real
+`vpclattice` SDK client against `Handler` and round-tripping every
+previously-untyped op -- ServiceNetwork/Listener/Rule/TargetGroup+Targets/
+AccessLogSubscription lifecycles, ServiceNetworkServiceAssociation/
+ServiceNetworkVpcAssociation/ServiceNetworkResourceAssociation Get+List+
+Update+Delete, BatchUpdateRule (success and per-rule failure), resource and
+auth policy Put/Get/Delete, UpdateResourceConfiguration/UpdateResourceGateway/
+UpdateService, ListDomainVerifications, TagResource/UntagResource, and the
+always-empty ResourceEndpointAssociation/ServiceNetworkVpcEndpointAssociation
+families (proving the honest-empty shape decodes cleanly, not just that the
+backend never populates it). vpclattice typed coverage: 31/73 -> 73/73.
+
+No new bugs found -- this package had already been through 13+ dated
+wire-fidelity passes (the entries below), all field-diffed against
+`vpclattice@v1.25.5`'s real Output structs, so a fresh typed-client sweep
+corroborates rather than supersedes that history.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/vpclattice/...` and `./pkgs/persistence/...` pass. `golangci-lint
+run --new-from-rev=HEAD services/vpclattice/...` 0 issues. No persistence
+schema/version change. `go run ./cmd/paritylint` stays at 0 FAIL.
 
 ### 2026-08-21 gopherstack-r80d batch 13: required-output cut, 1 bug
 

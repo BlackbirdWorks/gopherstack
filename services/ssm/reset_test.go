@@ -23,7 +23,7 @@ func TestReset_ClearsInstancePatchAndPropertyState(t *testing.T) {
 
 	b.AddInstancePatchStateInternal(ssm.InstancePatchState{InstanceID: "i-1", PatchGroup: "pg-1"})
 	b.AddInstancePropertyInternal(ssm.InstanceProperty{InstanceID: "i-1", PlatformType: "Linux"})
-	b.AddInstancePatchesInternal("i-1", []ssm.PatchComplianceData{{Classification: "Security", State: "Missing"}})
+	b.AddInstancePatchesInternal("i-1", []ssm.PatchComplianceData{{Classification: "Security", State: "MISSING"}})
 	b.AddAvailablePatchInternal(ssm.Patch{Name: "KB1234567", Product: "WindowsServer2022"})
 
 	assert.Equal(t, 1, b.InstancePatchStateCount(), "setup: instance patch state not stored")

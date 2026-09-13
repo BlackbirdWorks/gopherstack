@@ -35,8 +35,9 @@ type DeregisterTaskFromMaintenanceWindowInput struct {
 // name suggesting it might be optional given DescribeMaintenanceWindowExecutionTasks
 // already scopes to WindowExecutionId alone.
 type DescribeMaintenanceWindowExecutionTaskInvocationsInput struct {
-	WindowExecutionID string `json:"WindowExecutionId"`
-	TaskID            string `json:"TaskId"`
+	WindowExecutionID string                    `json:"WindowExecutionId"`
+	TaskID            string                    `json:"TaskId"`
+	Filters           []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTaskInvocationsOutput is the response payload.
@@ -44,9 +45,19 @@ type DescribeMaintenanceWindowExecutionTaskInvocationsOutput struct{}
 
 // DescribeMaintenanceWindowExecutionTasksInput is the request payload.
 type DescribeMaintenanceWindowExecutionTasksInput struct {
-	MaxResults        *int32 `json:"MaxResults,omitempty"`
-	WindowExecutionID string `json:"WindowExecutionId"`
-	NextToken         string `json:"NextToken,omitempty"`
+	MaxResults        *int32                    `json:"MaxResults,omitempty"`
+	WindowExecutionID string                    `json:"WindowExecutionId"`
+	NextToken         string                    `json:"NextToken,omitempty"`
+	Filters           []MaintenanceWindowFilter `json:"Filters,omitempty"`
+}
+
+// MaintenanceWindowFilter is a Key/Values filter (real types.MaintenanceWindowFilter,
+// api_op_DescribeMaintenanceWindowTargets.go) shared by DescribeMaintenanceWindowTargets,
+// DescribeMaintenanceWindowTasks and DescribeMaintenanceWindowExecutionTasks -- each op
+// documents its own supported Key set in its own doc comment.
+type MaintenanceWindowFilter struct {
+	Key    string   `json:"Key,omitempty"`
+	Values []string `json:"Values,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionTasksOutput is the response payload.
@@ -54,7 +65,8 @@ type DescribeMaintenanceWindowExecutionTasksOutput struct{}
 
 // DescribeMaintenanceWindowExecutionsInput is the request payload.
 type DescribeMaintenanceWindowExecutionsInput struct {
-	WindowID string `json:"WindowId"`
+	WindowID string                    `json:"WindowId"`
+	Filters  []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowExecutionsOutput is the response payload.
@@ -70,9 +82,10 @@ type DescribeMaintenanceWindowScheduleOutput struct{}
 
 // DescribeMaintenanceWindowTargetsInput is the request payload.
 type DescribeMaintenanceWindowTargetsInput struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	WindowID   string `json:"WindowId"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int32                    `json:"MaxResults,omitempty"`
+	WindowID   string                    `json:"WindowId"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowTargetsOutput is the response payload.
@@ -83,9 +96,10 @@ type DescribeMaintenanceWindowTargetsOutput struct {
 
 // DescribeMaintenanceWindowTasksInput is the request payload.
 type DescribeMaintenanceWindowTasksInput struct {
-	MaxResults *int32 `json:"MaxResults,omitempty"`
-	WindowID   string `json:"WindowId"`
-	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults *int32                    `json:"MaxResults,omitempty"`
+	WindowID   string                    `json:"WindowId"`
+	NextToken  string                    `json:"NextToken,omitempty"`
+	Filters    []MaintenanceWindowFilter `json:"Filters,omitempty"`
 }
 
 // DescribeMaintenanceWindowTasksOutput is the response payload.
@@ -212,6 +226,7 @@ type RegisterTaskWithMaintenanceWindowInput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -325,6 +340,7 @@ type MaintenanceWindowTask struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -468,6 +484,7 @@ type GetMaintenanceWindowTaskOutput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }
@@ -486,6 +503,7 @@ func maintenanceWindowTaskToGetOutput(t *MaintenanceWindowTask) GetMaintenanceWi
 		ServiceRoleArn: t.ServiceRoleArn,
 		MaxConcurrency: t.MaxConcurrency,
 		MaxErrors:      t.MaxErrors,
+		CutoffBehavior: t.CutoffBehavior,
 		Targets:        t.Targets,
 		Priority:       t.Priority,
 	}
@@ -524,6 +542,7 @@ type UpdateMaintenanceWindowTaskInput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 
@@ -537,6 +556,7 @@ type UpdateMaintenanceWindowTaskOutput struct {
 	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
 	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
 	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 	Priority       int32          `json:"Priority,omitempty"`
 }

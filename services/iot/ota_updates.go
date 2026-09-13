@@ -40,7 +40,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 	files []any,
 	tags map[string]string,
 ) (*OTAUpdate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateOTAUpdate")
 	defer b.mu.Unlock()
 
 	if b.otaUpdates.Has(id) {
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) CreateOTAUpdate(
 }
 
 func (b *InMemoryBackend) GetOTAUpdate(id string) (*OTAUpdate, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetOTAUpdate")
 	defer b.mu.RUnlock()
 
 	o, ok := b.otaUpdates.Get(id)
@@ -80,7 +80,7 @@ func (b *InMemoryBackend) GetOTAUpdate(id string) (*OTAUpdate, error) {
 }
 
 func (b *InMemoryBackend) DeleteOTAUpdate(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteOTAUpdate")
 	defer b.mu.Unlock()
 
 	if !b.otaUpdates.Has(id) {
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) DeleteOTAUpdate(id string) error {
 }
 
 func (b *InMemoryBackend) ListOTAUpdates() []*OTAUpdate {
-	b.mu.RLock()
+	b.mu.RLock("ListOTAUpdates")
 	defer b.mu.RUnlock()
 
 	items := b.otaUpdates.Snapshot()

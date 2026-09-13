@@ -219,7 +219,9 @@ func (b *InMemoryBackend) ListPackagesForDomain(ctx context.Context, domainName 
 }
 
 // UpdatePackage updates a package description.
-func (b *InMemoryBackend) UpdatePackage(ctx context.Context, packageID, description string) (*Package, error) {
+func (b *InMemoryBackend) UpdatePackage(
+	ctx context.Context, packageID, description string, source PackageSource,
+) (*Package, error) {
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("UpdatePackage")
 	defer b.mu.Unlock()
@@ -230,6 +232,7 @@ func (b *InMemoryBackend) UpdatePackage(ctx context.Context, packageID, descript
 	}
 
 	pkg.Description = description
+	pkg.PackageSource = source
 	pkg.LastUpdatedAt = time.Now()
 	cp := *pkg
 

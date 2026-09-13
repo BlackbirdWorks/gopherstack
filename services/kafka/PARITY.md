@@ -44,8 +44,8 @@ ops:
   DescribeConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "same as CreateConfiguration: DescribeConfigurationOutput's own fields carry zero required annotations in the real SDK, out of this bug class's scope."}
   ListConfigurations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-21 (gopherstack-r80d batch 27): ListConfigurationsOutput.Configurations is []types.Configuration -- the real domain struct, marshaled directly by this handler -- and types.Configuration requires CreationTime (*time.Time) and LatestRevision (*types.ConfigurationRevision), neither of which existed as a field on gopherstack's Configuration model at all (not an omitempty tag, a structurally absent member -- the 'member with no struct field at all' class). Every ListConfigurations call therefore decoded both as nil on a real client despite the SDK's required-field contract, 100% of the time, not an edge case. Fixed: added both fields, populated at CreateConfiguration/UpdateConfiguration/AddConfigurationInternal and propagated through cloneConfiguration. types.Configuration.State (ConfigurationState, non-pointer enum) was also structurally absent -- fixed alongside (harmless either way) but NOT counted as a proven bug per the campaign's provability rule: a non-pointer enum's omitted-vs-zero-value states decode identically to a real client, so no test can distinguish them. Description (*string, required, was tagged omitempty and reachably empty since CreateConfigurationInput.Description is optional) also had its omitempty tag removed so the key is always present, matching the 'required-but-inapplicable means present-and-empty, not absent' convention. Proven via TestListConfigurations_RequiredFields (wire_output_required tests, configuration_field_fixes_test.go), hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   DeleteConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}. UpdateConfigurationOutput itself marks no member required either (same as Create/Describe above) -- out of this bug class's scope directly, but now also keeps the backing Configuration.LatestRevision in sync so ListConfigurations reflects a post-update Description/ServerProperties (see ListConfigurations note)."}
-  DescribeConfigurationRevision: {wire: ok, errors: ok, state: ok, persist: n/a, note: "DescribeConfigurationRevisionOutput duplicates ConfigurationRevision's fields directly on its own (unrequired) Output struct rather than embedding types.ConfigurationRevision, so this op's own CreationTime is not required by the wire contract -- out of the counted bug's scope, though the backend now populates it anyway via the shared revisionOf helper (see ListConfigurationRevisions note), so the gap closed as a side effect without being separately proven."}
+  UpdateConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route was already correct: PUT /v1/configurations/{arn}. UpdateConfigurationOutput itself marks no member required either (same as Create/Describe above) -- out of this bug class's scope directly, but now also keeps the backing Configuration.LatestRevision in sync so ListConfigurations reflects a post-update Description/ServerProperties (see ListConfigurations note). FIXED (2026-09-12, gopherstack-n3zi slice 35): the local wire response struct (shared with CreateConfiguration/DescribeConfiguration) omitted LatestRevision.CreationTime entirely, a real required member of types.ConfigurationRevision (types.go:653) -- every real client's LatestRevision.CreationTime came back nil despite this backend already tracking it."}
+  DescribeConfigurationRevision: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "DescribeConfigurationRevisionOutput duplicates ConfigurationRevision's fields directly on its own (unrequired) Output struct rather than embedding types.ConfigurationRevision, so this op's own CreationTime is not required by the wire contract -- out of the counted bug's scope, though the backend now populates it anyway via the shared revisionOf helper (see ListConfigurationRevisions note), so the gap closed as a side effect without being separately proven. FIXED (2026-09-12, gopherstack-n3zi slice 35): the response was marshaling the persisted *ConfigurationRevision model directly, whose on-disk tag is \"configurationArn\" -- but the real wire key is \"arn\" (deserializers.go:4297); every real client's Arn came back empty. Now builds a dedicated wire-only describeConfigurationRevisionOutput struct (keyed \"arn\"), leaving the persisted model's tag untouched (no snapshot-version bump needed)."}
   ListConfigurationRevisions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "2026-08-21 (gopherstack-r80d batch 27): Revisions is []types.ConfigurationRevision -- the real domain struct, marshaled directly -- and types.ConfigurationRevision requires CreationTime (*time.Time, provable), structurally absent from gopherstack's ConfigurationRevision model (same class as ListConfigurations above, same fix commit). Every call unconditionally omitted the key. Fixed by adding the field, threaded through a new revisionOf(c *Configuration) helper CreateConfiguration/UpdateConfiguration/DescribeConfigurationRevision/ListConfigurationRevisions/AddConfigurationInternal all now share, so the one revision this stub models (see the pre-existing 'single revision' doc comments) always carries the same CreationTime as its owning Configuration. Proven via TestListConfigurationRevisions_CreationTime, hand-reverted/confirmed-failing/restored, md5sum-verified byte-identical."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -60,17 +60,17 @@ ops:
   PutClusterPolicy: {wire: ok, errors: gap, state: ok, persist: ok, note: "ERRORS (found, NOT fixed, error-path sweep 2026-08-29): raises NotFoundException for a missing clusterArn, but PutClusterPolicy's own deserializeOpError models only BadRequestException/ForbiddenException/InternalServerErrorException -- no not-found-shaped exception, unlike its DeleteClusterPolicy/GetClusterPolicy siblings which both model NotFoundException. No confirmed replacement; left per this sweep's restraint rule."}
   DeleteClusterPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeClusterOperation: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29: types.ClusterOperationInfo has 12 real members (deserializers.go's awsRestjson1_deserializeDocumentClusterOperationInfo); the domain ClusterOperation struct this op serializes directly modeled only 6 (sourceClusterInfo/targetClusterInfo/operationArn/clusterArn/operationType/operationState). creationTime/endTime/clientRequestId (3 of the missing 6) were structurally absent, not just omitted -- every DescribeClusterOperation/ListClusterOperations call decoded all three as nil on a real client, 100% of the time. Fixed: added and populated at newClusterOperationLocked/AddClusterOperationInternal -- CreationTime/EndTime both use the operation's creation instant (every operation here completes synchronously as UPDATE_COMPLETE, no in-process pending window to distinguish the two), ClientRequestId is a synthesized UUID (server-generated in real MSK; no client-supplied value exists on any Update*/RebootBroker input to thread through instead). errorInfo/operationSteps/vpcConnectionInfo (the remaining 3) stay unmodeled and disclosed: operations here never fail so there's no honest error to report, step-by-step progress isn't tracked, and CreateVpcConnection/DeleteVpcConnection don't create a ClusterOperation record at all in this backend. See TestDescribeClusterOperation_V1_TimesAndClientRequestId."}
-  DescribeClusterOperationV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 (gopherstack-mk3t item 2, fixed): real types.ClusterOperationV2 (10 of 10 members per its deserializer) is genuinely different from V1's ClusterOperationInfo -- no top-level sourceClusterInfo/targetClusterInfo (those nest under provisioned/serverless, each its own type), plus clusterType. This op previously forwarded straight to DescribeClusterOperation and serialized the V1 *ClusterOperation struct verbatim, so a real V2-typed client saw sourceClusterInfo/targetClusterInfo at the wrong (top) level -- decoded as zero values every time, since types.ClusterOperationV2 has no such top-level fields to receive them -- and clusterType was always absent. Fixed: new clusterOperationV2Output wraps source/target under a Provisioned arm (types.ClusterOperationV2Provisioned, 4 of 4 members: operationSteps/vpcConnectionInfo remain unmodeled, same reasons as DescribeClusterOperation above) and resolves clusterType by looking up the owning cluster (falls back to PROVISIONED if the cluster was since deleted -- every operation this backend ever creates targets a provisioned cluster, so serverless is never fabricated). errorInfo also always omitted (never a real error to report). See TestDescribeClusterOperationV2_ProvisionedShape."}
+  DescribeClusterOperationV2: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 (gopherstack-mk3t item 2, fixed): real types.ClusterOperationV2 (10 of 10 members per its deserializer) is genuinely different from V1's ClusterOperationInfo -- no top-level sourceClusterInfo/targetClusterInfo (those nest under provisioned/serverless, each its own type), plus clusterType. This op previously forwarded straight to DescribeClusterOperation and serialized the V1 *ClusterOperation struct verbatim, so a real V2-typed client saw sourceClusterInfo/targetClusterInfo at the wrong (top) level -- decoded as zero values every time, since types.ClusterOperationV2 has no such top-level fields to receive them -- and clusterType was always absent. Fixed: new clusterOperationV2Output wraps source/target under a Provisioned arm (types.ClusterOperationV2Provisioned, 4 of 4 members: operationSteps/vpcConnectionInfo remain unmodeled, same reasons as DescribeClusterOperation above) and resolves clusterType by looking up the owning cluster (falls back to PROVISIONED if the cluster was since deleted -- every operation this backend ever creates targets a provisioned cluster, so serverless is never fabricated). errorInfo also always omitted (never a real error to report). See TestDescribeClusterOperationV2_ProvisionedShape. 2026-09-11: re-verified field-by-field against kafka@v1.57.2 deserializers.go's awsRestjson1_deserializeDocumentClusterOperationV2/awsRestjson1_deserializeDocumentClusterOperationV2Provisioned -- no drift; added TestClusterOperationV2_WireShape asserting the raw body itself carries provisioned and never top-level sourceClusterInfo/targetClusterInfo, confirmed it fails hard against the pre-08-29 shape (reverted in place, re-tested, restored). gopherstack-mk3t item 2 closed."}
   ListClusterOperations: {wire: ok, errors: gap, state: ok, persist: n/a, note: "2026-08-14 (gopherstack-dv4s batch five): verified NOT a candidate for the over-wide List sweep -- real ListClusterOperationsOutput.ClusterOperationInfoList is []types.ClusterOperationInfo, the exact same type DescribeClusterOperationOutput uses (kafka@v1.57.2 api_op_ListClusterOperations.go/api_op_DescribeClusterOperation.go). AWS itself doesn't narrow V1, so reusing *ClusterOperation for both here is correct, unlike V2 below. ERRORS (found, NOT fixed, error-path sweep 2026-08-29): raises NotFoundException for a missing clusterArn via the shared collectClusterChildrenLocked helper, but this op's own deserializeOpError models only BadRequestException/ForbiddenException/InternalServerErrorException/UnauthorizedException, no not-found-shaped exception. No confirmed replacement; left per this sweep's restraint rule."}
-  ListClusterOperationsV2: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-14 (gopherstack-dv4s batch five): FIXED an over-wide leak -- unlike V1, the real API declares a genuinely narrower ClusterOperationV2Summary (clusterArn/clusterType/endTime/operationArn/operationState/operationType/startTime, 7 of 7 members) distinct from ClusterOperationV2. This handler was marshaling the same *ClusterOperation domain struct DescribeClusterOperationV2 uses, leaking sourceClusterInfo/targetClusterInfo wholesale. Now builds a dedicated clusterOperationV2SummaryOutput. 2026-08-23: re-verified gopherstack-mk3t item 1 (Describe/V1 emitting the wrong key clusterOperationArn) -- STALE, already fixed by commit fb80d66c. 2026-08-29: clusterType/startTime/endTime (the 3 members left absent in the 08-14 pass because they weren't tracked) are now populated -- clusterType via the same owning-cluster lookup DescribeClusterOperationV2 uses, startTime/endTime from the ClusterOperation's now-tracked CreationTime/EndTime (see DescribeClusterOperation's note). gopherstack-mk3t items 2 and 3 are both now fixed (see DescribeClusterOperationV2 and ListNodes). See TestListClusterOperationsV2_SummaryShape."}
+  ListClusterOperationsV2: {wire: ok, errors: ok, state: ok, persist: n/a, note: "2026-08-14 (gopherstack-dv4s batch five): FIXED an over-wide leak -- unlike V1, the real API declares a genuinely narrower ClusterOperationV2Summary (clusterArn/clusterType/endTime/operationArn/operationState/operationType/startTime, 7 of 7 members) distinct from ClusterOperationV2. This handler was marshaling the same *ClusterOperation domain struct DescribeClusterOperationV2 uses, leaking sourceClusterInfo/targetClusterInfo wholesale. Now builds a dedicated clusterOperationV2SummaryOutput. 2026-08-23: re-verified gopherstack-mk3t item 1 (Describe/V1 emitting the wrong key clusterOperationArn) -- STALE, already fixed by commit fb80d66c. 2026-08-29: clusterType/startTime/endTime (the 3 members left absent in the 08-14 pass because they weren't tracked) are now populated -- clusterType via the same owning-cluster lookup DescribeClusterOperationV2 uses, startTime/endTime from the ClusterOperation's now-tracked CreationTime/EndTime (see DescribeClusterOperation's note). gopherstack-mk3t items 2 and 3 are both now fixed (see DescribeClusterOperationV2 and ListNodes). See TestListClusterOperationsV2_SummaryShape. 2026-09-11: see also TestClusterOperationV2_WireShape's raw-body check (no top-level sourceClusterInfo/targetClusterInfo)."}
   CreateVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed against api_op_CreateVpcConnection.go this pass: clientSubnets/securityGroups are REQUIRED real-API input fields gopherstack silently dropped entirely (not stored, not echoed back) -- now accepted, stored, and echoed. Fixed CreateVpcConnectionOutput to drop the extra targetClusterArn field the real output does not have and add clientSubnets/securityGroups/creationTime/tags, which it does."}
   DescribeVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "field-diffed: real DescribeVpcConnectionOutput adds securityGroups/subnets/tags/creationTime on top of the ListVpcConnections item shape -- all four were missing; now a dedicated describeVpcConnectionOutput DTO matches."}
-  DeleteVpcConnection: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteVpcConnection: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 35) -- returned an empty body (NoContent) though the real DeleteVpcConnectionOutput carries state/vpcConnectionArn; every real client's response fields came back permanently absent. Now returns {state: \"DELETING\", vpcConnectionArn: <input arn>} -- both values already known, not fabricated."}
   ListClientVpcConnections: {wire: ok, errors: gap, state: ok, persist: n/a, note: "REAL BUG FOUND AND FIXED this pass (was marked wire:ok without ever being field-diffed): response used the wrong envelope key (vpcConnections instead of the real clientVpcConnections) and the wrong item shape (reused the full VpcConnection/targetClusterArn+vpcId shape instead of the real, narrower types.ClientVpcConnection: vpcConnectionArn/authentication/creationTime/owner/state). A real aws-sdk-go-v2 client's ListClientVpcConnections call got an empty list on every call before this fix, regardless of how many client VPC connections actually existed -- complete functional breakage, not a cosmetic field gap. owner is populated from the backend's AccountID as a best-effort placeholder (gopherstack has no cross-account VPC-connection-owner modeling). ERRORS (found, NOT fixed, error-path sweep 2026-08-29): raises NotFoundException for a missing clusterArn via the shared collectClusterChildrenLocked helper, but this op's own deserializeOpError models only BadRequestException/ForbiddenException/InternalServerErrorException/ServiceUnavailableException/UnauthorizedException, no not-found-shaped exception. No confirmed replacement; left per this sweep's restraint rule."}
   CreateReplicator: {wire: ok, errors: ok, state: ok, persist: ok, note: "gap closed: kafkaClusters ([]KafkaCluster: amazonMskCluster+vpcConfig) and replicationInfoList ([]ReplicationInfo: source/target ARN, targetCompressionType, topicReplication, consumerGroupReplication) are now accepted, validated field-for-field against types.KafkaCluster/types.ReplicationInfo, and fully persisted. Not hard-required server-side (real aws-sdk-go-v2 client-side validation middleware never sends a request missing either, so a real client can never trigger a missing-field rejection here) -- see kafka::replicators.go CreateReplicator doc comment. 2026-08-15 (gopherstack-6flj): discarded-input bug found and fixed -- the real, optional CreateReplicatorInput.LogDelivery member (api_op_CreateReplicator.go) was parsed nowhere, silently dropped on every call. Now accepted, stored (Replicator.LogDelivery, deep-cloned), and echoed by DescribeReplicator."}
   DescribeReplicator: {wire: ok, errors: ok, state: ok, persist: ok, note: "now reflects real topology: kafkaClusters as []KafkaClusterDescription with kafkaClusterAlias resolved from the referenced MSK cluster's live ClusterName (falling back to the ARN's trailing resource segment if the cluster doesn't exist in this backend), replicationInfoList as []ReplicationInfoDescription with sourceKafkaClusterAlias/targetKafkaClusterAlias resolved the same way, plus currentVersion/creationTime/replicatorResourceArn/isReplicatorReference/stateInfo/tags. 2026-08-15 (gopherstack-6flj): logDelivery (real DescribeReplicatorOutput member, field-diffed against deserializers.go) added -- see CreateReplicator note."}
   ListReplicators: {wire: ok, errors: ok, state: ok, persist: n/a, note: "now returns real ReplicatorSummary shape: kafkaClustersSummary/replicationInfoSummaryList (alias-only, no VPC config or full replication settings) plus currentVersion/creationTime/replicatorResourceArn."}
-  DeleteReplicator: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteReplicator: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 35) -- same empty-body bug as DeleteVpcConnection: real DeleteReplicatorOutput carries replicatorArn/replicatorState, response was NoContent. Now returns {replicatorArn: <input arn>, replicatorState: \"DELETING\"}."}
   CreateTopic: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gap closed: wire fields reworked to partitionCount/replicationFactor/configs (opaque Base64 string, stored/echoed verbatim, never interpreted) on input and status/topicArn/topicName on output, field-diffed against api_op_CreateTopic.go. topicArn built as arn:{partition}:kafka:{region}:{account}:topic/{clusterName}/{clusterUUID}/{topicName}, reusing the owning cluster's own ARN resource path the way real MSK topic ARNs do. Status is ACTIVE immediately (topic creation has no CREATING-poll protocol exposed by the real API the way cluster creation does); documented simplification. ERRORS FIXED (error-path sweep, 2026-08-29): a duplicate topic name raised the generic ConflictException; CreateTopic's own deserializeOpError also models the specific TopicExistsException, so it now emits that instead. Separately (NOT fixed, reported): CreateTopic raises NotFoundException for a missing clusterArn, but CreateTopic's own switch models no not-found-shaped exception at all (ClusterConnectivityException/ControllerMovedException/GroupSubscribedToTopicException/KafkaRequestException/KafkaTimeoutException/NotControllerException/ReassignmentInProgressException/UnknownTopicOrPartitionException -- none fit 'cluster missing'); left per this sweep's restraint rule since no confirmed replacement exists."}
   DescribeTopic: {wire: ok, errors: ok, state: ok, persist: ok, note: "gap closed: response is configs/partitionCount/replicationFactor/status/topicArn/topicName only (clusterArn, needed internally for the primary key/topicsByCluster index, is intentionally excluded from the wire DTO -- see describeTopicOutputFrom in handler_topics.go)."}
   ListTopics: {wire: ok, errors: gap, state: ok, persist: n/a, note: "gap closed: element shape is now the real, distinct TopicInfo (topicArn/topicName/partitionCount/replicationFactor/outOfSyncReplicaCount -- no configs/status, unlike DescribeTopic). topicNameFilter query param now supported (was silently ignored before). ERRORS (found, NOT fixed, error-path sweep 2026-08-29): raises NotFoundException for a missing clusterArn, but ListTopics's own deserializeOpError models only BadRequestException/ForbiddenException/InternalServerErrorException/ServiceUnavailableException/UnauthorizedException, no not-found-shaped exception. No confirmed replacement; left per this sweep's restraint rule."}
@@ -95,7 +95,27 @@ families:
   nodes_versions_bootstrap: {status: ok, note: "GetCompatibleKafkaVersions was unreachable pre-fix (wrong nesting); fixed. GetBootstrapBrokers field-diffed this pass (previously only spot-checked, not adversarially verified) -- 4 wrong JSON field names found and fixed, see the op note. ListNodes/ListKafkaVersions verified. 2026-08-22 (gopherstack-35gu): GetCompatibleKafkaVersions' response body shape itself was also wrong (flat []MSKVersion{Version,Status} instead of the real grouped CompatibleKafkaVersion{SourceVersion,TargetVersions[]}) -- see the op note."}
   replicator: {status: ok, note: "full ReplicationInfo/KafkaCluster topology now implemented end-to-end: CreateReplicator accepts and persists kafkaClusters/replicationInfoList; DescribeReplicator/ListReplicators resolve real KafkaClusterAlias/SourceKafkaClusterAlias/TargetKafkaClusterAlias from the live cluster table; UpdateReplicationInfo enforces the real currentVersion/source/target contract against a specific replication flow. See services/kafka/replicators_test.go TestCreateReplicator_TopologyAndAliasResolution and TestUpdateReplicationInfo_Backend."}
   topic: {status: ok, note: "CreateTopic/DescribeTopic/ListTopics/UpdateTopic field-name divergence closed (partitionCount/configs, topicArn/status, distinct TopicInfo list shape). DescribeTopicPartitions now returns the real {nextToken, partitions} shape with synthesized round-robin leader/replica placement. See services/kafka/topics_test.go and services/kafka/handler_topics_test.go."}
-gaps:
+gaps: []
+  # All 5 gaps from the 2026-07-12 audit (topic field names, DescribeTopicPartitions
+  # shape, UpdateReplicationInfo shape, CreateReplicator missing topology fields,
+  # Cluster.CurrentVersion never advancing) are closed -- see the op/family notes
+  # above for exactly what changed and where. Two NEW real wire bugs were found and
+  # fixed while closing out the deferred items below (GetBootstrapBrokers field
+  # names, ListClientVpcConnections envelope+shape) plus a missing-required-field
+  # gap on CreateVpcConnection/DescribeVpcConnection (clientSubnets/securityGroups).
+  #
+  # Documented simplifications (not wire-shape gaps -- these are internal-model
+  # choices that do not diverge from any real MSK response field or type):
+  #   - Topic.Status is always ACTIVE immediately on Create/Update; real MSK's
+  #     TopicState enum also has CREATING/UPDATING/DELETING but topic creation
+  #     exposes no polling protocol the way cluster creation does, so there is no
+  #     externally observable "stuck CREATING" behavior to get wrong.
+  #   - DescribeTopicPartitions' Isr is always == Replicas (fully in-sync); this
+  #     in-memory emulator has no real per-broker replication lag to diverge from.
+  #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
+  #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
+  #     ownership model to draw a different value from.
+items_still_open:
   - "Channel Create/Update/Delete are immediate (no CREATING/UPDATING/DELETING
     polling window) -- same documented simplification as Topic.Status (see
     below): the real API exposes a ClusterOperationArn/polling protocol this
@@ -118,25 +138,6 @@ gaps:
     client-side check exists in validators.go), so enforcing an invented rule
     risks fabricating unproven behavior; the ARN is accepted, stored, and
     echoed back verbatim instead."
-  # All 5 gaps from the 2026-07-12 audit (topic field names, DescribeTopicPartitions
-  # shape, UpdateReplicationInfo shape, CreateReplicator missing topology fields,
-  # Cluster.CurrentVersion never advancing) are closed -- see the op/family notes
-  # above for exactly what changed and where. Two NEW real wire bugs were found and
-  # fixed while closing out the deferred items below (GetBootstrapBrokers field
-  # names, ListClientVpcConnections envelope+shape) plus a missing-required-field
-  # gap on CreateVpcConnection/DescribeVpcConnection (clientSubnets/securityGroups).
-  #
-  # Documented simplifications (not wire-shape gaps -- these are internal-model
-  # choices that do not diverge from any real MSK response field or type):
-  #   - Topic.Status is always ACTIVE immediately on Create/Update; real MSK's
-  #     TopicState enum also has CREATING/UPDATING/DELETING but topic creation
-  #     exposes no polling protocol the way cluster creation does, so there is no
-  #     externally observable "stuck CREATING" behavior to get wrong.
-  #   - DescribeTopicPartitions' Isr is always == Replicas (fully in-sync); this
-  #     in-memory emulator has no real per-broker replication lag to diverge from.
-  #   - ClientVpcConnection.Owner is populated from the backend's own AccountID as
-  #     a best-effort placeholder; gopherstack has no cross-account VPC-connection
-  #     ownership model to draw a different value from.
 deferred: []
   # Both prior deferred items are now resolved:
   #   - GetBootstrapBrokers: field-diffed against deserializers.go this pass (see
@@ -630,3 +631,71 @@ Proof: `TestListClusters_NegativeOffsetToken` (`handler_clusters_test.go`) confi
 panicking pre-fix, passes now. Gates: `go build ./services/kafka/...`, `go vet
 ./services/kafka/...`, `go test -race -count=1 ./services/kafka/...`, `golangci-lint run
 ./services/kafka/...` (0 issues). Work left uncommitted per this pass's instructions.
+
+## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+
+`typed_slice35_realclient_test.go` added: 9 subtests driving all 34
+previously typed-coverage-blind ops (30/64 -> 64/64) through the real
+aws-sdk-go-v2 client -- cluster update ops (RebootBroker/UpdateBrokerStorage/
+UpdateBrokerType/UpdateClusterConfiguration/UpdateClusterKafkaVersion/
+UpdateConnectivity/UpdateMonitoring/UpdateSecurity), cluster listing v2 and
+operations (ListClustersV2/ListClusterOperations), configuration update and
+revision (UpdateConfiguration/DescribeConfigurationRevision), cluster policy
+(PutClusterPolicy/GetClusterPolicy/DeleteClusterPolicy), scram secrets
+(BatchAssociateScramSecret/BatchDisassociateScramSecret/ListScramSecrets),
+topics (DescribeTopic/DescribeTopicPartitions/ListTopics), replicator
+(DeleteReplicator/ListReplicators/UpdateReplicationInfo), VPC connections
+(DeleteVpcConnection/DescribeVpcConnection/ListVpcConnections/
+ListClientVpcConnections/RejectClientVpcConnection), channels
+(CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel).
+
+Four real bugs found and fixed, every one caught only by asserting on the
+decoded typed-client value:
+
+1. **`DeleteReplicator`/`DeleteVpcConnection` returned an empty body**
+   (handler_replicators.go/handler_vpc_connections.go) -- both real outputs
+   (`DeleteReplicatorOutput`/`DeleteVpcConnectionOutput`) carry the resource's
+   ARN and a transitional state, but both handlers called `c.NoContent(200)`,
+   so every real client's response fields came back permanently absent.
+   Fixed: both now return `{arn: <input arn>, state: "DELETING"}` -- both
+   values already known from the request/this backend's synchronous-delete
+   convention, not fabricated.
+2. **`UpdateConfiguration`/`CreateConfiguration`/`DescribeConfiguration`'s
+   shared local wire struct omitted `LatestRevision.CreationTime` entirely**
+   (handler_configurations.go) -- `types.ConfigurationRevision.CreationTime`
+   is a real *required* member (types.go:653), but the local
+   `configurationRevision` struct only had `Description`/`Revision`. Every
+   real client's `LatestRevision.CreationTime` came back nil despite this
+   backend already tracking `Configuration.CreationTime`. Fixed by adding the
+   field and populating it at all three call sites -- found while testing
+   `UpdateConfiguration` (this slice's target op), fixed as a side effect for
+   `CreateConfiguration`/`DescribeConfiguration` too (not independently
+   proven for those, per this campaign's usual side-effect-fix convention).
+3. **`DescribeConfigurationRevision` marshaled the persisted model directly,
+   using the wrong wire key** (handler_configurations.go/models.go) --
+   `DescribeConfigurationRevisionOutput`'s real key is `"arn"`
+   (deserializers.go:4297), but the handler returned
+   `*ConfigurationRevision` as-is, whose on-disk/wire tag is
+   `"configurationArn"` (shared with the unrelated
+   `ListConfigurationRevisions` item shape, `types.ConfigurationRevision`,
+   which has no ARN member at all). Every real client's `Arn` came back
+   empty. Fixed by building a dedicated `describeConfigurationRevisionOutput`
+   wire-only struct (keyed `"arn"`) for this one op instead of renaming the
+   persisted model's tag -- renaming it directly would have silently dropped
+   the field from every existing on-disk snapshot on restore (confirmed by
+   `TestSnapshotVersionGuard` catching the first attempt at this fix), the
+   same "tag rename = destructive" case
+   `pkgs/persistence/snapshotversion_guard_test.go`'s own doc comment
+   describes.
+
+No accept-and-drop findings beyond ones already disclosed in
+`items_still_open`.
+
+Gates: `go build ./...` (whole module) clean. `go vet ./services/kafka/...`
+clean. `go test -race -count=1 ./services/kafka/...` and
+`./pkgs/persistence/...` both `ok`, including
+`TestSnapshotVersionGuard` (confirms the `describeConfigurationRevisionOutput`
+fix above did not change `backendSnapshot`'s on-disk shape). `golangci-lint
+run --new-from-rev=HEAD ./services/kafka/...` 0 issues. No version bump;
+`pkgs/persistence/testdata/snapshot_inventory.json` unaffected for this
+service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.

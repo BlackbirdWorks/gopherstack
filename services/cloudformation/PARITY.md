@@ -57,7 +57,7 @@ ops:
   DescribeStackSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (was the #1 named gap): full field set now returned, field-diffed against awsAwsquery_deserializeDocumentStackSet -- Parameters, Capabilities, Tags, StackSetARN, AdministrationRoleARN, ExecutionRoleName, PermissionModel, OrganizationalUnitIds, AutoDeployment{Enabled,RetainStacksOnAccountRemoval}, ManagedExecution{Active}. CreateStackSet/UpdateStackSet now accept these via a new StackSetOptions struct (signature change, all callers updated). Regions is intentionally NOT stored on StackSet -- it's computed live from stack instances each call (StackSetRegions) to avoid a second source of truth, mirroring the driftByStackID rationale below. Verified via TestStackSet_DescribeFieldCompleteness"}
   ListStackSets: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- Status (cloudformation@v1.76.1 api_op_ListStackSets.go:75-76) was read nowhere, so a real client's Status=DELETED filter silently fell back to returning every StackSet instead of the empty list real AWS would return (DeleteStackSet hard-deletes its row, so no DELETED-status StackSet can ever exist in this backend -- an unfiltered call and a Status=ACTIVE-filtered call are behaviorally identical; only Status=DELETED was actually wrong). Now applies the filter (exact match against StackSetSummary.Status)."}
   CreateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "real per-account/region child stacks are provisioned (provisionStackInstance), not just recorded rows — verified correct. gopherstack-g7b5: now also accepts DeploymentTargets.OrganizationalUnitIds.member.N (serializers.go's DeploymentTargets/OrganizationalUnitIdList encoders) and resolves each OU to its real member accounts via a wired Organizations backend (services/cloudformation/organizations_directory.go's OrganizationsDirectory interface, satisfied by organizations.InMemoryBackend.ResolveAccountIDsUnderParent, wired in cli.go's wireCloudFormationOrganizations). Requires PermissionModel=SERVICE_MANAGED and ActivateOrganizationsAccess; errors clearly otherwise rather than silently expanding to zero accounts. gopherstack-nirx: DeploymentTargets.AccountFilterType was documented as rejected but the field was never read by the handler (silently dropped, computing a union of Accounts and OU-resolved accounts regardless of the requested filter) — now handler_stack_sets.go's unsupportedAccountFilterType actually rejects INTERSECTION/DIFFERENCE/UNION with ValidationError; only unset/NONE (the union case) is honoured. See TestStackInstances_AccountFilterType"}
-  DeleteStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct. gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds, same resolution path as CreateStackInstances"}
+  DeleteStackInstances: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "tears down provisioned child stacks via deleteStackLocked — verified correct. gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds, same resolution path as CreateStackInstances. CORRECTION 2026-09-11 (required-member sweep pass 4a): 'verified correct' missed that RetainStacks (required, api_op_DeleteStackInstances.go) was never read at all -- the handler always tore down the child stack via deleteStackLocked regardless of what the caller asked. Fixed: RetainStacks is now required and presence-validated; when true, deleteMatchingStackInstances drops only the stack-instance association and leaves the child stack alive. See TestDeleteStackInstances_RetainStacksKeepsChildStack."}
   UpdateStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: also accepts DeploymentTargets.OrganizationalUnitIds"}
   ListStackInstances: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass (constraint-parameter audit): fixed -- handleListStackInstances read only StackSetName/NextToken; StackInstanceAccount, StackInstanceRegion, and Filters (cloudformation@v1.76.1 api_op_ListStackInstances.go) were parsed nowhere, so every call returned every instance in the StackSet regardless of the filter sent. Now applies StackInstanceAccount/StackInstanceRegion (exact match) and Filters entries named DRIFT_STATUS/LAST_OPERATION_ID (matched against StackInstance.DriftStatus/LastOperationID). DETAILED_STATUS is accepted on the wire but left unenforced and documented as a gap: this backend tracks no field distinct from Status, and DetailedStatus's real values (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/INOPERABLE/SKIPPED_SUSPENDED_ACCOUNT) don't correspond to StackInstanceStatus's (CURRENT/OUTDATED/INOPERABLE) closely enough to map one onto the other without fabricating data."}
   DescribeStackInstance: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -72,7 +72,7 @@ ops:
   ListStackSetOperationResults: {wire: ok, errors: ok, state: ok, persist: ok}
   ListStackSetAutoDeploymentTargets: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-g7b5: now groups by the real OrganizationalUnitId recorded on each SERVICE_MANAGED stack instance (see CreateStackInstances note) instead of always synthesizing one placeholder target per account; self-managed instances (no OU) still fall back to the per-account placeholder, matching real AWS semantics"}
   ImportStacksToStackSet: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op (fire-and-forget) — verified via deserializers.go, no changes needed. 2026-08-22 (gopherstack-r80d batch 26): required output StackRefactorId re-confirmed always a real uuid.New().String() value, never empty; 0 bugs"}
+  CreateStackRefactor: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "SDK models zero errors for this op (fire-and-forget) — verified via deserializers.go, no changes needed. 2026-08-22 (gopherstack-r80d batch 26): required output StackRefactorId re-confirmed always a real uuid.New().String() value, never empty; 0 bugs. CORRECTION 2026-09-11 (required-member sweep pass 4a): StackDefinitions ([]types.StackDefinition, required) was never parsed by anything -- so EnableStackCreation had nothing to create a missing destination stack from, and ExecuteStackRefactor unconditionally required every mapping destination to already exist. Fixed: handler now parses StackDefinitions.member.N.{StackName,TemplateBody,TemplateURL}; ExecuteStackRefactor's new createMissingRefactorStacks creates a missing destination from its matching StackDefinition's TemplateBody when EnableStackCreation is set (still errors ErrStackNotFound otherwise, matching AWS). TemplateURL is parsed but not fetched, consistent with this service's existing CreateStack/UpdateStack (TemplateBody-only). See TestExecuteStackRefactor_StackDefinitions."}
   DescribeStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: unknown StackRefactorId previously returned 200 with an empty Status instead of StackRefactorNotFoundException, the one error this op does model (unlike its Create/Execute/List siblings, which are genuinely fire-and-forget per the SDK model)"}
   ExecuteStackRefactor: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this pass (gopherstack-g7b5): was a pure status-flip (`r.Status = \"EXECUTE_COMPLETE\"`) that never moved anything, a disguised no-op. CreateStackRefactor now parses ResourceMappings.member.N.{Source,Destination}.{StackName,LogicalResourceId} (verified against serializers.go's ResourceMapping/ResourceLocation encoders); Execute now validates every mapping (source/dest stack + source resource must exist) before mutating, then moves each StackResource entry between b.resources[stackID] maps under the destination's logical ID. Unknown refactor ID or a missing source resource now errors (StackRefactorNotFoundException / ValidationError) instead of silently no-oping. Verified via TestExecuteStackRefactor_MovesResourceBetweenStacks (reads both stacks back via DescribeStackResources)"}
   ListStackRefactors: {wire: ok, errors: ok, state: ok, persist: ok, note: "SDK models zero errors for this op. 2026-08-22 (gopherstack-r80d batch 26): required output StackRefactorSummaries's element type (types.StackRefactorSummary) confirmed to declare ZERO required members in the real SDK model (AST walk of types.go) -- the flat op-level required field is exactly the wrapper array itself, no undercount; array always non-nil via make(...). 0 bugs"}
@@ -119,11 +119,25 @@ families:
   stack_policy_enforcement: {status: ok, note: "FIXED this pass (gopherstack-cqy3): UpdateStack never consulted b.stackPolicies at all -- SetStackPolicy wrote, GetStackPolicy echoed, nothing in between read. A Deny on Update:Delete/Update:Replace protecting a resource did nothing; the write succeeded and the protection was cosmetic. Fixed via stack_policy_eval.go (new): parses the policy as Statement[].{Effect,Action,Resource,Condition}, evaluated per resource change UpdateStack computes via the SAME diffTemplates/computeChanges CreateChangeSet already uses (Add/Modify/Remove + a Replacement classification from requiresRecreation) -- confirms the backend CAN determine per-resource update actions today, it just wasn't asked to. checkStackPolicy (stack_policy.go) runs before any stack mutation, so a denied update fails the whole UpdateStack call atomically rather than partially transitioning state. Implemented: Effect Allow/Deny (Deny overrides Allow), Action Update:Modify/Update:Replace/Update:Delete/Update:* with '*' wildcards, Resource LogicalResourceId/<id> with '*' wildcards, Condition StringEquals/StringLike on ResourceType, default-deny-once-a-policy-exists (an update is denied unless some statement explicitly allows it), StackPolicyDuringUpdateBody as a non-persisted one-call override. Disclosed as NOT implemented, not approximated: NotAction/NotResource -- AWS's own docs describe their evaluation as a two-axis (logical-ID-space and resource-type-space evaluated independently, denied only if both axes deny) model distinct from ordinary statement matching, and explicitly recommend against relying on them; statements using them are parsed but never match. Evaluation semantics (Effect/Action/Resource/Condition, default-deny, Deny-overrides-Allow, the NotAction/NotResource two-axis quirk) are TRANSCRIBED FROM AWS'S DOCUMENTATION (https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/protect-stack-resources.html), not the SDK -- the policy body is an opaque string with no wire type in aws-sdk-go-v2, so there is no types/types.go line to cite for it, same disclosure shape as dynamodb's mutual-exclusion messages. StackPolicyDuringUpdateBody's field name/position IS SDK-cited (UpdateStackInput, api_op_UpdateStack.go:223). Verified via TestUpdateStack_StackPolicyEnforcement, driven through the real aws-sdk-go-v2 client: denies block the specific action and leave the resource/template provably unchanged, a permitted action under the same policy still succeeds, default-deny protects a resource no statement names, no-policy-set allows everything, and the override neither leaks into nor is missing from the persisted policy. Hand-reverted the enforcement call and confirmed 5 of the 8 subtests fail (the other 3 are policy-absent/permitted-path/malformed-input assertions that hold regardless of enforcement, by design)."}
   timestamps: {status: ok, note: "Pattern-hunt pass (timestamp encoding class, 2026-08-29): protocol confirmed Query/XML (awsAwsquery_* serializer prefix, cloudformation@v1.76.1) and every *time.Time deserializer call in deserializers.go is smithytime.ParseDateTime, never ParseEpochSeconds -- no per-field trait override anywhere in this SDK. Checked 44 *time.Time occurrences across types/types.go + api_op_*.go (35 in types.go, 9 more Output-only members: DescribeResourceScan.Start/EndTime, GetHookResult.InvokedAt, DescribeChangeSet.CreationTime, DescribeGeneratedTemplate.Creation/LastUpdatedTime, DescribeStackDriftDetectionStatus.Timestamp, DescribeType.LastUpdated/TimeCreated). Every field gopherstack actually emits goes through one of two paths, both verified compatible with ParseDateTime (which tries time.RFC3339Nano and time.RFC3339 among its formats): (1) models.go structs tagged xml:\"Field\" on a plain time.Time -- encoding/xml invokes time.Time.MarshalText (RFC3339Nano), confirmed by a throwaway xml.Marshal repro; (2) handler-local response structs that manually format via .UTC().Format(\"2006-01-02T15:04:05Z\") (handler_stacks.go, handler_stack_resources.go, handler_change_sets.go, handler_drift_detection.go) -- fits time.RFC3339 exactly. 0 wrong-format bugs found. The 9 Output-only fields plus StackSetOperation.CreationTimestamp/EndTimestamp are ABSENT (dropped-field class, not this pass's scope, not fabricated) -- ResourceScan/GeneratedTemplate/TypeSummary/HookResult models have no backing field at all for them."}
   ecr_repository_empty_on_delete: {status: ok, note: "FIXED (gopherstack-gyfh): deleteECRRepository (resources_ecs.go) always passed force=true to ecr.DeleteRepository during stack teardown, so a non-empty AWS::ECR::Repository was silently force-deleted regardless of template content -- a deliberate placeholder left by gopherstack-e4qn (moving the not-empty check into DeleteRepository required every caller to pass force explicitly; force=true exactly preserved the pre-e4qn behavior, which had no emptiness check at all). Now reads the resource's EmptyOnDelete property (props[\"EmptyOnDelete\"].(bool), same props[key].(bool) pattern used throughout resources.go for other boolean properties, e.g. resources_cloudtrail.go/resources_efs.go) and threads it through as force; absent/false blocks deletion of a non-empty repository (ErrRepositoryNotEmpty propagates to a DELETE_FAILED stack event), true force-deletes through existing images. SOURCING: EmptyOnDelete is a real AWS::ECR::Repository property but CloudFormation resource-property schemas are not part of aws-sdk-go-v2, so there is no types/types.go line to cite -- TRANSCRIBED FROM AWS'S CURRENT DOCUMENTATION (https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-resource-ecr-repository.html, fetched live this pass: \"If true, deleting the repository force deletes the contents of the repository. If false, the repository must be empty before attempting to delete it.\"), same disclosure shape as stack_policy_enforcement below. The default (absent == false == must-be-empty) is not stated as an explicit \"Default:\" line on that page (unlike some other properties there) but follows directly from the property's own if-true/if-false description and from real `aws ecr delete-repository` semantics (a bare boolean CFN property with no stated default and an explicit false-branch description defaults to its zero value); threading props required adding a props parameter to the shared delete-dispatch chain (deleteExtendedResource -> deleteServiceResource -> deleteDataPlatformResource -> deleteNewServiceResource -> deleteComputeStorageResource -> deleteECRRepository), which the top-level Delete already received (res.Properties from stacks.go) but never forwarded past deleteCoreResource. Verified via TestDeleteECRRepository_EmptyOnDelete (table test, both directions: EmptyOnDelete=true forces through a repo holding a pushed image; EmptyOnDelete absent and explicit-false both fail with RepositoryNotEmptyException against the same non-empty repo). No pre-existing test exercised a non-empty repository during CFN teardown (the existing lifecycle tests only create-then-delete freshly-created, always-empty repos), so nothing regressed."}
-gaps:
+gaps: []
+items_still_open:
   - "changeset_diff.go requiresRecreation() models only a curated subset of AWS resource types' replacement-forcing properties (documented in-code as intentional partial coverage, not a regression) — expanding this table is future work, not tracked separately from gopherstack-e5h"
   - "SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)"
   - "StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION filtering and AccountsUrl are not implemented — only the unset/NONE case (union of Accounts and OU-resolved accounts) is honoured; other AccountFilterType values are now rejected explicitly with ValidationError (fixed gopherstack-nirx; previously silently dropped despite being documented as rejected — bd: gopherstack-g7b5, gopherstack-nirx)"
   - "ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work"
+  - "StackSetOperations complete synchronously as SUCCEEDED the instant recordStackSetOperation
+    creates them (stack_sets.go) — RUNNING/STOPPING are therefore unreachable through any public
+    API. DELIBERATE, not accidental (2026-09-11, gopherstack-b3pm): cloudformation has no
+    clock/janitor-driven lifecycle anywhere in this package — CreateStack's CREATE_IN_PROGRESS ->
+    CREATE_COMPLETE, change sets' EXECUTE_IN_PROGRESS -> EXECUTE_COMPLETE/FAILED, and every
+    stack-instance/stack-set operation all resolve inside the same handler call, no
+    goroutine/ticker ever revisits a status later — so giving stack-set operations alone an async
+    lifecycle would be inconsistent with the rest of the service. StopStackSetOperation on an
+    already-SUCCEEDED (i.e. every) operation already returns the correct InvalidOperationException
+    (verified against cloudformation@v1.76.1 deserializers.go's 3-way modeled error switch for this
+    op: InvalidOperationException/OperationNotFoundException/StackSetNotFoundException) — this was
+    pre-existing correct behavior, not a bug. See families: stacksets and the dated note at the end
+    of this file for the full writeup and tests."
   - "Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend"
 leaks: {status: clean, note: "no goroutines/janitors/tickers introduced this pass. All fixes are pure control-flow/data changes under the existing b.mu lock discipline (every new lock path already has its matching defer Unlock/RUnlock, verified by reading each new/changed method in full). The persistence fix (10 previously-unpersisted map fields) is the largest change this pass but is snapshot/restore-only -- no new background work, no new maps that need cascade-delete beyond what already existed (stackInstances/stackSetOperations were already correctly cascade-deleted by DeleteStackSet before this pass; this pass only fixed their Snapshot/Restore wiring, not their lifecycle). FIXED (gopherstack-8907, 2026-09-06): DeleteStack cleared driftDetections/driftByStackID via pruneDriftDetections but not resourceDriftStatus[StackID]/resourceDriftDetail[StackID], both populated by DetectStackDrift/DetectStackResourceDrift and persisted verbatim in Snapshot() -- unbounded growth on drift-detect/delete churn (StackID embeds a random UUID, so this is not a wrong-answer-on-recreate case, but it is an unbounded leak observable via the persisted snapshot). Now cleared inside pruneDriftDetections. See TestDeleteStack_ClearsDriftMaps."}
 ---
@@ -960,12 +974,38 @@ handlers). Not a sibling disagreement — both operations shared the identical
 wrong local type. Fixed by rewriting both `instXML`s in handler_stack_sets.go
 to match the model (StackSetID/StackID/Account/Region/Status/StatusReason/
 DriftStatus/LastOperationID/OrganizationalUnitID). `StackInstanceStatus`
-(the nested detailed-status structure) and `LastDriftCheckTimestamp` remain
-unemitted — genuine gaps, no state tracked for either. Test:
+(the nested detailed-status structure) and `LastDriftCheckTimestamp` remained
+unemitted at the time — genuine gaps, no state tracked for either. Test:
 `TestStackInstance_ItemFields_RealClient`, creates a stack set and a stack
 instance via the real client, asserts `StackSetId` and `StackId` through
 both `ListStackInstances` and `DescribeStackInstance`. Verified failing
 pre-fix (`StackSetId` empty on both).
+
+**Update (gopherstack-eamp): `LastDriftCheckTimestamp` is now modelled.**
+`detectStackInstanceDrift` (stack_sets.go) sets it on every instance whose
+provisioned stack it actually compares, leaving it nil for instances it
+could not check (no provisioned stack found) — matching the real "NULL if
+drift detection hasn't been performed" semantics (types.go:2058-2061).
+`StackInstanceStatus`/`StackInstanceComprehensiveStatus.DetailedStatus`
+remains genuinely unmodelled: this backend has no per-operation lifecycle
+distinct from `Status` (PENDING/RUNNING/SUCCEEDED/FAILED/CANCELLED/
+SKIPPED_SUSPENDED_ACCOUNT don't map onto CURRENT/OUTDATED/INOPERABLE — see
+the existing `ListStackInstancesFilter` doc comment, stack_instances.go:295,
+making the same point for the DETAILED_STATUS filter). Left out of the wire
+(no field emitted) rather than faked.
+
+**Documented, not fixed: `ChangeSetSummary`'s `ImportExistingResources`,
+`IncludeNestedStacks`, `ParentChangeSetId`, `RootChangeSetId`
+(types.go:257-304) are absent from the wire.** None are accepted as
+`CreateChangeSet` input anywhere in this service, let alone stored per
+change set — `ImportExistingResources`/`IncludeNestedStacks` describe
+CreateChangeSet request options this backend doesn't model at all, and
+`ParentChangeSetId`/`RootChangeSetId` only have meaning for nested-stack
+change sets, which this backend doesn't emulate. Not cheaply derivable from
+existing state (unlike `ExecutionStatus`/`StatusReason`, fixed above, which
+the backend already tracked). Left absent from the wire (omitempty/unset)
+rather than emitting a fabricated value; a real fix needs `CreateChangeSet`
+to accept and persist these first.
 
 **BUG (fixed): `ListTypes` dropped `DefaultVersionId` and `IsActivated`.**
 `types.TypeSummary` carries both; `DescribeType` (the singular sibling)
@@ -1301,3 +1341,134 @@ caller only). All pre-existing `nolint:lll` directives in files this pass
 touched (models.go, handler_stack_sets.go) remain in active use — confirmed
 by `golangci-lint`'s 0-issues result, which would have flagged any now-stale
 suppression via `nolintlint`.
+
+**DECISION (2026-09-11, gopherstack-b3pm): stack-set operations complete
+synchronously, by design — recorded so this isn't re-discovered a third
+time.** `gopherstack-101r`'s sweep found `StopStackSetOperation`'s success
+path could only be reached by white-box-seeding a `RUNNING` operation,
+because `recordStackSetOperation` (`stack_sets.go`) writes every operation as
+`SUCCEEDED` the instant it's created — `RUNNING` is unreachable, so nothing
+can ever be observed in progress or stopped. That issue asked which of two
+things is true: either cloudformation has a clock/janitor lifecycle
+elsewhere that stack sets should share, or the service is synchronous
+throughout and the gap should be recorded rather than half-fixed on one
+resource type.
+
+It's the second one. Grepping the whole package for `Janitor`, `SweepOnce`,
+`SetClock`, `reconcile`, `ReadyAt` turns up nothing (the one `reconcile` hit
+is a doc-comment word, not a mechanism). `CreateStack` (`stacks.go`) writes
+`CREATE_IN_PROGRESS`, calls `createStackFromTemplate` inline, and flips to
+`CREATE_COMPLETE` three lines later in the same function call — no
+goroutine, no ticker, nothing to advance the status after the handler
+returns. Change sets (`change_sets.go`), drift detection
+(`drift_detection.go`), stack refactors (`stack_refactors.go`), and every
+existing stack-set operation (`ImportStacksToStackSet`, `UpdateStackSet`,
+`DetectStackSetDrift`, `CreateStackInstances`/`DeleteStackInstances` via
+`recordOpResults`) follow the identical pattern: `*_IN_PROGRESS` and
+`*_COMPLETE`/`SUCCEEDED` are both written before the call returns. This is
+categorically different from the async patterns this session gave
+`services/codebuild` (`9963c5e52`, a janitor-tick-driven build-batch
+lifecycle) and `services/rds` (`lifecycle.go`, a `readyAt` timestamp plus
+ticker) — both of those services already had a clock-driven lifecycle
+mechanism to extend; cloudformation has none, anywhere, for any resource.
+Bolting an async `RUNNING`/`STOPPING` lifecycle onto stack-set operations
+alone, in an otherwise wall-to-wall-synchronous service, would be
+inconsistent and would invite exactly the `time.Sleep`/flake class this
+session already hit standing up rds's ticker (see
+`.claude/memories/no-time-sleep-in-tests.md`) — for one resource family
+whose sibling resources (plain stacks, change sets, drift, refactors) will
+never get the same treatment. So: **synchronous completion is kept, on
+purpose, for all of cloudformation, not just stack sets.**
+
+`StackSetOperationStatus`'s real enum (cloudformation@v1.76.1
+`types/enums.go:1736-1746`) is `RUNNING`/`SUCCEEDED`/`FAILED`/`STOPPING`/
+`STOPPED`/`QUEUED` — this backend only ever produces `SUCCEEDED` (or
+`FAILED`, from `DeleteStackInstances`' per-pair teardown failures, see
+`stack_instances.go:210-213`), so `RUNNING`/`STOPPING`/`QUEUED` are
+unreachable, by design. `StopStackSetOperation`'s real modeled error set
+(`cloudformation@v1.76.1` `deserializers.go`,
+`awsAwsquery_deserializeOpErrorStopStackSetOperation`) is exactly three
+cases: `InvalidOperationException`, `OperationNotFoundException`,
+`StackSetNotFoundException` — no fourth generic fallback in practice for a
+known op. Read the case: since every operation this backend records is born
+`SUCCEEDED`, the only reachable outcome of a real `StopStackSetOperation`
+call (besides unknown-name/unknown-ID) is "stop a non-`RUNNING` operation",
+and `handleStopStackSetOperation` (`handler_stack_sets.go:732-750`) already
+maps that (`ErrOperationNotRunning`, from `op.Status != "RUNNING"` in
+`StopStackSetOperation`, `stack_sets.go:397-414`) to
+`InvalidOperationException` — matching `types.InvalidOperationException`'s
+doc comment ("The specified operation isn't valid",
+`types/errors.go:253-261`). **This was already correct before this pass; no
+code fix was needed for it.** What was missing was a test reaching it
+through the real client instead of the white-box map-seed, and the
+decision comment this entry now provides. `recordStackSetOperation` now
+carries a one-line `// SUCCEEDED synchronously, deliberately` marker citing
+this entry.
+
+`stopstacksetoperation_whitebox_test.go`'s `TestStopStackSetOperation_RealClient`
+is kept as-is — it is still the only way to exercise Stop's *success*
+envelope (there being no reachable `RUNNING` operation to stop for real),
+and its own comment already explained why. Added
+`TestStopStackSetOperation_AlreadySucceeded_RealClient`
+(`stopstacksetoperation_whitebox_test.go`) alongside it: creates a stack set, runs
+`UpdateStackSet` to produce a real (`SUCCEEDED`) operation ID through the
+public API, then calls `StopStackSetOperation` through the real SDK client
+and asserts `InvalidOperationException` comes back — the reachable path
+the gap identified, now covered without white-boxing anything. No snapshot
+shape changed: `StackSetOperation.Status` already persisted as a plain
+string field before this pass.
+
+Gates (gopherstack-b3pm): `go build ./...` (whole module) clean, `go vet
+./...` clean, `go test -count=1 ./services/cloudformation/... ./pkgs/persistence/...`
+pass, `golangci-lint run ./services/cloudformation/...` 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 12
+typed-client-blind ops (DescribeChangeSetHooks, DescribeGeneratedTemplate,
+DescribeOrganizationsAccess, DescribeResourceScan, DescribeTypeRegistration,
+ExecuteStackRefactor, GetGeneratedTemplate, ListHookResults,
+ListResourceScanRelatedResources, SignalResource, TestType,
+UpdateStackInstances) -- typed coverage 78/90 -> 90/90 (0 uncovered).
+**Three real bugs found and fixed**, all caught only by a decoded typed-
+client value (every call returned 200, nothing status-code-only would have
+caught them):
+
+1. `CreateGeneratedTemplate`'s handler never read the request's `Resources`
+   member at all (`h.Backend.CreateGeneratedTemplate(name, nil)`,
+   hardcoded nil) -- a real client's `Resources` list (the entire point of
+   the op) was silently dropped regardless of what was requested, so
+   `GetGeneratedTemplate`/`DescribeGeneratedTemplate` always returned an
+   empty-Resources template. Fixed by parsing
+   `Resources.member.N.{ResourceType,LogicalResourceId}` from the awsQuery
+   form (verified against serializers.go's
+   `awsAwsquery_serializeDocumentResourceDefinition`) into the
+   "Type/LogicalID" strings the existing backend signature accepts.
+2. `SignalResource`'s handler discarded the backend's error entirely
+   (`_ = h.Backend.SignalResource(...)`) -- a real client's call against a
+   nonexistent stack always got a fabricated 200 OK instead of the real
+   error. Fixed by returning `h.xmlError` on a non-nil error, matching this
+   file's sibling handlers' convention.
+3. Three `StackSetOperation.Action` values recorded by
+   `CreateStackInstances`/`UpdateStackInstances`/`DeleteStackInstances`
+   were fabricated: `"CREATE_INSTANCES"`/`"UPDATE_INSTANCES"`/
+   `"DELETE_INSTANCES"` do not exist in the real `StackSetOperationAction`
+   enum (only `CREATE`/`UPDATE`/`DELETE`/`DETECT_DRIFT` are real,
+   `types/enums.go`, cloudformation@v1.76.1) -- confirmed by
+   `StackSetOperation.Action`'s own doc comment: "Create and delete
+   operations affect only the specified stack instances ... Update
+   operations affect both the StackSet itself, in addition to all
+   associated stack instances," i.e. instance-scoped operations report the
+   same CREATE/UPDATE/DELETE action as their StackSet-level counterparts,
+   not a distinct suffixed value. Fixed all three call sites; one
+   pre-existing test (`TestDescribeStackSetOperation_Action`) asserting the
+   old fabricated value was corrected, not weakened. `ImportStacksToStackSet`
+   recording `"IMPORT"` (also not a real enum value) was left unfixed --
+   not hit by this slice's own test, flagged in code for a future pass.
+
+No accept-and-drop findings beyond what's listed above. Gates: `go build
+./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint
+run --new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted struct fields changed (the Action fix
+corrects an existing string field's *value*, not its shape); no version
+bump.

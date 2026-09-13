@@ -23,6 +23,12 @@ type createReplicationSubnetGroupInput struct {
 	Tags                              []tagEntry `json:"Tags"`
 }
 
+// subnetJSON mirrors types.Subnet (types.go:5220).
+type subnetJSON struct {
+	SubnetIdentifier string `json:"SubnetIdentifier"`
+	SubnetStatus     string `json:"SubnetStatus"`
+}
+
 // replicationSubnetGroupFullJSON is the wire shape of types.ReplicationSubnetGroup.
 // The real type has NO Arn field at all -- DMS subnet groups are referenced by
 // identifier on the wire; a client that wants to tag one (AddTagsToResource
@@ -30,20 +36,34 @@ type createReplicationSubnetGroupInput struct {
 // arn:aws:dms:<region>:<account>:subgrp:<identifier> format. Don't add an Arn
 // field back here without re-verifying against the SDK.
 type replicationSubnetGroupFullJSON struct {
-	ReplicationSubnetGroupIdentifier  string `json:"ReplicationSubnetGroupIdentifier"`
-	ReplicationSubnetGroupDescription string `json:"ReplicationSubnetGroupDescription"`
-	VpcID                             string `json:"VpcId"`
+	ReplicationSubnetGroupIdentifier  string       `json:"ReplicationSubnetGroupIdentifier"`
+	ReplicationSubnetGroupDescription string       `json:"ReplicationSubnetGroupDescription"`
+	VpcID                             string       `json:"VpcId"`
+	SubnetGroupStatus                 string       `json:"SubnetGroupStatus,omitempty"`
+	Subnets                           []subnetJSON `json:"Subnets"`
 }
 
 type createReplicationSubnetGroupOutput struct {
 	ReplicationSubnetGroup replicationSubnetGroupFullJSON `json:"ReplicationSubnetGroup"`
 }
 
+// rsgToJSON converts a ReplicationSubnetGroup into its wire shape. SubnetIDs
+// (previously dropped entirely by both Create and Modify -- see
+// ModifyReplicationSubnetGroup's doc comment) become Subnets here, matching
+// real AWS's behavior of always reporting SubnetGroupStatus "Complete" once a
+// subnet group exists.
 func rsgToJSON(sg *ReplicationSubnetGroup) replicationSubnetGroupFullJSON {
+	subnets := make([]subnetJSON, 0, len(sg.SubnetIDs))
+	for _, id := range sg.SubnetIDs {
+		subnets = append(subnets, subnetJSON{SubnetIdentifier: id, SubnetStatus: "Active"})
+	}
+
 	return replicationSubnetGroupFullJSON{
 		ReplicationSubnetGroupIdentifier:  sg.ReplicationSubnetGroupIdentifier,
 		ReplicationSubnetGroupDescription: sg.ReplicationSubnetGroupDescription,
 		VpcID:                             sg.VpcID,
+		SubnetGroupStatus:                 "Complete",
+		Subnets:                           subnets,
 	}
 }
 
@@ -70,6 +90,7 @@ func (h *Handler) handleCreateReplicationSubnetGroup(
 		identifier,
 		ptrconv.String(in.ReplicationSubnetGroupDescription),
 		"",
+		in.SubnetIDs,
 		kv,
 	)
 	if err != nil {
@@ -119,11 +140,11 @@ func (h *Handler) handleDescribeReplicationSubnetGroups(
 		return list[i].ReplicationSubnetGroupIdentifier < list[j].ReplicationSubnetGroupIdentifier
 	})
 
-	idFilter := extractFilterValue(in.Filters, "replication-subnet-group-id")
+	df := newDescribeFilters(in.Filters)
 
 	all := make([]replicationSubnetGroupFullJSON, 0, len(list))
 	for _, sg := range list {
-		if idFilter != "" && sg.ReplicationSubnetGroupIdentifier != idFilter {
+		if !df.Matches("replication-subnet-group-id", sg.ReplicationSubnetGroupIdentifier) {
 			continue
 		}
 
@@ -164,6 +185,7 @@ func (h *Handler) handleModifyReplicationSubnetGroup(
 		ctx,
 		identifier,
 		ptrconv.String(in.ReplicationSubnetGroupDescription),
+		in.SubnetIDs,
 	)
 	if err != nil {
 		return nil, err

@@ -221,10 +221,17 @@ func (h *Handler) iamRefinement2PermsBoundaryTable() map[string]iamActionFn {
 			}, nil
 		},
 
-		"GetContextKeysForPrincipalPolicy": func(_ url.Values, reqID string) (any, error) {
-			return &GetContextKeysResponse{
+		// PolicySourceArn's own attached/inline policies are not walked here
+		// (that would require resolving user/group/role membership into a
+		// policy-document set gopherstack does not centralize elsewhere) --
+		// the optional PolicyInputList member, which GetContextKeysForCustomPolicy
+		// already handles correctly via contextKeysFromPolicyDocuments, is real.
+		"GetContextKeysForPrincipalPolicy": func(vals url.Values, reqID string) (any, error) {
+			keys := contextKeysFromPolicyDocuments(collectPolicyInputList(vals))
+
+			return &GetContextKeysForPrincipalPolicyResponse{
 				Xmlns:                iamXMLNS,
-				GetContextKeysResult: GetContextKeysResult{ContextKeyNames: []string{}},
+				GetContextKeysResult: GetContextKeysResult{ContextKeyNames: keys},
 				ResponseMetadata:     ResponseMetadata{RequestID: reqID},
 			}, nil
 		},

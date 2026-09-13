@@ -70,7 +70,7 @@ ops:
   CreateCustomModelDeployment: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): Status was stamped Creating and nothing else in this backend ever advanced it -- confirmed via GetCustomModelDeployment, which echoes the stored value verbatim; the pre-existing TestAccuracy_CustomModelDeployment_StatusIsActive was named after the terminal state but its own assertion checked Creating and stopped there. Fixed via a new AdvanceCustomModelDeploymentStatuses, wired into the existing janitor.go tick alongside the identically-shaped AdvanceProvisionedModelThroughputStatuses -- no new infrastructure."}
   GetCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — List/Get/Update/Delete were routed under a fabricated \"/custom-model-deployments\" path; real SDK uses the SAME base path as Create (\"/model-customization/custom-model-deployments\") for all five ops. Completely unreachable by real clients before this fix."}
   ListCustomModelDeployments: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fix as GetCustomModelDeployment. this pass: also fixed -- ListCustomModelDeployments() took no arguments at all, so statusEquals/modelArnEquals/nameContains/createdAfter/createdBefore/sortOrder/maxResults were all silently ignored. Now filters/sorts/paginates per ListCustomModelDeploymentsInput."}
-  UpdateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix, PLUS: the shared Handler() body-reader only read request bodies for POST/PUT, never PATCH — so even with the path fixed, this PATCH op's body was silently discarded (fabricated no-op). Both fixed."}
+  UpdateCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix, PLUS: the shared Handler() body-reader only read request bodies for POST/PUT, never PATCH — so even with the path fixed, this PATCH op's body was silently discarded (fabricated no-op). Both fixed. gopherstack-n3zi (2026-09-12): a THIRD bug on top -- the PATCH body was reachable but handleUpdateCustomModelDeployment never called parseBody at all, so the real, required ModelArn field (the whole point of the op: point the deployment at a new model) was silently dropped regardless of body-reading. Found by a real aws-sdk-go-v2 client asserting the new ModelArn round-tripped through GetCustomModelDeployment. Fixed."}
   DeleteCustomModelDeployment: {wire: ok, errors: ok, state: ok, persist: ok, note: "same path fix as GetCustomModelDeployment"}
   CreateInferenceProfile: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-13 (gopherstack-ii4c) -- required member ModelSource (api_op_CreateInferenceProfile.go:48, the CopyFrom ARN this profile tracks) was accepted nowhere; the profile got a name but no model link. Now validated as required and echoed back on Get/List as the required Models list (api_op_GetInferenceProfile.go:62); this backend does not expand a system-defined profile's CopyFrom into its per-region constituent models, so Models always has exactly one entry."}
   GetInferenceProfile: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -90,11 +90,11 @@ ops:
   ListModelInvocationJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed — handler called Backend.ListModelInvocationJobs(nil), silently discarding every query param (statusEquals/nameContains/sortBy/sortOrder/nextToken/submitTimeAfter/submitTimeBefore) even though the backend already implements the full filter/sort/paginate logic. Classic disguised no-op: real-looking op, dead capability. Now parses and wires all of them. gopherstack-7ux2: summary also omitted modelId/inputDataConfig/outputDataConfig/roleArn/submitTime, all five required on types.ModelInvocationJobSummary (types/types.go:5592-5722) -- same converter and same Create-side fix as GetModelInvocationJob above. Confirmed types.ModelInvocationJobSummary carries no tags member, so job.Tags correctly stays off both Get and List (unlike ListModelImportJobs' summary just above, this shape needed members added, not removed)."}
   StopModelInvocationJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was DELETE on the plural list path; real SDK sends POST /model-invocation-job/{id}/stop (singular + /stop suffix, same pattern as StopEvaluationJob)."}
   CreateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — EndpointConfig (SageMaker execution role/instance type/instance count/KMS key) is a required CreateMarketplaceModelEndpointInput field and was previously not parsed/stored at all, so every Get/List response was missing the required endpointConfig field. Now parsed, stored, and round-tripped."}
-  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig — see CreateMarketplaceModelEndpoint"}
-  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig per item; nextToken pagination only, real AWS's sole extra filter (modelSourceEquals) not implemented — see gaps"}
-  UpdateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — request body's required EndpointConfig field was accepted but never parsed/applied (the op only bumped updatedAt, a disguised no-op). Now parses {\"endpointConfig\":{\"sageMaker\":{...}}} and applies it to the stored endpoint; omitting endpointConfig on PATCH now correctly preserves the existing config rather than erroring."}
+  GetMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig — see CreateMarketplaceModelEndpoint. gopherstack-n3zi (2026-09-12): TWO more bugs found by a real aws-sdk-go-v2 client — (1) the response was returned flat with no wrapper; real GetMarketplaceModelEndpointOutput requires the whole endpoint nested under a \"marketplaceModelEndpoint\" key (deserializers.go:9536), so a real client's required output field always decoded nil. (2) the shared marketplaceEndpointOutput struct never emitted the real, required \"endpointStatus\" member at all (only the separate, optional \"status\") — always decoded empty. Both fixed; fixes apply to Create/Get/List/Register/Update via the shared builder/wrapper."}
+  ListMarketplaceModelEndpoints: {wire: ok, errors: ok, state: ok, persist: ok, note: "now includes endpointConfig per item; nextToken pagination only, real AWS's sole extra filter (modelSourceEquals) not implemented — see gaps. Already used the correct \"marketplaceModelEndpoints\" wrapper key (unlike Get/Update, see their notes) and now also carries endpointStatus (gopherstack-n3zi, 2026-09-12)."}
+  UpdateMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — request body's required EndpointConfig field was accepted but never parsed/applied (the op only bumped updatedAt, a disguised no-op). Now parses {\"endpointConfig\":{\"sageMaker\":{...}}} and applies it to the stored endpoint; omitting endpointConfig on PATCH now correctly preserves the existing config rather than erroring. gopherstack-n3zi (2026-09-12): same unwrapped-response + missing-endpointStatus bugs as GetMarketplaceModelEndpoint, fixed together."}
   DeleteMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
-  RegisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok}
+  RegisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-n3zi (2026-09-12): output already used the \"marketplaceModelEndpoint\" wrapper; also gained endpointStatus via the shared builder fix (see GetMarketplaceModelEndpoint)."}
   DeregisterMarketplaceModelEndpoint: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — was routed as POST /.../deregistration (a path AWS doesn't have); real SDK sends DELETE on the SAME /.../registration path Register uses (method-only disambiguation). Completely unreachable by real clients before this fix."}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -102,7 +102,7 @@ ops:
   GetUseCaseForModelAccess: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — full redesign. Real GetUseCaseForModelAccessOutput.FormData is a required raw []byte payload wire-encoded as {\"formData\":\"<base64>\"}; gopherstack previously served a fabricated {useCaseType,useCaseDescription} JSON object from the typo'd path \"/usecase-for-model-access\". Now GET /use-case-for-model-access returns base64(storedBytes)."}
   PutUseCaseForModelAccess: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as Get, PLUS method: real SDK sends POST, gopherstack previously used PUT. Was 100% unreachable by real clients (wrong path AND method AND body shape) before this fix."}
   ListEnforcedGuardrailsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — full redesign. Real AWS models this as a ConfigId-keyed catalog of AccountEnforcedGuardrailOutputConfiguration entries (guardrailIdentifier/guardrailVersion/inputTags HONOR|IGNORE/modelEnforcement/owner/createdBy/updatedBy) at GET /enforcedGuardrailsConfiguration with nextToken pagination; gopherstack previously modeled it as bare guardrailId+guardrailVersion pairs at the invented kebab-case path \"/enforced-guardrail-configuration\" with no pagination. New backend validates guardrailIdentifier resolves to a real guardrail."}
-  PutEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as List. Real PUT body is {configId?, guardrailInferenceConfig:{guardrailIdentifier,guardrailVersion,inputTags,modelEnforcement?}}; omitting configId creates a new config, supplying an existing one updates in place. inputTags is validated to HONOR|IGNORE."}
+  PutEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — same redesign as List. Real PUT body is {configId?, guardrailInferenceConfig:{guardrailIdentifier,guardrailVersion,modelEnforcement?}}; omitting configId creates a new config, supplying an existing one updates in place. 2026-09-12 (gopherstack-n3zi slice 22): inputTags used to be REQUIRED and validated to HONOR|IGNORE, but the real AccountEnforcedGuardrailInferenceInputConfiguration (bedrock@v1.66.4 serializers.go's awsRestjson1_serializeDocumentAccountEnforcedGuardrailInferenceInputConfiguration) has no inputTags member at all -- it is a deprecated field that exists only on the OUTPUT shape -- so every real client's call failed unconditionally with ValidationException. Now optional, defaulting to HONOR when omitted; still rejected if present and not HONOR/IGNORE."}
   DeleteEnforcedGuardrailConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed — real AWS takes ConfigId as a PATH parameter (DELETE /enforcedGuardrailsConfiguration/{configId}); gopherstack previously took guardrailId as a QUERY parameter on the invented path. 100% unreachable by real clients before this fix (in addition to modeling the wrong resource)."}
   # parity-4: 10 ops added by the aws-sdk-go-v2/service/bedrock bump from
   # v1.56.0 to v1.66.0. All implemented for real (routing, backend state,
@@ -125,7 +125,7 @@ families:
   AdvancedPromptOptimizationJob: {status: ok, note: "new family, parity-4. See the 5 ops entries above. Backend models the real job lifecycle (InProgress -> Completed via the janitor, or -> Stopped) honestly; produces no fabricated optimization result, matching the real wire shape's total absence of one."}
   AccountDataRetention: {status: ok, note: "new family, parity-4. See GetAccountDataRetention/PutAccountDataRetention ops entries."}
   ResourcePolicy: {status: ok, note: "new family, parity-4, TWO DISTINCT real operation families sharing an op name — core bedrock (guardrails/custom models/etc.) and bedrock-agent (knowledge bases only, with optimistic-concurrency revisionId). See GetResourcePolicy/PutResourcePolicy/DeleteResourcePolicy ops entries and resource_policy.go's package doc comment. bedrock-agent's knowledge-base ARN regex is intentionally widened to accept hyphens (real AWS documents pure alphanumeric KB IDs) because this backend's own CreateKnowledgeBase generates hyphenated IDs like \"kb-00000001\" — narrowing to the real character class would make every gopherstack-issued KB ARN unmatchable by this backend's own validator; documented in resource_policy.go."}
-  AgentsHandler: {status: gap, note: "2026-08-21 (gopherstack-y1zn): AgentsHandler (handler_data_sources.go, handler_knowledge_base_documents.go, etc.) is registered (cli.go's bedrockbackend.AgentsProvider) but its RouteMatcher/MatchPriority (service.PriorityPathVersioned=85) loses to services/bedrockagent.Handler's baPriority=87 for every /agents/, /knowledgebases/, /flows/, /prompts/ path -- confirmed by reading both RouteMatchers and priorities directly, and by bedrockagent/handler.go's own comment ('bedrockagent's higher MatchPriority already resolves the /agents,/flows,/prompts overlap with plain bedrock'). AgentsHandler is therefore dead code for any real AWS SDK client, same class as opensearch's fabricated-REST-path finding (gopherstack-92ft). Two wire-key bugs were fixed here anyway during the y1zn sweep before this was discovered (DeleteDataSource: dataSourceStatus->status; IngestKnowledgeBaseDocuments: documents->documentDetails) -- both harmless, both already independently correct in the live services/bedrockagent.Handler, so no real-client behavior changed. Not reverted (correct and tested), but not counted as high-value. GetAutomatedReasoningPolicyBuildWorkflowResultAssets lives on the plain (non-Agents) bedrock.Handler, which has no such collision, and its fix (see AutomatedReasoningPolicy family below) is fully live."}
+  AgentsHandler: {status: gap, note: "2026-09-12 (gopherstack-n3zi slice 22): typed-client sweep drove 72 of AgentsHandler's 74 previously-uncovered ops through a real bedrockagent client (typed_slice22_realclient_test.go), still isolated from the live router (own registry, per newTestBedrockRegistryServer) since AgentsHandler stays dead code in production per the finding below. Found and fixed 4 real wire bugs anyway (all pre-existing, unrelated to the routing shadow): KnowledgeBaseDocument identifiers were a flat \"documentIds\" string list instead of the real dataSourceType+s3/custom DocumentIdentifier union; AgentCollaborator's collaborator reference used an invented flat \"collaboratorArn\" instead of the real nested agentDescriptor.aliasArn and dropped required collaborationInstruction/collaboratorName/lastUpdatedAt entirely; Flow's executionRoleArn and version (both required CreateFlowOutput/GetFlowOutput members) were never stored or emitted; AgentKnowledgeBaseAssociation dropped required createdAt/updatedAt entirely; AgentVersion emitted its version number under \"agentVersion\" instead of the real \"version\" key (silently always-nil for a real client) and was missing required agentArn/agentName/agentResourceRoleArn/updatedAt; CreatePromptVersion wrapped its response in a fabricated \"promptVersion\" envelope when the real CreatePromptVersionOutput has no httpPayload member (flat id/arn/version/updatedAt at the top level) -- every real client's CreatePromptVersion decoded every field to zero. GetAgentMemory/DeleteAgentMemory remain uncovered: both are real AWS ops but belong to the bedrock-agent-runtime API, a module this repo does not vendor (confirmed absent from bedrockagent@v1.58.4/bedrock@v1.66.4/bedrockruntime@v1.57.1's serializers), so AgentsHandler's advertising them under the bedrock-agent control-plane family is itself a misplacement left as-is (new go.mod dependency out of scope). 2026-08-21 (gopherstack-y1zn): AgentsHandler (handler_data_sources.go, handler_knowledge_base_documents.go, etc.) is registered (cli.go's bedrockbackend.AgentsProvider) but its RouteMatcher/MatchPriority (service.PriorityPathVersioned=85) loses to services/bedrockagent.Handler's baPriority=87 for every /agents/, /knowledgebases/, /flows/, /prompts/ path -- confirmed by reading both RouteMatchers and priorities directly, and by bedrockagent/handler.go's own comment ('bedrockagent's higher MatchPriority already resolves the /agents,/flows,/prompts overlap with plain bedrock'). AgentsHandler is therefore dead code for any real AWS SDK client, same class as opensearch's fabricated-REST-path finding (gopherstack-92ft). Two wire-key bugs were fixed here anyway during the y1zn sweep before this was discovered (DeleteDataSource: dataSourceStatus->status; IngestKnowledgeBaseDocuments: documents->documentDetails) -- both harmless, both already independently correct in the live services/bedrockagent.Handler, so no real-client behavior changed. Not reverted (correct and tested), but not counted as high-value. GetAutomatedReasoningPolicyBuildWorkflowResultAssets lives on the plain (non-Agents) bedrock.Handler, which has no such collision, and its fix (see AutomatedReasoningPolicy family below) is fully live. 2026-09-12 (gopherstack-n3zi slice 30): re-confirmed the dead-code finding above still holds (bedrockagent still wins at MatchPriority 87 vs 85) and found one more real bug slice 22 missed: FlowAlias had no RoutingConfiguration field at all, and CreateFlowAlias/UpdateFlowAlias never read the request's required routingConfiguration member -- every real client's alias came back with a nil routing list regardless of what flow version it targeted. Fixed (models.go: new FlowAliasRouting type + FlowAlias.RoutingConfiguration; flow_aliases.go; handler_flow_aliases.go), proven by TestFlowAliasRealClient_RoutingConfigurationRoundTrips (typed_slice30_realclient_test.go). Per slice 22's own method note, did NOT continue a full sweep of AgentsHandler's remaining ops this pass -- the census's per-op count for this family is not a reliable signal of real work remaining (gopherstack-aqgw0)."}
   AutomatedReasoningPolicy: {status: partial, note: "high-value route-reachability bugs fixed this pass: UpdateAutomatedReasoningPolicy, UpdateAutomatedReasoningPolicyTestCase, and UpdateAutomatedReasoningPolicyAnnotations were all routed on PUT; real SDK sends PATCH for all three, so all three were 100% unreachable by real clients before this fix (same bug class as UpdateProvisionedModelThroughput/UpdateMarketplaceModelEndpoint, fixed in earlier passes). NOT fixed this pass, and NOT reclassified to ok — see gaps: the build-workflow-scoped sub-resource path model (annotations, next-scenario, test-results, ExportAutomatedReasoningPolicyVersion) has deeper invented-path issues than a route fix can address; UpdateAutomatedReasoningPolicyTestCase's handler doesn't parse its request body at all (disguised no-op even now that it's reachable). FIXED (gopherstack-lx5h) — GetAutomatedReasoningPolicy's response (handler_automated_reasoning_policies.go handleGetAutomatedReasoningPolicy) dropped definitionHash and version, both required per GetAutomatedReasoningPolicyOutput and already tracked on the model (policy.DefinitionHash/policy.Version); now emitted. Also dropped the required policyId, not tracked as its own field on the model — derived honestly via policyIDFromARN, the path segment CreateAutomatedReasoningPolicy itself embedded when building policy.PolicyArn (arn.Build(..., \"automated-reasoning-policy/\"+id)), not fabricated. Also removed a \"status\" key the handler emitted that has no counterpart anywhere in the real GetAutomatedReasoningPolicyOutput (verified against its full deserializer switch: createdAt/definitionHash/description/kmsKeyArn/name/policyArn/policyId/updatedAt/version, no status) — harmless to any real client (unknown keys are ignored) but wrong wire shape. kmsKeyArn remains correctly absent: the model tracks no per-policy KMS key at all, and the real doc says the field is omitted entirely when none was provided at creation, so an absent field here is honest, not a gap. FIXED (gopherstack-4sov) — this note previously named only UpdateAutomatedReasoningPolicyTestCase's disguised no-op; the identical drops-the-defining-field defect existed in three more ops, undercounted here until now. StartAutomatedReasoningPolicyBuildWorkflow never read the request body at all, dropping both required members BuildWorkflowType and SourceContent (api_op_StartAutomatedReasoningPolicyBuildWorkflow.go:37-53) — worse, gopherstack's own route for it was also wrong (bare .../build-workflows POST; real path is .../build-workflows/{buildWorkflowType}/start, serializers.go:8008), so no real client's Start request had ever reached the handler regardless of body parsing. UpdateAutomatedReasoningPolicy dropped required PolicyDefinition (its input struct held only Description) and its response returned a fabricated \"status\" key instead of the real required definitionHash. UpdateAutomatedReasoningPolicyAnnotations dropped BOTH required body members (Annotations, LastUpdatedAnnotationSetHash) and answered with an empty 200 body instead of the real required annotationSetHash/buildWorkflowId/policyArn/updatedAt — Annotations had been invisible to a literal-match scanner because sibling op GetAutomatedReasoningPolicyAnnotations independently emits its own \"annotations\" response key, a false-negative mechanism documented as recurring across this campaign. All three now read their full request body, validate the required members, and return the real response shape. GetAutomatedReasoningPolicyAnnotations also gained the required annotationSetHash it was missing (it doubles as the concurrency token Update's LastUpdatedAnnotationSetHash checks against; validated as present but not matched, same non-enforcement already established for CreateAutomatedReasoningPolicyVersion's lastUpdatedDefinitionHash). Get/ListAutomatedReasoningPolicyBuildWorkflow also gained buildWorkflowType, now real backing state captured at Start. Proven via real aws-sdk-go-v2 client round trips (handler_automated_reasoning_policies_typed_test.go) that fail against each unfixed handler when hand-reverted. NOT fixed, left deliberately inert and documented: GetAutomatedReasoningPolicyBuildWorkflowResultAssets still ignores the required AssetType filter, but buildWorkflowAssets is always omitted regardless (no result-asset content generator in this backend), so the filter miss is currently unobservable by any test, real-client or otherwise — revisit only if this backend starts producing real result-asset content. FIXED 2026-08-21 (gopherstack-y1zn, unknown-key sweep): the response key itself was wrong -- \"resultAssets\": [] -- and doubly so: the real member is \"buildWorkflowAssets\", and it is a union object (types.AutomatedReasoningPolicyBuildResultAssets), not a list, so a real client's decode failed outright on the array where it expected an object. Now omitted (correct empty state for a union with no content) under the correct key. UpdateAutomatedReasoningPolicyTestCase remains the disguised no-op already named above, not touched by this pass; the build-workflow-scoped sub-resource path gaps already named above also remain open. FIXED 2026-08-20 (gopherstack-r80d, required-output-member sweep): six more required-output-member bugs in this family, all confirmed via real-client round trips (wire_output_required_r80d_test.go) that fail against each unfixed handler. GetAutomatedReasoningPolicyBuildWorkflow/ListAutomatedReasoningPolicyBuildWorkflows dropped required CreatedAt/UpdatedAt (api_op_GetAutomatedReasoningPolicyBuildWorkflow.go:59-78) -- the model tracked neither field at all; now set at Start and bumped at Cancel. GetAutomatedReasoningPolicyAnnotations dropped 4 of its 6 required members (BuildWorkflowId/Name/PolicyArn/UpdatedAt, api_op_GetAutomatedReasoningPolicyAnnotations.go:62-80), returning only annotations/annotationSetHash; UpdatedAt is now lazily minted and persisted the same way annotationSetHash already was (new arpAnnotationsUpdatedAt map, store.go, intentionally not snapshotted for the same reason). GetAutomatedReasoningPolicyBuildWorkflowResultAssets dropped required PolicyArn (api_op_GetAutomatedReasoningPolicyBuildWorkflowResultAssets.go:67-70). GetAutomatedReasoningPolicyTestCase returned the test case's fields inlined at the top level instead of wrapped under the required \"testCase\" key (deserializers.go:7223-7233) -- a real client's required TestCase decoded nil regardless of PolicyArn happening to be present. GetAutomatedReasoningPolicyTestResult/ListAutomatedReasoningPolicyTestResults returned a flat, differently-keyed object with no \"testResult\"/wrapped-item shape at all (types.go:2055-2092 requires policyArn/testCase/testRunStatus/updatedAt nested under each result) -- same wrong-response-shape class as opensearch's GetIndex from the input-side sweep. All six fixed without fabricating data: CreatedAt/UpdatedAt/PolicyArn/BuildWorkflowId were either already-tracked real state or derivable from function parameters; testRunStatus is hardcoded to COMPLETED, the same simplification this family already made pre-fix (backend never runs a real test)."}
   PromptRouter: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). CreatePromptRouterInput's required FallbackModel/Models/RoutingCriteria fields (and optional Description) were silently dropped entirely, so every Get/List response was missing them (all required on GetPromptRouterOutput/PromptRouterSummary) and Type was never set. ListPromptRouters returned the wrong top-level key (\"promptRouters\" vs real \"promptRouterSummaries\"), had no pagination, and ignored the real typeEquals filter. DeletePromptRouter used 204 instead of this service's established 200-for-empty-Delete convention. All fixed."}
   ImportedModel: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked). See GetImportedModel/ListImportedModels/DeleteImportedModel/CreateModelImportJob ops entries above for the specific wire-shape and filter/pagination fixes."}
@@ -134,7 +134,9 @@ families:
   FoundationModelAgreement: {status: ok, note: "fixed — field-diffed for real this pass (previously only spot-checked, and the note itself was wrong: ListFoundationModelAgreementOffers is NOT a resource-shape question, it's a completely different operation than gopherstack implemented). See ListFoundationModelAgreementOffers/DeleteFoundationModelAgreement ops entries."}
   FoundationModelAvailability: {status: ok, note: "fixed — field-diffed for real this pass. See GetFoundationModelAvailability ops entry."}
 
-gaps:
+gaps: []
+
+items_still_open:
   - "gopherstack-r80d/gopherstack-39ps (2026-08-20/21): BOTH gaps this entry
     used to record are now FIXED -- see CreateEvaluationJob/GetEvaluationJob
     ops entries above for the full detail (union modeling + JobType
@@ -254,7 +256,6 @@ gaps:
     (bedrockagent@v1.58.4 deserializers.go's awsRestjson1_deserializeOpDocumentDeletePromptOutput
     — DeletePrompt with a promptVersion set is the real op backing this internal route) declares
     only \"id\" and \"version\", no status. Fixed to {id, version}. See wire_field_fixes_test.go."
-
 deferred: []
 # Every item previously listed here (AutomatedReasoningPolicy full wire re-verification,
 # PromptRouter, ImportedModel, FoundationModelAgreement / FoundationModelAvailability) was
@@ -1008,3 +1009,196 @@ restored; see commit history).
 Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/bedrock/...` and
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/bedrock/...` -- 0 issues,
 both clean.
+
+## gopherstack-okok: Delete* invented-"status"-member sweep (2026-09-11)
+
+Verified at HEAD: the specific claim (DeletePromptVersion/DeleteFlow/
+DeleteFlowVersion emitting a fabricated `status: "Deleting"` member) was
+**already fixed** by c78177958 (2026-09-02), which predates this issue
+being filed (2026-08-29) but landed after. Confirmed by reading the current
+handlers plus `bedrockagent@v1.58.4` deserializers.go's
+`awsRestjson1_deserializeOpDocumentDelete{Prompt,Flow,FlowVersion,FlowAlias}Output`
+-- none declare a status member, and none of gopherstack's current outputs
+emit one.
+
+Full sweep of every `Delete*` op in `services/bedrock` and
+`services/bedrockagent` (AgentsHandler/Handler's Agent, AgentAlias,
+AgentVersion, AgentActionGroup, Flow, FlowVersion, FlowAlias,
+KnowledgeBase, DataSource, KnowledgeBaseDocuments, Prompt, PromptVersion,
+plus the core-bedrock control-plane Delete ops, all of which have empty
+SDK outputs) found one real bug, not the status-fabrication class:
+
+**Bug found and fixed**: `services/bedrock/handler_agents.go`'s
+`handleDeleteAgentVersion` emitted the deleted version under the wire key
+`"version"` instead of the real `DeleteAgentVersionOutput` member
+`"agentVersion"` (confirmed: `bedrockagent@v1.58.4` deserializers.go's
+`awsRestjson1_deserializeOpDocumentDeleteAgentVersionOutput`, case
+`"agentVersion"`). A typed client's `AgentVersion` field was always nil.
+Fixed by using the existing `respAgentVersion` constant. The sibling
+`bedrockagent` package's own `handleDeleteAgentVersion` already used the
+correct key.
+
+Every other swept op's emitted key set matches its SDK deserializer's
+declared member set exactly (including the legitimate `status`/
+`agentStatus`/`agentAliasStatus`/`dataSourceId`+`knowledgeBaseId`+`status`
+members on `DeleteAgent`/`DeleteAgentAlias`/`DeleteAgentVersion`/
+`DeleteDataSource`/`DeleteKnowledgeBase`, which really do exist on those
+outputs -- only Delete{Prompt,PromptVersion,Flow,FlowVersion,FlowAlias,
+AgentActionGroup} and the empty-output core-bedrock ops have no status-like
+member).
+
+Locked by `TestDeleteOps_ExactWireKeySet` in both
+`services/bedrock/delete_output_shape_test.go` and
+`services/bedrockagent/delete_output_shape_test.go`: table-driven,
+raw-body (`map[string]any`) exact-key-set assertions per op (a typed client
+can't observe either a missing real key or an extra fabricated one, so the
+raw body is the only way to prove the set is exact).
+
+## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+
+Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 48/179 (26.8%) ->
+105/179 (58.7%) ops driven by a real aws-sdk-go-v2 client anywhere in this
+repo's tests. `services/bedrock/typed_slice6_realclient_test.go` added, 15
+subtests covering guardrail versions, model invocation logging, account
+data retention, evaluation jobs, model import jobs, inference profiles,
+foundation model agreements, use-case-for-model-access, marketplace model
+endpoints, prompt routers, custom model deployment/customization/invocation
+job stops, advanced prompt optimization jobs, automated reasoning policies,
+and tags/resource policy -- the named priority families for this slice.
+The bedrock-agent (AgentsHandler) family -- CreateAgent/Flow/Prompt/
+KnowledgeBase/DataSource and their Get/List/Update/Delete siblings, 74 ops
+-- was deliberately not attempted: it was not among this slice's named
+priority families.
+
+**Bugs found and fixed, all by a decoded typed-client value, none by status
+code alone (every call returned 200/201/204):**
+
+1. `UpdateCustomModelDeployment` never called `parseBody` at all --
+   confirmed via `handler_custom_model_deployments.go`. The real, required
+   `ModelArn` field (the entire point of the op: point a deployment at a
+   new model) was silently dropped on every request. Fixed by threading
+   `body []byte` through `routeStubDeploymentOps`/`routeStubMiscOps` and
+   parsing it; `custom_model_deployments.go`'s `UpdateCustomModelDeployment`
+   now takes and applies `modelARN`.
+2. `GetMarketplaceModelEndpoint`/`UpdateMarketplaceModelEndpoint` returned
+   the endpoint flat with no wrapper; real `GetMarketplaceModelEndpointOutput`/
+   `UpdateMarketplaceModelEndpointOutput` require the whole endpoint nested
+   under `"marketplaceModelEndpoint"` (bedrock@v1.66.4 deserializers.go:9536,
+   :18574) -- a real client's required output field always decoded nil.
+   Fixed by reusing the existing `createMarketplaceModelEndpointOutput`
+   wrapper for both.
+3. The shared `marketplaceEndpointOutput` wire struct never emitted the
+   real, required `endpointStatus` member (types.go:5208) at all -- only
+   the separate, optional `status` -- so a real client's `EndpointStatus`
+   always decoded empty regardless of lifecycle state. Fixed by emitting
+   both from the same backend field.
+4. `CancelAutomatedReasoningPolicyBuildWorkflow` stamped the workflow
+   status `"Cancelled"`, and `StartAutomatedReasoningPolicyBuildWorkflow`
+   stamped a freshly-created workflow `"Running"` -- neither is a real
+   `AutomatedReasoningPolicyBuildWorkflowStatus` enum value
+   (bedrock@v1.66.4 types/enums.go:267-274 declares only SCHEDULED /
+   CANCEL_REQUESTED / PREPROCESSING / BUILDING / TESTING / COMPLETED /
+   FAILED / CANCELLED). Fixed to `"CANCELLED"`/`"BUILDING"`; existing tests
+   hardcoding the old values were corrected, not weakened.
+
+**Accept-and-drop / disclosed, not fixed:** `DeleteAutomatedReasoningPolicyTestCase`/
+`UpdateAutomatedReasoningPolicyTestCase`/`DeleteAutomatedReasoningPolicyBuildWorkflow`'s
+real, required `LastUpdatedAt` optimistic-concurrency token is accepted by
+the SDK client-side validator but this backend has no per-record revision
+tracking to check it against (same class as several other services'
+revisionId fields) -- not fixed this pass, consistent with this file's
+existing precedent for unenforced concurrency tokens elsewhere.
+
+Gates: `go build ./...`, `go vet ./services/bedrock/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/bedrock/...` (0 issues),
+`go test -race -count=1 ./services/bedrock/... ./pkgs/persistence/...` --
+all clean. No persisted-struct field changed in bedrock this pass; no
+version bump.
+
+## gopherstack-n3zi slice 22: AgentsHandler typed-client coverage sweep (2026-09-12)
+
+Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): bedrock 105/179
+(58.7%) -> 177/179 (98.9%) ops driven by a real aws-sdk-go-v2 client
+somewhere in this repo's tests. `services/bedrock/typed_slice22_realclient_test.go`
+added, 16 subtests, drives all 74 of slice 6's deliberately-skipped
+AgentsHandler (bedrock-agent sub-API) family except GetAgentMemory/
+DeleteAgentMemory (72 of 74) through the real `bedrockagent` client (plus
+`PutEnforcedGuardrailConfiguration`/`ListEnforcedGuardrailsConfiguration`/
+`DeleteEnforcedGuardrailConfiguration` through the core `bedrock` client):
+agent lifecycle, action groups, aliases, collaborators, knowledge-base
+associations, versions, knowledge bases, data sources, ingestion jobs,
+knowledge-base documents, flows, flow aliases, flow versions, prompts,
+prompt versions, enforced guardrail config.
+
+**Six real wire bugs found and fixed, all by a decoded typed-client value
+never asserted before:**
+
+1. `IngestKnowledgeBaseDocuments`/`GetKnowledgeBaseDocuments`/
+   `DeleteKnowledgeBaseDocuments`/`ListKnowledgeBaseDocuments` decoded a
+   flat `documentIds: []string` request/response shape; the real wire
+   (bedrockagent@v1.58.4 serializers.go:9157/8192, types.DocumentContent/
+   DocumentIdentifier) is a `dataSourceType` + `s3.s3Location.uri` (or
+   `custom.customDocumentIdentifier.id`) union, and the response's
+   `KnowledgeBaseDocumentDetail.identifier` is the same union nested one
+   level deeper, plus required `status`/`updatedAt`. A real client's
+   request never decoded any document at all. Fixed with `KBDocumentIdentifier`
+   (knowledge_base_documents.go) and matching wire structs
+   (handler_knowledge_base_documents.go); `KnowledgeBaseDocument` gained
+   `DataSourceType`/`StatusReason`/`UpdatedAt`.
+2. `AssociateAgentCollaborator`/`UpdateAgentCollaborator`/
+   `GetAgentCollaborator`/`ListAgentCollaborators` decoded the collaborator
+   reference from an invented flat `collaboratorArn` field; the real wire
+   (serializers.go:112, types.AgentDescriptor) nests it under
+   `agentDescriptor.aliasArn`, and the real, required
+   `collaborationInstruction`/`collaboratorName` request fields were
+   dropped entirely. The response was also missing the required
+   `agentDescriptor`/`collaborationInstruction`/`collaboratorName`/
+   `lastUpdatedAt` members (deserializers.go:14971). Fixed end to end
+   (agent_collaborators.go, handler_agent_collaborators.go, models.go);
+   `AgentCollaborator.AgentAliasArn`'s persistence json tag was also fixed
+   from `"-"` (never persisted!) to `"agentAliasArn"`.
+3. `CreateFlow`/`GetFlow`/`UpdateFlow` never stored or emitted
+   `executionRoleArn` or `version`, both required `CreateFlowOutput`/
+   `GetFlowOutput` members (a real client's ExecutionRoleArn/Version
+   fields were always nil). Fixed by threading `executionRoleArn` through
+   Create/UpdateFlow and stamping the Flow resource's own top-level
+   version as `"DRAFT"` (flowDraftVersion, distinct from CreateFlowVersion's
+   numbered snapshots).
+4. `AssociateAgentKnowledgeBase`/`GetAgentKnowledgeBase`/
+   `UpdateAgentKnowledgeBase` dropped the required `createdAt`/`updatedAt`
+   AgentKnowledgeBase output members entirely. Fixed
+   (agent_knowledge_base_associations.go); also wired the previously-dropped
+   optional `knowledgeBaseState` request field on Associate.
+5. `GetAgentVersion`/`ListAgentVersions` emitted the version number under
+   `agentVersion` instead of the real flat `version` key
+   (deserializers.go's AgentVersion case list) -- a real client's `Version`
+   field always decoded nil, the one field the op exists to return. Also
+   missing required `agentArn`/`agentName`/`agentResourceRoleArn`/
+   `updatedAt`. Fixed (agents.go, models.go).
+6. `CreatePromptVersion` wrapped its response in a fabricated
+   `"promptVersion"` envelope; the real `CreatePromptVersionOutput` has no
+   httpPayload member (deserializers.go:2388 reads flat top-level
+   `id`/`arn`/`createdAt`/... keys, the same no-wrapper convention already
+   documented for Flow/Prompt). Every real client's CreatePromptVersion
+   decoded every field to its zero value. Fixed by returning the
+   `PromptVersion` struct flat (handler_prompt_versions.go); `PromptVersion`
+   gained `PromptArn`/`UpdatedAt` and its `PromptID` tag moved from the
+   fabricated `promptId` to the real `id`.
+
+A seventh bug (`PutEnforcedGuardrailConfiguration` requiring `inputTags`,
+a field the real request never sends) was found on the *core*, non-shadowed
+`bedrock.Handler` and is live in production; see its own `ops:` entry above.
+
+Three non-additive persisted-field changes (`AgentCollaborator.CollaboratorArn`
+removed, `AgentVersion`'s and `PromptVersion`'s version/id tags renamed) got
+tolerant `UnmarshalJSON` overrides (accepting the old wire-wrong keys as a
+fallback) instead of a version bump, per this task's guidance; the other
+three struct changes (`Flow`, `AgentKnowledgeBaseAssociation`,
+`KnowledgeBaseDocument`) are purely additive. `pkgs/persistence/testdata/snapshot_inventory.json`'s
+`bedrock` row refreshed via `-update`; diff confirmed limited to that one
+row, version held at 3.
+
+Gates: `go build ./...` (whole module), `go vet ./services/bedrock/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/bedrock/...` (0 issues),
+`go test -race -count=1 ./services/bedrock/... ./pkgs/persistence/...` --
+all clean. `go run ./cmd/paritylint`: 0 FAIL. No version bump.

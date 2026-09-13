@@ -29,6 +29,7 @@ const (
 
 	subscriptionStatusActive           = "active"
 	backtrackStatusApplying            = "applying"
+	pendingActionDBUpgrade             = "db-upgrade"
 	blueGreenDeploymentStatusAvailable = "available"
 	ipRangeStatusAuthorized            = "authorized"
 	instanceTransitionDelay            = 250 * time.Millisecond
@@ -741,6 +742,8 @@ type InMemoryBackend struct {
 	tenantDatabases           *store.Table[TenantDatabase]
 	clusterAutomatedBackups   *store.Table[DBClusterAutomatedBackup]
 	snapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase
+	clusterBacktracks         map[string][]*DBClusterBacktrack
+	pendingMaintenanceActions map[string][]*PendingMaintenanceAction
 	clusterReadyAt            map[string]time.Time
 	piMetrics                 map[string]map[string][]PIDataPoint
 	instanceLogFiles          map[string][]DBLogFile

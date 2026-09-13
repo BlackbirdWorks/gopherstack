@@ -2,6 +2,7 @@ package cloudformation
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 
 	"github.com/google/uuid"
@@ -9,6 +10,27 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
 )
+
+// parseGeneratedTemplateResources parses CreateGeneratedTemplateInput's
+// Resources.member.N list (verified against serializers.go's
+// awsAwsquery_serializeDocumentResourceDefinition) into the "Type/LogicalID"
+// strings CreateGeneratedTemplate's backend signature accepts.
+// ResourceIdentifier is real on the wire but unused here -- the generated
+// template body this backend builds is a bare resource skeleton keyed only
+// by type/logical ID, the same simplification CreateGeneratedTemplate's own
+// doc comment on InMemoryBackend.buildGeneratedTemplateBody already makes.
+func parseGeneratedTemplateResources(form url.Values) []string {
+	var resourceIDs []string
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("Resources.member.%d.", i)
+		resType := form.Get(p + "ResourceType")
+		logicalID := form.Get(p + "LogicalResourceId")
+		if resType == "" && logicalID == "" {
+			return resourceIDs
+		}
+		resourceIDs = append(resourceIDs, resType+"/"+logicalID)
+	}
+}
 
 // dispatchGeneratedTemplateOps handles generated template CRUD operations.
 func (h *Handler) dispatchGeneratedTemplateOps(
@@ -61,7 +83,7 @@ func (h *Handler) handleCreateGeneratedTemplate(form url.Values, c *echo.Context
 	if name == "" {
 		return h.xmlError(c, "ValidationError", "GeneratedTemplateName is required")
 	}
-	gt, err := h.Backend.CreateGeneratedTemplate(name, nil)
+	gt, err := h.Backend.CreateGeneratedTemplate(name, parseGeneratedTemplateResources(form))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -181,7 +203,7 @@ func (h *Handler) handleGetGeneratedTemplate(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListGeneratedTemplates(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListGeneratedTemplates(form.Get("NextToken"))
+	p, _ := h.Backend.ListGeneratedTemplates(parseFormMaxResults(form), form.Get("NextToken"))
 	type gtXML struct {
 		GeneratedTemplateID   string `xml:"GeneratedTemplateId"`
 		GeneratedTemplateName string `xml:"GeneratedTemplateName"`
@@ -269,7 +291,7 @@ func (h *Handler) handleDescribeResourceScan(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListResourceScans(form url.Values, c *echo.Context) error {
-	p, _ := h.Backend.ListResourceScans(form.Get("NextToken"))
+	p, _ := h.Backend.ListResourceScans(parseFormMaxResults(form), form.Get("NextToken"))
 	type scanXML struct {
 		ResourceScanID string `xml:"ResourceScanId"`
 		Status         string `xml:"Status"`

@@ -106,7 +106,6 @@ func (b *InMemoryBackend) removeDomainLocked(name string) {
 	delete(b.domainMaintenances, name)
 	delete(b.scheduledActions, name)
 	delete(b.upgradeHistory, upgradeHistoryKey(name))
-	b.autoTunes.Delete(autoTuneKey(name))
 	b.dryRuns.Delete(name)
 
 	for _, idx := range slices.Clone(b.domainIndexesByDomain.Get(name)) {

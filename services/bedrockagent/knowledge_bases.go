@@ -22,7 +22,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateKnowledgeBase")
 	defer b.mu.Unlock()
 
 	if _, exists := b.kbsByName[cfg.Name]; exists {
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) CreateKnowledgeBase(
 
 // GetKnowledgeBase returns a knowledge base.
 func (b *InMemoryBackend) GetKnowledgeBase(_ context.Context, kbID string) (*KnowledgeBase, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetKnowledgeBase")
 	defer b.mu.RUnlock()
 
 	kb, ok := b.knowledgeBases.Get(kbID)
@@ -69,7 +69,7 @@ func (b *InMemoryBackend) GetKnowledgeBase(_ context.Context, kbID string) (*Kno
 func (b *InMemoryBackend) UpdateKnowledgeBase(
 	_ context.Context, kbID string, cfg KnowledgeBaseConfig,
 ) (*KnowledgeBase, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateKnowledgeBase")
 	defer b.mu.Unlock()
 
 	kb, ok := b.knowledgeBases.Get(kbID)
@@ -112,7 +112,7 @@ func (b *InMemoryBackend) UpdateKnowledgeBase(
 // collections, and the tags/resourcePolicies maps would keep a permanent
 // ghost entry keyed by the now-invalid ARN.
 func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteKnowledgeBase")
 	defer b.mu.Unlock()
 
 	kb, ok := b.knowledgeBases.Get(kbID)
@@ -137,7 +137,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBase(_ context.Context, kbID string) er
 func (b *InMemoryBackend) ListKnowledgeBases(
 	_ context.Context, maxResults int, nextToken string,
 ) ([]*KnowledgeBaseSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListKnowledgeBases")
 	defer b.mu.RUnlock()
 
 	ids := tableIDs(b.knowledgeBases.Snapshot(), func(kb *KnowledgeBase) string { return kb.KnowledgeBaseID })
@@ -190,7 +190,7 @@ func kbDocumentIdentifierKey(id KBDocumentIdentifier) (string, error) {
 func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	_ context.Context, kbID, dsID string, docs []KBDocument,
 ) ([]KBDocumentDetail, error) {
-	b.mu.Lock()
+	b.mu.Lock("IngestKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
 	if !b.dataSources.Has(dsKey(kbID, dsID)) {
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetKnowledgeBaseDocuments")
 	defer b.mu.RUnlock()
 
 	out := make([]KBDocumentDetail, 0, len(ids))
@@ -247,7 +247,7 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 	_ context.Context, kbID, dsID string, ids []KBDocumentIdentifier,
 ) ([]KBDocumentDetail, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
 	out := make([]KBDocumentDetail, 0, len(ids))
@@ -286,7 +286,7 @@ func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 	_ context.Context, kbID, dsID string, maxResults int, nextToken string,
 ) ([]KBDocumentDetail, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListKnowledgeBaseDocuments")
 	defer b.mu.RUnlock()
 
 	group := b.kbDocumentsByDataSource.Get(dsKey(kbID, dsID))

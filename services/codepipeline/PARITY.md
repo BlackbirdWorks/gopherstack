@@ -136,7 +136,8 @@ families:
   stageTransitions: {status: FIXED, note: "2026-08-19: re-diffed against types.TransitionState/StageState for the first time (previously only spot-verified via test suite). Found and fixed 2 real bugs, see GetPipelineState op note above: a fabricated outboundTransitionState member, and wrong keys disabled/reason -> enabled(inverted)/disabledReason on inboundTransitionState. No longer deferred. 2026-09-04 (gopherstack-ary): that pass only re-diffed the WIRE shape -- the STATE dimension was never checked and was a real bug: DisableStageTransition never actually gated pipeline execution at all (see DisableStageTransition/EnableStageTransition op notes). Now fixed and enforced by runPipelineActions."}
   ruleOps: {status: partial, note: "Re-diffed against types.RuleType/RuleExecutionDetail/ListRuleTypesOutput/ListRuleExecutionsOutput this pass. ListRuleExecutions returning an empty list for a known pipeline is genuinely correct/honest, not a stub: this backend has no condition-rule engine anywhere (see OverrideStageCondition), so there is never a real rule execution to report -- confirmed by reading the backend method per parity-principles.md rule 4, not just grepping for an empty return. Found a real gap in ListRuleTypes: real types.RuleType requires InputArtifactDetails (ArtifactDetails{MinimumCount, MaximumCount}) as a non-optional member; this backend's ListRuleTypes only ever sets 'id', omitting it entirely. NOT fixed this pass -- see gaps for why (no verified-correct per-rule-type artifact count to populate it with)."}
   approvalGate: {status: ok, note: "NEW in the 2026-07-23 pass: StartPipelineExecution/PutActionRevision/PutApprovalResult/RetryStageExecution/RollbackStage all now share one action-run engine (action_engine.go) that gates on Approval-category actions with a real system-generated token, exposed only via GetPipelineState (matching real AWS -- there is no other way for a real client to obtain it). This closed 3 of the 4 gaps and all 3 deferred items from the 2026-07-12 audit at once, since they all stemmed from the SAME missing action-state machine. Unchanged, not re-diffed this pass."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "gopherstack-3djp (2026-09-07): OverrideStageCondition/RetryStageExecution/StopPipelineExecution all emit PipelineExecutionNotFoundException for an unknown pipelineExecutionId, a code confirmed NOT in any of their three modeled error sets (codepipeline@v1.49.4 deserializers.go) -- but no single declared code is an obvious, confirmed replacement (NotLatestPipelineExecutionException/StageNotRetryableException/PipelineExecutionNotStoppableException are each plausible, unconfirmed guesses). Needs a follow-up bd issue to pick (or independently verify) the correct code per op."
   - "gopherstack-3djp (2026-09-07): UpdatePipeline emits PipelineNotFoundException for a nonexistent pipeline name, also confirmed NOT in its modeled error set. An update against nothing has no benign no-op outcome; InvalidStructureException is a plausible but unconfirmed replacement. Needs a follow-up bd issue."
   - "gopherstack-3djp (2026-09-07): CreateCustomActionType emits InvalidStructureException on a duplicate category/provider/version, and DeleteCustomActionType emits ActionTypeNotFoundException on a nonexistent type, and DeletePipeline emits PipelineNotFoundException on a nonexistent name -- all three confirmed NOT in their op's modeled error set. A first pass 'fixed' all three by making them idempotent-success, reasoning from each op's live-docs 'HTTP 200 response with an empty HTTP body' Response Elements sentence -- reverted on review: that sentence is generic Response-shape boilerplate present verbatim even on ops that DO throw a not-found error (DisableStageTransition has the identical sentence and models PipelineNotFoundException), so it is not evidence of idempotent/upsert semantics by itself, unlike workmail's campaign-established bar (an explicit 'does not return an error'-equivalent sentence). Needs a follow-up bd issue per op; no safe remedy is currently evidenced for any of the three."
@@ -570,3 +571,22 @@ No code changes this pass -- service verdict is CLEAN on this specific axis
 across the ops checked. Gates re-run to confirm no regression: `go build`,
 `go vet` (repo-wide), `go test -race -count=1`, `golangci-lint run` -- all
 clean (`./services/codepipeline/...`), 0 diff.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 27/44 -> 44/44 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 6
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/codepipeline` client: DeleteWebhook,
+DeregisterWebhookWithThirdParty, EnableStageTransition, GetActionType,
+GetJobDetails, GetPipelineExecution, ListActionTypes, ListRuleExecutions,
+ListRuleTypes, PollForJobs, PutActionRevision, PutApprovalResult,
+RegisterWebhookWithThirdParty, RollbackStage, TagResource, UntagResource,
+UpdateActionType. Zero bugs found -- every op decoded correctly on the
+first well-formed request, consistent with this service's deep prior
+audit history (this file's own dated sections already cover extensive
+wire-shape/error-code sweeps). Reused this package's existing
+`newTestPipelineForState`/`AddJobInternal`/approval-token-extraction test
+conventions rather than re-deriving pipeline/job setup from scratch. No
+`items_still_open` changes; no `snapshot_inventory.json` change; no
+version bump.

@@ -1,7 +1,5 @@
 package macie2
 
-import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
-
 // GetRevealConfiguration returns the sensitive data reveal configuration.
 func (b *InMemoryBackend) GetRevealConfiguration() (*RevealConfiguration, error) {
 	b.mu.RLock("GetRevealConfiguration")
@@ -40,11 +38,11 @@ func (b *InMemoryBackend) GetSensitiveDataOccurrences(findingID string) (map[str
 	}
 
 	if finding.Category != categoryClassification {
-		return nil, awserr.New("UnprocessableEntityException", awserr.ErrInvalidParameter)
+		return nil, ErrRevealNotClassification
 	}
 
 	if b.session == nil || !b.session.Enabled || b.revealConfig == nil || b.revealConfig.Status != statusEnabled {
-		return nil, awserr.New("AccessDeniedException", awserr.ErrInvalidParameter)
+		return nil, ErrRevealNotEnabled
 	}
 
 	return map[string]any{

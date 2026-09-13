@@ -2,6 +2,14 @@ package cognitoidp
 
 import "time"
 
+// SignInPolicy holds the first-factor sign-in methods a user pool offers for USER_AUTH
+// choice-based authentication (AuthFactorType: PASSWORD, EMAIL_OTP, SMS_OTP, WEB_AUTHN --
+// cognitoidentityprovider@v1.67.4 types/types.go:2039-2047; SOFTWARE_TOKEN is documented
+// there as unsupported as a first factor).
+type SignInPolicy struct {
+	AllowedFirstAuthFactors []string `json:"allowedFirstAuthFactors,omitempty"`
+}
+
 // PasswordPolicy holds the password-complexity requirements for a user pool.
 type PasswordPolicy struct {
 	MinimumLength                 int  `json:"MinimumLength,omitempty"`
@@ -21,6 +29,7 @@ type UserPool struct {
 	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
 	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
+	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
 	ID                     string            `json:"id,omitempty"`
 	Name                   string            `json:"name,omitempty"`
 	ARN                    string            `json:"arn,omitempty"`
@@ -44,6 +53,7 @@ type UserPoolOptions struct {
 	EmailConfiguration     map[string]any  `json:"emailConfiguration,omitempty"`
 	AccountRecoverySetting map[string]any  `json:"accountRecoverySetting,omitempty"`
 	PasswordPolicy         *PasswordPolicy `json:"passwordPolicy,omitempty"`
+	SignInPolicy           *SignInPolicy   `json:"signInPolicy,omitempty"`
 	DeletionProtection     string          `json:"deletionProtection,omitempty"`
 	MfaConfiguration       string          `json:"mfaConfiguration,omitempty"`
 	AutoVerifiedAttributes []string        `json:"autoVerifiedAttributes,omitempty"`
@@ -114,6 +124,11 @@ type createUserPoolWithOptsInput struct {
 
 type userPoolPoliciesInput struct {
 	PasswordPolicy *passwordPolicyInput `json:"PasswordPolicy,omitempty"`
+	SignInPolicy   *signInPolicyInput   `json:"SignInPolicy,omitempty"`
+}
+
+type signInPolicyInput struct {
+	AllowedFirstAuthFactors []string `json:"AllowedFirstAuthFactors,omitempty"`
 }
 
 type passwordPolicyInput struct {
@@ -154,8 +169,10 @@ type userPoolPoliciesAccurate struct {
 	SignInPolicy   *signInPolicyData   `json:"SignInPolicy,omitempty"`
 }
 
-// signInPolicyData mirrors SignInPolicyType; empty placeholder keeps provider happy.
-type signInPolicyData struct{}
+// signInPolicyData mirrors SignInPolicyType.
+type signInPolicyData struct {
+	AllowedFirstAuthFactors []string `json:"AllowedFirstAuthFactors,omitempty"`
+}
 
 type passwordPolicyData struct {
 	MinimumLength                 int  `json:"MinimumLength,omitempty"`

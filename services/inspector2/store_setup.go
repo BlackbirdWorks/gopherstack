@@ -17,7 +17,10 @@ package inspector2
 // need the "dirty" ephemeral-DTO registry treatment (cf. services/ses /
 // services/codecommit): all are "clean" tables registered directly on
 // b.registry, and persistence.go drives every one of them through
-// b.registry.SnapshotAll() / RestoreAll().
+// b.registry.SnapshotAll() / RestoreAll() -- except findings, whose
+// ResourceID/ResourceType carry json:"-" for the wire; persistence.go
+// overwrites just that one table entry with the findingSnapshot DTO shape
+// rather than moving the live table off the registry (gopherstack-2slev).
 //
 // connectors additionally carries a "byAwsConfigArn" secondary [store.Index]
 // (Connector.AwsConfigConnectorArn), following the cisScans "byConfig" index

@@ -224,7 +224,7 @@ func extractTransactWriteKeyAndItem(
 func makeDuplicateKeyReasons(items []types.TransactWriteItem, idx int) []CancellationReason {
 	reasons := make([]CancellationReason, len(items))
 	for i := range reasons {
-		reasons[i] = CancellationReason{Code: "None"}
+		reasons[i] = CancellationReason{Code: cancellationReasonNone}
 	}
 
 	if idx >= 0 && idx < len(reasons) {

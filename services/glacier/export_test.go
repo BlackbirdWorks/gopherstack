@@ -9,7 +9,7 @@ type ExportedInitiateJobRequest = initiateJobRequest
 // SetRetrievalDelay overrides the simulated asynchronous retrieval window for newly
 // initiated jobs (for testing only). A zero delay makes jobs complete immediately.
 func SetRetrievalDelay(b *InMemoryBackend, d time.Duration) {
-	b.mu.Lock()
+	b.mu.Lock("SetRetrievalDelay")
 	defer b.mu.Unlock()
 
 	b.retrievalDelay = d
@@ -42,7 +42,7 @@ func IsValidMultipartRange(rangeHeader string) bool {
 
 // GetVaultLastInventoryDate returns the LastInventoryDate for the named vault.
 func GetVaultLastInventoryDate(b *InMemoryBackend, accountID, region, vaultName string) string {
-	b.mu.RLock()
+	b.mu.RLock("GetVaultLastInventoryDate")
 	defer b.mu.RUnlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -56,7 +56,7 @@ func GetVaultLastInventoryDate(b *InMemoryBackend, accountID, region, vaultName 
 // GetVaultLockState returns the State field for the named vault's lock.
 // Returns "Unlocked" if no lock exists.
 func GetVaultLockState(b *InMemoryBackend, accountID, region, vaultName string) string {
-	b.mu.RLock()
+	b.mu.RLock("GetVaultLockState")
 	defer b.mu.RUnlock()
 
 	lock, ok := b.vaultLocks.Get(vaultARN(accountID, region, vaultName))
@@ -70,7 +70,7 @@ func GetVaultLockState(b *InMemoryBackend, accountID, region, vaultName string) 
 // SetVaultLockExpired backdates the expiration of an InProgress vault lock so that
 // expiry logic can be exercised without real time passing.
 func SetVaultLockExpired(b *InMemoryBackend, accountID, region, vaultName string) {
-	b.mu.Lock()
+	b.mu.Lock("SetVaultLockExpired")
 	defer b.mu.Unlock()
 
 	if lock, ok := b.vaultLocks.Get(vaultARN(accountID, region, vaultName)); ok {
@@ -80,7 +80,7 @@ func SetVaultLockExpired(b *InMemoryBackend, accountID, region, vaultName string
 
 // VaultCount returns the number of vaults in the backend (for testing only).
 func VaultCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("VaultCount")
 	defer b.mu.RUnlock()
 
 	return b.vaults.Len()
@@ -88,7 +88,7 @@ func VaultCount(b *InMemoryBackend) int {
 
 // ArchiveCount returns the total number of archives across all vaults (for testing only).
 func ArchiveCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ArchiveCount")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -105,7 +105,7 @@ func ArchiveCount(b *InMemoryBackend) int {
 // archiveData outlives its owning vault's Archive entry across Reset() --
 // see gopherstack-xvm1.
 func ArchiveDataCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ArchiveDataCount")
 	defer b.mu.RUnlock()
 
 	return len(b.archiveData)
@@ -113,7 +113,7 @@ func ArchiveDataCount(b *InMemoryBackend) int {
 
 // MultipartUploadCount returns the total number of in-progress multipart uploads (for testing only).
 func MultipartUploadCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("MultipartUploadCount")
 	defer b.mu.RUnlock()
 
 	return b.multipartUploads.Len()
@@ -121,7 +121,7 @@ func MultipartUploadCount(b *InMemoryBackend) int {
 
 // ProvisionedCapacityCount returns the total number of provisioned capacity units (for testing only).
 func ProvisionedCapacityCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("ProvisionedCapacityCount")
 	defer b.mu.RUnlock()
 
 	total := 0
@@ -135,7 +135,7 @@ func ProvisionedCapacityCount(b *InMemoryBackend) int {
 
 // VaultLockCount returns the number of vault locks (for testing only).
 func VaultLockCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("VaultLockCount")
 	defer b.mu.RUnlock()
 
 	return b.vaultLocks.Len()
@@ -143,7 +143,7 @@ func VaultLockCount(b *InMemoryBackend) int {
 
 // JobCount returns the total number of jobs across all vaults (for testing only).
 func JobCount(b *InMemoryBackend) int {
-	b.mu.RLock()
+	b.mu.RLock("JobCount")
 	defer b.mu.RUnlock()
 
 	return b.jobs.Len()
@@ -152,7 +152,7 @@ func JobCount(b *InMemoryBackend) int {
 // VaultIndexCount returns the number of entries in the vaultsByAccountRegion index
 // for a given accountID and region (for testing only).
 func VaultIndexCount(b *InMemoryBackend, accountID, region string) int {
-	b.mu.RLock()
+	b.mu.RLock("VaultIndexCount")
 	defer b.mu.RUnlock()
 
 	return len(b.vaultsByAccountRegion.Get(acctRegionKey(accountID, region)))
@@ -161,7 +161,7 @@ func VaultIndexCount(b *InMemoryBackend, accountID, region string) int {
 // SetJobCreationDate backdates a job's CreationDate (for testing only) so ordering
 // logic can be exercised deterministically without relying on real time.Now() gaps.
 func SetJobCreationDate(b *InMemoryBackend, accountID, region, vaultName, jobID, creationDate string) {
-	b.mu.Lock()
+	b.mu.Lock("SetJobCreationDate")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)

@@ -464,6 +464,7 @@ type UpdateProductPageInput struct {
 // UpdateProductRestEndpointPageInput is the input for UpdateProductRestEndpointPage (PATCH).
 type UpdateProductRestEndpointPageInput struct {
 	DisplayContent map[string]any `json:"displayContent,omitempty"`
+	TryItState     string         `json:"tryItState,omitempty"`
 }
 
 // PublishPortalInput is the input for PublishPortal (POST).
@@ -688,6 +689,12 @@ type PortalContent struct {
 // aws-sdk-go-v2/service/apigatewayv2@v1.37.4's GetPortalOutput/PortalSummary
 // (types.PublishStatus: PUBLISHED/PUBLISH_IN_PROGRESS/PUBLISH_FAILED/
 // DISABLE_IN_PROGRESS/DISABLE_FAILED/DISABLED -- no "ACTIVE" value exists).
+// IncludedPortalProductArns has no omitempty: it is optional on
+// CreatePortalInput (client can omit it entirely, leaving it nil/empty) but
+// required on PortalSummary (types.go:985, used by ListPortals) -- Go's
+// encoding/json omits an empty slice under omitempty regardless of nil-ness,
+// which silently dropped the required member whenever a portal was created
+// with no included products.
 type Portal struct {
 	Authorization             *Authorization                 `json:"authorization,omitempty"`
 	EndpointConfiguration     *EndpointConfigurationResponse `json:"endpointConfiguration,omitempty"`
@@ -701,7 +708,7 @@ type Portal struct {
 	PublishStatus             string                         `json:"publishStatus,omitempty"`
 	RumAppMonitorName         string                         `json:"rumAppMonitorName,omitempty"`
 	LastPublishedDescription  string                         `json:"lastPublishedDescription,omitempty"`
-	IncludedPortalProductArns []string                       `json:"includedPortalProductArns,omitempty"`
+	IncludedPortalProductArns []string                       `json:"includedPortalProductArns"`
 }
 
 // CreatePortalInput is the input for CreatePortal.
@@ -718,13 +725,18 @@ type CreatePortalInput struct {
 // PortalProduct represents a portal product. LastModified is a real,
 // required PortalProductSummary member (aws-sdk-go-v2/service/
 // apigatewayv2@v1.37.4's types.go) this backend previously never tracked.
+// Description has no omitempty for the same reason as Portal.
+// IncludedPortalProductArns above: optional on CreatePortalProductInput but
+// required on PortalProductSummary (types.go:941, used by
+// ListPortalProducts) -- a portal product created with no description
+// silently dropped the required member.
 type PortalProduct struct {
 	LastModified     *isoTime          `json:"lastModified,omitempty"`
 	Tags             map[string]string `json:"tags,omitempty"`
 	PortalProductID  string            `json:"portalProductId"`
 	PortalProductArn string            `json:"portalProductArn,omitempty"`
 	DisplayName      string            `json:"displayName"`
-	Description      string            `json:"description,omitempty"`
+	Description      string            `json:"description"`
 }
 
 // CreatePortalProductInput is the input for CreatePortalProduct.
@@ -735,10 +747,19 @@ type CreatePortalProductInput struct {
 }
 
 // ProductPage represents a product page within a portal product.
+// ProductPageArn and PageTitle are real ProductPageSummaryNoBody members
+// (types.go:1080/1075, used by ListProductPages) this backend previously
+// never tracked at all -- ProductPageArn is synthesized the same way
+// PortalProductArn is (see CreatePortalProduct); PageTitle mirrors
+// DisplayContent's "title" key, extracted so ListProductPages can report it
+// without echoing the full page body (the real API's "NoBody" summary
+// shape).
 type ProductPage struct {
 	LastModified    *isoTime       `json:"lastModified,omitempty"`
 	DisplayContent  map[string]any `json:"displayContent,omitempty"`
 	ProductPageID   string         `json:"productPageId"`
+	ProductPageArn  string         `json:"productPageArn"`
+	PageTitle       string         `json:"pageTitle"`
 	PortalProductID string         `json:"-"`
 }
 
@@ -770,13 +791,27 @@ type RestEndpointIdentifier struct {
 	IdentifierParts *IdentifierParts `json:"identifierParts,omitempty"`
 }
 
-// ProductRestEndpointPage represents a REST endpoint page within a portal product.
+// ProductRestEndpointPage represents a REST endpoint page within a portal
+// product. Endpoint/ProductRestEndpointPageArn/Status/TryItState are real
+// ProductRestEndpointPageSummaryNoBody members (types.go:1096/1106/1121/1126,
+// used by ListProductRestEndpointPages) this backend previously never
+// tracked: Endpoint mirrors DisplayContent's synthesized "endpoint" key
+// (renderEndpointDisplayContent, portals.go) hoisted to the top level for
+// the "NoBody" summary shape; ProductRestEndpointPageArn is synthesized like
+// PortalProductArn; Status defaults to AVAILABLE (this backend creates
+// synchronously, with no provisioning state to simulate); TryItState is a
+// real, optional Create/UpdateProductRestEndpointPageInput member this
+// backend previously accepted and dropped.
 type ProductRestEndpointPage struct {
-	LastModified              *isoTime                `json:"lastModified,omitempty"`
-	RestEndpointIdentifier    *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
-	DisplayContent            map[string]any          `json:"displayContent,omitempty"`
-	ProductRestEndpointPageID string                  `json:"productRestEndpointPageId"`
-	PortalProductID           string                  `json:"-"`
+	LastModified               *isoTime                `json:"lastModified,omitempty"`
+	RestEndpointIdentifier     *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
+	DisplayContent             map[string]any          `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID  string                  `json:"productRestEndpointPageId"`
+	ProductRestEndpointPageArn string                  `json:"productRestEndpointPageArn"`
+	Endpoint                   string                  `json:"endpoint"`
+	Status                     string                  `json:"status"`
+	TryItState                 string                  `json:"tryItState"`
+	PortalProductID            string                  `json:"-"`
 }
 
 // CreateProductRestEndpointPageInput is the input for
@@ -785,10 +820,11 @@ type ProductRestEndpointPage struct {
 // api_op_CreateProductRestEndpointPage.go) this backend previously dropped
 // entirely, even though the sibling UpdateProductRestEndpointPage already
 // accepts and stores it correctly on the same ProductRestEndpointPage.DisplayContent
-// field.
+// field. TryItState is likewise real and previously dropped.
 type CreateProductRestEndpointPageInput struct {
 	RestEndpointIdentifier *RestEndpointIdentifier `json:"restEndpointIdentifier"`
 	DisplayContent         map[string]any          `json:"displayContent,omitempty"`
+	TryItState             string                  `json:"tryItState,omitempty"`
 	PortalProductID        string                  `json:"-"`
 }
 

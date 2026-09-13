@@ -692,7 +692,7 @@ func parseHistoryTime(s string) (time.Time, bool) {
 	return t, true
 }
 
-func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string) []map[string]any {
+func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string, sortOrder string) []map[string]any {
 	b.mu.RLock("GetFindingStatisticsV2")
 	defer b.mu.RUnlock()
 
@@ -701,7 +701,7 @@ func (b *InMemoryBackend) GetFindingStatisticsV2(groupByFields []string) []map[s
 		items = append(items, flattenFindingGroupByFields(f))
 	}
 
-	return groupByResults(items, groupByFields, ocsfStringFieldMap)
+	return groupByResults(items, groupByFields, ocsfStringFieldMap, sortOrder)
 }
 
 // flattenFindingGroupByFields returns a shallow copy of finding with

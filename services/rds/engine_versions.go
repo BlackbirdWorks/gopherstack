@@ -2,6 +2,7 @@ package rds
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 )
 
@@ -141,6 +142,71 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string)
 	}
 
 	return result
+}
+
+// isKnownDBEngineVersionFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeDBEngineVersions
+// (rds@v1.124.1 api_op_DescribeDBEngineVersions.go:94-129).
+// "db-parameter-group-family", "engine-mode", and "status" are accepted (to
+// avoid rejecting an otherwise-valid client request) but DBEngineVersion
+// carries none of those attributes, so they are not implemented as match
+// predicates, matching the existing DescribeDBInstances "domain" precedent
+// (db_instances.go).
+func isKnownDBEngineVersionFilterName(name string) bool {
+	switch name {
+	case filterNameDBParameterGroupFamily, filterNameEngine, filterNameEngineMode,
+		filterNameEngineVersion, filterNameStatus:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBEngineVersionFilters narrows versions per the AWS
+// DescribeDBEngineVersions Filters contract: each filter ANDs together
+// (and with the top-level Engine/EngineVersion params, applied earlier by
+// the caller), and a filter's Values list is OR-matched against the
+// corresponding version field. An unrecognized filter name returns
+// InvalidParameterValue, matching real AWS.
+func applyDBEngineVersionFilters(vals url.Values, versions []DBEngineVersion) ([]DBEngineVersion, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return versions, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBEngineVersionFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBEngineVersion, 0, len(versions))
+	for _, v := range versions {
+		if matchesAllDBEngineVersionFilters(v, filters) {
+			filtered = append(filtered, v)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBEngineVersionFilters(v DBEngineVersion, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameEngine:
+			if !slices.Contains(values, v.Engine) {
+				return false
+			}
+		case filterNameEngineVersion:
+			if !slices.Contains(values, v.EngineVersion) {
+				return false
+			}
+		case filterNameDBParameterGroupFamily, filterNameEngineMode, filterNameStatus:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
 }
 
 // DescribeOrderableDBInstanceOptions returns orderable instance options for the given engine.

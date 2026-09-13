@@ -83,7 +83,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	_, err = original.CreateContact("list1", "contact@example.com", []sesv2.TopicPreference{
 		{TopicName: "news", SubscriptionStatus: "OPT_IN"},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	_, err = original.CreateCustomVerificationEmailTemplate(&sesv2.CustomVerificationEmailTemplate{
@@ -260,9 +260,9 @@ func TestInMemoryBackend_DeleteContactList_CascadesContacts(t *testing.T) {
 	_, err := b.CreateContactList("list1", "", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateContact("list1", "a@example.com", nil)
+	_, err = b.CreateContact("list1", "a@example.com", nil, false)
 	require.NoError(t, err)
-	_, err = b.CreateContact("list1", "b@example.com", nil)
+	_, err = b.CreateContact("list1", "b@example.com", nil, false)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteContactList("list1"))

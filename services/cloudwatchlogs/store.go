@@ -239,6 +239,7 @@ func NewInMemoryBackendWithContext(
 	registerAllTables(b)
 	registerEphemeralTables(b)
 	registerRegionTables(b)
+	registerDirtyDTOTables(b)
 
 	return b
 }
@@ -374,6 +375,10 @@ func (b *InMemoryBackend) Reset() {
 	b.streams.Reset()
 	b.subscriptionFilters.Reset()
 	b.metricFilters.Reset()
+	b.deliveryDestinations.Reset()
+	b.deliverySources.Reset()
+	b.integrations.Reset()
+	b.importTasks.Reset()
 
 	b.queriesOrder = nil
 	b.parsedQueriesOrder = nil

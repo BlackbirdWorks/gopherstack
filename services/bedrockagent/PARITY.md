@@ -482,7 +482,8 @@ families:
     matches the real error catalog (types/errors.go: AccessDeniedException,
     ConflictException, InternalServerException, ResourceNotFoundException,
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
-gaps:
+gaps: []
+items_still_open:
   - "FIXED (gopherstack-wzwn, 2026-08-13): GetKnowledgeBaseDocuments and
     DeleteKnowledgeBaseDocuments decoded their request body against a struct
     tagged json:\"documentIds\" holding []string. Real clients send
@@ -1042,3 +1043,39 @@ they would not have caught this bug.
 propagated to any `cli_*_test.go`), `go test -race -count=1 ./services/bedrockagent/...`
 (pass), `golangci-lint run ./services/bedrockagent/...` (0 issues, confirmed by removing the
 new test files and re-running rather than assuming pre-existing-file status).
+
+## gopherstack-okok: Delete* invented-"status"-member sweep (2026-09-11)
+
+Verified at HEAD: the two specific line refs in the issue
+(`handler_flows.go:86` DeleteFlow, `:163` DeleteFlowVersion) do **not**
+emit a `status` member -- already fixed by c78177958 (2026-09-02), which
+landed after the issue was filed (2026-08-29). Confirmed against
+`bedrockagent@v1.58.4` deserializers.go's
+`awsRestjson1_deserializeOpDocumentDelete{Flow,FlowVersion}Output` (each
+declares only `id`, or `id`+`version`).
+
+Full sweep of every `Delete*` op this package exposes (Agent, AgentAlias,
+AgentVersion, AgentActionGroup, Flow, FlowVersion, FlowAlias,
+KnowledgeBase, DataSource, KnowledgeBaseDocuments, Prompt, PromptVersion)
+found no invented members here -- this package's `handleDeleteAgentVersion`
+already used the correct `"agentVersion"` wire key (unlike its sibling
+`services/bedrock` package, which had that exact bug; see that package's
+own PARITY.md entry for this sweep).
+
+Locked by `TestDeleteOps_ExactWireKeySet`
+(`delete_output_shape_test.go`, new): table-driven, raw-body
+(`map[string]any`) exact-key-set assertion per op against each op's real
+SDK deserializer member set -- a typed client can't observe either a
+missing real key or an extra fabricated one.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove `PutResourcePolicy`/`GetResourcePolicy`/`DeleteResourcePolicy` -- this
+package's only three typed-coverage-blind ops -- through a real
+`aws-sdk-go-v2/service/bedrockagent` client for the first time
+(`typed_slice23_realclient_test.go`): full lifecycle (put, get, revision-
+mismatch conflict on both put and delete, re-put with the correct
+`expectedRevisionId`, delete, get-after-delete 404) plus a non-knowledge-
+base `resourceArn` rejection. Zero bugs -- confirms the `ops:` table's
+existing `wire: ok` verdicts above, which had never actually been proven
+against a real client despite the detailed shape documentation.

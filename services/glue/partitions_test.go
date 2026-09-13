@@ -71,7 +71,10 @@ func TestBatchDeleteTable_CascadesPartitions(t *testing.T) {
 	b.AddTableVersionInternal("db", "tbl", &glue.TableVersion{VersionID: "1"})
 
 	require.Equal(t, 1, glue.PartitionCount(b))
-	require.Equal(t, 1, glue.TableVersionCount(b))
+	// CreateTable itself now also records version "0" (real Glue creates a
+	// table version on every Create/UpdateTable); this test's own
+	// AddTableVersionInternal seed adds a second, "1".
+	require.Equal(t, 2, glue.TableVersionCount(b))
 
 	tableErrs := b.BatchDeleteTable("db", []string{"tbl"})
 

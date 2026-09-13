@@ -107,7 +107,69 @@ func (b *InMemoryBackend) DescribeTrustStores(arns []string, names []string) ([]
 		return result[i].Name < result[j].Name
 	})
 
+	// DescribeTrustStores declares TrustStoreNotFoundException
+	// (elasticloadbalancingv2@v1.58.5 deserializers.go's
+	// awsAwsquery_deserializeOpErrorDescribeTrustStores), so an explicitly
+	// requested ARN/Name that doesn't exist must hard-fail, matching
+	// DescribeTargetGroups' checkAllTGArnsFound/checkAllTGNamesFound
+	// precedent in this same package -- not silently filtered out.
+	if filterArns {
+		if err := checkAllTrustStoreArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
+
+	if filterNames {
+		if err := checkAllTrustStoreNamesFound(names, result); err != nil {
+			return nil, err
+		}
+	}
+
 	return result, nil
+}
+
+// checkAllTrustStoreArnsFound returns ErrTrustStoreNotFound if any queried
+// ARN is absent from result.
+func checkAllTrustStoreArnsFound(arns []string, result []TrustStore) error {
+	for _, a := range arns {
+		found := false
+
+		for _, ts := range result {
+			if ts.TrustStoreArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("%w: %s", ErrTrustStoreNotFound, a)
+		}
+	}
+
+	return nil
+}
+
+// checkAllTrustStoreNamesFound returns ErrTrustStoreNotFound if any queried
+// name is absent from result.
+func checkAllTrustStoreNamesFound(names []string, result []TrustStore) error {
+	for _, n := range names {
+		found := false
+
+		for _, ts := range result {
+			if ts.Name == n {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("%w: %s", ErrTrustStoreNotFound, n)
+		}
+	}
+
+	return nil
 }
 
 // DeleteTrustStore deletes a trust store by ARN.

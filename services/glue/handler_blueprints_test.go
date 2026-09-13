@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -422,4 +425,42 @@ func TestBlueprintRun_ErrorPropagation(t *testing.T) {
 			assert.Equal(t, tc.wantCode, rec.Code)
 		})
 	}
+}
+
+// TestSDKRoundTrip_StartBlueprintRun_NoFabricatedWorkflowName drives the real
+// aws-sdk-go-v2 client through StartBlueprintRun/GetBlueprintRun and proves
+// WorkflowName stays unset. The real field is only populated "as a result of
+// a successful blueprint run" (types.BlueprintRun.WorkflowName doc,
+// aws-sdk-go-v2/service/glue@v1.157.0 types/types.go:842-844); this backend
+// never advances a run past RUNNING (no blueprint-execution engine exists),
+// so a run is never honestly "successful" and WorkflowName must never be
+// populated -- fabricating one would point a client at a workflow that was
+// never created.
+func TestSDKRoundTrip_StartBlueprintRun_NoFabricatedWorkflowName(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestGlueClient(t, h)
+
+	_, err := client.CreateBlueprint(t.Context(), &gluesdk.CreateBlueprintInput{
+		Name:              aws.String("run-bp-real"),
+		BlueprintLocation: aws.String("s3://bucket/run-bp-real"),
+	})
+	require.NoError(t, err)
+
+	startOut, err := client.StartBlueprintRun(t.Context(), &gluesdk.StartBlueprintRunInput{
+		BlueprintName: aws.String("run-bp-real"),
+		RoleArn:       aws.String("arn:aws:iam::000000000000:role/GlueRole"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startOut.RunId)
+
+	runOut, err := client.GetBlueprintRun(t.Context(), &gluesdk.GetBlueprintRunInput{
+		BlueprintName: aws.String("run-bp-real"),
+		RunId:         startOut.RunId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, runOut.BlueprintRun)
+	assert.Equal(t, types.BlueprintRunStateRunning, runOut.BlueprintRun.State)
+	assert.Nil(t, runOut.BlueprintRun.WorkflowName, "must stay unset: this run never actually completed")
 }

@@ -80,7 +80,8 @@ families:
   target-health-lifecycle (initial-to-healthy transition / draining-to-removed transition / reason codes): {status: ok, note: "healthStateHealthy/unhealthy/initial/draining and Elb.InitialHealthChecking/Target.DeregistrationInProgress/Target.NotRegistered reason codes verified byte-for-byte against types.TargetHealthStateEnum/TargetHealthReasonEnum. Port-defaulting fix applies across Register/Deregister/DescribeTargetHealth (see ops above)."}
   load-balancer-attributes / target-group-attributes / listener-attributes (Modify/Describe): {status: partial, note: "load-balancer-attributes/listener-attributes unchanged this pass, previously verified against real AWS defaults. target-group-attributes: ModifyTargetGroupAttributes/DescribeTargetGroupAttributes wire shape and any explicitly-set key/value round-trip correctly, but CreateTargetGroup's default attribute map (target_groups.go, 5 keys: deregistration_delay.timeout_seconds/stickiness.enabled/stickiness.type/load_balancing.algorithm.type/slow_start.duration_seconds) is missing several attributes real AWS always pre-populates on DescribeTargetGroupAttributes (verified against types.TargetGroupAttribute's doc comment: proxy_protocol_v2.enabled, preserve_client_ip.enabled, stickiness.app_cookie.*, target_group_health.dns_failover.*/unhealthy_state_routing.*, target_health_state.unhealthy.*, deregistration_delay.connection_termination.enabled, load_balancing.algorithm.anomaly_mitigation, target_failover.on_deregistration/on_unhealthy, and lambda.multi_value_headers.enabled for Lambda target groups) - see deferred"}
   capacity-reservation / ip-pools / resource-policy / account-limits / ssl-policies: {status: ok, note: "unchanged this pass; verified op-by-op, all accurate"}
-gaps:
+gaps: []
+items_still_open:
   - ASG/ECS -> ELBv2 target registration is cross-service: RegisterTargets/DeregisterTargets/DescribeTargetHealth on the ELBv2 side are correct and complete (verified and improved this pass - see ops), but nothing on the ASG/ECS side calls them when instances/tasks scale (bd: gopherstack-18k) - NOT fixed here, out of scope per task instructions (elbv2-only edits)
   - GetTrustStoreCaCertificatesBundle / GetTrustStoreRevocationContent always return an empty Location (no real S3-backed object to point to) - documented simplification, not a hidden stub (the ops correctly validate the trust store/revocation exist and return 400 TrustStoreNotFound/RevocationIdNotFound otherwise). UPDATED (2026-08-13, bd gopherstack-hl3h): the RevocationIdNotFound check was previously not implemented despite this gap note claiming it was (GetTrustStoreRevocationContent never read RevocationId at all) - now genuinely true, see the op's PARITY note above. CreateTrustStore/ModifyTrustStore's CaCertificatesBundleS3Bucket/Key/ObjectVersion are recorded on TrustStore (same pass) but likewise never used to produce real bundle content, for the same no-real-S3 reason.
   - CreateTargetGroup's default TargetGroupAttributes map only pre-populates 5 of the ~15+ attribute keys real AWS always returns from DescribeTargetGroupAttributes (see target-group-attributes family note above) - explicitly-set attributes still round-trip correctly via ModifyTargetGroupAttributes, so this is a completeness gap in the *defaults*, not a wire-shape bug; deferred rather than rushed because the correct default value differs per target type (instance/ip vs lambda) and expanding the map risks breaking the ~30 existing tests that assert on today's 5-key map. No bd id filed yet - recommend filing one if prioritized.
@@ -495,3 +496,32 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 16
+typed-client-blind ops (DeleteSharedTrustStoreAssociation, DeleteTrustStore,
+DescribeAccountLimits, DescribeListenerAttributes, DescribeSSLPolicies,
+DescribeTargetGroupAttributes, DescribeTrustStoreAssociations,
+GetResourcePolicy, GetTrustStoreCaCertificatesBundle,
+GetTrustStoreRevocationContent, ModifyListenerAttributes, ModifyRule,
+ModifyTargetGroup, ModifyTargetGroupAttributes, ModifyTrustStore,
+SetRulePriorities). **One real bug found and fixed**: `DescribeTrustStores`
+silently filtered out an explicitly requested but nonexistent
+`TrustStoreArn`/`Name` instead of erroring, the same "silent-omission on an
+explicit id list" class this campaign has hit repeatedly elsewhere (ec2
+slice 1/2) -- `DescribeTrustStores` declares `TrustStoreNotFoundException`
+in its deserializer (elasticloadbalancingv2@v1.58.5), and this package's
+own sibling `DescribeTargetGroups` already hard-fails via
+`checkAllTGArnsFound`/`checkAllTGNamesFound`, so `DescribeTrustStores` was
+the outlier, not the precedent. Added the matching
+`checkAllTrustStoreArnsFound`/`checkAllTrustStoreNamesFound` helpers; no
+pre-existing test asserted the old silent-empty-result behavior, so none
+needed correcting. One test-authoring correction (not a bug): `ModifyRule`'s
+response always nests `path-pattern` condition values under
+`PathPatternConfig`, never the deprecated top-level `Values` field, even
+when the request used the deprecated field -- confirmed correct by
+hand-instrumented debug output before writing the final assertion. Gates:
+`go build ./...` (whole module), `go vet`, `go test -race -count=1`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
+struct fields changed; no version bump.

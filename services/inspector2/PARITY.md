@@ -45,6 +45,47 @@ overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name 
 # can't catch a wrong-shape bug. Existing raw-JSON tests asserting the old
 # {label,score} shape were updated to match the real wire shape
 # (handler_findings_core_test.go, handler_findings_query_test.go).
+# 2026-09-12 (typed slice 12, gopherstack-n3zi): typed-client coverage
+# 21/81 -> 81/81 (100%), typed_slice12_realclient_test.go, 11 subtests
+# covering every previously-uncovered op (enablement/delegated admin,
+# members, CIS scan configuration+session lifecycle, connectors, code
+# security scan configuration+integrations, EC2 deep inspection
+# configuration, encryption keys, coverage+clusters, findings
+# reports+SBOM export+batch-get families, usage+permissions, filter
+# update+tags). Four real bugs found and fixed: (1)
+# GetDelegatedAdminAccountOutput.DelegatedAdmin wire-keys its status member
+# "relationshipStatus" (types.DelegatedAdmin, deserializers.go's
+# awsRestjson1_deserializeDocumentDelegatedAdmin) -- a DIFFERENT key from the
+# sibling ListDelegatedAdminAccounts' types.DelegatedAdminAccount, which
+# really is "status" (awsRestjson1_deserializeDocumentDelegatedAdminAccount);
+# handleGetDelegatedAdminAccount marshaled the shared DelegatedAdminAccount
+# model (json:"status") directly, so a real client's RelationshipStatus
+# always decoded empty. (2) SendCisSessionTelemetryInput.messages is a JSON
+# ARRAY of CisSessionMessage (types.go:1251-1266, confirmed against
+# serializers.go:5719's object.Key("messages") list serialization); the
+# handler decoded it into a map[string]any (an OBJECT), so every real
+# client's call failed json.Unmarshal outright ("cannot unmarshal array into
+# Go struct field"), not merely dropped the payload -- fixed to
+# []map[string]any (interfaces.go's StorageBackend and the InMemoryBackend
+# method signature updated to match; the backend body stays the documented
+# no-op, see deferred). (3) GetCisScanResultDetailsInput's required
+# AccountId/TargetResourceId were never read at all -- every real scoped
+# request returned every check result for the entire scan regardless of
+# which account/resource was asked about; fixed by reading both and
+# filtering scan.Results by them when present (empty-string fallback stays
+# permissive for this package's own pre-existing unit tests, which predate
+# the real-client fix and only ever pass scanArn). (4) The EC2 deep
+# inspection Status field (GetEc2DeepInspectionConfiguration,
+# BatchGetMemberEc2DeepInspectionStatus, BatchUpdateMemberEc2Deep
+# InspectionStatus) used this package's generic statusEnabled/statusDisabled
+# ("ENABLED"/"DISABLED") constants, but the real Ec2DeepInspectionStatus enum
+# (types/enums.go) only has ACTIVATED|DEACTIVATED|PENDING|FAILED -- fixed to
+# the real values; found in the same sweep that
+# BatchUpdateMemberEc2DeepInspectionStatus's backend method also silently
+# discarded the caller's ActivateDeepInspection-derived status and always
+# recorded every account as activated, fixed alongside. No persisted-struct
+# field changes (all fixes are response-shape/request-field-read/enum-value
+# corrections); no version bump.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -87,7 +128,8 @@ families:
   get_clusters_for_image: {status: ok, note: "fixed this pass — two wire bugs: (1) the request handler decoded a bare 'filterCriteria' map, but real GetClustersForImageInput nests the required resourceId under a 'filter' object (ClusterForImageFilterCriteria), confirmed via serializers.go, so the value was silently dropped on every real request and the required-field validation never ran; (2) the response used 'clusters' but the real wire key is 'cluster' (singular), confirmed via deserializers.go, so a real client's Cluster field was never populated. Now validates the required filter.resourceId (ValidationException if absent) and emits the correct 'cluster' key. Still returns an empty cluster list always: gopherstack has no ECS/EKS cluster-membership tracking to join an ECR image against, and fabricating cluster ARNs would be worse than an honest empty (but now correctly-keyed and validated) result — see gaps below"}
   connectors: {status: ok, note: "new this pass — CreateConnector/UpdateConnector/DeleteConnector/ListConnectors added for the inspector2@v1.53.0 SDK bump. Real ConnectorCloudProvider has exactly one value, AZURE (confirmed via types/enums.go) — there is no GitHub/GitLab connector type in the real API despite that being a natural guess from the 'connector' name; code-repository integrations are the separate, pre-existing CodeSecurityIntegration family, unaffected by this pass. CreateConnectorOutput/UpdateConnectorOutput field-diffed against api_op_CreateConnector.go/api_op_UpdateConnector.go: each returns only connectorArn (confirmed asynchronous — no full Connector echo), which this backend matches rather than inventing a fuller response. Connector wire shape field-diffed against deserializers.go's awsRestjson1_deserializeDocumentConnector: createdAt/updatedAt/health.lastCheckedAt are real 'date-time' (RFC 3339 string, parsed via smithytime.ParseDateTime) timestamps, NOT the unixTimestamp epoch-seconds shape pkgs/awstime.Epoch targets elsewhere in this service — confirmed against the deserializer instead of assumed, avoiding a wire bug class this campaign has hit in other services. Connector authorization lifecycle modeled honestly per this campaign's finding (also hit by securityhub): real ConnectorHealthStatus includes PENDING_AUTHORIZATION for an unfinished external Azure AD app-consent (OAuth) flow, and none of the 6 connector SDK ops drive or observe that step, so this backend creates connectors at EnablementStatus=PENDING_ENABLEMENT / Health.ConnectorStatus=PENDING_AUTHORIZATION and never auto-advances either (UpdateConnector moves EnablementStatus to PENDING_UPDATE, still never auto-resolving to ENABLED/CONNECTED). DeleteConnector's real PENDING_DELETION EnablementStatus value is not modeled: there is no GetConnector operation through which a caller could ever observe an in-between state, so this backend completes the delete synchronously rather than leaving the connector permanently listed as 'pending' and unobservably undeleted. ListConnectors' filterCriteria supports provider/connectorArns/awsConfigConnectorArns (each real filter's Comparison enum has exactly one value, EQUALS, confirmed via types/enums.go) — accounts (meaningless in this single-account emulator) and connectorType (no corresponding field on the real Connector response type to filter against at all) are not modeled, documented rather than silently ignored, following the coverage/vulnerability_search precedent for omitted filter facets."}
   connector_scan_configuration: {status: ok, note: "new this pass — ListConnectorScanConfigurations/UpdateConnectorScanConfiguration added for the inspector2@v1.53.0 SDK bump. There is no CreateConnectorScanConfiguration operation in the real API (confirmed via `go doc .../inspector2`); UpdateConnectorScanConfiguration is the sole write path, keyed by awsConfigConnectorArn rather than connectorArn (confirmed via serializers.go's awsRestjson1_serializeOpDocumentUpdateConnectorScanConfigurationInput). UpdateConnectorScanConfiguration validates that at least one Connector carries the given awsConfigConnectorArn, returning ResourceNotFoundException for an unrecognized one rather than accepting any ID, per this campaign's explicit requirement to validate the connector actually exists. ConnectorScanConfigurationItem's connectorArns member is derived live from the connectors table's byAwsConfigArn secondary index at read time (not stored alongside the scan configuration), matching that it is a live join in the real API, confirmed via deserializers.go's awsRestjson1_deserializeDocumentConnectorScanConfigurationItem."}
-gaps:
+gaps: []
+items_still_open:
   - "ListFindingAggregations genuinely supports 7 of the 15 real AggregationType values (gopherstack-f9vi, extending gopherstack-or9): ACCOUNT, TITLE, REPOSITORY, AWS_EC2_INSTANCE, AWS_ECR_CONTAINER, AWS_LAMBDA_FUNCTION, CODE_REPOSITORY. The remaining 8 (PACKAGE, AMI, IMAGE_LAYER, LAMBDA_LAYER, FINDING_TYPE, CONTAINER_IMAGE, SERVERLESS_FUNCTION, VM_INSTANCE) need Finding/FindingResource detail this backend's model does not carry (package/vulnerability sub-struct, AMI ID, image-layer hash, Lambda layer ARN) or, for FINDING_TYPE, have a response shape with no group key to aggregate by at all — see the finding_aggregations note above for the full per-type breakdown. Also unmodeled: the aggregationRequest parameter (per-type sort/filter sub-object, e.g. FindingTypeAggregation.findingType) is accepted but not read for any type, including ACCOUNT — unchanged scope from before this pass, since ACCOUNT's own request member (AccountAggregation) carries no facets that would narrow results in this backend anyway."
   - "A SUPPRESS filter's effect on findings (gopherstack-or9) is one-directional: creating/updating a filter to SUPPRESS suppresses currently- and subsequently-matching ACTIVE findings, but deleting the filter or changing its action away from SUPPRESS does not revert any finding it previously suppressed back to ACTIVE. Neither the pinned SDK's doc comments nor the API Reference document reversal semantics, so this was left undecided rather than guessed."
   - "ListConnectors' ConnectorFilterCriteria.accounts/connectorType facets are not modeled (accounts is meaningless in this single-account emulator; connectorType — CUSTOMER_MANAGED/SERVICE_LINKED — has no corresponding field on the real Connector response type to filter against at all, confirmed via types/types.go). Only provider/connectorArns/awsConfigConnectorArns are supported."

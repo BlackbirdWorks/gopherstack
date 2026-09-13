@@ -146,13 +146,19 @@ type replaceRouteTableAssociationResponse struct {
 	NewAssocID string   `xml:"newAssociationId"`
 }
 
+// associateVpcCidrBlockResponse's wrapper element is "cidrBlockAssociation",
+// not "ipv4CidrBlockAssociation" -- verified against ec2@v1.329.0
+// deserializers.go's awsEc2query_deserializeOpDocumentAssociateVpcCidrBlockOutput,
+// case strings.EqualFold("cidrBlockAssociation", ...). The wrong wrapper name
+// left AssociateVpcCidrBlockOutput.CidrBlockAssociation nil for every real
+// client regardless of what the backend actually associated.
 type associateVpcCidrBlockResponse struct {
 	XMLName   xml.Name `xml:"AssociateVpcCidrBlockResponse"`
 	RequestID string   `xml:"requestId"`
 	VpcID     string   `xml:"vpcId"`
-	AssocID   string   `xml:"ipv4CidrBlockAssociation>associationId"`
-	CidrBlock string   `xml:"ipv4CidrBlockAssociation>cidrBlock"`
-	State     string   `xml:"ipv4CidrBlockAssociation>cidrBlockState>state"`
+	AssocID   string   `xml:"cidrBlockAssociation>associationId"`
+	CidrBlock string   `xml:"cidrBlockAssociation>cidrBlock"`
+	State     string   `xml:"cidrBlockAssociation>cidrBlockState>state"`
 }
 
 type tgwRouteTableItem struct {
@@ -247,9 +253,16 @@ func (h *Handler) handleCreateEgressOnlyInternetGateway(
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "egress-only-internet-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{igw.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createEgressOnlyInternetGatewayResponse{
 		RequestID:                 reqID,
-		EgressOnlyInternetGateway: toEgressOnlyIGWItem(igw, nil),
+		EgressOnlyInternetGateway: toEgressOnlyIGWItem(igw, tags),
 	}, nil
 }
 
@@ -481,6 +494,12 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 ) (any, error) {
 	ids := parseMemberList(vals, "TransitGatewayRouteTableIds")
 	rts := h.Backend.DescribeTransitGatewayRouteTables(ids)
+
+	if err := requireAllIDsPresent(
+		ids, rts, func(rt *TransitGatewayRouteTable) string { return rt.RouteTableID }, ErrTGWRouteTableNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}
 

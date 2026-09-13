@@ -12,6 +12,7 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ctxval"
 	acmbackend "github.com/blackbirdworks/gopherstack/services/acm"
 	apigwbackend "github.com/blackbirdworks/gopherstack/services/apigateway"
 	apigatewayv2backend "github.com/blackbirdworks/gopherstack/services/apigatewayv2"
@@ -147,9 +148,20 @@ type NestedStackCreator interface {
 		ctx context.Context,
 		name, templateURL, templateBody string,
 		params []Parameter,
+		parentID string,
 	) (string, error)
 	DeleteNestedStack(ctx context.Context, stackID string) error
 }
+
+// parentStackIDKey carries the StackId of the stack currently being
+// provisioned, set by provisionResources/createUpdateResource before calling
+// ResourceCreator.Create. createNestedStack reads it to populate a nested
+// stack's ParentId (gopherstack-pbv1) -- threaded via context rather than a
+// new Create parameter because Create's signature is shared by every
+// resource type and called directly from ~30 test files.
+//
+//nolint:gochecknoglobals // ctxval key, not mutable runtime state -- see awsmeta.Key/logger.Key for the same pattern
+var parentStackIDKey = ctxval.NewKey[string]("cfnParentStackID")
 
 // ResourceCreator creates and deletes cloud resources.
 type ResourceCreator struct {
@@ -280,6 +292,8 @@ func (rc *ResourceCreator) createNestedStack(
 	// Extract nested stack parameters from Properties.Parameters map.
 	nestedParams := resolveNestedParams(props, params)
 
+	parentID, _ := parentStackIDKey.Get(ctx)
+
 	// Use logicalID as the child stack name.
 	return rc.nestedStackCreator.CreateNestedStack(
 		ctx,
@@ -287,6 +301,7 @@ func (rc *ResourceCreator) createNestedStack(
 		templateURL,
 		templateBody,
 		nestedParams,
+		parentID,
 	)
 }
 

@@ -263,7 +263,8 @@ families:
   organizations_integration: {status: ok, note: "2 ops; real ENABLE/DISABLE state flip with a synthetic OrganizationId minted on first ENABLE -- this repo has no independent AWS Organizations backend to bind against, which is inherent to the API surface, not a shortcut taken here"}
   resource_policy: {status: ok, note: "3 ops, real JSON-document store with JSON-validity checking on Put"}
   tagging: {status: ok, note: "3 ops, standard ARN-keyed tag store shared across all 9 taggable resource kinds. STALE NOTE CORRECTED 2026-08-13 (gopherstack-jqh2 pass 2): this family's routing previously needed a MatchPriority workaround for a bedrockagent bug (see gaps: history below); that workaround was reverted in ef896bcf1 once bedrockagent's real bug was fixed -- handler.go now returns the plain service.PriorityPathVersioned, no custom priority constant. Re-verified via TestExtractOperation_SDKRouteTable."}
-gaps:
+gaps: []
+items_still_open:
   - "2026-09-06 (gopherstack-3fkj): FIXED this pass. DeregisterTransitGateway now cascades CustomerGatewayAssociations (PENDING/AVAILABLE -> DELETING -> gone, matching DisassociateCustomerGateway's own transition) via a new EC2Resolver.CustomerGatewayArnsForTransitGateway (crossservice.go) backed by services/ec2's VpnConnection.CustomerGatewayID/TransitGatewayID -- the same pair AssociateCustomerGateway's own doc says AWS uses. Outstanding: cli.go's networkManagerEC2ResolverAdapter does not implement the new method yet, so the cascade is a no-op in the real running server (identical to a nil resolver) until that adapter is wired -- deliberate, matching the established repo split where the consuming service adds the interface method and cli.go's owner wires the adapter separately (precedent: gopherstack-5c3m/services/elb). `go build ./...` at the repo root fails on exactly that one missing adapter method until wired; services/networkmanager/... itself builds, tests, and lints clean. Regression coverage: TestDeregisterTransitGateway_CascadesScopedCustomerGatewayAssociations (cascade fires, scoped to the right TGW) and TestDeregisterTransitGateway_NilResolverLeavesAssociationsUntouched (nil-resolver no-op, require.Never) in deregister_transit_gateway_cascade_test.go."
   - "AttachmentState's PENDING_NETWORK_UPDATE/PENDING_TAG_ACCEPTANCE/UPDATING/FAILED values are real but never entered by this backend -- no segment-reassignment or tag-acceptance workflow is modeled; every attachment's real path is PENDING_ATTACHMENT_ACCEPTANCE -> (Accept ->) CREATING -> AVAILABLE or -> (Reject ->) REJECTED. Buildable with more effort (a real cross-account-acceptance/tag-acceptance state machine); not attempted this pass."
   - "StartRouteAnalysis's real walk is single-hop (anchor attachment's own TGW route table only) -- it does not chain across TGW-to-TGW peering attachments, so CYCLIC_PATH_DETECTED/MAX_HOPS_EXCEEDED/the real 64-hop limit are never exercised. Buildable with more effort (multi-hop traversal + cycle detection over services/ec2's modeled TransitGatewayPeeringAttachment state); not attempted this pass."
@@ -1360,3 +1361,23 @@ fabrications found by the per-operation cross-reference above.
 Gates: `go build ./services/networkmanager/...` (clean), `go vet ./...`
 (repo-wide, clean), `go test -race -count=1 ./services/networkmanager/...`
 (pass), `golangci-lint run ./services/networkmanager/...` (0 issues).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: GetConnectAttachment, GetDevices, GetLinks,
+GetTransitGatewayConnectPeerAssociations, UpdateDevice, UpdateLink,
+UpdateSite driven through the real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 2 subtests: device/site/link
+lifecycle, connect attachment + transit gateway Connect peer
+associations). networkmanager moved from 88/95 to 95/95 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this service's extensive prior real-client test
+suite (`sdk_roundtrip_helper_test.go` + family test files).
+
+Gates: `go build ./...`, `go vet ./services/networkmanager/...`,
+`go test -race -count=1 ./services/networkmanager/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/networkmanager/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

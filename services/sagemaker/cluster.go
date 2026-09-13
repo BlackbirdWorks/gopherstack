@@ -40,9 +40,12 @@ func (b *InMemoryBackend) resolveClusterLocked(region, nameOrArn string) (*Clust
 	return nil, fmt.Errorf("%w: cluster %q not found", ErrClusterNotFound, nameOrArn)
 }
 
-// newClusterNode builds a running node for the given instance group, assigning
-// it the next sequential node ID within the cluster.
-func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
+// newClusterNode builds a running node of the given instance type belonging
+// to the given instance group, assigning it the next sequential node ID
+// within the cluster. Shared by both regular and restricted instance groups,
+// which only differ in the group metadata (InstanceType/InstanceGroupName)
+// stamped onto each node.
+func newClusterNode(c *Cluster, instanceType, instanceGroupName string) *ClusterNode {
 	nodeID := fmt.Sprintf("node-%d", len(c.Nodes)+1)
 	for c.Nodes[nodeID] != nil {
 		nodeID = fmt.Sprintf("node-%d", len(c.Nodes)+2) //nolint:mnd // simple collision bump
@@ -50,8 +53,8 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 
 	return &ClusterNode{
 		NodeID:            nodeID,
-		InstanceType:      ig.InstanceType,
-		InstanceGroupName: ig.InstanceGroupName,
+		InstanceType:      instanceType,
+		InstanceGroupName: instanceGroupName,
 		NodeStatus:        statusRunning,
 		CreationTime:      time.Now(),
 	}
@@ -59,16 +62,18 @@ func newClusterNode(c *Cluster, ig ClusterInstanceGroup) *ClusterNode {
 
 // CreateClusterOptions holds the parameters CreateCluster accepts.
 type CreateClusterOptions struct {
-	VpcConfig            *VpcConfig
-	AutoScaling          *ClusterAutoScalingConfig
-	Orchestrator         *ClusterOrchestrator
-	TieredStorageConfig  *ClusterTieredStorageConfig
-	Tags                 map[string]string
-	ClusterName          string
-	NodeRecovery         string
-	ClusterRole          string
-	NodeProvisioningMode string
-	InstanceGroups       []ClusterInstanceGroup
+	VpcConfig                      *VpcConfig
+	AutoScaling                    *ClusterAutoScalingConfig
+	Orchestrator                   *ClusterOrchestrator
+	TieredStorageConfig            *ClusterTieredStorageConfig
+	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig
+	Tags                           map[string]string
+	ClusterName                    string
+	NodeRecovery                   string
+	ClusterRole                    string
+	NodeProvisioningMode           string
+	InstanceGroups                 []ClusterInstanceGroup
+	RestrictedInstanceGroups       []ClusterRestrictedInstanceGroup
 }
 
 // validateClusterOrchestratorLocked enforces the real CreateClusterInput /
@@ -83,6 +88,87 @@ func validateClusterOrchestratorLocked(o *ClusterOrchestrator) error {
 
 	if (o.Eks != nil) == (o.Slurm != nil) {
 		return fmt.Errorf("%w: Orchestrator requires exactly one of Eks or Slurm", ErrValidation)
+	}
+
+	return nil
+}
+
+// validateClusterInstanceStorageConfigLocked enforces
+// ClusterInstanceStorageConfig's real union constraint: exactly one member
+// (EbsVolumeConfig/FsxLustreConfig/FsxOpenZfsConfig) may be set. Unlike
+// ClusterOrchestrator's "exactly one" business rule, this is a genuine wire
+// union (types/types.go:5107) -- a request carrying zero or multiple keys for
+// one entry is a real protocol violation, not just documented prose.
+func validateClusterInstanceStorageConfigLocked(cfg ClusterInstanceStorageConfig) error {
+	set := 0
+
+	if cfg.EbsVolumeConfig != nil {
+		set++
+	}
+
+	if cfg.FsxLustreConfig != nil {
+		set++
+	}
+
+	if cfg.FsxOpenZfsConfig != nil {
+		set++
+	}
+
+	if set != 1 {
+		return fmt.Errorf(
+			"%w: InstanceStorageConfigs entries require exactly one of "+
+				"EbsVolumeConfig, FsxLustreConfig, or FsxOpenZfsConfig", ErrValidation,
+		)
+	}
+
+	return nil
+}
+
+// validateRestrictedInstanceGroupsLocked applies
+// validateClusterInstanceStorageConfigLocked to every InstanceStorageConfigs
+// entry across all of a Create/UpdateCluster request's restricted instance
+// groups.
+func validateRestrictedInstanceGroupsLocked(groups []ClusterRestrictedInstanceGroup) error {
+	for _, ig := range groups {
+		for _, cfg := range ig.InstanceStorageConfigs {
+			if err := validateClusterInstanceStorageConfigLocked(cfg); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateRestrictedInstanceGroupsConfigLocked enforces
+// ClusterRestrictedInstanceGroupsConfig's real required members
+// (types/types.go:5598,:5727, sagemaker@v1.263.2): SharedEnvironmentConfig,
+// its FSxLustreConfig, and its FSxLustreDeletionPolicy are all "This member
+// is required" on the real type. Leaving any of them unset would silently
+// echo a DescribeCluster response missing fields a real client's SDK
+// requires -- the same silent-drop class this campaign's rule forbids.
+func validateRestrictedInstanceGroupsConfigLocked(cfg *ClusterRestrictedInstanceGroupsConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	if cfg.SharedEnvironmentConfig == nil {
+		return fmt.Errorf(
+			"%w: RestrictedInstanceGroupsConfig.SharedEnvironmentConfig is required", ErrValidation,
+		)
+	}
+
+	if cfg.SharedEnvironmentConfig.FSxLustreConfig == nil {
+		return fmt.Errorf(
+			"%w: RestrictedInstanceGroupsConfig.SharedEnvironmentConfig.FSxLustreConfig is required", ErrValidation,
+		)
+	}
+
+	if cfg.SharedEnvironmentConfig.FSxLustreDeletionPolicy == "" {
+		return fmt.Errorf(
+			"%w: RestrictedInstanceGroupsConfig.SharedEnvironmentConfig.FSxLustreDeletionPolicy is required",
+			ErrValidation,
+		)
 	}
 
 	return nil
@@ -105,6 +191,14 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, err
 	}
 
+	if err := validateRestrictedInstanceGroupsConfigLocked(opts.RestrictedInstanceGroupsConfig); err != nil {
+		return nil, err
+	}
+
+	if err := validateRestrictedInstanceGroupsLocked(opts.RestrictedInstanceGroups); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx, b.region)
 	store := b.clustersStore(region)
 
@@ -115,20 +209,22 @@ func (b *InMemoryBackend) CreateCluster(
 	clusterARN := arn.Build("sagemaker", region, b.accountID, "cluster/"+opts.ClusterName)
 
 	c := &Cluster{
-		ClusterName:          opts.ClusterName,
-		ClusterArn:           clusterARN,
-		ClusterStatus:        clusterStatusInService,
-		NodeRecovery:         opts.NodeRecovery,
-		ClusterRole:          opts.ClusterRole,
-		NodeProvisioningMode: opts.NodeProvisioningMode,
-		VpcConfig:            opts.VpcConfig,
-		AutoScaling:          opts.AutoScaling,
-		Orchestrator:         opts.Orchestrator,
-		TieredStorageConfig:  opts.TieredStorageConfig,
-		InstanceGroups:       append([]ClusterInstanceGroup(nil), opts.InstanceGroups...),
-		Tags:                 mergeTags(nil, opts.Tags),
-		CreationTime:         time.Now(),
-		Nodes:                make(map[string]*ClusterNode),
+		ClusterName:                    opts.ClusterName,
+		ClusterArn:                     clusterARN,
+		ClusterStatus:                  clusterStatusInService,
+		NodeRecovery:                   opts.NodeRecovery,
+		ClusterRole:                    opts.ClusterRole,
+		NodeProvisioningMode:           opts.NodeProvisioningMode,
+		VpcConfig:                      opts.VpcConfig,
+		AutoScaling:                    opts.AutoScaling,
+		Orchestrator:                   opts.Orchestrator,
+		TieredStorageConfig:            opts.TieredStorageConfig,
+		RestrictedInstanceGroupsConfig: opts.RestrictedInstanceGroupsConfig,
+		InstanceGroups:                 append([]ClusterInstanceGroup(nil), opts.InstanceGroups...),
+		RestrictedInstanceGroups:       append([]ClusterRestrictedInstanceGroup(nil), opts.RestrictedInstanceGroups...),
+		Tags:                           mergeTags(nil, opts.Tags),
+		CreationTime:                   time.Now(),
+		Nodes:                          make(map[string]*ClusterNode),
 	}
 
 	for i, ig := range opts.InstanceGroups {
@@ -140,7 +236,21 @@ func (b *InMemoryBackend) CreateCluster(
 		c.InstanceGroups[i].InstanceCount = count
 
 		for range count {
-			node := newClusterNode(c, ig)
+			node := newClusterNode(c, ig.InstanceType, ig.InstanceGroupName)
+			c.Nodes[node.NodeID] = node
+		}
+	}
+
+	for i, ig := range opts.RestrictedInstanceGroups {
+		count := ig.InstanceCount
+		if count <= 0 {
+			count = 1
+		}
+
+		c.RestrictedInstanceGroups[i].InstanceCount = count
+
+		for range count {
+			node := newClusterNode(c, ig.InstanceType, ig.InstanceGroupName)
 			c.Nodes[node.NodeID] = node
 		}
 	}
@@ -348,7 +458,28 @@ func resizeInstanceGroupNodesLocked(c *Cluster, ig ClusterInstanceGroup) {
 	switch {
 	case current < ig.InstanceCount:
 		for range ig.InstanceCount - current {
-			node := newClusterNode(c, ig)
+			node := newClusterNode(c, ig.InstanceType, ig.InstanceGroupName)
+			c.Nodes[node.NodeID] = node
+		}
+	case current > ig.InstanceCount:
+		for _, id := range ids[ig.InstanceCount:] {
+			delete(c.Nodes, id)
+		}
+	}
+}
+
+// resizeRestrictedInstanceGroupNodesLocked adds or removes nodes so the
+// restricted instance group has exactly ig.InstanceCount nodes. Nodes are
+// tagged by InstanceGroupName alone (see countNodeIDsInGroupLocked), so this
+// mirrors resizeInstanceGroupNodesLocked exactly.
+func resizeRestrictedInstanceGroupNodesLocked(c *Cluster, ig ClusterRestrictedInstanceGroup) {
+	ids := countNodeIDsInGroupLocked(c, ig.InstanceGroupName)
+	current := int32(len(ids)) //nolint:gosec // bounded by cluster node counts, never near MaxInt32
+
+	switch {
+	case current < ig.InstanceCount:
+		for range ig.InstanceCount - current {
+			node := newClusterNode(c, ig.InstanceType, ig.InstanceGroupName)
 			c.Nodes[node.NodeID] = node
 		}
 	case current > ig.InstanceCount:
@@ -399,26 +530,84 @@ func upsertInstanceGroupLocked(c *Cluster, ig ClusterInstanceGroup) {
 	resizeInstanceGroupNodesLocked(c, ig)
 }
 
+// upsertRestrictedInstanceGroupLocked creates or updates a restricted
+// instance group on c, resizing its node pool to match the requested
+// InstanceCount. UpdateClusterInput has no InstanceGroupsToDelete-equivalent
+// field for RestrictedInstanceGroups (api_op_UpdateCluster.go:60-70,
+// sagemaker@v1.263.2), so upsert-by-name is the only supported semantics --
+// mirroring upsertInstanceGroupLocked exactly.
+func upsertRestrictedInstanceGroupLocked(c *Cluster, ig ClusterRestrictedInstanceGroup) {
+	for i := range c.RestrictedInstanceGroups {
+		if c.RestrictedInstanceGroups[i].InstanceGroupName != ig.InstanceGroupName {
+			continue
+		}
+
+		if ig.InstanceType != "" {
+			c.RestrictedInstanceGroups[i].InstanceType = ig.InstanceType
+		}
+
+		if ig.ExecutionRole != "" {
+			c.RestrictedInstanceGroups[i].ExecutionRole = ig.ExecutionRole
+		}
+
+		if ig.EnvironmentConfig != nil {
+			c.RestrictedInstanceGroups[i].EnvironmentConfig = ig.EnvironmentConfig
+		}
+
+		if ig.InstanceStorageConfigs != nil {
+			c.RestrictedInstanceGroups[i].InstanceStorageConfigs = ig.InstanceStorageConfigs
+		}
+
+		if ig.ScheduledUpdateConfig != nil {
+			c.RestrictedInstanceGroups[i].ScheduledUpdateConfig = ig.ScheduledUpdateConfig
+		}
+
+		if ig.InstanceCount > 0 {
+			c.RestrictedInstanceGroups[i].InstanceCount = ig.InstanceCount
+			resizeRestrictedInstanceGroupNodesLocked(c, c.RestrictedInstanceGroups[i])
+		}
+
+		return
+	}
+
+	if ig.InstanceCount <= 0 {
+		ig.InstanceCount = 1
+	}
+
+	c.RestrictedInstanceGroups = append(c.RestrictedInstanceGroups, ig)
+	resizeRestrictedInstanceGroupNodesLocked(c, ig)
+}
+
 // UpdateClusterOptions holds the parameters UpdateCluster accepts.
 type UpdateClusterOptions struct {
-	AutoScaling            *ClusterAutoScalingConfig
-	Orchestrator           *ClusterOrchestrator
-	TieredStorageConfig    *ClusterTieredStorageConfig
-	NameOrArn              string
-	NodeRecovery           string
-	NodeProvisioningMode   string
-	InstanceGroups         []ClusterInstanceGroup
-	InstanceGroupsToDelete []string
+	AutoScaling                    *ClusterAutoScalingConfig
+	Orchestrator                   *ClusterOrchestrator
+	TieredStorageConfig            *ClusterTieredStorageConfig
+	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig
+	NameOrArn                      string
+	NodeRecovery                   string
+	NodeProvisioningMode           string
+	InstanceGroups                 []ClusterInstanceGroup
+	InstanceGroupsToDelete         []string
+	RestrictedInstanceGroups       []ClusterRestrictedInstanceGroup
 }
 
 // UpdateCluster updates instance groups (adding, resizing, or removing them)
-// and the node-recovery/autoscaling/orchestrator/tiered-storage configuration
-// of an existing cluster.
+// and the node-recovery/autoscaling/orchestrator/tiered-storage/
+// restricted-instance-group configuration of an existing cluster.
 func (b *InMemoryBackend) UpdateCluster(ctx context.Context, opts UpdateClusterOptions) (*Cluster, error) {
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
 	if err := validateClusterOrchestratorLocked(opts.Orchestrator); err != nil {
+		return nil, err
+	}
+
+	if err := validateRestrictedInstanceGroupsConfigLocked(opts.RestrictedInstanceGroupsConfig); err != nil {
+		return nil, err
+	}
+
+	if err := validateRestrictedInstanceGroupsLocked(opts.RestrictedInstanceGroups); err != nil {
 		return nil, err
 	}
 
@@ -429,6 +618,25 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, opts UpdateClusterO
 		return nil, err
 	}
 
+	applyClusterScalarUpdatesLocked(c, opts)
+	deleteInstanceGroupsLocked(c, opts.InstanceGroupsToDelete)
+
+	for _, ig := range opts.InstanceGroups {
+		upsertInstanceGroupLocked(c, ig)
+	}
+
+	for _, ig := range opts.RestrictedInstanceGroups {
+		upsertRestrictedInstanceGroupLocked(c, ig)
+	}
+
+	return cloneCluster(c), nil
+}
+
+// applyClusterScalarUpdatesLocked applies every UpdateClusterOptions field
+// that replaces a single Cluster field wholesale (as opposed to the
+// instance-group slices, which are merged by upsertInstanceGroupLocked/
+// upsertRestrictedInstanceGroupLocked).
+func applyClusterScalarUpdatesLocked(c *Cluster, opts UpdateClusterOptions) {
 	if opts.NodeRecovery != "" {
 		c.NodeRecovery = opts.NodeRecovery
 	}
@@ -449,32 +657,36 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, opts UpdateClusterO
 		c.TieredStorageConfig = opts.TieredStorageConfig
 	}
 
-	if len(opts.InstanceGroupsToDelete) > 0 {
-		toDelete := make(map[string]bool, len(opts.InstanceGroupsToDelete))
-		for _, n := range opts.InstanceGroupsToDelete {
-			toDelete[n] = true
-		}
+	if opts.RestrictedInstanceGroupsConfig != nil {
+		c.RestrictedInstanceGroupsConfig = opts.RestrictedInstanceGroupsConfig
+	}
+}
 
-		kept := make([]ClusterInstanceGroup, 0, len(c.InstanceGroups))
-
-		for _, ig := range c.InstanceGroups {
-			if toDelete[ig.InstanceGroupName] {
-				removeInstanceGroupNodesLocked(c, ig.InstanceGroupName)
-
-				continue
-			}
-
-			kept = append(kept, ig)
-		}
-
-		c.InstanceGroups = kept
+// deleteInstanceGroupsLocked removes every instance group (and its nodes)
+// named in toDeleteNames from c.
+func deleteInstanceGroupsLocked(c *Cluster, toDeleteNames []string) {
+	if len(toDeleteNames) == 0 {
+		return
 	}
 
-	for _, ig := range opts.InstanceGroups {
-		upsertInstanceGroupLocked(c, ig)
+	toDelete := make(map[string]bool, len(toDeleteNames))
+	for _, n := range toDeleteNames {
+		toDelete[n] = true
 	}
 
-	return cloneCluster(c), nil
+	kept := make([]ClusterInstanceGroup, 0, len(c.InstanceGroups))
+
+	for _, ig := range c.InstanceGroups {
+		if toDelete[ig.InstanceGroupName] {
+			removeInstanceGroupNodesLocked(c, ig.InstanceGroupName)
+
+			continue
+		}
+
+		kept = append(kept, ig)
+	}
+
+	c.InstanceGroups = kept
 }
 
 // UpdateClusterSoftware validates the cluster exists and returns its ARN.
@@ -883,7 +1095,7 @@ func (b *InMemoryBackend) BatchAddClusterNodes(
 		c.InstanceGroups[idx].InstanceCount += spec.IncrementTargetCountBy
 
 		for range spec.IncrementTargetCountBy {
-			node := newClusterNode(c, ig)
+			node := newClusterNode(c, ig.InstanceType, ig.InstanceGroupName)
 			c.Nodes[node.NodeID] = node
 			successful = append(successful, *node)
 		}

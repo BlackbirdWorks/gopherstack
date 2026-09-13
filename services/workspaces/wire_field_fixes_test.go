@@ -369,3 +369,142 @@ func TestDescribeWorkspaceDirectories_RealSDKClient_SettingsRoundTrip(t *testing
 		"UserEnabledAsLocalAdministrator must round-trip; pre-fix it was accepted on the wire and then discarded")
 	assert.True(t, aws.ToBool(dir.WorkspaceCreationProperties.UserEnabledAsLocalAdministrator))
 }
+
+// TestCreateStandbyWorkspaces_WorkspaceNameNotFabricated proves a standby
+// WorkSpace's WorkspaceName stays genuinely unset. types.StandbyWorkspace
+// (workspaces v1.79.0 types.go:3042) has no WorkspaceName input member at
+// all, so there is nothing for this backend to echo; it previously fabricated
+// one by copying the generated WorkspaceId, the same bug class the
+// WorkspaceName-threaded-through fix above closed for the normal create path
+// (gopherstack-jukr).
+func TestCreateStandbyWorkspaces_WorkspaceNameNotFabricated(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	primaryID := createSDKWorkspace(t, client)
+
+	_, err := client.RegisterWorkspaceDirectory(t.Context(), &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-standby11"),
+		WorkspaceDirectoryName: aws.String("standby-dir"),
+	})
+	require.NoError(t, err)
+
+	standbyOut, err := client.CreateStandbyWorkspaces(t.Context(), &wssdk.CreateStandbyWorkspacesInput{
+		PrimaryRegion: aws.String("us-west-2"),
+		StandbyWorkspaces: []types.StandbyWorkspace{
+			{
+				DirectoryId:        aws.String("d-standby11"),
+				PrimaryWorkspaceId: aws.String(primaryID),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, standbyOut.FailedStandbyRequests, "body: %+v", standbyOut.FailedStandbyRequests)
+	require.Len(t, standbyOut.PendingStandbyRequests, 1)
+
+	standbyID := aws.ToString(standbyOut.PendingStandbyRequests[0].WorkspaceId)
+
+	descOut, err := client.DescribeWorkspaces(t.Context(), &wssdk.DescribeWorkspacesInput{
+		WorkspaceIds: []string{standbyID},
+	})
+	require.NoError(t, err)
+	require.Len(t, descOut.Workspaces, 1)
+	assert.Nil(t, descOut.Workspaces[0].WorkspaceName,
+		"a standby WorkSpace's WorkspaceName must not be fabricated from its own WorkspaceId")
+}
+
+// TestWorkspace_IpAddress_AvailableVsPending proves IpAddress is only
+// populated for an AVAILABLE WorkSpace. A normal CreateWorkspaces call goes
+// straight to AVAILABLE (this backend has no PENDING window for it), so
+// IpAddress is set immediately; a standby WorkSpace is created PENDING and
+// this backend has no code path that assigns it one there.
+func TestWorkspace_IpAddress_AvailableVsPending(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	primaryID := createSDKWorkspace(t, client)
+
+	_, err := client.RegisterWorkspaceDirectory(t.Context(), &wssdk.RegisterWorkspaceDirectoryInput{
+		DirectoryId:            aws.String("d-ipaddr11"),
+		WorkspaceDirectoryName: aws.String("ipaddr-dir"),
+	})
+	require.NoError(t, err)
+
+	standbyOut, err := client.CreateStandbyWorkspaces(t.Context(), &wssdk.CreateStandbyWorkspacesInput{
+		PrimaryRegion: aws.String("us-west-2"),
+		StandbyWorkspaces: []types.StandbyWorkspace{
+			{
+				DirectoryId:        aws.String("d-ipaddr11"),
+				PrimaryWorkspaceId: aws.String(primaryID),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Empty(t, standbyOut.FailedStandbyRequests, "body: %+v", standbyOut.FailedStandbyRequests)
+	require.Len(t, standbyOut.PendingStandbyRequests, 1)
+	standbyID := aws.ToString(standbyOut.PendingStandbyRequests[0].WorkspaceId)
+
+	tests := []struct {
+		name        string
+		workspaceID string
+		wantState   types.WorkspaceState
+		wantEmpty   bool
+	}{
+		{name: "available", workspaceID: primaryID, wantState: types.WorkspaceStateAvailable, wantEmpty: false},
+		{name: "pending", workspaceID: standbyID, wantState: types.WorkspaceStatePending, wantEmpty: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			descOut, descErr := client.DescribeWorkspaces(t.Context(), &wssdk.DescribeWorkspacesInput{
+				WorkspaceIds: []string{tt.workspaceID},
+			})
+			require.NoError(t, descErr)
+			require.Len(t, descOut.Workspaces, 1)
+
+			ws := descOut.Workspaces[0]
+			require.Equal(t, tt.wantState, ws.State)
+
+			if tt.wantEmpty {
+				assert.Nil(t, ws.IpAddress, "a PENDING WorkSpace must not have an IpAddress")
+
+				return
+			}
+
+			require.NotNil(t, ws.IpAddress)
+			assert.NotEmpty(t, *ws.IpAddress, "an AVAILABLE WorkSpace must have an IpAddress")
+		})
+	}
+}
+
+// TestWorkspace_ModificationStatesEmpty proves ModificationStates stays
+// absent after ModifyWorkspaceProperties. ModifyWorkspaceProperties
+// (workspaces.go) applies changes synchronously -- there is no queue or
+// janitor that would ever leave a real ModificationState{Resource,
+// State: UPDATE_INITIATED|UPDATE_IN_PROGRESS} (workspaces v1.79.0
+// types/enums.go:871-910) true, so fabricating one would be dishonest; the
+// correct behavior is the field staying absent (gopherstack-jukr).
+func TestWorkspace_ModificationStatesEmpty(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	wsID := createSDKWorkspace(t, client)
+
+	_, err := client.ModifyWorkspaceProperties(t.Context(), &wssdk.ModifyWorkspacePropertiesInput{
+		WorkspaceId: aws.String(wsID),
+		WorkspaceProperties: &types.WorkspaceProperties{
+			ComputeTypeName: types.ComputeStandard,
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeWorkspaces(t.Context(), &wssdk.DescribeWorkspacesInput{
+		WorkspaceIds: []string{wsID},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Workspaces, 1)
+	assert.Empty(t, out.Workspaces[0].ModificationStates,
+		"a synchronous ModifyWorkspaceProperties must not fabricate an in-progress ModificationState")
+}

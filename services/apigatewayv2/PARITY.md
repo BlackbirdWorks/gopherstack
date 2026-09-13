@@ -3,6 +3,47 @@ service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
 last_audit_commit: ca3a1e21f
 last_audit_date: 2026-09-08
+overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
+                       # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
+                       # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
+                       # Most were false positives (Create* client-side-validates the required
+                       # nested member, Update* never clears it -- RoutingRule.Actions[].InvokeApi,
+                       # DomainName/Api/Authorizer/Model/RouteResponse/Route/Stage/VpcLink List
+                       # items, CreateProductPage's DisplayContent, which unlike
+                       # ProductRestEndpointPage's shares one symmetric types.DisplayContent shape
+                       # for both request and response). GetPortal/UpdatePortal.Preview remains the
+                       # already-disclosed unmodeled gap (see gaps below, confirmed still accurate).
+                       # Five real fixes: (1) CreateProductRestEndpointPage echoed the raw request
+                       # map (None/Overrides union, types.go:521) verbatim as the response
+                       # DisplayContent, but the real response type is the DIFFERENTLY-SHAPED
+                       # EndpointDisplayContentResponse (types.go:534, Endpoint required, server-
+                       # synthesized from RestEndpointIdentifier unless overrides.endpoint replaces
+                       # it) -- Endpoint was always absent. Fixed via renderEndpointDisplayContent
+                       # (portals.go), applied at Create and Update. (2) ProductRestEndpointPageArn/
+                       # Status/TryItState/top-level Endpoint (ProductRestEndpointPageSummaryNoBody,
+                       # types.go:1096-1126, used by ListProductRestEndpointPages) were never
+                       # modeled at all; TryItState is also a real, silently-dropped Create/Update
+                       # input member. Added all four (Status defaults AVAILABLE -- this backend
+                       # creates/updates synchronously; TryItState defaults ENABLED when the client
+                       # omits it). (3) ProductPageArn/PageTitle (ProductPageSummaryNoBody,
+                       # types.go:1075/1080, used by ListProductPages) were likewise never modeled;
+                       # PageTitle mirrors DisplayContent's "title" key. (4) Portal.
+                       # IncludedPortalProductArns had `omitempty` despite being required on
+                       # PortalSummary (types.go:985, ListPortals) -- optional on CreatePortalInput,
+                       # so a portal created with none went through Go's slice-omitempty (which
+                       # drops on len==0, unlike a nil *pointer*) and silently dropped the required
+                       # key. (5) Same class: PortalProduct.Description, required on
+                       # PortalProductSummary (types.go:941, ListPortalProducts) but optional on
+                       # CreatePortalProductInput. All five proven via wire_field_fixes_respsweep_test.go
+                       # and an updated TestCreateProductRestEndpointPage_DisplayContent (its prior
+                       # assertion on a "title" key was itself wrong -- that key never existed on
+                       # the real EndpointDisplayContentResponse shape). productPageSnapshot/
+                       # productREPageSnapshot (persistence.go) extended with the new fields so they
+                       # survive a snapshot round trip; Portal/PortalProduct themselves remain
+                       # ENTIRELY UNPERSISTED (b.portals/b.portalProducts have no snapshot DTO at
+                       # all, pre-existing and out of this pass's scope -- newly disclosed, see
+                       # gaps).
+                       # ---- prior pass's note follows ----
 overall: A            # 2026-09-08 (gopherstack-wsvb, P1): enforceRouteThrottle/enforceRouteAuth
                        # (http_proxy.go) and enforceIAMAuth/enforceRequestAuthorizer/
                        # finishAuthDecision (authorizers.go) rejected a request by writing its
@@ -199,7 +240,7 @@ ops:
   UpdateStage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "now rejects any modification of a quick-create $default stage (gopherstack-2tx, see Notes #14)"}
   DeleteStage: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAccessLogSettings: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteRouteSettings: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteRouteSettings: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 9, first typed-client coverage): the sole apigatewayv2 op whose real URI embeds a RouteKey as a path label (\".../stages/{StageName}/routesettings/{RouteKey}\", apigatewayv2@v1.37.4 serializers.go:3532) rather than an opaque ID. A RouteKey routinely contains its own \"/\" (e.g. \"GET /users\"); net/http's URL parsing decodes that segment's percent-encoded \"/\" back into a literal \"/\" in Request.URL.Path before this handler's naive strings.Split(path, \"/\") ever sees it, producing one extra path segment -- the dispatch table's segment-count match always missed, so every real client's DeleteRouteSettings 404'd unconditionally for any route whose key contained a \"/\" (i.e. almost every real HTTP-API route). Fixed in pathSegments (handler.go): when the path matches .../stages/{x}/routesettings/{y...}, everything after \"routesettings\" is rejoined into one RouteKey segment before dispatch. Proven via TestTypedSlice9RealClient/delete_settings_families (real aws-sdk-go-v2 client, route key \"GET /s9\")."}
   DeleteRouteRequestParameter: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteCorsConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateDeployment: {wire: ok, errors: ok, state: fixed, persist: fixed, note: "autoDeploy interaction verified. FIXED 2026-09-06 (gopherstack-cfr1): now snapshots the API's current routes and integrations onto the created Deployment (internal-only fields, not on the wire) -- see gaps and Notes #19."}
@@ -245,7 +286,8 @@ ops:
 families:
   Portal/PortalProduct/ProductPage/ProductRestEndpointPage (preview APIGW "portals" feature): {status: ok, note: "gopherstack-0xs7 pass counted the family against botocore apigatewayv2/2018-11-29: 26 operations (CreatePortal/GetPortal/ListPortals/UpdatePortal/DeletePortal/PreviewPortal/PublishPortal/DisablePortal, the same 5 for PortalProduct, Create/List/Get/Update/Delete for ProductPage and ProductRestEndpointPage, Get/Put/DeletePortalProductSharingPolicy). All 26 are implemented with real backend state in portals.go/handler_portals.go (confirmed via GetSupportedOperations() and backend method presence) -- NOT a large unmodelled surface as a prior pass's note speculated. PreviewPortal returns the live Portal (a reasonable preview simulation, not a stub). 2026-08-23 (manifest harvest): did the field-level wire audit this note deferred, against aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_{Create,Update,Get}Portal.go/types.PortalSummary. Found and fixed 3 real accept-and-drop bugs on the Portal type: CreatePortalInput/UpdatePortalInput.IncludedPortalProductArns (a *required* PortalSummary member) and .RumAppMonitorName were decoded off the wire into nothing (no backing field existed) and silently dropped on both Create and Update; PublishPortalInput.Description ('When the portal is published, this description becomes the last published description' -- api_op_PublishPortal.go) was decoded but never used, and GetPortalOutput.LastPublished/LastPublishedDescription had no backing field at all. Added Portal.IncludedPortalProductArns/RumAppMonitorName/LastPublished/LastPublishedDescription (models.go), wired through CreatePortal/UpdatePortal/handlePublishPortal (portals.go/handler_portals.go). GetPortalOutput.Preview/StatusException remain correctly unmodeled -- see gaps. UpdatePortalInput is ALSO missing Authorization/EndpointConfiguration/PortalContent entirely (all three real, optional UpdatePortalInput members -- api_op_UpdatePortal.go); NOT fixed this pass, newly disclosed as a gap (see below) rather than rushed alongside the three accept-and-drop fixes. FIXED (constraint sweep, this pass): ListPortals/ListPortalProducts/ListProductPages/ListProductRestEndpointPages all declare real maxResults/nextToken query params (query-bound, confirmed via each op's own httpBindings serializer) but the handlers called the backend with no pagination args at all -- every item always came back on one page. Wired through apigwPaginationParams/page.New, the same pattern GetApis etc. already use. ListPortalProducts/ListProductPages/ListProductRestEndpointPages' ResourceOwner/ResourceOwnerAccountId query params remain unfiltered: PortalProduct/ProductPage/ProductRestEndpointPage carry no ownership-account field to filter on, so honoring them would mean inventing a model field -- left as a disclosed gap, not fixed."}
   WebSocket @connections data plane (apigatewaymanagementapi): {status: ok, note: "delegated to services/apigatewaymanagementapi via SetManagementAPIBackend; out of scope for this apigatewayv2-only sweep"}
-gaps:
+gaps: []
+items_still_open:
   - "Quick-create route/stage immutability partially enforced (gopherstack-2tx, narrowed): UpdateRoute
     now rejects a route-key change on an apiGatewayManaged route (\"You can't modify the $default
     route key\") and UpdateStage now rejects any modification of an apiGatewayManaged stage (\"You
@@ -256,7 +298,30 @@ gaps:
     TooManyRequestsException, no BadRequestException or ConflictException, so there is no
     wire-verifiable error code to reject with -- guessing one would violate the wire-verification
     principle the same way UpdateRoute/UpdateStage's prior deferral (re-confirmed open, then
-    narrowed this pass) originally cited."
+    narrowed this pass) originally cited.
+    2026-09-11 re-verification (gopherstack-2tx, CITE-OR-DISCLOSE pass): fetched the official AWS
+    API Reference (not just the SDK's Go doc comments) for the three DELETE operations, to see
+    whether prose there names an error the SDK model omits. docs.aws.amazon.com/apigatewayv2/
+    latest/api-reference/apis-apiid-integrations-integrationid.html's apiGatewayManaged property:
+    'If you created an API using using quick create, the resulting integration is managed by API
+    Gateway. You can update a managed integration, but you can't delete it.' -- but that same page's
+    own DELETE Responses table lists only 204/404 NotFoundException/429 LimitExceededException, no
+    400/409. docs.aws.amazon.com/apigatewayv2/latest/api-reference/apis-apiid-stages-stagename.html
+    and .../apis-apiid-routes-routeid.html: apiGatewayManaged only documents a MODIFY restriction
+    ('You can't modify the $default stage' / '...the $default route key'), not a delete restriction,
+    and their DELETE Responses tables are equally limited to 404/429. Also independently confirmed
+    against a locally available botocore apigatewayv2/2018-11-29/service-2.json.gz (same source data
+    aws-sdk-go-v2 generates from): DeleteStage/DeleteIntegration/DeleteRoute operations{}.errors ==
+    [NotFoundException, TooManyRequestsException] exactly, matching the SDK model already cited
+    above. Net finding: the *behavior* (a managed integration can't be deleted) is authoritatively
+    documented in prose, but the *wire shape* to carry that rejection is not -- the same official
+    page's own structured Responses table contradicts its own prose by omitting any 4xx besides
+    404/429 for these three DELETE operations. This is not new information (the SDK's types.go
+    carries byte-identical prose, already read by the pass that first deferred this), but it does
+    rule out one route forward: implementing BadRequestException for these three deletes would
+    contradict the same authoritative source's own documented Responses/error set, not just be an
+    unverified guess. Still not implemented; closing the fixable half as disclosed (gopherstack-2tx)
+    rather than leaving it open against further passes re-deriving the same answer."
   - "ImportApi/ReimportApi's basepath query param now supports \"prepend\" (prefixes route paths
     with the spec's declared base path -- Swagger 2 basePath or OpenAPI 3 servers[0].url's path).
     \"split\" is not implemented (falls back to ignore-like behavior): API Gateway's split
@@ -302,6 +367,17 @@ gaps:
     lists, and also lacks v2's autoDeploy/AutoDeployed model entirely (v1 has no auto-deployment
     concept, only explicit CreateDeployment), so the same fix shape does not carry over; scoped as
     its own, larger effort."
+  - "Portal/PortalProduct (and, transitively, their ProductPage/ProductRestEndpointPage children's
+    parent existence check) are NOT persisted at all -- persistence.go has snapshot DTOs for
+    ProductPage/ProductRestEndpointPage/PortalProductSharingPolicies but none for b.portals/
+    b.portalProducts themselves, so a server restart with persistence enabled loses every portal
+    and portal product while its child pages survive orphaned. Discovered 2026-09-11
+    (gopherstack-mven, required-OUTPUT-member sweep) while wiring the ProductPage/
+    ProductRestEndpointPage snapshot DTOs for this pass's new fields (ProductPageArn/PageTitle/
+    ProductRestEndpointPageArn/Endpoint/Status/TryItState) -- pre-existing, not introduced by this
+    pass, and out of its scope (the fix is a new snapshot DTO pair plus backendSnapshot/
+    restoreFromSnapshot wiring, the same shape as every other resource in this file, not a
+    required-output-field bug)."
 deferred:
   - "2026-08-23 (manifest harvest): UpdatePortal's real UpdatePortalInput (aws-sdk-go-v2/service/apigatewayv2@v1.37.4's api_op_UpdatePortal.go) has optional Authorization/EndpointConfiguration/PortalContent members letting a caller replace a portal's auth config, domain/cert config, or displayed content post-creation -- gopherstack's UpdatePortalInput (models.go) has no fields for any of the three, so a real client sending them gets no error but no effect either. All three are already-modeled types (used by CreatePortal) and Create's existing validateCreatePortal{Authorization,EndpointConfiguration,Content} helpers look reusable for a nil-check-and-replace Update path; not implemented this pass to keep the fix scoped to the three accept-and-drop bugs found and closed alongside this note (IncludedPortalProductArns/RumAppMonitorName/LastPublished(Description), see the family's ops-table note) -- newly disclosed, not previously known."
   - PortalProduct / ProductPage / ProductRestEndpointPage field-level wire audit still not re-verified field-by-field against botocore (only Portal itself got a field-level audit this pass -- see the family's ops-table note)
@@ -485,6 +561,23 @@ Genuine bugs found and fixed in the `gopherstack-0xs7` follow-up pass (confirmed
     (`PutRoutingRule` previously mutated the existing rule's Priority/Actions/Conditions with zero
     validation). `routingRuleSnapshot`'s persistence DTO field types were updated to match; no
     snapshot version bump (JSON field names unchanged, only the Go type of two existing fields).
+    2026-09-11 re-verification: re-checked the union shapes against
+    `aws-sdk-go-v2/service/apigatewayv2@v1.37.4`'s `types.go`/`validators.go`/`deserializers.go` --
+    confirmed `RoutingRuleAction` has exactly one member, `InvokeApi` (no `UpdateHeaderAction`,
+    which the original issue text claimed but which does not exist anywhere in this pinned SDK
+    version -- issue text was stale), and `StripBasePath` is structurally a field of
+    `RoutingRuleActionInvokeApi` itself, not something settable on a "non-InvokeApi" action (there
+    is no other action variant to set it on). `RoutingRuleCondition.MatchBasePaths`/`MatchHeaders`
+    are both optional at the client-validator level (`validateRoutingRuleCondition`,
+    `validators.go:2690`) -- a condition with neither set passes the real SDK's own client-side
+    validation, so gopherstack correctly does not reject it either (no such validation to model).
+    Added two client-level tests exercising the real typed SDK (`wire_field_fixes_test.go`):
+    `TestGetRoutingRule_TypedRoundTrip` (Create with InvokeApi + both condition kinds ->
+    GetRoutingRule, typed fields asserted) and `TestCreateRoutingRule_MalformedActionRejected` (an
+    action with non-nil `InvokeApi` but empty `ApiId`/`Stage` -- passes the SDK's own client-side
+    nil-check but is still malformed -- rejected with `BadRequestException`, `ErrorCode()` asserted).
+    Backend-level validation tests (`domain_names_test.go`) and the snapshot/restore round-trip
+    (`persistence_full_test.go`) already existed and needed no changes.
 
 13. **Three `Update*` backends mutated fields before validating the whole input, so a rejected
     request could still leave earlier fields in the same call changed.** The session's most
@@ -948,3 +1041,53 @@ rechecked). No other instance of this shape exists in `services/apigatewayv2/`.
 `go test -race ./services/apigatewayv2/...` → ok. Full `go test ./services/...` → ok, 169
 packages, zero failures (`services/stepfunctions`, owned by another concurrent change, also
 passed unaffected).
+
+## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+
+apigatewayv2: 66/103 (64.1%) -> 103/103 (100%) typed-covered (37 -> 0
+uncovered), 37 ops newly covered, `typed_slice9_realclient_test.go` added
+(one outer `t.Parallel()` test, 7 subtests covering every named priority
+family: models, integration responses, route responses, deployments +
+domain names + API mappings, the delete-settings family (CORS/access-log/
+route-request-parameter/route-settings + reset-authorizers-cache), routing
+rules, and the full portal family added the day before this pass -- create/
+list/preview portals and portal products, product pages and product REST
+endpoint pages, sharing policy). **One real bug found and fixed** (see
+DeleteRouteSettings op entry above): the only op in this service whose
+real URI embeds a RouteKey (not an opaque ID) as a path label broke
+routing for any route key containing its own "/" -- i.e. almost every
+real HTTP-API route key ("GET /users" and friends) -- previously
+undetected because DeleteRouteSettings is the sole op with this shape and
+no prior test drove it with a realistic, slash-containing route key.
+Gates: `go build ./...` (whole module, clean), `go vet`, `golangci-lint
+run --new-from-rev=HEAD` (0 issues), `go test -race -count=1` (all pass).
+`pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
+fields changed). No version bump.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+23 tier-1 findings triaged; 22 FALSE POSITIVES, 1 FIXED, 0 recorded gaps.
+21 of the false positives are the "named decode struct in a different file"
+blind spot (gopherstack-99nj): `DisableExecuteApiEndpoint`, `RouteKey`,
+`RouteSelectionExpression`, `Target`, `EnableSimpleResponses`,
+`ConnectionType`, `TimeoutInMillis`, `EndpointConfiguration`, `AutoDeploy`,
+`DefaultRouteSettings`, and `FailOnWarnings` are all declared in
+`models.go`/read via `c.QueryParam` and applied in `apis.go`/`integrations.go`/
+`authorizers.go`/`stages.go`/`portals.go`/`handler_apis.go`, just not visible
+from wherever the tool resolves each op's decode target. The other 2 are a
+DIFFERENT tool blind spot worth flagging: `ResetAuthorizersCache.StageName`
+and `UpdateStage.StageName` are httpLabel (URI path) members on the real SDK
+input (confirmed via `serializers.go`'s `awsRestjson1_serializeOpHttpBindings*`
+functions), not body fields -- both are already correctly read from the
+route's path segment (`handler.go`'s route table -> `resourceID`), so there
+was never a JSON field to decode in the first place. **Fixed**:
+`ExportApi.ExportVersion` is a real httpQuery param (confirmed same way) that
+was read nowhere -- AWS docs say "Currently, the only supported version is
+1.0"; `handleExportAPI` (handler_apis.go) now rejects any other value with a
+400, proven via `reqfield_slice5_realclient_test.go` against the real typed
+client (1.0 and omitted succeed, 2.0 is rejected).
+
+Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1
+./services/apigatewayv2/... ./pkgs/persistence/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/apigatewayv2/...` all clean. No persisted
+field changed; no version bump.

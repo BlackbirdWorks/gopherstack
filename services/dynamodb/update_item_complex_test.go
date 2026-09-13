@@ -32,8 +32,8 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 						"pk": map[string]any{"S": "nested-map"},
 						"info": map[string]any{
 							"M": map[string]any{
-								"author": map[string]any{"S": "me"},
-								"year":   map[string]any{"N": "2020"},
+								"author":    map[string]any{"S": "me"},
+								"published": map[string]any{"N": "2020"},
 							},
 						},
 					},
@@ -45,14 +45,14 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 			input: `{
 				"TableName": "` + tableName + `",
 				"Key": {"pk": {"S": "nested-map"}},
-				"UpdateExpression": "SET info.year = :y",
+				"UpdateExpression": "SET info.published = :y",
 				"ExpressionAttributeValues": {":y": {"N": "2025"}}
 			}`,
 			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				item := getItem(t, db, tableName, "nested-map")
 				info := item["info"].(map[string]any)["M"].(map[string]any)
-				assert.Equal(t, "2025", info["year"].(map[string]any)["N"])
+				assert.Equal(t, "2025", info["published"].(map[string]any)["N"])
 			},
 		},
 		{
@@ -97,7 +97,7 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 					TableName: tableName,
 					Item: map[string]any{
 						"pk": map[string]any{"S": "nested-list"},
-						"data": map[string]any{"M": map[string]any{
+						"payload": map[string]any{"M": map[string]any{
 							"scores": map[string]any{
 								"L": []any{map[string]any{"N": "10"}, map[string]any{"N": "20"}},
 							},
@@ -111,14 +111,14 @@ func TestUpdateItem_ComplexPaths(t *testing.T) {
 			input: `{
 				"TableName": "` + tableName + `",
 				"Key": {"pk": {"S": "nested-list"}},
-				"UpdateExpression": "SET data.scores[0] = :val",
+				"UpdateExpression": "SET payload.scores[0] = :val",
 				"ExpressionAttributeValues": {":val": {"N": "99"}}
 			}`,
 			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB) {
 				t.Helper()
 				item := getItem(t, db, tableName, "nested-list")
-				data := item["data"].(map[string]any)["M"].(map[string]any)
-				scores := data["scores"].(map[string]any)["L"].([]any)
+				payload := item["payload"].(map[string]any)["M"].(map[string]any)
+				scores := payload["scores"].(map[string]any)["L"].([]any)
 				assert.Equal(t, "99", scores[0].(map[string]any)["N"])
 			},
 		},

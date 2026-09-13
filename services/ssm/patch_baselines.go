@@ -1194,11 +1194,16 @@ func (b *InMemoryBackend) GetDeployablePatchSnapshotForInstance(
 		}
 	}
 
+	s3Host := "s3." + region + ".amazonaws.com"
+	if input.UseS3DualStackEndpoint {
+		s3Host = "s3.dualstack." + region + ".amazonaws.com"
+	}
+
 	return &GetDeployablePatchSnapshotForInstanceOutput{
 		InstanceID: input.InstanceID,
 		SnapshotID: snapshotID,
 		Product:    product,
 		SnapshotDownloadURL: "https://patch-baseline-snapshot-" + region +
-			".s3." + region + ".amazonaws.com/" + baselineID + "-" + snapshotID,
+			"." + s3Host + "/" + baselineID + "-" + snapshotID,
 	}, nil
 }

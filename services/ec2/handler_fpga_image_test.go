@@ -1,6 +1,7 @@
 package ec2_test
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -17,6 +18,8 @@ func TestHandler_FpgaImage_CreateDescribeDelete(t *testing.T) {
 	createVals := url.Values{}
 	createVals.Set("Action", "CreateFpgaImage")
 	createVals.Set("Version", "2016-11-15")
+	createVals.Set("InputStorageLocation.Bucket", "afi-bucket")
+	createVals.Set("InputStorageLocation.Key", "afi.tar")
 	createVals.Set("Name", "my-afi")
 	createVals.Set("Description", "test afi")
 
@@ -63,6 +66,8 @@ func TestHandler_FpgaImage_CopyFpgaImage(t *testing.T) {
 	createVals := url.Values{}
 	createVals.Set("Action", "CreateFpgaImage")
 	createVals.Set("Version", "2016-11-15")
+	createVals.Set("InputStorageLocation.Bucket", "afi-bucket")
+	createVals.Set("InputStorageLocation.Key", "afi.tar")
 	createVals.Set("Name", "source-afi")
 
 	createRec := postForm(t, h, createVals.Encode())
@@ -94,6 +99,8 @@ func TestHandler_FpgaImage_AttributeLifecycle(t *testing.T) {
 	createVals := url.Values{}
 	createVals.Set("Action", "CreateFpgaImage")
 	createVals.Set("Version", "2016-11-15")
+	createVals.Set("InputStorageLocation.Bucket", "afi-bucket")
+	createVals.Set("InputStorageLocation.Key", "afi.tar")
 	createVals.Set("Name", "attr-afi")
 	createVals.Set("Description", "initial")
 
@@ -166,4 +173,40 @@ func TestHandler_FpgaImage_DeleteNotFound(t *testing.T) {
 	rec := postForm(t, h, vals.Encode())
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidFpgaImageID.NotFound")
+}
+
+// TestHandler_CreateFpgaImage_InputStorageLocationRequired covers
+// CreateFpgaImageInput.InputStorageLocation (api_op_CreateFpgaImage.go:
+// "This member is required"). Before the fix the handler never read it at
+// all.
+func TestHandler_CreateFpgaImage_InputStorageLocationRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		vals url.Values
+		name string
+	}{
+		{name: "missing entirely", vals: url.Values{"Name": {"my-afi"}}},
+		{
+			name: "bucket without key",
+			vals: url.Values{"Name": {"my-afi"}, "InputStorageLocation.Bucket": {"afi-bucket"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			vals := url.Values{}
+			maps.Copy(vals, tt.vals)
+			vals.Set("Action", "CreateFpgaImage")
+			vals.Set("Version", "2016-11-15")
+
+			rec := postForm(t, h, vals.Encode())
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "InvalidParameterValue")
+		})
+	}
 }

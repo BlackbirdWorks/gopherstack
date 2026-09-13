@@ -244,6 +244,8 @@ type describeSessionsInput struct {
 	FleetName          string `json:"FleetName"`
 	UserId             string `json:"UserId"` //nolint:revive,staticcheck // existing issue.
 	AuthenticationType string `json:"AuthenticationType"`
+	NextToken          string `json:"NextToken"`
+	Limit              int    `json:"Limit"`
 }
 
 func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error) {
@@ -254,7 +256,9 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		}
 	}
 
-	sessions, err := h.Backend.DescribeSessions(req.StackName, req.FleetName, req.UserId, req.AuthenticationType)
+	sessions, next, err := h.Backend.DescribeSessions(
+		req.StackName, req.FleetName, req.UserId, req.AuthenticationType, req.Limit, req.NextToken,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -264,7 +268,12 @@ func (h *Handler) opDescribeSessions(_ context.Context, body []byte) (any, error
 		resp = append(resp, sessionToResponse(s))
 	}
 
-	return map[string]any{"Sessions": resp}, nil
+	out := map[string]any{"Sessions": resp}
+	if next != "" {
+		out["NextToken"] = next
+	}
+
+	return out, nil
 }
 
 type sessionIDInput struct {
@@ -330,7 +339,7 @@ func (h *Handler) opCreateUsageReportSubscription(_ context.Context, _ []byte) (
 	}
 
 	return map[string]any{
-		"S3BucketName": sub.S3BucketName,
+		"S3BucketName": sub.S3BucketName, //nolint:goconst // existing issue.
 		"Schedule":     sub.Schedule,
 	}, nil
 }
@@ -497,13 +506,13 @@ func userToResponse(u *User) map[string]any {
 		"LastName":           u.LastName,
 		"AuthenticationType": u.AuthenticationType,
 		keyStatus:            u.Status,
-		"Enabled":            u.Enabled,
+		"Enabled":            u.Enabled,                    //nolint:goconst // existing issue.
 		"CreatedTime":        awstime.Epoch(u.CreatedTime), //nolint:goconst // existing issue.
 	}
 }
 
 func sessionToResponse(s *Session) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Id":                 s.ID,
 		keyFleetName:         s.FleetName,
 		"StackName":          s.StackName,
@@ -513,6 +522,12 @@ func sessionToResponse(s *Session) map[string]any {
 		"AuthenticationType": s.AuthenticationType,
 		"StartTime":          awstime.Epoch(s.StartTime),
 	}
+
+	if !s.MaxExpirationTime.IsZero() {
+		resp["MaxExpirationTime"] = awstime.Epoch(s.MaxExpirationTime)
+	}
+
+	return resp
 }
 
 func themeToResponse(th *Theme) map[string]any {

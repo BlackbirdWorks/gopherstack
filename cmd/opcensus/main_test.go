@@ -177,12 +177,14 @@ func TestCensusService_RealServices(t *testing.T) {
 		},
 		// gopherstack-1t0m: redshift declares GetSupportedOperations twice
 		// (Handler in handler.go, ServerlessHandler in handler_serverless.go).
-		// 193 is the union, hand-verified the same way (Handler=145,
-		// ServerlessHandler=60, overlapping on 12 shared ops). Before the fix
-		// this resolved to 60: ServerlessHandler only -- none of Handler's
-		// cluster-management ops (CreateCluster, DescribeClusters, ...).
+		// 198 is the union, hand-verified the same way (Handler=145,
+		// ServerlessHandler=65, overlapping on 12 shared ops). Before the
+		// gopherstack-1t0m fix this resolved to 65: ServerlessHandler only --
+		// none of Handler's cluster-management ops (CreateCluster,
+		// DescribeClusters, ...). ServerlessHandler grew from 60 to 65 with
+		// the serverless reservation family (9f501cd6e).
 		{
-			name: "redshift", total: 193, ldg: 73, listOps: 14, describe: 42, getOps: 17,
+			name: "redshift", total: 198, ldg: 77, listOps: 16, describe: 42, getOps: 19,
 			declaredBy: []string{"*Handler", "*ServerlessHandler"},
 		},
 	}

@@ -59,7 +59,7 @@ func TestRunTask_NetworkConfiguration(t *testing.T) {
 		},
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{
+	tasks, _, err := b.RunTask(RunTaskInput{
 		TaskDefinition:       "myapp",
 		NetworkConfiguration: nc,
 		Count:                1,
@@ -92,7 +92,7 @@ func TestRunTask_PlatformVersionValidation(t *testing.T) {
 		t.Fatalf("register task def: %v", err)
 	}
 
-	_, err = b.RunTask(RunTaskInput{
+	_, _, err = b.RunTask(RunTaskInput{
 		TaskDefinition:  "myapp",
 		PlatformVersion: "9.9.9",
 	})
@@ -116,7 +116,7 @@ func TestRunTask_PlatformVersionLatest(t *testing.T) {
 		t.Fatalf("register task def: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{
+	tasks, _, err := b.RunTask(RunTaskInput{
 		TaskDefinition:  "myapp",
 		PlatformVersion: "LATEST",
 	})
@@ -140,7 +140,7 @@ func TestRunTask_PropagateTags(t *testing.T) {
 		t.Fatalf("register task def: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{
+	tasks, _, err := b.RunTask(RunTaskInput{
 		TaskDefinition: "myapp",
 		PropagateTags:  propagateTagsTaskDefinition,
 	})

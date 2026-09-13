@@ -129,6 +129,7 @@ func (b *InMemoryBackend) DeleteServiceNetworkResourceAssociation(
 func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	ctx context.Context,
 	serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+	includeChildren bool,
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceNetworkResourceAssociationSummary, string, error) {
@@ -137,6 +138,15 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkResourceAssociationSummary, 0)
+
+	// IncludeChildren's own doc comment: "Include service network resource
+	// associations of the child resource configuration with the grouped
+	// resource configuration. ... default value is false"
+	// (api_op_ListServiceNetworkResourceAssociations.go). Resolve the
+	// requested group's own ID once so children (matched by
+	// ResourceConfigurationGroupID) can be recognized regardless of whether
+	// the caller passed an ID or an ARN.
+	groupID, groupResolved := b.resolveResourceConfigurationID(resourceConfigurationIdentifier)
 
 	for _, s := range b.snras.All() {
 		if s.Region != region {
@@ -148,9 +158,20 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 			continue
 		}
 
-		if resourceConfigurationIdentifier != "" && s.ResourceConfigurationID != resourceConfigurationIdentifier &&
-			s.ResourceConfigurationARN != resourceConfigurationIdentifier {
-			continue
+		if resourceConfigurationIdentifier != "" {
+			matchesSelf := s.ResourceConfigurationID == resourceConfigurationIdentifier ||
+				s.ResourceConfigurationARN == resourceConfigurationIdentifier
+
+			matchesChild := false
+			if includeChildren && groupResolved {
+				if rc, ok := b.resourceConfigurations.Get(s.ResourceConfigurationID); ok {
+					matchesChild = rc.ResourceConfigurationGroupID == groupID
+				}
+			}
+
+			if !matchesSelf && !matchesChild {
+				continue
+			}
 		}
 
 		all = append(all, s.toSummary())

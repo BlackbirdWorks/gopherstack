@@ -354,9 +354,11 @@ func (b *InMemoryBackend) ensureDefaultScope() {
 	id := uuid.New().String()
 	now := time.Now().UTC()
 	b.classScopes.Put(&ClassificationScope{
-		ID:        id,
-		Name:      defaultScopeName,
-		S3:        &ClassificationScopeS3{},
+		ID:   id,
+		Name: defaultScopeName,
+		S3: &ClassificationScopeS3{
+			Excludes: &ClassificationScopeS3Exclusion{BucketNames: []string{}},
+		},
 		CreatedAt: now,
 		UpdatedAt: now,
 	})
@@ -416,7 +418,7 @@ func (b *InMemoryBackend) UpdateClassificationScope(scopeID string, s3 *Classifi
 
 	if s3 != nil && s3.Excludes != nil {
 		if scope.S3 == nil {
-			scope.S3 = &ClassificationScopeS3{}
+			scope.S3 = &ClassificationScopeS3{Excludes: &ClassificationScopeS3Exclusion{BucketNames: []string{}}}
 		}
 		scope.S3.Excludes = mergeClassificationScopeExclusion(scope.S3.Excludes, s3.Excludes)
 	}

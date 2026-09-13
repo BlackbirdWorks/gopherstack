@@ -23,6 +23,7 @@ families:
   route_matcher: {status: ok, note: "every op's HTTP method + path template cross-checked against aws-sdk-go-v2 serializers.go (POST /applications, PUT .../versions/{v}, PATCH .../{id}, DELETE .../{id}, PUT/GET .../policy, POST .../changesets, POST .../templates, GET .../templates/{id}, GET .../dependencies, POST .../unshare) -- all match; ExtractOperation dispatch table is exhaustive and correct"}
   error_shapes: {status: ok, note: "BadRequestException(400)/ConflictException(409)/NotFoundException(404)/InternalServerErrorException(500) __type strings and status codes verified against types/errors.go and api-2.json httpStatusCode traits. ForbiddenException(403)/TooManyRequestsException(429) are declared on every real operation but intentionally unimplemented: gopherstack has no IAM-authorization or rate-limiting subsystem to derive them from (no other service in this codebase synthesizes these either), so there is no state to key a 403/429 off of; this is a systemic emulator scope decision, not a service-specific gap."}
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "coarse lockmetrics.RWMutex guards all backend maps; store.Table/Index used throughout (no raw sync.Mutex, no per-map locks); Snapshot/Restore round-trip all state including the 3 dirty tables (appVersions/cfTemplates/cfChangeSets) via an ephemeral DTO registry and the 2 plain maps (appPolicies/appDependencies) directly"}
 ---
@@ -305,3 +306,22 @@ every named cursor still resolves.
 **Gates**: `go build ./services/serverlessrepo/...`, `go vet ./services/serverlessrepo/...`,
 `go test -race -count=1 ./services/serverlessrepo/...` all pass; `golangci-lint run
 ./services/serverlessrepo/...` reports 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: CreateApplicationVersion,
+CreateCloudFormationChangeSet, ListApplicationDependencies,
+ListApplicationVersions, UnshareApplication driven through the real
+aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 4 subtests). serverlessrepo moved from
+9/14 to 14/14 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this service's extensive prior pagination/wire
+audit history already in this file.
+
+Gates: `go build ./...`, `go vet ./services/serverlessrepo/...`,
+`go test -race -count=1 ./services/serverlessrepo/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/serverlessrepo/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

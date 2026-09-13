@@ -48,13 +48,14 @@ ops:
   GetTraceSegmentDestination: {wire: ok, errors: ok, state: ok, persist: ok, note: "traceSegmentDest snapshot/Reset fixed prior pass"}
   UpdateTraceSegmentDestination: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): (1) resourceTags is now included in backendSnapshot/Restore, closing the previously-deferred persistence gap; (2) added ResourceARN existence validation -- previously any ARN, including ones that were never a real group or sampling rule, silently returned an empty tag list. Real AWS declares ResourceNotFoundException for TagResource/UntagResource/ListTagsForResource (confirmed in deserializers.go); now enforced against groupsByARN/samplingRulesByARN"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource, plus added TooManyTagsException enforcement (50 tags/resource cap, AWS docs 'Maximum number of user-applied tags per resource: 50') -- previously unenforced, an unbounded number of tags could be applied"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource, plus added TooManyTagsException enforcement (50 tags/resource cap, AWS docs 'Maximum number of user-applied tags per resource: 50') -- previously unenforced, an unbounded number of tags could be applied. FIXED 2026-09-12 (typed slice 27): request body's Tags field was declared map[string]string, but real TagResourceInput.Tags (xray@v1.39.4) serializes as a JSON ARRAY of {Key,Value} objects (types.Tag / serializers.go's awsRestjson1_serializeDocumentTagList), not a map -- every real client's request body failed to JSON-decode into this handler's Tags field. Fixed by adding a tagWire{Key,Value} list type and converting to the internal map[string]string before calling the backend."}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (this pass): same ResourceARN existence check as ListTagsForResource"}
 families:
   route_matcher: {status: ok, note: "unchanged this pass; prior pass audited all 34 dispatch-table paths against serializers.go opPath literals and fixed 6 mismatches (GetInsight/GetInsightEvents/GetInsightImpactGraph/GetInsightSummaries/GetSamplingStatisticSummaries/GetSamplingTargets)"}
   persistence: {status: ok, note: "FIXED (this pass): resourceTags was a plain map (not store.Table-backed) that (a) was never included in backendSnapshot -- tags were lost across every gopherstack restart -- and (b) was never cleared by InMemoryBackend.Reset(), the exact same bug class the prior pass fixed for traceSegmentDest but missed here. Both fixed: resourceTags now round-trips through Snapshot/Restore and is reset to an empty map in Reset()"}
   error_codes: {status: ok, note: "FIXED (this pass): independently field-diffed every operation's modeled error set against aws-sdk-go-v2/service/xray@v1.36.20's deserializers.go per-op error switch (awsRestjson1_deserializeOpError<Op>), not just handleError's own type switch. Found and fixed: UpdateIndexingRule not-found was InvalidRequestException (real: ResourceNotFoundException); PutResourcePolicy's policy-count-limit violation was InvalidRequestException (real: PolicyCountLimitExceededException, and InvalidRequestException isn't even in that op's modeled error set); TagResource/UntagResource/ListTagsForResource/CancelTraceRetrieval/ListRetrievedTraces/GetRetrievedTracesGraph never returned ResourceNotFoundException at all despite it being modeled for all six. Added ErrResourceNotFound/ErrTraceRetrievalNotFound/ErrPolicySizeLimitExceeded/ErrRuleLimitExceeded/ErrTooManyTags sentinels and corresponding handleError overrides. Confirmed unchanged/correct: GetGroup/DeleteGroup/UpdateGroup/GetSamplingRules/CreateSamplingRule/UpdateSamplingRule/DeleteSamplingRule/GetInsight*/DeleteResourcePolicy all declare ONLY InvalidRequestException (+ThrottledException, +RuleLimitExceededException for CreateSamplingRule) for not-found -- X-Ray's Smithy model does NOT give these ops ResourceNotFoundException, so gopherstack's existing InvalidRequestException mapping for Group/SamplingRule/Insight/ResourcePolicy not-found was already correct and is unchanged"}
-gaps:
+gaps: []
+items_still_open:
   - "GetInsightSummaries' GroupARN/GroupName filter is honored at the wire/query layer (6flj sweep, 2026-08-15) but the insight DETECTOR itself (detectInsights, insights.go) has no per-group filter-expression evaluation -- every detected insight is unconditionally labelled GroupName=\"default\" regardless of how many real Group records a caller has created or what their FilterExpression says. A request scoped to \"default\" gets every detected insight (correct behavior only by coincidence of there being one implicit group); a request scoped to any other real group correctly gets an empty result now, but not because that group's filter was evaluated -- because no insight is ever labelled with it. True per-group detection would require evaluating each group's FilterExpression against live segment traffic, a detector redesign out of scope for a wire-shape fix."
   - "GetTraceSummariesInput's optional Sampling (bool) and SamplingStrategy (Name/Value) request members have no effect: gopherstack has no sampling engine on the trace-summary read path (Sampling is parsed and discarded; SamplingStrategy is not modeled at all). Every call returns the full unsampled TraceSummaries set regardless of what a client requests, which is a safe superset (never a truncation a client wouldn't expect), not a correctness bug -- but flagged here as a real, never-modelled request member per 6flj's checklist."
   - PutTelemetryRecords ring buffer (100 entries) not persisted across restart; low-risk, AWS telemetry data itself is operational/ephemeral by nature (unchanged this pass)
@@ -68,6 +69,42 @@ deferred:
   - none; all routed ops covered by ops/families above
 leaks: {status: clean, note: "Janitor.Run uses pkgs/worker.Group with Ticker + Stop() on ctx.Done(); sweepExpiredTraces holds b.mu.Lock only around map mutation, releases before telemetry/logging calls. Re-verified this pass: no new goroutines/tickers introduced; all new lock paths (resourceExists, resolveSamplingRule, DeleteResourcePolicy's revision check) execute entirely within their caller's existing Lock/RLock and use defer Unlock/RUnlock."}
 ---
+
+## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+
+Drove all 21 typed-client-uncovered ops through the real aws-sdk-go-v2 xray
+client for the first time (`typed_slice27_realclient_test.go`): tag family
+(TagResource/UntagResource/ListTagsForResource), resource policies
+(Put/List/Delete), indexing rules (Get/Update), the insight family
+(Get/GetEvents/GetImpactGraph), trace retrieval (Start/Get/Cancel), sampling
+(GetStatisticSummaries/GetTargets/UpdateSamplingRule),
+GetTraceSegmentDestination/UpdateTraceSegmentDestination,
+BatchGetTraces/GetTraceGraph, PutTelemetryRecords, and UpdateGroup.
+
+**One real wire bug found and fixed**: `TagResource`'s request body
+declared `Tags map[string]string`, but the real `TagResourceInput.Tags`
+(xray@v1.39.4 api_op_TagResource.go) serializes as a JSON ARRAY of
+`{Key,Value}` objects (`types.Tag`, confirmed against
+`serializers.go:2931's awsRestjson1_serializeDocumentTagList`), not a map.
+Every real client's `TagResource` call sent a JSON array that this
+handler's map-typed field could never decode -- the request failed outright
+for every real caller. `ListTagsForResource`'s response side was already
+correct (its `[]map[string]string{"Key":k,"Value":v}}` shape matches the
+real array-of-objects wire shape). Fixed by adding a `tagWire{Key,Value}`
+list type to `tagResourceInput` and converting to the internal
+`map[string]string` before calling the backend; updated the 4 existing
+raw-body tests in handler_tags_test.go that had pinned the old map shape
+as correct (the same "raw-body test passes on a well-formed body it wrote
+itself" trap this file's own prior passes have hit).
+
+xray: 38/38 typed-client covered (was 17/38).
+
+Gates: `go build ./...` clean. `go vet ./services/xray/...` clean. `go test
+-race -count=1 ./services/xray/... ./pkgs/persistence/...` clean (no
+persisted struct's shape changed -- the fix is request-decoding only).
+`golangci-lint run --new-from-rev=HEAD ./services/xray/...` 0 issues. `go
+run ./cmd/paritylint` 0 FAIL, before and after this file's edits. No
+version bump.
 
 ## Notes
 

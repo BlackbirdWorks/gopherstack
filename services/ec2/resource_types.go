@@ -25,8 +25,10 @@ var resourceTypePrefixes = []resourceTypePrefix{
 	// ---- core (pre-existing) ----
 	{"i-", conversionKindInstance},
 	{"sg-", "security-group"},
+	{"scr-", "subnet-cidr-reservation"},
 	{"subnet-", "subnet"},
 	{"vol-", conversionKindVolume},
+	{"replacevol-", "replace-root-volume-task"},
 	{"igw-", "internet-gateway"},
 	{"rtb-", "route-table"},
 	{"nat-", "natgateway"},
@@ -194,6 +196,7 @@ func (b *InMemoryBackend) resourceExistsCoreLocked(id string) bool {
 	ok = ok || b.subnets.Has(id)
 	ok = ok || b.keyPairs.Has(id)
 	ok = ok || b.volumes.Has(id)
+	ok = ok || b.replaceRootVolumeTasks.Has(id)
 	ok = ok || b.addresses.Has(id)
 	ok = ok || b.internetGateways.Has(id)
 	ok = ok || b.routeTables.Has(id)
@@ -237,8 +240,26 @@ func (b *InMemoryBackend) resourceExistsVpcAuxLocked(id string) bool {
 	ok = ok || b.instanceConnectEndpoints.Has(id)
 	ok = ok || b.carrierGateways.Has(id)
 	ok = ok || b.vpcEncryptionControls.Has(id)
+	ok = ok || b.subnetCidrReservationExistsLocked(id)
 
 	return ok
+}
+
+// subnetCidrReservationExistsLocked reports whether id names a subnet CIDR
+// reservation. Unlike the other resources checked here, reservations have no
+// dedicated store.Table -- b.subnetCIDRReservations is keyed by subnet ID,
+// not reservation ID -- so existence requires a scan. Must be called with
+// b.mu held.
+func (b *InMemoryBackend) subnetCidrReservationExistsLocked(id string) bool {
+	for _, reservations := range b.subnetCIDRReservations {
+		for _, r := range reservations {
+			if r.SubnetCIDRReservationID == id {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // resourceExistsGatewayLocked checks VPN/customer gateways, capacity

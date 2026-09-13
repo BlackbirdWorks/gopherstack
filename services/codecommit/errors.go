@@ -18,8 +18,12 @@ var (
 	ErrNotFound = awserr.New(errRepoDoesNotExist, awserr.ErrNotFound)
 	// ErrAlreadyExists is returned when a resource already exists.
 	ErrAlreadyExists = awserr.New("RepositoryNameExistsException", awserr.ErrConflict)
-	// ErrValidation is returned when input validation fails.
-	ErrValidation = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+	// ErrCommitSpecifierRequired is returned when a merge op's commit
+	// specifier is empty. CommitRequiredException is what GetMergeCommit and
+	// the MergeBranchesBy* ops model for this case (codecommit@v1.36.4
+	// deserializers.go); "InvalidParameterException" names no type in this
+	// module at all.
+	ErrCommitSpecifierRequired = awserr.New("CommitRequiredException", awserr.ErrInvalidParameter)
 	// ErrApprovalRuleTemplateNotFound is returned when an approval rule template is not found.
 	ErrApprovalRuleTemplateNotFound = awserr.New(errApprovalRuleTemplateNotExist, awserr.ErrNotFound)
 	// ErrApprovalRuleTemplateAlreadyExists is returned when an approval rule template already exists.

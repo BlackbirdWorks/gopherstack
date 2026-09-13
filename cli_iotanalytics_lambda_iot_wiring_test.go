@@ -18,6 +18,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 	iotbackend "github.com/blackbirdworks/gopherstack/services/iot"
 	iotanalyticsbackend "github.com/blackbirdworks/gopherstack/services/iotanalytics"
+	iotdataplanebackend "github.com/blackbirdworks/gopherstack/services/iotdataplane"
 )
 
 // TestInitializeServices_IoTAnalyticsLambdaIoTWiring drives the actual composition root
@@ -54,6 +55,12 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 
 	iotBk, ok := iotH.Backend.(*iotbackend.InMemoryBackend)
 	require.True(t, ok, "IoT backend must be an InMemoryBackend")
+
+	iotDPH, ok := byName["IoTDataPlane"].(*iotdataplanebackend.Handler)
+	require.True(t, ok, "IoTDataPlane handler must be registered")
+
+	iotDPBk, ok := iotDPH.Backend.(*iotdataplanebackend.InMemoryBackend)
+	require.True(t, ok, "IoTDataPlane backend must be an InMemoryBackend")
 
 	e := echo.New()
 	registry := service.NewRegistry()
@@ -123,8 +130,9 @@ func TestInitializeServices_IoTAnalyticsLambdaIoTWiring(t *testing.T) {
 		_, createErr := iotBk.CreateThing(&iotbackend.CreateThingInput{ThingName: "wiring-test-shadow-thing"})
 		require.NoError(t, createErr)
 
-		wantState := map[string]any{"reported": map[string]any{"on": true}}
-		_, shadowErr := iotBk.UpdateThingShadow("wiring-test-shadow-thing", "", wantState)
+		_, shadowErr := iotDPBk.UpdateThingShadow(
+			"wiring-test-shadow-thing", "", []byte(`{"state":{"reported":{"on":true}}}`),
+		)
 		require.NoError(t, shadowErr)
 
 		out, runErr := client.RunPipelineActivity(ctx, &iotanalyticssdk.RunPipelineActivityInput{

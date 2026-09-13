@@ -3,6 +3,7 @@ package quicksight
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -595,13 +596,25 @@ func classifyFolderSubSubRes(method string, segs []string) (string, string) {
 	return opUnknown, ""
 }
 
-// classifyResourceFoldersPaths routes /accounts/{id}/resource/{resARN}/folders paths.
+// classifyResourceFoldersPaths routes /accounts/{id}/resource/{resARN}/folders
+// paths. resARN is a full QuickSight ARN (e.g.
+// "arn:aws:quicksight:region:account:dashboard/id"), which contains literal
+// "/" characters -- the real client percent-encodes them (SetURI base64/
+// percent-escapes "/" as %2F, serializers.go's
+// awsRestjson1_serializeOpHttpBindingsListFoldersForResourceInput), but
+// net/http's URL.Path decodes %2F back to a literal "/" before this router
+// ever sees it, so resARN can span a variable number of path segments. A
+// fixed n == nSegsSubRes check (the same bug classifyTagResourcePaths above
+// already works around via strings.Join) always missed a real ARN and fell
+// through to opUnknown.
 func classifyResourceFoldersPaths(method string, segs []string, n int) (string, string) {
-	if n == nSegsSubRes && seg(segs, segSubRes) == pathSegFolders && method == http.MethodGet {
-		return opListFoldersForResource, seg(segs, segResID)
+	if method != http.MethodGet || n < nSegsSubRes || segs[n-1] != pathSegFolders {
+		return opUnknown, ""
 	}
 
-	return opUnknown, ""
+	arn := strings.Join(segs[segResID:n-1], "/")
+
+	return opListFoldersForResource, arn
 }
 
 // ---- ListFoldersForResource ----
@@ -609,7 +622,10 @@ func classifyResourceFoldersPaths(method string, segs []string, n int) (string, 
 func (h *Handler) handleListFoldersForResource(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
-	resourceArn := seg(segs, segResID)
+	// resourceArn may span multiple path segments -- see
+	// classifyResourceFoldersPaths' comment on why a decoded ARN's literal
+	// "/" characters can't be captured by a single fixed segment index.
+	resourceArn := strings.Join(segs[segResID:len(segs)-1], "/")
 
 	folderArns, next, err := h.Backend.ListFoldersForResource(
 		accountID, resourceArn, maxResultsParam(c), nextTokenParam(c),

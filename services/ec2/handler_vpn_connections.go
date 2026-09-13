@@ -84,6 +84,12 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 		return nil, err
 	}
 
+	if tags := parseTagSpecification(vals, "vpn-connection"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{conn.VpnConnectionID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVpnConnectionResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
@@ -94,6 +100,12 @@ func (h *Handler) handleCreateVpnConnection(vals url.Values, reqID string) (any,
 func (h *Handler) handleDescribeVpnConnections(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VpnConnectionId")
 	conns := h.Backend.DescribeVpnConnections(ids)
+
+	if err := requireAllIDsPresent(
+		ids, conns, func(c *VpnConnection) string { return c.VpnConnectionID }, ErrVpnConnectionNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeVpnConnectionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 

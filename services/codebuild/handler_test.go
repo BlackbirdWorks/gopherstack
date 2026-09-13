@@ -15,6 +15,11 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/codebuild"
 )
 
+// testSingleNodeBatchSpec is a minimal buildspec with a batch: build-list of
+// one node, for tests that exercise BuildBatch lifecycle (Stop/Retry/List/
+// Delete) without caring about the batch's own dependency graph.
+const testSingleNodeBatchSpec = "version: 0.2\nbatch:\n  build-list:\n    - identifier: only\n"
+
 func newTestHandler(t *testing.T) *codebuild.Handler {
 	t.Helper()
 
@@ -65,6 +70,25 @@ func createTestProject(t *testing.T, h *codebuild.Handler, name string) {
 	rec := doRequest(t, h, "CreateProject", map[string]any{
 		"name":      name,
 		"source":    map[string]any{"type": "NO_SOURCE"},
+		"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
+		"environment": map[string]any{
+			"type":        "LINUX_CONTAINER",
+			"image":       "aws/codebuild/standard:5.0",
+			"computeType": "BUILD_GENERAL1_SMALL",
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+}
+
+// createBatchProject creates a project named name whose buildspec is
+// testSingleNodeBatchSpec, via the handler -- for tests that call
+// StartBuildBatch, which requires a `batch:` section.
+func createBatchProject(t *testing.T, h *codebuild.Handler, name string) {
+	t.Helper()
+
+	rec := doRequest(t, h, "CreateProject", map[string]any{
+		"name":      name,
+		"source":    map[string]any{"type": "NO_SOURCE", "buildspec": testSingleNodeBatchSpec},
 		"artifacts": map[string]any{"type": "NO_ARTIFACTS"},
 		"environment": map[string]any{
 			"type":        "LINUX_CONTAINER",

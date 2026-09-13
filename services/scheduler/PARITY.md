@@ -21,7 +21,8 @@ families:
   RouteMatcher: {status: ok, note: "re-verified every op's REST method+path prefix against aws-sdk-go-v2 serializers.go this pass -- no drift; see prior pass's per-op mapping in Notes."}
   next-invocation computation: {status: fixed, note: "at() one-time expressions were validated at Create/Update time but the runner's isDue only matched rate()/cron() prefixes -- an at() schedule could NEVER fire. ScheduleExpressionTimezone was stored/round-tripped on the wire but never applied when evaluating cron/at wall-clock matches (runner always used the poll goroutine's raw time.Time, i.e. implicitly UTC/server-local). StartDate/EndDate were stored/round-tripped but the runner never gated cron/rate firing on them. All three fixed this pass -- see Notes."}
   cross-service target delivery: {status: ok, note: "cli.go's wireSchedulerRunner wires ALL 8 Runner invoker interfaces (Lambda, SQS, SNS, StepFunctions, EventBridge, Kinesis, SageMaker, ECS); unchanged this pass, re-confirmed not a gap."}
-gaps:
+gaps: []
+items_still_open:
   - {area: "cron L/W/# matching", note: "validateCronFields (2026-08-11, gopherstack-cz9e) accepts AWS-documented L/W/# cron tokens (last day, nearest-weekday, nth-weekday-of-month), plus the undocumented-but-plausible LW and L-<n> composite forms (see Notes), as syntactically legal, but matchesCronPart (schedule_expression.go) does not implement any of their matching semantics -- a schedule using e.g. cron(15 10 ? * 6L 2022-2023) or cron(30 23 L-2 * ? *) is accepted at Create/Update and then never fires. Deliberately left accepting rather than rejecting per this pass's under-enforcement directive (AWS genuinely accepts at least the documented subset of this syntax, and neither AWS source rules out the rest); implementing the matcher is separate follow-up work."}
 deferred: []
 leaks: {status: clean, note: "leak_main_test.go (testleak.VerifyTestMain) passes under -race. The runner's poll goroutine remains the only background goroutine (ctx-parented via Handler.StartWorker/Shutdown, unchanged this pass). New state added this pass (Runner.locCache, Handler.idempotency) is plain in-memory data with no goroutines/tickers of its own; both are swept/bounded (locCache via the existing per-poll sweep alongside cronCache; idempotency via TTL-based lazy eviction) and cleared on Handler.Reset."}
@@ -731,3 +732,23 @@ TestSnapshotVersionGuard` (read-only, no `-update`, `pkgs/persistence/
 testdata/` is out of scope for this change) reports scheduler's golden
 entry as stale, as expected; refreshing it is for whoever owns
 `pkgs/persistence/testdata/`.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteSchedule, DeleteScheduleGroup,
+GetScheduleGroup, ListScheduleGroups, TagResource, UntagResource,
+UpdateSchedule driven through the real aws-sdk-go-v2 client for the first
+time (`typed_slice15_realclient_test.go`, 2 subtests: schedule group
+lifecycle + tags, schedule update/delete). scheduler moved from 5/12 to
+12/12 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this file's own documented, already-verified
+`resourceTag` wire shape (handler.go's `{"Key":..., "Value":...}` array
+comment).
+
+Gates: `go build ./...`, `go vet ./services/scheduler/...`, `go test -race
+-count=1 ./services/scheduler/...` and `./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/scheduler/...` (0
+issues). `go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/
+snapshot changes.

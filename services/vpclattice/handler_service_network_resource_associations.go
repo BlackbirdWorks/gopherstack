@@ -62,8 +62,11 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 	nextToken := c.QueryParam("nextToken")
 	snID := c.QueryParam("serviceNetworkIdentifier")
 	rcID := c.QueryParam("resourceConfigurationIdentifier")
+	includeChildren := c.QueryParam("includeChildren") == "true"
 
-	items, next, err := h.Backend.ListServiceNetworkResourceAssociations(ctx, snID, rcID, maxResults, nextToken)
+	items, next, err := h.Backend.ListServiceNetworkResourceAssociations(
+		ctx, snID, rcID, includeChildren, maxResults, nextToken,
+	)
 	if err != nil {
 		return h.handleError(c, err)
 	}

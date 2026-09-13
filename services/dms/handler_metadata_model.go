@@ -44,16 +44,15 @@ func listMetadataModelRequests(
 		return nil, nil, err
 	}
 
-	requestIDFilter := extractFilterValue(filters, "request-id")
-	statusFilter := extractFilterValue(filters, "status")
+	df := newDescribeFilters(filters)
 
 	all := make([]schemaConversionRequestJSON, 0, len(list))
 	for _, req := range list {
-		if requestIDFilter != "" && req.RequestIdentifier != requestIDFilter {
+		if !df.Matches("request-id", req.RequestIdentifier) {
 			continue
 		}
 
-		if statusFilter != "" && req.Status != statusFilter {
+		if !df.Matches("status", req.Status) {
 			continue
 		}
 
@@ -464,8 +463,8 @@ type exportResultEntryJSON struct {
 }
 
 type exportMetadataModelAssessmentOutput struct {
-	PdfReport exportResultEntryJSON `json:"PdfReport"`
-	CsvReport exportResultEntryJSON `json:"CsvReport"`
+	PdfReport *exportResultEntryJSON `json:"PdfReport,omitempty"`
+	CsvReport *exportResultEntryJSON `json:"CsvReport,omitempty"`
 }
 
 func (h *Handler) handleExportMetadataModelAssessment(

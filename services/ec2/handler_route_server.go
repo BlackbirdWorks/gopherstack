@@ -36,16 +36,17 @@ func registerRouteServerOps(h *Handler, ops map[string]ec2ActionFn) {
 // ---- XML response types ----
 
 type routeServerItem struct {
-	RouteServerID           string `xml:"routeServerId"`
-	State                   string `xml:"state,omitempty"`
-	SnsTopicArn             string `xml:"snsTopicArn,omitempty"`
-	PersistRoutesState      string `xml:"persistRoutesState,omitempty"`
-	AmazonSideAsn           int64  `xml:"amazonSideAsn,omitempty"`
-	PersistRoutesDuration   int64  `xml:"persistRoutesDuration,omitempty"`
-	SnsNotificationsEnabled bool   `xml:"snsNotificationsEnabled"`
+	RouteServerID           string          `xml:"routeServerId"`
+	State                   string          `xml:"state,omitempty"`
+	SnsTopicArn             string          `xml:"snsTopicArn,omitempty"`
+	PersistRoutesState      string          `xml:"persistRoutesState,omitempty"`
+	TagSet                  []simpleTagItem `xml:"tagSet>item"`
+	AmazonSideAsn           int64           `xml:"amazonSideAsn,omitempty"`
+	PersistRoutesDuration   int64           `xml:"persistRoutesDuration,omitempty"`
+	SnsNotificationsEnabled bool            `xml:"snsNotificationsEnabled"`
 }
 
-func toRouteServerItem(rs *RouteServer) routeServerItem {
+func toRouteServerItem(rs *RouteServer, tags map[string]string) routeServerItem {
 	return routeServerItem{
 		RouteServerID:           rs.RouteServerID,
 		AmazonSideAsn:           rs.AmazonSideAsn,
@@ -54,6 +55,7 @@ func toRouteServerItem(rs *RouteServer) routeServerItem {
 		SnsTopicArn:             rs.SnsTopicArn,
 		PersistRoutesState:      rs.PersistRoutesState,
 		PersistRoutesDuration:   rs.PersistRoutesDuration,
+		TagSet:                  tagItemsFromMap(tags),
 	}
 }
 
@@ -93,17 +95,18 @@ type modifyRouteServerResponse struct {
 // client fails outright ("expected value for failureReason element, got
 // xml.StartElement") the first time this backend populates a failure reason.
 type routeServerEndpointItem struct {
-	RouteServerEndpointID string `xml:"routeServerEndpointId"`
-	RouteServerID         string `xml:"routeServerId,omitempty"`
-	SubnetID              string `xml:"subnetId,omitempty"`
-	VpcID                 string `xml:"vpcId,omitempty"`
-	EniID                 string `xml:"eniId,omitempty"`
-	EniAddress            string `xml:"eniAddress,omitempty"`
-	State                 string `xml:"state,omitempty"`
-	FailureReason         string `xml:"failureReason,omitempty"`
+	RouteServerEndpointID string          `xml:"routeServerEndpointId"`
+	RouteServerID         string          `xml:"routeServerId,omitempty"`
+	SubnetID              string          `xml:"subnetId,omitempty"`
+	VpcID                 string          `xml:"vpcId,omitempty"`
+	EniID                 string          `xml:"eniId,omitempty"`
+	EniAddress            string          `xml:"eniAddress,omitempty"`
+	State                 string          `xml:"state,omitempty"`
+	FailureReason         string          `xml:"failureReason,omitempty"`
+	TagSet                []simpleTagItem `xml:"tagSet>item"`
 }
 
-func toRouteServerEndpointItem(ep *RouteServerEndpoint) routeServerEndpointItem {
+func toRouteServerEndpointItem(ep *RouteServerEndpoint, tags map[string]string) routeServerEndpointItem {
 	return routeServerEndpointItem{
 		RouteServerEndpointID: ep.RouteServerEndpointID,
 		RouteServerID:         ep.RouteServerID,
@@ -113,6 +116,7 @@ func toRouteServerEndpointItem(ep *RouteServerEndpoint) routeServerEndpointItem 
 		EniAddress:            ep.EniAddress,
 		State:                 ep.State,
 		FailureReason:         joinStateReason(ep.StateReasonCode, ep.StateReasonMessage),
+		TagSet:                tagItemsFromMap(tags),
 	}
 }
 
@@ -165,6 +169,7 @@ type routeServerPeerItem struct {
 	EniAddress            string                    `xml:"endpointEniAddress,omitempty"`
 	PeerAddress           string                    `xml:"peerAddress,omitempty"`
 	BgpOptions            routeServerBGPOptionsItem `xml:"bgpOptions"`
+	TagSet                []simpleTagItem           `xml:"tagSet>item"`
 }
 
 // joinStateReason combines a resource's state-reason code and message into
@@ -180,7 +185,7 @@ func joinStateReason(code, message string) string {
 	}
 }
 
-func toRouteServerPeerItem(p *RouteServerPeer) routeServerPeerItem {
+func toRouteServerPeerItem(p *RouteServerPeer, tags map[string]string) routeServerPeerItem {
 	return routeServerPeerItem{
 		RouteServerPeerID:     p.RouteServerPeerID,
 		RouteServerEndpointID: p.RouteServerEndpointID,
@@ -192,6 +197,7 @@ func toRouteServerPeerItem(p *RouteServerPeer) routeServerPeerItem {
 		EniAddress:            p.EniAddress,
 		PeerAddress:           p.PeerAddress,
 		FailureReason:         joinStateReason(p.StateReasonCode, p.StateReasonMessage),
+		TagSet:                tagItemsFromMap(tags),
 		BgpOptions: routeServerBGPOptionsItem{
 			PeerAsn:               p.BgpPeerAsn,
 			PeerLivenessDetection: p.BgpPeerLivenessDetectionMode,
@@ -300,13 +306,41 @@ type getRouteServerPropagationsResponse struct {
 	} `xml:"routeServerPropagationSet"`
 }
 
+type routeServerRouteInstallationDetailItem struct {
+	RouteTableID                  string `xml:"routeTableId,omitempty"`
+	RouteInstallationStatus       string `xml:"routeInstallationStatus,omitempty"`
+	RouteInstallationStatusReason string `xml:"routeInstallationStatusReason,omitempty"`
+}
+
 type routeServerRouteItem struct {
-	RouteServerEndpointID string  `xml:"routeServerEndpointId,omitempty"`
-	RouteServerPeerID     string  `xml:"routeServerPeerId,omitempty"`
-	Prefix                string  `xml:"prefix,omitempty"`
-	AsPaths               []int64 `xml:"asPathSet>item"`
-	Med                   int64   `xml:"med,omitempty"`
-	RouteInstalled        bool    `xml:"routeInstalled,omitempty"`
+	RouteServerEndpointID    string                                   `xml:"routeServerEndpointId,omitempty"`
+	RouteServerPeerID        string                                   `xml:"routeServerPeerId,omitempty"`
+	Prefix                   string                                   `xml:"prefix,omitempty"`
+	NextHopIP                string                                   `xml:"nextHopIp,omitempty"`
+	RouteStatus              string                                   `xml:"routeStatus,omitempty"`
+	AsPaths                  []string                                 `xml:"asPathSet>item"`
+	RouteInstallationDetails []routeServerRouteInstallationDetailItem `xml:"routeInstallationDetailSet>item"`
+	Med                      int64                                    `xml:"med,omitempty"`
+}
+
+func toRouteServerRouteItem(r *RouteServerRoute) routeServerRouteItem {
+	item := routeServerRouteItem{
+		RouteServerEndpointID: r.RouteServerEndpointID,
+		RouteServerPeerID:     r.RouteServerPeerID,
+		Prefix:                r.Prefix,
+		NextHopIP:             r.NextHopIP,
+		RouteStatus:           r.RouteStatus,
+		AsPaths:               r.AsPaths,
+		Med:                   r.Med,
+	}
+
+	for _, d := range r.RouteInstallationDetails {
+		item.RouteInstallationDetails = append(
+			item.RouteInstallationDetails, routeServerRouteInstallationDetailItem(d),
+		)
+	}
+
+	return item
 }
 
 // getRouteServerRoutingDatabaseResponse matches
@@ -365,10 +399,17 @@ func (h *Handler) handleCreateRouteServer(vals url.Values, reqID string) (any, e
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "route-server")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{rs.RouteServerID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRouteServerResponse{
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
-		RouteServer: toRouteServerItem(rs),
+		RouteServer: toRouteServerItem(rs, tags),
 	}, nil
 }
 
@@ -378,7 +419,9 @@ func (h *Handler) handleDescribeRouteServers(vals url.Values, reqID string) (any
 
 	resp := &describeRouteServersResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, rs := range servers {
-		resp.RouteServers.Items = append(resp.RouteServers.Items, toRouteServerItem(rs))
+		resp.RouteServers.Items = append(
+			resp.RouteServers.Items, toRouteServerItem(rs, h.Backend.TagsForResource(rs.RouteServerID)),
+		)
 	}
 
 	return resp, nil
@@ -395,7 +438,7 @@ func (h *Handler) handleDeleteRouteServer(vals url.Values, reqID string) (any, e
 	return &deleteRouteServerResponse{
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
-		RouteServer: toRouteServerItem(rs),
+		RouteServer: toRouteServerItem(rs, nil),
 	}, nil
 }
 
@@ -414,7 +457,7 @@ func (h *Handler) handleModifyRouteServer(vals url.Values, reqID string) (any, e
 	return &modifyRouteServerResponse{
 		Xmlns:       ec2XMLNS,
 		RequestID:   reqID,
-		RouteServer: toRouteServerItem(rs),
+		RouteServer: toRouteServerItem(rs, h.Backend.TagsForResource(rs.RouteServerID)),
 	}, nil
 }
 
@@ -427,10 +470,17 @@ func (h *Handler) handleCreateRouteServerEndpoint(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "route-server-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.RouteServerEndpointID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRouteServerEndpointResponse{
 		Xmlns:               ec2XMLNS,
 		RequestID:           reqID,
-		RouteServerEndpoint: toRouteServerEndpointItem(ep),
+		RouteServerEndpoint: toRouteServerEndpointItem(ep, tags),
 	}, nil
 }
 
@@ -440,7 +490,10 @@ func (h *Handler) handleDescribeRouteServerEndpoints(vals url.Values, reqID stri
 
 	resp := &describeRouteServerEndpointsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, ep := range endpoints {
-		resp.RouteServerEndpoints.Items = append(resp.RouteServerEndpoints.Items, toRouteServerEndpointItem(ep))
+		resp.RouteServerEndpoints.Items = append(
+			resp.RouteServerEndpoints.Items,
+			toRouteServerEndpointItem(ep, h.Backend.TagsForResource(ep.RouteServerEndpointID)),
+		)
 	}
 
 	return resp, nil
@@ -457,7 +510,7 @@ func (h *Handler) handleDeleteRouteServerEndpoint(vals url.Values, reqID string)
 	return &deleteRouteServerEndpointResponse{
 		Xmlns:               ec2XMLNS,
 		RequestID:           reqID,
-		RouteServerEndpoint: toRouteServerEndpointItem(ep),
+		RouteServerEndpoint: toRouteServerEndpointItem(ep, nil),
 	}, nil
 }
 
@@ -472,10 +525,17 @@ func (h *Handler) handleCreateRouteServerPeer(vals url.Values, reqID string) (an
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "route-server-peer")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{peer.RouteServerPeerID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRouteServerPeerResponse{
 		Xmlns:           ec2XMLNS,
 		RequestID:       reqID,
-		RouteServerPeer: toRouteServerPeerItem(peer),
+		RouteServerPeer: toRouteServerPeerItem(peer, tags),
 	}, nil
 }
 
@@ -485,7 +545,9 @@ func (h *Handler) handleDescribeRouteServerPeers(vals url.Values, reqID string) 
 
 	resp := &describeRouteServerPeersResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, p := range peers {
-		resp.RouteServerPeers.Items = append(resp.RouteServerPeers.Items, toRouteServerPeerItem(p))
+		resp.RouteServerPeers.Items = append(
+			resp.RouteServerPeers.Items, toRouteServerPeerItem(p, h.Backend.TagsForResource(p.RouteServerPeerID)),
+		)
 	}
 
 	return resp, nil
@@ -502,7 +564,7 @@ func (h *Handler) handleDeleteRouteServerPeer(vals url.Values, reqID string) (an
 	return &deleteRouteServerPeerResponse{
 		Xmlns:           ec2XMLNS,
 		RequestID:       reqID,
-		RouteServerPeer: toRouteServerPeerItem(peer),
+		RouteServerPeer: toRouteServerPeerItem(peer, nil),
 	}, nil
 }
 
@@ -611,14 +673,7 @@ func (h *Handler) handleGetRouteServerRoutingDatabase(vals url.Values, reqID str
 		Xmlns: ec2XMLNS, RequestID: reqID, AreRoutesPersisted: arePersisted,
 	}
 	for _, r := range routes {
-		resp.Routes.Items = append(resp.Routes.Items, routeServerRouteItem{
-			RouteServerEndpointID: r.RouteServerEndpointID,
-			RouteServerPeerID:     r.RouteServerPeerID,
-			Prefix:                r.Prefix,
-			AsPaths:               r.AsPaths,
-			Med:                   r.Med,
-			RouteInstalled:        r.RouteInstalled,
-		})
+		resp.Routes.Items = append(resp.Routes.Items, toRouteServerRouteItem(r))
 	}
 
 	return resp, nil

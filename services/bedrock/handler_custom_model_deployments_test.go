@@ -249,7 +249,8 @@ func TestHandler_CustomModelDeployment_GetListUpdateDelete(t *testing.T) {
 	assert.Equal(t, deployARN, getOut["customModelDeploymentArn"])
 
 	// Update
-	rec4 := doRequest(t, h, http.MethodPatch, deployPath, nil)
+	rec4 := doRequest(t, h, http.MethodPatch, deployPath,
+		map[string]any{"modelArn": "arn:aws:bedrock:us-east-1::custom-model/m2"})
 	assert.Equal(t, http.StatusOK, rec4.Code)
 
 	// Delete

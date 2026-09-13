@@ -168,6 +168,7 @@ func buildPutObjectInput(
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
 		ContentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),
 		ContentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
+		Expires:            parseExpiresHeader(r),
 		StorageClass:       types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
 		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:      crc32p,

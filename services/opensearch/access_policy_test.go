@@ -60,32 +60,32 @@ func TestDocumentDataPlaneHonoursAccessPolicies(t *testing.T) {
 			_, err = b.CreateIndex("dom", "products", nil, nil, nil, nil)
 			require.NoError(t, err)
 
-			_, _, err = b.IndexDocument("dom", "products", "p1", map[string]any{"name": "widget"})
+			_, _, _, err = b.IndexDocument("dom", "products", "p1", map[string]any{"name": "widget"})
 			assertAccessOutcome(t, err, tt.wantDenied)
 
 			if tt.wantDenied {
 				// The index gate fires before document existence is checked,
 				// so these are still observable even though indexing above
 				// was blocked and no document exists.
-				_, getErr := b.GetDocument("dom", "products", "p1")
+				_, _, getErr := b.GetDocument("dom", "products", "p1")
 				assertAccessOutcome(t, getErr, true)
 
 				_, searchErr := b.SearchIndex("dom", "products", nil, 0)
 				assertAccessOutcome(t, searchErr, true)
 
-				deleteErr := b.DeleteDocument("dom", "products", "p1")
+				_, deleteErr := b.DeleteDocument("dom", "products", "p1")
 				assertAccessOutcome(t, deleteErr, true)
 
 				return
 			}
 
-			_, err = b.GetDocument("dom", "products", "p1")
+			_, _, err = b.GetDocument("dom", "products", "p1")
 			assertAccessOutcome(t, err, tt.wantDenied)
 
 			_, err = b.SearchIndex("dom", "products", nil, 0)
 			assertAccessOutcome(t, err, tt.wantDenied)
 
-			err = b.DeleteDocument("dom", "products", "p1")
+			_, err = b.DeleteDocument("dom", "products", "p1")
 			assertAccessOutcome(t, err, tt.wantDenied)
 		})
 	}

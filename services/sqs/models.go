@@ -192,6 +192,10 @@ type Queue struct {
 	Region           string
 	messages         []*Message
 	inFlightMessages []*InFlightMessage
+	// fifoSendTimesQueue is the sliding-1s-window send-time log for
+	// checkFIFOPerQueueRateLimit, mirroring fifoSendTimes but keyed by the
+	// whole queue instead of by message group (FifoThroughputLimit=perQueue).
+	fifoSendTimesQueue []time.Time
 	// mu guards queue-level state independently of the backend-global mu (#55).
 	mu                sync.Mutex
 	fifoSeqCounter    uint64
@@ -211,6 +215,14 @@ type Queue struct {
 // FifoThroughputLimit=perMessageGroupId. SDKs receiving more than this on a
 // single group get OverLimit and back off.
 const fifoPerGroupTPS = 300
+
+// fifoPerQueueTPS is the AWS-documented queue-wide send rate for FIFO queues
+// running with the default FifoThroughputLimit=perQueue: 300 TPS per API
+// action without batching (SendMessage, ReceiveMessage, and DeleteMessage
+// budgets are separate; only SendMessage is enforced here — see
+// checkFIFOPerQueueRateLimit).
+// https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-quotas.html#quotas-requests
+const fifoPerQueueTPS = 300
 
 // QueueInfo holds the immutable-after-creation fields of a queue, returned by ListAll.
 type QueueInfo struct {

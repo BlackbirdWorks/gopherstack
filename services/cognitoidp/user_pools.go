@@ -240,6 +240,28 @@ func validatePasswordPolicy(pp *PasswordPolicy) error {
 	return nil
 }
 
+// validateSignInPolicy checks AllowedFirstAuthFactors values against the real, documented
+// set (AuthFactorType: PASSWORD, EMAIL_OTP, SMS_OTP, WEB_AUTHN -- SOFTWARE_TOKEN is
+// explicitly documented as invalid here, cognitoidentityprovider@v1.67.4
+// types/types.go:2045-2046).
+func validateSignInPolicy(sp *SignInPolicy) error {
+	if sp == nil {
+		return nil
+	}
+
+	for _, factor := range sp.AllowedFirstAuthFactors {
+		switch factor {
+		case authFactorPassword, challengeEmailOTP, authFactorSMSOTP, authFactorWebAuthn:
+		default:
+			return fmt.Errorf(
+				"%w: AllowedFirstAuthFactors contains invalid factor %q", ErrInvalidParameter, factor,
+			)
+		}
+	}
+
+	return nil
+}
+
 // validatePassword checks the proposed password against the pool's PasswordPolicy.
 // Returns ErrInvalidPassword if the policy is violated.
 func validatePassword(policy *PasswordPolicy, password string) error {
@@ -302,6 +324,7 @@ func (b *InMemoryBackend) CreateUserPoolWithOpts(name string, opts UserPoolOptio
 		issuer:                 issuer,
 		AutoVerifiedAttributes: autoVerified,
 		PasswordPolicy:         opts.PasswordPolicy,
+		SignInPolicy:           opts.SignInPolicy,
 		LambdaConfig:           opts.LambdaConfig,
 		EmailConfiguration:     opts.EmailConfiguration,
 		AccountRecoverySetting: opts.AccountRecoverySetting,
@@ -336,6 +359,12 @@ func (b *InMemoryBackend) UpdateUserPoolWithOpts(
 	if opts.PasswordPolicy != nil {
 		pp := *opts.PasswordPolicy
 		pool.PasswordPolicy = &pp
+	}
+
+	if opts.SignInPolicy != nil {
+		sp := *opts.SignInPolicy
+		sp.AllowedFirstAuthFactors = slices.Clone(opts.SignInPolicy.AllowedFirstAuthFactors)
+		pool.SignInPolicy = &sp
 	}
 
 	if opts.AutoVerifiedAttributes != nil {

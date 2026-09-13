@@ -14,32 +14,45 @@ func (b *InMemoryBackend) BatchUpdateSchedule(
 		return nil, fmt.Errorf("%w: channel %s not found", ErrNotFound, channelID)
 	}
 	actions := b.scheduleActions[channelID]
-	// Remove deleted actions.
+	// Remove deleted actions, collecting the full removed action (not just
+	// its name) for the response -- BatchScheduleActionDeleteResult echoes
+	// back the full deleted ScheduleAction objects, not just actionNames
+	// (real awsRestjson1_deserializeDocumentBatchScheduleActionDeleteResult).
 	toDelete := make(map[string]bool, len(deleteActionNames))
 	for _, n := range deleteActionNames {
 		toDelete[n] = true
 	}
+	var deleted []ScheduleAction
 	filtered := actions[:0]
 	for _, a := range actions {
-		if !toDelete[a.ActionName] {
-			filtered = append(filtered, a)
+		if toDelete[a.ActionName] {
+			deleted = append(deleted, ScheduleAction{
+				ActionName:                  a.ActionName,
+				ActionType:                  a.ActionType,
+				ScheduleActionSettings:      a.ScheduleActionSettings,
+				ScheduleActionStartSettings: a.ScheduleActionStartSettings,
+			})
+
+			continue
 		}
+
+		filtered = append(filtered, a)
 	}
 	// Add new actions.
 	var created []ScheduleAction
 	for _, c := range creates {
 		filtered = append(
 			filtered,
-			&storedScheduleAction{ActionName: c.ActionName, ActionType: c.ActionType},
+			&storedScheduleAction{
+				ActionName:                  c.ActionName,
+				ActionType:                  c.ActionType,
+				ScheduleActionSettings:      c.ScheduleActionSettings,
+				ScheduleActionStartSettings: c.ScheduleActionStartSettings,
+			},
 		)
 		created = append(created, c)
 	}
 	b.scheduleActions[channelID] = filtered
-	// Build deleted list from intersection of requested deletes and what actually existed.
-	var deleted []ScheduleAction
-	for _, n := range deleteActionNames {
-		deleted = append(deleted, ScheduleAction{ActionName: n})
-	}
 
 	return &BatchUpdateScheduleResult{Creates: created, Deletes: deleted}, nil
 }
@@ -58,7 +71,12 @@ func (b *InMemoryBackend) DescribeSchedule(channelID string) ([]ScheduleAction, 
 	stored := b.scheduleActions[channelID]
 	out := make([]ScheduleAction, 0, len(stored))
 	for _, a := range stored {
-		out = append(out, ScheduleAction{ActionName: a.ActionName, ActionType: a.ActionType})
+		out = append(out, ScheduleAction{
+			ActionName:                  a.ActionName,
+			ActionType:                  a.ActionType,
+			ScheduleActionSettings:      a.ScheduleActionSettings,
+			ScheduleActionStartSettings: a.ScheduleActionStartSettings,
+		})
 	}
 
 	return out, nil

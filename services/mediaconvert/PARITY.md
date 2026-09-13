@@ -55,7 +55,8 @@ families:
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource: two critical wire bugs fixed (see gaps->fixed above); this is the class of bug parity-principles.md warns about (ARN routing) but the actual defect here was ARN-in-body vs ARN-in-URL and DELETE-vs-PUT method, not slash-escaping"}
   jobsQuery: {status: ok, note: "StartJobsQuery/GetJobsQueryResults: id/status wire-name bugs fixed"}
   endpoints/policy/certificates/misc: {status: ok, note: "DescribeEndpoints/GetPolicy/PutPolicy/DeletePolicy/AssociateCertificate/DisassociateCertificate/ListVersions/Probe/SearchJobs/CreateResourceShare verified op-by-op; this pass closed the DescribeEndpoints method/body gap (now POST-only, body parsed)"}
-gaps:
+gaps: []
+items_still_open:
   - Queue.ServiceOverrides is typed map[string]any in gopherstack vs a real []types.ServiceOverride list on the wire; currently dormant (CreateQueueInput has no serviceOverrides input member in the real API, so the field can never be populated by a real client) but the type would emit the wrong JSON shape (object instead of array) if ever populated internally. Re-verified this pass against aws-sdk-go-v2/service/mediaconvert@v1.97.1 (pin corrected from the stale v1.87.3 recorded here by gopherstack-u8my): still no serviceOverrides member on CreateQueueInput or UpdateQueueInput, so this remains genuinely unreachable/harmless -- left as-is rather than reshaping a field no real client can ever populate.
   - "FIXED by gopherstack-gt9o: CreateQueueInput/UpdateQueueInput's MaximumConcurrentFeeds *int32 member (Elemental Inference feed concurrency, added since v1.87.3) now read, stored, and echoed. See Notes."
   - "FIXED by gopherstack-7bxb: Queue.ConcurrentJobs was a plain int with json:\"concurrentJobs,omitempty\" -- a client that never sent the field and one that sent concurrentJobs:0 were indistinguishable (both stored/echoed as absent). Real CreateQueueInput/UpdateQueueInput/types.Queue.ConcurrentJobs is *int32 (api_op_CreateQueue.go:42, api_op_UpdateQueue.go:40, types/types.go:8622). Now *int, matching the MaximumConcurrentFeeds pattern above. Also: the janitor's SUBMITTED->PROGRESSING admission check (advanceSubmittedLocked, already gating on Queue.Status==PAUSED) now gates on ConcurrentJobs too -- a job stays SUBMITTED while its queue already has ConcurrentJobs jobs PROGRESSING, matching the field's own doc (\"the maximum number of jobs your queue can process concurrently\"). Not enforced: account/per-account-plus-per-queue Service Quota limits referenced in the same doc text (this backend has no account-quota-config model, matching the EFS FileSystemLimitExceeded precedent) and any minimum-value validation on ConcurrentJobs (none found in the pinned SDK's generated code, so none was invented). See Notes."
@@ -615,3 +616,17 @@ through the handler. `TestCreateQueue_ConcurrentJobs` (`queues_test.go`) and
 pre-existing tests asserting `ConcurrentJobs` as a plain value; both
 corrected in place to assert through the pointer instead of weakened or
 deleted.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 21/34 -> 34/34 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/mediaconvert` client: CancelJob, DeleteJobTemplate,
+DescribeEndpoints, GetJobTemplate, ListJobs, ListVersions, Probe,
+SearchJobs, StartJobsQuery, TagResource, UntagResource, UpdateJobTemplate,
+UpdateQueue. Zero bugs found -- every op decoded correctly on the first
+well-formed request, consistent with this service's long prior audit
+history (see dated sections above). No `items_still_open` changes; no
+`snapshot_inventory.json` change (no persisted-struct field touched); no
+version bump.

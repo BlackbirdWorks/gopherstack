@@ -310,6 +310,125 @@ func appendTaggedEntry(entries []TaggedEntry, arn string, tagMap map[string]stri
 	return append(entries, TaggedEntry{ARN: arn, Tags: maps.Clone(tagMap)})
 }
 
+// resourceTagsSnapshot returns the ARN -> tags map across every taggable
+// Glue resource kind. Tags is json:"-" on all eleven taggable structs (it is
+// never part of a real Get*/Describe* wire shape -- tags come back only via
+// GetTags), so store.Table's per-row JSON persistence silently drops it on
+// restart. This is the side table Restore repopulates each struct's Tags
+// field from (see restoreResourceTags), mirroring how services/mq's
+// b.tags[arn] side-table survives a restore. Caller must hold at least
+// b.mu's read lock.
+func (b *InMemoryBackend) resourceTagsSnapshot() map[string]map[string]string {
+	out := make(map[string]map[string]string)
+
+	addTags := func(arn string, tags map[string]string) {
+		if len(tags) == 0 {
+			return
+		}
+
+		out[arn] = maps.Clone(tags)
+	}
+
+	for _, db := range b.databases.All() {
+		addTags(db.ARN, db.Tags)
+	}
+
+	for _, c := range b.crawlers.All() {
+		addTags(c.ARN, c.Tags)
+	}
+
+	for _, j := range b.jobs.All() {
+		addTags(j.ARN, j.Tags)
+	}
+
+	for _, r := range b.dataQualityRulesets.All() {
+		addTags(r.ARN, r.Tags)
+	}
+
+	for _, conn := range b.connections.All() {
+		addTags(conn.ARN, conn.Tags)
+	}
+
+	for _, trig := range b.triggers.All() {
+		addTags(trig.ARN, trig.Tags)
+	}
+
+	for _, w := range b.workflows.All() {
+		addTags(w.ARN, w.Tags)
+	}
+
+	for _, bp := range b.blueprints.All() {
+		addTags(b.blueprintARN(bp.Name), bp.Tags)
+	}
+
+	for _, dep := range b.devEndpoints.All() {
+		addTags(b.devEndpointARN(dep.EndpointName), dep.Tags)
+	}
+
+	for _, m := range b.mlTransforms.All() {
+		addTags(b.mlTransformARN(m.TransformID), m.Tags)
+	}
+
+	for _, u := range b.udfs.All() {
+		addTags(b.udfARN(u.DatabaseName, u.FunctionName), u.Tags)
+	}
+
+	return out
+}
+
+// restoreResourceTags repopulates each taggable struct's Tags field from the
+// resourceTags side table produced by resourceTagsSnapshot. DevEndpoint.ARN
+// and UserDefinedFunction.FunctionARN are themselves json:"-" (recomputed on
+// create, never round-tripped through a snapshot), so both sides key those
+// two kinds by the deterministic devEndpointARN/udfARN helper rather than the
+// struct field, which would read back empty here. Caller must hold b.mu's
+// write lock.
+func (b *InMemoryBackend) restoreResourceTags(resourceTags map[string]map[string]string) {
+	for _, db := range b.databases.All() {
+		db.Tags = resourceTags[db.ARN]
+	}
+
+	for _, c := range b.crawlers.All() {
+		c.Tags = resourceTags[c.ARN]
+	}
+
+	for _, j := range b.jobs.All() {
+		j.Tags = resourceTags[j.ARN]
+	}
+
+	for _, r := range b.dataQualityRulesets.All() {
+		r.Tags = resourceTags[r.ARN]
+	}
+
+	for _, conn := range b.connections.All() {
+		conn.Tags = resourceTags[conn.ARN]
+	}
+
+	for _, trig := range b.triggers.All() {
+		trig.Tags = resourceTags[trig.ARN]
+	}
+
+	for _, w := range b.workflows.All() {
+		w.Tags = resourceTags[w.ARN]
+	}
+
+	for _, bp := range b.blueprints.All() {
+		bp.Tags = resourceTags[b.blueprintARN(bp.Name)]
+	}
+
+	for _, dep := range b.devEndpoints.All() {
+		dep.Tags = resourceTags[b.devEndpointARN(dep.EndpointName)]
+	}
+
+	for _, m := range b.mlTransforms.All() {
+		m.Tags = resourceTags[b.mlTransformARN(m.TransformID)]
+	}
+
+	for _, u := range b.udfs.All() {
+		u.Tags = resourceTags[b.udfARN(u.DatabaseName, u.FunctionName)]
+	}
+}
+
 func (b *InMemoryBackend) findDatabaseByARN(resourceARN string) *Database {
 	name := glueResourceName(resourceARN, "database")
 	if name == "" {

@@ -48,7 +48,7 @@ type getCrawlerInput struct {
 }
 
 type getCrawlerOutput struct {
-	Crawler *Crawler `json:"Crawler"`
+	Crawler *crawlerWire `json:"Crawler"`
 }
 
 func (h *Handler) handleGetCrawler(_ context.Context, in *getCrawlerInput) (*getCrawlerOutput, error) {
@@ -57,7 +57,7 @@ func (h *Handler) handleGetCrawler(_ context.Context, in *getCrawlerInput) (*get
 		return nil, err
 	}
 
-	return &getCrawlerOutput{Crawler: c}, nil
+	return &getCrawlerOutput{Crawler: toCrawlerWire(c)}, nil
 }
 
 // defaultGetCrawlersLimit is used when GetCrawlersInput.MaxResults is unset.
@@ -69,8 +69,8 @@ type getCrawlersInput struct {
 }
 
 type getCrawlersOutput struct {
-	NextToken string     `json:"NextToken,omitempty"`
-	Crawlers  []*Crawler `json:"Crawlers"`
+	NextToken string         `json:"NextToken,omitempty"`
+	Crawlers  []*crawlerWire `json:"Crawlers"`
 }
 
 func (h *Handler) handleGetCrawlers(_ context.Context, in *getCrawlersInput) (*getCrawlersOutput, error) {
@@ -83,7 +83,7 @@ func (h *Handler) handleGetCrawlers(_ context.Context, in *getCrawlersInput) (*g
 
 	page, next := paginateSlice(crawlers, in.NextToken, limit)
 
-	return &getCrawlersOutput{Crawlers: page, NextToken: next}, nil
+	return &getCrawlersOutput{Crawlers: toCrawlerWireList(page), NextToken: next}, nil
 }
 
 type updateCrawlerInput struct {
@@ -140,8 +140,8 @@ type batchGetCrawlersInput struct {
 }
 
 type batchGetCrawlersOutput struct {
-	Crawlers         []*Crawler `json:"Crawlers"`
-	CrawlersNotFound []string   `json:"CrawlersNotFound"`
+	Crawlers         []*crawlerWire `json:"Crawlers"`
+	CrawlersNotFound []string       `json:"CrawlersNotFound"`
 }
 
 func (h *Handler) handleBatchGetCrawlers(
@@ -150,7 +150,7 @@ func (h *Handler) handleBatchGetCrawlers(
 ) (*batchGetCrawlersOutput, error) {
 	found, missing := h.Backend.BatchGetCrawlers(in.CrawlerNames)
 
-	return &batchGetCrawlersOutput{Crawlers: found, CrawlersNotFound: missing}, nil
+	return &batchGetCrawlersOutput{Crawlers: toCrawlerWireList(found), CrawlersNotFound: missing}, nil
 }
 
 // defaultListCrawlersLimit is used when ListCrawlersInput.MaxResults is unset.
@@ -291,12 +291,17 @@ type listCrawlsInput struct {
 }
 
 // crawlHistoryOut is a single crawl-history entry.
+//
+// StartedOn/CompletedOn (not StartTime/EndTime -- glue@v1.157.0
+// types.Crawl, deserializers.go:47425 awsAwsjson11_deserializeDocumentCrawl)
+// are epoch-seconds numbers; a real client never populated these fields
+// under the old key names.
 type crawlHistoryOut struct {
-	CrawlID   string  `json:"CrawlId,omitempty"`
-	State     string  `json:"State,omitempty"`
-	Summary   string  `json:"Summary,omitempty"`
-	StartTime float64 `json:"StartTime,omitempty"`
-	EndTime   float64 `json:"EndTime,omitempty"`
+	CrawlID     string  `json:"CrawlId,omitempty"`
+	State       string  `json:"State,omitempty"`
+	Summary     string  `json:"Summary,omitempty"`
+	StartedOn   float64 `json:"StartedOn,omitempty"`
+	CompletedOn float64 `json:"CompletedOn,omitempty"`
 }
 
 // listCrawlsOutput holds the result for ListCrawls.
@@ -325,11 +330,11 @@ func (h *Handler) handleListCrawls(_ context.Context, in *listCrawlsInput) (*lis
 	out := make([]crawlHistoryOut, 0, len(page))
 	for _, e := range page {
 		out = append(out, crawlHistoryOut{
-			CrawlID:   e.CrawlID,
-			State:     e.State,
-			Summary:   e.Summary,
-			StartTime: e.StartTime,
-			EndTime:   e.EndTime,
+			CrawlID:     e.CrawlID,
+			State:       e.State,
+			Summary:     e.Summary,
+			StartedOn:   e.StartTime,
+			CompletedOn: e.EndTime,
 		})
 	}
 

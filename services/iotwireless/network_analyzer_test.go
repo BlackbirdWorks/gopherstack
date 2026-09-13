@@ -57,10 +57,16 @@ func TestInMemoryBackend_NetworkAnalyzerConfig_CRUD(t *testing.T) {
 				assert.Equal(t, tt.wirelessDevices, got.WirelessDevices)
 			}
 
-			// Update.
+			// Update: add "new-dev"/"new-gw" and remove whatever was there
+			// before, matching real AWS's add/remove-list semantics
+			// (UpdateNetworkAnalyzerConfigurationInput has no wholesale-replace
+			// field).
 			err = b.UpdateNetworkAnalyzerConfig(
 				testAccountID, testRegion, tt.configName, "updated desc",
-				[]string{"new-dev"}, []string{"new-gw"}, nil,
+				[]string{"new-dev"}, tt.wirelessDevices,
+				[]string{"new-gw"}, tt.wirelessGateways,
+				nil, nil,
+				nil,
 			)
 			require.NoError(t, err)
 

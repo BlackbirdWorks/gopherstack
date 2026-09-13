@@ -140,7 +140,8 @@ families:
   arn_shapes: {status: ok, note: "all ARNs built via pkgs/arn.Build, organization/account/root/ou/policy/resource-policy/handshake resource paths verified against real SDK doc comments (global service, no region segment)"}
   id_formats: {status: ok, note: "12-digit account IDs, ou- root- p- h- o- prefixes match AWS patterns"}
   timestamps: {status: ok, note: "epochSeconds(t) in models.go now delegates to pkgs/awstime.Epoch (was a local float64(t.Unix()) reimplementation that truncated sub-second precision). Wire shape (JSON number, epoch seconds) unchanged and still correct; this closes the reuse-hygiene gap flagged in the prior audit. RE-VERIFIED 2026-08-29 (dedicated timestamp-encoding pattern hunt): protocol confirmed JSON-RPC 1.1 (awsAwsjson11_* serializer prefix, organizations@v1.53.5); all 12 *time.Time members across the whole SDK package (Account.JoinedTimestamp, CreateAccountStatus.{Completed,Requested}Timestamp, DelegatedAdministrator.{DelegationEnabledDate,JoinedTimestamp}, DelegatedService.DelegationEnabledDate, EffectivePolicy.LastUpdatedTimestamp, EnabledServicePrincipal.DateEnabled, Handshake.{Expiration,Requested}Timestamp, ResponsibilityTransfer.{End,Start}Timestamp) confirmed against deserializers.go's smithytime.ParseEpochSeconds calls and gopherstack's float64 wire structs -- all correct, 12-of-12. Request-side StartTimestamp/EndTimestamp (InviteOrganizationToTransferResponsibility, TerminateResponsibilityTransfer) parsed via time.Unix(int64(req.Field), 0).UTC(), matching serializers.go's smithytime.FormatEpochSeconds encoding -- also correct. ListEffectivePolicyValidationErrorsOutput.EvaluationTimestamp (a 13th member, Output-struct-only, not in types.go) is never emitted -- correctly ABSENT, not this pass's scope: the op always returns an empty EffectivePolicyValidationErrors list (no validation engine modeled) and there is no genuine 'last evaluated' instant to report without fabricating one."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "ListAccountsWithInvalidEffectivePolicy / ListEffectivePolicyValidationErrors don't paginate (MaxResults/NextToken silently accepted-but-ignored in the same way the 6 fixed ops used to be), but both are provably always-empty results given no real policy-schema validation exists, so pagination there is moot until schema validation is implemented (no bd issue filed yet)"
   - "AWS auto-creates and attaches a default 'FullAWSAccess' SCP to the root when the SERVICE_CONTROL_POLICY policy type is enabled (or org created with ALL features); this backend does not fabricate that default policy, so ListPolicies/ListPoliciesForTarget won't show it. Deep AWS behavior detail, not flagged as broken since no client mutation is silently dropped -- documented here for the next auditor (no bd issue filed yet)"
   - "Policy content size limits are modeled at AWS's DEFAULT per-type quota only (SCP 10240, RCP 5120, TAG/BACKUP/DECLARATIVE_POLICY_EC2/CHATBOT_POLICY/SECURITYHUB_POLICY 10000, AISERVICES_OPT_OUT_POLICY 2500 -- all independently verified against the live orgs_reference_limits.html 'Maximum size of a policy document' table this pass, including the SCP default itself, which was previously wrong at 5120/shared with RCP and has been fixed); this backend does not model the service-quota-increase path (e.g. SCP up to 20480 via a quota request) since there is no quota-management API call being emulated here. A client that successfully requested a real quota increase would see this backend reject documents AWS would accept -- legitimately unmodeled account state, not a bug (no bd issue filed yet)."
@@ -155,6 +156,34 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors in t
 ---
 
 ## Notes
+
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the remaining 39 ops, 22/63 -> 63/63
+
+Added `typed_slice32_realclient_test.go`: 13 tests, each building a real
+`organizations` SDK client against `Handler` and round-tripping every
+previously-untyped op -- Account lifecycle (Create/DescribeCreateAccountStatus/
+ListCreateAccountStatus/MoveAccount/ListAccountsForParent/CloseAccount/
+RemoveAccountFromOrganization/CreateGovCloudAccount), OrganizationalUnit
+(ListChildren/ListParents/UpdateOrganizationalUnit), Policy (Describe/Update/
+Delete/Attach/Detach/ListPolicies/ListPoliciesForTarget/ListTargetsForPolicy),
+Enable/DisablePolicyType, Enable/DisableAWSServiceAccess +
+ListAWSServiceAccessForOrganization, RegisterDelegatedAdministrator family,
+Handshake lifecycle (Describe/Cancel/Decline/ListHandshakesForAccount/
+ListHandshakesForOrganization), EnableAllFeatures, LeaveOrganization (proves
+the always-fails-from-the-management-account path, the only caller identity
+this single-account backend can have), resource policy Put/Describe/Delete,
+DescribeEffectivePolicy/ListAccountsWithInvalidEffectivePolicy, and
+TagResource/UntagResource. organizations typed coverage: 22/63 -> 63/63.
+
+No new bugs found -- this package had already been through an "ordering pass"
+(every List op's sort key audited against the real SDK) and prior wire-shape
+passes; a fresh typed-client sweep corroborates that history.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/organizations/...` and `./pkgs/persistence/...` pass.
+`golangci-lint run --new-from-rev=HEAD services/organizations/...` 0 issues.
+No persistence schema/version change. `go run ./cmd/paritylint` stays at 0
+FAIL.
 
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct" traps
 so the next auditor doesn't re-flag them.

@@ -399,6 +399,10 @@ type updateEndpointRequest struct {
 	EndpointStatus string              `json:"EndpointStatus,omitempty"`
 	OptOut         string              `json:"OptOut,omitempty"`
 	RequestID      string              `json:"RequestId,omitempty"`
+	// ID is only populated (and only relevant) when this struct decodes one
+	// entry of an UpdateEndpointsBatch Item list -- see EndpointBatchItem.Id,
+	// awsRestjson1_serializeDocumentEndpointBatchItem.
+	ID string `json:"Id,omitempty"`
 }
 
 // endpointUser is a sub-object in updateEndpointRequest.
@@ -408,8 +412,14 @@ type endpointUser struct {
 }
 
 // updateEndpointsBatchRequest is the request body for UpdateEndpointsBatch.
+// Real EndpointBatchRequest.Item is a JSON ARRAY of EndpointBatchItem, each
+// carrying its own Id field (confirmed against
+// awsRestjson1_serializeDocumentEndpointBatchRequest, which calls
+// ...ListOfEndpointBatchItem) -- not a JSON object keyed by endpoint ID. A
+// real client's request always failed json.Unmarshal (array into a map)
+// before this fix, so UpdateEndpointsBatch never actually worked.
 type updateEndpointsBatchRequest struct {
-	Item map[string]updateEndpointRequest `json:"Item"`
+	Item []updateEndpointRequest `json:"Item"`
 }
 
 // putEventStreamRequest is the request body for PutEventStream.
@@ -709,14 +719,52 @@ type removeAttributesRequest struct {
 	Blacklist []string `json:"Blacklist"`
 }
 
-// inAppMessagesResponse is the response for GetInAppMessages.
+// inAppMessagesResponse is the response for GetInAppMessages. Unlike most
+// pinpoint SDK output types, GetInAppMessagesOutput's
+// awsRestjson1_deserializeOpGetInAppMessages.HandleDeserialize
+// (pinpoint@v1.42.4 deserializers.go:10412) decodes the whole HTTP body
+// directly into output.InAppMessagesResponse via
+// awsRestjson1_deserializeDocumentInAppMessagesResponse -- it does NOT go
+// through awsRestjson1_deserializeOpDocumentGetInAppMessagesOutput's
+// "InAppMessagesResponse"-keyed wrapper (that function is dead code, never
+// called from HandleDeserialize; same pattern gopherstack-lffs found and
+// fixed for SendMessages/SendUsersMessages/SendOTPMessage/
+// PhoneNumberValidate, see messages_wrapper_fix_test.go). So the response is
+// flat: InAppMessageCampaigns is a top-level key, no wrapper.
 type inAppMessagesResponse struct {
 	InAppMessageCampaigns []inAppMessageCampaign `json:"InAppMessageCampaigns"`
 }
 
-// inAppMessageCampaign is a single in-app message campaign.
+// inAppMessageCampaign is InAppMessageCampaign (pinpoint@v1.42.4
+// types/types.go): a single targeted in-app message campaign.
 type inAppMessageCampaign struct {
-	CampaignID string `json:"CampaignId"`
+	InAppMessage *inAppMessage          `json:"InAppMessage,omitempty"`
+	Schedule     *inAppCampaignSchedule `json:"Schedule,omitempty"`
+	CampaignID   string                 `json:"CampaignId"`
+	TreatmentID  string                 `json:"TreatmentId,omitempty"`
+	Priority     int                    `json:"Priority,omitempty"`
+	SessionCap   int                    `json:"SessionCap,omitempty"`
+	DailyCap     int                    `json:"DailyCap,omitempty"`
+	TotalCap     int                    `json:"TotalCap,omitempty"`
+}
+
+// inAppMessage is InAppMessage (pinpoint@v1.42.4 types/types.go): the
+// rendered in-app message content, sourced from the campaign's in-app
+// template. Content elements are passed through as raw maps -- they already
+// carry the real InAppMessageContent wire shape because CreateInAppTemplate
+// stores its request's Content field verbatim (see templates.go).
+type inAppMessage struct {
+	CustomConfig map[string]string `json:"CustomConfig,omitempty"`
+	Layout       string            `json:"Layout,omitempty"`
+	Content      []map[string]any  `json:"Content,omitempty"`
+}
+
+// inAppCampaignSchedule is InAppCampaignSchedule (pinpoint@v1.42.4
+// types/types.go).
+type inAppCampaignSchedule struct {
+	EventFilter map[string]any `json:"EventFilter,omitempty"`
+	QuietTime   map[string]any `json:"QuietTime,omitempty"`
+	EndDate     string         `json:"EndDate,omitempty"`
 }
 
 // journeyExecutionMetricsResponse is the response for GetJourneyExecutionMetrics.
@@ -771,12 +819,19 @@ type journeyRunExecutionMetricsResponse struct {
 }
 
 // journeyRunExecutionActivityMetricsResponse is the response for GetJourneyRunExecutionActivityMetrics.
+// journeyRunExecutionActivityMetricsResponse mirrors
+// types.JourneyRunExecutionActivityMetricsResponse: the activity identifier
+// field is wire-named JourneyActivityId, not ActivityId -- a real client's
+// JourneyActivityId always decoded empty regardless of the requested
+// activity. ActivityType (also a required member on the real type) is a
+// GAP, not fabricated: this backend never classifies journey activities by
+// type.
 type journeyRunExecutionActivityMetricsResponse struct {
 	Metrics           map[string]string `json:"Metrics"`
 	ApplicationID     string            `json:"ApplicationId"`
 	JourneyID         string            `json:"JourneyId"`
 	RunID             string            `json:"RunId"`
-	ActivityID        string            `json:"ActivityId"`
+	ActivityID        string            `json:"JourneyActivityId"`
 	LastEvaluatedTime string            `json:"LastEvaluatedTime"`
 }
 

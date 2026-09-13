@@ -314,7 +314,7 @@ func TestECS_Backend_CountRunningTasksForService(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run tasks with the service group.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          2,
@@ -497,7 +497,7 @@ func TestECS_Backend_EnrichService_PendingTasks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Run tasks to populate service running count.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "enrich-svc-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          2,
@@ -660,36 +660,73 @@ func TestDeleteService_Force_WithRunningTasks(t *testing.T) {
 	require.Equal(t, http.StatusOK, deleteResp.Code)
 }
 
+// TestListServicesByNamespace_Filter verifies ListServicesByNamespace
+// matches Service Connect's own Namespace field (the real, documented
+// filter -- api_op_ListServicesByNamespace.go: "the namespace ... of the
+// Cloud Map namespace to list the services in"), not a substring of the
+// service's own name, and that it searches across every cluster since the
+// real ListServicesByNamespaceInput has no Cluster member at all ("Tasks
+// can connect to services across all of the clusters in the namespace").
 func TestListServicesByNamespace_Filter(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ns-filter-cluster"})
+	doECSRequest(t, h, "CreateCluster", map[string]any{"clusterName": "ns-filter-cluster-2"})
 	doECSRequest(t, h, "RegisterTaskDefinition", map[string]any{
 		"family":               "ns-filter-task",
 		"containerDefinitions": []any{map[string]any{"name": "app", "image": "nginx"}},
 	})
 
-	// Create services with different namespace prefixes
-	for _, svcName := range []string{"payments-api", "payments-worker", "inventory-api"} {
-		doECSRequest(t, h, "CreateService", map[string]any{
-			"cluster":        "ns-filter-cluster",
-			"serviceName":    svcName,
-			"taskDefinition": "ns-filter-task",
-			"desiredCount":   1,
-		})
-	}
+	// Two services attached to the "payments" namespace, split across two
+	// clusters (proving the search isn't cluster-scoped); one attached to a
+	// different namespace; one with no Service Connect configuration at all.
+	doECSRequest(t, h, "CreateService", map[string]any{
+		"cluster":        "ns-filter-cluster",
+		"serviceName":    "payments-api",
+		"taskDefinition": "ns-filter-task",
+		"desiredCount":   1,
+		"serviceConnectConfiguration": map[string]any{
+			"enabled":   true,
+			"namespace": "payments",
+		},
+	})
+	doECSRequest(t, h, "CreateService", map[string]any{
+		"cluster":        "ns-filter-cluster-2",
+		"serviceName":    "payments-worker",
+		"taskDefinition": "ns-filter-task",
+		"desiredCount":   1,
+		"serviceConnectConfiguration": map[string]any{
+			"enabled":   true,
+			"namespace": "payments",
+		},
+	})
+	doECSRequest(t, h, "CreateService", map[string]any{
+		"cluster":        "ns-filter-cluster",
+		"serviceName":    "inventory-api",
+		"taskDefinition": "ns-filter-task",
+		"desiredCount":   1,
+		"serviceConnectConfiguration": map[string]any{
+			"enabled":   true,
+			"namespace": "inventory",
+		},
+	})
+	doECSRequest(t, h, "CreateService", map[string]any{
+		"cluster":        "ns-filter-cluster",
+		"serviceName":    "payments-no-namespace",
+		"taskDefinition": "ns-filter-task",
+		"desiredCount":   1,
+	})
 
 	listResp := doECSRequest(t, h, "ListServicesByNamespace", map[string]any{
-		"cluster":   "ns-filter-cluster",
 		"namespace": "payments",
 	})
 	require.Equal(t, http.StatusOK, listResp.Code)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(listResp.Body.Bytes(), &out))
 	arns := out["serviceArns"].([]any)
-	assert.Len(t, arns, 2)
+	assert.Len(t, arns, 2, "only the two services actually attached to the payments namespace")
 }
 
 // TestService_Tags_ResourceTagSync proves Service.Tags is synchronized with the

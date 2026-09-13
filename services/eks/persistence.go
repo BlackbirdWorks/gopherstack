@@ -21,7 +21,32 @@ import (
 // ElasticLoadBalancing onto KubernetesNetworkConfig: a v1 snapshot's
 // Cluster.NetworkingConfig.ElasticLoadBalancing would silently vanish on
 // restore into the new shape instead of erroring, so it must not decode as
-// v2.
+// v2. gopherstack-34g03 gave Update.NodegroupName (models.go) a real json tag
+// so it survives Snapshot/Restore; this is purely additive (an old snapshot
+// simply decodes the field as "", the same lossy behavior the bug already
+// produced), so it does not bump the version.
+//
+// gopherstack-wf8f (2026-09-11) retyped two existing fields (Capability.
+// Configuration: map[string]any -> *CapabilityConfiguration;
+// ConnectorConfig.ActivationExpiry: string -> activationExpiry) WITHOUT
+// bumping this constant -- see snapshotversion_guard_test.go:226-234's
+// documented soft-violation path ("confirm whether a bump is actually
+// required before running -update; do not assume bookkeeping"). Both
+// retypes stayed compatible with every version-2 snapshot on disk instead:
+// LANDMINE -- do not simplify Capability.UnmarshalJSON
+// (capability_configuration.go) or activationExpiry's UnmarshalJSON
+// (models.go) back to plain field decoding; they are exactly what makes an
+// old snapshot's map-shaped Configuration / string-shaped ActivationExpiry
+// still restore correctly, and removing either forces this version bump
+// back on (see TestRestore_Version2Fixture_TolerantDecode,
+// persistence_test.go, for the proof and a hand-written version-2 fixture
+// using both old shapes).
+//
+// gopherstack-lruaw (2026-09-11) registered a new certificateAuthorities
+// table (store_setup.go) for the CertificateAuthority ops. A new
+// store.Register call is purely additive to the Tables map -- an older
+// snapshot simply decodes with that table absent/empty -- so this did not
+// bump the version either.
 const eksSnapshotVersion = 2
 
 type backendSnapshot struct {

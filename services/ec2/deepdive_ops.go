@@ -86,16 +86,27 @@ func (b *InMemoryBackend) CreateLaunchTemplate(
 		}
 	}
 
+	now := time.Now().UTC()
 	template := &LaunchTemplate{
 		ID:                   newLaunchTemplateID(),
 		Name:                 name,
 		ImageID:              imageID,
 		InstanceType:         instanceType,
 		CreatedBy:            b.AccountID,
-		CreateTime:           time.Now().UTC(),
+		CreateTime:           now,
 		DefaultVersionNumber: 1,
 		LatestVersionNumber:  1,
 	}
+	template.Versions = []LaunchTemplateVersion{{
+		LaunchTemplateID:   template.ID,
+		LaunchTemplateName: template.Name,
+		CreatedBy:          template.CreatedBy,
+		ImageID:            imageID,
+		InstanceType:       instanceType,
+		CreateTime:         now,
+		VersionNumber:      1,
+		DefaultVersion:     true,
+	}}
 	b.launchTemplates.Put(template)
 	b.setTagsLocked(template.ID, tags)
 	cp := *template

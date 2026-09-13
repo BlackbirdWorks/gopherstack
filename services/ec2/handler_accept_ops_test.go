@@ -130,32 +130,79 @@ func TestHandler_AcceptCapacityReservationBillingOwnership(t *testing.T) {
 	}
 }
 
-// TestHandler_AcceptReservedInstancesExchangeQuote verifies exchange quote acceptance.
+// seedReservedInstance seeds a reserved-instances offering of the given
+// offeringClass ("standard" or "convertible") and purchases one instance of
+// it, returning the resulting Reserved Instance ID.
+func seedReservedInstance(t *testing.T, b *ec2.InMemoryBackend, offeringID, offeringClass string) string {
+	t.Helper()
+
+	b.SeedReservedInstancesOffering(
+		offeringID, "t3.micro", "us-east-1a", "Linux/UNIX", "All Upfront", offeringClass,
+		31536000, 100.0, 0.01,
+	)
+
+	ri, err := b.PurchaseReservedInstancesOffering(offeringID, 1)
+	require.NoError(t, err)
+
+	return ri.ReservedInstancesID
+}
+
+// TestHandler_AcceptReservedInstancesExchangeQuote verifies exchange quote
+// acceptance applies the same eligibility rules as
+// GetReservedInstancesExchangeQuote (gopherstack-1qth): an unknown RI ID is
+// InvalidReservedInstancesId, and a non-convertible (standard) RI
+// is InvalidParameterValue -- Accept has no IsValidExchange soft-failure
+// field, so an ineligible exchange must fail the call outright.
 func TestHandler_AcceptReservedInstancesExchangeQuote(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		setup    func(t *testing.T, b *ec2.InMemoryBackend) string
 		name     string
-		body     string
 		wantBody string
 		wantCode int
 	}{
 		{
-			name:     "missing_reserved_instance_ids",
-			body:     "Action=AcceptReservedInstancesExchangeQuote&Version=2016-11-15",
+			name: "missing_reserved_instance_ids",
+			setup: func(t *testing.T, _ *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				return ""
+			},
 			wantCode: http.StatusBadRequest,
 			wantBody: "InvalidParameterValue",
 		},
 		{
-			name:     "accept_with_one_id",
-			body:     "Action=AcceptReservedInstancesExchangeQuote&Version=2016-11-15&ReservedInstanceId.1=ri-abc123",
-			wantCode: http.StatusOK,
-			wantBody: "AcceptReservedInstancesExchangeQuoteResponse",
+			name: "unknown_reserved_instance_id",
+			setup: func(t *testing.T, _ *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				return "&ReservedInstanceId.1=ri-doesnotexist"
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidReservedInstancesId",
 		},
 		{
-			name: "accept_with_multiple_ids",
-			body: "Action=AcceptReservedInstancesExchangeQuote&Version=2016-11-15" +
-				"&ReservedInstanceId.1=ri-abc123&ReservedInstanceId.2=ri-def456",
+			name: "standard_ri_rejected",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				id := seedReservedInstance(t, b, "rio-accept-standard", "standard")
+
+				return "&ReservedInstanceId.1=" + id
+			},
+			wantCode: http.StatusBadRequest,
+			wantBody: "InvalidParameterValue",
+		},
+		{
+			name: "convertible_ri_accepted",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) string {
+				t.Helper()
+
+				id := seedReservedInstance(t, b, "rio-accept-convertible", "convertible")
+
+				return "&ReservedInstanceId.1=" + id
+			},
 			wantCode: http.StatusOK,
 			wantBody: "exchangeId",
 		},
@@ -165,8 +212,14 @@ func TestHandler_AcceptReservedInstancesExchangeQuote(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := newHandler()
-			rec := postForm(t, h, tt.body)
+			b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+			h := ec2.NewHandler(b)
+			h.AccountID = "000000000000"
+			h.Region = "us-east-1"
+
+			body := "Action=AcceptReservedInstancesExchangeQuote&Version=2016-11-15" + tt.setup(t, b)
+
+			rec := postForm(t, h, body)
 			assert.Equal(t, tt.wantCode, rec.Code)
 			assert.Contains(t, rec.Body.String(), tt.wantBody)
 		})

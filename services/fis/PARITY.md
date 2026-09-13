@@ -38,7 +38,8 @@ families:
   error_taxonomy: {status: ok, note: 'four exception shapes (ValidationException/ResourceNotFoundException/ConflictException/ServiceQuotaExceededException@402) verified against deserializers.go this sweep; no regressions'}
   target_selection_mode: {status: fixed, note: 'FIXED (gopherstack-0u4/gopherstack-5csh): ExperimentTemplateTarget.SelectionMode (COUNT(n)/PERCENT(n)) was validated syntactically and echoed on the wire everywhere but never consulted when building the target ARN list handed to a real FISActionProvider -- COUNT(2) on a 4-ARN target still faulted all 4. types/types.go:888 (v1.40.4): "Scopes the identified resources to a specific count or percentage." Fixed with applySelectionMode() in experiments.go, applied in executeExternalAction. AWS does not publish the selection algorithm; gopherstack takes the first N ARNs in stored order for determinism. Test: TestStartExperiment_SelectionMode_ScopesTargetARNs (experiment_selection_mode_test.go).'}
   stop_conditions: {status: fixed, note: 'FIXED (gopherstack-x842/gopherstack-9939): an "aws:cloudwatch:alarm" stop condition (types.ExperimentStopCondition{Source, Value}, types.go:517) was validated and stored but nothing ever reacted to the named alarm. gopherstack-9939 explicitly rejected polling in favor of a subscription: CloudWatch now exposes SubscribeAlarmStateChange(alarmArn, cb) (services/cloudwatch/alarm_subscriptions.go), fired from setAlarmStateLocked''s single state-transition choke point (alarm_state.go) after b.mu is released, mirroring the existing AlarmActions/SNS/Lambda dispatch pattern. FIS''s runExperiment subscribes each alarm-sourced stop condition at start and calls the existing StopExperiment(id) -- the same cancellation path manual stops already use (exp.cancel() -> ctx.Done() observed by waitForCompletionOrStop) -- when the alarm transitions to ALARM; unsubscribes on any terminal transition. cli.go''s wireFISStopConditions wires the two backends together; either side left unwired is a no-op (nil AlarmStateSubscriber / zero subscribers), identical to today''s behavior. Tests: services/cloudwatch/alarm_subscriptions_test.go, services/fis/stop_condition_alarm_test.go, cli_fis_cloudwatch_stopcondition_wiring_test.go.'}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - Experiment report generation is synchronous/immediate (terminal state computed the instant the owning experiment reaches a terminal status) rather than modeling the real async pending→running→completed/failed report lifecycle with its own timing. There is no real S3/CloudWatch backend to wait on in this emulator, so this is a reasonable simplification, not a wire-shape defect — the four modeled ExperimentReportStatus values pending/completed/cancelled/failed are all reachable (in the exact wire shape), "running" is skipped over.
   - CloudWatch dashboard snapshot capture (ExperimentReportConfigurationDataSources.CloudWatchDashboards) is accepted, validated, and echoed back on both the template and the running experiment's report configuration, but does not influence report generation (gopherstack has no real CloudWatch dashboard rendering to snapshot) — only the S3 output destination affects the generated ExperimentReportS3Report.
   - experimentOptions.accountTargeting / emptyTargetResolutionMode (CreateExperimentTemplate) are accepted, validated only as opaque strings (no enum check), and echoed on the wire, but never consulted: gopherstack has no multi-account fan-out and no dynamic tag/filter-based resource discovery (ResourceTags/Filters are stored as informational metadata only -- see buildExperimentTargets), so there is no "empty target" or "multi-account" condition for these fields to actually govern. Implementing either requires building resource discovery/multi-account execution infrastructure that does not exist -- a design decision, not something the terse SDK doc comments (types.go:364,371: "The account/empty target resolution... setting/mode for an experiment") unambiguously specify how to build. Not fixed; not guessed at.
@@ -482,3 +483,25 @@ still emitted there despite not being decodable.
 No code behavior changed. `go build ./services/fis/...`, `go vet
 ./services/fis/...`, `go test -race -count=1 ./services/fis/...` (pass),
 `golangci-lint run ./services/fis/...` (0 issues).
+
+### 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 12 remaining typed-client-blind ops
+(`DeleteTargetAccountConfiguration`, `GetAction`, `GetExperiment`,
+`GetExperimentTargetAccountConfiguration`, `GetTargetAccountConfiguration`,
+`GetTargetResourceType`, `ListExperimentResolvedTargets`,
+`ListExperimentTargetAccountConfigurations`,
+`ListTargetAccountConfigurations`, `StopExperiment`,
+`UpdateExperimentTemplate`, `UpdateTargetAccountConfiguration`) through
+the real aws-sdk-go-v2 client for the first time
+(`typed_slice21_realclient_test.go`, 3 subtests: action/target-resource-type
+catalog lookups, experiment template + target-account-configuration CRUD,
+full experiment lifecycle incl. Start/Get/Stop and its target-account-config
+and resolved-target reads). **Zero bugs** -- every op decoded and matched
+its documented shape on the first real-client run. Repo-wide typed-client
+census: fis 14/26 -> 26/26 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/fis/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes. No version bump.

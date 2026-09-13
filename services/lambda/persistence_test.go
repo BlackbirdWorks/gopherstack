@@ -1,11 +1,16 @@
 package lambda_test
 
 import (
+	"context"
+	"net/http"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/portalloc"
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
 
@@ -341,4 +346,185 @@ func TestPersistenceLayers(t *testing.T) {
 	// Verify zip data is cleared after restore.
 	_, getErr := bk2.GetLayerVersion("layer-a", 1)
 	require.NoError(t, getErr)
+}
+
+// TestPersistence_FunctionCreatedAtSurvivesPurge covers gopherstack-rluhj:
+// FunctionConfiguration.CreatedAt carried json:"-" and b.functions was
+// registered directly on b.registry with no DTO, so a restored function's
+// CreatedAt came back as the zero time. purgeAllServices (cli.go) runs the
+// TTL sweep with a cutoff of now-minus-TTL and keeps a function only when
+// !fn.CreatedAt.Before(cutoff); a zero CreatedAt is before every realistic
+// cutoff, so every restored function was purged on the first sweep
+// regardless of how recently it was actually created.
+func TestPersistence_FunctionCreatedAtSurvivesPurge(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2020, 6, 15, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		cutoff     time.Time
+		name       string
+		wantPurged bool
+	}{
+		{
+			// cutoff before CreatedAt: the function is newer than the TTL
+			// boundary and must survive. Fails against the unfixed code
+			// (restored CreatedAt is zero, which is before this cutoff too).
+			name:   "cutoff_before_createdat_survives",
+			cutoff: createdAt.Add(-time.Hour),
+		},
+		{
+			// cutoff after CreatedAt: the function is older than the TTL
+			// boundary and must be purged, on both fixed and unfixed code --
+			// a regression check that the fix didn't just make Purge inert.
+			name:       "cutoff_after_createdat_purged",
+			cutoff:     createdAt.Add(time.Hour),
+			wantPurged: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			original := newLambdaBackend(t)
+			fn := &lambda.FunctionConfiguration{
+				FunctionName: "ttl-fn",
+				Runtime:      "python3.9",
+				Role:         "arn:aws:iam::000000000000:role/test",
+				Handler:      "index.handler",
+				CreatedAt:    createdAt,
+			}
+			require.NoError(t, original.CreateFunction(fn))
+
+			snap := original.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := newLambdaBackend(t)
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			fresh.Purge(t.Context(), tt.cutoff)
+
+			_, err := fresh.GetFunction("ttl-fn")
+
+			if tt.wantPurged {
+				assert.ErrorIs(t, err, lambda.ErrFunctionNotFound)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// recordingS3Fetcher implements lambda.S3CodeFetcher and records the
+// bucket/key it was called with, for TestPersistence_S3CodeRefetchAfterRestore.
+type recordingS3Fetcher struct {
+	bucket string
+	key    string
+	data   []byte
+	calls  int
+	mu     sync.Mutex
+}
+
+func (f *recordingS3Fetcher) GetObjectBytes(_ context.Context, bucket, key string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.calls++
+	f.bucket = bucket
+	f.key = key
+
+	return f.data, nil
+}
+
+func (f *recordingS3Fetcher) snapshot() (int, string, string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.calls, f.bucket, f.key
+}
+
+// TestPersistence_S3CodeRefetchAfterRestore covers gopherstack-rluhj:
+// FunctionConfiguration.S3BucketCode/S3KeyCode carried json:"-" with no DTO,
+// so a restored S3-sourced function lost the bucket/key startZipContainer
+// (containers.go) needs to refetch its code from S3, and invoking it failed
+// with "no zip data available" instead of reaching the S3 fetcher.
+func TestPersistence_S3CodeRefetchAfterRestore(t *testing.T) {
+	t.Parallel()
+
+	original := newLambdaBackend(t)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "s3-code-fn",
+		PackageType:  lambda.PackageTypeZip,
+		Runtime:      "python3.12",
+		Handler:      "index.handler",
+		Timeout:      3,
+		S3BucketCode: "my-bucket",
+		S3KeyCode:    "my-key.zip",
+	}
+	require.NoError(t, original.CreateFunction(fn))
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	pa, paErr := portalloc.New(21000, 21050)
+	require.NoError(t, paErr)
+
+	dc := newMockDockerClient()
+	fresh := lambda.NewInMemoryBackend(dc, pa, lambda.DefaultSettings(), "000000000000", "us-east-1")
+	closeBackend(t, fresh)
+
+	fetcher := &recordingS3Fetcher{data: makeTestZip(t, `def handler(e, c): return "hello"`)}
+	fresh.SetS3CodeFetcher(fetcher)
+
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	_, statusCode, err := fresh.InvokeFunction(t.Context(), "s3-code-fn", lambda.InvocationTypeEvent, []byte(`{}`))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusAccepted, statusCode)
+
+	calls, bucket, key := fetcher.snapshot()
+	assert.Equal(t, 1, calls)
+	assert.Equal(t, "my-bucket", bucket)
+	assert.Equal(t, "my-key.zip", key)
+}
+
+// TestPersistence_FunctionURLPermissionConditionSurvivesRestore covers
+// gopherstack-rluhj: FunctionPermission.FunctionURLAuthType/
+// InvokedViaFunctionURL both carried json:"-" and permissionSnapshot only
+// covered FunctionName/Qualifier, so a restored function-URL permission lost
+// both fields and GetPolicy's Condition block came back missing them.
+func TestPersistence_FunctionURLPermissionConditionSurvivesRestore(t *testing.T) {
+	t.Parallel()
+
+	original := newLambdaBackend(t)
+	fn := &lambda.FunctionConfiguration{
+		FunctionName: "url-perm-fn",
+		Runtime:      "python3.9",
+		Role:         "arn:aws:iam::000000000000:role/test",
+		Handler:      "index.handler",
+	}
+	require.NoError(t, original.CreateFunction(fn))
+
+	invoked := true
+	_, err := original.AddPermission("url-perm-fn", "", &lambda.AddPermissionInput{
+		StatementID:           "AllowFunctionUrl",
+		Action:                "lambda:InvokeFunctionUrl",
+		Principal:             "*",
+		FunctionURLAuthType:   "AWS_IAM",
+		InvokedViaFunctionURL: &invoked,
+	})
+	require.NoError(t, err)
+
+	snap := original.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := newLambdaBackend(t)
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	out, err := fresh.GetPolicy("url-perm-fn", "")
+	require.NoError(t, err)
+	require.NotNil(t, out.Policy)
+	assert.Contains(t, *out.Policy, `"lambda:FunctionUrlAuthType":"AWS_IAM"`)
+	assert.Contains(t, *out.Policy, `"lambda:InvokedViaFunctionUrl":"true"`)
 }

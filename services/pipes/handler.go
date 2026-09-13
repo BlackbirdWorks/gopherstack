@@ -361,8 +361,16 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		// This branch used to omit keyTypeField entirely, so
+		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
+		// decoder_util.go:15) found no code in the header (unset) or the
+		// body, and every malformed-body/unknown-action failure decoded as
+		// smithy.GenericAPIError{Code:"UnknownError"} instead of the
+		// ValidationException pipes@v1.26.4 types/errors.go models.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "ValidationException",
+			keyMessageField: err.Error(),
+		})
 	default:
 		payload, _ := json.Marshal(map[string]string{
 			keyTypeField:    "InternalException",
@@ -698,8 +706,14 @@ func (h *Handler) handleUntagResource(
 	return nil, nil
 }
 
+// listTagsResponse's wire key is lowercase "tags" -- unlike DescribePipe's
+// PascalCase "Tags" field, ListTagsForResource belongs to the AWS common
+// tagging API family, whose response key is camelCase. Confirmed against
+// aws-sdk-go-v2/service/pipes@v1.26.4 deserializers.go's
+// awsRestjson1_deserializeOpDocumentListTagsForResourceOutput (case "tags":).
+// A real client's Tags always decoded nil against the old "Tags" key.
 type listTagsResponse struct {
-	Tags map[string]string `json:"Tags"`
+	Tags map[string]string `json:"tags"`
 }
 
 func (h *Handler) handleListTagsForResource(ctx context.Context, path string) ([]byte, error) {

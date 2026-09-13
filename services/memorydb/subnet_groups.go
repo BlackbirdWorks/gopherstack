@@ -12,7 +12,7 @@ import (
 
 // CreateSubnetGroup creates a new subnet group.
 func (b *InMemoryBackend) CreateSubnetGroup(ctx context.Context, req *createSubnetGroupRequest) (*SubnetGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSubnetGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) CreateSubnetGroup(ctx context.Context, req *createSubn
 
 // DescribeSubnetGroups returns subnet groups, optionally filtered by name.
 func (b *InMemoryBackend) DescribeSubnetGroups(ctx context.Context, name string) ([]*SubnetGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSubnetGroups")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) DescribeSubnetGroups(ctx context.Context, name string)
 
 // DeleteSubnetGroup removes a subnet group.
 func (b *InMemoryBackend) DeleteSubnetGroup(ctx context.Context, name string) (*SubnetGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSubnetGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) DeleteSubnetGroup(ctx context.Context, name string) (*
 
 // UpdateSubnetGroup modifies an existing subnet group.
 func (b *InMemoryBackend) UpdateSubnetGroup(ctx context.Context, req *updateSubnetGroupRequest) (*SubnetGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSubnetGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -139,7 +139,7 @@ func cloneSubnetGroup(sg *SubnetGroup) *SubnetGroup {
 
 // AddSubnetGroupInternal inserts a subnet group directly into the backend for testing.
 func (b *InMemoryBackend) AddSubnetGroupInternal(name string) *SubnetGroup {
-	b.mu.Lock()
+	b.mu.Lock("AddSubnetGroupInternal")
 	defer b.mu.Unlock()
 
 	sgARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "subnetgroup/"+name)

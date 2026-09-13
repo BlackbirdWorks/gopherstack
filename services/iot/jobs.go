@@ -21,7 +21,7 @@ import (
 func (b *InMemoryBackend) AssociateTargetsWithJob(
 	input *AssociateTargetsWithJobInput,
 ) (*AssociateTargetsWithJobOutput, error) {
-	b.mu.Lock()
+	b.mu.Lock("AssociateTargetsWithJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(input.JobID)
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) AssociateTargetsWithJob(
 
 // ListJobExecutionsForJob returns summaries of all executions for a job.
 func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListJobExecutionsForJob")
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
@@ -64,7 +64,7 @@ func (b *InMemoryBackend) ListJobExecutionsForJob(jobID string) []*JobExecution 
 
 // ListJobExecutionsForThing returns summaries of all executions for a thing.
 func (b *InMemoryBackend) ListJobExecutionsForThing(thingName string) []*JobExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListJobExecutionsForThing")
 	defer b.mu.RUnlock()
 
 	var out []*JobExecution
@@ -103,17 +103,26 @@ const (
 	JobExecRemoved    JobExecutionStatus = "REMOVED"
 )
 
-// AbortConfig holds abort criteria for a job.
+// AbortConfig holds abort criteria for a job. CriteriaList has no omitempty:
+// it's "This member is required" whenever AbortConfig is present
+// (iot@v1.83.0 validators.go:5106-5107), and the real SDK's client-side
+// required-field check only rejects a nil slice, not an empty one -- a
+// conformant client can legitimately send an empty (but non-nil)
+// criteriaList, which omitempty would otherwise silently drop.
 type AbortConfig struct {
-	CriteriaList []AbortCriteria `json:"criteriaList,omitempty"`
+	CriteriaList []AbortCriteria `json:"criteriaList"`
 }
 
-// AbortCriteria is a single abort criterion.
+// AbortCriteria is a single abort criterion. MinNumberOfExecutedThings/
+// ThresholdPercentage have no omitempty for the same reason as
+// AbortConfig.CriteriaList above: both are *int32/*float64 on the real
+// wire, so the client-side required check only rejects nil, not zero
+// (validators.go:5131-5136).
 type AbortCriteria struct {
 	Action                    string  `json:"action,omitempty"`
 	FailureType               string  `json:"failureType,omitempty"`
-	MinNumberOfExecutedThings int     `json:"minNumberOfExecutedThings,omitempty"`
-	ThresholdPercentage       float64 `json:"thresholdPercentage,omitempty"`
+	MinNumberOfExecutedThings int     `json:"minNumberOfExecutedThings"`
+	ThresholdPercentage       float64 `json:"thresholdPercentage"`
 }
 
 // JobExecutionsRolloutConfig holds rollout config for a job.
@@ -127,16 +136,21 @@ type TimeoutConfig struct {
 }
 
 // RetryCriteria is a single retry criterion for a job
-// (aws-sdk-go-v2/service/iot/types.RetryCriteria).
+// (aws-sdk-go-v2/service/iot/types.RetryCriteria). NumberOfRetries has no
+// omitempty: it's *int32 on the real wire, so 0 retries is a legitimate
+// client-supplied value the required check (nil-only) lets through
+// (validators.go:6702-6704).
 type RetryCriteria struct {
 	FailureType     string `json:"failureType,omitempty"`
-	NumberOfRetries int32  `json:"numberOfRetries,omitempty"`
+	NumberOfRetries int32  `json:"numberOfRetries"`
 }
 
 // JobExecutionsRetryConfig determines how many retries are allowed for each
-// failure type for a job (types.JobExecutionsRetryConfig).
+// failure type for a job (types.JobExecutionsRetryConfig). CriteriaList has
+// no omitempty -- same required-but-nil-only-checked reasoning as
+// AbortConfig.CriteriaList above (validators.go:6152-6153).
 type JobExecutionsRetryConfig struct {
-	CriteriaList []RetryCriteria `json:"criteriaList,omitempty"`
+	CriteriaList []RetryCriteria `json:"criteriaList"`
 }
 
 func cloneJobExecutionsRetryConfig(c *JobExecutionsRetryConfig) *JobExecutionsRetryConfig {
@@ -157,10 +171,13 @@ type PresignedURLConfig struct {
 }
 
 // MaintenanceWindow is a single recurring maintenance window within a job's
-// SchedulingConfig (types.MaintenanceWindow).
+// SchedulingConfig (types.MaintenanceWindow). StartTime/DurationInMinutes
+// have no omitempty: both are required pointer members on the real wire
+// (*string/*int32), so the client-side check only rejects nil, not an empty
+// string or a zero duration (validators.go:6406-6411).
 type MaintenanceWindow struct {
-	StartTime         string `json:"startTime,omitempty"`
-	DurationInMinutes int32  `json:"durationInMinutes,omitempty"`
+	StartTime         string `json:"startTime"`
+	DurationInMinutes int32  `json:"durationInMinutes"`
 }
 
 // SchedulingConfig schedules a job for a future date/time and configures the
@@ -324,7 +341,7 @@ type CreateJobInput struct {
 }
 
 func (b *InMemoryBackend) CreateJob(input *CreateJobInput) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateJob")
 	defer b.mu.Unlock()
 
 	if b.jobs.Has(input.JobID) {
@@ -486,7 +503,7 @@ func (b *InMemoryBackend) jobProcessDetailsLocked(jobID string) *JobProcessDetai
 }
 
 func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJob")
 	defer b.mu.RUnlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -501,7 +518,7 @@ func (b *InMemoryBackend) DescribeJob(jobID string) (*Job, error) {
 }
 
 func (b *InMemoryBackend) ListJobs() []*Job {
-	b.mu.RLock()
+	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
 	out := make([]*Job, 0, b.jobs.Len())
@@ -526,7 +543,7 @@ type UpdateJobInput struct {
 }
 
 func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -556,6 +573,20 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	return nil
 }
 
+// jobExecutionsForJob returns every JobExecution belonging to jobID (caller
+// holds the lock). Mirrors DeleteJob's own prefix-match loop.
+func (b *InMemoryBackend) jobExecutionsForJob(jobID string) []*JobExecution {
+	var result []*JobExecution
+	for _, exec := range b.jobExecutions.All() {
+		k := jobExecKey(exec.JobID, exec.ThingName)
+		if len(k) > len(jobID)+1 && k[:len(jobID)] == jobID {
+			result = append(result, exec)
+		}
+	}
+
+	return result
+}
+
 // CancelJob cancels a job. Real AWS IoT rejects canceling a job already in a
 // terminal state (CancelJobInput has no Force-independent override for this
 // -- Force only affects whether IN_PROGRESS job EXECUTIONS are canceled,
@@ -563,9 +594,10 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 // Status unconditionally, silently "re-canceling" an already-COMPLETED or
 // already-CANCELED job instead of returning InvalidStateTransitionException,
 // the same class of terminal-state guard CancelJobExecution/CancelAuditTask
-// already enforce.
-func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
-	b.mu.Lock()
+// already enforce. force additionally determines whether IN_PROGRESS job
+// executions are canceled too (QUEUED executions are always canceled).
+func (b *InMemoryBackend) CancelJob(jobID, _ string, force bool) (*Job, error) {
+	b.mu.Lock("CancelJob")
 	defer b.mu.Unlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -578,15 +610,37 @@ func (b *InMemoryBackend) CancelJob(jobID, _ string) (*Job, error) {
 	j.Status = JobStatusCanceled
 	j.LastUpdatedAt = float64(time.Now().Unix())
 
+	now := float64(time.Now().Unix())
+	for _, exec := range b.jobExecutionsForJob(jobID) {
+		switch {
+		case exec.Status == JobExecQueued:
+			exec.Status = JobExecCanceled
+			exec.LastUpdatedAt = now
+		case exec.Status == JobExecInProgress && force:
+			exec.Status = JobExecCanceled
+			exec.ForceCanceled = true
+			exec.LastUpdatedAt = now
+		}
+	}
+
 	return cloneJob(j), nil
 }
 
-func (b *InMemoryBackend) DeleteJob(jobID string) error {
-	b.mu.Lock()
+// DeleteJob deletes a job. Real AWS IoT rejects deleting a job that is
+// IN_PROGRESS unless force is true (confirmed against
+// aws-sdk-go-v2/service/iot@v1.83.0's api_op_DeleteJob.go doc comment:
+// "you can only delete a job which is in a terminal state ('COMPLETED' or
+// 'CANCELED') or an exception will occur").
+func (b *InMemoryBackend) DeleteJob(jobID string, force bool) error {
+	b.mu.Lock("DeleteJob")
 	defer b.mu.Unlock()
 
-	if !b.jobs.Has(jobID) {
+	j, ok := b.jobs.Get(jobID)
+	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
+	}
+	if j.Status == JobStatusInProgress && !force {
+		return fmt.Errorf("%w: job %q is IN_PROGRESS, set force=true to delete it", ErrInvalidStateTransition, jobID)
 	}
 	b.jobs.Delete(jobID)
 	delete(b.resourceTags, b.jobARN(jobID))
@@ -604,7 +658,7 @@ func (b *InMemoryBackend) DeleteJob(jobID string) error {
 }
 
 func (b *InMemoryBackend) GetJobDocument(jobID string) (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetJobDocument")
 	defer b.mu.RUnlock()
 
 	j, ok := b.jobs.Get(jobID)
@@ -625,7 +679,7 @@ func jobExecKey(jobID, thingName string) string {
 // own create-on-miss fallback can never produce, since it always creates in
 // CANCELED state.
 func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
-	b.mu.Lock()
+	b.mu.Lock("AddJobExecutionInternal")
 	defer b.mu.Unlock()
 
 	cp := *e
@@ -633,7 +687,7 @@ func (b *InMemoryBackend) AddJobExecutionInternal(e *JobExecution) {
 }
 
 func (b *InMemoryBackend) DescribeJobExecution(jobID, thingName string) (*JobExecution, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJobExecution")
 	defer b.mu.RUnlock()
 
 	key := jobExecKey(jobID, thingName)
@@ -675,7 +729,7 @@ type CancelJobExecutionOptions struct {
 // AddThingToThingGroup) — there, an execution is created directly in
 // CANCELED state as a defensive fallback.
 func (b *InMemoryBackend) CancelJobExecution(jobID, thingName string, opts CancelJobExecutionOptions) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelJobExecution")
 	defer b.mu.Unlock()
 
 	now := float64(time.Now().Unix())
@@ -765,7 +819,7 @@ func isTerminalJobExecutionStatus(status JobExecutionStatus) bool {
 // already-absent execution rather than ResourceNotFoundException, since
 // deletion is the natural end state).
 func (b *InMemoryBackend) DeleteJobExecution(jobID, thingName string, force bool) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteJobExecution")
 	defer b.mu.Unlock()
 
 	key := jobExecKey(jobID, thingName)
@@ -850,7 +904,7 @@ type CreateJobTemplateInput struct {
 }
 
 func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*JobTemplate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateJobTemplate")
 	defer b.mu.Unlock()
 
 	if b.jobTemplates.Has(input.JobTemplateID) {
@@ -883,7 +937,7 @@ func (b *InMemoryBackend) CreateJobTemplate(input *CreateJobTemplateInput) (*Job
 }
 
 func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeJobTemplate")
 	defer b.mu.RUnlock()
 
 	jt, ok := b.jobTemplates.Get(id)
@@ -895,7 +949,7 @@ func (b *InMemoryBackend) DescribeJobTemplate(id string) (*JobTemplate, error) {
 }
 
 func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
-	b.mu.RLock()
+	b.mu.RLock("ListJobTemplates")
 	defer b.mu.RUnlock()
 
 	out := make([]*JobTemplate, 0, b.jobTemplates.Len())
@@ -907,7 +961,7 @@ func (b *InMemoryBackend) ListJobTemplates() []*JobTemplate {
 }
 
 func (b *InMemoryBackend) DeleteJobTemplate(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteJobTemplate")
 	defer b.mu.Unlock()
 
 	if !b.jobTemplates.Has(id) {

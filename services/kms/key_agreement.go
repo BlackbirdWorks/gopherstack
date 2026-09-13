@@ -54,6 +54,10 @@ func (b *InMemoryBackend) DeriveSharedSecret(
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	sharedSecret, err := deriveECDH(input.PublicKey, km)
 	if err != nil {
 		return nil, err

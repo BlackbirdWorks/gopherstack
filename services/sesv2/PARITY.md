@@ -1,4 +1,6 @@
 ---
+items_still_open:
+  - "Contact.AttributesData (CreateContactInput/UpdateContactInput's AttributesData, api_op_CreateContact.go/api_op_UpdateContact.go) is completely unmodeled: no field on the Contact struct, not decoded by createContactInput/updateContactInput, not echoed by any Get/List response. Found 2026-09-12 (gopherstack-n3zi typed slice 11) while fixing the adjacent UnsubscribeAll accept-and-drop bug on the same two ops. Not fixed this pass: unlike UnsubscribeAll (an existing field just never wired through), this requires adding a new field to the Contact model, its JSON wire tag, and both Get/List echo paths -- a small but real feature addition, not a one-line wiring fix, so left disclosed rather than rushed."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
 last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
@@ -36,11 +38,11 @@ ops:
   ListContactLists: {wire: fixed, errors: ok, state: ok, persist: ok, note: "item shape now matches types.ContactList (ContactListName+LastUpdatedTimestamp only)"}
   DeleteContactList: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-04 (parity sweep) -- deleted the contact list but left its b.resourceTags[contactListARN] entry behind; ListTagsForResource on the deleted (or a same-named recreated) list's ARN kept returning the old tags."}
   UpdateContactList: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateContact: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateContact: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- UnsubscribeAll (a real, non-required CreateContactInput member) was decoded by no field on createContactInput at all and never reached the backend, so a contact created with UnsubscribeAll:true was silently stored as UnsubscribeAll:false. AttributesData remains unwired -- see items_still_open."}
   GetContact: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added contactOutput (PascalCase, epoch timestamps, TopicPreferences item casing)"}
   ListContacts: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, filter: partial, note: "real route is POST .../contacts/list with NextToken/Filter in the JSON body, not GET .../contacts with a query string; gopherstack had fabricated the GET route and it was completely unroutable by a real SDK client. This pass (2026-08-29): PageSize was parsed but never honored (hardcoded 0) -- fixed. Filter (FilteredStatus/TopicFilter) still unread: ContactList doesn't model per-topic default subscription status needed for TopicFilter.UseDefaultIfPreferenceUnavailable, and the AWS doc doesn't settle what standalone FilteredStatus filters against -- left."}
   DeleteContact: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateContact: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateContact: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- same UnsubscribeAll accept-and-drop as CreateContact, confirmed via a real typed client round-trip (UpdateContact(UnsubscribeAll:true) then GetContact showed false). updateContactInput/UpdateContact now carry it through."}
   CreateEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetEmailTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TemplateContent.HTML tag was 'html'/'text'/'subject' lowercase and top-level CreatedAt leaked into the response; real field is 'Html' and GetEmailTemplateOutput has no timestamp"}
   ListEmailTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "metadata items now use TemplateName+CreatedTimestamp (types.EmailTemplateMetadata), no content"}
@@ -67,7 +69,7 @@ ops:
   UpdateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   SendCustomVerificationEmail: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "POST /v2/email/outbound-custom-verification-emails was not matched by any path pattern at all; added parseOutboundCustomVerificationEmailsPath"}
   GetAccount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "previously graded 'wire: ok' in error -- the handler marshalled the internal *AccountDetails struct directly (lowerCamelCase snapshot-format tags, flat instead of the real nested Details/SuppressionAttributes/PricingAttributes sub-objects, VdmAttributes keyed 'vdmAttributes' not 'VdmAttributes'), the same bug class already fixed for every other family in this package (see 'Root-cause bug class' below) but missed for Account specifically. Found and fixed while wiring PutAccountPricingAttributes's GetAccount-visible effect this pass. Added accountOutput/accountDetailsOutput/accountSuppressionAttributesOutput/accountPricingAttributesOutput (wire_output.go), field-diffed against GetAccountOutput/types.AccountDetails/types.SuppressionAttributes/types.PricingAttributes. EnforcementStatus/ProductionAccessEnabled/SendQuota/ReviewDetails/ValidationAttributes are honestly omitted (all pointer/optional in the real shape; gopherstack has no account-review, sandbox-status, or send-quota tracking to source them from) rather than fabricated."}
-  GetBlacklistReports: {wire: ok, errors: ok, state: ok, persist: n/a}
+  GetBlacklistReports: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "CORRECTION 2026-09-11 (required-member sweep pass 4a): the prior 'state: ok' was false. BlacklistItemNames (required, httpQuery-bound repeated param -- serializers.go:2778-2782, encoder.AddQuery) was read by nothing: the handler took no request context at all, so it always returned an empty map with no keys regardless of what was requested. Fixed: now reads BlacklistItemNames from the query string, requires at least one (ValidationException otherwise), and returns a map keyed by every requested IP. This backend has no real DNS blacklist (RBL) data source to check against, so -- like lightsail's disclosed Get*MetricData stubs -- every requested IP is honestly reported not-listed (empty entry list) rather than fabricated. See TestGetBlacklistReports."}
   PutAccountDetails: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): the request decoded \"UseCaseName\", which is not a real member; the real, deprecated member is UseCaseDescription (api_op_PutAccountDetails.go:60-63). The output side (wire_output.go's toAccountOutput) already emitted the correct \"UseCaseDescription\" key, so a real client's field was silently dropped on the way in even though the readback shape looked right. Checked handler_deliverability.go's two documented deliberate-alias cases (UpdateReputationEntityCustomerManagedStatus/Policy, which read both names with a fallback) before concluding this one has no such alias logic and no in-repo dependency on the old \"UseCaseName\" wire key -- a clean rename, not an alias. Round-trip test: wire_field_fixes_test.go (TestPutAccountDetails_UseCaseDescription)."}
   PutAccountPricingAttributes: {wire: ok, errors: ok, state: ok, persist: ok, note: "new in aws-sdk-go-v2/service/sesv2 v1.66.0. Real path/verb confirmed against serializers.go: PUT /v2/email/account/pricing-attributes (awsRestjson1_serializeOpPutAccountPricingAttributes's httpbinding.SplitURI). Plan is validated against the real PricingPlan enum (NONE/ESSENTIALS/PRO/ENTERPRISE); an unrecognized value is a BadRequestException. Writes b.accountDetails.PricingPlan (existing account state, no parallel store) and is reflected by GetAccount's PricingAttributes.CurrentPlan. gopherstack has no billing-cycle concept, so the write takes effect immediately as CurrentPlan; PricingAttributes.NextPlan (real SES's 'scheduled for next billing cycle' field) is always empty -- there's nothing to schedule, and reporting a fabricated NextPlan would be worse than omitting it."}
   PutAccountDedicatedIpWarmupAttributes: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "sub-path was 'dedicated-ip-warmup-attributes' (2 segs); real path is 3 segs, 'account/dedicated-ips/warmup'. Unroutable before fix."}
@@ -737,3 +739,53 @@ Verdict: zero real bugs. Both `Ip` and `WarmupPercentage` are genuinely
 handled; the flicker is a coincidental interaction between the collision
 defect and this tool's separate `Decode()`/path-param-as-argument blind
 spot, not a service bug.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering all 62 of this
+service's remaining typed-client-blind ops through the real
+aws-sdk-go-v2 sesv2 client, grouped into 16 subtests by resource family
+(configuration set event destinations; configuration set attributes;
+custom verification email templates; deliverability; email identity
+policies; email identity attributes/delete; email templates; contacts and
+contact lists; export jobs; import jobs; dedicated IP pools and account
+warmup; account sending/suppression/VDM attributes; suppressed
+destinations; multi-region endpoint delete; tenants and tenant resource
+associations; email address insights/message insights/tags). Client-side
+typed coverage went from 50/112 to 112/112.
+
+**One real bug found and fixed**, caught only by a round-trip through the
+real typed client (`UpdateContact(UnsubscribeAll: true)` followed by a
+`GetContact` that still showed `false`): `CreateContact`/`UpdateContact`'s
+`UnsubscribeAll` request field (real, non-required member on both
+`api_op_CreateContact.go`/`api_op_UpdateContact.go`) was decoded by no
+field on either handler's request struct at all, so it was silently
+dropped regardless of what a real client sent -- `Contact.UnsubscribeAll`
+(an existing model field, already echoed correctly on read) stayed `false`
+forever. Fixed by adding `UnsubscribeAll` to `createContactInput` and
+`updateContactInput` (`handler_contacts.go`) and threading it through
+`InMemoryBackend.CreateContact`/`UpdateContact` (`contacts.go`) into the
+`Contact` struct. Signature changes required updating the `StorageBackend`
+interface (`interfaces.go`) and 5 existing direct-backend test call sites
+(`contacts_test.go`, `persistence_test.go`) to pass the new parameter --
+none of them asserted on the old (wrong) behavior, so no test logic
+changed, only call signatures.
+
+**Found, not fixed, disclosed:** `Contact.AttributesData` is completely
+unmodeled (see `items_still_open`) -- discovered while fixing the
+UnsubscribeAll bug above, since both fields sit on the same two request
+structs, but left as a disclosed gap since it requires a new model field
+rather than wiring an existing one.
+
+No persisted-shape changes beyond the new `Contact.UnsubscribeAll`
+write path (the field itself already existed and was already persisted --
+only who could set it changed); `pkgs/persistence/testdata/snapshot_inventory.json`
+untouched, no version bump.
+
+Gates: `go build ./services/sesv2/...` clean (whole-module `go build ./...`
+has an unrelated, pre-existing break in `services/dms` from concurrent
+work outside this pass's scope -- confirmed via `git status` showing dms
+dirty before this session touched anything); `go vet ./services/sesv2/...`
+clean; `go test -race -count=1 ./services/sesv2/...` all pass; `go test
+-race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
+--new-from-rev=HEAD services/sesv2/...` 0 issues.

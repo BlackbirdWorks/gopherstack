@@ -49,17 +49,10 @@ var ErrValidation = awserr.New("InvalidInputException", awserr.ErrInvalidParamet
 
 // ErrResourceNumberLimitExceeded is returned when a create call would push a
 // resource kind past its documented account quota, mirroring AWS's
-// ResourceNumberLimitExceededException (confirmed in
-// aws-sdk-go-v2/service/glue/deserializers.go's
-// awsAwsjson11_deserializeOpErrorCreateDevEndpoint error switch; the quota
-// value itself is AWS's published default, docs.aws.amazon.com/general/latest/gr/glue.html
-// "Max development endpoint per account: 25").
+// ResourceNumberLimitExceededException. Enforced per resource kind wherever
+// the pinned SDK's own per-op error switch declares it -- see limits.go for
+// the full op list and cited quota values.
 var ErrResourceNumberLimitExceeded = awserr.New("ResourceNumberLimitExceededException", awserr.ErrInvalidParameter)
-
-// maxDevEndpointsPerAccount is AWS's documented default quota (adjustable in
-// real AWS via Service Quotas, fixed here since this backend has no per-account
-// quota-adjustment concept).
-const maxDevEndpointsPerAccount = 25
 
 // glueARNParts is the number of colon-separated parts in a Glue ARN.
 // Format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.
@@ -203,6 +196,10 @@ type InMemoryBackend struct {
 	dataCatalogExportConfig   *DataCatalogExportConfiguration
 	registry                  *store.Registry
 	mu                        *lockmetrics.RWMutex
+	// ramShareCreator seams a hybrid cross-account resource policy into a real RAM
+	// CREATED_FROM_POLICY share (SetResourceShareCreator, wired in cli.go like
+	// awsconfig's SetSNSPublisher). Nil in tests that construct a bare backend.
+	ramShareCreator ResourceShareCreator
 
 	// lifecycle reconciler timers
 	jobRunReadyAt      map[string]map[string]time.Time // jobName → runID → readyAt for STARTING→RUNNING
@@ -240,6 +237,14 @@ type InMemoryBackend struct {
 	accountID string
 	region    string
 
+	// limits holds the resource-cardinality caps enforced with
+	// ResourceNumberLimitExceededException (see limits.go); configuredLimits
+	// preserves a WithResourceLimits override across Reset(), matching
+	// services/ses's WithEmailTTL/configuredEmailTTL precedent. Placed with
+	// the other pointer-free fields (govet fieldalignment).
+	limits           resourceLimits
+	configuredLimits resourceLimits
+
 	// Managed reconciler lifecycle bookkeeping. The reconciler is started by the
 	// service framework via StartWorker (BackgroundWorker) and stopped by Shutdown
 	// (Shutdowner), replacing the previous unmanaged goroutine that leaked because
@@ -272,6 +277,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		mu:                        lockmetrics.New("glue"),
 		accountID:                 accountID,
 		region:                    region,
+		limits:                    defaultResourceLimits(),
+		configuredLimits:          defaultResourceLimits(),
 		jobRunReadyAt:             make(map[string]map[string]time.Time),
 		jobRunDoneAt:              make(map[string]map[string]time.Time),
 		jobRunTimeoutAt:           make(map[string]map[string]time.Time),
@@ -285,12 +292,24 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	return b
 }
 
+// WithResourceLimits overrides the resource caps enforced by
+// ResourceNumberLimitExceededException (see limits.go) and returns the
+// backend for chaining. A zero field in l keeps its real-Glue default. The
+// override survives Reset(), matching services/ses's WithEmailTTL precedent.
+func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend {
+	applyResourceLimitOverrides(&b.limits, l)
+	applyResourceLimitOverrides(&b.configuredLimits, l)
+
+	return b
+}
+
 // Reset clears all backend state, returning it to the initial empty state.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.limits = b.configuredLimits
 
 	b.partitionIndexes = make(map[string]*PartitionIndex)
 	b.jobRuns = make(map[string][]*JobRun)
@@ -336,6 +355,17 @@ func (b *InMemoryBackend) Region() string { return b.region }
 
 // AccountID returns the backend account ID.
 func (b *InMemoryBackend) AccountID() string { return b.accountID }
+
+// SetResourceShareCreator registers the RAM seam used by PutResourcePolicy/
+// DeleteResourcePolicy to keep a CREATED_FROM_POLICY resource share in sync with a
+// hybrid resource policy's cross-account grants. Unwired backends (nil, the default)
+// simply skip RAM sync -- the resource policy itself is still stored correctly.
+func (b *InMemoryBackend) SetResourceShareCreator(c ResourceShareCreator) {
+	b.mu.Lock("SetResourceShareCreator")
+	defer b.mu.Unlock()
+
+	b.ramShareCreator = c
+}
 
 // glueResourceName extracts the resource name from a Glue ARN for a given resource type.
 // Glue ARNs have the format: arn:aws:glue:{region}:{account}:{resourceType}/{name}.

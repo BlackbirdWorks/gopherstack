@@ -46,25 +46,25 @@ func getMobileSdkReleases(platform string) []mobileSdkReleaseInfo {
 func buildMobileSdkCatalog() []mobileSdkReleaseInfo {
 	return []mobileSdkReleaseInfo{
 		{
-			Platform:       "Android",
+			Platform:       "ANDROID",
 			ReleaseVersion: "3.1.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for Android — threat intelligence updates and bug fixes",
 			Timestamp:      timestampMidYr2024,
 		},
 		{
-			Platform:       "Android",
+			Platform:       "ANDROID",
 			ReleaseVersion: "3.0.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for Android — initial v3 release",
 			Timestamp:      timestampNov2023,
 		},
 		{
-			Platform:       "iOS",
+			Platform:       "IOS",
 			ReleaseVersion: "3.1.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.1.0 for iOS — threat intelligence updates and bug fixes",
 			Timestamp:      timestampMidYr2024,
 		},
 		{
-			Platform:       "iOS",
+			Platform:       "IOS",
 			ReleaseVersion: "3.0.0",
 			ReleaseNotes:   "WAF Mobile SDK 3.0.0 for iOS — initial v3 release",
 			Timestamp:      timestampNov2023,

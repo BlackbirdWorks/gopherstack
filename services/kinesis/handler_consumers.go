@@ -276,16 +276,30 @@ func encodeEventStreamMsg(hdrs [][2]string, payload []byte) []byte {
 	return buf
 }
 
-// subscribeToShardStreamDuration is how long a SubscribeToShard stream stays open (~5 min).
-const subscribeToShardStreamDuration = 5 * time.Minute
+// defaultSubscribeToShardStreamDuration is how long a SubscribeToShard
+// stream stays open by default: "Kinesis Data Streams then starts pushing
+// the records from that shard to you ... over an HTTP/2 connection. The
+// connection remains open for up to 5 minutes."
+// (docs.aws.amazon.com/streams/latest/dev/building-enhanced-consumers-api.html).
+// Overridable per Handler; see WithSubscribeToShardTiming (handler.go).
+const defaultSubscribeToShardStreamDuration = 5 * time.Minute
 
-// subscribeToShardPollInterval is the poll interval between record checks.
-const subscribeToShardPollInterval = 200 * time.Millisecond
+// defaultSubscribeToShardPollInterval is how often the emulator checks the
+// shard for new records while a SubscribeToShard stream is open. Real AWS
+// pushes as data arrives rather than polling; this is the polling-emulation
+// tick, deliberately short so newly Put records are delivered promptly.
+const defaultSubscribeToShardPollInterval = 200 * time.Millisecond
 
-// subscribeToShardMaxIdlePolls is the number of consecutive empty polls before the stream
-// is closed gracefully.  AWS clients re-subscribe after a stream closes, so closing on
-// idle is safe.  Keeping this small (3 × 200 ms = 600 ms) ensures tests complete quickly.
-const subscribeToShardMaxIdlePolls = 3
+// defaultSubscribeToShardHeartbeatInterval is how often an empty
+// SubscribeToShardEvent (a heartbeat) is sent while idle, instead of
+// closing the stream. API_SubscribeToShardEvent.html documents
+// ContinuationSequenceNumber as required even with no records ("captures
+// your shard progress even when no data is written to the shard"), which
+// implies periodic empty events keep the connection alive for the full
+// 5-minute window -- but neither that page nor
+// building-enhanced-consumers-api.html states an exact interval. This value
+// is a disclosed inference (see PARITY.md), not a verified AWS constant.
+const defaultSubscribeToShardHeartbeatInterval = 5 * time.Second
 
 // handleSubscribeToShardHTTP handles the SubscribeToShard operation using the AWS event stream
 // binary protocol. It keeps the response stream open for up to 5 minutes, pushing records as
@@ -293,93 +307,166 @@ const subscribeToShardMaxIdlePolls = 3
 func (h *Handler) handleSubscribeToShardHTTP(c *echo.Context) error {
 	region := httputils.ExtractRegionFromRequest(c.Request(), h.defaultRegion())
 	ctx := contextWithRegion(c.Request().Context(), region)
-	log := logger.Load(ctx)
 
-	body, err := httputils.ReadBody(c.Request())
-	if err != nil {
-		log.ErrorContext(ctx, "SubscribeToShard: failed to read body", "error", err)
-
-		return h.handleError(ctx, c, "SubscribeToShard", err)
+	req, sp, ok, err := h.parseSubscribeToShardRequest(ctx, c)
+	if !ok {
+		return err
 	}
 
+	flusher, canFlush, err := h.openSubscribeToShardStream(c)
+	if err != nil {
+		return err
+	}
+
+	return h.runSubscribeToShardStream(ctx, c, req, sp, flusher, canFlush)
+}
+
+// parseSubscribeToShardRequest reads and JSON-decodes the request body,
+// builds the initial StartingPosition, and validates the consumer/shard
+// against the backend before any streaming response is written. When ok is
+// false, an error response has already been written via h.handleError (err
+// is what the caller should return to satisfy the echo handler signature,
+// which may itself be nil).
+func (h *Handler) parseSubscribeToShardRequest(
+	ctx context.Context,
+	c *echo.Context,
+) (jsonSubscribeToShardReq, StartingPosition, bool, error) {
+	log := logger.Load(ctx)
+
 	var req jsonSubscribeToShardReq
-	if err = json.Unmarshal(body, &req); err != nil {
-		return h.handleError(ctx, c, "SubscribeToShard", ErrInvalidArgument)
+
+	body, readErr := httputils.ReadBody(c.Request())
+	if readErr != nil {
+		log.ErrorContext(ctx, "SubscribeToShard: failed to read body", "error", readErr)
+
+		return req, StartingPosition{}, false, h.handleError(ctx, c, "SubscribeToShard", readErr)
+	}
+
+	if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
+		return req, StartingPosition{}, false, h.handleError(ctx, c, "SubscribeToShard", ErrInvalidArgument)
 	}
 
 	sp := StartingPosition{
 		Type:           req.StartingPosition.Type,
 		SequenceNumber: req.StartingPosition.SequenceNumber,
 	}
-
 	if req.StartingPosition.Timestamp != nil {
 		ts := time.UnixMilli(int64(*req.StartingPosition.Timestamp * millisPerSecond))
 		sp.Timestamp = &ts
 	}
 
 	// Validate consumer/shard before opening the stream.
-	if _, err = h.Backend.SubscribeToShard(ctx, &SubscribeToShardInput{
+	if _, subErr := h.Backend.SubscribeToShard(ctx, &SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: sp,
-	}); err != nil {
-		return h.handleError(ctx, c, "SubscribeToShard", err)
+	}); subErr != nil {
+		return req, sp, false, h.handleError(ctx, c, "SubscribeToShard", subErr)
 	}
 
+	return req, sp, true, nil
+}
+
+// openSubscribeToShardStream writes the event-stream response headers and
+// the initial-response frame the SDK's event-stream middleware waits for to
+// unblock, returning the response's http.Flusher (if any) for the caller's
+// streaming loop.
+func (h *Handler) openSubscribeToShardStream(c *echo.Context) (http.Flusher, bool, error) {
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
 	c.Response().WriteHeader(http.StatusOK)
 
 	flusher, canFlush := c.Response().(http.Flusher)
 
-	// Send initial-response so the SDK event-stream middleware unblocks.
 	initialMsg := encodeEventStreamMsg([][2]string{
 		{":event-type", "initial-response"},
 		{":message-type", "event"},
 		{":content-type", "application/json"},
 	}, []byte("{}"))
 	if _, writeErr := c.Response().Write(initialMsg); writeErr != nil {
-		return writeErr
+		return flusher, canFlush, writeErr
 	}
 	if canFlush {
 		flusher.Flush()
 	}
 
-	deadline := time.Now().Add(subscribeToShardStreamDuration)
+	return flusher, canFlush, nil
+}
+
+// runSubscribeToShardStream drives the event-stream response until the
+// stream's deadline elapses (h.subscribeToShardStreamDuration) or ctx is
+// cancelled: it polls the backend every h.subscribeToShardPollInterval,
+// delivering new records immediately and sending a heartbeat
+// SubscribeToShardEvent (empty Records) once
+// h.subscribeToShardHeartbeatInterval has elapsed since the last frame.
+func (h *Handler) runSubscribeToShardStream(
+	ctx context.Context,
+	c *echo.Context,
+	req jsonSubscribeToShardReq,
+	sp StartingPosition,
+	flusher http.Flusher,
+	canFlush bool,
+) error {
+	deadline := time.Now().Add(h.subscribeToShardStreamDuration)
 	curSP := sp
-	idlePolls := 0
+	lastEventAt := time.Now()
 
 	// Check immediately: a consumer commonly subscribes (e.g. TRIM_HORIZON)
 	// after data was already written, and delivering it here avoids making
-	// that first event wait on the poll interval's next tick.
-	if stop, next := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+	// that first event wait on the poll interval's next tick. heartbeatDue
+	// is false on this first check -- an idle subscription's first
+	// heartbeat waits for the normal cadence, matching the ticker path
+	// below, rather than firing instantly at t=0.
+	stop, next, sentEvent := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, false)
+	if stop {
 		return nil
-	} else if next != nil {
+	}
+	if next != nil {
 		curSP = *next
 	}
+	if sentEvent {
+		lastEventAt = time.Now()
+	}
 
-	ticker := time.NewTicker(subscribeToShardPollInterval)
+	ticker := time.NewTicker(h.subscribeToShardPollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			if time.Now().After(deadline) {
+		case now := <-ticker.C:
+			if now.After(deadline) {
 				return nil
 			}
 
-			if stop, next := h.advanceShardCursor(ctx, req, curSP, c.Response(), flusher, canFlush, &idlePolls); stop {
+			heartbeatDue := now.Sub(lastEventAt) >= h.subscribeToShardHeartbeatInterval
+
+			tickStop, tickNext, tickSentEvent := h.advanceShardCursor(
+				ctx,
+				req,
+				curSP,
+				c.Response(),
+				flusher,
+				canFlush,
+				heartbeatDue,
+			)
+			if tickStop {
 				return nil
-			} else if next != nil {
-				curSP = *next
+			}
+			if tickNext != nil {
+				curSP = *tickNext
+			}
+			if tickSentEvent {
+				lastEventAt = now
 			}
 		}
 	}
 }
 
-// advanceShardCursor calls pollSubscribeToShardTick and returns (stop=true, nil) when the
-// stream should close, or (false, nextSP) when it should continue (nextSP may be nil).
+// advanceShardCursor calls pollSubscribeToShardTick and returns (stop=true) when the
+// stream should close (a backend or write error), or (false, nextSP, sentEvent)
+// when it should continue (nextSP may be nil; sentEvent reports whether a
+// SubscribeToShardEvent frame -- data or heartbeat -- was actually written).
 func (h *Handler) advanceShardCursor(
 	ctx context.Context,
 	req jsonSubscribeToShardReq,
@@ -387,20 +474,23 @@ func (h *Handler) advanceShardCursor(
 	w http.ResponseWriter,
 	flusher http.Flusher,
 	canFlush bool,
-	idlePolls *int,
-) (bool, *StartingPosition) {
-	done, next, tickErr := h.pollSubscribeToShardTick(ctx, req, curSP, w, flusher, canFlush, idlePolls)
-	if tickErr != nil || done {
-		return true, nil
+	heartbeatDue bool,
+) (bool, *StartingPosition, bool) {
+	next, sentEvent, err := h.pollSubscribeToShardTick(ctx, req, curSP, w, flusher, canFlush, heartbeatDue)
+	if err != nil {
+		return true, nil, false
 	}
 
-	return false, next
+	return false, next, sentEvent
 }
 
 // pollSubscribeToShardTick performs one poll tick for handleSubscribeToShardHTTP.
-// Returns (true, nil, err) when the stream should close (poll error or idle limit reached),
-// (false, nextSP, nil) when records were delivered (nextSP non-nil means cursor advanced),
-// and (false, nil, err) on a write error.
+// When the shard has no new records, a SubscribeToShardEvent frame is only
+// written if heartbeatDue is set -- otherwise this tick is a silent no-op,
+// so heartbeats fire on their own cadence (subscribeToShardHeartbeatInterval)
+// independent of the faster poll tick used to detect new data promptly.
+// Returns the advanced StartingPosition (nil if unchanged), whether a frame
+// was written, and any backend/write error (which always closes the stream).
 func (h *Handler) pollSubscribeToShardTick(
 	ctx context.Context,
 	req jsonSubscribeToShardReq,
@@ -408,26 +498,20 @@ func (h *Handler) pollSubscribeToShardTick(
 	w http.ResponseWriter,
 	flusher http.Flusher,
 	canFlush bool,
-	idlePolls *int,
-) (bool, *StartingPosition, error) {
+	heartbeatDue bool,
+) (*StartingPosition, bool, error) {
 	out, pollErr := h.Backend.SubscribeToShard(ctx, &SubscribeToShardInput{
 		ConsumerARN:      req.ConsumerARN,
 		ShardID:          req.ShardID,
 		StartingPosition: curSP,
 	})
 	if pollErr != nil {
-		return true, nil, pollErr
+		return nil, false, pollErr
 	}
 
-	if len(out.Event.Records) == 0 {
-		*idlePolls++
-		if *idlePolls >= subscribeToShardMaxIdlePolls {
-			return true, nil, nil
-		}
-
-		return false, nil, nil
+	if len(out.Event.Records) == 0 && !heartbeatDue {
+		return nil, false, nil
 	}
-	*idlePolls = 0
 
 	records := make([]jsonRecord, len(out.Event.Records))
 	for i, r := range out.Event.Records {
@@ -446,7 +530,7 @@ func (h *Handler) pollSubscribeToShardTick(
 		MillisBehindLatest:         out.Event.MillisBehindLatest,
 	})
 	if marshalErr != nil {
-		return false, nil, marshalErr
+		return nil, false, marshalErr
 	}
 
 	eventMsg := encodeEventStreamMsg([][2]string{
@@ -456,7 +540,7 @@ func (h *Handler) pollSubscribeToShardTick(
 	}, eventPayload)
 
 	if _, writeErr := w.Write(eventMsg); writeErr != nil {
-		return false, nil, writeErr
+		return nil, false, writeErr
 	}
 	if canFlush {
 		flusher.Flush()
@@ -468,8 +552,8 @@ func (h *Handler) pollSubscribeToShardTick(
 			SequenceNumber: out.Event.ContinuationSequenceNumber,
 		}
 
-		return false, &sp, nil
+		return &sp, true, nil
 	}
 
-	return false, nil, nil
+	return nil, true, nil
 }

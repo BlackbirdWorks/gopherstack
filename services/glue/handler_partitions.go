@@ -35,6 +35,7 @@ type batchDeletePartitionInput struct {
 	DatabaseName       string               `json:"DatabaseName"`
 	TableName          string               `json:"TableName"`
 	PartitionsToDelete []PartitionValueList `json:"PartitionsToDelete"`
+	CatalogID          string               `json:"CatalogId,omitempty"`
 }
 
 type batchDeletePartitionOutput struct {
@@ -45,7 +46,33 @@ func (h *Handler) handleBatchDeletePartition(
 	_ context.Context,
 	in *batchDeletePartitionInput,
 ) (*batchDeletePartitionOutput, error) {
-	errs := h.Backend.BatchDeletePartition(in.DatabaseName, in.TableName, in.PartitionsToDelete)
+	toDelete := in.PartitionsToDelete
+	errs := make([]PartitionError, 0)
+
+	if in.CatalogID != "" {
+		var scoped []PartitionValueList
+
+		for _, pvl := range toDelete {
+			p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, pvl.Values)
+			if err == nil && catalogIDMismatch(in.CatalogID, p.CatalogID) {
+				errs = append(errs, PartitionError{
+					PartitionValues: pvl.Values,
+					ErrorDetail: ErrorDetail{
+						ErrorCode:    errEntityNotFoundCode,
+						ErrorMessage: "partition not found",
+					},
+				})
+
+				continue
+			}
+
+			scoped = append(scoped, pvl)
+		}
+
+		toDelete = scoped
+	}
+
+	errs = append(errs, h.Backend.BatchDeletePartition(in.DatabaseName, in.TableName, toDelete)...)
 
 	return &batchDeletePartitionOutput{Errors: errs}, nil
 }
@@ -69,6 +96,8 @@ func awserrFromDetail(d ErrorDetail) error {
 		return awserr.New(msg, awserr.ErrAlreadyExists)
 	case errEntityNotFoundCode:
 		return awserr.New(msg, awserr.ErrNotFound)
+	case "ResourceNumberLimitExceededException":
+		return fmt.Errorf("%s: %w", msg, ErrResourceNumberLimitExceeded)
 	default:
 		return awserr.New(msg, awserr.ErrInvalidParameter)
 	}
@@ -79,6 +108,7 @@ type batchGetPartitionInput struct {
 	DatabaseName    string               `json:"DatabaseName"`
 	TableName       string               `json:"TableName"`
 	PartitionsToGet []PartitionValueList `json:"PartitionsToGet"`
+	CatalogID       string               `json:"CatalogId,omitempty"`
 }
 
 // batchGetPartitionOutput holds the result for BatchGetPartition.
@@ -115,7 +145,7 @@ func (h *Handler) handleBatchGetPartition(
 
 	for _, pvl := range in.PartitionsToGet {
 		p, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, pvl.Values)
-		if err != nil {
+		if err != nil || catalogIDMismatch(in.CatalogID, p.CatalogID) {
 			unprocessed = append(unprocessed, pvl)
 
 			continue
@@ -203,12 +233,24 @@ type deletePartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
 	PartitionValues []string `json:"PartitionValues"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleDeletePartition(
 	_ context.Context,
 	in *deletePartitionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValues)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	errs := h.Backend.BatchDeletePartition(
 		in.DatabaseName,
 		in.TableName,
@@ -226,6 +268,7 @@ type getPartitionInput struct {
 	DatabaseName    string   `json:"DatabaseName"`
 	TableName       string   `json:"TableName"`
 	PartitionValues []string `json:"PartitionValues"`
+	CatalogID       string   `json:"CatalogId,omitempty"`
 }
 
 // getPartitionOutput holds the result for GetPartition.
@@ -242,6 +285,10 @@ func (h *Handler) handleGetPartition(
 		return nil, err
 	}
 
+	if catalogIDMismatch(in.CatalogID, p.CatalogID) {
+		return nil, ErrNotFound
+	}
+
 	return &getPartitionOutput{Partition: p}, nil
 }
 
@@ -255,6 +302,7 @@ type getPartitionsInput struct {
 	Expression   string `json:"Expression,omitempty"`
 	MaxResults   *int32 `json:"MaxResults,omitempty"`
 	NextToken    string `json:"NextToken,omitempty"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // getPartitionsOutput holds the result for GetPartitions.
@@ -278,6 +326,18 @@ func (h *Handler) handleGetPartitions(
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
+	}
+
+	if in.CatalogID != "" {
+		filtered := partitions[:0]
+
+		for _, p := range partitions {
+			if p.CatalogID == in.CatalogID {
+				filtered = append(filtered, p)
+			}
+		}
+
+		partitions = filtered
 	}
 
 	if in.Expression != "" {
@@ -355,10 +415,13 @@ func (h *Handler) handleGetUnfilteredPartitionMetadata(
 }
 
 // getUnfilteredPartitionsMetadataInput holds input for GetUnfilteredPartitionsMetadata.
+// CatalogId is required on the real op (glue@v1.157.0
+// api_op_GetUnfilteredPartitionsMetadata.go).
 type getUnfilteredPartitionsMetadataInput struct {
 	DatabaseName             string   `json:"DatabaseName"`
 	TableName                string   `json:"TableName"`
 	SupportedPermissionTypes []string `json:"SupportedPermissionTypes,omitempty"`
+	CatalogID                string   `json:"CatalogId,omitempty"`
 }
 
 // unfilteredPartitionEntry wraps a Partition for the unfiltered metadata response.
@@ -379,6 +442,17 @@ func (h *Handler) handleGetUnfilteredPartitionsMetadata(
 ) (*getUnfilteredPartitionsMetadataOutput, error) {
 	if in.DatabaseName == "" || in.TableName == "" {
 		return &getUnfilteredPartitionsMetadataOutput{UnfilteredPartitions: []any{}}, nil
+	}
+
+	if in.CatalogID != "" {
+		tbl, err := h.Backend.GetTable(in.DatabaseName, in.TableName)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, tbl.CatalogID) {
+			return nil, ErrNotFound
+		}
 	}
 
 	partitions, err := h.Backend.GetPartitions(in.DatabaseName, in.TableName)
@@ -403,12 +477,24 @@ type updatePartitionInput struct {
 	TableName          string         `json:"TableName"`
 	PartitionValueList []string       `json:"PartitionValueList"`
 	PartitionInput     PartitionInput `json:"PartitionInput"`
+	CatalogID          string         `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleUpdatePartition(
 	_ context.Context,
 	in *updatePartitionInput,
 ) (*emptyOutput, error) {
+	if in.CatalogID != "" {
+		existing, err := h.Backend.GetPartition(in.DatabaseName, in.TableName, in.PartitionValueList)
+		if err != nil {
+			return nil, err
+		}
+
+		if catalogIDMismatch(in.CatalogID, existing.CatalogID) {
+			return nil, ErrNotFound
+		}
+	}
+
 	if err := h.Backend.UpdatePartition(
 		in.DatabaseName, in.TableName,
 		in.PartitionValueList, in.PartitionInput,

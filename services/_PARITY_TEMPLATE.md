@@ -20,8 +20,13 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   <family>: {status: ok, note: <what was verified / what changed>}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - <description> (bd: gopherstack-xxx)
+items_still_open:         # THE authoritative open list (gopherstack-anjf) — the only place
+                          # to check current fix status; a pass that fixes a listed item MUST
+                          # remove it here in the same commit. One entry per item: name the
+                          # op/field, the one-line gap, and optionally a bd id.
+  - <op/field>: <one-line gap> (bd: gopherstack-xxx)
+gaps: []                  # legacy field name, superseded by items_still_open — do not add
+                          # new entries here; leave empty on new/migrated manifests
 structural_gaps:          # divergences that CAN'T be fixed, ever: the underlying data source
                            # cannot exist in an emulator (no real traffic, no ML/AI engine, no
                            # billing/settlement system, no physical hardware). Does NOT block an

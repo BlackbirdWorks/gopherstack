@@ -43,8 +43,10 @@ func (b *InMemoryBackend) CreateReportPlan(
 	return &cp, nil
 }
 
-// ListReportPlans returns all report plans.
-func (b *InMemoryBackend) ListReportPlans() []*ReportPlan {
+// ListReportPlans returns report plans, paginated by MaxResults/NextToken
+// (real query params, ListReportPlans serializers.go:6633-6639 -- capitalized
+// "MaxResults"/"NextToken" on the wire).
+func (b *InMemoryBackend) ListReportPlans(maxResults int, nextToken string) ([]*ReportPlan, string) {
 	b.mu.RLock("ListReportPlans")
 	defer b.mu.RUnlock()
 
@@ -66,7 +68,7 @@ func (b *InMemoryBackend) ListReportPlans() []*ReportPlan {
 		return 0
 	})
 
-	return list
+	return paginateByID(list, func(rp *ReportPlan) string { return rp.ReportPlanName }, maxResults, nextToken)
 }
 
 // DescribeReportPlan returns a report plan by name.

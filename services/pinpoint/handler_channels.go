@@ -165,13 +165,20 @@ func (h *Handler) handleGetChannel(c *echo.Context, appID, channelType string) e
 	return nil
 }
 
-// handleGetChannels handles GET /v1/apps/{appId}/channels.
+// handleGetChannels handles GET /v1/apps/{appId}/channels. Real
+// GetChannelsOutput.ChannelsResponse.Channels is keyed by the canonical
+// UPPERCASE channel type (e.g. "EMAIL", "APNS_SANDBOX") -- Channel.ChannelType
+// is stored lowercase (it's copied verbatim from the URL path segment, which
+// the real SDK's REST path literal is lowercase, e.g. "/channels/email"; see
+// handleUpdateChannel/UpsertChannel). Keying this map by that lowercase form
+// instead of upper-casing it meant a real client's Channels["EMAIL"] lookup
+// always missed.
 func (h *Handler) handleGetChannels(c *echo.Context, appID string) error {
 	channels := h.Backend.GetAllChannels(appID)
 	chMap := make(map[string]map[string]any, len(channels))
 
 	for _, ch := range channels {
-		chMap[ch.ChannelType] = toChannelResponse(ch)
+		chMap[strings.ToUpper(ch.ChannelType)] = toChannelResponse(ch)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{"Channels": chMap})

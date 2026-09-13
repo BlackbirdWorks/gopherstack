@@ -56,4 +56,5 @@ var (
 	errCAPrivKeyNil    = errors.New("CA private key is nil")
 	errDecodeCSRPEM    = errors.New("failed to decode CSR PEM")
 	errDecodeCACertPEM = errors.New("failed to decode CA certificate PEM")
+	errNotIA5String    = errors.New("cannot be encoded as an IA5String")
 )

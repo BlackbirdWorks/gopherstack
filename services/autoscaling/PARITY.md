@@ -135,9 +135,11 @@ families:
   scheduled-action-scheduler (background execution of Put/BatchPutScheduledUpdateGroupAction): {status: ok, note: "NEW this pass, closing bd gopherstack-6ys. Prior passes correctly parsed/persisted StartTime/EndTime/Recurrence but nothing ever evaluated them against wall-clock time - DescribeScheduledActions reflected what was requested, but no action ever fired. Added scheduled_action_cron.go (5-field Unix-cron parser matching AWS's documented Recurrence format: minute hour day-of-month month day-of-week - distinct from EventBridge's 6-field cron() with a year field) and scheduled_action_scheduler.go (ScheduledActionScheduler, a service.BackgroundWorker: 1-minute ticker, wired via pkgs/worker.SingleRun in handler.go's StartWorker/Shutdown so it is ctx-parented and Shutdown-drained like every other service's background worker in this codebase). Each tick applies any due action's MinSize/MaxSize/DesiredCapacity through the same validated capacity path (applyUpdateCapacityLocked) UpdateAutoScalingGroup uses, so it inherits identical validation/error behavior. Covers one-time actions (Recurrence empty, fires once at/after StartTime) and recurring actions (bounded by StartTime/EndTime when set); a new ScheduledAction.LastExecutedTime field (internal bookkeeping, not on the wire - AWS's real ScheduledUpdateGroupAction response type has no equivalent field) prevents re-firing the same occurrence and prevents an invalid action from busy-looping every tick"}
   lifecycle-hook-chaining (multiple hooks on one transition): {status: ok, note: "FIXED this pass (bd gopherstack-9tqg, deferred from bd gopherstack-2uti/b7d3a8485). Registering a second+ hook on the same transition previously armed nothing - see dated Notes section below for the ordering rule, the chain data model, and how it composes with ABANDON's terminate-and-replace"}
   elb-instance-registration (ASG to classic ELB real instance register/deregister via ELBInstanceRegistrar): {status: ok, note: "FIXED this pass, closing bd gopherstack-hch9. Classic ELB had no registrar equivalent to ELBv2TargetRegistrar: AttachLoadBalancers/DetachLoadBalancers only ever mutated LoadBalancerNames, and none of the 7 other places that register/deregister ELBv2 targets (scale-out fabricated and real-EC2-launch paths, AttachInstances, TerminateInstanceInAutoScalingGroup, the terminating-lifecycle-hook-wait resolution path, DetachInstances, scale-in) had a classic-ELB counterpart either - confirmed by reading elbv2_targets.go and finding zero uses of RegisterInstancesWithLoadBalancer/DeregisterInstancesFromLoadBalancer (services/elb/instances.go) anywhere in this package. Added elb_targets.go: ELBInstanceRegistrar (RegisterInstances/DeregisterInstances, instance IDs only - real AWS's RegisterInstancesWithLoadBalancer/DeregisterInstancesFromLoadBalancer, elasticloadbalancing@v1.36.4 api_op_*.go, take LoadBalancerName+[]Instance{InstanceId} with no port, unlike ELBv2's target+port shape) plus SetELBRegistrar/registerELBInstances/deregisterELBInstances, mirroring elbv2_targets.go's structure exactly (nil-guarded no-op when unwired, best-effort logged-not-propagated errors). Wired a parallel registerELBInstances/deregisterELBInstances call alongside every existing registerELBTargets/deregisterELBTargets call site (9 total, one more than ELBv2's 8 - applyScaleIn's no-hook branch in auto_scaling_groups.go was an ELBv2 call site the prior pass's own count missed), plus AttachLoadBalancers/DetachLoadBalancers themselves gained the register-existing-members-on-attach / deregister-on-detach behavior AttachLoadBalancerTargetGroups/DetachLoadBalancerTargetGroups already had. cli.go: wireAutoScalingELB + autoscalingELBRegistrarAdapter, wired alongside wireAutoScalingELBv2. All 9 call sites covered by elb_targets_test.go (including two the existing ELBv2 suite has no equivalent test for: the real-EC2Launcher registration path and the terminating-lifecycle-hook-wait resolution path), each confirmed to fail only its own test when neutered by line number"}
-gaps:
+gaps: []
+items_still_open:
   - GetPredictiveScalingForecast returns a real, well-shaped, non-empty forecast, but it is a flat naive projection (current DesiredCapacity repeated hourly), not a statistical model - genuinely out of scope for an emulator; documented simplification, see Notes
   - "PutScalingPolicy's parsePredictiveScalingMetricSpecifications (gopherstack-r80d batch 29, reviewed not fixed): a MetricSpecifications element carrying only a Customized*/Predefined* sub-field with no TargetValue is accepted with TargetValue defaulted to 0.0 instead of rejected, even though AWS's own doc comment on this exact field says \"TargetValue is required ... on every element\" and its client-side validator (validators.go:1660 validatePredictiveScalingMetricSpecification) unconditionally rejects a nil TargetValue. Out of scope for this cut (an input-validation permissiveness gap, not a dropped required OUTPUT field -- the wire-side TargetValue member has no omitempty and is always echoed correctly) and, per this campaign's proof standard, not reachable via any real aws-sdk-go-v2 client anyway (the SDK's own validator blocks the request before it is ever sent) -- same \"unreachable via any real Go SDK client\" class apprunner's batch 10 SourceCodeVersion hit. Left unfixed."
+  - "LaunchInstancesOutput.Instances[].AvailabilityZoneId/MarketType/SubnetId (gopherstack-n3zi slice 35, 2026-09-12): the real types.InstanceCollection models 6 members, this backend's Instance struct tracks none of AZ-ID/market-type/subnet -- no honest source value exists (no AttachInstances/LaunchInstances caller ever supplies a subnet either). Structural modeling gap, not a dropped value; documented simplification."
 deferred: []
 leaks: {status: clean, note: "go test -race passes (verified this pass). The pendingHookTokens timer machinery (the CRITICAL item flagged in a prior sweep) remains real (armed on every gated launch/terminate), Close() stops all of them, DeleteAutoScalingGroup/DeleteLifecycleHook/Purge call cleanupHookTimers, and Restore() re-arms timers for any instance left in a *:Wait state. NEW this pass: the ScheduledActionScheduler's 1-minute ticker goroutine is started via pkgs/worker.SingleRun.Start in Handler.StartWorker and stopped (cancelled + waited-on) via pkgs/worker.SingleRun.Stop in Handler.Shutdown - the exact same ctx-parented/Shutdown-drained shape every other backgroundWorker service in this codebase uses (e.g. secretsmanager's rotation scheduler). TestScheduledActionScheduler_RunFiresAndStopsCleanly explicitly starts the real ticker, waits for it to fire, cancels its context, and asserts Run() returns within 2s. testleak.VerifyTestMain (leak_main_test.go) additionally guards the whole package: any test that started a worker without stopping it would fail the suite."}
 ---
@@ -999,3 +1001,161 @@ matches. **Zero new bugs found; nothing changed in this service.** `go build`, `
 (repo-wide, clean), `go test -race ./services/autoscaling/...` all pass on the unmodified
 tree. No AWS documentation was fetched this pass (all facts came from the pinned module
 cache and existing repo source).
+
+## 2026-09-11 -- MixedInstancesPolicy InstanceRequirements now resolves via ec2's real catalog engine (gopherstack-jgrn6)
+
+Prior state (recorded in `services/ec2/PARITY.md`'s 2026-09-11 catalog-engine entry): ec2
+gained a real instance-type catalog and `GetInstanceTypesFromInstanceRequirements` matching
+engine, but `services/autoscaling`'s attribute-based instance selection for
+`MixedInstancesPolicy` overrides never called into it -- `InstanceRequirements` was parsed,
+stored, and echoed by `DescribeAutoScalingGroups`, but had **no effect on which instance type
+an override actually launched** (`launchSpecsForOverrides`/`resolveLaunchTemplateSpec` only
+ever consulted `override.InstanceType`). This closes that gap with a new cross-service seam,
+mirroring `SetEC2Launcher`'s existing shape.
+
+**Seam**: `InstanceTypeResolver` interface (`ec2_launch.go`):
+`ResolveInstanceTypes(req InstanceRequirements, architectures, virtualizationTypes []string) []string`,
+wired via `(*InMemoryBackend).SetInstanceTypeResolver`. `instanceTypeForOverride` consults it
+only when an override has no explicit `InstanceType` and `InstanceRequirements` is set;
+`launchSpecsForOverrides` now calls `instanceTypeForOverride(ov)` instead of using
+`ov.InstanceType` directly.
+
+**Fallback (no resolver wired)**: unchanged from pre-existing behavior -- an
+`InstanceRequirements`-only override resolves to `""`, so the caller falls through to the
+launch template's own resolved `InstanceType`. This was already honest: there never was a
+self-contained fabrication path to replace (grepped for one; found none -- the "self-contained
+logic" language in the bd issue predates a closer read of the actual pre-existing code, which
+simply ignored `InstanceRequirements` at launch time). A resolver that returns zero matches
+gets the same fallback, never a fabricated candidate.
+
+**Selection semantics**: real ASG picks from the matched set per the group's
+`InstancesDistribution.SpotAllocationStrategy` (`lowest-price` | `capacity-optimized` |
+`capacity-optimized-prioritized` | `price-capacity-optimized`, default) /
+`OnDemandAllocationStrategy` (`lowest-price` default | `prioritized`) -- AWS
+`CreateAutoScalingGroup` API reference. This package models no price or spare-capacity data,
+so every strategy degenerates identically to `matches[0]` -- ec2's own deterministic catalog
+order (`sortedCatalogTypes`, effectively alphabetical), not a price- or capacity-accurate
+ranking. Disclosed in `selectInstanceType`'s doc comment, not hidden behind a plausible-looking
+strategy switch.
+
+**Architecture/virtualization defaults**: AWS's `InstanceRequirements` type carries neither
+field -- real EC2 Auto Scaling derives them from the launch template's AMI, which this package
+does not inspect. The resolver is called with `["x86_64", "arm64"]` /
+`["hvm"]` (every ec2 catalog entry's `arch` is one of the two, and its matching engine treats
+every entry as `hvm` regardless of its actual `hypervisor` field -- see
+`instanceTypeMatchesCoreRequirements`), so this can under-constrain (never over-exclude) vs.
+real AWS's AMI-aware filtering. A follow-up would need an AMI-architecture lookup this package
+doesn't have.
+
+**ec2 seam**: `services/ec2/instance_requirements_export.go` (new file; `services/ec2` was
+clean at the time of writing, but a new file was chosen anyway to minimize collision risk with
+concurrent ec2 work) exports `InstanceRequirementsQuery` (mirrors the unexported
+`instanceRequirementsQuery` field-for-field, minus `NetworkBandwidthGbps`/
+`BaselineEbsBandwidthMbps`, which ec2's own matching engine never filters on) and
+`(*InMemoryBackend) MatchInstanceTypes(q InstanceRequirementsQuery) []string`.
+`GetInstanceTypesFromInstanceRequirements` reads only the package-level static
+`instanceTypeCatalog`, not any backend map, so it takes no lock -- calling it from inside
+autoscaling's write lock (the same nesting `ec2Launcher.LaunchInstances`/`ResolveLaunchTemplate`
+already use from `resolveLaunchTemplateSpec`) crosses no second mutex, so there is no
+lock-order-inversion risk to guard against with a capture/release/re-lock dance.
+
+**cli.go**: `wireAutoScalingEC2` now also calls
+`asgBk.SetInstanceTypeResolver(&ec2AutoScalingInstanceTypeResolverAdapter{backend: ec2Bk})`.
+The adapter's `toEC2InstanceRequirementsQuery` converts every autoscaling
+`InstanceRequirements` field that has an ec2 counterpart (`VCpuCount`, `MemoryMiB`,
+`MemoryGiBPerVCpu`, `CpuManufacturers`, `MemoryGiBPerVCpu`, `AcceleratorCount`/
+`AcceleratorTotalMemoryMiB`/`AcceleratorTypes`/`AcceleratorNames`/`AcceleratorManufacturers`,
+`BareMetal`, `BurstablePerformance`, `RequireHibernateSupport`, `NetworkInterfaceCount`,
+`LocalStorage`/`LocalStorageTypes`/`TotalLocalStorageGB`, `AllowedInstanceTypes`/
+`ExcludedInstanceTypes`, `InstanceGenerations`); `SpotMaxPricePercentageOverLowestPrice`,
+`OnDemandMaxPricePercentageOverLowestPrice`, `MaxSpotPriceAsPercentageOfOptimalOnDemandPrice`,
+`NetworkBandwidthGbps`, and `BaselinePerformanceFactors` are intentionally dropped -- no price
+catalog exists, and ec2's engine never filters on network bandwidth.
+
+`DescribeAutoScalingGroups` keeps echoing `InstanceRequirements` exactly as given (unchanged;
+this path was never touched).
+
+**Tests**: `services/autoscaling/instance_type_resolver_test.go` (new, `autoscaling_test`
+package, table-driven, fake resolver) -- no-resolver and empty-match fallback, resolver picks
+`matches[0]`, resolver receives the documented architecture/virtualization defaults and the
+requirements verbatim; a second test proves an override's explicit `InstanceType` wins and the
+resolver is never even consulted. Root-level
+`cli_asg_instance_requirements_wiring_test.go` (new, mirrors
+`cli_asg_ec2_launch_template_wiring_test.go`'s composition-root harness exactly): a
+`MixedInstancesPolicy` override with `InstanceRequirements{VCpuCount:{2,2},
+MemoryMiB:{8192,8192}, AllowedInstanceTypes:["m5.*"]}` launches `m5.large` (the only m5-family
+member with vCPU=2/memory=8192MiB in ec2's catalog) through the real wired ec2 engine, proven
+via both `DescribeAutoScalingGroups` and EC2's own `DescribeInstances`; also asserts
+`InstanceRequirements` still round-trips on `DescribeAutoScalingGroups`.
+
+**Snapshot**: no persisted struct changed (`InstanceRequirements`/`LaunchTemplateOverride`
+shapes are unchanged; the new resolver is wiring-only state, not persisted) --
+`pkgs/persistence/testdata/snapshot_inventory.json` not touched, no snapshot-version bump.
+
+**Gates**: `go build ./...` (whole module) clean. `go vet ./services/autoscaling/...
+./services/ec2/...` clean (the root package `.` does not currently vet/build-test at all: a
+pre-existing, unrelated break in `cli_test.go`'s `appstream_stack` subtest -- calling
+`aBk.CreateStack("wiring-test-stack", "", "", nil)` against the committed
+`CreateStack(name string, opts CreateStackOptions)` signature -- confirmed present at HEAD in
+an isolated worktree with none of this change's files applied; not this ticket's scope
+(`services/appstream`/`cli_test.go`), not touched here; noted for a follow-up). `go test -race
+-count=1 ./services/autoscaling/... ./services/ec2/... ./pkgs/persistence/...` all `ok`. `go
+test -count=1 -run 'ASG|AutoScaling' .` and the new wiring test both verified passing in an
+isolated worktree with only the appstream call site patched for compilation (not committed
+anywhere) -- `golangci-lint run ./services/autoscaling/...` and `golangci-lint run
+--new-from-rev=HEAD ./services/ec2/... .` (root verified the same way) both 0 issues after
+`--fix` resolved fieldalignment (both new structs) and a `modernize` `int32Ptr` rewrite in the
+autoscaling test file. Did NOT commit, push, run `bd` write commands, or run `make docs`.
+
+## 2026-09-12 (gopherstack-n3zi slice 35: typed-client coverage)
+
+`typed_slice35_realclient_test.go` added: 8 subtests driving all 32 previously
+typed-coverage-blind ops (34/66 -> 66/66) through the real aws-sdk-go-v2
+client -- instance lifecycle (AttachInstances/DetachInstances/EnterStandby/
+ExitStandby/SetInstanceHealth/SetDesiredCapacity/
+TerminateInstanceInAutoScalingGroup/LaunchInstances), tags (CreateOrUpdateTags/
+DeleteTags), notifications (Put/DeleteNotificationConfiguration/
+DescribeAutoScalingNotificationTypes), scheduled actions (Put/
+BatchPutScheduledUpdateGroupAction/Delete/BatchDeleteScheduledAction),
+scaling policies (DeletePolicy/ExecutePolicy/DescribeAdjustmentTypes),
+instance refresh (CancelInstanceRefresh/RollbackInstanceRefresh), metrics
+collection (Enable/DisableMetricsCollection/DescribeMetricCollectionTypes),
+process management and static describe-types (Suspend/ResumeProcesses,
+DescribeLifecycleHooks/-HookTypes/-ScalingProcessTypes/
+-TerminationPolicyTypes/-AccountLimits).
+
+Two real bugs found and fixed, both caught only by asserting on decoded
+typed-client values (raw-body/status-only tests missed both):
+
+1. **`AttachInstances` never updated `b.instanceIndex`** (instances.go) --
+   every other instance-adding path (CreateAutoScalingGroup, replacement
+   launches, lifecycle-hook resolution) maintains this `instanceID ->
+   groupName` side-index, but `AttachInstances` only appended to
+   `g.Instances`. `TerminateInstanceInAutoScalingGroup` (and any other
+   instanceIndex-keyed lookup) looks the instance up via `b.instanceIndex`,
+   not by scanning groups, so a real client's
+   `AttachInstances`-then-`TerminateInstanceInAutoScalingGroup` sequence
+   always 400'd with `ErrInstanceNotFound` even though
+   `DescribeAutoScalingInstances` showed the instance as `InService` in the
+   group. Fixed: `AttachInstances` now sets `b.instanceIndex[id] =
+   groupName` for each newly attached instance.
+2. **`CreateOrUpdateTags` silently dropped `PropagateAtLaunch`** (tags.go) --
+   both the update-existing-tag and create-new-tag branches only copied
+   `Key`/`Value` into the stored `Tag`, never `PropagateAtLaunch`, so every
+   real client's tag came back `PropagateAtLaunch: false` regardless of what
+   was requested. Fixed: both branches now set `PropagateAtLaunch` from the
+   request.
+
+Accept-and-drop finding (not fixed, added to `items_still_open`):
+`LaunchInstancesOutput.Instances[]` (`types.InstanceCollection`) has 6 real
+members; this backend's `Instance` model tracks none of
+`AvailabilityZoneId`/`MarketType`/`SubnetId` -- a structural gap (no
+subnet-of-launch concept anywhere in this service), not a dropped value.
+
+Gates: `go build ./...` (whole module) clean. `go vet ./services/autoscaling/...`
+clean. `go test -race -count=1 ./services/autoscaling/...` and
+`./pkgs/persistence/...` both `ok`. `golangci-lint run --new-from-rev=HEAD
+./services/autoscaling/...` 0 issues. No `backendSnapshot` field changed
+(`Instance`/`Tag` shapes unchanged), no version bump,
+`pkgs/persistence/testdata/snapshot_inventory.json` unaffected for this
+service. `cmd/paritylint` re-verified 0 missing-items-still-open FAIL.

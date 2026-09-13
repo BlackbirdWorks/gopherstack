@@ -6,6 +6,7 @@
 	// and never tries to fetch it again afterward.
 	import {
 		GetKeyPairsCommand,
+		GetKeyPairCommand,
 		CreateKeyPairCommand,
 		ImportKeyPairCommand,
 		DeleteKeyPairCommand,
@@ -147,9 +148,16 @@
 	let detailModal = $state<Modal | null>(null);
 	let viewed = $state<KeyPair | null>(null);
 
-	function openDetail(k: KeyPair): void {
+	async function openDetail(k: KeyPair): Promise<void> {
 		viewed = k;
 		detailModal?.open();
+		if (!k.name) return;
+		try {
+			const resp = await client().send(new GetKeyPairCommand({ keyPairName: k.name }));
+			viewed = resp.keyPair ?? k;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
 	async function addTag(key: string, value: string): Promise<void> {

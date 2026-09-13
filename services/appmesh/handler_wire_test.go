@@ -258,9 +258,8 @@ func TestAppMesh_TagsCreatedWith(t *testing.T) {
 	assert.Len(t, tags, 2, "creation-time tags must appear in ListTagsForResource")
 
 	// TagResource merges with existing tags, does not replace.
-	rec = doRequest(t, h, http.MethodPut, "/tag", map[string]any{
-		"resourceArn": arn,
-		"tags":        []map[string]string{{"key": "new-key", "value": "new-val"}},
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/tag?resourceArn=%s", arn), map[string]any{
+		"tags": []map[string]string{{"key": "new-key", "value": "new-val"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -276,19 +275,19 @@ func TestAppMesh_TagUnknownARN(t *testing.T) {
 	h := newTestHandler()
 	unknownARN := "arn:aws:appmesh:us-east-1:000000000000:mesh/nonexistent"
 
-	// TagResource → 404 NotFoundException
-	rec := doRequest(t, h, http.MethodPut, "/tag", map[string]any{
-		"resourceArn": unknownARN,
-		"tags":        []map[string]string{{"key": "k", "value": "v"}},
+	// TagResource → 404 NotFoundException. resourceArn is a query param on
+	// the real wire (serializers.go's SetQuery("resourceArn")), not a body
+	// field.
+	rec := doRequest(t, h, http.MethodPut, fmt.Sprintf("/tag?resourceArn=%s", unknownARN), map[string]any{
+		"tags": []map[string]string{{"key": "k", "value": "v"}},
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	body := getBody(t, rec)
 	assert.Equal(t, "NotFoundException", body["code"])
 
 	// UntagResource → 404 NotFoundException
-	rec = doRequest(t, h, http.MethodPut, "/untag", map[string]any{
-		"resourceArn": unknownARN,
-		"tagKeys":     []string{"k"},
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/untag?resourceArn=%s", unknownARN), map[string]any{
+		"tagKeys": []string{"k"},
 	})
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 	body = getBody(t, rec)

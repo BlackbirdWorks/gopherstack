@@ -56,10 +56,18 @@ func TestStartExecution(t *testing.T) {
 			wantErr:  stepfunctions.ErrStateMachineDoesNotExist,
 		},
 		{
+			// StartExecution is idempotent for STANDARD only when name AND
+			// input both match a still-running execution; preCreateExec
+			// always starts with input "", so a differing input here makes
+			// this deterministically conflict regardless of whether the
+			// pre-created execution is still RUNNING by the time this call
+			// runs (see Test_StartExecution_NameReuseSemantics for the
+			// same-input idempotent-reuse case).
 			name:          "AlreadyExists",
 			createSM:      true,
 			smType:        "STANDARD",
 			execName:      "exec1",
+			input:         `{"key":"value"}`,
 			preCreateExec: true,
 			wantErr:       stepfunctions.ErrExecutionAlreadyExists,
 		},
@@ -501,7 +509,7 @@ func TestExecution_StartAndDescribe(t *testing.T) {
 	assert.Equal(t, "desc-exec", exec.Name)
 	assert.Equal(t, `{"x":1}`, exec.Input)
 	require.NotNil(t, exec.InputDetails)
-	assert.False(t, exec.InputDetails.Truncated)
+	assert.True(t, exec.InputDetails.Included)
 }
 
 func TestDescribeExecution_ParityFields(t *testing.T) {
@@ -553,13 +561,13 @@ func TestDescribeExecution_ParityFields(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, desc.Status)
 			assert.Equal(t, tt.wantRedriveStatus, desc.RedriveStatus)
 			require.NotNil(t, desc.InputDetails)
-			assert.False(t, desc.InputDetails.Truncated)
+			assert.True(t, desc.InputDetails.Included)
 			if tt.traceHeader != "" {
 				assert.Equal(t, tt.traceHeader, desc.TraceHeader)
 			}
 			if tt.wantStatus == "SUCCEEDED" {
 				require.NotNil(t, desc.OutputDetails)
-				assert.False(t, desc.OutputDetails.Truncated)
+				assert.True(t, desc.OutputDetails.Included)
 			}
 		})
 	}
@@ -593,19 +601,27 @@ func TestExecution_DuplicateName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		smType    string
-		wantError bool
+		name        string
+		smType      string
+		secondInput string
+		wantError   bool
 	}{
 		{
-			name:      "standard_rejects_duplicate_name",
-			smType:    "STANDARD",
-			wantError: true,
+			// Different input on the second call conflicts regardless of
+			// whether the first execution is still RUNNING or already
+			// closed by the time this call runs -- see
+			// Test_StartExecution_NameReuseSemantics for the same-input
+			// idempotent-reuse case STANDARD now also supports.
+			name:        "standard_rejects_duplicate_name_different_input",
+			smType:      "STANDARD",
+			secondInput: `{"different":true}`,
+			wantError:   true,
 		},
 		{
-			name:      "express_allows_name_reuse",
-			smType:    "EXPRESS",
-			wantError: false,
+			name:        "express_allows_name_reuse",
+			smType:      "EXPRESS",
+			secondInput: "{}",
+			wantError:   false,
 		},
 	}
 
@@ -628,7 +644,7 @@ func TestExecution_DuplicateName(t *testing.T) {
 			_, err = b.StartExecution(sm.StateMachineArn, "reused-exec", "{}")
 			require.NoError(t, err)
 
-			_, err = b.StartExecution(sm.StateMachineArn, "reused-exec", "{}")
+			_, err = b.StartExecution(sm.StateMachineArn, "reused-exec", tt.secondInput)
 			if tt.wantError {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, stepfunctions.ErrExecutionAlreadyExists)

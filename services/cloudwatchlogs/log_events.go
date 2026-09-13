@@ -357,8 +357,16 @@ func (b *InMemoryBackend) appendEvents(
 	groupName, streamName := stream.logGroupName, stream.LogStreamName
 	for _, ev := range events {
 		idx := len(stream.events)
+		// ':' (not '/') separates the three components: real CloudWatch Logs
+		// log group names commonly contain '/' (e.g. "/aws/lambda/foo"), so a
+		// '/'-joined pointer was ambiguous to decode -- GetLogRecord's
+		// SplitN(_, "/", 3) silently glommed everything after the group
+		// name's own first "/" into the wrong field, failing on virtually
+		// every realistic group name. ':' is disallowed in both log group
+		// names ([.\-_/#A-Za-z0-9]+) and log stream names (no ':' or '*'),
+		// so it cannot appear in either component.
 		ptr := base64.StdEncoding.EncodeToString(
-			[]byte(groupName + "/" + streamName + "/" + strconv.Itoa(idx)),
+			[]byte(groupName + ":" + streamName + ":" + strconv.Itoa(idx)),
 		)
 		out := &OutputLogEvent{
 			IngestionTime: now,
@@ -746,7 +754,9 @@ func (b *InMemoryBackend) filterStreamOrderLocked(
 }
 
 // GetLogRecord returns a single log event by its log record pointer.
-// The pointer is the base64-encoded "<groupName>/<streamName>/<index>" string.
+// The pointer is the base64-encoded "<groupName>:<streamName>:<index>" string
+// (':', not '/', since real log group names routinely contain '/' -- see
+// appendEvents' Ptr construction).
 func (b *InMemoryBackend) GetLogRecord(
 	ctx context.Context,
 	logRecordPointer string,
@@ -761,7 +771,7 @@ func (b *InMemoryBackend) GetLogRecord(
 	}
 
 	const pointerParts = 3
-	parts := strings.SplitN(string(raw), "/", pointerParts)
+	parts := strings.SplitN(string(raw), ":", pointerParts)
 	if len(parts) < pointerParts {
 		return nil, fmt.Errorf("%w: invalid logRecordPointer format", ErrValidation)
 	}

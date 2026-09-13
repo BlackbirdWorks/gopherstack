@@ -161,17 +161,17 @@ func TestE2E_DynamoDB_Streams(t *testing.T) {
 	// "ALL" filter button only.
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "ALL", Exact: playwright.Bool(true)}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "ALL", Exact: new(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "MODIFY", Exact: playwright.Bool(true)}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "MODIFY", Exact: new(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 	require.NoError(
 		t,
-		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "REMOVE", Exact: playwright.Bool(true)}).
+		page.GetByRole("button", playwright.PageGetByRoleOptions{Name: "REMOVE", Exact: new(true)}).
 			WaitFor(playwright.LocatorWaitForOptions{Timeout: playwright.Float(10000)}),
 	)
 

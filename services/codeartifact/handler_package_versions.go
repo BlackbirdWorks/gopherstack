@@ -272,7 +272,7 @@ func (h *Handler) handleGetPackageVersionAsset(
 		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "asset is required"))
 	}
 
-	data, err := h.Backend.GetPackageVersionAsset(
+	data, pv, err := h.Backend.GetPackageVersionAsset(
 		c.Request().Context(),
 		domainName,
 		repoName,
@@ -285,6 +285,13 @@ func (h *Handler) handleGetPackageVersionAsset(
 	if err != nil {
 		return h.handleError(c, err)
 	}
+
+	// AssetName/PackageVersion/PackageVersionRevision are response HEADERS on
+	// the real GetPackageVersionAssetOutput, not body fields -- see
+	// InMemoryBackend.GetPackageVersionAsset's doc comment.
+	c.Response().Header().Set("X-AssetName", asset)
+	c.Response().Header().Set("X-PackageVersion", pv.Version)
+	c.Response().Header().Set("X-PackageVersionRevision", pv.Revision)
 
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }

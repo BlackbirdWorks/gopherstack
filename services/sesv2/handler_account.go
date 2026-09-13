@@ -18,8 +18,21 @@ func (h *Handler) handleGetAccount() (any, error) {
 	return toAccountOutput(acct), nil
 }
 
-func (h *Handler) handleGetBlacklistReports() (any, error) {
-	reports, err := h.Backend.GetBlacklistReports()
+// handleGetBlacklistReports reads BlacklistItemNames (required,
+// api_op_GetBlacklistReports.go), an httpQuery-bound repeated param
+// (serializers.go:2778-2782: encoder.AddQuery("BlacklistItemNames")). This
+// backend has no real DNS blacklist (RBL) data source to check against, so
+// -- like lightsail's disclosed Get*MetricData stubs -- it honestly reports
+// every requested IP as not listed, rather than either fabricating listings
+// or (as before this fix) silently discarding which IPs were even asked
+// about and returning an empty map with no keys at all.
+func (h *Handler) handleGetBlacklistReports(c *echo.Context) (any, error) {
+	ips := c.Request().URL.Query()["BlacklistItemNames"]
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("%w: BlacklistItemNames is required", ErrInvalidInput)
+	}
+
+	reports, err := h.Backend.GetBlacklistReports(ips)
 	if err != nil {
 		return nil, err
 	}

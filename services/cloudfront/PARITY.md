@@ -236,6 +236,7 @@ gaps:
   #    case. CopyDistribution didn't enforce CallerReference uniqueness at all and was also
   #    fixed. See the CreateDistribution/CopyDistribution/CreateStreamingDistribution/
   #    CreateCloudFrontOriginAccessIdentity op rows above for the exact behavior each has now.
+items_still_open: []
 deferred:
   - "Distribution status InProgress->Deployed transition timer: FIXED this pass (gopherstack-k3fi) for Distribution specifically -- see UpdateDistribution's op row above. The other 5 resource kinds with their own InProgress/Deployed-shaped status semantics (DistributionTenant, StreamingDistribution, ConnectionGroup/ConnectionFunction, AnycastIPList, TrustStore) still persist InProgress indefinitely; still deferred, now for a narrower, more honest reason -- extending the same worker.Group timer to each is straightforward but out of this pass's scope, not blocked on anything."
   - "Full per-op audit of DistributionConfig nested shape correctness (Origins/OriginGroups/CacheBehaviors/ViewerCertificate/Restrictions field-by-field) beyond the Quantity/Items validation and the pre-existing minimal-parse (RawConfig) model. This pass verified the specific sub-fields needed for the InUse-guard fixes (S3OriginConfig.OriginAccessIdentity path format, Origin.OriginAccessControlId, TrustedKeyGroups.Items) are correct, but a full field-by-field audit of the rest of DistributionConfig's ~60 nested types was not attempted -- RawConfig storage design predates this pass and was not restructured."
@@ -1533,3 +1534,133 @@ package's 328 `xmlResp` call sites.
 No code changed as a result (a confirmed-clean audit, not a fix). Gates run to confirm
 the baseline: `golangci-lint run ./services/cloudfront/...` 0 issues; `go test -race
 -count=1 ./services/cloudfront/...` ok (1.6s); `go build ./test/integration/...` ok.
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (13 subtests) driving cache/
+origin-request/response-headers policies, origin access identities/
+controls, key groups/public keys, field-level encryption (config +
+profile), continuous deployment policies, functions, key value store,
+invalidations, streaming distribution config, and CopyDistribution/
+UpdateDistributionWithStagingConfig through the real aws-sdk-go-v2
+cloudfront client -- every Get*Config/Update/Delete drives the real
+ETag/IfMatch sequence. Typed-client coverage (cmd/opcensus + cmd/
+clientcoverage): 99/167 (59.3%) -> 158/167 (94.6%); uncovered dropped from
+68 to 9, all in the distribution-tenant/connection-group/connection-
+function family plus `GetDistributionConfig` (`CreateInvalidationFor-
+DistributionTenant`, `GetDistributionConfig`, `GetInvalidationFor-
+DistributionTenant`, `ListDistributionTenantsByCustomization`,
+`TestConnectionFunction`, `UpdateConnectionFunction`, `UpdateConnection-
+Group`, `UpdateDistributionTenant`, `VerifyDnsConfiguration`) -- not among
+this pass's named priority families, not attempted.
+
+**Five real wire-shape/logic bugs found and fixed, all by a typed client
+either failing outright or decoding a wrong/garbled value:**
+
+1. `GetContinuousDeploymentPolicyConfig` returned the same wrapped
+   `<ContinuousDeploymentPolicy>` root (`Id`/`ARN`/`LastModifiedTime` plus a
+   nested `ContinuousDeploymentPolicyConfig`) as `GetContinuousDeployment-
+   Policy`. The real response root for the Config-only op is the bare
+   `<ContinuousDeploymentPolicyConfig>` element (cloudfront@v1.67.4's
+   `awsRestxml_deserializeOpGetContinuousDeploymentPolicyConfig` decodes the
+   root node's own children directly), so a real client's
+   `StagingDistributionDnsNames`/`Enabled`/`TrafficConfig` were always empty,
+   breaking the standard Get-then-Update idiom with a client-side "missing
+   required field" validation error. Fixed with a dedicated
+   `handleGetContinuousDeploymentPolicyConfig` + shared
+   `continuousDeploymentPolicyConfigXMLBlock` helper.
+2. `GetKeyValueStore`/`UpdateKeyValueStore`/`DeleteKeyValueStore` resolved
+   their identifier by internal ID or ARN only, but the real
+   `DescribeKeyValueStore`/`UpdateKeyValueStore`/`DeleteKeyValueStoreInput`
+   all address the store by **Name alone** (path `/2020-05-31/key-value-
+   store/{Name}`) -- never by the server-generated ID. Every one of these
+   three ops 404'd for a real client regardless of state, despite a
+   `keyValueStoreByName` index already existing and simply never being
+   consulted. Fixed via a shared `resolveKeyValueStoreLocked` (ID, Name, or
+   ARN).
+3. `FieldLevelEncryptionProfile`'s `CallerReference` (a real, required
+   `FieldLevelEncryptionProfileConfig` member) was parsed off the request
+   but never stored or echoed back -- the model had no field for it at all.
+   A real client's standard Get-then-Update round trip always failed
+   client-side validation (`CallerReference` required and always empty).
+   Fixed: added the field (additive, no version bump), threaded through
+   Create, rendered in the Config XML.
+4. `GetFunction` returned the same `<FunctionSummary>` XML metadata body as
+   `DescribeFunction`. Real `GetFunction`'s response body is the function's
+   raw code bytes (`ContentType`/`ETag` headers + a `FunctionCode` blob
+   payload) -- a real client's `FunctionCode` always decoded as XML metadata
+   bytes instead of source. Fixed to mirror the existing `handleGetConnection-
+   Function` precedent (`c.Blob`).
+5. `FunctionCode` was never base64-decoded on Create/Update even though the
+   real wire always base64-encodes it (`el.Base64EncodeBytes`) -- so once
+   (4) was fixed, `GetFunction` returned base64 text instead of executable
+   source. Fixed with `decodeFunctionCode` (tolerant fallback for raw text,
+   mirroring `decodeConnectionFunctionCode`'s existing precedent).
+
+**Accept-and-drop, not a gopherstack bug:** the pinned `aws-sdk-go-v2`
+`cloudfront@v1.67.4` client has its own upstream typo in `UpdateFunction-
+Output`'s header binding (deserializers.go: `response.Header.Values
+("ETtag")`, double-t) -- `updateOut.ETag` is always nil for a real client
+regardless of server behavior. A real caller of this exact pinned client
+must re-fetch ETag via `DescribeFunction`/`GetFunction` after `Update-
+Function`, not trust its return value; worked around in the new test the
+same way.
+
+`TestCloudFrontFunctionCRUD/get_function` previously asserted the old
+XML-metadata body as correct; corrected to assert the raw code body.
+
+One additive persisted field (`FieldLevelEncryptionProfile.CallerReference`,
+`pkgs/persistence/testdata/snapshot_inventory.json` golden refreshed via
+`-update`, confirmed additive-only by `TestSnapshotVersionGuard`); no
+version bump. Gates: `go build ./...`, `go vet ./services/cloudfront/...`,
+`go test -race -count=1 ./services/cloudfront/... ./pkgs/persistence/...`
+(pass), `golangci-lint run --new-from-rev=HEAD ./services/cloudfront/...`
+(0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Drove the last 9 typed-client-uncovered ops (`typed_slice19_realclient_test.go`,
+4 subtests) named by slice 8 as remaining: `GetDistributionConfig`,
+`CreateInvalidationForDistributionTenant`, `GetInvalidationForDistributionTenant`,
+`ListDistributionTenantsByCustomization`, `VerifyDnsConfiguration`,
+`UpdateDistributionTenant`, `CreateConnectionGroup`/`UpdateConnectionGroup`,
+`CreateConnectionFunction`/`UpdateConnectionFunction`/`TestConnectionFunction`.
+cloudfront is now 167/167 typed-covered.
+
+**Four real bugs found and fixed, all by a real client decoding nil/wrong values:**
+
+1. `VerifyDnsConfiguration`: the `<DnsConfigurationList>` item wrapper was
+   `<Item>`, but the real deserializer (`awsRestxml_deserializeDocumentDnsConfigurationList`,
+   cloudfront@v1.67.4) only recognizes `<DnsConfiguration>` — every real client
+   decoded an empty list regardless of backend state. Also, `Status` used
+   invented literals `"PASSED"`/`"FAILED"`, but the real field is the typed enum
+   `types.DnsConfigurationStatus` with values `valid-configuration`/
+   `invalid-configuration`/`unknown-configuration` — the old literals decoded
+   without erroring (plain string underlying type) but could never equal any
+   real enum constant a caller compares against. Fixed both in
+   `handler_distribution_tenants.go`/`distribution_tenants.go`; also added the
+   previously-unemitted optional `Reason` field.
+2. `GetInvalidationForDistributionTenant`: response omitted `InvalidationBatch`
+   entirely, a required member of `types.Invalidation` — always nil for a real
+   client. Root cause traced further back: `CreateInvalidationForTenant` never
+   persisted the request's `CallerReference` onto the stored `Invalidation` at
+   all, so `GetInvalidationForTenant` had nothing to reconstruct it from even
+   after adding the element. Fixed by threading `callerRef` through
+   `CreateInvalidationForTenant`'s signature and re-emitting the full
+   `InvalidationBatch` (`CallerReference` + `Paths`) on `Get`.
+3. `TestConnectionFunction`'s nested `ConnectionFunctionSummary` only emitted
+   `Id`/`Name`/`Stage`, but the real `types.ConnectionFunctionSummary` also
+   requires `ConnectionFunctionArn`/`ConnectionFunctionConfig`/`CreatedTime`/
+   `LastModifiedTime`/`Status` — all nil for a real client despite the sibling
+   `connectionFunctionSummaryXML` (used by Get/Update/Publish/List) already
+   emitting the correct full shape. Fixed by extracting a shared
+   `connectionFunctionSummaryFields` helper and reusing it in both places.
+4. `GetDistributionConfig`, `UpdateDistributionTenant`, `CreateConnectionGroup`/
+   `UpdateConnectionGroup`, `CreateConnectionFunction`/`UpdateConnectionFunction`,
+   and `ListDistributionTenantsByCustomization` were already wire-correct
+   (confirmed by the real client round trip) — no fix needed, just newly
+   proven.
+
+Gates: `go build ./services/cloudfront/...`, `go vet`, `go test -race -count=1`
+(clean), `golangci-lint run --new-from-rev=HEAD` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

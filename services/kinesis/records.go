@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// PutRecord writes a single record to a stream shard.
+// PutRecord writes a single record to a stream shard, then delivers it to
+// any ACTIVE channel sourced from the stream (see deliverPutToChannels).
 func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) (*PutRecordOutput, error) {
 	region := getRegion(ctx, b.region)
 
@@ -21,20 +22,42 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) 
 	}
 	stream.mu.Lock("PutRecord.stream")
 	b.mu.RUnlock()
-	defer stream.mu.Unlock()
 
+	out, streamARN, err := b.putRecordLocked(region, stream, input)
+	stream.mu.Unlock()
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Channel delivery runs after stream.mu is released: b.mu (needed to look
+	// up channels for this stream) must never be acquired while holding
+	// stream.mu, since CreateChannel/DeleteChannel already establish the
+	// opposite order (b.mu then stream.mu) -- see channel_delivery.go.
+	b.deliverPutToChannels(region, input.StreamName, streamARN, out.ShardID, out.SequenceNumber, input.Data)
+
+	return out, nil
+}
+
+// putRecordLocked performs the validated shard write for PutRecord. Must be
+// called with stream.mu held; the caller releases it. Returns the stream's
+// ARN (captured while still locked, since it must not be read after
+// stream.mu is released) alongside the usual output.
+func (b *InMemoryBackend) putRecordLocked(
+	region string, stream *Stream, input *PutRecordInput,
+) (*PutRecordOutput, string, error) {
 	if b.isThroughputFaultActive(region, input.StreamName) {
-		return nil, ErrProvisionedThroughputExceeded
+		return nil, "", ErrProvisionedThroughputExceeded
 	}
 
 	// Reject writes if the stream is not active (e.g. CREATING/DELETING).
 	if stream.Status != streamStatusActive {
-		return nil, ErrInvalidArgument
+		return nil, "", ErrInvalidArgument
 	}
 
 	// Validate partition key length (AWS requires 1–256 chars).
 	if len(input.PartitionKey) == 0 || len(input.PartitionKey) > maxPartitionKeyLen {
-		return nil, ErrInvalidArgument
+		return nil, "", ErrInvalidArgument
 	}
 
 	// Enforce per-record data size limit (default 1 MiB; updatable via UpdateMaxRecordSize).
@@ -43,18 +66,18 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) 
 		maxSize = defaultMaxRecordSizeBytes
 	}
 	if len(input.Data) > maxSize {
-		return nil, ErrInvalidArgument
+		return nil, "", ErrInvalidArgument
 	}
 
 	if len(stream.Shards) == 0 {
-		return nil, ErrInvalidArgument
+		return nil, "", ErrInvalidArgument
 	}
 
 	var shard *Shard
 	if input.ExplicitHashKey != "" {
 		routingHash := new(big.Int)
 		if _, ok := routingHash.SetString(input.ExplicitHashKey, hashKeyDecimalBase); !ok {
-			return nil, ErrInvalidArgument
+			return nil, "", ErrInvalidArgument
 		}
 		// Validate range [0, 2^128-1].
 		maxHashKey := new(big.Int).Sub(
@@ -62,25 +85,27 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) 
 			big.NewInt(1),
 		)
 		if routingHash.Sign() < 0 || routingHash.Cmp(maxHashKey) > 0 {
-			return nil, ErrInvalidArgument
+			return nil, "", ErrInvalidArgument
 		}
 		shard = shardForHashKey(stream.Shards, routingHash)
 	} else {
 		shard = shardForPartitionKey(stream.Shards, input.PartitionKey)
 	}
 	if shard == nil {
-		return nil, ErrInvalidArgument
+		return nil, "", ErrInvalidArgument
 	}
 
 	seq := shard.nextSequenceNumber()
+	now := b.nowFunc()
 	record := &Record{
 		PartitionKey:                input.PartitionKey,
 		Data:                        input.Data,
 		SequenceNumber:              seq,
-		ApproximateArrivalTimestamp: time.Now(),
+		ApproximateArrivalTimestamp: now,
 	}
 
 	shard.Records.push(record)
+	b.maybeAutoScaleOnDemand(streamKey(region, stream.Name), stream, now, len(input.Data))
 
 	enc := stream.EncryptionType
 	if enc == "" {
@@ -91,7 +116,7 @@ func (b *InMemoryBackend) PutRecord(ctx context.Context, input *PutRecordInput) 
 		ShardID:        shard.ID,
 		SequenceNumber: seq,
 		EncryptionType: enc,
-	}, nil
+	}, stream.ARN, nil
 }
 
 // putRecordErrorCode maps a per-record PutRecord error to the AWS error code string

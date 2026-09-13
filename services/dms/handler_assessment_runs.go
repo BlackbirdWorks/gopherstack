@@ -32,6 +32,7 @@ type assessmentRunJSON struct {
 	ReplicationTaskAssessmentRunArn string `json:"ReplicationTaskAssessmentRunArn,omitempty"`
 	ResultLocationBucket            string `json:"ResultLocationBucket,omitempty"`
 	ResultLocationFolder            string `json:"ResultLocationFolder,omitempty"`
+	ResultEncryptionMode            string `json:"ResultEncryptionMode,omitempty"`
 	ServiceAccessRoleArn            string `json:"ServiceAccessRoleArn,omitempty"`
 	Status                          string `json:"Status,omitempty"`
 
@@ -60,6 +61,7 @@ func runToJSON(run *AssessmentRun) assessmentRunJSON {
 		ReplicationTaskAssessmentRunCreationDate: awstime.Epoch(run.CreationDate),
 		ResultLocationBucket:                     run.ResultLocationBucket,
 		ResultLocationFolder:                     run.ResultLocationFolder,
+		ResultEncryptionMode:                     run.ResultEncryptionMode,
 		ResultStatistic: assessmentRunResultStatisticJSON{
 			Cancelled: run.ResultStatistic.Cancelled,
 			Error:     run.ResultStatistic.Error,
@@ -108,7 +110,9 @@ func (h *Handler) handleCancelReplicationTaskAssessmentRun(
 		return nil, err
 	}
 
-	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, assessmentRunFilters{runArn: runArn})
+	runs, err := h.Backend.DescribeAssessmentRunsFiltered(
+		ctx, NewIdentifierFilter("replication-task-assessment-run-arn", runArn),
+	)
 	if err != nil || len(runs) == 0 {
 		return nil, fmt.Errorf("%w: assessment run %s not found", ErrNotFound, runArn)
 	}
@@ -170,14 +174,7 @@ type describeReplicationTaskAssessmentRunsOutput struct {
 func (h *Handler) handleDescribeReplicationTaskAssessmentRuns(
 	ctx context.Context, in *describeReplicationTaskAssessmentRunsInput,
 ) (*describeReplicationTaskAssessmentRunsOutput, error) {
-	f := assessmentRunFilters{
-		taskArn:                extractFilterValue(in.Filters, "replication-task-arn"),
-		runArn:                 extractFilterValue(in.Filters, "replication-task-assessment-run-arn"),
-		replicationInstanceArn: extractFilterValue(in.Filters, "replication-instance-arn"),
-		status:                 extractFilterValue(in.Filters, "status"),
-	}
-
-	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, f)
+	runs, err := h.Backend.DescribeAssessmentRunsFiltered(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -206,13 +203,7 @@ type describeReplicationTaskIndividualAssessmentsOutput struct {
 func (h *Handler) handleDescribeReplicationTaskIndividualAssessments(
 	ctx context.Context, in *describeReplicationTaskIndividualAssessmentsInput,
 ) (*describeReplicationTaskIndividualAssessmentsOutput, error) {
-	f := assessmentRunFilters{
-		taskArn: extractFilterValue(in.Filters, "replication-task-arn"),
-		runArn:  extractFilterValue(in.Filters, "replication-task-assessment-run-arn"),
-		status:  extractFilterValue(in.Filters, "status"),
-	}
-
-	items, err := h.Backend.DescribeIndividualAssessments(ctx, f)
+	items, err := h.Backend.DescribeIndividualAssessments(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +262,7 @@ func (h *Handler) handleDescribeReplicationTaskAssessmentResults(
 			}, nil
 		}
 
-		tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
+		tasks, err := h.Backend.DescribeReplicationTasks(ctx, NewIdentifierFilter("replication-task-arn", taskArn))
 		if err != nil {
 			return nil, err
 		}
@@ -292,7 +283,9 @@ func (h *Handler) handleDescribeReplicationTaskAssessmentResults(
 	all := make([]assessmentResultJSON, 0, len(runs))
 
 	for _, run := range runs {
-		tasks, taskErr := h.Backend.DescribeReplicationTasks(ctx, run.ReplicationTaskArn)
+		tasks, taskErr := h.Backend.DescribeReplicationTasks(
+			ctx, NewIdentifierFilter("replication-task-arn", run.ReplicationTaskArn),
+		)
 		if taskErr != nil {
 			continue
 		}
@@ -346,6 +339,7 @@ type startReplicationTaskAssessmentRunInput struct {
 	ServiceAccessRoleArn *string  `json:"ServiceAccessRoleArn"`
 	ResultLocationBucket *string  `json:"ResultLocationBucket"`
 	AssessmentRunName    *string  `json:"AssessmentRunName"`
+	ResultEncryptionMode *string  `json:"ResultEncryptionMode"`
 	IncludeOnly          []string `json:"IncludeOnly"`
 	Exclude              []string `json:"Exclude"`
 }
@@ -367,6 +361,7 @@ func (h *Handler) handleStartReplicationTaskAssessmentRun(
 		ptrconv.String(in.ServiceAccessRoleArn),
 		ptrconv.String(in.ResultLocationBucket),
 		ptrconv.String(in.AssessmentRunName),
+		ptrconv.String(in.ResultEncryptionMode),
 		in.IncludeOnly,
 		in.Exclude,
 	)
@@ -398,6 +393,10 @@ func validateStartAssessmentRunInput(in *startReplicationTaskAssessmentRunInput)
 
 	if len(in.IncludeOnly) > 0 && len(in.Exclude) > 0 {
 		return fmt.Errorf("%w: cannot set both IncludeOnly and Exclude", ErrValidation)
+	}
+
+	if mode := ptrconv.String(in.ResultEncryptionMode); mode != "" && mode != "SSE_S3" && mode != "SSE_KMS" {
+		return fmt.Errorf("%w: invalid ResultEncryptionMode %q; valid: SSE_S3, SSE_KMS", ErrValidation, mode)
 	}
 
 	return nil

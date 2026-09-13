@@ -96,6 +96,7 @@ type createFargateProfileBody struct {
 	Subnets             []string                     `json:"subnets"`
 	FargateProfileName  string                       `json:"fargateProfileName"`
 	PodExecutionRoleArn string                       `json:"podExecutionRoleArn"`
+	ClientRequestToken  string                       `json:"clientRequestToken"`
 	Selectors           []fargateProfileSelectorJSON `json:"selectors"`
 }
 
@@ -114,20 +115,20 @@ func (h *Handler) handleCreateFargateProfile(c *echo.Context, clusterName string
 		selectors[i] = FargateProfileSelector(s)
 	}
 
-	profile, err := h.Backend.CreateFargateProfile(
-		clusterName,
-		in.FargateProfileName,
-		in.PodExecutionRoleArn,
-		selectors,
-		in.Subnets,
-		in.Tags,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateFargateProfile, in.ClientRequestToken, body, func() (int, any, error) {
+		profile, err := h.Backend.CreateFargateProfile(
+			clusterName,
+			in.FargateProfileName,
+			in.PodExecutionRoleArn,
+			selectors,
+			in.Subnets,
+			in.Tags,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyFargateProfile: fargateProfileToJSON(profile),
+		return http.StatusOK, map[string]any{keyFargateProfile: fargateProfileToJSON(profile)}, nil
 	})
 }
 

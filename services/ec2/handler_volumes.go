@@ -340,12 +340,20 @@ func (h *Handler) handleCreateReplaceRootVolumeTask(vals url.Values, reqID strin
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "replace-root-volume-task")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{task.ReplaceRootVolumeTaskID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	item := replaceRootVolumeTaskItem{
 		ReplaceRootVolumeTaskID: task.ReplaceRootVolumeTaskID,
 		InstanceID:              task.InstanceID,
 		TaskState:               task.TaskState,
 		StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		SnapshotID:              task.SnapshotID,
+		TagSet:                  tagItemsFromMap(tags),
 	}
 	if !task.CompleteTime.IsZero() {
 		item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
@@ -374,6 +382,7 @@ func (h *Handler) handleDescribeReplaceRootVolumeTasks(vals url.Values, reqID st
 			TaskState:               task.TaskState,
 			StartTime:               task.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 			SnapshotID:              task.SnapshotID,
+			TagSet:                  tagItemsFromMap(h.Backend.TagsForResource(task.ReplaceRootVolumeTaskID)),
 		}
 		if !task.CompleteTime.IsZero() {
 			item.CompleteTime = task.CompleteTime.UTC().Format("2006-01-02T15:04:05.000Z")
@@ -816,6 +825,10 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 func (h *Handler) handleDescribeVolumes(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VolumeId")
 	vols := h.Backend.DescribeVolumes(ids)
+
+	if err := requireAllIDsPresent(ids, vols, func(v *Volume) string { return v.ID }, ErrVolumeNotFound); err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	vols = applyVolumeFilters(vols, filters, h.Backend)

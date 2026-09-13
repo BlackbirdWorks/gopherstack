@@ -35,6 +35,15 @@ const exampleDashboard = {
   LastUpdatedTime: new Date("2024-01-01T00:00:00Z"),
 };
 
+const exampleDataSet = {
+  Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds",
+  DataSetId: "sales-ds",
+  Name: "Sales Dataset",
+  ImportMode: "SPICE",
+  CreatedTime: new Date("2024-01-01T00:00:00Z"),
+  LastUpdatedTime: new Date("2024-01-01T00:00:00Z"),
+};
+
 describe("QuickSight Page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -81,9 +90,11 @@ describe("QuickSight Page", () => {
     });
   });
 
-  // Multi-step modal interaction (open, fill 2 fields, submit, refresh) runs
-  // past the 5s default under the full 2000+ test suite's CPU contention
-  // (gopherstack CI job 93845979320); default timeout is fine standalone.
+  // Modal interaction (open, fill fields, submit, refresh) still runs past
+  // the 5s default under the full suite's CPU contention: ~3.7s standalone,
+  // but 5.2s-8.1s across full-suite runs even after fixing Tabs.svelte's
+  // non-reactive tabElements bind:this (gopherstack-naoq). The contention
+  // margin is real, not eliminated; keep the wider timeout.
   it("creates a dashboard via the modal", async () => {
     mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
     render(QuickSightPage);
@@ -331,4 +342,304 @@ describe("QuickSight Page", () => {
       expect.objectContaining({ Namespace: "default" }),
     );
   });
+
+  // gopherstack-jc2j: the shared ResourcePermissions section, mounted in the
+  // data set detail modal. DescribeDataSetPermissions -> table of principals.
+  it("shows a data set's permissions in a table after describing them", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
+    render(QuickSightPage);
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+
+    mockSend.mockResolvedValueOnce({ DataSetSummaries: [exampleDataSet] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Dataset" }));
+
+    mockSend.mockResolvedValueOnce({ DataSet: exampleDataSet }); // DescribeDataSet
+    mockSend.mockResolvedValueOnce({
+      Permissions: [
+        {
+          Principal: "arn:aws:quicksight:us-east-1:123456789012:user/default/alice",
+          Actions: ["quicksight:DescribeDataSet"],
+        },
+      ],
+    }); // DescribeDataSetPermissions
+    mockSend.mockResolvedValueOnce({ Ingestions: [] }); // ListIngestions
+    await fireEvent.click(screen.getByTitle("View"));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("arn:aws:quicksight:us-east-1:123456789012:user/default/alice"),
+      ).toBeInTheDocument();
+      expect(screen.getByText("quicksight:DescribeDataSet")).toBeInTheDocument();
+    });
+  });
+
+  // Same section: granting a new principal sends UpdateDataSetPermissions
+  // with the preset's actions under GrantPermissions, then re-describes.
+  it("grants a data set permission with the request shape UpdateDataSetPermissions expects", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
+    render(QuickSightPage);
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+
+    mockSend.mockResolvedValueOnce({ DataSetSummaries: [exampleDataSet] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Dataset" }));
+
+    mockSend.mockResolvedValueOnce({ DataSet: exampleDataSet });
+    mockSend.mockResolvedValueOnce({ Permissions: [] });
+    mockSend.mockResolvedValueOnce({ Ingestions: [] });
+    await fireEvent.click(screen.getByTitle("View"));
+    await waitFor(() => screen.getByText("No principals granted access"));
+
+    await fireEvent.input(screen.getByLabelText("Permissions: new principal ARN"), {
+      target: { value: "arn:aws:quicksight:us-east-1:123456789012:user/default/bob" },
+    });
+
+    mockSend.mockResolvedValueOnce({}); // UpdateDataSetPermissions (no Permissions field on the response)
+    mockSend.mockResolvedValueOnce({
+      Permissions: [
+        {
+          Principal: "arn:aws:quicksight:us-east-1:123456789012:user/default/bob",
+          Actions: ["quicksight:DescribeDataSet"],
+        },
+      ],
+    }); // re-describe
+    await fireEvent.click(screen.getByRole("button", { name: "Grant" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("arn:aws:quicksight:us-east-1:123456789012:user/default/bob"),
+      ).toBeInTheDocument();
+    });
+
+    // switchTab() re-fires the page's onRegionChange effect (it reads
+    // `activeTab`), which force-refreshes every OTHER tab in the background
+    // (gopherstack pre-existing behavior, not this feature) -- so find the
+    // call by command type instead of assuming a fixed index.
+    const updateCall = mockSend.mock.calls.find(
+      (c) => c[0].constructor.name === "UpdateDataSetPermissionsCommand",
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].input).toEqual(
+      expect.objectContaining({
+        DataSetId: "sales-ds",
+        GrantPermissions: [
+          {
+            Principal: "arn:aws:quicksight:us-east-1:123456789012:user/default/bob",
+            Actions: [
+              "quicksight:DescribeDataSet",
+              "quicksight:DescribeDataSetPermissions",
+              "quicksight:PassDataSet",
+              "quicksight:DescribeIngestion",
+              "quicksight:ListIngestions",
+            ],
+          },
+        ],
+      }),
+    );
+  }, 30000);
+
+  // gopherstack-jc2j: CreateIngestion/ListIngestions/DescribeIngestion, also
+  // in the data set detail modal.
+  it("starts an ingestion and refreshes its status", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [] });
+    render(QuickSightPage);
+    await waitFor(() => expect(mockSend).toHaveBeenCalledTimes(1));
+
+    mockSend.mockResolvedValueOnce({ DataSetSummaries: [exampleDataSet] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Dataset" }));
+
+    mockSend.mockResolvedValueOnce({ DataSet: exampleDataSet });
+    mockSend.mockResolvedValueOnce({ Permissions: [] });
+    mockSend.mockResolvedValueOnce({ Ingestions: [] });
+    await fireEvent.click(screen.getByTitle("View"));
+    await waitFor(() => screen.getByText("No ingestions"));
+
+    await fireEvent.input(screen.getByLabelText("New ingestion ID"), {
+      target: { value: "ing-1" },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds/ingestion/ing-1",
+      IngestionId: "ing-1",
+      IngestionStatus: "INITIALIZED",
+    }); // CreateIngestion
+    mockSend.mockResolvedValueOnce({
+      Ingestions: [
+        {
+          Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds/ingestion/ing-1",
+          IngestionId: "ing-1",
+          IngestionStatus: "RUNNING",
+          CreatedTime: new Date("2024-03-01T00:00:00Z"),
+        },
+      ],
+    }); // ListIngestions (refresh)
+    await fireEvent.click(screen.getByRole("button", { name: "Start ingestion" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("ing-1")).toBeInTheDocument();
+      expect(screen.getByText("RUNNING")).toBeInTheDocument();
+    });
+
+    mockSend.mockResolvedValueOnce({
+      Ingestion: {
+        Arn: "arn:aws:quicksight:us-east-1:123456789012:dataset/sales-ds/ingestion/ing-1",
+        IngestionId: "ing-1",
+        IngestionStatus: "COMPLETED",
+        CreatedTime: new Date("2024-03-01T00:00:00Z"),
+        RowInfo: { RowsIngested: 100, RowsDropped: 0, TotalRowsInDataset: 100 },
+      },
+    }); // DescribeIngestion
+    await fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("COMPLETED")).toBeInTheDocument();
+      expect(screen.getByText("100/100 (0 dropped)")).toBeInTheDocument();
+    });
+  }, 30000);
+
+  // gopherstack-jc2j: UpdateDashboardPublishedVersion, driven by a version
+  // selector populated from ListDashboardVersions.
+  it("publishes a dashboard version", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
+    render(QuickSightPage);
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard }); // DescribeDashboard
+    mockSend.mockResolvedValueOnce({ Permissions: [] }); // DescribeDashboardPermissions
+    mockSend.mockResolvedValueOnce({
+      DashboardVersionSummaryList: [
+        { VersionNumber: 1, Status: "CREATION_SUCCESSFUL" },
+        { VersionNumber: 2, Status: "CREATION_SUCCESSFUL" },
+      ],
+    }); // ListDashboardVersions
+    await fireEvent.click(screen.getByTitle("View"));
+
+    const versionSelect = (await screen.findByLabelText("Version to publish")) as HTMLSelectElement;
+    await fireEvent.change(versionSelect, { target: { value: "2" } });
+
+    mockSend.mockResolvedValueOnce({ DashboardId: "example", DashboardArn: exampleDashboard.Arn }); // UpdateDashboardPublishedVersion
+    mockSend.mockResolvedValueOnce({ Dashboard: { ...exampleDashboard, Version: { VersionNumber: 2 } } }); // re-describe
+    await fireEvent.click(screen.getByRole("button", { name: "Publish" }));
+
+    await waitFor(() => {
+      const publishCall = mockSend.mock.calls.find(
+        (c) => c[0].constructor.name === "UpdateDashboardPublishedVersionCommand",
+      );
+      expect(publishCall).toBeDefined();
+      expect(publishCall![0].input).toEqual(
+        expect.objectContaining({ DashboardId: "example", VersionNumber: 2 }),
+      );
+    });
+  }, 30000);
+
+  // gopherstack-291eg: onRegionChange's effect used to read `activeTab`
+  // synchronously, making activeTab a tracked dependency -- every
+  // switchTab() call then re-ran the whole region-change handler and
+  // force-refreshed every OTHER tab's list command in the background. Fixed
+  // by untrack()-ing that read. This proves switching through three tabs
+  // issues exactly one list call per tab, in order, with no extra calls for
+  // tabs never visited (or re-visited).
+  it("does not re-fire other tabs' list commands when switching tabs", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
+    render(QuickSightPage);
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    mockSend.mockResolvedValueOnce({ AnalysisSummaryList: [] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Analyses" }));
+    await waitFor(() => screen.getByText("No analyses found"));
+
+    mockSend.mockResolvedValueOnce({ DataSetSummaries: [] });
+    await fireEvent.click(screen.getByRole("tab", { name: "Data Sets" }));
+    await waitFor(() => screen.getByText("No data sets found"));
+
+    // Switching back to an already-loaded tab must not refetch it either.
+    await fireEvent.click(screen.getByRole("tab", { name: "Dashboards" }));
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    await waitFor(() => {
+      const commandNames = mockSend.mock.calls.map((c) => c[0].constructor.name);
+      expect(commandNames).toEqual([
+        "ListDashboardsCommand",
+        "ListAnalysesCommand",
+        "ListDataSetsCommand",
+      ]);
+    });
+  });
+
+  // gopherstack-xs5xo: DescribeDashboardPermissions/UpdateDashboardPermissions
+  // now carry LinkSharingConfiguration alongside the regular Permissions
+  // list. The dashboard modal's second ResourcePermissions instance
+  // ("Link sharing") must populate from Describe's LinkSharingConfiguration
+  // on open and update from Update's LinkSharingConfiguration on grant --
+  // and must send Grant/RevokeLinkPermissions, not Grant/RevokePermissions.
+  it("rounds trip link sharing permissions through Describe/UpdateDashboardPermissions", async () => {
+    mockSend.mockResolvedValueOnce({ DashboardSummaryList: [exampleDashboard] });
+    render(QuickSightPage);
+    await waitFor(() => screen.getByRole("cell", { name: "Sales Overview" }));
+
+    const namespacePrincipal = "arn:aws:quicksight:us-east-1:123456789012:namespace/default";
+
+    mockSend.mockResolvedValueOnce({ Dashboard: exampleDashboard }); // DescribeDashboard
+    mockSend.mockResolvedValueOnce({
+      Permissions: [],
+      LinkSharingConfiguration: {
+        Permissions: [{ Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] }],
+      },
+    }); // DescribeDashboardPermissions
+    mockSend.mockResolvedValueOnce({ DashboardVersionSummaryList: [] }); // ListDashboardVersions
+    await fireEvent.click(screen.getByTitle("View"));
+
+    await waitFor(() => {
+      expect(screen.getByText(namespacePrincipal)).toBeInTheDocument();
+    });
+    // The regular Permissions table (queued empty above) must stay empty --
+    // link sharing rows must not leak into it.
+    expect(screen.getByText("No principals granted access")).toBeInTheDocument();
+
+    const linkViewer = "arn:aws:quicksight:us-east-1:123456789012:user/default/carol";
+    await fireEvent.input(screen.getByLabelText("Link sharing: new principal ARN"), {
+      target: { value: linkViewer },
+    });
+
+    mockSend.mockResolvedValueOnce({
+      LinkSharingConfiguration: {
+        Permissions: [
+          { Principal: namespacePrincipal, Actions: ["quicksight:DescribeDashboard"] },
+          {
+            Principal: linkViewer,
+            Actions: ["quicksight:DescribeDashboard", "quicksight:ListDashboardVersions", "quicksight:QueryDashboard"],
+          },
+        ],
+      },
+    }); // UpdateDashboardPermissions
+    const grantButtons = screen.getAllByRole("button", { name: "Grant" });
+    await fireEvent.click(grantButtons[1]); // second ResourcePermissions instance is "Link sharing"
+
+    await waitFor(() => {
+      expect(screen.getByText(linkViewer)).toBeInTheDocument();
+    });
+
+    const updateCall = mockSend.mock.calls.find(
+      (c) => c[0].constructor.name === "UpdateDashboardPermissionsCommand",
+    );
+    expect(updateCall).toBeDefined();
+    expect(updateCall![0].input).toEqual(
+      expect.objectContaining({
+        DashboardId: "example",
+        GrantLinkPermissions: [
+          {
+            Principal: linkViewer,
+            Actions: [
+              "quicksight:DescribeDashboard",
+              "quicksight:ListDashboardVersions",
+              "quicksight:QueryDashboard",
+            ],
+          },
+        ],
+      }),
+    );
+    expect(updateCall![0].input.GrantPermissions).toBeUndefined();
+  }, 30000);
 });

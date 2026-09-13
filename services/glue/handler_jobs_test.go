@@ -428,7 +428,7 @@ func TestJobLifecycle(t *testing.T) {
 			check: func(t *testing.T, out map[string]any) {
 				t.Helper()
 				bm, _ := out["JobBookmarkEntry"].(map[string]any)
-				assert.NotEmpty(t, bm["ActiveRun"])
+				assert.NotEmpty(t, bm["RunId"])
 			},
 		},
 	}

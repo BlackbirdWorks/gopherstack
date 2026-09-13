@@ -1044,12 +1044,12 @@ func TestVaultARN_Format(t *testing.T) {
 func TestListVaults_LimitAndMarkerCombined(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
+	tests := []struct {
 		name       string
-		vaultNames []string
-		limit      int
 		marker     string
+		vaultNames []string
 		wantNames  []string
+		limit      int
 		wantMarker bool
 	}{
 		{

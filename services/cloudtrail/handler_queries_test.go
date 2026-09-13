@@ -303,13 +303,50 @@ func TestListQueries_NextTokenPagination(t *testing.T) {
 	require.True(t, ok)
 	assert.Len(t, queries, 1)
 
-	// A non-matching EventDataStore filter must exclude all three queries.
-	rec = doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": "eds-does-not-exist"})
+	// A non-matching (but real) EventDataStore filter must exclude all
+	// three queries.
+	otherEdsRec := doCloudTrailOp(t, h, "CreateEventDataStore", map[string]any{"Name": "list-queries-other-eds"})
+	require.Equal(t, http.StatusOK, otherEdsRec.Code)
+	otherEdsARN, _ := parseCloudTrailResp(t, otherEdsRec)["EventDataStoreArn"].(string)
+
+	rec = doCloudTrailOp(t, h, "ListQueries", map[string]any{"EventDataStore": otherEdsARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 	resp = parseCloudTrailResp(t, rec)
 	queries, ok = resp["Queries"].([]any)
 	require.True(t, ok)
 	assert.Empty(t, queries)
+}
+
+// TestListQueries_RequiredEventDataStore verifies ListQueries' EventDataStore
+// input is enforced as required (real ListQueriesInput, cloudtrail@v1.58.4
+// api_op_ListQueries.go:38-41), and that an unknown store returns
+// EventDataStoreNotFoundException (that op's error switch, deserializers.go:
+// 4909-4910) rather than silently returning every query in the account.
+func TestListQueries_RequiredEventDataStore(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body       map[string]any
+		name       string
+		wantStatus int
+	}{
+		{name: "missing", body: map[string]any{}, wantStatus: http.StatusBadRequest},
+		{
+			name:       "unknown_store",
+			body:       map[string]any{"EventDataStore": "eds-does-not-exist"},
+			wantStatus: http.StatusNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestCloudTrailHandler()
+			rec := doCloudTrailOp(t, h, "ListQueries", tt.body)
+			assert.Equal(t, tt.wantStatus, rec.Code)
+		})
+	}
 }
 
 // TestGetQueryResults_RealRowsAndPagination verifies GetQueryResults

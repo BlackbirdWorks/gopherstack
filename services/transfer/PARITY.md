@@ -58,7 +58,7 @@ families:
   Server: {status: ok, note: "CreateServer/DescribeServer/ListServers/StartServer/StopServer/DeleteServer/UpdateServer audited op-by-op (unchanged since 2026-07-12 audit; re-confirmed no timestamp fields exist on DescribedServer in the pinned SDK, so the epoch-seconds bug class does not apply here)."}
   User: {status: ok, note: "CreateUser/DescribeUser/ListUsers/DeleteUser/UpdateUser audited (unchanged since 2026-07-12). FIXED this pass: DescribeUser's embedded SshPublicKeys[].DateImported was a Format(time.RFC3339) string; real SshPublicKey.DateImported deserializes via smithytime.ParseEpochSeconds (JSON number) -- a real aws-sdk-go-v2 client would fail to parse the string. Now emits awstime.Epoch(...)."}
   Access: {status: ok, note: "CreateAccess/DescribeAccess/ListAccesses/UpdateAccess/DeleteAccess audited (unchanged since 2026-07-12). No Tags/ARN in real AWS for Access -- confirmed still correct."}
-  Agreement: {status: ok, note: "unchanged since 2026-07-12 audit."}
+  Agreement: {status: ok, note: "unchanged since 2026-07-12 audit. FIXED 2026-09-12 (typed slice 32): ListAgreements' per-item map omitted the real ServerId member (types.ListedAgreement); added, see dated section below."}
   Connector: {status: ok, note: "CreateConnector/DescribeConnector/ListConnectors/UpdateConnector/DeleteConnector unchanged since 2026-07-12. TestConnection/StartFileTransfer/StartDirectoryListing/StartRemoteDelete/StartRemoteMove field-diffed 2026-07-24 -- see the dedicated Start* family entry below (was previously 'deferred'). FIXED this pass: IpAddressType (types.ConnectorsIpAddressType: IPV4/DUALSTACK, added to CreateConnectorInput/UpdateConnectorInput/DescribedConnector since v1.69.4) is now accepted on Create/UpdateConnector and echoed on DescribeConnector; not validated as an enum, matching the sibling Server.IpAddressType field in this same package, which also accepts any string. ListedConnector has no IpAddressType field in real AWS (confirmed via types.go and the deserializer), so ListConnectors correctly omits it."}
   Profile: {status: ok, note: "unchanged since 2026-07-12 audit."}
   Workflow: {status: ok, note: "unchanged since 2026-07-12 audit."}
@@ -75,11 +75,46 @@ families:
   ListFileTransferResults: {status: ok, note: "gopherstack-tp8x (2026-08-21), fixed: was one row per TRANSFER with a 'FilePaths' array of every file (this backend's r.Files); real types.ConnectorFileTransferResult's member is the singular 'FilePath' -- one row per file, not a list. Also: TransferId is a required ListFileTransferResultsInput member (api_op_ListFileTransferResults.go) and the handler was ignoring it entirely, listing every transfer for the connector instead of the one specified -- added GetFileTransferResult(connectorID, transferID) and required-field validation for both ConnectorId and TransferId. Locked by TestListFileTransferResults_OneRowPerFile_RealClient (3-file transfer, real SDK client), TestListFileTransferResults_SingleFile_RealClient, TestHandler_StartFileTransferPersistsRecord. FIXED 2026-08-29 (filter/pagination parameter audit): MaxResults/NextToken (also real ListFileTransferResultsInput members) were read into the handler's input struct but never applied -- every call returned every file in the transfer regardless of MaxResults, with no NextToken ever emitted. Now routed through applyNextTokenItems. In practice the real per-transfer file count is capped at 10 (StartFileTransfer's own SendFilePaths/RetrieveFilePaths limit, per that op's docs), so this bounds how much truncation ever mattered, but the parameter is real and is now honoured rather than silently ignored. Proven via TestListFileTransferResults_SDKRoundTrip_Pagination, hand-reverted/confirmed-failing/restored."}
   Persistence: {status: ok, note: "unchanged since 2026-07-12 audit; new WebApp/Certificate fields ride the existing store.Table[T] generic Snapshot/Restore, no manual persistence.go wiring needed (confirmed via TestPersistence_FullStateRoundTrip)."}
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartServer/StopServer async-transition timer) via Backend.Close(); no goroutine or timer outlives the service. leak_test.go / leak_main_test.go already cover this. No new goroutines/tickers were introduced this pass."}
 ---
 
 ## Notes
+
+### 2026-09-12 (typed slice 32, gopherstack-n3zi): typed-client round trips for the 42-op tail, 29/71 -> 71/71
+
+Added `typed_slice32_realclient_test.go`: 16 tests, each building a real
+`transfer` SDK client against `Handler` and round-tripping every previously-
+untyped op (Access/Agreement/Certificate/Connector/HostKey/Profile/WebApp/
+Workflow lifecycles, SshPublicKey import+delete, TestConnection,
+StartDirectoryListing/StartRemoteDelete/StartRemoteMove, ListExecutions,
+StartServer/StopServer/UpdateServer with `require.Eventually` for the async
+STARTING->ONLINE/STOPPING->OFFLINE transition, TestIdentityProvider,
+DescribeSecurityPolicy/ListSecurityPolicies, TagResource/UntagResource, and
+UpdateUser). Transfer typed coverage: 29/71 -> 71/71.
+
+**Real bug found and fixed**: `handleListAgreements` (handler_agreements.go)
+omitted `ServerId` from each summary entry, even though `DescribeAgreement`'s
+own per-item map includes it and real `types.ListedAgreement` (confirmed
+against transfer@v1.75.4/types/types.go:1843, `ServerId *string`) declares
+the member. Fixed by adding `"ServerId": ag.ServerID` to the list's per-item
+map. Locked by `TestSlice32Transfer_AgreementLifecycle`, which asserts
+`listed.Agreements[0].ServerId` decodes to the real value.
+
+**Accept-and-drop finding, not fixed**: `TagResource`/`UntagResource`
+(tags.go) never validate that the given `resourceArn` corresponds to a real
+resource -- tagging a fabricated ARN silently succeeds and creates a
+`tagsStore` entry with no owner. This is a pre-existing, permissive design
+already consistent with how this file's `ListTagsForResource` behaves (an
+unknown ARN returns an empty tag map rather than an error), so left as-is
+rather than introducing new FK validation as a side effect of a coverage
+pass.
+
+`go build ./...`, `go vet ./...` clean repo-wide. `go test -race -count=1
+./services/transfer/...` and `./pkgs/persistence/...` pass. `golangci-lint
+run --new-from-rev=HEAD services/transfer/...` 0 issues. No persistence
+schema/version change. `go run ./cmd/paritylint` stays at 0 FAIL.
 
 - **Server initial state**: AWS creates Transfer servers in the `OFFLINE` state; `StartServer` is
   required to transition to `ONLINE` (confirmed via

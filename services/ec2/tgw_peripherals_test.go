@@ -353,7 +353,7 @@ func TestTGWPeripherals_RouteTableAnnouncementLifecycle(t *testing.T) {
 	rt, err := bk.CreateTransitGatewayRouteTable(tgw.ID, nil)
 	require.NoError(t, err)
 
-	peerAtt, err := bk.CreateTransitGatewayPeeringAttachment(tgw.ID, "tgw-peer-1", "")
+	peerAtt, err := bk.CreateTransitGatewayPeeringAttachment(tgw.ID, "tgw-peer-1", "999999999999", "us-west-2")
 	require.NoError(t, err)
 
 	_, err = bk.CreateTransitGatewayRouteTableAnnouncement("tgw-rtb-nonexistent", peerAtt.TransitGatewayAttachmentID)
@@ -676,7 +676,7 @@ func TestTGWPeripherals_RejectPeeringAttachment(t *testing.T) {
 	tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
 	require.NoError(t, err)
 
-	att, err := bk.CreateTransitGatewayPeeringAttachment(tgw.ID, "tgw-peer-1", "")
+	att, err := bk.CreateTransitGatewayPeeringAttachment(tgw.ID, "tgw-peer-1", "999999999999", "us-west-2")
 	require.NoError(t, err)
 
 	_, err = bk.RejectTransitGatewayPeeringAttachment("tgw-attach-nonexistent")

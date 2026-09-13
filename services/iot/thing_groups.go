@@ -14,7 +14,7 @@ import (
 
 // AddThingToThingGroup adds a thing to a thing group.
 func (b *InMemoryBackend) AddThingToThingGroup(input *AddThingToThingGroupInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AddThingToThingGroup")
 	defer b.mu.Unlock()
 
 	key := thingKey(input.ThingName, input.ThingArn)
@@ -38,7 +38,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateThingGroup")
 	defer b.mu.Unlock()
 
 	if b.thingGroups.Has(input.ThingGroupName) {
@@ -74,7 +74,7 @@ func (b *InMemoryBackend) CreateThingGroup(input *CreateThingGroupInput) (*Thing
 
 // DescribeThingGroup returns a ThingGroup by name.
 func (b *InMemoryBackend) DescribeThingGroup(thingGroupName string) (*ThingGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeThingGroup")
 	defer b.mu.RUnlock()
 
 	tg, ok := b.thingGroups.Get(thingGroupName)
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) DescribeThingGroup(thingGroupName string) (*ThingGroup
 
 // ListThingGroups returns all thing groups sorted by name.
 func (b *InMemoryBackend) ListThingGroups() []*ThingGroup {
-	b.mu.RLock()
+	b.mu.RLock("ListThingGroups")
 	defer b.mu.RUnlock()
 
 	items := b.thingGroups.Snapshot()
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateThingGroup")
 	defer b.mu.Unlock()
 
 	tg, ok := b.thingGroups.Get(input.ThingGroupName)
@@ -149,7 +149,7 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 
 // DeleteThingGroup deletes a thing group by name.
 func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteThingGroup")
 	defer b.mu.Unlock()
 
 	tg, ok := b.thingGroups.Get(thingGroupName)
@@ -175,7 +175,7 @@ func (b *InMemoryBackend) DeleteThingGroup(thingGroupName string, expectedVersio
 
 // RemoveThingFromThingGroup removes a thing from a thing group.
 func (b *InMemoryBackend) RemoveThingFromThingGroup(input *RemoveThingFromThingGroupInput) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveThingFromThingGroup")
 	defer b.mu.Unlock()
 
 	groupName := input.ThingGroupName
@@ -195,7 +195,7 @@ func (b *InMemoryBackend) RemoveThingFromThingGroup(input *RemoveThingFromThingG
 
 // ListThingsInThingGroup returns all things in a given thing group.
 func (b *InMemoryBackend) ListThingsInThingGroup(input *ListThingsInThingGroupInput) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListThingsInThingGroup")
 	defer b.mu.RUnlock()
 
 	if !b.thingGroups.Has(input.ThingGroupName) {
@@ -222,7 +222,7 @@ func (b *InMemoryBackend) addThingToGroupByName(thingName, groupName string) {
 }
 
 func (b *InMemoryBackend) ListThingGroupsForThing(thingName string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListThingGroupsForThing")
 	defer b.mu.RUnlock()
 
 	var out []string
@@ -242,7 +242,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 		return nil, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDynamicThingGroup")
 	defer b.mu.Unlock()
 
 	if b.thingGroups.Has(input.ThingGroupName) {
@@ -278,7 +278,7 @@ func (b *InMemoryBackend) CreateDynamicThingGroup(input *CreateThingGroupInput) 
 
 // DeleteDynamicThingGroup deletes a dynamic thing group.
 func (b *InMemoryBackend) DeleteDynamicThingGroup(name string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDynamicThingGroup")
 	defer b.mu.Unlock()
 
 	tg, ok := b.thingGroups.Get(name)
@@ -308,7 +308,7 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 		return 0, fmt.Errorf("%w: ThingGroupName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateDynamicThingGroup")
 	defer b.mu.Unlock()
 
 	tg, ok := b.thingGroups.Get(input.ThingGroupName)
@@ -345,7 +345,7 @@ func (b *InMemoryBackend) UpdateThingGroupsForThing(input *UpdateThingGroupsForT
 		return fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateThingGroupsForThing")
 	defer b.mu.Unlock()
 
 	if !b.things.Has(input.ThingName) {

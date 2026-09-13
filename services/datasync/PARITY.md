@@ -13,14 +13,14 @@ ops:
   ListAgents: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateLocationS3: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AgentArns (Outposts) input, real member (prior sweep); AgentArns now validated to reference agents that actually exist in this backend instead of accepting any ARN and succeeding -- FIXED this sweep"}
   DescribeLocationS3: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented S3BucketArn/Subdirectory fields (not on real wire), added AgentArns -- FIXED this sweep"}
-  UpdateLocationS3: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateLocationS3: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-11 (gopherstack-mven required-output sweep): backend unconditionally overwrote the stored S3Config with whatever zero-valued config the handler built for an S3Config-omitting update (real UpdateLocationS3Input.S3Config is optional/leave-unchanged), silently wiping the required BucketAccessRoleArn on every Subdirectory/StorageClass-only update. DescribeLocationS3 then gated the whole S3Config object on BucketAccessRoleArn != \"\", so it vanished from the response entirely. Both fixed."}
   DeleteLocation: {wire: ok, errors: ok, state: ok, persist: ok}
   ListLocations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "removed invented 'CreationTime' field from each LocationListEntry -- real types.LocationListEntry (datasync@v1.61.4 api_op_ListLocations.go) has exactly two members, LocationArn and LocationUri; harmless to a typed client (unknown JSON keys ignored) but not on the real wire -- FIXED prior sweep (2026-08-28, gopherstack-wrapper-key-sweep). Filters (LocationFilter: Name/Operator/Values, types.go) was declared on the input but never read at all -- every filter silently ignored, returning all locations regardless of the request. Now applies LocationUri/LocationType by Operator (Equals/NotEquals/In/Contains/NotContains/BeginsWith/Less*/Greater*) before pagination; CreationTime is compared as a UTC RFC3339 string since neither the SDK nor its doc comments settle the filter value's wire format -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns). RE-CONFIRMED 2026-08-30 (redshift/personalize/datasync leg of this sweep): re-diffed against ListLocationsInput and LocationFilterName's enum (LocationUri/LocationType/CreationTime) -- filter names, cardinality, and Operator handling all still correct, no regression."}
   CreateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added required AuthenticationType field + validation; added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationAzureBlob: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ContainerUrl field (not on real wire; LocationUri IS the container URL), added AuthenticationType; added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationAzureBlob: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added AuthenticationType; added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}
   CreateLocationEfs: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeLocationEfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented EfsFilesystemArn/Subdirectory fields (not on real wire) -- FIXED this sweep"}
+  DescribeLocationEfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented EfsFilesystemArn/Subdirectory fields (not on real wire) -- FIXED this sweep. FIXED 2026-09-11 (gopherstack-mven required-output sweep): Ec2Config.SecurityGroupArns carried omitempty despite being required whenever Ec2Config is present (types/types.go:115); as a []string, the client-side required check (validators.go:1260-1261) only rejects nil, not an empty slice, so a conformant client's empty-but-present SecurityGroupArns was silently dropped."}
   UpdateLocationEfs: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateLocationFsxLustre: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeLocationFsxLustre: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented FsxFilesystemArn/Subdirectory fields (not on real wire); LocationUri scheme fixed \"lustre://\" -> \"fsxl://\" (bare \"lustre://\" definitively violates AWS's published LocationUri pattern ^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$ -- confirmed via API doc page; \"fsxl://\" chosen by analogy with confirmed \"fsxz://\" for OpenZFS, not independently confirmed, see gaps) -- FIXED this sweep"}
@@ -38,7 +38,7 @@ ops:
   DescribeLocationHdfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented Subdirectory field (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
   UpdateLocationHdfs: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig; AgentArns existence validation -- FIXED this sweep"}
   CreateLocationNfs: {wire: ok, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns (already correctly nested, not flat -- see corrected gaps note) now validated to reference agents that actually exist in this backend instead of accepting any ARN and succeeding -- FIXED this sweep"}
-  DescribeLocationNfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/Subdirectory fields (not on real wire; real output is CreationTime/LocationArn/LocationUri/MountOptions/OnPremConfig only) -- FIXED this sweep"}
+  DescribeLocationNfs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/Subdirectory fields (not on real wire; real output is CreationTime/LocationArn/LocationUri/MountOptions/OnPremConfig only) -- FIXED this sweep. FIXED 2026-09-11 (gopherstack-mven required-output sweep): OnPremConfig was gated on len(AgentArns) > 0 instead of the config's actual presence, so a caller who cleared AgentArns to an empty-but-present list via UpdateLocationNfs (passes real client-side validation, which nil-checks only) saw OnPremConfig vanish from the response entirely instead of being returned with an empty AgentArns."}
   UpdateLocationNfs: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "OnPremConfig.AgentArns existence validation; added missing ServerHostname member, now rebuilds LocationUri (previously silently dropped) -- FIXED this sweep"}
   CreateLocationObjectStorage: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "added CmkSecretConfig/CustomSecretConfig (real, previously silently dropped) + mutual-exclusion validation; AgentArns now validated to reference existing agents -- FIXED this sweep"}
   DescribeLocationObjectStorage: {wire: fixed, errors: ok, state: ok, persist: ok, note: "removed invented ServerHostname/BucketName/Subdirectory fields (not on real wire); added CmkSecretConfig/CustomSecretConfig echo -- FIXED this sweep"}
@@ -65,7 +65,8 @@ families:
   Task: {status: fixed, note: "CreateTask/UpdateTask/DescribeTask previously modeled only 4 of 11 real CreateTaskInput members (SourceLocationArn/DestinationLocationArn/Name/CloudWatchLogGroupArn) -- Options, Schedule, Excludes, Includes, ManifestConfig, TaskReportConfig, and TaskMode were silently accepted-and-dropped on Create and never appeared on Describe. Now modeled as pass-through fields (opaque map[string]any for Options/ManifestConfig/TaskReportConfig, typed FilterRule/TaskSchedule for Excludes/Includes/Schedule) with AWS's documented Update semantics"}
   TaskExecution: {status: fixed, note: "single-in-flight-execution guard, Task.Status RUNNING/AVAILABLE lifecycle, CancelTaskExecution enum handling, ListTaskExecutions all-tasks listing unchanged (fixed in the prior 2026-07-12 sweep); this sweep (gopherstack-g8k9) closed the terminal-state re-cancel gap -- CancelTaskExecution now rejects an already-SUCCESS/ERROR execution instead of silently overwriting it, matching UpdateTaskExecution's existing identical guard"}
   Tags: {status: fixed, note: "TagResource/UntagResource now sync storedLocation.Tags and storedTask.Tags in addition to storedAgent.Tags and the canonical b.tags map, closing the dead-code asymmetry flagged (but not fixed) in the prior sweep"}
-gaps:
+gaps: []
+items_still_open:
   - "LocationUri scheme prefixes for ObjectStorage (\"object-storage://\") and AzureBlob (\"azure-blob://\") technically violate AWS's own published LocationUri pattern (^(efs|nfs|s3|smb|hdfs|fsx[a-z0-9-]+)://...$, identical text on every DescribeLocation*Output doc page including these two), same as the now-fixed Lustre/ONTAP bugs -- but no positive evidence exists for what AWS actually returns for these two location types (both are comparatively recent additions; the shared regex may itself be stale doc-generation cruft that predates them and isn't enforced server-side for newer types, unlike the FSx family where the regex was clearly extended on purpose to add the fsx[a-z0-9-]+ alternative). Re-checked this sweep from two independent sources -- the installed botocore 1.43.56 model (data/datasync/2018-11-09/service-2.json.gz, LocationUri shape, pinned to the one version directory present) and AWS's live API_DescribeLocationObjectStorage.html/API_DescribeLocationAzureBlob.html doc pages -- both give the identical pattern text with no scheme-prefix example anywhere for either location type, so the \"no positive evidence\" verdict stands: there is proof the current prefixes violate the published pattern, but no proof of what a compliant replacement should be (both prefixes follow the same type-name-as-scheme convention as every other location type, including the fsxl:// fix below, which is itself only an analogy-based guess -- see next gap). Left unchanged; do not \"fix\" to a guessed scheme without evidence."
   - "LocationUri scheme \"fsxl://\" for FSx Lustre (fixed this sweep from the confirmed-wrong \"lustre://\") was chosen by analogy with FSx OpenZFS's confirmed \"fsxz://\" (real AWS CLI doc example: fsxz://us-west-2.fs-.../fsx/folderA/folder) but is not independently confirmed against real AWS output. Medium confidence: matches the regex, matches the single-letter-suffix convention, but Lustre could plausibly use a different fsx-prefixed string."
   - "ManagedSecretConfig (distinct from CmkSecretConfig/CustomSecretConfig, which are now modeled -- see Location family note) stays absent from every DescribeLocation*Output this sweep confirmed it on (Smb/Hdfs/ObjectStorage/AzureBlob/FsxWindows). This is correct, not a gap: the botocore model's own CmkSecretConfig-in-FsxProtocolSmb documentation states outright \"Do not provide this for a CreateLocation request. ManagedSecretConfig is a ReadOnly property and is only be populated in the DescribeLocation response\" -- AWS populates it itself when the client supplies a plaintext credential (Password/SecretKey/SasConfiguration) without CmkSecretConfig/CustomSecretConfig, by auto-provisioning a Secrets Manager secret. gopherstack has no Secrets Manager integration to back a real SecretArn, and fabricating one would violate the no-fabricated-IDs rule -- correctly left absent."
@@ -243,3 +244,31 @@ file. No dropped filter, no wrong key, no wrong cardinality found across any of 
 
 Gates: `go build ./services/datasync/...` (no changes made, nothing to build-verify beyond
 confirming the tree is unchanged). Work left uncommitted per this pass's instructions.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestDataSyncClient`
+from `wire_field_fixes_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 30
+typed-client-uncovered ops (per `cmd/clientcoverage`) — every location
+family's Create/Describe/Update trio (AzureBlob, FsxLustre, FsxOntap,
+FsxOpenZfs, FsxWindows, Hdfs, Smb), ObjectStorage/Efs updates, location
+delete + untag, agent/task updates, and task-execution update/cancel. Typed
+coverage: 23/53 -> 53/53 (30 -> 0 uncovered).
+
+All 30 ops passed against the existing handler/backend on the first
+correctly-shaped request — no wire-shape bug found. Two test-authoring
+corrections along the way, not bugs (both confirmed by reading the real
+SDK's output structs field-by-field): `DescribeLocationFsxLustreOutput` and
+`DescribeLocationObjectStorageOutput` have no `FsxFilesystemArn`/
+`ServerHostname` fields respectively — those values are only recoverable
+from the response's `LocationUri`, matching what gopherstack's handlers
+already correctly emit (`handler_locations_objectstorage.go`'s
+`describeLocationObjectStorageOutput` has no `ServerHostname` key, matching
+the real absence, not a bug).
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/datasync + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

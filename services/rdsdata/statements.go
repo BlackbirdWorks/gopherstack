@@ -36,10 +36,22 @@ func (b *InMemoryBackend) ExecuteStatement(
 	// Execute against the real in-memory SQL engine. A genuine result set is
 	// returned for well-formed statements; anything the engine rejects (for
 	// example DML against a table the caller never created) degrades to the
-	// historical empty-success envelope rather than surfacing an error.
+	// historical empty-success envelope rather than surfacing an error --
+	// except a dead transaction (gopherstack-wh8gv): that is never a SQL
+	// problem, it means transactionID itself no longer refers to anything
+	// live, so it gets the same TransactionNotFoundException an unknown id
+	// gets above, not a fabricated success.
 	records, columns, updated, generated, err := b.engine.execute(
 		ctx, region, resourceARN, sql, transactionID, parameters)
 	if err != nil {
+		if transactionID != "" && isDeadTransactionError(err) {
+			return nil, nil, 0, nil, fmt.Errorf(
+				"%w: transaction %s not found",
+				ErrTransactionNotFound,
+				transactionID,
+			)
+		}
+
 		return [][]Field{}, []ColumnMetadata{}, 0, []Field{}, nil
 	}
 
@@ -78,8 +90,16 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	if len(parameterSets) == 0 {
 		// A parameterless batch still executes the statement once so DDL such
 		// as CREATE TABLE takes effect; the engine error is ignored to keep the
-		// historical lenient behaviour.
-		_, _, _, _, _ = b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
+		// historical lenient behaviour -- except a dead transaction, which
+		// gets the same treatment as the loop below.
+		_, _, _, _, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, nil)
+		if transactionID != "" && isDeadTransactionError(err) {
+			return nil, fmt.Errorf(
+				"%w: transaction %s not found",
+				ErrTransactionNotFound,
+				transactionID,
+			)
+		}
 
 		return []UpdateResult{}, nil
 	}
@@ -89,8 +109,18 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	for i, params := range parameterSets {
 		// Run each parameter set so inserts/updates actually land in the
 		// engine; generatedFields carries the same rowid-alias detection as
-		// ExecuteStatement (see generatedFieldsFor in engine.go).
-		_, _, _, generated, _ := b.engine.execute(ctx, region, resourceARN, sql, transactionID, params)
+		// ExecuteStatement (see generatedFieldsFor in engine.go). A dead
+		// transaction (gopherstack-wh8gv) errors instead of fabricating a
+		// success for the remaining parameter sets.
+		_, _, _, generated, err := b.engine.execute(ctx, region, resourceARN, sql, transactionID, params)
+		if transactionID != "" && isDeadTransactionError(err) {
+			return nil, fmt.Errorf(
+				"%w: transaction %s not found",
+				ErrTransactionNotFound,
+				transactionID,
+			)
+		}
+
 		if generated == nil {
 			generated = []Field{}
 		}

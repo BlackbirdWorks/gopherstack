@@ -73,7 +73,7 @@ ops:
   UpdateThemeForStack: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-08-23 (request-side accept-and-drop sweep) -- opUpdateThemeForStack decoded only StackName; every other real UpdateThemeForStackInput member (api_op_UpdateThemeForStack.go:29-64: AttributesToDelete/FaviconS3Location/FooterLinks/OrganizationLogoS3Location/State/ThemeStyling/TitleText, all optional -- only StackName is required) was parsed nowhere and silently discarded, so a real client updating a theme's branding always got back the theme unchanged with a 200 OK. Now threaded end-to-end via a new ThemeUpdateOptions (interfaces.go) and InMemoryBackend.applyThemeUpdate (themes.go): a nil FaviconS3Location/OrganizationLogoS3Location/TitleText/FooterLinks means unset (leave unchanged, matching this op's own 'omitted fields are unchanged' semantics -- distinguishable in Go's encoding/json exactly as the real SDK's own pointer/slice-nil-vs-set fields distinguish it, confirmed against serializeCBOR_UpdateThemeForStackInput's per-field `if v.X != nil`/`len(v.X) > 0` guards); AttributesToDelete=[FOOTER_LINKS] (the only real ThemeAttribute enum value) is applied last so a delete always wins over a same-request FooterLinks set, matching this repo's established rekognition UpdateStreamProcessor apply-then-delete convention. No enum validation added for ThemeStyling/State on Update (unlike Create): this op's own deserializer error switch (ConcurrentModificationException/InvalidAccountStatusException/InvalidParameterCombinationException/LimitExceededException/OperationNotPermittedException/ResourceNotFoundException, deserializers.go) has no ValidationException/SerializationException case for a real client to receive, so no error contract could be confirmed -- fabricating one would repeat the mistake ACM's ValidationMethod=HTTP gap explicitly avoided; values are stored/echoed verbatim instead. See TestSDKRoundTrip_UpdateThemeForStack_FieldsApply (wire_shape_test.go), a real aws-sdk-go-v2 client round trip."}
 families:
   AppBlock: {status: ok, note: "CRUD verified; Describe now ARN-resolved (see ops above)"}
-  AppBlockBuilder: {status: ok, note: "CRUD + Start/Stop verified; StreamingURL now carries real Expires/Validity (see ops above)"}
+  AppBlockBuilder: {status: fixed, note: "CRUD + Start/Stop verified; StreamingURL now carries real Expires/Validity (see ops above). FIXED 2026-09-11: VpcConfig (required on both CreateAppBlockBuilderInput and the AppBlockBuilder response type) was never read off the request or stored -- every response silently dropped it. Now threaded through Create/Update/Describe/Start/Stop (gopherstack-mven required-output nested-domain-struct sweep)"}
   Application: {status: fixed, note: "CRUD verified; Describe + Fleet-association ops now ARN-resolved (see ops above). FIXED: CreateApplication's required IconS3Location/InstanceFamilies were dropped entirely (see CreateApplication above)"}
   Entitlement: {status: fixed, note: "CreateEntitlement/DeleteEntitlement/DescribeEntitlements/UpdateEntitlement/AssociateApplicationToEntitlement/ListEntitledApplications audited -- keyed correctly by (Name+StackName) composite; ApplicationIdentifier stored opaquely with no cross-reference lookup, so no ARN-vs-Name failure mode exists there. FIXED: backend computed LastModifiedTime on every Create/Update but entitlementToResponse never emitted it -- real Entitlement has both CreatedTime and LastModifiedTime members; now both are on the wire"}
   DirectoryConfig: {status: fixed, note: "CRUD verified against real DirectoryConfig shape; Name-keyed, matches wire. FIXED: Create/UpdateDirectoryConfigInput both carry ServiceAccountCredentials (AccountName+AccountPassword) and CertificateBasedAuthProperties (CertificateAuthorityArn+Status) -- both were accepted by neither the request-decode struct nor the backend, so a real client's directory-join credentials were silently discarded and never returned on Describe. Now parsed, stored, and echoed back (real DirectoryConfig response shape does include AccountPassword verbatim, confirmed via botocore service-2.json -- not redacted like some other AWS services do for secrets)"}
@@ -87,6 +87,7 @@ families:
   UsageReportSubscription: {status: ok, note: "single scalar record, verified against real shape"}
   ExportImageTask: {status: fixed, note: "MAJOR rewrite this pass -- prior 'ok' verdict was wrong; the entire request/response shape was gopherstack-invented (S3-based export instead of real AMI export). See CreateExportImageTask/GetExportImageTask/ListExportImageTasks ops above for the full diff. Any real aws-sdk-go-v2 client hitting the old handler would have gotten a response with none of the fields it expects populated"}
 gaps: []                # no unfixed divergences found; all confirmed bugs were fixed this pass
+items_still_open: []
 deferred: []              # both prior deferred items resolved this pass (see below)
 resolved_this_pass:
   - CreatedTime/StartTime/CreatedDate wire encoding switched from time.Time.Unix() (whole-
@@ -588,3 +589,465 @@ clean), `go test -race -count=1 ./services/appstream/...` (pass, no new
 tests -- both findings above are disclosed-not-fixed, so no regression to
 guard), `golangci-lint run ./services/appstream/...` (0 issues). No source
 changes this pass.
+
+## 2026-09-11 Never-emitted output members (kind-sweep follow-up)
+
+Follow-up to the earlier appstream half of gopherstack-g479 item 2
+(scratchpad `cborkind/NOTES.md`), which found six Timestamp-shaped output
+members this service's `deserializeCBOR_*` functions declare
+(appstream@v1.64.5 `deserializers.go`) but gopherstack never emits at all.
+This pass verified each against its real source of truth and fixed the one
+with an honest, already-stored source; the other five stay disclosed, not
+fabricated.
+
+### The six Timestamp members
+
+| member | deserializer (func, line) | verdict |
+|---|---|---|
+| `Session.MaxExpirationTime` | `deserializeCBOR_Session`, :8965 | **fixed** -- see below |
+| `ResourceError.ErrorTimestamp` | `deserializeCBOR_ResourceError`, :8633 | disclosed: this backend never produces a `ResourceError` at all |
+| `Image.PublicBaseImageReleasedDate` | `deserializeCBOR_Image`, :7720 | disclosed: no public base image catalog exists |
+| `UsageReportSubscription.LastGeneratedReportDate` | `deserializeCBOR_UsageReportSubscription`, :9852 | disclosed: no report generation exists |
+| `AdminAppLicenseUsageRecord.SubscriptionFirstUsedDate` | `deserializeCBOR_AdminAppLicenseUsageRecord`, :5450 | disclosed: no license-usage tracking exists |
+| `AdminAppLicenseUsageRecord.SubscriptionLastUsedDate` | `deserializeCBOR_AdminAppLicenseUsageRecord`, :5461 | disclosed: no license-usage tracking exists |
+
+**`Session.MaxExpirationTime` -- fixed.** Real `types.Session.MaxExpirationTime`'s
+doc comment (`types/types.go:1540-1546`) says the value is "based on the
+MaxUserDurationinSeconds value" of the streaming session's fleet
+(`types.Fleet.MaxUserDurationInSeconds`, `types/types.go:1004`, "Specify a
+value between 600 and 360000"). Both source values already exist in this
+backend (`storedSession.StartTime`, `storedFleet.MaxUserDurationSecs`), so
+`DescribeSessions` (`sessions.go`) now looks up the session's fleet and sets
+`Session.MaxExpirationTime = StartTime + fleet.MaxUserDurationSecs` when the
+fleet still exists (a session survives fleet deletion in this backend, so
+the field is left zero and omitted from the wire in that edge case --
+matches this file's established "conditional field" convention, e.g.
+`Fleet.ImageName`/`ImageArn` in `fleetToResponse`). `"MaxExpirationTime"`
+added to `rpcv2cbor.go`'s `timestampKeys` (the CBOR Tag-1 encode gate).
+
+Introduced an injectable backend clock (`InMemoryBackend.clock` +
+`now()` + `SetClock()`, `store.go`) following the exact pattern already
+used by `services/elasticache`, `services/memorydb`, and
+`services/awsconfig`'s `InMemoryBackend.clock`/`SetClock` (this service had
+none before). `CreateStreamingURL`'s `StartTime`/`Expires` now go through
+`b.now()` instead of a bare `time.Now().UTC()`, which is what lets the new
+test (`session_max_expiration_test.go`) assert an exact
+`MaxExpirationTime` without a sleep.
+
+**The other five -- disclosed, not fixed**, each verified by grepping the
+parent type/concept out of gopherstack entirely, not just the field:
+
+- `ResourceError` (backing `Fleet.FleetErrors`, `Image.ImageErrors`,
+  `ImageBuilder.ImageBuilderErrors`, `AppBlockBuilder.AppBlockBuilderErrors`,
+  `Stack.StackErrors`, `AppBlock.AppBlockErrors`,
+  `UsageReportSubscription.SubscriptionErrors`) has no Go type anywhere in
+  `services/appstream` and no backend code path ever constructs one --
+  every one of those error-list members is structurally absent, not just
+  `ErrorTimestamp`. Nothing to timestamp.
+- `Image.Visibility` is unconditionally `"PRIVATE"` for every image this
+  backend creates (`images.go`, `DescribeImages`'s own doc comment: "every
+  image this backend creates has Visibility ... never PUBLIC or SHARED from
+  another account") -- there is no public base image, seeded or otherwise,
+  so there is no real `PublicBaseImageReleasedDate` to source.
+- `CreateUsageReportSubscription`/`DescribeUsageReportSubscriptions`
+  (`usage_report_subscriptions.go`) model the subscription record only; no
+  code path ever runs a report or writes to S3. `LastGeneratedReportDate`
+  would have to be invented.
+- `DescribeAppLicenseUsage` (`applications.go:199-205`) already documents
+  why it always returns an empty list: "This backend tracks no BYOL/
+  license-included application state." With no
+  `AdminAppLicenseUsageRecord` ever constructed, both of its Timestamp
+  members are moot, not merely unfilled.
+
+### Wider sweep: every other `deserializeCBOR_*` output member gopherstack never emits
+
+Extracted the full member list of every `deserializeCBOR_<Shape>` function
+backing a domain type this service actually models (Fleet, Image,
+ImageBuilder, Application, Stack, AppBlockBuilder, AppBlock, Session,
+UsageReportSubscription, DirectoryConfig, Entitlement, Theme, User,
+ExportImageTask), and diffed against each `*ToResponse` builder's emitted
+keys. `Entitlement`, `Theme`, `User`, and `DirectoryConfig` are complete
+(every real member emitted, conditionally where real AWS also treats it as
+optional). The rest have real gaps, all structural (the backend has no
+concept for the field at all, not a wrong value) -- disclosed here, not
+fixed, same rule as the six Timestamp members: honest source or disclosed
+absence, no invented data.
+
+- **Fleet** (`fleetToResponse`, `handler.go:727`): never emits `VpcConfig`,
+  `FleetErrors`, `DomainJoinInfo`, `IamRoleArn`, `StreamView`, `Platform`,
+  `MaxConcurrentSessions`, `UsbDeviceFilterStrings`,
+  `SessionScriptS3Location`, `MaxSessionsPerInstance`, `RootVolumeConfig`,
+  `DisableIMDSV1` -- none of these concepts exist in `CreateFleet`'s
+  parameters or `storedFleet`. `ComputeCapacityStatus`'s elastic-fleet
+  session-count fields (`DesiredUserSessions` etc.) are the pre-existing gap
+  already on record (2026-08-31 sweep).
+- **Image** (`imageToResponse`, `handler_image.go:506`): never emits
+  `ImageBuilderSupported`, `ImageBuilderName`, `StateChangeReason`,
+  `Applications`, `AppstreamAgentVersion`, `ImagePermissions` (embedded --
+  the separate `DescribeImagePermissions` op is implemented),
+  `ImageErrors`, `LatestAppstreamAgentVersion`, `SupportedInstanceFamilies`,
+  `DynamicAppProvidersEnabled`, `ImageSharedWithOthers`,
+  `ManagedSoftwareIncluded`, `ImageType`.
+- **ImageBuilder** (`imageBuilderToResponse`, `handler_image.go:520`):
+  never emits `VpcConfig`, `IamRoleArn`, `StateChangeReason`,
+  `EnableDefaultInternetAccess`, `DomainJoinInfo`,
+  `NetworkAccessConfiguration`, `ImageBuilderErrors`,
+  `AppstreamAgentVersion`, `AccessEndpoints`, `RootVolumeConfig`,
+  `LatestAppstreamAgentVersion`, `DisableIMDSV1`. (Its pre-existing
+  `ImageName`-vs-`ImageArn` wire-key mismatch, and `AppBlockBuilder`'s
+  now-resolved `VpcConfig` gap, are already on record above -- not
+  duplicated here.)
+- **Application** (`applicationToResponse`, `handler_application.go:497`):
+  never emits `IconURL`, `LaunchParameters`, `Enabled`, `Metadata`,
+  `WorkingDirectory`.
+- **Stack** (`stackToResponse`, `handler.go:716`): never emits
+  `StorageConnectors`, `RedirectURL`, `FeedbackURL`, `StackErrors`,
+  `UserSettings`, `ApplicationSettings`, `AccessEndpoints`,
+  `EmbedHostDomains`, `StreamingExperienceSettings`, `ContentRedirection`,
+  `AgentAccessConfig`.
+- **AppBlock** (`appBlockToResponse`, `handler_appblock.go:313`): never
+  emits `DisplayName`, `SourceS3Location`, `SetupScriptDetails`,
+  `PostSetupScriptDetails`, `PackagingType`, `AppBlockErrors` --
+  `CreateAppBlock`'s own parameters (`name, description string, tags`) never
+  accept any of these, so the gap runs all the way back to Create.
+- **AppBlockBuilder** (`appBlockBuilderToResponse`,
+  `handler_appblock.go:324`): never emits `DisplayName`,
+  `EnableDefaultInternetAccess`, `IamRoleArn`, `AppBlockBuilderErrors`,
+  `StateChangeReason`, `AccessEndpoints`, `DisableIMDSV1` -- same pattern,
+  `CreateAppBlockBuilder`'s parameters don't accept a display name at all.
+- **Session** (`sessionToResponse`, `handler_user.go:505`, this pass):
+  never emits `NetworkAccessConfiguration`, `InstanceId`,
+  `InstanceDrainStatus` -- this backend has no streaming-instance concept
+  (already on record: `DescribeSessions`'s own doc comment).
+- **UsageReportSubscription**: never emits `SubscriptionErrors` (see
+  `ResourceError` above) in addition to `LastGeneratedReportDate`.
+- **ExportImageTask** (`exportImageTaskToResponse`, `handler_image.go:537`):
+  never emits `ErrorDetails` -- export tasks in this backend never fail, so
+  there is nothing to report.
+
+None of these were fabricated or fixed this pass; each is a genuine
+structural absence (the owning Go type/Create parameter doesn't exist),
+not a wrong value under an existing field. Filing all of them as
+implementation gaps is future work, not in scope here.
+
+### Also found, unrelated to Timestamp/member coverage
+
+`Fleet`, `Application`, and `Stack` (`fleetToResponse`, `stackToResponse`,
+`applicationToResponse`) each emit a `Tags` key that is **not a member of
+any of their real deserializers** (checked: `Tags` never appears in
+`deserializeCBOR_Fleet`/`_Application`/`_Stack`'s key switch) -- the same
+harmless-extra-field pattern already on record for `AppBlockBuilder`/
+`ImageBuilder` (2026-08-31 sweep, finding 1: a real client's CBOR decoder
+silently ignores an unrecognized key). Not fixed, not new; recorded here
+only because this pass's full member extraction surfaced it on three more
+structs than previously documented.
+
+Gates: `go build ./...` (whole module; `services/quicksight` was mid-edit
+by a concurrent session and failed to build at the repo root throughout --
+verified this package's changes build clean in an isolated
+`git worktree add --detach` copy), `go vet ./services/appstream/...
+./pkgs/persistence/...` clean, `go test -race -count=1
+./services/appstream/... ./pkgs/persistence/...` all pass (one new test,
+`TestSession_MaxExpirationTimeRealClient`, 2 subtests, drives a real
+`aws-sdk-go-v2/service/appstream` client through `DescribeSessions`),
+`golangci-lint run ./services/appstream/...` 0 issues. No persisted fields
+added (`MaxExpirationTime` is derived at read time from already-stored
+`StartTime`/`MaxUserDurationSecs`, never stored itself) -- `pkgs/persistence/
+testdata/snapshot_inventory.json` untouched, no version bump.
+
+## 2026-09-11 gopherstack-gv10n: closed structurally unmodeled output members
+
+Follow-up to the "Wider sweep" section immediately above: for each member
+listed there as never-emitted, checked whether the corresponding
+`Create*`/`Update*` **input** (not just the response type) already carries
+the value on the real wire (`aws-sdk-go-v2/service/appstream@v1.64.5`
+`api_op_Create*.go`/`api_op_Update*.go`). Every member with an honest input
+source was threaded through storage (`storedFleet`/`storedStack`/
+`storedAppBlock`/`storedImageBuilder`/`storedApplication`, all `omitempty`
+where the real deserializer treats the key as optional) and is now emitted
+on Describe/Create/Update; members with no such source (server-only state --
+error lists, ENI/state-change data, license/report-generation facts already
+disclosed above) were left absent, per this file's no-invented-data rule.
+
+- **Fleet** (`fleets.go`, `handler.go` `fleetToResponse`/
+  `addOptionalFleetFields`): now emits `VpcConfig`, `IamRoleArn`,
+  `StreamView`, `Platform`, `RootVolumeConfig`, `MaxSessionsPerInstance`,
+  `UsbDeviceFilterStrings`, `SessionScriptS3Location`, `DomainJoinInfo`,
+  `MaxConcurrentSessions`, `DisableIMDSV1` -- all real `CreateFleetInput`/
+  `UpdateFleetInput` members. `UpdateFleet` also now honors
+  `AttributesToDelete` (`VPC_CONFIGURATION`,
+  `VPC_CONFIGURATION_SECURITY_GROUP_IDS`, `DOMAIN_JOIN_INFO`,
+  `IAM_ROLE_ARN`, `USB_DEVICE_FILTER_STRINGS`, `SESSION_SCRIPT_S3_LOCATION`,
+  `MAX_SESSIONS_PER_INSTANCE`, `VOLUME_CONFIGURATION` -- every
+  `types.FleetAttribute` enum value, `types/enums.go`), applied after every
+  set field. `CreateFleet`/`UpdateFleet` moved to a `CreateFleetOptions`/
+  `UpdateFleetOptions` struct (this file's established `ThemeUpdateOptions`
+  pattern) -- the positional-parameter signature was already at 12 params
+  before this pass; adding 11 more member-carrying params was rejected as
+  unreadable. Still absent, disclosed: `FleetErrors` (no `ResourceError`
+  concept anywhere in this backend, per the section above).
+- **Stack** (`stacks.go`, `handler.go` `stackToResponse`): now emits
+  `RedirectURL`, `FeedbackURL`, `UserSettings`, `ApplicationSettings`,
+  `AccessEndpoints`, `EmbedHostDomains`, `StreamingExperienceSettings`,
+  `StorageConnectors`, `ContentRedirection` -- all real `CreateStackInput`/
+  `UpdateStackInput` members. `ApplicationSettings.S3BucketName` is derived
+  (not caller-supplied) when `Enabled`, mirroring
+  `CreateUsageReportSubscription`'s `appstream-logs-<region>-<account>`
+  bucket-naming convention (real AWS: "an S3 bucket is created" the first
+  time persistent application settings are enabled for the account/Region --
+  doc comment on `types.ApplicationSettingsResponse.S3BucketName`).
+  `UpdateStack` now honors `AttributesToDelete`
+  (`STORAGE_CONNECTORS`/`REDIRECT_URL`/`FEEDBACK_URL`/`USER_SETTINGS`/
+  `EMBED_HOST_DOMAINS`/`ACCESS_ENDPOINTS`/`STREAMING_EXPERIENCE_SETTINGS`/
+  `CONTENT_REDIRECTION` -- every `types.StackAttribute` value this backend
+  models) plus the deprecated-but-still-real `DeleteStorageConnectors` bool.
+  **Deliberately deferred, not fixed**: `AgentAccessConfig`. It is real
+  `CreateStackInput`/`UpdateStackInput` surface with an honest source, but
+  its shape nests `ScreenResolution` x `AgentAccessSetting` x
+  `ScreenImageFormat`/`UserControlMode` enums several levels deep and wiring
+  it through was out of scope for this pass's time budget -- tracked as a
+  genuine gap (not a fabricated absence) for a follow-up pass, not folded
+  into the "structural, unfixable" category above. `THEME_NAME` (a
+  `StackAttribute` enum value) is intentionally not handled by
+  `UpdateStack`'s `AttributesToDelete` -- that attribute belongs to
+  `DeleteThemeForStack`, an already-implemented separate op. Still absent,
+  disclosed: `StackErrors` (no `ResourceError` concept, per the section
+  above).
+- **AppBlock** (`app_blocks.go`, `handler_appblock.go`
+  `appBlockToResponse`): now emits `DisplayName`, `SourceS3Location`,
+  `SetupScriptDetails`, `PostSetupScriptDetails`, `PackagingType` -- all real
+  `CreateAppBlockInput` members (`SourceS3Location` is required on the real
+  wire; `CreateAppBlock` now rejects a request without one, matching
+  `CreateAppBlockBuilder`'s existing required-`VpcConfig` precedent). Real
+  AWS has no `UpdateAppBlock` operation, so there is no Update-side gap to
+  close. Still absent, disclosed: `AppBlockErrors` (no `ResourceError`
+  concept, per the section above).
+- **ImageBuilder** (`images.go`, `handler_image.go`
+  `imageBuilderToResponse`): now emits `VpcConfig`, `IamRoleArn`,
+  `EnableDefaultInternetAccess`, `DomainJoinInfo`, `AccessEndpoints`,
+  `RootVolumeConfig`, `DisableIMDSV1` -- all real `CreateImageBuilderInput`
+  members -- plus `AppstreamAgentVersion`, which real
+  `StartImageBuilderInput` (not `CreateImageBuilderInput` alone) also
+  carries: `StartImageBuilder` now persists it when the caller supplies one.
+  Still absent, disclosed: `StateChangeReason` and `ImageBuilderErrors` (no
+  `ResourceError`/state-transition-reason concept), `AppstreamAgentVersion`
+  when never set is correctly left absent (not defaulted to a fabricated
+  version string), `LatestAppstreamAgentVersion` (would require guessing
+  whether an unset/`"LATEST"` value counts as "latest" -- left disclosed
+  rather than guessed), `NetworkAccessConfiguration` (server-only ENI data).
+  The pre-existing `ImageName`-vs-real-`ImageArn` wire-key mismatch on this
+  struct (see the 2026-09-11 kind-sweep section above) is out of scope for
+  gopherstack-gv10n and was left untouched.
+- **Application** (`applications.go`, `handler_application.go`
+  `applicationToResponse`): now emits `LaunchParameters`, `WorkingDirectory`
+  -- both real `CreateApplicationInput`/`UpdateApplicationInput` members --
+  plus `Enabled`, always `true`: real `types.Application.Enabled`'s doc
+  comment says an application "can be disabled after image creation," but
+  this backend has no image-creation pipeline that ever disables one, so
+  every application it models is genuinely, unconditionally enabled (the
+  same "always-true fact, not fabricated" reasoning already applied to
+  `Image.Visibility` always `PRIVATE`). `UpdateApplication`'s real
+  `AppBlockArn`/`IconS3Location`/`AttributesToDelete` members were left
+  unwired (out of scope this pass; genuine gaps for a follow-up). Still
+  absent, disclosed: `IconURL` (real AWS serves this through a
+  time-limited/presigned mechanism this backend does not model; unlike a
+  streaming URL, which this codebase already fabricates as a first-class
+  operation, inventing a hidden response field's URL was judged a step too
+  far for a "derived fact"), `Metadata` (arbitrary caller-opaque map never
+  populated by any real input this backend accepts).
+- **UsageReportSubscription**: no changes -- `S3BucketName`/`Schedule` were
+  already fully implemented (`usage_report_subscriptions.go`,
+  `CreateUsageReportSubscription`'s doc comment), confirmed by re-reading
+  rather than re-fixing. `LastGeneratedReportDate`/`SubscriptionErrors`
+  remain disclosed as before (no report-generation/error-list concept).
+- **Image**: no changes. Every gap the "Wider sweep" section lists
+  (`ImageBuilderSupported`, `ImageBuilderName`, `StateChangeReason`,
+  `Applications`, `AppstreamAgentVersion`, `ImagePermissions` embedded,
+  `ImageErrors`, `LatestAppstreamAgentVersion`,
+  `SupportedInstanceFamilies`, `DynamicAppProvidersEnabled`,
+  `ImageSharedWithOthers`, `ManagedSoftwareIncluded`, `ImageType`) was
+  re-checked against every real image-producing input this backend accepts
+  (`CopyImageInput`, `CreateImportedImageInput`, `CreateUpdatedImageInput`)
+  -- none of the three carries any of these members. All twelve remain
+  structural, not deferred: there is no `CreateImage` op in the real API at
+  all (images are normally produced by an image builder snapshot action,
+  which this backend does not model as a distinct wire operation), so no
+  Create/Update input anywhere in this service can honestly source them.
+- **Session**: no changes -- its three gaps
+  (`NetworkAccessConfiguration`/`InstanceId`/`InstanceDrainStatus`) are
+  server-only streaming-instance state with no `Create`/`Update` input
+  anywhere (sessions aren't created by a `CreateSession`-shaped op), so the
+  "check the input" method this pass used doesn't apply; already correctly
+  disclosed as structural.
+
+### Invented Tags key: closed on Fleet, Application, Stack, AppBlock
+
+`fleetToResponse`, `applicationToResponse`, and `stackToResponse` each
+stopped emitting a `Tags` key -- confirmed absent from
+`deserializeCBOR_Fleet`/`_Application`/`_Stack`'s key switch
+(`deserializers.go`). While re-deriving each struct's exact real member set
+for the sweep above, `appBlockToResponse` was found to have the same bug
+(`deserializeCBOR_AppBlock` also has no `Tags` key) even though it wasn't
+named in the original finding -- fixed alongside the other three since it's
+the identical bug class and this pass was already rewriting that function.
+Tags stay reachable through `ListTagsForResource` on all four resources
+(`b.tags[arn]` is still populated by every `Create*` call; only the
+inline/embedded `Tags` field on the Describe/Create response itself was
+removed).
+
+**Deliberately NOT touched**: `AppBlockBuilder` and `ImageBuilder` still
+emit their own invented `Tags` key (`appBlockBuilderToResponse`,
+`imageBuilderToResponse`). Both were already identified and recorded as
+"on record, not fixed" by the 2026-08-31 sweep, predating and outside
+gopherstack-gv10n's remit -- left alone rather than silently folded into
+this pass to avoid conflating two separate findings' history.
+
+New raw-body key-set test,
+`TestFleetApplicationStackAppBlock_NoInventedTagsKey`
+(`tags_key_removed_test.go`): decodes the actual rpc-v2-cbor response body
+(not the typed SDK client, which would silently swallow an unrecognized
+key) and asserts both that no `Tags` key is present and that every emitted
+key is a member of the real deserializer's declared key set, for all four
+structs.
+
+### New tests
+
+`structural_output_members_test.go` (5 tests, all driving a real
+`aws-sdk-go-v2/service/appstream` client through Create -> Describe, one
+per struct, following this file's established `_RealClient` pattern):
+`TestFleet_ExtendedFields_RealClient` (+ an `AttributesToDelete` subtest),
+`TestAppBlock_ExtendedFields_RealClient`,
+`TestImageBuilder_ExtendedFields_RealClient` (covers `StartImageBuilder`'s
+`AppstreamAgentVersion` too), `TestApplication_ExtendedFields_RealClient`
+(+ `UpdateApplication`), `TestStack_ExtendedFields_RealClient` (+ an
+`AttributesToDelete` subtest) -- every newly emitted member is asserted
+deep-equal to what the request sent. `tags_key_removed_test.go` adds the
+raw-body key-set test described above. `persistence_test.go`'s
+`newPersistenceTestBackend`/`assertRestoredCoreTables` were extended to
+populate and assert a representative new field per touched struct
+(`Fleet.VpcConfig`, `Stack.RedirectURL`/`UserSettings`,
+`AppBlock.SourceS3Location`, `ImageBuilder.VpcConfig`,
+`Application.LaunchParameters`/`WorkingDirectory`/`Enabled`) so
+Snapshot/Restore coverage isn't left to the new dedicated tests alone.
+Several pre-existing tests that called `CreateAppBlock` without a
+`SourceS3Location` (now required, matching the real wire) were updated to
+supply one: `handler_test.go`'s `createAppBlock` helper plus three
+call-sites in `handler_test.go`/`app_blocks_test.go` that predated the
+helper.
+
+Gates: `go build ./...` (whole module, clean -- `services/quicksight`'s
+concurrent edit had already landed and built cleanly by the time this pass
+ran, so no isolated-worktree verification was needed this time), `go vet
+./services/appstream/... ./pkgs/persistence/...` clean, `go test -race
+-count=1 ./services/appstream/... ./pkgs/persistence/...` all pass,
+`golangci-lint run ./services/appstream/...` 0 issues (fixed along the way:
+a `cyclop` overage in `fleetToResponse` and a `gocognit` overage in
+`UpdateFleet`, both resolved by splitting out a same-file helper per this
+repo's no-nolint-for-those-linters rule, never by suppressing).
+`fieldalignment -fix ./services/appstream/...` applied to every new/changed
+struct.
+
+`pkgs/persistence/testdata/snapshot_inventory.json`: regenerated via `go
+test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`. Diff is
+61 additive lines, all under the `"appstream"` key (new value-type field
+entries for `AccessEndpoint`, `ApplicationSettings`, `ContentRedirection`,
+`DomainJoinInfo`, `ScriptDetails`, `StorageConnector`,
+`StreamingExperienceSettings`, `UrlRedirectionConfig`, `UserSetting`,
+`VolumeConfig`, `VpcConfig`, plus the new `storedFleet`/`storedStack`/
+`storedAppBlock`/`storedImageBuilder`/`storedApplication` fields listed
+above) -- zero deletions, zero `quicksight` rows touched (the concurrent
+session's edits, if any were still in flight, were left as-is per the
+task's instructions; none were observed in the diff). `appstreamSnapshotVersion`
+stays at `2` -- every change here is a new field on an already-registered
+`store.Table` value type, which `encoding/json` decodes from an older
+snapshot as a zero value with no version bump required (the guard's own
+purpose, per its doc comment in `pkgs/persistence`).
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 48 of appstream's
+typed-client-uncovered ops (per `cmd/clientcoverage`): fleet start/stop/
+disassociate + list-associated-fleets/stacks, tags, app block delete +
+app block builder start/stop/streaming-URL/associate-disassociate-describe/
+delete, application delete/describe + license usage, application-fleet
+disassociate/describe, entitlement describe/update/associate-app/
+list-entitled/disassociate-app/delete, directory config create/describe/
+update/delete, image copy/delete-permissions/export-task lifecycle,
+image builder stop/streaming-URL/software-disassociate/software-deploy,
+user disable/enable/delete, user-stack association describe/batch-
+disassociate, session drain/expire, usage report subscription delete,
+and theme describe/delete.
+
+**Zero real bugs found** -- 14 subtests, all passed against the existing
+handlers once the test's own setup was corrected (test-only mistakes:
+`CreateApplicationInput.AppBlockArn`/`InstanceFamilies` are both real
+required members omitted from the first draft; `DescribeAppLicenseUsageInput.
+BillingPeriod` is real-required and was omitted; `BatchAssociateUserStack`
+needs the user to already exist via `CreateUser` first). Consistent with
+this service's fully A-graded, `items_still_open: []` audit history.
+
+One method note for future rpc-v2-cbor slices: `DescribeAppLicenseUsage`
+(this backend always reports zero license-usage records, no license-
+tracking model exists) decodes its always-empty `AppLicenseUsages` list as
+a **nil** Go slice on the real client, not an empty non-nil one -- the
+SDK's rpc-v2-cbor deserializer never allocates a slice when it reads zero
+list elements. Asserting non-nilness on a real, legitimately-empty list
+response is the wrong test shape for this protocol; assert only the
+absence of an error for genuinely-always-empty collections. This is a
+protocol/deserializer characteristic, not a gopherstack encoding bug --
+`services/appstream/rpcv2cbor.go`'s `jsonToCBOR`/`goToCBOR` bridge was
+independently re-read and confirmed to encode an empty Go slice as a
+proper zero-length CBOR array, not omit the key.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 41/89 -> 89/89 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/appstream/...` (clean). `go test -race -count=1
+./services/appstream/...` (pass). `golangci-lint run --new-from-rev=HEAD
+./services/appstream/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-12 (reqfielddiff slice 5, gopherstack-xhu2t)
+
+19 tier-1 findings triaged: 16 FALSE POSITIVES (already declared/applied --
+`EnableDefaultInternetAccess` on Fleet/ImageBuilder, `Validity` on all three
+streaming-URL ops, `CertificateBasedAuthProperties`,
+`IdleDisconnectTimeoutInSeconds`, `StreamView`, `UserSettings`,
+`DescribeSessions.AuthenticationType`, `ListExportImageTasks.MaxResults`), 3
+fields genuinely FIXED, 0 recorded gaps. **Fixed**:
+`CreateAppBlockBuilder`/`UpdateAppBlockBuilderInput`'s
+`EnableDefaultInternetAccess` was a *different, undeclared* field from the
+same-named Fleet/ImageBuilder one the tool's other hits already cover --
+easy to miss for exactly that reason. Added to `AppBlockBuilder`/
+`storedAppBlockBuilder`, threaded through Create/Update, and echoed in
+`appBlockBuilderToResponse`. `DescribeSessions.Limit` was a real gap: this
+op had no pagination at all (always returned every matching session in one
+call, no NextToken); now uses `pkgs/page` with AWS's documented default (20)
+and max (50), sorted by session ID for stable pages. Both proved via
+`reqfield_slice5_realclient_test.go` against the real typed client.
+**Tool blind spot found** (gopherstack-99nj-class): reqfielddiff's tier-1
+count for this service did not move for these two fixes even after
+confirming by hand (and by real-client test) that both are now genuinely
+declared and applied. Root cause: this service's dispatch table is built by
+`buildOps()` merging several small per-resource-family `opTable`-returning
+helpers (`stackFleetOps()`, `appBlockOps()`, ...) via `maps.Copy`, with each
+entry a bound method value (`"CreateAppBlockBuilder": h.opCreateAppBlockBuilder`).
+The same shape affects `CreateFleet`/`CreateImageBuilder`/`UpdateFleet`'s own
+already-correct `EnableDefaultInternetAccess` (also still tier-1 after this
+pass, and confirmed genuinely fine by reading `fleets.go`/`images.go`) --
+so this is not specific to AppBlockBuilder/Sessions, it is this whole
+opTable-via-per-family-helper pattern.
+
+Signature changes (all call sites updated): `DescribeSessions` gained
+`limit int, nextToken string` and now returns `(sessions, nextToken, error)`;
+`CreateAppBlockBuilder`/`UpdateAppBlockBuilder` gained
+`enableDefaultInternetAccess *bool`.
+
+Gates: `go build ./...` (whole module), `go vet ./...`, `go test -race
+-count=1 ./services/appstream/... ./pkgs/persistence/...`, `golangci-lint
+run --new-from-rev=HEAD ./services/appstream/...` all clean.
+`storedAppBlockBuilder` gained one field (`EnableDefaultInternetAccess
+*bool`, omitempty) -- `pkgs/persistence/testdata/snapshot_inventory.json`
+updated by hand with that one row; no version bump.

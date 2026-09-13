@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -129,6 +130,12 @@ func poolToAccurateData(pool *UserPool) userPoolDataAccurate {
 		data.Policies.PasswordPolicy = defaultPasswordPolicyData()
 	}
 
+	if pool.SignInPolicy != nil {
+		data.Policies.SignInPolicy = &signInPolicyData{
+			AllowedFirstAuthFactors: slices.Clone(pool.SignInPolicy.AllowedFirstAuthFactors),
+		}
+	}
+
 	return data
 }
 
@@ -156,6 +163,15 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.Policies != nil && in.Policies.SignInPolicy != nil {
+		opts.SignInPolicy = &SignInPolicy{
+			AllowedFirstAuthFactors: slices.Clone(in.Policies.SignInPolicy.AllowedFirstAuthFactors),
+		}
+		if err := validateSignInPolicy(opts.SignInPolicy); err != nil {
 			return nil, err
 		}
 	}
@@ -195,6 +211,15 @@ func (h *Handler) handleUpdateUserPoolWithOpts(
 			TemporaryPasswordValidityDays: pp.TemporaryPasswordValidityDays,
 		}
 		if err := validatePasswordPolicy(opts.PasswordPolicy); err != nil {
+			return nil, err
+		}
+	}
+
+	if in.Policies != nil && in.Policies.SignInPolicy != nil {
+		opts.SignInPolicy = &SignInPolicy{
+			AllowedFirstAuthFactors: slices.Clone(in.Policies.SignInPolicy.AllowedFirstAuthFactors),
+		}
+		if err := validateSignInPolicy(opts.SignInPolicy); err != nil {
 			return nil, err
 		}
 	}

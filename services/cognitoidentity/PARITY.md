@@ -36,7 +36,8 @@ ops:
   UnlinkIdentity: {wire: ok, errors: ok, state: ok, persist: ok, note: "ExternalServiceException deferred"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families: {}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "IMPOSSIBLE (re-investigated gopherstack-tqdj): GetOpenIdTokenForDeveloperIdentity accepts a PrincipalTags request field (SDK-modeled, real doc comment: 'Use this operation to configure attribute mappings for custom providers.') but the backend never stores/applies it. Investigated two candidate real consumption points before concluding this: (1) GetCredentialsForIdentityInput (confirmed against api_op_GetCredentialsForIdentity.go) has NO Token/tag-related parameter at all -- only IdentityId/CustomRoleArn/Logins -- so PrincipalTags cannot flow through that op's wire surface no matter what gopherstack does internally; real AWS's actual use of PrincipalTags is to set STS session tags on the role-assumption Cognito performs *internally* on GetCredentialsForIdentity, which has no client-visible wire representation gopherstack could honestly populate without also faking IAM/STS session-tag enforcement this codebase doesn't model anywhere (see the separate 'session Policy/PolicyArns... not enforced' deferred item above). (2) Considered whether the OIDC token itself could carry the tags as a real https://aws.amazon.com/tags claim (mirroring services/sts's own GetWebIdentityToken, which does this) for a caller that hands the token to STS's AssumeRoleWithWebIdentity directly -- STS's WebIdentityToken parser (token_validation.go) is genuinely claim-driven and signature-verification-free, so this is *technically* wireable. Not implemented this pass: it would require replacing the current placeholder token format (a static JWT-shaped header + random payload + literal 'signature', see GetOpenIdToken/GetOpenIdTokenForDeveloperIdentity in credentials.go) with a real base64url JSON payload, is a materially larger change than an error-type fix, and no test or documented use case in this codebase currently chains a cognitoidentity-issued token into sts.AssumeRoleWithWebIdentity to exercise it -- speculative cross-service plumbing without a concrete consumer was judged too large/uncertain a change for this pass. Left as an honestly-documented gap, not fabricated."
   - "IMPOSSIBLE (re-investigated gopherstack-tqdj): SetIdentityPoolRoles/GetOpenIdTokenForDeveloperIdentity TokenDuration are accepted/validated (0-86400s range) but not enforced against issued token lifetime. Same root cause as the PrincipalTags item above: the returned token is an opaque synthetic string (credentials.go), not a real JWT with an exp claim, and no operation in this codebase currently re-validates staleness of a previously issued cognitoidentity OpenID token. Embedding a real TokenDuration-derived exp claim would require the same token-format rework discussed above, for the same currently-hypothetical consumer -- not implemented this pass for the same reason."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
@@ -453,3 +454,23 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteIdentities, GetPrincipalTagAttributeMap,
+ListIdentities, ListTagsForResource, MergeDeveloperIdentities,
+SetPrincipalTagAttributeMap, TagResource, UntagResource driven through the
+real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 4 subtests: tags, principal tag
+attribute map, identities lifecycle, merge developer identities).
+cognitoidentity moved from 15/23 to 23/23 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request.
+
+Gates: `go build ./...`, `go vet ./services/cognitoidentity/...`,
+`go test -race -count=1 ./services/cognitoidentity/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/cognitoidentity/...` (0 issues). `go run ./cmd/paritylint`
+stays at 0 FAIL. No persisted-struct/snapshot changes.

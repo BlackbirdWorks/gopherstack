@@ -13,7 +13,7 @@ const defaultAllocatedStorage int32 = 50
 
 // mustDescribeReplicationInstances returns all replication instances without error (for internal use).
 func (b *InMemoryBackend) mustDescribeReplicationInstances(ctx context.Context) []*ReplicationInstance {
-	list, _ := b.DescribeReplicationInstances(ctx, "")
+	list, _ := b.DescribeReplicationInstances(ctx, DescribeFilters{})
 
 	return list
 }
@@ -34,6 +34,7 @@ type ReplicationInstanceSettings struct {
 	PreferredMaintenanceWindow string
 	ReplicationSubnetGroupID   string
 	VpcSecurityGroupIDs        []string
+	ResourceIdentifier         string
 }
 
 // CreateReplicationInstance creates a new DMS replication instance.
@@ -67,7 +68,12 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 		)
 	}
 
-	instanceARN := arn.Build("dms", region, b.accountID, "rep:"+identifier)
+	arnSuffix := identifier
+	if settings.ResourceIdentifier != "" {
+		arnSuffix = settings.ResourceIdentifier
+	}
+
+	instanceARN := arn.Build("dms", region, b.accountID, "rep:"+arnSuffix)
 	t := tags.New("dms.replication-instance." + identifier + ".tags")
 	if len(kv) > 0 {
 		t.Merge(kv)
@@ -110,19 +116,35 @@ func (b *InMemoryBackend) CreateReplicationInstance(
 	return &cp, nil
 }
 
-// DescribeReplicationInstances returns replication instances, optionally filtered by identifier or ARN.
+// DescribeReplicationInstances returns replication instances matching
+// filters (valid filter names per api_op_DescribeReplicationInstances.go:
+// replication-instance-arn | replication-instance-id |
+// replication-instance-class | engine-version; class/engine-version are not
+// modeled here since callers of this list method have never needed them).
 func (b *InMemoryBackend) DescribeReplicationInstances(
 	ctx context.Context,
-	identifierOrArn string,
+	filters DescribeFilters,
 ) ([]*ReplicationInstance, error) {
 	b.mu.RLock("DescribeReplicationInstances")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.region)
+	items := b.replicationInstancesByRegion.Get(getRegion(ctx, b.region))
+	result := make([]*ReplicationInstance, 0, len(items))
 
-	return describeByIdentifierOrARN(
-		b.replicationInstances, b.replicationInstancesByARN, b.replicationInstancesByRegion, region, identifierOrArn,
-	), nil
+	for _, ri := range items {
+		if !filters.Matches("replication-instance-id", ri.ReplicationInstanceIdentifier) {
+			continue
+		}
+
+		if !filters.Matches("replication-instance-arn", ri.ReplicationInstanceArn) {
+			continue
+		}
+
+		cp := *ri
+		result = append(result, &cp)
+	}
+
+	return result, nil
 }
 
 // DeleteReplicationInstance deletes a replication instance by ARN or identifier.

@@ -41,6 +41,7 @@ func (b *InMemoryBackend) CreateSession(
 		Status:           "PROVISIONING",
 		CreatedOn:        float64(time.Now().Unix()),
 		Timeout:          opts.Timeout,
+		IdleTimeout:      opts.IdleTimeout,
 		MaxCapacity:      opts.MaxCapacity,
 		Description:      opts.Description,
 		DefaultArguments: opts.DefaultArguments,

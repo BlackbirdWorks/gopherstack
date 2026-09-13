@@ -75,7 +75,7 @@ func (h *Handler) createGraphqlAPI(ctx context.Context, c *echo.Context) error {
 		return h.handleError(ctx, c, "CreateGraphqlApi", createErr)
 	}
 
-	return c.JSON(http.StatusCreated, map[string]any{keyGraphqlAPI: api})
+	return c.JSON(http.StatusCreated, map[string]any{keyGraphqlAPI: toWireGraphqlAPI(api)})
 }
 
 // listGraphqlAPIs handles GET /v1/apis.
@@ -98,7 +98,7 @@ func (h *Handler) listGraphqlAPIs(ctx context.Context, c *echo.Context) error {
 	}
 
 	page, tok := appsyncPaginate(apis, nextToken, maxResults)
-	out := map[string]any{"graphqlApis": page}
+	out := map[string]any{"graphqlApis": toWireGraphqlAPIs(page)}
 	if tok != "" {
 		out["nextToken"] = tok
 	}
@@ -113,7 +113,7 @@ func (h *Handler) getGraphqlAPI(ctx context.Context, c *echo.Context, apiID stri
 		return h.handleError(ctx, c, "GetGraphqlApi", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: api})
+	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: toWireGraphqlAPI(api)})
 }
 
 // deleteGraphqlAPI handles DELETE /v1/apis/{apiId}.
@@ -218,7 +218,7 @@ func (h *Handler) updateGraphqlAPI(ctx context.Context, c *echo.Context, apiID s
 		return h.handleError(ctx, c, "UpdateGraphqlApi", updateErr)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: api})
+	return c.JSON(http.StatusOK, map[string]any{keyGraphqlAPI: toWireGraphqlAPI(api)})
 }
 
 // handleEnvironmentVariables handles GET and PUT /v1/apis/{apiId}/environmentVariables.

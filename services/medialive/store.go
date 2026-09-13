@@ -1,6 +1,7 @@
 package medialive
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -224,6 +225,18 @@ func (b *InMemoryBackend) inputDeviceARN(id string) string {
 
 func (b *InMemoryBackend) signalMapARN(id string) string {
 	return arn.Build("medialive", b.region, b.accountID, "signal-map:"+id)
+}
+
+// monitorDeploymentDetailsURI builds the URI a signal map's
+// SuccessfulMonitorDeployment/MonitorDeployment.DetailsUri points at. Real
+// AWS returns a console link to the deployment's CloudWatch dashboard; this
+// is the deterministic gopherstack equivalent, derived from real region/
+// account/id state rather than fabricated.
+func (b *InMemoryBackend) monitorDeploymentDetailsURI(signalMapID string) string {
+	return fmt.Sprintf(
+		"https://%s.console.aws.amazon.com/medialive/home?region=%s#!/signal-maps/%s/monitor",
+		b.region, b.region, signalMapID,
+	)
 }
 
 func (b *InMemoryBackend) cwAlarmTemplateGroupARN(id string) string {

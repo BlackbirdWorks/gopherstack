@@ -133,8 +133,10 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 	}
 
 	var req struct {
-		Action string   `json:"action"`
-		Arns   []string `json:"arns"`
+		Action     string   `json:"action"`
+		NextToken  string   `json:"nextToken"`
+		Arns       []string `json:"arns"`
+		MaxResults int      `json:"maxResults"`
 	}
 
 	if len(body) > 0 {
@@ -146,7 +148,7 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 		}
 	}
 
-	filters, listErr := h.Backend.ListFilters(req.Arns, req.Action)
+	filters, nextToken, listErr := h.Backend.ListFilters(req.Arns, req.Action, req.MaxResults, req.NextToken)
 	if listErr != nil {
 		return h.mapError(c, listErr)
 	}
@@ -184,5 +186,10 @@ func (h *Handler) handleListFilters(c *echo.Context) error {
 		result = append(result, entry)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"filters": result})
+	resp := map[string]any{"filters": result}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }

@@ -200,6 +200,15 @@ type storageLensConfigurationXML struct {
 	RawFields string   `xml:",innerxml"`
 }
 
+// handleGetStorageLensConfiguration. GetStorageLensConfigurationOutput's
+// StorageLensConfiguration member is the httpPayload (no output wrapper
+// element at all) -- confirmed against
+// awsRestxml_deserializeOpGetStorageLensConfiguration, s3control@v1.73.4
+// deserializers.go:8095, which calls smithyxml.FetchRootElement and decodes
+// StorageLensConfiguration directly from the response ROOT. Nesting it one
+// level deeper under a "GetStorageLensConfigurationResult" wrapper (as this
+// handler did) meant every field -- Id, IsEnabled, AccountLevel, all of it --
+// silently decoded to its zero value for a real client, with no error.
 func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	configName := strings.TrimPrefix(c.Request().URL.Path, pathStorageLensPrefix)
@@ -209,12 +218,7 @@ func (h *Handler) handleGetStorageLensConfiguration(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	return writeXML(c, struct {
-		XMLName xml.Name                    `xml:"GetStorageLensConfigurationResult"`
-		Config  storageLensConfigurationXML `xml:"StorageLensConfiguration"`
-	}{
-		Config: storageLensConfigurationXML{ID: configName, RawFields: cfg},
-	})
+	return writeXML(c, storageLensConfigurationXML{ID: configName, RawFields: cfg})
 }
 
 type putStorageLensConfigRequestXML struct {
@@ -461,9 +465,16 @@ func buildListSLGItem(grp *StorageLensGroup, region string) listStorageLensGroup
 	}
 }
 
+// getStorageLensGroupResultXML is the httpPayload root for
+// GetStorageLensGroupOutput -- confirmed against
+// awsRestxml_deserializeOpGetStorageLensGroup (s3control@v1.73.4
+// deserializers.go:8372, smithyxml.FetchRootElement), same wrapper-nesting
+// bug class as GetStorageLensConfiguration: there is no
+// "GetStorageLensGroupResult" wrapper on the wire, the response root IS the
+// StorageLensGroup payload.
 type getStorageLensGroupResultXML struct {
-	StorageLensGroup storageLensGroupItemXML `xml:"StorageLensGroup"`
-	XMLName          xml.Name                `xml:"GetStorageLensGroupResult"`
+	storageLensGroupItemXML
+	XMLName xml.Name `xml:"StorageLensGroup"`
 }
 
 func (h *Handler) handleGetStorageLensGroup(c *echo.Context) error {
@@ -476,14 +487,24 @@ func (h *Handler) handleGetStorageLensGroup(c *echo.Context) error {
 	}
 
 	return writeXML(c, getStorageLensGroupResultXML{
-		StorageLensGroup: buildSLGItem(grp),
+		storageLensGroupItemXML: buildSLGItem(grp),
 	})
 }
 
+// updateStorageLensGroupRequestXML. Real UpdateStorageLensGroupInput wraps
+// its StorageLensGroup member one level inside the request root
+// (confirmed against awsRestxml_serializeOpDocumentUpdateStorageLensGroupInput,
+// s3control@v1.73.4 serializers.go:8667: root is
+// "UpdateStorageLensGroupRequest", StorageLensGroup is a nested member) --
+// this struct previously declared StorageLensGroup itself AS the root,
+// one level too shallow, so decodeXML rejected every real client's request
+// as malformed regardless of content.
 type updateStorageLensGroupRequestXML struct {
-	XMLName xml.Name         `xml:"StorageLensGroup"`
-	Name    string           `xml:"Name"`
-	Filter  slgFilterWrapXML `xml:"Filter"`
+	XMLName          xml.Name `xml:"UpdateStorageLensGroupRequest"`
+	StorageLensGroup struct {
+		Name   string           `xml:"Name"`
+		Filter slgFilterWrapXML `xml:"Filter"`
+	} `xml:"StorageLensGroup"`
 }
 
 func (h *Handler) handleUpdateStorageLensGroup(c *echo.Context) error {
@@ -500,8 +521,8 @@ func (h *Handler) handleUpdateStorageLensGroup(c *echo.Context) error {
 		return handleBackendError(c, err)
 	}
 
-	if body.Filter.Raw != "" {
-		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, name, body.Filter.Raw)
+	if body.StorageLensGroup.Filter.Raw != "" {
+		_ = h.Backend.UpdateStorageLensGroupFilter(accountID, name, body.StorageLensGroup.Filter.Raw)
 	}
 
 	return c.NoContent(http.StatusOK)

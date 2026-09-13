@@ -24,6 +24,18 @@ func (b *InMemoryBackend) AssociateResourceShare(
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
 	}
 
+	// AssociateResourceShare's own error model declares InvalidStateTransitionException
+	// (ram@v1.39.4 deserializers.go awsRestjson1_deserializeOpErrorAssociateResourceShare)
+	// for exactly this: a CREATED_FROM_POLICY share "can't be modified by using RAM"
+	// until PromoteResourceShareCreatedFromPolicy runs.
+	if isCreatedFromPolicy(rs) {
+		return nil, fmt.Errorf(
+			"%w: resource share %s was created from a resource-based policy and can't "+
+				"be modified until promoted with PromoteResourceShareCreatedFromPolicy",
+			ErrInvalidStateTransition, shareARN,
+		)
+	}
+
 	// Index existing rows for this share by entity. Only an ASSOCIATED row means
 	// "already associated" (skip); a DISASSOCIATED row is a reactivation candidate.
 	active, inactive := b.indexAssociationsByEntityLocked(shareARN)
@@ -198,6 +210,17 @@ func (b *InMemoryBackend) DisassociateResourceShare(
 	rs, ok := b.resourceShares.Get(shareARN)
 	if !ok || rs.Status == statusDeleted {
 		return nil, fmt.Errorf("%w: resource share %s not found", ErrNotFound, shareARN)
+	}
+
+	// DisassociateResourceShare's own error model declares InvalidStateTransitionException
+	// (ram@v1.39.4 deserializers.go awsRestjson1_deserializeOpErrorDisassociateResourceShare)
+	// for the same CREATED_FROM_POLICY restriction as AssociateResourceShare above.
+	if isCreatedFromPolicy(rs) {
+		return nil, fmt.Errorf(
+			"%w: resource share %s was created from a resource-based policy and can't "+
+				"be modified until promoted with PromoteResourceShareCreatedFromPolicy",
+			ErrInvalidStateTransition, shareARN,
+		)
 	}
 
 	toRemove := make(map[string]struct{}, len(principals)+len(resourceARNs))

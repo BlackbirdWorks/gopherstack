@@ -117,7 +117,7 @@ func (h *Handler) handleServerlessCollectionCreate(w http.ResponseWriter, r *htt
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"createCollectionDetail": coll})
+	h.writeJSON(r, w, map[string]any{"createCollectionDetail": toWireServerlessCollection(coll)})
 }
 
 func (h *Handler) handleServerlessCollectionDelete(
@@ -151,7 +151,7 @@ func (h *Handler) handleServerlessCollectionDelete(
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"deleteCollectionDetail": coll})
+	h.writeJSON(r, w, map[string]any{"deleteCollectionDetail": toWireServerlessCollection(coll)})
 }
 
 // handleServerlessCollectionBatchRoutes handles POST /collections (batch-get) and GET /collections (list).
@@ -170,13 +170,13 @@ func (h *Handler) handleServerlessCollectionBatchRoutes(w http.ResponseWriter, r
 		if colls == nil {
 			colls = []*ServerlessCollection{}
 		}
-		h.writeJSON(r, w, map[string]any{"collectionDetails": colls})
+		h.writeJSON(r, w, map[string]any{"collectionDetails": toWireServerlessCollections(colls)})
 	case http.MethodGet:
 		colls := h.Backend.BatchGetServerlessCollections(nil, nil)
 		if colls == nil {
 			colls = []*ServerlessCollection{}
 		}
-		h.writeJSON(r, w, map[string]any{"collectionSummaries": colls})
+		h.writeJSON(r, w, map[string]any{"collectionSummaries": toWireServerlessCollections(colls)})
 	default:
 		h.writeError(
 			r,

@@ -56,7 +56,11 @@ func (b *InMemoryBackend) DescribeFramework(name string) (*Framework, error) {
 }
 
 // ListFrameworks returns all frameworks.
-func (b *InMemoryBackend) ListFrameworks() []*Framework {
+// ListFrameworks returns frameworks, paginated by MaxResults/NextToken
+// (real query params, ListFrameworks serializers.go:5895-5901 -- capitalized
+// "MaxResults"/"NextToken" on the wire, unlike ListProtectedResources'
+// lowercase pair).
+func (b *InMemoryBackend) ListFrameworks(maxResults int, nextToken string) ([]*Framework, string) {
 	b.mu.RLock("ListFrameworks")
 	defer b.mu.RUnlock()
 
@@ -78,7 +82,7 @@ func (b *InMemoryBackend) ListFrameworks() []*Framework {
 		return 0
 	})
 
-	return list
+	return paginateByID(list, func(f *Framework) string { return f.FrameworkName }, maxResults, nextToken)
 }
 
 // UpdateFramework updates a framework's description and, when controls is

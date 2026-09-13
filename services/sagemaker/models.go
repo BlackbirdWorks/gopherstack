@@ -125,12 +125,24 @@ type ProductionVariant struct {
 }
 
 // DataCaptureConfig specifies real-time data capture for an endpoint config.
+// CaptureOptions/InitialSamplingPercentage/DestinationS3Uri are all "This
+// member is required" (validateDataCaptureConfig, validators.go) --
+// CaptureOptions was never modeled at all (silently dropped on decode, then
+// on encode), and InitialSamplingPercentage carried omitempty despite 0 (no
+// sampling) being a legitimate client-sent value.
 type DataCaptureConfig struct {
-	DestinationS3Uri          string `json:"DestinationS3Uri"`
-	CaptureMode               string `json:"CaptureMode,omitempty"`
-	KmsKeyID                  string `json:"KmsKeyId,omitempty"`
-	InitialSamplingPercentage int32  `json:"InitialSamplingPercentage,omitempty"`
-	EnableCapture             bool   `json:"EnableCapture,omitempty"`
+	DestinationS3Uri          string          `json:"DestinationS3Uri"`
+	CaptureMode               string          `json:"CaptureMode,omitempty"`
+	KmsKeyID                  string          `json:"KmsKeyId,omitempty"`
+	CaptureOptions            []CaptureOption `json:"CaptureOptions"`
+	InitialSamplingPercentage int32           `json:"InitialSamplingPercentage"`
+	EnableCapture             bool            `json:"EnableCapture,omitempty"`
+}
+
+// CaptureOption mirrors types.CaptureOption (types/types.go:3857-3865).
+// CaptureMode is its sole, required member.
+type CaptureOption struct {
+	CaptureMode string `json:"CaptureMode"`
 }
 
 // AsyncInferenceConfig configures asynchronous inference for an endpoint.
@@ -373,6 +385,134 @@ func cloneCluster(c *Cluster) *Cluster {
 		cp.TieredStorageConfig = &tsc
 	}
 
+	cp.RestrictedInstanceGroups = make([]ClusterRestrictedInstanceGroup, len(c.RestrictedInstanceGroups))
+	for i, ig := range c.RestrictedInstanceGroups {
+		cp.RestrictedInstanceGroups[i] = cloneClusterRestrictedInstanceGroup(ig)
+	}
+
+	cp.RestrictedInstanceGroupsConfig = cloneRestrictedInstanceGroupsConfig(c.RestrictedInstanceGroupsConfig)
+
+	return &cp
+}
+
+// cloneClusterEnvironmentConfig returns a deep copy of e.
+func cloneClusterEnvironmentConfig(e *ClusterEnvironmentConfig) *ClusterEnvironmentConfig {
+	if e == nil {
+		return nil
+	}
+
+	cp := *e
+	if e.FSxLustreConfig != nil {
+		flc := *e.FSxLustreConfig
+		cp.FSxLustreConfig = &flc
+	}
+
+	return &cp
+}
+
+// cloneClusterInstanceStorageConfig returns a deep copy of s.
+func cloneClusterInstanceStorageConfig(s ClusterInstanceStorageConfig) ClusterInstanceStorageConfig {
+	if s.EbsVolumeConfig != nil {
+		v := *s.EbsVolumeConfig
+		s.EbsVolumeConfig = &v
+	}
+
+	if s.FsxLustreConfig != nil {
+		v := *s.FsxLustreConfig
+		s.FsxLustreConfig = &v
+	}
+
+	if s.FsxOpenZfsConfig != nil {
+		v := *s.FsxOpenZfsConfig
+		s.FsxOpenZfsConfig = &v
+	}
+
+	return s
+}
+
+// cloneScheduledUpdateConfig returns a deep copy of s.
+func cloneScheduledUpdateConfig(s *ScheduledUpdateConfig) *ScheduledUpdateConfig {
+	if s == nil {
+		return nil
+	}
+
+	cp := *s
+	cp.DeploymentConfig = cloneDeploymentConfiguration(s.DeploymentConfig)
+
+	return &cp
+}
+
+// cloneDeploymentConfiguration returns a deep copy of dc.
+func cloneDeploymentConfiguration(dc *DeploymentConfiguration) *DeploymentConfiguration {
+	if dc == nil {
+		return nil
+	}
+
+	cp := *dc
+	cp.AutoRollbackConfiguration = append([]AlarmDetails(nil), dc.AutoRollbackConfiguration...)
+	cp.RollingUpdatePolicy = cloneRollingDeploymentPolicy(dc.RollingUpdatePolicy)
+
+	return &cp
+}
+
+// cloneRollingDeploymentPolicy returns a deep copy of rp.
+func cloneRollingDeploymentPolicy(rp *RollingDeploymentPolicy) *RollingDeploymentPolicy {
+	if rp == nil {
+		return nil
+	}
+
+	cp := *rp
+
+	if rp.MaximumBatchSize != nil {
+		v := *rp.MaximumBatchSize
+		cp.MaximumBatchSize = &v
+	}
+
+	if rp.RollbackMaximumBatchSize != nil {
+		v := *rp.RollbackMaximumBatchSize
+		cp.RollbackMaximumBatchSize = &v
+	}
+
+	return &cp
+}
+
+// cloneClusterRestrictedInstanceGroup returns a deep copy of ig.
+func cloneClusterRestrictedInstanceGroup(ig ClusterRestrictedInstanceGroup) ClusterRestrictedInstanceGroup {
+	ig.EnvironmentConfig = cloneClusterEnvironmentConfig(ig.EnvironmentConfig)
+	ig.ScheduledUpdateConfig = cloneScheduledUpdateConfig(ig.ScheduledUpdateConfig)
+
+	if ig.InstanceStorageConfigs != nil {
+		cp := make([]ClusterInstanceStorageConfig, len(ig.InstanceStorageConfigs))
+		for i, s := range ig.InstanceStorageConfigs {
+			cp[i] = cloneClusterInstanceStorageConfig(s)
+		}
+
+		ig.InstanceStorageConfigs = cp
+	}
+
+	return ig
+}
+
+// cloneRestrictedInstanceGroupsConfig returns a deep copy of cfg.
+func cloneRestrictedInstanceGroupsConfig(
+	cfg *ClusterRestrictedInstanceGroupsConfig,
+) *ClusterRestrictedInstanceGroupsConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	cp := *cfg
+
+	if cfg.SharedEnvironmentConfig != nil {
+		sec := *cfg.SharedEnvironmentConfig
+		if cfg.SharedEnvironmentConfig.FSxLustreConfig != nil {
+			flc := *cfg.SharedEnvironmentConfig.FSxLustreConfig
+			sec.FSxLustreConfig = &flc
+		}
+
+		cp.SharedEnvironmentConfig = &sec
+	}
+
 	return &cp
 }
 
@@ -444,22 +584,167 @@ type ClusterTieredStorageConfig struct {
 	InstanceMemoryAllocationPercentage int32  `json:"InstanceMemoryAllocationPercentage,omitempty"`
 }
 
+// FSxLustreConfig mirrors types.FSxLustreConfig (types/types.go:9152,
+// sagemaker@v1.263.2).
+type FSxLustreConfig struct {
+	PerUnitStorageThroughput int32 `json:"PerUnitStorageThroughput,omitempty"`
+	SizeInGiB                int32 `json:"SizeInGiB,omitempty"`
+}
+
+// ClusterEnvironmentConfig mirrors types.EnvironmentConfig (types/types.go:
+// 8395, sagemaker@v1.263.2) -- the request-side shape of a restricted
+// instance group's environment configuration.
+type ClusterEnvironmentConfig struct {
+	FSxLustreConfig *FSxLustreConfig `json:"FSxLustreConfig,omitempty"`
+}
+
+// ClusterEnvironmentConfigDetails mirrors types.EnvironmentConfigDetails
+// (types/types.go:8405, sagemaker@v1.263.2) -- the response-side shape.
+// S3OutputPath is a response-only field this emulator has no data source for
+// (no restricted-instance-group output-location tracking exists) -- left
+// unset, a disclosed no-op, rather than fabricated.
+type ClusterEnvironmentConfigDetails struct {
+	FSxLustreConfig *FSxLustreConfig `json:"FSxLustreConfig,omitempty"`
+	S3OutputPath    string           `json:"S3OutputPath,omitempty"`
+}
+
+// ClusterEbsVolumeConfig mirrors types.ClusterEbsVolumeConfig (types/types.go:
+// 4548, sagemaker@v1.263.2).
+type ClusterEbsVolumeConfig struct {
+	VolumeKmsKeyID string `json:"VolumeKmsKeyId,omitempty"`
+	VolumeSizeInGB int32  `json:"VolumeSizeInGB,omitempty"`
+	RootVolume     bool   `json:"RootVolume,omitempty"`
+}
+
+// ClusterFsxLustreConfig mirrors types.ClusterFsxLustreConfig (types/types.go:
+// 4683, sagemaker@v1.263.2).
+type ClusterFsxLustreConfig struct {
+	DNSName   string `json:"DnsName"`
+	MountName string `json:"MountName"`
+	MountPath string `json:"MountPath,omitempty"`
+}
+
+// ClusterFsxOpenZfsConfig mirrors types.ClusterFsxOpenZfsConfig
+// (types/types.go:4704, sagemaker@v1.263.2).
+type ClusterFsxOpenZfsConfig struct {
+	DNSName   string `json:"DnsName"`
+	MountPath string `json:"MountPath,omitempty"`
+}
+
+// ClusterInstanceStorageConfig mirrors types.ClusterInstanceStorageConfig
+// (types/types.go:5107, sagemaker@v1.263.2): a genuine discriminated union,
+// confirmed by its isClusterInstanceStorageConfig() marker interface with
+// three member wrapper types -- unlike ClusterOrchestrator in this same
+// service, which reads like a union in prose but is a plain struct.
+// serializers.go:27404-27428 confirms each member serializes as a single-key
+// object ("EbsVolumeConfig"/"FsxLustreConfig"/"FsxOpenZfsConfig"). Modeled
+// the way this repo already models real smithy unions (bedrock's
+// EvaluationConfig, services/bedrock/models.go:271-274): one pointer field
+// per member, tagged with its wire key, dispatched by encoding/json's own
+// field-presence matching rather than a Go interface -- mirroring
+// smithy-go's single-key-object mechanism directly.
+// validateClusterInstanceStorageConfigLocked enforces exactly one member set.
+type ClusterInstanceStorageConfig struct {
+	EbsVolumeConfig  *ClusterEbsVolumeConfig  `json:"EbsVolumeConfig,omitempty"`
+	FsxLustreConfig  *ClusterFsxLustreConfig  `json:"FsxLustreConfig,omitempty"`
+	FsxOpenZfsConfig *ClusterFsxOpenZfsConfig `json:"FsxOpenZfsConfig,omitempty"`
+}
+
+// CapacitySizeConfig mirrors types.CapacitySizeConfig (types/types.go:3824,
+// sagemaker@v1.263.2).
+type CapacitySizeConfig struct {
+	Type  string `json:"Type"`
+	Value int32  `json:"Value"`
+}
+
+// AlarmDetails mirrors types.AlarmDetails (types/types.go:841,
+// sagemaker@v1.263.2).
+type AlarmDetails struct {
+	AlarmName string `json:"AlarmName"`
+}
+
+// RollingDeploymentPolicy mirrors types.RollingDeploymentPolicy
+// (types/types.go:20006, sagemaker@v1.263.2).
+type RollingDeploymentPolicy struct {
+	MaximumBatchSize         *CapacitySizeConfig `json:"MaximumBatchSize,omitempty"`
+	RollbackMaximumBatchSize *CapacitySizeConfig `json:"RollbackMaximumBatchSize,omitempty"`
+}
+
+// DeploymentConfiguration mirrors types.DeploymentConfiguration
+// (types/types.go:7106, sagemaker@v1.263.2).
+type DeploymentConfiguration struct {
+	RollingUpdatePolicy       *RollingDeploymentPolicy `json:"RollingUpdatePolicy,omitempty"`
+	AutoRollbackConfiguration []AlarmDetails           `json:"AutoRollbackConfiguration,omitempty"`
+	WaitIntervalInSeconds     int32                    `json:"WaitIntervalInSeconds,omitempty"`
+}
+
+// ScheduledUpdateConfig mirrors types.ScheduledUpdateConfig (types/types.go:
+// 20564, sagemaker@v1.263.2). It is the same Go SDK type on both the
+// restricted instance group's request shape and its ClusterRestrictedInstanceGroupDetails
+// response shape (types/types.go:5550), so no separate Details variant is
+// needed here, mirroring Orchestrator/TieredStorageConfig's own
+// request/response type sharing (see ClusterOrchestrator's doc comment).
+type ScheduledUpdateConfig struct {
+	DeploymentConfig   *DeploymentConfiguration `json:"DeploymentConfig,omitempty"`
+	ScheduleExpression string                   `json:"ScheduleExpression"`
+}
+
+// ClusterRestrictedInstanceGroup represents a restricted instance group
+// specification/details for a SageMaker HyperPod cluster (a merged view of
+// the AWS ClusterRestrictedInstanceGroupSpecification and
+// ClusterRestrictedInstanceGroupDetails shapes, types/types.go:5514,:5622 --
+// the same convention ClusterInstanceGroup already uses for regular instance
+// groups). OnStartDeepHealthChecks/OverrideVpcConfig/ThreadsPerCore/
+// TrainingPlanArn are not modeled, consistent with ClusterInstanceGroup
+// already omitting those same fields for regular instance groups.
+type ClusterRestrictedInstanceGroup struct {
+	EnvironmentConfig      *ClusterEnvironmentConfig      `json:"EnvironmentConfig,omitempty"`
+	ScheduledUpdateConfig  *ScheduledUpdateConfig         `json:"ScheduledUpdateConfig,omitempty"`
+	InstanceGroupName      string                         `json:"InstanceGroupName"`
+	ExecutionRole          string                         `json:"ExecutionRole,omitempty"`
+	InstanceType           string                         `json:"InstanceType,omitempty"`
+	InstanceStorageConfigs []ClusterInstanceStorageConfig `json:"InstanceStorageConfigs,omitempty"`
+	InstanceCount          int32                          `json:"InstanceCount,omitempty"`
+}
+
+// ClusterSharedEnvironmentConfig mirrors types.ClusterSharedEnvironmentConfig
+// (types/types.go:5727, sagemaker@v1.263.2). FSxLustreConfig and
+// FSxLustreDeletionPolicy are both "This member is required" on the real
+// type -- validateRestrictedInstanceGroupsConfigLocked enforces their
+// presence. FSxLustreDeletionPolicy is stored/echoed as an opaque string,
+// the same not-validated-against-the-enum convention NodeProvisioningMode
+// already uses.
+type ClusterSharedEnvironmentConfig struct {
+	FSxLustreConfig         *FSxLustreConfig `json:"FSxLustreConfig,omitempty"`
+	FSxLustreDeletionPolicy string           `json:"FSxLustreDeletionPolicy,omitempty"`
+}
+
+// ClusterRestrictedInstanceGroupsConfig mirrors
+// types.ClusterRestrictedInstanceGroupsConfig (types/types.go:5598,
+// sagemaker@v1.263.2). SharedEnvironmentConfig is "This member is required"
+// on the real type.
+type ClusterRestrictedInstanceGroupsConfig struct {
+	SharedEnvironmentConfig *ClusterSharedEnvironmentConfig `json:"SharedEnvironmentConfig,omitempty"`
+}
+
 // Cluster represents a SageMaker HyperPod cluster.
 type Cluster struct {
-	CreationTime         time.Time                   `json:"CreationTime"`
-	Nodes                map[string]*ClusterNode     `json:"-"`
-	Tags                 map[string]string           `json:"Tags,omitempty"`
-	VpcConfig            *VpcConfig                  `json:"VpcConfig,omitempty"`
-	AutoScaling          *ClusterAutoScalingConfig   `json:"AutoScaling,omitempty"`
-	Orchestrator         *ClusterOrchestrator        `json:"Orchestrator,omitempty"`
-	TieredStorageConfig  *ClusterTieredStorageConfig `json:"TieredStorageConfig,omitempty"`
-	ClusterArn           string                      `json:"ClusterArn"`
-	ClusterName          string                      `json:"ClusterName"`
-	ClusterStatus        string                      `json:"ClusterStatus"`
-	NodeRecovery         string                      `json:"NodeRecovery,omitempty"`
-	ClusterRole          string                      `json:"ClusterRole,omitempty"`
-	NodeProvisioningMode string                      `json:"NodeProvisioningMode,omitempty"`
-	InstanceGroups       []ClusterInstanceGroup      `json:"InstanceGroups,omitempty"`
+	CreationTime                   time.Time                              `json:"CreationTime"`
+	Nodes                          map[string]*ClusterNode                `json:"-"`
+	Tags                           map[string]string                      `json:"Tags,omitempty"`
+	VpcConfig                      *VpcConfig                             `json:"VpcConfig,omitempty"`
+	AutoScaling                    *ClusterAutoScalingConfig              `json:"AutoScaling,omitempty"`
+	Orchestrator                   *ClusterOrchestrator                   `json:"Orchestrator,omitempty"`
+	TieredStorageConfig            *ClusterTieredStorageConfig            `json:"TieredStorageConfig,omitempty"`
+	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig `json:"RestrictedInstanceGroupsConfig,omitempty"`
+	ClusterArn                     string                                 `json:"ClusterArn"`
+	ClusterName                    string                                 `json:"ClusterName"`
+	ClusterStatus                  string                                 `json:"ClusterStatus"`
+	NodeRecovery                   string                                 `json:"NodeRecovery,omitempty"`
+	ClusterRole                    string                                 `json:"ClusterRole,omitempty"`
+	NodeProvisioningMode           string                                 `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups                 []ClusterInstanceGroup                 `json:"InstanceGroups,omitempty"`
+	RestrictedInstanceGroups       []ClusterRestrictedInstanceGroup       `json:"RestrictedInstanceGroups,omitempty"`
 }
 
 // ModelPackageStatusItem mirrors AWS's ModelPackageStatusItem: the outcome of

@@ -63,6 +63,10 @@ func (b *InMemoryBackend) CreateConfigurationSetEventDestination(configSetName s
 		)
 	}
 
+	if len(b.eventDestinationsByConfigSet.Get(configSetName)) >= b.limits.eventDestinationsPerSet {
+		return limitExceeded("event destinations per configuration set")
+	}
+
 	d := dest
 	d.ConfigSetName = configSetName
 	b.eventDestinations.Put(&d)

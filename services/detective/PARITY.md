@@ -45,7 +45,8 @@ ops:
 families:
   route_matcher: {status: ok, note: "every REST path + HTTP method verified byte-for-byte against aws-sdk-go-v2 serializers.go opPath/request.Method for all 29 ops; matches exactly. handler_test.go exercises h.RouteMatcher()(c) and h.ExtractOperation(c) directly (not just h.Handler()) to prove the matcher itself, not just the dispatch switch, since unit tests calling h.Handler()(c) bypass RouteMatcher."}
   wire_timestamps: {status: ok, note: "smithytime.ParseDateTime/FormatDateTime confirms restjson1 Detective uses ISO8601 datetime strings (NOT epoch numbers) for CreatedTime/InvitedTime/UpdatedTime/DelegationTime/ScopeStartTime/ScopeEndTime; handler.go's \"2006-01-02T15:04:05.000Z\" format is a valid (always-3-decimal) RFC3339 the real client parses fine, vs. SDK's \"2006-01-02T15:04:05.999Z\" (trailing-zero-trimmed) output format - both are valid ISO8601, no bug"}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "StartMonitoringMember's precondition (member status ACCEPTED_BUT_DISABLED) is unreachable through normal API flow: AcceptInvitation transitions INVITED straight to ENABLED, mirroring the AWS happy path, but real Detective can also land a member in ACCEPTED_BUT_DISABLED (data-volume-too-high / volume-unknown edge cases per MemberDisabledReason) which this emulator does not model. Not fixed this pass: real AWS determines this state via internal GuardDuty volume telemetry with no documented client-controllable trigger, so modeling a way to reach it would mean inventing a control surface that does not exist in the real API rather than emulating one -- a larger, speculative feature, not a wire/state bug fix. Re-verified gopherstack-c902: ACCEPTED_BUT_DISABLED IS present in the pinned SDK's MemberStatus enum (types/enums.go, aws-sdk-go-v2/service/detective@v1.41.4, line 186), so this is not a wire gap -- the value exists in the model, it is just unreachable through any legitimate client action. Also re-verified the precondition itself is NOT missing: administrator.go's StartMonitoringMember already rejects any member whose status isn't ACCEPTED_BUT_DISABLED with ValidationException (see TestDetective_StartMonitoringMember's \"member not ACCEPTED_BUT_DISABLED returns 400\" case), so there was nothing left to fix here."
   - "MemberDetail still omits DisabledReason, VolumeUsageInBytes (deprecated), VolumeUsageUpdatedTime (deprecated), PercentOfGraphUtilization (deprecated), PercentOfGraphUtilizationUpdatedTime (deprecated), and VolumeUsageByDatasourcePackage. InvitationType and DatasourcePackageIngestStates were fixed this pass (see CreateMembers/GetMembers/ListMembers/ListInvitations notes). The remaining fields are volume/analytics telemetry this emulator does not model (no real data-ingest pipeline), and DisabledReason has no valid state to populate since ACCEPTED_BUT_DISABLED is unreachable (see the StartMonitoringMember gap above) -- all are optional fields real clients already treat as absent-safe, so omitting them is wire-legal, just incomplete. Low priority. Re-verified gopherstack-c902: DisabledReason and the volume metrics were deliberately split per the follow-up issue's instruction -- but the split does not change the verdict here. DisabledReason would be trivially serialisable IF the backend ever transitioned a member into ACCEPTED_BUT_DISABLED (storedMember already has a Status field to key off of), but grep confirms nothing in this codebase ever assigns memberStatusAcceptedDisabled to a member -- StartMonitoringMember only reads it as a precondition, never writes it. So there is no disabled-state instance anywhere in the backend for DisabledReason to be derived from; inventing a value would mean fabricating data with no backing state, which is worse than omitting the field. VolumeUsage*/PercentOfGraphUtilization genuinely need ingest-volume telemetry this emulator has no model for -- left absent rather than invented, matching this campaign's 'absent beats plausible-but-wrong' rule."
   - "2026-08-20 wrapper-key/nested-shape sweep: DatasourcePackageIngestDetail (ListDatasourcePackages) still omits LastIngestStateChange (map[state]TimestampForCollection per package, deserializers.go's awsRestjson1_deserializeDocumentDatasourcePackageIngestDetail 'LastIngestStateChange' case) -- this emulator tracks a single datasourceChangedAt timestamp per package/graph (used to build the sibling BatchGetGraphMemberDatasources/BatchGetMembershipDatasources DatasourcePackageIngestHistory shape via ingestHistoryLocked) but ListDatasourcePackages' handler never surfaces it as LastIngestStateChange. Genuine Layer-3 omission (member never emitted), not fixed -- out of scope for this pass's wrapper-key/nesting charter; the backing data (datasourceChangedAt) already exists so a future pass could wire it with the same shape ingestHistoryToJSON already produces elsewhere. Not previously recorded by gopherstack-c902."
@@ -55,6 +56,26 @@ deferred:                 # consciously not audited this pass (scope) — next p
   - "UpdateOrganizationConfiguration's AutoEnable flag has no side effect: real AWS auto-enables Detective for new Organizations member accounts as they join the org. This emulator has no Organizations-service integration to source account-join events from, so AutoEnable is stored and returned correctly (DescribeOrganizationConfiguration) but never drives member auto-creation. Out of scope for a single-account emulator with no cross-service org simulation. Re-verified gopherstack-c902: services/organizations exists and other services (grafana, mgn) do reach it via a siblingServices/GetOrganizationsHandler cross_service.go pattern -- but only for synchronous reads (DescribeOrganizationalUnit, DescribeOrganization, ListDelegatedAdministrators, ListAccounts), never as an event source. Checked every other gopherstack service that models an AutoEnable-shaped org config (guardduty, inspector2, macie2, securityhub, all found via `grep -rl AutoEnable services`): every one of them stores and echoes AutoEnable identically, with zero side effect -- none has solved 'new account joins org' as a trigger. services/organizations' AcceptHandshake/InviteAccountToOrganization add an account to the org's own account list but publish no event or callback any sibling service subscribes to. This is a genuine cross-cutting gap (not a stale 'already solved elsewhere' claim like the codedeploy/EC2 case) -- AutoEnable is stored-and-echoed with no trigger to hook into anywhere in this codebase, which is the honest half of the stored-vs-ignored distinction, not the negligent half."
 leaks: {status: clean, note: "DeleteGraph purges investigations/datasources/orgConfigs for the deleted graph ARN (not just members/tags). DisableOrganizationAdminAccount now reuses the same deleteGraphLocked cascade (see EnableOrganizationAdminAccount/DisableOrganizationAdminAccount notes above), so org-graph deletion via Disable is leak-free too. Verified via TestDeleteGraph_CleansUpDependentState and TestDisableOrganizationAdminAccount_DeletesGraph, both asserting the deleted ARN is absent from a post-delete Snapshot()/ListGraphs()."}
 ---
+
+## 2026-09-12 (typed slice 27, gopherstack-n3zi)
+
+Drove all 19 typed-client-uncovered ops (BatchGetGraphMemberDatasources,
+BatchGetMembershipDatasources, CreateMembers, DeleteMembers,
+DescribeOrganizationConfiguration, DisableOrganizationAdminAccount,
+DisassociateMembership, EnableOrganizationAdminAccount, GetInvestigation,
+GetMembers, ListDatasourcePackages, ListInvestigations, ListMembers,
+ListOrganizationAdminAccounts, RejectInvitation, StartMonitoringMember,
+UpdateDatasourcePackages, UpdateInvestigationState,
+UpdateOrganizationConfiguration) through the real aws-sdk-go-v2 detective
+client for the first time (`typed_slice27_realclient_test.go`). Zero wire
+bugs found -- this PARITY.md's prior A-grade audit history already verified
+every one of these ops' wire shape by hand; the typed client confirmed it.
+RejectInvitation/DisassociateMembership/StartMonitoringMember needed
+`seedMember` (whitebox_test.go) to reach a self-membership state CreateMembers
+structurally cannot produce (an account cannot invite itself) -- same
+unreachable-except-by-seed shape already documented in items_still_open for
+StartMonitoringMember's ACCEPTED_BUT_DISABLED precondition. detective: 29/29
+typed-client covered (was 10/29).
 
 ## Notes
 
@@ -311,3 +332,73 @@ Gates: `go build ./services/detective/...` (clean), `go test -race
 ./services/detective/...` (`ok`), `golangci-lint run
 ./services/detective/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+### 2026-09-12: gopherstack-39710 -- RouteMatcher over-claim, detective swallowed guardduty's ListInvitations
+
+`RouteMatcher`'s `switch path { case pathGraph, pathInvitation, ... }` claimed
+the exact `/invitation` path unconditionally (`scanSwitchCaseIdentClaims`,
+`cmd/routecollisions`, made this claim visible for the first time this sweep;
+previously it collapsed to just the `/tags/` ARN guard). guardduty's
+`RouteMatcher` claims the same `/invitation` prefix with no SigV4 guard
+either (`services/guardduty/handler.go:301`), and detective registers at
+`MatchPriority` 85 vs. guardduty's -1, so detective always won the tie.
+
+**Real overlap set** (every path both SDKs actually send at exact
+`/invitation`, cited from each pinned module's `serializers.go`):
+detective's `AcceptInvitation` is `PUT /invitation`
+(`aws-sdk-go-v2/service/detective@v1.41.4/serializers.go:44`); guardduty's
+`ListInvitations` is `GET /invitation`
+(`aws-sdk-go-v2/service/guardduty@v1.85.4/serializers.go:5486`). No other
+guardduty op sends bare `/invitation` --
+`AcceptInvitation` (the deprecated legacy op) is `POST
+/detector/{DetectorId}/master` (serializers.go:144),
+`AcceptAdministratorInvitation` is `PUT
+/detector/{DetectorId}/administrator` (serializers.go:44), and
+`DeclineInvitations`/`DeleteInvitations`/`GetInvitationsCount` are all a
+segment deeper (`/invitation/decline`, `/invitation/delete`,
+`/invitation/count`). Confirmed live before the fix: a real two-service
+router (detective + guardduty, both real handlers) answered a guardduty
+`ListInvitations` request out of detective's `classifyPath` (method GET,
+neither the PUT-only `AcceptInvitation` branch nor any POST-path map entry
+matches) with a bare 400 `InvalidInputException: unknown operation`,
+guardduty's handler never invoked.
+
+**Fix**: scoped detective's `pathInvitation` case out of the bare switch and
+into its own SigV4-guarded branch in `RouteMatcher`
+(`services/detective/handler.go`), same idiom as `services/iot/handler.go`'s
+`/policies` guard: `httputils.ExtractServiceFromRequest(c.Request())`, and
+only claim the path when the scope is absent or literally `"detective"`
+(written as an early `return false` when it's a different, present scope, so
+`cmd/routecollisions`' `isExclusion` heuristic recognizes the carve-out
+instead of conservatively over-reporting it as a live collision). No
+`MatchPriority` change on either side, per the standing rule (see the
+`route-matcher-prefix-collision` memory / this pass's
+`services/_ROUTE_COLLISIONS.md` "gopherstack-39710" entry).
+
+Regression test: `TestInvitationRouting_CrossServiceIsolation`
+(`invitation_routing_cross_service_test.go`) wires detective's and
+guardduty's real `Handler`s into one `service.NewRegistry` +
+`service.NewServiceRouter`, same as production's `cli.go`, and drives both
+through their real `aws-sdk-go-v2` clients against the shared `httptest`
+server: a guardduty-signed `ListInvitations` (GET) now reaches guardduty
+(previously the 400 above), and a detective-signed `AcceptInvitation` (PUT)
+against an unknown graph still reaches detective (`ResourceNotFoundException`,
+proving the guard didn't overcorrect). Confirmed the test fails with the
+pre-fix `RouteMatcher` (reproduces the exact `InvalidInputException: unknown
+operation` above) and passes with the fix.
+
+`go run ./cmd/routecollisions`: before, `detective [exact "/invitation"
+prio=85 reg=143] shadows guardduty [prefix "/invitation" prio=-1 reg=84]
+(UNGUARDED-WINNER/unguarded)`, 204 literal-overlap pairs total; after, the
+pair no longer appears in the report at all, 203 pairs total.
+`services/_ROUTE_COLLISIONS.md` regenerated to record this.
+
+Gates: `go build ./...` clean; `go vet ./services/detective/...
+./services/guardduty/...` clean; `go test -race -count=1
+./services/detective/... ./services/guardduty/... ./cmd/routecollisions/...`
+all `ok`; `golangci-lint run ./services/detective/...` and
+`--new-from-rev=HEAD ./services/guardduty/...` both 0 issues; `go run
+./cmd/paritylint` 0 FAIL. Files changed: `services/detective/handler.go`,
+`services/detective/invitation_routing_cross_service_test.go` (new),
+`services/detective/PARITY.md`, `services/guardduty/PARITY.md`,
+`services/_ROUTE_COLLISIONS.md`.

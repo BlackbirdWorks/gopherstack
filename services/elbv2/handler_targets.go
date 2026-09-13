@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 )
 
@@ -136,15 +137,32 @@ func (h *Handler) handleDescribeTargetHealth(vals url.Values) (any, error) {
 		targets = filtered
 	}
 
+	include := parseMembers(vals, "Include.member")
+	// AnomalyDetection is included only on request (Include=AnomalyDetection
+	// or All); this backend detects no anomalies, so Result is always
+	// AnomalyResultEnumNormal (elasticloadbalancingv2@v1.58.5 types/enums.go:57).
+	includeAnomaly := slices.Contains(include, "AnomalyDetection") || slices.Contains(include, "All")
+
 	members := make([]xmlTargetHealthDescription, 0, len(targets))
 	for _, t := range targets {
-		members = append(members, xmlTargetHealthDescription{
-			Target: xmlTargetDescription{ID: t.Target.ID, Port: t.Target.Port},
+		member := xmlTargetHealthDescription{
+			Target: xmlTargetDescription{
+				ID:               t.Target.ID,
+				Port:             t.Target.Port,
+				AvailabilityZone: t.Target.AvailabilityZone,
+				QuicServerID:     t.Target.QuicServerID,
+			},
 			TargetHealth: xmlTargetHealth{
 				State:  t.HealthState,
 				Reason: t.HealthReason,
 			},
-		})
+		}
+
+		if includeAnomaly {
+			member.AnomalyDetection = &xmlAnomalyDetection{Result: "normal", MitigationInEffect: "no"}
+		}
+
+		members = append(members, member)
 	}
 
 	return &describeTargetHealthResponse{
@@ -167,15 +185,22 @@ func parseTargets(vals url.Values, prefix string) []Target {
 
 		port, _ := parseInt32(vals.Get(fmt.Sprintf("%s.%d.Port", prefix, i)))
 
-		result = append(result, Target{ID: id, Port: port})
+		result = append(result, Target{
+			ID:               id,
+			Port:             port,
+			AvailabilityZone: vals.Get(fmt.Sprintf("%s.%d.AvailabilityZone", prefix, i)),
+			QuicServerID:     vals.Get(fmt.Sprintf("%s.%d.QuicServerId", prefix, i)),
+		})
 	}
 
 	return result
 }
 
 type xmlTargetDescription struct {
-	ID   string `xml:"Id"`
-	Port int32  `xml:"Port,omitempty"`
+	ID               string `xml:"Id"`
+	AvailabilityZone string `xml:"AvailabilityZone,omitempty"`
+	QuicServerID     string `xml:"QuicServerId,omitempty"`
+	Port             int32  `xml:"Port,omitempty"`
 }
 
 type xmlTargetHealth struct {
@@ -184,9 +209,15 @@ type xmlTargetHealth struct {
 	Description string `xml:"Description,omitempty"`
 }
 
+type xmlAnomalyDetection struct {
+	Result             string `xml:"Result,omitempty"`
+	MitigationInEffect string `xml:"MitigationInEffect,omitempty"`
+}
+
 type xmlTargetHealthDescription struct {
-	TargetHealth xmlTargetHealth      `xml:"TargetHealth"`
-	Target       xmlTargetDescription `xml:"Target"`
+	AnomalyDetection *xmlAnomalyDetection `xml:"AnomalyDetection,omitempty"`
+	TargetHealth     xmlTargetHealth      `xml:"TargetHealth"`
+	Target           xmlTargetDescription `xml:"Target"`
 }
 
 type xmlTargetHealthDescriptionList struct {

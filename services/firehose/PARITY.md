@@ -68,7 +68,9 @@ families:
   destination_delivery: {status: ok, note: "All 10 real SDK destination-configuration types now field-diffed and implemented: S3, ExtendedS3, HttpEndpoint, Redshift, Amazonopensearchservice, legacy Elasticsearch (NEW this pass), Splunk, Iceberg (NEW), Snowflake (NEW). S3/HTTP/Redshift/OpenSearch/Elasticsearch/Splunk delivery pipelines verified as real (Lambda transform, dynamic partitioning, S3 backup, error-output routing, retry/backoff) — not disguised no-ops. Elasticsearch reuses the OpenSearch bulk-API delivery path (the two share an identical wire protocol; only the Firehose destination-configuration shape differs). Iceberg/Snowflake land processed records into their required S3Configuration staging bucket via the same writeRecordsToBucket helper S3 delivery uses — genuine state mutation, not a stub — but neither drives a real Iceberg/Glue-catalog commit or Snowflake Snowpipe-Streaming ingest; see gaps (same documented-simplification pattern as the pre-existing Redshift gap). AmazonOpenSearchServerless (a distinct 11th real SDK destination-configuration type, `AmazonOpenSearchServerlessDestinationConfiguration`) remains unimplemented — out of scope for this pass's explicit destination list, not field-diffed, do not mark ok."}
   kinesis_source: {status: ok, note: "KinesisStreamAsSource polling code (launchKinesisPoller) is real and well covered by kinesis_source_test.go. FIXED 2026-09-04 (gopherstack-o4ny): SetKinesisBackend is now actually called from cli.go -- wireFirehoseKinesisSource (cli.go, called from wireStorageAndSecretsIntegrations alongside wireFirehoseDelivery) wires the real Kinesis InMemoryBackend into Firehose via a kinesisStreamReaderAdapter (shared with kinesisanalyticsbackend's DiscoverInputSchema sampling -- both need the same narrow ListShards/GetShardIterator/GetRecords shape over the same real Kinesis backend), so shouldPoll now actually fires in a real running server and a KinesisStreamAsSource stream ingests records from its source stream for real. Previously (gopherstack-rop) SetKinesisBackend was only ever called from this service's own tests, so b.kinesisBackend was always nil in production; that pass added a CreateDeliveryStream WarnContext log for the nil-backend case (kept -- still correct for a deliberately-unwired backend, e.g. in tests), covered by TestFirehose_KinesisSource_NoBackendLogsWarning. The wiring fix itself is covered by TestFirehose_KinesisSource_Wiring in cli_test.go (asserts SetKinesisBackend's effect: a poller now starts and PollerCount goes to 1 immediately after CreateDeliveryStream on a wired backend) plus the pre-existing kinesis_source_test.go poller-mechanics tests."}
 
-gaps:
+gaps: []
+
+items_still_open:
   - >
     FIXED 2026-08-07 (bd gopherstack-ohdc): Redshift delivery now models AWS's actual
     two-hop delivery for real -- records are staged to the destination's required
@@ -156,7 +158,6 @@ gaps:
     call, e.g. every test backend) stays a silent no-op -- delivery still proceeds
     normally. See TestLambdaTransformError_DeliversCloudWatchLogEvent and
     TestLambdaTransformError_UnwiredCloudWatchLogsStaysPermissive (flush_test.go).
-
 deferred:
   - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
   - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
@@ -732,3 +733,19 @@ Not reached this pass: `AmazonOpenSearchServerlessDestinationConfiguration`
 (11th destination family, out of scope, pre-existing disclosed gap), MSK/
 Database source real polling (structural gap, `cli.go` wiring forbidden),
 Redshift `RedshiftDataExecutor` `cli.go` wiring (pre-existing disclosed gap).
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 6
+typed-client-blind ops (ListTagsForDeliveryStream, PutRecordBatch,
+StartDeliveryStreamEncryption, StopDeliveryStreamEncryption,
+TagDeliveryStream, UntagDeliveryStream) -- typed coverage 6/12 -> 12/12 (0
+uncovered). Zero real bugs found: tag CRUD, batch record puts (RecordId/
+ErrorCode per entry), and the encryption enable/disable lifecycle
+(DeliveryStreamEncryptionConfiguration.Status/KeyType round-tripping through
+DescribeDeliveryStream) all matched the real SDK's decoded shapes on the
+first correctly-shaped request, consistent with this service's prior
+`wire_sdk_roundtrip_test.go` sweep already having hardened its wire shapes.
+Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`,
+`golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
+struct fields changed; no version bump.

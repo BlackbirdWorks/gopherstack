@@ -129,6 +129,8 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 		}
 	}
 
+	cfg.AutoTuneOptions = toAutoTuneOptionsStatusJSON(d.AutoTuneOptions)
+
 	return cfg
 }
 
@@ -143,22 +145,23 @@ type opensearchConfigValue struct {
 
 // domainConfigFields holds the per-feature configuration values for a domain.
 type domainConfigFields struct {
-	EngineVersion               opensearchConfigValue `json:"EngineVersion"`
-	ClusterConfig               opensearchConfigValue `json:"ClusterConfig"`
-	EBSOptions                  opensearchConfigValue `json:"EBSOptions"`
-	AccessPolicies              opensearchConfigValue `json:"AccessPolicies"`
-	AdvancedOptions             opensearchConfigValue `json:"AdvancedOptions"`
-	SnapshotOptions             opensearchConfigValue `json:"SnapshotOptions"`
-	EncryptionAtRestOptions     opensearchConfigValue `json:"EncryptionAtRestOptions"`
-	NodeToNodeEncryptionOptions opensearchConfigValue `json:"NodeToNodeEncryptionOptions"`
-	DomainEndpointOptions       opensearchConfigValue `json:"DomainEndpointOptions"`
-	AdvancedSecurityOptions     opensearchConfigValue `json:"AdvancedSecurityOptions"`
-	VPCOptions                  opensearchConfigValue `json:"VPCOptions"`
-	CognitoOptions              opensearchConfigValue `json:"CognitoOptions"`
-	LogPublishingOptions        opensearchConfigValue `json:"LogPublishingOptions"`
-	OffPeakWindowOptions        opensearchConfigValue `json:"OffPeakWindowOptions"`
-	IdentityCenterOptions       opensearchConfigValue `json:"IdentityCenterOptions"`
-	EnableSoftwareUpdateOptions opensearchConfigValue `json:"SoftwareUpdateOptions"`
+	AutoTuneOptions             *autoTuneOptionsStatusJSON `json:"AutoTuneOptions,omitempty"`
+	EngineVersion               opensearchConfigValue      `json:"EngineVersion"`
+	ClusterConfig               opensearchConfigValue      `json:"ClusterConfig"`
+	EBSOptions                  opensearchConfigValue      `json:"EBSOptions"`
+	AccessPolicies              opensearchConfigValue      `json:"AccessPolicies"`
+	AdvancedOptions             opensearchConfigValue      `json:"AdvancedOptions"`
+	SnapshotOptions             opensearchConfigValue      `json:"SnapshotOptions"`
+	EncryptionAtRestOptions     opensearchConfigValue      `json:"EncryptionAtRestOptions"`
+	NodeToNodeEncryptionOptions opensearchConfigValue      `json:"NodeToNodeEncryptionOptions"`
+	DomainEndpointOptions       opensearchConfigValue      `json:"DomainEndpointOptions"`
+	AdvancedSecurityOptions     opensearchConfigValue      `json:"AdvancedSecurityOptions"`
+	VPCOptions                  opensearchConfigValue      `json:"VPCOptions"`
+	CognitoOptions              opensearchConfigValue      `json:"CognitoOptions"`
+	LogPublishingOptions        opensearchConfigValue      `json:"LogPublishingOptions"`
+	OffPeakWindowOptions        opensearchConfigValue      `json:"OffPeakWindowOptions"`
+	IdentityCenterOptions       opensearchConfigValue      `json:"IdentityCenterOptions"`
+	EnableSoftwareUpdateOptions opensearchConfigValue      `json:"SoftwareUpdateOptions"`
 }
 
 func (h *Handler) handleDescribeDomainConfig(w http.ResponseWriter, r *http.Request, name string) {

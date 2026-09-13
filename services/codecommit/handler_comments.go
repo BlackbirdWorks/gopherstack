@@ -3,7 +3,15 @@ package codecommit
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// getCommentsForComparedCommitDefaultMaxResults is the documented default
+// page size (api_op_GetCommentsForComparedCommit.go: "The default is 100
+// comments, but you can configure up to 500."); GetCommentsForPullRequest
+// shares the same 100/500 default/max (api_op_GetCommentsForPullRequest.go).
+const getCommentsForComparedCommitDefaultMaxResults = 100
 
 func commentToMap(c *Comment) map[string]any {
 	return map[string]any{
@@ -123,6 +131,8 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 		RepositoryName string `json:"repositoryName"`
 		AfterCommitID  string `json:"afterCommitId"`
 		BeforeCommitID string `json:"beforeCommitId"`
+		NextToken      string `json:"nextToken"`
+		MaxResults     int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -130,16 +140,25 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 	if req.RepositoryName == "" {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
+	if err := page.ValidateToken(req.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
+	}
 
 	comments, err := h.Backend.GetCommentsForComparedCommit(req.RepositoryName, req.AfterCommitID)
 	if err != nil {
 		return nil, err
 	}
 
+	// This backend groups every comment for a commit pair into one
+	// CommentsForComparedCommit entry (see PARITY.md -- no per-diff-position
+	// grouping is modeled), so MaxResults/NextToken paginate the comments
+	// nested inside that single group rather than the (always <=1) outer list.
+	pg := page.New(comments, req.NextToken, req.MaxResults, getCommentsForComparedCommitDefaultMaxResults)
+
 	data := []map[string]any{}
-	if len(comments) > 0 {
-		items := make([]map[string]any, 0, len(comments))
-		for _, c := range comments {
+	if len(pg.Data) > 0 {
+		items := make([]map[string]any, 0, len(pg.Data))
+		for _, c := range pg.Data {
 			items = append(items, commentToMap(c))
 		}
 		group := map[string]any{
@@ -153,14 +172,19 @@ func (h *Handler) handleGetCommentsForComparedCommit(body []byte) (any, error) {
 		data = append(data, group)
 	}
 
-	return map[string]any{
-		"commentsForComparedCommitData": data,
-	}, nil
+	out := map[string]any{"commentsForComparedCommitData": data}
+	if pg.Next != "" {
+		out["nextToken"] = pg.Next
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 	var req struct {
 		PullRequestID string `json:"pullRequestId"`
+		NextToken     string `json:"nextToken"`
+		MaxResults    int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -168,31 +192,41 @@ func (h *Handler) handleGetCommentsForPullRequest(body []byte) (any, error) {
 	if req.PullRequestID == "" {
 		return nil, fmt.Errorf("%w: pullRequestId is required", errInvalidRequest)
 	}
+	if err := page.ValidateToken(req.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
+	}
 
 	comments, err := h.Backend.GetCommentsForPullRequest(req.PullRequestID)
 	if err != nil {
 		return nil, err
 	}
 
+	// Same single-group simplification as GetCommentsForComparedCommit --
+	// MaxResults/NextToken paginate the nested comments list.
+	pg := page.New(comments, req.NextToken, req.MaxResults, getCommentsForComparedCommitDefaultMaxResults)
+
 	data := []map[string]any{}
-	if len(comments) > 0 {
-		items := make([]map[string]any, 0, len(comments))
-		for _, c := range comments {
+	if len(pg.Data) > 0 {
+		items := make([]map[string]any, 0, len(pg.Data))
+		for _, c := range pg.Data {
 			items = append(items, commentToMap(c))
 		}
 		group := map[string]any{
 			keyPullRequestID: req.PullRequestID,
 			"comments":       items,
 		}
-		if comments[0].RepoName != "" {
-			group[keyRepositoryName] = comments[0].RepoName
+		if pg.Data[0].RepoName != "" {
+			group[keyRepositoryName] = pg.Data[0].RepoName
 		}
 		data = append(data, group)
 	}
 
-	return map[string]any{
-		"commentsForPullRequestData": data,
-	}, nil
+	out := map[string]any{"commentsForPullRequestData": data}
+	if pg.Next != "" {
+		out["nextToken"] = pg.Next
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleUpdateComment(body []byte) (any, error) {

@@ -150,6 +150,7 @@ func (h *Handler) handleListAgreements(
 	for i, ag := range page {
 		out[i] = map[string]any{
 			"AgreementId":       ag.AgreementID,
+			"ServerId":          ag.ServerID,
 			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
 			keyDescription:      ag.Description,
 			keyStatus:           ag.Status,

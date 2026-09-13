@@ -79,8 +79,24 @@ func (h *Handler) handleDescribeTags(vals url.Values) (any, error) {
 	}, nil
 }
 
+// redshiftClusterIDFromResourceName extracts the bare cluster identifier
+// from a CreateTags/DeleteTags ResourceName. A real client always sends the
+// full ARN (e.g. "arn:aws:redshift:<region>:<account>:cluster:<id>" --
+// confirmed against redshift@v1.65.4's CreateTagsInput/DeleteTagsInput doc:
+// "ResourceName ... This member is required" gives the ARN, never a bare
+// identifier), so looking the raw ResourceName value up directly against
+// this backend's identifier-keyed cluster store never matched. Mirrors
+// handleDescribeTags' existing ARN-suffix matching for the same field.
+func redshiftClusterIDFromResourceName(resourceName string) string {
+	if _, id, ok := strings.Cut(resourceName, ":cluster:"); ok {
+		return id
+	}
+
+	return resourceName
+}
+
 func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
-	clusterID := vals.Get("ResourceName")
+	clusterID := redshiftClusterIDFromResourceName(vals.Get("ResourceName"))
 	tags := parseRedshiftTags(vals)
 
 	if err := h.Backend.CreateTags(clusterID, tags); err != nil {
@@ -96,7 +112,7 @@ func (h *Handler) handleCreateTags(vals url.Values) (any, error) {
 }
 
 func (h *Handler) handleDeleteTags(vals url.Values) (any, error) {
-	clusterID := vals.Get("ResourceName")
+	clusterID := redshiftClusterIDFromResourceName(vals.Get("ResourceName"))
 	keys := parseRedshiftTagKeys(vals)
 
 	if err := h.Backend.DeleteTags(clusterID, keys); err != nil {

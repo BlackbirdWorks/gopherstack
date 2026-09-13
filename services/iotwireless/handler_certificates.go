@@ -12,8 +12,12 @@ type associateWirelessGatewayWithCertificateRequest struct {
 	IotCertificateID string `json:"IotCertificateId"`
 }
 
+// associateWirelessGatewayWithCertificateResponse's only real member is
+// IotCertificateId (iotwireless@v1.59.4 deserializers.go:766) -- there is no
+// IotCertificateArn member on the real output at all, so a real client's
+// IotCertificateId always decoded empty under the old key.
 type associateWirelessGatewayWithCertificateResponse struct {
-	IotCertificateArn string `json:"IotCertificateArn"`
+	IotCertificateID string `json:"IotCertificateId"`
 }
 
 type getWirelessDeviceImportTaskResponse struct {
@@ -55,8 +59,12 @@ type startWirelessDeviceImportTaskResponse struct {
 	ID  string `json:"Id"`
 }
 
+// startSingleWirelessDeviceImportTaskResponse was missing Id entirely
+// (iotwireless@v1.59.4 api_op_StartSingleWirelessDeviceImportTask.go), so a
+// real client's Id always decoded empty.
 type startSingleWirelessDeviceImportTaskResponse struct {
 	Arn              string `json:"Arn"`
+	ID               string `json:"Id"`
 	WirelessDeviceID string `json:"WirelessDeviceId"`
 }
 
@@ -66,14 +74,14 @@ func (h *Handler) associateWirelessGatewayWithCertificate(c *echo.Context, gatew
 		return writeError(c, http.StatusBadRequest, "invalid request body")
 	}
 
-	certARN, err := h.Backend.AssociateWirelessGatewayWithCertificate(
+	_, err := h.Backend.AssociateWirelessGatewayWithCertificate(
 		h.AccountID, h.DefaultRegion, gatewayID, req.IotCertificateID,
 	)
 	if err != nil {
 		return handleError(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, associateWirelessGatewayWithCertificateResponse{IotCertificateArn: certARN})
+	return writeJSON(c, http.StatusOK, associateWirelessGatewayWithCertificateResponse(req))
 }
 
 func (h *Handler) disassociateWirelessGatewayFromCertificate(c *echo.Context, id string) error {
@@ -131,6 +139,7 @@ func (h *Handler) startSingleWirelessDeviceImportTask(c *echo.Context) error {
 
 	return writeJSON(c, http.StatusCreated, startSingleWirelessDeviceImportTaskResponse{
 		Arn:              task.ARN,
+		ID:               task.ID,
 		WirelessDeviceID: task.WirelessDeviceID,
 	})
 }

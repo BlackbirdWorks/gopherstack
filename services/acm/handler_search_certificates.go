@@ -195,19 +195,20 @@ type x509AttributesWire struct {
 }
 
 type acmCertificateMetadataWire struct {
-	ImportedAt         *int64 `json:"ImportedAt,omitempty"`
-	IssuedAt           *int64 `json:"IssuedAt,omitempty"`
-	RevokedAt          *int64 `json:"RevokedAt,omitempty"`
-	ExportOption       string `json:"ExportOption,omitempty"`
-	ManagedBy          string `json:"ManagedBy,omitempty"`
-	RenewalEligibility string `json:"RenewalEligibility,omitempty"`
-	RenewalStatus      string `json:"RenewalStatus,omitempty"`
-	Status             string `json:"Status"`
-	Type               string `json:"Type"`
-	ValidationMethod   string `json:"ValidationMethod,omitempty"`
-	CreatedAt          int64  `json:"CreatedAt"`
-	Exported           bool   `json:"Exported"`
-	InUse              bool   `json:"InUse"`
+	ImportedAt               *int64 `json:"ImportedAt,omitempty"`
+	IssuedAt                 *int64 `json:"IssuedAt,omitempty"`
+	RevokedAt                *int64 `json:"RevokedAt,omitempty"`
+	CertificateKeyPairOrigin string `json:"CertificateKeyPairOrigin,omitempty"`
+	ExportOption             string `json:"ExportOption,omitempty"`
+	ManagedBy                string `json:"ManagedBy,omitempty"`
+	RenewalEligibility       string `json:"RenewalEligibility,omitempty"`
+	RenewalStatus            string `json:"RenewalStatus,omitempty"`
+	Status                   string `json:"Status"`
+	Type                     string `json:"Type"`
+	ValidationMethod         string `json:"ValidationMethod,omitempty"`
+	CreatedAt                int64  `json:"CreatedAt"`
+	Exported                 bool   `json:"Exported"`
+	InUse                    bool   `json:"InUse"`
 }
 
 type certificateMetadataWire struct {
@@ -245,19 +246,20 @@ func certToSearchResult(c *Certificate) certificateSearchResultWire {
 		CertificateArn: c.ARN,
 		CertificateMetadata: &certificateMetadataWire{
 			AcmCertificateMetadata: &acmCertificateMetadataWire{
-				Status:             c.Status,
-				Type:               c.Type,
-				ValidationMethod:   c.ValidationMethod,
-				RenewalEligibility: c.RenewalEligibility,
-				RenewalStatus:      renewalStatusOf(c),
-				ExportOption:       exportOption,
-				ManagedBy:          c.ManagedBy,
-				Exported:           c.Exported,
-				InUse:              len(c.InUseBy) > 0,
-				CreatedAt:          c.CreatedAt.Unix(),
-				ImportedAt:         unixPtr(c.ImportedAt),
-				IssuedAt:           unixPtr(c.IssuedAt),
-				RevokedAt:          unixPtr(c.RevokedAt),
+				Status:                   c.Status,
+				Type:                     c.Type,
+				ValidationMethod:         c.ValidationMethod,
+				RenewalEligibility:       c.RenewalEligibility,
+				RenewalStatus:            renewalStatusOf(c),
+				ExportOption:             exportOption,
+				ManagedBy:                c.ManagedBy,
+				CertificateKeyPairOrigin: certKeyPairOrigin(c),
+				Exported:                 c.Exported,
+				InUse:                    len(c.InUseBy) > 0,
+				CreatedAt:                c.CreatedAt.Unix(),
+				ImportedAt:               unixPtr(c.ImportedAt),
+				IssuedAt:                 unixPtr(c.IssuedAt),
+				RevokedAt:                unixPtr(c.RevokedAt),
 			},
 		},
 		X509Attributes: &x509AttributesWire{

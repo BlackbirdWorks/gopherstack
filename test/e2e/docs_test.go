@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -82,13 +81,13 @@ func TestDocsDashboard_ServiceLinks(t *testing.T) {
 	s3Link := page.Locator("a[href='/dashboard/s3']")
 	count, err := s3Link.Count()
 	require.NoError(t, err)
-	assert.Greater(t, count, 0, "expected at least one link to the S3 dashboard")
+	assert.Positive(t, count, "expected at least one link to the S3 dashboard")
 
 	// There should be a link to the Lambda dashboard.
 	lambdaLink := page.Locator("a[href='/dashboard/lambda']")
 	count, err = lambdaLink.Count()
 	require.NoError(t, err)
-	assert.Greater(t, count, 0, "expected at least one link to the Lambda dashboard")
+	assert.Positive(t, count, "expected at least one link to the Lambda dashboard")
 }
 
 // TestDocsDashboard_StatsCards verifies the stats cards render.

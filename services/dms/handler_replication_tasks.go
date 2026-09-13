@@ -22,6 +22,7 @@ type createReplicationTaskInput struct {
 	CdcStartPosition          *string    `json:"CdcStartPosition"`
 	CdcStopPosition           *string    `json:"CdcStopPosition"`
 	TaskData                  *string    `json:"TaskData"`
+	ResourceIdentifier        *string    `json:"ResourceIdentifier"`
 	Tags                      []tagEntry `json:"Tags"`
 }
 
@@ -78,9 +79,10 @@ func (h *Handler) handleCreateReplicationTask(
 		ptrconv.String(in.ReplicationTaskSettings),
 		kv,
 		ReplicationTaskCDCSettings{
-			CdcStartPosition: ptrconv.String(in.CdcStartPosition),
-			CdcStopPosition:  ptrconv.String(in.CdcStopPosition),
-			TaskData:         ptrconv.String(in.TaskData),
+			CdcStartPosition:   ptrconv.String(in.CdcStartPosition),
+			CdcStopPosition:    ptrconv.String(in.CdcStopPosition),
+			TaskData:           ptrconv.String(in.TaskData),
+			ResourceIdentifier: ptrconv.String(in.ResourceIdentifier),
 		},
 	)
 	if err != nil {
@@ -91,9 +93,10 @@ func (h *Handler) handleCreateReplicationTask(
 }
 
 type describeReplicationTasksInput struct {
-	Marker     *string       `json:"Marker"`
-	MaxRecords *int32        `json:"MaxRecords"`
-	Filters    []filterEntry `json:"Filters"`
+	Marker          *string       `json:"Marker"`
+	MaxRecords      *int32        `json:"MaxRecords"`
+	Filters         []filterEntry `json:"Filters"`
+	WithoutSettings *bool         `json:"WithoutSettings"`
 }
 
 type describeReplicationTasksOutput struct {
@@ -104,8 +107,7 @@ type describeReplicationTasksOutput struct {
 func (h *Handler) handleDescribeReplicationTasks(
 	ctx context.Context, in *describeReplicationTasksInput,
 ) (*describeReplicationTasksOutput, error) {
-	arnOrID := extractFilterValue(in.Filters, "replication-task-id", "replication-task-arn")
-	list, err := h.Backend.DescribeReplicationTasks(ctx, arnOrID)
+	list, err := h.Backend.DescribeReplicationTasks(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}
@@ -115,26 +117,16 @@ func (h *Handler) handleDescribeReplicationTasks(
 		return list[i].ReplicationTaskIdentifier < list[j].ReplicationTaskIdentifier
 	})
 
-	migrationTypeFilter := extractFilterValue(in.Filters, "migration-type")
-	endpointArnFilter := extractFilterValue(in.Filters, "endpoint-arn")
-	riArnFilter := extractFilterValue(in.Filters, "replication-instance-arn")
+	withoutSettings := ptrconv.Bool(in.WithoutSettings)
 
 	all := make([]replicationTaskJSON, 0, len(list))
 	for _, rt := range list {
-		if migrationTypeFilter != "" && rt.MigrationType != migrationTypeFilter {
-			continue
+		item := rtToJSON(rt)
+		if withoutSettings {
+			item.ReplicationTaskSettings = ""
 		}
 
-		if endpointArnFilter != "" && rt.SourceEndpointArn != endpointArnFilter &&
-			rt.TargetEndpointArn != endpointArnFilter {
-			continue
-		}
-
-		if riArnFilter != "" && rt.ReplicationInstanceArn != riArnFilter {
-			continue
-		}
-
-		all = append(all, rtToJSON(rt))
+		all = append(all, item)
 	}
 
 	data, nextMarker := dmsPaginate(all, in.Marker, in.MaxRecords)
@@ -378,7 +370,7 @@ func (h *Handler) handleDescribeTableStatistics(
 ) (*describeTableStatisticsOutput, error) {
 	taskArn := ptrconv.String(in.ReplicationTaskArn)
 
-	tasks, err := h.Backend.DescribeReplicationTasks(ctx, taskArn)
+	tasks, err := h.Backend.DescribeReplicationTasks(ctx, NewIdentifierFilter("replication-task-arn", taskArn))
 	if err != nil {
 		return nil, err
 	}
@@ -392,21 +384,19 @@ func (h *Handler) handleDescribeTableStatistics(
 
 	all := buildTableStatistics(tasks[0].TableMappings)
 
-	schemaFilter := extractFilterValue(in.Filters, "schema-name")
-	tableFilter := extractFilterValue(in.Filters, "table-name")
-	stateFilter := extractFilterValue(in.Filters, "table-state")
+	df := newDescribeFilters(in.Filters)
 
 	stats := make([]tableStatisticJSON, 0, len(all))
 	for _, s := range all {
-		if schemaFilter != "" && s.SchemaName != schemaFilter {
+		if !df.Matches("schema-name", s.SchemaName) {
 			continue
 		}
 
-		if tableFilter != "" && s.TableName != tableFilter {
+		if !df.Matches("table-name", s.TableName) {
 			continue
 		}
 
-		if stateFilter != "" && s.TableState != stateFilter {
+		if !df.Matches("table-state", s.TableState) {
 			continue
 		}
 

@@ -13,7 +13,7 @@ import (
 func (b *InMemoryBackend) ListTagsForResource(
 	_ context.Context, resourceARN string,
 ) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForResource")
 	defer b.mu.RUnlock()
 
 	t, ok := b.tags[resourceARN]
@@ -28,7 +28,7 @@ func (b *InMemoryBackend) ListTagsForResource(
 func (b *InMemoryBackend) TagResource(
 	_ context.Context, resourceARN string, tags map[string]string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	if b.tags[resourceARN] == nil {
@@ -44,7 +44,7 @@ func (b *InMemoryBackend) TagResource(
 func (b *InMemoryBackend) UntagResource(
 	_ context.Context, resourceARN string, tagKeys []string,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	t := b.tags[resourceARN]

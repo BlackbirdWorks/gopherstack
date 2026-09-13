@@ -228,7 +228,7 @@ func (b *InMemoryBackend) DeleteFieldLevelEncryption(id string) error {
 // CreateFieldLevelEncryptionProfile creates a new Field Level Encryption Profile.
 // Every public key referenced by an EncryptionEntity must exist (referential integrity).
 func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
-	name, comment string, entities []EncryptionEntity,
+	callerRef, name, comment string, entities []EncryptionEntity,
 ) (*FieldLevelEncryptionProfile, error) {
 	b.mu.Lock("CreateFieldLevelEncryptionProfile")
 	defer b.mu.Unlock()
@@ -256,6 +256,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 		Comment:            comment,
 		ETag:               uuid.NewString(),
 		EncryptionEntities: cloneEncryptionEntities(entities),
+		CallerReference:    callerRef,
 	}
 	b.fieldLevelEncryptionProfiles.Put(p)
 	b.fieldLevelEncryptionProfileByName[name] = id
@@ -327,7 +328,10 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 
 	if !renameInIndex(b.fieldLevelEncryptionProfileByName, id, p.Name, name) {
 		return nil, fmt.Errorf(
-			"%w: field level encryption profile with name %q already exists", ErrFLEProfileAlreadyExists, name)
+			"%w: field level encryption profile with name %q already exists",
+			ErrFLEProfileAlreadyExists,
+			name,
+		)
 	}
 
 	p.Name = name

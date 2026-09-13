@@ -227,7 +227,7 @@ func TestListFieldLevelEncryptionProfiles_SDKRoundTrip_Pagination(t *testing.T) 
 
 	const total = 25
 	for i := range total {
-		_, err := backend.CreateFieldLevelEncryptionProfile(fmt.Sprintf("pg-flep-%02d", i), "pagination test", nil)
+		_, err := backend.CreateFieldLevelEncryptionProfile("", fmt.Sprintf("pg-flep-%02d", i), "pagination test", nil)
 		require.NoError(t, err)
 	}
 
@@ -437,10 +437,10 @@ func TestListTrustStores_SDKRoundTrip_Pagination(t *testing.T) {
 	for i := range total {
 		_, err := backend.CreateTrustStore(
 			fmt.Sprintf("pg-ts-%02d", i),
-			"pagination test",
-			cloudfront.TrustStoreCertificateBundle{
-				InlineCertificateBundle: "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----",
+			cloudfront.TrustStoreCACertificatesBundleSource{
+				S3Bucket: "pg-bucket", S3Key: "ca.pem", S3Region: "us-east-1",
 			},
+			false,
 			nil,
 		)
 		require.NoError(t, err)

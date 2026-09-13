@@ -168,7 +168,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("get-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"get-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/get-fn"
@@ -176,7 +182,12 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			wantStatus: http.StatusOK,
 			check: func(t *testing.T, rec *httptest.ResponseRecorder, _ string) {
 				t.Helper()
-				assert.Contains(t, rec.Body.String(), "get-fn")
+				// Real GetFunction returns the function's raw code as the response
+				// body (cloudfront@v1.67.4 api_op_GetFunction.go: "Gets the code of
+				// a CloudFront function"), not the FunctionSummary metadata that
+				// DescribeFunction returns.
+				assert.Equal(t, "code", rec.Body.String())
+				assert.NotContains(t, rec.Body.String(), "FunctionSummary")
 			},
 		},
 		{
@@ -202,7 +213,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("desc-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"desc-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/desc-fn/describe"
@@ -220,7 +237,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("list-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"list-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return ""
@@ -239,14 +262,23 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("pub-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"pub-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/pub-fn/publish"
 			},
 			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
 				t.Helper()
-				name := strings.TrimPrefix(strings.TrimSuffix(path, "/publish"), "/2020-05-31/function/")
+				name := strings.TrimPrefix(
+					strings.TrimSuffix(path, "/publish"),
+					"/2020-05-31/function/",
+				)
 				fn, err := h.Backend.GetFunction(name)
 				require.NoError(t, err)
 
@@ -270,7 +302,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("upd-fn", "original", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"upd-fn",
+					"original",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/upd-fn"
@@ -296,7 +334,13 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("del-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"del-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/del-fn"
@@ -321,14 +365,23 @@ func TestCloudFrontFunctionCRUD(t *testing.T) {
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFunction("test-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"test-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				return "/2020-05-31/function/test-fn/test"
 			},
 			headers: func(t *testing.T, h *cloudfront.Handler, path string) map[string]string {
 				t.Helper()
-				name := strings.TrimSuffix(strings.TrimPrefix(path, "/2020-05-31/function/"), "/test")
+				name := strings.TrimSuffix(
+					strings.TrimPrefix(path, "/2020-05-31/function/"),
+					"/test",
+				)
 				fn, err := h.Backend.GetFunction(name)
 				require.NoError(t, err)
 
@@ -457,7 +510,13 @@ func TestTestFunction(t *testing.T) {
 			headers := map[string]string{}
 
 			if !tt.skipCreate {
-				_, err := h.Backend.CreateFunction("tf-fn", "comment", "cloudfront-js-2.0", "code", nil)
+				_, err := h.Backend.CreateFunction(
+					"tf-fn",
+					"comment",
+					"cloudfront-js-2.0",
+					"code",
+					nil,
+				)
 				require.NoError(t, err)
 
 				fn, err := h.Backend.GetFunction("tf-fn")
@@ -471,7 +530,14 @@ func TestTestFunction(t *testing.T) {
 				}
 			}
 
-			rec := cfRequestWithBodyHeaders(t, h, http.MethodPost, "/2020-05-31/function/tf-fn/test", tt.body, headers)
+			rec := cfRequestWithBodyHeaders(
+				t,
+				h,
+				http.MethodPost,
+				"/2020-05-31/function/tf-fn/test",
+				tt.body,
+				headers,
+			)
 
 			assert.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 			assert.Contains(t, rec.Body.String(), tt.wantCode)

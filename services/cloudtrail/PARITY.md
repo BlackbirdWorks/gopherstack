@@ -7,7 +7,7 @@
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
 last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-09-06   # gopherstack-g9b4: CreateTrail/UpdateTrail S3 bucket validation + log file delivery
+last_audit_date: 2026-09-11   # gopherstack-53eh: Lake SQL grammar (OR/LIKE/NOT/IN/parens/COUNT+GROUP BY), FAILED-not-empty, ListQueries required EventDataStore
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -29,7 +29,7 @@ ops:
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-12, typed-client slice 36): CreateChannelOutput.Tags (cloudtrail@v1.58.4 api_op_CreateChannel.go:76) was decoded and stored at creation but never echoed back on the response -- a real client's CreateChannel call always saw an empty Tags list even when tags were supplied. Added channelTagsList (handler_channels.go), mirroring the existing edsTagsList pattern for CreateEventDataStore."}
   GetChannel: {wire: ok, errors: ok, state: partial, persist: ok, note: "gopherstack-6flj: real GetChannelOutput additionally has IngestionStatus/SourceConfig (confirmed against cloudtrail@v1.58.4's deserializer); this backend's Channel struct does not model either (no per-channel ingestion tracking or AWS-service-linked source config). Structural gap, disclosed not fabricated -- see gaps."}
   UpdateChannel: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteChannel: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -56,12 +56,12 @@ ops:
   StartQuery: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: removed a gopherstack-invented \"EventDataStore\" JSON input field -- the real StartQueryInput has no such field; the target event data store is embedded in QueryStatement's FROM clause (real CloudTrail Lake SQL syntax). The handler now derives it via a FROM-clause regex. Added the real QueryAlias/QueryParameters/DeliveryS3Uri/EventDataStoreOwnerAccountId fields (output now returns QueryId + EventDataStoreOwnerAccountId, was QueryId only). gopherstack-2wvq (2026-08-21): QueryAlias was decoded off the wire but then discarded -- StartQuery's backend signature had no alias parameter at all, so Query.QueryAlias (a field that already existed on the struct) was always empty. Now threaded through and stored, enabling DescribeQuery's QueryAlias lookup (see DescribeQuery). QueryParameters and EventDataStoreOwnerAccountId remain accept-and-drop the same way -- see gaps."}
   CancelQuery: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed error codes: not-found now returns QueryIdNotFoundException (was incorrectly InactiveQueryException, which per the real SDK means \"query already in a terminal state\" -- a completely different condition); cancelling an already-terminal query now correctly returns InactiveQueryException (was InvalidParameterException)"}
   DescribeQuery: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed: real DescribeQueryOutput has no top-level CreationTime field at all -- it was returning a fabricated one, and was entirely missing the real (required) nested QueryStatistics object (QueryStatisticsForDescribeQuery: BytesScanned/CreationTime/EventsMatched/EventsScanned/ExecutionTimeInMillis). Also fixed the QueryIdNotFoundException error code (see CancelQuery). gopherstack-2wvq (2026-08-21): DescribeQueryInput marks neither QueryId nor QueryAlias required (cloudtrail@v1.58.4 api_op_DescribeQuery.go:12-16) -- 'You must specify either QueryId or QueryAlias. Specifying the QueryAlias parameter returns information about the last query run for the alias.' The handler previously required QueryId unconditionally, a false negative masking that the backend had no alias lookup at all. Added a queriesByAlias store.Index (grouped by StartQuery call order) and DescribeQueryByAlias, which resolves to the last-inserted match -- the documented 'last query run for the alias' semantic; verified with a multi-query-same-alias test. Response shape unchanged and correct on this newly-reachable path: DescribeQueryOutput has no QueryAlias member at all, so the alias-resolved and QueryId-resolved paths share one response-building path with nothing to diverge. RefreshId (view a dashboard query's results as of a specific refresh) is accepted on the real input but not modeled here -- see gaps."}
-  GetQueryResults: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed (was the #1 deferred item last pass): QueryResultRows was unconditionally empty. Implemented a bounded, honest CloudTrail Lake SQL subset (SELECT <*|cols> FROM <eds> [WHERE col[!]=val [AND ...]] [LIMIT n]) executed lazily against the backend's shared recorded-events log on first read (see query_exec.go); QueryStatistics.BytesScanned/ResultsCount/TotalResultsCount are real, derived counts, not fabricated. Statements outside the supported grammar still reach FINISHED (never rejected) but yield zero rows -- a narrower, more honest version of the previous blanket limitation. Added NextToken/MaxQueryResults pagination over the computed rows"}
-  ListQueries: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; EventDataStore/QueryStatus filters now applied (EventDataStore is required on the real input but left permissive here -- see gaps); CreationTime epoch-seconds fix (was raw time.Time)"}
+  GetQueryResults: {wire: ok, errors: ok, state: fixed, persist: ok, note: "fixed (was the #1 deferred item last pass): QueryResultRows was unconditionally empty. Implemented a bounded, honest CloudTrail Lake SQL subset (SELECT <*|cols> FROM <eds> [WHERE col[!]=val [AND ...]] [LIMIT n]) executed lazily against the backend's shared recorded-events log on first read (see query_exec.go); QueryStatistics.BytesScanned/ResultsCount/TotalResultsCount are real, derived counts, not fabricated. Statements outside the supported grammar still reach FINISHED (never rejected) but yield zero rows -- a narrower, more honest version of the previous blanket limitation. Added NextToken/MaxQueryResults pagination over the computed rows. gopherstack-53eh (2026-09-11): the grammar was extended -- OR/NOT/IN/parenthesized precedence and LIKE (%, _, case-sensitive) in WHERE, plus COUNT(*)/COUNT(col) with optional GROUP BY in the SELECT list -- and, per this issue's third requirement, anything still outside the grammar (JOIN/UNION/set-ops across event data stores, SUM/AVG/MIN/MAX, subqueries, HAVING, ORDER BY, DISTINCT, or any other construct the hand-written recursive-descent parser (query_lex.go/query_parse.go/query_where.go) doesn't recognize) now reaches QueryStatus FAILED with a populated ErrorMessage instead of a silent empty FINISHED -- see gaps and DescribeQuery."}
+  ListQueries: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "fixed: NextToken/MaxResults pagination; EventDataStore/QueryStatus filters applied; CreationTime epoch-seconds fix (was raw time.Time). gopherstack-53eh (2026-09-11): EventDataStore is now enforced as required (real ListQueriesInput, cloudtrail@v1.58.4 api_op_ListQueries.go:38-41 -- 'This member is required') and an unknown store returns EventDataStoreNotFoundException (that op's error switch, deserializers.go:4909-4910), via the same Backend.GetEventDataStore lookup GetEventDataStore/DeleteEventDataStore already use. The prior permissiveness was kept only for TestCloudTrailListOperationsSmoke's no-args ListQueries call; that test now creates a real event data store first (handler_test.go) instead of driving the backend permissively -- see gaps for the removed entry."}
   GenerateQuery: {wire: ok, errors: ok, state: ok, persist: n/a}
   StartImport: {wire: ok, errors: ok, state: partial, persist: ok, note: "fixed (was a gap last pass): ImportSource.S3 now models all three real (all-required) S3ImportSource fields -- S3LocationUri, S3BucketRegion, S3BucketAccessRoleArn -- not just S3LocationUri; all three are stored and echoed back on Start/Get/Stop via a new ImportSource/S3ImportSource backend type. Import execution itself (actual file replay) remains not real -- unchanged, documented limitation. gopherstack-6flj: real StartImportInput also has optional StartEventTime/EndEventTime (a time-range filter on which events to import); the handler discards both (no field to receive them at all). Consistent with the pre-existing 'import execution not real' limitation -- disclosed, not fixed, since honoring a time filter over data that is never actually replayed would be misleading. See gaps."}
   GetImport: {wire: ok, errors: ok, state: partial, persist: ok, note: "same ImportSource fix as StartImport. gopherstack-6flj: real GetImportOutput additionally has StartEventTime/EndEventTime/ImportStatistics, none of which this backend's Import struct models -- same 'import execution not real' root cause as the discarded StartEventTime/EndEventTime inputs. Structural gap, disclosed not fabricated -- see gaps."}
-  ListImports: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; Destination/ImportStatus filters added"}
+  ListImports: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: NextToken/MaxResults pagination; Destination/ImportStatus filters added. FIXED (2026-09-12, typed-client slice 36): each list item was missing Destinations (real types.ImportsListItem.Destinations, cloudtrail@v1.58.4 types/types.go:473) -- a real client's ListImports never saw which event data store an import targeted even though StartImport/GetImport both already emit it. Added to the per-item map (handler_imports.go)."}
   StopImport: {wire: ok, errors: ok, state: ok, persist: ok, note: "same ImportSource fix as StartImport"}
   ListImportFailures: {wire: ok, errors: ok, state: partial, persist: n/a, note: "always empty — consistent since imports never actually execute/fail in this backend"}
   GetEventConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -72,11 +72,13 @@ ops:
   ListPublicKeys: {wire: ok, errors: ok, state: partial, persist: n/a, note: "always empty; legacy CloudTrail log-file-validation feature, no public keys are ever generated by this backend"}
   ListInsightsData: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-6flj: this pass's prior 'wire: ok' claim was WRONG -- the response was wrapped under a fabricated 'Insights' key; the real ListInsightsDataOutput wraps its list under 'Events' (confirmed against cloudtrail@v1.58.4's awsAwsjson11_deserializeOpDocumentListInsightsDataOutput). Silently dropped by any real JSON-RPC 1.1 client (case-sensitive protocol). Fixed; also added required-field validation for DataType/InsightSource (previously the whole request body was ignored). List itself is still always empty -- no Insights event generation exists."}
   ListInsightsMetricData: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-6flj: this pass's prior 'wire: ok' claim was WRONG -- the real ListInsightsMetricDataOutput is a flat time series (ErrorCode/EventName/EventSource/InsightType/NextToken/Timestamps/TrailARN/Values), not a '{Values: [...]}' wrapped list of records (confirmed against cloudtrail@v1.58.4's awsAwsjson11_deserializeOpDocumentListInsightsMetricDataOutput). Fixed: now echoes EventName/EventSource/InsightType (all required, validated) plus optional ErrorCode/TrailARN (TrailName resolved to TrailARN via the existing trail lookup), and returns Timestamps/Values as the real flat arrays. Data itself is still always empty -- no Insights metric computation exists."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
-  - "ListQueries' EventDataStore filter is real AWS's required field but left optional/permissive here (an empty filter returns every query) for backward wire compatibility with an existing smoke test that calls ListQueries with no arguments; a real client omitting it would get a client-side validation error before the request is even sent, so this is low-risk."
-  - "GetQueryResults' SQL execution only understands a bounded grammar (SELECT <*|cols> FROM <eds> [WHERE col[!]=val [AND ...]] [LIMIT n]); joins, aggregates (COUNT/GROUP BY), OR, LIKE, and subqueries are accepted (the query still reaches FINISHED, never rejected) but always yield zero rows. See query_exec.go's file doc comment."
+gaps: []
+items_still_open:
+  - "gopherstack-xhu2t slice 7 (2026-09-12): ListInsightsData.MaxResults, ListInsightsMetricData.DataType/EndTime/MaxResults/Period/StartTime, ListPublicKeys.EndTime/StartTime, and SearchSampleQueries.MaxResults are all unhonored filter/page-size/time-range parameters on ops whose backing data this emulator never populates -- ListInsightsData/ListInsightsMetricData/ListPublicKeys/SearchSampleQueries all return a hardcoded empty list unconditionally (event_selectors.go:154-163, trails.go:297-299, queries.go:201-203), since CloudTrail Insights (anomaly detection over event volume), legacy digest-file signing public keys, and the AWS-curated sample-query catalog are none of them modeled by this backend. Filtering, paging, or time-bounding an always-empty list has no observable effect to test against; wiring the parameters without real backing data would be inert plumbing, not a verified fix."
+  - "gopherstack-53eh (2026-09-11): GetQueryResults' SQL execution understands a larger but still bounded grammar: SELECT <*|item[,item...]> FROM <eds> [WHERE <bool-expr>] [GROUP BY col[,...]] [LIMIT n], where item is a column or COUNT(*|col) and bool-expr supports AND/OR/NOT, parenthesised precedence, =/!=/<>, LIKE ('%'/'_' wildcards, case-sensitive), and IN. Not implemented, disclosed rather than silently wrong: JOINs and set operations (UNION/UNION ALL/EXCEPT/INTERSECT/LEFT|RIGHT|INNER JOIN) across event data stores -- a real, genuinely large CloudTrail Lake feature (docs.aws.amazon.com/awscloudtrail/latest/userguide/query-limitations.html#query-aggregates-condition-operators, 'Supported join operators'); SUM/AVG/MIN/MAX (CloudTrail Lake supports all Trino functions per the same page, but these don't fall out of the COUNT/GROUP BY accumulator for free -- would need per-value numeric coercion over JSON-flattened string fields with real failure modes, e.g. non-numeric columns, that COUNT sidesteps entirely); subqueries, HAVING, ORDER BY, DISTINCT. Per this issue's third requirement, every one of these (and anything else the hand-written parser -- query_lex.go/query_parse.go/query_where.go -- doesn't recognize) now reaches QueryStatus FAILED with a populated ErrorMessage on first read, not a silent empty FINISHED (DescribeQueryOutput.ErrorMessage/QueryStatus's FAILED value, cloudtrail@v1.58.4 api_op_DescribeQuery.go:69, types/enums.go:384) -- see query_exec.go's file doc comment and TestQueryGrammar_JoinReachesFailed."
+  - "gopherstack-53eh (2026-09-11): an unaliased COUNT(*)/COUNT(col) in the SELECT list is named \"_col<N>\" by SELECT-list position (0-indexed), matching Trino/Presto's convention for an unaliased computed expression -- CloudTrail Lake's own SQL reference does not itself document this naming (it only says 'CloudTrail Lake supports all valid Trino SQL SELECT statements, functions, and operators'), so this is inferred from the underlying engine (trino.io/docs/current/sql/select.html), not SDK/AWS-doc-verified."
   - "RegisterOrganizationDelegatedAdmin / DeregisterOrganizationDelegatedAdmin validate input but track no org-admin state (no GetOrganizationDelegatedAdmins-equivalent op exists in gopherstack's CloudTrail service to read it back anyway, and none exists in the real upstream API either)."
-  - "PARITY-FOLLOWUP (pkgs/service, out of scope for this service): pkgs/service/cloudtrail_capture.go's wrapCloudTrailCapture records a management event unconditionally after next(c) returns, regardless of the wrapped handler's response status — a failed (4xx/5xx) mutating API call is captured identically to a successful one, and the synthesized CloudTrailEvent detail JSON always sets errorCode/errorMessage-equivalent fields absent (no error info at all). Real CloudTrail records failed calls too, but with populated errorCode/errorMessage. Not broken (chokepoint IS wired correctly end-to-end: RecordManagementEvent -> InMemoryBackend.RecordManagementEvent -> LookupEvents returns real captured events), just an accuracy gap in a shared file outside services/cloudtrail/'s edit scope."
+  - "gopherstack-53eh (2026-09-11): pkgs/service/cloudtrail_capture.go's wrapCloudTrailCapture now records ErrorCode/ErrorMessage for a failed (4xx/5xx) mutating call (previously always absent -- see the prior pass's PARITY-FOLLOWUP entry, now fixed) by tee-ing the response body through a small captureResponseWriter and best-effort-parsing it as JSON (extractErrorInfo). This is necessarily partial, disclosed rather than silently wrong: gopherstack has ~160 heterogeneous service handlers whose error-body shape isn't standardized across protocols -- JSON-RPC's inline {\"__type\"/\"message\"} and some REST-JSON handlers' {\"Code\"/\"Message\"} are both handled, but query-protocol XML <Error> envelopes and CBOR's X-Amzn-Errortype header are not (that header isn't even used by services/cloudtrail's own handleError, which is the deserializer this change actually feeds -- see errors.go:308's errResp, {\"__type\",\"message\"}). Such a response still gets Failed detection via HTTP status (>=400) alone; only ErrorCode/ErrorMessage stay empty for it. management_event.go's managementEventDetail gained matching errorCode/errorMessage fields (both documented, top-level, 'Since: 1.0' CloudTrail record fields -- docs.aws.amazon.com/awscloudtrail/latest/userguide/cloudtrail-event-reference-record-contents.html), populated only when non-empty."
   - "gopherstack-6flj: GetChannel's real output has IngestionStatus/SourceConfig, which this backend's Channel struct does not model (no per-channel ingestion tracking or AWS-service-linked source config)."
   - "gopherstack-6flj: GetEventDataStore's real output has PartitionKeys, which this backend does not model at all (no field on EventDataStore, no CreateEventDataStore input to source it from)."
   - "gopherstack-6flj: GetInsightSelectors' real output has InsightsDestination (an S3 ARN for a specific advanced Insights setup), which this backend does not model."
@@ -350,3 +352,175 @@ touched: `services/cloudtrail/{interfaces.go (new), delivery.go (new),
 s3_delivery_test.go (new), store.go, trails.go, events.go, errors.go,
 handler.go, PARITY.md}` and `cli.go` (root). No other service's files
 touched.
+
+**2026-09-11 (gopherstack-53eh): GetQueryResults SQL grammar (OR/LIKE/NOT/
+IN/parens/COUNT+GROUP BY), FAILED-not-empty for unsupported constructs,
+ListQueries required EventDataStore, and the cloudtrail_capture.go
+errorCode/errorMessage follow-up. Both prior-pass deferred items ("Lake SQL
+execution", the #1 deferred item pre-dating this campaign) and gaps
+(ListQueries' permissive filter, GetQueryResults' bounded-grammar-yields-
+empty behavior, cloudtrail_capture.go's PARITY-FOLLOWUP) are now addressed --
+see the ops rows and gaps above for what's fixed vs. still disclosed.**
+
+Replaced the old single-file regex-based WHERE/SELECT parser
+(`query_exec.go`) with a small hand-written lexer/recursive-descent parser
+split across `query_lex.go` (tokenizer), `query_parse.go` (SELECT/FROM/
+WHERE/GROUP BY/LIMIT grammar), and `query_where.go` (the WHERE boolean
+expression AST: `andNode`/`orNode`/`notNode`/`cmpNode`/`inNode`/`likeNode`,
+one small `eval` method per SQL construct). `query_exec.go` now holds only
+row flattening (`eventToRow`/`flattenJSONInto`, unchanged), projection, and
+aggregate execution (`aggregateRows`/`renderAggRow`, new). Confirmed CloudTrail
+Lake's SQL dialect via `docs.aws.amazon.com/awscloudtrail/latest/userguide/
+query-limitations.html`: "CloudTrail Lake supports all valid Trino SQL SELECT
+statements, functions, and operators"; supported condition operators listed
+there include AND/OR/IN/NOT/LIKE/parenthesised conditions (BETWEEN/IS (NOT)
+NULL/GREATEST/LEAST/IS (NOT) DISTINCT FROM are in that same list but out of
+this pass's scope -- not implemented, not claimed). LIKE semantics (`%`/`_`
+wildcards, case-sensitive) confirmed against `trino.io/docs/current/
+functions/comparison.html` (Trino, not AWS, since CloudTrail Lake's own docs
+don't restate operator semantics, only that it *is* Trino SQL) --
+`query_where.go`'s `likeNode` doc comment cites both. The previously
+unconditional "unsupported grammar still reaches FINISHED with zero rows"
+behavior is gone: `parseLakeQuery` returns an error string for anything
+outside the grammar (including JOIN/UNION-family queries, explicitly
+detected in `parseFromTarget` for a clearer message), and
+`materializeQueryLocked` (`queries.go`) now threads that into `QueryStatus
+FAILED` + `Query.ErrorMessage` instead of always setting FINISHED --
+confirmed against `DescribeQueryOutput.ErrorMessage` ("The error message
+returned if a query failed") and `QueryStatus`'s `FAILED` enum value
+(cloudtrail@v1.58.4 `api_op_DescribeQuery.go:69`, `types/enums.go:384`).
+`ListQueries` (`handler_queries.go`) now enforces `EventDataStore` as
+required (`api_op_ListQueries.go:38-41`) and resolves it via the existing
+`Backend.GetEventDataStore`, so an unknown store returns
+`EventDataStoreNotFoundException` (`deserializers.go:4909-4910`) via the
+already-defined `ErrEventDataStoreNotFound` sentinel -- no new error type
+needed. `pkgs/service/cloudtrail_capture.go`'s `wrapCloudTrailCapture` now
+tees the response through a `captureResponseWriter` (swapping only
+`*echo.Response`'s inner raw `http.ResponseWriter`, not
+`echo.Context.Response()` itself -- `pkgs/telemetry.WrapEchoHandler`, which
+runs *inside* this wrapper, type-asserts `c.Response()` to `*echo.Response`
+directly and would nil-panic if that assertion started failing; this was
+caught by `TestCloudTrailCapture_MutatingCallRecordedViaRegistry` panicking
+under an earlier, cruder version of this change that replaced
+`c.Response()` wholesale) to best-effort extract `ErrorCode`/`ErrorMessage`
+for a failed mutating call, threaded into `managementEventDetail.ErrorCode`/
+`ErrorMessage` (real, documented, top-level CloudTrail record fields --
+`docs.aws.amazon.com/awscloudtrail/latest/userguide/
+cloudtrail-event-reference-record-contents.html`).
+
+Tests (all proven to fail against the pre-fix parser/handler first, per this
+issue's requirement): `query_grammar_client_test.go` drives the real
+`aws-sdk-go-v2/service/cloudtrail` client (reusing `handler_create_tags_test.go`'s
+`newTestCloudTrailClient` helper) against a backend seeded via
+`RecordManagementEvent` (the same real-activity-capture path
+`TestGetQueryResults_RealRowsAndPagination` already used) --
+`TestQueryGrammar_WhereClause` (table-driven: OR narrows, LIKE `%`/`_`,
+LIKE case-sensitivity, NOT, IN/NOT IN, and both directions of
+parenthesised-vs-default AND/OR precedence), `TestQueryGrammar_CountAggregate`
+(COUNT(*) with and without GROUP BY, asserting the Trino-positional
+`_col0`/`_col1` naming), `TestQueryGrammar_JoinReachesFailed` (a JOIN query
+reaches FAILED with a non-empty ErrorMessage via DescribeQuery), and
+`TestListQueries_ThroughClient_UnknownStoreErrors` (asserts the real
+`*cttypes.EventDataStoreNotFoundException` via `errors.As`).
+`query_exec_test.go`'s `TestQueryExecution_UnsupportedGrammarStillFinishes`
+(a pre-existing test whose entire premise -- unsupported grammar silently
+reaching FINISHED -- is exactly what this issue fixes) was replaced with
+`TestQueryExecution_UnsupportedGrammarReachesFailed`, asserting FAILED +
+ErrorMessage for the same JOIN-shaped query. `handler_queries_test.go` gained
+`TestListQueries_RequiredEventDataStore` (missing -> 400, unknown -> 404) and
+had its permissive-filter assertion (`EventDataStore: "eds-does-not-exist"`
+expecting 200 + empty list) replaced with a second real event data store, since
+that store no longer existing was the exact behavior this issue changes.
+`handler_test.go`'s `TestCloudTrailListOperationsSmoke` no longer calls
+`ListQueries` with an empty body (now a 400, not the 200 that test asserted for
+every op in its table) -- it creates a real event data store first.
+
+Not implemented in the SELECT/WHERE grammar, disclosed (see gaps): joins/set
+operations across event data stores, SUM/AVG/MIN/MAX, subqueries, HAVING,
+ORDER BY, DISTINCT -- all reach FAILED with a message, never silently empty.
+
+Gates: `go build ./...` (repo-wide, clean), `go vet ./...` (repo-wide,
+clean), `go test -race -count=1 ./services/cloudtrail/...` and
+`./pkgs/service/...` (all pass), `golangci-lint run ./services/cloudtrail/...`
+and `./pkgs/service/...` (0 issues each, after a `fieldalignment -fix` pass
+over `services/cloudtrail/...` -- which required re-keying two struct
+literals in `handler_queries_test.go` whose fields it reordered -- and
+manual fixes for a `cyclop` split in the new tokenizer, a few `govet` shadow
+renames in the new parser, and a `modernize`/`testifylint` cleanup in
+touched test files). Files touched: `services/cloudtrail/{query_lex.go (new),
+query_parse.go (new), query_where.go (new), query_grammar_client_test.go
+(new), query_exec.go, queries.go, handler_queries.go, management_event.go,
+handler_queries_test.go, query_exec_test.go, handler_test.go, PARITY.md}`
+and `pkgs/service/cloudtrail_capture.go`. No other service's files touched.
+
+## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+
+Drove every previously-uncovered op (25/60 -> 60/60 typed-client-covered)
+through the real `aws-sdk-go-v2/service/cloudtrail` client
+(`typed_slice36_realclient_test.go`, 11 subtests covering the channel
+lifecycle, event data store lifecycle + federation + ingestion + restore,
+trail lifecycle, event selectors + event configuration, resource policy,
+dashboard list/update, imports lifecycle, the query family
+(CancelQuery/GenerateQuery/SearchSampleQueries), organization delegated
+admin, ListPublicKeys, and the Insights family). This service already had
+very dense prior wire-fidelity audit history (dated sections back to
+2026-08-15, most ops annotated with exact SDK deserializer citations);
+consistent with this campaign's observation that thick prior-audit services
+yield fewer bugs per newly-covered op, only two real bugs were found, both
+response-side accept-and-drop.
+
+**Bugs found and fixed, both response-side member never set:**
+
+1. `CreateChannel`'s response never echoed `Tags` (real `CreateChannelOutput.Tags`,
+   `cloudtrail@v1.58.4` `api_op_CreateChannel.go:76`) even though the tags were
+   correctly decoded and stored at creation -- a real client's `CreateChannel`
+   call always saw an empty tag list. Fixed with a new `channelTagsList`
+   helper (`handler_channels.go`), mirroring the existing `edsTagsList`
+   pattern used by `CreateEventDataStore`.
+2. `ListImports`' per-item shape omitted `Destinations` (real
+   `types.ImportsListItem.Destinations`, `types/types.go:473`) -- present on
+   `StartImport`/`GetImport`'s item shape but dropped from the list view, so
+   a real client could never tell which event data store an import targeted
+   without a follow-up `GetImport` call. Added to the per-item map
+   (`handler_imports.go`).
+
+No persisted (`backendSnapshot`) fields changed; `pkgs/persistence`'s
+`TestSnapshotVersionGuard` confirmed no diff to `snapshot_inventory.json`
+for cloudtrail. No version bump.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/cloudtrail/...`,
+`go test -race -count=1 ./services/cloudtrail/...` (all pass, including the
+new typed-client tests), `golangci-lint run --new-from-rev=HEAD
+./services/cloudtrail/...` (0 issues). `cmd/paritylint` stays at 0 FAIL
+(missing-items-still-open). Typed-client census: cloudtrail 25/60 -> 60/60
+(100%).
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+12 tier-1 findings reviewed. 3 fixed, 9 recorded as `items_still_open`.
+
+- **Fixed**:
+  - `CreateEventDataStore.StartIngestion` (default true, serializers.go:4461-4463)
+    was undeclared; an event data store created with `StartIngestion: false`
+    always came up `ENABLED` instead of `STOPPED_INGESTION`. Backend's
+    `CreateEventDataStore` now takes a `startIngestion bool` param and sets
+    the initial `Status` accordingly, matching `StopEventDataStoreIngestion`'s
+    existing status value.
+  - `CreateTrail.IsOrganizationTrail` / `UpdateTrail.IsOrganizationTrail`
+    (serializers.go:4510-4512/5688-5690) were undeclared even though
+    `Trail.IsOrganizationTrail` already existed and was echoed on every
+    response — it just could never be set to true. Both ops now read and
+    apply it.
+- **Recorded** (9 fields across `ListInsightsData`/`ListInsightsMetricData`/
+  `ListPublicKeys`/`SearchSampleQueries`): all four ops return a hardcoded
+  empty list unconditionally, since CloudTrail Insights, legacy digest-file
+  signing public keys, and the AWS-curated sample-query catalog are none of
+  them modeled by this backend — see `items_still_open` for the full field
+  list and reasoning.
+
+Gates: `go build ./...`, `go vet ./services/cloudtrail/...`,
+`go test -race -count=1 ./services/cloudtrail/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/cloudtrail/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (`Trail.IsOrganizationTrail` and
+`EventDataStore.Status` both pre-existed); no `snapshot_inventory.json` rows
+needed, no version bump.

@@ -55,7 +55,7 @@ ops:
   ListTransactions: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteObjectsOnCancel: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "FIXED (2026-08-30, reqfieldscan sweep): DatabaseName/TableName/Objects are all `required` on the real DeleteObjectsOnCancelInput (api_op_DeleteObjectsOnCancel.go, lakeformation@v1.50.4) but were accepted and silently dropped -- never validated, never forwarded to the backend (which only ever took TransactionId). Now validated required-non-empty; CatalogID remains unread, see gaps (same class as the other CatalogID-accepting ops)."}
   GetTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a, note: "not persisted (matches pre-existing scope; tableObjects map was never in backendSnapshot)"}
-  UpdateTableObjects: {wire: ok, errors: ok, state: ok, persist: n/a}
+  UpdateTableObjects: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "FIXED (2026-09-12, typed-client slice 36): WriteOperation.DeleteObject was decoded but never read -- only AddObject was applied, so a real client's delete writes were silently no-ops (governed objects, once added, could never be removed). Now removes matching TableObject entries by URI across every partition list (removeTableObjectByURI, table_storage.go)."}
   GetTemporaryDataLocationCredentials: {wire: ok, errors: fixed, state: ok, persist: n/a, note: "WIRE-BREAKING BUG FIXED (gopherstack-6flj): request struct was copied from the GetTemporaryGlue*Credentials sibling shape (ResourceArn/Permissions/SupportedPermissionTypes) -- the real Input has none of those, only DataLocations ([]string)/CredentialsScope. No real client's request was ever readable; every call failed gopherstack's own required-field check. Response also gained the real, previously-missing AccessibleDataLocations/CredentialsScope members. gopherstack-4ly2 (2026-08-21): the fixed handler still over-validated -- it demanded DataLocations be non-empty, but GetTemporaryDataLocationCredentialsInput marks no member required, DataLocations included, and the backend never uses it as a lookup key (only echoes it back as AccessibleDataLocations). Now optional; TestGetTemporaryDataLocationCredentials_MissingDataLocations (which asserted the wrong 400) was corrected."}
   GetTemporaryGluePartitionCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "checked against its GetTemporaryGlueTableCredentials/GetTemporaryDataLocationCredentials siblings this pass (gopherstack-6flj) -- already correct, no fix needed"}
   GetTemporaryGlueTableCredentials: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-6flj): real request member S3Path was parsed nowhere; real response member VendedS3Path was entirely missing. Now threaded through together. QuerySessionContext (also real on this op) remains unmodeled -- disclosed in gaps:, a broader query-family feature out of scope for this pass"}
@@ -77,7 +77,8 @@ families:
   route_matcher: {status: ok, note: "unchanged this pass -- isLakeFormationPath's 61 literal paths still verified byte-for-byte against serializers.go from the prior audit; no new ops added upstream (61 ops, serializers.go byte-identical, from v1.47.3 through the now-current v1.50.4 pin)."}
   resource_union: {status: ok, note: "Resource previously only carried Catalog/Database/Table/TableWithColumns/DataLocation. Added DataCellsFilter/LFTag(LFTagKeyResource)/LFTagExpression/LFTagPolicy(LFTagPolicyResource) -- all real types.Resource union members. GrantPermissions/RevokePermissions/ListPermissions now work end-to-end against every kind (resourceToKey/copyResource/permissionMatchesResource/permissionMatchesResourceType all extended); see handler_permissions_resource_kinds_test.go for coverage of all 6 previously-partial/deferred kinds plus TableWildcard and CatalogResource.Id."}
   permission_enum: {status: ok, note: "isValidPermission previously accepted three gopherstack-INVENTED permission strings that do not exist in types.Permission's Values() at all -- \"CREATE_TAG\" (real name is CREATE_LF_TAG, already separately present), \"CREATE_LAKE_FORMATION_OPT_IN\" (not a Permission at all), and \"SUPER\" (real value is SUPER_USER) -- and was missing the real \"CREATE_LF_TAG_EXPRESSION\" value. All three invented values DELETED, CREATE_LF_TAG_EXPRESSION added. isValidPermission now matches the real 16-member enum exactly."}
-gaps:
+gaps: []
+items_still_open:
   - "NOT FIXED (gopherstack-6flj, 2026-08-15): DescribeLakeFormationIdentityCenterConfigurationOutput.ResourceShare (*string, the RAM resource-share ARN AWS creates server-side when ShareRecipients is set) is still never populated. This backend's InMemoryBackend carries no account/region fields at the storage layer (region only exists as Handler.DefaultRegion, set post-construction and never threaded into any backend call in this service), and there is no real RAM cross-service integration (same already-documented gap as AdditionalDetails below). Synthesizing a value would mean either fabricating a region or introducing new region-threading plumbing disproportionate to a single-op fix. Disclosed, not fabricated."
   - "NOT FIXED (gopherstack-6flj, 2026-08-15): GetTemporaryGlueTableCredentialsInput.QuerySessionContext (real, api_op_GetTemporaryGlueTableCredentials.go) is unmodeled anywhere in this service, and likely shared by several query-planning ops (GetWorkUnits/StartQueryPlanning/GetWorkUnitResults use similar context structures). A broader structural feature spanning the query-family ops; out of scope for this pass's discarded-input fixes, which were limited to S3Path/VendedS3Path on this same op."
   - "FIXED (gopherstack-kbnu): PrincipalResourcePermissions.LastUpdatedBy is now populated by GrantPermissions/RevokePermissions/BatchGrantPermissions/BatchRevokePermissions with a synthetic caller ARN derived from awsmeta.Account(ctx) (callerPrincipalARN, credentials.go -- same identity GetDataLakePrincipal reports). Interface signatures gained a ctx context.Context first parameter; all callers updated."
@@ -604,3 +605,44 @@ No code or test changes. Gates: `go test -race -count=1 ./services/lakeformation
 `golangci-lint run services/lakeformation/...` (0 issues). Re-ran
 `cmd/errtargetaudit`: lakeformation count unchanged at 2 class A findings -- both dismissed
 above as false positives, not remaining work.
+
+## 2026-09-12: typed-client coverage slice 36 (gopherstack-n3zi)
+
+Drove every previously-uncovered op (27/61 -> 61/61 typed-client-covered) through
+the real `aws-sdk-go-v2/service/lakeformation` client
+(`typed_slice36_realclient_test.go`, 14 subtests covering LF-tags-on-resource,
+batch grant/revoke permissions, the transaction lifecycle, DataCellsFilter
+update, LFTagExpression lifecycle, LakeFormationOptIn lifecycle, identity
+center delete, GetDataLakePrincipal, table objects + storage optimizer,
+temporary Glue partition credentials, GetQueryState, search-by-LFTags,
+AssumeDecoratedRoleWithSAML, and UpdateResource). This service already had
+dense prior wire-fidelity audit history (gopherstack-4ly2/6flj/kbnu/i8lo),
+consistent with this campaign's observation that thick prior-audit services
+yield fewer bugs per newly-covered op: only one real bug found.
+
+**Bug found and fixed:** `UpdateTableObjects`' `WriteOperation.DeleteObject`
+was decoded off the wire but never read -- `table_storage.go`'s backend only
+ever applied `AddObject`, so a real client's delete write silently did
+nothing (an object added to a governed table could never be removed). Fixed
+by adding `removeTableObjectByURI`, matching real `DeleteObjectInput.Uri`
+semantics (`lakeformation@v1.50.4` `types/types.go:345`); the existing test
+now creates an object then deletes it and asserts it is gone.
+
+**Accept-and-drop note (not fixed, low blast radius):** `WriteOperation.DeleteObject`'s
+gopherstack type (`VirtualObject{URI,ETag}`) has no `PartitionValues` field,
+while the real `types.DeleteObjectInput` does (`Uri`,`ETag`,`PartitionValues`).
+This backend's table-objects model is not partition-aware for deletes (a URI
+match removes the object from every partition list), so `PartitionValues`
+would currently be a no-op filter even if threaded through; left as a
+documented gap rather than plumbed for no behavioral effect.
+
+No persisted (`backendSnapshot`) fields changed -- `pkgs/persistence`'s
+`TestSnapshotVersionGuard` is unaffected by this service (confirmed no diff
+to `snapshot_inventory.json` for lakeformation). No version bump.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/lakeformation/...`,
+`go test -race -count=1 ./services/lakeformation/...` (all pass, including
+the new typed-client tests), `golangci-lint run --new-from-rev=HEAD
+./services/lakeformation/...` (0 issues). `cmd/paritylint` stays at 0
+FAIL (missing-items-still-open). Typed-client census: lakeformation 27/61 ->
+61/61 (100%).

@@ -137,6 +137,7 @@ type createAddonBody struct {
 	ServiceAccountRoleArn   string                            `json:"serviceAccountRoleArn"`
 	ConfigurationValues     string                            `json:"configurationValues"`
 	ResolveConflicts        string                            `json:"resolveConflicts"`
+	ClientRequestToken      string                            `json:"clientRequestToken"`
 	PodIdentityAssociations []addonPodIdentityAssociationBody `json:"podIdentityAssociations"`
 }
 
@@ -160,17 +161,17 @@ func (h *Handler) handleCreateAddon(c *echo.Context, clusterName string, body []
 		namespace = in.NamespaceConfig.Namespace
 	}
 
-	addon, err := h.Backend.CreateAddon(
-		clusterName, in.AddonName, in.AddonVersion, in.ServiceAccountRoleArn,
-		in.ConfigurationValues, in.ResolveConflicts, namespace,
-		in.Tags, specs,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateAddon, in.ClientRequestToken, body, func() (int, any, error) {
+		addon, err := h.Backend.CreateAddon(
+			clusterName, in.AddonName, in.AddonVersion, in.ServiceAccountRoleArn,
+			in.ConfigurationValues, in.ResolveConflicts, namespace,
+			in.Tags, specs,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAddon: addonToJSON(addon),
+		return http.StatusOK, map[string]any{keyAddon: addonToJSON(addon)}, nil
 	})
 }
 
@@ -222,6 +223,7 @@ type updateAddonBody struct {
 	ServiceAccountRoleArn   string                            `json:"serviceAccountRoleArn"`
 	ConfigurationValues     string                            `json:"configurationValues"`
 	ResolveConflicts        string                            `json:"resolveConflicts"`
+	ClientRequestToken      string                            `json:"clientRequestToken"`
 	PodIdentityAssociations []addonPodIdentityAssociationBody `json:"podIdentityAssociations"`
 }
 
@@ -248,23 +250,25 @@ func (h *Handler) handleUpdateAddon(c *echo.Context, clusterName, addonName stri
 		podIdentityAssociations = &specs
 	}
 
-	addon, err := h.Backend.UpdateAddon(
-		clusterName, addonName, in.AddonVersion, in.ServiceAccountRoleArn,
-		in.ConfigurationValues, in.ResolveConflicts, podIdentityAssociations,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateAddon, in.ClientRequestToken, body, func() (int, any, error) {
+		addon, err := h.Backend.UpdateAddon(
+			clusterName, addonName, in.AddonVersion, in.ServiceAccountRoleArn,
+			in.ConfigurationValues, in.ResolveConflicts, podIdentityAssociations,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: map[string]any{
-			"id":           uuid.NewString()[:8],
-			keyStatusField: statusInProgress,
-			keyType:        "AddonUpdate",
-			keyClusterName: clusterName,
-			"addonName":    addon.AddonName,
-			keyCreatedAt:   float64(time.Now().Unix()),
-		},
+		return http.StatusOK, map[string]any{
+			keyUpdate: map[string]any{
+				"id":           uuid.NewString()[:8],
+				keyStatusField: statusInProgress,
+				keyType:        "AddonUpdate",
+				keyClusterName: clusterName,
+				"addonName":    addon.AddonName,
+				keyCreatedAt:   float64(time.Now().Unix()),
+			},
+		}, nil
 	})
 }
 

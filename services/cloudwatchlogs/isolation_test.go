@@ -23,14 +23,14 @@ func TestCloudWatchLogsRegionIsolation(t *testing.T) { //nolint:paralleltest // 
 	require.NoError(t, err)
 
 	// 3. Verify us-east-1 only sees its group
-	eastGroups, _, err := backend.DescribeLogGroups(ctxEast, "", "", 0)
+	eastGroups, _, err := backend.DescribeLogGroups(ctxEast, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, eastGroups, 1)
 	assert.Equal(t, "group1", eastGroups[0].LogGroupName)
 	assert.Contains(t, eastGroups[0].Arn, "us-east-1")
 
 	// 4. Verify us-west-2 only sees its group
-	westGroups, _, err := backend.DescribeLogGroups(ctxWest, "", "", 0)
+	westGroups, _, err := backend.DescribeLogGroups(ctxWest, "", "", "", 0)
 	require.NoError(t, err)
 	require.Len(t, westGroups, 1)
 	assert.Equal(t, "group1", westGroups[0].LogGroupName)
@@ -40,11 +40,11 @@ func TestCloudWatchLogsRegionIsolation(t *testing.T) { //nolint:paralleltest // 
 	err = backend.DeleteLogGroup(ctxEast, "group1")
 	require.NoError(t, err)
 
-	eastGroups2, _, err := backend.DescribeLogGroups(ctxEast, "", "", 0)
+	eastGroups2, _, err := backend.DescribeLogGroups(ctxEast, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Empty(t, eastGroups2)
 
-	westGroups2, _, err := backend.DescribeLogGroups(ctxWest, "", "", 0)
+	westGroups2, _, err := backend.DescribeLogGroups(ctxWest, "", "", "", 0)
 	require.NoError(t, err)
 	assert.Len(t, westGroups2, 1)
 }

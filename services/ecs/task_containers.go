@@ -57,7 +57,14 @@ func buildNetworkBindingsForContainer(cd ContainerDefinition) []NetworkBinding {
 }
 
 // buildContainerFromDef builds a Container from a ContainerDefinition.
-func buildContainerFromDef(taskArn string, initialStatus string, cd ContainerDefinition) Container {
+// deferPorts skips synthesizing NetworkBindings here: for bridge/host-mode
+// EC2-launch-type tasks, the real host ports are only known once a
+// container instance is selected during placement (see
+// reserveTaskHostPortsLocked/applyHostPortBindings in host_ports.go), so
+// building a hostPort==containerPort binding here would be a fabricated
+// value later silently overwritten -- or, on a placement failure, never
+// corrected at all.
+func buildContainerFromDef(taskArn string, initialStatus string, cd ContainerDefinition, deferPorts bool) Container {
 	c := Container{
 		ContainerArn: buildContainerArn(taskArn),
 		TaskArn:      taskArn,
@@ -82,7 +89,9 @@ func buildContainerFromDef(taskArn string, initialStatus string, cd ContainerDef
 		c.HealthStatus = containerHealthStatusUnknown
 	}
 
-	c.NetworkBindings = buildNetworkBindingsForContainer(cd)
+	if !deferPorts {
+		c.NetworkBindings = buildNetworkBindingsForContainer(cd)
+	}
 
 	return c
 }
@@ -90,10 +99,18 @@ func buildContainerFromDef(taskArn string, initialStatus string, cd ContainerDef
 // buildContainersForTask creates the initial Container slice from a task's
 // ContainerDefinitions. Status matches the task's initial status.
 func buildContainersForTask(task *Task, td *TaskDefinition) []Container {
+	// Bridge/host EC2-launch-type tasks get their NetworkBindings applied
+	// after placement (see applyHostPortBindings); every other combination
+	// (Fargate, EC2+awsvpc, EC2+none) keeps the existing hostPort==
+	// containerPort default synthesized here.
+	deferPorts := task.LaunchType != launchTypeFargate &&
+		effectiveEC2NetworkMode(td.NetworkMode) != networkModeAwsvpc &&
+		effectiveEC2NetworkMode(td.NetworkMode) != networkModeNone
+
 	containers := make([]Container, 0, len(td.ContainerDefinitions))
 
 	for _, cd := range td.ContainerDefinitions {
-		containers = append(containers, buildContainerFromDef(task.TaskArn, task.LastStatus, cd))
+		containers = append(containers, buildContainerFromDef(task.TaskArn, task.LastStatus, cd, deferPorts))
 	}
 
 	return containers

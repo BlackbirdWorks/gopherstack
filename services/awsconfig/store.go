@@ -1,6 +1,8 @@
 package awsconfig
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -9,6 +11,15 @@ const (
 	recorderStatusActive  = "ACTIVE"
 	recorderStatusPending = "PENDING"
 	recorderStatusSuccess = "SUCCESS"
+)
+
+// Real DeliveryStatus enum values (configservice@v1.68.4 types/enums.go:278-280),
+// distinct in casing from recorderStatusSuccess above (a different real enum,
+// RecorderStatus).
+const (
+	deliveryStatusSuccess       = "Success"
+	deliveryStatusFailure       = "Failure"
+	deliveryStatusNotApplicable = "Not_Applicable"
 )
 
 // InMemoryBackend is the in-memory store for AWS Config resources.
@@ -36,6 +47,11 @@ type InMemoryBackend struct {
 	// service-linked recorders (see ServiceLinkedRecorderLink's doc comment).
 	serviceLinkedRecorders *store.Table[ServiceLinkedRecorderLink]
 	channels               *store.Table[DeliveryChannel]
+	// deliveryStatus tracks per-channel delivery outcomes (DeliverConfigSnapshot
+	// results, SNS stream publish results), keyed by channel name. Kept off
+	// DeliveryChannel itself since that type is also DescribeDeliveryChannels'
+	// real response shape, which carries no delivery-status fields.
+	deliveryStatus *store.Table[deliveryChannelStatusState]
 	// connectors holds connections between AWS Config and third-party cloud
 	// service providers (PutConnector/GetConnector/ListConnectors/DeleteConnector).
 	connectors       *store.Table[Connector]
@@ -81,7 +97,10 @@ type InMemoryBackend struct {
 	// "<ruleName>|<resourceType>\x1f<resourceID>" with a "byRule" index
 	// answering "every execution for this rule" (used by
 	// DescribeRemediationExecutionStatus), mirroring ruleResourceEvals'
-	// composite-key pattern.
+	// composite-key pattern. RuleName is a hidden json:"-" identity field
+	// (not on the real wire shape, see models.go), so this table is
+	// deliberately NOT on b.registry -- persistence.go round-trips it through
+	// its own DTO twin instead (gopherstack-ltj0d).
 	remediationExecutions       *store.Table[RemediationExecutionStatusEntry]
 	remediationExecutionsByRule *store.Index[RemediationExecutionStatusEntry]
 	// remediationExceptions is a slice-valued map (rule name → exceptions) --
@@ -98,8 +117,18 @@ type InMemoryBackend struct {
 	resourceConfigsByType *store.Index[ResourceConfigItem]
 	// customRulePolicies/orgCustomRulePolicies are scalar-valued maps (rule
 	// name → policy text) -- left as plain maps.
-	customRulePolicies     map[string]string
-	orgCustomRulePolicies  map[string]string
+	customRulePolicies    map[string]string
+	orgCustomRulePolicies map[string]string
+	// s3Writer delivers ConfigSnapshot objects to S3 (SetS3Writer, wired in
+	// cli.go like sfnBk.SetS3ResultWriter). Nil in tests that don't wire it.
+	s3Writer S3Writer
+	// snsPublisher publishes configuration-stream notifications
+	// (SetSNSPublisher, wired in cli.go like sesBk.SetSNSPublisher). Nil in
+	// tests that don't wire it.
+	snsPublisher SNSPublisher
+	// clock returns the current time; overridden by SetClock for
+	// deterministic tests, mirroring elasticache's InMemoryBackend.clock.
+	clock                  func() time.Time
 	mu                     *lockmetrics.RWMutex
 	accountID              string
 	region                 string
@@ -109,6 +138,42 @@ type InMemoryBackend struct {
 	aggregatorCounter      int
 	resourceEvalCounter    int
 	captureCounter         int
+}
+
+// now returns the backend's current time, honoring an injected clock.
+func (b *InMemoryBackend) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+
+	return time.Now()
+}
+
+// SetClock overrides the backend's clock. For deterministic tests only.
+func (b *InMemoryBackend) SetClock(clock func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.clock = clock
+}
+
+// SetS3Writer registers the S3 writer used to deliver configuration
+// snapshots (DeliverConfigSnapshot). Unwired backends record a FAILURE
+// delivery outcome instead of pretending success.
+func (b *InMemoryBackend) SetS3Writer(w S3Writer) {
+	b.mu.Lock("SetS3Writer")
+	defer b.mu.Unlock()
+
+	b.s3Writer = w
+}
+
+// SetSNSPublisher registers the SNS publisher used to deliver configuration
+// stream notifications after a successful snapshot delivery.
+func (b *InMemoryBackend) SetSNSPublisher(pub SNSPublisher) {
+	b.mu.Lock("SetSNSPublisher")
+	defer b.mu.Unlock()
+
+	b.snsPublisher = pub
 }
 
 // NewInMemoryBackend creates a new InMemoryBackend.
@@ -142,6 +207,7 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.remediationExecutions.Reset()
 	b.ruleEvaluations = make(map[string]string)
 	b.resourceHistory = make(map[string][]ResourceConfigItem)
 	b.resourceEvalCounter = 0

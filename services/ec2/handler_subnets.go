@@ -115,7 +115,10 @@ type instanceImageMetadataItem struct {
 	TagSet           []simpleTagItem   `xml:"tagSet>item"`
 }
 
-func toInstanceImageMetadataItem(item InstanceImageMetadataItem, tags map[string]string) instanceImageMetadataItem {
+func toInstanceImageMetadataItem(
+	item InstanceImageMetadataItem,
+	tags map[string]string,
+) instanceImageMetadataItem {
 	wire := instanceImageMetadataItem{
 		InstanceID:       item.InstanceID,
 		AvailabilityZone: item.AvailabilityZone,
@@ -157,22 +160,22 @@ func (h *Handler) handleCreateSubnetCidrReservation(vals url.Values, reqID strin
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "subnet-cidr-reservation")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{reservation.SubnetCIDRReservationID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createSubnetCidrReservationResponse{
-		RequestID: reqID,
-		SubnetCidrReservation: subnetCidrReservationItem{
-			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
-			SubnetID:                reservation.SubnetID,
-			Cidr:                    reservation.CIDR,
-			ReservationType:         reservation.ReservationType,
-			Description:             reservation.Description,
-			OwnerID:                 reservation.OwnerID,
-			State:                   reservation.State,
-		},
+		RequestID:             reqID,
+		SubnetCidrReservation: toSubnetCidrReservationItem(reservation, tags),
 	}, nil
 }
 
 func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID string) (any, error) {
 	reservationID := vals.Get("SubnetCidrReservationId")
+	tags := h.Backend.TagsForResource(reservationID)
 
 	reservation, err := h.Backend.DeleteSubnetCidrReservation(reservationID)
 	if err != nil {
@@ -180,16 +183,8 @@ func (h *Handler) handleDeleteSubnetCidrReservation(vals url.Values, reqID strin
 	}
 
 	return &deleteSubnetCidrReservationResponse{
-		RequestID: reqID,
-		DeletedSubnetCidrReservation: subnetCidrReservationItem{
-			SubnetCidrReservationID: reservation.SubnetCIDRReservationID,
-			SubnetID:                reservation.SubnetID,
-			Cidr:                    reservation.CIDR,
-			ReservationType:         reservation.ReservationType,
-			Description:             reservation.Description,
-			OwnerID:                 reservation.OwnerID,
-			State:                   reservation.State,
-		},
+		RequestID:                    reqID,
+		DeletedSubnetCidrReservation: toSubnetCidrReservationItem(reservation, tags),
 	}, nil
 }
 
@@ -225,19 +220,14 @@ func (h *Handler) handleGetSubnetCidrReservations(vals url.Values, reqID string)
 
 	resp := &getSubnetCidrReservationsResponse{RequestID: reqID}
 	for _, r := range reservations {
-		item := subnetCidrReservationItem{
-			SubnetCidrReservationID: r.SubnetCIDRReservationID,
-			SubnetID:                r.SubnetID,
-			Cidr:                    r.CIDR,
-			ReservationType:         r.ReservationType,
-			Description:             r.Description,
-			OwnerID:                 r.OwnerID,
-			State:                   r.State,
-		}
+		item := toSubnetCidrReservationItem(r, h.Backend.TagsForResource(r.SubnetCIDRReservationID))
 
 		ip, _, parseErr := net.ParseCIDR(r.CIDR)
 		if parseErr == nil && ip.To4() == nil {
-			resp.SubnetIpv6CidrReservations.Items = append(resp.SubnetIpv6CidrReservations.Items, item)
+			resp.SubnetIpv6CidrReservations.Items = append(
+				resp.SubnetIpv6CidrReservations.Items,
+				item,
+			)
 		} else {
 			resp.SubnetIpv4CidrReservations.Items = append(resp.SubnetIpv4CidrReservations.Items, item)
 		}
@@ -303,6 +293,12 @@ func (h *Handler) handleDescribeSubnets(vals url.Values, reqID string) (any, err
 	ids := parseMemberList(vals, "SubnetId")
 	subnets := h.Backend.DescribeSubnets(ids)
 
+	if err := requireAllIDsPresent(
+		ids, subnets, func(s *Subnet) string { return s.ID }, ErrSubnetNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	filters := parseEC2Filters(vals)
 	subnets = applySubnetFilters(subnets, filters, h.Backend)
 
@@ -361,24 +357,33 @@ func (h *Handler) handleDeleteSubnet(vals url.Values, reqID string) (any, error)
 
 func toSubnetItem(s *Subnet, tags map[string]string) subnetItem {
 	return subnetItem{
-		SubnetID:         s.ID,
-		VPCID:            s.VPCID,
-		CIDRBlock:        s.CIDRBlock,
-		AvailabilityZone: s.AvailabilityZone,
-		OutpostArn:       s.OutpostArn,
-		State:            stateAvailable,
-		TagSet:           tagItemsFromMap(tags),
+		SubnetID:            s.ID,
+		VPCID:               s.VPCID,
+		CIDRBlock:           s.CIDRBlock,
+		AvailabilityZone:    s.AvailabilityZone,
+		OutpostArn:          s.OutpostArn,
+		State:               stateAvailable,
+		MapPublicIPOnLaunch: s.MapPublicIPOnLaunch,
+		DefaultForAz:        s.IsDefault,
+		TagSet:              tagItemsFromMap(tags),
 	}
 }
 
+// subnetItem's MapPublicIpOnLaunch/DefaultForAz element names verified
+// against ec2@v1.329.0 deserializers.go's awsEc2query_deserializeDocumentSubnet
+// (mapPublicIpOnLaunch, defaultForAz) -- both were absent here, so
+// ModifySubnetAttribute's real effect never round-tripped through Describe
+// to any client (gopherstack-ggu4a, found by TestSlice2_RealClient).
 type subnetItem struct {
-	SubnetID         string          `xml:"subnetId"`
-	VPCID            string          `xml:"vpcId"`
-	CIDRBlock        string          `xml:"cidrBlock"`
-	AvailabilityZone string          `xml:"availabilityZone"`
-	OutpostArn       string          `xml:"outpostArn,omitempty"`
-	State            string          `xml:"state"`
-	TagSet           []simpleTagItem `xml:"tagSet>item"`
+	SubnetID            string          `xml:"subnetId"`
+	VPCID               string          `xml:"vpcId"`
+	CIDRBlock           string          `xml:"cidrBlock"`
+	AvailabilityZone    string          `xml:"availabilityZone"`
+	OutpostArn          string          `xml:"outpostArn,omitempty"`
+	State               string          `xml:"state"`
+	MapPublicIPOnLaunch bool            `xml:"mapPublicIpOnLaunch"`
+	DefaultForAz        bool            `xml:"defaultForAz"`
+	TagSet              []simpleTagItem `xml:"tagSet>item"`
 }
 
 type subnetItemSet struct {

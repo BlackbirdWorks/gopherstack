@@ -595,17 +595,20 @@ func TestPromote(t *testing.T) {
 		mode       string
 		wantStatus int
 		preCreate  bool
+		replica    bool
 	}{
 		{
 			name:       "promote_failover",
 			mode:       "FAILOVER",
 			preCreate:  true,
+			replica:    true,
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "promote_switchover",
 			mode:       "SWITCHOVER",
 			preCreate:  true,
+			replica:    true,
 			wantStatus: http.StatusOK,
 		},
 		{
@@ -618,6 +621,14 @@ func TestPromote(t *testing.T) {
 			name:       "invalid_mode",
 			mode:       "UPGRADE",
 			preCreate:  true,
+			replica:    true,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "promote_non_replica_broker",
+			mode:       "FAILOVER",
+			preCreate:  true,
+			replica:    false,
 			wantStatus: http.StatusBadRequest,
 		},
 	}
@@ -630,7 +641,11 @@ func TestPromote(t *testing.T) {
 
 			brokerID := "nonexistent-broker"
 			if tt.preCreate {
-				brokerID = createTestBroker(t, h, "promotable-"+tt.name, mq.EngineTypeActiveMQ)
+				if tt.replica {
+					brokerID = createTestReplicaBroker(t, h, "promotable-"+tt.name, mq.EngineTypeActiveMQ)
+				} else {
+					brokerID = createTestBroker(t, h, "promotable-"+tt.name, mq.EngineTypeActiveMQ)
+				}
 			}
 
 			rec := doRequest(t, h, http.MethodPost, "/v1/brokers/"+brokerID+"/promote", map[string]any{

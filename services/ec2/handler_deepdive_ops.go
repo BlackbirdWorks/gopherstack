@@ -62,6 +62,16 @@ func (h *Handler) handleCreateImage(vals url.Values, reqID string) (any, error) 
 		return nil, err
 	}
 
+	// CreateImageInput.TagSpecifications also accepts ResourceType "snapshot"
+	// (api_op_CreateImage.go:132-140) to tag the per-volume snapshots it
+	// creates, but this backend's CreateImage does not model those snapshots,
+	// so only the "image" tag specification can be applied.
+	if tags := parseTagSpecification(vals, "image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{image.ImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createImageResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -93,6 +103,7 @@ func (h *Handler) handleDescribeImageUsageReports(vals url.Values, reqID string)
 			ImageID:  report.ImageID,
 			ReportID: report.ReportID,
 			State:    report.State,
+			TagSet:   tagItemsFromMap(h.Backend.TagsForResource(report.ReportID)),
 		}
 		if !report.CreatedAt.IsZero() {
 			item.CreationTime = report.CreatedAt.Format(time.RFC3339)
@@ -169,8 +180,13 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 }
 
 func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any, error) {
+	// VpcEndpointId.N is a soft filter here, not a hard lookup:
+	// TestVpcEndpoint_DeleteReturnsDeleted and TestVpcEndpointLifecycle_RealClient
+	// both pin "unknown/deleted id -> empty result, no error" (gopherstack-ggu4a:
+	// verified, not the silent-omission bug for this particular op).
 	ids := parseMemberList(vals, "VpcEndpointId")
 	endpoints := h.Backend.DescribeVpcEndpoints(ids)
+
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
 		items = append(items, toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))
@@ -190,6 +206,11 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 	aclIDs := parseMemberList(vals, "NetworkAclId")
 
 	acls := filterNetworkACLsByIDs(h.Backend.DescribeNetworkAclsFiltered(nil), aclIDs)
+
+	if err := requireAllNetworkACLIDsFound(acls, aclIDs); err != nil {
+		return nil, err
+	}
+
 	acls = applyNetworkACLFilters(acls, filters, h.Backend)
 
 	maxResults := 0
@@ -231,6 +252,30 @@ func (h *Handler) handleDescribeNetworkAcls(vals url.Values, reqID string) (any,
 		Acls:      networkACLSet{Items: items},
 		NextToken: nextToken,
 	}, nil
+}
+
+// requireAllNetworkACLIDsFound matches real AWS: naming an ID that does not
+// exist fails the whole call with InvalidNetworkAclID.NotFound rather than
+// silently omitting it -- a real client asking for a specific (e.g.
+// just-deleted) NACL got an empty, successful response instead of the
+// NotFound it depends on to detect that.
+func requireAllNetworkACLIDsFound(acls []*NetworkACL, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	found := make(map[string]bool, len(acls))
+	for _, acl := range acls {
+		found[acl.ID] = true
+	}
+
+	for _, id := range ids {
+		if !found[id] {
+			return fmt.Errorf("%w: %s", ErrNetworkACLNotFound, id)
+		}
+	}
+
+	return nil
 }
 
 func filterNetworkACLsByIDs(acls []*NetworkACL, ids []string) []*NetworkACL {
@@ -301,10 +346,11 @@ type createImageResponse struct {
 }
 
 type imageUsageReportItem struct {
-	ImageID      string `xml:"imageId,omitempty"`
-	ReportID     string `xml:"reportId,omitempty"`
-	State        string `xml:"state,omitempty"`
-	CreationTime string `xml:"creationTime,omitempty"`
+	ImageID      string          `xml:"imageId,omitempty"`
+	ReportID     string          `xml:"reportId,omitempty"`
+	State        string          `xml:"state,omitempty"`
+	CreationTime string          `xml:"creationTime,omitempty"`
+	TagSet       []simpleTagItem `xml:"tagSet>item"`
 }
 
 type imageUsageReportSet struct {

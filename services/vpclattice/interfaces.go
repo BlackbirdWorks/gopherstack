@@ -10,10 +10,11 @@ type StorageBackend interface {
 	CreateService(
 		ctx context.Context,
 		name, authType, certificateArn, customDomainName string,
+		idleTimeoutSeconds int32,
 		tags map[string]string,
 	) (*Service, error)
 	GetService(serviceID string) (*Service, error)
-	UpdateService(serviceID, authType, certificateArn string) (*Service, error)
+	UpdateService(serviceID, authType, certificateArn string, idleTimeoutSeconds int32) (*Service, error)
 	DeleteService(serviceID string) (*Service, error)
 	ListServices(ctx context.Context, maxResults int32, nextToken string) ([]*ServiceSummary, string, error)
 
@@ -193,6 +194,7 @@ type StorageBackend interface {
 	ListServiceNetworkResourceAssociations(
 		ctx context.Context,
 		serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+		includeChildren bool,
 		maxResults int32,
 		nextToken string,
 	) ([]*ServiceNetworkResourceAssociationSummary, string, error)
@@ -245,17 +247,18 @@ type StorageBackend interface {
 
 // Service represents a VPC Lattice service.
 type Service struct {
-	CreatedAt        time.Time
-	LastUpdatedAt    time.Time
-	ARN              string
-	ID               string
-	Name             string
-	AuthType         string
-	CertificateArn   string
-	CustomDomainName string
-	DNSName          string
-	HostedZoneID     string
-	Status           string
+	CreatedAt          time.Time
+	LastUpdatedAt      time.Time
+	ARN                string
+	ID                 string
+	Name               string
+	AuthType           string
+	CertificateArn     string
+	CustomDomainName   string
+	DNSName            string
+	HostedZoneID       string
+	Status             string
+	IdleTimeoutSeconds int32
 }
 
 // ServiceSummary is a service entry for list responses.

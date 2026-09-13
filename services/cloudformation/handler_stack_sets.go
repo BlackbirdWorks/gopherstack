@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -348,7 +349,7 @@ func (h *Handler) handleDescribeStackSet(form url.Values, c *echo.Context) error
 }
 
 func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
-	p, err := h.Backend.ListStackSets(form.Get("NextToken"), form.Get("Status"))
+	p, err := h.Backend.ListStackSets(parseFormMaxResults(form), form.Get("NextToken"), form.Get("Status"))
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -452,9 +453,16 @@ func (h *Handler) handleCreateStackInstances(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleDeleteStackInstances(form url.Values, c *echo.Context) error {
-	return h.handleStackInstancesOp(
-		form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", h.Backend.DeleteStackInstances,
-	)
+	retainStr := form.Get("RetainStacks")
+	if retainStr == "" {
+		return h.xmlError(c, "ValidationError", "RetainStacks is required")
+	}
+	retainStacks := retainStr == boolTrue
+	op := func(ctx context.Context, stackSetName string, accounts, ouIDs, regions []string) (string, error) {
+		return h.Backend.DeleteStackInstances(ctx, stackSetName, accounts, ouIDs, regions, retainStacks)
+	}
+
+	return h.handleStackInstancesOp(form, c, "DeleteStackInstancesResponse", "DeleteStackInstancesResult", op)
 }
 
 func (h *Handler) handleUpdateStackInstances(form url.Values, c *echo.Context) error {
@@ -518,35 +526,39 @@ func parseStackInstanceFilters(form url.Values) ListStackInstancesFilter {
 
 func (h *Handler) handleListStackInstances(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, err := h.Backend.ListStackInstances(name, form.Get("NextToken"), parseStackInstanceFilters(form))
+	p, err := h.Backend.ListStackInstances(
+		name, parseFormMaxResults(form), form.Get("NextToken"), parseStackInstanceFilters(form),
+	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetID           string `xml:"StackSetId,omitempty"`
-		StackID              string `xml:"StackId,omitempty"`
-		Account              string `xml:"Account,omitempty"`
-		Region               string `xml:"Region,omitempty"`
-		Status               string `xml:"Status,omitempty"`
-		StatusReason         string `xml:"StatusReason,omitempty"`
-		DriftStatus          string `xml:"DriftStatus,omitempty"`
-		LastOperationID      string `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
+		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string     `xml:"StackSetId,omitempty"`
+		StackID                 string     `xml:"StackId,omitempty"`
+		Account                 string     `xml:"Account,omitempty"`
+		Region                  string     `xml:"Region,omitempty"`
+		Status                  string     `xml:"Status,omitempty"`
+		StatusReason            string     `xml:"StatusReason,omitempty"`
+		DriftStatus             string     `xml:"DriftStatus,omitempty"`
+		LastOperationID         string     `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
 	}
 	members := make([]instXML, 0, len(p.Data))
 	for _, i := range p.Data {
 		members = append(
 			members,
 			instXML{
-				StackSetID:           i.StackSetID,
-				StackID:              i.StackID,
-				Account:              i.Account,
-				Region:               i.Region,
-				Status:               i.Status,
-				StatusReason:         i.StatusReason,
-				DriftStatus:          i.DriftStatus,
-				LastOperationID:      i.LastOperationID,
-				OrganizationalUnitID: i.OrganizationalUnitID,
+				StackSetID:              i.StackSetID,
+				StackID:                 i.StackID,
+				Account:                 i.Account,
+				Region:                  i.Region,
+				Status:                  i.Status,
+				StatusReason:            i.StatusReason,
+				DriftStatus:             i.DriftStatus,
+				LastOperationID:         i.LastOperationID,
+				OrganizationalUnitID:    i.OrganizationalUnitID,
+				LastDriftCheckTimestamp: i.LastDriftCheckTimestamp,
 			},
 		)
 	}
@@ -584,15 +596,16 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		return h.xmlError(c, "StackInstanceNotFoundException", err.Error())
 	}
 	type instXML struct {
-		StackSetID           string `xml:"StackSetId,omitempty"`
-		StackID              string `xml:"StackId,omitempty"`
-		Account              string `xml:"Account,omitempty"`
-		Region               string `xml:"Region,omitempty"`
-		Status               string `xml:"Status,omitempty"`
-		StatusReason         string `xml:"StatusReason,omitempty"`
-		DriftStatus          string `xml:"DriftStatus,omitempty"`
-		LastOperationID      string `xml:"LastOperationId,omitempty"`
-		OrganizationalUnitID string `xml:"OrganizationalUnitId,omitempty"`
+		LastDriftCheckTimestamp *time.Time `xml:"LastDriftCheckTimestamp,omitempty"`
+		StackSetID              string     `xml:"StackSetId,omitempty"`
+		StackID                 string     `xml:"StackId,omitempty"`
+		Account                 string     `xml:"Account,omitempty"`
+		Region                  string     `xml:"Region,omitempty"`
+		Status                  string     `xml:"Status,omitempty"`
+		StatusReason            string     `xml:"StatusReason,omitempty"`
+		DriftStatus             string     `xml:"DriftStatus,omitempty"`
+		LastOperationID         string     `xml:"LastOperationId,omitempty"`
+		OrganizationalUnitID    string     `xml:"OrganizationalUnitId,omitempty"`
 	}
 	type result struct {
 		StackInstance instXML `xml:"StackInstance"`
@@ -608,15 +621,16 @@ func (h *Handler) handleDescribeStackInstance(form url.Values, c *echo.Context) 
 		Xmlns: cfnNS,
 		Result: result{
 			StackInstance: instXML{
-				StackSetID:           inst.StackSetID,
-				StackID:              inst.StackID,
-				Account:              inst.Account,
-				Region:               inst.Region,
-				Status:               inst.Status,
-				StatusReason:         inst.StatusReason,
-				DriftStatus:          inst.DriftStatus,
-				LastOperationID:      inst.LastOperationID,
-				OrganizationalUnitID: inst.OrganizationalUnitID,
+				StackSetID:              inst.StackSetID,
+				StackID:                 inst.StackID,
+				Account:                 inst.Account,
+				Region:                  inst.Region,
+				Status:                  inst.Status,
+				StatusReason:            inst.StatusReason,
+				DriftStatus:             inst.DriftStatus,
+				LastOperationID:         inst.LastOperationID,
+				OrganizationalUnitID:    inst.OrganizationalUnitID,
+				LastDriftCheckTimestamp: inst.LastDriftCheckTimestamp,
 			},
 		},
 		RequestID: uuid.New().String(),
@@ -647,7 +661,7 @@ func (h *Handler) handleDetectStackSetDrift(form url.Values, c *echo.Context) er
 
 func (h *Handler) handleListStackSetOperations(form url.Values, c *echo.Context) error {
 	name := form.Get("StackSetName")
-	p, _ := h.Backend.ListStackSetOperations(name, form.Get("NextToken"))
+	p, _ := h.Backend.ListStackSetOperations(name, parseFormMaxResults(form), form.Get("NextToken"))
 	type opXML struct {
 		OperationID       string `xml:"OperationId"`
 		Action            string `xml:"Action"`
@@ -743,7 +757,9 @@ func (h *Handler) handleStopStackSetOperation(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *echo.Context) error {
-	targets, err := h.Backend.ListStackSetAutoDeploymentTargets(form.Get("StackSetName"))
+	p, err := h.Backend.ListStackSetAutoDeploymentTargets(
+		form.Get("StackSetName"), parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		return h.xmlError(c, "StackSetNotFoundException", err.Error())
 	}
@@ -751,7 +767,8 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 	// "Summaries", not "Targets" (cloudformation@v1.76.1 deserializers.go:
 	// awsAwsquery_deserializeOpDocumentListStackSetAutoDeploymentTargetsOutput).
 	type result struct {
-		Targets []AutoDeploymentTarget `xml:"Summaries>member"`
+		NextToken string                 `xml:"NextToken,omitempty"`
+		Targets   []AutoDeploymentTarget `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackSetAutoDeploymentTargetsResponse"`
@@ -762,7 +779,11 @@ func (h *Handler) handleListStackSetAutoDeploymentTargets(form url.Values, c *ec
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Targets: targets}, RequestID: uuid.New().String()},
+		response{
+			Xmlns:     cfnNS,
+			Result:    result{Targets: p.Data, NextToken: p.Next},
+			RequestID: uuid.New().String(),
+		},
 	)
 }
 
@@ -863,7 +884,9 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		return h.xmlError(c, "ValidationError", "StackSetName and OperationId are required")
 	}
 
-	results, err := h.Backend.ListStackSetOperationResults(stackSetName, operationID, "")
+	p, err := h.Backend.ListStackSetOperationResults(
+		stackSetName, operationID, parseFormMaxResults(form), form.Get("NextToken"),
+	)
 	if err != nil {
 		if errors.Is(err, ErrStackSetNotFound) {
 			return h.xmlError(c, "StackSetNotFoundException", err.Error())
@@ -883,8 +906,8 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		Status            string          `xml:"Status,omitempty"`
 		StatusReason      string          `xml:"StatusReason,omitempty"`
 	}
-	items := make([]resultXML, 0, len(results))
-	for _, r := range results {
+	items := make([]resultXML, 0, len(p.Data))
+	for _, r := range p.Data {
 		item := resultXML{
 			Account:      r.Account,
 			Region:       r.Region,
@@ -907,12 +930,13 @@ func (h *Handler) handleListStackSetOperationResults(form url.Values, c *echo.Co
 		RequestID string   `xml:"ResponseMetadata>RequestId"`
 	}
 	type resultWrapper struct {
+		NextToken string      `xml:"NextToken,omitempty"`
 		Summaries []resultXML `xml:"Summaries>member"`
 	}
 
 	return writeXML(c, response{
 		Xmlns:     cfnNS,
-		Result:    resultWrapper{Summaries: items},
+		Result:    resultWrapper{Summaries: items, NextToken: p.Next},
 		RequestID: uuid.New().String(),
 	})
 }

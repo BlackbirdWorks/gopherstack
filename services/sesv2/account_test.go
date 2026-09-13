@@ -1,6 +1,7 @@
 package sesv2_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -82,19 +83,42 @@ func TestPutAccountDedicatedIPWarmupAttributes(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestGetBlacklistReports tests the GetBlacklistReports operation.
+// TestGetBlacklistReports locks in BlacklistItemNames (required,
+// api_op_GetBlacklistReports.go, an httpQuery-bound repeated param). Before
+// this fix the handler took no request context at all, so BlacklistItemNames
+// was discarded outright and the response always carried an empty map with
+// no keys, real client input included.
 func TestGetBlacklistReports(t *testing.T) {
 	t.Parallel()
 
-	h := newHandler()
-	rec := doRequest(
-		t,
-		h,
-		http.MethodGet,
-		"/v2/email/deliverability-dashboard/blacklist-report",
-		nil,
-	)
-	assert.Equal(t, http.StatusOK, rec.Code)
+	t.Run("missing required param", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+		rec := doRequest(t, h, http.MethodGet, "/v2/email/deliverability-dashboard/blacklist-report", nil)
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+	})
+
+	t.Run("reports every requested ip", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+		rec := doRequest(
+			t, h, http.MethodGet,
+			"/v2/email/deliverability-dashboard/blacklist-report"+
+				"?BlacklistItemNames=1.2.3.4&BlacklistItemNames=5.6.7.8",
+			nil,
+		)
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			BlacklistReport map[string][]string `json:"BlacklistReport"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		assert.Contains(t, out.BlacklistReport, "1.2.3.4")
+		assert.Contains(t, out.BlacklistReport, "5.6.7.8")
+		assert.Empty(t, out.BlacklistReport["1.2.3.4"])
+	})
 }
 
 // TestPutAccountPricingAttributes tests the PutAccountPricingAttributes

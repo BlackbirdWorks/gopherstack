@@ -85,6 +85,7 @@ type InMemoryBackend struct {
 	slTableRestoreStatuses *store.Table[ServerlessTableRestoreStatus]
 	slEndpointAccesses     *store.Table[ServerlessEndpointAccess]
 	slLakehouseConfig      *store.Table[ServerlessLakehouseConfig]
+	slReservations         *store.Table[Reservation]
 	endpointAccesses       *store.Table[EndpointAccess]
 	namespaceRegistrations *store.Table[NamespaceRegistration]
 	clusterLakehouseConfig *store.Table[ClusterLakehouseConfig]
@@ -110,6 +111,7 @@ type InMemoryBackend struct {
 	slRecoveryPointIdx      sortedStringIndex
 	slTableRestoreStatusIdx sortedStringIndex
 	slEndpointAccessIdx     sortedStringIndex
+	slReservationIdx        sortedStringIndex
 	reconcileWG             sync.WaitGroup
 	clusterActivationDelay  time.Duration
 	reconcileInterval       time.Duration

@@ -411,7 +411,10 @@ type StorageBackend interface {
 		maxRecords int,
 		cacheClusterIDs, replicationGroupIDs, updateActionStatus []string,
 	) (page.Page[UpdateAction], error)
-	ListAllowedNodeTypeModifications(ctx context.Context, clusterID, replicationGroupID string) ([]string, error)
+	ListAllowedNodeTypeModifications(
+		ctx context.Context,
+		clusterID, replicationGroupID string,
+	) ([]string, []string, error)
 	// Audit1: extended create/modify with new fields
 	CreateReplicationGroupFull(ctx context.Context, opts ReplicationGroupCreateOpts) (*ReplicationGroup, error)
 	ModifyReplicationGroupFull(

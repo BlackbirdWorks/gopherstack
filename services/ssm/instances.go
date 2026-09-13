@@ -351,13 +351,13 @@ func (b *InMemoryBackend) DescribeInstanceAssociationsStatus(
 // matchesInstanceInformationFilter).
 func instanceInformationAttr(info InstanceInformation, key string) (string, bool) {
 	switch key {
-	case "InstanceIds", "ActivationIds":
+	case "InstanceIds", filterKeyActivationIDs:
 		return info.InstanceID, true
 	case filterKeyAgentVersion:
 		return info.AgentVersion, true
 	case "PingStatus":
 		return info.PingStatus, true
-	case "PlatformTypes":
+	case filterKeyPlatformTypes:
 		return info.PlatformType, true
 	default:
 		return "", false
@@ -536,6 +536,124 @@ func (b *InMemoryBackend) DescribeInstancePatches(
 	return &DescribeInstancePatchesOutput{Patches: page, NextToken: next}, nil
 }
 
+// instancePropertyAttr returns the value of an InstanceProperty attribute by
+// its filter key name. Both InstancePropertyFilterList and FiltersWithOperator
+// filter the same InstanceProperty shape (api_op_DescribeInstanceProperties.go),
+// so they share this key vocabulary; InstancePropertyFilterKey
+// (ssm/types/enums.go:1057-1065) enumerates the closed set. Keys the SDK
+// documents but this backend doesn't track (DocumentName/IamRole/ResourceType/
+// AssociationStatus) return "", untracked, mirroring instanceInformationAttr.
+func instancePropertyAttr(p InstanceProperty, key string) (string, bool) {
+	switch key {
+	case "InstanceIds", filterKeyActivationIDs:
+		return p.InstanceID, true
+	case filterKeyAgentVersion:
+		return p.AgentVersion, true
+	case "PingStatus":
+		return p.PingStatus, true
+	case filterKeyPlatformTypes:
+		return p.PlatformType, true
+	default:
+		return "", false
+	}
+}
+
+// matchesInstancePropertyFilter applies an InstancePropertyFilter (set
+// membership over ValueSet). Untracked keys match everything, mirroring
+// matchesInstanceInformationFilter.
+func matchesInstancePropertyFilter(p InstanceProperty, f InstancePropertyFilter) bool {
+	value, tracked := instancePropertyAttr(p, f.Key)
+	if !tracked {
+		return true
+	}
+
+	return slices.Contains(f.ValueSet, value)
+}
+
+// matchesInstancePropertyStringFilter applies a FiltersWithOperator entry.
+// Operator defaults to Equal when empty (InstancePropertyFilterOperator's
+// zero value has no AWS-documented default; Equal matches this repo's other
+// filter-option defaults, e.g. paramMatchesFilter's "Equals"). Multiple
+// Values OR-combine for Equal/BeginWith/LessThan/GreaterThan; NotEqual
+// requires the value differ from every listed value.
+func matchesInstancePropertyStringFilter(p InstanceProperty, f InstancePropertyStringFilter) bool {
+	value, tracked := instancePropertyAttr(p, f.Key)
+	if !tracked {
+		return true
+	}
+
+	op := f.Operator
+	if op == "" {
+		op = "Equal"
+	}
+
+	if op == "NotEqual" {
+		return !slices.Contains(f.Values, value)
+	}
+
+	for _, v := range f.Values {
+		switch op {
+		case "Equal":
+			if value == v {
+				return true
+			}
+		case "BeginWith":
+			if strings.HasPrefix(value, v) {
+				return true
+			}
+		case "LessThan":
+			if value < v {
+				return true
+			}
+		case "GreaterThan":
+			if value > v {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// filterInstanceProperties applies both FiltersWithOperator and
+// InstancePropertyFilterList (AND across filters, per DescribeInstanceProperties
+// input semantics) and returns a new slice.
+func filterInstanceProperties(
+	props []InstanceProperty,
+	stringFilters []InstancePropertyStringFilter,
+	setFilters []InstancePropertyFilter,
+) []InstanceProperty {
+	out := make([]InstanceProperty, 0, len(props))
+
+	for _, p := range props {
+		matched := true
+
+		for _, f := range stringFilters {
+			if !matchesInstancePropertyStringFilter(p, f) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			for _, f := range setFilters {
+				if !matchesInstancePropertyFilter(p, f) {
+					matched = false
+
+					break
+				}
+			}
+		}
+
+		if matched {
+			out = append(out, p)
+		}
+	}
+
+	return out
+}
+
 // DescribeInstanceProperties returns properties for managed instances.
 // DescribeInstanceProperties returns properties for managed instances. Any
 // explicitly-stored InstanceProperty (from an earlier UpdateInstanceInformation-
@@ -579,6 +697,8 @@ func (b *InMemoryBackend) DescribeInstanceProperties(
 	}
 
 	sort.Slice(props, func(i, k int) bool { return props[i].InstanceID < props[k].InstanceID })
+
+	props = filterInstanceProperties(props, input.FiltersWithOperator, input.InstancePropertyFilterList)
 
 	maxResults := 0
 	if input.MaxResults != nil {

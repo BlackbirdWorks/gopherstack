@@ -175,18 +175,136 @@ func fromClusterInstanceGroups(groups []ClusterInstanceGroup) []clusterInstanceG
 	return details
 }
 
+// clusterRestrictedInstanceGroupRequest is the wire shape for a
+// ClusterRestrictedInstanceGroupSpecification (Create/UpdateCluster
+// requests, types/types.go:5622, sagemaker@v1.263.2). OnStartDeepHealthChecks/
+// OverrideVpcConfig/ThreadsPerCore/TrainingPlanArn are not modeled,
+// consistent with clusterInstanceGroupRequest already omitting those same
+// fields for regular instance groups.
+type clusterRestrictedInstanceGroupRequest struct {
+	EnvironmentConfig      *ClusterEnvironmentConfig      `json:"EnvironmentConfig,omitempty"`
+	ScheduledUpdateConfig  *ScheduledUpdateConfig         `json:"ScheduledUpdateConfig,omitempty"`
+	InstanceGroupName      string                         `json:"InstanceGroupName"`
+	ExecutionRole          string                         `json:"ExecutionRole,omitempty"`
+	InstanceType           string                         `json:"InstanceType,omitempty"`
+	InstanceStorageConfigs []ClusterInstanceStorageConfig `json:"InstanceStorageConfigs,omitempty"`
+	InstanceCount          int32                          `json:"InstanceCount,omitempty"`
+}
+
+func toClusterRestrictedInstanceGroups(
+	reqs []clusterRestrictedInstanceGroupRequest,
+) []ClusterRestrictedInstanceGroup {
+	groups := make([]ClusterRestrictedInstanceGroup, 0, len(reqs))
+
+	for _, r := range reqs {
+		groups = append(groups, ClusterRestrictedInstanceGroup(r))
+	}
+
+	return groups
+}
+
+// clusterRestrictedInstanceGroupDetails is the wire shape for a
+// ClusterRestrictedInstanceGroupDetails (Describe/UpdateCluster responses,
+// types/types.go:5514, sagemaker@v1.263.2). ScheduledUpdateConfig and
+// InstanceStorageConfigs use the same Go type on request and response (see
+// ScheduledUpdateConfig's doc comment in models.go), so they are echoed
+// directly rather than re-converted.
+type clusterRestrictedInstanceGroupDetails struct {
+	EnvironmentConfig      *ClusterEnvironmentConfigDetails `json:"EnvironmentConfig,omitempty"`
+	ScheduledUpdateConfig  *ScheduledUpdateConfig           `json:"ScheduledUpdateConfig,omitempty"`
+	InstanceGroupName      string                           `json:"InstanceGroupName,omitempty"`
+	InstanceType           string                           `json:"InstanceType,omitempty"`
+	ExecutionRole          string                           `json:"ExecutionRole,omitempty"`
+	Status                 string                           `json:"Status"`
+	InstanceStorageConfigs []ClusterInstanceStorageConfig   `json:"InstanceStorageConfigs,omitempty"`
+	CurrentCount           int32                            `json:"CurrentCount"`
+	TargetCount            int32                            `json:"TargetCount"`
+}
+
+func fromClusterRestrictedInstanceGroups(
+	groups []ClusterRestrictedInstanceGroup,
+) []clusterRestrictedInstanceGroupDetails {
+	details := make([]clusterRestrictedInstanceGroupDetails, 0, len(groups))
+
+	for _, g := range groups {
+		d := clusterRestrictedInstanceGroupDetails{
+			InstanceGroupName:      g.InstanceGroupName,
+			InstanceType:           g.InstanceType,
+			ExecutionRole:          g.ExecutionRole,
+			Status:                 instanceGroupStatusInService,
+			CurrentCount:           g.InstanceCount,
+			TargetCount:            g.InstanceCount,
+			InstanceStorageConfigs: g.InstanceStorageConfigs,
+			ScheduledUpdateConfig:  g.ScheduledUpdateConfig,
+		}
+
+		if g.EnvironmentConfig != nil {
+			d.EnvironmentConfig = &ClusterEnvironmentConfigDetails{
+				FSxLustreConfig: g.EnvironmentConfig.FSxLustreConfig,
+			}
+		}
+
+		details = append(details, d)
+	}
+
+	return details
+}
+
+// clusterSharedEnvironmentConfigDetailsResponse is the wire shape for
+// ClusterSharedEnvironmentConfigDetails (types/types.go:5746,
+// sagemaker@v1.263.2), splitting FSxLustreConfig/FSxLustreDeletionPolicy into
+// Current/Desired pairs. This backend has no async update-in-progress state
+// (the same no-async-provisioning convention AutoScaling's Status and
+// instance-group Status already use), so Current and Desired always mirror
+// the same stored value.
+type clusterSharedEnvironmentConfigDetailsResponse struct {
+	CurrentFSxLustreConfig         *FSxLustreConfig `json:"CurrentFSxLustreConfig,omitempty"`
+	DesiredFSxLustreConfig         *FSxLustreConfig `json:"DesiredFSxLustreConfig,omitempty"`
+	CurrentFSxLustreDeletionPolicy string           `json:"CurrentFSxLustreDeletionPolicy,omitempty"`
+	DesiredFSxLustreDeletionPolicy string           `json:"DesiredFSxLustreDeletionPolicy,omitempty"`
+}
+
+// clusterRestrictedInstanceGroupsConfigResponse is the wire shape for
+// DescribeClusterOutput.RestrictedInstanceGroupsConfig
+// (types.ClusterRestrictedInstanceGroupsConfigOutput, types/types.go:5610,
+// sagemaker@v1.263.2).
+type clusterRestrictedInstanceGroupsConfigResponse struct {
+	SharedEnvironmentConfig *clusterSharedEnvironmentConfigDetailsResponse `json:"SharedEnvironmentConfig,omitempty"`
+}
+
+func fromRestrictedInstanceGroupsConfig(
+	cfg *ClusterRestrictedInstanceGroupsConfig,
+) *clusterRestrictedInstanceGroupsConfigResponse {
+	if cfg == nil || cfg.SharedEnvironmentConfig == nil {
+		return nil
+	}
+
+	sec := cfg.SharedEnvironmentConfig
+
+	return &clusterRestrictedInstanceGroupsConfigResponse{
+		SharedEnvironmentConfig: &clusterSharedEnvironmentConfigDetailsResponse{
+			CurrentFSxLustreConfig:         sec.FSxLustreConfig,
+			DesiredFSxLustreConfig:         sec.FSxLustreConfig,
+			CurrentFSxLustreDeletionPolicy: sec.FSxLustreDeletionPolicy,
+			DesiredFSxLustreDeletionPolicy: sec.FSxLustreDeletionPolicy,
+		},
+	}
+}
+
 // createClusterRequest is the request body for CreateCluster.
 type createClusterRequest struct {
-	VpcConfig            *VpcConfig                    `json:"VpcConfig,omitempty"`
-	AutoScaling          *ClusterAutoScalingConfig     `json:"AutoScaling,omitempty"`
-	Orchestrator         *ClusterOrchestrator          `json:"Orchestrator,omitempty"`
-	TieredStorageConfig  *ClusterTieredStorageConfig   `json:"TieredStorageConfig,omitempty"`
-	ClusterName          string                        `json:"ClusterName"`
-	NodeRecovery         string                        `json:"NodeRecovery,omitempty"`
-	ClusterRole          string                        `json:"ClusterRole,omitempty"`
-	NodeProvisioningMode string                        `json:"NodeProvisioningMode,omitempty"`
-	InstanceGroups       []clusterInstanceGroupRequest `json:"InstanceGroups"`
-	Tags                 []tagObject                   `json:"Tags"`
+	VpcConfig                      *VpcConfig                              `json:"VpcConfig,omitempty"`
+	AutoScaling                    *ClusterAutoScalingConfig               `json:"AutoScaling,omitempty"`
+	Orchestrator                   *ClusterOrchestrator                    `json:"Orchestrator,omitempty"`
+	TieredStorageConfig            *ClusterTieredStorageConfig             `json:"TieredStorageConfig,omitempty"`
+	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig  `json:"RestrictedInstanceGroupsConfig,omitempty"` //nolint:lll // long field/type names push this past the line limit
+	ClusterName                    string                                  `json:"ClusterName"`
+	NodeRecovery                   string                                  `json:"NodeRecovery,omitempty"`
+	ClusterRole                    string                                  `json:"ClusterRole,omitempty"`
+	NodeProvisioningMode           string                                  `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups                 []clusterInstanceGroupRequest           `json:"InstanceGroups"`
+	RestrictedInstanceGroups       []clusterRestrictedInstanceGroupRequest `json:"RestrictedInstanceGroups"`
+	Tags                           []tagObject                             `json:"Tags"`
 }
 
 func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte, error) {
@@ -200,16 +318,18 @@ func (h *Handler) handleCreateCluster(ctx context.Context, body []byte) ([]byte,
 	}
 
 	c, err := h.Backend.CreateCluster(ctx, CreateClusterOptions{
-		ClusterName:          req.ClusterName,
-		InstanceGroups:       toClusterInstanceGroups(req.InstanceGroups),
-		NodeRecovery:         req.NodeRecovery,
-		ClusterRole:          req.ClusterRole,
-		NodeProvisioningMode: req.NodeProvisioningMode,
-		VpcConfig:            req.VpcConfig,
-		AutoScaling:          req.AutoScaling,
-		Orchestrator:         req.Orchestrator,
-		TieredStorageConfig:  req.TieredStorageConfig,
-		Tags:                 fromTagObjects(req.Tags),
+		ClusterName:                    req.ClusterName,
+		InstanceGroups:                 toClusterInstanceGroups(req.InstanceGroups),
+		RestrictedInstanceGroups:       toClusterRestrictedInstanceGroups(req.RestrictedInstanceGroups),
+		NodeRecovery:                   req.NodeRecovery,
+		ClusterRole:                    req.ClusterRole,
+		NodeProvisioningMode:           req.NodeProvisioningMode,
+		VpcConfig:                      req.VpcConfig,
+		AutoScaling:                    req.AutoScaling,
+		Orchestrator:                   req.Orchestrator,
+		TieredStorageConfig:            req.TieredStorageConfig,
+		RestrictedInstanceGroupsConfig: req.RestrictedInstanceGroupsConfig,
+		Tags:                           fromTagObjects(req.Tags),
 	})
 	if err != nil {
 		return nil, err
@@ -268,6 +388,12 @@ func (h *Handler) describeClusterResponse(c *Cluster) []byte {
 	}
 	if c.TieredStorageConfig != nil {
 		resp["TieredStorageConfig"] = c.TieredStorageConfig
+	}
+	if len(c.RestrictedInstanceGroups) > 0 {
+		resp["RestrictedInstanceGroups"] = fromClusterRestrictedInstanceGroups(c.RestrictedInstanceGroups)
+	}
+	if rc := fromRestrictedInstanceGroupsConfig(c.RestrictedInstanceGroupsConfig); rc != nil {
+		resp["RestrictedInstanceGroupsConfig"] = rc
 	}
 
 	b, _ := json.Marshal(resp)
@@ -386,14 +512,16 @@ func (h *Handler) handleDeleteCluster(ctx context.Context, body []byte) ([]byte,
 
 // updateClusterRequest is the request body for UpdateCluster.
 type updateClusterRequest struct {
-	AutoScaling            *ClusterAutoScalingConfig     `json:"AutoScaling,omitempty"`
-	Orchestrator           *ClusterOrchestrator          `json:"Orchestrator,omitempty"`
-	TieredStorageConfig    *ClusterTieredStorageConfig   `json:"TieredStorageConfig,omitempty"`
-	ClusterName            string                        `json:"ClusterName"`
-	NodeRecovery           string                        `json:"NodeRecovery,omitempty"`
-	NodeProvisioningMode   string                        `json:"NodeProvisioningMode,omitempty"`
-	InstanceGroups         []clusterInstanceGroupRequest `json:"InstanceGroups"`
-	InstanceGroupsToDelete []string                      `json:"InstanceGroupsToDelete"`
+	AutoScaling                    *ClusterAutoScalingConfig               `json:"AutoScaling,omitempty"`
+	Orchestrator                   *ClusterOrchestrator                    `json:"Orchestrator,omitempty"`
+	TieredStorageConfig            *ClusterTieredStorageConfig             `json:"TieredStorageConfig,omitempty"`
+	RestrictedInstanceGroupsConfig *ClusterRestrictedInstanceGroupsConfig  `json:"RestrictedInstanceGroupsConfig,omitempty"` //nolint:lll // long field/type names push this past the line limit
+	ClusterName                    string                                  `json:"ClusterName"`
+	NodeRecovery                   string                                  `json:"NodeRecovery,omitempty"`
+	NodeProvisioningMode           string                                  `json:"NodeProvisioningMode,omitempty"`
+	InstanceGroups                 []clusterInstanceGroupRequest           `json:"InstanceGroups"`
+	InstanceGroupsToDelete         []string                                `json:"InstanceGroupsToDelete"`
+	RestrictedInstanceGroups       []clusterRestrictedInstanceGroupRequest `json:"RestrictedInstanceGroups"`
 }
 
 func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte, error) {
@@ -407,14 +535,16 @@ func (h *Handler) handleUpdateCluster(ctx context.Context, body []byte) ([]byte,
 	}
 
 	c, err := h.Backend.UpdateCluster(ctx, UpdateClusterOptions{
-		NameOrArn:              req.ClusterName,
-		InstanceGroups:         toClusterInstanceGroups(req.InstanceGroups),
-		InstanceGroupsToDelete: req.InstanceGroupsToDelete,
-		NodeRecovery:           req.NodeRecovery,
-		NodeProvisioningMode:   req.NodeProvisioningMode,
-		AutoScaling:            req.AutoScaling,
-		Orchestrator:           req.Orchestrator,
-		TieredStorageConfig:    req.TieredStorageConfig,
+		NameOrArn:                      req.ClusterName,
+		InstanceGroups:                 toClusterInstanceGroups(req.InstanceGroups),
+		InstanceGroupsToDelete:         req.InstanceGroupsToDelete,
+		RestrictedInstanceGroups:       toClusterRestrictedInstanceGroups(req.RestrictedInstanceGroups),
+		NodeRecovery:                   req.NodeRecovery,
+		NodeProvisioningMode:           req.NodeProvisioningMode,
+		AutoScaling:                    req.AutoScaling,
+		Orchestrator:                   req.Orchestrator,
+		TieredStorageConfig:            req.TieredStorageConfig,
+		RestrictedInstanceGroupsConfig: req.RestrictedInstanceGroupsConfig,
 	})
 	if err != nil {
 		return nil, err
@@ -542,10 +672,14 @@ func (h *Handler) handleDescribeClusterNode(ctx context.Context, body []byte) ([
 // ListClusterNodes call saw every summary missing it, even though
 // DescribeClusterNode always populated ClusterNodeDetails.LaunchTime's
 // equivalent for the same node.
+// InstanceGroupName/InstanceId/InstanceType are all "This member is
+// required" on the real ClusterNodeSummary (types/types.go:5398-5423) --
+// always populated by a node's owning instance group in practice, but
+// carried no omitempty for wire-accuracy regardless.
 type clusterNodeSummary struct {
-	InstanceGroupName string                       `json:"InstanceGroupName,omitempty"`
-	InstanceID        string                       `json:"InstanceId,omitempty"`
-	InstanceType      string                       `json:"InstanceType,omitempty"`
+	InstanceGroupName string                       `json:"InstanceGroupName"`
+	InstanceID        string                       `json:"InstanceId"`
+	InstanceType      string                       `json:"InstanceType"`
 	InstanceStatus    clusterInstanceStatusDetails `json:"InstanceStatus"`
 	LaunchTime        float64                      `json:"LaunchTime"`
 }

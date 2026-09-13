@@ -917,8 +917,14 @@ func TestEvaluator_ApplyUpdate_Nested(t *testing.T) {
 		name       string
 	}{
 		{
-			name: "create intermediate map on SET",
-			item: map[string]any{},
+			// AWS: "You cannot update nested map attributes if the parent map
+			// does not exist" -- SET only succeeds here because "parent"
+			// already exists as an (empty) map on the item.
+			// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+			name: "SET nested path when parent map already exists",
+			item: map[string]any{
+				"parent": map[string]any{"M": map[string]any{}},
+			},
 			attrValues: map[string]any{
 				":v": map[string]any{"S": "leaf"},
 			},
@@ -983,15 +989,56 @@ func TestEvaluator_ApplyUpdate_Nested(t *testing.T) {
 	}
 }
 
-func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
+// TestEvaluator_ApplyUpdate_PreUpdateSnapshot verifies AWS's documented
+// semantics: every action's operands resolve against the item as it was
+// BEFORE the update, not against results of earlier actions in the same
+// expression.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+// ("REMOVE a SET b = a, c = b" on {a:1,b:2,c:3} yields {b:1,c:2}, not {b:1,c:1}.)
+func TestEvaluator_ApplyUpdate_PreUpdateSnapshot(t *testing.T) {
 	t.Parallel()
 
 	ev := &expr.Evaluator{
-		Item:       map[string]any{"a": map[string]any{"S": "v"}},
-		AttrValues: map[string]any{":v": map[string]any{"S": "v"}},
+		Item: map[string]any{
+			"id": map[string]any{"S": "1"},
+			"a":  map[string]any{"N": "1"},
+			"b":  map[string]any{"N": "2"},
+			"c":  map[string]any{"N": "3"},
+		},
 	}
 
-	// DELETE action is a no-op in current implementation — just verify it does not error.
+	pathA := &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}}
+	pathB := &expr.PathExpr{Elements: []expr.PathElement{{Name: "b", Type: expr.ElementKey}}}
+	pathC := &expr.PathExpr{Elements: []expr.PathElement{{Name: "c", Type: expr.ElementKey}}}
+
+	update := &expr.UpdateExpr{
+		Actions: []expr.UpdateAction{
+			{Type: expr.TokenREMOVE, Items: []expr.UpdateItem{{Path: pathA}}},
+			{
+				Type: expr.TokenSET,
+				Items: []expr.UpdateItem{
+					{Path: pathB, Value: pathA},
+					{Path: pathC, Value: pathB},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, ev.ApplyUpdate(update))
+	assert.Equal(t, "1", ev.Item["b"].(map[string]any)["N"], "b should see a's pre-update value")
+	assert.Equal(t, "2", ev.Item["c"].(map[string]any)["N"], "c should see b's pre-update value")
+	assert.NotContains(t, ev.Item, "a")
+}
+
+func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
+	t.Parallel()
+
+	// DELETE only supports Set data types; remove one element from a String Set.
+	ev := &expr.Evaluator{
+		Item:       map[string]any{"a": map[string]any{"SS": []string{"v", "w"}}},
+		AttrValues: map[string]any{":v": map[string]any{"SS": []string{"v"}}},
+	}
+
 	update := &expr.UpdateExpr{
 		Actions: []expr.UpdateAction{
 			{
@@ -1008,16 +1055,18 @@ func TestEvaluator_ApplyUpdate_DeleteAction(t *testing.T) {
 		},
 	}
 	require.NoError(t, ev.ApplyUpdate(update))
+	assert.Equal(t, []string{"w"}, ev.Item["a"].(map[string]any)["SS"])
 }
 
 func TestEvaluator_ApplyUpdate_Errors(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		item    map[string]any
-		update  *expr.UpdateExpr
-		wantErr error
-		name    string
+		item       map[string]any
+		attrValues map[string]any
+		update     *expr.UpdateExpr
+		wantErr    error
+		name       string
 	}{
 		{
 			name: "NonPathError",
@@ -1037,12 +1086,217 @@ func TestEvaluator_ApplyUpdate_Errors(t *testing.T) {
 			},
 			wantErr: expr.ErrUpdatePathMustBePathExpr,
 		},
+		{
+			name: "SET nested path errors when parent map missing",
+			item: map[string]any{},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "parent", Type: expr.ElementKey},
+									{Name: "child", Type: expr.ElementKey},
+								}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: expr.ErrDocumentPathInvalidForUpdate,
+		},
+		{
+			name: "ADD nested path errors when parent map missing",
+			item: map[string]any{},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenADD,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "parent", Type: expr.ElementKey},
+									{Name: "child", Type: expr.ElementKey},
+								}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: expr.ErrDocumentPathInvalidForUpdate,
+		},
+		{
+			name: "overlapping SET paths error",
+			item: map[string]any{
+				"a": map[string]any{"M": map[string]any{}},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "a", Type: expr.ElementKey},
+									{Name: "b", Type: expr.ElementKey},
+								}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: expr.ErrOverlappingDocumentPaths,
+		},
+		{
+			name: "SET arithmetic on non-number operand errors",
+			item: map[string]any{
+				"a": map[string]any{"S": "not-a-number"},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenSET,
+						Items: []expr.UpdateItem{
+							{
+								Path: &expr.PathExpr{Elements: []expr.PathElement{
+									{Name: "a", Type: expr.ElementKey},
+								}},
+								Value: &expr.ComparisonExpr{
+									Left: &expr.PathExpr{Elements: []expr.PathElement{
+										{Name: "a", Type: expr.ElementKey},
+									}},
+									Operator: expr.TokenPlus,
+									Right:    &expr.ValuePlaceholder{Name: ":v"},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: expr.ErrOperandIncorrectType,
+		},
+		{
+			name: "ADD with non-number non-set value errors",
+			item: map[string]any{},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenADD,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			attrValues: map[string]any{":v": map[string]any{"S": "not-number-or-set"}},
+			wantErr:    expr.ErrUnsupportedAddType,
+		},
+		{
+			name: "ADD number to existing String attribute errors",
+			item: map[string]any{
+				"a": map[string]any{"S": "x"},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenADD,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			attrValues: map[string]any{":v": map[string]any{"N": "1"}},
+			wantErr:    expr.ErrOperandIncorrectType,
+		},
+		{
+			name: "DELETE with non-set value errors",
+			item: map[string]any{
+				"a": map[string]any{"SS": []string{"x"}},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenDELETE,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			attrValues: map[string]any{":v": map[string]any{"S": "not-a-set"}},
+			wantErr:    expr.ErrDeleteValueMustBeSet,
+		},
+		{
+			name: "DELETE against non-set existing attribute errors",
+			item: map[string]any{
+				"a": map[string]any{"S": "x"},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenDELETE,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			attrValues: map[string]any{":v": map[string]any{"SS": []string{"x"}}},
+			wantErr:    expr.ErrOperandIncorrectType,
+		},
+		{
+			name: "DELETE set type mismatch errors",
+			item: map[string]any{
+				"a": map[string]any{"NS": []string{"1"}},
+			},
+			update: &expr.UpdateExpr{
+				Actions: []expr.UpdateAction{
+					{
+						Type: expr.TokenDELETE,
+						Items: []expr.UpdateItem{
+							{
+								Path:  &expr.PathExpr{Elements: []expr.PathElement{{Name: "a", Type: expr.ElementKey}}},
+								Value: &expr.ValuePlaceholder{Name: ":v"},
+							},
+						},
+					},
+				},
+			},
+			attrValues: map[string]any{":v": map[string]any{"SS": []string{"x"}}},
+			wantErr:    expr.ErrSetTypeMismatch,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			ev := &expr.Evaluator{Item: tt.item}
+
+			attrValues := tt.attrValues
+			if attrValues == nil {
+				attrValues = map[string]any{":v": map[string]any{"N": "1"}}
+			}
+			ev := &expr.Evaluator{Item: tt.item, AttrValues: attrValues}
 			assert.ErrorIs(t, ev.ApplyUpdate(tt.update), tt.wantErr)
 		})
 	}

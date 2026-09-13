@@ -134,7 +134,7 @@ func TestLambdaCWLogs_WiringProducesLogEntries(t *testing.T) {
 	// Verify that pushInvocationLog created the log group in CloudWatch Logs.
 	groupName := "/aws/lambda/" + "log-test-fn"
 
-	groups, _, err := cwlogsBackend.DescribeLogGroups(context.Background(), groupName, "", 10)
+	groups, _, err := cwlogsBackend.DescribeLogGroups(context.Background(), groupName, "", "", 10)
 	require.NoError(t, err)
 	require.Len(t, groups, 1)
 	assert.Equal(t, groupName, groups[0].LogGroupName)

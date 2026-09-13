@@ -20,37 +20,60 @@ const (
 )
 
 type storedAppBlock struct {
-	CreatedTime time.Time         `json:"createdTime"`
-	Tags        map[string]string `json:"tags"`
-	Name        string            `json:"name"`
-	Arn         string            `json:"arn"`
-	Description string            `json:"description"`
-	State       string            `json:"state"`
+	SetupScriptDetails     *ScriptDetails    `json:"setupScriptDetails,omitempty"`
+	PostSetupScriptDetails *ScriptDetails    `json:"postSetupScriptDetails,omitempty"`
+	CreatedTime            time.Time         `json:"createdTime"`
+	Tags                   map[string]string `json:"tags"`
+	SourceS3Location       S3Location        `json:"sourceS3Location"`
+	Name                   string            `json:"name"`
+	Arn                    string            `json:"arn"`
+	Description            string            `json:"description"`
+	DisplayName            string            `json:"displayName,omitempty"`
+	PackagingType          string            `json:"packagingType,omitempty"`
+	State                  string            `json:"state"`
 }
 
 func (a *storedAppBlock) toAppBlock() *AppBlock {
 	tags := make(map[string]string)
 	maps.Copy(tags, a.Tags)
 
-	return &AppBlock{
-		CreatedTime: a.CreatedTime,
-		Tags:        tags,
-		Name:        a.Name,
-		Arn:         a.Arn,
-		Description: a.Description,
-		State:       a.State,
+	ab := &AppBlock{
+		CreatedTime:      a.CreatedTime,
+		Tags:             tags,
+		SourceS3Location: a.SourceS3Location,
+		Name:             a.Name,
+		Arn:              a.Arn,
+		Description:      a.Description,
+		DisplayName:      a.DisplayName,
+		PackagingType:    a.PackagingType,
+		State:            a.State,
 	}
+
+	if a.SetupScriptDetails != nil {
+		sd := *a.SetupScriptDetails
+		ab.SetupScriptDetails = &sd
+	}
+
+	if a.PostSetupScriptDetails != nil {
+		sd := *a.PostSetupScriptDetails
+		ab.PostSetupScriptDetails = &sd
+	}
+
+	return ab
 }
 
 type storedAppBlockBuilder struct {
-	CreatedTime  time.Time         `json:"createdTime"`
-	Tags         map[string]string `json:"tags"`
-	Name         string            `json:"name"`
-	Arn          string            `json:"arn"`
-	Description  string            `json:"description"`
-	Platform     string            `json:"platform"`
-	InstanceType string            `json:"instanceType"`
-	State        string            `json:"state"`
+	CreatedTime                 time.Time         `json:"createdTime"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	Tags                        map[string]string `json:"tags"`
+	Name                        string            `json:"name"`
+	Arn                         string            `json:"arn"`
+	Description                 string            `json:"description"`
+	Platform                    string            `json:"platform"`
+	InstanceType                string            `json:"instanceType"`
+	State                       string            `json:"state"`
+	SecurityGroupIDs            []string          `json:"securityGroupIds"`
+	SubnetIDs                   []string          `json:"subnetIds"`
 }
 
 func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
@@ -58,14 +81,19 @@ func (b *storedAppBlockBuilder) toAppBlockBuilder() *AppBlockBuilder {
 	maps.Copy(tags, b.Tags)
 
 	return &AppBlockBuilder{
-		CreatedTime:  b.CreatedTime,
-		Tags:         tags,
-		Name:         b.Name,
-		Arn:          b.Arn,
-		Description:  b.Description,
-		Platform:     b.Platform,
-		InstanceType: b.InstanceType,
-		State:        b.State,
+		CreatedTime:                 b.CreatedTime,
+		EnableDefaultInternetAccess: b.EnableDefaultInternetAccess,
+		Tags:                        tags,
+		Name:                        b.Name,
+		Arn:                         b.Arn,
+		Description:                 b.Description,
+		Platform:                    b.Platform,
+		InstanceType:                b.InstanceType,
+		State:                       b.State,
+		VpcConfig: VpcConfig{
+			SecurityGroupIDs: append([]string(nil), b.SecurityGroupIDs...),
+			SubnetIDs:        append([]string(nil), b.SubnetIDs...),
+		},
 	}
 }
 
@@ -77,8 +105,14 @@ func (b *InMemoryBackend) appBlockBuilderARN(name string) string {
 	return arn.Build("appstream", b.region, b.accountID, fmt.Sprintf("app-block-builder/%s", name))
 }
 
-// CreateAppBlock creates an app block.
-func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[string]string) (*AppBlock, error) {
+// CreateAppBlock creates an app block. SourceS3Location is required on the
+// real wire (api_op_CreateAppBlock.go); the handler rejects a request
+// without one before reaching here.
+func (b *InMemoryBackend) CreateAppBlock(name, description string, opts CreateAppBlockOptions) (*AppBlock, error) {
+	if opts.SourceS3Location.S3Bucket == "" {
+		return nil, fmt.Errorf("%w: SourceS3Location is required", awserr.ErrInvalidParameter)
+	}
+
 	b.mu.Lock("CreateAppBlock")
 	defer b.mu.Unlock()
 
@@ -88,15 +122,20 @@ func (b *InMemoryBackend) CreateAppBlock(name, description string, tags map[stri
 
 	arn := b.appBlockARN(name)
 	storedTags := make(map[string]string)
-	maps.Copy(storedTags, tags)
+	maps.Copy(storedTags, opts.Tags)
 
 	ab := &storedAppBlock{
-		CreatedTime: time.Now().UTC(),
-		Tags:        storedTags,
-		Name:        name,
-		Arn:         arn,
-		Description: description,
-		State:       appBlockStateInactive,
+		CreatedTime:            time.Now().UTC(),
+		Tags:                   storedTags,
+		SourceS3Location:       opts.SourceS3Location,
+		Name:                   name,
+		Arn:                    arn,
+		Description:            description,
+		DisplayName:            opts.DisplayName,
+		PackagingType:          opts.PackagingType,
+		State:                  appBlockStateInactive,
+		SetupScriptDetails:     opts.SetupScriptDetails,
+		PostSetupScriptDetails: opts.PostSetupScriptDetails,
 	}
 	b.appBlocks.Put(ab)
 	b.tags[arn] = storedTags
@@ -177,10 +216,16 @@ func (b *InMemoryBackend) DescribeAppBlocks(arns []string) ([]*AppBlock, error) 
 	return result, nil
 }
 
-// CreateAppBlockBuilder creates an app block builder.
+// CreateAppBlockBuilder creates an app block builder. vpcConfig is required
+// on the real wire (appstream@v1.64.5 api_op_CreateAppBlockBuilder.go:64,
+// types.AppBlockBuilder.VpcConfig also "This member is required" at
+// types/types.go:248); the handler rejects a request with no VpcConfig
+// before reaching here.
 func (b *InMemoryBackend) CreateAppBlockBuilder(
 	name, description, platform, instanceType string,
+	vpcConfig VpcConfig,
 	tags map[string]string,
+	enableDefaultInternetAccess *bool,
 ) (*AppBlockBuilder, error) {
 	if instanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
@@ -198,14 +243,17 @@ func (b *InMemoryBackend) CreateAppBlockBuilder(
 	maps.Copy(storedTags, tags)
 
 	bb := &storedAppBlockBuilder{
-		CreatedTime:  time.Now().UTC(),
-		Tags:         storedTags,
-		Name:         name,
-		Arn:          arn,
-		Description:  description,
-		Platform:     platform,
-		InstanceType: instanceType,
-		State:        builderStateStopped,
+		CreatedTime:                 time.Now().UTC(),
+		EnableDefaultInternetAccess: enableDefaultInternetAccess,
+		Tags:                        storedTags,
+		Name:                        name,
+		Arn:                         arn,
+		Description:                 description,
+		Platform:                    platform,
+		InstanceType:                instanceType,
+		State:                       builderStateStopped,
+		SecurityGroupIDs:            append([]string(nil), vpcConfig.SecurityGroupIDs...),
+		SubnetIDs:                   append([]string(nil), vpcConfig.SubnetIDs...),
 	}
 	b.appBlockBuilders.Put(bb)
 	b.tags[arn] = storedTags
@@ -299,8 +347,14 @@ func (b *InMemoryBackend) StopAppBlockBuilder(name string) error {
 	return nil
 }
 
-// UpdateAppBlockBuilder updates mutable builder fields.
-func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error) {
+// UpdateAppBlockBuilder updates mutable builder fields. A nil vpcConfig
+// leaves the existing VPC configuration unchanged (matches real
+// UpdateAppBlockBuilderInput.VpcConfig, which is optional).
+func (b *InMemoryBackend) UpdateAppBlockBuilder(
+	name, description, instanceType string,
+	vpcConfig *VpcConfig,
+	enableDefaultInternetAccess *bool,
+) (*AppBlockBuilder, error) {
 	b.mu.Lock("UpdateAppBlockBuilder")
 	defer b.mu.Unlock()
 
@@ -315,6 +369,15 @@ func (b *InMemoryBackend) UpdateAppBlockBuilder(name, description, instanceType 
 
 	if instanceType != "" {
 		bb.InstanceType = instanceType
+	}
+
+	if vpcConfig != nil {
+		bb.SecurityGroupIDs = append([]string(nil), vpcConfig.SecurityGroupIDs...)
+		bb.SubnetIDs = append([]string(nil), vpcConfig.SubnetIDs...)
+	}
+
+	if enableDefaultInternetAccess != nil {
+		bb.EnableDefaultInternetAccess = enableDefaultInternetAccess
 	}
 
 	return bb.toAppBlockBuilder(), nil

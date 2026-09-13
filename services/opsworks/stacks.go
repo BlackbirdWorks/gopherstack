@@ -35,6 +35,7 @@ func (b *InMemoryBackend) CreateStack(
 		CreatedAt:                 now,
 		ConfigurationManager:      opts.ConfigurationManager,
 		ChefConfiguration:         opts.ChefConfiguration,
+		UseOpsworksSecurityGroups: opts.UseOpsworksSecurityGroups,
 		Tags:                      make(map[string]string),
 		Attributes:                opts.Attributes,
 		StackID:                   id,
@@ -44,6 +45,14 @@ func (b *InMemoryBackend) CreateStack(
 		DefaultInstanceProfileArn: defaultInstanceProfileArn,
 		ServiceRoleArn:            serviceRoleArn,
 		VpcID:                     opts.VpcID,
+		AgentVersion:              opts.AgentVersion,
+		CustomJSON:                opts.CustomJSON,
+		DefaultAvailabilityZone:   opts.DefaultAvailabilityZone,
+		DefaultOs:                 opts.DefaultOs,
+		DefaultRootDeviceType:     opts.DefaultRootDeviceType,
+		DefaultSSHKeyName:         opts.DefaultSSHKeyName,
+		DefaultSubnetID:           opts.DefaultSubnetID,
+		HostnameTheme:             opts.HostnameTheme,
 	}
 	b.stacks.Put(s)
 
@@ -51,7 +60,20 @@ func (b *InMemoryBackend) CreateStack(
 }
 
 // CloneStack creates a new stack that is a copy of the source stack.
-func (b *InMemoryBackend) CloneStack(sourceStackID, name, region string) (*Stack, error) {
+// ServiceRoleArn is "This member is required" on the real CloneStackInput
+// (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
+// api_op_CloneStack.go) -- unlike the other stack-attribute overrides in
+// opts, it is never inherited from the source. Every field in opts left at
+// its zero value inherits the source stack's value instead, matching the
+// real API's per-field doc comments (e.g. DefaultOs: "The default option is
+// the parent stack's operating system").
+func (b *InMemoryBackend) CloneStack(
+	sourceStackID, name, region, serviceRoleArn string, opts CloneStackOptions,
+) (*Stack, error) {
+	if serviceRoleArn == "" {
+		return nil, ErrValidation
+	}
+
 	b.mu.Lock("CloneStack")
 	defer b.mu.Unlock()
 
@@ -75,17 +97,61 @@ func (b *InMemoryBackend) CloneStack(sourceStackID, name, region string) (*Stack
 
 	s := &storedStack{
 		CreatedAt:                 now,
+		ConfigurationManager:      cloneStackConfigManager(opts.ConfigurationManager, src.ConfigurationManager),
+		ChefConfiguration:         cloneStackChefConfig(opts.ChefConfiguration, src.ChefConfiguration),
+		UseOpsworksSecurityGroups: cloneStackBoolOverride(opts.UseOpsworksSecurityGroups, src.UseOpsworksSecurityGroups),
 		Tags:                      make(map[string]string),
 		StackID:                   id,
 		Arn:                       b.stackARN(id),
 		Name:                      cloneName,
 		Region:                    cloneRegion,
-		DefaultInstanceProfileArn: src.DefaultInstanceProfileArn,
-		ServiceRoleArn:            src.ServiceRoleArn,
+		DefaultInstanceProfileArn: cloneStackStringOverride(opts.DefaultInstanceProfileArn, src.DefaultInstanceProfileArn),
+		ServiceRoleArn:            serviceRoleArn,
+		VpcID:                     cloneStackStringOverride(opts.VpcID, src.VpcID),
+		AgentVersion:              cloneStackStringOverride(opts.AgentVersion, src.AgentVersion),
+		CustomJSON:                cloneStackStringOverride(opts.CustomJSON, src.CustomJSON),
+		DefaultAvailabilityZone:   cloneStackStringOverride(opts.DefaultAvailabilityZone, src.DefaultAvailabilityZone),
+		DefaultOs:                 cloneStackStringOverride(opts.DefaultOs, src.DefaultOs),
+		DefaultRootDeviceType:     cloneStackStringOverride(opts.DefaultRootDeviceType, src.DefaultRootDeviceType),
+		DefaultSSHKeyName:         cloneStackStringOverride(opts.DefaultSSHKeyName, src.DefaultSSHKeyName),
+		DefaultSubnetID:           cloneStackStringOverride(opts.DefaultSubnetID, src.DefaultSubnetID),
+		HostnameTheme:             cloneStackStringOverride(opts.HostnameTheme, src.HostnameTheme),
 	}
 	b.stacks.Put(s)
 
 	return s.toStack(), nil
+}
+
+func cloneStackStringOverride(override, sourceValue string) string {
+	if override != "" {
+		return override
+	}
+
+	return sourceValue
+}
+
+func cloneStackBoolOverride(override, sourceValue *bool) *bool {
+	if override != nil {
+		return override
+	}
+
+	return sourceValue
+}
+
+func cloneStackConfigManager(override, sourceValue *StackConfigurationManager) *StackConfigurationManager {
+	if override != nil {
+		return override
+	}
+
+	return sourceValue
+}
+
+func cloneStackChefConfig(override, sourceValue *ChefConfiguration) *ChefConfiguration {
+	if override != nil {
+		return override
+	}
+
+	return sourceValue
 }
 
 // DescribeStacks returns stacks, optionally filtered by IDs.
@@ -115,8 +181,10 @@ func (b *InMemoryBackend) DescribeStacks(stackIDs []string) ([]*Stack, error) {
 	return result, nil
 }
 
-// UpdateStack updates a stack's name.
-func (b *InMemoryBackend) UpdateStack(stackID, name string) error {
+// UpdateStack updates a stack's name and attributes. Every opts field left
+// at its zero value leaves the current stored value unchanged, matching a
+// real PATCH-style update where an omitted member means "no change".
+func (b *InMemoryBackend) UpdateStack(stackID, name string, opts UpdateStackOptions) error {
 	b.mu.Lock("UpdateStack")
 	defer b.mu.Unlock()
 
@@ -129,7 +197,54 @@ func (b *InMemoryBackend) UpdateStack(stackID, name string) error {
 		s.Name = name
 	}
 
+	applyUpdateStackOptions(s, opts)
+
 	return nil
+}
+
+func applyUpdateStackOptions(s *storedStack, opts UpdateStackOptions) {
+	if opts.ConfigurationManager != nil {
+		s.ConfigurationManager = opts.ConfigurationManager
+	}
+	if opts.ChefConfiguration != nil {
+		s.ChefConfiguration = opts.ChefConfiguration
+	}
+	if opts.UseOpsworksSecurityGroups != nil {
+		s.UseOpsworksSecurityGroups = opts.UseOpsworksSecurityGroups
+	}
+	if opts.Attributes != nil {
+		s.Attributes = opts.Attributes
+	}
+	if opts.AgentVersion != "" {
+		s.AgentVersion = opts.AgentVersion
+	}
+	if opts.CustomJSON != "" {
+		s.CustomJSON = opts.CustomJSON
+	}
+	if opts.DefaultAvailabilityZone != "" {
+		s.DefaultAvailabilityZone = opts.DefaultAvailabilityZone
+	}
+	if opts.DefaultInstanceProfileArn != "" {
+		s.DefaultInstanceProfileArn = opts.DefaultInstanceProfileArn
+	}
+	if opts.DefaultOs != "" {
+		s.DefaultOs = opts.DefaultOs
+	}
+	if opts.DefaultRootDeviceType != "" {
+		s.DefaultRootDeviceType = opts.DefaultRootDeviceType
+	}
+	if opts.DefaultSSHKeyName != "" {
+		s.DefaultSSHKeyName = opts.DefaultSSHKeyName
+	}
+	if opts.DefaultSubnetID != "" {
+		s.DefaultSubnetID = opts.DefaultSubnetID
+	}
+	if opts.HostnameTheme != "" {
+		s.HostnameTheme = opts.HostnameTheme
+	}
+	if opts.ServiceRoleArn != "" {
+		s.ServiceRoleArn = opts.ServiceRoleArn
+	}
 }
 
 // deleteStackResources removes layers, instances, apps, and deployments for a stack (caller holds lock).

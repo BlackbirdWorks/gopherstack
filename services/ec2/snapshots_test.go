@@ -88,11 +88,13 @@ func TestDescribeSnapshots(t *testing.T) {
 	require.NoError(t, err)
 
 	// all
-	all := b.DescribeSnapshots(nil)
+	all, err := b.DescribeSnapshots(nil)
+	require.NoError(t, err)
 	assert.Len(t, all, 2)
 
 	// filtered
-	filtered := b.DescribeSnapshots([]string{snap1.SnapshotID})
+	filtered, err := b.DescribeSnapshots([]string{snap1.SnapshotID})
+	require.NoError(t, err)
 	require.Len(t, filtered, 1)
 	assert.Equal(t, snap1.SnapshotID, filtered[0].SnapshotID)
 }
@@ -113,7 +115,8 @@ func TestDeleteSnapshot(t *testing.T) {
 
 	require.NoError(t, b.DeleteSnapshot(snap.SnapshotID))
 
-	all := b.DescribeSnapshots(nil)
+	all, err := b.DescribeSnapshots(nil)
+	require.NoError(t, err)
 	assert.Empty(t, all)
 
 	// delete again -> error
@@ -140,7 +143,8 @@ func TestSnapshotPersistence(t *testing.T) {
 	b2 := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 	require.NoError(t, b2.Restore(t.Context(), data))
 
-	snaps := b2.DescribeSnapshots(nil)
+	snaps, err := b2.DescribeSnapshots(nil)
+	require.NoError(t, err)
 	assert.Len(t, snaps, 1)
 	assert.Equal(t, "persisted", snaps[0].Description)
 }
@@ -164,7 +168,9 @@ func TestReset_ClearsNewMaps(t *testing.T) {
 
 	b.Reset()
 
-	assert.Empty(t, b.DescribeSnapshots(nil))
+	afterReset, err := b.DescribeSnapshots(nil)
+	require.NoError(t, err)
+	assert.Empty(t, afterReset)
 	assert.Empty(t, b.DescribeStoredNetworkAcls(nil))
 }
 

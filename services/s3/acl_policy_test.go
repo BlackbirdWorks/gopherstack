@@ -706,21 +706,31 @@ func TestHandler_PutBucketACL_InvalidValue(t *testing.T) {
 // object-only canned ACLs (bucket-owner-read / bucket-owner-full-control) are
 // rejected on PutBucketAcl with 400 InvalidArgument, matching real S3
 // (types.BucketCannedACL does not include them).
-
 func TestHandler_PutBucketACL_RejectsObjectOnlyCannedACLs(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "bkt")
+	tests := []struct {
+		acl string
+	}{
+		{acl: "bucket-owner-read"},
+		{acl: "bucket-owner-full-control"},
+	}
 
-	for _, acl := range []string{"bucket-owner-read", "bucket-owner-full-control"} {
-		req := httptest.NewRequest(http.MethodPut, "/bkt?acl", nil)
-		req.Header.Set("X-Amz-Acl", acl)
-		rec := httptest.NewRecorder()
-		serveS3Handler(handler, rec, req)
+	for _, tt := range tests {
+		t.Run(tt.acl, func(t *testing.T) {
+			t.Parallel()
 
-		assert.Equal(t, http.StatusBadRequest, rec.Code, "canned ACL %q must be rejected", acl)
-		assert.Contains(t, rec.Body.String(), "InvalidArgument")
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, "bkt")
+
+			req := httptest.NewRequest(http.MethodPut, "/bkt?acl", nil)
+			req.Header.Set("X-Amz-Acl", tt.acl)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code, "canned ACL %q must be rejected", tt.acl)
+			assert.Contains(t, rec.Body.String(), "InvalidArgument")
+		})
 	}
 }
 

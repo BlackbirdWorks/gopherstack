@@ -58,7 +58,8 @@ ops:
 families:
   routing: {status: ok, note: "RouteMatcher + parseIoTAnalyticsPath verified path-prefix and HTTP-method-for-method against every awsRestjson1_serializeOpHttpBindings*/request.Method in aws-sdk-go-v2/service/iotanalytics@v1.32.0/serializers.go -- all 34 ops match (paths, GET/POST/PUT/DELETE, query param names incl. includeStatistics/maxMessages/maxResults/nextToken/resourceArn/tagKeys/versionId/scheduledBefore/scheduledOnOrAfter)"}
   timestamps: {status: ok, note: "creationTime/lastUpdateTime/lastMessageArrivalTime/completionTime/startTime/endTime/scheduleTime all epoch-seconds JSON numbers (awstime-equivalent; models.go epochSeconds), matches smithytime.ParseEpochSeconds/FormatEpochSeconds in the real deserializers/serializers"}
-gaps:
+gaps: []
+items_still_open:
   - "GetDatasetContent always returns an empty entries array (no S3-backed data URIs) since this backend has no S3 delivery integration -- consistent with CreateDatasetContent's synchronous SUCCEEDED simulation, not tracked as a bug."
   - "items_still_open: RunPipelineActivity's lambda/deviceRegistryEnrich/deviceShadowEnrich now invoke the real Lambda/IoT backends (cli.go's wireIoTAnalyticsCrossService -> InMemoryBackend.SetLambdaBackend/SetThingRegistry/SetThingShadowStore, following the same LambdaInvoker pattern SNS/Firehose/SecretsManager already use). lambda batches payloads by BatchSize and round-trips a JSON object array through InvokeFunction, matching the documented contract (docs.aws.amazon.com/iotanalytics/latest/userguide/pipeline-activities-lambda.html: \"the Lambda function must receive and return a JSON object array\"); deviceRegistryEnrich/deviceShadowEnrich call iot:DescribeThing/iot:GetThingShadow and store the result under Attribute (CloudFormation docs for AWS::IoTAnalytics::Pipeline DeviceRegistryEnrich/DeviceShadowEnrich). A missing Thing/shadow or a Lambda invoke error fails the RunPipelineActivity call (ErrPipelineActivityFailed) rather than silently passing the message through, since these AWS calls genuinely fail when their target doesn't exist. Only remaining gap: when no Lambda/IoT backend is registered in a given deployment (SetLambdaBackend/SetThingRegistry/SetThingShadowStore never called), these activities still pass through unchanged -- there is nothing to invoke."
   - "items_still_open: RunPipelineActivity's math expression language (pipeline_expr.go) now additionally implements AWS's documented function library (docs.aws.amazon.com/iotanalytics/latest/userguide/math-operators-functions.html: abs/acos/asin/atan/atan2/ceil/cos/cosh/exp/ln/log/mod/power/round/sign/sin/sinh/sqrt/tan/tanh/trunc). filter/math still do NOT implement LIKE, IN, or BETWEEN. Reason: unlike the math function library, no citable AWS documentation for filter's operators beyond '=, !=, <, <=, >, >=, AND, OR, NOT' was found (docs.aws.amazon.com/iotanalytics/latest/APIReference/API_RunPipelineActivity.html and the userguide's pipeline-activities-filter.html describe it only as \"an expression that looks like an SQL WHERE clause\", with no operator/function reference page equivalent to math's) -- extending the grammar with LIKE/IN/BETWEEN would be inventing behavior against an unpublished spec, not closing a documented gap."
@@ -438,3 +439,47 @@ Gates: `go build ./...`, `go vet ./services/iotanalytics/...`,
 `go test -race -count=1 ./services/cloudformation/... ./services/iot/... ./services/lambda/... .`
 — all pass (no cross-service wiring touches `CreatePipeline`'s shape, so no CFN teardown or
 Lambda/IoT wiring regression).
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering iotanalytics's last four
+typed-client-uncovered ops: `TagResource`, `UntagResource`,
+`UpdateDataset`, `UpdatePipeline`.
+
+**One real bug found and fixed, HIGH BLAST RADIUS**: `pipelineDetail.Activities`
+(`models.go`) was tagged `json:"pipelineActivities"`, copying
+`CreatePipelineInput`/`UpdatePipelineInput`'s own top-level request field
+name, but `DescribePipelineOutput.Pipeline` is deserialized by a distinct
+function (iotanalytics@v1.32.0 `deserializers.go`'s
+`awsRestjson1_deserializeDocumentPipeline`, case `"activities"`) that
+expects the unprefixed key -- so a real client's `DescribePipeline` (and
+every other caller observing `Pipeline.Activities`, this pass's own
+`UpdatePipeline` verification included) always decoded an empty slice
+regardless of backend state, even immediately after `CreatePipeline`.
+Confirmed via a throwaway debug test that the request-side decode
+(`createPipelineRequest.PipelineActivities`, key `"pipelineActivities"`,
+correct per `serializers.go:699`) worked fine and the backend stored the
+activities correctly -- only the *response*-side re-serialization used the
+wrong key. This bug predates this pass: every earlier Create/Describe/
+Update pipeline test that only asserted `PipelineArn`/tags (never
+`Activities`) passed straight over it. Fixed the one wire tag
+(`pipelineDetail.Activities` -> `json:"activities,omitempty"`); no other
+`pipelineDetail` field was affected (`name`/`arn`/`creationTime`/
+`lastUpdateTime`/`reprocessingSummaries` were already correct, confirmed
+against the same deserializer's key switch; `tags` has no case in that
+switch at all, i.e. real `types.Pipeline` carries no Tags field, matching
+the pre-existing precedent this file documents elsewhere -- gopherstack's
+extra `tags` key is a harmless over-return, not a bug).
+
+Typed-client coverage: 30/34 -> 34/34 (100%).
+
+No persisted struct fields changed (the fix is a JSON tag on an HTTP
+response DTO, not a backend/store model); no version bump.
+
+Gates: `go build ./...`, `go vet ./services/iotanalytics/...`, `go test
+-race -count=1 ./services/iotanalytics/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/iotanalytics/...` (0 issues, after adding
+this new file to `.golangci.yml`'s existing whole-package `staticcheck`
+exemption list -- iotanalytics is AWS-deprecated, so every SDK
+type/method/field a real client touches carries an SA1019). `cmd/paritylint`
+stays at 0 FAIL.

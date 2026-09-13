@@ -1,6 +1,7 @@
 package elasticbeanstalk_test
 
 import (
+	"encoding/xml"
 	"net/http"
 	"testing"
 
@@ -448,6 +449,73 @@ func TestHandler_CreateConfigurationTemplate_OptionSettingsAndPlatformArn(t *tes
 		"<PlatformArn>arn:aws:elasticbeanstalk:us-east-1::platform/MyPlatform/1.0.0</PlatformArn>")
 	// A template is never associated with a running environment.
 	assert.NotContains(t, descBody, "<DeploymentStatus>")
+}
+
+// TestHandler_CreateConfigurationTemplate_EnvironmentIdSeedsSettings locks that
+// EnvironmentId -- a real CreateConfigurationTemplate request parameter -- is
+// actually read off the wire and used to seed the new template's option
+// settings and solution stack, not silently dropped.
+func TestHandler_CreateConfigurationTemplate_EnvironmentIdSeedsSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=env-seed-app")
+
+	createEnvRec := postEBForm(t, h, "Version=2010-12-01&Action=CreateEnvironment"+
+		"&ApplicationName=env-seed-app&EnvironmentName=env-seed-env"+
+		"&SolutionStackName=64bit+Amazon+Linux+2+v5.8.0+running+Go+1"+
+		"&OptionSettings.member.1.Namespace=aws:autoscaling:asg"+
+		"&OptionSettings.member.1.OptionName=MinSize"+
+		"&OptionSettings.member.1.Value=2")
+	require.Equal(t, http.StatusOK, createEnvRec.Code)
+
+	var createResult struct {
+		CreateEnvironmentResult struct {
+			EnvironmentID string `xml:"EnvironmentId"`
+		} `xml:"CreateEnvironmentResult"`
+	}
+	require.NoError(t, xml.Unmarshal(createEnvRec.Body.Bytes(), &createResult))
+	envID := createResult.CreateEnvironmentResult.EnvironmentID
+	require.NotEmpty(t, envID)
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+		"&ApplicationName=env-seed-app&TemplateName=env-seed-tmpl&EnvironmentId="+envID)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<SolutionStackName>64bit Amazon Linux 2 v5.8.0 running Go 1</SolutionStackName>")
+	assert.Contains(t, body, "<Namespace>aws:autoscaling:asg</Namespace>")
+	assert.Contains(t, body, "<OptionName>MinSize</OptionName>")
+	assert.Contains(t, body, "<Value>2</Value>")
+}
+
+// TestHandler_CreateConfigurationTemplate_SourceConfigurationSeedsSettings locks
+// that SourceConfiguration.ApplicationName/TemplateName -- real
+// CreateConfigurationTemplate request parameters -- are actually read off the
+// wire and used to seed the new template from another template's settings.
+func TestHandler_CreateConfigurationTemplate_SourceConfigurationSeedsSettings(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateApplication&ApplicationName=src-cfg-app")
+	postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+		"&ApplicationName=src-cfg-app&TemplateName=base-tmpl"+
+		"&SolutionStackName=64bit+Amazon+Linux+2+v5.8.0+running+Go+1"+
+		"&OptionSettings.member.1.Namespace=aws:elasticbeanstalk:application:environment"+
+		"&OptionSettings.member.1.OptionName=LOG_LEVEL"+
+		"&OptionSettings.member.1.Value=debug")
+
+	rec := postEBForm(t, h, "Version=2010-12-01&Action=CreateConfigurationTemplate"+
+		"&ApplicationName=src-cfg-app&TemplateName=derived-tmpl"+
+		"&SourceConfiguration.ApplicationName=src-cfg-app"+
+		"&SourceConfiguration.TemplateName=base-tmpl")
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := rec.Body.String()
+	assert.Contains(t, body, "<SolutionStackName>64bit Amazon Linux 2 v5.8.0 running Go 1</SolutionStackName>")
+	assert.Contains(t, body, "<Namespace>aws:elasticbeanstalk:application:environment</Namespace>")
+	assert.Contains(t, body, "<OptionName>LOG_LEVEL</OptionName>")
+	assert.Contains(t, body, "<Value>debug</Value>")
 }
 
 // TestHandler_CreateConfigurationTemplate_SolutionStackAndPlatformArnMutuallyExclusive

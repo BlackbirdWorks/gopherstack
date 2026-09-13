@@ -745,7 +745,13 @@ func toImportTaskErrorWire(e *ImportTaskError) importTaskErrorWire {
 	w := importTaskErrorWire{ErrorDateTime: e.ErrorDateTime, ErrorType: e.ErrorType}
 
 	if e.ErrorData != nil {
-		w.ErrorData = &importErrorDataWire{RawError: e.ErrorData.RawError, RowNumber: e.ErrorData.RowNumber}
+		w.ErrorData = &importErrorDataWire{
+			SourceServerID: e.ErrorData.SourceServerID,
+			ApplicationID:  e.ErrorData.ApplicationID,
+			WaveID:         e.ErrorData.WaveID,
+			RawError:       e.ErrorData.RawError,
+			RowNumber:      e.ErrorData.RowNumber,
+		}
 	}
 
 	return w

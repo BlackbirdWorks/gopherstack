@@ -19,7 +19,9 @@ func (b *InMemoryBackend) CreateCollaboration(
 	name, description, creatorDisplayName string,
 	creatorMemberAbilities []string,
 	members []MemberSpec,
-	queryLogStatus string,
+	queryLogStatus, jobLogStatus string,
+	isMetricsEnabled bool,
+	creatorPaymentConfiguration map[string]any,
 	tags map[string]string,
 ) (*Collaboration, error) {
 	b.mu.Lock("CreateCollaboration")
@@ -29,13 +31,16 @@ func (b *InMemoryBackend) CreateCollaboration(
 	}
 	id := uuid.NewString()
 	ts := b.now()
+	if jobLogStatus == "" {
+		jobLogStatus = jobLogStatusDisabled
+	}
 	memberSummaries := make([]*MemberSummary, 0, len(members)+1)
 	memberSummaries = append(memberSummaries, &MemberSummary{
 		AccountID:     b.accountID,
 		DisplayName:   creatorDisplayName,
 		Abilities:     creatorMemberAbilities,
 		Status:        statusActive,
-		PaymentConfig: defaultPaymentConfig(creatorMemberAbilities, nil),
+		PaymentConfig: defaultPaymentConfig(creatorMemberAbilities, creatorPaymentConfiguration),
 		CreateTime:    ts,
 		UpdateTime:    ts,
 	})
@@ -62,6 +67,8 @@ func (b *InMemoryBackend) CreateCollaboration(
 		MemberAbilities:         creatorMemberAbilities,
 		Members:                 memberSummaries,
 		QueryLogStatus:          queryLogStatus,
+		JobLogStatus:            jobLogStatus,
+		IsMetricsEnabled:        isMetricsEnabled,
 		CreateTime:              ts,
 		UpdateTime:              ts,
 		Tags:                    tags,
@@ -77,9 +84,13 @@ func (b *InMemoryBackend) CreateCollaboration(
 	// GetCollaboration/ListCollaborations reflect a real membershipArn/Id,
 	// and so DeleteCollaboration has a real membership to transition to
 	// COLLABORATION_DELETED.
-	creatorMembership := b.createMembershipLocked(
-		collab, queryLogStatus, creatorMemberAbilities, nil, memberSummaries[0].PaymentConfig, nil,
-	)
+	creatorMembership := b.createMembershipLocked(collab, membershipSpec{
+		QueryLogStatus:       queryLogStatus,
+		JobLogStatus:         jobLogStatus,
+		IsMetricsEnabled:     isMetricsEnabled,
+		MemberAbilities:      creatorMemberAbilities,
+		PaymentConfiguration: memberSummaries[0].PaymentConfig,
+	})
 	collab.MembershipArn = creatorMembership.Arn
 	collab.MembershipID = creatorMembership.ID
 	memberSummaries[0].MembershipArn = creatorMembership.Arn

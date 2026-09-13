@@ -15,7 +15,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 	ctx context.Context,
 	req *createMultiRegionClusterRequest,
 ) (*MultiRegionCluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateMultiRegionCluster")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -81,7 +81,7 @@ func (b *InMemoryBackend) CreateMultiRegionCluster(
 
 // DeleteMultiRegionCluster removes a multi-region cluster.
 func (b *InMemoryBackend) DeleteMultiRegionCluster(ctx context.Context, name string) (*MultiRegionCluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteMultiRegionCluster")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) DeleteMultiRegionCluster(ctx context.Context, name str
 
 // DescribeMultiRegionClusters returns multi-region clusters, optionally filtered by name.
 func (b *InMemoryBackend) DescribeMultiRegionClusters(_ context.Context, name string) ([]*MultiRegionCluster, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMultiRegionClusters")
 	defer b.mu.RUnlock()
 
 	if name != "" {
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) UpdateMultiRegionCluster(
 	_ context.Context,
 	req *updateMultiRegionClusterRequest,
 ) (*MultiRegionCluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateMultiRegionCluster")
 	defer b.mu.Unlock()
 
 	mrc, ok := b.multiRegionClusters.Get(req.MultiRegionClusterName)
@@ -165,7 +165,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameterGroups(
 	_ context.Context,
 	name string,
 ) ([]*MultiRegionParameterGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMultiRegionParameterGroups")
 	defer b.mu.RUnlock()
 
 	if name != "" {
@@ -196,7 +196,7 @@ func (b *InMemoryBackend) ListAllowedMultiRegionClusterUpdates(
 	_ context.Context,
 	clusterName string,
 ) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAllowedMultiRegionClusterUpdates")
 
 	defer b.mu.RUnlock()
 
@@ -212,7 +212,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(
 	_ context.Context,
 	parameterGroupName string,
 ) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeMultiRegionParameters")
 	defer b.mu.RUnlock()
 
 	if parameterGroupName == "" {
@@ -232,7 +232,7 @@ func (b *InMemoryBackend) DescribeMultiRegionParameters(
 // Populates MultiRegionCluster.Clusters (types.RegionalCluster in the real
 // SDK) on the wire response. Safe for concurrent use.
 func (b *InMemoryBackend) RegionalClustersFor(multiRegionClusterName string) []*Cluster {
-	b.mu.RLock()
+	b.mu.RLock("RegionalClustersFor")
 	defer b.mu.RUnlock()
 
 	var result []*Cluster
@@ -282,7 +282,7 @@ func cloneMultiRegionParameterGroup(mrpg *MultiRegionParameterGroup) *MultiRegio
 
 // AddMultiRegionParameterGroupInternal inserts a multi-region parameter group directly into the backend for testing.
 func (b *InMemoryBackend) AddMultiRegionParameterGroupInternal(name, family string) *MultiRegionParameterGroup {
-	b.mu.Lock()
+	b.mu.Lock("AddMultiRegionParameterGroupInternal")
 	defer b.mu.Unlock()
 
 	mrpgARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "multiregionparametergroup/"+name)

@@ -80,6 +80,16 @@ var (
 	// preserves an unmodeled wire code rather than rejecting it. Settled by
 	// gopherstack-q9bs; the sites below using it are correct, not landmines.
 	ErrValidation = errors.New("ValidationException")
+	// ErrDryRun is returned by the 15 KMS ops whose input carries a DryRun member
+	// (CreateGrant, Decrypt, DeriveSharedSecret, Encrypt, GenerateDataKey,
+	// GenerateDataKeyPair, GenerateDataKeyPairWithoutPlaintext,
+	// GenerateDataKeyWithoutPlaintext, GenerateMac, ReEncrypt, RetireGrant,
+	// RevokeGrant, Sign, Verify, VerifyMac -- grepped `DryRun \*bool` across
+	// aws-sdk-go-v2/service/kms@v1.54.0's api_op_*.go) when DryRun=true and every
+	// other check the op performs passes. DryRunOperationException's doc
+	// (types/errors.go): "The request was rejected because the DryRun
+	// parameter was specified".
+	ErrDryRun = errors.New("DryRunOperationException")
 	// ErrExpiredKeyMaterial is returned when a key's imported material has passed its ValidTo date.
 	ErrExpiredKeyMaterial = errors.New("ExpiredImportTokenException")
 	// ErrInvalidGrantToken is returned when a grant token is expired or malformed.

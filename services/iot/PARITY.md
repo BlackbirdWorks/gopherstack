@@ -259,7 +259,7 @@ families:
   invented_fields: {status: fixed, note: "Job leaked \"tags\"/\"document\"/\"documentSource\" and JobTemplate leaked \"tags\" -- none of these exist on real types.Job/DescribeJobTemplateOutput (verified against v1.76.0's awsRestjson1_deserializeDocumentJob, which has no tags/document/documentSource cases; documentSource is real but only as a top-level DescribeJobOutput field, and document is only retrievable via the separate GetJobDocument operation). Fixed via json:\"-\" tags on the domain struct fields (kept for internal storage) plus promoting documentSource to the DescribeJobOutput top level."}
   certificate: {status: ok, note: "Full CRUD (Create/Register/RegisterWithoutCA/Describe/List/Update/Delete) plus the transfer lifecycle (Transfer/Accept/Reject/Cancel) field-diffed and fixed this pass -- see DescribeCertificate/ListCertificates/AcceptCertificateTransfer/etc. ops above and gopherstack-jy57 (now closed)"}
   certificate_provider: {status: ok, note: "Create/Describe/List/Update/Delete field-diffed against v1.76.0; only bug was the epoch-timestamp encoding on Describe (fixed). Full field set otherwise already correct"}
-  job_and_jobtemplate: {status: ok, note: "(pass #3) CLOSED. Field-diffed exhaustively against v1.76.0. Foundational fan-out gap implemented: CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to every resolved target thing (thing ARN direct, or thing-group ARN expanded to direct members -- matching ListThingsInThingGroup's own non-recursive semantics), cascade-cleaned on DeleteThing/DeleteJob. Job's and JobTemplate's advanced fields (jobExecutionsRetryConfig, presignedUrlConfig, schedulingConfig incl. maintenanceWindows for Job / top-level maintenanceWindows for JobTemplate, destinationPackageVersions, computed jobProcessDetails) implemented end to end: request parsing, backend state, response wire shape, persistence. Found and fixed a severe, previously-undiscovered routing bug class: CreateJob and CreateJobTemplate were both routed on POST when real AWS uses PUT (awsRestjson1_serializeOpCreateJob/CreateJobTemplate), and GetJobDocument was routed at /jobs/{jobId}/document instead of the real /jobs/{jobId}/job-document -- all three completely unreachable by any real SDK client. Also found the RouteMatcher whitelist (checked before op dispatch in a real deployment) never matched plain \"/jobs\" (ListJobs) or the entire \"/job-templates\" path family -- both silently 404'd. AssociateTargetsWithJob was missing the real \"description\" output field and never merged newly-associated targets into the job's own Targets list. All fixed. See ops: above for each op's specifics."}
+  job_and_jobtemplate: {status: fixed, note: "FIXED 2026-09-11 (gopherstack-mven required-output nested-domain-struct sweep): AbortConfig.CriteriaList, JobExecutionsRetryConfig.CriteriaList, and MaintenanceWindow.StartTime/DurationInMinutes were all tagged omitempty despite being required whenever their parent struct is present (iot@v1.83.0 validators.go); each is a slice/*string/*int32 on the real wire, so the client-side required check only rejects nil, not an empty/zero value -- a conformant client sending e.g. an empty (non-nil) criteriaList or a 0-minute maintenance window had that required member silently dropped from Describe/Get responses. omitempty removed from all four. (pass #3) CLOSED. Field-diffed exhaustively against v1.76.0. Foundational fan-out gap implemented: CreateJob/AssociateTargetsWithJob now fan a real QUEUED JobExecution out to every resolved target thing (thing ARN direct, or thing-group ARN expanded to direct members -- matching ListThingsInThingGroup's own non-recursive semantics), cascade-cleaned on DeleteThing/DeleteJob. Job's and JobTemplate's advanced fields (jobExecutionsRetryConfig, presignedUrlConfig, schedulingConfig incl. maintenanceWindows for Job / top-level maintenanceWindows for JobTemplate, destinationPackageVersions, computed jobProcessDetails) implemented end to end: request parsing, backend state, response wire shape, persistence. Found and fixed a severe, previously-undiscovered routing bug class: CreateJob and CreateJobTemplate were both routed on POST when real AWS uses PUT (awsRestjson1_serializeOpCreateJob/CreateJobTemplate), and GetJobDocument was routed at /jobs/{jobId}/document instead of the real /jobs/{jobId}/job-document -- all three completely unreachable by any real SDK client. Also found the RouteMatcher whitelist (checked before op dispatch in a real deployment) never matched plain \"/jobs\" (ListJobs) or the entire \"/job-templates\" path family -- both silently 404'd. AssociateTargetsWithJob was missing the real \"description\" output field and never merged newly-associated targets into the job's own Targets list. All fixed. See ops: above for each op's specifics."}
   device_defender: {status: ok, note: "(pass #3) CLOSED for everything within this family's own scope. StartAuditMitigationActionsTask's target resolution fixed (combined auditTaskId+auditCheckToReasonCodeFilter AND semantics, real reason-code-list matching instead of check-name-only). ML-Detect surface (StartDetectMitigationActionsTask and siblings) field-diffed: DetectMitigationActionsTaskSummary's actionsDefinition wire shape fixed (was an invented \"actions\" field), ListDetectMitigationActionsTasks now returns the same rich summary type Describe does (was a hand-picked 4-field subset), DetectMitigationActionExecution's executionStartDate/executionEndDate field names fixed (were wire-keyed wrong), violationEventOccurrenceRange added. Violations surface (ListActiveViolations/ListViolationEvents) field-diffed: lastViolationTime/violationEventAdditionalInfo added, listSuppressedAlerts filter implemented. ListAuditFindings.resourceIdentifier filtering implemented (previously the family's most-cited unimplementable gap) by modeling a real, fully-typed ResourceIdentifier struct instead of a freeform map. Also found the entire \"/mitigationactions/\" path family (CreateMitigationAction and siblings) was absent from the RouteMatcher whitelist -- completely unreachable in a real deployment despite correct op-dispatch routing. (pass #4) ListActiveViolations/ListViolationEvents' behaviorCriteriaType filter is now also implemented, once security_profiles (see below) closed the Behaviors-persistence gap that previously blocked it."}
   security_profiles: {status: ok, note: "(pass #4) CLOSED. CreateSecurityProfile's real input (types.CreateSecurityProfileInput) has Behaviors/AlertTargets/AdditionalMetricsToRetain/AdditionalMetricsToRetainV2/MetricsExportConfig -- this backend's SecurityProfile struct stored NONE of them; the request fields were silently accepted and dropped (the same severe 'dropped request field' bug class flagged elsewhere in this campaign, e.g. elasticache). All five are now modeled on SecurityProfile and wired end-to-end. Extended (rather than duplicated) ValidateSecurityProfileBehaviors' existing SecurityProfileBehavior/SecurityProfileBehaviorCriteria shapes to also be the real persisted Behaviors shape: SecurityProfileBehavior gained MetricDimension/ExportMetric/SuppressAlerts, SecurityProfileBehaviorCriteria gained Value/StatisticalThreshold/MlDetectionConfig (field-diffed against types.Behavior/types.BehaviorCriteria). New types SecurityProfileAlertTarget/SecurityProfileMetricToRetain/SecurityProfileMetricsExportConfig/SecurityProfileMetricDimension/SecurityProfileMetricValue/SecurityProfileStatisticalThreshold/SecurityProfileMLDetectionConfig mirror types.AlertTarget/MetricToRetain/MetricsExportConfig/MetricDimension/MetricValue/StatisticalThreshold/MachineLearningDetectionConfig. DescribeSecurityProfile/UpdateSecurityProfile field-diffed against DescribeSecurityProfileOutput/UpdateSecurityProfileOutput and confirmed to have had the identical gap (UpdateSecurityProfile previously accepted only securityProfileDescription); both rebuilt to return the full real field set, epoch-encoded creationDate/lastModifiedDate. UpdateSecurityProfile now also implements ExpectedVersion's optimistic-lock semantics (-> ErrVersionConflict/VersionConflictException on mismatch, confirmed against awsRestjson1_serializeOpHttpBindingsUpdateSecurityProfileInput -- expectedVersion is a QUERY parameter, not a body field) and every DeleteX-flag-vs-field mutual exclusion rule (deleteBehaviors/deleteAlertTargets/deleteAdditionalMetricsToRetain/deleteMetricsExportConfig, each rejecting InvalidRequestException-mapped ErrValidation when the corresponding field is also supplied in the same call, matching real AWS's documented semantics). Also found and fixed a real 'invented field' leak while field-diffing: SecurityProfile's pre-existing Tags field was surfaced on Describe/Update responses, but real DescribeSecurityProfileOutput/UpdateSecurityProfileOutput have NO \"tags\" field at all (tags are only ever retrievable via the separate ListTagsForResource op) -- fixed via json:\"-\" (same pattern as Job/JobTemplate's previously-fixed leaked \"tags\"). Persistence required no persistence.go changes: SecurityProfile already round-trips via the generic store.Table[SecurityProfile] registry (store.go/store_setup.go), which marshals the full struct -- confirmed by a new persistence regression case seeding a profile with all five previously-dropped fields. Closing this also unblocked device_defender's ListActiveViolations/ListViolationEvents behaviorCriteriaType filter (STATIC/STATISTICAL/MACHINE_LEARNING, types.BehaviorCriteriaType), now implemented via securityProfileBehaviorCriteriaTypeLocked, which resolves a violation's owning security profile's now-real stored Behaviors live -- see device_defender's own families: entry, updated below. ROUTING VERIFIED: with the Behaviors gap closed, every security-profile op (CreateSecurityProfile, UpdateSecurityProfile, DescribeSecurityProfile, ListSecurityProfiles, ListSecurityProfilesForTarget, AttachSecurityProfile, DetachSecurityProfile, ListTargetsForSecurityProfile, ValidateSecurityProfileBehaviors) was driven through a real generated AWS SDK v2 IoT client against the actual service.Router path (newIoTSDKClient/TestSecurityProfile_RoutingWireShapesAndBehaviorCriteriaType_SDKRoundTrip, handler_security_profiles_test.go; also TestHandler_RouteMatcher's list_security_profiles/list_security_profiles_for_target cases), not just h.Handler() directly -- the same class of gate three prior passes each found real bugs in for other op families. This turned up two more, previously-undiscovered bugs in this family specifically: (1) ListSecurityProfiles (GET /security-profiles, no trailing slash) and ListSecurityProfilesForTarget (GET /security-profiles-for-target) were BOTH entirely absent from the RouteMatcher whitelist (matchCoreIoTPathSecondary, handler_routing.go) -- op dispatch itself (resolveSecurityProfileOps) already handled both paths correctly, but a real client's request never reached op dispatch at all in a real deployment; fixed. (2) three wire-shape key-name bugs, confirmed against v1.76.0's awsRestjson1_deserializeDocumentSecurityProfileIdentifier/SecurityProfileTarget/SecurityProfileTargetMapping: ListSecurityProfiles' securityProfileIdentifiers used the full \"securityProfileName\"/\"securityProfileArn\" keys instead of the real, SHORTENED \"name\"/\"arn\" SecurityProfileIdentifier keys; ListTargetsForSecurityProfile's securityProfileTargets used an invented \"securityProfileTargetArn\" key instead of the real \"arn\"; ListSecurityProfilesForTarget's securityProfileTargetMappings nested only {securityProfileIdentifier:{name}} with no arn and no sibling \"target\" object at all, instead of the real {securityProfileIdentifier:{name,arn}, target:{arn}} -- a real client's deserializer would have left the affected fields permanently nil/empty under all three. All three fixed; all three List ops also gained maxResults/nextToken pagination (previously always returned every item in one page, unlike sibling List ops elsewhere in this service). Two smaller bugs found in the same pass: DetachSecurityProfile silently no-op'd for an unknown security profile name instead of returning ResourceNotFoundException (AttachSecurityProfile already had this validation, from gopherstack-ep0r, but it was never mirrored onto Detach); and DeleteSecurityProfile never cleaned up the deleted profile's entry in the securityProfileTargets attachment map, leaving a ghost row that a same-named profile re-created later would incorrectly inherit -- both fixed (TestSecurityProfile_DetachNotFoundAndDeleteCascade)."}
   fleet_indexing: {status: ok, note: "Field-diffed against v1.76.0 this pass (previously entirely untouched). Two real, previously-unflagged wire-shape bugs found and fixed: (1) SearchIndex's ThingGroupDocument sent a single \"parentGroupName\" string (direct parent only) instead of the real \"parentGroupNames\" LIST field (the full ancestor chain) -- confirmed against awsRestjson1_deserializeDocumentThingGroupDocument, a real client's deserializer would never find the key it looks for under the old shape and silently leave the field empty; also added the missing \"thingGroupDescription\" field. (2) DescribeThingGroup's thingGroupMetadata was completely missing \"rootToParentThingGroups\" (root-first ancestor name+ARN list) -- confirmed against awsRestjson1_deserializeDocumentThingGroupMetadata; not implemented at all previously. Both fixed via a new thingGroupAncestors backend helper (indexing.go) that reconstructs the full chain by walking gopherstack's per-group direct-ParentGroupName links, since the domain model only stores one level per group. (3) GetStatistics' Statistics response was missing \"sumOfSquares\" entirely (types.Statistics has it; confirmed against awsRestjson1_deserializeDocumentStatistics) -- fixed by computing it in computeStatistics alongside the existing sum/variance accumulation. GetCardinality/GetPercentiles/GetBucketsAggregation/DescribeIndex/ListIndices output shapes also field-diffed against their real GetCardinalityOutput/GetPercentilesOutput/GetBucketsAggregationOutput/types.PercentPair/types.Bucket counterparts -- no further gaps found on this pass's sample."}
@@ -287,6 +287,10 @@ gaps: []
   # two additional, previously-undiscovered bugs that check turned up (a RouteMatcher-whitelist
   # gap for ListSecurityProfiles/ListSecurityProfilesForTarget, and three wire-shape key-name
   # bugs on the same two ops plus ListTargetsForSecurityProfile).
+items_still_open:
+  - "CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask's ClientRequestToken is not honored for idempotent-replay dedup (CreateCustomMetric/CreateDimension decode it into their input struct but never read the value; the other three don't even declare it). Real semantics need a token->result cache keyed per op plus rejecting a same-token-different-params replay, and this newer SDK codegen (v1.83.0, schema-based, no per-op deserializeOpError functions) doesn't resolve to a specific declared exception type for the mismatch case the way older-gen services (see eks/fsx's ClientRequestToken idempotency) do -- implementing it without a confirmed wire error code risks inventing behavior. StartAuditMitigationActionsTask/StartDetectMitigationActionsTask already reject a reused taskId (the real practical replay-safety case) via TaskAlreadyExistsException, independent of this token (gopherstack-xhu2t slice 2)."
+  - "DeleteOTAUpdate's ForceDeleteAWSJob is not honored: CreateOTAUpdate fabricates an AWSIoTJobId/AWSIoTJobArn string but never creates a real entry in this backend's jobs table, so there is no actual Job resource for force to act on (DeleteOTAUpdate has no state to gate on either way). Modeling this for real would mean CreateOTAUpdate actually calling CreateJob and DeleteOTAUpdate checking that job's status, a structural change out of this pass's bounds (gopherstack-xhu2t slice 2)."
+  - "GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2)."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -1970,3 +1974,259 @@ No code changes this pass -- only the regression test above, which locks
 present behavior rather than changing it. Gates: `go test -race
 ./services/iot/...` pass, `golangci-lint run ./services/iot/...` `0
 issues`.
+
+## 2026-09-12 (gopherstack-n3zi slice 4, typed-client coverage sweep)
+
+`typed_slice4_realclient_test.go` added: 22 subtests covering thing
+types/groups/dynamic groups, things (principals/connectivity), certificates
+and CA certificates (including transfer lifecycle), policies and policy
+versions, topic rules and destinations, job extras (execution
+cancel/delete/list, job document, managed job templates), commands, fleet
+indexing (search/aggregations), provisioning (templates/claims/RegisterThing),
+OTA updates and streams, security profiles and on-demand/scheduled audits,
+mitigation actions, domain configurations, billing groups, role aliases,
+authorizers, custom metrics/dimensions, fleet metrics, and packages. Every
+subtest creates real state through the typed aws-sdk-go-v2 client and asserts
+decoded response values. Typed coverage: 87/276 -> 229/272 (189 -> 43
+uncovered; denominator moved slightly, opcensus is not perfectly
+deterministic run to run).
+
+**Five real bugs found and fixed, all confirmed against
+aws-sdk-go-v2/service/iot@v1.83.0's schemas.go smithy traits:**
+
+1. `CreateCertificateFromCsr`'s `setAsActive` is bound as an `HTTPQuery` param
+   (`schemas.go` `CreateCertificateFromCsrRequest_setAsActive`), not a JSON
+   body member — `handleCreateCertificateFromCsr` read it from the body,
+   which a real client never populates (the field travels in the query
+   string), so every real client's `setAsActive=true` was silently dropped
+   and the certificate always came back `INACTIVE`. Fixed by reading
+   `c.QueryParam("setAsActive")`. `AcceptCertificateTransfer` had the
+   identical bug (`AcceptCertificateTransferRequest_setAsActive`, same
+   HTTPQuery trait) — fixed the same way in `handleAcceptCertificateTransfer`.
+2. `ReplaceTopicRule`'s `topicRulePayload` is bound as the `httpPayload`
+   (`schemas.go` `ReplaceTopicRuleRequest_topicRulePayload`), so a real
+   client's JSON body IS the flat `TopicRulePayload` struct with no
+   `{"topicRulePayload": {...}}` wrapper — the same shape `CreateTopicRule`
+   already handles via its wrapped/flat fallback. `handleReplaceTopicRule`
+   only read the wrapped shape, so every real client's `ReplaceTopicRule`
+   silently wiped the rule's SQL/actions to their zero values instead of
+   applying the replacement. Fixed by reusing the same wrapped/flat fallback
+   `handleCreateTopicRule` already uses.
+3. `ListAttachedPolicies`'s `target` is bound as an `HTTPLabel` (URI path
+   segment, `schemas.go` `ListAttachedPoliciesRequest_target`) and
+   `recursive` as an `HTTPQuery`, neither a JSON body member —
+   `handleListAttachedPolicies` read both from the body, so `Target` was
+   always empty and the op could never match a real attachment. Fixed by
+   extracting the target from the `/attached-policies/{target}` URI (the
+   bare `/attached-policies` body-based path is kept as a non-canonical
+   fallback for this package's own tests).
+4. `ListPolicyPrincipals`'s `policyName` is bound as `HTTPHeader{Name:
+   "x-amzn-iot-policy"}` (`schemas.go`
+   `ListPolicyPrincipalsRequest_policyName`) — `handleListPolicyPrincipals`
+   read a header named `X-Amzn-Policy-Name`, which nothing sets, so the op
+   always saw an empty policy name. Fixed by reading the correct header name
+   (Go's `http.Header.Get` canonicalizes, so case doesn't matter, only the
+   name).
+5. `CancelAuditTask` updated only the internal `b.auditTasks` status map, not
+   `b.auditTaskObjects` (the store `DescribeAuditTask`/`ListAuditTasks`
+   actually read) — a real client calling `CancelAuditTask` successfully,
+   then `DescribeAuditTask`, saw a stale `IN_PROGRESS` forever instead of
+   `CANCELED`. The sibling `CancelAuditMitigationActionsTask` a few lines
+   above already updates both representations; `CancelAuditTask` just never
+   got the same treatment. Fixed by mirroring that pattern.
+
+All five were caught only by asserting the *decoded typed-client* value after
+the round trip — every one of them returns `200 OK` with no error, so no
+existing status-code-only test caught them. Existing tests that encoded the
+old (buggy) behavior were updated to use the real wire shape (query param
+instead of body field, correct header name) rather than weakened; each was
+confirmed to still test the same intent.
+
+**Accept-and-drop note (not fixed, low severity, out of scope for this
+pass):** `RegisterCertificate`'s real `CaCertificatePem` field
+(`aws-sdk-go-v2/service/iot@v1.83.0` `api_op_RegisterCertificate.go`) is
+never read by `handleRegisterCertificate` — this predates this pass (already
+listed in this file's "audited and found already correct" set) and isn't
+newly introduced, but is worth flagging again since nothing echoes it back
+so a client can't detect the drop from the response alone.
+
+**Remaining 43 uncovered ops**, lower priority per this issue's own
+ordering: SBOM validation (`AssociateSbomWithPackageVersion`,
+`DisassociateSbomFromPackageVersion`, `ListSbomValidationResults`), detect/
+audit-mitigation task lifecycle (`CancelAuditMitigationActionsTask`,
+`CancelDetectMitigationActionsTask`, `DescribeAuditMitigationActionsTask`,
+`ListAuditMitigationActionsTasks`), audit suppressions and account
+configuration (`CreateAuditSuppression`, `Delete/Describe/UpdateAuditSuppression`,
+`ListAuditSuppressions`, `Delete/Describe/UpdateAccountAuditConfiguration`),
+audit findings (`DescribeAuditFinding`, `ListRelatedResourcesForAuditFinding`),
+V1/V2 logging options (`Get/SetLoggingOptions`, `Get/SetV2LoggingOptions`,
+`Set/DeleteV2LoggingLevel`, `ListV2LoggingLevels`), certificate providers
+(`Delete/DescribeCertificateProvider`, `UpdateCertificateProvider`),
+top-level tag ops (`TagResource`/`UntagResource` — distinct from the
+resource-family tag ops already covered), event configurations
+(`Describe/UpdateEventConfigurations`), encryption configuration
+(`UpdateEncryptionConfiguration`), thing-group/thing-registration misc
+(`DescribeThingGroup`, `ListThingsInThingGroup`, `ListThingRegistrationTasks`,
+`ListThingRegistrationTaskReports`, `StopThingRegistrationTask`),
+`ConfirmTopicRuleDestination` (needs a pending HTTP destination's internal
+confirmation token, not exposed by any exported test helper), `DescribeEndpoint`,
+`GetEffectivePolicies`, `GetBehaviorModelTrainingSummaries`, `ListMetricValues`,
+`PutVerificationStateOnViolation`.
+
+Gates: `go build ./...`, `go vet ./services/iot/...`, `go test -race
+-count=1 ./services/iot/...` (all green, including pre-existing tests
+updated for the wire-shape fixes above), `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays at
+0 FAIL. No version bump — no `backendSnapshot` struct field added, removed,
+or retyped.
+
+## 2026-09-12 (gopherstack-n3zi slice 30, typed-client coverage: 229/272 -> 272/272)
+
+`typed_slice30_realclient_test.go` added: 14 subtests covering every op left
+uncovered by slice 4 (see its entry above for the exact list) -- audit
+suppressions, account audit configuration, audit findings and related
+resources, audit- and detect-mitigation task lifecycle, event
+configurations, v1/v2 logging, certificate provider extras, SBOM
+association, thing-group extras (DescribeThingGroup/ListThingsInThingGroup),
+thing registration task extras, top-level tags, DescribeEndpoint,
+GetEffectivePolicies, GetBehaviorModelTrainingSummaries,
+PutVerificationStateOnViolation, UpdateEncryptionConfiguration,
+ConfirmTopicRuleDestination (using the `TopicRuleDestConfirmationToken`
+export_test.go helper slice 4 flagged as unavailable -- it exists after
+all), and ListMetricValues (seeded via the test-only
+`AddMetricValueInternal` hook, matching `SeedActiveViolation`/
+`SeedAuditFinding`'s precedent for real-AWS ops with no public write path).
+
+**Zero new bugs found** -- every one of the 43 previously-uncovered ops
+passed on the first correctly-shaped request against the real typed client.
+Consistent with this service's four prior audit passes and slice 4's own
+five-bug sweep already having hardened these wire shapes hard; this pass's
+value is coverage completion, not defect discovery. iot is now 272/272
+(100%) typed-covered -- the highest-value remaining family (audit/device
+defender/logging/SBOM) that slice 4 explicitly deferred is fully closed.
+
+Gates: `go build ./...` (whole module), `go vet ./services/iot/...`, `go
+test -race -count=1 ./services/iot/...` (all green). `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays
+at 0 FAIL. No version bump -- no `backendSnapshot` field added, removed, or
+retyped; no `pkgs/persistence` golden diff for this service.
+
+## 2026-09-12 (gopherstack-xhu2t slice 2, reqfielddiff tier-1 sweep: 46 -> 7)
+
+Worked all 46 tier-1 `cmd/reqfielddiff` findings for this service (iot,dir).
+Per-op serializer reads (`aws-sdk-go-v2/service/iot@v1.83.0`'s
+`schemas.go`) classified each into three buckets:
+
+**20 real dropped/wrong-shape parameters, fixed:**
+- `CancelJob.Force`, `DeleteJob.Force` -- not read at all (handlers only
+  ever read `comment`/nothing); Force is an **httpQuery** parameter, not
+  body. `CancelJob` now cascades cancellation to QUEUED (always) and
+  IN_PROGRESS (only if force) `JobExecution`s. `DeleteJob` now rejects an
+  IN_PROGRESS job unless `force=true`, matching the real documented rule.
+- `CancelJobExecution.Force` -- **wrong bug class**: previously read from
+  the JSON body (`body.Force`), but the real field is bound to an
+  **httpQuery** parameter (schemas.go's `CancelJobExecutionRequest_force`
+  carries `&smithytraits.HTTPQuery{}`); a real SDK client's `force=true`
+  was silently never seen. Fixed to read `c.QueryParam("force")`.
+- `CreateProvisioningTemplateVersion.SetAsDefault` -- same wrong-bug-class
+  shape: read from body, real field is httpQuery. Fixed.
+- `CreateDomainConfiguration`/`UpdateDomainConfiguration`'s
+  `ApplicationProtocol`/`AuthenticationType` -- entirely unmodeled; added
+  to `DomainConfiguration`, both Create/Update input decode structs, and
+  the describe-back wire (struct is JSON-marshaled directly, so no handler
+  change needed there).
+- `GetStatistics.IndexName` -- decoded into `AggregationInput.IndexName`
+  but never read; `GetStatistics` always aggregated the `AWS_Things` index
+  regardless. Now dispatches on `AWS_Things`/`AWS_ThingGroups` exactly like
+  `SearchIndex` already did (new `matchedThingGroups`/
+  `aggregationFieldValueGroup`/`numericFieldValuesGroups` helpers mirroring
+  the Things-side ones).
+- `RegisterCACertificate.CertificateMode`/`.VerificationCertificate` --
+  `VerificationCertificate` was decoded and discarded; `CertificateMode`
+  wasn't decoded at all. Both now enforce the real documented rule
+  verbatim (api_op_RegisterCACertificate.go: SNI_ONLY requires an empty
+  verification cert, DEFAULT/unset requires a non-empty one) and
+  `CertificateMode` is stored/described back. No crypto verification is
+  performed (this backend does not model CA private-key possession) --
+  presence/absence only.
+- `ListAuditTasks.MaxResults`, `ListMitigationActions.MaxResults`,
+  `ListScheduledAudits.MaxResults`, `ListCustomMetrics.MaxResults` -- these
+  four List ops returned every item with no pagination at all.
+  `ListAuditFindings.MaxResults` decoded the field but never applied it.
+  All five now paginate via `parseIoTPagination`/`paginateMaps` (Audit
+  ops) or an inline equivalent (ListAuditFindings' body-carried
+  MaxResults/NextToken), returning `nextToken` on a partial page.
+- `ListCommands.MaxResults`/`.Namespace`/`.SortOrder`,
+  `ListCommandExecutions.SortOrder` -- `ListCommands` had no
+  filter/sort/pagination whatsoever; `ListCommandExecutions`' real
+  `sortOrder` (body field, descending-by-default per its own doc comment)
+  was never read. Both fixed.
+
+**19 false positives -- already correctly declared/read/applied, the tool
+did not detect them.** Two recurring blind spots, worth fixing in
+`cmd/reqfielddiff` (gopherstack-99nj is the existing tracking issue for the
+tool's query-protocol blind spot; this is a second, non-query one):
+  1. **A field decoded into a *named* struct type declared in a different
+     file** (e.g. `CreateAuthorizerInput`/`CreateFleetMetricInput` in
+     `authorizers.go`/`metrics.go`, decoded via `var input
+     CreateAuthorizerInput; readBody(c, &input)` in `handler_authorizers.go`)
+     is invisible to the tool, which apparently only resolves decode
+     targets declared as an anonymous struct literal inline in the handler
+     function itself. Confirmed false positives of this shape:
+     `CreateAuthorizer.EnableCachingForHttp` (authorizers.go:74),
+     `CreateFleetMetric.Unit` (metrics.go:55,68),
+     `CreateDynamicThingGroup.QueryVersion`/`UpdateDynamicThingGroup.QueryVersion`
+     (thing_groups.go:269,333-334), `CreateRoleAlias.CredentialDurationSeconds`
+     (provisioning.go:18,58), `CreateSecurityProfile`/`UpdateSecurityProfile`'s
+     `AdditionalMetricsToRetain`/`AdditionalMetricsToRetainV2`
+     (security_profiles.go:102-103,320-321,478-482),
+     `CreateProvisioningTemplate.Type` (provisioning.go:189,267,309),
+     `UpdatePackage.DefaultVersionName`/`.UnsetDefaultVersion`
+     (packages.go:41,107-109, handler_packages.go:172-180),
+     `UpdateProvisioningTemplate.DefaultVersionId` (provisioning.go:379-401,
+     handler_provisioning.go:326-339), `SetV2LoggingOptions.DefaultLogLevel`/
+     `.DisableAllLogs` (handler_logging.go:44-55).
+  2. **A field read via an `echo.Context` query-param helper**
+     (`c.QueryParam`/`parseInt32QueryParam`) rather than a JSON body decode
+     is also invisible to the tool, even when it's a plain top-level
+     handler statement. Confirmed: `DescribeManagedJobTemplate.TemplateVersion`
+     (handler_thing_registration.go:195, `c.QueryParam(keyTemplateVersion)`)
+     and `GetBehaviorModelTrainingSummaries.MaxResults`
+     (handler_devicedefender.go:525, `parseInt32QueryParam(c, "maxResults")`).
+  3. One plain same-file-anonymous-struct false positive:
+     `CancelJobExecution.StatusDetails` (handler_jobs.go:363-364) -- declared
+     and read correctly; only the sibling `Force` field on the same struct
+     had the real (wrong-shape) bug.
+
+**7 recorded as `items_still_open`** (see front matter): the five
+`ClientRequestToken` fields (idempotency dedup needs new cross-request
+state and this SDK generation gives no confirmed mismatch-error type to
+implement against), `DeleteOTAUpdate.ForceDeleteAWSJob` (no real backing
+Job resource exists to gate), `GetThingConnectivityData.IncludeSocketInformation`
+(no socket-level fields modeled anywhere in this backend to conditionally
+include).
+
+New test file `reqfield_slice2_realclient_test.go`: drives every fixed
+field through the real typed SDK client (`newIoTTestClient`), asserting
+the observable effect (job-execution cancellation cascades, pagination
+`nextToken`/page-length, sort order, domain-config round-trip,
+AWS_ThingGroups vs AWS_Things aggregation producing genuinely different
+statistics, CA-cert-mode validation rejecting/accepting per the documented
+rule). Added `AddCommandInternal` (commands.go) alongside the existing
+`AddCommandExecutionInternal`/`AddAuditTaskInternal`/`AddCACertificateInternal`
+seeding-helper family, needed to give `ListCommands.SortOrder` two commands
+with distinct `CreationDate` values without depending on wall-clock
+second-resolution timing between two real `CreateCommand` calls.
+`handler_certificates_test.go`/`handler_tags_wire_test.go`'s pre-existing
+CA-cert-registration tests were updated to pass `certificateMode:
+SNI_ONLY` -- they previously pinned the (now-fixed) permissive behavior of
+accepting a DEFAULT-mode registration with no verification certificate.
+
+Gates: `go build ./...` (whole module), `go vet ./services/iot/...`, `go
+test -race -count=1 ./services/iot/...` (all green). `golangci-lint run
+--new-from-rev=HEAD ./services/iot/...` (0 issues). `cmd/paritylint` stays
+at 0 FAIL. No version bump -- `CACertificate.CertificateMode`,
+`DomainConfiguration.ApplicationProtocol`/`.AuthenticationType` are new
+struct fields but all `omitempty`, so an old snapshot missing them decodes
+fine (zero value) and a new snapshot read by old code just drops the
+unknown key.

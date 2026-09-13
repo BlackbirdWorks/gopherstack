@@ -89,10 +89,15 @@ type StorageBackend interface {
 	CreateContact(
 		contactListName, emailAddress string,
 		topicPreferences []TopicPreference,
+		unsubscribeAll bool,
 	) (*Contact, error)
 	GetContact(contactListName, emailAddress string) (*Contact, error)
 	DeleteContact(contactListName, emailAddress string) error
-	UpdateContact(contactListName, emailAddress string, topicPreferences []TopicPreference) error
+	UpdateContact(
+		contactListName, emailAddress string,
+		topicPreferences []TopicPreference,
+		unsubscribeAll bool,
+	) error
 	ListContacts(contactListName, nextToken string, pageSize int) (page.Page[*Contact], error)
 
 	// Custom verification template ops
@@ -185,7 +190,7 @@ type StorageBackend interface {
 	PutAccountSuppressionAttributes(suppressedReasons []string) error
 	PutAccountVdmAttributes(vdmAttributes map[string]any) error
 	PutAccountDedicatedIPWarmupAttributes(autoWarmupEnabled bool) error
-	GetBlacklistReports() (map[string][]string, error)
+	GetBlacklistReports(ipAddresses []string) (map[string][]string, error)
 
 	TagResource(arn string, tags map[string]string) error
 	UntagResource(arn string, tagKeys []string) error

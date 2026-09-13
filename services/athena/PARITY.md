@@ -45,7 +45,8 @@ ops:
 families:
   pagination: {status: ok, note: "FIXED (2026-07-23) — WorkGroups/NamedQueries/DataCatalogs/PreparedStatements/(new) ListTagsForResource all sort + NextToken/MaxResults correctly, and an unrecognized/stale NextToken (e.g. its boundary item was deleted between calls) now resumes at the first surviving item at-or-after the boundary (pagination.paginationStart, mutation-stable via sort.Search) instead of silently restarting the page from offset 0 and re-emitting already-consumed results. Locked in by TestListWorkGroups_Pagination_StaleTokenResumesStably."}
   janitor/leaks: {status: clean, note: "worker.Group-based ticker with ctx cancellation; sweeps queryExecutions+queryResults, sessions, calculations under RLock-collect/Lock-delete with re-verification to avoid racing a concurrent revival. No goroutine leak risk found."}
-gaps:
+gaps: []
+items_still_open:
   - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
   - "WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)"
   - "QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)"
@@ -474,3 +475,71 @@ any file touched this batch (`models.go`, `sessions.go`, `handler_sessions.go`,
 field) -- `SessionSummary` is a derived list-view type, not part of `backendSnapshot`
 (confirmed against `persistence.go`), so no snapshot version bump was needed;
 `TestSnapshotVersionGuard` run anyway per this session's mandate and passed.
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 51 of athena's
+typed-client-uncovered ops (per `cmd/clientcoverage`): capacity
+reservation lifecycle, notebook lifecycle (create/export/import/update/
+metadata/presigned URL/delete), session read/list/dashboard/terminate
+ops, calculation execution lifecycle, prepared statement lifecycle,
+named-query batch-get/update, data catalog list/delete, database/table
+metadata reads, tags, and query-execution batch-get/list/runtime-stats/
+stop.
+
+**Three real bugs found and fixed, all invisible to every prior pass**
+because none drove these ops through the real SDK client:
+
+1. `CreatePresignedNotebookUrlOutput.AuthTokenExpirationTime` is a plain
+   `*int64` on the real wire (athena@v1.60.4
+   `api_op_CreatePresignedNotebookUrl.go`) -- its deserializer calls
+   `strconv.ParseInt`, which errors outright on a fractional value. The
+   shared `newSessionAuthToken()` helper returns a fractional
+   epoch-seconds `float64` (correct for `GetSessionEndpointOutput`'s
+   sibling field, which really is a smithy timestamp/`*time.Time`), but
+   `handler_notebooks.go`'s `CreatePresignedNotebookUrl` response echoed
+   that same fractional value under the int64-typed field -- every real
+   client's call failed to decode the response at all, not just that
+   field. Fixed by truncating to `int64` at that one call site only
+   (`handler_notebooks.go`); `GetSessionEndpoint` untouched, still correct
+   as a float.
+2. Same bug class, `ListExecutors`/`Executor.StartDateTime`/
+   `TerminationDateTime`: the real `types.ExecutorsSummary` (athena@v1.60.4
+   types.go) models both as plain `*int64`, but gopherstack's `Executor`
+   struct (`models.go`) declared them `float64` and populated
+   `StartDateTime` from the same fractional `SessionStatus.StartDateTime`
+   -- every real client's `ListExecutors` call on a session with an active
+   executor failed to decode. Fixed by changing `Executor.StartDateTime`/
+   `TerminationDateTime` to `int64` and truncating at the one construction
+   site (`sessions.go`).
+3. `StartSessionInput` has **no top-level `NotebookId` member** on the
+   real wire at all -- confirmed against athena@v1.60.4 `serializers.go`'s
+   `awsAwsjson11_serializeOpDocumentStartSessionInput`, which emits only
+   `NotebookVersion`; the SDK's own doc comment on
+   `EngineConfiguration.AdditionalConfigs` says NotebookId travels there
+   instead ("add a key named NotebookId to AdditionalConfigs"). gopherstack's
+   `startSessionInput` (`handler_sessions.go`) read a top-level
+   `NotebookId` field that a real client never sends, so `Session.NotebookID`
+   was always empty from any real client -- silently breaking
+   `ListNotebookSessions`'s notebook association for every real caller.
+   Fixed by extracting NotebookId from
+   `EngineConfiguration.AdditionalConfigs["NotebookId"]` instead
+   (`startSessionInput.notebookID()`). The pre-existing
+   `TestHandler_ListNotebookSessions` unit test posted the old,
+   wire-inaccurate top-level shape and only asserted HTTP status (not the
+   session-notebook link), so it passed both before and after the fix
+   without exercising the bug -- updated to post the real nested shape and
+   assert the linked session actually appears in the list.
+
+No persisted struct fields changed (Executor/CreatePresignedNotebookUrl
+fields are derived/response-only, not part of `backendSnapshot`); no
+version bump; no `snapshot_inventory.json` changes for this service this
+pass.
+
+Typed-client coverage: 19/70 -> 70/70 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet ./services/athena/...`
+(clean). `go test -race -count=1 ./services/athena/...` (pass, including
+the updated `TestHandler_ListNotebookSessions`). `golangci-lint run
+--new-from-rev=HEAD ./services/athena/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

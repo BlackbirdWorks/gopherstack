@@ -128,6 +128,12 @@ func TestGetFunctionConcurrency(t *testing.T) {
 		wantErrType  string
 		wantCode     int
 		wantReserved int
+		// wantAbsent is set only for the "no reservation configured" case:
+		// real GetFunctionConcurrencyOutput documents no NotFoundException
+		// for this state (ReservedConcurrentExecutions is simply an
+		// optional field that comes back null), unlike the genuine
+		// function-not-found case above.
+		wantAbsent bool
 	}{
 		{
 			name:     "success",
@@ -162,8 +168,8 @@ func TestGetFunctionConcurrency(t *testing.T) {
 					ImageURI:     "test:latest",
 				}))
 			},
-			wantCode:    http.StatusNotFound,
-			wantErrType: "ResourceNotFoundException",
+			wantCode:   http.StatusOK,
+			wantAbsent: true,
 		},
 	}
 
@@ -187,6 +193,14 @@ func TestGetFunctionConcurrency(t *testing.T) {
 
 			if tt.wantErrType != "" {
 				assertLambdaError(t, rec, tt.wantErrType)
+
+				return
+			}
+
+			if tt.wantAbsent {
+				var raw map[string]any
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &raw))
+				assert.NotContains(t, raw, "ReservedConcurrentExecutions")
 
 				return
 			}
@@ -553,10 +567,16 @@ func TestConcurrency_PutGetDelete(t *testing.T) {
 		"/2017-10-31/functions/conc-fn/concurrency", "")
 	assert.Equal(t, http.StatusNoContent, delRec.Code)
 
-	// Get after delete → 404 (no reserved concurrency configured)
+	// Get after delete -> 200 with no ReservedConcurrentExecutions key (real
+	// GetFunctionConcurrencyOutput documents no NotFoundException for this
+	// state; it's simply an optional field that comes back null).
 	getRec2 := callInMemoryHandler(t, h, http.MethodGet,
 		"/2019-09-30/functions/conc-fn/concurrency", "")
-	assert.Equal(t, http.StatusNotFound, getRec2.Code)
+	require.Equal(t, http.StatusOK, getRec2.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.NewDecoder(getRec2.Body).Decode(&raw))
+	assert.NotContains(t, raw, "ReservedConcurrentExecutions")
 }
 
 func TestConcurrency_PutZero(t *testing.T) {

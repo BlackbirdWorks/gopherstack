@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 	s3control "github.com/blackbirdworks/gopherstack/services/s3control"
 )
 
@@ -125,9 +126,8 @@ func TestOutpostsBucket(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, policy, "policy must not survive delete")
 
-		tags, err := b.GetBucketTagging("cascade-bucket")
-		require.NoError(t, err)
-		assert.Empty(t, tags, "tagging must not survive delete")
+		_, err = b.GetBucketTagging("cascade-bucket")
+		require.ErrorIs(t, err, awserr.ErrNotFound, "tagging must not survive delete")
 
 		lc, err := b.GetBucketLifecycleConfiguration("cascade-bucket")
 		require.NoError(t, err)

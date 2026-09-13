@@ -151,6 +151,33 @@ func TestInMemoryBackend_SnapshotRestore(t *testing.T) {
 			},
 		},
 		{
+			// ObjectLambdaConfig lives on StoredBucket (bucket.go/object_lambda.go)
+			// alongside CORSConfig et al., so it round-trips through the same
+			// "buckets" store.Table as every other sub-resource config.
+			name: "object_lambda_config_round_trips",
+			setup: func(b *s3.InMemoryBackend) string {
+				bucketName := "object-lambda-bucket"
+
+				if _, err := b.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+					Bucket: aws.String(bucketName),
+				}); err != nil {
+					return ""
+				}
+
+				b.SetObjectLambdaConfig(bucketName, "arn:aws:lambda:us-east-1:000000000000:function:transformer")
+
+				return bucketName
+			},
+			verify: func(t *testing.T, b *s3.InMemoryBackend, id string) {
+				t.Helper()
+
+				assert.Equal(t,
+					"arn:aws:lambda:us-east-1:000000000000:function:transformer",
+					b.ObjectLambdaConfig(id),
+				)
+			},
+		},
+		{
 			// A snapshot that contains a pending-delete bucket should restore
 			// without making the bucket accessible via getBucket operations.
 			name: "pending_delete_bucket_not_visible_after_restore",

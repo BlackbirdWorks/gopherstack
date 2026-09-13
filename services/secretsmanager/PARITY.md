@@ -79,13 +79,14 @@ ops:
   ValidateResourcePolicy: {wire: ok, errors: ok, state: ok, note: "RLock no longer lazily mutates the region map (see leaks)"}
 families:
   version-staging: {status: ok, note: "AWSCURRENT/AWSPENDING/AWSPREVIOUS transitions, auto-demotion of AWSCURRENT->AWSPREVIOUS on PutSecretValue/UpdateSecret/rotation, max 100 versions with unlabeled-oldest-first pruning — all verified against real semantics"}
-  rotation: {status: partial, note: "Lambda 4-step invocation (createSecret/setSecret/testSecret/finishSecret), rate()/cron() schedule parsing and due-date computation, scheduler goroutine with ctx-bounded lifecycle, RotateImmediately=false testSecret probe (fixed 2026-07-23, gopherstack-avt), RotateImmediately=true now resolves a request-omitted RotationLambdaARN from the secret's stored value too (fixed 2026-08-07, gopherstack-9wuh) — all correct. Remaining gap: missing-rotation-function validation (gopherstack-qqq, intentional)"}
+  rotation: {status: ok, note: "Lambda 4-step invocation (createSecret/setSecret/testSecret/finishSecret), rate()/cron() schedule parsing and due-date computation, scheduler goroutine with ctx-bounded lifecycle, RotateImmediately=false testSecret probe (fixed 2026-07-23, gopherstack-avt), RotateImmediately=true now resolves a request-omitted RotationLambdaARN from the secret's stored value too (fixed 2026-08-07, gopherstack-9wuh) — all correct. Missing-rotation-function validation CLOSED 2026-08-10 (gopherstack-9wuh/qqq) — see the RotateSecret ops entry and gaps section above; this line was stale (still said 'partial'/'intentional' after the fix landed) and is corrected here (gopherstack-9wuh/qqq re-verification pass)."}
   replication: {status: ok, note: "ReplicateSecretToRegions/RemoveRegionsFromReplication/StopReplicationToReplica + status sync on version change all verified"}
   resource-policy: {status: ok, note: "Get/Put/Delete/Validate + BlockPublicPolicy + MalformedPolicyDocumentException/PublicPolicyException verified"}
   error-codes: {status: ok, note: "ResourceNotFoundException/ResourceExistsException/InvalidRequestException/InvalidParameterException/MalformedPolicyDocumentException/PublicPolicyException all verified against types/errors.go. Re-audit 2026-07-11: fetched the live AWS API reference for TagResource and BatchGetSecretValue — neither operation's documented Errors list includes LimitExceededException (TagResource: InternalServiceError/InvalidParameterException/InvalidRequestException/ResourceNotFoundException only; BatchGetSecretValue adds DecryptionFailure/InvalidNextTokenException, still no LimitExceededException). The previous gopherstack-gvw gap note asserting these ops should return LimitExceededException on tag/SecretIdList limit overflow was an unverified assumption and was WRONG; current InvalidParameterException behavior on both ops is correct AWS parity. CreateSecret's Errors list DOES include LimitExceededException, but AWS doesn't document which specific validation maps to it and CreateSecret's InvalidParameterException-on-tag-overflow is equally consistent with its documented error set, so left as-is (no evidence of a bug, would be speculative to change). gopherstack-gvw should be closed as invalid/works-as-intended."}
   persistence: {status: ok, note: "Snapshot/Restore round-trips all fields including json:\"-\" internal fields via secretSnapshot; Tags.Close() called on replace to avoid Prometheus registry leaks; rotation scheduler re-armed on restore when RotationEnabled"}
   concurrency-locking: {status: fixed, note: "see leaks — RLock-guarded reads were lazily mutating the coarse per-region maps; fixed with non-mutating *StoreRO accessors"}
-gaps:
+gaps: []
+items_still_open:
   - 2026-08-30 (this pass): types.Filter.Values' doc comment (types/types.go@v1.44.4) says "description"
     and "all" keys are prefix-matched case-INsensitively, while name/tag-key/tag-value/primary-region/
     owning-service are case-sensitive; this mock's anyMatchPrefix is case-sensitive uniformly. The same
@@ -99,7 +100,6 @@ gaps:
     matching regardless of case.
   - CLOSED 2026-08-10 (gopherstack-9wuh, part 2): RotateSecret no longer accepts rotation with no RotationLambdaARN ever configured — see the RotateSecret ops entry above for the full citation and fix. The "dozens of tests depend on it" justification was circular (those tests were the artifact of the gap, not independent evidence for keeping it) and has been corrected rather than preserved.
   - managed-external-secret fields, reclassified 2026-08-10 (gopherstack-9wuh, part 3 — three-way split per field, verified against aws-sdk-go-v2/service/secretsmanager@v1.44.4 api_op_*.go, not assumed):
-    - Type and ExternalSecretRotationMetadata/ExternalSecretRotationRoleArn were **accepted then silently dropped**: all three are real settable input fields (Type on CreateSecretInput and UpdateSecretInput; ExternalSecretRotationMetadata/ExternalSecretRotationRoleArn on RotateSecretInput) that gopherstack's wire structs simply had no field for, so json.Unmarshal silently discarded them — not even a stub, the data never existed past the HTTP boundary. FIXED: added to CreateSecretInput/UpdateSecretInput/RotateSecretInput, stored on Secret, echoed by DescribeSecretOutput and SecretListEntry, round-trips through Snapshot/Restore (additive omitempty fields, no snapshot version bump). RotateSecret's Lambda-ARN-required check (see above) was deliberately NOT relaxed for a request that only supplies ExternalSecretRotationRoleArn — the SDK's InvalidRequestException text doesn't document that as an alternative, and gopherstack has no managed-external-secret invocation behavior for it to unlock, so leaving it required is the conservative, citable choice, not a gap.
     - OwningService is **genuinely absent from any input this mock could wire it from**: confirmed absent from both CreateSecretInput and UpdateSecretInput in api_op_CreateSecret.go/api_op_UpdateSecret.go@v1.44.4 — in real AWS it is set only by AWS itself, for service-linked/managed secrets (e.g. RDS-managed rotation), which this mock does not model at all (see deferred). This one really does require a managed-service model that doesn't exist here, so it stays permanently unset — that's correct, not a gap. What WAS a gap: the "owning-service" ListSecrets filter used to unconditionally return true regardless of filter value, which is more permissive than AWS (a real client filtering by owning-service=rds.amazonaws.com would wrongly get back every secret instead of none). FIXED — see ListSecrets ops entry above.
   - 2026-08-14 (gopherstack-3tpf mechanical struct-field diff, cmd/structfielddiff, all 23 ops against aws-sdk-go-v2/service/secretsmanager@v1.44.4 -- wire-complete otherwise, every Input/Output/nested field matched): two more real request members silently dropped, same class as the Type fix above, both DISCLOSED not fixed -- see gopherstack-zurl for the full citation and why each is unsafe to enforce today rather than a two-line add:
     - CreateSecretInput.ForceOverwriteReplicaSecret (bool) -- attempting a real fix surfaced that gopherstack's replication status never distinguishes a destination-name-collision Failed from syncReplicationStatusLocked's own no-current-version Failed, so a naive fix's Failed status gets silently promoted to InSync by the very next sync call. Reverted rather than shipped half-working.
@@ -292,3 +292,60 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
   lower-confidence question deferred rather than changed speculatively). Gates
   (`build`/`test -race`/`golangci-lint`/`go vet .` at repo root) all pass clean; no snapshot version
   bump (new fields are additive `omitempty`, verified round-tripping through `Snapshot`/`Restore`).
+- **2026-09-12 (gopherstack-n3zi typed slice 11)**: added `typed_slice11_realclient_test.go`,
+  covering this service's last 6 typed-client-blind ops (BatchGetSecretValue, CancelRotateSecret,
+  RemoveRegionsFromReplication, ReplicateSecretToRegions, StopReplicationToReplica,
+  ValidateResourcePolicy) -- typed coverage 17/23 -> 23/23 (0 uncovered). One real bug found and
+  fixed by a decoded typed-client assertion: `CancelRotateSecret` removed the AWSPENDING staging
+  label but never cleared `Secret.RotationEnabled`, even though `api_op_CancelRotateSecret.go`'s
+  doc comment (`secretsmanager@v1.48.0`) says "Turns off automatic rotation" and
+  `DescribeSecretOutput.RotationEnabled`'s own doc comment says "To turn off rotation, use
+  CancelRotateSecret" -- a real client's `DescribeSecret` after `CancelRotateSecret` always showed
+  rotation still enabled. Three pre-existing tests
+  (`TestCancelRotateSecret_SetsRotationDisabled`, `TestCancelRotateSecret_RotationConfigPreserved`,
+  `TestCancelRotateSecret_BackendEdgeCases/removes_pending_label`) asserted the old (wrong)
+  behavior as correct and were corrected, not weakened; the Lambda ARN/rotation rules are still
+  confirmed preserved (only `RotationEnabled` flips). No accept-and-drop findings in the newly
+  covered ops. `ReplicateSecretToRegions`/`RemoveRegionsFromReplication`/`StopReplicationToReplica`
+  confirmed already correct: a configured replica region is a real, independently
+  `GetSecretValue`-able secret (not just bookkeeping), removing a region deletes that replica
+  secret, and promoting a replica via `StopReplicationToReplica` correctly leaves
+  `DescribeSecretOutput.PrimaryRegion` populated with its own (former replica) region -- confirmed
+  against `api_op_DescribeSecret.go`'s doc comment ("The Region the secret is in"), not a bare
+  replica-link marker, which was my own first-draft test assertion mistake, not a backend bug.
+  Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
+  --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields changed; no version bump.
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 0 fixed, 0 newly recorded, 10 false positives
+(one of them a re-confirmation of an already-disclosed item, gopherstack-zurl
+— respected, not relitigated).
+
+- `CreateSecret.ForceOverwriteReplicaSecret`: already disclosed and tracked
+  in `items_still_open` (gopherstack-zurl). Not touched this pass.
+- `ReplicateSecretToRegions.ForceOverwriteReplicaSecret`: already
+  implemented and tested (replication.go:46-48) — gopherstack-zurl's own
+  text notes this exact field is "already present, already tested" with a
+  narrower-than-real-AWS collision semantic that issue explicitly leaves out
+  of scope. No new gap recorded; not relitigated.
+- `DeleteSecret.ForceDeleteWithoutRecovery`/`RecoveryWindowInDays`
+  (secrets.go:327-386), `GetRandomPassword.PasswordLength`
+  (random_password.go:26-36), `ListSecrets.IncludePlannedDeletion`/`SortBy`
+  (secrets.go:448,459), `RotateSecret.RotateImmediately`
+  (rotation.go:122-123, handler_rotation.go:93-94): all directly declared on
+  their Input structs and applied by the backend already — plain tool
+  misses on directly-resolvable decode structs, not a new blind-spot shape.
+- `ListSecretVersionIds.IncludeDeprecated` (secret_versions.go:328) and
+  `PutResourcePolicy.BlockPublicPolicy` (resource_policy.go:68-69): both
+  dispatch through `decodeAction(func(ctx, input *XInput) (any, error) {...})`
+  — the same generic-dispatch-wrapper blind spot recorded for ssm in slice 1
+  (gopherstack-99nj): reqfielddiff can't resolve the decode target through
+  the generic wrapper's inner closure parameter type. Both already correctly
+  declared and applied.
+
+Gates: `go build ./...`, `go vet ./services/secretsmanager/...`, `go test
+-race -count=1 ./services/secretsmanager/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/secretsmanager/...` — all clean, no code
+changed. No new test file (no dropped-parameter fix to prove). No persisted
+fields changed, no `snapshot_inventory.json` rows, no version bump.

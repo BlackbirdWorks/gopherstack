@@ -230,4 +230,123 @@ describe("Lightsail page", () => {
       ).toBeInTheDocument();
     });
   });
+
+  it("refreshes an instance's state via GetInstanceState", async () => {
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "state-instance", state: { name: "running", code: 16 } }],
+    });
+    render(LightsailPage);
+    await waitFor(() => screen.getByRole("cell", { name: "state-instance" }));
+
+    mockSend.mockResolvedValueOnce({
+      instance: { name: "state-instance", state: { name: "running", code: 16 } },
+    });
+    mockSend.mockResolvedValueOnce({ portStates: [] });
+    mockSend.mockResolvedValueOnce({ autoSnapshots: [] });
+    await fireEvent.click(screen.getByText("View"));
+    const dialog = openDialog();
+    await waitFor(() => within(dialog).getByText(/running \(code 16\)/));
+
+    mockSend.mockResolvedValueOnce({ state: { name: "stopped", code: 80 } });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText(/stopped \(code 80\)/)).toBeInTheDocument();
+      expect(within(dialog).getByText("(via GetInstanceState)")).toBeInTheDocument();
+    });
+  });
+
+  it("replaces all firewall rules via PutInstancePublicPorts", async () => {
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "ports-instance", state: { name: "running", code: 16 } }],
+    });
+    render(LightsailPage);
+    await waitFor(() => screen.getByRole("cell", { name: "ports-instance" }));
+
+    mockSend.mockResolvedValueOnce({
+      instance: { name: "ports-instance", state: { name: "running", code: 16 } },
+    });
+    mockSend.mockResolvedValueOnce({ portStates: [] });
+    mockSend.mockResolvedValueOnce({ autoSnapshots: [] });
+    await fireEvent.click(screen.getByText("View"));
+    const dialog = openDialog();
+    await waitFor(() => within(dialog).getByText("Replace all firewall rules"));
+
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Add rule" }));
+
+    mockSend.mockResolvedValueOnce({ operation: { id: "op-ports" } });
+    mockSend.mockResolvedValueOnce({
+      portStates: [{ fromPort: 80, toPort: 80, protocol: "tcp", state: "open" }],
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Replace all rules" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText(/tcp 80-80/)).toBeInTheDocument();
+    });
+  });
+
+  it("sets up HTTPS on an instance and loads its setup history", async () => {
+    mockSend.mockResolvedValueOnce({
+      instances: [{ name: "https-instance", state: { name: "running", code: 16 } }],
+    });
+    render(LightsailPage);
+    await waitFor(() => screen.getByRole("cell", { name: "https-instance" }));
+
+    mockSend.mockResolvedValueOnce({
+      instance: { name: "https-instance", state: { name: "running", code: 16 } },
+    });
+    mockSend.mockResolvedValueOnce({ portStates: [] });
+    mockSend.mockResolvedValueOnce({ autoSnapshots: [] });
+    await fireEvent.click(screen.getByText("View"));
+    const dialog = openDialog();
+    await waitFor(() => within(dialog).getByText("HTTPS setup (Bitnami auto-provisioning)"));
+
+    await fireEvent.input(within(dialog).getByLabelText("HTTPS setup email address"), {
+      target: { value: "admin@example.com" },
+    });
+    await fireEvent.input(within(dialog).getByLabelText("HTTPS setup domain names"), {
+      target: { value: "example.com" },
+    });
+
+    mockSend.mockResolvedValueOnce({ operations: [{ id: "op-https" }] });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Set up HTTPS" }));
+    await waitFor(() => within(dialog).getByText("1 operation(s) started."));
+
+    mockSend.mockResolvedValueOnce({
+      setupHistory: [
+        {
+          operationId: "op-https",
+          status: "Succeeded",
+          request: { domainNames: ["example.com"] },
+        },
+      ],
+    });
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Load setup history" }));
+
+    await waitFor(() => {
+      expect(within(dialog).getByText("op-https")).toBeInTheDocument();
+      expect(within(dialog).getByText("Succeeded")).toBeInTheDocument();
+    });
+  });
+
+  it("loads the load balancer TLS security policies reference table", async () => {
+    mockSend.mockResolvedValueOnce({ instances: [] });
+    render(LightsailPage);
+    await waitFor(() => screen.getByText("No instances found"));
+
+    mockSend.mockResolvedValueOnce({ loadBalancers: [] });
+    await fireEvent.click(screen.getByText("Networking"));
+    await waitFor(() => screen.getByText("No load balancers found"));
+
+    mockSend.mockResolvedValueOnce({
+      tlsPolicies: [
+        { name: "TLS-1-2-2019-08", isDefault: true, protocols: ["TLSv1.2"], description: "default policy" },
+      ],
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Load TLS policies" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("cell", { name: "TLS-1-2-2019-08" })).toBeInTheDocument();
+    });
+  });
 });

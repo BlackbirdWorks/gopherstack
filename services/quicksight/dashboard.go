@@ -13,7 +13,7 @@ import (
 
 func (b *InMemoryBackend) CreateDashboard(
 	accountID, dashboardID, name, themeArn, versionDescription string,
-	definition map[string]any,
+	definition, publishOptions map[string]any,
 	permissions []ResourcePermission,
 	tags map[string]string,
 ) (*Dashboard, error) {
@@ -43,6 +43,7 @@ func (b *InMemoryBackend) CreateDashboard(
 		VersionNumber:          1,
 		PublishedVersionNumber: 1,
 		Definition:             definition,
+		PublishOptions:         publishOptions,
 		Permissions:            clonePermissions(permissions),
 	}
 	b.dashboards.Put(d)
@@ -68,7 +69,7 @@ func (b *InMemoryBackend) DescribeDashboard(accountID, dashboardID string) (*Das
 
 func (b *InMemoryBackend) UpdateDashboard(
 	accountID, dashboardID, name, themeArn, versionDescription string,
-	definition map[string]any,
+	definition, publishOptions map[string]any,
 ) (*Dashboard, error) {
 	b.mu.Lock("UpdateDashboard")
 	defer b.mu.Unlock()
@@ -84,6 +85,9 @@ func (b *InMemoryBackend) UpdateDashboard(
 	}
 	if definition != nil {
 		d.Definition = definition
+	}
+	if publishOptions != nil {
+		d.PublishOptions = publishOptions
 	}
 	if themeArn != "" {
 		d.ThemeArn = themeArn
@@ -366,7 +370,7 @@ func (b *InMemoryBackend) DescribeDashboardPermissions(
 
 func (b *InMemoryBackend) UpdateDashboardPermissions(
 	accountID, dashboardID string,
-	grant, revoke []ResourcePermission,
+	grant, revoke, grantLink, revokeLink []ResourcePermission,
 ) (*Dashboard, []ResourcePermission, error) {
 	b.mu.Lock("UpdateDashboardPermissions")
 	defer b.mu.Unlock()
@@ -377,6 +381,7 @@ func (b *InMemoryBackend) UpdateDashboardPermissions(
 	}
 
 	d.Permissions = applyGrantRevoke(d.Permissions, grant, revoke)
+	d.LinkPermissions = applyGrantRevoke(d.LinkPermissions, grantLink, revokeLink)
 	d.LastUpdatedTime = time.Now().UTC()
 
 	return d.toDashboard(), clonePermissions(d.Permissions), nil

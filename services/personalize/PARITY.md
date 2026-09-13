@@ -105,11 +105,42 @@ families:
   Tags: {status: ok, note: 'tagKey/tagValue round-trip verified; arnExists() FK check spans all 16 resource tables correctly'}
   Runtime (GetRecommendations/GetPersonalizedRanking): {status: ok, note: 'ValidateCampaign/ValidateCampaignOrRecommender FK checks present and correct -- this pass extended the same validate-parent-existence discipline to every control-plane Create* op, closing the inconsistency previously noted here. UPDATE (2026-07-31, reverse sdkcheck sweep, gopherstack-vhw2): both are real aws-sdk-go-v2/service/personalizeruntime ops, not personalize ops -- added the module to go.mod and pointed sdk_completeness_test.go at it directly. That client also has a third op, GetActionRecommendations, which this Handler does not implement (listed as notImplemented in the completeness check; not otherwise audited this sweep).'}
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: no goroutines/janitors in this backend; all state is synchronous map/table mutation under lockmetrics.RWMutex. This pass added no new goroutines, tickers, or persistence-relevant fields requiring cleanup.}
 ---
 
 ## Notes
+
+- **2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)**: worked all 13
+  tier-1 findings. **4 real fixes**: `CreateBatchInferenceJob.BatchInferenceJobMode`
+  (undeclared; now validated to BATCH_INFERENCE/THEME_GENERATION, defaults
+  to BATCH_INFERENCE, round-trips through Describe and List --
+  `BatchInferenceJobSummary` also gained the field for consistency),
+  `CreateDatasetImportJob.ImportMode` (undeclared; validated to
+  FULL/INCREMENTAL, defaults to FULL, round-trips through Describe),
+  `CreateDatasetExportJob.IngestionMode` (undeclared; validated to
+  PUT/BULK/ALL, defaults to PUT, round-trips through Describe), and
+  `ListRecipes.RecipeProvider` (undeclared; real AWS currently defines only
+  one enum value, SERVICE, matching every built-in recipe this backend
+  serves -- now rejects anything else, matching client-side smithy enum
+  validation). **9 false positives**, all already read via this service's
+  hand-decoded `map[string]any` + typed-key-read shape (the
+  gopherstack-99nj third blind-spot class -- `input["fieldName"].(T)` reads
+  in a different file from the tool's declaration search):
+  `CreateCampaign`/`UpdateCampaign.MinProvisionedTPS` (handler_campaigns.go),
+  `CreateDatasetGroup.Domain` (handler_dataset_groups.go),
+  `CreateSolution.PerformAutoML`/`PerformHPO`/`PerformAutoTraining`
+  (handler_solutions.go, the last via `boolFieldDefault` defaulting true),
+  `CreateSolutionVersion.TrainingMode` (handler_solutions.go),
+  `ListBatchInferenceJobs`/`ListBatchSegmentJobs.MaxResults`
+  (handler_batch_jobs.go). No recorded gaps. Proven via
+  `reqfield_slice6_realclient_test.go` driving the real `personalize`
+  client. `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint`
+  all clean; no persistence-schema version bump (3 inventory rows added by
+  hand: `BatchInferenceJob.BatchInferenceJobMode`,
+  `DatasetExportJob.IngestionMode`, `DatasetImportJob.ImportMode` -- all
+  additive, old fields unchanged).
 
 - **Protocol**: awsjson1.1, single POST endpoint, `X-Amz-Target:
   AmazonPersonalize.<Op>` (control plane) or
@@ -575,3 +606,23 @@ immediately above being assigned -- apparently contiguous, comment-free `ValueSp
 same `const (...)` block are what keeps an unused sibling from being flagged next to a used one.
 Folding that comment into the single block-level doc comment above `const (` instead restored the
 clean `0 issues.` result without changing which constants are declared).
+
+## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+
+Added `typed_slice14_realclient_test.go`, 14 subtests driving every op the
+repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
+listed as uncovered for this service (57 ops: schema/dataset/dataset-job
+lifecycles, solution/solution-version extras, campaign lifecycle, event
+tracker/filter/recommender lifecycles, metric attribution lifecycle, batch
+inference/segment job lifecycles, data deletion job lifecycle,
+recipe/algorithm/feature-transformation reads, tags). Every op passed on
+the first correctly-shaped real-client request -- **zero new bugs found**;
+this service's existing wire-shape audits (the long history above) had
+already caught everything a real client's decode would catch. Typed
+coverage: 16/73 -> 73/73 (100%).
+
+Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
+-count=1` clean on `services/personalize` and `pkgs/persistence`.
+`golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
+stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
+changes; no version bump.

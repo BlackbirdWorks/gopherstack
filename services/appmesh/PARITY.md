@@ -58,9 +58,9 @@ ops:
   UpdateGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct"}
   DeleteGatewayRoute: {wire: ok, errors: ok, state: ok, persist: ok, note: "flat body reconfirmed correct; status DELETED not ACTIVE"}
   ListGatewayRoutes: {wire: ok, errors: ok, state: ok, persist: ok, note: "GatewayRouteSummary correctly includes virtualGatewayName — present on the real GatewayRouteRef type too, not fabricated"}
-  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn+tags in JSON body — verified against real serializer"}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn+tagKeys in JSON body"}
-  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params"}
+  TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/tag, resourceArn as a QUERY param (tags only in JSON body) — FIXED 2026-09-12 (gopherstack-n3zi slice 19): prior note claiming resourceArn was in the body was wrong and untested by any real client; handler read it from c.Bind only, which never sees query params on a PUT, so every real SDK call failed with BadRequestException. See awsRestjson1_serializeOpHttpBindingsTagResourceInput in serializers.go."}
+  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /v20190125/untag, resourceArn as a QUERY param (tagKeys only in JSON body) — same bug/fix as TagResource, see awsRestjson1_serializeOpHttpBindingsUntagResourceInput"}
+  ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /v20190125/tags, resourceArn/limit/nextToken as query params; confirmed by a real client round trip this pass"}
 families:
   mesh_crud: {status: ok, note: "route matcher, HTTP methods (PUT create/update, GET describe, DELETE, GET list), ARN shape, error codes all verified against real serializer/deserializer source"}
   virtualnode_crud: {status: ok}
@@ -68,7 +68,8 @@ families:
   virtualservice_crud: {status: ok}
   virtualgateway_and_gatewayroute_crud: {status: ok, note: "gateway route paths correctly use singular /virtualGateway/{name}/gatewayRoutes"}
   tags: {status: ok}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "2026-09-07 (gopherstack-jxsz): meshOwner is now read and enforced on all 31 ops that carry it (30 sub-resource CRUD/List ops + DescribeMesh — verified count via aws-sdk-go-v2/service/appmesh@v1.38.4, grep -l MeshOwner api_op_*.go). gopherstack still has no AWS RAM cross-account mesh-sharing model — one InMemoryBackend is always exactly one account (provider.go/store.go), so no mesh can ever really be owned by a different account. Given that, a meshOwner naming any account other than the caller's own is rejected with ForbiddenException (declared on every op touched — see errors row below) via a single Handler.checkMeshOwner helper wired at 7 call sites (the 6 sub-resource dispatch functions, which each already funnel every Create/Describe/Update/Delete/List of that resource type through one entry point, plus handleDescribeMesh). meshOwner omitted, or equal to the caller's own account, is the documented default and is unchanged. This makes ResourceMetadata.MeshOwner/.ResourceOwner honest rather than fixed: they are still always the caller's account, but that is now the *only reachable* value, not a value nobody checked — the CreateVirtualNodeInput-family doc comment (aws-sdk-go-v2/service/appmesh@v1.38.4/api_op_CreateVirtualNode.go) explicitly requires 'the account that you specify must share the mesh with your account before you can create the resource in the service mesh', and Describe/Update/Delete/List's doc comment implies the same via 'it's the ID of the account that shared the mesh with your account' — since nothing is ever shared here, rejecting is the faithful behavior, not echoing the client-supplied value into the response (which would fabricate a cross-account story). What remains structurally divergent and NOT fixed: genuine cross-account shared-mesh access (a caller legitimately operating on a mesh owned by a different, real account) cannot be exercised at all — that requires a second-account resource-visibility/RAM-sharing model this backend has nowhere. Not adjacent-fixable without inventing that model."
   - "RouteSpec/VirtualNodeSpec/VirtualGatewaySpec/GatewayRouteSpec remain opaque json.RawMessage with no structural validation. Sized this pass by reading every reachable sub-shape in aws-sdk-go-v2/service/appmesh@v1.38.4/types/types.go (199 type declarations total): VirtualNodeSpec fans out through Listener (PortMapping, VirtualNodeConnectionPool union, HealthCheckPolicy, OutlierDetection, ListenerTimeout union, ListenerTls with ACM/File/SDS certificate variants and validation-context variants), Backends (VirtualServiceBackend with ClientPolicy/TLS), BackendDefaults, Logging (AccessLog file/stream variants), and ServiceDiscovery (DNS/AWSCloudMap variants). RouteSpec fans out through GrpcRoute/HttpRoute/Http2Route/TcpRoute, each with its own Action(WeightedTargets)/Match(headers/metadata/path/query variants)/RetryPolicy/Timeout. VirtualGatewaySpec and GatewayRouteSpec mirror the same listener/matcher depth. This is 4-5+ levels deep with multiple smithy union types per branch — too large to model to full field depth in one pass per the no-stub/model-faithfully-or-leave-it rule. Left as wire-compatible passthrough (whatever the client sends round-trips unchanged)."
 deferred: []              # nothing consciously left un-audited this pass
@@ -467,3 +468,27 @@ HEAD before this pass, its only other caller already ignores the same
 return value) was left untouched as out of this pass's scope. No
 production code changed this pass — test-only additions confirming
 correctness.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Drove all 9 previously-uncovered ops with a real `aws-sdk-go-v2/service/appmesh`
+client (`typed_slice19_realclient_test.go`): `ListVirtualNodes`, `ListVirtualRouters`,
+`ListVirtualServices`, `ListVirtualGateways`, `ListRoutes`, `ListGatewayRoutes`,
+`TagResource`, `UntagResource`, `ListTagsForResource`. appmesh is now 38/38 typed-covered.
+
+**Real bug found and fixed**: `TagResource`/`UntagResource` read `resourceArn` only
+from the JSON body (`handler_tags.go`), but the real wire sends it as a query
+parameter (`awsRestjson1_serializeOpHttpBindingsTagResourceInput`/
+`...UntagResourceInput` in serializers.go — `encoder.SetQuery("resourceArn")`, with
+only `tags`/`tagKeys` in the body). echo v5's `c.Bind` only binds query params for
+GET/DELETE/HEAD/QUERY methods (`bind.go`'s `DefaultBinder.Bind`), and these are PUT,
+so a real client's `resourceArn` never reached the handler — every real
+`TagResource`/`UntagResource` call against this service failed with
+`BadRequestException: resourceArn is required`, unconditionally. Fixed by reading
+`c.QueryParam("resourceArn")` explicitly, matching `handleListTags`'s existing
+pattern. Three pre-existing raw-body tests (`tags_test.go`, `handler_wire_test.go`)
+had encoded the wrong (body-based) shape as correct and were updated to send
+`resourceArn` as a query param instead of weakening the fix.
+
+Gates: `go build ./services/appmesh/...`, `go vet`, `go test -race -count=1` (clean),
+`golangci-lint run --new-from-rev=HEAD` (0 issues).

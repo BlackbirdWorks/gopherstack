@@ -136,8 +136,37 @@ func appendClusterOptionalInfra(c *Cluster, m map[string]any) {
 		m["certificateAuthority"] = map[string]string{"data": c.CertificateAuthority}
 	}
 	if c.ConnectorConfig != nil {
-		m["connectorConfig"] = c.ConnectorConfig
+		m["connectorConfig"] = connectorConfigToJSON(c.ConnectorConfig)
 	}
+}
+
+// connectorConfigToJSON converts a ConnectorConfig to its wire shape.
+// ActivationExpiry must be epoch seconds (see ConnectorConfig's doc comment
+// in models.go), not the raw struct's own RFC3339-shaped json tag.
+func connectorConfigToJSON(cc *ConnectorConfig) map[string]any {
+	m := map[string]any{}
+
+	if cc.ActivationCode != "" {
+		m["activationCode"] = cc.ActivationCode
+	}
+
+	if cc.ActivationID != "" {
+		m["activationId"] = cc.ActivationID
+	}
+
+	if cc.Provider != "" {
+		m["provider"] = cc.Provider
+	}
+
+	if cc.RoleARN != "" {
+		m["roleArn"] = cc.RoleARN
+	}
+
+	if !cc.ActivationExpiry.IsZero() {
+		m["activationExpiry"] = cc.ActivationExpiry.Time().Unix()
+	}
+
+	return m
 }
 
 // clusterNetConfigJSON converts a KubernetesNetworkConfig to its wire shape.
@@ -247,6 +276,7 @@ type createClusterBody struct {
 	Name                    string                       `json:"name"`
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
+	ClientRequestToken      string                       `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
@@ -291,21 +321,21 @@ func (h *Handler) handleCreateCluster(c *echo.Context, body []byte) error {
 		}
 	}
 
-	cluster, err := h.Backend.CreateCluster(
-		in.Name,
-		in.Version,
-		in.RoleArn,
-		vpcCfg,
-		netCfg,
-		in.Tags,
-		buildClusterOptConfig(in),
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateCluster, in.ClientRequestToken, body, func() (int, any, error) {
+		cluster, err := h.Backend.CreateCluster(
+			in.Name,
+			in.Version,
+			in.RoleArn,
+			vpcCfg,
+			netCfg,
+			in.Tags,
+			buildClusterOptConfig(in),
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyCluster: clusterToJSON(cluster),
+		return http.StatusOK, map[string]any{keyCluster: clusterToJSON(cluster)}, nil
 	})
 }
 
@@ -377,9 +407,10 @@ type connectorConfigJSON struct {
 }
 
 type registerClusterBody struct {
-	Tags            map[string]string    `json:"tags"`
-	ConnectorConfig *connectorConfigJSON `json:"connectorConfig"`
-	Name            string               `json:"name"`
+	Tags               map[string]string    `json:"tags"`
+	ConnectorConfig    *connectorConfigJSON `json:"connectorConfig"`
+	Name               string               `json:"name"`
+	ClientRequestToken string               `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
@@ -398,13 +429,13 @@ func (h *Handler) handleRegisterCluster(c *echo.Context, body []byte) error {
 		roleArn = in.ConnectorConfig.RoleArn
 	}
 
-	cluster, err := h.Backend.RegisterCluster(in.Name, provider, roleArn, in.Tags)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opRegisterCluster, in.ClientRequestToken, body, func() (int, any, error) {
+		cluster, err := h.Backend.RegisterCluster(in.Name, provider, roleArn, in.Tags)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"cluster": clusterToJSON(cluster),
+		return http.StatusOK, map[string]any{"cluster": clusterToJSON(cluster)}, nil
 	})
 }
 

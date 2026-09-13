@@ -163,10 +163,18 @@ func toTGWPeeringAttachmentItem(
 ) tgwPeeringAttachmentItem {
 	item := tgwPeeringAttachmentItem{
 		TransitGatewayAttachmentID: att.TransitGatewayAttachmentID,
-		RequesterTgwInfo:           peeringTgwInfoItem{TransitGatewayID: att.RequesterTransitGatewayID},
-		AccepterTgwInfo:            peeringTgwInfoItem{TransitGatewayID: att.AccepterTransitGatewayID},
-		State:                      att.State,
-		TagSet:                     tagItemsFromMap(tags),
+		RequesterTgwInfo: peeringTgwInfoItem{
+			TransitGatewayID: att.RequesterTransitGatewayID,
+			OwnerID:          att.RequesterOwnerID,
+			Region:           att.RequesterRegion,
+		},
+		AccepterTgwInfo: peeringTgwInfoItem{
+			TransitGatewayID: att.AccepterTransitGatewayID,
+			OwnerID:          att.AccepterOwnerID,
+			Region:           att.AccepterRegion,
+		},
+		State:  att.State,
+		TagSet: tagItemsFromMap(tags),
 	}
 	if !att.CreationTime.IsZero() {
 		item.CreationTime = att.CreationTime.Format(time.RFC3339)
@@ -181,16 +189,24 @@ func (h *Handler) handleCreateTransitGatewayPeeringAttachment(
 ) (any, error) {
 	tgwID := vals.Get("TransitGatewayId")
 	peerTGWID := vals.Get("PeerTransitGatewayId")
+	peerAccountID := vals.Get("PeerAccountId")
 	peerRegion := vals.Get("PeerRegion")
 
-	att, err := h.Backend.CreateTransitGatewayPeeringAttachment(tgwID, peerTGWID, peerRegion)
+	att, err := h.Backend.CreateTransitGatewayPeeringAttachment(tgwID, peerTGWID, peerAccountID, peerRegion)
 	if err != nil {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "transit-gateway-attachment")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{att.TransitGatewayAttachmentID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createTransitGatewayPeeringAttachmentResponse{
 		RequestID:                       reqID,
-		TransitGatewayPeeringAttachment: toTGWPeeringAttachmentItem(att, nil),
+		TransitGatewayPeeringAttachment: toTGWPeeringAttachmentItem(att, tags),
 	}, nil
 }
 
@@ -267,9 +283,16 @@ func (h *Handler) handleCreateTransitGatewayConnect(vals url.Values, reqID strin
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "transit-gateway-attachment")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{conn.TransitGatewayAttachmentID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createTransitGatewayConnectResponse{
 		RequestID:             reqID,
-		TransitGatewayConnect: toTGWConnectItem(conn, nil),
+		TransitGatewayConnect: toTGWConnectItem(conn, tags),
 	}, nil
 }
 
@@ -330,9 +353,16 @@ func (h *Handler) handleCreateTransitGatewayConnectPeer(vals url.Values, reqID s
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "transit-gateway-connect-peer")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{peer.TransitGatewayConnectPeerID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createTransitGatewayConnectPeerResponse{
 		RequestID:                 reqID,
-		TransitGatewayConnectPeer: toTGWConnectPeerItem(peer, nil),
+		TransitGatewayConnectPeer: toTGWConnectPeerItem(peer, tags),
 	}, nil
 }
 

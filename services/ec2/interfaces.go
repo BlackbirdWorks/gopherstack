@@ -191,7 +191,7 @@ type Backend interface {
 	DeleteInternetGateway(id string) error
 
 	// DescribeInternetGateways returns internet gateways, optionally filtered by IDs.
-	DescribeInternetGateways(ids []string) []*InternetGateway
+	DescribeInternetGateways(ids []string) ([]*InternetGateway, error)
 
 	// AttachInternetGateway attaches an internet gateway to a VPC.
 	AttachInternetGateway(igwID, vpcID string) error
@@ -208,7 +208,7 @@ type Backend interface {
 	DeleteRouteTable(id string) error
 
 	// DescribeRouteTables returns route tables, optionally filtered by IDs.
-	DescribeRouteTables(ids []string) []*RouteTable
+	DescribeRouteTables(ids []string) ([]*RouteTable, error)
 
 	// CreateRoute adds a route to a route table.
 	CreateRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
@@ -239,7 +239,7 @@ type Backend interface {
 	CreateSnapshot(volumeID, description string) (*Snapshot, error)
 
 	// DescribeSnapshots returns snapshots, optionally filtered by IDs.
-	DescribeSnapshots(ids []string) []*Snapshot
+	DescribeSnapshots(ids []string) ([]*Snapshot, error)
 
 	// DeleteSnapshot removes a snapshot.
 	DeleteSnapshot(id string) error
@@ -292,7 +292,7 @@ type Backend interface {
 	DescribeSecurityGroupRules(groupID string) ([]*SecurityGroupRuleDetail, error)
 
 	// ModifySecurityGroupRules replaces all rules in the specified direction.
-	ModifySecurityGroupRules(groupID string, rules []SecurityGroupRule, egress bool) error
+	ModifySecurityGroupRules(groupID string, updates []SecurityGroupRuleUpdate) error
 
 	// ---- Launch template lifecycle ----
 
@@ -538,7 +538,7 @@ type Backend interface {
 	CreateDhcpOptions(configs []DhcpConfiguration, tags map[string]string) (*DhcpOptions, error)
 
 	// DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
-	DescribeDhcpOptions(ids []string) []*DhcpOptions
+	DescribeDhcpOptions(ids []string) ([]*DhcpOptions, error)
 
 	// AssociateDhcpOptions associates a DHCP options set with a VPC.
 	AssociateDhcpOptions(dhcpOptionsID, vpcID string) error
@@ -601,6 +601,10 @@ type Backend interface {
 
 	// AssociateVpcCidrBlock associates a secondary CIDR block with a VPC.
 	AssociateVpcCidrBlock(vpcID, cidrBlock string) (*VpcCidrBlockAssociation, error)
+
+	// SecondaryCidrBlockAssociationsForVPC returns vpcID's secondary CIDR
+	// block associations (not including the primary CIDR block).
+	SecondaryCidrBlockAssociationsForVPC(vpcID string) []*VpcCidrBlockAssociation
 
 	// ---- Transit Gateway Route Tables ----
 
@@ -874,7 +878,7 @@ type Backend interface {
 	CreateCustomerGateway(gatewayType, ipAddress, bgpAsn string) (*CustomerGateway, error)
 
 	// DescribeCustomerGateways returns customer gateways, optionally filtered by IDs.
-	DescribeCustomerGateways(ids []string) []*CustomerGateway
+	DescribeCustomerGateways(ids []string) ([]*CustomerGateway, error)
 
 	// DeleteCustomerGateway removes a customer gateway.
 	DeleteCustomerGateway(id string) error
@@ -1377,7 +1381,7 @@ type Backend interface {
 	DescribeFastSnapshotRestores() []FastSnapshotRestoreItem
 	GetPasswordData(instanceID string) (string, time.Time, error)
 	GetConsoleScreenshot(instanceID string) (string, error)
-	GetInstanceTypesFromInstanceRequirements() []string
+	GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery) []string
 	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
 	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
 	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
@@ -1388,14 +1392,16 @@ type Backend interface {
 	ListVolumesInRecycleBin(volumeIDs []string) []*RecycleBinVolume
 	RestoreVolumeFromRecycleBin(volumeID string) error
 	RestoreAddressToClassic(publicIP string) error
-	ReportInstanceStatus(instanceIDs []string, status, description string) error
+	ReportInstanceStatus(instanceIDs, reasonCodes []string, status, description string) error
 	ModifyVpnConnection(vpnConnectionID, vpnGatewayID string) error
 	CreateVpnConnectionRoute(vpnConnectionID, destinationCIDR string) (*VpnConnectionRoute, error)
 	DeleteVpnConnectionRoute(vpnConnectionID, destinationCIDR string) error
 	ModifyTransitGateway(tgwID, description string) (*TransitGateway, error)
 
 	// ---- batch4: ManagedPrefixList ----
-	CreateManagedPrefixList(name, addressFamily string, maxEntries int) (*ManagedPrefixList, error)
+	CreateManagedPrefixList(
+		name, addressFamily string, maxEntries int, entries []PrefixListEntry,
+	) (*ManagedPrefixList, error)
 	DeleteManagedPrefixList(id string) (*ManagedPrefixList, error)
 	DescribeManagedPrefixLists(ids []string) []*ManagedPrefixList
 	GetManagedPrefixListEntries(id string) ([]PrefixListEntry, error)
@@ -1455,7 +1461,7 @@ type Backend interface {
 
 	// ---- batch4: TGW Peering ----
 	CreateTransitGatewayPeeringAttachment(
-		transitGatewayID, peerTransitGatewayID string, _ string,
+		transitGatewayID, peerTransitGatewayID, peerAccountID, peerRegion string,
 	) (*TransitGatewayPeeringAttachment, error)
 	DeleteTransitGatewayPeeringAttachment(id string) (*TransitGatewayPeeringAttachment, error)
 	DescribeTransitGatewayPeeringAttachments(ids []string) []*TransitGatewayPeeringAttachment
@@ -1496,7 +1502,9 @@ type Backend interface {
 	CreateVerifiedAccessInstance(description string) (*VerifiedAccessInstance, error)
 	DeleteVerifiedAccessInstance(id string) (*VerifiedAccessInstance, error)
 	DescribeVerifiedAccessInstances(ids []string) []*VerifiedAccessInstance
-	CreateVerifiedAccessTrustProvider(trustProviderType, description string) (*VerifiedAccessTrustProvider, error)
+	CreateVerifiedAccessTrustProvider(
+		trustProviderType, description, policyReferenceName string,
+	) (*VerifiedAccessTrustProvider, error)
 	DeleteVerifiedAccessTrustProvider(id string) (*VerifiedAccessTrustProvider, error)
 	DescribeVerifiedAccessTrustProviders(ids []string) []*VerifiedAccessTrustProvider
 	AttachVerifiedAccessTrustProvider(instanceID, trustProviderID string) error
@@ -1596,18 +1604,22 @@ type Backend interface {
 
 	// ---- batch5: ReservedInstances ----
 	DescribeReservedInstances(ids []string) []*ReservedInstance
-	DescribeReservedInstancesOfferings(instanceType, az, productDesc string) []*ReservedInstancesOffering
+	DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass string) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
-	CreateReservedInstancesListing(reservedInstancesID string, instanceCount int) (*ReservedInstancesListing, error)
+	CreateReservedInstancesListing(
+		reservedInstancesID string, instanceCount int, schedules []PriceScheduleEntry,
+	) (*ReservedInstancesListing, error)
 	CancelReservedInstancesListing(id string) (*ReservedInstancesListing, error)
 	DescribeReservedInstancesListings(ids []string) []*ReservedInstancesListing
 	DescribeReservedInstancesModifications(ids []string) []*ReservedInstancesModification
 	ModifyReservedInstances(
 		reservedInstancesIDs []string,
-		targetInstanceType string,
-		targetCount int,
+		targets []ReservedInstancesConfigurationTarget,
 	) (*ReservedInstancesModification, error)
 	DeleteQueuedReservedInstances(ids []string) []QueuedPurchaseDeletionResult
+	GetReservedInstancesExchangeQuote(
+		reservedInstanceIDs []string, targets []TargetConfigurationRequest,
+	) (*ReservedInstancesExchangeQuote, error)
 
 	// ---- Route Server ----
 	CreateRouteServer(
@@ -1823,7 +1835,8 @@ type Backend interface {
 	DescribeScheduledInstanceAvailability(
 		filters map[string][]string,
 		minSlotDurationHours, maxSlotDurationHours int32,
-	) []ScheduledInstanceAvailability
+		earliestTime, latestTime time.Time,
+	) ([]ScheduledInstanceAvailability, error)
 	PurchaseScheduledInstances(requests []ScheduledInstancePurchaseRequest) ([]*ScheduledInstance, error)
 	DescribeScheduledInstances(ids []string) []*ScheduledInstance
 	RunScheduledInstances(scheduledInstanceID, imageID, keyName string, instanceCount int32) ([]string, error)
@@ -2087,7 +2100,9 @@ type Backend interface {
 	CancelImageLaunchPermission(imageID string) error
 	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
 	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
-	GetFlowLogsIntegrationTemplate(flowLogID, s3DestinationArn string) (string, error)
+	GetFlowLogsIntegrationTemplate(
+		flowLogID, s3DestinationArn, athenaResultS3DestinationArn, partitionLoadFrequency string,
+	) (string, error)
 
 	GetSpotPlacementScores(
 		instanceTypes, regionNames []string, singleAZ bool,

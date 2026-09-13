@@ -111,7 +111,6 @@ leaks: {status: clean, note: "persistence leaks clean (unchanged); 2 leak classe
 items_still_open:
   - "2026-08-29 constraint-parameter sweep fixed PathPrefix+pagination truncation across ListUsers/ListRoles/ListGroups/ListInstanceProfiles/ListPolicies, and ListPolicies' OnlyAttached/PolicyUsageFilter (see the sweep's own section above for detail). Sweep 13 closed ListAttached{User,Role,Group}Policies' PathPrefix (see its own ops: entry). ListEntitiesForPolicy's EntityFilter/PathPrefix/PolicyUsageFilter/Marker/MaxItems (confirmed present sweep 13, deliberately left open pending a StorageBackend surface change) is now also closed (gopherstack-fjmw, see its own ops: entry -- new PermissionsBoundaryEntities method) -- still open: the pagination-only params on ListMFADevices/ListAccessKeys/ListSigningCertificates/ListSSHPublicKeys/ListServiceSpecificCredentials (not re-checked)."
   - "Sweep 13 (wrapper-key sweep, iam+eventbridge scope): field-level enumeration via go/types selector-usage scan doesn't apply to IAM -- it's AWS Query/XML with no request struct types at all (handlers pull vals.Get(\"Key\") directly), unlike eventbridge's JSON *Input structs. Instead re-verified the known filter-after-pagination class (confirmed still fixed for the 5 ops sweep 12's PathPrefix-family header names) and found the same silent-full-list shape one layer over: ListAttached{User,Role,Group}Policies (fixed) and ListEntitiesForPolicy (confirmed, left open) both read PolicyArn/EntityType-only and ignore PathPrefix/PolicyUsageFilter/Marker/MaxItems entirely. Also fixed a wrong-Go-value bug found while writing the ListAttached* regression test: policyNameFromARN split on the wrong separator for any policy with a non-default Path. ListServerCertificates spot-checked clean (PathPrefix read and filtered correctly; no Marker/MaxItems support at all is a disclosed structural gap, not a filter-after-pagination bug -- there's no pagination to cut wrong). ListGroupsForUser spot-checked: hardcodes IsTruncated=false with no Marker/MaxItems read at all -- same disclosed structural gap, not fixed, not this sweep's named scope."
-  - "Sweep 9 (gopherstack-xh42) closed both delegation-family issues sweep 8 disclosed but left out of its named scope (see AcceptDelegationRequest/AssociateDelegationRequest ops entries above for the fixes and reasoning). The delegation-request family (7 ops total: Create/Accept/Associate/Reject/Send/Update/GetHumanReadableSummary) is now fully covered across sweeps 7-9, with every op wire/error-verified against the pinned SDK. GetDelegationRequest/ListDelegationRequests remain disclosed validation-only/always-empty (unchanged, still out of scope -- no bd issue filed against them yet). STALE as of sweep 11 -- flagged by cmd/staleclaims (gopherstack-anjf): both are now real, see their own ops: entries above (\"FIXED (sweep 11)\") and the sweep-11 bullet below."
   - "This sweep (6) closed both remaining gopherstack-gjp/2sz3 items: (1) comprehensiveBackend's private sync.Mutex is gone — its fields (sshPublicKeys, mfaUserLinks, accessAdvisorJobs, serviceLastAccessed, orgReportJobs) are now guarded by the same coarse b.mu as every other backend map, per the one-coarse-lock convention (.claude/memories/pkgs-catalog.md). Two call sites (GetCredentialReport, ListMFADevicesForUser) previously nested c.mu inside a held b.mu.RLock; DeleteUser's dependency check ran entirely BEFORE taking b.mu, a real TOCTOU window between the SSH-key/MFA-device check and the delete. All three are now single atomic critical sections under b.mu. Snapshot()/Restore() also now read/write comprehensiveBackend state inside the same b.mu section as the rest of backend state, instead of a separate before/after step — Snapshot() gets one consistent point-in-time view (previously the comprehensive-state read and the rest-of-backend read were NOT atomic with each other). Covered by TestComprehensiveBackend_NoDataRace (-race, concurrent workers hitting both comprehensiveBackend and regular backend ops) and TestDeleteUser_SSHKeyConflictIsAtomic. (2) GetAccountAuthorizationDetails now honors Marker/MaxItems/Filter — see the ops entry above."
   - "NOT re-verified this sweep (no evidence of a bug found, but not field-diffed line-by-line either): policy simulation (SimulateCustomPolicy/SimulatePrincipalPolicy/evaluator.go), access advisor / service-last-accessed, credential report generation, account summary, condition-key evaluation (conditions.go), resource-policy evaluation (resource_arn.go). These were already marked ok/PROVEN by sweeps 1-4 and no new evidence surfaced against them. (SSH key / signing certificate CRUD -- the other family named in this line as of sweep 9 -- was field-diffed member-by-member in sweep 10: SSH key ops (Upload/Get/List/Update/DeleteSSHPublicKey) all read every serialized member correctly, no bug; signing certificates had a real ownership-bypass bug, now fixed, plus a disclosed pagination gap -- see ops entries above.)"
   - "Sweep 10 also confirmed policy evaluation itself (evaluator.go, conditions.go, resource_arn.go) and SimulatePrincipalPolicy/SimulateCustomPolicy remain untouched and out of scope: gopherstack has no real IAM policy evaluator, and building one is explicitly outside this campaign's charter (modelling gap, not a bug)."
@@ -119,6 +118,64 @@ items_still_open:
 ---
 
 ## Notes
+- Sweep 14 (2026-09-11, gopherstack-n3zi slice 1): added typed real-SDK-client
+  round-trip coverage for 74 previously-untyped-uncovered ops (see
+  typed_slice1_realclient_test.go), grouped by family (inline policies,
+  managed-policy getters, Tag/Untag pairs, server certificates, SSH keys,
+  account password policy/aliases, MFA cleanup, service-specific
+  credentials, access-key-last-used, role/user/group updates, credential
+  report, OIDC client IDs, policy simulation + context keys, service-linked
+  role deletion, Organizations access report/features, Organizations root
+  management + outbound web identity federation). Four real bugs found and
+  fixed, all confirmed only by driving the real typed client (none had ANY
+  prior typed-client coverage):
+  1. `GetContextKeysForPrincipalPolicy` shared `GetContextKeysResponse` with
+     `GetContextKeysForCustomPolicy`, whose hardcoded XMLName/field tags
+     ("GetContextKeysForCustomPolicyResponse"/"...Result") became the wire
+     root/wrapper for BOTH ops. iam@v1.63.0 deserializers.go:7156 looks
+     specifically for `GetContextKeysForPrincipalPolicyResult` and fails with
+     a `DeserializationError` when it isn't there -- every real client call
+     to this op failed outright. Fixed by giving it its own response type
+     (`GetContextKeysForPrincipalPolicyResponse`, models_policies.go) and,
+     since it was being touched anyway, made it honor the optional
+     `PolicyInputList` member via the existing `contextKeysFromPolicyDocuments`
+     helper (previously ignored, always returned an empty list regardless of
+     input).
+  2. `Enable/DisableOrganizationsRootCredentialsManagement` and
+     `Enable/DisableOrganizationsRootSessions` returned a bare
+     `iamSimpleTagResponse` with no `<Result>` wrapper at all, but all 4 real
+     ops require one (deserializers.go:5743/5317/5870/5441,
+     `decoder.GetElement("...Result")` — hard `DeserializationError`, not a
+     silent empty decode, if missing). Added 4 dedicated response types
+     (models_account.go) each with the correct per-op wrapper name and the
+     real (always-empty-here) `EnabledFeatures`/`OrganizationId` members.
+  3. `GetAccessKeyLastUsed`'s `LastUsedDate` was the literal string `"N/A"`
+     when a key had never been used. Real `AccessKeyLastUsed.LastUsedDate` is
+     `*time.Time` (Timestamp-typed); only `Region`/`ServiceName` (`*string`)
+     use `"N/A"` as a real sentinel. A real client's decode failed outright
+     ("cannot parse N/A as 2006") for every never-used key. Fixed
+     (access_keys.go, models_access_keys.go: `LastUsedDate` field now
+     `omitempty` and left blank instead of "N/A"); updated 3 existing unit
+     tests that had encoded the bug as expected behavior
+     (access_keys_test.go).
+  4. `UpdateAccountPasswordPolicy`'s `AllowUsersToChangePassword` defaulted an
+     omitted parameter to `true`, the opposite of the real API's documented
+     default (`false`). Real AWS query-protocol bools serialize only when
+     `true` (serializers.go:15960), so a real client's explicit `false` is
+     wire-indistinguishable from omission either way -- `!= "false"` could
+     never be triggered correctly by any real caller. Fixed to
+     `== formValueTrue` (handler_account.go), matching every sibling boolean
+     on the same struct literal.
+  All 4 fixes proven via the new typed tests; hand-confirmed each reproduces
+  the pre-fix symptom by re-reading the unfixed code path (wrapper mismatch,
+  missing Result element, literal "N/A" in a Timestamp field, inverted
+  boolean default) rather than a blind revert/restore cycle. Gates: `go
+  build ./...` (whole module), `go vet`, `gofmt -l` (clean), `go test -race
+  -count=1 ./services/iam/...` (pass), `golangci-lint run ./services/iam/...`
+  (0 issues), `go test ./pkgs/persistence/...` (pass -- no persisted struct
+  touched). No items_still_open entries closed (all 4 bugs were new
+  discoveries, not previously-named gaps). Not reached: the remaining ~104
+  uncovered ops.
 - Sweep 11 (2026-08-23): worked items_still_open's named queue -- access advisor / credential
   report / account summary ("not re-verified since sweep 4"), GetDelegationRequest/
   ListDelegationRequests (disclosed stubs since sweep 9), and ListSigningCertificates'

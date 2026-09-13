@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,39 +39,55 @@ type objectLambdaEvent struct {
 	GetObjectContext objectLambdaGetObjectContext `json:"getObjectContext"`
 }
 
-// objectLambdaConfigs and pendingObjectLambdaRequests are kept on S3Handler via
-// SetObjectLambdaConfig and the pending request map.
-
 // SetObjectLambdaConfig registers a Lambda ARN to be invoked for GetObject requests
 // on the given bucket.  When set, GetObject triggers the Lambda and waits for
 // WriteGetObjectResponse before streaming the (transformed) body back to the caller.
+// Satisfies services/s3control's ObjectLambdaConfigSink interface.
 func (h *S3Handler) SetObjectLambdaConfig(bucket, lambdaARN string) {
-	h.objectLambdaMu.Lock()
-	defer h.objectLambdaMu.Unlock()
-
-	if h.objectLambdaConfigs == nil {
-		h.objectLambdaConfigs = make(map[string]string)
-	}
-
-	h.objectLambdaConfigs[bucket] = lambdaARN
+	h.Backend.SetObjectLambdaConfig(bucket, lambdaARN)
 }
 
 // objectLambdaARN returns the configured Lambda ARN for the bucket, or "".
 func (h *S3Handler) objectLambdaARN(bucket string) string {
-	h.objectLambdaMu.RLock()
-	defer h.objectLambdaMu.RUnlock()
-
-	return h.objectLambdaConfigs[bucket]
+	return h.Backend.ObjectLambdaConfig(bucket)
 }
 
-// clearObjectLambdaConfig removes any registered Object Lambda config for the
-// given bucket. Called on DeleteBucket so a subsequently recreated bucket of
-// the same name starts with no Lambda wiring inherited from a prior identity.
-func (h *S3Handler) clearObjectLambdaConfig(bucket string) {
-	h.objectLambdaMu.Lock()
-	defer h.objectLambdaMu.Unlock()
+// SetObjectLambdaConfig stores lambdaARN on bucket's own record under the bucket's
+// coarse lock, mirroring how every other sub-resource config (CORS, policy,
+// lifecycle, ...) is stored -- see cors.go. A no-op if the bucket doesn't exist
+// (or is pending deletion): the config is cleared implicitly once the bucket
+// record itself is removed, so a bucket recreated under the same name never
+// inherits a prior incarnation's Lambda wiring.
+func (b *InMemoryBackend) SetObjectLambdaConfig(bucketName, lambdaARN string) {
+	b.mu.RLock("SetObjectLambdaConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
 
-	delete(h.objectLambdaConfigs, bucket)
+	if err != nil {
+		return
+	}
+
+	bucket.mu.Lock("SetObjectLambdaConfig")
+	defer bucket.mu.Unlock()
+
+	bucket.ObjectLambdaConfig = lambdaARN
+}
+
+// ObjectLambdaConfig returns the Lambda ARN configured for GetObject on
+// bucketName, or "" if none is configured or the bucket doesn't exist.
+func (b *InMemoryBackend) ObjectLambdaConfig(bucketName string) string {
+	b.mu.RLock("ObjectLambdaConfig")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return ""
+	}
+
+	bucket.mu.RLock("ObjectLambdaConfig")
+	defer bucket.mu.RUnlock()
+
+	return bucket.ObjectLambdaConfig
 }
 
 // registerObjectLambdaRequest adds a pending channel keyed by token and returns the channel.
@@ -239,17 +254,6 @@ func (h *S3Handler) handleWriteGetObjectResponse(
 	}
 
 	w.WriteHeader(http.StatusOK)
-}
-
-// objectLambdaMu, objectLambdaConfigs, pendingObjectLambdaRequests are added as fields
-// on S3Handler (see handler.go additions below).
-
-// objectLambdaHandlerFields holds the new fields required by object lambda support.
-// They are embedded into S3Handler.
-type objectLambdaHandlerFields struct {
-	objectLambdaConfigs         map[string]string
-	pendingObjectLambdaRequests sync.Map
-	objectLambdaMu              sync.RWMutex
 }
 
 // InvokeFunction satisfies LambdaInvoker for inMemoryNotificationDispatcher.

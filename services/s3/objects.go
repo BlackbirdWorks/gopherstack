@@ -13,6 +13,7 @@ import (
 	"hash"
 	"io"
 	"maps"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -431,6 +432,7 @@ func buildStoredObjectVersion(
 		ContentType:        aws.ToString(input.ContentType),
 		ContentEncoding:    aws.ToString(input.ContentEncoding),
 		ContentDisposition: aws.ToString(input.ContentDisposition),
+		Expires:            aws.ToTime(input.Expires),
 		StorageClass:       sc,
 		Metadata:           maps.Clone(input.Metadata),
 		ChecksumCRC32:      checksums.crc32,
@@ -765,26 +767,89 @@ func buildGetObjectOutput(
 	}
 
 	return &s3.GetObjectOutput{
-		Body:                 io.NopCloser(bytes.NewReader(data)),
-		ContentLength:        aws.Int64(size),
-		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
-		ETag:                 aws.String(ver.ETag),
-		LastModified:         aws.Time(ver.LastModified),
-		Metadata:             metadata,
-		VersionId:            aws.String(versionIDStr),
-		StorageClass:         types.StorageClass(sc),
-		ChecksumCRC32:        ver.ChecksumCRC32,
-		ChecksumCRC32C:       ver.ChecksumCRC32C,
-		ChecksumSHA1:         ver.ChecksumSHA1,
-		ChecksumSHA256:       ver.ChecksumSHA256,
-		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
-		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
+		Body:                      io.NopCloser(bytes.NewReader(data)),
+		ContentLength:             aws.Int64(size),
+		ContentType:               aws.String(ver.ContentType),
+		ContentEncoding:           ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:        ptrconv.NilIfEmpty(ver.ContentDisposition),
+		ETag:                      aws.String(ver.ETag),
+		LastModified:              aws.Time(ver.LastModified),
+		Metadata:                  metadata,
+		VersionId:                 aws.String(versionIDStr),
+		StorageClass:              types.StorageClass(sc),
+		ChecksumCRC32:             ver.ChecksumCRC32,
+		ChecksumCRC32C:            ver.ChecksumCRC32C,
+		ChecksumSHA1:              ver.ChecksumSHA1,
+		ChecksumSHA256:            ver.ChecksumSHA256,
+		ChecksumCRC64NVME:         ver.ChecksumCRC64NVME,
+		ServerSideEncryption:      types.ServerSideEncryption(ver.SSEAlgorithm),
+		SSEKMSKeyId:               ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm:      ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:         ptrconv.NilIfEmpty(ver.SSECKeyMD5),
+		ExpiresString:             expiresStringPtr(ver.Expires),
+		ObjectLockMode:            types.ObjectLockMode(ver.RetentionMode),
+		ObjectLockLegalHoldStatus: legalHoldStatus(ver.LegalHold),
+		ObjectLockRetainUntilDate: retainUntilPtr(ver),
+		Restore:                   restoreHeaderValue(ver),
 	}
+}
+
+// expiresStringPtr formats a stored Expires as an HTTP-date string, or nil for
+// a zero value (never set) -- matching real S3's omission of the Expires
+// header on objects that were never given one. GetObjectOutput/
+// HeadObjectOutput.Expires (*time.Time) is deprecated in favor of
+// ExpiresString ("handled inconsistently across AWS SDKs" -- s3@v1.111.0
+// api_op_GetObject.go:570-576), so this backend only ever populates the
+// string field on those two response structs.
+func expiresStringPtr(t time.Time) *string {
+	if t.IsZero() {
+		return nil
+	}
+
+	return aws.String(t.Format(http.TimeFormat))
+}
+
+// legalHoldStatus reports the object-lock legal-hold status.
+// ObjectLockLegalHoldStatusOff is deliberately not returned for an object with
+// no legal hold ever applied -- this backend's LegalHold bool cannot
+// distinguish "explicitly turned off" from "never configured", so (matching
+// real S3's own behaviour of omitting the header when the bucket has no
+// object lock configuration at all) the header is only emitted when a hold is
+// actually in force. See PARITY.md.
+func legalHoldStatus(held bool) types.ObjectLockLegalHoldStatus {
+	if held {
+		return types.ObjectLockLegalHoldStatusOn
+	}
+
+	return ""
+}
+
+// retainUntilPtr returns the version's object-lock retain-until date, or nil
+// when no retention is configured (RetentionMode is the authoritative "is
+// retention set" signal; RetainUntil alone can be a stale zero value).
+func retainUntilPtr(ver *StoredObjectVersion) *time.Time {
+	if ver.RetentionMode == "" || ver.RetainUntil.IsZero() {
+		return nil
+	}
+
+	return aws.Time(ver.RetainUntil)
+}
+
+// restoreHeaderValue formats the x-amz-restore header (s3@v1.111.0
+// deserializers.go:7015-7018 for GetObject, :8978-8981 for HeadObject: a
+// plain, unstructured string header, not a typed field) from a restored
+// version's stored state. RestoreObject never leaves OngoingRestore true in
+// this backend's synchronous-completion model, so only the completed form
+// is ever emitted; nil (no header at all) means RestoreObject was never
+// called for this version, matching real S3's omission of the header for
+// objects that were never restored.
+func restoreHeaderValue(ver *StoredObjectVersion) *string {
+	if ver.RestoreExpiry.IsZero() {
+		return nil
+	}
+
+	return aws.String(`ongoing-request="false", expiry-date="` +
+		ver.RestoreExpiry.UTC().Format(http.TimeFormat) + `"`)
 }
 
 func (b *InMemoryBackend) HeadObject(
@@ -887,25 +952,30 @@ func (b *InMemoryBackend) buildHeadObjectOutput(bucketName, key string, ver *Sto
 	}
 
 	return &s3.HeadObjectOutput{
-		ContentLength:        aws.Int64(ver.Size),
-		ContentType:          aws.String(ver.ContentType),
-		ContentEncoding:      ptrconv.NilIfEmpty(ver.ContentEncoding),
-		ContentDisposition:   ptrconv.NilIfEmpty(ver.ContentDisposition),
-		ETag:                 aws.String(ver.ETag),
-		LastModified:         aws.Time(ver.LastModified),
-		Metadata:             maps.Clone(ver.Metadata),
-		VersionId:            aws.String(ver.VersionID),
-		ChecksumCRC32:        ver.ChecksumCRC32,
-		ChecksumCRC32C:       ver.ChecksumCRC32C,
-		ChecksumSHA1:         ver.ChecksumSHA1,
-		ChecksumSHA256:       ver.ChecksumSHA256,
-		ChecksumCRC64NVME:    ver.ChecksumCRC64NVME,
-		StorageClass:         types.StorageClass(sc),
-		ServerSideEncryption: types.ServerSideEncryption(ver.SSEAlgorithm),
-		SSEKMSKeyId:          ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
-		SSECustomerAlgorithm: ptrconv.NilIfEmpty(ver.SSECAlgorithm),
-		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(ver.SSECKeyMD5),
-		TagCount:             b.objectTagCount(bucketName, key, ver.VersionID),
+		ContentLength:             aws.Int64(ver.Size),
+		ContentType:               aws.String(ver.ContentType),
+		ContentEncoding:           ptrconv.NilIfEmpty(ver.ContentEncoding),
+		ContentDisposition:        ptrconv.NilIfEmpty(ver.ContentDisposition),
+		ETag:                      aws.String(ver.ETag),
+		LastModified:              aws.Time(ver.LastModified),
+		Metadata:                  maps.Clone(ver.Metadata),
+		VersionId:                 aws.String(ver.VersionID),
+		ChecksumCRC32:             ver.ChecksumCRC32,
+		ChecksumCRC32C:            ver.ChecksumCRC32C,
+		ChecksumSHA1:              ver.ChecksumSHA1,
+		ChecksumSHA256:            ver.ChecksumSHA256,
+		ChecksumCRC64NVME:         ver.ChecksumCRC64NVME,
+		StorageClass:              types.StorageClass(sc),
+		ServerSideEncryption:      types.ServerSideEncryption(ver.SSEAlgorithm),
+		SSEKMSKeyId:               ptrconv.NilIfEmpty(ver.SSEKMSKeyID),
+		SSECustomerAlgorithm:      ptrconv.NilIfEmpty(ver.SSECAlgorithm),
+		SSECustomerKeyMD5:         ptrconv.NilIfEmpty(ver.SSECKeyMD5),
+		TagCount:                  b.objectTagCount(bucketName, key, ver.VersionID),
+		ExpiresString:             expiresStringPtr(ver.Expires),
+		ObjectLockMode:            types.ObjectLockMode(ver.RetentionMode),
+		ObjectLockLegalHoldStatus: legalHoldStatus(ver.LegalHold),
+		ObjectLockRetainUntilDate: retainUntilPtr(ver),
+		Restore:                   restoreHeaderValue(ver),
 	}
 }
 

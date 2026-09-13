@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { onRegionChange, regionalClient } from '$lib/region-effect.svelte';
 	import { getQuickSightClient } from '$lib/aws-client';
 	import {
@@ -7,26 +8,43 @@
 		UpdateDashboardCommand,
 		DeleteDashboardCommand,
 		DescribeDashboardCommand,
+		DescribeDashboardPermissionsCommand,
+		UpdateDashboardPermissionsCommand,
+		ListDashboardVersionsCommand,
+		UpdateDashboardPublishedVersionCommand,
 		ListAnalysesCommand,
 		CreateAnalysisCommand,
 		UpdateAnalysisCommand,
 		DeleteAnalysisCommand,
 		DescribeAnalysisCommand,
+		DescribeAnalysisPermissionsCommand,
+		UpdateAnalysisPermissionsCommand,
 		ListDataSetsCommand,
 		CreateDataSetCommand,
 		UpdateDataSetCommand,
 		DeleteDataSetCommand,
 		DescribeDataSetCommand,
+		DescribeDataSetPermissionsCommand,
+		UpdateDataSetPermissionsCommand,
+		CreateIngestionCommand,
+		DescribeIngestionCommand,
+		CancelIngestionCommand,
+		ListIngestionsCommand,
 		ListDataSourcesCommand,
 		CreateDataSourceCommand,
 		UpdateDataSourceCommand,
 		DeleteDataSourceCommand,
 		DescribeDataSourceCommand,
+		DescribeDataSourcePermissionsCommand,
+		UpdateDataSourcePermissionsCommand,
 		ListFoldersCommand,
 		CreateFolderCommand,
 		UpdateFolderCommand,
 		DeleteFolderCommand,
 		DescribeFolderCommand,
+		DescribeFolderPermissionsCommand,
+		DescribeFolderResolvedPermissionsCommand,
+		UpdateFolderPermissionsCommand,
 		ListVPCConnectionsCommand,
 		CreateVPCConnectionCommand,
 		UpdateVPCConnectionCommand,
@@ -37,11 +55,15 @@
 		UpdateTemplateCommand,
 		DeleteTemplateCommand,
 		DescribeTemplateCommand,
+		DescribeTemplatePermissionsCommand,
+		UpdateTemplatePermissionsCommand,
 		ListThemesCommand,
 		CreateThemeCommand,
 		UpdateThemeCommand,
 		DeleteThemeCommand,
 		DescribeThemeCommand,
+		DescribeThemePermissionsCommand,
+		UpdateThemePermissionsCommand,
 		ListTopicsCommand,
 		CreateTopicCommand,
 		UpdateTopicCommand,
@@ -99,6 +121,10 @@
 		type DashboardSummary,
 		type Dashboard,
 		type DashboardVersionDefinition,
+		type DashboardVersionSummary,
+		type ResourcePermission,
+		type Ingestion,
+		type IngestionType,
 		type AnalysisSummary,
 		type Analysis,
 		type AnalysisDefinition,
@@ -158,9 +184,155 @@
 	import { defineColumns } from '$lib/components/data-table';
 	import LoadMore from '$lib/components/LoadMore.svelte';
 	import Modal from '$lib/components/Modal.svelte';
+	import ResourcePermissions, {
+		type PermissionRow,
+		type ActionPreset
+	} from '$lib/components/ResourcePermissions.svelte';
 	import { BarChart3, Plus, Trash2, Eye, Pencil } from 'lucide-svelte';
 
 	const client = regionalClient(getQuickSightClient);
+
+	// The API reference's request/response schemas for every Update*Permissions
+	// operation just show ResourcePermission{Principal,Actions} -- no example
+	// action list. These presets follow the documented quicksight:<Verb><Noun>
+	// IAM action naming for each resource (e.g. the dashboard viewer set named
+	// in gopherstack-jc2j: DescribeDashboard/ListDashboardVersions/
+	// QueryDashboard) with "owner" adding the write/delete/permissions actions.
+	const dashboardPermissionPresets: ActionPreset[] = [
+		{
+			label: 'Viewer',
+			actions: ['quicksight:DescribeDashboard', 'quicksight:ListDashboardVersions', 'quicksight:QueryDashboard']
+		},
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeDashboard',
+				'quicksight:ListDashboardVersions',
+				'quicksight:QueryDashboard',
+				'quicksight:DescribeDashboardPermissions',
+				'quicksight:UpdateDashboard',
+				'quicksight:UpdateDashboardPermissions',
+				'quicksight:DeleteDashboard'
+			]
+		}
+	];
+	const analysisPermissionPresets: ActionPreset[] = [
+		{
+			label: 'Viewer',
+			actions: ['quicksight:DescribeAnalysis', 'quicksight:QueryAnalysis', 'quicksight:DescribeAnalysisPermissions']
+		},
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeAnalysis',
+				'quicksight:QueryAnalysis',
+				'quicksight:DescribeAnalysisPermissions',
+				'quicksight:UpdateAnalysis',
+				'quicksight:UpdateAnalysisPermissions',
+				'quicksight:RestoreAnalysis',
+				'quicksight:DeleteAnalysis'
+			]
+		}
+	];
+	const dataSetPermissionPresets: ActionPreset[] = [
+		{
+			label: 'Viewer',
+			actions: [
+				'quicksight:DescribeDataSet',
+				'quicksight:DescribeDataSetPermissions',
+				'quicksight:PassDataSet',
+				'quicksight:DescribeIngestion',
+				'quicksight:ListIngestions'
+			]
+		},
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeDataSet',
+				'quicksight:DescribeDataSetPermissions',
+				'quicksight:PassDataSet',
+				'quicksight:DescribeIngestion',
+				'quicksight:ListIngestions',
+				'quicksight:CreateIngestion',
+				'quicksight:CancelIngestion',
+				'quicksight:UpdateDataSet',
+				'quicksight:UpdateDataSetPermissions',
+				'quicksight:DeleteDataSet'
+			]
+		}
+	];
+	const dataSourcePermissionPresets: ActionPreset[] = [
+		{
+			label: 'Viewer',
+			actions: ['quicksight:DescribeDataSource', 'quicksight:DescribeDataSourcePermissions', 'quicksight:PassDataSource']
+		},
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeDataSource',
+				'quicksight:DescribeDataSourcePermissions',
+				'quicksight:PassDataSource',
+				'quicksight:UpdateDataSource',
+				'quicksight:UpdateDataSourcePermissions',
+				'quicksight:DeleteDataSource'
+			]
+		}
+	];
+	const templatePermissionPresets: ActionPreset[] = [
+		{ label: 'Viewer', actions: ['quicksight:DescribeTemplate', 'quicksight:DescribeTemplatePermissions'] },
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeTemplate',
+				'quicksight:DescribeTemplatePermissions',
+				'quicksight:UpdateTemplate',
+				'quicksight:UpdateTemplatePermissions',
+				'quicksight:DeleteTemplate'
+			]
+		}
+	];
+	const themePermissionPresets: ActionPreset[] = [
+		{
+			label: 'Viewer',
+			actions: ['quicksight:DescribeTheme', 'quicksight:DescribeThemeAlias', 'quicksight:ListThemeVersions', 'quicksight:DescribeThemePermissions']
+		},
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeTheme',
+				'quicksight:DescribeThemeAlias',
+				'quicksight:ListThemeVersions',
+				'quicksight:DescribeThemePermissions',
+				'quicksight:UpdateTheme',
+				'quicksight:UpdateThemePermissions',
+				'quicksight:DeleteTheme'
+			]
+		}
+	];
+	const folderPermissionPresets: ActionPreset[] = [
+		{ label: 'Viewer', actions: ['quicksight:DescribeFolder'] },
+		{
+			label: 'Owner',
+			actions: [
+				'quicksight:DescribeFolder',
+				'quicksight:CreateFolder',
+				'quicksight:UpdateFolder',
+				'quicksight:DeleteFolder',
+				'quicksight:CreateFolderMembership',
+				'quicksight:DeleteFolderMembership',
+				'quicksight:DescribeFolderPermissions',
+				'quicksight:UpdateFolderPermissions'
+			]
+		}
+	];
+
+	function toResourcePermission(r: PermissionRow): ResourcePermission {
+		return { Principal: r.principal, Actions: r.actions };
+	}
+
+	function fromResourcePermissions(perms: ResourcePermission[] | undefined): PermissionRow[] {
+		return (perms ?? []).map((p) => ({ principal: p.Principal ?? '', actions: p.Actions ?? [] }));
+	}
 
 	type TabId =
 		| 'dashboards'
@@ -639,7 +811,13 @@
 		// test) can switch tabs before it settles. Re-reading `activeTab` inside
 		// the callback would then refresh whatever tab they switched TO a second
 		// time and never load the one that was active when this effect fired.
-		const tabAtMount = activeTab;
+		//
+		// untrack is required, not just style: onRegionChange's callback runs
+		// inside a Svelte $effect, so a plain synchronous read of `activeTab`
+		// here makes the effect depend on it too -- every switchTab() call would
+		// then re-run this whole region-change handler and refresh every tab
+		// (gopherstack-291eg).
+		const tabAtMount = untrack(() => activeTab);
 		void ensureAccountId().then(() => {
 			if (isInitialMount) {
 				void tabLoader.refresh(tabAtMount);
@@ -1139,9 +1317,122 @@
 	let dashboardDetailLoading = $state(false);
 	let dashboardDetailError = $state<string | null>(null);
 
+	let dashboardPermissions = $state<PermissionRow[]>([]);
+	let dashboardPermissionsLoading = $state(false);
+	let dashboardLinkPermissions = $state<PermissionRow[]>([]);
+	let dashboardVersions = $state<DashboardVersionSummary[]>([]);
+	let dashboardVersionsNextToken = $state<string | undefined>();
+	let selectedPublishVersion = $state<number | undefined>();
+	let publishingVersion = $state(false);
+	let publishVersionError = $state<string | null>(null);
+
+	async function loadDashboardPermissions(dashboardId: string): Promise<void> {
+		dashboardPermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeDashboardPermissionsCommand({ AwsAccountId: awsAccountId, DashboardId: dashboardId })
+			);
+			dashboardPermissions = fromResourcePermissions(resp.Permissions);
+			dashboardLinkPermissions = fromResourcePermissions(resp.LinkSharingConfiguration?.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			dashboardPermissionsLoading = false;
+		}
+	}
+
+	async function updateDashboardPermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedDashboard?.DashboardId) return;
+		try {
+			const resp = await client().send(
+				new UpdateDashboardPermissionsCommand({
+					AwsAccountId: awsAccountId,
+					DashboardId: viewedDashboard.DashboardId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			dashboardPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
+	async function updateDashboardLinkPermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedDashboard?.DashboardId) return;
+		try {
+			const resp = await client().send(
+				new UpdateDashboardPermissionsCommand({
+					AwsAccountId: awsAccountId,
+					DashboardId: viewedDashboard.DashboardId,
+					GrantLinkPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokeLinkPermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			dashboardLinkPermissions = fromResourcePermissions(resp.LinkSharingConfiguration?.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
+	async function loadDashboardVersions(dashboardId: string, reset: boolean): Promise<void> {
+		const resp = await client().send(
+			new ListDashboardVersionsCommand({
+				AwsAccountId: awsAccountId,
+				DashboardId: dashboardId,
+				NextToken: reset ? undefined : dashboardVersionsNextToken
+			})
+		);
+		dashboardVersions = reset
+			? (resp.DashboardVersionSummaryList ?? [])
+			: [...dashboardVersions, ...(resp.DashboardVersionSummaryList ?? [])];
+		dashboardVersionsNextToken = resp.NextToken;
+	}
+
+	async function refreshDashboardVersions(dashboardId: string): Promise<void> {
+		try {
+			await loadDashboardVersions(dashboardId, true);
+			selectedPublishVersion = dashboardVersions[0]?.VersionNumber;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function submitPublishVersion(): Promise<void> {
+		if (!viewedDashboard?.DashboardId || selectedPublishVersion === undefined) return;
+		publishingVersion = true;
+		publishVersionError = null;
+		try {
+			await client().send(
+				new UpdateDashboardPublishedVersionCommand({
+					AwsAccountId: awsAccountId,
+					DashboardId: viewedDashboard.DashboardId,
+					VersionNumber: selectedPublishVersion
+				})
+			);
+			toast.success(`Published version ${selectedPublishVersion}`);
+			const resp = await client().send(
+				new DescribeDashboardCommand({ AwsAccountId: awsAccountId, DashboardId: viewedDashboard.DashboardId })
+			);
+			viewedDashboard = resp.Dashboard ?? viewedDashboard;
+		} catch (e) {
+			const msg = describeError(e);
+			publishVersionError = msg;
+			toast.error(msg);
+		} finally {
+			publishingVersion = false;
+		}
+	}
+
 	async function openDashboardDetail(d: DashboardSummary): Promise<void> {
 		viewedDashboard = d;
 		dashboardDetailError = null;
+		dashboardPermissions = [];
+		dashboardLinkPermissions = [];
+		dashboardVersions = [];
+		dashboardVersionsNextToken = undefined;
+		selectedPublishVersion = undefined;
+		publishVersionError = null;
 		dashboardDetailModal?.open();
 		if (!d.DashboardId) return;
 		dashboardDetailLoading = true;
@@ -1155,6 +1446,7 @@
 		} finally {
 			dashboardDetailLoading = false;
 		}
+		await Promise.all([loadDashboardPermissions(d.DashboardId), refreshDashboardVersions(d.DashboardId)]);
 	}
 
 	// ==================== Analyses: create / update / delete / detail ====================
@@ -1291,9 +1583,44 @@
 	let analysisDetailLoading = $state(false);
 	let analysisDetailError = $state<string | null>(null);
 
+	let analysisPermissions = $state<PermissionRow[]>([]);
+	let analysisPermissionsLoading = $state(false);
+
+	async function loadAnalysisPermissions(analysisId: string): Promise<void> {
+		analysisPermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeAnalysisPermissionsCommand({ AwsAccountId: awsAccountId, AnalysisId: analysisId })
+			);
+			analysisPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			analysisPermissionsLoading = false;
+		}
+	}
+
+	async function updateAnalysisPermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedAnalysis?.AnalysisId) return;
+		try {
+			const resp = await client().send(
+				new UpdateAnalysisPermissionsCommand({
+					AwsAccountId: awsAccountId,
+					AnalysisId: viewedAnalysis.AnalysisId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			analysisPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
 	async function openAnalysisDetail(a: AnalysisSummary): Promise<void> {
 		viewedAnalysis = a;
 		analysisDetailError = null;
+		analysisPermissions = [];
 		analysisDetailModal?.open();
 		if (!a.AnalysisId) return;
 		analysisDetailLoading = true;
@@ -1307,19 +1634,31 @@
 		} finally {
 			analysisDetailLoading = false;
 		}
+		await loadAnalysisPermissions(a.AnalysisId);
 	}
 
 	// ==================== Data Sets: create / update / delete / detail ====================
 	//
 	// CreateDataSetCommand/UpdateDataSetCommand's PhysicalTableMap is required
-	// by the SDK's request type (real AWS uses it to declare the dataset's
-	// underlying physical tables), but this backend never reads or returns it
-	// (dataSetToMap only echoes Arn/CreatedTime/DataSetId/ImportMode/
-	// LastUpdatedTime/Name -- confirmed in services/quicksight/handler_dataset.go).
-	// Rather than build a physical-table-declaration editor for a value this
-	// backend silently discards, an empty map is sent to satisfy the type; see
-	// PARITY.md's precedent of documenting fields a mock backend can't
-	// meaningfully model.
+	// by the SDK's request type, and gopherstack-2qk4's required-member sweep
+	// made the backend enforce that too (physicalTableMapFromBody in
+	// services/quicksight/dataset_physicaltable.go rejects an absent/empty
+	// map) -- sending {} as this comment used to do now 400s. The backend
+	// still doesn't validate a table's DataSourceArn against a real data
+	// source or read its columns, so rather than build a full physical-table
+	// editor, each dataset gets one placeholder RelationalTable entry that
+	// only satisfies the shape.
+	function placeholderPhysicalTableMap(name: string) {
+		return {
+			'physical-table-1': {
+				RelationalTable: {
+					DataSourceArn: `arn:aws:quicksight:us-east-1:${awsAccountId}:datasource/placeholder`,
+					Name: name,
+					InputColumns: []
+				}
+			}
+		};
+	}
 
 	let createDataSetModal = $state<Modal | null>(null);
 	let creatingDataSet = $state(false);
@@ -1350,7 +1689,7 @@
 					DataSetId: newDataSetId,
 					Name: newDataSetName,
 					ImportMode: newDataSetImportMode,
-					PhysicalTableMap: {}
+					PhysicalTableMap: placeholderPhysicalTableMap(newDataSetName)
 				})
 			);
 			toast.success('Data set created');
@@ -1395,7 +1734,7 @@
 					DataSetId: editingDataSet.DataSetId,
 					Name: editingDataSetName,
 					ImportMode: editingDataSetImportMode,
-					PhysicalTableMap: {}
+					PhysicalTableMap: placeholderPhysicalTableMap(editingDataSetName)
 				})
 			);
 			toast.success('Data set updated');
@@ -1433,9 +1772,165 @@
 	let dataSetDetailLoading = $state(false);
 	let dataSetDetailError = $state<string | null>(null);
 
+	let dataSetPermissions = $state<PermissionRow[]>([]);
+	let dataSetPermissionsLoading = $state(false);
+
+	async function loadDataSetPermissions(dataSetId: string): Promise<void> {
+		dataSetPermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeDataSetPermissionsCommand({ AwsAccountId: awsAccountId, DataSetId: dataSetId })
+			);
+			dataSetPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			dataSetPermissionsLoading = false;
+		}
+	}
+
+	async function updateDataSetPermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedDataSet?.DataSetId) return;
+		try {
+			// UpdateDataSetPermissionsResponse carries no Permissions field, unlike
+			// dashboards/analyses/data sources/templates/themes/folders -- re-describe
+			// to pick up the authoritative post-update list.
+			await client().send(
+				new UpdateDataSetPermissionsCommand({
+					AwsAccountId: awsAccountId,
+					DataSetId: viewedDataSet.DataSetId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			await loadDataSetPermissions(viewedDataSet.DataSetId);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
+	// ==================== Data Sets: ingestions ====================
+
+	let dataSetIngestions = $state<Ingestion[]>([]);
+	let dataSetIngestionsNextToken = $state<string | undefined>();
+	let dataSetIngestionsLoading = $state(false);
+	let dataSetIngestionsError = $state<string | null>(null);
+	let newIngestionId = $state('');
+	let newIngestionType = $state<IngestionType>('FULL_REFRESH');
+	let creatingIngestion = $state(false);
+	let createIngestionError = $state<string | null>(null);
+
+	async function loadDataSetIngestions(dataSetId: string, reset: boolean): Promise<void> {
+		const resp = await client().send(
+			new ListIngestionsCommand({
+				AwsAccountId: awsAccountId,
+				DataSetId: dataSetId,
+				NextToken: reset ? undefined : dataSetIngestionsNextToken
+			})
+		);
+		dataSetIngestions = reset ? (resp.Ingestions ?? []) : [...dataSetIngestions, ...(resp.Ingestions ?? [])];
+		dataSetIngestionsNextToken = resp.NextToken;
+	}
+
+	async function refreshDataSetIngestions(dataSetId: string): Promise<void> {
+		dataSetIngestionsLoading = true;
+		dataSetIngestionsError = null;
+		try {
+			await loadDataSetIngestions(dataSetId, true);
+		} catch (e) {
+			dataSetIngestionsError = describeError(e);
+		} finally {
+			dataSetIngestionsLoading = false;
+		}
+	}
+
+	async function loadMoreDataSetIngestions(): Promise<void> {
+		if (!viewedDataSet?.DataSetId) return;
+		try {
+			await loadDataSetIngestions(viewedDataSet.DataSetId, false);
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	function openCreateIngestionForm(): void {
+		newIngestionId = '';
+		newIngestionType = 'FULL_REFRESH';
+		createIngestionError = null;
+	}
+
+	async function submitCreateIngestion(): Promise<void> {
+		if (!viewedDataSet?.DataSetId) return;
+		if (!newIngestionId) {
+			createIngestionError = 'Ingestion ID is required.';
+			return;
+		}
+		creatingIngestion = true;
+		createIngestionError = null;
+		try {
+			await client().send(
+				new CreateIngestionCommand({
+					AwsAccountId: awsAccountId,
+					DataSetId: viewedDataSet.DataSetId,
+					IngestionId: newIngestionId,
+					IngestionType: newIngestionType
+				})
+			);
+			toast.success('Ingestion started');
+			newIngestionId = '';
+			await refreshDataSetIngestions(viewedDataSet.DataSetId);
+		} catch (e) {
+			const msg = describeError(e);
+			createIngestionError = msg;
+			toast.error(msg);
+		} finally {
+			creatingIngestion = false;
+		}
+	}
+
+	async function checkIngestionStatus(ingestionId: string | undefined): Promise<void> {
+		if (!viewedDataSet?.DataSetId || !ingestionId) return;
+		try {
+			const resp = await client().send(
+				new DescribeIngestionCommand({
+					AwsAccountId: awsAccountId,
+					DataSetId: viewedDataSet.DataSetId,
+					IngestionId: ingestionId
+				})
+			);
+			if (resp.Ingestion) {
+				const ingestion = resp.Ingestion;
+				dataSetIngestions = dataSetIngestions.map((i) => (i.IngestionId === ingestionId ? ingestion : i));
+			}
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
+	async function cancelIngestion(ingestionId: string | undefined): Promise<void> {
+		if (!viewedDataSet?.DataSetId || !ingestionId) return;
+		try {
+			await client().send(
+				new CancelIngestionCommand({
+					AwsAccountId: awsAccountId,
+					DataSetId: viewedDataSet.DataSetId,
+					IngestionId: ingestionId
+				})
+			);
+			toast.success('Ingestion cancellation requested');
+			await checkIngestionStatus(ingestionId);
+		} catch (e) {
+			toast.error(describeError(e));
+		}
+	}
+
 	async function openDataSetDetail(ds: DataSetSummary): Promise<void> {
 		viewedDataSet = ds;
 		dataSetDetailError = null;
+		dataSetPermissions = [];
+		dataSetIngestions = [];
+		dataSetIngestionsNextToken = undefined;
+		openCreateIngestionForm();
 		dataSetDetailModal?.open();
 		if (!ds.DataSetId) return;
 		dataSetDetailLoading = true;
@@ -1449,6 +1944,7 @@
 		} finally {
 			dataSetDetailLoading = false;
 		}
+		await Promise.all([loadDataSetPermissions(ds.DataSetId), refreshDataSetIngestions(ds.DataSetId)]);
 	}
 
 	// ==================== Data Sources: create / update / delete / detail ====================
@@ -1577,9 +2073,46 @@
 	let dataSourceDetailLoading = $state(false);
 	let dataSourceDetailError = $state<string | null>(null);
 
+	let dataSourcePermissions = $state<PermissionRow[]>([]);
+	let dataSourcePermissionsLoading = $state(false);
+
+	async function loadDataSourcePermissions(dataSourceId: string): Promise<void> {
+		dataSourcePermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeDataSourcePermissionsCommand({ AwsAccountId: awsAccountId, DataSourceId: dataSourceId })
+			);
+			dataSourcePermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			dataSourcePermissionsLoading = false;
+		}
+	}
+
+	async function updateDataSourcePermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedDataSource?.DataSourceId) return;
+		try {
+			// UpdateDataSourcePermissionsResponse carries no Permissions field --
+			// re-describe to pick up the authoritative post-update list.
+			await client().send(
+				new UpdateDataSourcePermissionsCommand({
+					AwsAccountId: awsAccountId,
+					DataSourceId: viewedDataSource.DataSourceId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			await loadDataSourcePermissions(viewedDataSource.DataSourceId);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
 	async function openDataSourceDetail(ds: DataSource): Promise<void> {
 		viewedDataSource = ds;
 		dataSourceDetailError = null;
+		dataSourcePermissions = [];
 		dataSourceDetailModal?.open();
 		if (!ds.DataSourceId) return;
 		dataSourceDetailLoading = true;
@@ -1593,6 +2126,7 @@
 		} finally {
 			dataSourceDetailLoading = false;
 		}
+		await loadDataSourcePermissions(ds.DataSourceId);
 	}
 
 	// ==================== Folders: create / update / delete / detail ====================
@@ -1708,9 +2242,68 @@
 	let folderDetailLoading = $state(false);
 	let folderDetailError = $state<string | null>(null);
 
+	let folderPermissions = $state<PermissionRow[]>([]);
+	let folderPermissionsLoading = $state(false);
+	let folderResolvedPermissions = $state<PermissionRow[]>([]);
+	let folderResolvedPermissionsLoaded = $state(false);
+	let folderResolvedPermissionsLoading = $state(false);
+
+	async function loadFolderPermissions(folderId: string): Promise<void> {
+		folderPermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeFolderPermissionsCommand({ AwsAccountId: awsAccountId, FolderId: folderId })
+			);
+			folderPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			folderPermissionsLoading = false;
+		}
+	}
+
+	async function updateFolderPermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedFolder?.FolderId) return;
+		try {
+			const resp = await client().send(
+				new UpdateFolderPermissionsCommand({
+					AwsAccountId: awsAccountId,
+					FolderId: viewedFolder.FolderId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			folderPermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
+	// DescribeFolderResolvedPermissions is read-only (includes permissions
+	// inherited from ancestor folders) -- no Update op exists for it, so it's
+	// a lazy-loaded list rather than another ResourcePermissions editor.
+	async function loadFolderResolvedPermissions(): Promise<void> {
+		if (!viewedFolder?.FolderId) return;
+		folderResolvedPermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeFolderResolvedPermissionsCommand({ AwsAccountId: awsAccountId, FolderId: viewedFolder.FolderId })
+			);
+			folderResolvedPermissions = fromResourcePermissions(resp.Permissions);
+			folderResolvedPermissionsLoaded = true;
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			folderResolvedPermissionsLoading = false;
+		}
+	}
+
 	async function openFolderDetail(f: FolderSummary): Promise<void> {
 		viewedFolder = f;
 		folderDetailError = null;
+		folderPermissions = [];
+		folderResolvedPermissions = [];
+		folderResolvedPermissionsLoaded = false;
 		folderDetailModal?.open();
 		if (!f.FolderId) return;
 		folderDetailLoading = true;
@@ -1724,6 +2317,7 @@
 		} finally {
 			folderDetailLoading = false;
 		}
+		await loadFolderPermissions(f.FolderId);
 	}
 
 	// ==================== VPC Connections: create / update / delete / detail ====================
@@ -2035,9 +2629,44 @@
 	let templateDetailLoading = $state(false);
 	let templateDetailError = $state<string | null>(null);
 
+	let templatePermissions = $state<PermissionRow[]>([]);
+	let templatePermissionsLoading = $state(false);
+
+	async function loadTemplatePermissions(templateId: string): Promise<void> {
+		templatePermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeTemplatePermissionsCommand({ AwsAccountId: awsAccountId, TemplateId: templateId })
+			);
+			templatePermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			templatePermissionsLoading = false;
+		}
+	}
+
+	async function updateTemplatePermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedTemplate?.TemplateId) return;
+		try {
+			const resp = await client().send(
+				new UpdateTemplatePermissionsCommand({
+					AwsAccountId: awsAccountId,
+					TemplateId: viewedTemplate.TemplateId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			templatePermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
 	async function openTemplateDetail(t: TemplateSummary): Promise<void> {
 		viewedTemplate = t;
 		templateDetailError = null;
+		templatePermissions = [];
 		templateDetailModal?.open();
 		if (!t.TemplateId) return;
 		templateDetailLoading = true;
@@ -2051,6 +2680,7 @@
 		} finally {
 			templateDetailLoading = false;
 		}
+		await loadTemplatePermissions(t.TemplateId);
 	}
 
 	// ==================== Themes: create / update / delete / detail ====================
@@ -2185,9 +2815,44 @@
 	let themeDetailLoading = $state(false);
 	let themeDetailError = $state<string | null>(null);
 
+	let themePermissions = $state<PermissionRow[]>([]);
+	let themePermissionsLoading = $state(false);
+
+	async function loadThemePermissions(themeId: string): Promise<void> {
+		themePermissionsLoading = true;
+		try {
+			const resp = await client().send(
+				new DescribeThemePermissionsCommand({ AwsAccountId: awsAccountId, ThemeId: themeId })
+			);
+			themePermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			themePermissionsLoading = false;
+		}
+	}
+
+	async function updateThemePermissions(grant: PermissionRow[], revoke: PermissionRow[]): Promise<void> {
+		if (!viewedTheme?.ThemeId) return;
+		try {
+			const resp = await client().send(
+				new UpdateThemePermissionsCommand({
+					AwsAccountId: awsAccountId,
+					ThemeId: viewedTheme.ThemeId,
+					GrantPermissions: grant.length ? grant.map(toResourcePermission) : undefined,
+					RevokePermissions: revoke.length ? revoke.map(toResourcePermission) : undefined
+				})
+			);
+			themePermissions = fromResourcePermissions(resp.Permissions);
+		} catch (e) {
+			rethrowDescribed(e);
+		}
+	}
+
 	async function openThemeDetail(t: ThemeSummary): Promise<void> {
 		viewedTheme = t;
 		themeDetailError = null;
+		themePermissions = [];
 		themeDetailModal?.open();
 		if (!t.ThemeId) return;
 		themeDetailLoading = true;
@@ -2201,6 +2866,7 @@
 		} finally {
 			themeDetailLoading = false;
 		}
+		await loadThemePermissions(t.ThemeId);
 	}
 
 	// ==================== Topics: create / update / delete / detail ====================
@@ -4730,31 +5396,83 @@
 		{#if dashboardDetailLoading}
 			<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
 		{:else if viewedDashboard}
-			<dl class="text-sm space-y-2">
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Name</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedDashboard.Name ?? '—'}</dd>
+			<div class="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+				<dl class="text-sm space-y-2">
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Name</dt>
+						<dd class="text-slate-900 dark:text-white">{viewedDashboard.Name ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Dashboard ID</dt>
+						<dd class="text-slate-900 dark:text-white">{viewedDashboard.DashboardId ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">ARN</dt>
+						<dd class="break-all text-slate-900 dark:text-white">{viewedDashboard.Arn ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Published version</dt>
+						<dd class="text-slate-900 dark:text-white">
+							{('Version' in viewedDashboard ? viewedDashboard.Version?.VersionNumber : undefined) ??
+								('PublishedVersionNumber' in viewedDashboard ? viewedDashboard.PublishedVersionNumber : undefined) ??
+								'—'}
+						</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Created</dt>
+						<dd class="text-slate-900 dark:text-white">{formatDate(viewedDashboard.CreatedTime)}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Last updated</dt>
+						<dd class="text-slate-900 dark:text-white">{formatDate(viewedDashboard.LastUpdatedTime)}</dd>
+					</div>
+				</dl>
+				{#if dashboardDetailError}
+					<p class="mt-2 text-sm text-red-600 dark:text-red-400">{dashboardDetailError}</p>
+				{/if}
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+					<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Publish a version</p>
+					<div class="flex items-center gap-2">
+						<select
+							bind:value={selectedPublishVersion}
+							aria-label="Version to publish"
+							class="px-2 py-1 text-sm rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white"
+						>
+							{#each dashboardVersions as v (v.VersionNumber)}
+								<option value={v.VersionNumber}>Version {v.VersionNumber} ({v.Status ?? '—'})</option>
+							{/each}
+						</select>
+						<button
+							onclick={submitPublishVersion}
+							disabled={publishingVersion || selectedPublishVersion === undefined}
+							class="px-3 py-1 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+							>{publishingVersion ? 'Publishing…' : 'Publish'}</button
+						>
+					</div>
+					{#if dashboardVersions.length === 0}
+						<p class="text-xs text-slate-500">No dashboard versions found.</p>
+					{/if}
+					{#if publishVersionError}<p class="text-sm text-red-600 dark:text-red-400">{publishVersionError}</p>{/if}
 				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Dashboard ID</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedDashboard.DashboardId ?? '—'}</dd>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+					<ResourcePermissions
+						permissions={dashboardPermissions}
+						loading={dashboardPermissionsLoading}
+						presets={dashboardPermissionPresets}
+						onUpdate={updateDashboardPermissions}
+					/>
 				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">ARN</dt>
-					<dd class="break-all text-slate-900 dark:text-white">{viewedDashboard.Arn ?? '—'}</dd>
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+					<ResourcePermissions
+						sectionTitle="Link sharing"
+						permissions={dashboardLinkPermissions}
+						presets={dashboardPermissionPresets}
+						onUpdate={updateDashboardLinkPermissions}
+					/>
 				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
-					<dd class="text-slate-900 dark:text-white">{formatDate(viewedDashboard.CreatedTime)}</dd>
-				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Last updated</dt>
-					<dd class="text-slate-900 dark:text-white">{formatDate(viewedDashboard.LastUpdatedTime)}</dd>
-				</div>
-			</dl>
-			{#if dashboardDetailError}
-				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{dashboardDetailError}</p>
-			{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -4904,6 +5622,15 @@
 			{#if analysisDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{analysisDetailError}</p>
 			{/if}
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+				<ResourcePermissions
+					permissions={analysisPermissions}
+					loading={analysisPermissionsLoading}
+					presets={analysisPermissionPresets}
+					onUpdate={updateAnalysisPermissions}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -5028,35 +5755,113 @@
 		{#if dataSetDetailLoading}
 			<p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
 		{:else if viewedDataSet}
-			<dl class="text-sm space-y-2">
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Name</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedDataSet.Name ?? '—'}</dd>
+			<div class="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+				<dl class="text-sm space-y-2">
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Name</dt>
+						<dd class="text-slate-900 dark:text-white">{viewedDataSet.Name ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Data set ID</dt>
+						<dd class="text-slate-900 dark:text-white">{viewedDataSet.DataSetId ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">ARN</dt>
+						<dd class="break-all text-slate-900 dark:text-white">{viewedDataSet.Arn ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Import mode</dt>
+						<dd class="text-slate-900 dark:text-white">{viewedDataSet.ImportMode ?? '—'}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Created</dt>
+						<dd class="text-slate-900 dark:text-white">{formatDate(viewedDataSet.CreatedTime)}</dd>
+					</div>
+					<div>
+						<dt class="text-slate-500 dark:text-slate-400">Last updated</dt>
+						<dd class="text-slate-900 dark:text-white">{formatDate(viewedDataSet.LastUpdatedTime)}</dd>
+					</div>
+				</dl>
+				{#if dataSetDetailError}
+					<p class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSetDetailError}</p>
+				{/if}
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3 space-y-2">
+					<p class="text-sm font-medium text-slate-700 dark:text-slate-300">Ingestions (SPICE)</p>
+					{#if dataSetIngestionsError}<p class="text-sm text-red-600 dark:text-red-400">{dataSetIngestionsError}</p>{/if}
+					<table class="w-full text-xs">
+						<thead>
+							<tr class="text-left text-slate-500">
+								<th class="pr-2 font-medium">Ingestion ID</th>
+								<th class="pr-2 font-medium">Status</th>
+								<th class="pr-2 font-medium">Rows</th>
+								<th class="pr-2 font-medium">Created</th>
+								<th class="font-medium"></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each dataSetIngestions as i (i.IngestionId)}
+								<tr>
+									<td class="pr-2 py-1">{i.IngestionId ?? '—'}</td>
+									<td class="pr-2 py-1">{i.IngestionStatus ?? '—'}{i.ErrorInfo?.Message ? ` -- ${i.ErrorInfo.Message}` : ''}</td>
+									<td class="pr-2 py-1"
+										>{i.RowInfo
+											? `${i.RowInfo.RowsIngested ?? 0}/${i.RowInfo.TotalRowsInDataset ?? 0} (${i.RowInfo.RowsDropped ?? 0} dropped)`
+											: '—'}</td
+									>
+									<td class="pr-2 py-1">{formatDate(i.CreatedTime)}</td>
+									<td class="py-1 whitespace-nowrap">
+										<button onclick={() => checkIngestionStatus(i.IngestionId)} class="text-blue-600 hover:underline mr-2"
+											>Refresh status</button
+										>
+										<button onclick={() => cancelIngestion(i.IngestionId)} class="text-red-600 hover:underline">Cancel</button>
+									</td>
+								</tr>
+							{:else}
+								<tr
+									><td colspan="5" class="text-slate-500 py-1"
+										>{dataSetIngestionsLoading ? 'Loading…' : 'No ingestions'}</td
+									></tr
+								>
+							{/each}
+						</tbody>
+					</table>
+					<LoadMore hasMore={!!dataSetIngestionsNextToken} loading={dataSetIngestionsLoading} onLoadMore={loadMoreDataSetIngestions} />
+
+					<div class="flex items-center gap-2 pt-1">
+						<input
+							bind:value={newIngestionId}
+							placeholder="Ingestion ID"
+							aria-label="New ingestion ID"
+							class="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700"
+						/>
+						<select
+							bind:value={newIngestionType}
+							aria-label="Ingestion type"
+							class="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700"
+						>
+							<option value="FULL_REFRESH">Full refresh</option>
+							<option value="INCREMENTAL_REFRESH">Incremental refresh</option>
+						</select>
+						<button
+							onclick={submitCreateIngestion}
+							disabled={creatingIngestion || !newIngestionId}
+							class="px-2 py-1 text-xs rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+							>{creatingIngestion ? 'Starting…' : 'Start ingestion'}</button
+						>
+					</div>
+					{#if createIngestionError}<p class="text-xs text-red-600 dark:text-red-400">{createIngestionError}</p>{/if}
 				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Data set ID</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedDataSet.DataSetId ?? '—'}</dd>
+
+				<div class="border-t border-slate-200 dark:border-slate-700 pt-3">
+					<ResourcePermissions
+						permissions={dataSetPermissions}
+						loading={dataSetPermissionsLoading}
+						presets={dataSetPermissionPresets}
+						onUpdate={updateDataSetPermissions}
+					/>
 				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">ARN</dt>
-					<dd class="break-all text-slate-900 dark:text-white">{viewedDataSet.Arn ?? '—'}</dd>
-				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Import mode</dt>
-					<dd class="text-slate-900 dark:text-white">{viewedDataSet.ImportMode ?? '—'}</dd>
-				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Created</dt>
-					<dd class="text-slate-900 dark:text-white">{formatDate(viewedDataSet.CreatedTime)}</dd>
-				</div>
-				<div>
-					<dt class="text-slate-500 dark:text-slate-400">Last updated</dt>
-					<dd class="text-slate-900 dark:text-white">{formatDate(viewedDataSet.LastUpdatedTime)}</dd>
-				</div>
-			</dl>
-			{#if dataSetDetailError}
-				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSetDetailError}</p>
-			{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -5200,6 +6005,15 @@
 			{#if dataSourceDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSourceDetailError}</p>
 			{/if}
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+				<ResourcePermissions
+					permissions={dataSourcePermissions}
+					loading={dataSourcePermissionsLoading}
+					presets={dataSourcePermissionPresets}
+					onUpdate={updateDataSourcePermissions}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -5367,6 +6181,48 @@
 			{#if folderDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{folderDetailError}</p>
 			{/if}
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+				<ResourcePermissions
+					permissions={folderPermissions}
+					loading={folderPermissionsLoading}
+					presets={folderPermissionPresets}
+					onUpdate={updateFolderPermissions}
+				/>
+			</div>
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3 space-y-2">
+				<div class="flex items-center gap-2">
+					<p class="text-sm font-medium text-slate-700 dark:text-slate-300 flex-1">
+						Resolved permissions (includes inherited)
+					</p>
+					<button onclick={loadFolderResolvedPermissions} class="px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600"
+						>{folderResolvedPermissionsLoading ? 'Loading…' : 'Load resolved permissions'}</button
+					>
+				</div>
+				<table class="w-full text-xs">
+					<thead>
+						<tr class="text-left text-slate-500">
+							<th class="pr-2 font-medium">Principal</th>
+							<th class="font-medium">Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each folderResolvedPermissions as row (row.principal)}
+							<tr>
+								<td class="pr-2 py-1 break-all">{row.principal}</td>
+								<td class="py-1">{row.actions.join(', ')}</td>
+							</tr>
+						{:else}
+							<tr
+								><td colspan="2" class="text-slate-500 py-1"
+									>{folderResolvedPermissionsLoaded ? 'No resolved permissions' : 'Not loaded'}</td
+								></tr
+							>
+						{/each}
+					</tbody>
+				</table>
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -5742,6 +6598,15 @@
 			{#if templateDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{templateDetailError}</p>
 			{/if}
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+				<ResourcePermissions
+					permissions={templatePermissions}
+					loading={templatePermissionsLoading}
+					presets={templatePermissionPresets}
+					onUpdate={updateTemplatePermissions}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}
@@ -5895,6 +6760,15 @@
 			{#if themeDetailError}
 				<p class="mt-2 text-sm text-red-600 dark:text-red-400">{themeDetailError}</p>
 			{/if}
+
+			<div class="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3">
+				<ResourcePermissions
+					permissions={themePermissions}
+					loading={themePermissionsLoading}
+					presets={themePermissionPresets}
+					onUpdate={updateThemePermissions}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 	{#snippet footer()}

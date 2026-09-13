@@ -49,7 +49,8 @@ families:
   translation_jobs: {status: ok, note: "Start/Stop/Describe/List verified against TextTranslationJobProperties/JobDetails and api-2.json's per-op error lists; StartTextTranslationJob's missing required-field/language-pair/resource-reference validation fixed, error-code-per-op fixed for Stop/Describe"}
   translation: {status: ok, note: "TranslateText/TranslateDocument verified against TranslateTextOutput/TranslateDocumentOutput/AppliedTerminology/TranslationSettings shapes and Amazon Translate's guidelines/quotas page; missing terminology-reference validation, size limits, language-pair validation, ContentType, and Settings enum validation all fixed"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against Tag{Key,Value} shape; error-code-per-op and 50-tag limit fixed"}
-gaps:
+gaps: []
+items_still_open:
   - "IMPOSSIBLE (re-confirmed gopherstack-llun): TranslateText/TranslateDocument echo SourceLanguageCode literally as 'auto' when omitted, instead of resolving it to a detected language code the way real AWS does (via an internal Comprehend call). Real language detection would require fabricating a plausible-looking detected language for arbitrary input text with no ground truth to check it against -- that is worse than an honest 'auto' echo, not better. Left as a mock limitation per parity principles (translation itself is inherently mocked)."
   - "ALREADY COVERED BY CHAOS (verified gopherstack-llun; CORRECTED 2026-09-04 for UpdateParallelData, see its ops entry): DetectedLanguageLowConfidenceException, TooManyRequestsException, InternalServerException, and ServiceUnavailableException (plus ConcurrentModificationException for every op EXCEPT UpdateParallelData) are real modeled errors for several ops but have no deterministic backend-state trigger in this synchronous, single-lock, unbounded in-memory emulator (no rate limiting, no enforced per-account resource quotas, no real concurrent-write races, no real Comprehend-backed language detection). Concretely verified this pass: translate.Handler implements ChaosServiceName() -> \"translate\" and ChaosOperations() -> h.GetSupportedOperations() (handler.go), and pkgs/chaos.Middleware is wired globally via registry.Use(chaos.Middleware(faultStore)) in cli.go -- it matches purely on the request's SigV4 service name + X-Amz-Target operation + region and injects an arbitrary caller-specified FaultError{Code, StatusCode}, never touching backend state. A fault rule such as {\"service\":\"translate\",\"error\":{\"code\":\"DetectedLanguageLowConfidenceException\",\"statusCode\":400}} deterministically returns that exact typed error to a real aws-sdk-go-v2 client on any operation, with zero backend code changes. Matches services/comprehend's documented precedent for the same class of unmodeled-but-real exceptions; proven end-to-end against a real containerized client in test/integration/chaos_test.go. DeleteParallelData also models ConcurrentModificationException with the same 'modification in progress' semantics, but no doc sentence on DeleteParallelData itself confirms delete is blocked during CREATING/UPDATING the way UpdateParallelData's fix does -- left ungated per the no-invented-guards rule; flagging for a future pass with stronger evidence."
   - "IMPOSSIBLE (re-confirmed gopherstack-llun): EncryptionKey.Type (KMS-only enum) and EncryptionKey.Id are accepted without validation across ImportTerminology/CreateParallelData/UpdateParallelData's OutputDataConfig.EncryptionKey. Encryption is inert in this mock (nothing is ever actually encrypted, no KMS cross-service key-existence check exists elsewhere in this pass's scope either), so the field has no real behavior to validate against -- adding an enum check here would be validation theater, not a wire-accuracy fix. Low-value/low-risk gap, left as-is."
@@ -397,3 +398,19 @@ cursor still resolves -- none deleted an item or forged a token between pages.
 **Gates**: `go build ./services/translate/...`, `go vet ./services/translate/...`,
 `go test -race -count=1 ./services/translate/...` all pass; `golangci-lint run
 ./services/translate/...` reports 0 issues.
+
+## 2026-09-12 typed-client slice 19 (gopherstack-n3zi)
+
+Added `typed_slice19_realclient_test.go` driving all 10 previously
+typed-client-uncovered ops through a real `aws-sdk-go-v2/service/translate`
+client: `DeleteParallelData`, `DescribeTextTranslationJob`, `ListLanguages`,
+`ListParallelData`, `ListTagsForResource`, `StopTextTranslationJob`,
+`TagResource`, `TranslateDocument`, `UntagResource`, `UpdateParallelData`.
+translate is now 19/19 typed-covered.
+
+**Zero bugs found** -- this service already has a deep audit history
+(wrapper-key sweep, constraint-not-honoured sweep, both recorded above).
+
+Gates: `go build ./services/translate/...`, `go vet`, `go test -race
+-count=1` (clean), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 FAIL.

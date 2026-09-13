@@ -100,7 +100,7 @@ func TestHandler_ListBuildBatches_FilterByStatus(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	createTestProject(t, h, "batch-filter-proj")
+	createBatchProject(t, h, "batch-filter-proj")
 
 	startRec1 := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-filter-proj"})
 	require.Equal(t, http.StatusOK, startRec1.Code)

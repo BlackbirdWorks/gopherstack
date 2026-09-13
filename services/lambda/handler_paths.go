@@ -25,6 +25,17 @@ const lambda2017PathPrefix = "/2017-10-31/functions"
 // provisioned concurrency and GetFunctionConcurrency operations.
 const lambda2019PathPrefix = "/2019-09-30/functions"
 
+// lambda2019EventInvokeConfigPathPrefix is the API date prefix for the entire
+// FunctionEventInvokeConfig family (Put/Get/Update/Delete/List) -- a
+// distinct real date, 2019-09-25, five days off from lambda2019PathPrefix's
+// 2019-09-30 (verified against each op's own
+// awsRestjson1_serializeOp*FunctionEventInvokeConfig*, lambda@v1.107.0
+// serializers.go). It was previously missing from both
+// lambdaFunctionPrefixes and lambdaPathPrefixes entirely, so no real SDK
+// client request for any op in this family was even recognized as
+// belonging to the Lambda service -- every one 404'd unconditionally.
+const lambda2019EventInvokeConfigPathPrefix = "/2019-09-25/functions"
+
 // lambda2020PathPrefix is the path prefix for Lambda REST API v2 endpoints (e.g. code signing configs).
 const lambda2020PathPrefix = "/2020-06-30/functions"
 
@@ -60,6 +71,7 @@ var lambdaFunctionPrefixes = []string{
 	lambdaPathPrefix,
 	lambda2017PathPrefix,
 	lambda2019PathPrefix,
+	lambda2019EventInvokeConfigPathPrefix,
 	lambda2020PathPrefix,
 	lambda2014AsyncPathPrefix,
 	lambda2021StreamingPathPrefix,
@@ -237,6 +249,7 @@ var lambdaPathPrefixes = []string{
 	lambdaPathPrefix,
 	lambda2017PathPrefix,
 	lambda2019PathPrefix,
+	lambda2019EventInvokeConfigPathPrefix,
 	lambda2020PathPrefix,
 	lambda2021PathPrefix,
 	lambda2021RuntimeMgmtPathPrefix,

@@ -85,7 +85,8 @@ families:
   error_classification: {status: fixed, note: "kmsErrorTable was missing entries for ErrExpiredKeyMaterial and ErrKeyMaterialUnavailable (raised by checkKeyMaterialExpiry/requireKeyMaterial, reachable from every crypto op: Encrypt, Decrypt, ReEncrypt, Sign, Verify, GetPublicKey, GenerateMac, VerifyMac, DeriveSharedSecret, GenerateDataKeyPair(WithoutPlaintext)), so both fell through to the generic 500 default. Also, that generic default itself emitted the type string \"InternalServiceError\", which is not a real KMS exception name (the real SDK's unclassified-server-error type is KMSInternalException) -- a caller's errors.As(&types.KMSInternalException{}) would never match. Fixed: added both sentinels to the table (ExpiredImportTokenException/400 client-fault, KeyUnavailableException/500 server-fault per the real SDK's ErrorFault), and changed the default-branch type string to KMSInternalException."}
   key_state_machine: {status: ok, note: "Enabled/Disabled/PendingDeletion/PendingImport transitions all gated; keyStateError() maps Disabled->DisabledException, everything else->KMSInvalidStateException"}
   multi_region: {status: ok, note: "ReplicateKey/UpdatePrimaryRegion primary<->replica promotion verified by existing TestUpdatePrimaryRegion_RoleSwap; DescribeKey MultiRegionConfiguration built correctly for both primary and replica sides"}
-gaps:
+gaps: []
+items_still_open:
   - "RESOLVED 2026-07-23: GrantConstraints had no SourceArn field (real SDK: GrantConstraints.SourceArn). Added; round-trips through CreateGrant -> ListGrants/ListRetirableGrants/Snapshot-Restore. NOT enforced -- no operation in this mock threads a caller/resource ARN through crypto calls to check against it, and no other service adapter currently supplies one either; enforcement remains cross-cutting request-context plumbing, not a KMS-local fix (bd: gopherstack-w3k, still open for the enforcement half only)."
   - "RESOLVED 2026-07-23: CreateGrantInput had no GrantTokens field (real SDK: authorizes the CreateGrant call itself via an existing not-yet-consistent grant). Added; accepted as a no-op (no IAM/authorization layer exists anywhere in this mock to authorize against), same precedent as CreateKeyInput/ReplicateKeyInput's BypassPolicyLockoutSafetyCheck."
   - "RESOLVED 2026-07-23: GranteeServicePrincipal / RetiringServicePrincipal (AWS-service grantees) were not modeled on CreateGrantInput. Added, WITH real validation (exactly one of GranteePrincipal/GranteeServicePrincipal; RetiringPrincipal/RetiringServicePrincipal mutually exclusive; a service grantee requires a SourceArn constraint + a retiring principal), matching the real CreateGrantInput doc comments. No AWS-service-principal *simulation* exists (still no IAM layer), but the wire shape and its documented validation rules are both real and enforced now, unlike SourceArn's constraint-enforcement half above which has nothing local to check against."
@@ -103,6 +104,8 @@ gaps:
   - "RESOLVED 2026-09-07 (gopherstack-5rjn): CreateKey's two h88p/i4q8-left landmines (validateKeySpecUsage's call, keys.go, and the HMAC+MultiRegion check next to it) turned out to need two different fixes, not one. (1) validateKeySpecUsage's ErrInvalidKeyUsage raise was swapped to ErrUnsupportedParameter (UnsupportedOperationException): CreateKey's declared set (re-derived, matches h88p's list exactly, confirmed word-for-word against the live AWS API_CreateKey.html Errors section) has no key-usage-shaped code, and InvalidKeyUsageException's own doc (docs-2.json) is about an *existing* key's KeyUsage being wrong for the operation invoked, not this creation-time KeySpec/KeyUsage pairing -- a different condition, not just an undeclared one. UnsupportedOperationException is both declared by CreateKey and evidenced live for a KeySpec-shaped CreateKey rejection (developerguide hmac-create-key.html: an HMAC KeySpec unsupported in a Region -> UnsupportedOperationException), and its doc's first clause ('a specified parameter is not supported') covers a KeyUsage value unsupported for the given KeySpec. Weighed gopherstack-q9bs's ValidationException finding and declined it here: q9bs's evidence (GetPublicKey's malformed-DER-blob case) is a pre-dispatch, structural fault; a KeySpec/KeyUsage pairing is cross-field operation logic, a materially different condition, so ValidationException does not fit better than the existing UnsupportedOperationException precedent already used for the same shape (import.go's KeySpec!=SYMMETRIC_DEFAULT guard, gopherstack-h88p). (2) The HMAC+MultiRegion check was not a wrong-error-code bug at all -- its premise was false. kms@v1.55.4's own api_op_CreateKey.go doc comment (the pinned SDK source this whole campaign treats as ground truth) is explicit: 'You can create multi-Region KMS keys for all supported KMS key types: symmetric encryption KMS keys, HMAC KMS keys, asymmetric encryption KMS keys, and asymmetric signing KMS keys.' Cross-confirmed against the live AWS API docs and the 2021-06 multi-Region-keys launch post. HMAC keys DO support MultiRegion; the check unconditionally rejected a valid request shape and was removed rather than re-coded. Two pre-existing tests encoded the false premise and were corrected, not weakened: TestKMSCreateKeyIncompatibleSpecUsage (signing_internal_test.go) asserted ErrInvalidKeyUsage for genuinely-incompatible KeySpec/KeyUsage pairs -- corrected to ErrUnsupportedParameter, matching (1) above; TestCreateKeyValidations's hmac_multiregion case (replication_test.go) asserted wantErr:true for HMAC+MultiRegion -- corrected to wantErr:false (renamed hmac_multiregion_allowed) per (2). TestHandlerCreateKeyHMACMultiRegionRejected (handler_replication_maintenance_test.go) was removed outright, superseded by TestHandler_CreateKey_HMACMultiRegion_ViaHTTP (handler_keys_test.go), which now asserts 200 with the requested KeySpec/KeyUsage/MultiRegion round-tripped. New regression test TestHandler_CreateKey_KeySpecKeyUsageMismatch_ViaHTTP (handler_keys_test.go) drives the full HTTP handler for RSA_2048+GENERATE_VERIFY_MAC and asserts JSON Type is UnsupportedOperationException, not InvalidKeyUsageException; confirmed failing pre-fix with the exact predicted values (400/InvalidKeyUsageException). errtargetaudit -dir kms shows 0 CreateKey findings after the fix (unrelated pre-existing DescribeKey/DisableKey/EnableKey/ScheduleKeyDeletion findings are untouched false positives per the 8u3f entry above). Not authorization/grant/policy-related -- pure KeySpec/KeyUsage/MultiRegion request validation. Gates: `go test -race -count=1 ./services/kms/...` and `golangci-lint run ./services/kms/...` both green."
   - "RESOLVED 2026-09-07 (gopherstack-4ra7): the two shared-helper landmines i4q8 called out separately (differing caller declared sets defeat the per-call-site rule). Caller lists re-verified by grep, not trusted: validateEncryptionContextSize (crypto.go) is reached by GenerateDataKey and GenerateDataKeyWithoutPlaintext (both via the shared generateDataKey helper), GenerateDataKeyPair and GenerateDataKeyPairWithoutPlaintext (both via the shared generateDataKeyPair helper), Encrypt, Decrypt and ReEncrypt (via validateReEncryptInput) -- 7 ops, matching the issue exactly. Re-extracted all 7 declared sets from kms@v1.55.4 deserializers.go: none has a size/length/quota-shaped code (LimitExceededException is absent from every one of the 7; each set is dominated by key-state/grant-token/key-usage codes). No plumbing added: threading a per-caller sentinel through the helper, or returning a neutral sentinel for callers to translate, would add real cost (a new parameter or wrapper type threaded through 7 call sites) to select between codes that ALL fail to fit -- worse than the landmine it would replace. Kept ErrValidation (ValidationException) and documented why it is not a landmine here despite gopherstack-q9bs's structural/operation-logic distinction: an EncryptionContext byte-size cap is a single-field length constraint independent of any other field or resource state, the same shape as q9bs's own GetPublicKey malformed-DER-blob example, not a cross-field business rule like CreateKey's KeySpec/KeyUsage pairing (5rjn, above) -- so it is the pre-dispatch/structural class q9bs confirmed the allowlist entry covers, not the operation-logic class it doesn't. resolveKeyID's (store.go) cache-corruption branch (a failed type assertion on a sync.Map load) was independently verified unreachable, not assumed from the issue text: grep confirms the only two Store calls into keyIDResolutionCache (store.go:449, 460) always write cachedResolution, and Restore (persistence.go:322, 344) clears the cache via clearResolutionCache rather than repopulating it from snapshot data -- no code path, including snapshot/restore, can produce a non-cachedResolution entry. Same shape as gopherstack-t8iz's stepfunctions finding: an honest landmine, not a per-op design question, since there is no reachable per-op fit to resolve. Both sites already carried a one-line landmine comment; strengthened in place (crypto.go, store.go) to record the caller lists / unreachability proof and the q9bs cross-reference, rather than adding a second RESOLVED-but-changed-nothing note without pointing at the evidence. No production behavior changed for either site. Gates: `go test -race -count=1 ./services/kms/...` and `golangci-lint run ./services/kms/...` both green."
   - "RESOLVED 2026-09-07 (gopherstack-jyi3): CreateGrant's invalid-Operations-entry check (grants.go) was left an open question by 3b06f1f3d (filed to decide alongside 5rjn) and then swept, with its landmine comment removed, by 905209940's blanket 32-site ValidationException ruling -- but never individually re-verified against CreateGrant's own declared set or GrantOperation's shape. Re-derived: CreateGrant's deserializeOpError (kms@v1.55.4) declares DependencyTimeoutException/DisabledException/DryRunOperationException/InvalidArnException/InvalidGrantTokenException/KMSInternalException/KMSInvalidStateException/LimitExceededException/NotFoundException -- no UnsupportedOperationException, so 5rjn's CreateKey KeySpec/KeyUsage remedy does not transfer (that op declares the code CreateGrant simply doesn't have). Checked GrantOperation directly in api-2.json: a plain enum-constrained string shape, no cross-field rule -- the same single-field structural class as q9bs's GetPublicKey malformed-blob precedent (and gopherstack-4ra7's EncryptionContext-size precedent), not the cross-field business-rule class 5rjn's KeySpec/KeyUsage pairing needed its own declared code for. So ErrValidation is correct here specifically, not merely by blanket inheritance. No code or test change (the site's behavior was already correct); grants.go's check now carries a short comment recording this, since 905209940 left it bare. gopherstack-i4q8's original 36-site inventory undercounted CreateGrant's other undeclared-code sites too (see gaps entries above, all still-correct ErrLimitExceeded/ErrValidation calls)."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): ListKeyRotationsInput.IncludeKeyMaterial (ALL_KEY_MATERIAL) is entirely unmodeled -- honoring it means adding a synthetic 'first key material' RotationsListEntry plus tracking 'imported key material pending rotation' as a distinct generation, and this backend already has a documented precedent against exactly that: ImportKeyMaterialOutput's own doc comment (models.go) states 'this backend has no concept of multiple key-material generations per key.' Not implemented, consistent with that existing scope decision."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): CreateCustomKeyStore/UpdateCustomKeyStoreInput.XksProxyVpcEndpointServiceOwner is accepted-and-dropped -- the real CustomKeyStoresListEntry response type (kms@v1.59.0 types/types.go:35+) has no field to round-trip it onto, and this backend models no XKS-proxy/VPC-endpoint-service state at all (CustomKeyStore only tracks CustomKeyStoreType/ConnectionState, matching the pre-existing 'deferred' entry above: 'no CloudHSM cluster or XKS proxy is modeled'). Nothing observable to fix."
 deferred:
   - Custom key store cryptographic connection/HSM simulation (ConnectCustomKeyStore is a pure state-machine transition; no CloudHSM cluster or XKS proxy is modeled, matching pre-existing scope). Re-audited 2026-07-23, still accurate -- no change.
   - "REMOVED 2026-07-23: GetKeyLastUsage was listed here as 'not a real AWS KMS operation'. That was wrong on every prior pass -- see the GetKeyLastUsage ops row above. It is now field-diffed and current."
@@ -110,6 +113,52 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+- **2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)**: worked all 13
+  tier-1 findings. **6 real fixes**: `Encrypt`/`Decrypt`/`ReEncrypt`'s
+  `EncryptionAlgorithm`/`SourceEncryptionAlgorithm`/
+  `DestinationEncryptionAlgorithm` were entirely undeclared -- the response
+  always echoed the key-spec default (e.g. `RSAES_OAEP_SHA_256`) regardless
+  of what was requested, so a caller asking for `RSAES_OAEP_SHA_1` (a real,
+  documented, valid value) got back a response claiming a different
+  algorithm than it asked for. Added `resolveEncryptionAlgorithm` (
+  encryption.go), which validates the requested value against
+  `supportedEncryptionAlgorithms(keySpec)` (also now the single source used
+  by `applyAlgorithmFields`'s `KeyMetadata.EncryptionAlgorithms`, replacing
+  a duplicate inline switch) and echoes back the validated value.
+  `GetKeyPolicy.PolicyName` was declared but completely unvalidated (`PutKeyPolicy`
+  already rejects non-`"default"` values with `UnsupportedOperationException`;
+  `GetKeyPolicy` silently accepted and echoed anything) -- now matches
+  `PutKeyPolicy`'s existing check. `PutKeyPolicy.BypassPolicyLockoutSafetyCheck`
+  was undeclared; added, accepted as a no-op, matching the established
+  `CreateKeyInput`/`ReplicateKeyInput` precedent for the same field name (no
+  IAM layer exists in this mock to enforce the lockout check it waives).
+  **One adjacent bug found and fixed while proving the ReEncrypt fix**:
+  `reEncryptDecrypt`/`ReEncrypt`'s destination-encrypt step both called the
+  symmetric-only `decryptData`/`encryptData` unconditionally, so
+  `ReEncrypt` on an RSA-sourced ciphertext or into an RSA destination key
+  was completely broken (`InvalidCiphertextException` on every call,
+  uncaught by any pre-existing test -- none exercised RSA `ReEncrypt`).
+  Both now dispatch through the same RSA/symmetric paths `Decrypt`/`Encrypt`
+  already use (`decryptRSAOAEP` / `b.encryptPayload`). **5 false
+  positives**: `CreateCustomKeyStore.CustomKeyStoreType`,
+  `DescribeCustomKeyStores.CustomKeyStoreId`/`CustomKeyStoreName`,
+  `ImportKeyMaterial.ExpirationModel`, and `ListAliases.KeyId` were all
+  already declared (in `models.go`, a different file from their handlers --
+  the gopherstack-99nj "named decode structs in a different file" blind
+  spot) and already applied in their backend functions
+  (custom_key_stores.go, import.go, aliases.go). **2 recorded gaps** (see
+  `items_still_open`): `ListKeyRotations.IncludeKeyMaterial` (no
+  multi-generation key-material concept, matching `ImportKeyMaterialOutput`'s
+  existing documented precedent) and
+  `CreateCustomKeyStore`/`UpdateCustomKeyStore.XksProxyVpcEndpointServiceOwner`
+  (no response field to round-trip it onto, no XKS-proxy state modeled at
+  all, matching the pre-existing `deferred` entry). Proven via
+  `reqfield_slice6_realclient_test.go` driving the real `kms` client.
+  `go build/vet/test -race`, `golangci-lint`, and `cmd/paritylint` all clean;
+  no persistence-schema version bump (the new `EncryptInput`/`DecryptInput`/
+  `ReEncryptInput`/`PutKeyPolicyInput` fields are request-only, not part of
+  any persisted snapshot).
 
 Freeform findings from the 2026-07-05 sweep (bd: gopherstack-42s), for the next auditor.
 
@@ -625,14 +674,9 @@ re-verified against the vendored SDK, not propagated forward pass after pass.
    destabilizing the grant-token expiry/constraint-checking logic
    (`validateGrantTokenConstraints`/`validateGrantTokenPresence`) under time pressure.
    Left for a dedicated follow-up pass.
-2. **`DryRun` is not implemented on any KMS operation.** The real SDK has a `DryRun
-   *bool` field on `CreateGrantInput` (and several other KMS inputs). gopherstack
-   implements `DryRun` for EC2 (`ec2/handler.go`: validate-then-`ErrDryRunOperation`/412
-   pattern) but nowhere in KMS. This is a broad, multi-op feature addition (every
-   DryRun-capable KMS op, not just CreateGrant) rather than a single documented gap this
-   file was already tracking, so it's out of scope for this pass's 5-gaps/2-deferred
-   closure brief. Noted for a future KMS pass; not a regression (nothing broke — DryRun
-   was already absent).
+2. **`DryRun` is not implemented on any KMS operation.** FIXED 2026-09-11 (gopherstack-i8ln)
+   -- see the dated entry below. This item is retained, unedited, as the historical record
+   of when the gap was first found.
 
 Both `items_still_open` above are genuinely new findings (not previously tracked
 anywhere in this file), surfaced by the same real-SDK field-diffing this pass applied to
@@ -780,3 +824,118 @@ Gates: `go build ./services/kms/...`, `go vet ./...` (repo-wide, clean),
 `go test -race -count=1 ./services/kms/...`, `golangci-lint run
 ./services/kms/...` (0 issues). Work left uncommitted per this pass's
 instructions.
+
+## 2026-09-11 (gopherstack-i8ln): DryRun implemented on all 15 carrying ops
+
+FIX: `DryRun` was unimplemented on every KMS operation (see the 2026-08-23
+`items_still_open` entry above). Grepped `DryRun \*bool` across
+`aws-sdk-go-v2/service/kms@v1.54.0`'s `api_op_*.go` and confirmed the exact
+set of 15 ops that carry it: `CreateGrant`, `Decrypt`, `DeriveSharedSecret`,
+`Encrypt`, `GenerateDataKey`, `GenerateDataKeyPair`,
+`GenerateDataKeyPairWithoutPlaintext`, `GenerateDataKeyWithoutPlaintext`,
+`GenerateMac`, `ReEncrypt`, `RetireGrant`, `RevokeGrant`, `Sign`, `Verify`,
+`VerifyMac`. `DryRunOperationException` (`types/errors.go`: "The request was
+rejected because the DryRun parameter was specified", `ErrorFault:
+smithy.FaultClient`) is in all 15 ops' `deserializeOpError` case lists
+(`deserializers.go`), confirmed by grep -- HTTP status is the client-fault
+default 400 (KMS/awsjson11 has no per-shape `httpResponseCode` trait
+override here).
+
+Implementation: added `DryRun bool \`json:"DryRun,omitempty"\`` to all 15
+`*Input` structs (`models.go`), added `ErrDryRun = errors.New
+("DryRunOperationException")` (`errors.go`) and its `kmsErrorTable` entry
+(`handler.go`, default 400), and inserted `if input.DryRun { return
+..., ErrDryRun }` as the LAST gate in each backend method -- after every
+validation check that method already performs (key lookup, `KeyState`,
+`KeyUsage`, algorithm/spec validation, grant-token constraints/presence,
+`requireKeyMaterial`) and strictly before the first side-effecting step
+(random generation, the actual encrypt/decrypt/sign/verify/MAC/ECDH call, or
+the grant `Put`/`Delete`). This mirrors this backend's own validation
+surface, not real AWS's IAM/policy simulation (which doesn't exist here) --
+same documented scope boundary as every other "checks this emulator can
+perform" note in this file.
+
+`ReEncrypt` needed a real restructure, not just an inserted `if`: it
+decrypts under the source key using `decryptData`/`decryptWithHistory` as
+part of what used to be a single "resolve+decrypt" step, then separately
+resolves the destination key. Both must be FULLY validated (existence,
+`KeyState`, `KeyUsage`, key material) before the DryRun gate fires, per the
+task's "run the full validation path... then return
+DryRunOperationException" contract -- so `reEncryptDecrypt`/
+`reEncryptEncrypt` were split into `validateReEncryptSource`/
+`validateReEncryptDest` (checks only, no decrypt/encrypt) called before the
+gate, and a slimmed `reEncryptDecrypt` (decrypt only, given already-validated
+key+material) called after it, with the final `encryptData` call inlined
+into `ReEncrypt` itself.
+
+`RetireGrant` has three lookup branches (by `GrantToken`; by `GrantId` +
+`KeyId`; by `GrantId` alone across all regions) -- each needed its own
+`if input.DryRun { return ErrDryRun }` gate placed after that branch's own
+existence check and before its `Delete`, since which branch runs depends on
+which fields the caller populated.
+
+Verified precedence is correct, not merely "some error wins": a disabled
+key's `Encrypt` with `DryRun: true` still returns `DisabledException`
+(`KeyState` is checked before the DryRun gate is ever reached), not
+`DryRunOperationException` -- see `TestEncrypt_DryRun_DisabledKey_RealClient`.
+
+Tests added in `dryrun_test.go`: `TestDryRun_AllOps_RealClient` (table,
+one subtest per op, all through a real `aws-sdk-go-v2/service/kms` client)
+plus `TestEncrypt_DryRun_ValidKey_RealClient` and
+`TestEncrypt_DryRun_DisabledKey_RealClient`. The `create_grant`/
+`revoke_grant`/`retire_grant` subtests additionally assert via `ListGrants`
+that the grant was NOT created/revoked/retired -- proving DryRun performs no
+side effect, not just that it returns an error. Confirmed failing pre-fix:
+temporarily neutralized all 15 `if input.DryRun { ... }` gates (`if false &&
+input.DryRun`) across `encryption.go`/`data_keys.go`/`grants.go`/`hmac.go`/
+`key_agreement.go`/`signing.go`, reran `TestDryRun_AllOps_RealClient` --
+all 15 subtests failed (the disabled-key precedence test correctly still
+passed, since that check precedes the neutralized gate) -- then restored;
+`git diff` on those six files was clean after restore, confirmed by
+`go build`/full `go test ./services/kms/...` passing again.
+
+DISCLOSE (both re-confirmed unchanged, not touched this pass):
+`GrantConstraints.SourceArn` enforcement still needs cross-service
+request-context plumbing (bd gopherstack-w3k; see the RESOLVED 2026-07-23
+entry above -- SourceArn is stored/round-tripped but never checked against
+anything, since no operation threads a caller/resource ARN through crypto
+calls). `CreateGrantInput.Name`-based retry idempotency (same `GrantId`,
+fresh `GrantToken` on a matching retry) is still entirely unimplemented --
+see `items_still_open` item 1 above; it needs a `Grant`/`store.Table`
+storage-model change (multiple valid tokens per grant), not a field
+addition, and was out of scope for this DryRun-focused pass.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./...` clean;
+`go test -count=1 ./services/kms/...` clean (existing suite unaffected,
+6.2s); `golangci-lint run ./services/kms/...` clean, 0 issues, no
+cyclop/gocyclo/gocognit/funlen nolints added.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 13
+typed-client-blind ops (CancelKeyDeletion, DeleteAlias, EnableKey,
+GetKeyLastUsage, GetKeyPolicy, ListKeyPolicies, ListKeyRotations,
+PutKeyPolicy, RotateKeyOnDemand, UpdateAlias, UpdateCustomKeyStore,
+UpdateKeyDescription, UpdatePrimaryRegion) -- typed coverage 41/54 ->
+54/54 (0 uncovered). **One real bug found and fixed**, caught only by a
+decoded typed-client enum comparison: `ListKeyRotations`' `RotationType`
+field used fabricated wire values `"AWS_KMS"` (for automatic scheduled
+rotations) and `"IMPORTED"` (for `RotateKeyOnDemand` rotations) -- the real
+`RotationType` enum has exactly two values, `AUTOMATIC` and `ON_DEMAND`
+(kms@v1.59.0 types/enums.go); neither fabricated string exists on the real
+wire, so a real client's `types.RotationTypeOnDemand`/`RotationTypeAutomatic`
+comparison always failed regardless of which rotation actually happened.
+Renamed the misleadingly-named constants (`rotationTypeAWSKMS` ->
+`rotationTypeAutomatic`, `rotationTypeImported` -> `rotationTypeOnDemand`,
+the old "Imported" name was also confusing since it has nothing to do with
+imported key material) and fixed their values across `rotation.go`,
+`janitor.go`, and `export_test.go`; five pre-existing tests
+(`rotation_test.go`) asserting the fabricated `"IMPORTED"` value were
+corrected, not weakened. `UpdateCustomKeyStore`'s well-known, previously
+disclosed CloudHSM-cluster/XKS-proxy-field gap (`items_still_open`,
+"no CloudHSM cluster or XKS proxy is modeled") reconfirmed, not fixed --
+`CustomKeyStoreName` (the one field this backend genuinely models end to
+end) round-trips correctly. Gates: `go build ./...` (whole module), `go vet`,
+`go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
+all clean. No persisted struct fields changed (a string field's value, not
+its shape); no version bump.

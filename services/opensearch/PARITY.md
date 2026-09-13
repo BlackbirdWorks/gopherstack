@@ -412,6 +412,7 @@ families:
       was needed) but never updated this earlier note. No open gap remains here; see that sweep's
       dated section below for the fix detail.
 gaps: []
+items_still_open: []
 deferred:
   - serverless
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
@@ -709,6 +710,22 @@ beyond the capability's existence/name/status.
   from the not-field-diffed list above. See
   TestUpgradeDomain_RealSDKClient/TestUpgradeDomain_RawBody_NoInventedStepStatus
   (wire_field_fixes_test.go).
+  UPDATE (2026-09-11, gopherstack-rbmx close-out, see the dated section at the
+  end of this file for full detail): GetCompatibleVersions/ListVersions/
+  DescribeDomainAutoTunes/GetUpgradeHistory/GetUpgradeStatus/
+  DescribeDomainChangeProgress/DescribeDomainHealth/DescribeDomainNodes/
+  DescribeDryRunProgress/DescribeInstanceTypeLimits/ListInstanceTypeDetails
+  are now all field-diffed and settled (fixed where a real bug existed;
+  confirmed clean otherwise) -- removed from this list. The
+  index/document/_search data-plane surface (a non-SDK convenience feature,
+  not the CreateIndex/DeleteIndex/GetIndex/UpdateIndex control-plane ops
+  named here, which were already fixed by gopherstack-m53b/r80d/7185 above)
+  was also field-diffed against the real OpenSearch REST API and fixed. Still
+  open, now tracked in that dated section instead of here:
+  GetDomainMaintenanceStatus/ListDomainMaintenances/StartDomainMaintenance
+  (route-reachability-verified only, per gopherstack-l5ir below, never
+  field-diffed for wire-shape); a new gap, AutoTuneOptions being entirely
+  unwired on CreateDomain/UpdateDomainConfig.
 - **VpcEndpoint's derived AvailabilityZones/VPCId, Application's Endpoint,
   and CancelDomainConfigChange's absence of per-property
   CancelledChangeProperties** are synthesized/omitted non-stub defaults (no
@@ -1202,3 +1219,283 @@ for this queue, mechanism consumed-downstream in all 3 cases. Pages fetched: 0
 (module cache only). Gates: `go build ./services/opensearch/...`, `go vet
 ./services/opensearch/...`, `go test -race -count=1 ./services/opensearch/...`
 (pass, unmodified).
+
+# 2026-09-11 gopherstack-rbmx close-out: field-diffed every op the original audit skipped
+
+Took bd issue `gopherstack-rbmx`'s remaining list (`items_still_open`'s "Un-re-verified
+ops outside the assigned scope/deferred list", above). Most of that list was already
+closed by later passes not reflected in the issue text (gopherstack-l5ir route sweep;
+gopherstack-g479/y1zn map-literal sweeps; the 2026-08-29/08-30 constraint-parameter and
+ordering sweeps; the 2026-08-31 `gopherstack-6flj/21my` pass) -- re-verified each below
+rather than re-deriving from scratch, and fixed the genuine remainder.
+
+**Confirmed already fully audited/fixed by prior passes (no further gap, not touched
+this pass):** `GetUpgradeHistory`/`GetUpgradeStatus`/`UpgradeDomain` (field-diffed
+cleanly against `types.UpgradeHistory`/`UpgradeStepItem`, wire keys and epoch-timestamp
+encoding all correct; the 2026-08-29 note's "still open" tag on these two was stale --
+their error-swallowing bug was already fixed in the earlier "ERROR path verified
+2026-08-29" pass, see the top-of-file header), `DescribeDomainHealth`,
+`DescribeDomainChangeProgress`, `DescribeInstanceTypeLimits`, `ListInstanceTypeDetails`,
+`DescribeDryRunProgress`, `DescribeDomainNodes`, `ListScheduledActions`/
+`UpdateScheduledAction` (own family, `ok`), `DescribeReservedInstances`/
+`DescribeReservedInstanceOfferings`/`PurchaseReservedInstanceOffering` (own family, `ok`),
+`DescribeInboundConnections`/`DescribeOutboundConnections` (own family, `ok`).
+
+**GetCompatibleVersions / ListVersions -- FIXED (real version table).** Both ops served
+independent, partially invented hardcoded catalogs (`ListVersions`'s included
+`"Elasticsearch_8.11"`, a version OpenSearch Service never offered -- Elasticsearch
+support tops out at 7.10 real, confirmed against
+https://docs.aws.amazon.com/opensearch-service/latest/developerguide/what-is.html#choosing-version,
+fetched 2026-09-11), and `GetCompatibleVersions`'s 4-row static table covered only 4 of
+the 35 real documented versions with no citation. Replaced both with one real table
+(`versions.go`), citing the "Supported versions" doc section above and the "Supported
+upgrade paths" table at
+https://docs.aws.amazon.com/opensearch-service/latest/developerguide/version-migration.html
+(also fetched 2026-09-11). `compatibleTargetVersions` implements that upgrade-paths table
+as code (OpenSearch 2.19 is the only 2.x version that can reach 3.x directly; OpenSearch
+1.3 can jump to any 2.x but not 3.x directly; Elasticsearch 6.8/5.6 are the stepping
+stones to 7.x/6.x respectively; Elasticsearch 1.5/2.3 have no upgrade path at all, below
+the documented Elasticsearch-5.1 in-place-upgrade floor) rather than a hand-picked subset.
+Wire shape unchanged and already correct (`SourceVersion`/`TargetVersions`,
+`Versions`/`NextToken`, PascalCase, matching `types.CompatibleVersionsMap`/
+`ListVersionsOutput`). Proven via `TestListVersions_RealClient_MatchesDocumentedTable`,
+`TestGetCompatibleVersions_RealClient_UpgradePaths` (table-driven, 4 upgrade-path cases),
+`TestGetCompatibleVersions_RealClient_UnknownDomain` (`versions_test.go`), all against the
+real `opensearchsdk.Client`.
+
+**DescribeDomainAutoTunes -- two bugs FIXED, one gap DISCLOSED.**
+1. *Invented enum value (FIXED)*: `GetAutoTune` (`advanced.go`) set `AutoTuneType` to
+   `"SCHEDULED"`; `types.AutoTuneType` (opensearch@v1.75.4 `types/enums.go`) has exactly
+   one real value, `"SCHEDULED_ACTION"` -- `"SCHEDULED"` is not a member. Fixed. Proven via
+   `TestDescribeDomainAutoTunes_RealClient_ValidAutoTuneType` (`versions_test.go`),
+   asserting `types.AutoTuneTypeScheduledAction` via the real SDK client.
+2. *Missing-error class (FIXED)*: `handler.go`'s `dispatchDomainGetStatusRoutes` called
+   `GetAutoTune`, which returns `ErrDomainNotFound` for an unknown domain, then silently
+   substituted an empty `AutoTunes` list and returned 200 instead of propagating the real
+   404 `ResourceNotFoundException` -- the identical bug class the "ERROR path verified
+   2026-08-29" pass already fixed on `GetUpgradeHistory`/`GetUpgradeStatus`, just not
+   caught here at the time. Fixed to `writeError(404, "ResourceNotFoundException", ...)`.
+   Proven via `TestDescribeDomainAutoTunes_RealClient_UnknownDomain`.
+3. **FIXED (2026-09-11, gopherstack-qtywh)**: `AutoTuneOptions` is now wired into both
+   `CreateDomain` (`types.AutoTuneOptionsInput`: `DesiredState`/`MaintenanceSchedules`/
+   `UseOffPeakWindow` -- no `RollbackOnDisable`, that member doesn't exist on this shape)
+   and `UpdateDomainConfig` (`types.AutoTuneOptions`, which adds `RollbackOnDisable`).
+   Settings are nested directly on the domain record (`Domain.AutoTuneOptions
+   *AutoTuneConfig`, `models.go`/`advanced.go`) rather than a separate lookup table, so
+   they persist and preview (`PreviewDomainConfig` dry-run) for free through the domain's
+   own snapshot -- the old test-seeding-only `b.autoTunes` table
+   (`autoTuneKey`/`autoTuneConfigKeyFn`/`autoTuneSnapshot`) is retired entirely.
+   `DescribeDomain`/`CreateDomain`'s `DomainStatus.AutoTuneOptions` now echoes
+   `State`/`ErrorMessage`/`UseOffPeakWindow` (`types.AutoTuneOptionsOutput`); `State`
+   mirrors `DesiredState` directly since this backend has no async enable/disable pipeline
+   to produce real AWS's transient `*_IN_PROGRESS`/`DISABLED_AND_ROLLBACK_*` states --
+   disclosed restraint, not a fabricated state machine.
+   `DescribeDomainConfig.AutoTuneOptions` (`types.AutoTuneOptionsStatus`) echoes the stored
+   `Options` plus a real `Status` (`CreationDate`/`UpdateDate` as epoch seconds via
+   `awstime.Epoch`, matching this file's existing timestamp convention; `UpdateVersion`
+   increments on every apply). Validation matches the doc comments: `DesiredState` must be
+   `ENABLED`/`DISABLED`; `RollbackOnDisable` must be `NO_ROLLBACK`/`DEFAULT_ROLLBACK`, and
+   `DEFAULT_ROLLBACK` without a `MaintenanceSchedule` is rejected per its own doc text
+   ("Otherwise, OpenSearch Service is unable to perform the rollback"); a schedule's
+   `Duration.Unit` must be `HOURS`, `TimeUnit`'s only documented enum member.
+   `DescribeDomainAutoTunes` now derives its list from the domain's real, configured
+   `MaintenanceSchedules` (one `AutoTune{AutoTuneType:"SCHEDULED_ACTION"}` entry per
+   schedule, using that schedule's own `StartAt` as `Date`) instead of a fabricated
+   always-present entry: no entries at all when Auto-Tune is disabled or no schedule was
+   ever configured. `ActionType`/`Action`/`Severity` remain a disclosed placeholder
+   (`JVM_HEAP_SIZE_TUNING`/a stated-emulator-limitation description/`LOW`) since this
+   backend has no tuning-decision engine to determine which of `ScheduledAutoTuneActionType`'s
+   two real members a given domain would need, or at what severity -- only the *existence*
+   of a scheduled action is now honestly derived from real state; its specific diagnosis was
+   never derivable and isn't fabricated. `MaxResults`/`NextToken` pagination remains
+   unimplemented on this op (same restraint as before: schedule count is naturally small,
+   so there's rarely a second page to lose). Proven via `autotune_options_test.go`, table
+   name `TestCreateDomain_AutoTuneOptions*`/`TestUpdateDomainConfig_AutoTuneOptions*`/
+   `TestDescribeDomainAutoTunes_*`, all against the real `aws-sdk-go-v2` `opensearch.Client`
+   (the established `_RealClient` pattern for this file); the three
+   `SetAutoTune`-with-`nil`-schedules test call sites (`versions_test.go`,
+   `persistence_test.go` x2) were updated to seed a real schedule, since the honest
+   derive-from-schedules behavior above means a `nil` schedule list now correctly reports
+   zero `AutoTune` entries instead of the old fabricated one.
+
+**Data-plane (index/document/_search/_bulk) -- served, field-diffed against the real
+OpenSearch REST API, 6 divergences FIXED this pass; `_bulk` FIXED (2026-09-11, see item 5
+below) after being disclosed as unserved.** This backend does serve a
+non-SDK convenience data-plane surface under `{domainName}/index/{indexName}[/_doc|/_search|
+/_count]` (`documents.go`/`handler_indices.go`) -- distinct from the real AWS SDK's
+`CreateIndex`/`UpdateIndex`/`GetIndex`/`DeleteIndex` control-plane ops (`handleCreateIndexRealRoute`
+et al., already field-diffed `ok` in the `indices` family above) and from the OpenSearch
+Serverless `Index` family (`serverless` family, deferred). Verified against
+https://docs.opensearch.org/latest/api-reference/document-apis/ and
+https://docs.opensearch.org/latest/api-reference/search-apis/ (page content not directly
+fetchable -- a JS-rendered nav shell; confirmed field shapes via search-indexed doc excerpts
+instead, standard and unchanged across OpenSearch/Elasticsearch versions). Found and fixed:
+1. Index/Get/Delete Document responses were missing `_version`/`_seq_no`/`_primary_term`
+   entirely, and Index Document had an invented top-level `"created"` boolean the real API
+   does not have (only `"result":"created"|"updated"`). Added real per-document
+   `_version`/`_seq_no` tracking (`DomainIndex.DocMeta`/`NextSeqNo`, `models.go`;
+   `bumpDocMetaLocked`, `documents.go` -- bumped on both index and delete, matching real
+   OpenSearch's delete-bumps-tombstone-version behavior) and a constant `_primary_term`
+   (1 -- this backend has no primary-failover model, an honest constant not a fabricated
+   one). `IndexDocument`/`GetDocument`/`DeleteDocument` signatures now return `DocumentMeta`.
+2. Index/Delete Document and Count/Search responses were missing `_shards` entirely (real
+   OpenSearch always includes it). Added `writeOpShards()`/`readOpShards()` (honest
+   single-node defaults: total/successful always 1, no replica or failure model).
+3. Search response was missing `took`/`timed_out` at the top level and `max_score` in
+   `hits`, and each hit was missing `_score`. Added (constant `took:0`,
+   `timed_out:false`, `_score:1.0` for every match -- this backend has no relevance
+   scoring engine, so every predicate match is reported as equally exact, honest for the
+   query types it actually supports (`match_all`/`term`/`match`) rather than fabricating a
+   score distribution it cannot compute).
+4. The bare create-index route (`POST {domainName}/index/{indexName}`, the data-plane
+   convenience path) returned the *other*, unrelated `GetIndex`-shaped metadata envelope
+   (`IndexName`/`IndexStatus`/`Mappings`/...) instead of real OpenSearch's Create Index API
+   response (`{"acknowledged":true,"shards_acknowledged":true,"index":"<name>"}`), and read
+   PascalCase `Mappings`/`Settings`/`Aliases` from the request body -- real OpenSearch's
+   Create Index API takes lowercase `mappings`/`settings`/`aliases`, so every real
+   OpenSearch-style client's body was silently dropped. Fixed both; the orphaned
+   `indexResponseJSON`/`toIndexResponseJSON` type+function (no remaining caller) deleted
+   per de-stub hygiene.
+5. **FIXED (2026-09-11, gopherstack-qtywh): `_bulk` is now served.** `POST
+   {domainName}/_bulk` and `POST {domainName}/index/{indexName}/_bulk` (`handler_bulk.go`)
+   accept an NDJSON body of `index`/`create`/`update`/`delete` action lines per
+   https://opensearch.org/docs/latest/api-reference/document-apis/bulk/ (fetched
+   2026-09-11): `index`/`create` are each followed by a source document, `delete` has none,
+   and `update`'s source line supports `doc`/`doc_as_upsert` (a real partial-merge, not a
+   full replace -- new `UpdateDocument` backend method) while `script` is rejected with a
+   documented `illegal_argument_exception` item (this backend has no scripting engine).
+   `create` on an existing `_id` fails with the real `version_conflict_engine_exception`
+   at status 409 (new `CreateDocument` backend method, `ErrDocumentVersionConflict`); an
+   unknown index/domain reports `index_not_found_exception` at 404; an `update` against a
+   missing document (no `doc_as_upsert`) reports `document_missing_exception` at 404; a
+   `delete` of a missing document is the real soft `"not_found"` result (bumped tombstone
+   version, no `error` object) rather than a hard error -- new `BulkDeleteDocument` backend
+   method, kept separate from the existing single-document `DeleteDocument` so that route's
+   own error-on-missing behavior and tests are untouched. Every successful item reuses the
+   real per-document `_version`/`_seq_no` tracking (`DocMeta`/`NextSeqNo`) the 2026-09-11
+   pass added. The top-level envelope is `{took, errors, items}`; `?refresh`/`?routing` are
+   accepted without error (this single-node backend has no refresh-interval or
+   shard-routing model to apply them to); both `application/x-ndjson` and
+   `application/json` Content-Type values are accepted (Content-Type is not inspected at
+   all). Proven via `bulk_test.go`'s table-driven `TestBulk_*` suite, httptest-driven with
+   raw NDJSON bodies (no AWS SDK client models this non-SDK surface, same as every other
+   data-plane test in this file).
+
+Proven via `TestHTTPDocumentCRUDAndSearch` (extended with the new field assertions),
+`TestHTTPCreateIndex_RealResponseShape` (new, table-driven-shaped as a single scenario
+since there is only one create-index path to cover) -- both `documents_handler_test.go`,
+httptest-driven (no AWS SDK client exists for this non-SDK surface, so the `_RealClient`
+pattern does not apply here; it is used instead for every genuine SDK op above).
+
+**No version bump.** `DomainIndex` gained two additive fields (`DocMeta`, `NextSeqNo`) and
+a new `DocumentMeta` struct was added; `TestSnapshotVersionGuard` confirms the new field
+set is a pure superset of the golden (old fields all present, unchanged) --
+`pkgs/persistence/testdata/snapshot_inventory.json` updated via `-update` for the
+`opensearch` rows only (the same run's unrelated `quicksight` diff, from another in-flight
+session's uncommitted work, was excluded).
+
+Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
+`go test -race -count=1 ./services/opensearch/... ./pkgs/persistence/...` -- opensearch
+package passes; the persistence package's `TestSnapshotVersionGuard` fails only on the
+pre-existing, out-of-scope `quicksight` diff from that other in-flight session (opensearch
+rows are clean); `golangci-lint run ./services/opensearch/...` -- 0 issues.
+
+## 2026-09-11 gopherstack-qtywh: `_bulk` served, `AutoTuneOptions` wired
+
+Closes both disclosures the audit above left open: item 5 of the data-plane note (`_bulk`
+unserved) and item 3 of the `DescribeDomainAutoTunes` note (`AutoTuneOptions` dropped on
+`CreateDomain`/`UpdateDomainConfig`) -- see those two items above for the full detail;
+summarized together here since both landed in the same pass.
+
+**No version bump.** Two field-set changes, both non-additive in the guard's strict sense
+(a field was removed, not only added) but neither destructive: `AutoTuneConfig` moved from
+a standalone `DomainName`-keyed DTO (`autoTuneSnapshot`, now deleted) to a field nested
+directly on `Domain` (`Domain.AutoTuneOptions *AutoTuneConfig`), gaining
+`CreatedAt`/`UpdatedAt`/`RollbackOnDisable`/`State`/`ErrorMessage`/`UpdateVersion` and
+losing its now-redundant `DomainName` identity field. `Domain` is a "clean" `pkgs/store`
+table snapshotted by direct JSON marshal (`store_setup.go`), so the new
+`autoTuneOptions` key on it is purely additive on that side; the retired `autoTunes` DTO
+table's entries are the only thing an old snapshot loses on restore into this version --
+an accepted, one-time loss for this internal-only feature (see `persistence.go`'s
+`opensearchSnapshotVersion` doc comment for the full reasoning). `TestSnapshotVersionGuard`
+confirms this reading (fails on the diff, as expected for any field-set change, but not
+the "PURELY ADDITIVE" case that would demand a version bump) -- refreshed the golden via
+`-update`; `git diff pkgs/persistence/testdata/snapshot_inventory.json` touches only
+`AutoTuneConfig.*`/`Domain.AutoTuneOptions`/`autoTuneSnapshot.*` rows under the
+`"opensearch"` key.
+
+Gates: `go build ./...` clean; `go vet ./services/opensearch/...` clean;
+`go test -race -count=1 ./services/opensearch/... ./pkgs/persistence/...` -- both packages
+pass, including `TestSnapshotVersionGuard`; `golangci-lint run ./services/opensearch/...`
+-- 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 14 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/opensearch` client (52 ops -- domain lifecycle tail,
+domain config/maintenance, VPC endpoint family, inbound/outbound connection
+tail, package family, data source family, direct-query data source family,
+data source attachment tail, application/capability family, default
+application setting, insights, migrations, reserved instances, scheduled
+actions). Each subtest creates real state through the typed client and
+asserts decoded response values.
+
+**Three real bugs found and fixed**, all previously invisible because no
+prior test drove these paths through a real SDK client:
+
+1. **RouteMatcher gap**: `openSearchDefaultAppSettingPath`
+   ("/2021-01-01/opensearch/defaultApplicationSetting") was defined as a
+   constant and used correctly by the request dispatcher, but never added
+   to `openSearchPathPrefixes`, the list `isOpenSearchPath` (the
+   RouteMatcher) actually checks. Both `GetDefaultApplicationSetting` and
+   `PutDefaultApplicationSetting` were completely unreachable over the real
+   HTTP wire -- confirmed live: a real client's `PutDefaultApplicationSetting`
+   got a bare 404 with no RequestID, meaning the request never reached this
+   handler's dispatch at all. Same bug class as the omics S3AccessPolicy
+   fix earlier in this slice (a RouteMatcher silently owning zero real
+   request paths for a family), not the RouteMatcher-collision class fixed
+   elsewhere via Authorization-header gating. Fixed by adding the constant
+   to `openSearchPathPrefixes`.
+
+2. **Wrong JSON type, total decode failure**: `serviceSoftwareOptionsJSON.
+   AutomatedUpdateDate` (the `StartServiceSoftwareUpdate`/
+   `CancelServiceSoftwareUpdate` response shape, `handler_domains.go`) was
+   a plain Go `string`, always empty since this backend never tracks a
+   real automated-update date. Real `types.ServiceSoftwareOptions.
+   AutomatedUpdateDate` (confirmed against `aws-sdk-go-v2/service/
+   opensearch@v1.75.4` `deserializers.go:27053-27067`,
+   `awsRestjson1_deserializeDocumentServiceSoftwareOptions`) is an
+   epoch-seconds JSON Number -- any client decoding a JSON string there,
+   even an empty one, fails the ENTIRE response, not just that one field
+   ("list/type mismatch = total failure, not dropped value", the same bug
+   class this campaign's method notes already name). Fixed by changing the
+   wire field to `*int64` with `omitempty`, always nil (honest absence,
+   not a fabricated timestamp) -- matches the file's own established
+   convention for fields this backend has no real source for.
+
+3. **Missing required response member**: `GetPackageVersionHistory`'s
+   handler (`handlePackageSubResourceRoutes`, `handler_packages.go`) only
+   ever wrote `PackageVersionHistoryList`, never the real, also-present
+   `PackageID` member (confirmed against `deserializers.go`'s
+   `awsRestjson1_deserializeOpDocumentGetPackageVersionHistoryOutput`,
+   which decodes both keys). A real client's `PackageID` was always nil.
+   Fixed by echoing the requested package ID into the response.
+
+No accept-and-drop findings beyond what's already disclosed in this file
+(`items_still_open: []`, grade A) -- `ListInsights`/`DescribeInsightDetails`/
+`InsightFeedback`'s "no analytics engine, always empty/404" behavior is
+existing, documented, and correctly exercised by the new `insight_family`
+subtest (a real client sees the honest empty-list/not-found responses, not
+an error decoding them).
+
+Coverage: opensearch 66/118 (55.9%) -> 118/118 (100%) per
+`cmd/clientcoverage`.
+
+Gates: `go build ./services/opensearch/...` and `go vet
+./services/opensearch/...` clean; `go test -race -count=1
+./services/opensearch/...` clean; `golangci-lint run --new-from-rev=HEAD
+./services/opensearch/...` 0 issues. `go run ./cmd/paritylint` stays at 0
+FAIL. No persisted-struct/snapshot-inventory change (all three fixes are
+routing/response-encoding only; the underlying domain model in `models.go`
+is untouched); no version bump.

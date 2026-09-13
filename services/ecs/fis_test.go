@@ -90,7 +90,7 @@ func TestECS_ExecuteFISAction_StopTask(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				tasks, err := h.Backend.RunTask(ecs.RunTaskInput{
+				tasks, _, err := h.Backend.RunTask(ecs.RunTaskInput{
 					Cluster:        "default",
 					TaskDefinition: "test-family",
 					Count:          1,

@@ -487,7 +487,7 @@ func TestECS_DeregisterContainerInstance_WithoutForce_NoLinkedTasks(t *testing.T
 	require.NoError(t, err)
 
 	// RunTask doesn't set ContainerInstanceArn, so this task is not linked to the CI.
-	_, err = backend.RunTask(ecs.RunTaskInput{
+	_, _, err = backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "ci-running-cluster",
 		TaskDefinition: td.TaskDefinitionArn,
 		Count:          1,

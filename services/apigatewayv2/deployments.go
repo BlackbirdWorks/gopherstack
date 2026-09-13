@@ -37,6 +37,19 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 		return nil, ErrAPINotFound
 	}
 
+	var stage *Stage
+
+	// Validate StageName fully before any mutation: a rejected request must
+	// leave no deployment behind (gopherstack-7lxd).
+	if input.StageName != "" {
+		s, stageExists := b.stages.Get(stageKey(apiID, input.StageName))
+		if !stageExists {
+			return nil, ErrStageNotFound
+		}
+
+		stage = s
+	}
+
 	routes, integrations := b.snapshotRoutingLocked(apiID)
 
 	id := randomID()
@@ -52,14 +65,8 @@ func (b *InMemoryBackend) CreateDeployment(apiID string, input CreateDeploymentI
 
 	b.deployments.Put(deployment)
 
-	// When a stage name is provided, link the deployment to that stage (AWS behaviour).
-	if input.StageName != "" {
-		s, stageExists := b.stages.Get(stageKey(apiID, input.StageName))
-		if !stageExists {
-			return nil, ErrStageNotFound
-		}
-
-		s.DeploymentID = id
+	if stage != nil {
+		stage.DeploymentID = id
 	}
 
 	cp := *deployment

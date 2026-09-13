@@ -136,6 +136,15 @@ type ErrorObject struct {
 	StackTrace   []string `json:"StackTrace,omitempty"`
 }
 
+// isEmptyErrorObject reports whether e carries no real error content — the
+// real client sends a bare "{}" body when StopDurableExecutionInput.Error /
+// SendDurableExecutionCallbackFailureInput.Error is nil (serializers.go's
+// awsRestjson1_serializeOpStopDurableExecution / -CallbackFailure always
+// write a JSON body, empty object when Error is unset).
+func isEmptyErrorObject(e *ErrorObject) bool {
+	return e == nil || (e.ErrorData == nil && e.ErrorMessage == nil && e.ErrorType == nil && len(e.StackTrace) == 0)
+}
+
 // TraceHeader mirrors types.TraceHeader.
 type TraceHeader struct {
 	XAmznTraceID *string `json:"XAmznTraceId,omitempty"`

@@ -97,7 +97,8 @@ families:
   route-matcher: {status: ok, note: "handler_routes.go's flat map[string]routeEntry keyed by \"METHOD firstPathSegment\" -- every op but the tags trio is a literal fixed-path POST/GET with no path parameters, so no segment-count branching is needed at all (unlike services/outposts). Split across 5 routesX() builders merged by mergeRoutes to stay under funlen, a lookup-table split not a logic split."}
   tagging: {status: ok, note: "TagResource/UntagResource/ListTagsForResource wired into cli.go's wireResourceGroupsTagging via wireTaggingResilienceHub, the 32nd service. App/ResiliencyPolicy/AppAssessment share one ARN-keyed tag store (tagging.go's resolveTaggableLocked); resourceTypeFromARN derives resiliencehub:app / resiliencehub:resiliency-policy / resiliencehub:app-assessment per-ARN (three-kind case, one more than Outposts' two)."}
   cross-service-resolution: {status: ok, note: "cross_service.go, added this pass, following services/grafana's/services/mgn's SetAppConfig/siblingServices/Provider.Init(ctx.Config) pattern. ResolveAppVersionResources' resolveMappingsLocked resolves CfnStack mappings against services/cloudformation.DescribeStackResources, ResourceGroup mappings against services/resourcegroups.ListGroupResources, and EKS mappings against services/eks.DescribeCluster -- real discovered PhysicalResource entries, not fabricated. Verified by TestIntegration_ResilienceHub_ResourceMappingResolution's 4 subtests (cfn_stack/resource_group/eks_cluster/app_registry_app_stays_unresolved), each setting up real sibling-service state via its own SDK client."}
-gaps:
+gaps: []
+items_still_open:
   - "ImportResourcesToDraftAppVersion records real AppInputSource bookkeeping and transitions Pending->Success, but -- unlike ResolveAppVersionResources, closed this pass -- does not resolve the given SourceArns/EksSources against real backend state (EC2/RDS/DynamoDB/etc. by ARN service segment). The original audit flagged this as 'real, valuable work... a legitimate future improvement (not required for a first pass, but feasible and honest)', distinct language from what it used for the ResolveAppVersionResources cross-service investment ('the single best genuinely emulated investment this service can make'), which is what this pass targeted and closed. (bd: gopherstack-8hw8)"
 structural_gaps:
   - "AssessmentSummary is always nil. Genuinely Bedrock-LLM-backed per the SDK's own doc comment ('available only in the US East (N. Virginia) Region', the signature of a feature backed by a specific hosted model deployment) -- there is no data source an in-memory emulator could read or compute this from, and fabricating LLM-quality risk-summary prose would be actively deceptive. Verified by TestIntegration_ResilienceHub_AssessmentLifecycle asserting Summary is nil after a real Pending->InProgress->Success transition."
@@ -995,3 +996,30 @@ that has findings or coverage warnings, and resiliencehub now has neither
 0 findings, 0 warnings) -- not a tool bug, its designed silent-clean-bill
 behavior. Full-repo total dropped from 131 to 129 class-A findings
 service-tree-wide, exactly the 2 fixed here.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 11 remaining typed-client-blind ops
+(`DeleteAppInputSource`, `DescribeAppVersion`, `DescribeAppVersionAppComponent`,
+`DescribeAppVersionResource`, `ListAppComponentCompliances`,
+`ListAppInputSources`, `ListAppVersionAppComponents`,
+`ListAppVersionResourceMappings`, `RejectResourceGroupingRecommendations`,
+`RemoveDraftAppVersionResourceMappings`, `UpdateAppVersion`) through the
+real aws-sdk-go-v2 client for the first time
+(`typed_slice21_realclient_test.go`, 5 subtests). **Zero bugs** -- every
+op decoded and matched its documented shape on the first real-client run,
+consistent with this service's unusually deep prior per-op field-diff
+audit history (the `ops:` table's individual `wire: ok` verdicts, most
+citing their own deserializer). `RejectResourceGroupingRecommendations`
+was exercised against its documented always-fails honest-gap behavior
+(no resource-grouping ML output exists in this backend, per
+`structural_gaps`) -- proves the real `FailedEntries` wire shape rather
+than a successful exclusion, which is the only behavior this backend can
+ever produce for that op. Repo-wide typed-client census: resiliencehub
+52/63 -> 63/63 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/resiliencehub/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes (every op exercised
+reads existing persisted state or is response-only). No version bump.

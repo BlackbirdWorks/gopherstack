@@ -485,6 +485,60 @@ func TestInMemoryBackend_Snapshot_AllTables_FullState(t *testing.T) {
 	assert.Len(t, fresh.GetComplianceDetailsByResource("AWS::S3::Bucket", "bucket-ext", nil), 1)
 }
 
+// TestInMemoryBackend_SnapshotRestore_RemediationExecutionRuleCollision
+// covers gopherstack-ltj0d: RuleName is a component of
+// remediationExecutionKeyFn/remediationExecutionRuleIndexKeyFn but carried
+// json:"-" with no DTO twin, so restore re-keyed every entry under the empty
+// string. Two rules with executions on the SAME resource key exposed both
+// symptoms pre-fix: DescribeRemediationExecutionStatus returned empty for
+// each real rule name, and the colliding entries -- both re-keyed to
+// "|<resourceType>\x1f<resourceID>" -- overwrote each other in the primary
+// table while still reappearing (as stale duplicates) under the empty rule
+// name's "byRule" index group.
+func TestInMemoryBackend_SnapshotRestore_RemediationExecutionRuleCollision(t *testing.T) {
+	t.Parallel()
+
+	b := awsconfig.NewInMemoryBackend()
+
+	require.NoError(t, b.PutRemediationConfigurations([]awsconfig.RemediationConfiguration{
+		{ConfigRuleName: "rule-a", TargetType: "SSM_DOCUMENT", TargetID: "doc-a"},
+		{ConfigRuleName: "rule-b", TargetType: "SSM_DOCUMENT", TargetID: "doc-b"},
+		// A remediation config for the empty rule name exists purely so
+		// DescribeRemediationExecutionStatus("") does not itself error with
+		// ErrNoSuchRemediationConfiguration -- it is the probe this test uses
+		// to detect entries that collided under the empty RuleName.
+		{ConfigRuleName: ""},
+	}))
+
+	sharedKey := []awsconfig.ResourceKey{{ResourceType: "AWS::S3::Bucket", ResourceID: "bucket-shared"}}
+	require.NoError(t, b.StartRemediationExecution("rule-a", sharedKey))
+	require.NoError(t, b.StartRemediationExecution("rule-b", sharedKey))
+
+	snap := b.Snapshot(t.Context())
+	require.NotNil(t, snap)
+
+	fresh := awsconfig.NewInMemoryBackend()
+	require.NoError(t, fresh.Restore(t.Context(), snap))
+
+	byA, err := fresh.DescribeRemediationExecutionStatus("rule-a", nil)
+	require.NoError(t, err)
+	byB, err := fresh.DescribeRemediationExecutionStatus("rule-b", nil)
+	require.NoError(t, err)
+	collided, err := fresh.DescribeRemediationExecutionStatus("", nil)
+	require.NoError(t, err)
+
+	// Empty-result symptom: each real rule name must still find its own
+	// execution after restore, not nothing.
+	require.Len(t, byA, 1)
+	require.Len(t, byB, 1)
+	assert.Equal(t, "bucket-shared", byA[0].ResourceKey.ResourceID)
+	assert.Equal(t, "bucket-shared", byB[0].ResourceKey.ResourceID)
+
+	// Collision symptom: neither execution may have been re-keyed to the
+	// empty rule name.
+	assert.Empty(t, collided)
+}
+
 // TestInMemoryBackend_Restore_VersionMismatch verifies that a snapshot whose
 // version field does not match the current awsconfigSnapshotVersion is
 // discarded wholesale (registry reset to empty, no partial decode) rather

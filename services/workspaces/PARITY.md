@@ -185,7 +185,7 @@ ops:
   UpdateRulesOfIpGroup: {wire: ok, errors: ok, state: ok, persist: ok}
   AssociateIpGroups: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — directoryIpGroups map is now included in backendSnapshot (Snapshot/Restore), matching Tags. Previously persist:deferred (ephemeral across restarts); no snapshot-version bump needed since an older snapshot just decodes with an empty map, matching prior behavior exactly."}
   DisassociateIpGroups: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateStandbyWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was invented-shape: built pending/failed items from a hand-rolled map[string]string carrying UserName/BundleId fields that DON'T EXIST on the real StandbyWorkspace/PendingCreateStandbyWorkspacesRequest types (gopherstack-invented fields), and FailedStandbyRequests was hardcoded to always be empty regardless of input. Rewrote using the real shapes: StandbyWorkspace{DirectoryId, PrimaryWorkspaceId, DataReplication, Tags, VolumeEncryptionKey} for requests, PendingCreateStandbyWorkspacesRequest{DirectoryId, State, UserName, WorkspaceId} for successes (note: no BundleId field on this response type either), FailedCreateStandbyWorkspacesRequest{ErrorCode, ErrorMessage, StandbyWorkspaceRequest} for per-item failures. Moved to a single-item CreateStandbyWorkspace(ctx, spec) backend method with the batch/partial-failure loop in the handler, mirroring the CreateWorkspaces pattern. Real per-item validation: an unregistered DirectoryId now reports a genuine FailedStandbyRequests entry instead of always succeeding. PrimaryWorkspaceId existence is NOT cross-validated (see Notes: this backend has no way to see a primary WorkSpace living in a different region's backend instance) — this is a documented, deliberate limitation, not an oversight."}
+  CreateStandbyWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was invented-shape: built pending/failed items from a hand-rolled map[string]string carrying UserName/BundleId fields that DON'T EXIST on the real StandbyWorkspace/PendingCreateStandbyWorkspacesRequest types (gopherstack-invented fields), and FailedStandbyRequests was hardcoded to always be empty regardless of input. Rewrote using the real shapes: StandbyWorkspace{DirectoryId, PrimaryWorkspaceId, DataReplication, Tags, VolumeEncryptionKey} for requests, PendingCreateStandbyWorkspacesRequest{DirectoryId, State, UserName, WorkspaceId} for successes (note: no BundleId field on this response type either), FailedCreateStandbyWorkspacesRequest{ErrorCode, ErrorMessage, StandbyWorkspaceRequest} for per-item failures. Moved to a single-item CreateStandbyWorkspace(ctx, spec) backend method with the batch/partial-failure loop in the handler, mirroring the CreateWorkspaces pattern. Real per-item validation: an unregistered DirectoryId now reports a genuine FailedStandbyRequests entry instead of always succeeding. UPDATE (gopherstack-zzd9): PrimaryWorkspaceId and DataReplication were accepted but stored nowhere reachable — CreateStandbyWorkspace wrote them onto write-only storedWorkspace fields, DescribeWorkspaces never emitted RelatedWorkspaces/DataReplicationSettings for the standby, and the primary side got no reverse link at all. PrimaryWorkspaceId's existence was also never validated, so a nonexistent primary always \"succeeded.\" Fixed: CreateStandbyWorkspace now looks up the primary in this same b.workspaces table (see Notes below for why — this emulator runs one backend instance, so this is the only way to truthfully round-trip the relationship), returns ResourceNotFoundException (-> FailedStandbyRequests) when it doesn't exist, sets DataReplicationSettings + a PRIMARY RelatedWorkspaces entry on the new standby, and appends a STANDBY RelatedWorkspaces entry + a StandbyWorkspacesProperties entry onto the primary. PrimaryRegion (CreateStandbyWorkspacesInput's own required batch field) was separately being validated then silently dropped — same bug class, different field — now threaded through and used as the standby's RelatedWorkspaces[].Region (truthful: it's literally the region the caller declared for the primary); the reverse entry on the primary uses this backend's own region, since that's where the standby was actually created."}
   DescribeImageAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — was a stub ignoring ImageId entirely (always 200'd with an empty list for a nonexistent image, and Associations was typed []any with no real field names). Now validates ImageId is required + must reference a real image (ResourceNotFoundException) and AssociatedResourceTypes is required + must be \"APPLICATION\" (the only real enum value for ImageAssociatedResourceType). Response now uses the real ImageResourceAssociation shape (AssociatedResourceId/AssociatedResourceType/ImageId/State/StateReason/Created/LastUpdatedTime, epoch timestamps). Real AWS's WorkSpaces Application Manager has no public API to create this association (only AssociateWorkspaceApplication, which associates an app directly with a WorkSpace, not an image) — so a freshly emulated account always returns an empty (but now correctly validated/typed) list."}
   DescribeBundleAssociations: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED — same class of stub as DescribeImageAssociations; now validates BundleId (checked against both Amazon-owned and custom bundles) and AssociatedResourceTypes, real BundleResourceAssociation shape."}
   DescribeAccountModifications: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was a true stub always returning an empty list regardless of history. ModifyAccount now appends an AccountModification{ModificationState:\"COMPLETED\", DedicatedTenancySupport, DedicatedTenancyManagementCidrRange, StartTime} entry on every call (this backend applies changes synchronously, so there's no PENDING window to model); DescribeAccountModifications returns them most-recent-first, paginated via pkgs/page, and both accountConfig and this new history list are now included in backendSnapshot. Real DescribeAccountModificationsInput has no MaxResults field (only NextToken) — this backend uses a fixed internal page size (100), field-diffed against the real input shape."}
@@ -209,10 +209,7 @@ families:
   ImageBundleAssociations: {status: ok, note: "FIXED — see DescribeImageAssociations/DescribeBundleAssociations, now tracked individually in the ops table above (previously rolled up here only). Deep-audited this pass (previously marked deferred/not-audited): confirmed real AWS exposes no public create-association API for image/bundle<->application, so an always-empty (correctly validated + typed) response is genuine emulated behavior, not a gap."}
   DescribeWorkspaceSnapshots: {status: ok, note: "returns empty RebuildSnapshots/RestoreSnapshots lists — correct void-result shape since no snapshot state is modeled anywhere in this backend"}
 
-gaps:
-  - "clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself)"
-  - "ModifyStreamingProperties' UserSettings ([]types.UserSetting -- Action/Permission/MaximumLength, real per workspaces@v1.73.1 types.go:1277-1291) is decoded off the wire by modifyStreamingPropertiesInput (handler_directories.go's sibling file) but then dropped before it ever reaches Backend.ModifyStreamingProperties -- only StreamingExperiencePreferredProtocol is threaded through. This is a genuine accept-and-drop, found but NOT fixed this pass (gopherstack-6flj/21my, 2026-08-28) due to budget: storedDirSettings.Properties is a flat map[string]string, so representing a list of structs needs either a JSON-encoded value or a schema change, more than a field-level fix. GlobalAccelerator/StorageConnectors (also real StreamingProperties members) aren't captured by the input struct at all, so those are a separate, smaller unbuilt-feature gap, not accept-and-drop. DescribeWorkspaceDirectories' new StreamingProperties field was deliberately left out of this pass' fix for the same reason -- see that op's note. (bd: gopherstack-6flj/21my)"
-  - "WorkspaceBundle (custom bundles) has no BundleType/CreationTime/LastUpdatedTime/State at all -- all four are real WorkspaceBundle members (workspaces@v1.73.1 types.go:1507-1543) DescribeWorkspaceBundles never populates. Unlike the DescribeWorkspaceDirectories fix above, this is not accept-and-drop: storedCustomBundle (models.go) never captured CreationTime either, so there is no existing state to read back -- CreateWorkspaceBundle would need a new CreatedAt field threaded through persistence.go's snapshot DTO. State is buildable cheaply (this backend creates bundles synchronously and never fails, so a hardcoded AVAILABLE would be honest, matching the pattern already used for e.g. EMR's WAITING-on-create clusters), but was left out of this pass' scope. Found but not fixed (bd: gopherstack-6flj/21my, 2026-08-28)."
+gaps: []
   # All gaps from the prior pass (CreateStandbyWorkspaces FailedStandbyRequests,
   # AssociateIpGroups/DisassociateIpGroups persistence) were closed for real this
   # pass — see the ops table entries above for what changed.
@@ -229,6 +226,10 @@ gaps:
   # than a full unconditional check, since this backend genuinely has no visibility
   # into another region's image table.
 
+items_still_open:
+  - "clientProperties (ModifyClientProperties/DescribeClientProperties, including the ClientExperiencePolicy/LogUploadEnabled fields fixed this pass, gopherstack-gt9o) is NOT part of backendSnapshot -- pre-existing, deliberate (see persistence.go's field comment and whitebox_test.go), out of scope for gopherstack-gt9o which is about the missing fields, not this separate ephemeral-persistence gap. (bd: none filed for the persistence gap itself)"
+  - "ModifyStreamingProperties' UserSettings ([]types.UserSetting -- Action/Permission/MaximumLength, real per workspaces@v1.73.1 types.go:1277-1291) is decoded off the wire by modifyStreamingPropertiesInput (handler_directories.go's sibling file) but then dropped before it ever reaches Backend.ModifyStreamingProperties -- only StreamingExperiencePreferredProtocol is threaded through. This is a genuine accept-and-drop, found but NOT fixed this pass (gopherstack-6flj/21my, 2026-08-28) due to budget: storedDirSettings.Properties is a flat map[string]string, so representing a list of structs needs either a JSON-encoded value or a schema change, more than a field-level fix. GlobalAccelerator/StorageConnectors (also real StreamingProperties members) aren't captured by the input struct at all, so those are a separate, smaller unbuilt-feature gap, not accept-and-drop. DescribeWorkspaceDirectories' new StreamingProperties field was deliberately left out of this pass' fix for the same reason -- see that op's note. (bd: gopherstack-6flj/21my)"
+  - "WorkspaceBundle (custom bundles) has no BundleType/CreationTime/LastUpdatedTime/State at all -- all four are real WorkspaceBundle members (workspaces@v1.73.1 types.go:1507-1543) DescribeWorkspaceBundles never populates. Unlike the DescribeWorkspaceDirectories fix above, this is not accept-and-drop: storedCustomBundle (models.go) never captured CreationTime either, so there is no existing state to read back -- CreateWorkspaceBundle would need a new CreatedAt field threaded through persistence.go's snapshot DTO. State is buildable cheaply (this backend creates bundles synchronously and never fails, so a hardcoded AVAILABLE would be honest, matching the pattern already used for e.g. EMR's WAITING-on-create clusters), but was left out of this pass' scope. Found but not fixed (bd: gopherstack-6flj/21my, 2026-08-28)."
 deferred: []
 
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in store.Table maps guarded by lockmetrics.RWMutex. FIXED this pass: DeregisterWorkspaceDirectory no longer allows deregistering a directory that still has live WorkSpaces assigned to it (previously left DescribeWorkspaces returning WorkSpaces pointing at a DirectoryId with no corresponding registered directory — a dangling-reference-shaped leak, now prevented outright per real AWS semantics) and now cascade-cleans the directoryIpGroups map entry for a directory on successful deregistration (was an orphaned map entry keyed by a dead DirectoryId, never reachable again once the directory itself was gone)."}
@@ -536,10 +537,13 @@ are all clean.
   INVERSE FOUND at the time, since closed by later (undated-in-this-file) work:
   `DataReplicationSettings`/`IpAddress`/`RelatedWorkspaces` are real, backend-tracked
   data as of `CreateStandbyWorkspaces` (see that op's note) and `IpAddress` was always
-  set at `CreateWorkspace` time; `ModificationStates`/`StandbyWorkspacesProperties`
-  round-trip a real field but this backend has no code path that ever populates either
-  (correct-by-absence, not fabricated -- no modification-tracking or extra
-  standby-property feature exists to source them from). `WorkspaceName` was wired onto
+  set at `CreateWorkspace` time; `ModificationStates` rounds-trip a real field but this
+  backend has no code path that ever populates it (correct-by-absence, not fabricated --
+  no modification-tracking feature exists to source it from; see gopherstack-jukr below).
+  UPDATE 2026-09-11 (gopherstack-jukr): `StandbyWorkspacesProperties` is no longer in
+  that correct-by-absence set -- `CreateStandbyWorkspace` (gopherstack-zzd9, same date)
+  now appends an entry onto the primary's `StandbyWorkspacesProperties` when a standby
+  is created. `WorkspaceName` was wired onto
   the wire (`workspaceResp`/`pendingWorkspace` both gained the JSON key) sometime after
   this note was written, but WITHOUT actually closing the gap this note described:
   `WorkspaceRequest.WorkspaceName` (the real *input* field) was still accepted by
@@ -557,14 +561,50 @@ are all clean.
   at a glance (every other shape in this service is PascalCase) but is verified
   correct against the real `awsAwsjson11_deserializeDocumentWorkspacesIpGroup` /
   `IpRuleItem` deserializers. Real AWS quirk, not a bug — don't "fix" the casing.
-- `CreateStandbyWorkspaces`' `PrimaryWorkspaceId` is accepted and echoed back on
-  failure, but its existence is **not** cross-validated against any workspace
-  table. This is deliberate, not an oversight: `CreateStandbyWorkspaces` runs in
-  the *standby* (target) region to create a DR copy of a WorkSpace whose
-  `PrimaryWorkspaceId` lives in a *different* region's backend instance — this
-  in-memory backend has no cross-region visibility, so there is nothing correct
-  to validate against. Only `DirectoryId` (which must be registered in *this*
-  region) is validated.
+- CLOSED (gopherstack-zzd9, 2026-09-11): `CreateStandbyWorkspaces`' `PrimaryWorkspaceId`
+  IS now cross-validated against `b.workspaces`, and a nonexistent primary reports
+  `ResourceNotFoundException` via `FailedStandbyRequests`. The above note previously
+  claimed this was deliberate-not-an-oversight (real `CreateStandbyWorkspaces` runs
+  against the *standby* region, and a real primary genuinely lives in a separate
+  region's backend instance) — true of real AWS, but this emulator runs exactly one
+  backend instance, so the primary and standby always land in the same `b.workspaces`
+  table; validating against it is the only way this backend can truthfully populate
+  `RelatedWorkspaces` on both sides (see `CreateStandbyWorkspaces`' ops-table note).
+  Don't re-add a "no cross-region visibility" skip here without re-checking whether
+  this emulator has grown real multi-instance/multi-region backends by the time you
+  read this.
+- CLOSED (gopherstack-jukr, 2026-09-11): `types.Workspace` declares six members
+  (`DataReplicationSettings`, `IpAddress`, `ModificationStates`, `RelatedWorkspaces`,
+  `StandbyWorkspacesProperties`, `WorkspaceName`) this backend once modeled nowhere.
+  `DataReplicationSettings`/`RelatedWorkspaces`/`StandbyWorkspacesProperties` were
+  closed by gopherstack-zzd9 (same date, see above). Of the remaining three:
+  `WorkspaceName` and `IpAddress` had already been fixed by the 2026-08-23 pass this
+  file documents above (`CreateWorkspaces`/`DescribeWorkspaces` ops rows) -- except
+  `CreateStandbyWorkspace` (`workspaces.go`), added 2026-08-17 (fb80d66cd9, five days
+  *before* the 2026-08-23 fix), still fabricated the standby's `WorkspaceName` as its
+  own generated `WorkspaceId`. Same bug class the 2026-08-23 pass closed for the normal
+  create path, missed here because it's a separate code path. `StandbyWorkspace`
+  (workspaces v1.79.0 types.go:3042) has no `WorkspaceName` input member -- real AWS
+  gives this backend nothing to derive one from -- so it is now left empty (omitempty)
+  like a normal user-assigned WorkSpace's, not fabricated. `IpAddress` needs no gating
+  fix: `CreateWorkspace` sets `State: stateAvailable` immediately (this backend has no
+  PENDING window for a normal create) so IpAddress is always set together with
+  AVAILABLE; `CreateStandbyWorkspace` sets `State: statePending` and never sets
+  IPAddress, so a PENDING WorkSpace already has none -- the AVAILABLE/PENDING split
+  the issue asked for falls out of the existing two code paths without a code change.
+  `ModificationStates` stays correct-by-absence: `ModifyWorkspaceProperties`
+  (`workspaces.go`) applies every change synchronously (`w.Properties = &p`, no queue,
+  no janitor), so there is never a window where a real `ModificationState{Resource:
+  COMPUTE_TYPE|ROOT_VOLUME|USER_VOLUME|PROTOCOL|NESTED_VIRTUALIZATION, State:
+  UPDATE_INITIATED|UPDATE_IN_PROGRESS|UPDATE_FAILED}` (workspaces v1.79.0
+  `types/enums.go:871-910`) would be true. The shape is fully wired end to end
+  (`storedWorkspace.ModificationStates` -> `Workspace.ModificationStates` ->
+  `workspaceResp.ModificationStates`, `json:"ModificationStates,omitempty"`) and
+  correctly renders as an absent key rather than a fabricated in-progress entry --
+  matching this file's bedrock-asset-filter/codedeploy-pagination precedent for an
+  inert-but-real shape. Regression: `TestCreateStandbyWorkspaces_WorkspaceNameNotFabricated`,
+  `TestWorkspace_IpAddress_AvailableVsPending`, `TestWorkspace_ModificationStatesEmpty`
+  (workspaces_test.go).
 - `DescribeImageAssociations`/`DescribeBundleAssociations` will always return an
   empty `Associations` list in this backend — this is correct, not a stub. Real
   AWS's WorkSpaces Application Manager has no public API to create an
@@ -636,3 +676,46 @@ this pass**:
 
 Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
 -- all clean (`./services/workspaces/...` and `./cmd/reqfieldscan/...`).
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 51 of workspaces's
+typed-client-uncovered ops (per `cmd/clientcoverage`): account link
+accept/reject/get, IP group authorize/revoke/update/disassociate, tags
+create/delete, Connect client add-in delete/update, connection alias
+associate/disassociate, account describe/modify/CIDR-ranges, client
+branding import/describe/delete + client properties describe/modify,
+core workspace lifecycle (state modify, reboot/rebuild/stop/start,
+connection status, terminate, migrate, restore), bundle
+delete/describe/update/associations, image create-updated/delete/
+associations, application association describe/disassociate/deploy +
+DescribeApplications, pool start/stop/terminate/update/sessions/
+terminate-session, DescribeWorkspaceSnapshots, and directory
+deregister + ModifyStreamingProperties.
+
+**Zero real bugs found** -- 14 subtests, all passed against the existing
+handlers once the test's own setup was corrected (two required-field
+misses on the test side: `CreateWorkspacesPoolInput.Description` and
+`CreateWorkspaceBundleInput.ImageId` must reference a real, existing
+image -- fixed in the test, not the handler). Consistent with this
+service's already A-graded audit history (see PARITY.md items_still_open,
+which already tracks the service's few genuinely open gaps).
+
+One structural note recorded for the method notes: `TerminateWorkspacesPoolSession`
+has no production path anywhere in this backend that ever creates a real
+`storedPoolSession` (no simulated user-connects-to-pool flow, and no
+test-only seam either, unlike `DescribeWorkspacesPoolSessions`'s sibling
+read path) -- the subtest exercises it against a deliberately nonexistent
+session ID and asserts the real client decodes the NotFound-shaped error
+correctly, which still proves the op's wire round trip end to end even
+though a genuine success path can't be constructed today.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 40/91 -> 91/91 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet
+./services/workspaces/...` (clean). `go test -race -count=1
+./services/workspaces/...` (pass). `golangci-lint run --new-from-rev=HEAD
+./services/workspaces/...` (0 issues). `cmd/paritylint` stays at 0 FAIL.

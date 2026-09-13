@@ -57,7 +57,8 @@ families:
   error-codes: {status: ok, note: "unchanged this pass; resolveErrorType/fallback confirmed to map to the REAL modeled 'InternalServerException' (not a fabricated 'InternalFailure') at all 9 handler.go/handler_*.go call sites -- re-verified, not a regression"}
   event-stream-chunk-payload: {status: ok, note: "NEW this pass (see InvokeModelWithResponseStream/InvokeModelWithBidirectionalStream op notes): the 'chunk' event's payload must be the smithy PayloadPart/BidirectionalOutputPayloadPart document shape {\"bytes\":\"<base64>\"}, not the raw response JSON. This was the highest-impact bug found this audit -- it broke response-body delivery for every real aws-sdk-go-v2 client streaming call against gopherstack, silently (no error, just an empty Body on the client side)."}
   chaos-fault-injection: {status: ok, note: "2026-08-07 (gopherstack-ayfw): ChaosServiceName was \"bedrockruntime\", but real Bedrock Runtime signs every request with SigV4 service name \"bedrock\" (verified: aws-sdk-go-v2/service/bedrockruntime@v1.57.1 auth.go's serviceAuthOptions, unconditional for every operation) -- the same signing name the sibling services/bedrock control-plane handler already declares. pkgs/chaos's Middleware extracts the fault-matching service string straight from the real Authorization header's SigV4 credential scope, so the old value could never match real client traffic; a fault rule created from the chaos dashboard's own GET /targets discovery (which surfaced \"bedrockruntime\") would silently never fire. Fixed to \"bedrock\" -- getTargets already merges entries sharing one signing name across handlers (its own doc comment cites S3/S3 Control as precedent), so this needed no pkgs/chaos change. New chaos_test.go proves both the fix (a \"bedrock\"-targeted rule now intercepts a real InvokeModel call before the handler runs) and the regression it fixes (a \"bedrockruntime\"-targeted rule does not). This resolves the bd issue's premise -- once the service name matches, the existing generic mechanism already supports injecting ModelError/ModelNotReady/Throttling/ServiceUnavailable (or any other) error code/status for InvokeModel/Converse/any op; see gaps for the one remaining, out-of-scope refinement (ModelErrorException's extra OriginalStatusCode/ResourceName members)."}
-gaps:
+gaps: []
+items_still_open:
   - "The generic pkgs/chaos FaultError shape ({code, statusCode} -> a plain {__type, message} JSON body) can inject any error code/status for InvokeModel/Converse/etc (verified: real ModelErrorException/ModelNotReadyException/ThrottlingException/ServiceUnavailableException are all restjson1 GetErrorInfo-resolvable from a body __type field, no X-Amzn-ErrorType header required), but cannot reproduce ModelErrorException's two extra members (OriginalStatusCode, ResourceName) since chaos.FaultError has no per-service extension point for them. Buildable (add optional extra-fields support to chaos.FaultError) but out of this pass's scope: it is shared pkgs/chaos infrastructure, not bedrockruntime-local, and touching it has blast radius across all 137 chaos-registered services. (bd: gopherstack-ayfw)"
   - "CountTokens' invokeModel-body token estimate uses raw decoded-byte length as a chars proxy (cannot know the tokenizer for arbitrary model-specific InvokeModel body formats); acceptable per parity rules (deterministic mock), documented as an approximation in code comments"
   - "Converse's guardrailConfig body field (GuardrailIdentifier/GuardrailVersion) is accepted opaquely (json.RawMessage, unparsed) but not validated for the identifier-requires-version precondition that InvokeModel's equivalent HEADER fields now enforce -- both fields are optional/unrequired on types.GuardrailConfiguration (no smithy 'required' trait, verified), so the real SDK client does not enforce this combination client-side either; low-value/out-of-budget this pass since Converse's mock inference doesn't depend on guardrail semantics to produce a valid response"
@@ -409,3 +410,30 @@ trigger (time-based, random, or a test-only backdoor) is explicitly out of
 scope per gopherstack-0c1r and would be worse than leaving the constant
 unreachable.
 
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: Converse, CountTokens, GetAsyncInvoke,
+InvokeGuardrailChecks, InvokeModelWithBidirectionalStream, StartAsyncInvoke
+driven through the real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 5 subtests). bedrockruntime moved from
+5/11 to 11/11 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found; `estimateTokenCount`'s existing `input.invokeModel`/
+`input.converse` envelope unwrapping (handler_invoke.go) was double-checked
+against a live typed CountTokens call and confirmed correct, not the bug it
+initially looked like from a skim.
+
+InvokeModelWithBidirectionalStream needed the same HTTP/2-over-TLS test
+harness polly's StartSpeechSynthesisStream needed this same slice (real
+client hard-refuses its response over HTTP/1.1) -- added
+`newTestBedrockRuntimeH2Client`, used only by this one subtest; every other
+op, including the response-only ConverseStream/InvokeModelWithResponseStream
+already covered by prior passes, keeps using the plain
+`newTestBedrockRuntimeSDKClient` over HTTP/1.1.
+
+Gates: `go build ./...`, `go vet ./services/bedrockruntime/...`,
+`go test -race -count=1 ./services/bedrockruntime/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/bedrockruntime/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

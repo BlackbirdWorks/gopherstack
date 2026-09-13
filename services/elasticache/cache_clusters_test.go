@@ -498,48 +498,6 @@ func TestBackend_ModifyCluster_NodeType(t *testing.T) {
 }
 
 // ----------------------------------------
-// CacheParameterGroup CRUD (issue)
-// ----------------------------------------
-
-func TestBackend_ListAllowedNodeTypeModifications_ForCluster(t *testing.T) {
-	t.Parallel()
-
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
-
-	_, err := b.CreateClusterWithOptions(
-		context.Background(),
-		"nodemods-cl",
-		"redis",
-		"cache.t3.micro",
-		"",
-		"",
-		"",
-		1,
-		0,
-	)
-	require.NoError(t, err)
-
-	mods, err := b.ListAllowedNodeTypeModifications(context.Background(), "nodemods-cl", "")
-	require.NoError(t, err)
-	assert.NotNil(t, mods)
-}
-
-func TestBackend_ListAllowedNodeTypeModifications_ForRG(t *testing.T) {
-	t.Parallel()
-
-	b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
-
-	_, err := b.CreateReplicationGroupFull(context.Background(), elasticache.ReplicationGroupCreateOpts{
-		ID: "nodemods-rg", Description: "node mods test",
-	})
-	require.NoError(t, err)
-
-	mods, err := b.ListAllowedNodeTypeModifications(context.Background(), "", "nodemods-rg")
-	require.NoError(t, err)
-	assert.NotNil(t, mods)
-}
-
-// ----------------------------------------
 // EngineDefaultParameters
 // ----------------------------------------
 

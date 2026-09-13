@@ -320,7 +320,7 @@ func TestCloudWatchLogsBackend_MetricFilterCount(t *testing.T) {
 				tt.setup(b)
 			}
 
-			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 10)
+			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 10)
 			require.NoError(t, err)
 			require.Len(t, groups, 1)
 			assert.Equal(t, tt.wantCount, groups[0].MetricFilterCount)

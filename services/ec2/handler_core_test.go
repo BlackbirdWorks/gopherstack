@@ -749,7 +749,7 @@ func TestHandlerNetworkSpotPlacementOperations(t *testing.T) {
 			name:         "DeletePlacementGroup_not_found",
 			body:         "Action=DeletePlacementGroup&Version=2016-11-15&GroupName=nonexistent-pg",
 			wantCode:     http.StatusBadRequest,
-			wantContains: []string{"InvalidPlacementGroup.NotFound"},
+			wantContains: []string{"InvalidPlacementGroup.Unknown"},
 		},
 		// ---- Volume / Snapshot Attributes ----
 		{

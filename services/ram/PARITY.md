@@ -51,10 +51,10 @@ ops:
   CreateResourceShare: {wire: ok, errors: partial, state: ok, persist: ok, note: "FIXED (2026-07-23) - when no permissionArns are given and resourceArns are, now auto-associates the AWS-managed default permission for each resource type present (matches AWS: 'If you don't specify [permissionArns], the resource share is automatically associated with the default RAM-managed permission for each resource type included in the resource share'). errcodeaudit 2026-08-29: duplicate-name rejection emits a fabricated ResourceShareAlreadyExistsException -- CreateResourceShare's own error model (deserializers.go awsRestjson1_deserializeOpErrorCreateResourceShare) defines no AlreadyExists-shaped exception at all, and real AWS RAM does not actually reject duplicate resource-share names (only the ARN is unique). Left as-is (no code invented) per audit policy; the duplicate-name check itself may be extra behavior AWS doesn't have -- follow-up filed."}
   GetResourceShare: {wire: ok, errors: ok, state: ok, persist: ok}
   GetResourceShares: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - added the permissionArn/permissionVersion and tagFilters request filters (previously unimplemented, both present on the real GetResourceSharesInput); ResourceOwner is now enforced as required ('This member is required' on the real input, previously silently defaulted to empty)"}
-  UpdateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-kvyy (2026-09-11): now rejects a CREATED_FROM_POLICY share with OperationNotPermittedException -- UpdateResourceShare's own error model declares no InvalidStateTransitionException, so this is the closest modeled fit (matches this file's existing DeletePermission precedent for the identical 'op declares no X' situation); a policy-created share 'can't be modified by using AWS RAM' per the RAM API reference."}
   DeleteResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "soft-deletes the share AND marks its associations DISASSOCIATED in place (kept in the associations slice); DisassociateResourceShare now uses the same pattern (fixed below), so the two are consistent again"}
-  AssociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - dedup logic is now status-aware: only an ASSOCIATED row blocks re-association; a DISASSOCIATED row (from a prior DisassociateResourceShare) is reactivated in place instead of being ignored or duplicated. Also now auto-associates the default managed permission for any newly-introduced resource type not yet covered (AssociateResourceShare has no permissionArns parameter in the real API, so AWS always does this). errcodeaudit 2026-08-29 FIX: external-principal rejection emitted a fabricated MalformedQueryStringException (an EC2-query-style code, not a REST-JSON RAM type); AssociateResourceShare's own error model defines InvalidParameterException. Verified via TestAssociateResourceShare_ExternalPrincipalNotAllowed (real client, errors.As)."}
-  DisassociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - previously hard-deleted matching rows from the associations slice; now marks them DISASSOCIATED in place, matching DeleteResourceShare's pattern. This closes the GetResourceShareAssociations(associationStatus=DISASSOCIATED) visibility gap and lets AssociateResourceShare reactivate a disassociated row (see above) instead of accumulating duplicates"}
+  AssociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - dedup logic is now status-aware: only an ASSOCIATED row blocks re-association; a DISASSOCIATED row (from a prior DisassociateResourceShare) is reactivated in place instead of being ignored or duplicated. Also now auto-associates the default managed permission for any newly-introduced resource type not yet covered (AssociateResourceShare has no permissionArns parameter in the real API, so AWS always does this). errcodeaudit 2026-08-29 FIX: external-principal rejection emitted a fabricated MalformedQueryStringException (an EC2-query-style code, not a REST-JSON RAM type); AssociateResourceShare's own error model defines InvalidParameterException. Verified via TestAssociateResourceShare_ExternalPrincipalNotAllowed (real client, errors.As). gopherstack-kvyy (2026-09-11): now also rejects a CREATED_FROM_POLICY share with InvalidStateTransitionException, which this op's own error model declares."}
+  DisassociateResourceShare: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - previously hard-deleted matching rows from the associations slice; now marks them DISASSOCIATED in place, matching DeleteResourceShare's pattern. This closes the GetResourceShareAssociations(associationStatus=DISASSOCIATED) visibility gap and lets AssociateResourceShare reactivate a disassociated row (see above) instead of accumulating duplicates. gopherstack-kvyy (2026-09-11): now also rejects a CREATED_FROM_POLICY share with InvalidStateTransitionException, which this op's own error model declares."}
   GetResourceShareAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "AssociationType is now enforced as required ('This member is required' on the real GetResourceShareAssociationsInput, previously silently defaulted to 'return every type')"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -86,9 +86,9 @@ ops:
   ListPermissionAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-08-19) - ListPermissionAssociationsOutput.Permissions is []types.AssociatedPermission (api_op_ListPermissionAssociations.go:99; types/types.go:11-), whose wire key for the permission ARN is 'arn', not 'permissionArn', and whose PermissionVersion is a JSON string, not a number (deserializers.go's awsRestjson1_deserializeDocumentAssociatedPermission type-asserts permissionVersion to string). gopherstack emitted permissionArn (wrong key, so a real client's Arn always decoded nil) and a numeric permissionVersion (wrong type -- this is worse than a silent drop: it makes the real SDK client's ListPermissionAssociations call fail outright with 'deserialization failed ... expected String to be of type string, got json.Number instead'). Fixed both in permissionAssociationObject. Proven via SDK-client round trip Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape + hand-revert (confirmed the exact decode error reproduces verbatim on revert)."}
   SetDefaultPermissionVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   PromotePermissionCreatedFromPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
-  PromoteResourceShareCreatedFromPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "mock-simplified: real AWS asynchronously flips featureSet CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD; this backend has no featureSet state machine (CreateResourceShare always sets STANDARD) so the op is effectively a no-op validator. Acceptable since nothing here ever creates a CREATED_FROM_POLICY share (see deferred below)"}
-  AssociateResourceSharePermission: {wire: ok, errors: ok, state: ok, persist: ok}
-  DisassociateResourceSharePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - now enforces AWS's documented rule ('You can remove a managed permission from a resource share only if there are currently no resources of the relevant resource type currently attached to the resource share') via OperationNotPermittedException; empty sharePermissions[shareARN] map entries are now pruned on last-permission removal"}
+  PromoteResourceShareCreatedFromPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-kvyy, 2026-09-11) - the featureSet state machine is now implemented (Glue policy-based sharing reaches CREATED_FROM_POLICY via the new PutPolicyBasedShare seam); this op now rejects a non-CREATED_FROM_POLICY share with InvalidStateTransitionException (its own modeled error) instead of silently no-op-succeeding on any share, and on success sets FeatureSet straight to STANDARD, skipping the async PROMOTING_TO_STANDARD intermediate (disclosed simplification, matches PromotePermissionCreatedFromPolicy's existing precedent). UnmatchedPolicyPermissionException remains unmodeled (see items_still_open). Also fixed a wire bug found while testing this: the op has no httpPayload member and binds resourceShareArn via httpQuery (serializers.go), but the handler was reading it from the JSON body, so a real client's request always failed with an empty-body unmarshal error; now reads it from the URL query, matching handleDeleteResourceShare's identical binding."}
+  AssociateResourceSharePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-kvyy (2026-09-11): now rejects a CREATED_FROM_POLICY share with OperationNotPermittedException -- this op's own error model declares no InvalidStateTransitionException, so this is the closest modeled fit (same 'op declares no X' precedent as UpdateResourceShare above)."}
+  DisassociateResourceSharePermission: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - now enforces AWS's documented rule ('You can remove a managed permission from a resource share only if there are currently no resources of the relevant resource type currently attached to the resource share') via OperationNotPermittedException; empty sharePermissions[shareARN] map entries are now pruned on last-permission removal. gopherstack-kvyy (2026-09-11): now also rejects a CREATED_FROM_POLICY share with InvalidStateTransitionException, which this op's own error model declares."}
   ListResourceSharePermissions: {wire: ok, errors: ok, state: ok, persist: ok}
   ReplacePermissionAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - now honors the optional fromPermissionVersion request filter (previously parsed but discarded, replacing every share regardless of pinned version); records a real ReplacePermissionAssociationsWork item (persisted via a new store.Table) instead of fabricating a throwaway 'replace-work-<arn>' string"}
   ListReplacePermissionAssociationsWork: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) - was a permanently-empty stub; work items created by ReplacePermissionAssociations are now recorded and retrievable, with workIds/status filtering and pagination. Also fixed a wire-shape bug: the response list field must be 'replacePermissionAssociationsWorks' (plural) per the real deserializer -- the old code emitted the singular 'replacePermissionAssociationsWork' key (copy-pasted from the single-item ReplacePermissionAssociationsOutput shape), which a real SDK client would never populate from"}
@@ -103,8 +103,10 @@ families:
   wrapper_key_sweep_2026_08_19: {status: ok, note: "All 34 SDK ops swept (api_op_*.go count) against their own deserializers.go top-level-key switch AND their nested types' field-by-field switch (not generalized from siblings). 3 genuine bugs found and fixed (CreatePermissionVersion, ListPermissionVersions, ListPermissionAssociations -- see per-op notes above). 31 ops confirmed clean: ResourceShare/ResourceShareAssociation/ResourceShareInvitation/Principal/Resource/Tag/ServiceNameAndResourceType/AssociatedSource/ReplacePermissionAssociationsWork/ResourceSharePermissionSummary/ResourceSharePermissionDetail all verified field-for-field against their own deserializeDocument* function in deserializers.go@ram v1.39.4. No fabricated members found beyond the two Summary/Detail swaps. Layer-3 hunt (never-emitted members) was out of scope; resourceShareConfiguration/resourceGroupArn/receiverArn/resourceShareAssociations(on invitation) noted as genuine unfixed gaps below, not treated as bugs."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore delegate to InMemoryBackend.Snapshot/Restore; versioned backendSnapshot (ramSnapshotVersion) with store.Registry-backed tables for resourceShares/permissions/invitations/replaceWorks plus raw sharePermissions/associations fields. The new replaceWorks table (ReplacePermissionAssociations work items) is registered like the other three 'clean' tables (identity-carrying ID field) and round-trips through the existing registry.SnapshotAll/RestoreAll machinery with no bespoke persistence.go changes needed. Confirmed via existing persistence_test.go coverage (unchanged, still green) -- did not add a dedicated persistence round-trip test for replaceWorks specifically since it's exercised through the same generic registry path as every other store.Table."}
 gaps: []
+items_still_open:
+  - "gopherstack-kvyy (2026-09-11): Glue's PutResourcePolicy(EnableHybrid=TRUE) with any cross-account Principal.AWS grant is treated as the trigger for creating a RAM CREATED_FROM_POLICY resource share. Real AWS documents CREATED_FROM_POLICY generically as 'when you attach a resource-based policy to a resource', and the Glue/Lake-Formation-specific path is actually mediated by Lake Formation's own cross-account grant flow, not a literal 'any cross-account Glue policy triggers a RAM share' rule -- disclosed as broader than real Lake-Formation-mediated Glue sharing since Glue has no other concrete, emulatable wire path to the general mechanism. Revisit if a narrower, Lake-Formation-grant-shaped trigger becomes emulatable."
+  - "gopherstack-kvyy (2026-09-11): PromoteResourceShareCreatedFromPolicy's UnmatchedPolicyPermissionException is not modeled -- it requires simulating 'no existing customer-managed permission exactly matches' the derived policy-based permission, out of scope for this pass."
 deferred:
-  - PromoteResourceShareCreatedFromPolicy's featureSet state machine (CREATED_FROM_POLICY -> PROMOTING_TO_STANDARD -> STANDARD) is not modeled; every share created here is already STANDARD so this hasn't caused observed drift, but if CREATED_FROM_POLICY share creation is ever added, this needs revisiting.
   - "CLOSED 2026-08-13: permissionSummaryObject/permissionDetailObject emitted a resourceRegionScope field that does not exist on the real ResourceSharePermissionSummary/ResourceSharePermissionDetail SDK types. Evidence: aws-sdk-go-v2/service/ram@v1.39.4, types/types.go:492-(Summary)/403-(Detail), checked 2026-08-13 -- exhaustive field lists are Arn/CreationTime/DefaultVersion/FeatureSet/IsResourceTypeDefault/LastUpdatedTime/Name/PermissionType/ResourceType/Status/Tags/Version (Summary, plus Permission on Detail), no ResourceRegionScope on either. That field exists only on types.Resource and types.ServiceNameAndResourceType (see handler_resources.go's legitimate use, TestResourceRegionScope_InListResources). Deleted the field from both wire structs; the internal Permission.ResourceRegionScope domain field (models.go) is untouched -- it backs real filtering logic, just was never a real member of these two wire shapes. Raw-body regression test: TestPermissionResponses_NoResourceRegionScopeField."
   - "DISCLOSED not fixed (2026-08-19 sweep, out of scope per sweep charter -- Layer 3 never-emitted members are only fixed if incidental): ResourceShare never emits resourceShareConfiguration (deserializers.go:8642+, types.ResourceShareConfiguration); Resource never emits resourceGroupArn (deserializers.go's awsRestjson1_deserializeDocumentResource); ResourceShareInvitation never emits receiverArn or resourceShareAssociations (deserializers.go's awsRestjson1_deserializeDocumentResourceShareInvitation). None of these surfaced incidentally while fixing the 3 genuine bugs this session, so left alone per the sweep's Layer-3-out-of-scope rule."
   - "gopherstack-9ojs (2026-09-07): ResourceShareStatus never reaches PENDING/FAILED/DELETING (only ACTIVE and DELETED are ever written -- store.go's statusActive/statusDeleted are the only two status consts declared) and ResourceShareAssociationStatus never reaches ASSOCIATING/FAILED/DISASSOCIATING/SUSPENDED/SUSPENDING/RESTORING (only associationStatusAssociated/associationStatusDisassociated exist). Both are modelling gaps, not defects: every real-AWS trigger for these values is either async backend processing (share-level PENDING while RAM processes the initial associations, FAILED for backend-side processing failures) or requires cross-account/organizational state this backend cannot represent (SUSPENDED/SUSPENDING/RESTORING are Organizations-service-control-policy-driven per AWS RAM docs). Critically, the one client-observable failure mode that could plausibly reach an association's FAILED status -- an invalid or unshareable resource ARN passed to AssociateResourceShare/CreateResourceShare -- is NOT how real AWS reports it: AssociateResourceShare's and CreateResourceShare's own error models (ram@v1.39.4 deserializers.go, awsRestjson1_deserializeOpErrorAssociateResourceShare:326-327 and awsRestjson1_deserializeOpErrorCreateResourceShare:1076-1077) both declare MalformedArnException as a synchronous API error, not an async association status. So there is no reachable client path to FAILED for either enum; recommend no action on the enums themselves. See the validation fix below for the adjacent defect this investigation did find (unfixed until this session)."
@@ -669,3 +671,181 @@ by grep before changing the signatures)/`gofmt -l`/`go fix -diff` all clean;
 ./services/ram/...` reports 0 issues; no banned `nolint:cyclop|gocyclo|gocognit|funlen`.
 `account` service audited in the same pass for this class (see its own PARITY.md) --
 clean, 0 code changes there.
+
+## gopherstack-kvyy (2026-09-11): CREATED_FROM_POLICY resource shares -- the missing wire path, implemented
+
+**Premise confirmed and fixed.** No backend path ever created a `CREATED_FROM_POLICY`
+resource share, so `PromoteResourceShareCreatedFromPolicy` and the `featureSet` state
+machine (deferred entry above, `PromoteResourceShareCreatedFromPolicy`'s `ops:` note)
+were unreachable dead code. Verified real semantics before implementing, not guessed:
+
+- RAM API reference, `PromoteResourceShareCreatedFromPolicy`
+  (`https://docs.aws.amazon.com/ram/latest/APIReference/API_PromoteResourceShareCreatedFromPolicy.html`,
+  fetched 2026-09-11): "When you attach a resource-based policy to a resource, AWS RAM
+  automatically creates a resource share of `featureSet`=`CREATED_FROM_POLICY` with a
+  managed permission that has the same IAM permissions as the original resource-based
+  policy. However, this type of managed permission is visible to only the resource share
+  owner, and the associated resource share can't be modified by using AWS RAM." Same op
+  promotes it to `STANDARD`.
+- `ram@v1.39.4` `types/enums.go`: `ResourceShareFeatureSet` = `CREATED_FROM_POLICY` /
+  `PROMOTING_TO_STANDARD` / `STANDARD` (lines 228-230); `deserializers.go`'s own
+  `awsRestjson1_deserializeOpError*` switch per op gives the exact modeled exception set
+  used below (each op cited at its call site in the diff).
+- Glue side: `glue@v1.152.0` `api_op_PutResourcePolicy.go`'s `EnableHybrid` doc talks
+  about Lake Formation console grants, not RAM directly, and
+  `https://docs.aws.amazon.com/glue/latest/dg/cross-account-access.html` (fetched
+  2026-09-11) documents the cross-account-grant-via-resource-policy pattern (a
+  `Principal.AWS` entry naming another account) without naming RAM's
+  `CREATED_FROM_POLICY` mechanism explicitly -- web search corroborates the two are
+  related in practice (RAM sharing for the Data Catalog is real and documented) but
+  through Lake Formation's own grant flow, not a literally-documented "any cross-account
+  Glue policy triggers a RAM share" statement. **Disclosed mock-simplified choice**:
+  this backend treats *any* Glue `PutResourcePolicy(EnableHybrid=TRUE)` whose policy
+  grants a cross-account principal as the trigger, since Glue has no other concrete,
+  emulatable wire path to RAM's generically-documented "attach a resource-based policy"
+  mechanism. This gives `CREATED_FROM_POLICY` shares a real, reachable creation path
+  matching the general RAM mechanism precisely, at the cost of being broader than real
+  Lake-Formation-mediated Glue sharing.
+
+**Implementation**: `services/glue/interfaces.go`'s new `ResourceShareCreator` seam
+(`PutPolicyBasedShare`/`DeletePolicyBasedShare`), wired in `cli.go`'s
+`wireGlueRAMPolicyShares` (mirrors `wireAWSConfigDelivery`'s adapter-in-cli.go pattern).
+`services/glue/resource_policies.go`'s `PutResourcePolicy`/`DeleteResourcePolicy` call
+the seam *after* releasing `b.mu` (`services/lambda/lifecycle.go`'s
+capture/release/call/re-lock pattern -- ram's lock never nests inside glue's).
+`services/glue/policy_shares.go` parses the policy JSON's `Principal.AWS` entries,
+filters to genuinely cross-account ones (a public `"*"` grant is not RAM-shareable),
+and collects the granting statements' `Action`s. `services/ram/policy_shares.go`'s new
+`PutPolicyBasedShare`/`DeletePolicyBasedShare` create/resync/tear down the share, its
+resource+principal associations (no invitation -- a policy-created share represents
+access already granted by the resource policy itself, not a new grant needing
+acceptance), and a derived `CREATED_FROM_POLICY` managed permission whose
+`PolicyTemplate` is built from the granted actions.
+
+**State machine enforced** (`ResourceShare.FeatureSet`, new field, additive --
+`featureSetOf` defaults empty/pre-existing shares to `STANDARD`, no version bump):
+
+- `UpdateResourceShare` / `AssociateResourceSharePermission` on a `CREATED_FROM_POLICY`
+  share -> `OperationNotPermittedException`: their own error models
+  (`awsRestjson1_deserializeOpErrorUpdateResourceShare` /
+  `...AssociateResourceSharePermission`) declare no `InvalidStateTransitionException` at
+  all, so this is the closest modeled fit (matches their own doc text and this repo's
+  existing `DeletePermission` precedent for the identical "op declares no X" situation).
+- `AssociateResourceShare` / `DisassociateResourceShare` /
+  `DisassociateResourceSharePermission` on a `CREATED_FROM_POLICY` share ->
+  `InvalidStateTransitionException`: each op's own error model declares it.
+- `PromoteResourceShareCreatedFromPolicy` on a share that is *not*
+  `CREATED_FROM_POLICY` -> `InvalidStateTransitionException` (its own error model
+  declares it; this is also a genuine pre-existing defect fix -- the old code was an
+  RLock'd no-op that silently "succeeded" on any share, including a plain `STANDARD` one,
+  matching the deferred note's "effectively a no-op validator" description).
+- `PromoteResourceShareCreatedFromPolicy` success sets `FeatureSet` straight to
+  `STANDARD`, skipping the async `PROMOTING_TO_STANDARD` intermediate -- disclosed
+  simplification, consistent with this file's existing `PromotePermissionCreatedFromPolicy`
+  precedent (`permissions.go`) of skipping straight to the terminal state.
+- Not modeled: `PromoteResourceShareCreatedFromPolicy`'s
+  `UnmatchedPolicyPermissionException` (requires simulating "no existing customer-managed
+  permission exactly matches" -- out of this pass's scope, not attempted).
+
+**Genuine pre-existing bug found and fixed while wiring a real SDK-client test for the
+new state machine**: `handlePromoteResourceShareCreatedFromPolicy` read
+`resourceShareArn` from the JSON request body. The real operation has no
+`httpPayload` member and binds its one input field via `httpQuery`
+(`serializers.go`'s `awsRestjson1_serializeOpHttpBindingsPromoteResourceShareCreatedFromPolicyInput`:
+`encoder.SetQuery("resourceShareArn")`) -- a real client sends an **empty body**, so the
+old handler's `json.Unmarshal(body, &req)` always failed with "unexpected end of JSON
+input" on every real call. No prior test drove this op through a real SDK client to
+catch it. Fixed to read `c.Request().URL.Query().Get("resourceShareArn")`, matching
+`handleDeleteResourceShare`'s identical query-only binding immediately above it in the
+same file.
+
+**Tests**: `services/glue/resource_policies_ram_test.go` (fake `ResourceShareCreator`,
+table-driven, asserts exact Put/Delete call args including the cross-account-vs-same-
+account-vs-wildcard-principal filtering and the `EnableHybrid`/empty-`resourceARN`
+gating); `services/ram/policy_shares_test.go` (unit tests for
+`PutPolicyBasedShare`/`DeletePolicyBasedShare` idempotent resync behavior, plus the full
+state-machine table); `services/ram/policy_shares_wire_test.go` (real
+`aws-sdk-go-v2/service/ram` client against `httptest`, `errors.As`-asserting the exact
+typed exceptions for the two state-transition rejections and the full
+create-from-policy -> promote -> `STANDARD` lifecycle -- this is what caught the
+`httpQuery`-vs-body bug above); root `cli_glue_ram_policy_share_wiring_test.go` (mirrors
+`cli_mgn_s3_import_wiring_test.go`: drives the real `initializeServices` composition
+root, proving `wireGlueRAMPolicyShares` is actually called, not just defined).
+
+**Persistence**: `ResourceShare.FeatureSet`/`.PolicyResourceARN` are additive fields
+(`omitempty`, decode to `""` on an old snapshot, which `featureSetOf`/`isCreatedFromPolicy`
+already treat as "ordinary STANDARD share"). `pkgs/persistence/testdata/snapshot_inventory.json`
+regenerated via `-update` -- confirmed the diff is exactly the two new `ResourceShare`
+field rows, nothing else; **no version bump** (`ramSnapshotVersion` stays `1`).
+
+**Files changed**: `services/ram/models.go` (`ResourceShare.FeatureSet`/`.PolicyResourceARN`),
+`services/ram/store.go` (`featureSetCreatedFromPolicy`), `services/ram/errors.go`
+(`ErrInvalidStateTransition`), `services/ram/handler.go` (`errCodeLookup` entry;
+`handlePromoteResourceShareCreatedFromPolicy` call site now passes `c` not `body`),
+`services/ram/resource_shares.go` (`featureSetOf`/`isCreatedFromPolicy` helpers;
+`UpdateResourceShare`/`PromoteResourceShareCreatedFromPolicy` state checks),
+`services/ram/handler_resource_shares.go` (`toResourceShareObject` emits real
+`FeatureSet`; `handlePromoteResourceShareCreatedFromPolicy` query-param fix),
+`services/ram/share_associations.go`, `services/ram/share_permissions.go` (state
+checks), new `services/ram/policy_shares.go`; `services/glue/interfaces.go`
+(`ResourceShareCreator`), `services/glue/store.go` (`ramShareCreator` field +
+`SetResourceShareCreator`), `services/glue/resource_policies.go` (seam call sites), new
+`services/glue/policy_shares.go`; `cli.go` (`wireGlueRAMPolicyShares` +
+`glueRAMShareAdapter`, called from `wireGovernanceIntegrations`);
+`pkgs/persistence/testdata/snapshot_inventory.json` (ram rows only).
+
+Gates: `go build ./...` (whole module, clean); `go vet ./services/ram/...
+./services/glue/... .` (clean); `go test -race -count=1 ./services/ram/...
+./services/glue/... ./pkgs/persistence/...` (pass); `go test -count=1 -run 'RAM|Ram' .`
+(pass, includes the new root wiring test); `golangci-lint run ./services/ram/...
+./services/glue/...` (0 issues); `golangci-lint run --new-from-rev=HEAD .` (0 issues).
+
+Closes gopherstack-kvyy.
+
+## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+
+Added `typed_slice31_realclient_test.go` (7 top-level `t.Parallel()` tests) driving every
+op named in the typed-client census's uncovered list for this service at pick time
+(AcceptResourceShareInvitation, DeleteResourceShare, DisassociateResourceShare,
+DisassociateResourceSharePermission, EnableSharingWithAwsOrganization, GetPermission,
+GetResourcePolicies, GetResourceShareAssociations, GetResourceShareInvitations,
+ListPendingInvitationResources, ListPermissionVersions, ListPermissions, ListPrincipals,
+ListReplacePermissionAssociationsWork, ListResourceSharePermissions, ListResourceTypes,
+ListResources, ListSourceAssociations, PromotePermissionCreatedFromPolicy,
+RejectResourceShareInvitation, ReplacePermissionAssociations, SetDefaultPermissionVersion,
+TagResource, UntagResource -- 23 ops; 35/35 ops now covered) via `ramsdk.NewFromConfig`
+against an `httptest` server running the real `pkgs/service` router, following the existing
+`newTestRAMClient` pattern from `permission_version_shape_test.go`.
+
+An external-principal `CreateResourceShare` call (`AllowExternalPrincipals: true`,
+a 12-digit account-ID principal different from the backend's own) was used to drive the
+invitation family (`GetResourceShareInvitations`/`ListPendingInvitationResources`/
+`AcceptResourceShareInvitation`/`RejectResourceShareInvitation`) through the same real
+mechanism AWS itself uses (an invitation is a side effect of associating an external
+principal, not a directly creatable resource) -- no test-only invitation-seeding helper was
+needed. `PromotePermissionCreatedFromPolicy` was driven off a `PutPolicyBasedShare` setup
+call (RAM's non-wire seam that Glue's `PutResourcePolicy` uses internally, per this file's
+own `items_still_open`/Notes on the RAM<-Glue policy-sharing mechanism): there is no RAM SDK
+operation that creates `CREATED_FROM_POLICY` permission state directly, matching how real
+AWS also only reaches it indirectly via another service.
+
+**Accept-and-drop finding, not fixed (out of scope for a coverage pass, recorded for a
+future one):** `handleListTagsForResource`/`ListTagsForResource` (`handler_tags.go`) is
+wired as an internal-only route -- real AWS RAM has **no** `ListTagsForResource` operation
+at all (confirmed: no `api_op_ListTagsForResource.go` in
+`aws-sdk-go-v2/service/ram@v1.39.4`, and it does not appear in `GetSupportedOperations()`'s
+real-op census either). A real client reads a resource share's tags back through
+`GetResourceShares`' `ResourceShare.Tags` field instead, which is what this pass's
+`Test_SDKRoundTrip_MiscOps` uses. `handleListTagsForResource` itself is unreachable by any
+real client and costs nothing left as-is, but is worth deleting in a future de-stub/dead-code
+pass rather than left implying a real op exists.
+
+No wire bugs found among the 23 ops driven this pass -- this service was already deeply
+audited (wrapper-key sweep 2026-08-19, route-matcher sweep, gopherstack-kvyy's 2026-09-11
+pass) and every op decoded correctly on the first typed-client attempt.
+
+Gates: `go build ./...` clean (whole module). `go vet ./services/ram/...` clean.
+`go test -race -count=1 ./services/ram/... ./pkgs/persistence/...` clean.
+`golangci-lint run --new-from-rev=HEAD ./services/ram/...` 0 issues. No persisted struct
+fields added -- no `snapshot_inventory.json` change, no version bump. `items_still_open`
+unchanged (no listed gap was touched by this pass).

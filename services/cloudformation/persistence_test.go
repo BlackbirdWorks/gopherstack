@@ -122,19 +122,19 @@ func TestInMemoryBackend_SnapshotRestore_PlainMapFields(t *testing.T) {
 	fresh := cloudformation.NewInMemoryBackend()
 	require.NoError(t, fresh.Restore(ctx, snap))
 
-	instances, err := fresh.ListStackInstances("test-set", "", cloudformation.ListStackInstancesFilter{})
+	instances, err := fresh.ListStackInstances("test-set", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "111111111111", instances.Data[0].Account)
 	assert.Equal(t, "us-east-1", instances.Data[0].Region)
 
-	ops, err := fresh.ListStackSetOperations("test-set", "")
+	ops, err := fresh.ListStackSetOperations("test-set", 0, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, ops.Data)
 
-	versions, err := fresh.ListTypeVersions("Acme::Demo::Widget", "")
+	versions, err := fresh.ListTypeVersions("Acme::Demo::Widget", "", 0, "")
 	require.NoError(t, err)
-	require.NotEmpty(t, versions)
+	require.NotEmpty(t, versions.Data)
 
 	details, errs, unprocessed := fresh.BatchDescribeTypeConfigurations(
 		[]cloudformation.TypeConfigurationIdentifier{{TypeName: "Acme::Demo::Widget"}},

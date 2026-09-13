@@ -84,7 +84,7 @@ ops:
   GetBucketStatistics: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "route method was GET with accountId as a query param; real SDK sends POST /datasources/s3/statistics with accountId in the JSON body -- unreachable via real client before fix. accountId itself is still unused by the (intentionally global, single-account) stats aggregation. 2026-08-15 pass: response key 'classifiableBucketCount' does not exist on the real GetBucketStatisticsOutput at all (real key is 'classifiableObjectCount', a summed object count, not a bucket count) -- a real client's ClassifiableObjectCount was always 0. Also added 'objectCount'/'sizeInBytes' aggregate fields, summed from per-bucket S3BucketMetadata.ObjectCount/SizeInBytes the backend already tracks but never rolled up. 'lastUpdated'/'sizeInBytesCompressed'/'bucketStatisticsBySensitivity' remain unmodeled (no compression/sensitivity-scan tracking in this backend) -- disclosed, not fixed."}
   GetClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
   PutClassificationExportConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetClassificationScope: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetClassificationScope: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-11 (gopherstack-mven required-output sweep): S3.Excludes carried omitempty despite being required whenever S3 is present (types/types.go:2532), and ensureDefaultScope seeded a fresh account's default scope with S3: &ClassificationScopeS3{} (Excludes left nil) -- so the very first GetClassificationScope call on any account dropped the required member entirely. Default scope now seeds Excludes: {BucketNames: []}, and the omitempty is removed."}
   ListClassificationScopes: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateClassificationScope: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-c8ge): singleton with no Create op. Real UpdateClassificationScopeInput.S3 is types.S3ClassificationScopeUpdate{Excludes: *S3ClassificationScopeExclusionUpdate{BucketNames, Operation}} -- an explicit ADD/REMOVE/REPLACE discriminator, not a replacement list -- but the handler decoded S3 as the same freeform map[string]any Excludes used for Get/List and wholesale-replaced the stored value with whatever the request carried, so an ADD call silently dropped every bucket a prior ADD had added. Modeled ClassificationScopeS3Update/ClassificationScopeS3ExclusionUpdate distinct from the Get/List-side ClassificationScopeS3/ClassificationScopeS3Exclusion (now BucketNames []string, not a map) and implemented real ADD/REMOVE/REPLACE list semantics. See TestUpdateClassificationScope_ExcludedBucketsSurviveIndependentAdds."}
   GetFindingsPublicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-30 (gopherstack-4a8v, reqfieldscan anonymous-struct-decode pass): FindingsPublicationConfig fabricated top-level publishClassificationFindings/publishPolicyFindings members (no omitempty, so emitted on every response) -- confirmed against api_op_GetFindingsPublicationConfiguration.go/api_op_PutFindingsPublicationConfiguration.go and types.SecurityHubConfiguration that both real fields live ONLY nested under securityHubConfiguration; neither Input nor Output has a top-level member of either name. Removed the two fabricated fields; a pre-existing test (TestFindingsPublicationConfig/get_put_publication_config) asserted the fabricated top-level shape as correct and was fixed to assert the real nested shape plus their absence. ClientToken (real PutFindingsPublicationConfigurationInput member, idempotency-only, no member on Output) was being stored via the struct's whole-value copy and echoed back on a later Get; now explicitly discarded after decode, matching this codebase's existing accept-then-drop convention for idempotency tokens (see glue/handler_catalogs.go, inspector2/handler_connectors.go)."}
@@ -116,6 +116,7 @@ families:
 # DescribeOrganizationConfiguration, GetFindings/CreateSampleFindings) and the
 # tags family note. Nothing reclassified to ok without a real field-diff.
 gaps: []
+items_still_open: []
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state is coarse-lock-guarded maps/tables behind lockmetrics.RWMutex, reset via registry.ResetAll(). Every backend method that took a lock this pass (CreateClassificationJob, DescribeClassificationJob, ListClassificationJobs, UpdateClassificationJob, ListMembers, GetCustomDataIdentifier, BatchGetCustomDataIdentifiers) releases it via defer; no classification-job-runner goroutine/ticker exists (jobs never actually execute in this emulator, so there is nothing to Shutdown-drain). FIXED (gopherstack-cq0z, 2026-09-06): DeleteAllowList and DeleteFindingsFilter never cleared their entry in the tags map. isKnownARN gates TagResource/ListTagsForResource by resource existence, so the leak is not reachable through those ops post-delete; it is persisted verbatim in Snapshot() regardless, so it grows the persisted file without bound on create/delete churn. Now cleared in both delete paths. DeleteCustomDataIdentifier is unaffected: it soft-deletes (Deleted flag, entry retained), so its tags entry is intentionally kept, matching AWS's own reference-retention behavior for custom data identifiers. See TestMacie2_Delete_ClearsTags."}
 ---
@@ -566,3 +567,58 @@ all clean after the fix.
   envelope -- no `errors.As` ground truth applies. Same class as
   `glue/jobs.go:471`, `ce/cost_allocation_tags.go:64`,
   `xray/handler_trace_segments.go:43` (bd gopherstack-r3pr).
+
+## 2026-09-11 (gopherstack-132i follow-up): LastRunTime confirmed already fixed
+
+`bd gopherstack-132i` asked to fix `ClassificationJob.LastRunTime` always
+being nil. It was already fixed in `fb80d66c` (2026-08-18,
+`classification_jobs.go:60`, `CreateClassificationJob` sets
+`LastRunTime: &now`) -- the bd issue (filed 2026-07-23) predates that fix
+and was never closed. No janitor/ticker runs classification jobs in this
+emulator (confirmed: no `time.Sleep`/ticker/goroutine touches
+`classificationJobs`; see this file's "leaks" section), so a job's run is
+instantaneous at creation -- `LastRunTime` is set to the creation clock read,
+matching `DescribeClassificationJobOutput.LastRunTime`'s doc fallback
+("if the job hasn't run yet, when the job was created",
+`aws-sdk-go-v2/service/macie2@v1.54.4/api_op_DescribeClassificationJob.go:111-113`).
+This holds for both `ONE_TIME` and `SCHEDULED` (starts `IDLE`) jobs; no
+scheduled re-run is modelled, so `LastRunTime` never advances past creation
+for a `SCHEDULED` job, consistent with "hasn't run yet".
+
+Added `TestDescribeClassificationJob_LastRunTime_RealClient`
+(`wire_field_fixes_test.go`) driving the real SDK client; confirmed it fails
+against `classification_jobs.go` with the `LastRunTime: &now` assignment
+commented out (`LastRunTime` nil over the wire), then confirmed the restore
+is diff-clean. Note: the real `types.JobSummary` (list view) has no
+`LastRunTime` member at all -- gopherstack's `ClassificationJobSummary.
+LastRunTime` is a harmless extra field a real client silently ignores, not
+part of this fix.
+
+The disclosed `PolicyDetails`/`FindingAction`/`FindingActor` gap (POLICY-
+category sample findings; no actor/API-call data source in this backend) was
+already recorded in the 2026-08-15 pass notes above -- confirmed still
+accurate, no new gap found.
+
+## 2026-09-12: typed-client coverage slice 14 (gopherstack-n3zi)
+
+Added `typed_slice14_realclient_test.go`, 19 subtests driving every op the
+repo-wide typed-client census (`cmd/opcensus` + `cmd/clientcoverage`) still
+listed as uncovered for this service (56 ops: Macie session
+enable/disable/update, allow-list lifecycle, custom data identifier
+batch-get/test, findings filter lifecycle, findings
+list/get/statistics/sample + sensitive-data-occurrences availability,
+findings publication configuration, member/invitation lifecycle,
+administrator/master account relationship, organization admin account
+management, automated discovery configuration/accounts, DescribeBuckets,
+classification job list/update, classification export configuration,
+classification scope update, reveal configuration, usage
+statistics/totals, managed data identifiers, resource profile
+artifacts/detections, tags). Every op passed on the first correctly-shaped
+real-client request -- **zero new bugs found**. Typed coverage: 25/81 ->
+81/81 (100%).
+
+Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
+-count=1` clean on `services/macie2` and `pkgs/persistence`.
+`golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
+stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
+changes; no version bump.

@@ -40,6 +40,7 @@ func validateDomainName(name string) error {
 
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
+	AutoTuneOptions             *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
@@ -63,6 +64,7 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
+	AutoTuneOptions             *autoTuneOptionsOutputJSON          `json:"AutoTuneOptions,omitempty"`
 	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
 	EncryptionAtRestOptions     *encryptAtRestOptionsJSON           `json:"EncryptionAtRestOptions,omitempty"`
@@ -144,6 +146,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		AccessPolicies:              upd.AccessPolicies,
 		Tags:                        svcTags.MapFromKV(req.Tags),
 		ClusterConfig:               parseClusterConfigFromReq(req.ClusterConfig),
+		AutoTuneOptions:             autoTuneCreateInputFromReq(req.AutoTuneOptions),
 		EBSOptions:                  upd.EBSOptions,
 		SnapshotOptions:             upd.SnapshotOptions,
 		EncryptionAtRestOptions:     upd.EncryptionAtRestOptions,
@@ -360,6 +363,8 @@ func applyDomainOptionalFields(d *Domain, out *domainStatusJSON) {
 			AutoSoftwareUpdateEnabled: d.EnableSoftwareUpdateOptions.AutoSoftwareUpdateEnabled,
 		}
 	}
+
+	out.AutoTuneOptions = toAutoTuneOptionsOutputJSON(d.AutoTuneOptions)
 }
 
 // handleServiceSoftwareRoutes handles service software update routes.
@@ -496,13 +501,21 @@ type cancelServiceSoftwareUpdateRequest struct {
 	DomainName string `json:"DomainName"`
 }
 
-// serviceSoftwareOptionsJSON is the JSON representation of service software options.
+// serviceSoftwareOptionsJSON is the JSON representation of service software
+// options. AutomatedUpdateDate is real types.ServiceSoftwareOptions'
+// AutomatedUpdateDate (opensearch@v1.75.4 deserializers.go:27053-27067,
+// awsRestjson1_deserializeDocumentServiceSoftwareOptions): an epoch-seconds
+// JSON Number, not a string -- serializing it as a (permanently empty)
+// string made every real client's decode fail outright regardless of
+// content, since this backend never actually tracks an automated-update
+// date. *int64 with omitempty (always nil here) reports the honest absence
+// instead of a value in the wrong JSON type.
 type serviceSoftwareOptionsJSON struct {
 	CurrentVersion      string `json:"CurrentVersion"`
 	NewVersion          string `json:"NewVersion"`
 	UpdateStatus        string `json:"UpdateStatus"`
 	Description         string `json:"Description"`
-	AutomatedUpdateDate string `json:"AutomatedUpdateDate"`
+	AutomatedUpdateDate *int64 `json:"AutomatedUpdateDate,omitempty"`
 	UpdateAvailable     bool   `json:"UpdateAvailable"`
 	Cancellable         bool   `json:"Cancellable"`
 	OptionalDeployment  bool   `json:"OptionalDeployment"`
@@ -541,14 +554,13 @@ func (h *Handler) handleCancelServiceSoftwareUpdate(w http.ResponseWriter, r *ht
 
 	h.writeJSON(r, w, cancelServiceSoftwareUpdateOutput{
 		ServiceSoftwareOptions: serviceSoftwareOptionsJSON{
-			CurrentVersion:      opts.CurrentVersion,
-			NewVersion:          opts.NewVersion,
-			UpdateAvailable:     opts.UpdateAvailable,
-			Cancellable:         opts.Cancellable,
-			UpdateStatus:        opts.UpdateStatus,
-			Description:         opts.Description,
-			AutomatedUpdateDate: opts.AutomatedUpdateDate,
-			OptionalDeployment:  opts.OptionalDeployment,
+			CurrentVersion:     opts.CurrentVersion,
+			NewVersion:         opts.NewVersion,
+			UpdateAvailable:    opts.UpdateAvailable,
+			Cancellable:        opts.Cancellable,
+			UpdateStatus:       opts.UpdateStatus,
+			Description:        opts.Description,
+			OptionalDeployment: opts.OptionalDeployment,
 		},
 	})
 }

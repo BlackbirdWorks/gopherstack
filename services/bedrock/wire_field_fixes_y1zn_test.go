@@ -57,7 +57,7 @@ func TestIngestKBDocuments_DocumentDetailsKey_RealClient(t *testing.T) {
 	rec := doAgentRequest(
 		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID),
-		map[string]any{"documentIds": []string{"doc-1"}},
+		ingestDocs("s3://bucket/doc-1"),
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
 

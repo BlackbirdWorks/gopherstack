@@ -57,7 +57,7 @@ func TestHandler_AssociateWirelessGatewayWithCertificate(t *testing.T) {
 			if tt.wantStatus == http.StatusOK {
 				var resp map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-				assert.NotEmpty(t, resp["IotCertificateArn"])
+				assert.Equal(t, tt.iotCertificateID, resp["IotCertificateId"])
 			}
 		})
 	}

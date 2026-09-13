@@ -32,7 +32,7 @@ func TestVerifiedAccess(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("create trust provider", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		tp, err := b.CreateVerifiedAccessTrustProvider("user", "test provider")
+		tp, err := b.CreateVerifiedAccessTrustProvider("user", "test provider", "policy-ref")
 		require.NoError(t, err)
 		assert.NotEmpty(t, tp.VerifiedAccessTrustProviderID)
 		trustProviderID = tp.VerifiedAccessTrustProviderID
@@ -131,7 +131,7 @@ func TestVerifiedAccess(t *testing.T) { //nolint:paralleltest // existing issue.
 	)
 
 	t.Run("attach to non-existent instance returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		tp2, err := b.CreateVerifiedAccessTrustProvider("device", "desc")
+		tp2, err := b.CreateVerifiedAccessTrustProvider("device", "desc", "policy-ref")
 		require.NoError(t, err)
 		require.Error(t, b.AttachVerifiedAccessTrustProvider("vai-nonexistent", tp2.VerifiedAccessTrustProviderID))
 	})
@@ -165,7 +165,7 @@ func TestVerifiedAccess_TrustProviderCRUD(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	tp, err := b.CreateVerifiedAccessTrustProvider("user", "test provider")
+	tp, err := b.CreateVerifiedAccessTrustProvider("user", "test provider", "policy-ref")
 	require.NoError(t, err)
 	assert.Contains(t, tp.VerifiedAccessTrustProviderID, "vatp-")
 
@@ -240,7 +240,7 @@ func TestVerifiedAccessInstanceTrustProvidersWire(t *testing.T) {
 
 	inst, err := h.Backend.CreateVerifiedAccessInstance("wire test")
 	require.NoError(t, err)
-	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("user", "idp")
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("user", "idp", "policy-ref")
 	require.NoError(t, err)
 	require.NoError(
 		t,
@@ -283,7 +283,7 @@ func TestAttachDetachVerifiedAccessTrustProviderWire(t *testing.T) {
 
 	inst, err := h.Backend.CreateVerifiedAccessInstance("attach test")
 	require.NoError(t, err)
-	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("device", "idp")
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("device", "idp", "policy-ref")
 	require.NoError(t, err)
 
 	attachResp, err := ec2.ExportDispatch(h, url.Values{
@@ -368,7 +368,7 @@ func TestModifyVerifiedAccessTrustProviderHTTP(t *testing.T) {
 
 	h := newTestHandler()
 
-	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("user", "orig")
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider("user", "orig", "policy-ref")
 	require.NoError(t, err)
 
 	resp, err := ec2.ExportDispatch(h, url.Values{
@@ -384,4 +384,67 @@ func TestModifyVerifiedAccessTrustProviderHTTP(t *testing.T) {
 	rec := postForm(t, h, "Action=ModifyVerifiedAccessTrustProvider&VerifiedAccessTrustProviderId=vatp-missing")
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidVerifiedAccessTrustProviderId.NotFound")
+}
+
+// TestHandler_CreateVerifiedAccessEndpoint_AttachmentTypeRequired covers
+// CreateVerifiedAccessEndpointInput.AttachmentType (api_op_
+// CreateVerifiedAccessEndpoint.go: "This member is required" -- the only
+// real enum value is "vpc"). Before the fix the handler never read it.
+func TestHandler_CreateVerifiedAccessEndpoint_AttachmentTypeRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	vals := url.Values{
+		"Action":                {"CreateVerifiedAccessEndpoint"},
+		"Version":               {"2016-11-15"},
+		"VerifiedAccessGroupId": {"vagr-doesnotmatter"},
+		"EndpointType":          {"load-balancer"},
+	}
+
+	_, err := ec2.ExportDispatch(h, vals)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidParameterValue")
+}
+
+// TestHandler_CreateVerifiedAccessTrustProvider_PolicyReferenceNameRequired
+// covers CreateVerifiedAccessTrustProviderInput.PolicyReferenceName (api_op_
+// CreateVerifiedAccessTrustProvider.go: "This member is required"), which
+// also round-trips on the VerifiedAccessTrustProvider output type. Before
+// the fix the handler never read it and it never appeared on any response.
+func TestHandler_CreateVerifiedAccessTrustProvider_PolicyReferenceNameRequired(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing policy reference name is rejected", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+
+		vals := url.Values{
+			"Action":            {"CreateVerifiedAccessTrustProvider"},
+			"Version":           {"2016-11-15"},
+			"TrustProviderType": {"user"},
+		}
+
+		_, err := ec2.ExportDispatch(h, vals)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "InvalidParameterValue")
+	})
+
+	t.Run("valid policy reference name is rendered", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+
+		vals := url.Values{
+			"Action":              {"CreateVerifiedAccessTrustProvider"},
+			"Version":             {"2016-11-15"},
+			"TrustProviderType":   {"user"},
+			"PolicyReferenceName": {"my-policy-ref"},
+		}
+
+		body, err := ec2.ExportDispatch(h, vals)
+		require.NoError(t, err)
+		assert.Contains(t, body, "<policyReferenceName>my-policy-ref</policyReferenceName>")
+	})
 }

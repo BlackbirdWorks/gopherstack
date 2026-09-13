@@ -13,7 +13,7 @@ import (
 
 // AddThingToBillingGroup adds a thing to a billing group.
 func (b *InMemoryBackend) AddThingToBillingGroup(input *AddThingToBillingGroupInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AddThingToBillingGroup")
 	defer b.mu.Unlock()
 
 	b.thingBillingGroups[thingKey(input.ThingName, input.ThingArn)] = input.BillingGroupName
@@ -22,7 +22,7 @@ func (b *InMemoryBackend) AddThingToBillingGroup(input *AddThingToBillingGroupIn
 }
 
 func (b *InMemoryBackend) ListThingsInBillingGroup(groupName string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListThingsInBillingGroup")
 	defer b.mu.RUnlock()
 
 	var out []string
@@ -37,7 +37,7 @@ func (b *InMemoryBackend) ListThingsInBillingGroup(groupName string) []string {
 }
 
 func (b *InMemoryBackend) RemoveThingFromBillingGroup(thingName, _ string) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveThingFromBillingGroup")
 	defer b.mu.Unlock()
 
 	delete(b.thingBillingGroups, thingName)
@@ -87,7 +87,7 @@ type CreateBillingGroupInput struct {
 func (b *InMemoryBackend) CreateBillingGroup(
 	input *CreateBillingGroupInput,
 ) (*BillingGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateBillingGroup")
 	defer b.mu.Unlock()
 
 	if b.billingGroups.Has(input.BillingGroupName) {
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) CreateBillingGroup(
 }
 
 func (b *InMemoryBackend) DescribeBillingGroup(name string) (*BillingGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeBillingGroup")
 	defer b.mu.RUnlock()
 
 	bg, ok := b.billingGroups.Get(name)
@@ -127,7 +127,7 @@ func (b *InMemoryBackend) DescribeBillingGroup(name string) (*BillingGroup, erro
 }
 
 func (b *InMemoryBackend) ListBillingGroups() []*BillingGroup {
-	b.mu.RLock()
+	b.mu.RLock("ListBillingGroups")
 	defer b.mu.RUnlock()
 
 	out := make([]*BillingGroup, 0, b.billingGroups.Len())
@@ -143,7 +143,7 @@ func (b *InMemoryBackend) UpdateBillingGroup(
 	props BillingGroupProperties,
 	expectedVersion int64,
 ) (int64, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateBillingGroup")
 	defer b.mu.Unlock()
 
 	bg, ok := b.billingGroups.Get(name)
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) UpdateBillingGroup(
 }
 
 func (b *InMemoryBackend) DeleteBillingGroup(name string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteBillingGroup")
 	defer b.mu.Unlock()
 
 	bg, ok := b.billingGroups.Get(name)

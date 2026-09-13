@@ -317,12 +317,14 @@ func TestDescribeOrganizationConformancePacks_RealClient(t *testing.T) {
 // TestDescribeDeliveryChannelStatus_RealClient drives
 // DescribeDeliveryChannelStatus through a real SDK client. Real
 // DeliveryChannelStatus.Name/ConfigHistoryDeliveryInfo/
-// ConfigStreamDeliveryInfo, and the nested LastStatus/LastAttemptTime
+// ConfigSnapshotDeliveryInfo/ConfigStreamDeliveryInfo, and their nested
 // members, are all lowerCamelCase (confirmed at
 // awsAwsjson11_deserializeDocumentDeliveryChannelStatus,
 // deserializers.go:18209); the pre-fix PascalCase tags meant a real
-// client's whole DeliveryChannelStatus decoded as the zero value. Refs:
-// gopherstack-v4a4.
+// client's whole DeliveryChannelStatus decoded as the zero value. A channel
+// with no delivery yet reports every slot nil rather than a fabricated
+// SUCCESS (gopherstack-ru0y) -- see TestDeliverConfigSnapshot_RealClient for
+// the populated-after-a-real-delivery case. Refs: gopherstack-v4a4.
 func TestDescribeDeliveryChannelStatus_RealClient(t *testing.T) {
 	t.Parallel()
 
@@ -344,8 +346,7 @@ func TestDescribeDeliveryChannelStatus_RealClient(t *testing.T) {
 	require.Len(t, out.DeliveryChannelsStatus, 1)
 	status := out.DeliveryChannelsStatus[0]
 	assert.Equal(t, "default", aws.ToString(status.Name))
-	require.NotNil(t, status.ConfigHistoryDeliveryInfo)
-	assert.Equal(t, "SUCCESS", string(status.ConfigHistoryDeliveryInfo.LastStatus))
-	require.NotNil(t, status.ConfigStreamDeliveryInfo)
-	assert.Equal(t, "SUCCESS", string(status.ConfigStreamDeliveryInfo.LastStatus))
+	assert.Nil(t, status.ConfigHistoryDeliveryInfo)
+	assert.Nil(t, status.ConfigSnapshotDeliveryInfo)
+	assert.Nil(t, status.ConfigStreamDeliveryInfo)
 }

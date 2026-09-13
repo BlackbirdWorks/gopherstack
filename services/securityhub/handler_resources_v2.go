@@ -50,8 +50,9 @@ func (h *Handler) handleGetResourcesV2(c *echo.Context, body map[string]any) err
 
 func (h *Handler) handleGetResourcesStatisticsV2(c *echo.Context, body map[string]any) error {
 	groupByFields := groupByFieldsFromRules(body[keyGroupByRules])
+	sortOrder, _ := body[keySortOrder].(string)
 
-	stats := h.Backend.GetResourcesStatisticsV2(groupByFields)
+	stats := h.Backend.GetResourcesStatisticsV2(groupByFields, sortOrder)
 
 	if stats == nil {
 		stats = []map[string]any{}

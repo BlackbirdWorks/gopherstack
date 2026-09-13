@@ -53,10 +53,30 @@ func parseResourceMappings(form url.Values, prefix string) []ResourceMapping {
 	}
 }
 
+// parseStackDefinitions parses the StackDefinitions.member.N list (verified
+// against serializers.go:awsAwsquery_serializeDocumentStackDefinition --
+// each member has StackName, TemplateBody, TemplateURL).
+func parseStackDefinitions(form url.Values, prefix string) []StackDefinition {
+	var result []StackDefinition
+	for i := 1; ; i++ {
+		p := fmt.Sprintf("%s%d.", prefix, i)
+		name := form.Get(p + "StackName")
+		if name == "" {
+			return result
+		}
+		result = append(result, StackDefinition{
+			StackName:    name,
+			TemplateBody: form.Get(p + "TemplateBody"),
+			TemplateURL:  form.Get(p + "TemplateURL"),
+		})
+	}
+}
+
 func (h *Handler) handleCreateStackRefactor(form url.Values, c *echo.Context) error {
 	mappings := parseResourceMappings(form, "ResourceMappings.member.")
+	stackDefs := parseStackDefinitions(form, "StackDefinitions.member.")
 	enableStackCreation := form.Get("EnableStackCreation") == "true"
-	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), mappings, enableStackCreation)
+	id, err := h.Backend.CreateStackRefactor(form.Get("Description"), stackDefs, mappings, enableStackCreation)
 	if err != nil {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
@@ -108,7 +128,7 @@ func (h *Handler) handleDescribeStackRefactor(form url.Values, c *echo.Context) 
 }
 
 func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) error {
-	if err := h.Backend.ExecuteStackRefactor(form.Get("StackRefactorId")); err != nil {
+	if err := h.Backend.ExecuteStackRefactor(c.Request().Context(), form.Get("StackRefactorId")); err != nil {
 		// ExecuteStackRefactor's own awsAwsquery_deserializeOpError switch
 		// declares no typed exceptions at all -- not StackRefactorNotFoundException
 		// (that's DescribeStackRefactor's), not anything else -- so every failure,
@@ -126,8 +146,9 @@ func (h *Handler) handleExecuteStackRefactor(form url.Values, c *echo.Context) e
 }
 
 func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) error {
-	summaries, _ := h.Backend.ListStackRefactors(form.Get("NextToken"))
+	p, _ := h.Backend.ListStackRefactors(parseFormMaxResults(form), form.Get("NextToken"))
 	type result struct {
+		NextToken              string                 `xml:"NextToken,omitempty"`
 		StackRefactorSummaries []StackRefactorSummary `xml:"StackRefactorSummaries>member"`
 	}
 	type response struct {
@@ -141,7 +162,7 @@ func (h *Handler) handleListStackRefactors(form url.Values, c *echo.Context) err
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackRefactorSummaries: summaries},
+			Result:    result{StackRefactorSummaries: p.Data, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)
@@ -189,12 +210,15 @@ func toStackRefactorActionXML(a StackRefactorAction) stackRefactorActionXML {
 }
 
 func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Context) error {
-	actions, _ := h.Backend.ListStackRefactorActions(form.Get("StackRefactorId"))
-	members := make([]stackRefactorActionXML, 0, len(actions))
-	for _, a := range actions {
+	p, _ := h.Backend.ListStackRefactorActions(
+		form.Get("StackRefactorId"), parseFormMaxResults(form), form.Get("NextToken"),
+	)
+	members := make([]stackRefactorActionXML, 0, len(p.Data))
+	for _, a := range p.Data {
 		members = append(members, toStackRefactorActionXML(a))
 	}
 	type result struct {
+		NextToken            string                   `xml:"NextToken,omitempty"`
 		StackRefactorActions []stackRefactorActionXML `xml:"StackRefactorActions>member"`
 	}
 	type response struct {
@@ -208,7 +232,7 @@ func (h *Handler) handleListStackRefactorActions(form url.Values, c *echo.Contex
 		c,
 		response{
 			Xmlns:     cfnNS,
-			Result:    result{StackRefactorActions: members},
+			Result:    result{StackRefactorActions: members, NextToken: p.Next},
 			RequestID: uuid.New().String(),
 		},
 	)

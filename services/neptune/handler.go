@@ -19,11 +19,20 @@ import (
 
 const (
 	engineDescriptionAmazonNeptune = "Amazon Neptune"
-	pgFamilyNeptune12              = "neptune1.2"
-	pgFamilyNeptune13              = "neptune1.3"
-	sourceTypeNotification         = "notification"
-	formTrue                       = "true"
-	unknownOp                      = "Unknown"
+	// Parameter group family names, one per engine-version line (neptune<major.minor>):
+	// https://docs.aws.amazon.com/neptune/latest/userguide/parameter-groups.html
+	// ("neptune1 -- for engine versions prior to 1.2.0.0"). This backend's static
+	// engine-version catalog (handleDescribeDBEngineVersions) never models a
+	// version below 1.2.0.0, so pgFamilyNeptune1 is accepted for CreateDB(Cluster)
+	// ParameterGroup/DescribeEngineDefault(Cluster)Parameters parity but no
+	// modeled cluster/instance ever defaults to it.
+	pgFamilyNeptune1       = "neptune1"
+	pgFamilyNeptune12      = "neptune1.2"
+	pgFamilyNeptune13      = "neptune1.3"
+	pgFamilyNeptune14      = "neptune1.4"
+	sourceTypeNotification = "notification"
+	formTrue               = "true"
+	unknownOp              = "Unknown"
 )
 
 const (

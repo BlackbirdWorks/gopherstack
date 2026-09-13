@@ -188,6 +188,7 @@ type ReplicationSubnetGroup struct {
 	VpcID                             string
 	AccountID                         string
 	Region                            string
+	SubnetIDs                         []string
 }
 
 // DataProviderDescriptor mirrors the real AWS DataProviderDescriptor wire
@@ -312,6 +313,7 @@ type AssessmentRun struct {
 	ServiceAccessRoleArn            string
 	ResultLocationBucket            string
 	ResultLocationFolder            string
+	ResultEncryptionMode            string
 	Region                          string
 	IndividualAssessments           []*IndividualAssessment
 	ResultStatistic                 AssessmentRunResultStatistic

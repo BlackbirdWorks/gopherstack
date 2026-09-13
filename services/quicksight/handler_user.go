@@ -62,6 +62,7 @@ func (h *Handler) handleRegisterUser(c *echo.Context) error {
 		strField(body, "UserRole"),
 		strField(body, "IdentityType"),
 		strField(body, "SessionName"),
+		strField(body, keyCustomPermissionsName),
 		tagsFromBody(body),
 	)
 	if err != nil {
@@ -104,7 +105,10 @@ func (h *Handler) handleUpdateUser(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	u, err := h.Backend.UpdateUser(accountID, namespace, userName, strField(body, "Email"), strField(body, "Role"))
+	u, err := h.Backend.UpdateUser(
+		accountID, namespace, userName,
+		strField(body, "Email"), strField(body, "Role"), strField(body, keyCustomPermissionsName),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}

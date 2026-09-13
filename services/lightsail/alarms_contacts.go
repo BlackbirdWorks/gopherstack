@@ -30,7 +30,7 @@ const (
 func (b *InMemoryBackend) PutAlarm(
 	name, comparisonOperator, metricName, monitoredResourceName, statistic, unit, treatMissingData string,
 	threshold float64, evaluationPeriods, datapointsToAlarm int32,
-	contactProtocols, notificationTriggers []string, notificationEnabled bool, userTags map[string]string,
+	contactProtocols, notificationTriggers []string, notificationEnabled *bool, userTags map[string]string,
 ) ([]Operation, error) {
 	b.mu.Lock("PutAlarm")
 	defer b.mu.Unlock()
@@ -61,19 +61,29 @@ func (b *InMemoryBackend) PutAlarm(
 		}
 	}
 
+	missingData := treatMissingData
+	if missingData == "" {
+		missingData = treatMissingDataDefault
+	}
+
+	enabled := true
+	if notificationEnabled != nil {
+		enabled = *notificationEnabled
+	}
+
 	a.ComparisonOperator = comparisonOperator
 	a.MetricName = metricName
 	a.MonitoredResourceName = monitoredResourceName
 	a.MonitoredResourceArn = kind
 	a.Statistic = statistic
 	a.Unit = unit
-	a.TreatMissingData = treatMissingData
+	a.TreatMissingData = missingData
 	a.Threshold = threshold
 	a.EvaluationPeriods = evaluationPeriods
 	a.DatapointsToAlarm = datapointsToAlarm
 	a.ContactProtocols = contactProtocols
 	a.NotificationTriggers = notificationTriggers
-	a.NotificationEnabled = notificationEnabled
+	a.NotificationEnabled = enabled
 	a.Tags.Merge(userTags)
 
 	b.alarms.Put(a)

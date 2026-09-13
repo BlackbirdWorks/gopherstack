@@ -26,6 +26,9 @@ type reservedInstanceItem struct {
 	ProductDescription  string          `xml:"productDescription,omitempty"`
 	State               string          `xml:"state,omitempty"`
 	OfferingType        string          `xml:"offeringType,omitempty"`
+	OfferingClass       string          `xml:"offeringClass,omitempty"`
+	Start               string          `xml:"start,omitempty"`
+	End                 string          `xml:"end,omitempty"`
 	TagSet              []simpleTagItem `xml:"tagSet>item"`
 	InstanceCount       int             `xml:"instanceCount,omitempty"`
 	Duration            int64           `xml:"duration"`
@@ -51,9 +54,16 @@ func (h *Handler) handleCreateCarrierGateway(vals url.Values, reqID string) (any
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "carrier-gateway")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{gw.CarrierGatewayID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createCarrierGatewayResponse{
 		RequestID:      reqID,
-		CarrierGateway: toCarrierGatewayItem(gw, nil),
+		CarrierGateway: toCarrierGatewayItem(gw, tags),
 	}, nil
 }
 

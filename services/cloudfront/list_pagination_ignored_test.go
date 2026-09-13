@@ -89,7 +89,7 @@ func TestListInvalidationsForDistributionTenant_SDKRoundTrip_Pagination(t *testi
 	const total = 25
 
 	for range total {
-		_, createErr := backend.CreateInvalidationForTenant(tenant.ID, []string{"/*"})
+		_, createErr := backend.CreateInvalidationForTenant(tenant.ID, "ref", []string{"/*"})
 		require.NoError(t, createErr)
 	}
 

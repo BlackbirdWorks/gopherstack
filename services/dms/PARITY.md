@@ -202,13 +202,68 @@ families:
   metadata-model: {status: ok, note: "FIXED this pass -- DescribeMetadataModel/DescribeMetadataModelChildren/the six Describe*Requests list ops/Cancel*/GetTargetSelectionRules/ExportMetadataModelAssessment/StartExtensionPackAssociation were all field-diffed against types.go and api_op_*.go this pass (deferred item #1, now resolved) and every wire-shape bug found was fixed -- see the per-op notes above. Definition/MetadataModelName/MetadataModelType/schema-object contents stay legitimately empty; no schema-conversion SQL-generation engine exists, matching the SDK doc's 'might not be populated' language."}
   static-reference-data: {status: ok, note: "DescribeOrderableReplicationInstances/DescribeEngineVersions/DescribeEndpointTypes/DescribeEventCategories/DescribeApplicableIndividualAssessments return realistic static catalogs; legitimate for AWS reference-data ops (rule 4: an op with no mutable backend state behind it is not a stub). DescribeEndpointTypes FIXED this pass -- EndpointType values were hardcoded uppercase SOURCE/TARGET, but the real enum is lowercase source/target. FIXED 2026-08-29 (gopherstack-21my) -- DescribeEndpointTypesInput documents Filters (engine-name|endpoint-type, api_op_DescribeEndpointTypes.go); a static catalog is not by itself grounds to skip honoring a documented filter (unlike medialive's 3-entry ListOfferings precedent, this catalog has 26 entries and the filter is trivial to apply), so Filters -- previously declared but never read -- now narrows the returned support matrix. See TestDescribeEndpointTypesFilter (list_filter_params_test.go), real SDK client round trip."}
   assessment-runs: {status: ok, note: "FIXED this pass (deferred item #3, now resolved) -- StartReplicationTaskAssessmentRun now validates its four required fields and IncludeOnly/Exclude mutual exclusion, then synchronously runs a real (bounded, static-catalog-backed) set of IndividualAssessment checks, all passing. DescribeReplicationTaskIndividualAssessments and DescribeReplicationTaskAssessmentResults are now backed by that real state instead of hardcoded empty lists. Cancel/Delete/DescribeReplicationTaskAssessmentRuns now return the full real ReplicationTaskAssessmentRun wire shape instead of a hand-rolled 4-field map."}
-gaps:
+gaps: []
+items_still_open:
   - "CHECKED 2026-09-07 (gopherstack-z1sd triage), found FALSE: the claim 'migration project has no status' misdescribes the real API, not this backend. The real MigrationProject type (databasemigrationservice@v1.66.4 types/types.go:2044-2088) has no Status/MigrationProjectStatus field at all -- confirmed by full field listing (Description, InstanceProfileArn, InstanceProfileName, MigrationProjectArn, MigrationProjectCreationTime, MigrationProjectName, SchemaConversionApplicationAttributes, Source/TargetDataProviderDescriptors, TransformationRules) and by grep across the whole SDK module for MigrationProjectStatus (zero hits). CreateMigrationProject/ModifyMigrationProject/DeleteMigrationProject/DescribeMigrationProjects (ops rows above) already match this shape exactly, including the 2026-08-11 fix that removed a fabricated MigrationProjectIdentifier response field. There is no gap here."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): ImportCertificateInput.KmsKeyId is accepted-and-dropped -- the real types.Certificate response (databasemigrationservice@v1.66.4 types/types.go:59-84) has no KmsKeyId member at all to round-trip it onto, and this emulator has no cross-service KMS-key-existence check anywhere in the service (same documented precedent as kms's own CreateGrant GrantConstraints.SourceArn: no cross-service request-context plumbing exists). Nothing observable to fix."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): DescribeApplicableIndividualAssessmentsInput's ReplicationConfigArn/ReplicationInstanceArn/ReplicationTaskArn task-modeling parameters are accepted-and-ignored -- the op always returns defaultApplicableIndividualAssessments(), a static representative catalog (assessment_runs.go) with no per-engine/per-migration-type support metadata behind it. Honoring these would require fabricating which individual assessments apply to which source/target engine and migration-type combination, which is not modeled anywhere in this backend and is not something this pass will invent."
+  - "2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t): DescribeDataMigrationsInput.WithoutStatistics is accepted-and-ignored -- DataMigration (models.go) carries no DataMigrationStatistics field at all; this backend never runs a real data migration and so never populates statistics for one to hide. WithoutSettings (the sibling field, real DataMigrationSettings state) was already fixed in the 2026-08-29 pass; this one has nothing to suppress."
 deferred: []
 leaks: {status: clean, note: "no goroutines, janitors, or timers in this service; all state lives in store.Table/store.Index behind the single lockmetrics.RWMutex. leak_test.go / isolation_test.go pre-existing and passing. Confirmed again this pass -- no new goroutines/tickers/channels were introduced by the assessment-run rework (StartReplicationTaskAssessmentRun completes synchronously)."}
 ---
 
 ## Notes
+
+- **2026-09-12 (reqfielddiff slice 6, gopherstack-xhu2t)**: worked all 14
+  tier-1 findings. **6 real dropped-parameter fixes**: `CreateEndpoint`/
+  `CreateReplicationInstance`/`CreateReplicationTask`.`ResourceIdentifier`
+  (real SDK field, entirely undeclared -- now used as the ARN suffix in
+  place of the generated UUID/identifier when supplied, matching the
+  documented "friendly name... at the end of the ...Arn" behavior; falls
+  back to the prior generated value when omitted, so default behavior is
+  unchanged); `DescribeReplicationTasks.WithoutSettings` (undeclared;
+  DescribeDataMigrations's sibling field was fixed in the 2026-08-29 pass
+  but this one was missed -- now suppresses `ReplicationTaskSettings` the
+  same way); `StartReplicationTaskAssessmentRun.ResultEncryptionMode`
+  (undeclared; real response member on `types.ReplicationTaskAssessmentRun`
+  -- now validated to SSE_S3/SSE_KMS, defaults to SSE_S3, and round-trips).
+  Proven via `reqfield_slice6_realclient_test.go` driving the real
+  `databasemigrationservice` client. **3 false positives**:
+  `DescribeEndpoints`/`DescribeReplicationInstances`/
+  `DescribeReplicationTasks`.`MaxRecords` were all already declared and
+  threaded into `dmsHMACPaginate`/`dmsPaginate` -- plain tool misses, not a
+  new blind-spot shape. **5 recorded gaps** (see `items_still_open`):
+  `ImportCertificate.KmsKeyId` (no response field to round-trip it onto),
+  `DescribeApplicableIndividualAssessments`'s 3 task-modeling ARN fields
+  (static catalog, no per-engine assessment-support metadata modeled), and
+  `DescribeDataMigrations.WithoutStatistics` (no `DataMigrationStatistics`
+  state exists to suppress). `go build/vet/test -race`, `golangci-lint`, and
+  `cmd/paritylint` all clean; no persistence-schema version bump (new
+  `AssessmentRun.ResultEncryptionMode`/`EndpointConnectionSettings.
+  ResourceIdentifier` fields are additive and JSON-tag-free, so the generic
+  `store.Table` snapshot round-trips them without any wire-format change).
+
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving all 22 previously
+  typed-client-uncovered ops (the entire schema-conversion metadata-model
+  family: every Start/Describe/Cancel* pair, DescribeMetadataModel,
+  DescribeMetadataModelChildren, GetTargetSelectionRules,
+  ExportMetadataModelAssessment, Describe/ModifyConversionConfiguration,
+  Describe/StartExtensionPackAssociation) through the real
+  `aws-sdk-go-v2` client. **One real wire bug**: `ExportMetadataModelAssessment`'s
+  `PdfReport`/`CsvReport` were value-typed `exportResultEntryJSON` structs
+  with a plain (non-`*`) `json:"PdfReport"` tag -- despite the ops table's
+  existing note above claiming both are "legitimately omitted", the actual
+  Go type could never be omitted (a non-pointer struct always serializes,
+  `omitempty` is a no-op on it), so every real client decoded a non-nil
+  `*types.ExportMetadataModelAssessmentResultEntry{}` instead of the
+  documented "might not be populated" nil. This is the same "stale
+  PARITY.md claim, unverified by an actual typed-client decode" trap slice
+  27 flagged for mgn's StartReplication -- the note was correct in intent
+  but the code never matched it. Fixed by changing both fields to
+  `*exportResultEntryJSON` with `omitempty`; the ops-table note above is
+  accurate again as of this fix. dms: 97/119 -> 119/119 typed-client
+  covered.
 
 - **2026-08-20 wrapper-key / nested-shape sweep**: this service's directory
   name (`services/dms`) does NOT match its SDK module name
@@ -862,3 +917,113 @@ Gates: `go build`, `go vet`, `go test -race -count=1`, `golangci-lint run`
     restoring.
   - Nothing left unenforceable for this op: both documented preconditions
     are backed by real, queryable state in this backend.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 64 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/databasemigrationservice`
+client (`typed_slice7_realclient_test.go`, 12 subtests) -- census
+33/119 -> 97/119 typed-covered. Six real bugs found and fixed, every one
+caught only by a decoded typed-client value (all returned 200 OK):
+
+1. `ModifyReplicationSubnetGroup`'s backend signature never accepted
+   `SubnetIds` at all, and neither `Create` nor `Modify` ever populated
+   `types.ReplicationSubnetGroup.Subnets` (types.go:4135) -- a real client
+   always saw an empty `Subnets` list regardless of what it requested.
+   Added `SubnetIDs []string` to the backend struct (purely additive, no
+   version bump) and wired both ops to populate/echo it as
+   `Subnets`/`SubnetGroupStatus`. `replication_subnet_groups.go`,
+   `handler_replication_subnet_groups.go`, `models.go`.
+2. `ModifyReplicationConfig`'s backend method only accepted
+   `replicationType`; real `ModifyReplicationConfigInput` also accepts
+   `ComputeConfig`/`TableMappings`/`SourceEndpointArn`/`TargetEndpointArn`,
+   all silently dropped -- a real client's Modify call never changed
+   anything else. `replication_configs.go`, `handler_replication_configs.go`.
+3. `DescribeEngineVersions`' `LaunchDate`/`AutoUpgradeDate`/
+   `DeprecationDate`/`ForceUpgradeDate` were wire-encoded as date strings
+   ("2023-11-01") where the real awsjson1.1 protocol expects epoch-seconds
+   numbers (deserializers.go:18174, `smithytime.ParseEpochSeconds`) -- a
+   real client failed to decode the op entirely ("expected TStamp to be a
+   JSON Number, got string instead"). Fixed with `pkgs/awstime.Epoch`.
+   `handler_endpoints.go`.
+4. `RefreshSchemas`/`DescribeRefreshSchemasStatus`'s `RefreshSchemasStatus`
+   wire shape carried only `Status`, missing `EndpointArn`/
+   `ReplicationInstanceArn` entirely (real types.go:3682-3699).
+   `handler_endpoints.go`.
+5. `UpdateSubscriptionsToEventBridge`'s response wire struct used a
+   fabricated `Applied bool` field; the real
+   `UpdateSubscriptionsToEventBridgeOutput` has only a `Result *string`
+   message and no such field at all. `handler_event_subscriptions.go`.
+6. `ModifyDataMigration` silently dropped `DataMigrationName` (a documented
+   modifiable field). Since `DataMigrationName` is this store's primary key
+   (`dataMigrationKeyFn`), fixed via delete+re-put re-keying rather than an
+   in-place field mutation. `data_migrations.go`, `handler_data_migrations.go`.
+
+No accept-and-drop findings beyond the six fixes above. Remaining 22
+typed-uncovered ops (`DescribeMetadataModel*`/`StartMetadataModel*`/
+`CancelMetadataModel*`/`ExportMetadataModelAssessment`/
+`GetTargetSelectionRules`/`Describe|ModifyConversionConfiguration`/
+`Start|DescribeExtensionPackAssociation`) are the schema-conversion/
+metadata-model family, not named in this pass's priority list -- not
+audited, no claim made about their correctness either way.
+
+Gates: `go build ./...` clean, `go vet ./services/dms/...` clean, `go test
+-race -count=1 ./services/dms/...` and `./pkgs/persistence/...` pass,
+`golangci-lint run --new-from-rev=HEAD ./services/dms/...` 0 issues,
+`go run ./cmd/paritylint` 0 FAIL. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` passes for dms (one additive row,
+`ReplicationSubnetGroup.SubnetIDs []string`, no version bump).
+
+- **2026-09-12 (gopherstack-pulu9) Filters OR/AND-value fix**: `extractFilterValue`
+  (handler.go) returned only `filters[i].Values[0]` for a matching filter
+  name, so a real client's `Values:["a","b"]` silently behaved like
+  `Values:["a"]`. types.Filter's doc (databasemigrationservice@v1.66.4
+  types/types.go) says Values "can specify one or more values used to
+  narrow the returned results" -- AWS's universal convention is that a
+  single filter OR-matches any of its Values, while distinct filter names
+  AND together (spelled out explicitly on
+  api_op_DescribeTableStatistics.go:45-46). Replaced `extractFilterValue`
+  with `DescribeFilters` (handler.go): `name -> []string` parsed from the
+  wire Filters list, with `Matches(name, value)` /
+  `MatchesAny(name, candidates...)` / `Values(name)`. Widened the backend
+  `DescribeX(ctx, identifier string)` methods that previously took a single
+  extracted value to `DescribeX(ctx, filters DescribeFilters)`:
+  `DescribeEndpoints`, `DescribeReplicationInstances`,
+  `DescribeReplicationTasks`, `DescribeConnections`,
+  `DescribeDataProviders`, `DescribeDataMigrations`,
+  `DescribeEventSubscriptions`, `DescribeReplications`,
+  `DescribeAssessmentRunsFiltered`, `DescribeIndividualAssessments` (10
+  methods; the old `describeByIdentifierOrARN`/single-string-arg shortcut,
+  which collapsed a documented id-vs-arn filter-name pair into one merged
+  "either" lookup, is gone -- each documented name now matches its own
+  resource field independently, so two filters on different names AND
+  correctly instead of one silently overriding the other). The remaining
+  ~10 in-handler filter loops (certificates, instance profiles, migration
+  projects (5 names), fleet advisor collectors/databases, recommendations,
+  replication subnet groups, the metadata-model Describe* family via
+  `listMetadataModelRequests`, table statistics, endpoint types, event
+  categories) were converted the same way without a backend signature
+  change, since they already had the full unfiltered list in hand.
+  ADJACENT BUG fixed while rewriting `DescribeConnections`:
+  `handleDescribeConnections` (`handler_connections.go`) was filtering on
+  `replication-instance-id`/`endpoint-id`, names `Connection` has no
+  corresponding fields for (only `ReplicationInstanceArn`/`EndpointArn`) --
+  dead filters that could never narrow anything under the old
+  single-value code either; corrected to the real documented names
+  (`api_op_DescribeConnections.go`: `endpoint-arn | replication-instance-arn`).
+  Filter-name validation: DMS declares no
+  `InvalidParameterValueException`-shaped fault anywhere in its error set
+  (types/errors.go), and `validateFilterList` (validators.go) only checks
+  the wire shape (Name/Values non-empty), never the name against a known
+  vocabulary -- so an undocumented filter name is accepted and silently
+  ignored, matching real AWS's behavior for services with no such
+  validation error; `DescribeFilters.Matches`/`MatchesAny` implement this
+  by construction (an absent name is unconstrained). Real SDK client tests
+  (`handler_multivalue_filters_test.go`) prove, for six representative ops
+  (certificates, replication instances, endpoints, replication tasks,
+  connections, replications), that a two-value filter returns both matches
+  and that two filters on different names AND together. Existing
+  single-value filter tests (`handler_filters_test.go`,
+  `list_filter_params_test.go`) were re-verified passing unchanged --
+  correct single-value behavior was never in question, only the untested
+  multi-value/multi-filter paths.

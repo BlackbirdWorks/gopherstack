@@ -352,7 +352,7 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 		{
 			name:    "json_requires_marks",
 			body:    map[string]any{"OutputFormat": "json", "Text": "hello", "VoiceId": "Joanna"},
-			wantErr: "InvalidParameterValueException",
+			wantErr: "ValidationException",
 		},
 		{
 			name: "marks_require_json",
@@ -384,7 +384,7 @@ func TestSynthesizeSpeechValidation(t *testing.T) {
 		{
 			name:    "unknown_voice_id",
 			body:    map[string]any{"Text": "hello", "VoiceId": "NotAVoice"},
-			wantErr: "InvalidParameterValueException",
+			wantErr: "ValidationException",
 		},
 		{
 			name: "ssml_marks_require_ssml_text_type",
@@ -514,7 +514,7 @@ func TestSynthesizeSpeechTextLengthLimit(t *testing.T) {
 }
 
 // TestSynthesizeSpeechLexiconNamesLimit verifies that SynthesizeSpeech rejects
-// more than 5 lexicon names. AWS returns InvalidParameterValueException when
+// more than 5 lexicon names. AWS returns ValidationException when
 // LexiconNames exceeds the maximum of 5.
 func TestSynthesizeSpeechLexiconNamesLimit(t *testing.T) {
 	t.Parallel()
@@ -551,7 +551,7 @@ func TestSynthesizeSpeechLexiconNamesLimit(t *testing.T) {
 			})
 			assert.Equal(t, tc.wantCode, rec.Code)
 			if tc.wantCode == http.StatusBadRequest {
-				assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+				assert.Contains(t, rec.Body.String(), "ValidationException")
 			}
 		})
 	}
@@ -559,7 +559,7 @@ func TestSynthesizeSpeechLexiconNamesLimit(t *testing.T) {
 
 // TestSynthesizeSpeechInvalidSpeechMarkType verifies that SynthesizeSpeech
 // rejects unrecognized SpeechMarkTypes values. AWS returns
-// InvalidParameterValueException for types not in {sentence, ssml, viseme, word}.
+// ValidationException for types not in {sentence, ssml, viseme, word}.
 func TestSynthesizeSpeechInvalidSpeechMarkType(t *testing.T) {
 	t.Parallel()
 
@@ -570,7 +570,7 @@ func TestSynthesizeSpeechInvalidSpeechMarkType(t *testing.T) {
 		"VoiceId":         "Joanna",
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.Contains(t, rec.Body.String(), "InvalidParameterValueException")
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }
 
 // TestSynthesizeSpeechDefaultSampleRate verifies that the default SampleRate

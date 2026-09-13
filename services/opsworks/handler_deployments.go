@@ -14,13 +14,14 @@ func (h *Handler) handleCreateDeployment(_ context.Context, body []byte) (any, e
 		Command struct {
 			Name string `json:"Name"`
 		} `json:"Command"`
+		CustomJSON string `json:"CustomJson"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	deployment, err := h.Backend.CreateDeployment(req.StackID, req.AppID, req.Command.Name)
+	deployment, err := h.Backend.CreateDeployment(req.StackID, req.AppID, req.Command.Name, req.CustomJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -67,6 +68,7 @@ func deploymentsToJSON(deployments []*Deployment) []map[string]any {
 			"Duration":      d.Duration,
 			keyCreatedAt:    formatOpsWorksTime(d.CreatedAt),
 			"CompletedAt":   completedAt,
+			"CustomJson":    d.CustomJSON,
 		})
 	}
 

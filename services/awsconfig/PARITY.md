@@ -34,8 +34,8 @@ ops:
   PutDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty/blank name now InvalidDeliveryChannelNameException (was generic ValidationException) -- see gopherstack-eboy"}
   DescribeDeliveryChannels: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDeliveryChannel: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeDeliveryChannelStatus: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-22 (gopherstack-v4a4): DeliveryChannelStatus/DeliveryChannelStatusInfo were tagged PascalCase (Name/ConfigHistoryDeliveryInfo/ConfigStreamDeliveryInfo/LastStatus/LastAttemptTime); the real deserializer is lowerCamelCase for this shape (like DeliveryChannel itself), so a real client's whole response decoded as the zero value. Structurally underspecified vs the real 3-shape/3-field-set DeliveryChannelStatus -- re-audited 2026-08-23, confirmed a genuine modelling gap (no backend state to source the missing fields from), left unfixed. See Notes, gopherstack-ru0y."}
-  DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-e0f1): was a no-op stub; now validates the named channel exists (NoSuchDeliveryChannelException), a recorder is configured (NoAvailableConfigurationRecorderException) and running (NoRunningConfigurationRecorderException), and returns a generated ConfigSnapshotId"}
+  DescribeDeliveryChannelStatus: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-09-11 (gopherstack-ru0y): DeliveryChannelStatus now splits into the real 3-shape model -- ConfigHistoryDeliveryInfo/ConfigSnapshotDeliveryInfo (*ConfigExportDeliveryInfo) and ConfigStreamDeliveryInfo (*ConfigStreamDeliveryInfo) -- backed by real tracked state instead of a hardcoded SUCCESS. Each slot is nil until that delivery kind has actually happened; ConfigHistoryDeliveryInfo is always nil (no periodic history delivery exists in this backend). See the 2026-09-11 Notes entry for what's sourced vs still unmodeled."}
+  DeliverConfigSnapshot: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-09-11 (gopherstack-ru0y): now actually delivers -- gzips a real ConfigSnapshot envelope (fileVersion/requestId/configurationItems) to the channel's S3 bucket at the real AWSLogs/<account>/Config/<region>/<y>/<m>/<d>/ConfigSnapshot/... key, and publishes a ConfigurationSnapshotDeliveryCompleted SNS notification when a topic is configured, recording the outcome for DescribeDeliveryChannelStatus to read back. See the 2026-09-11 Notes entry."}
 
   # --- ConfigRule + compliance family ---
   PutConfigRule: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -136,7 +136,8 @@ ops:
   UntagResource: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: n/a}
 
-gaps:
+gaps: []
+items_still_open:
   - ErrValidation is still mapped to a single generic ValidationException wire type for
     most Put* validation paths. This pass added the three most load-bearing per-op
     Invalid*Exception types (InvalidConfigurationRecorderNameException,
@@ -197,6 +198,27 @@ gaps:
     PutThirdPartyServiceLinkedConfigurationRecorder's own, separately-enforced
     one-per-ServicePrincipal limit (still real, unchanged). Test:
     TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged.
+  - GetDiscoveredResourceCounts.Limit/NextToken are inert: they page the real,
+    required ResourceCounts per-type breakdown, which is not modeled (see the
+    existing TotalDiscoveredResources-only gap above) -- there is nothing to
+    paginate until that breakdown exists (gopherstack-xhu2t tier-1 sweep,
+    2026-09-12).
+  - GetAggregateDiscoveredResourceCounts.Limit/NextToken are inert for the same
+    reason: they page the real, optional GroupedResourceCounts breakdown, which
+    is not modeled (see the existing gap above) (gopherstack-xhu2t tier-1
+    sweep, 2026-09-12).
+  - ListDiscoveredResources.IncludeDeletedResources has no backend counterpart:
+    DeleteResourceConfig removes a resource from b.resourceConfigs outright
+    rather than tombstoning it, so there is no deleted-resource record this op
+    could ever include. Would need new tombstone tracking in
+    pkgs/store/resources.go, not a wire-key fix (gopherstack-xhu2t tier-1
+    sweep, 2026-09-12).
+  - StartResourceEvaluation.EvaluationTimeout has no backend counterpart:
+    StartResourceEvaluation completes synchronously and always lands on
+    statusSucceeded, so there is no in-flight evaluation a timeout could ever
+    interrupt. Real AWS proactive evaluation is asynchronous; modeling that
+    would need an async evaluation pipeline, not a field read (gopherstack-xhu2t
+    tier-1 sweep, 2026-09-12).
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
@@ -611,3 +633,338 @@ ops in the dispatch table, 88 request types, 157 fields.
 Gates: `go build ./services/awsconfig/...`, `go vet ./...` (repo-wide,
 clean), `go test -race -count=1 ./services/awsconfig/...` (pass),
 `golangci-lint run ./services/awsconfig/...` (0 issues).
+
+- **2026-09-11 (`gopherstack-ru0y`): DeliveryChannelStatus/DeliverConfigSnapshot
+  made real, not just reshaped.** The 2026-08-23 audit correctly declined to
+  split `DeliveryChannelStatusInfo` into the real shapes because there was no
+  backend state to source the split fields from -- this pass adds that state
+  and then does the split.
+
+  **Model** (models.go): `DeliveryChannelStatusInfo` is gone, replaced by the
+  two real distinct types verified against configservice@v1.68.4
+  `types/types.go:561` (`ConfigExportDeliveryInfo`: lastAttemptTime/
+  lastErrorCode/lastErrorMessage/lastStatus/lastSuccessfulTime/
+  nextDeliveryTime) and `types/types.go:846` (`ConfigStreamDeliveryInfo`:
+  lastErrorCode/lastErrorMessage/lastStatus/lastStatusChangeTime -- no
+  NextDeliveryTime, LastStatusChangeTime instead of LastAttemptTime/
+  LastSuccessfulTime). Wire keys (lowerCamel) verified against
+  `deserializers.go:15453`
+  (`awsAwsjson11_deserializeDocumentConfigExportDeliveryInfo`),
+  `deserializers.go:16009`
+  (`awsAwsjson11_deserializeDocumentConfigStreamDeliveryInfo`), and
+  `deserializers.go:18209`
+  (`awsAwsjson11_deserializeDocumentDeliveryChannelStatus`, which also
+  confirms `DeliveryChannelStatus` now carries all three real slots:
+  configHistoryDeliveryInfo/configSnapshotDeliveryInfo/configStreamDeliveryInfo).
+  Every emitted value is nil/omitted until that kind of delivery has actually
+  happened -- no field is hardcoded SUCCESS any more.
+
+  **New state** (delivery_status.go, store.go): a new `deliveryStatus`
+  store.Table keyed by channel name, tracking `Snapshot`/`Stream` outcomes
+  (internal `exportDeliveryState`/`streamDeliveryState` twins using
+  `time.Time` zero-value for "never happened" instead of the wire's
+  `*float64`). Registered on `b.registry` like every other table --
+  additive vs. `awsconfigSnapshotVersion` 4, no bump (a registered table
+  absent from an older snapshot resets to empty per
+  `pkgs/store/registry.go`'s `RestoreAll`, confirmed by
+  `TestSnapshotVersionGuard -update`; the resulting
+  `snapshot_inventory.json` diff touches only the new awsconfig struct
+  entries, additive-only).
+
+  **DeliverConfigSnapshot now actually delivers.** New seams on
+  `InMemoryBackend`: `S3Writer`/`SNSPublisher` interfaces (interfaces.go,
+  mirroring stepfunctions' `asl.S3Writer` and ses's `SNSPublisher`),
+  `SetS3Writer`/`SetSNSPublisher`/`SetClock`, and an `S3WriterIntegration`
+  adapter (integrations.go, mirroring
+  `stepfunctions.NewS3ResultWriterIntegration`) wired in cli.go's
+  `wireAWSConfigDelivery` (called alongside `wireSESSNS`) via
+  `awsconfigbackend.NewS3WriterIntegration(s3H.Backend)` and a new
+  `awsConfigSNSPublisherAdapter` (mirroring `sesSNSPublisherAdapter`). I/O
+  (S3 write, SNS publish) happens outside `b.mu` -- state is captured locked
+  (`prepareConfigSnapshotDeliveryLocked`), delivered unlocked
+  (`deliverConfigSnapshotIO`), then the outcome is recorded under a fresh
+  lock -- the same capture-then-release shape as
+  `services/lambda/lifecycle.go`.
+
+  On success, the snapshot body is the currently recorded configuration
+  items (`b.resourceConfigs.Snapshot()`) wrapped in the real envelope
+  verified against
+  https://docs.aws.amazon.com/config/latest/developerguide/example-s3-snapshot.md
+  ("Example Configuration Snapshot"): `{"fileVersion":"1.0","requestId":"<id>",
+  "configurationItems":[...]}`. Note this deviates from what I was asked to
+  verify: the doc's top-level id field is `requestId`, not `configSnapshotId`
+  (even though it carries the same value `DeliverConfigSnapshotOutput.
+  ConfigSnapshotId` returns) -- I followed the doc over the assumption.
+  Each configuration item only carries the fields this backend actually
+  tracks (`ResourceConfigItem`: resourceType/resourceId/configuration/
+  configurationItemCaptureTime), not the full real `ConfigurationItem` shape
+  (arn/accountId/tags/relationships/... are not modeled anywhere in this
+  backend and are not fabricated here either). The body is gzipped and
+  written to the real key layout, verified against the "Example
+  Configuration Snapshot Delivery Notification"
+  (https://docs.aws.amazon.com/config/latest/developerguide/example-configuration-snapshot-notification.md)
+  `s3ObjectKey`: `AWSLogs/<accountId>/Config/<region>/<y>/<m>/<d>/
+  ConfigSnapshot/<accountId>_Config_<region>_ConfigSnapshot_
+  <yyyyMMddTHHmmssZ>_<snapshotId>.json.gz` -- year/month/day are NOT
+  zero-padded (the doc's own example is ".../2016/9/27/...", confirmed by
+  fetching the live page, not assumed).
+
+  When a bucket is missing, the S3Writer's `s3pkg.ErrNoSuchBucket` sentinel
+  (services/s3/errors.go:15) is classified into `lastErrorCode: "NoSuchBucket"`.
+  When no S3Writer is wired at all (e.g. a unit test that never calls
+  `SetS3Writer`), the outcome is FAILURE with an internal error code rather
+  than silently pretending success. Per
+  `awsAwsjson11_deserializeOpErrorDeliverConfigSnapshot`
+  (deserializers.go:2106), `DeliverConfigSnapshot`'s declared error set is
+  exactly `NoSuchDeliveryChannelException`/
+  `NoAvailableConfigurationRecorderException`/
+  `NoRunningConfigurationRecorderException` -- nothing S3/SNS-shaped -- so a
+  delivery failure does NOT fail the call; it still returns the generated
+  snapshot ID with a nil error (matching real AWS Config's async delivery
+  model) and the failure is only visible via
+  `DescribeDeliveryChannelStatus`'s `ConfigSnapshotDeliveryInfo`.
+  `NextDeliveryTime` is derived from the channel's
+  `ConfigSnapshotDeliveryProperties.DeliveryFrequency`
+  (`MaximumExecutionFrequency`, types/enums.go:331-340) when set, omitted
+  otherwise.
+
+  **Stream slot.** On a successful S3 delivery, if the channel has an SNS
+  topic configured, this backend publishes a `ConfigurationSnapshotDeliveryCompleted`
+  message (fields verified against the same "Example Configuration Snapshot
+  Delivery Notification" doc: configSnapshotId/s3ObjectKey/s3Bucket/
+  notificationCreationTime/messageType/recordVersion) and records the real
+  publish outcome (SUCCESS/FAILURE) with `LastStatusChangeTime`. When no
+  topic is configured, this pass deliberately deviates from my literal
+  instructions ("nil ... when a topic is configured, nil otherwise") in favor
+  of the real SDK doc comment on `ConfigStreamDeliveryInfo.LastStatus`
+  (types/types.go:855-859: "If the SNS delivery is turned off, the last
+  status will be Not_Applicable") -- so a *real* delivery with no topic
+  configured records `Not_Applicable`, not nil; the slot stays nil only when
+  no delivery has been attempted at all. `ConfigHistoryDeliveryInfo` is
+  always nil: `DeliverConfigSnapshot` only ever delivers a snapshot, never a
+  periodic history file, and this backend has no history-delivery loop to
+  mirror -- inventing a history delivery event here would itself be
+  fabrication.
+
+  **Still unmodeled / disclosed simplifications:**
+  - Configuration history delivery (the periodic, non-on-demand delivery
+    real AWS Config also performs) does not exist in this backend at all;
+    `ConfigHistoryDeliveryInfo` is always nil, never approximated from the
+    snapshot outcome.
+  - Delivered configuration items only carry the four fields
+    `ResourceConfigItem` tracks (resourceType/resourceId/configuration/
+    configurationItemCaptureTime); the real `ConfigurationItem` shape's
+    arn/accountId/availabilityZone/tags/relationships/relatedEvents/etc. are
+    not modeled anywhere in this backend, so the delivered snapshot file
+    reflects that same gap rather than fabricating them.
+  - `configurationItemCaptureTime` inside the delivered snapshot file is
+    epoch-seconds (this backend's existing internal representation,
+    `ResourceConfigItem.ConfigurationItemCaptureTime float64`), whereas the
+    doc's own example file shows an ISO8601 string for that same field. This
+    is a disclosed format mismatch for the *file's* per-item timestamp, not
+    the file's envelope or key layout (both independently verified above);
+    fixing it would mean introducing a second timestamp representation for
+    `ResourceConfigItem` used only in this one export path.
+
+  Tests: delivery_status_test.go, table-driven, `t.Parallel()` on outer and
+  every subtest. Covers: no-delivery-yet status shape (all slots nil);
+  successful S3 delivery records SUCCESS + LastAttemptTime/LastSuccessfulTime
+  + a real key matching the layout above; missing bucket records FAILURE with
+  `lastErrorCode: "NoSuchBucket"`; no S3Writer wired records FAILURE instead
+  of fabricated success; SNS publish success/failure/no-topic-configured all
+  reflected in the stream slot per the Not_Applicable reasoning above;
+  NextDeliveryTime derived from DeliveryFrequency; state survives a
+  Snapshot/Restore round trip. `TestDeliverConfigSnapshot_RealClient` and the
+  updated `TestDescribeDeliveryChannelStatus_RealClient` drive both ops
+  through a real aws-sdk-go-v2 configservice client against an httptest
+  server, proving the lowerCamel wire keys end-to-end rather than trusting
+  this package's own JSON tags.
+
+  Gates: `go build ./...` (whole module), `go vet ./services/awsconfig/... .`,
+  `go test -race -count=1 ./services/awsconfig/... ./pkgs/persistence/...`
+  (pass), `golangci-lint run ./services/awsconfig/...` (0 issues),
+  `golangci-lint run --new-from-rev=HEAD .` (0 issues, covers the cli.go
+  wiring change). `awsconfigSnapshotVersion` NOT bumped (additive table
+  only, confirmed by the version guard test).
+
+## 2026-09-12 (typed-client coverage slice 8, gopherstack-n3zi)
+
+Added `typed_slice8_realclient_test.go` (12 subtests) driving recorders/
+delivery, config rules + compliance/evaluations, conformance packs,
+remediation, aggregators/authorizations, resource config history/select,
+retention, stored queries, organization rules/packs, connectors, tags, and
+resource evaluation through the real aws-sdk-go-v2 configservice client.
+Typed-client coverage (cmd/opcensus + cmd/clientcoverage): 28/102 (27.5%)
+-> 95/102 (93.1%); uncovered dropped from 74 to 7 (DeleteServiceLinked-
+ConfigurationRecorder, PutServiceLinkedConfigurationRecorder,
+PutThirdPartyServiceLinkedConfigurationRecorder, DescribeAggregate-
+ComplianceByConfigRules, DescribeAggregateComplianceByConformancePacks,
+GetAggregateComplianceDetailsByConfigRule, GetAggregateConformancePack-
+ComplianceSummary -- service-linked-recorder and aggregate-compliance
+families, not attempted this pass).
+
+**Two real wire-shape bugs found and fixed, both by a typed client's own
+request-side validation rejecting the shape this backend demanded:**
+
+1. `PutRetentionConfiguration` required a fabricated `RetentionConfiguration-
+   Name` request field. The real `PutRetentionConfigurationInput`
+   (configservice@v1.68.4 api_op_PutRetentionConfiguration.go) has no name
+   member at all -- the API always names the (singleton, per-region) object
+   `"default"` server-side -- so a real client's marshalled request can
+   never carry that field, and every real `PutRetentionConfiguration` call
+   failed with `InvalidParameterValueException` regardless of state. Fixed:
+   the handler now always uses the constant name `"default"` and returns
+   the real, previously-missing `RetentionConfiguration` echo in the
+   response. Removed the now-obsolete `put_retention_configuration_missing_name`
+   error-matrix test case that exercised the old fabricated field.
+2. `PutEvaluations` required a fabricated top-level `ConfigRuleName` request
+   field. The real `PutEvaluationsInput` has no such member either --
+   `ResultToken` ("An encrypted token that associates an evaluation with a
+   Config rule") is the sole per-call correlator a real Lambda-backed
+   custom-rule evaluator sends. Since this emulator has no Lambda-invocation
+   pipeline to hand a custom rule its real encrypted token, `ResultToken` is
+   now treated as the rule name a caller supplies (documented in-code);
+   `TestMode` is also now honored (no-op, matching the real semantics).
+   Updated `TestHandler_PutEvaluationsAWSKeys` to the corrected request
+   shape.
+
+No persisted struct fields changed; no version bump. Gates: `go build ./...`,
+`go vet ./services/awsconfig/...`, `go test -race -count=1
+./services/awsconfig/... ./pkgs/persistence/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering awsconfig's last seven
+typed-client-uncovered ops: `PutServiceLinkedConfigurationRecorder`,
+`DeleteServiceLinkedConfigurationRecorder`,
+`PutThirdPartyServiceLinkedConfigurationRecorder`,
+`GetAggregateComplianceDetailsByConfigRule`,
+`DescribeAggregateComplianceByConfigRules`,
+`DescribeAggregateComplianceByConformancePacks`,
+`GetAggregateConformancePackComplianceSummary`. Zero bugs found -- every
+op passed on the first correctly-shaped request.
+
+Accept-and-drop finding, NOT fixed (out of scope for this pass, disclosed
+here): `DescribeAggregateComplianceByConfigRulesInput.ConfigurationAggregatorName`
+is a real, required request member (configservice@v1.68.4
+`api_op_DescribeAggregateComplianceByConfigRules.go`), but
+`handleDescribeAggregateComplianceByConfigRules` dispatches with `_
+*emptyInput` -- the aggregator name is never read or validated, unlike
+this file's sibling `GetAggregateComplianceDetailsByConfigRule`/
+`DescribeAggregateComplianceByConformancePacks`/
+`GetAggregateConformancePackComplianceSummary`, which all call
+`requireAggregatorLocked` and correctly fault
+`NoSuchConfigurationAggregatorException` for an unknown name. A real
+client naming a nonexistent aggregator gets the local account's real
+compliance data back instead of the documented error. Not fixed this pass:
+doing so changes `DescribeAggregateComplianceByConfigRules`'s backend
+signature (currently zero-arg) and would need auditing every existing
+caller (including the in-package unit test that calls it directly with no
+aggregator context) -- a validation-completeness gap, not a decode-
+affecting wire-shape bug, so left for a dedicated future pass.
+
+Typed-client coverage: 95/102 -> 102/102 (100%).
+
+No persisted struct fields changed, no version bump.
+
+Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
+-count=1 ./services/awsconfig/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.
+
+## 2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3)
+
+Worked all 33 tier-1 findings from `cmd/reqfielddiff` for this service.
+awsconfig is not the generic `jsonOp(h.Backend.<Op>)` shape (slice-1's blind
+spot) -- every op has its own hand-written input/output struct and handler --
+so the tool's undeclared-field findings here are all genuine: no field was
+already read via a shape the tool cannot see.
+
+29 of 33 were DROPPED PARAMETER: the field is real, on the wire, and the
+backend already holds the state to honor it -- overwhelmingly a `Limit`
+(sometimes with `NextToken`, which itself is real but couldn't hit tier-1's
+"documented default" signal) that this service's `page.New`-based pagination
+pattern (already established on `DescribeConfigRules`) had simply never been
+extended to. Fixed via a new shared `paginate[T]` helper in `handler.go`
+(`page.ValidateToken` + `page.New`, mirroring `handleDescribeConfigRules`)
+applied to:
+
+- `DescribeAggregateComplianceByConfigRules.Limit`,
+  `DescribeAggregateComplianceByConformancePacks.Limit`,
+  `DescribeAggregationAuthorizations.Limit`,
+  `DescribeComplianceByResource.Limit`,
+  `DescribeConfigRuleEvaluationStatus.Limit`,
+  `DescribeConfigurationAggregatorSourcesStatus.Limit`,
+  `DescribeConfigurationAggregators.Limit`,
+  `DescribeOrganizationConfigRuleStatuses.Limit`,
+  `DescribeOrganizationConfigRules.Limit`,
+  `DescribeOrganizationConformancePackStatuses.Limit`,
+  `DescribeOrganizationConformancePacks.Limit`,
+  `DescribePendingAggregationRequests.Limit`,
+  `DescribeRemediationExceptions.Limit`,
+  `DescribeRemediationExecutionStatus.Limit`,
+  `GetAggregateConfigRuleComplianceSummary.Limit`,
+  `GetAggregateConformancePackComplianceSummary.Limit`,
+  `GetComplianceDetailsByConfigRule.Limit`,
+  `GetConformancePackComplianceDetails.Limit`,
+  `GetOrganizationConfigRuleDetailedStatus.Limit`,
+  `GetOrganizationConformancePackDetailedStatus.Limit`,
+  `ListAggregateDiscoveredResources.Limit`, `ListDiscoveredResources.Limit`,
+  `ListResourceEvaluations.Limit`, `ListTagsForResource.Limit` now truncate to
+  the requested page size (or the operation's documented default) and return a
+  real opaque `NextToken` a follow-up call advances with -- previously every
+  one of these ops always returned its entire result set in a single
+  response regardless of `Limit`.
+
+Three fields needed real (not just mechanical) backend work:
+
+- `GetResourceConfigHistory.ChronologicalOrder`/`EarlierTime`/`LaterTime`:
+  `GetResourceConfigHistoryPage` now filters history entries to
+  `[EarlierTime, LaterTime]` (epoch seconds; a zero bound is unset) and
+  reverses to oldest-first when `ChronologicalOrder=Forward`, instead of
+  always returning the full history newest-first. `PutResourceConfig` was
+  switched from a bare `time.Now()` to the existing `b.now()`/`SetClock`
+  seam (already used elsewhere in this backend) so this is deterministically
+  testable.
+- `ListConformancePackComplianceScores.SortBy`/`SortOrder`: a new
+  `sortConformancePackComplianceScores` orders by conformance-pack name
+  (default) or numeric `Score` (`SortBy=SCORE`), ascending unless
+  `SortOrder=DESCENDING`, with `INSUFFICIENT_DATA` sorting last ascending and
+  first descending -- matching the op's doc comment verbatim. Previously the
+  fields were silently dropped and the result was always name-ascending.
+
+4 of 33 were MISSING FEATURE, recorded under `items_still_open` rather than
+faked: `GetDiscoveredResourceCounts.Limit`/`GetAggregateDiscoveredResourceCounts.Limit`
+(both page a per-type/per-group resource-count breakdown this backend has
+never modeled -- an existing, already-disclosed gap), `ListDiscoveredResources
+.IncludeDeletedResources` (this backend deletes resources outright rather than
+tombstoning them, so there is no deleted-resource record to include), and
+`StartResourceEvaluation.EvaluationTimeout` (evaluation completes
+synchronously and always succeeds, so there is no in-flight run a timeout
+could interrupt).
+
+0 false positives this slice (see the "not the generic wrapper shape" note
+above).
+
+New test: `reqfield_slice3_realclient_test.go` --
+`TestReqFieldSlice3_AWSConfig_Pagination`, 20 subtests, each driving the real
+typed `aws-sdk-go-v2/service/configservice` client against a from-scratch
+backend, seeding >=2 items, and asserting both page-1 truncation and the
+`NextToken`-driven page 2 (or, for the two sort fields, the resulting order).
+`GetAggregateConfigRuleComplianceSummary`/`GetAggregateConformancePackComplianceSummary`/
+`GetOrganizationConfigRuleDetailedStatus`/`GetOrganizationConformancePackDetailedStatus`
+were not given individual pagination proofs: each is structurally capped at a
+single result row in this emulator (one local account/region as the sole
+aggregation group; one local account as the org's sole member), so `Limit`
+has nothing observable to truncate -- still routed through the same
+`paginate` helper the other 20 ops' tests do exercise.
+
+No persisted struct fields changed (only request/response wire structs and
+one backend method signature), no version bump.
+
+Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
+-count=1 ./services/awsconfig/...` (pass, including the new suite),
+`golangci-lint run --new-from-rev=HEAD ./services/awsconfig/...`.
+`cmd/paritylint` stays at 0 missing-items-still-open FAIL.

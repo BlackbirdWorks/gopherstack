@@ -20,6 +20,7 @@ ops:
 families:
   route_matching: {status: ok, note: "RouteMatcher gates on signing-service + path prefix only (method-agnostic, correct); ExtractOperation correctly routes UpdateMonitor/UpdateProbe on PATCH (not PUT, which the real API does not expose). TestHandler_RouteMatcher and TestHandler_ExtractOperation_MethodPathMatrix (handler_test.go) exercise RouteMatcher() and the method+path matrix directly."}
 gaps: []
+items_still_open: []
 deferred:
   - "AccessDeniedException (403) / ThrottlingException (429) are not wired: verified this pass that there is no shared auth/rate-limit middleware anywhere in gopherstack that would inject these for networkmonitor (checked pkgs/chaos, which is fault-injection only, not standard error mapping) -- corrects last pass's unverified guess that such middleware existed. This backend has no auth model and no request-rate accounting, so there is no real condition under which these codes would ever be produced; every other audited service in this repo (ce, pipes, ssoadmin, fis, apprunner, polly) follows the same pattern of only wiring exception branches that have a genuine backend trigger. Re-open if gopherstack ever grows a cross-service auth/throttle layer."
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend is a plain locked map+store.Table with no background work"}
@@ -250,3 +251,20 @@ numbers exist only in AWS's service-quotas doc prose
 Recorded as a known unverifiable-by-oracle item (Notes above). Constants
 left unchanged -- no evidence they're wrong, just no second source to check
 them against.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DeleteProbe, GetMonitor, GetProbe,
+ListMonitors, UpdateMonitor, UpdateProbe driven through the real
+aws-sdk-go-v2 client for the first time (`typed_slice15_realclient_test.go`,
+2 subtests: monitor lifecycle, probe lifecycle). networkmonitor moved from
+6/12 to 12/12 typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request.
+
+Gates: `go build ./...`, `go vet ./services/networkmonitor/...`,
+`go test -race -count=1 ./services/networkmonitor/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/networkmonitor/...` (0 issues). `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted-struct/snapshot changes.

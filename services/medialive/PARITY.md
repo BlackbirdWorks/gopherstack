@@ -478,8 +478,18 @@ families:
       orphaned row. Fixed via cascadeDeleteChannelPlacementGroups, called
       from DeleteCluster.
   SignalMap:
-    status: ok
+    status: fixed
     note: >
+      FIXED 2026-09-11 (gopherstack-mven required-output sweep):
+      LastSuccessfulMonitorDeployment (optional, but its DetailsUri/Status
+      members are both required whenever present -- types/types.go:8315-8328)
+      wasn't modeled at all, so it was always absent even after a
+      successful StartMonitorDeployment. Now populated (Status +
+      a deterministic console-link DetailsUri) whenever
+      MonitorDeploymentStatus reaches DEPLOYMENT_COMPLETE, and preserved
+      across a later StartDeleteMonitorDeployment (real semantics: it
+      records the *latest successful* deployment, independent of current
+      status).
       FIXED this pass. toSignalMapOutput's PascalCase keys fixed to
       lowerCamel ("discoveryEntryPointArn"/"status"/
       "monitorDeploymentStatus"/"cloudWatchAlarmTemplateGroupIds"/
@@ -673,13 +683,24 @@ families:
       `batchDeleteInputSecurityGroups` helper. New test
       TestBatch_DeleteInputSecurityGroups proves the fix end-to-end.
   Schedule:
-    status: ok
+    status: fixed
     note: >
       FIXED this pass. DescribeSchedule's wrapper (keyScheduleActions:
       "ScheduleActions" -> "scheduleActions") and item key (keyActionName:
       "ActionName" -> "actionName") fixed via the shared constants (safe:
       grepped all call sites, all Batch/Schedule family, all in scope this
       pass).
+      FIXED 2026-09-11 (gopherstack-mven required-output sweep):
+      ScheduleActionSettings and ScheduleActionStartSettings -- both "This
+      member is required" on every ScheduleAction (types/types.go:7277-7287)
+      -- were never read off BatchUpdateSchedule's request or stored,
+      leaving DescribeSchedule/BatchUpdateSchedule responses with only
+      ActionName. Now stored opaquely per-action and echoed back on
+      Describe and both Creates/Deletes. Also fixed:
+      BatchScheduleActionDeleteResult must echo the FULL deleted
+      ScheduleAction objects (confirmed against the real
+      deserializer), not just their names -- the backend previously
+      synthesized Deletes from the requested actionNames alone.
   Alerts:
     status: ok
     note: >
@@ -721,7 +742,10 @@ deferred: []
 # changed and how each was verified against the SDK. What's left below is
 # either newly-discovered-and-closed (kept here only as a paper trail) or
 # genuinely out of scope for this pass.
-gaps:
+gaps: []
+
+
+items_still_open:
   - Channel's EncoderSettings is modeled to a deliberately bounded depth (sweep 6,
     gopherstack-jb9i; extended by gopherstack-sthr across two sub-passes, then gopherstack-hj9n,
     then gopherstack-1szb). See Channel's note above for the full list of what IS modeled:
@@ -770,7 +794,6 @@ gaps:
     the full state/error-code re-audit this entry originally called for; Cluster/Node/
     SignalMap/Batch semantics and DeleteReservation's hard-delete-vs-DELETED-state question
     (see the same dated entry) remain open.
-
   - "Constraining-parameter sweep (wrapper-key campaign, 2026-08-29): six real
     never-applied-constraint bugs found and fixed, all confirmed with a real
     aws-sdk-go-v2 client test that failed against the unfixed handler first.
@@ -826,7 +849,6 @@ gaps:
     an unverified literal risks the wrong-vocabulary bug class more than
     leaving it a documented gap, since this backend has zero AWS-managed
     groups to ever wrongly include regardless."
-
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
@@ -1572,3 +1594,63 @@ per instructions.
 
 Gates: `go test -race -count=1 ./services/medialive/...`,
 `golangci-lint run services/medialive/...` -- both clean.
+
+## gopherstack-n3zi slice 6: typed-client coverage sweep (2026-09-12)
+
+Typed-client census (`cmd/opcensus` + `cmd/clientcoverage`): 36/123 (29.3%)
+-> 122/123 (99.2%) ops driven by a real aws-sdk-go-v2 client anywhere in
+this repo's tests. `services/medialive/typed_slice6_realclient_test.go`
+added, 19 subtests covering channels (lifecycle/alerts/versions/class),
+account configuration, channel placement groups, clusters, networks, nodes
+(+registration script), input devices (claim/transfer lifecycle incl.
+accept/cancel/reject), input security groups, inputs (+partner input),
+multiplexes/programs, reservations/offerings, signal maps, SDI sources,
+schedules, tags, batch start/stop/delete, event bridge rule templates, and
+cloudwatch alarm templates — every named priority family for this slice.
+
+**Zero new bugs found** — every newly-covered op passed on the first
+correctly-shaped request against the existing implementation. Two
+test-authoring corrections needed (not bugs, both already documented
+in-code as deliberate real-AWS-contract emulation): `StartChannel`/
+`StopChannel`/`StartMultiplex`/`StopMultiplex` responses carry the
+intermediate `STARTING`/`STOPPING` state (not the settled `RUNNING`/`IDLE`
+the stored resource immediately advances to), matching real AWS's
+async-transition contract per `channels.go`'s/`multiplexes.go`'s own doc
+comments; `DeleteReservation` requires an `EXPIRED` reservation
+(`reservations.go`'s `effectiveState()`) and `PurchaseOffering`'s term
+length comes from the fixed offering catalog with no test-only time-travel
+hook, so it is the one op this slice could not exercise.
+
+**Remaining uncovered (1 op): `DeleteReservation`** — not a gap in the
+implementation, just untestable without fast-forwarding wall-clock time
+past a purchased reservation's term; real AWS has the identical
+constraint.
+
+Gates: `go build ./...`, `go vet ./services/medialive/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/medialive/...` (0
+issues), `go test -race -count=1 ./services/medialive/...` — all clean. No
+backend struct fields changed in medialive this pass, no
+`pkgs/persistence` impact, no version bump.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Closed the one op the slice-6 pass above left uncovered. Slice 6 was
+correct that `PurchaseOffering`'s term length can't be fast-forwarded by a
+real client, but missed that this package already carries a test-only
+export for exactly this purpose: `export_test.go`'s `ForceReservationEnd`
+backdates a reservation's `End` directly, letting `DeleteReservation`'s
+`EXPIRED`-only precondition (`reservations.go`'s `effectiveState()`) be
+reached without a real time-travel hook. Added
+`typed_slice17_realclient_test.go`: purchase an offering through the real
+client, backdate its `End` via `ForceReservationEnd`, then delete it
+through the real client and assert the decoded `CANCELED` state and a
+subsequent `DescribeReservation` 404. Zero bugs found -- the op already
+worked correctly once reachable.
+
+Typed-client coverage: 122/123 (99.2%) -> 123/123 (100%).
+
+Gates: `go build ./...`, `go vet ./services/medialive/...`, `go test -race
+-count=1 ./services/medialive/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/medialive/...` (0 issues). No backend
+struct fields changed, no `pkgs/persistence` impact, no version bump.
+`cmd/paritylint` stays at 0 FAIL.

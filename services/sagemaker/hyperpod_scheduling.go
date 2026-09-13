@@ -644,6 +644,24 @@ func (b *InMemoryBackend) CreateComputeQuota(
 		return nil, fmt.Errorf("%w: ComputeQuotaName is required", ErrValidation)
 	}
 
+	// ClusterArn/ComputeQuotaConfig/ComputeQuotaTarget are all required on
+	// CreateComputeQuotaInput (validateOpCreateComputeQuotaInput,
+	// validators.go) -- previously unvalidated. ComputeQuotaTarget is also
+	// required on DescribeComputeQuotaOutput; a request omitting it would
+	// have stored a ComputeQuota whose Describe response silently dropped
+	// the required member (omitempty on a nil pointer).
+	if opts.ClusterArn == "" {
+		return nil, fmt.Errorf("%w: ClusterArn is required", ErrValidation)
+	}
+
+	if opts.ComputeQuotaConfig == nil {
+		return nil, fmt.Errorf("%w: ComputeQuotaConfig is required", ErrValidation)
+	}
+
+	if opts.ComputeQuotaTarget == nil {
+		return nil, fmt.Errorf("%w: ComputeQuotaTarget is required", ErrValidation)
+	}
+
 	activationState := opts.ActivationState
 	if activationState == "" {
 		activationState = activationStateEnabled

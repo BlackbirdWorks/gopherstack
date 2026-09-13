@@ -352,8 +352,12 @@ func TestHandler_AttackRichFields(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
+	// No "AttackVectors" key: types.AttackDetail (shield@v1.37.4 types/types.go)
+	// has no such member -- that's AttackSummary's field (ListAttacks), see
+	// TestHandler_ListAttacksIncludesVectors.
 	atk := resp["Attack"].(map[string]any)
-	assert.NotNil(t, atk["AttackVectors"])
+	_, hasVectors := atk["AttackVectors"]
+	assert.False(t, hasVectors, "types.AttackDetail has no AttackVectors member")
 	assert.NotNil(t, atk["AttackCounters"])
 	assert.NotNil(t, atk["Mitigations"])
 }
@@ -548,7 +552,8 @@ func TestHandler_AttackSimulationEndToEnd(t *testing.T) {
 	var descResp map[string]any
 	require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
 	atk := descResp["Attack"].(map[string]any)
-	assert.NotEmpty(t, atk["AttackVectors"])
+	_, hasVectors := atk["AttackVectors"]
+	assert.False(t, hasVectors, "types.AttackDetail has no AttackVectors member")
 	assert.NotEmpty(t, atk["AttackCounters"])
 	assert.NotEmpty(t, atk["Mitigations"])
 

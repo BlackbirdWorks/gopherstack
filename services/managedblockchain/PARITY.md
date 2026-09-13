@@ -27,7 +27,7 @@ ops:
   RejectInvitation: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteAccessor: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAccessor: {wire: ok, errors: ok, state: fixed, persist: ok, note: "2026-09-12: was a hard delete (Get/ListAccessors 404'd immediately after); real AWS keeps the accessor visible with status PENDING_DELETION (api_op_DeleteAccessor.go doc). Now transitions Status in place and drops only the arnToResource entry (so TagResource still correctly fails), matching the documented lifecycle."}
   ListAccessors: {wire: fixed, errors: ok, state: ok, persist: ok, note: "server-side pagination now implemented"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -40,7 +40,8 @@ families:
   invitation: {status: fixed, note: "ListInvitations/RejectInvitation only -- correctly no CreateInvitation op (real AWS has none either; invitations are created only as a side effect of an approved proposal's Invitations actions, which executeProposalActionsLocked implements); ListInvitations now paginates; fabricated top-level NetworkId/NetworkName removed this pass, see 2026-08-20 Notes"}
   accessor: {status: ok, note: "CreateAccessor/GetAccessor/DeleteAccessor/ListAccessors verified; ListAccessors now paginates; Accessor vs AccessorSummary wire structs confirmed distinct and each matches its own live deserializer, see 2026-08-20 Notes"}
   tags: {status: ok, note: "TagResource/UntagResource/ListTagsForResource verified against /tags/{ResourceArn} shape and ARN-keyed lookup"}
-gaps:
+gaps: []
+items_still_open:
   - "Member.IsOwned is always true, even for a member created via CreateMember (i.e. joining via invitation, which in real AWS is not owned by the joining account's original network-owner relationship). gopherstack has no multi-account model to distinguish an owned member from an invited one, so this is a reasonable simplification, not flagged as a bug to fix (gopherstack-u84u re-reviewed this alongside InvitationId; InvitationId itself is now real, see Notes #8)."
   - "No artificial service quotas (max members per network, max nodes per member, max networks per account) are enforced, so ResourceLimitExceededException is never returned. Consistent with this emulator's general no-limits style elsewhere; not treated as a bug."
   - "Network.FrameworkAttributes.Ethereum and Node.FrameworkAttributes.Ethereum are not modeled. gopherstack-u84u answered the design question this was deferred under: real AWS's CreateNode documents exactly one well-known public Ethereum NetworkId, \"n-ethereum-mainnet\" (aws-sdk-go-v2 managedblockchain api_op_CreateNode.go:44-47 and api_op_DeleteNode.go:36, v1.34.4 -- confirmed NOT invented; older SDKs additionally listed now-sunset n-ethereum-goerli/n-ethereum-rinkeby testnets, absent from this pin), with FrameworkAttributes.Ethereum.ChainId documented as \"1\" for mainnet (types/types.go:538-547's NetworkEthereumAttributes). ListNetworks/GetNetwork both self-document \"Applies to Hyperledger Fabric and Ethereum\", so real AWS does surface this network through both once an account has a node on it. Seeding the network itself would therefore be honest (a real, stable constant, not invented). Still deferred: CreateNode's real MemberId is documented \"Applies only to Hyperledger Fabric\" (api_op_CreateNode.go:56-58) -- Ethereum nodes have no owning member -- but gopherstack's Node storage is keyed by (networkID, memberID, nodeID) (nodeKey in store_setup.go) and CreateNode already requires MemberId unconditionally (ErrMissingNodeMemberID) for its one supported framework. Making CreateNode against Ethereum reachable needs a memberless Node storage path, not just a seeded network row -- a real structural change, not an adjacent fix."
@@ -574,3 +575,21 @@ removed. Guard restored before commit.
 Gates re-run for the record: `GOTOOLCHAIN=go1.27.0 golangci-lint run
 ./services/managedblockchain/...` 0 issues; `GOTOOLCHAIN=go1.27.0 go test -race
 -count=1 ./services/managedblockchain/...` ok.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 14 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/managedblockchain` client for the first time
+(`typed_slice23_realclient_test.go`): accessor CRUD, a full proposal
+lifecycle (create, vote, threshold-approve, invitation, reject) on a
+single-member network, and member update + node lifecycle. **One real bug
+found and fixed**: `DeleteAccessor` hard-deleted the accessor row (Get/
+ListAccessors immediately 404'd), but `api_op_DeleteAccessor.go`'s own doc
+comment states "After an accessor is deleted, the status of the accessor
+changes from AVAILABLE to PENDING_DELETION" -- the resource stays visible.
+Fixed: the accessor's `Status` now flips to `PENDING_DELETION` in place;
+only its `arnToResource` entry is dropped, so tagging a deleted accessor
+still correctly fails. Three pre-existing tests (`TestHandler_DeleteAccessor`,
+`TestHandler_AccessorLifecycleViaHTTP`, `TestHandler_AccessorRoundTrip`) had
+encoded the wrong hard-delete/404 shape as correct -- corrected to assert
+`PENDING_DELETION` instead. All other 13 ops clean.

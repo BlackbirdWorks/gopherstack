@@ -302,7 +302,7 @@ func (b *InMemoryBackend) StartBuild(projectName string, cfg StartBuildConfig) (
 		SecondarySourceVersions: ov.SecondarySourceVersions,
 		AutoRetryConfig:         &AutoRetryConfig{AutoRetryLimit: autoRetryLimit},
 		Phases: []BuildPhase{
-			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now, DurationInSeconds: 0},
+			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},
 	}
 	b.builds.Put(build)
@@ -448,7 +448,7 @@ func (b *InMemoryBackend) RetryBuild(id string) (*Build, error) {
 			PreviousAutoRetry: existing.Arn,
 		},
 		Phases: []BuildPhase{
-			{PhaseType: phaseSubmitted, PhaseStatus: "SUCCEEDED", StartTime: now, EndTime: now},
+			{PhaseType: phaseSubmitted, PhaseStatus: buildStatusSucceeded, StartTime: now, EndTime: now},
 		},
 	}
 	b.builds.Put(build)

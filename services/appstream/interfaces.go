@@ -8,19 +8,15 @@ import (
 // StorageBackend is the interface for AppStream 2.0 storage operations.
 type StorageBackend interface {
 	// Stacks
-	CreateStack(name, displayName, description string, tags map[string]string) (*Stack, error)
+	CreateStack(name string, opts CreateStackOptions) (*Stack, error)
 	DescribeStacks(names []string) ([]*Stack, error)
-	UpdateStack(name, displayName, description string) (*Stack, error)
+	UpdateStack(name string, opts UpdateStackOptions) (*Stack, error)
 	DeleteStack(name string) error
 
 	// Fleets
-	CreateFleet(name, displayName, description, instanceType, fleetType, imageName, imageArn string,
-		desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
-		enableDefaultInternetAccess *bool, tags map[string]string) (*Fleet, error)
+	CreateFleet(name string, opts CreateFleetOptions) (*Fleet, error)
 	DescribeFleets(names []string) ([]*Fleet, error)
-	UpdateFleet(name, displayName, description, instanceType, imageName, imageArn string,
-		desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
-		enableDefaultInternetAccess *bool) (*Fleet, error)
+	UpdateFleet(name string, opts UpdateFleetOptions) (*Fleet, error)
 	DeleteFleet(name string) error
 	StartFleet(name string) error
 	StopFleet(name string) error
@@ -37,20 +33,26 @@ type StorageBackend interface {
 	ListTagsForResource(arn string) (map[string]string, error)
 
 	// AppBlocks
-	CreateAppBlock(name, description string, tags map[string]string) (*AppBlock, error)
+	CreateAppBlock(name, description string, opts CreateAppBlockOptions) (*AppBlock, error)
 	DeleteAppBlock(name string) error
 	DescribeAppBlocks(arns []string) ([]*AppBlock, error)
 
 	// AppBlockBuilders
 	CreateAppBlockBuilder(
 		name, description, platform, instanceType string,
+		vpcConfig VpcConfig,
 		tags map[string]string,
+		enableDefaultInternetAccess *bool,
 	) (*AppBlockBuilder, error)
 	DeleteAppBlockBuilder(name string) error
 	DescribeAppBlockBuilders(names []string) ([]*AppBlockBuilder, error)
 	StartAppBlockBuilder(name string) error
 	StopAppBlockBuilder(name string) error
-	UpdateAppBlockBuilder(name, description, instanceType string) (*AppBlockBuilder, error)
+	UpdateAppBlockBuilder(
+		name, description, instanceType string,
+		vpcConfig *VpcConfig,
+		enableDefaultInternetAccess *bool,
+	) (*AppBlockBuilder, error)
 	CreateAppBlockBuilderStreamingURL(name string, validitySeconds int64) (string, time.Time, error)
 
 	// AppBlockBuilder-AppBlock associations. appBlockID accepts either the
@@ -64,10 +66,11 @@ type StorageBackend interface {
 	// Applications
 	CreateApplication(name, displayName, description, launchPath, appBlockArn string,
 		platforms []string, iconS3Location S3Location, instanceFamilies []string,
-		tags map[string]string) (*Application, error)
+		tags map[string]string, launchParameters, workingDirectory string) (*Application, error)
 	DeleteApplication(name string) error
 	DescribeApplications(arns []string) ([]*Application, error)
-	UpdateApplication(name, displayName, description, launchPath string) (*Application, error)
+	UpdateApplication(name, displayName, description, launchPath, launchParameters, workingDirectory string,
+	) (*Application, error)
 	DescribeAppLicenseUsage() ([]map[string]string, error)
 
 	// Application-Fleet associations. appID accepts either the application
@@ -115,7 +118,8 @@ type StorageBackend interface {
 	DescribeImagePermissions(imageName string, sharedAwsAccountIDs []string) ([]*SharedImagePermissions, error)
 
 	// ImageBuilders
-	CreateImageBuilder(name, description, platform, instanceType string, tags map[string]string) (*ImageBuilder, error)
+	CreateImageBuilder(name, description, platform, instanceType string,
+		opts CreateImageBuilderOptions) (*ImageBuilder, error)
 	DeleteImageBuilder(name string) (*ImageBuilder, error)
 	DescribeImageBuilders(names []string) ([]*ImageBuilder, error)
 	StartImageBuilder(name, appstreamAgentVersion string) error
@@ -165,7 +169,10 @@ type StorageBackend interface {
 	DescribeUserStackAssociations(stackName, userName, authType string) ([]*UserStackAssociation, error)
 
 	// Sessions
-	DescribeSessions(stackName, fleetName, userID, authenticationType string) ([]*Session, error)
+	DescribeSessions(
+		stackName, fleetName, userID, authenticationType string,
+		limit int, nextToken string,
+	) ([]*Session, string, error)
 	DrainSessionInstance(sessionID string) error
 	ExpireSession(sessionID string) error
 	CreateStreamingURL(stackName, fleetName, userID string, validitySeconds int64) (string, time.Time, error)
@@ -177,56 +184,289 @@ type StorageBackend interface {
 	Restore(ctx context.Context, data []byte) error
 }
 
-// Stack holds AppStream 2.0 stack details.
-type Stack struct {
-	CreatedTime time.Time
-	Tags        map[string]string
-	Name        string
-	Arn         string
-	DisplayName string
-	Description string
+// UserSetting mirrors appstream@v1.64.5 types.UserSetting: whether a
+// streaming-session action (clipboard, file transfer, printing, ...) is
+// enabled for a stack's users.
+type UserSetting struct {
+	Action     string
+	Permission string
+	// MaximumLength is 0 when unset (real AWS only accepts it for the two
+	// clipboard actions).
+	MaximumLength int
 }
 
-// Fleet holds AppStream 2.0 fleet details.
-type Fleet struct {
-	EnableDefaultInternetAccess *bool
+// ApplicationSettings mirrors appstream@v1.64.5
+// types.ApplicationSettingsResponse: persistent application settings for a
+// stack's streaming sessions. S3BucketName is derived, not stored -- real
+// AWS creates one S3 bucket per account+Region the first time persistent
+// application settings are enabled (doc comment on
+// types.ApplicationSettingsResponse.S3BucketName), mirroring the
+// UsageReportSubscription.S3BucketName naming convention already used by
+// this backend.
+type ApplicationSettings struct {
+	SettingsGroup string
+	S3BucketName  string
+	Enabled       bool
+}
+
+// AccessEndpoint mirrors appstream@v1.64.5 types.AccessEndpoint: an
+// interface VPC endpoint through which a stack or image builder may be
+// accessed.
+type AccessEndpoint struct {
+	EndpointType string
+	VpceID       string
+}
+
+// StorageConnector mirrors appstream@v1.64.5 types.StorageConnector: a
+// configured storage integration (home folders, Google Drive, OneDrive) for
+// a stack.
+type StorageConnector struct {
+	ConnectorType              string
+	ResourceIdentifier         string
+	Domains                    []string
+	DomainsRequireAdminConsent []string
+}
+
+// StreamingExperienceSettings mirrors appstream@v1.64.5
+// types.StreamingExperienceSettings: the preferred streaming protocol for a
+// stack.
+type StreamingExperienceSettings struct {
+	PreferredProtocol string
+}
+
+// UrlRedirectionConfig mirrors appstream@v1.64.5 types.UrlRedirectionConfig:
+// bidirectional URL redirection rules between the streaming session and the
+// local client.
+//
+//nolint:revive,staticcheck // matches real SDK type/field name (Url not URL).
+type UrlRedirectionConfig struct {
+	Enabled     *bool
+	AllowedUrls []string
+	DeniedUrls  []string
+}
+
+// ContentRedirection mirrors appstream@v1.64.5 types.ContentRedirection:
+// content-redirection configuration for a stack's streaming sessions.
+type ContentRedirection struct {
+	HostToClient *UrlRedirectionConfig
+}
+
+// Stack holds AppStream 2.0 stack details.
+type Stack struct {
+	ApplicationSettings         *ApplicationSettings
+	ContentRedirection          *ContentRedirection
+	StreamingExperienceSettings *StreamingExperienceSettings
 	CreatedTime                 time.Time
 	Tags                        map[string]string
 	Name                        string
 	Arn                         string
 	DisplayName                 string
 	Description                 string
+	RedirectURL                 string
+	FeedbackURL                 string
+	EmbedHostDomains            []string
+	UserSettings                []UserSetting
+	StorageConnectors           []StorageConnector
+	AccessEndpoints             []AccessEndpoint
+}
+
+// CreateStackOptions carries CreateStackInput's full member set
+// (api_op_CreateStack.go) beyond the identity fields that stay positional on
+// CreateStack. AgentAccessConfig (types.AgentAccessConfig) is deliberately
+// absent: its nested ScreenResolution/AgentAccessSetting/ScreenImageFormat
+// shape is real CreateStackInput surface with an honest source, but wiring
+// it through was out of scope for this pass -- it stays a genuine (not
+// fabricated) gap, tracked in PARITY.md rather than closed here.
+type CreateStackOptions struct {
+	ApplicationSettings         *ApplicationSettings
+	ContentRedirection          *ContentRedirection
+	StreamingExperienceSettings *StreamingExperienceSettings
+	Tags                        map[string]string
+	RedirectURL                 string
+	FeedbackURL                 string
+	DisplayName                 string
+	Description                 string
+	EmbedHostDomains            []string
+	UserSettings                []UserSetting
+	StorageConnectors           []StorageConnector
+	AccessEndpoints             []AccessEndpoint
+}
+
+// UpdateStackOptions carries UpdateStackInput's full member set
+// (api_op_UpdateStack.go) that this backend wires through (see
+// CreateStackOptions for the AgentAccessConfig scope note). Every field
+// means "leave unchanged" when nil/zero, matching ThemeUpdateOptions;
+// AttributesToDelete (real StackAttribute enum values, types/enums.go) is
+// applied after every set field so a delete always wins over a same-request
+// set. DeleteStorageConnectors mirrors the real (deprecated in favor of
+// AttributesToDelete, but still modeled) UpdateStackInput member.
+type UpdateStackOptions struct {
+	ApplicationSettings         *ApplicationSettings
+	ContentRedirection          *ContentRedirection
+	StreamingExperienceSettings *StreamingExperienceSettings
+	DeleteStorageConnectors     *bool
+	RedirectURL                 string
+	FeedbackURL                 string
+	DisplayName                 string
+	Description                 string
+	EmbedHostDomains            []string
+	UserSettings                []UserSetting
+	StorageConnectors           []StorageConnector
+	AccessEndpoints             []AccessEndpoint
+	AttributesToDelete          []string
+}
+
+// DomainJoinInfo mirrors appstream@v1.64.5 types.DomainJoinInfo: the AD
+// domain a fleet or image builder joins on launch.
+type DomainJoinInfo struct {
+	DirectoryName                       string
+	OrganizationalUnitDistinguishedName string
+}
+
+// VolumeConfig mirrors appstream@v1.64.5 types.VolumeConfig: the root
+// volume size (GB) for a fleet or image builder instance.
+type VolumeConfig struct {
+	VolumeSizeInGb int
+}
+
+// Fleet holds AppStream 2.0 fleet details.
+type Fleet struct {
+	CreatedTime                 time.Time
+	DisableIMDSV1               *bool
+	RootVolumeConfig            *VolumeConfig
+	Tags                        map[string]string
+	EnableDefaultInternetAccess *bool
+	DomainJoinInfo              DomainJoinInfo
+	SessionScriptS3Location     S3Location
+	Description                 string
+	Platform                    string
+	Name                        string
+	Arn                         string
+	DisplayName                 string
+	StreamView                  string
 	InstanceType                string
 	FleetType                   string
 	State                       string
 	ImageName                   string
 	ImageArn                    string
+	IamRoleArn                  string
+	VpcConfig                   VpcConfig
+	UsbDeviceFilterStrings      []string
 	DesiredInstances            int
 	MaxUserDurationSecs         int
 	DisconnectTimeoutSecs       int
 	IdleDisconnectTimeoutSecs   int
+	MaxSessionsPerInstance      int
+	MaxConcurrentSessions       int
+}
+
+// CreateFleetOptions carries CreateFleetInput's full member set
+// (api_op_CreateFleet.go) beyond the identity/capacity fields that stay
+// positional on CreateFleet, following this file's established
+// ThemeUpdateOptions convention for wide option sets.
+type CreateFleetOptions struct {
+	DisableIMDSV1               *bool
+	RootVolumeConfig            *VolumeConfig
+	Tags                        map[string]string
+	EnableDefaultInternetAccess *bool
+	DomainJoinInfo              DomainJoinInfo
+	SessionScriptS3Location     S3Location
+	InstanceType                string
+	StreamView                  string
+	DisplayName                 string
+	Description                 string
+	Platform                    string
+	FleetType                   string
+	ImageName                   string
+	ImageArn                    string
+	IamRoleArn                  string
+	VpcConfig                   VpcConfig
+	UsbDeviceFilterStrings      []string
+	DesiredInstances            int
+	MaxUserDurationSecs         int
+	DisconnectTimeoutSecs       int
+	IdleDisconnectTimeoutSecs   int
+	MaxSessionsPerInstance      int
+	MaxConcurrentSessions       int
+}
+
+// UpdateFleetOptions carries UpdateFleetInput's full member set
+// (api_op_UpdateFleet.go). Every field means "leave unchanged" when
+// zero/empty, matching this file's ThemeUpdateOptions convention, except
+// AttributesToDelete (real FleetAttribute enum values, types/enums.go),
+// which is applied after every set field so a delete always wins over a
+// same-request set.
+type UpdateFleetOptions struct {
+	DisableIMDSV1               *bool
+	RootVolumeConfig            *VolumeConfig
+	EnableDefaultInternetAccess *bool
+	DomainJoinInfo              DomainJoinInfo
+	SessionScriptS3Location     S3Location
+	InstanceType                string
+	IamRoleArn                  string
+	Platform                    string
+	DisplayName                 string
+	Description                 string
+	StreamView                  string
+	ImageName                   string
+	ImageArn                    string
+	VpcConfig                   VpcConfig
+	UsbDeviceFilterStrings      []string
+	AttributesToDelete          []string
+	DesiredInstances            int
+	MaxUserDurationSecs         int
+	DisconnectTimeoutSecs       int
+	IdleDisconnectTimeoutSecs   int
+	MaxSessionsPerInstance      int
+	MaxConcurrentSessions       int
 }
 
 // AppBlock holds AppStream 2.0 app block details.
 type AppBlock struct {
-	CreatedTime time.Time
-	Tags        map[string]string
-	Name        string
-	Arn         string
-	Description string
-	State       string
+	SetupScriptDetails     *ScriptDetails
+	PostSetupScriptDetails *ScriptDetails
+	CreatedTime            time.Time
+	Tags                   map[string]string
+	SourceS3Location       S3Location
+	Name                   string
+	Arn                    string
+	Description            string
+	DisplayName            string
+	PackagingType          string
+	State                  string
+}
+
+// CreateAppBlockOptions carries CreateAppBlockInput's full member set
+// (api_op_CreateAppBlock.go) beyond the identity fields that stay positional
+// on CreateAppBlock.
+type CreateAppBlockOptions struct {
+	SetupScriptDetails     *ScriptDetails
+	PostSetupScriptDetails *ScriptDetails
+	Tags                   map[string]string
+	SourceS3Location       S3Location
+	DisplayName            string
+	PackagingType          string
 }
 
 // AppBlockBuilder holds AppStream 2.0 app block builder details.
 type AppBlockBuilder struct {
-	CreatedTime  time.Time
-	Tags         map[string]string
-	Name         string
-	Arn          string
-	Description  string
-	Platform     string
-	InstanceType string
-	State        string
+	CreatedTime                 time.Time
+	EnableDefaultInternetAccess *bool
+	Tags                        map[string]string
+	Name                        string
+	Arn                         string
+	Description                 string
+	Platform                    string
+	InstanceType                string
+	State                       string
+	VpcConfig                   VpcConfig
+}
+
+// VpcConfig mirrors appstream@v1.64.5 types.VpcConfig: the VPC subnets and
+// security groups an app block builder (or fleet/image builder) runs in.
+type VpcConfig struct {
+	SecurityGroupIDs []string
+	SubnetIDs        []string
 }
 
 // AppBlockBuilderAppBlockAssociation represents an AppBlockBuilder-AppBlock link.
@@ -245,7 +485,21 @@ type S3Location struct {
 	S3Key    string
 }
 
+// ScriptDetails mirrors appstream@v1.64.5 types.ScriptDetails: the setup or
+// post-setup script for a CUSTOM/APPSTREAM2 packaging-type app block.
+type ScriptDetails struct {
+	ScriptS3Location     S3Location
+	ExecutablePath       string
+	ExecutableParameters string
+	TimeoutInSeconds     int
+}
+
 // Application holds AppStream 2.0 application details.
+//
+// Enabled is always true: real AWS's doc comment on types.Application.Enabled
+// says an application "can be disabled after image creation", but this
+// backend has no image-creation pipeline that ever disables one, so every
+// application it models is genuinely, unconditionally enabled.
 type Application struct {
 	CreatedTime      time.Time
 	Tags             map[string]string
@@ -255,9 +509,12 @@ type Application struct {
 	Description      string
 	LaunchPath       string
 	AppBlockArn      string
+	LaunchParameters string
+	WorkingDirectory string
 	Platforms        []string
 	IconS3Location   S3Location
 	InstanceFamilies []string
+	Enabled          bool
 }
 
 // ApplicationFleetAssociation represents an Application-Fleet link.
@@ -340,15 +597,38 @@ type ImagePermissions struct {
 
 // ImageBuilder holds AppStream 2.0 image builder details.
 type ImageBuilder struct {
-	CreatedTime  time.Time
-	Tags         map[string]string
-	Name         string
-	Arn          string
-	Description  string
-	Platform     string
-	InstanceType string
-	State        string
-	ImageName    string
+	CreatedTime                 time.Time
+	DisableIMDSV1               *bool
+	RootVolumeConfig            *VolumeConfig
+	Tags                        map[string]string
+	EnableDefaultInternetAccess *bool
+	DomainJoinInfo              DomainJoinInfo
+	Name                        string
+	Arn                         string
+	Description                 string
+	Platform                    string
+	InstanceType                string
+	State                       string
+	ImageName                   string
+	IamRoleArn                  string
+	AppstreamAgentVersion       string
+	VpcConfig                   VpcConfig
+	AccessEndpoints             []AccessEndpoint
+}
+
+// CreateImageBuilderOptions carries CreateImageBuilderInput's full member
+// set (api_op_CreateImageBuilder.go) beyond the identity fields that stay
+// positional on CreateImageBuilder.
+type CreateImageBuilderOptions struct {
+	EnableDefaultInternetAccess *bool
+	DisableIMDSV1               *bool
+	RootVolumeConfig            *VolumeConfig
+	Tags                        map[string]string
+	DomainJoinInfo              DomainJoinInfo
+	IamRoleArn                  string
+	AppstreamAgentVersion       string
+	VpcConfig                   VpcConfig
+	AccessEndpoints             []AccessEndpoint
 }
 
 // SoftwareAssociation links a software package to an image builder.
@@ -448,8 +728,16 @@ type UserStackAssociationError struct {
 }
 
 // Session represents an active AppStream streaming session.
+//
+// MaxExpirationTime is derived, not stored: real AWS defines it as
+// StartTime plus the owning fleet's MaxUserDurationInSeconds (SDK doc
+// comment on types.Session.MaxExpirationTime, appstream@v1.64.5
+// types/types.go:1540-1546). It is left zero when the owning fleet can no
+// longer be found (deleted mid-session); callers must check IsZero before
+// emitting it.
 type Session struct {
 	StartTime          time.Time
+	MaxExpirationTime  time.Time
 	ID                 string
 	FleetName          string
 	StackName          string

@@ -62,8 +62,12 @@ func (b *InMemoryBackend) DeleteInternetGateway(id string) error {
 
 // DescribeInternetGateways returns IGWs, optionally filtered by IDs.
 // When ids are provided, lookups are O(len(ids)) via the IGW map rather than
-// scanning every IGW in the backend.
-func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGateway {
+// scanning every IGW in the backend. Matching real AWS, naming an ID that
+// does not exist fails the whole call with InvalidInternetGatewayID.NotFound
+// rather than silently omitting it from the result -- a real client asking
+// for a specific (e.g. just-deleted) IGW got an empty, successful response
+// instead of the NotFound it depends on to detect that.
+func (b *InMemoryBackend) DescribeInternetGateways(ids []string) ([]*InternetGateway, error) {
 	b.mu.RLock("DescribeInternetGateways")
 	defer b.mu.RUnlock()
 
@@ -73,14 +77,14 @@ func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGate
 		for _, id := range ids {
 			igw, ok := b.internetGateways.Get(id)
 			if !ok {
-				continue
+				return nil, fmt.Errorf("%w: %s", ErrInternetGatewayNotFound, id)
 			}
 
 			cp := *igw
 			out = append(out, &cp)
 		}
 
-		return out
+		return out, nil
 	}
 
 	out := make([]*InternetGateway, 0, b.internetGateways.Len())
@@ -90,7 +94,7 @@ func (b *InMemoryBackend) DescribeInternetGateways(ids []string) []*InternetGate
 		out = append(out, &cp)
 	}
 
-	return out
+	return out, nil
 }
 
 // AttachInternetGateway attaches an IGW to a VPC. Matching real AWS, an IGW

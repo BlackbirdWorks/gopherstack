@@ -33,10 +33,6 @@ type getPositionConfigurationResponse struct {
 	Destination string         `json:"Destination,omitempty"`
 }
 
-type getPositionEstimateResponse struct {
-	GeoJSONPayload []byte `json:"GeoJsonPayload"`
-}
-
 type positionConfigurationItemResponse struct {
 	Solvers            map[string]any `json:"Solvers,omitempty"`
 	ResourceIdentifier string         `json:"ResourceIdentifier,omitempty"`
@@ -152,12 +148,34 @@ func (h *Handler) listPositionConfigurations(c *echo.Context) error {
 	})
 }
 
+// getPositionEstimateRequest reads Timestamp, the only GetPositionEstimateInput
+// field this handler needs: iotwireless@v1.59.4 serializers.go:4339-4342 sends
+// it as an unixTimestamp (epoch seconds, JSON number) body field.
+type getPositionEstimateRequest struct {
+	Timestamp *float64 `json:"Timestamp"`
+}
+
 func (h *Handler) getPositionEstimate(c *echo.Context) error {
+	var req getPositionEstimateRequest
+
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	ts := time.Now().UTC()
+	if req.Timestamp != nil {
+		sec := int64(*req.Timestamp)
+		nsec := int64((*req.Timestamp - float64(sec)) * float64(time.Second))
+		ts = time.Unix(sec, nsec).UTC()
+	}
+
 	geoJSON := geoJSONPointPayload([]float64{0, 0}, map[string]any{
-		"timestamp": time.Now().UTC().Format(time.RFC3339),
+		"timestamp": ts.Format(time.RFC3339),
 	})
 
-	return writeJSON(c, http.StatusOK, getPositionEstimateResponse{GeoJSONPayload: geoJSON})
+	// GeoJsonPayload is an httpPayload member on the output too
+	// (deserializers.go:7445-7461 assigns the whole response body to it), so
+	// the body must be the raw GeoJSON bytes, not a JSON-wrapped envelope.
+	return c.Blob(http.StatusOK, "application/octet-stream", geoJSON)
 }
 
 // getResourcePosition echoes back the raw GeoJSON payload most recently

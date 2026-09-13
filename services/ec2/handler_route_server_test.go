@@ -183,6 +183,126 @@ func TestRouteServer_HTTP_AssociationAndPropagation(t *testing.T) { //nolint:par
 	assert.Contains(t, routingDBResp, "<GetRouteServerRoutingDatabaseResponse")
 }
 
+// TestRouteServer_Tags_RoundTrip covers gopherstack-h9se: CreateRouteServer,
+// CreateRouteServerEndpoint and CreateRouteServerPeer must parse
+// TagSpecification like every sibling Create op, and the Describe ops must
+// echo a non-empty tag set back.
+func TestRouteServer_Tags_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T)
+		name string
+	}{
+		{name: "route server", run: testRouteServerCreateTags},
+		{name: "route server endpoint", run: testRouteServerEndpointCreateTags},
+		{name: "route server peer", run: testRouteServerPeerCreateTags},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			tt.run(t)
+		})
+	}
+}
+
+func testRouteServerCreateTags(t *testing.T) {
+	t.Helper()
+
+	h := newTestHandler()
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateRouteServer"},
+		"AmazonSideAsn":                   []string{"65000"},
+		"TagSpecification.1.ResourceType": []string{"route-server"},
+		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
+		"TagSpecification.1.Tag.1.Value":  []string{"demo"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, createResp, "<key>Name</key><value>demo</value>")
+
+	rsID := extractRouteServerID(t, createResp)
+
+	describeResp, err := dispatchHandler(h, url.Values{
+		"Action":          []string{"DescribeRouteServers"},
+		"RouteServerId.1": []string{rsID},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, "<key>Name</key><value>demo</value>")
+}
+
+func testRouteServerEndpointCreateTags(t *testing.T) {
+	t.Helper()
+
+	h := newTestHandler()
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":        []string{"CreateRouteServer"},
+		"AmazonSideAsn": []string{"65000"},
+	})
+	require.NoError(t, err)
+	rsID := extractRouteServerID(t, createResp)
+
+	epResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateRouteServerEndpoint"},
+		"RouteServerId":                   []string{rsID},
+		"SubnetId":                        []string{"subnet-default"},
+		"TagSpecification.1.ResourceType": []string{"route-server-endpoint"},
+		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
+		"TagSpecification.1.Tag.1.Value":  []string{"demo-ep"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, epResp, "<key>Name</key><value>demo-ep</value>")
+
+	epID := extractBetween(t, epResp, "<routeServerEndpointId>", "</routeServerEndpointId>")
+
+	describeResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeRouteServerEndpoints"}})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, epID)
+	assert.Contains(t, describeResp, "<key>Name</key><value>demo-ep</value>")
+}
+
+func testRouteServerPeerCreateTags(t *testing.T) {
+	t.Helper()
+
+	h := newTestHandler()
+
+	createResp, err := dispatchHandler(h, url.Values{
+		"Action":        []string{"CreateRouteServer"},
+		"AmazonSideAsn": []string{"65000"},
+	})
+	require.NoError(t, err)
+	rsID := extractRouteServerID(t, createResp)
+
+	epResp, err := dispatchHandler(h, url.Values{
+		"Action":        []string{"CreateRouteServerEndpoint"},
+		"RouteServerId": []string{rsID},
+		"SubnetId":      []string{"subnet-default"},
+	})
+	require.NoError(t, err)
+	epID := extractBetween(t, epResp, "<routeServerEndpointId>", "</routeServerEndpointId>")
+
+	peerResp, err := dispatchHandler(h, url.Values{
+		"Action":                          []string{"CreateRouteServerPeer"},
+		"RouteServerEndpointId":           []string{epID},
+		"PeerAddress":                     []string{"10.0.0.5"},
+		"BgpOptions.PeerAsn":              []string{"65001"},
+		"TagSpecification.1.ResourceType": []string{"route-server-peer"},
+		"TagSpecification.1.Tag.1.Key":    []string{"Name"},
+		"TagSpecification.1.Tag.1.Value":  []string{"demo-peer"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, peerResp, "<key>Name</key><value>demo-peer</value>")
+
+	peerID := extractBetween(t, peerResp, "<routeServerPeerId>", "</routeServerPeerId>")
+
+	describeResp, err := dispatchHandler(h, url.Values{"Action": []string{"DescribeRouteServerPeers"}})
+	require.NoError(t, err)
+	assert.Contains(t, describeResp, peerID)
+	assert.Contains(t, describeResp, "<key>Name</key><value>demo-peer</value>")
+}
+
 func extractRouteServerID(t *testing.T, xmlResp string) string {
 	t.Helper()
 

@@ -741,28 +741,6 @@ func TestHandler_CreateCacheCluster_Memcached_NumNodes(t *testing.T) {
 // CacheParameterGroup — reset all parameters
 // ----------------------------------------
 
-func TestHandler_ListAllowedNodeTypeModifications_ForCluster(t *testing.T) {
-	t.Parallel()
-
-	client := newTestStack(t)
-
-	_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
-		CacheClusterId: aws.String("mod-type-cluster"),
-		Engine:         aws.String("redis"),
-		CacheNodeType:  aws.String("cache.t3.micro"),
-	})
-	require.NoError(t, err)
-
-	out, err := client.ListAllowedNodeTypeModifications(
-		t.Context(),
-		&elasticachesdk.ListAllowedNodeTypeModificationsInput{
-			CacheClusterId: aws.String("mod-type-cluster"),
-		},
-	)
-	require.NoError(t, err)
-	assert.NotNil(t, out)
-}
-
 // ----------------------------------------
 // DescribeEngineDefaultParameters
 // ----------------------------------------
@@ -832,15 +810,104 @@ func TestListAllowedNodeTypeModifications(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
-		rgID string
+		setup       func(t *testing.T, client *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput
+		name        string
+		wantErrCode string
+		wantScaleUp bool
+		wantScaleDn bool
 	}{
 		{
-			name: "by_rg_id",
-			rgID: "rg-mods",
+			name: "by_cluster_id",
+			setup: func(t *testing.T, client *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("mod-type-cluster"),
+					Engine:         aws.String("redis"),
+					CacheNodeType:  aws.String("cache.t3.micro"),
+				})
+				require.NoError(t, err)
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					CacheClusterId: aws.String("mod-type-cluster"),
+				}
+			},
+			wantScaleUp: true,
 		},
 		{
-			name: "by_cluster_id",
+			name: "by_rg_id",
+			setup: func(t *testing.T, client *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+				_, err := client.CreateReplicationGroup(t.Context(), &elasticachesdk.CreateReplicationGroupInput{
+					ReplicationGroupId:          aws.String("rg-mods"),
+					ReplicationGroupDescription: aws.String("node mods test"),
+					CacheNodeType:               aws.String("cache.r7g.4xlarge"),
+				})
+				require.NoError(t, err)
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					ReplicationGroupId: aws.String("rg-mods"),
+				}
+			},
+			wantScaleDn: true,
+		},
+		{
+			name: "neither_id",
+			setup: func(t *testing.T, _ *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{}
+			},
+			wantErrCode: "InvalidParameterCombination",
+		},
+		{
+			name: "both_ids",
+			setup: func(t *testing.T, _ *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					CacheClusterId:     aws.String("whatever"),
+					ReplicationGroupId: aws.String("whatever"),
+				}
+			},
+			wantErrCode: "InvalidParameterCombination",
+		},
+		{
+			name: "cluster_not_found",
+			setup: func(t *testing.T, _ *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					CacheClusterId: aws.String("no-such-cluster"),
+				}
+			},
+			wantErrCode: "CacheClusterNotFound",
+		},
+		{
+			name: "rg_not_found",
+			setup: func(t *testing.T, _ *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					ReplicationGroupId: aws.String("no-such-rg"),
+				}
+			},
+			wantErrCode: "ReplicationGroupNotFoundFault",
+		},
+		{
+			name: "unrecognized_node_type",
+			setup: func(t *testing.T, client *elasticachesdk.Client) *elasticachesdk.ListAllowedNodeTypeModificationsInput {
+				t.Helper()
+				_, err := client.CreateCacheCluster(t.Context(), &elasticachesdk.CreateCacheClusterInput{
+					CacheClusterId: aws.String("mod-type-unknown"),
+					Engine:         aws.String("redis"),
+					CacheNodeType:  aws.String("cache.unknown.mega"),
+				})
+				require.NoError(t, err)
+
+				return &elasticachesdk.ListAllowedNodeTypeModificationsInput{
+					CacheClusterId: aws.String("mod-type-unknown"),
+				}
+			},
 		},
 	}
 
@@ -849,16 +916,31 @@ func TestListAllowedNodeTypeModifications(t *testing.T) {
 			t.Parallel()
 
 			client := newTestStack(t)
-
-			input := &elasticachesdk.ListAllowedNodeTypeModificationsInput{}
-			if tt.rgID != "" {
-				input.ReplicationGroupId = aws.String(tt.rgID)
-			}
+			input := tt.setup(t, client)
 
 			out, err := client.ListAllowedNodeTypeModifications(t.Context(), input)
 
+			if tt.wantErrCode != "" {
+				require.Error(t, err)
+
+				var apiErr smithy.APIError
+				require.ErrorAs(t, err, &apiErr)
+				assert.Equal(t, tt.wantErrCode, apiErr.ErrorCode())
+
+				return
+			}
+
 			require.NoError(t, err)
-			assert.NotEmpty(t, out.ScaleUpModifications)
+			if tt.wantScaleUp {
+				assert.NotEmpty(t, out.ScaleUpModifications)
+			} else {
+				assert.Empty(t, out.ScaleUpModifications)
+			}
+			if tt.wantScaleDn {
+				assert.NotEmpty(t, out.ScaleDownModifications)
+			} else {
+				assert.Empty(t, out.ScaleDownModifications)
+			}
 		})
 	}
 }

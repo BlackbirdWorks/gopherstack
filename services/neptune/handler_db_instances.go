@@ -216,7 +216,7 @@ func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values
 			Engine:                 neptuneEngine,
 			EngineVersion:          "1.4.0.0",
 			DBEngineDescription:    engineDescriptionAmazonNeptune,
-			DBParameterGroupFamily: "neptune1.4",
+			DBParameterGroupFamily: pgFamilyNeptune14,
 		},
 	}
 

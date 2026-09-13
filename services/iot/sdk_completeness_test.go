@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
-	iotdataplanesdk "github.com/aws/aws-sdk-go-v2/service/iotdataplane"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/sdkcheck"
 	"github.com/blackbirdworks/gopherstack/services/iot"
@@ -14,48 +13,20 @@ import (
 // iot client is either listed in GetSupportedOperations() or explicitly
 // acknowledged in the notImplemented slice.  The test fails when the upstream
 // SDK adds a new operation that gopherstack has not yet handled.
+//
+// Device Shadow operations (GetThingShadow/UpdateThingShadow/DeleteThingShadow/
+// ListNamedShadowsForThing) are not part of the iot control-plane SDK at all --
+// they belong exclusively to the separate iotdataplane client and are covered
+// by services/iotdataplane (gopherstack-1252), so this handler claims none of
+// that surface.
 func TestSDKCompleteness(t *testing.T) {
 	t.Parallel()
 
 	backend := iot.NewInMemoryBackend()
 	h := iot.NewHandler(backend, nil)
 
-	// deviceShadowOps are modeled on the separate IoT Data Plane SDK client
-	// (iotdataplane.Client), not the control-plane client (iotsdk.Client)
-	// checked below, so this test splits them before checking each half
-	// against the SDK client that actually owns it.
-	deviceShadowOps := map[string]bool{
-		"DeleteThingShadow":        true,
-		"GetThingShadow":           true,
-		"ListNamedShadowsForThing": true,
-		"UpdateThingShadow":        true,
-	}
-
-	var controlPlaneOps, shadowOps []string
-	for _, op := range h.GetSupportedOperations() {
-		if deviceShadowOps[op] {
-			shadowOps = append(shadowOps, op)
-		} else {
-			controlPlaneOps = append(controlPlaneOps, op)
-		}
-	}
-
 	// All 152 previously-missing control-plane ops are now covered by stub
 	// handlers registered in GetSupportedOperations(). The notImplemented
 	// list is empty.
-	sdkcheck.CheckCompleteness(t, &iotsdk.Client{}, controlPlaneOps, []string{})
-	// This Handler only implements the device-shadow slice of the IoT Data
-	// Plane surface; the rest (Publish, connections, retained messages,
-	// direct messaging) is covered by the separate services/iotdataplane
-	// package and is not part of this handler's job, so it's listed as
-	// notImplemented here rather than in shadowOps.
-	sdkcheck.CheckCompleteness(t, &iotdataplanesdk.Client{}, shadowOps, []string{
-		"DeleteConnection",
-		"GetConnection",
-		"GetRetainedMessage",
-		"ListRetainedMessages",
-		"ListSubscriptions",
-		"Publish",
-		"SendDirectMessage",
-	})
+	sdkcheck.CheckCompleteness(t, &iotsdk.Client{}, h.GetSupportedOperations(), []string{})
 }

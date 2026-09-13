@@ -13,7 +13,7 @@ import (
 
 // mustDescribeEndpoints returns all endpoints without error (for internal use).
 func (b *InMemoryBackend) mustDescribeEndpoints(ctx context.Context) []*Endpoint {
-	list, _ := b.DescribeEndpoints(ctx, "")
+	list, _ := b.DescribeEndpoints(ctx, DescribeFilters{})
 
 	return list
 }
@@ -32,6 +32,7 @@ type EndpointConnectionSettings struct {
 	ServiceAccessRoleArn      string
 	SslMode                   string
 	ExternalTableDefinition   string
+	ResourceIdentifier        string
 }
 
 // CreateEndpoint creates a new DMS endpoint.
@@ -51,7 +52,11 @@ func (b *InMemoryBackend) CreateEndpoint(
 		return nil, fmt.Errorf("%w: endpoint %s already exists", ErrAlreadyExists, identifier)
 	}
 
-	endpointID := uuid.NewString()
+	endpointID := settings.ResourceIdentifier
+	if endpointID == "" {
+		endpointID = uuid.NewString()
+	}
+
 	endpointARN := arn.Build("dms", region, b.accountID, "endpoint:"+endpointID)
 	t := tags.New("dms.endpoint." + identifier + ".tags")
 	if len(kv) > 0 {
@@ -94,14 +99,31 @@ func (b *InMemoryBackend) CreateEndpoint(
 	return &cp, nil
 }
 
-// DescribeEndpoints returns endpoints, optionally filtered by identifier or ARN.
-func (b *InMemoryBackend) DescribeEndpoints(ctx context.Context, identifierOrArn string) ([]*Endpoint, error) {
+// DescribeEndpoints returns endpoints matching filters (valid filter names
+// per api_op_DescribeEndpoints.go: endpoint-arn | endpoint-type | endpoint-id
+// | engine-name; endpoint-type/engine-name are not modeled here since
+// callers of this list method have never needed them).
+func (b *InMemoryBackend) DescribeEndpoints(ctx context.Context, filters DescribeFilters) ([]*Endpoint, error) {
 	b.mu.RLock("DescribeEndpoints")
 	defer b.mu.RUnlock()
 
-	region := getRegion(ctx, b.region)
+	items := b.endpointsByRegion.Get(getRegion(ctx, b.region))
+	result := make([]*Endpoint, 0, len(items))
 
-	return describeByIdentifierOrARN(b.endpoints, b.endpointsByARN, b.endpointsByRegion, region, identifierOrArn), nil
+	for _, ep := range items {
+		if !filters.Matches("endpoint-id", ep.EndpointIdentifier) {
+			continue
+		}
+
+		if !filters.Matches("endpoint-arn", ep.EndpointArn) {
+			continue
+		}
+
+		cp := *ep
+		result = append(result, &cp)
+	}
+
+	return result, nil
 }
 
 // DeleteEndpoint deletes an endpoint by ARN or identifier.

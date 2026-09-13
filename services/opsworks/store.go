@@ -44,6 +44,10 @@ type InMemoryBackend struct {
 	timeBasedAutoScale *store.Table[storedTimeBasedAutoScaling]
 	loadBasedAutoScale *store.Table[storedLoadBasedAutoScaling]
 
+	// myUserProfileSSHKey backs the synthetic "current user" DescribeMyUserProfile
+	// returns -- there is no real per-caller IAM identity in this backend.
+	myUserProfileSSHKey string
+
 	accountID string
 	region    string
 }
@@ -75,6 +79,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.tags = make(map[string]map[string]string)
+	b.myUserProfileSSHKey = ""
 }
 
 func (b *InMemoryBackend) stackARN(stackID string) string {

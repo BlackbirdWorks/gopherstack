@@ -25,6 +25,7 @@ func TestHandler_CreateCompilationJob(t *testing.T) {
 	rec := doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "my-compile",
 		"RoleArn":            "arn:test",
+		"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
@@ -47,6 +48,7 @@ func TestHandler_CreateCompilationJob_RequiredFieldsEnforced(t *testing.T) {
 	validBody := map[string]any{
 		"CompilationJobName": "cj-required",
 		"RoleArn":            "arn:test",
+		"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	}
@@ -91,6 +93,7 @@ func TestHandler_DescribeCompilationJob(t *testing.T) {
 		map[string]any{
 			"CompilationJobName": "cj-1",
 			"RoleArn":            "arn:test",
+			"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 			"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 			"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 		},
@@ -125,6 +128,7 @@ func TestHandler_StopCompilationJob(t *testing.T) {
 			map[string]any{
 				"CompilationJobName": "cj-stop",
 				"RoleArn":            "arn:test",
+				"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 				"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 			},
@@ -159,6 +163,7 @@ func TestHandler_ListCompilationJobs(t *testing.T) {
 			map[string]any{
 				"CompilationJobName": name,
 				"RoleArn":            "arn:test",
+				"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 				"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 			},
@@ -285,6 +290,7 @@ func TestCompilationJob_InitialStatus_InProgress(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "compile-status",
 		"RoleArn":            "arn:test",
+		"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
@@ -307,6 +313,7 @@ func TestStopCompilationJob_Terminal_Rejected(t *testing.T) {
 	doSageMakerRequest(t, h, "CreateCompilationJob", map[string]any{
 		"CompilationJobName": "compile-terminal",
 		"RoleArn":            "arn:test",
+		"InputConfig":        map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 		"OutputConfig":       map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 		"StoppingCondition":  map[string]any{"MaxRuntimeInSeconds": 3600},
 	})
@@ -350,6 +357,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 					"BenchmarkTarget": map[string]any{
 						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
 					},
+					"InputConfig":  map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				})
 				assert.Equal(t, http.StatusBadRequest, rec.Code)
@@ -370,6 +378,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 					"BenchmarkTarget": map[string]any{
 						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
 					},
+					"InputConfig":  map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -420,6 +429,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 					"BenchmarkTarget": map[string]any{
 						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
 					},
+					"InputConfig":  map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				})
 
@@ -454,6 +464,7 @@ func TestHandler_AIBenchmarkJobLifecycle(t *testing.T) {
 					"BenchmarkTarget": map[string]any{
 						"Endpoint": map[string]any{"Identifier": "my-endpoint"},
 					},
+					"InputConfig":  map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 					"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 				})
 
@@ -501,6 +512,7 @@ func TestHandler_ListAIBenchmarkJobs_DefaultSortOrder_RealClient(t *testing.T) {
 			"BenchmarkTarget": map[string]any{
 				"Endpoint": map[string]any{"Identifier": "my-endpoint"},
 			},
+			"InputConfig":  map[string]any{"S3Uri": "s3://bucket/model.tar.gz", "Framework": "TENSORFLOW"},
 			"OutputConfig": map[string]any{"S3OutputLocation": "s3://bucket/out/"},
 		})
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -564,8 +576,11 @@ func TestHandler_CompilationJob_ReachesCompleted_RealClient(t *testing.T) {
 	_, err := client.CreateCompilationJob(t.Context(), &sagemakersdk.CreateCompilationJobInput{
 		CompilationJobName: aws.String("cj-completes"),
 		RoleArn:            aws.String("arn:aws:iam::000000000000:role/TestRole"),
-		OutputConfig:       &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
-		StoppingCondition:  &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
+		InputConfig: &smtypes.InputConfig{
+			S3Uri: aws.String("s3://bucket/model.tar.gz"), Framework: smtypes.FrameworkTensorflow,
+		},
+		OutputConfig:      &smtypes.OutputConfig{S3OutputLocation: aws.String("s3://bucket/out")},
+		StoppingCondition: &smtypes.StoppingCondition{MaxRuntimeInSeconds: aws.Int32(3600)},
 	})
 	require.NoError(t, err)
 

@@ -19,7 +19,7 @@ func TestExecuteCommand_StreamURLIsHonest(t *testing.T) {
 		t.Fatalf("CreateCluster: %v", err)
 	}
 
-	tasks, err := b.RunTask(RunTaskInput{
+	tasks, _, err := b.RunTask(RunTaskInput{
 		Cluster:              "ec",
 		TaskDefinition:       tdArn,
 		Count:                1,

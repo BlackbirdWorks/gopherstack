@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"net"
 	"strconv"
 	"strings"
 	"sync"
@@ -91,13 +90,11 @@ func selfSignCA(ca *CertificateAuthority, now time.Time) (string, string, error)
 		nil
 }
 
-// signCSR signs a CSR using the CA's private key and returns the PEM certificate and serial.
-// notBefore, when non-zero, overrides the default "now" NotBefore (ValidityNotBefore on
-// IssueCertificateInput); ap, when non-nil, applies APIPassthrough/APICSRPassthrough template
-// overrides (subject + X.509 extensions) exactly as aws-sdk-go-v2's APIPassthrough input does.
-func signCSR(
-	ca *CertificateAuthority, csrPEM string, validityDays int, notBefore time.Time, ap *APIPassthrough,
-) (string, string, error) {
+// signCSR signs a CSR using the CA's private key and returns the PEM certificate and
+// serial. o's ValidityNotBefore/APIPassthrough/TemplateArn fields shape the issued
+// certificate exactly as aws-sdk-go-v2's IssueCertificateInput does -- see
+// applyAPIPassthrough and applyTemplateFixedExtensions.
+func signCSR(ca *CertificateAuthority, csrPEM string, validityDays int, o issueCertOptions) (string, string, error) {
 	if ca.privKey == nil {
 		return "", "", errCAPrivKeyNil
 	}
@@ -132,21 +129,26 @@ func signCSR(
 	}
 
 	now := time.Now().UTC()
+
+	notBefore := o.validityNotBefore
 	if notBefore.IsZero() {
 		notBefore = now
 	}
 
 	tmpl := &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      csr.Subject,
-		NotBefore:    notBefore,
-		NotAfter:     notBefore.Add(time.Duration(validityDays) * 24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     csr.DNSNames,
+		SerialNumber:          serial,
+		Subject:               csr.Subject,
+		NotBefore:             notBefore,
+		NotAfter:              notBefore.Add(time.Duration(validityDays) * 24 * time.Hour),
+		DNSNames:              csr.DNSNames,
+		CRLDistributionPoints: crlDistributionPoints(ca, o.resolvedTemplate.profile),
 	}
 
-	if applyErr := applyAPIPassthrough(tmpl, ap); applyErr != nil {
+	if applyErr := applyAPIPassthrough(tmpl, o.apiPassthrough, o.resolvedTemplate.profile); applyErr != nil {
+		return "", "", applyErr
+	}
+
+	if applyErr := applyTemplateFixedExtensions(tmpl, o.resolvedTemplate.profile); applyErr != nil {
 		return "", "", applyErr
 	}
 
@@ -164,45 +166,48 @@ func signCSR(
 // how Amazon Web Services Private CA applies the APIPassthrough input of IssueCertificate
 // (only honored when the request's TemplateArn selects an APIPassthrough/APICSRPassthrough
 // template variant -- see decodeAPIPassthrough in handler_certificates.go, which enforces
-// that gating before this is ever called with a non-nil ap).
-func applyAPIPassthrough(tmpl *x509.Certificate, ap *APIPassthrough) error {
+// that gating before this is ever called with a non-nil ap). KeyUsage/ExtendedKeyUsage are
+// applied only when profile does not fix them itself: per template-order-of-operations.md,
+// "the template definition has highest priority" over API passthrough for the same
+// extension -- applyTemplateFixedExtensions applies profile's fixed values afterward,
+// which would otherwise just be clobbered right back by this function's ap application.
+func applyAPIPassthrough(tmpl *x509.Certificate, ap *APIPassthrough, profile templateProfile) error {
 	if ap == nil {
 		return nil
 	}
 
 	if ap.Subject != nil {
-		tmpl.Subject = apiPassthroughSubjectToPKIX(ap.Subject)
+		name, err := apiPassthroughSubjectToPKIX(ap.Subject)
+		if err != nil {
+			return err
+		}
+
+		tmpl.Subject = name
 	}
 
 	if ap.Extensions == nil {
 		return nil
 	}
 
-	if ap.Extensions.KeyUsage != nil {
+	if ap.Extensions.KeyUsage != nil && !profile.keyUsageFixed {
 		tmpl.KeyUsage = apiPassthroughKeyUsageBits(ap.Extensions.KeyUsage)
 	}
 
-	if err := applyExtendedKeyUsage(tmpl, ap.Extensions.ExtendedKeyUsage); err != nil {
-		return err
+	if !profile.ekuFixed {
+		if err := applyExtendedKeyUsage(tmpl, ap.Extensions.ExtendedKeyUsage); err != nil {
+			return err
+		}
 	}
 
 	if err := applySubjectAlternativeNames(tmpl, ap.Extensions.SubjectAlternativeNames); err != nil {
 		return err
 	}
 
-	return applyCustomExtensions(tmpl, ap.Extensions.CustomExtensions)
-}
-
-func apiPassthroughSubjectToPKIX(s *APIPassthroughSubject) pkix.Name {
-	return pkix.Name{
-		CommonName:         s.CommonName,
-		SerialNumber:       s.SerialNumber,
-		Country:            nonEmptySlice(s.Country),
-		Organization:       nonEmptySlice(s.Organization),
-		OrganizationalUnit: nonEmptySlice(s.OrganizationalUnit),
-		Province:           nonEmptySlice(s.State),
-		Locality:           nonEmptySlice(s.Locality),
+	if err := applyCertificatePolicies(tmpl, ap.Extensions.CertificatePolicies); err != nil {
+		return err
 	}
+
+	return applyCustomExtensions(tmpl, ap.Extensions.CustomExtensions)
 }
 
 func apiPassthroughKeyUsageBits(ku *APIPassthroughKeyUsage) x509.KeyUsage {
@@ -303,44 +308,6 @@ func applyOneExtendedKeyUsage(tmpl *x509.Certificate, eku APIPassthroughExtended
 	}
 
 	return fmt.Errorf("%w: unsupported ExtendedKeyUsageType %q", ErrInvalidArgs, eku.Type)
-}
-
-func applySubjectAlternativeNames(tmpl *x509.Certificate, sans []APIPassthroughSAN) error {
-	if len(sans) == 0 {
-		return nil
-	}
-
-	tmpl.DNSNames = nil
-
-	var ips []net.IP
-
-	var emails []string
-
-	var dns []string
-
-	for _, san := range sans {
-		switch {
-		case san.DNSName != "":
-			dns = append(dns, san.DNSName)
-		case san.IPAddress != "":
-			ip := net.ParseIP(san.IPAddress)
-			if ip == nil {
-				return fmt.Errorf(
-					"%w: invalid SubjectAlternativeNames IpAddress %q", ErrInvalidArgs, san.IPAddress,
-				)
-			}
-
-			ips = append(ips, ip)
-		case san.EmailAddress != "":
-			emails = append(emails, san.EmailAddress)
-		}
-	}
-
-	tmpl.DNSNames = dns
-	tmpl.IPAddresses = ips
-	tmpl.EmailAddresses = emails
-
-	return nil
 }
 
 func applyCustomExtensions(tmpl *x509.Certificate, exts []APIPassthroughCustomExtension) error {

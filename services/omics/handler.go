@@ -168,6 +168,7 @@ const (
 	pathImportAnnotations = "/import/annotations"
 	pathImportVariant     = "/import/variant"
 	pathImportVariants    = "/import/variants"
+	pathS3AccessPolicy    = "/s3accesspolicy"
 
 	// response key constants.
 	keyNextToken  = "nextToken"
@@ -270,7 +271,7 @@ func isOmicsPath(path string) bool {
 		pathImportVariant,
 		pathImportVariants,
 		pathConfiguration,
-		"/s3accesspolicy/",
+		pathS3AccessPolicy,
 	}
 
 	for _, p := range prefixes {

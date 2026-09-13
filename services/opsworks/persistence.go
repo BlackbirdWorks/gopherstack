@@ -30,11 +30,12 @@ const opsworksSnapshotVersion = 1
 // from an incompatible (older or newer) build of this backend as though it
 // were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables    map[string]json.RawMessage   `json:"tables"`
-	Tags      map[string]map[string]string `json:"tags"`
-	AccountID string                       `json:"accountID"`
-	Region    string                       `json:"region"`
-	Version   int                          `json:"version"`
+	Tables              map[string]json.RawMessage   `json:"tables"`
+	Tags                map[string]map[string]string `json:"tags"`
+	AccountID           string                       `json:"accountID"`
+	Region              string                       `json:"region"`
+	MyUserProfileSSHKey string                       `json:"myUserProfileSshKey,omitempty"`
+	Version             int                          `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -55,11 +56,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:   opsworksSnapshotVersion,
-		Tables:    tables,
-		Tags:      b.tags,
-		AccountID: b.accountID,
-		Region:    b.region,
+		Version:             opsworksSnapshotVersion,
+		Tables:              tables,
+		Tags:                b.tags,
+		AccountID:           b.accountID,
+		Region:              b.region,
+		MyUserProfileSSHKey: b.myUserProfileSSHKey,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "opsworks", &snap)
@@ -106,6 +108,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.tags = snap.Tags
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.myUserProfileSSHKey = snap.MyUserProfileSSHKey
 
 	return nil
 }

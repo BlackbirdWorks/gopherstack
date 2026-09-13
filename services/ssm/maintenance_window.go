@@ -116,6 +116,11 @@ func (b *InMemoryBackend) CreateMaintenanceWindow(
 
 const mwExecIDPrefix = "mwexec-"
 
+// mwExecutionStatusSuccess is MaintenanceWindowExecutionStatus's Success
+// value -- screaming case, unlike CommandStatus's "Success" (ssm@v1.73.4
+// types/enums.go:1223: MaintenanceWindowExecutionStatusSuccess = "SUCCESS").
+const mwExecutionStatusSuccess = "SUCCESS"
+
 // mwExecID builds a deterministic execution ID from a window ID.
 // mwToIdentity projects a stored MaintenanceWindow onto the narrower
 // MaintenanceWindowIdentity listing shape (DescribeMaintenanceWindows,
@@ -188,17 +193,58 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutions(
 
 	endTime := execTime.Add(time.Duration(win.Duration) * time.Hour)
 
-	return &DescribeMaintenanceWindowExecutionsOutputFull{
-		WindowExecutions: []MaintenanceWindowExecution{
-			{
-				WindowID:          win.WindowID,
-				WindowExecutionID: mwExecID(win.WindowID),
-				Status:            commandStatusSuccess,
-				StartTime:         UnixTimeFloat(execTime),
-				EndTime:           UnixTimeFloat(endTime),
-			},
+	executions := filterWindowExecutions([]MaintenanceWindowExecution{
+		{
+			WindowID:          win.WindowID,
+			WindowExecutionID: mwExecID(win.WindowID),
+			Status:            mwExecutionStatusSuccess,
+			StartTime:         UnixTimeFloat(execTime),
+			EndTime:           UnixTimeFloat(endTime),
 		},
-	}, nil
+	}, input.Filters)
+
+	return &DescribeMaintenanceWindowExecutionsOutputFull{WindowExecutions: executions}, nil
+}
+
+// filterWindowExecutions applies DescribeMaintenanceWindowExecutions' documented filter
+// keys (api_op_DescribeMaintenanceWindowExecutions.go:39-40: "Supported keys include
+// ExecutedBefore and ExecutedAfter"), compared against StartTime the same way
+// sessionMatchesFilter compares InvokedBefore/InvokedAfter against a session's
+// StartDate. Unrecognized keys match everything (see matchesTargetFilters).
+func filterWindowExecutions(
+	execs []MaintenanceWindowExecution,
+	filters []MaintenanceWindowFilter,
+) []MaintenanceWindowExecution {
+	out := make([]MaintenanceWindowExecution, 0, len(execs))
+
+	for _, e := range execs {
+		if matchesExecutionFilters(e, filters) {
+			out = append(out, e)
+		}
+	}
+
+	return out
+}
+
+func matchesExecutionFilters(e MaintenanceWindowExecution, filters []MaintenanceWindowFilter) bool {
+	for _, f := range filters {
+		var cmp func(iso8601 string) bool
+
+		switch f.Key {
+		case "ExecutedAfter":
+			cmp = func(iso8601 string) bool { return sessionTimestampCompare(e.StartTime, iso8601) >= 0 }
+		case "ExecutedBefore":
+			cmp = func(iso8601 string) bool { return sessionTimestampCompare(e.StartTime, iso8601) <= 0 }
+		default:
+			continue
+		}
+
+		if !slices.ContainsFunc(f.Values, cmp) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DescribeMaintenanceWindowExecutionTasks returns task executions for a window execution.
@@ -234,10 +280,12 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 			WindowExecutionID: input.WindowExecutionID,
 			TaskExecutionID:   "taskexec-" + task.WindowTaskID,
 			TaskARN:           task.TaskArn,
-			Status:            commandStatusSuccess,
+			Status:            mwExecutionStatusSuccess,
 			StartTime:         UnixTimeFloat(time.Now()),
 		})
 	}
+
+	result = filterExecutionTasks(result, input.Filters)
 
 	sort.Slice(result, func(i, k int) bool {
 		return result[i].TaskExecutionID < result[k].TaskExecutionID
@@ -253,6 +301,38 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTasks(
 		WindowExecutionTaskIdentities: page,
 		NextToken:                     next,
 	}, nil
+}
+
+// filterExecutionTasks applies DescribeMaintenanceWindowExecutionTasks' documented
+// filter key (api_op_DescribeMaintenanceWindowExecutionTasks.go: "the supported filter
+// key is STATUS"). Unrecognized keys match everything (see matchesTargetFilters).
+func filterExecutionTasks(
+	tasks []MaintenanceWindowExecutionTask,
+	filters []MaintenanceWindowFilter,
+) []MaintenanceWindowExecutionTask {
+	out := make([]MaintenanceWindowExecutionTask, 0, len(tasks))
+
+	for _, t := range tasks {
+		matched := true
+
+		for _, f := range filters {
+			if f.Key != "STATUS" {
+				continue
+			}
+
+			if !slices.Contains(f.Values, t.Status) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			out = append(out, t)
+		}
+	}
+
+	return out
 }
 
 // DescribeMaintenanceWindowExecutionTaskInvocations returns invocations for a task execution.
@@ -275,17 +355,52 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowExecutionTaskInvocations(
 		}, nil
 	}
 
-	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull{
-		WindowExecutionTaskInvocationIdentities: []MaintenanceWindowExecutionTaskInvocation{
-			{
-				WindowExecutionID: input.WindowExecutionID,
-				TaskExecutionID:   input.TaskID,
-				InvocationID:      "inv-" + input.WindowExecutionID,
-				Status:            commandStatusSuccess,
-				StartTime:         UnixTimeFloat(time.Now()),
-			},
+	invocations := filterExecutionTaskInvocations([]MaintenanceWindowExecutionTaskInvocation{
+		{
+			WindowExecutionID: input.WindowExecutionID,
+			TaskExecutionID:   input.TaskID,
+			InvocationID:      "inv-" + input.WindowExecutionID,
+			Status:            mwExecutionStatusSuccess,
+			StartTime:         UnixTimeFloat(time.Now()),
 		},
+	}, input.Filters)
+
+	return &DescribeMaintenanceWindowExecutionTaskInvocationsOutputFull{
+		WindowExecutionTaskInvocationIdentities: invocations,
 	}, nil
+}
+
+// filterExecutionTaskInvocations applies DescribeMaintenanceWindowExecutionTaskInvocations'
+// documented filter key (api_op_DescribeMaintenanceWindowExecutionTaskInvocations.go:42-43:
+// "the supported filter key is STATUS"). Unrecognized keys match everything, mirroring
+// filterExecutionTasks for the sibling op.
+func filterExecutionTaskInvocations(
+	invocations []MaintenanceWindowExecutionTaskInvocation,
+	filters []MaintenanceWindowFilter,
+) []MaintenanceWindowExecutionTaskInvocation {
+	out := make([]MaintenanceWindowExecutionTaskInvocation, 0, len(invocations))
+
+	for _, inv := range invocations {
+		matched := true
+
+		for _, f := range filters {
+			if f.Key != "STATUS" {
+				continue
+			}
+
+			if !slices.Contains(f.Values, inv.Status) {
+				matched = false
+
+				break
+			}
+		}
+
+		if matched {
+			out = append(out, inv)
+		}
+	}
+
+	return out
 }
 
 // DescribeMaintenanceWindowSchedule returns the upcoming schedule for a window.
@@ -363,7 +478,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecution(
 	return &GetMaintenanceWindowExecutionOutputFull{
 		WindowID:          windowID,
 		WindowExecutionID: execID,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "WindowExecution Succeeded",
 		StartTime:         UnixTimeFloat(startTime),
 		EndTime:           UnixTimeFloat(endTime),
@@ -404,7 +519,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 				TaskExecutionID:   taskExecID,
 				TaskARN:           task.TaskArn,
 				TaskType:          task.TaskType,
-				Status:            commandStatusSuccess,
+				Status:            mwExecutionStatusSuccess,
 				StatusDetails:     "Task Succeeded",
 				Priority:          task.Priority,
 				MaxConcurrency:    task.MaxConcurrency,
@@ -421,7 +536,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTask(
 	return &GetMaintenanceWindowExecutionTaskOutputFull{
 		WindowExecutionID: input.WindowExecutionID,
 		TaskExecutionID:   taskExecID,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "Task Succeeded",
 		StartTime:         UnixTimeFloat(startTime),
 		EndTime:           UnixTimeFloat(endTime),
@@ -467,7 +582,7 @@ func (b *InMemoryBackend) GetMaintenanceWindowExecutionTaskInvocation(
 		ExecutionID:       input.InvocationID,
 		TaskType:          "RUN_COMMAND",
 		OwnerInformation:  ownerInfo,
-		Status:            commandStatusSuccess,
+		Status:            mwExecutionStatusSuccess,
 		StatusDetails:     "InvocationSucceeded",
 		WindowTargetID:    windowTargetID,
 		StartTime:         UnixTimeFloat(startTime),
@@ -536,10 +651,38 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTargets(
 		b.maintenanceWindowTargetsStore(region).All(), input.WindowID,
 		func(t MaintenanceWindowTarget) string { return t.WindowID },
 		func(t MaintenanceWindowTarget) string { return t.WindowTargetID },
+		func(t MaintenanceWindowTarget) bool { return matchesTargetFilters(t, input.Filters) },
 		input.NextToken, maxResultsOrZero(input.MaxResults),
 	)
 
 	return &DescribeMaintenanceWindowTargetsOutput{Targets: page, NextToken: next}, nil
+}
+
+// matchesTargetFilters applies DescribeMaintenanceWindowTargets' documented filter
+// keys (api_op_DescribeMaintenanceWindowTargets.go: "Type, WindowTargetId, and
+// OwnerInformation"). Unrecognized keys match everything, mirroring
+// paramMatchesFilter's "unknown keys are silently ignored" convention.
+func matchesTargetFilters(t MaintenanceWindowTarget, filters []MaintenanceWindowFilter) bool {
+	for _, f := range filters {
+		var value string
+
+		switch f.Key {
+		case "Type":
+			value = t.ResourceType
+		case "WindowTargetId":
+			value = t.WindowTargetID
+		case "OwnerInformation":
+			value = t.OwnerInfo
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, value) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DescribeMaintenanceWindowTasks lists tasks registered with a maintenance window.
@@ -559,29 +702,59 @@ func (b *InMemoryBackend) DescribeMaintenanceWindowTasks(
 		b.maintenanceWindowTasksStore(region).All(), input.WindowID,
 		func(t MaintenanceWindowTask) string { return t.WindowID },
 		func(t MaintenanceWindowTask) string { return t.WindowTaskID },
+		func(t MaintenanceWindowTask) bool { return matchesTaskFilters(t, input.Filters) },
 		input.NextToken, maxResultsOrZero(input.MaxResults),
 	)
 
 	return &DescribeMaintenanceWindowTasksOutput{Tasks: page, NextToken: next}, nil
 }
 
-// windowScopedPage filters items to those belonging to windowID, sorts them
-// by sortKeyOf for a pagination order stable across calls (store.Table.All
-// iterates in unspecified map order), then applies NextToken/MaxResults.
-// Shared by DescribeMaintenanceWindowTargets/Tasks so a future window-scoped
-// Describe op reuses this instead of hand-rolling the same filter+sort+page
-// sequence a third time.
+// matchesTaskFilters applies DescribeMaintenanceWindowTasks' documented filter keys
+// (api_op_DescribeMaintenanceWindowTasks.go: "WindowTaskId, TaskArn, Priority, and
+// TaskType"). Unrecognized keys match everything (see matchesTargetFilters).
+func matchesTaskFilters(t MaintenanceWindowTask, filters []MaintenanceWindowFilter) bool {
+	for _, f := range filters {
+		var value string
+
+		switch f.Key {
+		case "WindowTaskId":
+			value = t.WindowTaskID
+		case "TaskArn":
+			value = t.TaskArn
+		case "Priority":
+			value = strconv.Itoa(int(t.Priority))
+		case "TaskType":
+			value = t.TaskType
+		default:
+			continue
+		}
+
+		if !slices.Contains(f.Values, value) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// windowScopedPage filters items to those belonging to windowID and passing
+// filterFn, sorts them by sortKeyOf for a pagination order stable across
+// calls (store.Table.All iterates in unspecified map order), then applies
+// NextToken/MaxResults. Shared by DescribeMaintenanceWindowTargets/Tasks so a
+// future window-scoped Describe op reuses this instead of hand-rolling the
+// same filter+sort+page sequence a third time.
 func windowScopedPage[T any](
 	items []*T,
 	windowID string,
 	windowIDOf, sortKeyOf func(T) string,
+	filterFn func(T) bool,
 	nextToken string,
 	maxResults int,
 ) ([]T, string) {
 	var result []T
 
 	for _, item := range items {
-		if windowIDOf(*item) == windowID {
+		if windowIDOf(*item) == windowID && filterFn(*item) {
 			result = append(result, *item)
 		}
 	}
@@ -727,6 +900,7 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 		ServiceRoleArn: input.ServiceRoleArn,
 		MaxConcurrency: input.MaxConcurrency,
 		MaxErrors:      input.MaxErrors,
+		CutoffBehavior: input.CutoffBehavior,
 		Targets:        input.Targets,
 	}
 
@@ -1061,6 +1235,10 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		task.MaxErrors = input.MaxErrors
 	}
 
+	if input.CutoffBehavior != "" {
+		task.CutoffBehavior = input.CutoffBehavior
+	}
+
 	if len(input.Targets) > 0 {
 		task.Targets = input.Targets
 	}
@@ -1077,6 +1255,7 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 		ServiceRoleArn: task.ServiceRoleArn,
 		MaxConcurrency: task.MaxConcurrency,
 		MaxErrors:      task.MaxErrors,
+		CutoffBehavior: task.CutoffBehavior,
 		Targets:        task.Targets,
 	}, nil
 }

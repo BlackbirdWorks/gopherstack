@@ -180,7 +180,8 @@ ops:
   ListAcmeDomainValidations: {wire: ok, errors: ok, state: ok, persist: ok, note: "paginated per-endpoint via the same listOwnedByEndpoint helper as ListAcmeExternalAccountBindings."}
   UpdateAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok, note: "only PrevalidationOptions is updatable on the real wire; regenerates the DNS ResourceRecord when supplied. Status remains VALIDATING (never fabricated as re-verified)."}
   DeleteAcmeDomainValidation: {wire: ok, errors: ok, state: ok, persist: ok}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "ValidationMethod=HTTP: gopherstack now starts the certificate PENDING_VALIDATION and returns a synthetic DomainValidation.HttpRedirect for a direct RequestCertificate call with ValidationMethod=HTTP (fixed 2026-08-10, see RequestCertificate/DescribeCertificate ops notes), the correct wire shape per types.DomainValidation.HttpRedirect's own doc comment. What remains genuinely unconfirmed: DomainValidation.HttpRedirect's doc text describes HTTP validation as being for 'certificates requested through Amazon CloudFront' specifically, and RequestCertificate's own doc prose only mentions DNS/email ('You can validate with DNS or validate with email') even though ValidationMethod's Valid Values list (API_RequestCertificate.html) syntactically includes HTTP -- neither page documents whether a direct (non-CloudFront) customer RequestCertificate call with ValidationMethod=HTTP is accepted, immediately rejected, or something else. gopherstack now accepts it (the more-permissive direction); building a rejection path would require fabricating an unconfirmed error contract, the same risk the 2025 export-gating gap was stuck on before its contract was confirmed from the operation's own Errors section -- HTTP has no equivalent confirmation available. RedirectFrom/RedirectTo are freeform strings with no documented format (API_HttpRedirect.html: both 'Required: No', no schema given), so the synthetic values gopherstack generates are placeholders in the correct shape, not a claimed-real URL convention."
   - TagPolicyException (present in RequestCertificate/AddTagsToCertificate's real error sets, types/errors.go) is not wired to any code path -- no tag-policy engine (AWS Organizations tag policies) exists in gopherstack to trigger it from; this is correct-by-absence, not a stub, since gopherstack has no cross-account policy state to evaluate. InvalidArgsException (ListCertificates' own error, distinct from every other op's ValidationException) IS now wired -- fixed 2026-08-10, see ListCertificates ops note.
   - "RequestCertificate's own recognized error set (deserializers.go:3346-3400+, v1.43.4) does NOT include ValidationException, only InvalidParameterException. FIXED THIS PASS (gopherstack-bzyl) for the RequestCertificate-exclusive validators: validateRequestCertInput (DomainName-required, SAN wrap), checkIdempotency (token-reuse mismatch), validateManagedBy, and jsonRequestCertificate's malformed-body case now return the new ErrRequestCertInvalidParameter (InvalidParameterException) instead of ErrInvalidParameter (ValidationException). validateDomainName (shared with CreateAcmeDomainValidation, whose real error set correctly includes ValidationException) was parameterized with a caller-supplied invalidErr rather than globally renamed -- RequestCertificate's two call sites pass ErrRequestCertInvalidParameter, CreateAcmeDomainValidation's passes ErrInvalidParameter unchanged. STILL OPEN: the RSA_1024 weak-key rejection (crypto.go, shared with RenewCertificate) still returns ErrInvalidParameter for RequestCertificate too -- out of scope for this pass (not one of the errtargetaudit findings addressed), needs the same per-caller treatment."
@@ -767,10 +768,12 @@ leaks: {status: clean, note: "isolation_test.go / leak_test.go already cover tim
   - `AcmeDomainValidation.FailureDetails` (deserializers.go:5613-5617) --
     consistent with the pre-existing gap that `AcmeDomainValidation.Status` never
     leaves `VALIDATING`, so there is never a failure to report.
-  - `AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`/`CertificateKeyPairOrigin`
+  - `AcmCertificateMetadata.AcmeAccountId`/`AcmeEndpointArn`
     (deserializers.go:5157-5175, SearchCertificates' nested metadata) -- same root
     cause as the CertificateDetail gap above, already covered by an existing gaps
-    bullet for the metadata-filter side of this.
+    bullet for the metadata-filter side of this. `CertificateKeyPairOrigin` on
+    this same struct is now real (gopherstack-7j07): emitted via `certKeyPairOrigin`,
+    same derivation as the metadata-filter and `ListCertificates` sides.
   - `CertificateSummary.CertificateKeyPairOrigin` (deserializers.go:6975-6983) --
     never emitted; no code path tracks key-pair origin as summary-visible data
     separate from `CertificateKeyPairOrigin` more broadly.
@@ -1024,3 +1027,39 @@ Gates on `./services/acm/...`: `go build`, `go vet`, `gofmt -l` (empty),
 `cmd/errtargetaudit` afterward drops acm from 20 findings to 7 (the 6
 confirmed-unreachable ResourceNotFoundException sites plus the one landmined
 already-revoked InvalidStateException site).
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 12
+subtests (all also parallel) driving every one of this service's 26
+typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
+aws-sdk-go-v2 client — certificate tags, Get/ExportCertificate (seeded via
+ImportCertificate for an instantly-ISSUED cert), Renew/Resend/Revoke/
+UpdateOptions on RequestCertificate'd certs, the generic UntagResource,
+account configuration, and the full ACME endpoint/domain-validation/
+external-account-binding families. All 26 ops passed against the existing
+handler/backend after one test-authoring correction (not a bug):
+`UpdateAcmeEndpoint`'s `Contact` field is the `AcmeContact` enum
+(REQUIRED/NOT_REQUIRED — whether ACME clients must supply contact info
+during account registration), not a free-form contact string; the test
+initially sent an email-shaped string and correctly got rejected. Typed
+coverage: 13/39 -> 39/39 (26 -> 0 uncovered).
+
+`DescribeAcmeAccount`/`ListAcmeAccounts`/`RevokeAcmeAccount` are covered via
+the already-documented structural gap in `acme_accounts.go` (no real ACME
+protocol front-end populates the AcmeAccount table): the subtest creates a
+real endpoint and asserts the real, non-fabricated behavior through the
+typed client — endpoint-FK validation (a bogus endpoint ARN 404s) and honest
+empty-list/not-found results for a real account URL. This is genuine
+coverage of the real code paths, not a fabricated round trip.
+
+Added one `.golangci.yml` per-file `staticcheck` exemption
+(`acm/typed_slice33_realclient_test.go`) for AWS's own SA1019 deprecation
+notice on `CertificateOptions.CertificateTransparencyLoggingPreference` —
+`UpdateCertificateOptions`' only real member — same precedent as the
+existing iotanalytics/opsworks/securityhub/codedeploy exemptions.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/acm + pkgs/persistence), `golangci-lint run --new-from-rev=HEAD`
+(0 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL. No
+persisted-struct fields changed; no version bump.

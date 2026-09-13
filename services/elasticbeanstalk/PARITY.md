@@ -10,8 +10,20 @@ last_audit_commit:                                # unknown: pass ran without gi
   # method (deserializer/serializer key-switch extraction, gopherstack-6flj wrapper-key sweep)
   # is narrower/deeper than the prior Go-struct-level audit below, per the mediatailor/codedeploy
   # sessions' precedent for the same situation
-last_audit_date: 2026-07-23
+last_audit_date: 2026-09-11   # this pass (gopherstack-hoky follow-up); header date bumped,
+  # last_audit_commit left as before (already flagged unknown/unbackfilled above)
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
+                       #
+                       # gopherstack-hoky pass (2026-09-11): CreateConfigurationTemplate's
+                       # EnvironmentId/SourceConfiguration were read off the wire nowhere and
+                       # silently dropped -- a real request-drop, not the two other still-open
+                       # items in this issue. Fixed: both now seed OptionSettings/SolutionStackName/
+                       # PlatformArn from the named environment or source template (see ops table
+                       # entry for full citation and test names). CreateApplication's duplicate-name
+                       # behavior and DescribeConfigurationOptions' per-solution-stack catalog were
+                       # re-checked against the live API doc / pinned SDK and remain genuinely
+                       # unconfirmable / structurally out of scope respectively -- left disclosed,
+                       # not guessed at (see gaps).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -29,7 +41,7 @@ ops:
   UpdateEnvironment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "already bumped DateUpdated correctly. Plus environmentDescType's fixes, see CreateEnvironment."}
   TerminateEnvironment: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Plus environmentDescType's fixes, see CreateEnvironment."}
   ComposeEnvironments: {wire: fixed, errors: ok, state: ok, persist: ok, note: "Plus environmentDescType's fixes, see CreateEnvironment."}
-  CreateConfigurationTemplate: {wire: partial, errors: fixed, state: fixed, persist: ok, note: "OptionSettings and PlatformArn request parameters were parsed nowhere and silently dropped (a config template's OptionSettings could never be set at creation, nor read back via DescribeConfigurationSettings) -- now stored via ConfigurationTemplateParams. Response shape was a bespoke 4-field mini-type; real CreateConfigurationTemplateOutput is the FULL ConfigurationSettingsDescription shape (same as DescribeConfigurationSettings/UpdateConfigurationTemplateOutput) -- now unified via configurationSettingsDescType/toConfigurationSettingsDesc, adding OptionSettings/DateCreated/DateUpdated/PlatformArn to the response. Added the AWS-documented SolutionStackName/PlatformArn mutual-exclusivity validation (InvalidParameterValue). STILL PARTIAL: EnvironmentId/SourceConfiguration (alternate ways to seed a template) are accepted as form fields but silently ignored -- see gaps below, not reclassified to ok"}
+  CreateConfigurationTemplate: {wire: fixed, errors: fixed, state: fixed, persist: ok, note: "OptionSettings and PlatformArn request parameters were parsed nowhere and silently dropped (a config template's OptionSettings could never be set at creation, nor read back via DescribeConfigurationSettings) -- now stored via ConfigurationTemplateParams. Response shape was a bespoke 4-field mini-type; real CreateConfigurationTemplateOutput is the FULL ConfigurationSettingsDescription shape (same as DescribeConfigurationSettings/UpdateConfigurationTemplateOutput) -- now unified via configurationSettingsDescType/toConfigurationSettingsDesc, adding OptionSettings/DateCreated/DateUpdated/PlatformArn to the response. Added the AWS-documented SolutionStackName/PlatformArn mutual-exclusivity validation (InvalidParameterValue). Fixed 2026-09-11 (gopherstack-hoky): EnvironmentId and SourceConfiguration (alternate ways to seed a template, per CreateConfigurationTemplateInput's doc comments) were read off the wire nowhere and silently ignored -- request-drop class, parity-principles.md #4. EnvironmentId now looks up the named environment (b.environmentByID, a region-scoped linear scan -- no dedicated index existed, same precedent as configTemplateByARN) and seeds OptionSettings/SolutionStackName/PlatformArn from its live values; SourceConfiguration.{ApplicationName,TemplateName} seeds from another configuration template's stored values (ApplicationName defaults to the request's own ApplicationName when omitted -- not AWS-documented, a pragmatic default for the common same-app case). Either source's OptionSettings/SolutionStackName/PlatformArn are overridden by explicit request values, matching the documented precedence ('these values override the values obtained from the solution stack or the source configuration template'); a requested SolutionStackName that mismatches the source template's own is rejected (InvalidParameterValue), per the documented constraint. See TestInMemoryBackend_CreateConfigurationTemplate_SeedsFromEnvironment/SeedsFromSourceConfiguration/EnvironmentIDNotFound and the wire-level TestHandler_CreateConfigurationTemplate_EnvironmentIdSeedsSettings/SourceConfigurationSeedsSettings."}
   UpdateConfigurationTemplate: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was not bumping DateUpdated (fixed prior pass); OptionSettings/OptionsToRemove request parameters were parsed nowhere and silently dropped -- now applied via UpdateConfigurationTemplateWithParams/updateOptionSettings (same merge helper UpdateEnvironment already used). Response shape unified to the full ConfigurationSettingsDescription shape, same as CreateConfigurationTemplate above"}
   DeleteConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeConfigurationSettings: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ConfigurationSettingsDescription now includes DateCreated/DateUpdated/DeploymentStatus/PlatformArn (previously omitted entirely). DeploymentStatus is 'deployed' for a live environment's settings (this backend applies environment updates synchronously, so there is never a pending/failed draft) and omitted (AWS: null) for a template, which is never associated with a running environment"}
@@ -71,10 +83,10 @@ families:
   CreateApplication Default template + Versions: {status: fixed, note: "real AWS's CreateApplication doc: 'Creates an application that has one configuration template named default' (confirmed via the official API doc example response, which renders it capitalized as 'Default' in <ConfigurationTemplates><member>Default</member></ConfigurationTemplates>, plus an empty <Versions/> element). CreateApplication and the AutoCreateApplication path in CreateApplicationVersion now both call createDefaultConfigurationTemplate; ApplicationDescription.Versions is now populated from DescribeApplicationVersions on Create/Describe/UpdateApplication. Cascade-delete already swept ConfigurationTemplates on DeleteApplication, so the Default template is not a new ghost-row risk (verified: TestHandler_DeleteApplication_CascadesDefaultTemplate)."}
   ConfigurationTemplate OptionSettings/PlatformArn round-trip: {status: fixed, note: "CreateConfigurationTemplate's OptionSettings and PlatformArn parameters, and UpdateConfigurationTemplate's OptionSettings/OptionsToRemove parameters, were parsed nowhere in the handler and silently dropped -- real request fields with no effect, a disguised-stub bug class (parity-principles.md #4). ConfigurationTemplate gained OptionSettings/PlatformArn fields; Create/UpdateConfigurationTemplateWithParams store them; DescribeConfigurationSettings's TemplateName branch (previously hardcoded to an empty OptionSettings list) now reads them back."}
   Create/UpdateConfigurationTemplate response shape: {status: fixed, note: "real CreateConfigurationTemplateOutput and UpdateConfigurationTemplateOutput are NOT a bespoke small type -- they are the exact same ConfigurationSettingsDescription shape DescribeConfigurationSettings returns (ApplicationName/TemplateName/Description/DateCreated/DateUpdated/DeploymentStatus/OptionSettings/PlatformArn/SolutionStackName; confirmed by reading api_op_CreateConfigurationTemplate.go/api_op_UpdateConfigurationTemplate.go in the SDK module). The previous 4-field configurationTemplateDescType silently dropped DateCreated/DateUpdated/OptionSettings/PlatformArn from both responses. Unified onto configurationSettingsDescType via toConfigurationSettingsDesc, shared with DescribeConfigurationSettings' template branch."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "DescribeConfigurationOptions applies one fixed, curated ~48-option catalog across 16 namespaces regardless of the resolved SolutionStackName/PlatformArn; real AWS returns hundreds of platform-specific options with per-platform default values that vary by solution stack. This pass replaced the previous request-blind 3-option stub with a real, filterable, multi-field catalog (see ops table), which is a substantial improvement, but a genuine per-platform option catalog remains out of scope (large effort: would need a per-solution-stack option table). Not reclassified to ok."
-  - "CreateConfigurationTemplate's EnvironmentId and SourceConfiguration parameters (real AWS: alternate ways to seed a template's OptionSettings/SolutionStackName from an existing environment or another template, documented as alternatives to explicitly specifying SolutionStackName/PlatformArn) are accepted as form fields but not read -- only explicit OptionSettings/SolutionStackName/PlatformArn are honored. Lower-traffic than the OptionSettings/PlatformArn fix made this pass; deferred."
-  - "CreateApplication behavior on a duplicate ApplicationName (idempotent-return-existing vs InvalidParameterValue error) still could not be confirmed with high confidence. Re-checked this pass via the official CreateApplication API doc and AWS CLI reference: the only documented error is TooManyApplications; the ApplicationName parameter's own documentation does not state duplicate-name behavior explicitly (unlike CreateApplicationVersion's VersionLabel, which does document 'If an application version already exists ... returns an InvalidParameterValue error'). Left unchanged (still errors via ErrAlreadyExists) to avoid an unverified behavior change; worth confirming against real AWS before altering."
+  - "CreateApplication behavior on a duplicate ApplicationName (idempotent-return-existing vs InvalidParameterValue error) still could not be confirmed with high confidence. Re-checked this pass via the official CreateApplication API doc and AWS CLI reference: the only documented error is TooManyApplications; the ApplicationName parameter's own documentation does not state duplicate-name behavior explicitly (unlike CreateApplicationVersion's VersionLabel, which does document 'If an application version already exists ... returns an InvalidParameterValue error'). Left unchanged (still errors via ErrAlreadyExists) to avoid an unverified behavior change; worth confirming against real AWS before altering. Re-verified 2026-09-11 (gopherstack-hoky): fetched the live CreateApplication API reference and the pinned SDK's error deserializer (aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4 deserializers.go) again -- same conclusion, only TooManyApplicationsException is modeled/documented, nothing for a duplicate name either way. Current behavior (errors, doesn't silently overwrite) confirmed to already be the safer of the two undocumented options; left unchanged."
   - "(gopherstack-6flj) ApplicationVersionDescription.BuildArn (CodeBuild-deployed version's build ARN) is not modeled -- this backend has no CodeBuild integration anywhere; SourceBuildInformation is stored-but-unvalidated the same way, so there is no real ARN to source."
   - "(gopherstack-6flj) EnvironmentDescription.Resources (nested LoadBalancerDescription: Domain/Listeners/LoadBalancerName) and EnvironmentLinks are not modeled on environmentDescType -- DescribeEnvironmentResources already fabricates a name-only LoadBalancer entry for a *different*, wider response shape (EnvironmentResourceDescription), but extending that same name-only convention to every environmentDescType-returning op (Create/Describe/Update/Terminate/ComposeEnvironments) was judged too speculative to add without a real Domain/Listener data source; left disclosed rather than fabricated. No environment-group linking is modeled at all, so EnvironmentLinks is always genuinely empty."
   - "(gopherstack-6flj) ManagedActionHistoryItem.FailureDescription/FailureType are not modeled -- every managed action this backend applies synchronously succeeds (Status is always 'Succeeded'), so there is no failure state to describe."
@@ -83,9 +95,11 @@ gaps:                     # known divergences NOT fixed — link bd issue ids
   - "(gopherstack-6flj) EventDescription.RequestId is not modeled -- this handler has no per-call unique request-ID generation anywhere at all (every op's ResponseMetadata.RequestID is a fixed literal like \"eb-create-app\"), not something specific to events to invent now."
   - "(gopherstack-6flj) DescribeEnvironmentHealth's AttributeNames request filter (restricts which of ApplicationMetrics/Causes/Color/HealthStatus/InstancesHealth/RefreshedAt/Status are populated) is not honored -- this backend always returns its small fixed field set regardless. ApplicationMetrics/Causes/InstancesHealth (real DescribeEnvironmentHealthOutput members) are not modeled at all -- no request-metrics or per-instance health data exists in this backend (same root cause as DescribeInstancesHealth's always-empty list)."
   - "(gopherstack-6flj) DescribeEnvironments' IncludeDeleted/IncludedDeletedBackTo filter is not modeled -- TerminateEnvironment removes the environment record outright (environmentDeleteKey), so there is no deleted-environment history to include."
+  - "(2026-09-12, gopherstack-n3zi slice 31) ListAvailableSolutionStacksOutput.SolutionStackDetails ([]types.SolutionStackDescription, each carrying PermittedFileTypes -- confirmed real via elasticbeanstalk@v1.37.4 api_op_ListAvailableSolutionStacks.go:37) is not modeled at all; listAvailableSolutionStacksResponse only emits the parallel SolutionStacks string list. PermittedFileTypes has no honest source in this backend (no per-solution-stack file-type table exists) -- disclosed rather than fabricated."
+  - "(2026-09-12, gopherstack-n3zi slice 31) CreateApplicationInput.ResourceLifecycleConfig (confirmed real via api_op_CreateApplication.go:42) is accepted nowhere in handleCreateApplication -- only UpdateApplicationResourceLifecycle's own ServiceRole is read. ApplicationResourceLifecycleConfig.VersionLifecycleConfig (MaxAgeRule/MaxCountRule, each with Enabled/DeleteSourceFromS3/MaxAgeInDays-or-MaxCount) is unread by BOTH ops -- a real client setting either rule via Create or Update always gets it silently dropped, and a real client reading it back via DescribeApplications always sees nil regardless of what it set. Not fixed this pass (scope: adding two new sub-shapes plus their storage); this pass's own round-trip test only exercises the already-correct ServiceRole field, deliberately not asserting on VersionLifecycleConfig so as not to mask the gap as tested."
+  - "(2026-09-12, gopherstack-n3zi slice 31) ComposeEnvironmentsInput.VersionLabels (the source-bundle version labels naming env.yaml manifests that this op is documented to create NEW environments from) is parsed nowhere -- InMemoryBackend.ComposeEnvironments(ctx, appName) simply returns the application's existing environments. A real client's ComposeEnvironments does not create environments in this backend at all, unlike real AWS. Full manifest-driven environment creation is a structural gap (no env.yaml parsing anywhere in this backend), not something this pass's typed-coverage scope could honestly add; this pass's own test exercises only the current (simplified) list-existing-environments behavior."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - DescribeConfigurationOptions full per-platform option catalog
-  - CreateConfigurationTemplate EnvironmentId/SourceConfiguration-based option seeding
   - CreateApplication idempotency-on-duplicate-name confirmation
 leaks: {status: clean, note: "no goroutines/janitors in this service; store.Table/Index-backed maps, coarse lockmetrics.RWMutex per backend -- consistent with pkgs-catalog.md guidance. createDefaultConfigurationTemplate is a private, non-locking helper always called with b.mu already held by its caller (CreateApplication/CreateApplicationVersionWithParams) -- verified no double-lock/deadlock. No new leak surface introduced this pass."}
 ---
@@ -312,3 +326,46 @@ deserializer call site.
 Newly recorded gap, not a bug: a configuration option description carries a
 regex restriction field in the real API that this backend never emits, because
 it tracks no such restriction data.
+
+## 2026-09-12 -- typed real-client coverage slice 31 (gopherstack-n3zi)
+
+Added `typed_slice31_realclient_test.go` (6 top-level `t.Parallel()` tests) driving every
+op named in the typed-client census's uncovered list for this service at pick time
+(AbortEnvironmentUpdate, AssociateEnvironmentOperationsRole, CheckDNSAvailability,
+ComposeEnvironments, CreateStorageLocation, DeleteConfigurationTemplate,
+DeleteEnvironmentConfiguration, DescribeAccountAttributes, DescribeConfigurationOptions,
+DescribeConfigurationSettings, DescribeEnvironmentManagedActions,
+DisassociateEnvironmentOperationsRole, ListAvailableSolutionStacks, RebuildEnvironment,
+RequestEnvironmentInfo, RestartAppServer, RetrieveEnvironmentInfo, SwapEnvironmentCNAMEs,
+TerminateEnvironment, UpdateApplication, UpdateApplicationResourceLifecycle,
+UpdateApplicationVersion, UpdateConfigurationTemplate, UpdateTagsForResource,
+ValidateConfigurationSettings -- 25 ops; 47/47 ops now covered) via the existing
+`newTestEBClient`/`newTestHandler` helpers from `handler_create_tags_test.go`/
+`handler_test.go`.
+
+No wire-shape bugs found among the 25 ops -- every one decoded correctly on the first
+typed-client attempt (this service already carries an extensive `items_still_open` list
+from prior deep audits, e.g. gopherstack-6flj).
+
+**Three accept-and-drop / never-emitted-member findings, disclosed in `items_still_open`
+above rather than fixed this pass** (each requires modeling a new sub-shape this backend
+has no honest data source for, out of scope for a coverage pass):
+
+1. `ListAvailableSolutionStacksOutput.SolutionStackDetails` (`[]types.SolutionStackDescription`)
+   is never emitted -- only the parallel `SolutionStacks` string list is.
+2. `CreateApplicationInput`/`UpdateApplicationResourceLifecycleInput`'s
+   `ResourceLifecycleConfig.VersionLifecycleConfig` (`MaxAgeRule`/`MaxCountRule`) is unread
+   by both ops -- only `ServiceRole` round-trips. `CreateApplicationInput.ResourceLifecycleConfig`
+   is not read AT ALL (not even `ServiceRole`).
+3. `ComposeEnvironmentsInput.VersionLabels` is unread -- this backend's `ComposeEnvironments`
+   just lists the application's existing environments rather than creating new ones from
+   env.yaml manifests, unlike real AWS.
+
+Each finding's test deliberately asserts only the currently-correct subset of each op's
+shape (e.g. `UpdateApplicationResourceLifecycle`'s `ServiceRole` only), so as not to mask
+the gap as exercised-and-passing.
+
+Gates: `go build ./...` clean (whole module). `go vet ./services/elasticbeanstalk/...`
+clean. `go test -race -count=1 ./services/elasticbeanstalk/... ./pkgs/persistence/...`
+clean. `golangci-lint run --new-from-rev=HEAD ./services/elasticbeanstalk/...` 0 issues.
+No persisted struct fields added -- no `snapshot_inventory.json` change, no version bump.

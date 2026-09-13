@@ -127,7 +127,7 @@ func TestParameterValueStore_ModifyPersistsAndDescribeReflects(t *testing.T) {
 			kind.create(t, h, "pg-modify")
 
 			resp := kind.modify(t, h, "pg-modify", []neptune.ParameterInput{
-				{ParameterName: "neptune_query_timeout", ParameterValue: "5000", ApplyMethod: "immediate"},
+				{ParameterName: "neptune_query_timeout", ParameterValue: "5000", ApplyMethod: "pending-reboot"},
 			})
 			require.Equal(t, http.StatusOK, resp.Code)
 
@@ -163,26 +163,10 @@ func TestParameterValueStore_UnknownParameterRejected(t *testing.T) {
 	}
 }
 
-// TestParameterValueStore_NotModifiableRejected verifies the catalog's one
-// non-modifiable system parameter (neptune_shard_hash_partitions) cannot be
-// overridden.
-func TestParameterValueStore_NotModifiableRejected(t *testing.T) {
-	t.Parallel()
-
-	h := newTestHandler(t)
-	dbParameterGroupKind().create(t, h, "pg-static-system")
-
-	resp := dbParameterGroupKind().modify(t, h, "pg-static-system", []neptune.ParameterInput{
-		{ParameterName: "neptune_shard_hash_partitions", ParameterValue: "12", ApplyMethod: "pending-reboot"},
-	})
-	assert.Equal(t, http.StatusBadRequest, resp.Code)
-	assert.Contains(t, resp.Body.String(), "InvalidParameterValue")
-}
-
 // TestParameterValueStore_StaticRequiresPendingReboot verifies AWS's
 // static-parameter/pending-reboot ApplyMethod compatibility rule: a static
-// parameter (neptune_streams) rejects ApplyMethod=immediate but accepts
-// pending-reboot.
+// parameter (neptune_result_cache, instance-level) rejects
+// ApplyMethod=immediate but accepts pending-reboot.
 func TestParameterValueStore_StaticRequiresPendingReboot(t *testing.T) {
 	t.Parallel()
 
@@ -190,14 +174,99 @@ func TestParameterValueStore_StaticRequiresPendingReboot(t *testing.T) {
 	dbParameterGroupKind().create(t, h, "pg-static-apply")
 
 	resp := dbParameterGroupKind().modify(t, h, "pg-static-apply", []neptune.ParameterInput{
-		{ParameterName: "neptune_streams", ParameterValue: "1", ApplyMethod: "immediate"},
+		{ParameterName: "neptune_result_cache", ParameterValue: "1", ApplyMethod: "immediate"},
 	})
 	assert.Equal(t, http.StatusBadRequest, resp.Code)
 
 	resp = dbParameterGroupKind().modify(t, h, "pg-static-apply", []neptune.ParameterInput{
-		{ParameterName: "neptune_streams", ParameterValue: "1", ApplyMethod: "pending-reboot"},
+		{ParameterName: "neptune_result_cache", ParameterValue: "1", ApplyMethod: "pending-reboot"},
 	})
 	assert.Equal(t, http.StatusOK, resp.Code)
+}
+
+// TestParameterValueStore_DisallowedValueRejected verifies Modify enforces
+// each parameter's documented AllowedValues, not just its name/modifiability
+// -- a real bug class: a value outside the catalog's allowed set used to be
+// silently accepted and stored.
+func TestParameterValueStore_DisallowedValueRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		kind  parameterGroupKind
+		param neptune.ParameterInput
+	}{
+		{
+			name: "enum value out of range",
+			kind: dbParameterGroupKind(),
+			param: neptune.ParameterInput{
+				ParameterName: "neptune_result_cache", ParameterValue: "2", ApplyMethod: "pending-reboot",
+			},
+		},
+		{
+			name: "numeric range exceeded",
+			kind: dbClusterParameterGroupKind(),
+			param: neptune.ParameterInput{
+				ParameterName: "neptune_streams_expiry_days", ParameterValue: "91", ApplyMethod: "pending-reboot",
+			},
+		},
+		{
+			name: "non-numeric value for a ranged parameter",
+			kind: dbClusterParameterGroupKind(),
+			param: neptune.ParameterInput{
+				ParameterName: "neptune_query_timeout", ParameterValue: "not-a-number", ApplyMethod: "pending-reboot",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.kind.create(t, h, "pg-disallowed")
+
+			resp := tt.kind.modify(t, h, "pg-disallowed", []neptune.ParameterInput{tt.param})
+			assert.Equal(t, http.StatusBadRequest, resp.Code)
+			assert.Contains(t, resp.Body.String(), "InvalidParameterValue")
+		})
+	}
+}
+
+// TestParameterValueStore_NotModifiableRejected verifies rejection of a
+// non-modifiable parameter. deprecated (neptune_enforce_ssl) parameters ARE
+// still modifiable per AWS's own catalog (no doc states otherwise), so this
+// instead exercises the shared reject-unknown/unmodifiable path via a name
+// that legitimately belongs to the OTHER scope's catalog: cluster-only
+// neptune_streams is not a recognized DB (instance) parameter, and
+// instance-only UndoLogPurgeConfig is not a recognized DB cluster parameter.
+func TestParameterValueStore_CrossScopeParameterRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		kind  parameterGroupKind
+		param string
+	}{
+		{name: "cluster-only param via DB parameter group", kind: dbParameterGroupKind(), param: "neptune_streams"},
+		{
+			name: "instance-only param via DB cluster parameter group",
+			kind: dbClusterParameterGroupKind(), param: "UndoLogPurgeConfig",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			tt.kind.create(t, h, "pg-cross-scope")
+
+			resp := tt.kind.modify(t, h, "pg-cross-scope", []neptune.ParameterInput{
+				{ParameterName: tt.param, ParameterValue: "1", ApplyMethod: "pending-reboot"},
+			})
+			assert.Equal(t, http.StatusBadRequest, resp.Code)
+			assert.Contains(t, resp.Body.String(), "InvalidParameterValue")
+		})
+	}
 }
 
 // TestParameterValueStore_ResetAllClearsOverrides verifies
@@ -214,7 +283,7 @@ func TestParameterValueStore_ResetAllClearsOverrides(t *testing.T) {
 			h := newTestHandler(t)
 			kind.create(t, h, "pg-reset")
 			resp := kind.modify(t, h, "pg-reset", []neptune.ParameterInput{
-				{ParameterName: "neptune_query_timeout", ParameterValue: "9999", ApplyMethod: "immediate"},
+				{ParameterName: "neptune_query_timeout", ParameterValue: "9999", ApplyMethod: "pending-reboot"},
 			})
 			require.Equal(t, http.StatusOK, resp.Code)
 
@@ -239,7 +308,7 @@ func TestParameterValueStore_DeleteCascadesOverrides(t *testing.T) {
 	h := newTestHandler(t)
 	dbParameterGroupKind().create(t, h, "pg-cascade")
 	resp := dbParameterGroupKind().modify(t, h, "pg-cascade", []neptune.ParameterInput{
-		{ParameterName: "neptune_query_timeout", ParameterValue: "1234", ApplyMethod: "immediate"},
+		{ParameterName: "neptune_query_timeout", ParameterValue: "1234", ApplyMethod: "pending-reboot"},
 	})
 	require.Equal(t, http.StatusOK, resp.Code)
 
@@ -259,15 +328,25 @@ func TestParameterValueStore_DeleteCascadesOverrides(t *testing.T) {
 
 // TestDescribeEngineDefaultParameters_ReturnsCatalog verifies the
 // engine-default describes now surface the real catalog instead of an
-// always-empty list.
+// always-empty list, and that the instance-level and cluster-level catalogs
+// are genuinely distinct (not the same 8-parameter list echoed at both
+// scopes, as this backend modeled before this pass).
 func TestDescribeEngineDefaultParameters_ReturnsCatalog(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		action string
+		action     string
+		wantParam  string
+		wantAbsent string // documented at the OTHER scope only
 	}{
-		{action: "DescribeEngineDefaultParameters"},
-		{action: "DescribeEngineDefaultClusterParameters"},
+		{
+			action: "DescribeEngineDefaultParameters", wantParam: "neptune_dfe_query_engine",
+			wantAbsent: "neptune_streams_expiry_days",
+		},
+		{
+			action: "DescribeEngineDefaultClusterParameters", wantParam: "neptune_streams_expiry_days",
+			wantAbsent: "neptune_dfe_query_engine",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.action, func(t *testing.T) {
@@ -282,6 +361,8 @@ func TestDescribeEngineDefaultParameters_ReturnsCatalog(t *testing.T) {
 			body := rr.Body.String()
 			assert.Contains(t, body, "neptune_query_timeout")
 			assert.Contains(t, body, "<IsModifiable>true</IsModifiable>")
+			assert.Contains(t, body, tt.wantParam)
+			assert.NotContains(t, body, tt.wantAbsent)
 		})
 	}
 }

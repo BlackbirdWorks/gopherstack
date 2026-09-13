@@ -312,6 +312,120 @@ func TestNoncurrentVersionEviction_SkipsLockedVersions(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// AbortIncompleteMultipartUpload prefix/status/due-date scoping
+// ---------------------------------------------------------------------------
+
+// TestJanitor_AbortIncompleteMultipartUpload_HonoursPrefix verifies that the
+// janitor's AbortIncompleteMultipartUpload sweep applies the same rule
+// matching (prefix, Status Enabled, DaysAfterInitiation) as
+// computeAbortIncompleteMultipartUpload's x-amz-abort-date computation,
+// rather than aborting every stale upload in the bucket regardless of the
+// rule's scope.
+//
+// All cases backdate uploads by only 1h (well under cleanupDefaultMultipart's
+// unconditional 24h safety-net window, janitor.go's defaultMultipartMaxAge)
+// so that window can't mask a broken (or a correctly-fixed) lifecycle-rule
+// match -- days:0 makes a matching enabled rule due immediately.
+func TestJanitor_AbortIncompleteMultipartUpload_HonoursPrefix(t *testing.T) {
+	t.Parallel()
+
+	const backdate = -1 * time.Hour
+
+	tests := []struct {
+		name          string
+		status        string
+		filterPrefix  string
+		matchKey      string
+		otherKey      string
+		days          int
+		wantMatchGone bool
+		wantOtherGone bool
+	}{
+		{
+			name:          "matching_prefix_evicted_nonmatching_kept",
+			status:        "Enabled",
+			filterPrefix:  "match/",
+			matchKey:      "match/upload",
+			otherKey:      "other/upload",
+			days:          0,
+			wantMatchGone: true,
+			wantOtherGone: false,
+		},
+		{
+			name:          "disabled_rule_kept",
+			status:        "Disabled",
+			filterPrefix:  "",
+			matchKey:      "any/upload1",
+			otherKey:      "any/upload2",
+			days:          0,
+			wantMatchGone: false,
+			wantOtherGone: false,
+		},
+		{
+			name:          "not_yet_due_kept",
+			status:        "Enabled",
+			filterPrefix:  "",
+			matchKey:      "any/upload1",
+			otherKey:      "any/upload2",
+			days:          30,
+			wantMatchGone: false,
+			wantOtherGone: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := s3.NewInMemoryBackend(nil).WithSkipMultipartSizeCheck()
+			const bucket = "abort-prefix-bucket"
+			mustCreateBucket(t, b, bucket)
+
+			matchOut, err := b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(tt.matchKey),
+			})
+			require.NoError(t, err)
+			s3.BackdateUploadForTest(b, bucket, matchOut.UploadId, time.Now().Add(backdate))
+
+			otherOut, err := b.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(tt.otherKey),
+			})
+			require.NoError(t, err)
+			s3.BackdateUploadForTest(b, bucket, otherOut.UploadId, time.Now().Add(backdate))
+
+			lc := fmt.Sprintf(`<LifecycleConfiguration>
+<Rule>
+  <ID>abort-rule</ID>
+  <Status>%s</Status>
+  <Filter><Prefix>%s</Prefix></Filter>
+  <AbortIncompleteMultipartUpload><DaysAfterInitiation>%d</DaysAfterInitiation></AbortIncompleteMultipartUpload>
+</Rule>
+</LifecycleConfiguration>`, tt.status, tt.filterPrefix, tt.days)
+
+			require.NoError(t, b.PutBucketLifecycleConfiguration(t.Context(), bucket, lc))
+
+			j := newFastJanitor(b)
+			j.SweepOnce(t.Context())
+
+			out, err := b.ListMultipartUploads(t.Context(), &sdk_s3.ListMultipartUploadsInput{
+				Bucket: aws.String(bucket),
+			})
+			require.NoError(t, err)
+
+			remaining := make(map[string]bool, len(out.Uploads))
+			for _, u := range out.Uploads {
+				remaining[aws.ToString(u.Key)] = true
+			}
+
+			assert.Equal(t, !tt.wantMatchGone, remaining[tt.matchKey], "match key eviction state")
+			assert.Equal(t, !tt.wantOtherGone, remaining[tt.otherKey], "other key eviction state")
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Default (24h) multipart cleanup — RLock-scan + Lock-delete
 // ---------------------------------------------------------------------------
 

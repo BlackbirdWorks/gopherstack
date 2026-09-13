@@ -34,25 +34,13 @@ func TestSDKCompleteness_Serverless(t *testing.T) {
 	// gopherstack-v4wu: UpdateSnapshot, GetTrack/ListTracks,
 	// UpdateLakehouseConfiguration, and GetIdentityCenterAuthToken are now
 	// implemented (see handler_serverless.go/serverless_tracks.go/
-	// serverless_lakehouse.go/serverless_workgroups.go). The reservation
-	// family (CreateReservation/GetReservation/GetReservationOffering/
-	// ListReservationOfferings/ListReservations) remains a deliberate,
-	// documented gap -- see PARITY.md's "Redshift Serverless" family note for
-	// why: ReservationOffering carries AWS-set commercial pricing
-	// (HourlyCharge/UpfrontCharge/CurrencyCode) with no fixed, enumerable
-	// catalog in the SDK model to model honestly against (unlike classic
-	// Redshift's ReservedNode, whose offerings key off a small, real,
-	// AWS-documented node-type catalog), and this family has zero existing
-	// backend state to hang a reservation's identity on.
-	notImplemented := []string{
-		"CreateReservation",
-		"GetReservation",
-		"GetReservationOffering",
-		"ListReservationOfferings",
-		"ListReservations",
-	}
-
+	// serverless_lakehouse.go/serverless_workgroups.go). gopherstack-ztx0
+	// closes the last gap: the reservation family (CreateReservation/
+	// GetReservation/GetReservationOffering/ListReservationOfferings/
+	// ListReservations) is now implemented too (serverless_reservations.go)
+	// -- see PARITY.md's "Redshift Serverless" family note for the seeded
+	// offering catalog and the pricing-field disclosure.
 	backend := redshift.NewInMemoryBackend("000000000000", "us-east-1")
 	h := redshift.NewServerlessHandler(backend)
-	sdkcheck.CheckCompleteness(t, &redshiftserverlesssdk.Client{}, h.GetSupportedOperations(), notImplemented)
+	sdkcheck.CheckCompleteness(t, &redshiftserverlesssdk.Client{}, h.GetSupportedOperations(), []string{})
 }

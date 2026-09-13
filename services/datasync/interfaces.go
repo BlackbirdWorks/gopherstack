@@ -43,7 +43,7 @@ type StorageBackend interface {
 	ListTaskExecutions(taskArn string, maxResults int32, nextToken string) ([]*TaskExecutionListEntry, string, error)
 
 	// Location operations (S3 update)
-	UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config S3Config) error
+	UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config *S3Config) error
 
 	// Task execution update
 	UpdateTaskExecution(taskExecutionArn string, options map[string]any) error

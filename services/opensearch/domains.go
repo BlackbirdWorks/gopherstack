@@ -15,6 +15,10 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		return nil, fmt.Errorf("%w: DomainName is required", ErrInvalidParameter)
 	}
 
+	if err := validateAutoTuneCreateInput(input.AutoTuneOptions); err != nil {
+		return nil, err
+	}
+
 	b.mu.Lock("CreateDomain")
 	defer b.mu.Unlock()
 
@@ -67,6 +71,10 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 
 	if len(input.Tags) > 0 {
 		d.Tags.Merge(input.Tags)
+	}
+
+	if input.AutoTuneOptions != nil {
+		d.AutoTuneOptions = newAutoTuneConfigLocked(b.clock(), input.AutoTuneOptions)
 	}
 
 	d.Created = true

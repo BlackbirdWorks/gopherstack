@@ -14,13 +14,18 @@ type createJobInput struct {
 	GlueVersion          string               `json:"GlueVersion,omitempty"`
 	Name                 string               `json:"Name"`
 	Description          string               `json:"Description,omitempty"`
+	JobMode              string               `json:"JobMode,omitempty"`
 	Connections          ConnectionsList      `json:"Connections,omitzero"`
 	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 	NumberOfWorkers      int                  `json:"NumberOfWorkers,omitempty"`
 	MaxRetries           int                  `json:"MaxRetries,omitempty"`
 	Timeout              int                  `json:"Timeout,omitempty"`
 	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
-	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
+	// AllocatedCapacity is deprecated in favor of MaxCapacity (glue@v1.157.0
+	// api_op_CreateJob.go), but a client can still send it; used only when
+	// MaxCapacity is unset.
+	AllocatedCapacity int32             `json:"AllocatedCapacity,omitempty"`
+	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
 }
 
 type createJobOutput struct {
@@ -28,6 +33,11 @@ type createJobOutput struct {
 }
 
 func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*createJobOutput, error) {
+	maxCapacity := in.MaxCapacity
+	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
+		maxCapacity = float64(in.AllocatedCapacity)
+	}
+
 	j, err := h.Backend.CreateJob(Job{
 		Name:                 in.Name,
 		Description:          in.Description,
@@ -36,8 +46,9 @@ func (h *Handler) handleCreateJob(_ context.Context, in *createJobInput) (*creat
 		DefaultArguments:     in.DefaultArguments,
 		GlueVersion:          in.GlueVersion,
 		WorkerType:           in.WorkerType,
+		JobMode:              in.JobMode,
 		NumberOfWorkers:      in.NumberOfWorkers,
-		MaxCapacity:          in.MaxCapacity,
+		MaxCapacity:          maxCapacity,
 		MaxRetries:           in.MaxRetries,
 		Timeout:              in.Timeout,
 		Tags:                 in.Tags,
@@ -57,7 +68,7 @@ type getJobInput struct {
 }
 
 type getJobOutput struct {
-	Job *Job `json:"Job"`
+	Job *jobWire `json:"Job"`
 }
 
 func (h *Handler) handleGetJob(_ context.Context, in *getJobInput) (*getJobOutput, error) {
@@ -66,7 +77,7 @@ func (h *Handler) handleGetJob(_ context.Context, in *getJobInput) (*getJobOutpu
 		return nil, err
 	}
 
-	return &getJobOutput{Job: j}, nil
+	return &getJobOutput{Job: toJobWire(j)}, nil
 }
 
 // defaultGetJobsLimit is used when GetJobsInput.MaxResults is unset.
@@ -78,8 +89,8 @@ type getJobsInput struct {
 }
 
 type getJobsOutput struct {
-	NextToken string `json:"NextToken,omitempty"`
-	Jobs      []*Job `json:"Jobs"`
+	NextToken string     `json:"NextToken,omitempty"`
+	Jobs      []*jobWire `json:"Jobs"`
 }
 
 func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOutput, error) {
@@ -92,7 +103,7 @@ func (h *Handler) handleGetJobs(_ context.Context, in *getJobsInput) (*getJobsOu
 
 	page, next := paginateSlice(jobs, in.NextToken, limit)
 
-	return &getJobsOutput{Jobs: page, NextToken: next}, nil
+	return &getJobsOutput{Jobs: toJobWireList(page), NextToken: next}, nil
 }
 
 // jobUpdatePayload models the allowed fields for Glue's JobUpdate shape.
@@ -169,6 +180,9 @@ type startJobRunInput struct {
 	NumberOfWorkers       int                   `json:"NumberOfWorkers,omitempty"`
 	MaxCapacity           float64               `json:"MaxCapacity,omitempty"`
 	Timeout               int                   `json:"Timeout,omitempty"`
+	// AllocatedCapacity is deprecated in favor of MaxCapacity (glue@v1.157.0
+	// api_op_StartJobRun.go); used only when MaxCapacity is unset.
+	AllocatedCapacity int32 `json:"AllocatedCapacity,omitempty"`
 }
 
 type startJobRunOutput struct {
@@ -176,12 +190,17 @@ type startJobRunOutput struct {
 }
 
 func (h *Handler) handleStartJobRun(_ context.Context, in *startJobRunInput) (*startJobRunOutput, error) {
+	maxCapacity := in.MaxCapacity
+	if maxCapacity == 0 && in.AllocatedCapacity != 0 {
+		maxCapacity = float64(in.AllocatedCapacity)
+	}
+
 	run, err := h.Backend.StartJobRunWithOptions(in.JobName, in.Arguments, StartJobRunOptions{
 		WorkerType:            in.WorkerType,
 		SecurityConfiguration: in.SecurityConfiguration,
 		NotificationProperty:  in.NotificationProperty,
 		NumberOfWorkers:       in.NumberOfWorkers,
-		MaxCapacity:           in.MaxCapacity,
+		MaxCapacity:           maxCapacity,
 		Timeout:               in.Timeout,
 	})
 	if err != nil {
@@ -286,8 +305,8 @@ type batchGetJobsInput struct {
 
 // batchGetJobsOutput holds the result for BatchGetJobs.
 type batchGetJobsOutput struct {
-	Jobs         []*Job   `json:"Jobs"`
-	JobsNotFound []string `json:"JobsNotFound"`
+	Jobs         []*jobWire `json:"Jobs"`
+	JobsNotFound []string   `json:"JobsNotFound"`
 }
 
 func (h *Handler) handleBatchGetJobs(
@@ -306,7 +325,7 @@ func (h *Handler) handleBatchGetJobs(
 		}
 	}
 
-	return &batchGetJobsOutput{Jobs: found, JobsNotFound: missing}, nil
+	return &batchGetJobsOutput{Jobs: toJobWireList(found), JobsNotFound: missing}, nil
 }
 
 // defaultListJobsLimit is used when ListJobsInput.MaxResults is unset.

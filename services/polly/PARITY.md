@@ -12,27 +12,52 @@ overall: A            # two real bugs found and fixed this pass (StartSpeechSynt
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  SynthesizeSpeech: {wire: ok, errors: ok, state: ok, persist: n/a, note: "OutputFormat coverage complete (ogg_opus/mulaw/alaw); full op-specific error taxonomy; SSML well-formedness now validated (InvalidSsmlException)"}
-  StartSpeechSynthesisStream: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "FIXED 2026-09-04: Engine was validated against SynthesizeSpeech's full 4-value set (standard/neural/long-form/generative) and defaulted an unset value to standard, but api_op_StartSpeechSynthesisStream.go's Engine doc comment says 'Currently, only the generative engine is supported' -- any other value (including unset) is now rejected as ValidationException before the shared SynthesizeSpeech validation path runs. OutputFormat=json (the doc's other stated restriction, 'does not support JSON speech marks') was already rejected, coincidentally: this op never reads SpeechMarkTypes from headers, so validateSpeechMarks' 'json requires SpeechMarkTypes' rule always fires for it -- confirmed, not changed. Error taxonomy (from prior pass) remains correct: every client validation failure remaps to the generic ValidationException, matching the real deserializer's error switch (ServiceFailureException/ServiceQuotaExceededException/ThrottlingException/ValidationException). ServiceQuotaExceededException/ThrottlingException remain unimplemented -- see Notes."}
-  StartSpeechSynthesisTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: removed fabricated SnsRoleArn request/response field (not a real Polly API field -- see Notes); added real OutputS3KeyPrefix request field wired into OutputUri; added S3 bucket/key and SNS topic ARN format validation; SSML-vs-plain-text length limit now correctly differentiated (100000 billed / 200000 total, was flat 100000 for both). FIXED 2026-09-04: SampleRate for mp3/ogg_vorbis now correctly narrower than SynthesizeSpeech's (8000/16000/22050/24000 only, no 44100/48000) per this op's own SampleRate doc comment, which was previously sharing SynthesizeSpeech's 6-value set via the common validateOptions helper."}
+  SynthesizeSpeech: {wire: ok, errors: partial, state: ok, persist: n/a, note: "OutputFormat coverage complete (ogg_opus/mulaw/alaw); full op-specific error taxonomy; SSML well-formedness now validated (InvalidSsmlException). errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: the shared ErrValidation fallback (unknown VoiceId, json-without-marks, etc.) emitted the fabricated \"InvalidParameterValueException\" (no such type anywhere in polly@v1.60.4's SDK module); switched to the real \"ValidationException\" type. UNCONFIRMED for this op specifically: SynthesizeSpeech's own deserializeOpError declares NO generic validation type at all (checked directly), so this is the nearest real code, not a verified one -- a real client can only ever see this as an untyped smithy.GenericAPIError. See ErrValidation's doc comment (errors.go)."}
+  StartSpeechSynthesisStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED 2026-09-04: Engine was validated against SynthesizeSpeech's full 4-value set (standard/neural/long-form/generative) and defaulted an unset value to standard, but api_op_StartSpeechSynthesisStream.go's Engine doc comment says 'Currently, only the generative engine is supported' -- any other value (including unset) is now rejected as ValidationException before the shared SynthesizeSpeech validation path runs. OutputFormat=json (the doc's other stated restriction, 'does not support JSON speech marks') was already rejected, coincidentally: this op never reads SpeechMarkTypes from headers, so validateSpeechMarks' 'json requires SpeechMarkTypes' rule always fires for it -- confirmed, not changed. Error taxonomy (from prior pass) remains correct: every client validation failure remaps to the generic ValidationException, matching the real deserializer's error switch (ServiceFailureException/ServiceQuotaExceededException/ThrottlingException/ValidationException). FIXED 2026-09-11 (gopherstack-80h3): ServiceQuotaExceededException/ThrottlingException are now real, enforced quotas -- see Notes and the 2026-09-11 session below. FIXED 2026-09-12 (gopherstack-n3zi slice 15): decodeStreamText never unwrapped the real client's SigV4 event-stream chunk signing (smithy-go eventstream.SigningWriter wraps every input event in an outer :date/:chunk-signature frame, nesting the actual TextEvent/end-of-stream marker as that frame's payload) -- every real client's call therefore parsed Text as empty regardless of input and failed ValidationException unconditionally. Confirmed live: the op had never actually worked end-to-end for a real aws-sdk-go-v2 client before this fix. Also confirmed this op needs HTTP/2 (the real client hard-refuses its own response over HTTP/1.1 with 'operation requires minimum HTTP protocol of HTTP/2.0'), the only polly op with that requirement -- the new test drives it over an httptest.NewUnstartedServer+EnableHTTP2+StartTLS server, every other op in this package still round-trips over the usual plain httptest.Server."}
+  StartSpeechSynthesisTask: {wire: ok, errors: partial, state: ok, persist: ok, note: "FIXED: removed fabricated SnsRoleArn request/response field (not a real Polly API field -- see Notes); added real OutputS3KeyPrefix request field wired into OutputUri; added S3 bucket/key and SNS topic ARN format validation; SSML-vs-plain-text length limit now correctly differentiated (100000 billed / 200000 total, was flat 100000 for both). FIXED 2026-09-04: SampleRate for mp3/ogg_vorbis now correctly narrower than SynthesizeSpeech's (8000/16000/22050/24000 only, no 44100/48000) per this op's own SampleRate doc comment, which was previously sharing SynthesizeSpeech's 6-value set via the common validateOptions helper. errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: missing-OutputS3BucketName rejection emitted the fabricated \"InvalidParameterValueException\"; switched to the real \"ValidationException\" type (nearest real code -- UNCONFIRMED for this op, which models no generic validation type at all)."}
   GetSpeechSynthesisTask: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: added InvalidTaskIdException for syntactically invalid (non-UUID) TaskId, distinct from SynthesisTaskNotFoundException for a well-formed-but-unknown one -- both are real, separately-modeled exceptions for this op"}
-  ListSpeechSynthesisTasks: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults out-of-range left generic (unlisted in the real service model -- confirmed via deserializer's error switch, which lists only InvalidNextTokenException/ServiceFailureException)"}
-  PutLexicon: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED: implemented LexiconSizeExceededException (>40000 chars), MaxLexemeLengthExceededException (>100 char <phoneme>/<alias> replacement), MaxLexiconsNumberExceededException (>100 lexicons/account), UnsupportedPlsAlphabetException (alphabet not ipa/x-sampa), UnsupportedPlsLanguageException (xml:lang outside the 42-value LanguageCode enum) -- all quota numbers sourced from docs.aws.amazon.com/polly/latest/dg/limits.html#limits-lexicons"}
+  ListSpeechSynthesisTasks: {wire: ok, errors: partial, state: ok, persist: ok, note: "MaxResults/Status out-of-range left generic (unlisted in the real service model -- confirmed via deserializer's error switch, which lists only InvalidNextTokenException/ServiceFailureException). errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: was the fabricated \"InvalidParameterValueException\"; switched to the real \"ValidationException\" type (nearest real code -- UNCONFIRMED for this op, which models no generic validation type at all)."}
+  PutLexicon: {wire: ok, errors: partial, state: ok, persist: ok, note: "FIXED: implemented LexiconSizeExceededException (>40000 chars), MaxLexemeLengthExceededException (>100 char <phoneme>/<alias> replacement), MaxLexiconsNumberExceededException (>100 lexicons/account), UnsupportedPlsAlphabetException (alphabet not ipa/x-sampa), UnsupportedPlsLanguageException (xml:lang outside the 42-value LanguageCode enum) -- all quota numbers sourced from docs.aws.amazon.com/polly/latest/dg/limits.html#limits-lexicons. errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: invalid-name rejection emitted the fabricated \"InvalidParameterValueException\"; switched to the real \"ValidationException\" type (nearest real code -- UNCONFIRMED for this op, which models no generic validation type at all)."}
   GetLexicon: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLexicon: {wire: ok, errors: ok, state: ok, persist: ok}
   ListLexicons: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-20: each Lexicons[] entry was a flat map (Name+Alphabet+LanguageCode+LastModified+LexemesCount+LexiconArn+Size as siblings), not the real LexiconDescription shape (Name sibling of a nested Attributes object). Real SDK's deserializeDocumentLexiconDescription only reads top-level Name/Attributes keys, so every attribute field was silently dropped by a real client. Also removed a stray Name key from the shared LexiconAttributes payload (GetLexicon's LexiconAttributes root member and ListLexicons' nested Attributes both had it; real LexiconAttributes has no Name field)."}
-  DescribeVoices: {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: built-in voice catalogue now covers all 106 VoiceId enum values in the pinned SDK (was ~87/106); every existing entry's SupportedEngines re-verified against docs.aws.amazon.com/polly/latest/dg/voicelist.html and corrected where wrong (many voices were missing their generative-engine support, a few had extra/missing standard or neural support -- see Notes). Still no MaxResults/NextToken pagination -- confirmed correct AWS behavior (single-page response is valid), not changed."}
+  DescribeVoices: {wire: ok, errors: partial, state: ok, persist: n/a, note: "FIXED: built-in voice catalogue now covers all 106 VoiceId enum values in the pinned SDK (was ~87/106); every existing entry's SupportedEngines re-verified against docs.aws.amazon.com/polly/latest/dg/voicelist.html and corrected where wrong (many voices were missing their generative-engine support, a few had extra/missing standard or neural support -- see Notes). Still no MaxResults/NextToken pagination -- confirmed correct AWS behavior (single-page response is valid), not changed. errcodeaudit 2026-09-12 (gopherstack-r3pr) FIX: invalid-Engine rejection emitted the fabricated \"InvalidParameterValueException\"; switched to the real \"ValidationException\" type (nearest real code -- UNCONFIRMED for this op, which models no generic validation type at all -- its own deserializeOpError declares only InvalidNextTokenException/ServiceFailureException)."}
 families:
   lexicon: {status: ok, note: "Put/Get/List/Delete verified against restjson1 paths and PutLexicon/GetLexicon shapes; quota/PLS-schema validation field-diffed against limits.html and the real UnsupportedPlsAlphabetException doc string; persistence round-trips (store.Table). 2026-08-20: fixed ListLexicons' Attributes nesting (see ListLexicons op note) and confirmed by real-SDK round trip (wire_sdk_roundtrip_test.go)"}
   synthesisTask: {status: ok, note: "Start/Get/List verified; SnsRoleArn (fabricated) removed, OutputS3KeyPrefix (real, previously missing) added and wired into OutputUri; S3/SNS format validation added; lifecycle advance-on-poll unchanged and correct; persist round-trips including the new OutputS3KeyPrefix field"}
   synthesizeSpeech: {status: ok, note: "REST payload response verified: Content-Type set from OutputFormat, X-Amzn-RequestCharacters header present; speech-mark json-stream verified; SSML well-formedness (must be valid XML wrapped in <speak>) now enforced for both SynthesizeSpeech and StartSpeechSynthesisTask via one shared validateSSML, and for StartSpeechSynthesisStream via SynthesizeSpeech's shared validateOptions"}
   voices: {status: ok, note: "filter logic (Engine/Gender/LanguageCode/IncludeAdditionalLanguageCodes) verified against real DescribeVoicesInput/Voice shape; full 106-voice catalogue field-diffed against the AWS voicelist.html table and the pinned SDK's VoiceId enum -- every voice's LanguageCode/Gender/SupportedEngines cross-checked"}
 gaps: []
+items_still_open:
+  - "errcodeaudit 2026-09-12 (gopherstack-r3pr): ErrValidation's mapped wire code was fabricated (\"InvalidParameterValueException\", no such type in polly@v1.60.4) and is now the real \"ValidationException\" type -- confirmed modeled by StartSpeechSynthesisStream, but UNCONFIRMED for the other six operations that also raise this shared sentinel (PutLexicon/DescribeVoices/SynthesizeSpeech/ListSpeechSynthesisTasks/StartSpeechSynthesisTask/GetSpeechSynthesisTask via speech_synthesis_tasks.go's Status check): none of those declare ANY generic validation exception in their own deserializeOpError, so a real client can only ever see this as an untyped smithy.GenericAPIError regardless of the code text. Splitting ErrValidation per-operation into whatever each one's own model actually supports (if anything) is future work, not done this pass."
 deferred: []
 leaks: {status: clean, note: "no goroutines/timers; task lifecycle advances synchronously on each Get/List poll (b.mu-guarded), no background janitor to leak. Tag* removal deleted the last map keyed independently of store.Table (b.tags) with no replacement -- one fewer thing that could ghost-row after delete."}
 ---
 
 ## Notes
+
+### 2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr): ErrValidation's fabricated wire code
+
+`onceErrorTable`'s last entry mapped `ErrValidation` to `InvalidParameterValueException`
+-- a name absent from polly@v1.60.4's 23-type SDK module entirely. Swapped
+for `ValidationException`, a real modeled type (used by
+StartSpeechSynthesisStream via the separate `ErrStreamValidation` wrapper).
+Read every operation that raises the shared `ErrValidation` sentinel
+(PutLexicon, DescribeVoices, SynthesizeSpeech, ListSpeechSynthesisTasks,
+StartSpeechSynthesisTask, GetSpeechSynthesisTask) directly against their own
+`deserializeOpError` switches in deserializers.go: none of them declare any
+generic validation exception, so `ValidationException` is the nearest real
+code, not a verified one -- recorded as UNCONFIRMED per-op above and in
+`items_still_open`, matching this campaign's acmpca precedent.
+
+New test `TestErrValidation_WireCode_ValidationException`
+(validation_error_code_test.go), table-driven across PutLexicon/
+DescribeVoices/SynthesizeSpeech, drives the real SDK client and asserts
+`errors.As(err, &smithy.GenericAPIError{})` with `Code == "ValidationException"`
+-- the strongest proof available given none of these ops model a specific
+type. All existing raw-body-assertion tests that pinned the fabricated
+string (lexicons_test.go, voices_test.go, speech_test.go,
+speech_synthesis_tasks_test.go) were corrected, not weakened.
 
 Freeform: AWS-behavior specifics worth remembering, and any "looks-wrong-but-correct" traps
 so the next auditor doesn't re-flag them.
@@ -160,11 +185,12 @@ so the next auditor doesn't re-flag them.
   its format, so a real HTTP client (not just the Go SDK) can trigger this server-side. Task IDs are
   UUIDs (see `uuid.NewString()` in `StartSpeechSynthesisTask`).
 
-- **Not implemented, and not claimed as fixed**: `ServiceQuotaExceededException`/
-  `ThrottlingException` for `StartSpeechSynthesisStream` require genuine request-rate/quota
-  simulation (a different kind of feature entirely, unrelated to input-validation taxonomy) and
-  were out of scope for this pass; the `ValidationException` remapping for actual client input
-  errors is complete and correct on its own.
+- **FIXED 2026-09-11 (gopherstack-80h3)**: `ServiceQuotaExceededException`/`ThrottlingException`
+  for `StartSpeechSynthesisStream` are now real, enforced quotas (previously undone -- see the
+  2026-09-11 session below for the full writeup). The `ValidationException` remapping for actual
+  client input errors, noted above, is unaffected: those two exceptions are NOT wrapped in
+  `ErrStreamValidation` since the real deserializer models them as their own distinct exception
+  types for this op, not the generic validation one.
 
 ## polly (this session, 2026-08-20)
 
@@ -430,3 +456,191 @@ All 10 production call sites of `{writeError, writeBackendError}` (`handler.go:1
 exists in polly.** No code changed. Gates:
 `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/polly/...` 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/polly/...` ok.
+
+## 2026-09-11: StartSpeechSynthesisStream throttle/quota simulation (gopherstack-80h3)
+
+Implements the request-rate/quota simulation the 2026-08-20 and 2026-09-04 sessions
+deferred: `ServiceQuotaExceededException`/`ThrottlingException` for
+`StartSpeechSynthesisStream`.
+
+**Which ops actually declare these exceptions -- re-derived from the SDK, not assumed.**
+The bd issue's title said "StartSpeechSynthesisStream ... is not a Polly op" in an aside;
+that aside is wrong -- `api_op_StartSpeechSynthesisStream.go` is a real, current operation
+in the pinned SDK (`aws-sdk-go-v2/service/polly@v1.60.4`), a bidirectional streaming
+counterpart to `SynthesizeSpeech`, and gopherstack already implements it
+(`handler.go`'s `startSpeechSynthesisStream`). Separately, and more importantly: every one
+of the 10 `awsRestjson1_deserializeOpError<Op>` switches in
+`aws-sdk-go-v2/service/polly@v1.60.4/deserializers.go` was read line-by-line (byte offsets
+computed programmatically, not grepped, to avoid the earlier sessions' risk of matching
+unrelated `case` arms past a function's real closing brace). Result:
+`StartSpeechSynthesisStream` is the **only** op whose switch declares
+`ServiceQuotaExceededException` or `ThrottlingException` at all --
+`{ServiceFailureException, ServiceQuotaExceededException, ThrottlingException,
+ValidationException}`, matching `ErrStreamValidation`'s existing doc comment exactly.
+`SynthesizeSpeech` and `StartSpeechSynthesisTask` (the two ops the issue's body suggested
+enforcing tps on) do NOT declare either exception in their switches, despite
+`docs.aws.amazon.com/polly/latest/dg/limits.html#limits-throttle` documenting real
+per-engine tps numbers for them too (80/8/8/8 tps for SynthesizeSpeech by engine,
+10/10/1/1 tps for StartSpeechSynthesisTask, 5 tps combined for the four lexicon ops) -- a
+real AWS throttle on those ops surfaces as an untyped `smithy.GenericAPIError{Code:
+"ThrottlingException", ...}` to a real SDK client, not the typed exception, so there is no
+server-side-verifiable "this op declares it" signal to simulate against. Per the
+no-invented-errors rule (`.claude/memories/parity-principles.md`), only
+`StartSpeechSynthesisStream` is enforced.
+
+**Quota numbers** -- `docs.aws.amazon.com/polly/latest/dg/limits.html#limits-throttle`
+(fetched live 2026-09-11, independently cross-checked against the same page's `WebFetch`
+summary and a manual re-read of the fetched markdown): "Quotas and throttle rates" table,
+`StartSpeechSynthesisStream` row: "Generative voice: 8 tps" (the only `Engine` value this
+op accepts -- see the existing 2026-09-04 fix in `startSpeechSynthesisStream`, still
+correct, unchanged). "Concurrent requests" section: "For StartSpeechSynthesisStream,
+Amazon Polly supports up to 8 concurrent requests." Both are named constants in the new
+`limits.go` (`defaultStreamTPS`, `defaultStreamConcurrency`), overridable per-backend via
+the new `WithStreamLimits(tps, concurrency int)` builder (mirrors
+`services/ses/limits.go`'s `WithResourceLimits` constructor-option pattern) so tests don't
+need to issue 8 real requests to trip a cap.
+
+**HTTP status codes** -- the Go SDK's `types.ThrottlingException`/
+`types.ServiceQuotaExceededException` structs carry no `httpStatusCode` (the Go SDK
+doesn't generate that trait); confirmed directly against botocore's
+`polly/2016-06-10/service-2.json` (fetched from
+`github.com/boto/botocore/develop/botocore/data/polly/2016-06-10/service-2.json` and
+parsed with `python3 -m json` to read `shapes.<Name>.error.httpStatusCode` programmatically
+-- not trusting a single `WebFetch` summarization pass, which was independently
+cross-checked this way after producing a surprising result): `ThrottlingException` is 400,
+but **`ServiceQuotaExceededException` is 402 (Payment Required)**, not 400 -- an unusual
+status for this exception name, same category of AWS quirk as the existing
+`SynthesisTaskNotFoundException` (400, not 404) and `LexiconNotFoundException` (404, the
+one that *does* match its name) entries already documented above. All 24 exception
+statuses in the service model were dumped and cross-checked against the existing
+23-entry `onceErrorTable` -- exact match, confirming the table's pre-existing statuses were
+already correct and giving high confidence in the two new ones.
+
+**Design: transient, non-persisted, injectable-clock state.** New `InMemoryBackend` fields
+`nowFunc func() time.Time`, `streamRequests map[string][]time.Time`, `streamsInFlight int`,
+`streamLimits streamLimits` (`store.go`) are plain backend fields, not `store.Table`-backed
+and not members of `backendSnapshot` -- `pkgs/persistence`'s `TestSnapshotVersionGuard`
+only inventories `*Snapshot`-suffixed structs and `store.Register`'d types (see its own doc
+comment), neither of which applies here, and the guard's golden
+(`pkgs/persistence/testdata/snapshot_inventory.json`) is unchanged by this pass (verified:
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` passes with no `-update`
+needed) -- no version bump. `nowFunc` follows the existing `services/sqs/store.go` clock-injection
+pattern (`nowFunc` field, `time.Now` default) rather than `services/ses`'s
+backdate-a-persisted-record approach, because `SynthesizeSpeech` (which
+`startSpeechSynthesisStream` calls internally) keeps no persisted, timestamped record to
+backdate the way SES's `b.emails` does -- there is nothing to derive elapsed time from
+except an injected clock. Exposed as `WithClock(func() time.Time) *InMemoryBackend`
+(`throttle.go`), a normal exported builder method, not an `export_test.go` addition (the
+task explicitly bans growing that file, and polly has none today) -- tests in
+`throttle_test.go` (external `polly_test` package) drive it through this real API.
+
+**Enforcement (`throttle.go`)**: `BeginSpeechSynthesisStream(engine string) (func(),
+error)` checks the concurrency cap first (an unreleased slot is a stronger overload
+signal than one more window tick), then the per-engine sliding one-second window
+(`checkStreamThrottleLocked`, an in-place-filtered `[]time.Time` per engine, not a
+fixed-size ring -- simpler and correct at these small (default 8) window sizes), both
+under one `b.mu` critical section for atomicity. Wired into `handler.go`'s
+`startSpeechSynthesisStream` right after the existing Engine-must-be-generative gate and
+before the request body is read (matching real front-door throttling, which doesn't wait
+to parse the payload) via `defer release()`. `ErrThrottling`/`ErrServiceQuotaExceeded`
+(new `errors.go` sentinels) are deliberately NOT wrapped in `ErrStreamValidation` the way
+input-validation failures are -- they are their own real, separately-modeled exceptions
+for this op per the deserializer switch above, so `onceErrorTable`
+(`handler.go`) gets two new direct entries (400/`ThrottlingException`,
+402/`ServiceQuotaExceededException`), and `writeBackendError`'s existing `errors.Is`
+first-match-wins scan handles them correctly regardless of table order since they're never
+part of an `ErrStreamValidation` chain.
+
+**Real-SDK-client round trip: attempted, abandoned, documented.** Per the task brief, a
+throttled/quota-exceeded response was first driven through the real
+`aws-sdk-go-v2/service/polly` client (`pollysdk.NewFromConfig` against an `httptest.Server`
+on the real `pkgs/service` router, the same shape `wire_sdk_roundtrip_test.go`'s
+`newTestPollySDKClient` uses for `ListLexicons`). It does not work for this op:
+`Client.StartSpeechSynthesisStream`'s generated code (`invokeEventStreamOperation`,
+`api_client.go`) always returns a non-nil `*StartSpeechSynthesisStreamOutput` with `err ==
+nil` from the initial call regardless of the real HTTP response status -- the actual
+deserialized error (or success) is only surfaced by consuming `out.GetStream().Events()`
+and then reading `out.GetStream().Err()`. Doing that against gopherstack's response hung
+indefinitely (verified with a 5s `context.WithTimeout`, killed manually) for BOTH the
+success and error case, not just the error one -- a genuine transport-shape mismatch: the
+real SDK client's generated code expects a true duplex HTTP/2 event-stream connection,
+while gopherstack (like the pre-existing `startSpeechSynthesisStream` implementation this
+session did not change) answers with one synchronous `eventstream`-framed HTTP `Blob`
+body, same category as the pre-existing "PCM's synthetic bytes are wrapped in a RIFF/WAV
+header" carve-out above -- real duplex streaming support is a separate, much larger
+feature, out of scope for a quota/throttle task. The wire-shape proof instead uses the same
+raw-HTTP/`httptest.NewRecorder`/`echo.Context` pattern every existing
+`StartSpeechSynthesisStream` test in `speech_test.go` already uses for this exact op (for
+the same underlying reason), asserting the real `__type`/HTTP-status pairs
+(`TestStartSpeechSynthesisStream_ThrottlingHTTPWireShape`,
+`TestStartSpeechSynthesisStream_ServiceQuotaHTTPWireShape`, `throttle_test.go`).
+
+**Tests** (`throttle_test.go`, all `t.Parallel()`, no `time.Sleep`, deterministic via
+`WithClock`/`WithStreamLimits`): per-second window pass/throttle/reset
+(`TestBeginSpeechSynthesisStream_ThrottleWindow`), per-engine independence
+(`TestBeginSpeechSynthesisStream_PerEngineIndependence`), concurrency cap with the clock
+advanced well past one second between acquires so only the concurrency cap -- never the
+tps window -- can be responsible for the rejection
+(`TestBeginSpeechSynthesisStream_ConcurrencyCap`), plus the two HTTP wire-shape tests
+above.
+
+**Gates** (from repo root, GOTOOLCHAIN=go1.27.0):
+```
+go build ./...                                        -> ok
+go vet ./services/polly/...                            -> clean
+go test -race -count=1 ./services/polly/...             -> ok
+go test -race -count=1 ./pkgs/persistence/...           -> ok (TestSnapshotVersionGuard: no golden diff, no version bump)
+golangci-lint run ./services/polly/...                  -> 0 issues
+```
+
+No snapshot inventory changes; `pollySnapshotVersion` stays at 2.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DescribeVoices, GetSpeechSynthesisTask,
+ListSpeechSynthesisTasks, StartSpeechSynthesisTask, and
+StartSpeechSynthesisStream driven through the real aws-sdk-go-v2 client for
+the first time (`typed_slice15_realclient_test.go`; polly moved from 5/10 to
+10/10 typed-covered per `cmd/clientcoverage`).
+
+**Corrects the prior session's "real duplex out of scope" conclusion above**
+for StartSpeechSynthesisStream: the earlier hang was two separate, both
+fixable, problems, not a genuine architecture mismatch:
+
+1. The real client hard-refuses this op's response over HTTP/1.1
+   ("operation requires minimum HTTP protocol of HTTP/2.0"). Solved on the
+   TEST side only (no production code change) with an
+   `httptest.NewUnstartedServer` + `EnableHTTP2` + `StartTLS()` server and
+   `srv.Client()` as the SDK's `HTTPClient` -- this op is the only one in the
+   package needing that; every other op still uses the plain
+   `httptest.Server` `newTestPollySDKClient` helper.
+2. **Real bug, fixed**: `decodeStreamText` (handler.go) only ever looked for
+   a top-level `:event-type: TextEvent` header. A real client signs every
+   input event with SigV4 event-stream chunk signing
+   (`smithy-go/eventstream.SigningWriter`): each application message is
+   nested as the PAYLOAD of an outer frame carrying only `:date`/
+   `:chunk-signature` headers, with an empty-payload signed frame marking
+   end-of-stream. `decodeStreamText` never unwrapped that outer frame, so
+   `Text` always decoded as empty and the op failed `ValidationException`
+   ("Text and VoiceId are required") for every real client regardless of
+   input -- this op had never actually worked end-to-end from a real SDK
+   before this fix. Confirmed live before/after (raw `httputil.DumpResponse`
+   round trip): 400 before, 200 with real `AudioEvent`/`StreamClosedEvent`
+   payloads after.
+
+Also load-bearing for anyone reusing this pattern: call `stream.Writer.Close()`
+(closes only the write half), not the combined `stream.Close()`, before
+ranging over `stream.Events()` -- `stream.Close()` tears down the reader too
+and starves the read loop before the response can arrive, which is what
+produced the original zero-events/no-error symptom while debugging this
+(not a hang -- a race that always resolved to "nothing received").
+
+No other real bugs found; DescribeVoices/StartSpeechSynthesisTask/
+GetSpeechSynthesisTask/ListSpeechSynthesisTasks all passed on the first
+correctly-shaped request.
+
+Gates: `go build ./...`, `go vet ./services/polly/...`,
+`go test -race -count=1 ./services/polly/...` and `./pkgs/persistence/...`,
+`golangci-lint run --new-from-rev=HEAD ./services/polly/...` (0 issues).
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot
+changes; `pollySnapshotVersion` unchanged.

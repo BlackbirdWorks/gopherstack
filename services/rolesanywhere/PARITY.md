@@ -41,7 +41,8 @@ families:
   crl_crud: {status: ok, note: "same verification as trustAnchor_crud"}
   tags: {status: ok, note: "this pass: removed the invented \"tags\" field from TrustAnchorDetail/ProfileDetail JSON (real AWS never returns one on either shape -- confirmed field-by-field against types.TrustAnchorDetail/types.ProfileDetail, neither has a Tags member), which also fixes the desync bug where creation-time tags (stored on the resource struct) permanently diverged from TagResource/UntagResource-mutated tags (stored in a separate ARN-keyed map) -- both now route through the same store; added ResourceNotFoundException validation to TagResource/ListTagsForResource (not UntagResource, which the real model doesn't declare it for) and TooManyTagsException to TagResource"}
   duplicate_name_rejection: {status: ok, note: "REMOVED this pass: CreateTrustAnchor/CreateProfile/ImportCrl each independently rejected duplicate names with a gopherstack-invented ConflictException/409. Cross-checked against botocore's rolesanywhere/2018-05-10/service-2.json: the service's shapes map contains exactly 4 exception shapes total (AccessDeniedException, ResourceNotFoundException, TooManyTagsException, ValidationException) across ALL 27 operations -- there is no ConflictException shape in the entire service model, so this was invented behavior with a fabricated error code, not a real AWS constraint. Real Roles Anywhere trust anchors/profiles/CRLs are identified by generated ID/ARN; names are not unique. Deleted ErrTrustAnchorAlreadyExists/ErrProfileAlreadyExists/ErrCrlAlreadyExists and their duplicate-check code paths; all three Create/Import ops now accept duplicate names, matching the real API."}
-gaps:
+gaps: []
+items_still_open:
   - "GetSubject/ListSubjects: subjects store is never populated -- there is no CreateSession endpoint in this service (AWS Roles Anywhere's session-vending API is a separate mTLS-authenticated data-plane API, not SigV4/control-plane, and remains out of scope). SubjectDetail's Credentials/InstanceProperties fields are also unmodeled. Would need its own audit pass if CreateSession is ever added to gopherstack."
   - "No AccessDeniedException path anywhere in this service -- gopherstack has no IAM policy evaluation engine to source it from; this is a cross-cutting infra gap common to every gopherstack service, not specific to rolesanywhere."
   - "FIXED this pass: CreateProfile now rejects a nil roleArns list with ValidationException, matching CreateProfileInput.RoleArns's \"This member is required\" marker (aws-sdk-go-v2@v1.26.3's validateOpCreateProfileInput checks v.RoleArns == nil) and botocore's CreateProfileRequest.required list. A prior pass's note framed this as deliberately left permissive 'to control blast radius' against existing tests -- that framing was backwards: the tests asserting nil-roleArns success were the bug, not a constraint to protect. An explicitly empty (non-nil) roleArns slice is still accepted, since the RoleArnList shape declares min:0 (requirement is presence, not non-emptiness). ImportCrlInput.CrlData/TrustAnchorArn and CreateTrustAnchorInput.Source were already validated by a prior pass."
@@ -422,3 +423,40 @@ diff.
 **Gates**: `GOTOOLCHAIN=go1.26.6 go test -race ./services/rolesanywhere/...` and
 `GOTOOLCHAIN=go1.26.6 golangci-lint run services/rolesanywhere/...` both pass, unchanged from
 before this pass (no code touched).
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+This service had no prior typed-client helper at all (`grep -rn "func newTest.*Client"`
+found nothing). Added `typed_slice33_realclient_test.go` with
+`newTestRolesAnywhereClient` (httptest + `service.NewRegistry`/`NewServiceRouter`,
+the same pattern as services/swf's `wire_sdk_roundtrip_test.go`), plus one outer
+`t.Parallel()` test with 7 subtests (all also parallel) driving every one of this
+service's 26 typed-client-uncovered ops (per `cmd/clientcoverage`) — profile and CRL
+full lifecycles, attribute mappings, notification settings, tags, trust-anchor
+enable/disable/update, and the subject family. Typed coverage: 4/30 -> 30/30
+(26 -> 0 uncovered; the 4 pre-existing covered ops — CreateTrustAnchor,
+GetTrustAnchor, ListTrustAnchors, DeleteTrustAnchor — come from
+`test/integration/rolesanywhere_test.go`'s docker-backed suite, which
+`cmd/clientcoverage` also AST-walks).
+
+25 of 26 ops passed on the first correctly-shaped request. One test-authoring
+correction, not a bug: `DeleteAttributeMapping` with an explicit `Specifiers` list
+naming every rule under a `CertificateField` leaves that field's entry present with
+an empty `MappingRules` list, rather than removing the whole entry — this is
+existing, deliberate, already-tested behavior (`removeSpecifiers`,
+`attribute_mappings.go`; contrast `removeFieldMapping`, used when `Specifiers` is
+omitted, which does remove the entry entirely) matching
+`crl_subject_test.go`'s own `TestAttributeMapping_PutGetDelete` precedent — no SDK
+doc confirms the alternative (whole-entry removal) is the real contract, so the
+test's initial assumption was corrected rather than the code changed.
+
+`GetSubject`/`ListSubjects` are covered via the already-documented structural gap
+(no `CreateSession` endpoint — Roles Anywhere's session-vending data-plane is a
+separate mTLS-authenticated API, out of scope): the subtest asserts the real,
+non-fabricated behavior through the typed client — an honest empty list and a real
+`ResourceNotFoundException` (asserted via `errors.As`) for an unknown subject ID.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/rolesanywhere + pkgs/persistence), `golangci-lint run --new-from-rev=HEAD`
+(0 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL. No
+persisted-struct fields changed; no version bump.

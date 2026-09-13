@@ -37,7 +37,7 @@ func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
 	_, hasPassword := createdEp["Password"]
 	assert.False(t, hasPassword, "CreateEndpoint response must never carry Password")
 
-	list, err := h.Backend.DescribeEndpoints(ctx, "pw-ep")
+	list, err := h.Backend.DescribeEndpoints(ctx, dms.NewIdentifierFilter("endpoint-id", "pw-ep"))
 	require.NoError(t, err)
 	require.Len(t, list, 1)
 	assert.Equal(t, "s3cr3t", list[0].Password, "Password must be stored, not silently dropped")
@@ -52,7 +52,7 @@ func TestEndpointPassword_StoredButNeverOnWire(t *testing.T) {
 	_, modHasPassword := modEp["Password"]
 	assert.False(t, modHasPassword, "ModifyEndpoint response must never carry Password")
 
-	list2, err := h.Backend.DescribeEndpoints(ctx, "pw-ep")
+	list2, err := h.Backend.DescribeEndpoints(ctx, dms.NewIdentifierFilter("endpoint-id", "pw-ep"))
 	require.NoError(t, err)
 	require.Len(t, list2, 1)
 	assert.Equal(t, "n3wpass", list2[0].Password, "ModifyEndpoint must persist the new Password")
@@ -112,14 +112,19 @@ func TestEndpoint_EngineSettingsRejected(t *testing.T) {
 			assert.Contains(t, msg, tc.field)
 
 			// The endpoint must not have been created.
-			list, err := h.Backend.DescribeEndpoints(t.Context(), "settings-ep-"+tc.name)
+			list, err := h.Backend.DescribeEndpoints(
+				t.Context(),
+				dms.NewIdentifierFilter("endpoint-id", "settings-ep-"+tc.name),
+			)
 			require.NoError(t, err)
 			assert.Empty(t, list)
 
 			// ModifyEndpoint rejects the same field on an existing endpoint.
 			h.Backend.AddEndpointInternal("existing-"+tc.name, "source", "mysql")
 			descRec := doDMS(t, h, "DescribeEndpoints", map[string]any{
-				"Filters": []map[string]any{{"Name": "endpoint-id", "Values": []string{"existing-" + tc.name}}},
+				"Filters": []map[string]any{
+					{"Name": "endpoint-id", "Values": []string{"existing-" + tc.name}},
+				},
 			})
 			require.Equal(t, http.StatusOK, descRec.Code)
 			eps := parseJSON(t, descRec)["Endpoints"].([]any)
@@ -216,8 +221,18 @@ func TestEndpointType_EnumValidation(t *testing.T) {
 		engineName   string
 		wantCode     int
 	}{
-		{name: "valid source/mysql", endpointType: "source", engineName: "mysql", wantCode: http.StatusOK},
-		{name: "valid target/s3", endpointType: "target", engineName: "s3", wantCode: http.StatusOK},
+		{
+			name:         "valid source/mysql",
+			endpointType: "source",
+			engineName:   "mysql",
+			wantCode:     http.StatusOK,
+		},
+		{
+			name:         "valid target/s3",
+			endpointType: "target",
+			engineName:   "s3",
+			wantCode:     http.StatusOK,
+		},
 		{
 			name: "uppercase EndpointType rejected", endpointType: "SOURCE", engineName: "mysql",
 			wantCode: http.StatusBadRequest,
@@ -342,7 +357,11 @@ func TestDescribeSchemas(t *testing.T) {
 		"ReplicationInstanceArn": "arn:fake",
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "successful", parseJSON(t, rec)["RefreshSchemasStatus"].(map[string]any)["Status"])
+	assert.Equal(
+		t,
+		"successful",
+		parseJSON(t, rec)["RefreshSchemasStatus"].(map[string]any)["Status"],
+	)
 
 	// After refresh: schemas are populated.
 	rec = doDMS(t, h, "DescribeSchemas", map[string]any{"EndpointArn": epARN})

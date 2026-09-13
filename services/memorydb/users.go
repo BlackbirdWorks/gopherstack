@@ -71,7 +71,7 @@ func applyUserAuthModeUpdate(u *User, mode *authenticationModeReq) error {
 
 // CreateUser creates a new MemoryDB user.
 func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest) (*User, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateUser")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -121,7 +121,7 @@ func (b *InMemoryBackend) CreateUser(ctx context.Context, req *createUserRequest
 
 // DescribeUsers returns users, optionally filtered by name.
 func (b *InMemoryBackend) DescribeUsers(ctx context.Context, name string) ([]*User, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeUsers")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) DescribeUsers(ctx context.Context, name string) ([]*Us
 
 // DeleteUser removes a user.
 func (b *InMemoryBackend) DeleteUser(ctx context.Context, name string) (*User, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteUser")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -177,7 +177,7 @@ func (b *InMemoryBackend) DeleteUser(ctx context.Context, name string) (*User, e
 
 // UpdateUser modifies an existing user.
 func (b *InMemoryBackend) UpdateUser(ctx context.Context, req *updateUserRequest) (*User, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -217,7 +217,7 @@ func cloneUser(u *User) *User {
 
 // AddUserInternal inserts a user directly into the backend for testing.
 func (b *InMemoryBackend) AddUserInternal(name, accessString string) *User {
-	b.mu.Lock()
+	b.mu.Lock("AddUserInternal")
 	defer b.mu.Unlock()
 
 	userARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "user/"+name)

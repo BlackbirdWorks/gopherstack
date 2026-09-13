@@ -443,10 +443,13 @@ type vpcEndpointServiceConfigItem struct {
 	PayerResponsibility         string                          `xml:"payerResponsibility,omitempty"`
 	PrivateDNSNameConfiguration privateDNSNameConfigurationItem `xml:"privateDnsNameConfiguration"`
 	NetworkLoadBalancerArnSet   []string                        `xml:"networkLoadBalancerArnSet>item"`
+	TagSet                      []simpleTagItem                 `xml:"tagSet>item"`
 	AcceptanceRequired          bool                            `xml:"acceptanceRequired"`
 }
 
-func toVpcEndpointServiceConfigItem(cfg *VpcEndpointServiceConfig) vpcEndpointServiceConfigItem {
+func toVpcEndpointServiceConfigItem(
+	cfg *VpcEndpointServiceConfig, tags map[string]string,
+) vpcEndpointServiceConfigItem {
 	return vpcEndpointServiceConfigItem{
 		ServiceID:                 cfg.ServiceID,
 		ServiceName:               cfg.ServiceName,
@@ -454,6 +457,7 @@ func toVpcEndpointServiceConfigItem(cfg *VpcEndpointServiceConfig) vpcEndpointSe
 		PayerResponsibility:       cfg.PayerResponsibility,
 		AcceptanceRequired:        cfg.AcceptanceRequired,
 		NetworkLoadBalancerArnSet: cfg.NetworkLoadBalancerARNs,
+		TagSet:                    tagItemsFromMap(tags),
 		PrivateDNSNameConfiguration: privateDNSNameConfigurationItem{
 			State: cfg.PrivateDNSNameState,
 		},
@@ -785,7 +789,8 @@ type ipamResourceDiscoveryItem struct {
 	OperatingRegionSet          struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
 	} `xml:"operatingRegionSet"`
-	IsDefault bool `xml:"isDefault"`
+	TagSet    []simpleTagItem `xml:"tagSet>item"`
+	IsDefault bool            `xml:"isDefault"`
 }
 
 type describeIpamResourceDiscoveriesResponse struct {

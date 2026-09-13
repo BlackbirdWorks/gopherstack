@@ -205,6 +205,7 @@ type Dashboard struct {
 	LastUpdatedTime        time.Time
 	LastPublishedTime      time.Time
 	Definition             map[string]any
+	PublishOptions         map[string]any
 	DashboardID            string
 	Arn                    string
 	Name                   string
@@ -212,6 +213,7 @@ type Dashboard struct {
 	ThemeArn               string
 	VersionDescription     string
 	Permissions            []ResourcePermission
+	LinkPermissions        []ResourcePermission
 	LinkEntities           []string
 	VersionNumber          int64
 	PublishedVersionNumber int64
@@ -388,10 +390,13 @@ type TopicReviewedAnswer struct {
 }
 
 // TopicAnswerError represents a single failed entry in a batch reviewed-answer
-// create/delete operation.
+// create/delete operation. ErrorCode must be one of
+// types.ReviewedAnswerErrorCode's values -- the real
+// InvalidTopicReviewedAnswer.Error wire member is that enum string, not a
+// free-form message (quicksight@v1.129.0 deserializers.go:103007-103013).
 type TopicAnswerError struct {
-	AnswerID string
-	Message  string
+	AnswerID  string
+	ErrorCode string
 }
 
 // VPCConnection represents a QuickSight VPC connection.
@@ -486,6 +491,7 @@ type Brand struct {
 // overrides that can be attached to roles or users.
 type CustomPermissions struct {
 	Capabilities map[string]any
+	Governance   map[string]any
 	Name         string
 	Arn          string
 }
@@ -808,6 +814,83 @@ type SelfUpgradeRequestDetail struct {
 	UserName                string
 	CreationTime            int64
 	LastUpdateAttemptTime   int64
+}
+
+// ApplicableTo represents the scoping configuration for an ApprovalPolicy:
+// which principals the policy applies to.
+type ApplicableTo struct {
+	Type      string
+	GroupArns []string
+}
+
+// ApprovalPolicy represents a QuickSight governance approval policy (which
+// governed actions on which asset types require approval from which groups).
+type ApprovalPolicy struct {
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	PolicyID       string
+	Arn            string
+	Name           string
+	Description    string
+	Actions        []string
+	AssetTypes     []string
+	ApprovalGroups []string
+	ApplicableTo   ApplicableTo
+}
+
+// LabelActionMapping maps one DLP-provider sensitivity label to an
+// enforcement action.
+type LabelActionMapping struct {
+	Action    string
+	LabelID   string
+	LabelName string
+}
+
+// MicrosoftPurviewProviderConfig is the Microsoft Purview variant of
+// DlpSetting's ProviderConfig union -- the only variant the pinned SDK
+// defines (quicksight@v1.129.0 types/types.go:17080's doc comment).
+type MicrosoftPurviewProviderConfig struct {
+	SecretArn           string
+	UnmappedAction      string
+	LabelActionMappings []LabelActionMapping
+}
+
+// ProviderConfig is a DlpSetting's provider-specific configuration. Exactly
+// one field is set, mirroring the SDK's ProviderConfig union type.
+type ProviderConfig struct {
+	MicrosoftPurview *MicrosoftPurviewProviderConfig
+}
+
+// DlpSetting represents a QuickSight data-loss-prevention setting.
+type DlpSetting struct {
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	ProviderConfig       ProviderConfig
+	DlpSettingID         string
+	Arn                  string
+	Name                 string
+	ProviderType         string
+	ProviderOutageAction string
+	Enabled              bool
+}
+
+// ProfileLimitValue is one resource-type limit within a LimitsProfile.
+type ProfileLimitValue struct {
+	Unit     string
+	MaxValue int64
+}
+
+// LimitsProfile represents a QuickSight governance limits profile (a named
+// set of per-resource-type usage limits).
+type LimitsProfile struct {
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ResourceLimits map[string]ProfileLimitValue
+	ProfileID      string
+	Arn            string
+	AccountID      string
+	ProfileName    string
+	Description    string
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)

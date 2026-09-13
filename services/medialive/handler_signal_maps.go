@@ -30,7 +30,7 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 		ebIDs = []string{}
 	}
 
-	return map[string]any{
+	out := map[string]any{
 		keyArn: sm.Arn, keyID: sm.ID, keyName: sm.Name,
 		keyDescription: sm.Description, "discoveryEntryPointArn": sm.DiscoveryEntryPointArn,
 		keyStatus:                         sm.Status,
@@ -39,6 +39,15 @@ func toSignalMapOutput(sm *SignalMap) map[string]any {
 		keyCreatedAt: formatISO8601(sm.CreatedAt), keyModifiedAt: formatISO8601(sm.ModifiedAt),
 		keyTags: tags,
 	}
+
+	if sm.LastSuccessfulMonitorDeployment != nil {
+		out["lastSuccessfulMonitorDeployment"] = map[string]any{
+			"detailsUri": sm.LastSuccessfulMonitorDeployment.DetailsURI,
+			keyStatus:    sm.LastSuccessfulMonitorDeployment.Status,
+		}
+	}
+
+	return out
 }
 
 // toSignalMapSummary mirrors types.SignalMapSummary (medialive@v1.101.4

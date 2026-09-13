@@ -181,7 +181,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, fresh.Restore(t.Context(), snap))
 
 	// filters table.
-	filters, err := fresh.ListFilters(nil, "")
+	filters, _, err := fresh.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, filters, 1)
 	assert.Equal(t, "filter1", filters[0].Name)
@@ -224,7 +224,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	// ec2DeepConfig raw struct.
 	ec2Cfg := fresh.GetEc2DeepInspectionConfiguration()
 	assert.Equal(t, []string{"/opt/pkg"}, ec2Cfg.PackagePaths)
-	assert.Equal(t, "ENABLED", ec2Cfg.Status)
+	assert.Equal(t, "ACTIVATED", ec2Cfg.Status)
 
 	// memberEc2Status table.
 	memberStatuses := fresh.BatchGetMemberEc2DeepInspectionStatus([]string{"222222222222"})
@@ -345,7 +345,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	assert.Equal(t, 0, inspector2.FilterCount(b))
 	assert.Equal(t, 0, inspector2.FindingCount(b))
 
-	filters, err := b.ListFilters(nil, "")
+	filters, _, err := b.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, filters)
 
@@ -361,7 +361,7 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 
 	ec2Cfg := b.GetEc2DeepInspectionConfiguration()
 	assert.Empty(t, ec2Cfg.PackagePaths)
-	assert.Equal(t, "DISABLED", ec2Cfg.Status)
+	assert.Equal(t, "DEACTIVATED", ec2Cfg.Status)
 
 	cisCfgs, err := b.ListCisScanConfigurations()
 	require.NoError(t, err)
@@ -396,8 +396,41 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := inspector2.NewHandler(inspector2.NewInMemoryBackend("111111111111", "us-east-1"))
 	require.NoError(t, h2.Restore(t.Context(), snap))
 
-	filters, err := h2.Backend.ListFilters(nil, "")
+	filters, _, err := h2.Backend.ListFilters(nil, "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, filters, 1)
 	assert.Equal(t, "filter1", filters[0].Name)
+}
+
+// TestSnapshotRestore_FindingResourceIDAndType verifies ListFindings'
+// resourceId/resourceType filter criteria still match a finding after a
+// snapshot/restore roundtrip (gopherstack-2slev).
+func TestSnapshotRestore_FindingResourceIDAndType(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	b1 := inspector2.NewInMemoryBackend("111111111111", "us-east-1")
+
+	_, err := b1.SeedFinding(inspector2.Finding{
+		FindingArn:   "arn:aws:inspector2:us-east-1:111111111111:finding/f1",
+		ResourceID:   "i-0123456789",
+		ResourceType: "AWS_EC2_INSTANCE",
+		Severity:     inspector2.FindingSeverity{Label: "HIGH"},
+	})
+	require.NoError(t, err)
+
+	snap := b1.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	b2 := inspector2.NewInMemoryBackend("111111111111", "us-east-1")
+	require.NoError(t, b2.Restore(ctx, snap))
+
+	criteria := map[string]any{
+		"resourceId": []any{map[string]any{"comparison": "EQUALS", "value": "i-0123456789"}},
+	}
+
+	findings, _, err := b2.ListFindings(0, "", criteria, "", "")
+	require.NoError(t, err)
+	require.Len(t, findings, 1, "resourceId filter must still match a finding restored from a snapshot")
+	assert.Equal(t, "AWS_EC2_INSTANCE", findings[0].ResourceType)
 }

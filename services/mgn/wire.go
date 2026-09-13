@@ -905,13 +905,17 @@ type importIDRequest struct {
 	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
-// importErrorDataWire mirrors types.ImportErrorData. AccountID/ApplicationID/
-// Ec2LaunchTemplateID are never populated by this backend (see models.go's
-// ImportErrorData doc comment), so they are omitted entirely rather than
-// wire-coded as empty strings.
+// importErrorDataWire mirrors types.ImportErrorData (wire keys confirmed
+// against deserializers.go's awsRestjson1_deserializeDocumentImportErrorData).
+// AccountID/Ec2LaunchTemplateID are never populated by this backend (see
+// models.go's ImportErrorData doc comment), so they are omitted entirely
+// rather than wire-coded as empty strings.
 type importErrorDataWire struct {
-	RawError  string `json:"rawError,omitempty"`
-	RowNumber int64  `json:"rowNumber,omitempty"`
+	SourceServerID string `json:"sourceServerID,omitempty"`
+	ApplicationID  string `json:"applicationID,omitempty"`
+	WaveID         string `json:"waveID,omitempty"`
+	RawError       string `json:"rawError,omitempty"`
+	RowNumber      int64  `json:"rowNumber,omitempty"`
 }
 
 // importTaskErrorWire mirrors types.ImportTaskError.
@@ -938,9 +942,14 @@ type enrichmentSourceS3ConfigurationWire struct {
 	S3Key         string `json:"s3Key"`
 }
 
+// startImportFileEnrichmentRequest mirrors StartImportFileEnrichmentInput
+// (mgn@v1.48.4 api_op_StartImportFileEnrichment.go): both S3BucketSource and
+// S3BucketTarget are required real members serialized as "s3BucketSource"/
+// "s3BucketTarget" (serializers.go:6807-6816) -- NOT "sourceS3Configuration"/
+// "targetS3Configuration", which are not real wire keys at all.
 type startImportFileEnrichmentRequest struct {
-	SourceS3Configuration *enrichmentSourceS3ConfigurationWire `json:"sourceS3Configuration"`
-	TargetS3Configuration *enrichmentTargetS3ConfigurationWire `json:"targetS3Configuration"`
+	SourceS3Configuration *enrichmentSourceS3ConfigurationWire `json:"s3BucketSource"`
+	TargetS3Configuration *enrichmentTargetS3ConfigurationWire `json:"s3BucketTarget"`
 	Tags                  map[string]string                    `json:"tags,omitempty"`
 }
 

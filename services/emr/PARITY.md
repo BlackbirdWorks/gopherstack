@@ -213,7 +213,8 @@ ops:
 # Families audited as a group (when per-op is impractical):
 families:
   error-mapping: {status: ok, note: "EMR's real error model has exactly two exception types (InvalidRequestException 400, InternalServerException 500) per aws-sdk-go-v2/service/emr/types/errors.go; the deserializeError switch matches __type against these two strings verbatim. Fixed handleError, which returned the non-existent 'ValidationException' for ErrInvalidParameter and 'InternalFailure' for the default/500 case -- neither would deserialize into a typed exception a real client checks with errors.As."}
-gaps:
+gaps: []
+items_still_open:
   - "ListInstances synthesized fleet instances leave InstanceType blank: InstanceFleet (unlike InstanceGroup) only tracks aggregate TargetOnDemandCapacity/TargetSpotCapacity/Provisioned* counts, not a per-instance-type breakdown -- AddInstanceFleet's real wire input accepts InstanceTypeConfigs (a weighted list of candidate instance types) but gopherstack's InstanceFleetSpec never captured it at all, a pre-existing gap larger than this pass's ListInstances-synthesis scope. This IS buildable (thread InstanceTypeConfigs through AddInstanceFleet/RunJobFlow's inline fleet spec, pick a type per synthesized instance) but was left out of this pass to stay in scope; leaving InstanceType blank rather than inventing a plausible-looking type avoids fabricating data the backend doesn't have. (bd: gopherstack-dqd8)"
   - "AutoTerminationPolicy.IdleTimeout (real, emr@v1.64.4 types/types.go:114-122: \"Specifies the amount of idle time in seconds after which the cluster automatically terminates. You can specify a minimum of 60 seconds and a maximum of 604800 seconds (seven days).\") is accepted, bounds-validated, persisted, and echoed back verbatim (PutAutoTerminationPolicy/RunJobFlow), but the janitor never evaluates it to trigger termination (gopherstack-cxp3, 2026-09-06). Unlike KeepJobFlowAliveWhenNoSteps (fixed this pass, see below), IdleTimeout is not fixable from state this backend already tracks: the SDK doc comment defines only the timeout duration, never what 'idle' means (no active steps? no active YARN application? no active interactive session -- Session, sessions.go?), and this backend has no last-activity timestamp of any kind on a cluster -- effectiveStepStatus's PENDING->COMPLETED promotion is a pure function of a step's own CreationDateTime, not a cluster-level 'went idle at T' event. Wiring termination against an invented idle definition (e.g. reusing the ALL_STEPS_COMPLETED signal below, but on a timer) would mean guessing AWS's real activity model rather than reading it off the pinned SDK, which is the exact failure mode this campaign avoids elsewhere (see PutAutoScalingPolicy/PutManagedScalingPolicy precedent). Left NOT-WIRED as a verified negative; would need either a documented idle definition or a deliberate, disclosed approximation before implementing."
 structural_gaps:
@@ -772,3 +773,45 @@ clean. `git status --short` at the end of this batch shows only
 `services/emr/handler_policies.go` (modified) and
 `services/emr/wire_output_required_r80d_test.go` (new) from this batch, plus
 the pre-existing untouched `services/sagemaker/*` concurrent-agent dirt.
+
+## 2026-09-12 (typed-client coverage slice 18, gopherstack-n3zi)
+
+Added `typed_slice18_realclient_test.go` covering all 44 of emr's
+typed-client-uncovered ops (per `cmd/clientcoverage`): instance group and
+instance fleet lifecycle (Add/List/Modify for both), security
+configuration lifecycle, release label describe/instance-type listing,
+cluster settings (ModifyCluster, SetTerminationProtection,
+SetKeepJobFlowAliveWhenNoSteps, SetVisibleToAllUsers,
+SetUnhealthyNodeReplacement), managed-scaling/auto-termination/
+auto-scaling/block-public-access policies, tags, bootstrap actions +
+CancelSteps, sessions (Get/GetEndpoint/Terminate), persistent app UI +
+cluster session credentials, studio lifecycle (session mappings
+included), and StopNotebookExecution.
+
+**Zero real bugs found** -- 12 subtests, 12 dozen assertions, all passed
+against the existing handlers on the first run (after fixing test-input
+mistakes, not handler bugs: a missing `AutoScalingPolicy.Rules` required
+member in the test's own `PutAutoScalingPolicy` call). Consistent with
+this service's already-deep prior audit history (multiple dated sections
+above; `items_still_open` already tracks the two genuinely open gaps).
+
+One measurement-tool note: `ListTagsForResource`, one of emr's existing
+ops, has **no real wire operation at all** -- confirmed via
+`ls aws-sdk-go-v2/service/emr@v1.64.4/api_op_*Tag*.go`, which lists only
+`AddTags`/`RemoveTags`. It is a gopherstack-only convenience extension
+(same class as iotdataplane's `ListConnections`/`RegisterConnection`,
+documented in typed/NOTES.md slice 17) -- correctly absent from
+`cmd/opcensus`'s uncoverable-by-definition set since it isn't a listed op
+at all, so it never appeared in the uncovered list; the `tags` subtest
+verifies `AddTags`/`RemoveTags` via `DescribeCluster.Cluster.Tags`, the
+real read path, instead.
+
+No persisted struct fields changed; no version bump; no
+`snapshot_inventory.json` changes for this service this pass.
+
+Typed-client coverage: 21/65 -> 65/65 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet ./services/emr/...`
+(clean). `go test -race -count=1 ./services/emr/...` (pass). `golangci-lint
+run --new-from-rev=HEAD ./services/emr/...` (0 issues). `cmd/paritylint`
+stays at 0 FAIL.

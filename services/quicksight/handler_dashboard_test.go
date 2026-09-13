@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	quicksightsdk "github.com/aws/aws-sdk-go-v2/service/quicksight"
+	"github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -369,4 +372,89 @@ func TestQuickSight_UpdateDashboardLinks(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []any{linkArn}, linkEntities)
 	assert.NotContains(t, body, "DashboardId")
+}
+
+// TestDashboardLinkSharing_RealClient locks the fix for gopherstack-xs5xo:
+// UpdateDashboardPermissions accepted GrantLinkPermissions/RevokeLinkPermissions
+// but never stored or returned LinkSharingConfiguration (quicksight@v1.129.0
+// api_op_UpdateDashboardPermissions.go's UpdateDashboardPermissionsOutput and
+// api_op_DescribeDashboardPermissions.go's DescribeDashboardPermissionsOutput
+// both carry *types.LinkSharingConfiguration; types.go:14421's
+// LinkSharingConfiguration.Permissions []ResourcePermission). Drives a real
+// grant -> describe -> revoke cycle through the SDK client so the SDK's own
+// deserializer (not a hand-built fixture) proves the shape.
+func TestDashboardLinkSharing_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := quicksight.NewInMemoryBackend("000000000000", "us-east-1")
+	client := newTestQuickSightClient(t, quicksight.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateDashboard(ctx, &quicksightsdk.CreateDashboardInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+		Name:         aws.String("Link Sharing Dashboard"),
+	})
+	require.NoError(t, err)
+
+	describedBefore, err := client.DescribeDashboardPermissions(ctx, &quicksightsdk.DescribeDashboardPermissionsInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, describedBefore.LinkSharingConfiguration,
+		"real AWS omits LinkSharingConfiguration until link sharing is granted")
+
+	viewerArn := "arn:aws:quicksight:us-east-1:000000000000:namespace/default"
+
+	updated, err := client.UpdateDashboardPermissions(ctx, &quicksightsdk.UpdateDashboardPermissionsInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+		GrantLinkPermissions: []types.ResourcePermission{
+			{
+				Principal: aws.String(viewerArn),
+				Actions:   []string{"quicksight:DescribeDashboard"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, updated.LinkSharingConfiguration,
+		"UpdateDashboardPermissions must return LinkSharingConfiguration once link permissions are granted")
+	require.Len(t, updated.LinkSharingConfiguration.Permissions, 1)
+	assert.Equal(t, viewerArn, aws.ToString(updated.LinkSharingConfiguration.Permissions[0].Principal))
+	assert.Equal(t, []string{"quicksight:DescribeDashboard"}, updated.LinkSharingConfiguration.Permissions[0].Actions)
+
+	// Regular Permissions must be untouched by a link-only grant.
+	assert.Empty(t, updated.Permissions)
+
+	describedAfter, err := client.DescribeDashboardPermissions(ctx, &quicksightsdk.DescribeDashboardPermissionsInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, describedAfter.LinkSharingConfiguration,
+		"DescribeDashboardPermissions must reflect the granted link sharing")
+	require.Len(t, describedAfter.LinkSharingConfiguration.Permissions, 1)
+	assert.Equal(t, viewerArn, aws.ToString(describedAfter.LinkSharingConfiguration.Permissions[0].Principal))
+
+	revoked, err := client.UpdateDashboardPermissions(ctx, &quicksightsdk.UpdateDashboardPermissionsInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+		RevokeLinkPermissions: []types.ResourcePermission{
+			{
+				Principal: aws.String(viewerArn),
+				Actions:   []string{"quicksight:DescribeDashboard"},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Nil(t, revoked.LinkSharingConfiguration,
+		"LinkSharingConfiguration must be omitted again once all link permissions are revoked")
+
+	describedFinal, err := client.DescribeDashboardPermissions(ctx, &quicksightsdk.DescribeDashboardPermissionsInput{
+		AwsAccountId: aws.String("000000000000"),
+		DashboardId:  aws.String("rt-link-dash"),
+	})
+	require.NoError(t, err)
+	assert.Nil(t, describedFinal.LinkSharingConfiguration)
 }

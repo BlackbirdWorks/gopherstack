@@ -872,11 +872,13 @@ type AgentAliasHistoryEvent struct {
 
 // AgentKnowledgeBaseAssociation represents an association between agent and knowledge base.
 type AgentKnowledgeBaseAssociation struct {
-	AgentID         string `json:"agentId"`
-	AgentVersion    string `json:"agentVersion"`
-	KnowledgeBaseID string `json:"knowledgeBaseId"`
-	Description     string `json:"description,omitempty"`
-	KBState         string `json:"knowledgeBaseState"`
+	CreatedAt       time.Time `json:"createdAt"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	AgentID         string    `json:"agentId"`
+	AgentVersion    string    `json:"agentVersion"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	Description     string    `json:"description,omitempty"`
+	KBState         string    `json:"knowledgeBaseState"`
 }
 
 // KnowledgeBase represents an Amazon Bedrock Knowledge Base.
@@ -937,26 +939,40 @@ type AgentConfiguration struct {
 // UpdateFlowResponse have no httpPayload member (botocore bedrock-agent
 // 2023-06-05), so id/arn are flat wire keys, not flowId/flowArn.
 type Flow struct {
-	CreatedAt   time.Time         `json:"createdAt"`
-	UpdatedAt   time.Time         `json:"updatedAt"`
-	Tags        map[string]string `json:"tags,omitempty"`
-	FlowID      string            `json:"id"`
-	FlowArn     string            `json:"arn"`
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Status      string            `json:"status"`
+	CreatedAt        time.Time         `json:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt"`
+	Tags             map[string]string `json:"tags,omitempty"`
+	FlowID           string            `json:"id"`
+	FlowArn          string            `json:"arn"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description,omitempty"`
+	Status           string            `json:"status"`
+	ExecutionRoleArn string            `json:"executionRoleArn"`
+	Version          string            `json:"version"`
 }
 
 // FlowAlias represents an alias for a Bedrock Flow. Its own id/arn are flat
 // "id"/"arn"; "flowId" names only the parent flow (see Flow's doc comment).
+// RoutingConfiguration is required on the real GetFlowAliasOutput/
+// UpdateFlowAliasOutput (bedrockagent@v1.58.4 api_op_GetFlowAlias.go) --
+// previously entirely absent from this type, so CreateFlowAlias/
+// UpdateFlowAlias silently dropped the real, required routingConfiguration
+// request member (gopherstack-n3zi slice 30).
 type FlowAlias struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	FlowAliasID  string    `json:"id"`
-	FlowAliasArn string    `json:"arn"`
-	FlowID       string    `json:"flowId"`
-	Name         string    `json:"name"`
-	Description  string    `json:"description,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	FlowAliasID          string             `json:"id"`
+	FlowAliasArn         string             `json:"arn"`
+	FlowID               string             `json:"flowId"`
+	Name                 string             `json:"name"`
+	Description          string             `json:"description,omitempty"`
+	RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
+}
+
+// FlowAliasRouting matches types.FlowAliasRoutingConfigurationListItem: the
+// wire key is "flowVersion", distinct from AgentAliasRouting's "agentVersion".
+type FlowAliasRouting struct {
+	FlowVersion string `json:"flowVersion"`
 }
 
 // FlowVersion represents a snapshot version of a Flow. GetFlowVersionResponse
@@ -983,37 +999,138 @@ type Prompt struct {
 }
 
 // PromptVersion represents a numbered version of a Prompt.
+// PromptVersion matches CreatePromptVersionOutput (bedrockagent@v1.58.4
+// deserializers.go's awsRestjson1_deserializeOpDocumentCreatePromptVersionOutput,
+// which reads flat top-level keys -- id/arn, never a "promptVersion" wrapper
+// or a "promptId" key; see Flow's doc comment for the same no-httpPayload
+// pattern).
 type PromptVersion struct {
 	CreatedAt time.Time `json:"createdAt"`
-	PromptID  string    `json:"promptId"`
+	UpdatedAt time.Time `json:"updatedAt"`
+	PromptID  string    `json:"id"`
+	PromptArn string    `json:"arn"`
 	Version   string    `json:"version"`
 	Name      string    `json:"name,omitempty"`
 }
 
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// renamed the wire-incorrect "promptId" key to the real "id" -- an older
+// snapshot's promptId value is still recovered into PromptID instead of
+// being silently dropped.
+func (pv *PromptVersion) UnmarshalJSON(data []byte) error {
+	type alias PromptVersion
+
+	aux := struct {
+		*alias
+		LegacyPromptID string `json:"promptId"`
+	}{alias: (*alias)(pv)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if pv.PromptID == "" && aux.LegacyPromptID != "" {
+		pv.PromptID = aux.LegacyPromptID
+	}
+
+	return nil
+}
+
 // AgentVersion represents a numbered version of an Agent.
+// AgentVersion matches bedrockagent@v1.58.4 types.AgentVersion
+// (deserializers.go's awsRestjson1_deserializeDocumentAgentVersion): the
+// version number is the flat wire key "version", never "agentVersion" (that
+// name belongs to the Agent's own AgentVersion pointer, e.g. "DRAFT" -- a
+// distinct field this type has no reason to carry). agentArn/agentName/
+// agentResourceRoleArn/updatedAt are all required output members too.
 type AgentVersion struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	AgentID      string    `json:"agentId"`
-	AgentVersion string    `json:"agentVersion"`
-	AgentStatus  string    `json:"agentStatus"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
+	AgentID           string    `json:"agentId"`
+	AgentArn          string    `json:"agentArn"`
+	AgentName         string    `json:"agentName"`
+	AgentResourceRole string    `json:"agentResourceRoleArn"`
+	AgentVersion      string    `json:"version"`
+	AgentStatus       string    `json:"agentStatus"`
+}
+
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// renamed the wire-incorrect "agentVersion" key to the real "version" -- an
+// older snapshot's agentVersion value is still recovered into AgentVersion
+// instead of being silently dropped.
+func (av *AgentVersion) UnmarshalJSON(data []byte) error {
+	type alias AgentVersion
+
+	aux := struct {
+		*alias
+		LegacyVersion string `json:"agentVersion"`
+	}{alias: (*alias)(av)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if av.AgentVersion == "" && aux.LegacyVersion != "" {
+		av.AgentVersion = aux.LegacyVersion
+	}
+
+	return nil
 }
 
 // AgentCollaborator represents an agent collaboration association.
+// AgentCollaborator matches bedrockagent@v1.58.4 types.AgentCollaborator:
+// the collaborator agent is identified by AgentAliasArn, nested under
+// agentDescriptor.aliasArn on the wire (see documentAgentCollaboratorWire in
+// handler_agent_collaborators.go) -- never a flat "collaboratorArn", which
+// this struct used to invent.
 type AgentCollaborator struct {
-	CreatedAt         time.Time `json:"createdAt"`
-	CollaboratorID    string    `json:"collaboratorId"`
-	AgentID           string    `json:"agentId"`
-	AgentVersion      string    `json:"agentVersion"`
-	CollaboratorArn   string    `json:"collaboratorArn"`
-	RelayConversation string    `json:"relayConversationHistory"`
+	CreatedAt                time.Time `json:"createdAt"`
+	LastUpdatedAt            time.Time `json:"lastUpdatedAt"`
+	CollaboratorID           string    `json:"collaboratorId"`
+	AgentID                  string    `json:"agentId"`
+	AgentVersion             string    `json:"agentVersion"`
+	AgentAliasArn            string    `json:"agentAliasArn"`
+	CollaboratorName         string    `json:"collaboratorName"`
+	CollaborationInstruction string    `json:"collaborationInstruction"`
+	RelayConversation        string    `json:"relayConversationHistory,omitempty"`
 }
 
-// KnowledgeBaseDocument represents a document in a KB data source.
+// UnmarshalJSON tolerates snapshots written before gopherstack-n3zi slice 22
+// replaced the wire-incorrect "collaboratorArn" field with the real
+// "agentAliasArn" -- an older snapshot's collaboratorArn value is still
+// recovered into AgentAliasArn instead of being silently dropped.
+func (ac *AgentCollaborator) UnmarshalJSON(data []byte) error {
+	type alias AgentCollaborator
+
+	aux := struct {
+		*alias
+		CollaboratorArn string `json:"collaboratorArn"`
+	}{alias: (*alias)(ac)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if ac.AgentAliasArn == "" && aux.CollaboratorArn != "" {
+		ac.AgentAliasArn = aux.CollaboratorArn
+	}
+
+	return nil
+}
+
+// KnowledgeBaseDocument represents a document in a KB data source. DocumentID
+// is the internal lookup key (the S3 URI or custom identifier, depending on
+// DataSourceType) -- real bedrock-agent identifies documents by
+// DocumentIdentifier{dataSourceType, s3.uri | custom.id}, never a flat
+// string, per bedrockagent@v1.58.4 types.DocumentIdentifier.
 type KnowledgeBaseDocument struct {
-	KnowledgeBaseID string `json:"knowledgeBaseId"`
-	DataSourceID    string `json:"dataSourceId"`
-	DocumentID      string `json:"documentId"`
-	Status          string `json:"status"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	DataSourceID    string    `json:"dataSourceId"`
+	DocumentID      string    `json:"documentId"`
+	DataSourceType  string    `json:"dataSourceType"`
+	Status          string    `json:"status"`
+	StatusReason    string    `json:"statusReason,omitempty"`
 }
 
 // AdvancedPromptOptimizationInputConfig specifies the S3 location of the

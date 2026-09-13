@@ -129,12 +129,35 @@ type InMemoryBackend struct {
 	faultsMu                           *lockmetrics.RWMutex
 	resourcePolicies                   map[string]map[string]string
 	streams                            *store.Table[Stream]
+	channels                           *store.Table[Channel]
 	OnStreamPurged                     func(string)
 	registry                           *store.Registry
 	streamsByRegion                    *store.Index[Stream]
-	accountID                          string
-	region                             string
-	onDemandStreamCountLimit           int
+	channelsByRegion                   *store.Index[Channel]
+	// s3Writer delivers channel-buffered records to S3 general purpose
+	// destinations; nil until wired via SetS3Writer (see cli.go's
+	// wireKinesisS3Delivery, mirroring wireAWSConfigDelivery). Channels are
+	// fully manageable with no writer wired, but records are never flushed.
+	s3Writer ChannelS3Writer
+	// deliveryMu guards channelBuffers only -- a leaf lock never held while
+	// acquiring b.mu or a Stream's mu (see channel_delivery.go), so it can be
+	// safely acquired regardless of what other locks a caller already holds.
+	deliveryMu     *lockmetrics.RWMutex
+	channelBuffers map[string]*channelBuffer
+	// nowFunc is this backend's time source, overridable via WithClock for
+	// deterministic tests (AT_TRIM_HORIZON/AT_TIMESTAMP retention math,
+	// ON_DEMAND write-throughput auto-scaling) -- mirrors services/polly's
+	// store.go nowFunc/WithClock pattern. Defaults to time.Now.
+	nowFunc func() time.Time
+	// throughputMu guards throughputTrackers only. It is acquired from
+	// putRecordLocked while the caller already holds that stream's mu
+	// (stream.mu -> throughputMu is the only ordering this lock
+	// participates in), never while holding b.mu.
+	throughputMu             *lockmetrics.RWMutex
+	throughputTrackers       map[string]*writeThroughputTracker
+	accountID                string
+	region                   string
+	onDemandStreamCountLimit int
 }
 
 // NewInMemoryBackend creates a new empty InMemoryBackend with default account/region.
@@ -155,16 +178,42 @@ func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 		minimumThroughputBillingCommitment: MinimumThroughputBillingCommitmentOutput{
 			Status: minimumThroughputBillingCommitmentDisabled,
 		},
-		registry: store.NewRegistry(),
+		registry:           store.NewRegistry(),
+		deliveryMu:         lockmetrics.New("kinesis.delivery"),
+		channelBuffers:     make(map[string]*channelBuffer),
+		nowFunc:            time.Now,
+		throughputMu:       lockmetrics.New("kinesis.throughput"),
+		throughputTrackers: make(map[string]*writeThroughputTracker),
 	}
 	b.streams = store.Register(b.registry, "streams", store.New(streamTableKeyFn))
 	b.streamsByRegion = b.streams.AddIndex("region", func(v *Stream) string { return v.Region })
+	b.channels = store.Register(b.registry, "channels", store.New(channelTableKeyFn))
+	b.channelsByRegion = b.channels.AddIndex("region", func(v *Channel) string { return v.Region })
 
 	return b
 }
 
+// SetS3Writer wires the S3 backend used to deliver channel-buffered records
+// to their configured S3DestinationConfiguration bucket. See cli.go's
+// wireKinesisS3Delivery.
+func (b *InMemoryBackend) SetS3Writer(w ChannelS3Writer) {
+	b.s3Writer = w
+}
+
 // Region returns the AWS region this backend is configured to use as its default.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// WithClock overrides the backend's time source, used by tests to drive
+// AT_TRIM_HORIZON/AT_TIMESTAMP retention math and ON_DEMAND write-throughput
+// auto-scaling deterministically -- no time.Sleep, no real wall-clock waits.
+// Mirrors services/polly/throttle.go's WithClock.
+func (b *InMemoryBackend) WithClock(now func() time.Time) *InMemoryBackend {
+	if now != nil {
+		b.nowFunc = now
+	}
+
+	return b
+}
 
 // streamKey builds the composite primary key ("region/name") a Stream is
 // stored under in b.streams, mirroring the region-nested map key it replaces.
@@ -175,6 +224,14 @@ func streamKey(region, name string) string {
 // streamTableKeyFn is the [store.Table] key function for b.streams.
 func streamTableKeyFn(v *Stream) string {
 	return streamKey(v.Region, v.Name)
+}
+
+// channelTableKeyFn is the [store.Table] key function for b.channels.
+// Channels are keyed by their ARN directly (unlike streams' composite
+// region/name key) since ChannelARN is already globally unique and encodes
+// the region.
+func channelTableKeyFn(v *Channel) string {
+	return v.ChannelARN
 }
 
 // faultsStore returns the FIS throttle-fault map for the given region, lazily
@@ -247,6 +304,14 @@ func (b *InMemoryBackend) Reset() {
 	b.minimumThroughputBillingCommitment = MinimumThroughputBillingCommitmentOutput{
 		Status: minimumThroughputBillingCommitmentDisabled,
 	}
+
+	b.deliveryMu.Lock("Reset.delivery")
+	b.channelBuffers = make(map[string]*channelBuffer)
+	b.deliveryMu.Unlock()
+
+	b.throughputMu.Lock("Reset.throughput")
+	b.throughputTrackers = make(map[string]*writeThroughputTracker)
+	b.throughputMu.Unlock()
 }
 
 // purgeStreamEntry removes s from the given region's stream map when it predates

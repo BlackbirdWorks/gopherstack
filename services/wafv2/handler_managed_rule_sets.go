@@ -164,14 +164,21 @@ func (h *Handler) handlePutManagedRuleSetVersions(ctx context.Context, body []by
 	return json.Marshal(map[string]string{keyNextLockToken: ms.LockToken})
 }
 
-// updateManagedRuleSetVersionExpiryDateRequest is the request body for UpdateManagedRuleSetVersionExpiryDate.
+// updateManagedRuleSetVersionExpiryDateRequest is the request body for
+// UpdateManagedRuleSetVersionExpiryDate. ExpiryTimestamp is a JSON number
+// (epoch seconds, encoded as a double by the real client -- confirmed
+// against wafv2@v1.77.3 serializers.go's
+// awsAwsjson11_serializeOpDocumentUpdateManagedRuleSetVersionExpiryDateInput,
+// `ok.Double(smithytime.FormatEpochSeconds(*v.ExpiryTimestamp))`); decoding
+// it as *int64 rejected every real client call whose timestamp had a
+// fractional-second component (any time.Time with sub-second precision).
 type updateManagedRuleSetVersionExpiryDateRequest struct {
-	ExpiryTimestamp *int64 `json:"ExpiryTimestamp"`
-	ID              string `json:"Id"`
-	Name            string `json:"Name"`
-	Scope           string `json:"Scope"`
-	LockToken       string `json:"LockToken"`
-	VersionToExpire string `json:"VersionToExpire"`
+	ExpiryTimestamp *float64 `json:"ExpiryTimestamp"`
+	ID              string   `json:"Id"`
+	Name            string   `json:"Name"`
+	Scope           string   `json:"Scope"`
+	LockToken       string   `json:"LockToken"`
+	VersionToExpire string   `json:"VersionToExpire"`
 }
 
 func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Context, body []byte) ([]byte, error) {
@@ -204,12 +211,14 @@ func (h *Handler) handleUpdateManagedRuleSetVersionExpiryDate(ctx context.Contex
 		return nil, fmt.Errorf("%w: ExpiryTimestamp is required", errInvalidRequest)
 	}
 
+	expiryTimestamp := int64(*req.ExpiryTimestamp)
+
 	ms, err := h.Backend.UpdateManagedRuleSetVersionExpiryDate(
 		ctx,
 		req.ID,
 		req.LockToken,
 		req.VersionToExpire,
-		req.ExpiryTimestamp,
+		&expiryTimestamp,
 	)
 	if err != nil {
 		return nil, err

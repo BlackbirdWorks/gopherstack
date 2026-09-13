@@ -69,7 +69,8 @@ families:
   ApplicationRevision: {status: ok, note: "FIXED this pass: real applicationRevisions store.Table (composite key appName+canonical-revision-JSON, byApplication index), wired into backendSnapshot as a 'clean' table (no live tags.Tags field). RegisterApplicationRevision persists; CreateDeployment auto-registers an unseen revision and stamps FirstUsedTime/LastUsedTime/DeploymentGroups (touchApplicationRevisionForDeployment); DeleteApplication cascades deletes (deleteApplicationRevisions), UpdateApplication rename moves revisions to the new app name (renameApplicationRevisions) -- no ghost rows in either case"}
   DeploymentTarget: {status: ok, note: "FIXED this pass: GetDeploymentTarget/ListDeploymentTargets/BatchGetDeploymentTargets/GetDeploymentInstance/ListDeploymentInstances/BatchGetDeploymentInstances all resolve from deploymentTargets(), a real (not fabricated) computation over the deployment's owning deployment group: matched on-premises instances (Server), one target per configured ECS service (ECS), or the single Lambda target (Lambda) real AWS always has exactly one of for that platform. Target Status is mapped from the deployment's own current Status via targetStatusForDeployment instead of a hardcoded literal. FIXED THIS PASS (previously the known limitation): Ec2TagFilters/Ec2TagSet now resolve against real services/ec2 instances via cross_service.go's lazy SetAppConfig wiring (same pattern as services/mgn), matching non-terminated EC2 instances whose TagsForResource tags satisfy the deployment group's targeting config (matchesEc2Targeting, mirroring matchesOnPremisesTargeting's Ec2TagSet-precedes-Ec2TagFilters rule). Falls back to zero EC2-side targets when the EC2 backend isn't wired (e.g. unit tests constructing InMemoryBackend directly) -- documented, not fabricated. CONFIRMED ACCURATE (6flj wrapper-key sweep): the real DeploymentTarget union's 5th member, cloudFormationTarget, is deliberately never modeled -- this backend has no CloudFormation blue/green stack-set integration anywhere, so it can never be populated honestly; the code's own doc comment already stated this, promoted into this manifest for visibility rather than left code-only."}
   cross-service: {status: fixed, note: "codedeploy now resolves the services/ec2 backend on demand via cross_service.go's siblingServices interface (GetEC2Handler), matched structurally against *CLI -- the same lazy SetAppConfig pattern services/mgn, services/grafana, and services/resiliencehub already use. *CLI already exposed GetEC2Handler() (cli.go:1134) for those services, so this needed zero cli.go changes: only provider.go gained one line (backend.SetAppConfig(ctx.Config)) and a new services/codedeploy/cross_service.go file."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "gopherstack-a250: ListApplications/ListDeploymentConfigs/ListGitHubAccountTokenNames had literal struct{} inputs discarding a real (optional) NextToken member each. Not wired: no List* op in this service ever truncates its response (confirmed across all 8), so there is no continuation state for NextToken to represent -- see the three ops' notes above. If this service ever adds real MaxResults-driven truncation to any List op, these three should be revisited together, not in isolation. RE-CONFIRMED (6flj wrapper-key sweep): the same inertness holds, unchanged, for the other 5 List ops this pass touched (ListApplicationRevisions/ListDeploymentGroups/ListDeploymentInstances/ListDeploymentTargets/ListOnPremisesInstances) plus ListTagsForResource -- an accurate, still-current prior note, not argued-away."
   - "gopherstack-6flj: ApplicationInfo (GetApplication/BatchGetApplications) never emits gitHubAccountName/linkedToGitHub -- both real (deserializers.go's awsAwsjson11_deserializeDocumentApplicationInfo). Not fixed: CreateApplicationInput/UpdateApplicationInput have no member to ever set either (this is legacy console-driven GitHub OAuth linking with no public request parameter), so this backend can never produce anything but the Go zero value for either. Since omitempty suppresses a zero-value field identically whether or not the struct field exists, adding it would be a pure source change with zero wire-byte effect -- disclosed rather than added as dead code."
   - "gopherstack-6flj: InstanceSummary/InstanceTarget/ECSTarget/LambdaTarget (GetDeploymentInstance/GetDeploymentTarget/BatchGet* siblings) never emit lifecycleEvents (real on all four types); ECSTarget also never emits taskSetsInfo, LambdaTarget also never emits lambdaFunctionInfo. Not fixed: PutLifecycleEventHookExecutionStatus is a pure echo (validates the deployment exists, stores nothing), so this backend has zero real per-target lifecycle-hook-execution state ever, for any target type; same story for ECS task-set orchestration and Lambda alias-shift data -- neither is modeled anywhere. Same zero-wire-effect reasoning as the ApplicationInfo gap above -- disclosed, not added as dead code."
@@ -81,6 +82,28 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; Reset/Snap
 ---
 
 ## Notes
+
+- **2026-09-12 (typed coverage slice 29, gopherstack-n3zi)**: added
+  `typed_slice29_realclient_test.go`, driving the 22 previously
+  typed-client-uncovered ops (BatchGetApplications, BatchGet/List
+  DeploymentInstances/Targets, BatchGetDeployments, ContinueDeployment,
+  Delete{DeploymentConfig,DeploymentGroup,ResourcesByExternalId},
+  DeregisterOnPremisesInstance, ListApplicationRevisions,
+  ListDeploymentConfigs, ListDeploymentGroups, ListGitHubAccountTokenNames,
+  ListOnPremisesInstances, PutLifecycleEventHookExecutionStatus,
+  RemoveTagsFromOnPremisesInstances, SkipWaitTimeForInstanceTermination,
+  UntagResource, UpdateApplication, UpdateDeploymentGroup) through the real
+  `aws-sdk-go-v2` client. Zero real wire bugs found — consistent with this
+  service's existing A-grade, heavily pre-audited history (6flj wrapper-key
+  sweep, 3pz8 error-code triage, a250 pagination triage all predate this
+  slice and already covered this surface's wire shapes). codedeploy: 25/47
+  -> 47/47 typed-client covered. Three of the newly-covered ops
+  (BatchGetDeploymentInstances, ListDeploymentInstances,
+  SkipWaitTimeForInstanceTermination) are AWS-deprecated in favor of their
+  Target-suffixed/ContinueDeployment replacements; `.golangci.yml` gained a
+  per-file staticcheck exclusion for the expected SA1019s, following this
+  repo's existing iotanalytics/opsworks/mediapackage precedent rather than
+  per-line nolints.
 
 - **Protocol**: awsjson1.1, single POST endpoint, `X-Amz-Target: CodeDeploy_20141006.<Op>`
   dispatch via `RouteMatcher`/`ExtractOperation` in handler.go. Verified every op in

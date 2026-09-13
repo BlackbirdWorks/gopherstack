@@ -61,9 +61,7 @@ func (h *Handler) handleGetCustomVerificationEmailTemplate(vals url.Values, reqI
 	return &getCustomVerificationEmailTemplateResponse{
 		Xmlns:     sesXMLNS,
 		RequestID: reqID,
-		Result: getCustomVerificationEmailTemplateResult{
-			Template: xmlCustomVerifTemplate(tmpl),
-		},
+		Result:    getCustomVerificationEmailTemplateResult(xmlCustomVerifTemplate(tmpl)),
 	}, nil
 }
 
@@ -100,9 +98,15 @@ type xmlCustomVerifTemplate struct {
 	FailureRedirectionURL string `xml:"FailureRedirectionURL,omitempty"`
 }
 
-type getCustomVerificationEmailTemplateResult struct {
-	Template xmlCustomVerifTemplate `xml:"CustomVerificationEmailTemplate"`
-}
+// getCustomVerificationEmailTemplateResult is flat, unlike its List/xmlCustomVerifTemplate
+// sibling -- the real GetCustomVerificationEmailTemplateOutput has no
+// CustomVerificationEmailTemplate wrapper element; its fields decode directly
+// under GetCustomVerificationEmailTemplateResult (ses@v1.37.4 deserializers.go:
+// awsAwsquery_deserializeOpDocumentGetCustomVerificationEmailTemplateOutput,
+// case labels FromEmailAddress/TemplateSubject/etc. with no parent wrapper
+// case). Wrapping it, as this handler previously did, decoded every field to
+// empty on a real client regardless of backend state.
+type getCustomVerificationEmailTemplateResult xmlCustomVerifTemplate
 
 type getCustomVerificationEmailTemplateResponse struct {
 	XMLName   xml.Name                                 `xml:"GetCustomVerificationEmailTemplateResponse"`

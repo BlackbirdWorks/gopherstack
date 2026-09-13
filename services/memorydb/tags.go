@@ -9,7 +9,7 @@ import (
 
 // ListTags returns the tags for a resource identified by ARN.
 func (b *InMemoryBackend) ListTags(_ context.Context, resourceArn string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTags")
 	defer b.mu.RUnlock()
 
 	region, ref, ok := b.findARN(resourceArn)
@@ -24,7 +24,7 @@ func (b *InMemoryBackend) ListTags(_ context.Context, resourceArn string) (map[s
 
 // TagResource adds or updates tags on a resource.
 func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("TagResource")
 	defer b.mu.Unlock()
 
 	region, ref, ok := b.findARN(resourceArn)
@@ -58,7 +58,7 @@ func (b *InMemoryBackend) TagResource(_ context.Context, resourceArn string, tag
 
 // UntagResource removes tags from a resource.
 func (b *InMemoryBackend) UntagResource(_ context.Context, resourceArn string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("UntagResource")
 	defer b.mu.Unlock()
 
 	region, ref, ok := b.findARN(resourceArn)
@@ -131,7 +131,7 @@ type TaggedEntry struct {
 // subnet groups, users, parameter groups, snapshots, multi-region clusters), across all regions,
 // that currently has at least one tag applied via TagResource.
 func (b *InMemoryBackend) TaggedResources() []TaggedEntry {
-	b.mu.RLock()
+	b.mu.RLock("TaggedResources")
 	defer b.mu.RUnlock()
 
 	out := make([]TaggedEntry, 0, len(b.arnToResource))

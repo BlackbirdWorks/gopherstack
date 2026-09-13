@@ -49,7 +49,11 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
 		v, err := strconv.Atoi(rawBR)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid BackupRetentionPeriod %q", ErrInvalidParameter, rawBR)
+			return nil, fmt.Errorf(
+				"%w: invalid BackupRetentionPeriod %q",
+				ErrInvalidParameter,
+				rawBR,
+			)
 		}
 
 		if v < minClusterBackupRetention || v > maxClusterBackupRetention {
@@ -63,25 +67,31 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	}
 
 	clusterOpts := DBClusterOptions{
-		EngineVersion:                vals.Get("EngineVersion"),
-		KmsKeyID:                     vals.Get("KmsKeyId"),
-		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
-		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
-		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
-		StorageType:                  vals.Get("StorageType"),
-		NetworkType:                  vals.Get("NetworkType"),
-		EngineLifecycleSupport:       vals.Get("EngineLifecycleSupport"),
-		ReplicationSourceIdentifier:  vals.Get("ReplicationSourceIdentifier"),
-		EnabledCloudwatchLogsExports: parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member"),
-		AvailabilityZones:            parseMultiValueParam(vals, "AvailabilityZones.AvailabilityZone"),
-		BacktrackWindow:              backtrackWindow,
-		BackupRetentionPeriod:        backupRetention,
-		MonitoringInterval:           monitoringInterval,
-		MultiAZ:                      vals.Get("MultiAZ") == formTrue,
-		StorageEncrypted:             vals.Get("StorageEncrypted") == formTrue,
-		CopyTagsToSnapshot:           vals.Get("CopyTagsToSnapshot") == formTrue,
-		DeletionProtection:           vals.Get("DeletionProtection") == formTrue,
-		OptimizedWrites:              vals.Get("EnableOptimizedWrites") == formTrue,
+		EngineVersion:               vals.Get("EngineVersion"),
+		KmsKeyID:                    vals.Get("KmsKeyId"),
+		PreferredBackupWindow:       vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:  vals.Get("PreferredMaintenanceWindow"),
+		MonitoringRoleArn:           vals.Get("MonitoringRoleArn"),
+		StorageType:                 vals.Get("StorageType"),
+		NetworkType:                 vals.Get("NetworkType"),
+		EngineLifecycleSupport:      vals.Get("EngineLifecycleSupport"),
+		ReplicationSourceIdentifier: vals.Get("ReplicationSourceIdentifier"),
+		EnabledCloudwatchLogsExports: parseMultiValueParam(
+			vals,
+			"EnableCloudwatchLogsExports.member",
+		),
+		AvailabilityZones: parseMultiValueParam(
+			vals,
+			"AvailabilityZones.AvailabilityZone",
+		),
+		BacktrackWindow:       backtrackWindow,
+		BackupRetentionPeriod: backupRetention,
+		MonitoringInterval:    monitoringInterval,
+		MultiAZ:               vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:      vals.Get("StorageEncrypted") == formTrue,
+		CopyTagsToSnapshot:    vals.Get("CopyTagsToSnapshot") == formTrue,
+		DeletionProtection:    vals.Get("DeletionProtection") == formTrue,
+		OptimizedWrites:       vals.Get("EnableOptimizedWrites") == formTrue,
 	}
 
 	cluster, err := h.Backend.CreateDBCluster(
@@ -101,8 +111,11 @@ func (h *Handler) handleCreateDBCluster(vals url.Values) (any, error) {
 	h.applyCreateTags(vals, cluster.DBClusterArn)
 
 	return &createDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -145,8 +158,11 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &deleteDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -168,9 +184,17 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		}
 	}
 
+	backupRetentionPeriod := 0
+	if rawBR := vals.Get("BackupRetentionPeriod"); rawBR != "" {
+		if v, err := strconv.Atoi(rawBR); err == nil {
+			backupRetentionPeriod = v
+		}
+	}
+
 	storageEncryptedRaw := vals.Get("StorageEncrypted")
 	opts := DBClusterOptions{
 		EngineVersion:              vals.Get("EngineVersion"),
+		BackupRetentionPeriod:      backupRetentionPeriod,
 		KmsKeyID:                   vals.Get("KmsKeyId"),
 		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
 		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
@@ -199,8 +223,11 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &modifyDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -212,8 +239,11 @@ func (h *Handler) handleStartDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &startDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -225,8 +255,11 @@ func (h *Handler) handleStopDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &stopDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -240,8 +273,11 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 	}
 
 	return &restoreDBClusterFromSnapshotResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -254,8 +290,11 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, err
 	}
 
 	return &restoreDBClusterToPointInTimeResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -567,18 +606,12 @@ func (h *Handler) handleBacktrackDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &backtrackDBClusterResponse{
-		Xmlns:              rdsXMLNS,
-		DBClusterBacktrack: toXMLDBClusterBacktrack(bt),
-	}, nil
-}
-
-func toXMLDBClusterBacktrack(bt *DBClusterBacktrack) xmlDBClusterBacktrack {
-	return xmlDBClusterBacktrack{
+		Xmlns:               rdsXMLNS,
 		DBClusterIdentifier: bt.DBClusterIdentifier,
 		BacktrackIdentifier: bt.BacktrackIdentifier,
 		BacktrackTo:         bt.BacktrackTo,
 		Status:              bt.Status,
-	}
+	}, nil
 }
 
 type addRoleToDBClusterResponse struct {
@@ -593,10 +626,18 @@ type xmlDBClusterBacktrack struct {
 	Status              string `xml:"Status"`
 }
 
+// backtrackDBClusterResponse is flat under BacktrackDBClusterResult -- unlike
+// DescribeDBClusterBacktracks' list items, the real BacktrackDBClusterOutput
+// has no inner <DBClusterBacktrack> wrapper element (rds@v1.124.1
+// deserializers.go:58174 awsAwsquery_deserializeOpDocumentBacktrackDBClusterOutput
+// decodes fields directly off BacktrackDBClusterResult).
 type backtrackDBClusterResponse struct {
-	XMLName            xml.Name              `xml:"BacktrackDBClusterResponse"`
-	Xmlns              string                `xml:"xmlns,attr"`
-	DBClusterBacktrack xmlDBClusterBacktrack `xml:"BacktrackDBClusterResult>DBClusterBacktrack"`
+	XMLName             xml.Name `xml:"BacktrackDBClusterResponse"`
+	Xmlns               string   `xml:"xmlns,attr"`
+	DBClusterIdentifier string   `xml:"BacktrackDBClusterResult>DBClusterIdentifier"`
+	BacktrackIdentifier string   `xml:"BacktrackDBClusterResult>BacktrackIdentifier"`
+	BacktrackTo         string   `xml:"BacktrackDBClusterResult>BacktrackTo,omitempty"`
+	Status              string   `xml:"BacktrackDBClusterResult>Status"`
 }
 
 func (h *Handler) handleRemoveRoleFromDBCluster(vals url.Values) (any, error) {
@@ -625,8 +666,11 @@ func (h *Handler) handleFailoverDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &failoverDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -638,8 +682,11 @@ func (h *Handler) handleRebootDBCluster(vals url.Values) (any, error) {
 	}
 
 	return &rebootDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -695,14 +742,21 @@ func (h *Handler) handlePromoteReadReplicaDBCluster(vals url.Values) (any, error
 	}
 
 	return &promoteReadReplicaDBClusterResponse{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
 func (h *Handler) handleDescribeDBClusterBacktracks(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	backtracks, err := h.Backend.DescribeDBClusterBacktracks(clusterID)
+	if err != nil {
+		return nil, err
+	}
+	backtracks, err = applyDBClusterBacktrackFilters(vals, backtracks)
 	if err != nil {
 		return nil, err
 	}
@@ -764,8 +818,11 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	}
 
 	return &restoreDBClusterFromS3Response{
-		Xmlns:     rdsXMLNS,
-		DBCluster: toXMLCluster(cluster, h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier)),
+		Xmlns: rdsXMLNS,
+		DBCluster: toXMLCluster(
+			cluster,
+			h.Backend.ClusterAssociatedRoles(cluster.DBClusterIdentifier),
+		),
 	}, nil
 }
 
@@ -786,7 +843,11 @@ func toXMLClusterBackup(b *DBClusterAutomatedBackup) xmlDBClusterAutomatedBackup
 // In the in-memory backend there is no real replication, so this records a
 // timed failover event on the backend for observability and automatically
 // clears it after the given duration (if non-zero) or on ctx cancellation.
-func (h *Handler) fisFailoverDBClusters(ctx context.Context, targets []string, dur time.Duration) error {
+func (h *Handler) fisFailoverDBClusters(
+	ctx context.Context,
+	targets []string,
+	dur time.Duration,
+) error {
 	var expiry time.Time
 	if dur > 0 {
 		expiry = time.Now().Add(dur)

@@ -90,7 +90,8 @@ families:
   operations: {status: ok, note: "3 ops, operations.go. Genuinely real: every mutating op creates a Started (never synchronously-fabricated-terminal) Operation and schedules a real async transition to Succeeded via pkgs/worker, following services/eks/services/grafana's established timer pattern. The Succeeded-vs-Completed per-op split this SDK leaves undocumented is resolved by a single, disclosed, UNCONFIRMED convention (always Succeeded) rather than a guessed per-op mapping."}
   gui_sessions: {status: ok, note: "3 ops, tagging_vpc_misc.go. Real SettingUp->Ready timer-driven state walk per instance, real Stop/restart bookkeeping."}
   misc: {status: partial, note: "2 ops, tagging_vpc_misc.go. GetActiveNames is fully real (backed directly by the activeNames global-uniqueness index every other family maintains). GetCostEstimate (tagging_vpc_misc.go:729) deliberately returns a real, well-formed, EMPTY cost-estimate response after existence validation -- a real cost estimate needs real usage-based billing logic this emulator has no grounds to fabricate, disclosed at the call site."}
-gaps:
+gaps: []
+items_still_open:
   - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
     the cloudwatchlogs/memorydb bug class (an identifier/storage key built from the backend's
     fixed default region instead of the request's) against this service. Confirmed CLEAN, and by
@@ -135,6 +136,10 @@ gaps:
   - "No ListTagsForResource op exists in this 161-op surface (confirmed unchanged); TagResource/UntagResource resolve by ResourceName, matching the original audit's spec exactly, implemented in tagging_vpc_misc.go."
   - "Container services are explicitly, disclosedly state-machine bookkeeping only -- no image is ever pulled or run via pkgs/container (containers.go's own file header states this as a scope decision, not a silent gap), matching the 'legitimate, honestly-labeled MVP' option the pre-implementation audit explicitly allowed for."
   - "EnableAddOn's AutoSnapshot add-on seeds exactly one AutoSnapshotDetails entry at enable time (addons.go) but runs no ongoing scheduled daily-snapshot cadence afterward -- a minor, real scope limitation this re-audit found that is not disclosed at its own call site (unlike nearly everything else in this package)."
+  - "2026-09-12 (reqfielddiff slice 4): CreateRelationalDatabaseFromSnapshotInput's RestoreTime/UseLatestRestorableTime/SourceRelationalDatabaseName trio (the point-in-time-restore-from-a-live-source-database path, distinct from restoring by RelationalDatabaseSnapshotName) is decoded nowhere and CreateRelationalDatabaseFromSnapshot's backend signature has no parameters for it -- this backend only models restore-from-a-named-snapshot, never restore-from-a-source-database's automated backups at a point in time, so there is no state UseLatestRestorableTime could meaningfully toggle without inventing an entire automated-backup-timeline feature. Not fabricated."
+  - "2026-09-12 (reqfielddiff slice 4): GetBucketsInput.IncludeCors is decoded nowhere -- Bucket (models.go) has no CORS-configuration field at all, and neither does UpdateBucket's own request struct (its own AccessRules/Cors/Versioning are the same class of gap, tier-5 in the same sweep). No bucket op in this backend models CORS in either direction; adding a read-only IncludeCors toggle with nothing behind it to include would be fabrication."
+  - "2026-09-12 (reqfielddiff slice 4): GetRelationalDatabaseLogEventsInput.StartFromHead is decoded nowhere. Structurally unobservable, not merely undisclosed: GetRelationalDatabaseLogEvents (databases.go) deliberately always returns an EMPTY log-event page (documented at its own doc comment -- no real MySQL server runs here to produce genuine log lines, and fabricating plausible-looking log text would violate parity-principles.md exactly like the metric-data ops). An ordering flag has no effect on an empty list, so honoring it costs nothing (an empty page is the same reversed), but does not represent a fix over the existing intentional design."
+  - "2026-09-12 (reqfielddiff slice 4): UpdateRelationalDatabaseInput.ApplyImmediately is decoded nowhere. Real AWS defers some modifications to the next preferred maintenance window when false; this backend has no pending-modifications queue or maintenance-window scheduler -- every UpdateRelationalDatabase change (databases.go) already applies synchronously and immediately regardless of this flag. Modeling the true deferred-apply semantics would require building an entire maintenance-window state machine this backend does not have; not fabricated."
 deferred:
   - "A full per-op {wire, errors, state, persist} grid (161 rows) was not written into this frontmatter, in favor of per-family status plus explicit per-op call-outs within each family's note above -- with 28 families already enumerating all 161 ops individually in the body's section 3 tables (left unmodified as ground truth), a second 161-row restatement here would duplicate rather than add information. Any future audit needing finer grain than family-level should start from the body's existing per-op tables plus this frontmatter's per-family notes, not re-derive from scratch."
   - "Whether real EC2/ELB/RDS state should eventually back Instance/LoadBalancer/RelationalDatabase (PARITY.md 5.2's architectural question) remains unresolved -- this implementation chose independent modeling (matching the original audit's own recommendation), not revisited by this pass."
@@ -1340,13 +1345,21 @@ unexported handler: `AllocateStaticIp`, `AttachLoadBalancerTlsCertificate`, `Att
 
 Verified directly rather than assumed: ran the unpatched tool from
 `ef0eef041~1` five times and diffed against the fixed tool at HEAD, for
-both `cmd/reqfieldscan` and `cmd/reqfielddiff`. Both were byte-identical
-across all 5 old runs and HEAD (161 SDK operations compared) -- the
-determinism defect never flipped a finding here, because the resolution
-that actually mattered (this package's dispatch-table union) already
-carried the correct field set regardless of which fold candidate won.
+both `cmd/reqfieldscan` and `cmd/reqfielddiff` (161 SDK operations
+compared). Not literally byte-identical: the summary line's raw
+declared-field count flickered between 1244 and 1250 across the pre-fix
+runs -- a package-wide count unrelated to any specific finding, the same
+benign class already documented for cleanrooms (see that service's
+`gopherstack-fr30` note). Three fields also shifted confidence tier
+between pre- and post-fix runs: `GetOperation.OperationId`,
+`SetupInstanceHttps.CertificateProvider`, and
+`SetupInstanceHttps.DomainNames`, all tier3 -> tier4. In every run, pre-
+and post-fix alike, all three stayed flagged undeclared -- the tier shift
+never flipped which ops/fields were reported, so re-running this
+comparison later should not be mistaken for a regression.
 
-Verdict: confirmed zero damage, not merely predicted.
+Verdict: the substantive finding is unchanged -- confirmed zero damage
+to what's reported, not a literally byte-identical tool run.
 
 ## 2026-09-06: StartInstance now reassigns the dynamic public IP (gopherstack-i2s6)
 
@@ -1370,3 +1383,118 @@ parameter (`Instance.PublicIPGeneration`, bumped each qualifying restart)
 folded into its hash input, so the address stays a pure, reproducible
 function of (name, generation) instead of drawing on `time.Now` or
 `crypto/rand`.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestClient` from
+`sdk_roundtrip_helper_test.go`): one outer `t.Parallel()` test, 9 subtests
+(all also parallel) driving every one of this service's 29
+typed-client-uncovered ops (per `cmd/clientcoverage`) — instance public
+ports/snapshots/metrics/add-ons, instance setup/metadata/IP-type, key pair
+import, disks, load balancers, buckets, relational databases, container
+services, and distributions. Typed coverage: 132/161 -> 161/161
+(29 -> 0 uncovered).
+
+27 of 29 ops passed on the first correctly-shaped request. Two
+test-authoring corrections, not bugs: (1) `GetRelationalDatabaseLogEvents`
+validates `LogStreamName` against the seeded catalog
+(`seedRDSLogStreams`, databases.go) — a made-up stream name 400s; the real
+seeded names are `error/mysqld.log`/`slow-query/mysql-slow.log`. (2)
+`GetContainerLog`'s and `GetRelationalDatabaseLogEvents`' response structs
+tag their event-list field `,omitempty`, so an empty result omits the key
+entirely rather than sending `[]`, and a real client decodes the field as
+nil rather than a non-nil empty slice -- functionally identical for any
+real caller (ranging over a nil vs. empty slice behaves the same), so this
+is not treated as a bug; the test asserts `Empty` rather than `NotNil`.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/lightsail), `golangci-lint run --new-from-rev=HEAD` (0 issues).
+`cmd/paritylint` stays at 0 missing-items-still-open FAIL.
+`pkgs/persistence`'s `TestSnapshotVersionGuard` fails only on a
+concurrent sibling agent's in-progress `appsync` edit (confirmed via `git
+status` -- `services/appsync/{caching,models}.go` modified, not touched by
+this pass); no diff to `snapshot_inventory.json` for lightsail (no
+persisted-struct fields changed). No version bump.
+
+## reqfielddiff slice 4 (2026-09-12, bd gopherstack-xhu2t)
+
+Worked all 26 tier-1 findings from `cmd/reqfielddiff -dir lightsail`. This
+service is awsjson1.1 (confirmed against pinned
+`aws-sdk-go-v2/service/lightsail@v1.58.4` -- no HTTP binding traits anywhere
+in `api_op_*.go`), so every field lives in the request body; there is no
+query-protocol blind spot here (gopherstack-99nj doesn't apply).
+
+**14 false positives**, all already declared and applied -- reqfielddiff's
+handler-resolution missed the decode site (this package uses one named
+request struct per op in `handler_*.go`, not a generic dispatch wrapper, so
+these are plain tool misses, not a new blind-spot shape):
+`AttachDisk.AutoMounting` (disks.go's `AttachDisk`, sets `AutoMountStatus`),
+`CreateContainerService.ServiceName`, `CreateDistribution.DefaultCacheBehavior`,
+`CreateDistribution.IpAddressType`, `CreateInstances.IpAddressType`,
+`CreateInstancesFromSnapshot.IpAddressType`, `CreateLoadBalancer.IpAddressType`,
+`DeleteRelationalDatabase.FinalRelationalDatabaseSnapshotName`,
+`DeleteRelationalDatabase.SkipFinalSnapshot`, `GetKeyPairs.IncludeDefaultKeyPair`,
+`GetRelationalDatabaseMasterUserPassword.PasswordVersion`,
+`UpdateDistribution.DefaultCacheBehavior`,
+`UpdateInstanceMetadataOptions.HttpEndpoint`,
+`UpdateInstanceMetadataOptions.HttpTokens`,
+`UpdateRelationalDatabase.PreferredMaintenanceWindow`.
+
+**7 dropped parameters fixed**:
+
+- `CreateRelationalDatabase.PreferredBackupWindow`/`.PreferredMaintenanceWindow`
+  -- decoded (`createRelationalDatabaseRequest`) but never forwarded to
+  `Backend.CreateRelationalDatabase`, which hardcoded its own defaults
+  regardless of caller input. Now forwarded; empty values still fall back to
+  the same defaults (`defaultPreferredBackupWindow`/`defaultPreferredMaintenanceWindow`,
+  consts.go). Observable via a follow-up `GetRelationalDatabase`.
+- `DeleteKeyPair.ExpectedFingerprint` -- decoded but never forwarded to
+  `Backend.DeleteKeyPair`. Now validated against the key pair's real
+  `Fingerprint`: a mismatch rejects the delete with `InvalidInputException`,
+  a match (or an absent fingerprint) proceeds.
+- `GetRelationalDatabaseEvents.DurationInMinutes` -- decoded but never
+  forwarded; the op returned every recorded event regardless of window.
+  Now filters to events within the last `durationInMinutes` (default 60,
+  `defaultEventDurationMinutes`), matching the documented default.
+- `PutAlarm.NotificationEnabled` -- was a plain `bool` in the decode struct,
+  so an omitted field silently stored `false` and overwrote it
+  unconditionally, contradicting the documented default ("enabled by
+  default if you don't specify this parameter"). Changed to `*bool`;
+  `nil` now defaults to `true`, an explicit `false` is still honored.
+- `PutAlarm.TreatMissingData` -- same class of bug: an omitted field stored
+  Go's zero value (`""`) instead of the documented default `"missing"`
+  (`treatMissingDataDefault`, matching `types.TreatMissingDataMissing`).
+- `UpdateDistribution.UseDefaultCertificate` -- decoded but never forwarded;
+  now clears the distribution's `CertificateName` when true, detaching a
+  previously attached custom certificate.
+
+**4 recorded as real gaps** (see `items_still_open`):
+`CreateRelationalDatabaseFromSnapshot.UseLatestRestorableTime` (the entire
+point-in-time-restore-from-a-source-database path isn't modeled, only
+restore-by-snapshot-name), `GetBuckets.IncludeCors` (no CORS state on
+buckets at all), `GetRelationalDatabaseLogEvents.StartFromHead` (log events
+are deliberately always empty, per this backend's own documented
+anti-fabrication design -- an ordering flag has nothing to order),
+`UpdateRelationalDatabase.ApplyImmediately` (no maintenance-window
+deferral queue -- every update already applies immediately).
+
+Proof: `reqfield_slice4_realclient_test.go`, driving the real
+`aws-sdk-go-v2/service/lightsail` typed client (`newTestClient`, shared
+with `typed_slice33_realclient_test.go`) for 4 of the 5 table cases. The
+`GetRelationalDatabaseEvents.DurationInMinutes` case additionally uses a
+real `Backend.Snapshot`/`Backend.Restore` round trip (the same production
+persistence path, not a test-only shim) to backdate one recorded event's
+timestamp by two hours, since there is no fake clock to advance real
+wall-clock minutes inside a unit test; the actual op under test
+(`GetRelationalDatabaseEvents`) is still driven purely through the real SDK
+client, and the test asserts a 5-minute window excludes the backdated
+event while a 180-minute window includes both.
+
+Gates: `go build ./...`, `go vet ./services/lightsail/...`, `go test -race
+-count=1 ./services/lightsail/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/lightsail/...` (0 issues). No persisted-struct
+field changed, so no `snapshot_inventory.json` row and no version bump.
+`go build ./...`/`go vet ./...` at repo root currently fail, but only in
+`services/quicksight` (`GetDashboardEmbedURL` arity mismatch) -- confirmed
+via `git status` as a concurrent sibling agent's uncommitted in-progress
+edit (16 modified quicksight files), not touched by this pass.

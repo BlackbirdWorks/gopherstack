@@ -2,6 +2,25 @@ package glue
 
 import "context"
 
+// ResourceShareCreator seams glue's cross-account resource-policy grants into AWS RAM.
+// Real AWS RAM automatically creates a resource share of featureSet=CREATED_FROM_POLICY
+// when a resource-based policy on a RAM-shareable resource grants access to another
+// account (ram@v1.39.4 api_op_PromoteResourceShareCreatedFromPolicy.go doc: "When you
+// attach a resource-based policy to a resource, RAM automatically creates a resource
+// share..."). glue's PutResourcePolicy/DeleteResourcePolicy call this seam so that
+// behavior is real instead of RAM's CREATED_FROM_POLICY state machine being permanently
+// unreachable (gopherstack-kvyy). Nil when RAM isn't wired in (e.g. a bare glue backend
+// constructed by a test).
+type ResourceShareCreator interface {
+	// PutPolicyBasedShare creates or updates the CREATED_FROM_POLICY resource share for
+	// resourceARN, granting principals access via a managed permission covering actions.
+	PutPolicyBasedShare(resourceARN string, principals, actions []string) error
+	// DeletePolicyBasedShare removes the CREATED_FROM_POLICY resource share for
+	// resourceARN, e.g. when DeleteResourcePolicy runs or an updated policy grants no
+	// more cross-account principals.
+	DeletePolicyBasedShare(resourceARN string) error
+}
+
 // StorageBackend defines the interface for all Glue backend operations.
 // InMemoryBackend implements this interface; alternative backends (e.g. test
 // doubles) can implement it too, keeping the Handler backend-agnostic.
@@ -175,6 +194,9 @@ type StorageBackend interface {
 	UpdateDataQualityRuleset(name, ruleset, description string) error
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
+	StartDataQualityRulesetEvaluationRunWithOptions(
+		rulesetNames []string, opts DataQualityRunOptions,
+	) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
 	BatchGetDataQualityRulesetEvaluationRun(runIDs []string) ([]*DataQualityEvaluationRun, []string)
 	CancelDataQualityRulesetEvaluationRun(runID string) error
@@ -400,6 +422,9 @@ type StorageBackend interface {
 
 	// DataQuality recommendation runs.
 	StartDataQualityRuleRecommendationRun(s3Path string) (*DQRuleRecommendationRun, error)
+	StartDataQualityRuleRecommendationRunWithOptions(
+		s3Path string, opts DataQualityRunOptions,
+	) (*DQRuleRecommendationRun, error)
 	GetDataQualityRuleRecommendationRun(runID string) (*DQRuleRecommendationRun, error)
 	CancelDataQualityRuleRecommendationRun(runID string) error
 	ListDataQualityRuleRecommendationRuns() []*DQRuleRecommendationRun
@@ -435,12 +460,12 @@ type StorageBackend interface {
 	ModifyIntegration(identifier string) (*Integration, error)
 	CreateIntegrationResourceProperty(
 		resourceArn string,
-		sourceProps, targetProps map[string]string,
+		sourceProps, targetProps map[string]any,
 	) (*IntegrationResourceProperty, error)
 	GetIntegrationResourceProperty(resourceArn string) (*IntegrationResourceProperty, error)
 	UpdateIntegrationResourceProperty(
 		resourceArn string,
-		sourceProps, targetProps map[string]string,
+		sourceProps, targetProps map[string]any,
 	) (*IntegrationResourceProperty, error)
 	ListIntegrationResourceProperties() []*IntegrationResourceProperty
 	CreateIntegrationTableProperties(

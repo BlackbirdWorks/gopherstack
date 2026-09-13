@@ -216,6 +216,13 @@ func (h *Handler) handleSendCisSessionHealth(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
+// handleSendCisSessionTelemetry serves SendCisSessionTelemetry. Real
+// SendCisSessionTelemetryInput.messages is a JSON ARRAY of CisSessionMessage
+// (inspector2@v1.54.1 types/types.go:1251-1266: CisRuleDetails/RuleId/Status
+// per entry, confirmed against serializers.go:5719's object.Key("messages")
+// list serialization) -- decoding it into a map[string]any (an OBJECT) made
+// every real client's call fail json.Unmarshal outright ("cannot unmarshal
+// array into Go struct field"), not just silently drop the payload.
 func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 	body, err := httputils.ReadBody(c.Request())
 	if err != nil {
@@ -223,8 +230,8 @@ func (h *Handler) handleSendCisSessionTelemetry(c *echo.Context) error {
 	}
 
 	var req struct {
-		Messages  map[string]any `json:"messages"`
-		ScanJobID string         `json:"scanJobId"`
+		Messages  []map[string]any `json:"messages"`
+		ScanJobID string           `json:"scanJobId"`
 	}
 
 	if len(body) > 0 {
@@ -272,14 +279,16 @@ func (h *Handler) handleGetCisScanResultDetails(c *echo.Context) error {
 	}
 
 	var req struct {
-		ScanArn string `json:"scanArn"`
+		ScanArn          string `json:"scanArn"`
+		AccountID        string `json:"accountId"`
+		TargetResourceID string `json:"targetResourceId"`
 	}
 
 	if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
 		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
 	}
 
-	details, err := h.Backend.GetCisScanResultDetails(req.ScanArn)
+	details, err := h.Backend.GetCisScanResultDetails(req.ScanArn, req.AccountID, req.TargetResourceID)
 	if err != nil {
 		return h.mapError(c, err)
 	}

@@ -247,6 +247,17 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 
 	qualifier := c.Request().URL.Query().Get("Qualifier")
 
+	// X-Amz-Invocation-Type (aws-sdk-go-v2 lambda@v1.107.0 serializers.go
+	// awsRestjson1_serializeOpHttpBindingsInvokeWithResponseStreamInput) is a
+	// real, optional request header supporting RequestResponse (default) or
+	// DryRun -- a previous revision never read it, so a DryRun request from a
+	// real client always ran a full invocation anyway instead of validating
+	// only.
+	invType := InvocationTypeRequestResponse
+	if v := c.Request().Header.Get("X-Amz-Invocation-Type"); v == InvocationTypeDryRun {
+		invType = InvocationTypeDryRun
+	}
+
 	body, readErr := readBodyOrEmpty(c)
 	if readErr != nil {
 		return h.writeError(
@@ -263,10 +274,14 @@ func (h *Handler) handleInvokeWithResponseStream(c *echo.Context, name string) e
 
 	if qi, ok := h.Backend.(QualifierInvoker); ok && qualifier != "" {
 		result, _, _, statusCode, invokeErr = qi.InvokeFunctionWithQualifier(
-			ctx, name, qualifier, "", "", InvocationTypeRequestResponse, body,
+			ctx, name, qualifier, "", "", invType, body,
 		)
 	} else {
-		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, InvocationTypeRequestResponse, body)
+		result, statusCode, invokeErr = h.Backend.InvokeFunction(ctx, name, invType, body)
+	}
+
+	if statusCode == http.StatusNoContent {
+		return c.NoContent(http.StatusNoContent)
 	}
 
 	if invokeErr != nil {

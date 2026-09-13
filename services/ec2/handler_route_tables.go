@@ -155,10 +155,17 @@ func (h *Handler) handleCreateRouteTable(vals url.Values, reqID string) (any, er
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "route-table")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{rt.ID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRouteTableResponse{
 		Xmlns:      ec2XMLNS,
 		RequestID:  reqID,
-		RouteTable: toRouteTableItem(rt, nil),
+		RouteTable: toRouteTableItem(rt, tags),
 	}, nil
 }
 
@@ -181,7 +188,11 @@ func (h *Handler) handleDeleteRouteTable(vals url.Values, reqID string) (any, er
 
 func (h *Handler) handleDescribeRouteTables(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "RouteTableId")
-	rts := h.Backend.DescribeRouteTables(ids)
+
+	rts, err := h.Backend.DescribeRouteTables(ids)
+	if err != nil {
+		return nil, err
+	}
 
 	filters := parseEC2Filters(vals)
 	rts = applyRouteTableFilters(rts, filters, h.Backend)

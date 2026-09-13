@@ -158,8 +158,9 @@ func TestQuickSight_AssetBundleImportJob_Lifecycle(t *testing.T) {
 	h := newTestHandler(t)
 
 	startRec := doRequest(t, h, http.MethodPost, accountPath("/asset-bundle-import-jobs"), map[string]any{
-		"AssetBundleImportJobId": "job1",
-		"FailureAction":          "ROLLBACK",
+		"AssetBundleImportJobId":  "job1",
+		"FailureAction":           "ROLLBACK",
+		"AssetBundleImportSource": map[string]any{"Body": "dGVzdA=="},
 	})
 	require.Equal(t, http.StatusOK, startRec.Code)
 	assert.Equal(t, "job1", parseBody(t, startRec)["AssetBundleImportJobId"])
@@ -178,6 +179,66 @@ func TestQuickSight_AssetBundleImportJob_Lifecycle(t *testing.T) {
 	listRec := doRequest(t, h, http.MethodGet, accountPath("/asset-bundle-import-jobs"), nil)
 	require.Equal(t, http.StatusOK, listRec.Code)
 	assert.Len(t, parseBody(t, listRec)["AssetBundleImportJobSummaryList"].([]any), 1)
+}
+
+// TestQuickSight_AssetBundleImportJob_RequiresSource locks in
+// StartAssetBundleImportJobInput.AssetBundleImportSource (required,
+// api_op_StartAssetBundleImportJob.go): a request that omits it entirely
+// must be rejected, and either alternative (Body or S3Uri) must satisfy the
+// requirement. Before this fix the field was never read, so any request --
+// missing source included -- succeeded.
+func TestQuickSight_AssetBundleImportJob_RequiresSource(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body   map[string]any
+		name   string
+		wantOK bool
+	}{
+		{
+			name:   "source missing entirely",
+			body:   map[string]any{"AssetBundleImportJobId": "job-no-source", "FailureAction": "ROLLBACK"},
+			wantOK: false,
+		},
+		{
+			name: "body present",
+			body: map[string]any{
+				"AssetBundleImportJobId":  "job-body-source",
+				"AssetBundleImportSource": map[string]any{"Body": "dGVzdA=="},
+			},
+			wantOK: true,
+		},
+		{
+			name: "s3uri present",
+			body: map[string]any{
+				"AssetBundleImportJobId":  "job-s3-source",
+				"AssetBundleImportSource": map[string]any{"S3Uri": "s3://bucket/bundle.zip"},
+			},
+			wantOK: true,
+		},
+		{
+			name: "source object present but empty",
+			body: map[string]any{
+				"AssetBundleImportJobId":  "job-empty-source",
+				"AssetBundleImportSource": map[string]any{},
+			},
+			wantOK: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doRequest(t, h, http.MethodPost, accountPath("/asset-bundle-import-jobs"), tc.body)
+			if tc.wantOK {
+				assert.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code, "body: %s", rec.Body.String())
+			}
+		})
+	}
 }
 
 // ---- Dashboard snapshot job lifecycle and errors ----

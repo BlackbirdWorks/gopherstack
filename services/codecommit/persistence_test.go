@@ -89,6 +89,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	commit1, _, _, err := original.CreateCommit(
 		repo.RepositoryName, "main", "author", "author@example.com", "init", "",
 		[]codecommit.PutFileEntry{{FilePath: "README.md", FileMode: "NORMAL", FileContent: []byte("hello")}}, nil,
+		false,
 	)
 	require.NoError(t, err)
 
@@ -119,7 +120,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	prComment, err := original.PostCommentForPullRequest(pr.PullRequestID, repo.RepositoryName, "pr comment")
 	require.NoError(t, err)
-	require.NoError(t, original.PutCommentReaction(prComment.CommentID, "THUMBSUP"))
+	require.NoError(t, original.PutCommentReaction(
+		prComment.CommentID, "THUMBSUP", "arn:aws:iam::111122223333:user/bob",
+	))
 
 	commitComment, err := original.PostCommentForComparedCommit(
 		repo.RepositoryName, "", commit1.CommitID, "commit comment",

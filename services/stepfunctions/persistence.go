@@ -47,9 +47,12 @@ type executionSnapshot struct {
 	Output                 string          `json:"output,omitempty"`
 	Error                  string          `json:"error,omitempty"`
 	Cause                  string          `json:"cause,omitempty"`
+	MapRunArn              string          `json:"mapRunArn,omitempty"`
+	TraceHeader            string          `json:"traceHeader,omitempty"`
 	History                []*HistoryEvent `json:"history,omitempty"`
 	StartDate              float64         `json:"startDate"`
 	RedriveCount           int             `json:"redriveCount,omitempty"`
+	ItemCount              int             `json:"itemCount,omitempty"`
 }
 
 func executionSnapshotKey(v *executionSnapshot) string { return v.ExecutionArn }
@@ -137,8 +140,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 			Output:                 cp.Output,
 			Error:                  cp.Error,
 			Cause:                  cp.Cause,
+			MapRunArn:              cp.MapRunArn,
+			TraceHeader:            cp.TraceHeader,
 			StartDate:              cp.StartDate,
 			RedriveCount:           cp.RedriveCount,
+			ItemCount:              cp.ItemCount,
 		})
 	}
 
@@ -220,8 +226,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 			Output:                 dto.Output,
 			Error:                  dto.Error,
 			Cause:                  dto.Cause,
+			MapRunArn:              dto.MapRunArn,
+			TraceHeader:            dto.TraceHeader,
 			StartDate:              dto.StartDate,
 			RedriveCount:           dto.RedriveCount,
+			ItemCount:              dto.ItemCount,
 		})
 	}
 

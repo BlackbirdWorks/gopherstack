@@ -45,20 +45,18 @@ func (h *S3Handler) getObjectACL(
 
 	const ownerID = "gopherstack-mock-owner"
 
+	// stored holds the canned ACL name (e.g. "public-read") when
+	// PutObjectAcl was called with X-Amz-Acl rather than a full XML body.
+	// cannedACLGrants expands that into the real grant list AWS returns
+	// (same fix already applied to GetBucketAcl -- see acl_grants.go); this
+	// op previously always returned owner-only FULL_CONTROL regardless of
+	// the canned ACL actually stored, silently dropping e.g. public-read's
+	// AllUsers READ grant.
 	acp := AccessControlPolicy{
 		Xmlns: xmlNamespaceS3,
 		Owner: Owner{ID: ownerID, DisplayName: gopherstackName},
 		ACL: AccessControlList{
-			Grants: []Grant{
-				{
-					Grantee: Grantee{
-						XmlnsXsi: "http://www.w3.org/2001/XMLSchema-instance",
-						XsiType:  "CanonicalUser",
-						ID:       ownerID,
-					},
-					Permission: "FULL_CONTROL",
-				},
-			},
+			Grants: cannedACLGrants(stored, ownerID, gopherstackName),
 		},
 	}
 

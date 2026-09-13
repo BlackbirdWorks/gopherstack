@@ -24,6 +24,13 @@ func (b *InMemoryBackend) CreateEksAnywhereSubscription(
 	b.mu.Lock("CreateEksAnywhereSubscription")
 	defer b.mu.Unlock()
 
+	if n := b.subscriptions.Len(); n >= b.limits.anywhereSubscriptionsPerAcct {
+		return nil, resourceLimitExceededErr(
+			"EKS Anywhere Enterprise Subscriptions",
+			b.limits.anywhereSubscriptionsPerAcct,
+		)
+	}
+
 	id := stableID(name + strconv.FormatInt(time.Now().UnixNano(), 10))
 	subARN := arn.Build("eks", b.region, b.accountID, "eks-anywhere-subscription/"+id)
 
@@ -117,9 +124,13 @@ func (b *InMemoryBackend) ListEksAnywhereSubscriptions() []*AnywhereSubscription
 	return list
 }
 
-// UpdateEksAnywhereSubscription updates a subscription.
+// UpdateEksAnywhereSubscription updates a subscription's auto-renew setting.
+// autoRenew is the only member of the real UpdateEksAnywhereSubscriptionInput
+// (eks@v1.90.4 api_op_UpdateEksAnywhereSubscription.go) -- LicenseQuantity/
+// LicenseType exist only on CreateEksAnywhereSubscriptionInput and are not
+// settable through this op at all.
 func (b *InMemoryBackend) UpdateEksAnywhereSubscription(
-	id string, licenseQuantity *int32, licenseType string,
+	id string, autoRenew bool,
 ) (*AnywhereSubscription, error) {
 	b.mu.Lock("UpdateEksAnywhereSubscription")
 	defer b.mu.Unlock()
@@ -129,13 +140,7 @@ func (b *InMemoryBackend) UpdateEksAnywhereSubscription(
 		return nil, fmt.Errorf("%w: subscription %s not found", ErrNotFound, id)
 	}
 
-	if licenseQuantity != nil {
-		sub.LicenseQuantity = *licenseQuantity
-	}
-
-	if licenseType != "" {
-		sub.LicenseType = licenseType
-	}
+	sub.AutoRenew = autoRenew
 
 	cp := *sub
 

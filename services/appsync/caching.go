@@ -150,6 +150,10 @@ func (b *InMemoryBackend) UpdateAPICache(apiID string, cache *APICache) (*APICac
 		existing.APICachingBehavior = cache.APICachingBehavior
 	}
 
+	if cache.HealthMetricsConfig != "" {
+		existing.HealthMetricsConfig = cache.HealthMetricsConfig
+	}
+
 	cp := *existing
 
 	return &cp, nil

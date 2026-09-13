@@ -292,7 +292,11 @@ func TestSDK_RDS_DBClusterEndpoints(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateDBClusterEndpoint should succeed")
 	assert.Equal(t, endpointID, aws.ToString(createEpOut.DBClusterEndpointIdentifier))
-	assert.Equal(t, "READER", aws.ToString(createEpOut.EndpointType))
+	// Real RDS: EndpointType is always "CUSTOM" for this managed-endpoint
+	// family; the caller's READER/WRITER/ANY value comes back in
+	// CustomEndpointType (rds@v1.124.1 api_op_CreateDBClusterEndpoint.go).
+	assert.Equal(t, "CUSTOM", aws.ToString(createEpOut.EndpointType))
+	assert.Equal(t, "READER", aws.ToString(createEpOut.CustomEndpointType))
 
 	// DescribeDBClusterEndpoints
 	descEpOut, err := client.DescribeDBClusterEndpoints(ctx, &rdssdk.DescribeDBClusterEndpointsInput{

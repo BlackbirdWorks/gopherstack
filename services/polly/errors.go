@@ -7,9 +7,17 @@ var (
 	ErrLexiconNotFound = errors.New("LexiconNotFoundException")
 	// ErrTaskNotFound is returned when a requested synthesis task is absent.
 	ErrTaskNotFound = errors.New("SynthesisTaskNotFoundException")
-	// ErrValidation is returned when request parameters do not meet Polly constraints
-	// that AWS models as a generic/unlisted validation failure.
-	ErrValidation = errors.New("InvalidParameterValueException")
+	// ErrValidation is returned when request parameters do not meet Polly
+	// constraints that AWS models as a generic/unlisted validation failure.
+	// "InvalidParameterValueException" names no type anywhere in polly's
+	// pinned SDK module (polly@v1.60.4 types/errors.go); "ValidationException"
+	// is a real modeled type (used by StartSpeechSynthesisStream) but is
+	// UNCONFIRMED for the other operations that raise this sentinel -- none
+	// of PutLexicon/DescribeVoices/SynthesizeSpeech/ListSpeechSynthesisTasks/
+	// StartSpeechSynthesisTask/GetSpeechSynthesisTask declare ANY generic
+	// validation type in their own deserializeOpError, so this is the
+	// nearest real code, not a verified one (see PARITY.md).
+	ErrValidation = errors.New("ValidationException")
 	// ErrTextLengthExceeded is returned when Text exceeds the format-specific length limit.
 	ErrTextLengthExceeded = errors.New("TextLengthExceededException")
 	// ErrInvalidSampleRate is returned when SampleRate is not valid for the requested OutputFormat.
@@ -63,4 +71,16 @@ var (
 	// error switch, which only lists ServiceFailureException,
 	// ServiceQuotaExceededException, ThrottlingException, and ValidationException.
 	ErrStreamValidation = errors.New("ValidationException")
+	// ErrThrottling is returned when a request exceeds Polly's real per-second
+	// transaction-rate quota. Confirmed via
+	// aws-sdk-go-v2/service/polly@v1.60.4/deserializers.go: of all 10 ops,
+	// only StartSpeechSynthesisStream's awsRestjson1_deserializeOpError switch
+	// declares ThrottlingException -- see limits.go.
+	ErrThrottling = errors.New("ThrottlingException")
+	// ErrServiceQuotaExceeded is returned when a request exceeds a real Polly
+	// service quota that is not one of the more specific Max*/*SizeExceeded
+	// sentinels above. Confirmed via the same deserializer scan as
+	// ErrThrottling: only StartSpeechSynthesisStream declares
+	// ServiceQuotaExceededException -- see limits.go.
+	ErrServiceQuotaExceeded = errors.New("ServiceQuotaExceededException")
 )

@@ -116,7 +116,8 @@ families:
     note: "generic addCRUD-driven lifecycle (Create/Describe/List/Delete) shares the same describe()/list()/delete() backend paths already verified for the higher-traffic families; every family's required ARN-reference field is now FK-validated (see ops table); Delete* status-gated per family (see ops table). 2026-08-14 (gopherstack-dv4s): CORRECTED -- \"shares the same ... paths already verified\" was true for Describe but the claim never distinguished List, which AWS narrows and this emulator did not: listOutput() called the identical resourceOutput() Describe uses, so every op in this family leaked its full create-request body on List. Verified each real Summary type separately rather than by analogy (types.go): PredictorBacktestExportJobSummary/ForecastExportJobSummary/ExplainabilityExportSummary/WhatIfForecastExportSummary all declare only {Kind}Arn/{Kind}Name/Destination/Status/Message/CreationTime/LastModificationTime (WhatIfForecastExportSummary additionally WhatIfForecastArns) -- Format leaked on all four export-job kinds. WhatIfAnalysisSummary/WhatIfForecastSummary add only ForecastArn/WhatIfAnalysisArn respectively -- Tags leaked on both (every Create*Input in this family accepts Tags, no Summary type declares it). MonitorSummary adds ResourceArn, no Message field (unlike its siblings) -- Tags leaked. ExplainabilitySummary adds ResourceArn and ExplainabilityConfig -- EnableVisualization/EndDateTime/StartDateTime/Schema/DataSource leaked. Every op in this family now scoped via summaryOutput with its own per-kind summaryFields (see forecastOperations in handler.go)."
   ListOperations_Pagination: {status: ok, note: "malformed NextToken returns InvalidNextTokenException (page.ValidateToken wired into listOutput); not touched this pass"}
   Tags: {status: ok, note: "Tag/Untag/ListTagsForResource validate the ARN exists via arnIndex before mutating/reading tag state. 2026-09-06 (gopherstack-jrhh): TagResource now enforces the documented 50-tags-per-resource maximum -- see ops table."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - >-
     gopherstack-dv4s (found 2026-08-14): PredictorSummary's DatasetGroupArn,
     IsAutoPredictor and ReferencePredictorSummary, and ForecastSummary's
@@ -584,3 +585,22 @@ observable client-facing behavior to pin; a test asserting these codes are
 never returned would just restate the dispatch table already enforcing it.
 Gates: `golangci-lint run ./services/forecast/...` (0 issues),
 `go test -race ./services/forecast/...` (pass) -- no source changed.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering forecast's last four
+typed-client-uncovered ops: `TagResource`, `UntagResource`,
+`ResumeResource`, `DeleteResourceTree`. Creates a dataset group, tags and
+untags it (asserting via `ListTagsForResource`), stops and resumes it
+(asserting the `STATUS` field via `DescribeDatasetGroup` toggles
+`STOPPED`/`ACTIVE`), then deletes its resource tree and confirms a
+subsequent `DescribeDatasetGroup` errors. All four ops' real outputs are
+empty (`ResultMetadata` only), matching gopherstack's existing handlers.
+Zero bugs found.
+
+Typed-client coverage: 4/8 -> 8/8 (100%).
+
+Gates: `go build ./...`, `go vet ./services/forecast/...`, `go test -race
+-count=1 ./services/forecast/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/forecast/...` (0 issues). No persisted
+struct fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.

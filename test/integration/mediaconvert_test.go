@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
@@ -62,7 +61,7 @@ func TestIntegration_MediaConvert_QueueLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreateQueue should succeed")
 			require.NotNil(t, createOut.Queue)
 			assert.Equal(t, queueName, aws.ToString(createOut.Queue.Name))
-			assert.NotEmpty(t, aws.ToString((*string)(createOut.Queue.Arn)))
+			assert.NotEmpty(t, aws.ToString(createOut.Queue.Arn))
 
 			// Get queue.
 			getOut, err := client.GetQueue(ctx, &mediaconvertsdk.GetQueueInput{
@@ -134,7 +133,7 @@ func TestIntegration_MediaConvert_PresetLifecycle(t *testing.T) {
 			require.NoError(t, err, "CreatePreset should succeed")
 			require.NotNil(t, createOut.Preset)
 			assert.Equal(t, presetName, aws.ToString(createOut.Preset.Name))
-			assert.NotEmpty(t, aws.ToString((*string)(createOut.Preset.Arn)))
+			assert.NotEmpty(t, aws.ToString(createOut.Preset.Arn))
 
 			// Get preset.
 			getOut, err := client.GetPreset(ctx, &mediaconvertsdk.GetPresetInput{
@@ -393,8 +392,8 @@ func TestIntegration_MediaConvert_JobUserMetadata(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name string
 		meta map[string]string
+		name string
 	}{
 		{
 			name: "with_user_metadata",

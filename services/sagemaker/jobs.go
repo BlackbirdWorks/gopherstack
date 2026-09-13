@@ -57,6 +57,47 @@ type JobSecondaryStatusTransition struct {
 	StatusMessage string     `json:"StatusMessage,omitempty"`
 }
 
+// MarshalJSON emits StartTime/EndTime as AWS awsjson1.1 epoch-seconds
+// numbers rather than Go's default RFC3339 strings
+// (types.JobSecondaryStatusTransition, sagemaker@v1.263.2 types/types.go:
+// 12921-12940) -- every DescribeJob response carries at least one
+// transition (set at CreateJob), so without this a real client's decode
+// failed unconditionally.
+func (t JobSecondaryStatusTransition) MarshalJSON() ([]byte, error) {
+	type alias JobSecondaryStatusTransition
+
+	return json.Marshal(struct {
+		*alias
+		EndTime   *float64 `json:"EndTime,omitempty"`
+		StartTime float64  `json:"StartTime"`
+	}{
+		alias:     (*alias)(&t),
+		StartTime: epochSeconds(t.StartTime),
+		EndTime:   epochSecondsPtr(t.EndTime),
+	})
+}
+
+// UnmarshalJSON is the inverse of [JobSecondaryStatusTransition.MarshalJSON],
+// used by persistence.go's snapshot restore path.
+func (t *JobSecondaryStatusTransition) UnmarshalJSON(data []byte) error {
+	type alias JobSecondaryStatusTransition
+
+	aux := struct {
+		*alias
+		EndTime   *float64 `json:"EndTime,omitempty"`
+		StartTime float64  `json:"StartTime"`
+	}{alias: (*alias)(t)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	t.StartTime = timeFromEpochSeconds(aux.StartTime)
+	t.EndTime = timeFromEpochSecondsPtr(aux.EndTime)
+
+	return nil
+}
+
 // Job represents a SageMaker generic model-customization job.
 // JobConfigDocument is stored verbatim as the opaque JSON string the client
 // submitted — CreateJob only validates it conforms to a known

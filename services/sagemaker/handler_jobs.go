@@ -129,7 +129,33 @@ func (h *Handler) handleDescribeJob(ctx context.Context, body []byte) ([]byte, e
 		return nil, err
 	}
 
-	return json.Marshal(j)
+	return marshalJobResponse(j)
+}
+
+// marshalJobResponse renders j's wire response. DescribeJobOutput.Tags is
+// []types.Tag ({Key,Value} objects, api_op_DescribeJob.go:120), not the
+// {"k":"v",...} JSON object Job.MarshalJSON emits for its own persisted
+// representation -- a real client's decode failed outright whenever a job
+// had any tags at all. Round-trips through Job.MarshalJSON (for its
+// epoch-seconds time handling) then substitutes the Tags shape.
+func marshalJobResponse(j *Job) ([]byte, error) {
+	raw, err := json.Marshal(j)
+	if err != nil {
+		return nil, err
+	}
+
+	var resp map[string]any
+	if unmarshalErr := json.Unmarshal(raw, &resp); unmarshalErr != nil {
+		return nil, unmarshalErr
+	}
+
+	if len(j.Tags) > 0 {
+		resp["Tags"] = toTagObjects(j.Tags)
+	} else {
+		delete(resp, "Tags")
+	}
+
+	return json.Marshal(resp)
 }
 
 // deleteJobInput mirrors DeleteJobInput (api_op_DeleteJob.go:27-38): both

@@ -5,12 +5,13 @@ package dynamodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"sort"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -41,6 +42,10 @@ func (db *InMemoryDB) ExecuteTransaction(
 		)
 	}
 
+	if err := validateTransactStatementMix(input.TransactStatements); err != nil {
+		return nil, err
+	}
+
 	// Collect unique table names so we can snapshot them before execution.
 	tableNames := executeTransactionTableNames(input.TransactStatements)
 
@@ -49,30 +54,87 @@ func (db *InMemoryDB) ExecuteTransaction(
 
 	runner := &partiQLRunner{backend: db}
 	responses := make([]types.ItemResponse, len(input.TransactStatements))
-	tableRCU := make(map[string]float64)
-	tableWCU := make(map[string]float64)
 	returnCC := input.ReturnConsumedCapacity != "" &&
 		input.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
+	var consumedCapacity []types.ConsumedCapacity
+	if returnCC {
+		consumedCapacity = make([]types.ConsumedCapacity, len(input.TransactStatements))
+	}
+
 	for i, stmt := range input.TransactStatements {
-		resp, stmtStr, execErr := executeTransactionStatement(ctx, runner, stmt)
+		resp, stmtCC, execErr := executeTransactionStatement(
+			ctx, runner, stmt, input.ReturnConsumedCapacity,
+		)
 		if execErr != nil {
 			// Roll back all tables to their pre-transaction state.
 			db.restoreExecTxnSnapshots(ctx, tableNames, snapshots)
 
-			return nil, execErr
+			// AWS: "If any of the singleton INSERT, UPDATE, or DELETE operations
+			// return an error, the transactions are canceled with the
+			// TransactionCanceledException exception, and the cancellation
+			// reason code includes the errors from the individual singleton
+			// operations."
+			// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+			reasons := make([]CancellationReason, len(input.TransactStatements))
+			for j := range reasons {
+				reasons[j] = CancellationReason{Code: cancellationReasonNone}
+			}
+			reasons[i] = CancellationReason{
+				Code:    cancellationCodeForErr(execErr),
+				Message: execErr.Error(),
+			}
+
+			return nil, NewTransactionCanceledException(txCancelPrefix, reasons)
 		}
 		responses[i] = resp
 
-		if returnCC {
-			trackTransactCC(stmtStr, tableRCU, tableWCU)
+		if returnCC && stmtCC != nil {
+			consumedCapacity[i] = *stmtCC
 		}
 	}
 
 	return &dynamodb.ExecuteTransactionOutput{
 		Responses:        responses,
-		ConsumedCapacity: buildTransactionConsumedCapacity(tableRCU, tableWCU, returnCC),
+		ConsumedCapacity: consumedCapacity,
 	}, nil
+}
+
+// validateTransactStatementMix rejects an ExecuteTransaction whose statements
+// mix reads (SELECT) and writes (INSERT/UPDATE/DELETE). AWS: "The entire
+// transaction must consist of either read statements or write statements. You
+// can't mix both in one transaction. The EXISTS function is an exception."
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+func validateTransactStatementMix(stmts []types.ParameterizedStatement) error {
+	var hasRead, hasWrite bool
+
+	for _, s := range stmts {
+		stmt := ""
+		if s.Statement != nil {
+			stmt = *s.Statement
+		}
+
+		trimmed := strings.TrimSpace(stmt)
+
+		switch {
+		case partiqlExistsRe.MatchString(trimmed):
+			// EXISTS is the documented exception to the mixing rule.
+			continue
+		case partiqlStatementIsRead(trimmed):
+			hasRead = true
+		case partiqlStatementIsWrite(trimmed):
+			hasWrite = true
+		}
+	}
+
+	if hasRead && hasWrite {
+		return NewValidationException(
+			"The entire transaction must consist of either read statements or write " +
+				"statements. You can't mix both in one transaction",
+		)
+	}
+
+	return nil
 }
 
 // executeTransactionTableNames extracts sorted unique table names from transaction statements.
@@ -218,12 +280,19 @@ func restoreTxnTableStateLocked(t *Table, snap tableStateSnapshot) {
 }
 
 // executeTransactionStatement converts one ParameterizedStatement to wire format,
-// runs it, and returns the ItemResponse plus the statement string for CC tracking.
+// runs it against the real per-op backend method (PutItem/UpdateItem/DeleteItem/
+// Query/Scan, depending on statement type), and returns the ItemResponse plus
+// that op's own ConsumedCapacity -- one entry per statement, matching
+// ExecuteTransactionOutput.ConsumedCapacity's documented ordering ("ordered
+// according to the ordering of the statements", dynamodb SDK
+// api_op_ExecuteTransaction.go:59-61) and costing each statement identically
+// to the equivalent standalone call.
 func executeTransactionStatement(
 	ctx context.Context,
 	runner *partiQLRunner,
 	stmt types.ParameterizedStatement,
-) (types.ItemResponse, string, error) {
+	ccReq types.ReturnConsumedCapacity,
+) (types.ItemResponse, *types.ConsumedCapacity, error) {
 	stmtStr := ""
 	if stmt.Statement != nil {
 		stmtStr = *stmt.Statement
@@ -233,7 +302,7 @@ func executeTransactionStatement(
 	for _, p := range stmt.Parameters {
 		wire, ok := models.FromSDKAttributeValue(p).(map[string]any)
 		if !ok {
-			return types.ItemResponse{}, "", NewValidationException(
+			return types.ItemResponse{}, nil, NewValidationException(
 				"invalid parameter type in TransactStatement",
 			)
 		}
@@ -241,12 +310,23 @@ func executeTransactionStatement(
 		wireParams = append(wireParams, wire)
 	}
 
+	// EXISTS(SELECT ...) is a transaction-only condition check, analogous to
+	// ConditionCheck in TransactWriteItems: it never appears in a standalone
+	// ExecuteStatement/BatchExecuteStatement call. AWS: "The entire transaction
+	// must consist of either read statements or write statements. You can't
+	// mix both in one transaction. The EXISTS function is an exception."
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+	if partiqlExistsRe.MatchString(strings.TrimSpace(stmtStr)) {
+		return executeTransactionExists(ctx, runner, stmtStr, wireParams, ccReq)
+	}
+
 	out, err := runner.executeStatement(ctx, executeStatementRequest{
-		Statement:  stmtStr,
-		Parameters: wireParams,
+		Statement:              stmtStr,
+		Parameters:             wireParams,
+		ReturnConsumedCapacity: ccReq,
 	})
 	if err != nil {
-		return types.ItemResponse{}, "", err
+		return types.ItemResponse{}, nil, err
 	}
 
 	resp := types.ItemResponse{}
@@ -256,66 +336,94 @@ func executeTransactionStatement(
 		}
 	}
 
-	return resp, stmtStr, nil
+	return resp, out.ConsumedCapacity, nil
 }
 
-// trackTransactCC updates per-table RCU/WCU counters for a single statement.
-func trackTransactCC(stmtStr string, tableRCU, tableWCU map[string]float64) {
-	tbl := partiqlStmtTableName(stmtStr)
-	if tbl == "" {
-		return
+// partiqlExistsRe matches the EXISTS(...) transaction condition-check statement.
+var partiqlExistsRe = regexp.MustCompile(`(?i)^\s*EXISTS\s*\(`)
+
+// executeTransactionExists evaluates EXISTS(SELECT ...) as a read-only
+// condition check: it runs the inner SELECT and fails the statement (so the
+// enclosing transaction cancels) when it returns no items, without
+// contributing an Item to the transaction's Responses -- matching
+// ConditionCheck's no-return-value contract.
+func executeTransactionExists(
+	ctx context.Context,
+	runner *partiQLRunner,
+	stmtStr string,
+	params []map[string]any,
+	ccReq types.ReturnConsumedCapacity,
+) (types.ItemResponse, *types.ConsumedCapacity, error) {
+	inner, err := extractExistsInnerSelect(stmtStr)
+	if err != nil {
+		return types.ItemResponse{}, nil, err
 	}
 
-	if isWriteStmt(stmtStr) {
-		tableWCU[tbl]++
-	} else {
-		tableRCU[tbl]++
+	out, err := runner.executeStatement(ctx, executeStatementRequest{
+		Statement:              inner,
+		Parameters:             params,
+		ReturnConsumedCapacity: ccReq,
+	})
+	if err != nil {
+		return types.ItemResponse{}, nil, err
 	}
+
+	if len(out.Items) == 0 {
+		return types.ItemResponse{}, nil, NewConditionalCheckFailedException(
+			"The conditional request failed",
+		)
+	}
+
+	return types.ItemResponse{}, out.ConsumedCapacity, nil
 }
 
-// buildTransactionConsumedCapacity assembles the ConsumedCapacity slice from
-// per-table RCU/WCU accumulators. Returns nil when returnCC is false.
-func buildTransactionConsumedCapacity(
-	tableRCU, tableWCU map[string]float64,
-	returnCC bool,
-) []types.ConsumedCapacity {
-	if !returnCC {
-		return nil
+// extractExistsInnerSelect returns the SELECT statement inside
+// "EXISTS( ... )", respecting parentheses and quotes nested within string
+// literals in the WHERE clause.
+func extractExistsInnerSelect(stmt string) (string, error) {
+	trimmed := strings.TrimSpace(stmt)
+	if !partiqlExistsRe.MatchString(trimmed) {
+		return "", fmt.Errorf("%w: not an EXISTS statement", ErrInvalidStatement)
 	}
 
-	result := make([]types.ConsumedCapacity, 0, len(tableRCU)+len(tableWCU))
-	seen := make(map[string]bool, len(tableRCU))
-
-	for tbl, rcu := range tableRCU {
-		seen[tbl] = true
-		result = append(result, types.ConsumedCapacity{
-			TableName:          aws.String(tbl),
-			ReadCapacityUnits:  aws.Float64(rcu),
-			WriteCapacityUnits: aws.Float64(tableWCU[tbl]),
-		})
+	open := strings.IndexByte(trimmed, '(')
+	if open < 0 {
+		return "", fmt.Errorf("%w: EXISTS missing (", ErrInvalidStatement)
 	}
 
-	for tbl, wcu := range tableWCU {
-		if seen[tbl] {
+	depth := 0
+	for i := open; i < len(trimmed); {
+		switch trimmed[i] {
+		case '\'':
+			i = advancePastStringLiteral(trimmed, i)
+
 			continue
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(trimmed[open+1 : i]), nil
+			}
 		}
-		result = append(result, types.ConsumedCapacity{
-			TableName:          aws.String(tbl),
-			ReadCapacityUnits:  aws.Float64(0),
-			WriteCapacityUnits: aws.Float64(wcu),
-		})
+		i++
 	}
 
-	return result
+	return "", fmt.Errorf("%w: EXISTS missing closing )", ErrInvalidStatement)
 }
 
-// isWriteStmt reports whether a PartiQL statement is a write (INSERT/UPDATE/DELETE).
-func isWriteStmt(stmt string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(stmt))
+// cancellationCodeForErr maps an internal error to a DynamoDB CancellationReason
+// code for ExecuteTransaction. ConditionalCheckFailedException maps to
+// "ConditionalCheckFailed" (matching TransactWriteItems); everything else maps
+// to the generic "ValidationError" used elsewhere in this package for
+// expression/validation failures inside a transaction.
+func cancellationCodeForErr(err error) string {
+	var wireErr *Error
+	if errors.As(err, &wireErr) && strings.Contains(wireErr.Type, "ConditionalCheckFailedException") {
+		return "ConditionalCheckFailed"
+	}
 
-	return strings.HasPrefix(upper, "INSERT") ||
-		strings.HasPrefix(upper, "UPDATE") ||
-		strings.HasPrefix(upper, "DELETE")
+	return "ValidationError"
 }
 
 // partiqlStmtTableName extracts the table name from a PartiQL statement string.

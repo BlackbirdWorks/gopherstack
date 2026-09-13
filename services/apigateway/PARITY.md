@@ -239,7 +239,7 @@ ops:
   GetAccount: {wire: ok, errors: ok, state: ok, persist: ok}
   GetTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: limit/position (serializers.go:7117,7121) never read; left unfixed as a gap, not a bug, given tag maps per resource are small and bounded -- flagged for follow-up, not fabricated"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  UntagResource: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED (2026-09-12, gopherstack-n3zi slice 9, first typed-client coverage): the shared query-string-to-JSON-body merge in handleRESTAPI (handler.go) kept only the FIRST value of each repeated query parameter, but the real UntagResourceInput.TagKeys is bound as a REPEATED query parameter (encoder.AddQuery(\"tagKeys\") in a loop, apigateway@v1.42.4 serializers.go:9284), not a single scalar -- so a real client's ?tagKeys=a&tagKeys=b was collapsed to a single string \"a\" and injected as a bare JSON string, which then failed json.Unmarshal into the handler's []string field outright (\"cannot unmarshal string into Go struct field untagResourceInput.tagKeys of type []string\"). Every real UntagResource call failed unconditionally, regardless of how many keys were requested. Fixed with a new injectJSONArrayFieldAPIGW helper, special-cased on the \"tagKeys\" query key (mirroring the existing \"limit\" int special-case in injectJSONFieldAPIGW) to inject the full value list as a JSON array. Proven via TestTypedSlice9RealClient/tags (real aws-sdk-go-v2 client)."}
   TestInvokeMethod: {wire: ok, errors: ok, state: ok, persist: n/a}
   GetGatewayResponse: {wire: ok, errors: ok, state: ok, persist: ok}
   GetGatewayResponses: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-29 wrapper-key sweep: REQUEST direction verified. limit/position never read (fixed set of 12 default response types, so re-sorted by responseType only when paginating to satisfy cursor ordering)."}
@@ -264,7 +264,10 @@ families:
   proxy_invocation: {status: fixed, note: "proxy.go: MOCK/AWS/AWS_PROXY/HTTP/HTTP_PROXY dispatch, VTL passthrough (WHEN_NO_MATCH/WHEN_NO_TEMPLATES/NEVER), Lambda invoke via injected LambdaInvoker, usage-plan enforcement returns real 429 (LimitExceededException/TooManyRequestsException) via writeThrottleResponse — separate, already-correct code path from the control-plane handleError switch. 2026-09-04 (gopherstack-fum): FIXED -- handleProxyRequest never verified the URL's {stage} segment named a real deployed stage, so an undeployed RestApi (or any made-up stage name) still routed to and executed the configured integration; unmatched routes also returned a bare 404 instead of AWS's real 403 'Missing Authentication Token'. Both fixed (GetStage gate + writeMissingAuthenticationTokenResponse). Per-integration-type verdict: AWS_PROXY (Lambda proxy) wired and executing, event/response shape correct; AWS (Lambda, non-proxy, VTL) wired and executing; AWS (sqs SendMessage / sns Publish direct integration) FIXED 2026-09-06 (gopherstack-is2a) -- dispatches to the wired SQS/SNS hook via a simplified passthrough, see the dated note below and gaps; AWS (other non-Lambda service target, e.g. DynamoDB/Step Functions direct integration) STILL accepted at PutIntegration with no validation but NEVER executes -- see gaps; HTTP/HTTP_PROXY wired and executing (real outbound HTTP request); MOCK wired and executing; VPC_LINK is not a distinct Integration.Type (it's HTTP/HTTP_PROXY + connectionType=VPC_LINK) and is routed identically to a plain HTTP_PROXY request to integration.URI -- no real VPC/NLB emulation exists to route through, a structural simplification, not separately verified against connectionId. TOKEN/REQUEST/COGNITO_USER_POOLS authorizers and API-key/usage-plan enforcement confirmed wired and executing (unchanged this pass)."}
   authorizers_runtime: {status: ok, note: "TOKEN/REQUEST/COGNITO_USER_POOLS resolution + JWKS validation via injected JWKSProvider, TTL-bounded cache (bd gopherstack #1403 fixed prior unbounded growth)"}
   patch_semantics: {status: ok, note: "REWRITTEN this sweep — see Notes; was the single biggest gap in the service"}
-gaps:
+gaps: []
+items_still_open:
+  - "gopherstack-xhu2t slice 7 (2026-09-12): GetModel's Flatten (httpQuery, apigateway@v1.42.4 api_op_GetModel.go:41-43, doc: 'resolve all external model references and returns a flattened model schema') is not honored: this backend's Model.Schema is stored as an opaque raw JSON-schema string and there is no $ref resolver anywhere in the service to inline other models' schemas into it. Implementing this for real needs a JSON-pointer/$ref walker across a REST API's model set (with cycle detection), a genuinely new capability, not a wiring fix."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): ImportRestApi.FailOnWarnings and PutRestApi.FailOnWarnings (both httpQuery, serializers.go:7920-7922/8742-8744) are not honored: parseOpenAPI (import.go) either succeeds or returns a hard error, it never produces a partial-success-with-warnings result the way ImportApiKeys/ImportDocumentationParts's row-by-row validation does (both of which DO honor FailOnWarnings correctly, confirmed while checking this). Making OpenAPI import produce real per-field validation warnings (unsupported extensions, deprecated shapes, etc.) instead of all-or-nothing parsing is a substantial addition, not in scope here."
   - "PATCH 'remove' on bare top-level SCALAR fields is a no-op EXCEPT for the instances now fixed (RestApi./description, Authorizer./identitySource, DomainName./certificateArn + /regionalCertificateArn + /certificateName + /regionalCertificateName + /ownershipVerificationCertificateArn, and UsagePlan./productCode — all via *string Update*Input fields, verified against patch-operations.html as remove-supported paths on their resources' Update tables). Every OTHER Update*Input still uses a zero-value-means-not-provided check, so explicit remove still can't be distinguished from absence there. Audited against patch-operations.html's full per-resource table: almost every other top-level scalar (UpdateApiKey's customerId/description/enabled/name, UpdateAccount's cloudwatchRoleArn, UpdateStage's description/cacheCluster*/tracingEnabled/clientCertificateId, UpdateUsagePlan's name/description, UpdateModel's description/schema, UpdateRequestValidator's fields, UpdateResource's fields, UpdateVpcLink's fields, etc.) is documented replace-only with remove NOT supported, so no fix is needed there. Map/list-valued fields (variables, binaryMediaTypes, apiStages, responseParameters/Templates, methodSettings, stageKeys) support remove correctly because their merge goes through a full non-nil replacement value. (bd: gopherstack-vvsy, gopherstack-npq5)"
   - "FIXED (bd: gopherstack-vvsy): the multi-op-per-request PATCH clobbering bug (resource-specific resolvers re-deriving their starting map/struct from CURRENT BACKEND STATE instead of checking out[field] for what an earlier op in the SAME request already staged) is now fixed in all six resolvers that had it (applyStageVariablePatch, applyStageCanaryPatch, applyStageAccessLogPatch, applyRestAPIPatchOp's binaryMediaTypes case, applyAccountPatchOp, applyGatewayResponsePatchOp), via the same stagedValue[T] helper the prior sweep introduced. Verified by Test_ApplyStructuredPatch_MultiOpSameRequest (stage variables/canary/accessLog) plus Test_ApplyStructuredPatch_{RestAPIBinaryMediaTypesMultiOp,AccountThrottleMultiOp,GatewayResponseMultiOp} — each drives a real two-op PATCH request through the handler and asserts both ops land; each test was confirmed to fail against the pre-fix code (git-stashing patch.go alone) before the fix landed."
   - "FIXED (bd: gopherstack-vvsy): applyResourcePatchOp now has a case for opUpdateDomainName (applyDomainNamePatchOp), handling the nested paths \"/endpointConfiguration/types\" (add/remove), \"/endpointConfiguration/ipAddressType\" (replace), and \"/mutualTlsAuthentication/{truststoreUri,truststoreVersion}\" (add/replace/remove) — DomainName.MutualTLSAuthentication and EndpointConfiguration.IPAddressType are new fields added this follow-up. Verified by Test_ApplyStructuredPatch_DomainNameNestedPaths (four ops across two nested fields in one request, plus a remove). FIXED (bd: gopherstack-npq5, 2026-08-09): the remaining top-level scalars patch-operations.html's UpdateDomainName table documents — /certificateName, /regionalCertificateName, /ownershipVerificationCertificateArn (remove-supported, now *string on UpdateDomainNameInput) and /managementPolicy, /policy, /routingMode, /endpointAccessMode (replace-only, plain string) — are now DomainName/UpdateDomainNameInput fields; all seven route through the existing applyTopLevelPatchOp fallback, no new resolver needed. Verified against a live patch-operations.html fetch and aws-sdk-go-v2/service/apigateway@v1.42.4's deserializers.go for wire field names, and proven via real aws-sdk-go-v2 client integration tests (TestIntegration_APIGatewayAudit_UpdateDomainNameDocumentedFields). One item the tracking ticket listed under DomainName was found to actually belong to UpdateRestApi instead: /endpointConfiguration/vpcEndpointIds appears only in patch-operations.html's UpdateRestApi table, not UpdateDomainName's — left unmodeled here (UpdateRestApi doesn't handle nested endpointConfiguration paths at all yet; a RestApi-scoped gap, out of this fix's scope)."
@@ -1115,3 +1118,64 @@ verified.
 Gates: `gofmt -l services/apigateway/` clean; `GOTOOLCHAIN=go1.26.6 go build
 ./services/apigateway/...`, `go vet`, `go test -race -count=1`, and
 `golangci-lint run` all clean on `./services/apigateway/...`.
+
+## 2026-09-12 (gopherstack-n3zi slice 9 -- first typed-client coverage)
+
+apigateway: 59/124 (47.6%) -> 124/124 (100%) typed-covered (65 -> 0
+uncovered), 65 ops newly covered, `typed_slice9_realclient_test.go` added
+(one outer `t.Parallel()` test, 17 subtests covering every named priority
+family: REST API lifecycle (PutRestApi import + delete), resources/
+methods/method responses, integrations/integration responses, authorizers,
+deployments/stages (+update/flush-cache), models, request validators,
+gateway responses, usage plan keys, API keys, domain names + base path
+mappings, domain name access associations, VPC links, documentation
+(versions + parts + import), client certificates, SDK types, tags). **One
+real bug found and fixed** (see UntagResource op entry above): the shared
+query-string merge that feeds every REST-path op's JSON body kept only the
+first value of a repeated query parameter, breaking UntagResource's
+real, repeated `tagKeys` parameter outright for every real client
+regardless of key count -- previously undetected because no prior test
+drove UntagResource through the real HTTP query-string wire path (only
+through the JSON-RPC-shaped internal dispatch). Gates: `go build ./...`
+(whole module, clean), `go vet`, `golangci-lint run --new-from-rev=HEAD`
+(0 issues), `go test -race -count=1` (all pass). `pkgs/persistence`'s
+`TestSnapshotVersionGuard` clean (no persisted-struct fields changed). No
+version bump.
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+12 tier-1 findings reviewed. 2 fixed, 3 recorded as `items_still_open`, 7
+false positives (all httpQuery-param blind-spot or already-declared-elsewhere
+shapes — reqfielddiff only checks body-field declarations, and apigateway
+merges every query parameter into the dispatch body before decode, see
+`handleRESTAPI`'s `injectJSONFieldAPIGW`).
+
+- **Fixed**:
+  - `GetDomainNameAccessAssociations.Limit` (httpQuery, serializers.go:5224-5226):
+    now paginated via `paginatePageByKey` (keyed by ARN, matching the
+    already-sorted backend order), returning a real `Position` cursor.
+  - `GetSdkTypes.Limit` (httpQuery, serializers.go:6891-6893): now truncates
+    the fixed SDK type catalog. `GetSdkTypesOutput` has no `Position` field
+    at all (api_op_GetSdkTypes.go:41-49, `Items` only), so this is
+    Limit-only truncation with no continuation token to hand back.
+- **Recorded** (3 fields): `GetModel.Flatten` ($ref resolution, no resolver
+  exists), `ImportRestApi.FailOnWarnings`/`PutRestApi.FailOnWarnings` (OpenAPI
+  parsing never produces warnings to gate on) — see `items_still_open`.
+- **False positives** (7, all already correctly handled — no code change):
+  `GetTags.Limit`/`Position` are themselves documented "(Not currently
+  supported)" by the real SDK (api_op_GetTags.go:33-39), so ignoring them
+  IS the correct behavior, not a gap. `ImportDocumentationParts.FailOnWarnings`
+  and `.Mode`, and `PutRestApi.Mode`, are httpQuery params already read via
+  `dispatchRestAPISpec`'s `query.Get(...)` and threaded through to real,
+  tested backend logic (`ImportDocumentationParts`'s warning-rollback,
+  `PutRestAPI`'s merge/overwrite). `PutIntegration.CacheNamespace`/
+  `ConnectionType`/`TimeoutInMillis` are body fields already declared on
+  `PutIntegrationInput` (models.go:312-326) and applied in
+  `InMemoryBackend.PutIntegration` (integrations.go:27-45) — reqfielddiff
+  didn't resolve them because the decode struct embeds `PutIntegrationInput`
+  rather than naming it directly at the `json.Unmarshal` call site.
+
+Gates: `go build ./...`, `go vet ./services/apigateway/...`, `go test -race
+-count=1 ./services/apigateway/...`, `golangci-lint run --new-from-rev=HEAD
+./services/apigateway/...` — all clean. No persisted (`backendSnapshot`)
+fields changed, no `snapshot_inventory.json` rows needed, no version bump.

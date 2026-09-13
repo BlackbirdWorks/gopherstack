@@ -97,7 +97,8 @@ families:
   route-matcher: {status: ok, note: "verified every op's HTTP method + path prefix against aws-sdk-go-v2/service/s3tables@v1.14.3 serializers.go (49/49 ops); tableBucketARN path segments correctly URL-decoded as single segments via rawPathSegments (RawPath + url.PathUnescape per segment, not naive Split), so ARNs containing '/' and ':' route correctly"}
   timestamps: {status: ok, note: "createdAt/modifiedAt correctly use RFC3339 date-time strings (smithytime.ParseDateTime on the client side), NOT epoch-seconds -- restjson1 s3tables model uses date-time trait, unlike some other json services"}
   naming-rules: {status: ok, note: "FIXED this pass (gopherstack-spp4): CreateTableBucket/CreateNamespace/CreateTable now enforce real S3 Tables naming rules (validation.go), field-diffed against https://docs.aws.amazon.com/AmazonS3/latest/userguide/s3-tables-buckets-naming.html -- bucket names: 3-63 chars, lowercase+digits+hyphens only, must begin/end with letter or number, no underscore/period, reserved prefix denylist (xn--, sthree-, amzn-s3-demo-, aws) and reserved suffix denylist (-s3alias, --ol-s3, --x-s3, --table-s3); namespace/table names: 1-255 chars, lowercase+digits+underscores ONLY (no hyphens/periods), must begin with letter or number, namespace additionally rejects the reserved 'aws' prefix (table names do not have this restriction). Real error: BadRequestException (new ErrInvalidBucketName/ErrInvalidName sentinels), matching the exception type actually present in types/errors.go (there is no dedicated naming-violation exception). This was previously blocked on a test-fixture migration (~10+ files used hyphenated namespace/table names and underscore-containing bucket-name suffixes derived from t.Name()) -- that migration was done this pass rather than deferred again: every hyphenated namespace/table literal across handler_namespaces_test.go, handler_table_maintenance_test.go, handler_tables_test.go, persistence_test.go, tables_test.go, table_buckets_test.go, and test/integration/s3tables_test.go was renamed to the real underscore-only convention, and every bucket name built from a table-test case's name now runs through a new bucketSuffix() helper (lowercases + swaps '_' for '-') in handler_test.go. New table tests: TestBackend_CreateTableBucket_NameValidation, TestBackend_CreateNamespace_NameValidation, TestBackend_CreateTable_NameValidation."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - CreateTable's Metadata field (Iceberg schema at creation) is accepted by the real API but not parsed/stored by this emulator; no read path currently exposes table schema, so this was left deferred rather than half-wired (bd: TODO -- file if schema support becomes a priority). gopherstack-u8my: the real API added a second schema form since v1.14.3, IcebergMetadata.SchemaV2 (nested/complex Iceberg types via SchemaV2Field/document.Interface, alongside the pre-existing primitive-only Schema) -- same gap, now two unparsed shapes instead of one; CreateTableInput's Schema also went from required to optional (exactly one of Schema/SchemaV2), which is moot here since gopherstack's createTableRequest never required or read either one.
 leaks: {status: clean, note: "no goroutines/janitors in this service; all state lives in InMemoryBackend's store.Table/map fields guarded by lockmetrics.RWMutex, snapshotted via Handler.Snapshot/Restore delegation to InMemoryBackend"}
 ---
@@ -683,3 +684,36 @@ once.
 ./services/s3tables/...` (green), `golangci-lint run ./services/s3tables/...`
 (0 issues) all pass. No banned `nolint:cyclop/gocyclo/gocognit/funlen`
 added.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go` (reusing `newTestS3TablesClient`
+from `handler_sdk_roundtrip_test.go`): one outer `t.Parallel()` test, 8
+subtests (all also parallel) driving every one of this service's 26
+typed-client-uncovered ops (per `cmd/clientcoverage`) — table-bucket
+encryption/metrics/storage-class/replication, table replication +
+replication status, table record expiration + job status, the table extras
+family (encryption/maintenance-job-status/metadata-location/storage-class/
+rename), and tags. Typed coverage: 23/49 -> 49/49 (26 -> 0 uncovered).
+
+All 26 ops passed against the existing handler/backend after one
+test-authoring correction (not a bug): `GetTableMaintenanceJobStatus` on a
+freshly created table returns two entries (`icebergCompaction`,
+`icebergSnapshotManagement`), each `Not_Yet_Run` — every new table gets
+these two default maintenance types configured automatically
+(`tables.go`'s `CreateTable`), which the test's initial empty-map
+assumption missed. Also specifically re-verified, since this exact bug
+class (a real client's percent-encoded `%2F` in an ARN desyncing a
+fixed-segment-count path router) was found and fixed in quicksight
+(gopherstack-n3zi slice 3): `TagResource`/`UntagResource`/
+`ListTagsForResource`'s `/tag/{resourceArn}` path already handles this
+correctly — `rawPathSegments` (`handler.go`) splits on the *raw* (still
+percent-encoded) path before per-segment `url.PathUnescape`, so an ARN's
+embedded `/` (sent as `%2F`) never desyncs the split. No fix needed; this
+service was already immune.
+
+Gates: `go build ./...`, `go vet`, `go test -race -count=1`
+(services/s3tables + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
+missing-items-still-open FAIL. No persisted-struct fields changed; no
+version bump.

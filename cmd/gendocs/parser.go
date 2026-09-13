@@ -207,13 +207,19 @@ const keyLeaks = "leaks"
 // duplicate the literal (goconst).
 const keyLastAuditCommit = "last_audit_commit"
 
+// keyItemsStillOpen is the reserved top-level "items_still_open:" key --
+// gopherstack-anjf's canonical open-item list. See .claude/memories/
+// parity-principles.md for the rule.
+const keyItemsStillOpen = "items_still_open"
+
 // reservedTopLevelKeys are the only keys the schema defines at column 0.
 // Anything else found at column 0 inside an ops:/families: block is treated
 // as a (mis-indented) block entry rather than a new section.
 func isReservedKey(key string) bool {
 	switch key {
 	case "service", "sdk_module", keyLastAuditCommit, "last_audit_date",
-		"overall", "protocol", "ops", "families", "gaps", "structural_gaps", labelDeferred, keyLeaks:
+		"overall", "protocol", "ops", "families", "gaps", keyItemsStillOpen,
+		"structural_gaps", labelDeferred, keyLeaks:
 		return true
 	default:
 		return false
@@ -310,6 +316,8 @@ func parseFrontmatter(lines []string, doc *ParityDoc, path string, offset int) {
 			doc.Families, i = parseFamiliesBlock(lines, i+1, doc, path, offset)
 		case "gaps":
 			doc.Gaps, i = parseListBlock(lines, i, rest)
+		case keyItemsStillOpen:
+			doc.ItemsStillOpen, i = parseListBlock(lines, i, rest)
 		case "structural_gaps":
 			doc.StructuralGaps, i = parseListBlock(lines, i, rest)
 		case "deferred":

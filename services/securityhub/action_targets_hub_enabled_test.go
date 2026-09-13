@@ -118,7 +118,7 @@ func TestActionTargetOps_HubEnabledPrecondition(t *testing.T) {
 
 			backend := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 			if tc.enableHub {
-				require.NoError(t, backend.EnableHub(false, nil))
+				require.NoError(t, backend.EnableHub(false, "", nil))
 			}
 
 			client := newTestSecurityHubClient(t, securityhub.NewHandler(backend))

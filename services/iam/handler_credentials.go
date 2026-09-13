@@ -1,9 +1,7 @@
 package iam
 
 import (
-	"encoding/xml"
 	"net/url"
-	"time"
 )
 
 // toServiceSpecificCredentialXML converts a ServiceSpecificCredential to its XML representation.
@@ -137,36 +135,6 @@ func (h *Handler) iamRefinement2CredTable() map[string]iamActionFn {
 					UserName:     userName,
 					SerialNumber: dev.SerialNumber,
 					EnableDate:   isoTime(dev.CreateDate),
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-	}
-}
-
-// iamResetServiceSpecificCredentialCompletenessDispatch returns the
-// ResetServiceSpecificCredential dispatch entry added in the completeness
-// pass. It is shadowed at runtime (buildDispatchTable merges
-// iamComprehensiveDispatchTable, whose iamSSCResetDispatch entry calls the
-// real backend, after iamCompletenessDispatchTable), so this stub-style
-// implementation never actually serves a request; kept verbatim as part of a
-// pure reorganization (no behavior change).
-func (h *Handler) iamResetServiceSpecificCredentialCompletenessDispatch() map[string]iamActionFn {
-	return map[string]iamActionFn{
-		"ResetServiceSpecificCredential": func(vals url.Values, reqID string) (any, error) {
-			return &resetServiceSpecificCredentialResponse{
-				XMLName: xml.Name{Local: "ResetServiceSpecificCredentialResponse"},
-				Xmlns:   iamXMLNS,
-				ResetServiceSpecificCredentialResult: resetSSCResult{
-					ServiceSpecificCredential: serviceSpecificCredXML{
-						UserName:                    vals.Get("UserName"),
-						ServiceSpecificCredentialID: vals.Get("ServiceSpecificCredentialId"),
-						ServiceName:                 "codecommit.amazonaws.com",
-						ServiceUserName:             vals.Get("UserName") + "-at-123456789",
-						ServicePassword:             "reset-password-" + newRequestID(),
-						Status:                      accessKeyStatusActive,
-						CreateDate:                  isoTime(time.Now()),
-					},
 				},
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

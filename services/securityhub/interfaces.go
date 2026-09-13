@@ -5,7 +5,7 @@ import "context"
 // StorageBackend is the interface for SecurityHub storage operations.
 type StorageBackend interface {
 	// Hub management
-	EnableHub(enableDefaultStandards bool, tags map[string]string) error
+	EnableHub(enableDefaultStandards bool, controlFindingGenerator string, tags map[string]string) error
 	DisableHub() error
 	DescribeHub() (*Hub, error)
 	UpdateHubConfiguration(autoEnableControls *bool, autoEnableStandards *string, controlFindingGenerator *string) error
@@ -107,9 +107,9 @@ type StorageBackend interface {
 	// Organization
 	DescribeOrganizationConfiguration() *OrgConfig
 	UpdateOrganizationConfiguration(autoEnable bool, autoEnableStandards string, orgConfigType string) error
-	EnableOrganizationAdminAccount(accountID string) error
-	DisableOrganizationAdminAccount(accountID string) error
-	ListOrganizationAdminAccounts(nextToken string, maxResults int) ([]*OrgAdminAccount, string)
+	EnableOrganizationAdminAccount(accountID, feature string) error
+	DisableOrganizationAdminAccount(accountID, feature string) error
+	ListOrganizationAdminAccounts(nextToken string, maxResults int, feature string) ([]*OrgAdminAccount, string)
 
 	// Finding Aggregator
 	CreateFindingAggregator(regionLinkingMode string, regions []string) (*FindingAggregator, error)
@@ -202,12 +202,12 @@ type StorageBackend interface {
 		metadataUids []string,
 		updates map[string]any,
 	) ([]map[string]any, []map[string]any)
-	GetFindingStatisticsV2(groupByFields []string) []map[string]any
+	GetFindingStatisticsV2(groupByFields []string, sortOrder string) []map[string]any
 	GetFindingsTrendsV2(startTime, endTime string) []map[string]any
 
 	// Resources V2
 	GetResourcesV2(filters map[string]any, nextToken string, maxResults int) ([]map[string]any, string)
-	GetResourcesStatisticsV2(groupByFields []string) []map[string]any
+	GetResourcesStatisticsV2(groupByFields []string, sortOrder string) []map[string]any
 	GetResourcesTrendsV2(startTime, endTime string) []map[string]any
 
 	// Products V2

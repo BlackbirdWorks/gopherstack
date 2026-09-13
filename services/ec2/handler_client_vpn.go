@@ -164,7 +164,7 @@ type exportClientVpnClientCertificateRevocationListResponse struct {
 	Status                    clientVpnEndpointStatusItem `xml:"status"`
 }
 
-func toClientVpnEndpointItem(ep *ClientVpnEndpoint) clientVpnEndpointItem {
+func toClientVpnEndpointItem(ep *ClientVpnEndpoint, tags map[string]string) clientVpnEndpointItem {
 	return clientVpnEndpointItem{
 		ClientVpnEndpointID:  ep.ClientVpnEndpointID,
 		DNSName:              ep.DNSName,
@@ -178,6 +178,7 @@ func toClientVpnEndpointItem(ep *ClientVpnEndpoint) clientVpnEndpointItem {
 		VpnPort:              ep.VpnPort,
 		SplitTunnel:          ep.SplitTunnel,
 		SecurityGroupIDSet:   stringItemSet{Items: ep.SecurityGroupIDs},
+		TagSet:               tagItemsFromMap(tags),
 		ServerCertificateArn: ep.ServerCertificateArn,
 		SessionTimeoutHours:  ep.SessionTimeoutHours,
 		SelfServicePortalURL: ep.SelfServicePortalURL,
@@ -222,6 +223,13 @@ func (h *Handler) handleCreateClientVpnEndpoint(vals url.Values, reqID string) (
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "client-vpn-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.ClientVpnEndpointID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createClientVpnEndpointResponse{
 		RequestID:           reqID,
 		ClientVpnEndpointID: ep.ClientVpnEndpointID,
@@ -262,7 +270,10 @@ func (h *Handler) handleDescribeClientVpnEndpoints(vals url.Values, reqID string
 
 	resp := &describeClientVpnEndpointsResponse{RequestID: reqID, NextToken: nextToken}
 	for _, ep := range eps {
-		resp.ClientVpnEndpointSet.Items = append(resp.ClientVpnEndpointSet.Items, toClientVpnEndpointItem(ep))
+		resp.ClientVpnEndpointSet.Items = append(
+			resp.ClientVpnEndpointSet.Items,
+			toClientVpnEndpointItem(ep, h.Backend.TagsForResource(ep.ClientVpnEndpointID)),
+		)
 	}
 
 	return resp, nil

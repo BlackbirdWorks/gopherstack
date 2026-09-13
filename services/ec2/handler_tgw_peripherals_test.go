@@ -187,7 +187,7 @@ func TestTGWPeripheralsHandler_RouteTableAnnouncementLifecycle(t *testing.T) {
 
 	peerRec := postForm(t, h, fmt.Sprintf(
 		"Action=CreateTransitGatewayPeeringAttachment&Version=2016-11-15"+
-			"&TransitGatewayId=%s&PeerTransitGatewayId=tgw-peer-1",
+			"&TransitGatewayId=%s&PeerTransitGatewayId=tgw-peer-1&PeerAccountId=999999999999&PeerRegion=us-west-2",
 		tgwID,
 	))
 	require.Equal(t, http.StatusOK, peerRec.Code)
@@ -394,7 +394,7 @@ func TestTGWPeripheralsHandler_RejectOps(t *testing.T) {
 
 	peerRec := postForm(t, h, fmt.Sprintf(
 		"Action=CreateTransitGatewayPeeringAttachment&Version=2016-11-15"+
-			"&TransitGatewayId=%s&PeerTransitGatewayId=tgw-peer-1",
+			"&TransitGatewayId=%s&PeerTransitGatewayId=tgw-peer-1&PeerAccountId=999999999999&PeerRegion=us-west-2",
 		tgwID,
 	))
 	peerAttID := extractTag(t, peerRec.Body.String(), "transitGatewayAttachmentId")

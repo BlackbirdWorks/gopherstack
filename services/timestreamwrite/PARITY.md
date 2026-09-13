@@ -36,7 +36,8 @@ families:
   wire-protocol: {status: ok, note: "fixed — response Content-Type was \"application/x-amz-json-1.1\"; real Timestream Write is protocol=json jsonVersion=1.0 (confirmed via botocore service-2.json metadata and aws-sdk-go-v2 serializers.go's httpBindingEncoder.SetHeader(\"Content-Type\").String(\"application/x-amz-json-1.0\")). Sibling timestreamquery already used 1.0 correctly. Target prefix \"Timestream_20181101.\" was already correct."}
   arn-building: {status: ok, note: "fixed — tableARN hand-formatted \"arn:aws:...\" (hardcoded \"aws\" partition) instead of using pkgs/arn.Build like databaseARN does in the same file. Now uses arn.Build for partition-correctness consistency (GovCloud/China regions would previously get a wrong partition on table ARNs but not database ARNs)."}
 leaks: {status: clean, note: "closeAllTableMutexesLocked is correctly called on Reset, DeleteDatabase, DeleteTable, and before Restore discards the records map — no lockmetrics.RWMutex leak found. Persistence Snapshot/Restore round-trips databases, tables, batchLoadTasks (via store.Registry), plus the hand-rolled records/tags maps, nextTaskID, and rebuilds the per-table dedup index and mutex on Restore."}
-gaps:
+gaps: []
+items_still_open:
   - "UpdateDatabase does not enforce KmsKeyId as required (real UpdateDatabaseRequest marks it required) — not fixed, conflicts with an existing intentional test that uses empty string to clear the key (bd: file if desired)"
   - "UntagResource/ListTagsForResource never return ResourceNotFoundException for an unknown ARN (real API can) — not fixed, would require an interface signature change and conflicts with existing post-delete cleanup test assertions; AWS's own docs note the two outcomes are meant to be treated as equivalent for DeleteDatabase's ARN-cleanup race anyway (bd: file if desired)"
   - "CreateBatchLoadTask does not validate ReportConfiguration as required, and ClientToken is accepted but not used for idempotent dedup (bd: file if desired)"
@@ -324,3 +325,23 @@ surface here. No range, date, size, or operator-grammar filter exists
 anywhere in this service's pinned SDK. Zero bugs found; the service is
 structurally too small (2 real filter parameters total) to carry most of
 this class's known sub-shapes. No files changed.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering timestreamwrite's last
+typed-client-uncovered op, `ResumeBatchLoadTask`. A batch load task only
+resumes from `PROGRESS_STOPPED`/`FAILED` (`batch_load_tasks.go`'s
+`ResumeBatchLoadTask`), states the backend never reaches on its own
+without a real S3 load pipeline, so the test uses the backend's own
+`SetBatchLoadTaskStatus` seed method (already exported for exactly this
+purpose) to reach `FAILED` before resuming through the real
+aws-sdk-go-v2 client and asserting the decoded `CREATED` status via
+`DescribeBatchLoadTask`. Zero bugs found.
+
+Typed-client coverage: 18/19 -> 19/19 (100%).
+
+Gates: `go build ./...`, `go vet ./services/timestreamwrite/...`,
+`go test -race -count=1 ./services/timestreamwrite/...` (pass),
+`golangci-lint run --new-from-rev=HEAD ./services/timestreamwrite/...`
+(0 issues). No persisted struct fields changed, no version bump.
+`cmd/paritylint` stays at 0 FAIL.

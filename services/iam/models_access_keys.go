@@ -13,9 +13,11 @@ type AccessKeyLastUsed struct {
 	Region       string `json:"Region,omitempty"`
 }
 
-// AccessKeyLastUsedXML is the XML representation for GetAccessKeyLastUsed response.
+// AccessKeyLastUsedXML is the XML representation for GetAccessKeyLastUsed
+// response. LastUsedDate must be omitted (not the literal "N/A") when the
+// key has never been used -- see access_keys.go's GetAccessKeyLastUsed.
 type AccessKeyLastUsedXML struct {
-	LastUsedDate string `xml:"LastUsedDate"`
+	LastUsedDate string `xml:"LastUsedDate,omitempty"`
 	ServiceName  string `xml:"ServiceName"`
 	Region       string `xml:"Region"`
 }

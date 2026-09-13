@@ -61,7 +61,8 @@ families:
   ErrorTaxonomy: {status: ok, note: "Every error sentinel field-diffed this pass against botocore's codestar-connections/2019-12-01/service-2.json operations[].errors (the authoritative per-op error list, cross-checked against aws-sdk-go-v2/service/codestarconnections/types/errors.go's exhaustive 17-type catalog). Two invented-type bugs fixed: ErrValidation was 'ValidationException' (does not exist in this service's real error catalog at all) -> now InvalidInputException; DeleteHost's dependency-check error was 'ConflictException' (a real type, but not in DeleteHost's real error list -- it belongs to UpdateHost's) -> now ResourceUnavailableException. Both fixes mirror decisions already made and evidence-documented in the codeconnections sibling service's own error-taxonomy audit. New ErrTagLimitExceeded sentinel (LimitExceededException) replaces the previous ErrValidation/InvalidInputException mapping for 'too many tags' on CreateConnection/CreateHost/TagResource, none of which document InvalidInputException as a possible error for that case."}
   Tagging: {status: ok, note: "Connections, hosts, AND repository links are all real taggable resources (CreateRepositoryLinkInput has a genuine Tags member -- see CreateRepositoryLink note above). Sync configurations are NOT taggable (CreateSyncConfigurationInput has no Tags member at all in the real SDK) -- verified, not touched."}
   ListPaginationTotalOrder: {status: ok, note: "FIXED 2026-09-04 (gopherstack-42j): ListHosts/ListConnections sorted purely on the non-unique Name/ConnectionName field (both explicitly allow duplicates -- CreateHost/CreateConnection model no ResourceAlreadyExistsException for a name collision). sort.Slice is not stable, so two rows sharing a name had no defined total order -- enough for a cursor-paginated caller to skip or repeat one. Added HostArn/ConnectionArn (always unique) as secondary sort keys, matching the identical fix already made in the codeconnections sibling service (commit 619f7c06a)."}
-gaps:
+gaps: []
+items_still_open:
   - PullRequestComment field (CreateSyncConfiguration/UpdateSyncConfiguration/SyncConfiguration) — present in current AWS API docs but NOT in the pinned aws-sdk-go-v2@v1.35.15 SDK's types/serializers/deserializers; correctly omitted to match the SDK version actually vendored by this repo (not a gap in the usual sense — flagged here only so a future SDK bump re-checks it)
   - "CreateRepositoryLink's ConnectionArn and CreateSyncConfiguration's RepositoryLinkId are never checked for existence -- disclosed 2026-09-04 (gopherstack-42j), deliberately NOT fixed: unlike UpdateRepositoryLink (gopherstack-5k45), neither CreateRepositoryLink's nor CreateSyncConfiguration's own error deserializer switch (awsAwsjson10_deserializeOpErrorCreateRepositoryLink / ...CreateSyncConfiguration) contains ResourceNotFoundException; both DO contain InvalidInputException, but this service's own ErrValidation doc comment (errors.go) establishes InvalidInputException as the real type for malformed/missing-required-field input specifically, not FK-style reference validation -- using it here would be exactly the kind of invented-purpose wire-shape bug this campaign exists to catch, not a fix. Cannot be determined from the SDK whether real AWS validates these fields at all (and if so, via which mechanism); declining to guess. Same conclusion independently reached for the codeconnections twin."
 structural_gaps:
@@ -400,3 +401,22 @@ Gates: `GOTOOLCHAIN=go1.26.6 go test -race -count=1
 golangci-lint run ./services/codestarconnections/...` (0 issues), dependents
 `./services/cloudformation/...` and `./services/codeconnections/...` (both
 pass, unchanged).
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 9/27 -> 27/27 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 3
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/codestarconnections` client: CreateSyncConfiguration,
+DeleteHost, DeleteRepositoryLink, GetHost, GetRepositoryLink,
+GetRepositorySyncStatus, GetResourceSyncStatus, GetSyncBlockerSummary,
+GetSyncConfiguration, ListHosts, ListRepositoryLinks,
+ListRepositorySyncDefinitions, ListSyncConfigurations, TagResource,
+UntagResource, UpdateRepositoryLink, UpdateSyncBlocker,
+UpdateSyncConfiguration. Zero bugs found -- every op decoded correctly on
+the first well-formed request, consistent with this service's deep prior
+audit history (and its codeconnections twin's identical result this same
+slice). Reused the existing `newTestCodeStarConnectionsClient` helper and
+the `CreateSyncBlocker` test/internal backend method to seed a blocker for
+GetSyncBlockerSummary/UpdateSyncBlocker. No `items_still_open` changes; no
+`snapshot_inventory.json` change; no version bump.

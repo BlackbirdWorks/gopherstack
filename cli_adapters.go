@@ -99,7 +99,7 @@ func (a *schedECSAdapter) RunSchedulerTask(
 	taskDefARN, launchType string,
 	taskCount int,
 ) error {
-	_, err := a.backend.RunTask(ecs.RunTaskInput{
+	_, _, err := a.backend.RunTask(ecs.RunTaskInput{
 		TaskDefinition: taskDefARN,
 		LaunchType:     launchType,
 		Count:          taskCount,

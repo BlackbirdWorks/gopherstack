@@ -250,6 +250,11 @@ func TestInMemoryBackend_RestorePreservesBouncedComplained(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// Back the bounce email out of the 1-second MaxSendRate window
+	// (gopherstack-a6y) so the complaint send below isn't throttled -- this
+	// test needs two distinct, real (classification-triggering) sends.
+	b.BackdateEmailForTest(0, time.Now().Add(-2*time.Second))
+
 	_, err = b.SendEmail(ses.SendEmailInput{
 		From: "persist@test.com", To: []string{"complaint@simulator.amazonses.com"}, Subject: "c", BodyText: "body",
 	})

@@ -133,6 +133,33 @@ func TestBatchWriteItem(t *testing.T) {
 				verifyItem(t, db, "Table1", "item3", false)
 			},
 		},
+		{
+			// AWS's "one action per item per BatchWriteItem" rule applies across
+			// request kinds, not just within a single Put or Delete list.
+			name: "DuplicateKey_PutAndDelete_Rejected",
+			setup: func(t *testing.T, db *dynamodb.InMemoryDB) {
+				t.Helper()
+				createTableHelper(t, db, "Table1", "pk")
+			},
+			input: models.BatchWriteItemInput{
+				RequestItems: map[string][]models.WriteRequest{
+					"Table1": {
+						{
+							PutRequest: &models.PutRequest{
+								Item: map[string]any{"pk": map[string]any{"S": "k1"}},
+							},
+						},
+						{
+							DeleteRequest: &models.DeleteRequest{
+								Key: map[string]any{"pk": map[string]any{"S": "k1"}},
+							},
+						},
+					},
+				},
+			},
+			wantErr:    true,
+			errContain: "ValidationException",
+		},
 	}
 
 	for _, tt := range tests {
@@ -900,38 +927,6 @@ func TestBatchWriteItem_ReturnConsumedCapacity_SurvivesWireConversion(t *testing
 	res, writeErr := db.BatchWriteItem(t.Context(), sdkInput)
 	require.NoError(t, writeErr)
 	require.NotEmpty(t, res.ConsumedCapacity, "ConsumedCapacity must be populated when requested")
-}
-
-// TestBatchWriteItem_DuplicateKey_PutAndDelete_Rejected verifies that AWS's
-// "one action per item per BatchWriteItem" rule is enforced across request
-// kinds, not just within a single Put or Delete list: targeting the same
-// primary key with both a Put and a Delete in one call is rejected.
-func TestBatchWriteItem_DuplicateKey_PutAndDelete_Rejected(t *testing.T) {
-	t.Parallel()
-	d := newBatchTestDB(t)
-	createBatchTestTable(t, d)
-
-	_, err := d.BatchWriteItem(context.Background(), &sdk.BatchWriteItemInput{
-		RequestItems: map[string][]types.WriteRequest{
-			"tbl": {
-				{
-					PutRequest: &types.PutRequest{
-						Item: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "k1"},
-						},
-					},
-				},
-				{
-					DeleteRequest: &types.DeleteRequest{
-						Key: map[string]types.AttributeValue{
-							"pk": &types.AttributeValueMemberS{Value: "k1"},
-						},
-					},
-				},
-			},
-		},
-	})
-	assertBatchValidationErr(t, err)
 }
 
 // Regression: valid batch get with no projection still returns all attributes.

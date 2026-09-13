@@ -271,9 +271,21 @@ func (h *Handler) handleError(c *echo.Context, err error) error {
 		return c.JSONBlob(http.StatusBadRequest, payload)
 	case errors.Is(err, errInvalidRequest), errors.Is(err, errUnknownAction),
 		errors.As(err, &syntaxErr), errors.As(err, &typeErr):
-		return c.JSON(http.StatusBadRequest, map[string]string{keyMessageField: err.Error()})
+		// These branches used to omit keyTypeField entirely, so
+		// restjson.GetErrorInfo (aws-sdk-go-v2 aws/protocol/restjson/
+		// decoder_util.go:15) found no code in the header (unset) or the
+		// body, and every malformed-body/unknown-action failure decoded as
+		// smithy.GenericAPIError{Code:"UnknownError"} instead of the
+		// BadRequestException rdsdata@v1.35.4 types/errors.go models.
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			keyTypeField:    "BadRequestException",
+			keyMessageField: err.Error(),
+		})
 	default:
-		return c.JSON(http.StatusInternalServerError, map[string]string{keyMessageField: err.Error()})
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			keyTypeField:    "InternalServerErrorException",
+			keyMessageField: err.Error(),
+		})
 	}
 }
 
@@ -330,7 +342,7 @@ func validateResultSetOptions(opts *resultSetOptionsRequest) error {
 func validateNoArrayParameters(params []SQLParameter) error {
 	for _, p := range params {
 		if p.Value.ArrayValue != nil {
-			return fmt.Errorf("%w: array parameters are not supported (parameter %q)", ErrValidation, p.Name)
+			return fmt.Errorf("%w: Array parameters are not supported (parameter %q)", ErrValidation, p.Name)
 		}
 	}
 
@@ -387,6 +399,10 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 	}
 
 	if err := validateNoArrayParameters(req.Parameters); err != nil {
+		return nil, err
+	}
+
+	if err := validateTypeHints(req.Parameters); err != nil {
 		return nil, err
 	}
 
@@ -506,6 +522,10 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 
 	for _, params := range req.ParameterSets {
 		if err := validateNoArrayParameters(params); err != nil {
+			return nil, err
+		}
+
+		if err := validateTypeHints(params); err != nil {
 			return nil, err
 		}
 	}

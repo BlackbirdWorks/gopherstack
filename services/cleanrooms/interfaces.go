@@ -19,7 +19,9 @@ type StorageBackend interface {
 		name, description, creatorDisplayName string,
 		creatorMemberAbilities []string,
 		members []MemberSpec,
-		queryLogStatus string,
+		queryLogStatus, jobLogStatus string,
+		isMetricsEnabled bool,
+		creatorPaymentConfiguration map[string]any,
 		tags map[string]string,
 	) (*Collaboration, error)
 	GetCollaboration(id string) (*Collaboration, error)
@@ -34,17 +36,17 @@ type StorageBackend interface {
 
 	// Membership operations.
 	CreateMembership(
-		collaborationID, queryLogStatus string,
+		collaborationID, queryLogStatus, jobLogStatus string,
 		memberAbilities []string,
-		defaultResultConfiguration map[string]any,
-		paymentConfiguration map[string]any,
+		defaultResultConfiguration, defaultJobResultConfiguration, paymentConfiguration map[string]any,
+		isMetricsEnabled bool,
 		tags map[string]string,
 	) (*Membership, error)
 	GetMembership(id string) (*Membership, error)
 	ListMemberships(status, maxResults, nextToken string) ([]*MembershipSummary, string)
 	UpdateMembership(
-		id, queryLogStatus string,
-		defaultResultConfiguration map[string]any,
+		id, queryLogStatus, jobLogStatus string,
+		defaultResultConfiguration, defaultJobResultConfiguration map[string]any,
 	) (*Membership, error)
 	DeleteMembership(id string) error
 

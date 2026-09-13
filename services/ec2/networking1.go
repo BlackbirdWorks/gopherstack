@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -266,31 +267,32 @@ func (b *InMemoryBackend) CreateDhcpOptions(configs []DhcpConfiguration, tags ma
 }
 
 // DescribeDhcpOptions returns DHCP option sets, optionally filtered by IDs.
-func (b *InMemoryBackend) DescribeDhcpOptions(ids []string) []*DhcpOptions {
+// DescribeDhcpOptions returns DHCP options sets, optionally filtered by IDs.
+// Matching real AWS, naming an ID that does not exist fails the whole call
+// with InvalidDhcpOptionsID.NotFound rather than silently omitting it --
+// a real client asking for a specific (e.g. just-deleted) options set got an
+// empty, successful response instead of the NotFound it depends on to detect
+// that.
+func (b *InMemoryBackend) DescribeDhcpOptions(ids []string) ([]*DhcpOptions, error) {
 	b.mu.RLock("DescribeDhcpOptions")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
+	less := func(a, o *DhcpOptions) bool { return a.DhcpOptionsID < o.DhcpOptionsID }
+
+	if len(ids) > 0 {
+		return describeByIDsOrNotFound(ids, b.dhcpOptionSets.Get, ErrDhcpOptionsNotFound, less)
 	}
 
 	out := make([]*DhcpOptions, 0, b.dhcpOptionSets.Len())
 
 	for _, opts := range b.dhcpOptionSets.All() {
-		if len(idSet) > 0 && !idSet[opts.DhcpOptionsID] {
-			continue
-		}
-
 		cp := *opts
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].DhcpOptionsID < out[j].DhcpOptionsID
-	})
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 
-	return out
+	return out, nil
 }
 
 // AssociateDhcpOptions associates a DHCP options set with a VPC.
@@ -302,12 +304,15 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 	b.mu.Lock("AssociateDhcpOptions")
 	defer b.mu.Unlock()
 
-	if _, ok := b.vpcs.Get(vpcID); !ok {
+	vpc, ok := b.vpcs.Get(vpcID)
+	if !ok {
 		return fmt.Errorf("%w: %s", ErrVPCNotFound, vpcID)
 	}
 
 	// dhcpOptionsDefault is a special sentinel meaning "reset to AWS default DHCP options"
 	if dhcpOptionsID == dhcpOptionsDefault {
+		vpc.DHCPOptionsID = dhcpOptionsDefault
+
 		return nil
 	}
 
@@ -319,6 +324,13 @@ func (b *InMemoryBackend) AssociateDhcpOptions(dhcpOptionsID, vpcID string) erro
 	if !slices.Contains(opts.AssociatedVPCIDs, vpcID) {
 		opts.AssociatedVPCIDs = append(opts.AssociatedVPCIDs, vpcID)
 	}
+
+	// DhcpOptionsId is a real, always-present top-level field on every
+	// VPC describe response (ec2@v1.329.0 types.Vpc.DhcpOptionsId), not
+	// just internal AssociatedVPCIDs bookkeeping on the options set --
+	// without this, no real client could ever observe which DHCP options
+	// set (if any) is associated with a VPC.
+	vpc.DHCPOptionsID = dhcpOptionsID
 
 	return nil
 }
@@ -405,8 +417,66 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 		VersionNumber:      lt.LatestVersionNumber,
 		DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
 	}
+	lt.Versions = append(lt.Versions, *ver)
 
 	return ver, nil
+}
+
+// launchTemplateVersionLatest and launchTemplateVersionDefault are the two
+// magic version aliases LaunchTemplateSpecification.Version accepts, per its
+// own doc comment (aws-sdk-go-v2/service/ec2@v1.329.0 types/types.go:15278-15284):
+// "$Latest uses the latest version"; "$Default uses the default version";
+// "Default: The default version of the launch template" when Version is empty.
+const (
+	launchTemplateVersionLatest  = "$Latest"
+	launchTemplateVersionDefault = "$Default"
+)
+
+// resolveLaunchTemplateVersion resolves version (a version number, "$Latest",
+// "$Default", or "" -- which means "$Default", per LaunchTemplateSpecification.Version's
+// own doc comment) against lt's real per-version history. Falls back to lt's own
+// (mutated-in-place) ImageID/InstanceType when lt.Versions is empty, so launch
+// templates restored from a snapshot persisted before per-version storage existed
+// still resolve. Must be called with b.mu held (read or write).
+func resolveLaunchTemplateVersion(lt *LaunchTemplate, version string) (*LaunchTemplateVersion, error) {
+	var target int64
+
+	switch version {
+	case "", launchTemplateVersionDefault:
+		target = lt.DefaultVersionNumber
+	case launchTemplateVersionLatest:
+		target = lt.LatestVersionNumber
+	default:
+		v, err := strconv.ParseInt(version, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateVersionNotFound, version)
+		}
+
+		target = v
+	}
+
+	for i := range lt.Versions {
+		if lt.Versions[i].VersionNumber == target {
+			cp := lt.Versions[i]
+
+			return &cp, nil
+		}
+	}
+
+	if len(lt.Versions) == 0 {
+		return &LaunchTemplateVersion{
+			LaunchTemplateID:   lt.ID,
+			LaunchTemplateName: lt.Name,
+			CreatedBy:          lt.CreatedBy,
+			ImageID:            lt.ImageID,
+			InstanceType:       lt.InstanceType,
+			CreateTime:         lt.CreateTime,
+			VersionNumber:      lt.LatestVersionNumber,
+			DefaultVersion:     lt.DefaultVersionNumber == lt.LatestVersionNumber,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("%w: %s version %d", ErrLaunchTemplateVersionNotFound, lt.ID, target)
 }
 
 // DeleteLaunchTemplateVersions removes specific versions from a launch template.

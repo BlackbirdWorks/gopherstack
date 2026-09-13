@@ -81,15 +81,17 @@ func TestFSx_SVMLifecycle(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dr))
 		assert.Len(t, dr["StorageVirtualMachines"].([]any), 1)
 
-		// update
+		// update: SvmAdminPassword is the real op's only scalar updatable
+		// field (fsx@v1.68.4 api_op_UpdateStorageVirtualMachine.go) --
+		// write-only, so it is accepted but never echoed back.
 		rec2 := doFSxRequest(t, h, "UpdateStorageVirtualMachine", map[string]any{
 			"StorageVirtualMachineId": svmID,
-			"Subtype":                 "DP_DESTINATION",
+			"SvmAdminPassword":        "newpassword123",
 		})
 		require.Equal(t, http.StatusOK, rec2.Code)
 		var ur map[string]any
 		require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &ur))
-		assert.Equal(t, "DP_DESTINATION", ur["StorageVirtualMachine"].(map[string]any)["Subtype"])
+		assert.Equal(t, svmID, ur["StorageVirtualMachine"].(map[string]any)["StorageVirtualMachineId"])
 
 		// delete
 		rec3 := doFSxRequest(t, h, "DeleteStorageVirtualMachine", map[string]any{

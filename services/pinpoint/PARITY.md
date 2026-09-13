@@ -49,6 +49,7 @@ ops:
   VerifyOTPMessage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request was wrapped under a VerifyOTPMessageRequestParameters key a real client never sends, so a real client's Otp value never reached the backend and verification always fell back to the no-code has-pending-OTP check regardless of the code sent -- fixed (response was already flat/correct). Locked by TestVerifyOTPMessage_WrongCode_RealClient"}
   PhoneNumberValidate: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request and response were both wrapped under a top-level NumberValidateRequest/NumberValidateResponse key that a real client never sends/reads -- fixed both directions. Locked by TestPhoneNumberValidate_RealClient"}
   PutEvents: {wire: ok, errors: ok, state: ok, persist: n/a, note: "gopherstack-lffs: request was wrapped under an EventsRequest key a real client never sends, so BatchItem was always read as empty and every event silently vanished for a real client (response was already flat/correct) -- fixed. Locked by TestPutEvents_RealClient"}
+  GetInAppMessages: {wire: fixed, errors: ok, state: partial, persist: n/a, note: "gopherstack-ipmu: had zero test coverage and fabricated a fake InAppMessageCampaign (CampaignId = the template's name) for every in-app template that existed anywhere in the account, ignoring campaigns/endpoints entirely. Now returns real Campaign rows that target an in-app template via TemplateConfiguration.InAppTemplate.Name, rendering the referenced InAppTemplate's real Content/Layout/CustomConfig, plus Priority/SessionCap/DailyCap/TotalCap/Schedule sourced from the campaign. inAppMessageCampaign was also missing every member but CampaignId vs InAppMessageCampaign (pinpoint@v1.42.4 types/types.go) -- added. state: partial because gopherstack has no segment/dimension audience-matching engine anywhere in this service, so every non-paused in-app campaign in the app is returned regardless of endpointID -- a structural limitation (see in_app_messages.go's doc comment), not a fabrication; TreatmentId (multi-treatment targeting) is also not populated for the same reason. Locked by TestGetInAppMessages (table, HTTP layer) and TestGetInAppMessages_RealClient/TestGetInAppMessages_UnknownApp_RealClient (real SDK client)."}
   UpdateApnsChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): APNSChannelResponse has no BundleId/Certificate/TeamId/TokenKey/TokenKeyId member at all (only HasCredential/HasTokenKey/DefaultAuthenticationMethod) -- all five were being echoed raw on the wire via toChannelResponse's blind maps.Copy(resp, ch.ExtraData). Same bug and fix for ApnsSandbox/ApnsVoip/ApnsVoipSandbox (shared parseAPNSChannelExtra/filterChannelExtraForEcho code path). Fixed by filtering ExtraData per channel type before echo. Raw-body-asserted (TestGetApnsChannel_NoRawSecretInBody) since a typed real-client decode can't observe an extraneous unknown key that has no struct field to land in."}
   GetApnsChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see UpdateApnsChannel's gopherstack-tp8x note -- same toChannelResponse fix. Locked by TestGetApnsChannel_NoCredentialLeak_RealClient (DefaultAuthenticationMethod/HasCredential round-trip) and TestGetApnsChannel_NoRawSecretInBody (raw secret absence)"}
   GetGcmChannel: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): GCMChannelResponse's real credential member is \"Credential\", not the request's \"ApiKey\" -- was echoed under the wrong key so a real client's Credential field was always nil. GCM's ServiceJson also has no response member at all (only the boolean HasFcmServiceCredentials, now tracked on Channel and derived in channelCredentialFlags). Fixed. Locked by TestGetGcmChannel_CredentialField_RealClient, TestGetGcmChannel_ServiceJSON_HasFcmServiceCredentials_RealClient"}
@@ -82,7 +83,8 @@ families:
   Phone: {status: ok, note: "gopherstack-lffs (2026-08-20): same wrapper-key bug as Messaging, both directions on PhoneNumberValidate (see ops)."}
   Route matcher: {status: ok, note: "gopherstack-jqh2: added TestExtractOperation_SDKRouteTable (handler_paths_sdk_diff_test.go), a permanent per-op method+path diff of all 122 real ops extracted from pinpoint@v1.42.4 serializers.go against ExtractOperation, including the generic {TemplateName}/{TemplateType}/versions and /active-version paths (discriminated from the per-type Create/Get/Update/Delete paths, which use a literal type segment, not a placeholder). 122/122 pass; no route-matcher bugs found, no duplicate op-resolution table, no query-flag-discriminated ops, no wrong-date-prefix paths."}
   Persistence: {status: ok, note: "was the biggest structural gap: persistRegistry() excluded voiceTemplates/endpoints/eventStreams/channels (all store.Table-backed — mechanical fix, just needed registering) and appSettings/campaignVersions/segmentVersions/templateVersionHistory/campaignActivities/journeyRuns/appEvents/sentMessages/otpCodes (map-shaped state, added as direct JSON fields on backendSnapshot since every value type is already plain-JSON-friendly). Snapshot version bumped 1->2 so an old on-disk snapshot is cleanly discarded (not partially misdecoded) rather than silently accepted with a shape mismatch. Locked by the rewritten TestSnapshotRestore_FullStateRoundTrip, which now asserts these resource kinds SURVIVE a restart instead of asserting they don't"}
-gaps:
+gaps: []
+items_still_open:
   - "gopherstack-coib: PutEvents' documented per-individual-event size quota (1,000 KB) is not enforced -- only its request-level 4 MB quota is. See the gopherstack-coib Notes section."
   - "gopherstack-coib: PayloadTooLargeException size checks are wired for the 39 ops that both model the exception (digit-safe-extracted from deserializers.go: 113 of 122 ops) and have an observable non-trivial request body in this handler. The other 74 modeled ops (GET/DELETE with an empty body) and TagResource/UntagResource/ListTagsForResource/Create{Email,InApp,Push,Sms,Voice}Template (the 9 ops that don't model the exception at all) are left unenforced -- see Notes."
 deferred:                 # consciously not audited this pass (scope) — next pass targets
@@ -598,3 +600,44 @@ the errors.As-matching concern this whole error-code campaign exists to catch.
 
 Gates: `GOTOOLCHAIN=go1.27.0 golangci-lint run ./services/pinpoint/...` -- 0 issues;
 `GOTOOLCHAIN=go1.27.0 go test -race ./services/pinpoint/...` -- ok.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 75 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/pinpoint`
+client (`typed_slice7_realclient_test.go`, 10 subtests) -- census
+47/122 -> 122/122 typed-covered (0 remaining). Three real wire/logic bugs
+found and fixed, every one caught only by a decoded typed-client value:
+
+1. `UpdateEndpointsBatch`'s request decoder expected `Item` as a JSON
+   object keyed by endpoint ID; real `EndpointBatchRequest.Item` is a JSON
+   ARRAY of `EndpointBatchItem` (each carrying its own `Id` field --
+   confirmed against `awsRestjson1_serializeDocumentEndpointBatchRequest`,
+   which calls `...ListOfEndpointBatchItem`) -- every real client's batch
+   update failed `json.Unmarshal` outright (array into a map), so this op
+   never worked at all. Fixed the wire struct to a slice and converted to
+   the backend's map keying inside the handler. Two pre-existing raw-body
+   tests encoding the old (wrong) map shape were updated to the real array
+   shape, not weakened. `wire.go`, `handler_endpoints.go`,
+   `endpoints_test.go`.
+2. `GetChannels`' response map was keyed by the lowercase URL path segment
+   (`"email"`, copied verbatim from the REST path literal
+   `/channels/email`) instead of the canonical uppercase channel-type
+   constant (`"EMAIL"`) that real `ChannelsResponse.Channels` is keyed by
+   -- a real client's `Channels["EMAIL"]` lookup always missed. Fixed by
+   upper-casing the key; two pre-existing tests asserting the lowercase key
+   updated to uppercase. `handler_channels.go`, `channels_test.go`.
+3. `JourneyRunExecutionActivityMetricsResponse`'s activity-identifier field
+   was wire-named `ActivityId`; the real field is `JourneyActivityId` --
+   always decoded empty for a real client. `wire.go`.
+
+Accept-and-drop, reconfirmed not fixed (already disclosed, out of scope):
+`JourneyRunExecutionActivityMetricsResponse.ActivityType` (a required real
+member) has no backing state in this emulator -- activities aren't
+classified by type here -- GAP, not fabricated.
+
+Gates: `go build ./...` clean, `go vet ./services/pinpoint/...` clean,
+`go test -race -count=1 ./services/pinpoint/...` and
+`./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
+./services/pinpoint/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
+persisted-struct fields changed; no version bump.

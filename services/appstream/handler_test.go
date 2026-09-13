@@ -96,7 +96,13 @@ func createFleet(t *testing.T, h *appstream.Handler, name string) {
 
 func createAppBlock(t *testing.T, h *appstream.Handler, name string) {
 	t.Helper()
-	rec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": name})
+	rec := doRequest(t, h, "CreateAppBlock", map[string]any{
+		"Name": name,
+		"SourceS3Location": map[string]any{
+			"S3Bucket": "appblock-bucket",
+			"S3Key":    name + ".zip",
+		},
+	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
 
@@ -105,6 +111,7 @@ func createAppBlockBuilder(t *testing.T, h *appstream.Handler, name string) {
 	rec := doRequest(t, h, "CreateAppBlockBuilder", map[string]any{
 		"Name":         name,
 		"InstanceType": "stream.standard.medium",
+		"VpcConfig":    map[string]any{"SubnetIds": []string{"subnet-1", "subnet-2"}},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -171,7 +178,10 @@ func TestAppStream_DescribeByARN(t *testing.T) {
 	appArn := appResp["Application"].(map[string]any)["Arn"].(string)
 	require.NotEmpty(t, appArn)
 
-	abRec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "arn-appblock"})
+	abRec := doRequest(t, h, "CreateAppBlock", map[string]any{
+		"Name":             "arn-appblock",
+		"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "arn-appblock.zip"},
+	})
 	require.Equal(t, http.StatusOK, abRec.Code)
 
 	var abResp map[string]any
@@ -277,7 +287,10 @@ func TestAppStream_AssociationsAcceptARNIdentifiers(t *testing.T) {
 		h := newTestHandler(t)
 		createAppBlockBuilder(t, h, "assoc-arn-builder")
 
-		abRec := doRequest(t, h, "CreateAppBlock", map[string]any{"Name": "assoc-arn-appblock"})
+		abRec := doRequest(t, h, "CreateAppBlock", map[string]any{
+			"Name":             "assoc-arn-appblock",
+			"SourceS3Location": map[string]any{"S3Bucket": "appblock-bucket", "S3Key": "assoc-arn-appblock.zip"},
+		})
 		require.Equal(t, http.StatusOK, abRec.Code)
 
 		var abResp map[string]any

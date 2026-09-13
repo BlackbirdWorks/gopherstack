@@ -197,6 +197,16 @@ func (b *InMemoryBackend) CreateOptimizationJob(
 		return nil, fmt.Errorf("%w: OutputConfig is required", ErrValidation)
 	}
 
+	// StoppingCondition is also required on CreateOptimizationJobInput
+	// (validateOpCreateOptimizationJobInput, validators.go) and required on
+	// DescribeOptimizationJobOutput -- previously unvalidated, so a request
+	// omitting it would have stored an OptimizationJob whose Describe
+	// response silently dropped the required member (omitempty on a nil
+	// pointer).
+	if opts.StoppingCondition == nil {
+		return nil, fmt.Errorf("%w: StoppingCondition is required", ErrValidation)
+	}
+
 	store := b.optimizationJobsStore(region)
 
 	if _, ok := store.Get(opts.Name); ok {

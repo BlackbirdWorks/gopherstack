@@ -45,7 +45,8 @@ ops:
 families:
   snapshot_restore: {status: ok, note: "Handler-level Snapshot/Restore delegation (persistence.go) verified intact; backend.Snapshot/Restore round-trip all LB + policy state incl. tags; version-guarded (v4) against incompatible older snapshots"}
   route_matcher: {status: ok, note: "single query/xml POST matcher (Version=2012-06-01 form field) confirmed reachable for all 29 dispatch-table ops; TestSDKCompleteness passes with empty notImplemented list"}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - gopherstack-6851 FOLLOW-UP addressed this pass: ApplySecurityGroupsToLoadBalancer/AttachLoadBalancerToSubnets now validate SecurityGroups/Subnets against the real EC2 backend (elb.EC2Resolver, wired by cli.go's wireELBCrossService), and CreateLoadBalancer/CreateLoadBalancerListeners/SetLoadBalancerListenerSSLCertificate now validate SSLCertificateId against the real ACM and IAM backends (elb.CertificateResolver, same wiring call). CreateLoadBalancer's own SecurityGroups/Subnets fields (as opposed to Apply/Attach) are NOT existence-checked -- out of scope for this pass, tracked separately if ever needed.
   - CreateLoadBalancerPolicy has no TooManyPolicies limit (AWS models TooManyPoliciesException for this op per the SDK's op-specific error switch, but no default per-LB policy count limit is documented anywhere gopherstack could source a correct number from; fabricating one risked being wrong, so left unenforced rather than guessed). Re-verified gopherstack-6851 2026-08-10: the official quota table at docs.aws.amazon.com/elasticloadbalancing/latest/classic/elb-limits.html lists exactly three Classic ELB quotas (Load Balancers per Region: 20, Listeners per Classic Load Balancer: 100, Registered Instances per Classic Load Balancer: 1,000) and no policies-per-load-balancer quota -- confirmed absent, not just unfound, so still deliberately left unenforced.
 deferred:                 # consciously not audited this pass (scope) — next pass targets
@@ -582,3 +583,87 @@ landmine comment (policies.go:308-318) with this direct verification.
 Gates: `GOTOOLCHAIN=go1.26.6 go test -race ./services/elb/...` ok;
 `GOTOOLCHAIN=go1.26.6 golangci-lint run ./services/elb/...` 0 issues. Re-ran
 `cmd/errtargetaudit`: same finding, same line, confirming no emission change.
+
+## 2026-09-11 gopherstack-miw: error HTTP status, plus a genuine 409 outlier the blanket "all 400" fix missed
+
+gopherstack-miw asked to remap classic elb's client-error HTTP statuses to 400, mirroring
+elbv2's fix (gopherstack-1xp): query-protocol services return HTTP 400 for essentially all
+client errors, and this codebase's elb previously used REST-JSON-style 404/409. Investigation
+found `services/elb/handler.go`'s `elbErrorCode` mapping had **already** been flattened to 400
+across the board by an earlier, undocumented pass (commit `fb80d66cd`, 2026-08-17, "feat(services):
+AWS parity and wire improvements across services (#2425)") -- the bd issue was simply never
+closed to reflect it. Confirmed via `awsAwsquery_deserializeOpError<Op>` in the pinned
+`elasticloadbalancing@v1.36.4` deserializers.go: error typing dispatches purely on the XML
+`<Code>` text (via `awsxml.GetErrorResponseComponents`), never on HTTP status -- the only
+`response.StatusCode` check in any of these functions is the generic 200-299 success gate one
+level up, so status is invisible to a real Go SDK client but still wire-relevant for anything
+that inspects raw HTTP (curl, non-SDK clients, retry middleware).
+
+Re-verifying against the ground-truth model (`aws-sdk-go@v1.55.8`
+`models/apis/elasticloadbalancing/2012-06-01/api-2.json`, all 22 exception shapes) found one
+exception the "flatten everything to 400" pass missed: `InvalidConfigurationRequestException`
+declares `httpStatusCode: 409`, not 400 -- the only one of the 22. (Contrast elbv2's own
+`InvalidConfigurationRequestException`, which genuinely is 400 in
+`elasticloadbalancingv2/2015-12-01/api-2.json` -- the two services model the same exception
+name at different statuses, so the elbv2 precedent doesn't transfer here without checking.)
+`elbErrorCode`'s `ErrInvalidConfiguration` mapping was still 400 (it always had been, even
+before the 2026-08-17 fix -- a pre-existing, previously unflagged bug of the same class, not
+introduced by that pass). Changed to `http.StatusConflict` (409), with a one-line landmine
+comment at the mapping table entry citing the model file. Every other sentinel in the table
+was independently re-checked against the same JSON (code string and httpStatusCode both) and
+confirmed correct at 400 already: `LoadBalancerNotFound`/`DuplicateLoadBalancerName`/
+`ListenerNotFound`/`DuplicateListener`/`PolicyNotFound`/`DuplicatePolicyName`/
+`PolicyTypeNotFound`/`SubnetNotFound`/`CertificateNotFound`/`TooManyLoadBalancers`/
+`TooManyTags`/`DuplicateTagKeys`/`InvalidScheme`/`InvalidSecurityGroup`/`UnsupportedProtocol`.
+(`InvalidInstance`/`InvalidAction`/`ValidationError` are not modeled exceptions in this SDK at
+all -- generic 400s, unaffected.) Also audited every `writeError` call site in the package:
+the only other callers are infra-level (unreadable/unparseable body -> 500, missing `Action`
+-> 400 `MissingAction`, neither AWS-modeled), so `elbErrorCode` is genuinely the only place
+client-error status is decided.
+
+Eight existing tests had pinned `ErrInvalidConfiguration`-triggering assertions at 400 (the
+same "everything is 400" assumption); corrected to 409:
+`TestEnableAZVPCLBRejected/vpc_lb_rejected`, `TestSetSSLCertNonHTTPSListener` (both subtests),
+`TestAccountLimitMaxListeners`, `TestDeletePolicyInUseByListenerRejected`,
+`TestStickinessPolicyTCPRejected` (both subtests), `TestCreateLoadBalancerPolicy/unknown_attribute_name_rejected`,
+`TestAZSubnetMutualExclusivity/both_az_and_subnet_rejected`, `TestAttachSubnetsEC2ClassicRejected/ec2_classic_rejected`.
+`TestAZSubnetMutualExclusivity/neither_az_nor_subnet_rejected` was NOT touched -- that path
+raises `ErrInvalidParameter` (`ValidationError`), a different sentinel, correctly still 400.
+
+New `TestErrorHTTPStatus` (`handler_error_status_test.go`) drives the real
+`aws-sdk-go-v2/service/elasticloadbalancing` client through a status-capturing
+`http.RoundTripper` (the SDK itself never exposes raw status) and proves, against real typed
+exceptions: `DescribeLoadBalancers` on an unknown name -> `AccessPointNotFoundException`, 400;
+duplicate `CreateLoadBalancer` -> `DuplicateAccessPointNameException`, 400;
+`AttachLoadBalancerToSubnets` on an EC2-Classic LB -> `InvalidConfigurationRequestException`,
+409. Verified each subtest fails against the pre-fix code: temporarily reverted
+`elbErrorCode` to its original 404/409-mixed mapping (the state before commit `fb80d66cd`) --
+the first two failed (`404`/`409` instead of `400`); temporarily reverted just the new
+`ErrInvalidConfiguration` line back to 400 -- the third failed (`400` instead of `409`);
+restored the real fix afterward and reran clean.
+
+Gates: `go build ./...` (whole module) clean; `go vet ./services/elb/...` clean;
+`go test -count=1 ./services/elb/...` ok; `go test -race -count=1 ./services/elb/...` ok;
+`golangci-lint run ./services/elb/...` 0 issues.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: ApplySecurityGroupsToLoadBalancer,
+DescribeAccountLimits, DescribeLoadBalancerAttributes,
+DescribeLoadBalancerPolicies, DetachLoadBalancerFromSubnets,
+DisableAvailabilityZonesForLoadBalancer,
+EnableAvailabilityZonesForLoadBalancer, ModifyLoadBalancerAttributes
+driven through the real aws-sdk-go-v2 client for the first time
+(`typed_slice15_realclient_test.go`, 3 subtests: AZ/attributes/account
+limits on a classic (EC2) LB, subnets/security groups on a VPC LB, load
+balancer policies). elb moved from 21/29 to 29/29 typed-covered per
+`cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request, consistent with this file's own documented prior real-client
+audit passes.
+
+Gates: `go build ./...`, `go vet ./services/elb/...`, `go test -race
+-count=1 ./services/elb/...` and `./pkgs/persistence/...`, `golangci-lint
+run --new-from-rev=HEAD ./services/elb/...` (0 issues). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.

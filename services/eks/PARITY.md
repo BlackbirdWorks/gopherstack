@@ -3,7 +3,7 @@
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
 last_audit_commit: 7c297a53  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_date: 2026-09-11  # gopherstack-wf8f: typed Capability.Configuration, honest Insight derivation, ClientRequestToken idempotency, ResourceLimitExceededException quotas; gopherstack-lruaw: implemented the 5 CertificateAuthority ops -- see Notes below
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -24,67 +24,67 @@ last_audit_date: 2026-08-13
 # (real-SDK errors.As assertions, each confirmed failing pre-fix).
 # fargate_profiles_test.go/node_groups_test.go had 3 pre-existing tests
 # asserting the old wrong status codes as correct; corrected alongside the fix.
-overall: A            # route-matcher pass (prior audit) + gaps/deferred closeout pass (this audit)
+overall: A            # route-matcher pass + gaps/deferred closeout pass + gopherstack-wf8f (typed capability config, honest insights, idempotency, resource limits) + gopherstack-lruaw (5 CertificateAuthority ops implemented, closing the last route-table gap)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-tp8x (2026-08-21): fixed the y1zn-deferred kubernetesNetworkConfig/networkingConfig split. Merged ElasticLoadBalancing *ElasticLoadBalancingConfig into the KubernetesNetworkConfig model/JSON struct as a sibling of IPFamily/ServiceIPv4CIDR/ServiceIPv6CIDR (matching types.KubernetesNetworkConfigRequest/Response, eks@v1.90.4 types/types.go:1597,1645); deleted the separate NetworkingConfig type and Cluster.NetworkingConfig field entirely, across clusters.go (ClusterOptionalConfig, resolveClusterOptionalConfig -- now returns 3 values not 4, new cloneKubernetesNetworkConfig helper for the nested-pointer deep copy), models.go, and handler_clusters.go (kubernetesNetworkConfigJSON gained ElasticLoadBalancing, networkingConfigJSON type deleted, createClusterBody.NetworkingConfig field deleted, buildClusterOptConfig's NetworkingConfig-building block deleted, appendClusterOptionalInfra's separate networkingConfig emission deleted, clusterNetConfigJSON now emits elasticLoadBalancing as part of the same object). A real client's ElasticLoadBalancing setting inside kubernetesNetworkConfig now round-trips both directions. Locked by TestCreateDescribeCluster_ElasticLoadBalancing_RealClient (real SDK client, both CreateCluster and DescribeCluster) and TestNetworkingConfig_RoundTrip (rewritten -- the old version sent/asserted the wrong top-level 'networkingConfig' key, ratifying the bug). gopherstack-tp8x (2026-08-21, follow-up): the Cluster shape change above went in without bumping eksSnapshotVersion, so a pre-fix snapshot's Cluster.NetworkingConfig.ElasticLoadBalancing would have silently vanished on restore into the new shape instead of the mismatch being caught. Bumped eksSnapshotVersion 1->2 (persistence.go) to force discard of any snapshot from before this shape changed."}
+  CreateCluster: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Clusters: 100'/account/region quota, plus structural 'Control plane security groups per cluster: 4' and 'Public endpoint access CIDR ranges per cluster: 40' caps (docs.aws.amazon.com/general/latest/gr/eks.html#limits_eks, WebFetch'd 2026-09-11) via limits.go's WithResourceLimits. Also gained ClientRequestToken idempotency (item 3): a replayed token+identical body short-circuits before the backend and returns the original CreateCluster response; a replayed token with different params returns InvalidParameterException without creating anything. gopherstack-tp8x (2026-08-21): fixed the y1zn-deferred kubernetesNetworkConfig/networkingConfig split. Merged ElasticLoadBalancing *ElasticLoadBalancingConfig into the KubernetesNetworkConfig model/JSON struct as a sibling of IPFamily/ServiceIPv4CIDR/ServiceIPv6CIDR (matching types.KubernetesNetworkConfigRequest/Response, eks@v1.90.4 types/types.go:1597,1645); deleted the separate NetworkingConfig type and Cluster.NetworkingConfig field entirely, across clusters.go (ClusterOptionalConfig, resolveClusterOptionalConfig -- now returns 3 values not 4, new cloneKubernetesNetworkConfig helper for the nested-pointer deep copy), models.go, and handler_clusters.go (kubernetesNetworkConfigJSON gained ElasticLoadBalancing, networkingConfigJSON type deleted, createClusterBody.NetworkingConfig field deleted, buildClusterOptConfig's NetworkingConfig-building block deleted, appendClusterOptionalInfra's separate networkingConfig emission deleted, clusterNetConfigJSON now emits elasticLoadBalancing as part of the same object). A real client's ElasticLoadBalancing setting inside kubernetesNetworkConfig now round-trips both directions. Locked by TestCreateDescribeCluster_ElasticLoadBalancing_RealClient (real SDK client, both CreateCluster and DescribeCluster) and TestNetworkingConfig_RoundTrip (rewritten -- the old version sent/asserted the wrong top-level 'networkingConfig' key, ratifying the bug). gopherstack-tp8x (2026-08-21, follow-up): the Cluster shape change above went in without bumping eksSnapshotVersion, so a pre-fix snapshot's Cluster.NetworkingConfig.ElasticLoadBalancing would have silently vanished on restore into the new shape instead of the mismatch being caught. Bumped eksSnapshotVersion 1->2 (persistence.go) to force discard of any snapshot from before this shape changed."}
   DescribeCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateCluster's gopherstack-tp8x note -- same clusterNetConfigJSON fix, shared by both ops."}
   ListClusters: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination via pkgs/page (was returning the full list in one page). gopherstack ignored-parameter sweep (2026-08-29): Include (blank vs 'all') was declared by ListClustersInput but never read -- every cluster, including ones registered via RegisterCluster, was always returned. Now blank Include excludes clusters with a non-nil ConnectorConfig (connected/external clusters); Include=[all] includes them, matching the SDK doc. Backend ListClusters signature gained an includeExternal bool param"}
   DeleteCluster: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateClusterConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition. gopherstack-7opw (2026-09-08): applyVpcEndpointUpdate wrote its rejection via handleError and returned that (always-nil) result; handleUpdateClusterConfig tested it and fell through to write a spurious second 200 on top of the committed error body (gopherstack-8haq shape). Only reachable via a concurrent DeleteCluster racing between UpdateClusterConfig and UpdateClusterVpcEndpoint's identical existence checks on the same cluster, so no unintended mutation was possible. Fixed to return the raw error; handleUpdateClusterConfig now maps and writes it exactly once."}
-  UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
-  RegisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
+  UpdateClusterConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired -- a same-token replay (including its VPC-endpoint sub-update) short-circuits and re-returns the original Update record rather than re-running UpdateClusterVpcEndpoint. was routed as bare-path PUT /clusters/{name}; real path is POST /clusters/{name}/update-config. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition. gopherstack-7opw (2026-09-08): applyVpcEndpointUpdate wrote its rejection via handleError and returned that (always-nil) result; handleUpdateClusterConfig tested it and fell through to write a spurious second 200 on top of the committed error body (gopherstack-8haq shape). Only reachable via a concurrent DeleteCluster racing between UpdateClusterConfig and UpdateClusterVpcEndpoint's identical existence checks on the same cluster, so no unintended mutation was possible. Fixed to return the raw error; handleUpdateClusterConfig now maps and writes it exactly once."}
+  UpdateClusterVersion: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. was routed at fictional POST /clusters/{name}/update-version; real path is POST /clusters/{name}/updates (shared with ListUpdates GET). gopherstack-muzq (2026-08-21): same InProgress-forever bug and fix as UpdateClusterConfig"}
+  RegisterCluster: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f (2026-09-11): fixed a real wire bug found while writing this pass's ClientRequestToken idempotency real-client test -- ConnectorConfig.ActivationExpiry was emitted as an RFC3339 string; real aws-sdk-go-v2/service/eks/types.ConnectorConfigResponse.ActivationExpiry (types.go:1165) is *time.Time, and its deserializer requires an epoch-seconds JSON number, so every real client's RegisterCluster/DescribeCluster/ListClusters(Include=all) call on a connected cluster failed to decode outright ('expected Timestamp to be a JSON Number, got string instead') -- gopherstack apparently never had a real-client test exercising RegisterCluster's response before this pass. Fixed: models.go's ConnectorConfig.ActivationExpiry retyped from string to a new activationExpiry wrapper (still time.Time-backed), connectorConfigToJSON (handler_clusters.go, new) emits .Time().Unix() like every other timestamp in this service. This retype did NOT bump eksSnapshotVersion: activationExpiry's own UnmarshalJSON decodes both the old bare-RFC3339-string shape and its own current shape, so a version-2 snapshot from before this fix still restores correctly (see persistence.go's doc comment and TestRestore_Version2Fixture_TolerantDecode). Now also enforces ResourceLimitExceededException for the real 'Registered clusters: 10'/account/region quota and has ClientRequestToken idempotency (item 3). was routed at /clusters/{placeholder}/register; real path is global POST /cluster-registrations (name comes from body, always did)"}
   DeregisterCluster: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as POST /clusters/{name}/deregister; real path is DELETE /cluster-registrations/{name}"}
   DescribeClusterVersions: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-g479 (2026-08-21): endOfStandardSupportDate/endOfExtendedSupportDate were static YYYY-MM-DD strings in a hand-built map[string]any table; real deserializers.go parses json.Number via ParseEpochSeconds. Confirmed against aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go; failed with 'expected Timestamp to be a JSON Number, got string instead' pre-fix. Found via a new go/types-based map-literal kind scanner (map[string]any{} literals had zero automated coverage before this pass)."}
-  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix."}
-  CreateNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
+  AssociateEncryptionConfig: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. gopherstack-g479 (2026-08-21): the returned Update.params was a hand-built {\"encryptionConfig\": ...} object; real Update.Params is an array of {type, value} pairs (deserializers.go's deserializeDocumentUpdate, case \"params\") with UpdateParamTypeEncryptionConfig = \"EncryptionConfig\". Failed with 'unexpected JSON type map[...]' pre-fix."}
+  CreateNodegroup: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Managed node groups per cluster: 30' quota (limits.go) and has ClientRequestToken idempotency (item 3)"}
   DescribeNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
   ListNodegroups: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteNodegroup: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix. gopherstack-muzq (2026-08-21): the Update record built in the handler was stamped InProgress and never advanced; now scheduled to Successful"}
-  UpdateNodegroupVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
-  CreateAddon: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-21 (gopherstack-y1zn): addonToJSON (shared by Create/Describe/Delete) emitted \"marketplaceVersion\" and \"resolveConflicts\"; types.Addon has neither (real Marketplace field is the nested \"marketplaceInformation\" object, not tracked by this backend; resolveConflicts is CreateAddon/UpdateAddon request-only, never echoed). Both removed. Proven via TestAddon_NoMarketplaceVersionOrResolveConflicts_RealClient, hand-reverted/confirmed-failing/restored/md5sum-verified. 2026-09-07 (gopherstack-bs4t): CreateAddonInput.PodIdentityAssociations was declared by the model but never read by createAddonBody, so create-time associations were silently dropped. Fixed -- see the gopherstack-bs4t/wmuv note below."}
+  UpdateNodegroupConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired (covers both the config mutation and the fabricated Update record it creates). was reachable on a bare POST to the nodegroup path with no suffix check, so real SDK traffic to .../update-config fell through with a corrupted nodegroupName (the literal suffix baked in); now requires the real /update-config suffix. gopherstack-muzq (2026-08-21): the Update record built in the handler was stamped InProgress and never advanced; now scheduled to Successful"}
+  UpdateNodegroupVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. gopherstack-muzq (2026-08-21): the returned Update record was stamped InProgress and never advanced -- DescribeUpdate polled InProgress forever; now scheduled to Successful via scheduleUpdateTransition"}
+  CreateAddon: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. 2026-08-21 (gopherstack-y1zn): addonToJSON (shared by Create/Describe/Delete) emitted \"marketplaceVersion\" and \"resolveConflicts\"; types.Addon has neither (real Marketplace field is the nested \"marketplaceInformation\" object, not tracked by this backend; resolveConflicts is CreateAddon/UpdateAddon request-only, never echoed). Both removed. Proven via TestAddon_NoMarketplaceVersionOrResolveConflicts_RealClient, hand-reverted/confirmed-failing/restored/md5sum-verified. 2026-09-07 (gopherstack-bs4t): CreateAddonInput.PodIdentityAssociations was declared by the model but never read by createAddonBody, so create-time associations were silently dropped. Fixed -- see the gopherstack-bs4t/wmuv note below."}
   DescribeAddon: {wire: fixed, errors: ok, state: ok, persist: ok, note: "see CreateAddon's gopherstack-y1zn note -- same addonToJSON fix."}
   ListAddons: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination"}
   DeleteAddon: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "see CreateAddon's gopherstack-y1zn note -- same addonToJSON fix. 2026-09-07 (gopherstack-wmuv): did not clean up the deleted add-on's owned pod identity associations, leaking a tags handle and an orphaned association. Fixed -- see the gopherstack-bs4t/wmuv note below."}
-  UpdateAddon: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was PUT to bare addon path; real op is POST .../addons/{addonName}/update. 2026-09-07 (gopherstack-tu95): PodIdentityAssociations was declared on the wire but never read -- its documented tri-state (absent=no change, []=delete all, populated=replace) was unimplemented. Addon also never surfaced its owned associations back (types.Addon.PodIdentityAssociations), so a delete could not be observed. See PodIdentityAssociation tri-state entry below."}
+  UpdateAddon: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. was PUT to bare addon path; real op is POST .../addons/{addonName}/update. 2026-09-07 (gopherstack-tu95): PodIdentityAssociations was declared on the wire but never read -- its documented tri-state (absent=no change, []=delete all, populated=replace) was unimplemented. Addon also never surfaced its owned associations back (types.Addon.PodIdentityAssociations), so a delete could not be observed. See PodIdentityAssociation tri-state entry below."}
   DescribeAddonVersions: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-versions; real path is /addons/supported-versions — was completely unreachable by the real SDK client"}
   DescribeAddonConfiguration: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "path was /addon-configuration; real path is /addons/configuration-schemas — was completely unreachable. gopherstack-g479 (2026-08-21): configurationSchema was ALSO a nested JSON object where the real member (deserializers.go, case \"configurationSchema\": value.(string)) is the schema as a raw JSON string; failed with 'expected String to be of type string, got map[string]interface {} instead' pre-fix. Found via a new go/types-based map-literal kind scanner."}
-  CreateAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreateAccessEntry: {wire: ok, errors: fixed, state: ok, persist: ok, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Access entries per cluster: 3,000' quota (not AWS-adjustable, but still enforced with a WithResourceLimits test override) and has ClientRequestToken idempotency (item 3)"}
   DescribeAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt (real aws-sdk-go-v2/service/eks/types.AccessEntry.ModifiedAt was entirely unmodeled); set on create and every update"}
   ListAccessEntries: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): AssociatedPolicyArn was declared by ListAccessEntriesInput ('only the access entries associated to that access policy are returned') but never read -- every access entry in the cluster was always returned. Now filters via a per-entry ListAssociatedAccessPolicies lookup"}
   DeleteAccessEntry: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Also now sets ModifiedAt"}
+  UpdateAccessEntry: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. was routed as PUT; real method is POST to the same leaf path. Also now sets ModifiedAt"}
   AssociateAccessPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DisassociateAccessPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAssociatedAccessPolicies: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "now supports maxResults/nextToken pagination"}
   ListAccessPolicies: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "wire key for each entry was 'policyArn'; real aws-sdk-go-v2/service/eks/types.AccessPolicy field (deserializers.go's awsRestjson1_deserializeDocumentAccessPolicy) is 'arn' -- 'policyArn' is the correct key for AssociatedAccessPolicy elsewhere in this API but was wrong here. Also now supports maxResults/nextToken pagination"}
-  CreateFargateProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added Health (real aws-sdk-go-v2/service/eks/types.FargateProfile.Health was entirely absent from the wire response, not just unmodeled in the struct)"}
+  CreateFargateProfile: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Fargate profiles per cluster: 10', 'Selectors per Fargate profile: 5', and 'Label pairs per Fargate profile selector: 5' quotas (limits.go) and has ClientRequestToken idempotency (item 3). added Health (real aws-sdk-go-v2/service/eks/types.FargateProfile.Health was entirely absent from the wire response, not just unmodeled in the struct)"}
   DescribeFargateProfile: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same Health fix as CreateFargateProfile"}
   ListFargateProfiles: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination; no UpdateFargateProfile exists in the real API either"}
   DeleteFargateProfile: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added ModifiedAt/ExternalId/Policy/DisableSessionTags -- all real aws-sdk-go-v2/service/eks/types.PodIdentityAssociation fields that were entirely unmodeled"}
+  CreatePodIdentityAssociation: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'Up to 5,000 EKS Pod Identity associations per cluster' quota (docs.aws.amazon.com/eks/latest/userguide/pod-identities.html#pod-id-limits, WebFetch'd 2026-09-11) and has ClientRequestToken idempotency (item 3). added ModifiedAt/ExternalId/Policy/DisableSessionTags -- all real aws-sdk-go-v2/service/eks/types.PodIdentityAssociation fields that were entirely unmodeled"}
   DescribePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same field additions as CreatePodIdentityAssociation"}
   ListPodIdentityAssociations: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "was emitting the FULL PodIdentityAssociation shape (roleArn/createdAt/tags included); real ListPodIdentityAssociations returns the PodIdentityAssociationSummary shape which deliberately omits those fields -- verified against types.PodIdentityAssociationSummary. Also now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): Namespace/ServiceAccount were declared by ListPodIdentityAssociationsInput but never read -- every association in the cluster was always returned regardless"}
   DeletePodIdentityAssociation: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
-  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation. gopherstack-i8lo (2026-08-22): oidc.identityProviderConfigName (OidcIdentityProviderConfigRequest, eks@v1.90.4 types/types.go:2120, required) was decoded but never validated -- a missing name silently defaulted to clientId instead of being rejected; ClientId/IssuerUrl (types.go:2115,2132) were already validated. Now rejects a missing identityProviderConfigName with InvalidParameterException."}
+  UpdatePodIdentityAssociation: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f (2026-09-11): declares ResourceLimitExceededException on the wire but has nothing to enforce -- it mutates an existing association and cannot itself push any count over a cardinality quota (see limits.go's doc comment); ClientRequestToken idempotency wired (item 3). was routed as PUT; real method is POST to the same leaf path. Now also accepts Policy/DisableSessionTags and sets ModifiedAt"}
+  AssociateIdentityProviderConfig: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. now captures groupsPrefix/usernamePrefix/requiredClaims (previously dropped) and generates a real ARN (previously unset). gopherstack-muzq (2026-08-21): Status was stamped CREATING and nothing ever advanced it -- no ticker, no later call, while sibling cluster/addon/nodegroup resources transition correctly; now scheduled to ACTIVE mirroring scheduleClusterActivation. gopherstack-i8lo (2026-08-22): oidc.identityProviderConfigName (OidcIdentityProviderConfigRequest, eks@v1.90.4 types/types.go:2120, required) was decoded but never validated -- a missing name silently defaulted to clientId instead of being rejected; ClientId/IssuerUrl (types.go:2115,2132) were already validated. Now rejects a missing identityProviderConfigName with InvalidParameterException."}
   DescribeIdentityProviderConfig: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "response was a flat {clusterName,name,type,status,oidc,createdAt} object; real shape (aws-sdk-go-v2/service/eks/types.IdentityProviderConfigResponse) nests the full OidcIdentityProviderConfig under an 'oidc' key with identityProviderConfigName/identityProviderConfigArn/clientId/issuerUrl/usernameClaim/usernamePrefix/groupsClaim/groupsPrefix/requiredClaims/tags/status fields, none of which matched gopherstack's flat shape. Route-match looseness (any 3rd path segment) is unchanged, still intentional"}
   ListIdentityProviderConfigs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now supports maxResults/nextToken pagination (envelope shape {name,type} pairs was already correct)"}
-  DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was a GLOBAL (non-cluster-scoped) resource keyed only by 'name' at POST /capabilities, which does not exist in the real API at all (fabricated path). Real Capability is cluster-scoped (unique CapabilityName per cluster) at /clusters/{clusterName}/capabilities and requires ClusterName+CapabilityName+Type+RoleArn+DeletePropagationPolicy. Rebuilt: composite-keyed store (capabilityKey), cluster-scoped route, required-field validation, capabilityName/clusterName/arn/type/roleArn/deletePropagationPolicy/createdAt/tags on the wire (was emitting only name/version/status under the wrong field name 'name' instead of 'capabilityName'). This pass additionally added ModifiedAt/Health/Configuration and accepts (but does not persist for idempotency) ClientRequestToken"}
-  DescribeCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed}
+  DisassociateIdentityProviderConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired"}
+  CreateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f item 1 (2026-09-11): Configuration is now typed, not an untyped map[string]any passthrough. aws-sdk-go-v2/service/eks@v1.98.0's CapabilityConfigurationRequest/Response (types.go:645,655) carry only an ArgoCd member in this pinned SDK version -- ACK/KRO have zero typed Configuration schema at all (confirmed: no Ack*/Kro*-prefixed structs anywhere in types.go beyond the CapabilityType enum values), so a Configuration on a non-ARGOCD capType is now rejected (InvalidParameterException) rather than silently accepted. ArgoCdConfigRequest{AwsIdc{IdcInstanceArn(required),IdcRegion},Namespace,NetworkAccess{VpceIds},RbacRoleMappings[{Role,Identities[{Id,Type}]}]} validated per validators.go's validateArgoCdConfigRequest/validateArgoCdAwsIdcConfigRequest/validateArgoCdRoleMapping/validateSsoIdentity (AwsIdc and AwsIdc.IdcInstanceArn required; each RbacRoleMappings entry needs Role+non-nil Identities; each Identity needs Id+Type) -- proven by TestCapabilityConfiguration_ArgoCd_MissingAwsIdc_InvalidParameterException (wf8f_test.go). Server-computed response-only members (ArgoCdAwsIdcConfigResponse.IdcManagedApplicationArn, ArgoCdConfigResponse.ServerUrl) have no documented derivation anywhere in the SDK doc comments or the EKS user guide's capabilities/argocd pages (WebFetch'd 2026-09-11) -- left absent rather than fabricated, disclosed in gaps below. Also now enforces the real 'one capability of each type per cluster' structural rule (capabilities.html, WebFetch'd 2026-09-11: 'You cannot create multiple capability resources of the same type on the same cluster') as ResourceLimitExceededException -- previously two same-typed capabilities in one cluster were silently accepted. ClientRequestToken idempotency wired (item 3, see gaps for the 24h-window simplification). Real-client round-trip proven by TestCapabilityConfiguration_ArgoCd_RealClient_RoundTrip. Structural history: was a GLOBAL (non-cluster-scoped) resource keyed only by 'name' at POST /capabilities, which does not exist in the real API at all (fabricated path). Real Capability is cluster-scoped (unique CapabilityName per cluster) at /clusters/{clusterName}/capabilities and requires ClusterName+CapabilityName+Type+RoleArn+DeletePropagationPolicy. Rebuilt: composite-keyed store (capabilityKey), cluster-scoped route, required-field validation, capabilityName/clusterName/arn/type/roleArn/deletePropagationPolicy/createdAt/tags on the wire (was emitting only name/version/status under the wrong field name 'name' instead of 'capabilityName')."}
+  DescribeCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f item 1 (2026-09-11): emits the typed argoCd configuration object -- see CreateCapability's note."}
   ListCapabilities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was returning bare capability-name strings; real ListCapabilities returns CapabilitySummary objects (capabilityName/arn/status/type/version/createdAt/modifiedAt) -- verified against types.CapabilitySummary. Also now supports maxResults/nextToken pagination"}
   DeleteCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed}
-  UpdateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "was PUT; real method is POST to the same leaf path. ModifiedAt now set on every update; Health/Configuration were added to the model (see CreateCapability note) -- Configuration remains a passthrough map (no per-capability-type ArgoCd/Ack/Kro schema validation)"}
-  CreateEksAnywhereSubscription: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "path was /subscriptions; real path is /eks-anywhere-subscriptions — was completely unreachable. Also now validates the required 'term' field (unit must be MONTHS, duration must be 12 or 36 -- verified against types.EksAnywhereSubscriptionTerm) and models autoRenew/effectiveDate/expirationDate, none of which were previously modeled at all"}
+  UpdateCapability: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f item 1 (2026-09-11): fixed a real wire bug found while writing this pass's real-client tests -- UpdateCapabilityOutput carries an async Update object under the 'update' key (types.go:3257, deserializers.go's awsRestjson1_deserializeOpDocumentUpdateCapabilityOutput case 'update'), matching UpdateAddon's identical shape; the handler was returning the mutated Capability directly under 'capability', which a real client's deserializer does not recognize at all (it would decode Update as nil and surface nothing). Fixed to mirror handleUpdateAddon's fabricated-Update-map pattern exactly (this backend creates no real Update store record for capability updates either -- see the pre-existing ListUpdates.CapabilityName gap below). Configuration updates now merge per UpdateCapabilityConfiguration/UpdateArgoCdConfig/UpdateRoleMappings' documented semantics ('you only need to specify the fields you want to update'; AddOrUpdateRoleMappings replaces an existing role's identities or appends a new mapping; RemoveRoleMappings removes named identities from a role, dropping the mapping entirely once empty) -- proven by TestCapabilityConfiguration_UpdateArgoCd_RoleMappingMergeSemantics (add-then-remove, both directions). ClientRequestToken idempotency wired (item 3). was PUT; real method is POST to the same leaf path. ModifiedAt now set on every update."}
+  CreateEksAnywhereSubscription: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f (2026-09-11): now enforces ResourceLimitExceededException for the real 'EKS Anywhere Enterprise Subscriptions: 10'/account/region quota and has ClientRequestToken idempotency (item 3). path was /subscriptions; real path is /eks-anywhere-subscriptions — was completely unreachable. Also now validates the required 'term' field (unit must be MONTHS, duration must be 12 or 36 -- verified against types.EksAnywhereSubscriptionTerm) and models autoRenew/effectiveDate/expirationDate, none of which were previously modeled at all"}
   DescribeEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
   ListEksAnywhereSubscriptions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): IncludeStatus was declared by ListEksAnywhereSubscriptionsInput but never read -- every subscription was always returned regardless of status"}
   DeleteEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok}
-  UpdateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "was PUT; real method is POST to the same leaf path"}
-  DescribeInsight: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "content is synthetic/fabricated (pre-existing; AWS's real insight analysis cannot be emulated) but is now reachable at the correct path"}
-  ListInsights: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates. Was also emitting the FULL Insight shape (recommendation, plus the invented clusterName that neither Insight nor InsightSummary carries on the wire — the cluster is already identified by the URL path); real ListInsights returns types.InsightSummary, which omits recommendation/additionalInfo/categorySpecificSummary/resources entirely -- verified against types.InsightSummary. DescribeInsight's response still includes the invented clusterName (separate pre-existing bug, out of scope for this pass). kubernetesVersion/name (InsightSummary members) have no honest source in this backend's Insight model and are left absent rather than fabricated. gopherstack ignored-parameter sweep (2026-08-29): the body's 'filter' key (InsightsFilter.categories/statuses/kubernetesVersions) was not parsed at all. Now filters by categories/statuses (both modeled on this backend's synthetic Insight); kubernetesVersions is left unapplied -- Insight has no version field to filter against, and fabricating one was rejected"}
+  UpdateEksAnywhereSubscription: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired. was PUT; real method is POST to the same leaf path"}
+  DescribeInsight: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-wf8f item 2 (2026-09-11): content is no longer fabricated. Real EKS insights (types.Insight/InsightSummary, verified against types.go/deserializers.go) are computed from live analysis of the cluster's Kubernetes API server -- categories UPGRADE_READINESS (deprecated-API usage, add-on compatibility, control-plane/node version skew) and MISCONFIGURATION (EKS Hybrid Nodes networking); this backend has no Kubernetes API server or hybrid-nodes model, so neither category's real checks are runnable. What IS honestly derivable: the cluster's real Version field against the static supported-version table DescribeClusterVersions already exposes (clusters.go's new clusterVersionSupportTable, shared by both ops so they cannot drift). Two UPGRADE_READINESS insights are now derived from exactly that data (insights.go's deriveUpgradeReadinessInsights): 'Kubernetes version end of standard support' (PASSING/WARNING/ERROR based on real published endOfStandardSupportDate vs now, WARNING inside a disclosed 90-day backend policy window) and 'Cluster Kubernetes version behind latest supported version' (compares minor version to the table's Default-flagged entry). A cluster whose Version isn't a table entry gets neither insight -- nothing fabricated in its place. kubernetesVersion and name (InsightSummary/Insight members) are now honestly populated from the same real data, closing the prior 'no honest source' gap. Also fixed the pre-existing invented clusterName leak (neither Insight nor InsightSummary carries it on the wire) and a status-reason bug: insightToJSON was echoing Recommendation (remediation advice) into insightStatus.reason instead of an actual reason for the status -- Insight gained a real StatusReason field, InsightStatus.Reason now carries genuine reasoning text. DescribeInsight now genuinely 404s for an unknown insight ID (previously always-200 for any ID on a valid cluster). Every insight kind NOT derivable is disclosed in gaps below rather than invented. Real-client-proven by TestInsights_DerivedFromRealClusterVersion/TestInsights_UnknownVersion_NoFabricatedInsights/TestInsights_VersionBehindLatest_ReportsGap (wf8f_test.go)."}
+  ListInsights: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "gopherstack-wf8f item 2 (2026-09-11): same honest-derivation rework as DescribeInsight -- see its note. kubernetesVersions filter (InsightsFilter.kubernetesVersions) is now implemented, closing the prior gap: Insight genuinely has a KubernetesVersion field now. was GET; real method is POST (carries an optional filter body) — was unreachable by the real SDK client. Now also reads maxResults/nextToken from the POST body (not query params, since ListInsights carries no query string) and paginates. Real ListInsights returns types.InsightSummary, which omits recommendation/additionalInfo/categorySpecificSummary/resources entirely -- verified against types.InsightSummary. gopherstack ignored-parameter sweep (2026-08-29): the body's 'filter' key (InsightsFilter.categories/statuses/kubernetesVersions) was not parsed at all; now filters by all three."}
   StartInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "was routed/shaped as a per-insight, per-refresh-id nested resource (/insights/{id}/refresh); real API is a cluster-level singleton at /clusters/{name}/insights-refresh with no id at all. Response was also wrongly nested under an 'insightsRefresh' envelope key; real fields (message/status/startedAt/endedAt) are at the response root"}
   DescribeInsightsRefresh: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "same fixes as StartInsightsRefresh"}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "extended to find Capability ARNs too"}
@@ -92,21 +92,106 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "genuinely has no maxResults/nextToken in the real API (ListTagsForResourceInput has neither field) -- not a gap"}
   DescribeUpdate: {wire: ok, errors: ok, state: ok, persist: ok}
   ListUpdates: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now supports maxResults/nextToken pagination. gopherstack ignored-parameter sweep (2026-08-29): NodegroupName was declared by ListUpdatesInput but never read; added Update.NodegroupName (backend-internal, json:\"-\", not part of the real wire shape) populated by UpdateNodegroupVersion/UpdateNodegroupConfig, and ListUpdates now filters by it. AddonName/CapabilityName remain unfixed -- no Update record is ever created for UpdateAddon/UpdateCapability in this backend (they return the mutated Addon/Capability directly, not an async Update the way the real API does), so there is nothing yet to filter; fixing those needs a separate, larger change to UpdateAddon/UpdateCapability's response shape"}
-  CancelUpdate: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "implemented for real: POST /clusters/{name}/updates/{updateId}/cancel-update. Real EKS only performs cancellation for VersionRollback update types that are still InProgress (Kubernetes version rollback on EKS Auto Mode clusters, per the op's doc comment); any other type/status now returns InvalidRequestException (new ErrInvalidRequest sentinel) rather than silently no-opping or 404ing. On success sets Status=Cancelled and a Cancellation{Status,Reason} record, matching types.Update.Cancellation/types.Cancellation. No public op creates a VersionRollback update in this SDK version (it is an AWS-internal transition), so the success path is only reachable by seeding an update via the existing exported StoreUpdate — tests exercise this directly"}
-gaps:
-  - "ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return the mutated resource directly), so there is no addon/capability-scoped Update to filter over yet"
-  - "ListInsights.Filter.kubernetesVersions is unimplemented: Insight has no version field on this backend's synthetic model"
-  - "Capability Configuration remains an untyped passthrough map — no per-CapabilityType (ArgoCd/Ack/Kro) schema validation of Configuration/UpdateCapabilityConfiguration, unlike the real API's discriminated CapabilityConfigurationResponse/UpdateCapabilityConfiguration union types"
-  - "Insight/DescribeInsight content is fabricated/synthetic, not derived from real cluster analysis (pre-existing, inherent emulator limitation -- there is no real cluster to analyze)"
-  - "types.InsightSummary/types.Insight's kubernetesVersion and name members have no honest source in this backend's Insight model and are left absent from both DescribeInsight and ListInsights rather than fabricated"
-  - "DescribeInsight still emits an invented clusterName field that neither types.Insight nor types.InsightSummary carries on the wire (the cluster is already identified by the URL path); ListInsights was fixed to drop it this pass (gopherstack-uult) but DescribeInsight was out of scope for that fix"
-  - "ClientRequestToken (CreateCapability, CancelUpdate, CreatePodIdentityAssociation, etc.) is accepted on the wire for shape parity but never used for idempotency dedup, matching this backend's in-memory non-durable nature; a real duplicate-request-with-same-token replay will create two resources instead of returning the first one"
+  CancelUpdate: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-wf8f item 3 (2026-09-11): ClientRequestToken idempotency wired -- fixes a real latent bug where a genuine same-token retry after a successful cancel would have hit CancelUpdate's own not-cancellable-twice InvalidRequestException instead of replaying the original success. implemented for real: POST /clusters/{name}/updates/{updateId}/cancel-update. Real EKS only performs cancellation for VersionRollback update types that are still InProgress (Kubernetes version rollback on EKS Auto Mode clusters, per the op's doc comment); any other type/status now returns InvalidRequestException (new ErrInvalidRequest sentinel) rather than silently no-opping or 404ing. On success sets Status=Cancelled and a Cancellation{Status,Reason} record, matching types.Update.Cancellation/types.Cancellation. No public op creates a VersionRollback update in this SDK version (it is an AWS-internal transition), so the success path is only reachable by seeding an update via the existing exported StoreUpdate — tests exercise this directly"}
+  ActivateCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch (see the 5-op family note below). POST /clusters/{name}/certificate-authorities/{id}/activate; ClientRequestToken travels in the JSON body (serializers.go's awsRestjson1_serializeOpDocumentActivateCertificateAuthorityInput). Real error set is InvalidParameterException/ResourceNotFoundException/ServerException/ServiceUnavailableException only -- no ResourceInUseException, no ResourceLimitExceededException -- so a CA that is not eligible (signingStatus != NOT_USED, or distributionStatus != COMPLETE) rejects with InvalidParameterException, matching the op's own doc comment ('must already be present on the cluster and fully distributed'). On success the target transitions NOT_USED -> ACTIVATING -> (async) IN_USE, and the previous IN_USE CA in the same cluster (if any) is retired to NOT_USED with RollbackAvailable=true (undocumented rollback-window TTL not modeled -- see gaps, same conservative treatment as the ClientRequestToken 24h window). Returns CertificateAuthoritySummary + an async Update (types.UpdateTypeCertificateAuthorityUpdate)."}
+  CreateCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. POST /clusters/{name}/certificate-authorities, body {clientRequestToken}. Enforces the real 'at most two certificate authorities at a time' structural cap stated in the op's own doc comment (maxCertificateAuthoritiesPerCluster, certificate_authorities.go -- not in limits.go's resourceLimits/WithResourceLimits struct because it is not a numbered, adjustable Service Quotas entry, same treatment as CreateCapability's one-per-type rule) as ResourceLimitExceededException. Generates a REAL self-signed ECDSA P-256 x509 CA certificate for the CertificateAuthority.Data field (generateCertificateAuthorityCert) rather than a fabricated string -- verified this op family's Input/Output shapes accept/return no client-supplied key, CSR, or certificate at all (neither api_op_*CertificateAuthorit*.go nor types/types.go declares such a member), so there is no real CSR-upload wire feature to emulate; only the resulting Data/Validity ever reach the wire, and the private key is discarded immediately after signing. New CA starts SigningStatus=NOT_USED, DistributionStatus=IN_PROGRESS -> async COMPLETE. Returns CertificateAuthoritySummary + an async Update."}
+  DeleteCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. DELETE /clusters/{name}/certificate-authorities/{id} -- the only op in this service whose ClientRequestToken travels as a QUERY parameter, not a JSON body (serializers.go's awsRestjson1_serializeOpHttpBindingsDeleteCertificateAuthorityInput uses encoder.SetQuery, not the body encoder every other op uses; DELETE carries no request document at all). Rejects with ResourceInUseException when the target CA's signingStatus is IN_USE, matching the doc comment ('You can't delete the certificate authority that's currently signing certificates'). The doc comment's other protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger in this backend: every CA here has CreatedBy=CUSTOMER (only the public CreateCertificateAuthority op creates one; nothing auto-provisions an EKS-created CA) -- disclosed in gaps, not silently dropped. Returns the deleted CA's summary (DistributionStatus stamped DELETING, mirroring DeleteFargateProfile's statusDeleting pattern) + an async Update."}
+  DescribeCertificateAuthority: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities/{id}, only ResourceNotFoundException/ServerException/ServiceUnavailableException declared. Returns the full types.CertificateAuthority shape (data/validity/rollbackAvailable/activatedAt/activatedBy in addition to the summary fields) -- verified field-by-field against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthority. ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is left absent: real EKS computes it from the CA's validity period with no published formula (WebFetch'd the certificate-authority-rotation user guide page 2026-09-11, no formula given) -- disclosed in gaps rather than fabricated."}
+  ListCertificateAuthorities: {wire: fixed, errors: fixed, state: fixed, persist: fixed, note: "gopherstack-lruaw (2026-09-11): implemented from scratch. GET /clusters/{name}/certificate-authorities, maxResults/nextToken query-param pagination via pkgs/page, matching every other GET-based List op in this service. Returns types.CertificateAuthoritySummary entries (verified against deserializers.go's awsRestjson1_deserializeDocumentCertificateAuthoritySummary), sorted by ID for deterministic responses."}
+gaps: []
+items_still_open:
+  - "ListUpdates.AddonName/CapabilityName filters are unimplemented: UpdateAddon/UpdateCapability never create an Update record in this backend (they return a fabricated Update-shaped map directly, not a stored Update), so there is no addon/capability-scoped Update to filter over yet"
+  - "Insight/DescribeInsight content beyond the two derivable UPGRADE_READINESS checks (Kubernetes version end-of-support, version behind latest -- gopherstack-wf8f item 2) remains unmodeled: deprecated-Kubernetes-API-usage insights, AddonCompatibilityDetails, InsightCategorySpecificSummary.DeprecationDetails, Resources[]/InsightResourceDetail, and the entire MISCONFIGURATION category (EKS Hybrid Nodes) all require either a live Kubernetes API server or a hybrid-nodes model this backend does not have -- inherent emulator limitation, not something fixable by more wire-shape work"
+  - "ArgoCdAwsIdcConfig.IdcManagedApplicationArn and ArgoCdConfig.ServerUrl (real AWS's server-computed IAM Identity Center application ARN and Argo CD web/API URL) have no documented derivation pattern anywhere in the pinned SDK's doc comments or the EKS user guide's capabilities/argocd pages (WebFetch'd 2026-09-11) -- left empty on every CreateCapability/DescribeCapability/UpdateCapability response rather than fabricated"
+  - "ClientRequestToken idempotency (gopherstack-wf8f item 3) does not enforce the documented 24-hour token validity window (api_op_CreateCluster.go: 'This token is valid for 24 hours after creation.') -- tokens remain valid for the lifetime of the backend. Conservative (can only cause an over-eager replay of a token real AWS would have already expired, never fabricate a wrong new resource); no TTL sweep infrastructure was added for this"
+  - "gopherstack-lruaw (2026-09-11): CertificateAuthority.ScheduledEvents (FinalAutoActivation/FirstAutoActivation) is unmodeled -- no published derivation formula from the CA's validity period exists in the pinned SDK's doc comments or the EKS user guide"
+  - "gopherstack-lruaw (2026-09-11): ActivateCertificateAuthority's RollbackAvailable window ('For a limited period after activation, CA rollback is available') is set true on the retired outgoing CA but never expires -- no TTL sweep exists for it, the same disclosed simplification as the ClientRequestToken 24h window above"
+  - "gopherstack-lruaw (2026-09-11): DeleteCertificateAuthority's second documented protection case ('a successor that Amazon EKS appended can't be deleted while it's the only successor') can never trigger here -- every CA in this backend has CreatedBy=CUSTOMER, since nothing auto-provisions an EKS-created initial cluster CA into the new certificateAuthorities table (the pre-existing, unrelated Cluster.CertificateAuthority placeholder field is untouched by this pass)"
 deferred:
-  - "AWS error-code granularity beyond ResourceNotFoundException/ResourceInUseException/InvalidParameterValueException/InvalidRequestException (added this pass for CancelUpdate's not-cancellable case) — ClientException/ResourceLimitExceededException/ServerException are not modeled/reachable anywhere in this backend; a full sweep of which ops can plausibly return them was not done this pass"
-leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). No new goroutines/tickers introduced this pass -- CancelUpdate and pagination are synchronous request/response paths"}
+  - "gopherstack-wf8f (2026-09-11) closeout of the prior pass's error-code-granularity item: ResourceLimitExceededException is now enforced (item 4) for every op that declares it and has a real, published AWS quota this backend can plausibly hit (CreateAccessEntry, CreateCapability, CreateCluster, CreateEksAnywhereSubscription, CreateFargateProfile, CreateNodegroup, CreatePodIdentityAssociation, RegisterCluster -- see limits.go). ClientException/ServerException/ServiceUnavailableException/ThrottlingException are declared by this SDK's deserializers.go on some ops but remain structurally unreachable from this backend: re-ran cmd/errtargetaudit -dir eks this pass (0 class-A findings, matching the 2026-08-31 eks-is-clean sweep) and found no new reachable case for any of them -- ClientException/ServerException model IAM-permission-denial and server-side-fault conditions this backend has no authorization-denial or fault-injection mechanism for; ServiceUnavailableException/ThrottlingException model transient infrastructure conditions an in-memory backend structurally cannot produce. Consistent with every other gopherstack service's treatment of these codes, not unique to eks"
+leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/addon CREATING->ACTIVE transitions, plus gopherstack-lruaw's new certificate authority distribution/activation transitions) stopped via Handler.Shutdown->Backend.Close->work.Stop(); tags.Tags Prometheus-label objects closed on Delete/Reset for every resource type including Capability (closeIDPAndSubscriptionTagsLocked and DeleteCluster's cascade). CertificateAuthority carries no tags.Tags (real types.CertificateAuthority/CertificateAuthoritySummary have no tags member), so Reset/Delete need no new tag-closing code for it. No new goroutine/ticker primitive was introduced this pass -- scheduleCertificateAuthorityDistribution/scheduleCertificateAuthorityActivation reuse the existing b.work (*worker.Group), the same mechanism as every sibling CREATING->ACTIVE transition"}
 ---
 
 ## Notes
+
+### gopherstack-lruaw (2026-09-11): implemented the 5 CertificateAuthority ops
+
+Closes the gap gopherstack-wf8f disclosed: `ActivateCertificateAuthority`,
+`CreateCertificateAuthority`, `DeleteCertificateAuthority`,
+`DescribeCertificateAuthority`, `ListCertificateAuthorities` (EKS Hybrid
+Nodes on-prem CA rotation support, new in `eks@v1.98.0`) were entirely
+unimplemented and listed in `sdk_completeness_test.go`'s not-implemented
+manifest. Every wire fact (paths/methods, request/response field names, and
+each op's own error set) was re-derived directly from
+`aws-sdk-go-v2/service/eks@v1.98.0`'s `api_op_*CertificateAuthorit*.go`,
+`types/types.go`, `types/enums.go`, `validators.go`, `serializers.go`, and
+`deserializers.go` -- not guessed. See the per-op `ops:` entries above for
+file-level detail; summary of the notable findings:
+
+- **No CSR/certificate-upload wire feature exists.** The task's working
+  assumption going in was that `Activate` would take a client-signed
+  certificate completing a CSR `Create` handed back. Reading the real SDK
+  disproved this: `ActivateCertificateAuthorityInput` has exactly three
+  members (`CertificateAuthorityId`, `ClusterName`, `ClientRequestToken`) --
+  no certificate, no CSR. Real EKS generates and manages this CA's key
+  material entirely server-side; the client only ever names an existing CA
+  by ID. Building a CSR-verification flow would have been inventing a wire
+  feature that does not exist. Instead, `CreateCertificateAuthority`
+  generates a REAL self-signed ECDSA P-256 x509 CA certificate
+  (`generateCertificateAuthorityCert`, `certificate_authorities.go`) for the
+  `data` field -- a genuinely valid, parseable CA certificate, just not one a
+  client ever supplies or verifies, matching the real op's actual contract.
+- **`DeleteCertificateAuthority` is the only op in this entire service whose
+  `ClientRequestToken` serializes as a query parameter, not a JSON body**
+  (`serializers.go`'s `awsRestjson1_serializeOpHttpBindingsDeleteCertificateAuthorityInput`
+  uses `encoder.SetQuery`, since `DELETE` carries no request document at
+  all). `handleDeleteCertificateAuthority` reads it via `c.QueryParam`.
+- **All three write ops' JSON bodies carry `clientRequestToken` as their
+  ONLY member.** `Handler.withIdempotency`'s fingerprint hashes the request
+  body after stripping `clientRequestToken` -- for every pre-existing op that
+  uses it, the body has other real fields (e.g. `fargateProfileName`) that
+  keep two different requests' fingerprints apart. Here the real body always
+  canonicalizes to `{}` regardless of which cluster or certificate authority
+  the URL actually names, so fingerprinting the real body verbatim would let
+  a client that reused one token across two different clusters or CAs
+  silently replay the FIRST call's response for a completely different
+  request. Fixed by folding the route's own `clusterName`/`certificateAuthorityId`
+  into a synthesized fingerprint payload
+  (`certificateAuthorityIdempotencyFingerprintBody`,
+  `handler_certificate_authorities.go`) for all three write ops -- a reused
+  token against different identity now correctly gets the same
+  "already used with different parameters" `InvalidParameterException` every
+  other eks op's idempotency dedup already returns for a genuine parameter
+  mismatch, instead of either a wrong silent replay or a silently-allowed
+  fresh create. Proven by
+  `TestCertificateAuthority_ClientRequestToken_Create_DifferentCluster_Rejected`
+  and `TestCertificateAuthority_ClientRequestToken_Delete_DifferentID_Rejected`
+  (`certificate_authorities_test.go`).
+- **Structural rules taken directly from doc comments, not invented:** Create
+  enforces the "at most two certificate authorities at a time" cap
+  (`maxCertificateAuthoritiesPerCluster`) as `ResourceLimitExceededException`;
+  Delete enforces "can't delete the certificate authority that's currently
+  signing" as `ResourceInUseException`; Activate enforces "must already be
+  present ... and fully distributed" as `InvalidParameterException`. The EKS
+  Service Quotas page (WebFetch'd 2026-09-11) has no numbered entry for
+  certificate authorities at all -- consistent with this being a fixed
+  structural rule, not an AWS-adjustable quota, so it lives outside
+  `limits.go`'s `resourceLimits`/`WithResourceLimits`, the same treatment
+  `CreateCapability`'s one-per-type rule already gets.
+- Persisted via a new `certificateAuthorities` `store.Table` +
+  `byCluster` index (`store_setup.go`), composite-keyed like every other
+  cluster-nested resource in this service. Purely additive to the registry:
+  `eksSnapshotVersion` was NOT bumped (see `persistence.go`'s doc comment);
+  `pkgs/persistence/testdata/snapshot_inventory.json`'s `eks` entry was
+  regenerated via `go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`
+  and the diff is exactly the 12 new `CertificateAuthority.*` field lines,
+  nothing else.
+- Real-client lifecycle (create -> distribution COMPLETE -> activate ->
+  ACTIVATING -> IN_USE -> outgoing CA retired to NOT_USED with
+  `RollbackAvailable`), every declared error path, pagination, and both
+  idempotency fixes above are covered by
+  `certificate_authorities_test.go` against the real `aws-sdk-go-v2` eks
+  client over `httptest`, following `wf8f_test.go`'s existing pattern.
 
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 65 ops' real
 method+path directly from `eks@v1.90.4` serializers.go and drove them
@@ -726,3 +811,260 @@ out of scope for this pass -- introducing either purely for this one test
 was judged not worth the added surface for a call site whose only failure
 mode is an unreachable-in-practice race. Left as an honest, documented gap
 rather than a test that would pass for the wrong reason.
+
+## gopherstack-wf8f (2026-09-11): typed Capability.Configuration, honest Insight derivation, ClientRequestToken idempotency, ResourceLimitExceededException quotas
+
+Four-item follow-up (see this file's `gaps:`/`deferred:` entries from the
+2026-07-23 pass, and `bd memories eks`'s recorded
+`parity-eks-capability-configuration-uses-untyped-passthrough` note).
+
+**Item 1 (typed Capability.Configuration).** `models.go` gained
+`ArgoCdConfig`/`ArgoCdAwsIdcConfig`/`ArgoCdNetworkAccessConfig`/
+`ArgoCdRoleMapping`/`SsoIdentity`/`CapabilityConfiguration`, mirroring
+`aws-sdk-go-v2/service/eks@v1.98.0/types.go`'s `ArgoCdConfigRequest`/
+`ArgoCdConfigResponse` union field-for-field. `Capability.Configuration`
+changed `map[string]any` -> `*CapabilityConfiguration`
+(`capability_configuration.go` holds the request/response wire bodies,
+validation, and the `UpdateCapabilityConfiguration` add/remove role-mapping
+merge logic). ACK and KRO capabilities carry no `Configuration` schema at
+all in this pinned SDK version -- confirmed by grep, not assumed --
+so a `Configuration.ArgoCd` on a non-`ARGOCD` capability is now rejected.
+Server-computed response-only fields (`IdcManagedApplicationArn`,
+`ServerUrl`) have no documented derivation and are left empty, disclosed in
+`gaps:`. Found and fixed along the way: `UpdateCapabilityOutput` actually
+wraps an async `Update`, not the `Capability`, under the `update` key --
+the handler was returning the wrong envelope key entirely, invisible to any
+test until this pass's real-client `TestCapabilityConfiguration_*` tests
+were written. `bd remember --key
+parity-eks-capability-configuration-uses-untyped-passthrough` updated to
+reflect the typed replacement.
+
+**Item 2 (honest Insight derivation).** `insights.go` rewritten:
+`DescribeInsight`/`ListInsights` no longer return two hardcoded, fabricated
+insights (`upgrade-readiness` always `PASSING`, `deprecated-apis` always
+`PASSING` with zero source). Two `UPGRADE_READINESS` insights are now
+honestly derived per-cluster from real state this backend has --
+`clusters.go`'s `clusterVersionSupportTable` (the same table
+`DescribeClusterVersions` already exposed) compared against the cluster's
+real `Version`: a version-end-of-support check (real
+`endOfStandardSupportDate`, `PASSING`/`WARNING`/`ERROR`) and a
+version-behind-latest check. A cluster on a version outside the table gets
+zero insights, not fabricated ones. `MISCONFIGURATION` and every
+deprecated-API-usage insight remain undeliverable (no Kubernetes API server
+to analyze), disclosed rather than invented. Also fixed:
+`insightStatus.reason` was echoing `Recommendation` (remediation text)
+instead of an actual reason for the status (`Insight` gained a real
+`StatusReason` field); `DescribeInsight`'s invented `clusterName` leak
+(`ListInsights` was already fixed for this, `DescribeInsight` was
+out-of-scope last pass); `kubernetesVersion`/`name` now honestly populated
+instead of left absent; `ListInsights`' `Filter.kubernetesVersions` now
+implemented (previously unapplied for lack of a version field to filter on
+-- the field now genuinely exists).
+
+**Item 3 (ClientRequestToken idempotency).** New `idempotency.go`: a
+generic `store.Table[idempotencyRecord]` keyed by op+token, with
+`Handler.withIdempotency` wrapping a handler's real work -- a replayed
+token+identical-body short-circuits before the backend and replays the
+original response verbatim (so a replay can never itself trip a duplicate-
+resource `ResourceInUseException`/`ResourceLimitExceededException`); a
+replayed token with different params is rejected with
+`InvalidParameterException` without touching the backend (no SDK op in this
+service declares a distinct mismatch code -- grepped every `api_op_*.go`
+and `types/errors.go`, confirmed absent, so the general client-fault code
+is used per parity-principles' "do not invent a code"). Wired to every op
+in this service that declares `ClientRequestToken` except the 5
+unimplemented CertificateAuthority ops (disclosed as a separate,
+newly-discovered gap): `AssociateEncryptionConfig`,
+`AssociateIdentityProviderConfig`, `CancelUpdate`, `CreateAccessEntry`,
+`CreateAddon`, `CreateCapability`, `CreateCluster`,
+`CreateEksAnywhereSubscription`, `CreateFargateProfile`,
+`CreateNodegroup`, `CreatePodIdentityAssociation`,
+`DisassociateIdentityProviderConfig`, `RegisterCluster`,
+`UpdateAccessEntry`, `UpdateAddon`, `UpdateCapability`,
+`UpdateClusterConfig`, `UpdateClusterVersion`,
+`UpdateEksAnywhereSubscription`, `UpdateNodegroupConfig`,
+`UpdateNodegroupVersion`, `UpdatePodIdentityAssociation` (21 ops). The
+documented 24-hour token-validity window is not enforced (disclosed, a
+conservative simplification). The new `idempotency` store table is purely
+additive (a missing table key restores as empty, per
+`pkgs/store.Registry.RestoreAll`'s documented behavior) and needed no
+version bump. `Capability.Configuration`'s retype (map[string]any ->
+*CapabilityConfiguration) looked at first like it would force one too --
+`pkgs/persistence`'s `TestSnapshotVersionGuard` correctly flags any
+existing-field retype as needing confirmation -- but `eksSnapshotVersion`
+stayed at 2: `Capability.UnmarshalJSON` (capability_configuration.go)
+decodes a version-2 snapshot's map-shaped Configuration natively (its json
+keys are exactly what the SDK's own camelCase wire keys already were) and
+degrades any genuinely unrepresentable shape to `nil` rather than failing
+the whole restore, and `ConnectorConfig.ActivationExpiry`'s new
+`activationExpiry` wrapper type (models.go) decodes both its own shape and
+the pre-existing bare-RFC3339-string shape. See `persistence.go`'s doc
+comment and `TestRestore_Version2Fixture_TolerantDecode`
+(persistence_test.go) for the proof, built against a hand-written
+version-2 fixture using both old shapes, not against this pass's own
+output.
+
+**Item 4 (error-code sweep).** `ResourceLimitExceededException` is now
+enforced (new `limits.go`, `WithResourceLimits`/`ResourceLimits`
+constructor-option pattern matching `services/efs`/`services/glue`) for
+every op that declares it on the wire and has a real, checkable AWS quota:
+`CreateCluster` (Clusters: 100/region; Control plane security groups: 4;
+Public endpoint access CIDR ranges: 40), `RegisterCluster` (Registered
+clusters: 10), `CreateNodegroup` (Managed node groups per cluster: 30),
+`CreateFargateProfile` (Fargate profiles per cluster: 10; Selectors per
+profile: 5; Label pairs per selector: 5), `CreateAccessEntry` (Access
+entries per cluster: 3,000), `CreateEksAnywhereSubscription` (EKS Anywhere
+Enterprise Subscriptions: 10), `CreatePodIdentityAssociation` (5,000 pod
+identity associations per cluster), and `CreateCapability` (one capability
+of each type per cluster -- a fixed structural rule, not a numeric Service
+Quota). All values are the real, published AWS defaults (WebFetch'd
+2026-09-11, cited per-op above and in `limits.go`'s doc comment), not
+invented numbers. `UpdatePodIdentityAssociation` declares the exception on
+the wire but has nothing to enforce (mutates an existing association,
+cannot push any count over a quota). Re-ran `cmd/errtargetaudit -dir eks`:
+0 class-A findings, confirming `ClientException`/`ServerException`/
+`ServiceUnavailableException`/`ThrottlingException` remain genuinely
+unreachable from this backend (disclosed in `deferred:`), and that no other
+error-code regressions were introduced by this pass's changes. Found and
+fixed incidentally while writing this item's real-client
+`ResourceLimitExceeded_*` tests: `RegisterCluster`'s
+`ConnectorConfig.ActivationExpiry` was emitted as an RFC3339 string; real
+`types.ConnectorConfigResponse.ActivationExpiry` is `*time.Time` requiring
+an epoch-seconds JSON number on the wire, so every real client's
+`RegisterCluster`/`DescribeCluster` call on a connected cluster failed to
+decode outright -- this service apparently had zero real-client test
+coverage of `RegisterCluster`'s response shape before this pass.
+
+**Newly discovered, out-of-scope gap:** this pinned SDK version
+(`eks@v1.98.0`, up from the `v1.90.4` the last full audit cited) adds 5
+EKS-Hybrid-Nodes-on-prem-CA ops
+(`Activate/Create/Delete/DescribeCertificateAuthority`,
+`ListCertificateAuthorities`) this service has never implemented at all --
+found by diffing the SDK's `api_op_*.go` file count (70) against
+gopherstack's route table (65 ops, now 65 handled + 5 genuinely absent).
+Not part of gopherstack-wf8f's four items; disclosed here rather than
+silently left for the next auditor to rediscover.
+
+Gates: `go build ./...`, `go vet ./services/eks/...`, `go test -race
+-count=1 ./services/eks/... ./pkgs/persistence/...`, `golangci-lint run
+./services/eks/...` all clean. `pkgs/persistence`'s
+`TestSnapshotVersionGuard` regenerated with `-update` (only `eks` rows
+changed in `testdata/snapshot_inventory.json`; no other service, including
+`kinesis`, was touched).
+
+### gopherstack-wf8f follow-up (2026-09-11): reverted the eksSnapshotVersion bump
+
+The pass above originally bumped `eksSnapshotVersion` 2 -> 3 for the two
+retypes it made (`Capability.Configuration`, `ConnectorConfig.
+ActivationExpiry`), reasoning that `TestSnapshotVersionGuard` "correctly
+refuses to treat either as purely additive." That reasoning conflated two
+different things the guard distinguishes: "not purely additive" (true, and
+still true) does not mean "needs a version bump" -- it means "needs a
+human to confirm whether a bump is actually required"
+(`snapshotversion_guard_test.go:226-234`'s documented soft-violation path).
+A bump was the wrong default: it discards every user's persisted eks state
+on the next restart for a change that did not need to.
+
+Reverted properly instead of just flipping the constant back: both retyped
+fields now have tolerant decoders so a genuine version-2 snapshot (the
+shape every eks snapshot on disk actually is, since this constant had
+never moved before this pass) still restores correctly.
+
+- `ConnectorConfig.ActivationExpiry` is now a new `activationExpiry` type
+  (models.go) -- functionally still a `time.Time` (`.Time()` accessor) but
+  with its own `UnmarshalJSON` that accepts a bare RFC3339 string (the
+  field's pre-gopherstack-wf8f shape, when the Go type was plain `string`)
+  in addition to its own current representation. The WIRE fix from the
+  original pass (`connectorConfigToJSON` emitting epoch seconds) is
+  unaffected -- that was always a separate concern from the snapshot
+  representation, which this codebase has never kept in lockstep with the
+  wire shape for any timestamp field.
+- `Capability.Configuration` needed no wrapper type, only a custom
+  `Capability.UnmarshalJSON` (capability_configuration.go): the typed
+  `*CapabilityConfiguration`'s json keys (`argoCd`/`awsIdc`/
+  `idcInstanceArn`/`namespace`/`networkAccess`/`vpceIds`/
+  `rbacRoleMappings`/`role`/`identities`/`id`/`type`/`serverUrl`) are
+  exactly the keys the old `map[string]any` held, because that map was
+  always the raw request body re-echoed under the SDK's own camelCase wire
+  names -- the same names this pass's typed struct tags reuse verbatim. So
+  a version-2 snapshot's map-shaped `argoCd` configuration decodes natively
+  into the typed struct with zero translation. The remaining risk was
+  mechanical, not semantic: `pkgs/store`'s `restoreJSON` unmarshals an
+  entire table as one `[]*Capability` before calling `Table.Restore` at
+  all (table.go:268-277), so if some OTHER, genuinely unrepresentable
+  Configuration shape existed on disk, one bad `Capability.Configuration`
+  would have aborted restoring every other capability in the snapshot --
+  and eks's own `Restore` treats a table-restore error as fatal to the
+  *entire* eks snapshot, not just that table. `Capability.UnmarshalJSON`
+  catches that case and sets `Configuration: nil` instead of propagating
+  the error -- chosen over failing the restore because (a) an
+  unrepresentable shape has no correct typed value to invent, so `nil` is
+  the honest answer, matching this pass's no-fabrication rule elsewhere,
+  and (b) letting one capability's oddity blow up unrelated clusters/
+  nodegroups/every-other-capability in the same snapshot would be far
+  worse than dropping one field. In practice no released version of this
+  backend ever populated `Capability.Configuration` on any code path
+  before this pass (confirmed by reading the pre-existing `CreateCapability`
+  -- it took no `Configuration` parameter at all), so no real snapshot
+  actually exercises either the native-decode or the degrade-to-nil path
+  today; both are proven with a hand-written fixture instead
+  (`TestRestore_Version2Fixture_TolerantDecode`, persistence_test.go),
+  using a deliberately-array-shaped `configuration` value (not an object at
+  all) as the "cannot be represented" case, since a merely
+  differently-shaped-but-still-an-object map would decode successfully
+  with its unknown keys silently ignored (ordinary `encoding/json`
+  behavior) rather than error -- there is no way to construct a
+  "wrong-shaped object" fixture that actually exercises the degrade path;
+  only a wrong JSON *kind* (array/string/number in place of an object)
+  does.
+
+`eksSnapshotVersion` is back to 2; `persistence.go`'s doc comment now
+points at both tolerant decoders as the landmine instead of explaining a
+bump. `pkgs/persistence/testdata/snapshot_inventory.json` regenerated
+again with `-update`: only `eks` rows changed, and `"version": 2` is
+unchanged in the diff (confirmed by diffing against the pre-this-pass
+golden, not just the intermediate version-3 one).
+
+Gates: `go build ./...`, `go vet ./services/eks/...`, `go test -race
+-count=1 ./services/eks/... ./pkgs/persistence/...`, `golangci-lint run
+./services/eks/...` all clean.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 11)
+
+Added `typed_slice11_realclient_test.go`, covering this service's last 31
+typed-client-blind ops (AssociateIdentityProviderConfig, CancelUpdate,
+DeleteAccessEntry, DeleteAddon, DeleteCapability,
+DeleteEksAnywhereSubscription, DeleteFargateProfile,
+DeletePodIdentityAssociation, DeregisterCluster, DescribeAccessEntry,
+DescribeAddonVersions, DescribeEksAnywhereSubscription,
+DescribeFargateProfile, DescribeIdentityProviderConfig, DescribeInsight,
+DescribeInsightsRefresh, DescribePodIdentityAssociation,
+DisassociateAccessPolicy, DisassociateIdentityProviderConfig,
+ListAccessPolicies, ListAddons, ListAssociatedAccessPolicies,
+ListCapabilities, ListIdentityProviderConfigs, StartInsightsRefresh,
+UpdateAccessEntry, UpdateAddon, UpdateClusterConfig,
+UpdateEksAnywhereSubscription, UpdateNodegroupConfig,
+UpdatePodIdentityAssociation) -- typed coverage 39/70 -> 70/70 (0
+uncovered). **One real bug found and fixed**, caught only by a decoded
+typed-client assertion (the call always returned 200, nothing status-code-
+only would have caught it): `UpdateEksAnywhereSubscription`'s request
+decoder read fabricated `licenseQuantity`/`licenseType` fields that don't
+exist on the real wire at all (those belong only to
+`CreateEksAnywhereSubscriptionInput` -- the real
+`UpdateEksAnywhereSubscriptionInput`, eks@v1.90.4
+api_op_UpdateEksAnywhereSubscription.go, has exactly one member,
+`AutoRenew`, and it's required) -- so a real client's `AutoRenew` value,
+the entire point of this op, was silently dropped and never applied
+regardless of what was requested. Fixed the request decoder to the real
+flat `autoRenew` field and changed the backend's
+`UpdateEksAnywhereSubscription` signature to accept and apply it directly;
+no pre-existing test called this path with the old fields, so none needed
+correcting. Two test-authoring corrections along the way (not bugs): the
+real `EksAnywhereSubscription` type has no `Name` field at all (only
+`Id`/`Arn`/etc, `Status` is `*string` not a typed enum), and
+`StartInsightsRefreshOutput`/`DescribeInsightsRefreshOutput` carry no
+`ClusterName` field. Gates: `go build ./...` (whole module), `go vet`, `go
+test -race -count=1` (eks + pkgs/persistence), `golangci-lint run
+--new-from-rev=HEAD` (0 issues) all clean. `go run ./cmd/paritylint` stays
+at 0 FAIL. No persisted struct fields changed (a backend method's
+parameter list, not `AnywhereSubscription`'s own fields); no version bump.

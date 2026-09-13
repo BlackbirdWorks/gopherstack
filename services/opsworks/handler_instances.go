@@ -9,21 +9,31 @@ import (
 // handleCreateInstance handles CreateInstance requests.
 func (h *Handler) handleCreateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		StackID      string   `json:"StackId"`
-		InstanceType string   `json:"InstanceType"`
-		LayerIDs     []string `json:"LayerIds"`
+		StackID              string   `json:"StackId"`
+		InstanceType         string   `json:"InstanceType"`
+		LayerIDs             []string `json:"LayerIds"`
+		AgentVersion         string   `json:"AgentVersion"`
+		Architecture         string   `json:"Architecture"`
+		Os                   string   `json:"Os"`
+		SubnetID             string   `json:"SubnetId"`
+		Tenancy              string   `json:"Tenancy"`
+		InstallUpdatesOnBoot *bool    `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	layerID := ""
-	if len(req.LayerIDs) > 0 {
-		layerID = req.LayerIDs[0]
+	opts := CreateInstanceOptions{
+		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
+		AgentVersion:         req.AgentVersion,
+		Architecture:         req.Architecture,
+		Os:                   req.Os,
+		SubnetID:             req.SubnetID,
+		Tenancy:              req.Tenancy,
 	}
 
-	instance, err := h.Backend.CreateInstance(req.StackID, layerID, req.InstanceType)
+	instance, err := h.Backend.CreateInstance(req.StackID, req.LayerIDs, req.InstanceType, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -127,15 +137,24 @@ func (h *Handler) handleDescribeInstances(_ context.Context, body []byte) (any, 
 // handleUpdateInstance handles UpdateInstance requests.
 func (h *Handler) handleUpdateInstance(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		InstanceID string `json:"InstanceId"`
-		Hostname   string `json:"Hostname"`
+		InstanceID           string `json:"InstanceId"`
+		Hostname             string `json:"Hostname"`
+		AgentVersion         string `json:"AgentVersion"`
+		Os                   string `json:"Os"`
+		InstallUpdatesOnBoot *bool  `json:"InstallUpdatesOnBoot"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateInstance(req.InstanceID, req.Hostname); err != nil {
+	opts := UpdateInstanceOptions{
+		InstallUpdatesOnBoot: req.InstallUpdatesOnBoot,
+		AgentVersion:         req.AgentVersion,
+		Os:                   req.Os,
+	}
+
+	if err := h.Backend.UpdateInstance(req.InstanceID, req.Hostname, opts); err != nil {
 		return nil, err
 	}
 
@@ -214,30 +233,33 @@ func instancesToJSON(instances []*Instance) []map[string]any {
 	result := make([]map[string]any, 0, len(instances))
 	for _, i := range instances {
 		result = append(result, map[string]any{
-			keyInstanceID:  i.InstanceID,
-			keyStackID:     i.StackID,
-			"LayerIds":     instanceLayerIDs(i.LayerID),
-			keyArn:         i.Arn,
-			"Hostname":     i.Hostname,
-			"InstanceType": i.InstanceType,
-			keyStatus:      i.Status,
-			keyCreatedAt:   formatOpsWorksTime(i.CreatedAt),
+			keyInstanceID:          i.InstanceID,
+			keyStackID:             i.StackID,
+			"LayerIds":             instanceLayerIDs(i.LayerIDs),
+			keyArn:                 i.Arn,
+			"Hostname":             i.Hostname,
+			"InstanceType":         i.InstanceType,
+			keyStatus:              i.Status,
+			keyCreatedAt:           formatOpsWorksTime(i.CreatedAt),
+			"AgentVersion":         i.AgentVersion,
+			"Architecture":         i.Architecture,
+			"Os":                   i.Os,
+			"SubnetId":             i.SubnetID,
+			"Tenancy":              i.Tenancy,
+			"InstallUpdatesOnBoot": i.InstallUpdatesOnBoot,
 		})
 	}
 
 	return result
 }
 
-// instanceLayerIDs wraps this backend's single-layer-per-instance model
-// into the list shape the real types.Instance.LayerIds []string wire field
-// expects (confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's
-// types.go -- there is no singular "LayerId" member on Instance, only the
-// plural list). A previous pass emitted a bare "LayerId" string, which a
-// real SDK client's Instance.LayerIds would never populate from.
-func instanceLayerIDs(layerID string) []string {
-	if layerID == "" {
+// instanceLayerIDs normalizes a nil slice to an empty one: the real
+// types.Instance.LayerIds []string wire field is present (empty array),
+// never a JSON null, when an instance has no assigned layer.
+func instanceLayerIDs(layerIDs []string) []string {
+	if layerIDs == nil {
 		return []string{}
 	}
 
-	return []string{layerID}
+	return layerIDs
 }

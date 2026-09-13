@@ -1,4 +1,5 @@
 ---
+items_still_open: []
 service: mediapackage
 sdk_module: aws-sdk-go-v2/service/mediapackage@v1.42.4
 last_audit_commit: cb5dac6ff
@@ -634,3 +635,26 @@ synced). Restored `tags.go` from a `cp` copy, confirmed byte-identical, reran
 all clean on `services/mediapackage/...` (HEAD `4d7407a11`).
 
 No other bugs found this pass.
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+Drove this service's 12 remaining typed-client-blind ops (`ConfigureLogs`,
+`CreateHarvestJob`, `DeleteOriginEndpoint`, `DescribeHarvestJob`,
+`ListHarvestJobs`, `ListOriginEndpoints`, `RotateChannelCredentials`,
+`RotateIngestEndpointCredentials`, `TagResource`, `UntagResource`,
+`UpdateChannel`, `UpdateOriginEndpoint`) through the real aws-sdk-go-v2
+client for the first time (`typed_slice21_realclient_test.go`, 4
+subtests: channel lifecycle incl. logs/credential rotation, origin
+endpoint lifecycle, harvest jobs, tag/untag). **Zero bugs** -- every op
+decoded and matched its documented shape on the first real-client run.
+`RotateChannelCredentials` is AWS-deprecated (superseded by
+`RotateIngestEndpointCredentials`) but still a real, listed op; added a
+`.golangci.yml` whole-file `staticcheck` exemption for the new test file,
+matching the existing iotanalytics/opsworks/rdsdata/securityhub
+deprecated-op precedent. Repo-wide typed-client census: mediapackage
+7/19 -> 19/19 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/mediapackage/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes. No version bump.

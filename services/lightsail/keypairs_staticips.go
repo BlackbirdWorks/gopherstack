@@ -160,14 +160,21 @@ func fingerprintFromMaterial(material string) string {
 	)
 }
 
-// DeleteKeyPair deletes the named key pair.
-func (b *InMemoryBackend) DeleteKeyPair(name string) (*Operation, error) {
+// DeleteKeyPair deletes the named key pair. expectedFingerprint, when
+// non-empty, must match the key pair's real fingerprint -- the documented
+// use is deleting the Lightsail default key pair by its RSA fingerprint as
+// a confirmation check.
+func (b *InMemoryBackend) DeleteKeyPair(name, expectedFingerprint string) (*Operation, error) {
 	b.mu.Lock("DeleteKeyPair")
 	defer b.mu.Unlock()
 
 	kp, ok := b.keyPairs.Get(name)
 	if !ok {
 		return nil, notFoundError("KeyPair", name)
+	}
+
+	if expectedFingerprint != "" && expectedFingerprint != kp.Fingerprint {
+		return nil, validationError("expectedFingerprint does not match the fingerprint of key pair " + name)
 	}
 
 	if kp.Tags != nil {

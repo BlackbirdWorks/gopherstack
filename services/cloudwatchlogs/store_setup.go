@@ -120,9 +120,11 @@ func anomalyDetectorIndexKeyFn(a *Anomaly) string { return a.AnomalyDetectorArn 
 
 // scheduledQueryRunHistory wraps the run-history slice AWS keeps per scheduled
 // query. It exists because store.Table requires a value with its own identity
-// field; a bare []*ScheduledQueryRunSummary has none (multiple runs share the
-// same Arn), so -- like inlining log events on LogStream -- the slice is
-// nested one level under a keyed parent entity instead.
+// field; ScheduledQueryRunSummary carries no field identifying which scheduled
+// query it belongs to (matching real TriggerHistoryRecord, which has none
+// either -- that association only exists via GetScheduledQueryHistoryInput's
+// own Identifier), so -- like inlining log events on LogStream -- the slice
+// is nested one level under a keyed parent entity instead.
 type scheduledQueryRunHistory struct {
 	Arn  string                      `json:"arn"`
 	Runs []*ScheduledQueryRunSummary `json:"runs"`
@@ -212,9 +214,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.exportTasks = store.Register(b.registry, "exportTasks", store.New(exportTaskKeyFn))
 	},
 	func(b *InMemoryBackend) {
-		b.importTasks = store.Register(b.registry, "importTasks", store.New(importTaskKeyFn))
-	},
-	func(b *InMemoryBackend) {
 		b.deliveries = store.Register(b.registry, "deliveries", store.New(deliveryKeyFn))
 	},
 	func(b *InMemoryBackend) {
@@ -245,14 +244,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.resourcePolicies = store.Register(b.registry, "resourcePolicies", store.New(resourcePolicyKeyFn))
 	},
 	func(b *InMemoryBackend) {
-		b.deliveryDestinations = store.Register(
-			b.registry, "deliveryDestinations", store.New(deliveryDestinationKeyFn),
-		)
-	},
-	func(b *InMemoryBackend) {
-		b.deliverySources = store.Register(b.registry, "deliverySources", store.New(deliverySourceKeyFn))
-	},
-	func(b *InMemoryBackend) {
 		b.destinations = store.Register(b.registry, "destinations", store.New(cwlDestinationKeyFn))
 	},
 	func(b *InMemoryBackend) {
@@ -260,9 +251,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.transformers = store.Register(b.registry, "transformers", store.New(transformerKeyFn))
-	},
-	func(b *InMemoryBackend) {
-		b.integrations = store.Register(b.registry, "integrations", store.New(cwlIntegrationKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.deletionProtected = store.Register(
@@ -314,4 +302,22 @@ func registerRegionTables(b *InMemoryBackend) {
 
 	b.metricFilters = store.New(metricFilterKeyFn)
 	b.metricFiltersByGroup = b.metricFilters.AddIndex("byGroup", metricFilterGroupIndexKeyFn)
+}
+
+// registerDirtyDTOTables constructs the four tables whose value type has a
+// field the wire correctly hides (json:"-") but persistence still needs:
+// DeliveryDestination.CreatedAt, DeliverySource.CreatedAt,
+// CWLIntegration.CreatedAt, and ImportTask.ImportRoleArn are each real
+// internal-only bookkeeping (confirmed against the real cloudwatchlogs SDK
+// types, which carry none of them), but these tables used to be registered
+// on b.registry, so its "clean" json.Marshal round trip honored the wire tag
+// too and silently dropped the field from every snapshot (gopherstack-gqxy0).
+// They are NOT registered on b.registry -- Snapshot/Restore drive them
+// explicitly through DTOs (persistence.go) and Reset clears them with a
+// direct .Reset() call (store.go), matching registerRegionTables above.
+func registerDirtyDTOTables(b *InMemoryBackend) {
+	b.deliveryDestinations = store.New(deliveryDestinationKeyFn)
+	b.deliverySources = store.New(deliverySourceKeyFn)
+	b.integrations = store.New(cwlIntegrationKeyFn)
+	b.importTasks = store.New(importTaskKeyFn)
 }

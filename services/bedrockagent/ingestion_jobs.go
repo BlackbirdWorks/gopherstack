@@ -18,7 +18,7 @@ func jobKey(kbID, dsID, jobID string) string { return kbID + "/" + dsID + "/" + 
 func (b *InMemoryBackend) StartIngestionJob(
 	_ context.Context, kbID, dsID, description string,
 ) (*IngestionJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartIngestionJob")
 	defer b.mu.Unlock()
 
 	if !b.dataSources.Has(dsKey(kbID, dsID)) {
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) ingestionStatisticsLocked(kbID, dsID string) *Ingestio
 func (b *InMemoryBackend) GetIngestionJob(
 	_ context.Context, kbID, dsID, jobID string,
 ) (*IngestionJob, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetIngestionJob")
 	defer b.mu.RUnlock()
 
 	job, ok := b.ingestionJobs.Get(jobKey(kbID, dsID, jobID))
@@ -83,7 +83,7 @@ func (b *InMemoryBackend) GetIngestionJob(
 func (b *InMemoryBackend) StopIngestionJob(
 	_ context.Context, kbID, dsID, jobID string,
 ) (*IngestionJob, error) {
-	b.mu.Lock()
+	b.mu.Lock("StopIngestionJob")
 	defer b.mu.Unlock()
 
 	job, ok := b.ingestionJobs.Get(jobKey(kbID, dsID, jobID))
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) ListIngestionJobs(
 	_ context.Context, kbID, dsID string, filters []IngestionJobFilter, sortBy *IngestionJobSortBy,
 	maxResults int, nextToken string,
 ) ([]*IngestionJob, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListIngestionJobs")
 	defer b.mu.RUnlock()
 
 	group := b.ingestionJobsByDataSource.Get(dsKey(kbID, dsID))

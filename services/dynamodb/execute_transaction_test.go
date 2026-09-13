@@ -9,6 +9,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dynamodb"
 )
 
 func TestExecuteTransaction_EmptyStatements(t *testing.T) {
@@ -128,4 +130,311 @@ func TestExecuteTransaction_Atomicity(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestExecuteTransaction_ConsumedCapacity_TableDriven drives a mixed PartiQL
+// transaction (INSERT, UPDATE, DELETE -- ExecuteTransaction cannot mix reads
+// and writes in one transaction, dynamodb SDK api_op_ExecuteTransaction.go:14-17)
+// through the real typed client and asserts:
+//   - INDEXES returns one ConsumedCapacity entry per statement (not merged
+//     per table, even though all three statements target the same table),
+//     each carrying the correct GSI/LSI membership for that statement's item.
+//   - the entries are ordered exactly as the statements were, not grouped.
+//   - TOTAL returns the same entry count with no Table/GSI/LSI breakdown.
+//   - NONE returns no ConsumedCapacity.
+func TestExecuteTransaction_ConsumedCapacity_TableDriven(t *testing.T) {
+	t.Parallel()
+
+	const (
+		gsiName = "gsi1"
+		lsiName = "lsi1"
+	)
+
+	type want struct {
+		wantGSI []bool
+		wantLSI []bool
+		wantLen int
+		wantNil bool
+	}
+
+	tests := []struct {
+		name  string
+		reqCC types.ReturnConsumedCapacity
+		want  want
+	}{
+		{
+			name:  "indexes",
+			reqCC: types.ReturnConsumedCapacityIndexes,
+			want: want{
+				wantLen: 3,
+				// statement order: INSERT (both indexes), UPDATE (GSI only,
+				// pre-seeded item has no lsi_sk), DELETE (LSI only,
+				// pre-seeded item has no gsi_pk).
+				wantGSI: []bool{true, true, false},
+				wantLSI: []bool{true, false, true},
+			},
+		},
+		{
+			name:  "total",
+			reqCC: types.ReturnConsumedCapacityTotal,
+			want:  want{wantLen: 3},
+		},
+		{
+			name:  "none",
+			reqCC: types.ReturnConsumedCapacityNone,
+			want:  want{wantNil: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := dynamodb.NewInMemoryDB()
+			client := newTestDynamoDBClient(t, dynamodb.NewHandler(backend))
+			ctx := t.Context()
+
+			tableName := "ExecTxnCC_" + tt.name
+
+			_, err := client.CreateTable(ctx, &sdk.CreateTableInput{
+				TableName: aws.String(tableName),
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+					{AttributeName: aws.String("sk"), KeyType: types.KeyTypeRange},
+				},
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("sk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("gsi_pk"), AttributeType: types.ScalarAttributeTypeS},
+					{AttributeName: aws.String("lsi_sk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				GlobalSecondaryIndexes: []types.GlobalSecondaryIndex{
+					{
+						IndexName: aws.String(gsiName),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("gsi_pk"), KeyType: types.KeyTypeHash},
+						},
+						Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+					},
+				},
+				LocalSecondaryIndexes: []types.LocalSecondaryIndex{
+					{
+						IndexName: aws.String(lsiName),
+						KeySchema: []types.KeySchemaElement{
+							{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+							{AttributeName: aws.String("lsi_sk"), KeyType: types.KeyTypeRange},
+						},
+						Projection: &types.Projection{ProjectionType: types.ProjectionTypeAll},
+					},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			require.NoError(t, err)
+
+			// UPDATE target: has gsi_pk, no lsi_sk.
+			_, err = client.PutItem(ctx, &sdk.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]types.AttributeValue{
+					"pk":     &types.AttributeValueMemberS{Value: "k2"},
+					"sk":     &types.AttributeValueMemberS{Value: "s2"},
+					"gsi_pk": &types.AttributeValueMemberS{Value: "g2"},
+					"val":    &types.AttributeValueMemberS{Value: "before"},
+				},
+			})
+			require.NoError(t, err)
+
+			// DELETE target: has lsi_sk, no gsi_pk.
+			_, err = client.PutItem(ctx, &sdk.PutItemInput{
+				TableName: aws.String(tableName),
+				Item: map[string]types.AttributeValue{
+					"pk":     &types.AttributeValueMemberS{Value: "k3"},
+					"sk":     &types.AttributeValueMemberS{Value: "s3"},
+					"lsi_sk": &types.AttributeValueMemberS{Value: "l3"},
+					"val":    &types.AttributeValueMemberS{Value: "doomed"},
+				},
+			})
+			require.NoError(t, err)
+
+			insertStmt := fmt.Sprintf(
+				`INSERT INTO %q VALUE {'pk':'k1','sk':'s1','gsi_pk':'g1','lsi_sk':'l1','val':'inserted'}`,
+				tableName,
+			)
+			updateStmt := fmt.Sprintf(`UPDATE %q SET val = 'updated' WHERE pk = 'k2' AND sk = 's2'`, tableName)
+			deleteStmt := fmt.Sprintf(`DELETE FROM %q WHERE pk = 'k3' AND sk = 's3'`, tableName)
+
+			out, err := client.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+				TransactStatements: []types.ParameterizedStatement{
+					{Statement: aws.String(insertStmt)},
+					{Statement: aws.String(updateStmt)},
+					{Statement: aws.String(deleteStmt)},
+				},
+				ReturnConsumedCapacity: tt.reqCC,
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Responses, 3)
+
+			if tt.want.wantNil {
+				assert.Empty(t, out.ConsumedCapacity)
+
+				return
+			}
+
+			require.Len(t, out.ConsumedCapacity, tt.want.wantLen)
+
+			for i := range out.ConsumedCapacity {
+				cc := &out.ConsumedCapacity[i]
+				assert.Equal(t, tableName, aws.ToString(cc.TableName))
+				assert.Positive(t, aws.ToFloat64(cc.CapacityUnits))
+			}
+
+			if tt.reqCC != types.ReturnConsumedCapacityIndexes {
+				for i := range out.ConsumedCapacity {
+					cc := &out.ConsumedCapacity[i]
+					assert.Nil(t, cc.Table)
+					assert.Nil(t, cc.GlobalSecondaryIndexes)
+					assert.Nil(t, cc.LocalSecondaryIndexes)
+				}
+
+				return
+			}
+
+			for i, wantGSI := range tt.want.wantGSI {
+				cc := &out.ConsumedCapacity[i]
+				assert.NotNil(t, cc.Table, "statement %d: Table breakdown", i)
+
+				if wantGSI {
+					assert.Contains(t, cc.GlobalSecondaryIndexes, gsiName, "statement %d", i)
+				} else {
+					assert.Nil(t, cc.GlobalSecondaryIndexes, "statement %d", i)
+				}
+			}
+
+			for i, wantLSI := range tt.want.wantLSI {
+				cc := &out.ConsumedCapacity[i]
+
+				if wantLSI {
+					assert.Contains(t, cc.LocalSecondaryIndexes, lsiName, "statement %d", i)
+				} else {
+					assert.Nil(t, cc.LocalSecondaryIndexes, "statement %d", i)
+				}
+			}
+		})
+	}
+}
+
+// TestExecuteTransaction_ExistsStatement_Passes verifies the EXISTS(SELECT ...)
+// transaction-only condition check succeeds (contributes no Response.Item)
+// when the inner SELECT finds a matching item.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.multiplestatements.transactions.html
+func TestExecuteTransaction_ExistsStatement_Passes(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnExistsTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnExistsTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	existsStmt := `EXISTS(SELECT * FROM "TxnExistsTable" WHERE pk = 'key1')`
+	updateStmt := `UPDATE "TxnExistsTable" SET payload = 'x' WHERE pk = 'key1'`
+
+	out, err := db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &existsStmt},
+			{Statement: &updateStmt},
+		},
+	})
+	require.NoError(t, err)
+	assert.Len(t, out.Responses, 2)
+	assert.Nil(t, out.Responses[0].Item, "EXISTS contributes no response item")
+}
+
+// TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction verifies
+// that when the EXISTS condition is false, the whole transaction is rolled
+// back and rejected with TransactionCanceledException.
+func TestExecuteTransaction_ExistsStatement_FailsCancelsTransaction(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnExistsFailTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnExistsFailTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	existsStmt := `EXISTS(SELECT * FROM "TxnExistsFailTable" WHERE pk = 'does-not-exist')`
+	updateStmt := `UPDATE "TxnExistsFailTable" SET payload = 'x' WHERE pk = 'key1'`
+
+	_, err = db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &existsStmt},
+			{Statement: &updateStmt},
+		},
+	})
+	require.Error(t, err)
+
+	var wireErr *dynamodb.Error
+	require.ErrorAs(t, err, &wireErr)
+	assert.Contains(t, wireErr.Type, "TransactionCanceledException")
+	require.Len(t, wireErr.CancellationReasons, 2)
+	assert.Equal(t, "ConditionalCheckFailed", wireErr.CancellationReasons[0].Code)
+	assert.Equal(t, "None", wireErr.CancellationReasons[1].Code)
+
+	// The transaction must have rolled back: the update must not have applied.
+	getOut, getErr := db.GetItem(ctx, &sdk.GetItemInput{
+		TableName: aws.String("TxnExistsFailTable"),
+		Key: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, getErr)
+	assert.NotContains(t, getOut.Item, "payload")
+}
+
+// TestExecuteTransaction_CancellationReasons_OnStatementError verifies a
+// non-EXISTS statement failure (a WHERE clause that never matches on an
+// UPDATE) is also wrapped in TransactionCanceledException with a properly
+// shaped, per-statement CancellationReasons array.
+func TestExecuteTransaction_CancellationReasons_OnStatementError(t *testing.T) {
+	t.Parallel()
+
+	db := newTestDBWithCleanup(t)
+	createSimplePPRTable(t, db, "TxnCancelReasonsTable")
+	ctx := t.Context()
+
+	_, err := db.PutItem(ctx, &sdk.PutItemInput{
+		TableName: aws.String("TxnCancelReasonsTable"),
+		Item: map[string]types.AttributeValue{
+			"pk": &types.AttributeValueMemberS{Value: "key1"},
+		},
+	})
+	require.NoError(t, err)
+
+	okUpdate := `UPDATE "TxnCancelReasonsTable" SET payload = 'x' WHERE pk = 'key1'`
+	// INSERT of an already-existing key fails with DuplicateItemException.
+	badStatement := `INSERT INTO "TxnCancelReasonsTable" VALUE {'pk': 'key1'}`
+
+	_, err = db.ExecuteTransaction(ctx, &sdk.ExecuteTransactionInput{
+		TransactStatements: []types.ParameterizedStatement{
+			{Statement: &okUpdate},
+			{Statement: &badStatement},
+		},
+	})
+	require.Error(t, err)
+
+	var wireErr *dynamodb.Error
+	require.ErrorAs(t, err, &wireErr)
+	assert.Contains(t, wireErr.Type, "TransactionCanceledException")
+	require.Len(t, wireErr.CancellationReasons, 2)
 }

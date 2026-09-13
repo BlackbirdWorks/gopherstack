@@ -80,14 +80,27 @@ type RouteServerPropagation struct {
 	State         string `json:"state,omitempty"`
 }
 
-// RouteServerRoute holds a single route in a route server's routing database.
+// RouteServerRoute holds a single route in a route server's routing
+// database, mirroring types.RouteServerRoute (ec2@v1.329.0 types/types.go:
+// 20601). There is no routeInstalled boolean on the real type -- a route's
+// per-route-table installation state lives in RouteInstallationDetails.
 type RouteServerRoute struct {
-	RouteServerEndpointID string  `json:"routeServerEndpointId,omitempty"`
-	RouteServerPeerID     string  `json:"routeServerPeerId,omitempty"`
-	Prefix                string  `json:"prefix,omitempty"`
-	AsPaths               []int64 `json:"asPaths,omitempty"`
-	Med                   int64   `json:"med,omitempty"`
-	RouteInstalled        bool    `json:"routeInstalled,omitempty"`
+	RouteServerEndpointID    string                               `json:"routeServerEndpointId,omitempty"`
+	RouteServerPeerID        string                               `json:"routeServerPeerId,omitempty"`
+	Prefix                   string                               `json:"prefix,omitempty"`
+	NextHopIP                string                               `json:"nextHopIp,omitempty"`
+	RouteStatus              string                               `json:"routeStatus,omitempty"`
+	AsPaths                  []string                             `json:"asPaths,omitempty"`
+	RouteInstallationDetails []RouteServerRouteInstallationDetail `json:"routeInstallationDetails,omitempty"`
+	Med                      int64                                `json:"med,omitempty"`
+}
+
+// RouteServerRouteInstallationDetail mirrors
+// types.RouteServerRouteInstallationDetail (ec2@v1.329.0 types/types.go:20646).
+type RouteServerRouteInstallationDetail struct {
+	RouteTableID                  string `json:"routeTableId,omitempty"`
+	RouteInstallationStatus       string `json:"routeInstallationStatus,omitempty"`
+	RouteInstallationStatusReason string `json:"routeInstallationStatusReason,omitempty"`
 }
 
 const (

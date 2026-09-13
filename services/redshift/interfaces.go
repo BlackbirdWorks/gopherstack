@@ -49,6 +49,7 @@ type StorageBackend interface {
 	PurchaseReservedNodeOffering(offeringID, reservedNodeID string, nodeCount int) (*ReservedNode, error)
 	DescribeReservedNodeExchangeStatus(reservedNodeID string) (string, error)
 	GetReservedNodeExchangeOfferings(reservedNodeID string) ([]ReservedNodeOffering, error)
+	GetReservedNodeExchangeConfigurationOptions() []ReservedNodeConfigurationOption
 
 	// Security group operations
 	AuthorizeClusterSecurityGroupIngress(

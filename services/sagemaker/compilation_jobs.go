@@ -31,38 +31,57 @@ const (
 // ---------------------------------------------------------------------------
 
 // CompilationInputConfig specifies the model source for a Neo compilation job.
+//
+// S3Uri is "This member is required" on the real InputConfig
+// (validateInputConfig, validators.go, *string nil-checked only) -- a
+// conformant client can send an empty string, which omitempty would have
+// silently dropped.
 type CompilationInputConfig struct {
-	S3Uri            string `json:"S3Uri,omitempty"`
+	S3Uri            string `json:"S3Uri"`
 	DataInputConfig  string `json:"DataInputConfig,omitempty"`
 	Framework        string `json:"Framework,omitempty"`
 	FrameworkVersion string `json:"FrameworkVersion,omitempty"`
 }
 
 // CompilationOutputConfig specifies the output destination for a Neo compilation job.
+//
+// S3OutputLocation is "This member is required" on the real OutputConfig
+// (validateOutputConfig, validators.go, *string nil-checked only) -- same
+// omitempty class as CompilationInputConfig.S3Uri above.
 type CompilationOutputConfig struct {
-	S3OutputLocation string `json:"S3OutputLocation,omitempty"`
+	S3OutputLocation string `json:"S3OutputLocation"`
 	TargetDevice     string `json:"TargetDevice,omitempty"`
 	KmsKeyID         string `json:"KmsKeyId,omitempty"`
 }
 
 // CompilationJob represents a SageMaker Neo compilation job.
 type CompilationJob struct {
-	CreationTime           time.Time                `json:"CreationTime"`
-	LastModifiedTime       time.Time                `json:"LastModifiedTime"`
-	CompilationStartTime   *time.Time               `json:"CompilationStartTime,omitempty"`
-	CompilationEndTime     *time.Time               `json:"CompilationEndTime,omitempty"`
-	Tags                   map[string]string        `json:"Tags,omitempty"`
-	InputConfig            *CompilationInputConfig  `json:"InputConfig,omitempty"`
-	OutputConfig           *CompilationOutputConfig `json:"OutputConfig,omitempty"`
-	StoppingCondition      *StoppingCondition       `json:"StoppingCondition,omitempty"`
-	ModelArtifacts         *ModelArtifacts          `json:"ModelArtifacts,omitempty"`
-	CompilationJobName     string                   `json:"CompilationJobName"`
-	CompilationJobArn      string                   `json:"CompilationJobArn"`
-	CompilationJobStatus   string                   `json:"CompilationJobStatus"`
-	RoleArn                string                   `json:"RoleArn,omitempty"`
-	FailureReason          string                   `json:"FailureReason,omitempty"`
-	ModelPackageVersionArn string                   `json:"ModelPackageVersionArn,omitempty"`
-	VpcConfig              json.RawMessage          `json:"VpcConfig,omitempty"`
+	CreationTime         time.Time         `json:"CreationTime"`
+	LastModifiedTime     time.Time         `json:"LastModifiedTime"`
+	CompilationStartTime *time.Time        `json:"CompilationStartTime,omitempty"`
+	CompilationEndTime   *time.Time        `json:"CompilationEndTime,omitempty"`
+	Tags                 map[string]string `json:"Tags,omitempty"`
+	// InputConfig is "This member is required" on
+	// DescribeCompilationJobOutput even when the job was created via
+	// ModelPackageVersionArn instead of InputConfig -- real AWS derives it
+	// server-side from the referenced model package's (opaque here)
+	// InferenceSpecification in that case. Disclosed gap: a job created via
+	// ModelPackageVersionArn only will have this field absent.
+	InputConfig          *CompilationInputConfig  `json:"InputConfig,omitempty"`
+	OutputConfig         *CompilationOutputConfig `json:"OutputConfig,omitempty"`
+	StoppingCondition    *StoppingCondition       `json:"StoppingCondition,omitempty"`
+	ModelArtifacts       *ModelArtifacts          `json:"ModelArtifacts,omitempty"`
+	CompilationJobName   string                   `json:"CompilationJobName"`
+	CompilationJobArn    string                   `json:"CompilationJobArn"`
+	CompilationJobStatus string                   `json:"CompilationJobStatus"`
+	RoleArn              string                   `json:"RoleArn,omitempty"`
+	// FailureReason has no omitempty: it is "This member is required" on
+	// DescribeCompilationJobOutput (api_op_DescribeCompilationJob.go:67-69)
+	// even though it is legitimately empty for every non-failed job -- the
+	// common case.
+	FailureReason          string          `json:"FailureReason"`
+	ModelPackageVersionArn string          `json:"ModelPackageVersionArn,omitempty"`
+	VpcConfig              json.RawMessage `json:"VpcConfig,omitempty"`
 }
 
 func cloneCompilationJob(j *CompilationJob) *CompilationJob {
@@ -213,12 +232,25 @@ func (b *InMemoryBackend) scheduleCompilationJobCompletion(ctx context.Context, 
 		j.CompilationEndTime = &now
 		j.LastModifiedTime = now
 
-		if j.OutputConfig != nil && j.OutputConfig.S3OutputLocation != "" {
-			j.ModelArtifacts = &ModelArtifacts{
-				S3ModelArtifacts: strings.TrimSuffix(j.OutputConfig.S3OutputLocation, "/") + "/model.tar.gz",
-			}
-		}
+		j.ModelArtifacts = modelArtifactsFromCompilationOutputConfig(j.OutputConfig)
 	})
+}
+
+// modelArtifactsFromCompilationOutputConfig derives the deterministic
+// artifact location a Neo compilation job will write to from its (real,
+// client-required) OutputConfig.S3OutputLocation. ModelArtifacts is itself a
+// required DescribeCompilationJobOutput member (api_op_DescribeCompilationJob.go:
+// 84-87) -- previously set only on completion, leaving it nil (and, via
+// omitempty, absent from the wire) for every job still INPROGRESS, the
+// common case for a freshly created job.
+func modelArtifactsFromCompilationOutputConfig(oc *CompilationOutputConfig) *ModelArtifacts {
+	if oc == nil || oc.S3OutputLocation == "" {
+		return nil
+	}
+
+	return &ModelArtifacts{
+		S3ModelArtifacts: strings.TrimSuffix(oc.S3OutputLocation, "/") + "/model.tar.gz",
+	}
 }
 
 // DescribeCompilationJob returns a compilation job by name.
@@ -406,6 +438,7 @@ func (b *InMemoryBackend) SetCompilationJobExtras(
 	if outputConfig != nil {
 		oc := *outputConfig
 		j.OutputConfig = &oc
+		j.ModelArtifacts = modelArtifactsFromCompilationOutputConfig(j.OutputConfig)
 	}
 
 	if stoppingCondition != nil {

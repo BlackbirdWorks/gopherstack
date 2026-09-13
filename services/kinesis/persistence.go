@@ -22,8 +22,11 @@ const kinesisSnapshotVersion = 1
 // backendSnapshot is the persisted form of the backend.
 //
 // Tables holds one JSON-encoded array per table registered on b.registry --
-// currently just "streams" ([]*Stream), produced by
+// "streams" ([]*Stream) and "channels" ([]*Channel), produced by
 // [github.com/blackbirdworks/gopherstack/pkgs/store.Registry.SnapshotAll].
+// "channels" was added additively (gopherstack channels sweep, 2026-09-11);
+// [store.Registry.RestoreAll] resets any table absent from an older snapshot
+// to empty, so no kinesisSnapshotVersion bump was needed.
 // Stream is persisted directly (no DTO) because every field is already
 // JSON-round-trippable except the unexported mu, which json.Marshal skips
 // automatically and [initializeStreamRuntime] rebuilds on restore.

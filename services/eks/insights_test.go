@@ -39,9 +39,26 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	rec = doREST(t, h, http.MethodPost, "/clusters/nonexistent/insights", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 
-	// Describe insight (synthetic - always succeeds for valid cluster)
-	rec = doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights/some-id", nil)
+	// Describe insight by a real derived ID: ih-cluster defaults to
+	// defaultK8sVersion, which is in the static support table, so
+	// deriveUpgradeReadinessInsights (insights.go) produces at least one.
+	listRec := doREST(t, h, http.MethodPost, "/clusters/ih-cluster/insights", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listed, ok := parseResp(t, listRec)["insights"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, listed)
+
+	firstID, ok := listed[0].(map[string]any)["id"].(string)
+	require.True(t, ok)
+
+	rec = doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights/"+firstID, nil)
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// An unknown insight ID on a valid cluster is a genuine 404, not a
+	// synthetic always-succeeds response.
+	rec = doREST(t, h, http.MethodGet, "/clusters/ih-cluster/insights/no-such-insight", nil)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
 
 	// Start insights refresh. This is a cluster-level singleton at
 	// /clusters/{name}/insights-refresh -- there is no per-refresh id in the
@@ -58,10 +75,10 @@ func TestEKS_Insights_Lifecycle(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
-// TestListInsights_OmitsGetOnlyFields verifies gopherstack-uult: ListInsights
-// must emit only types.InsightSummary's members (category, description, id,
-// insightStatus, kubernetesVersion, lastRefreshTime, lastTransitionTime,
-// name) -- eks@v1.90.4 types/types.go:1485-1514. recommendation is
+// TestListInsights_OmitsGetOnlyFields verifies gopherstack-uult/wf8f:
+// ListInsights must emit only types.InsightSummary's members (category,
+// description, id, insightStatus, kubernetesVersion, lastRefreshTime,
+// lastTransitionTime, name) -- eks@v1.98.0 types.go:1755. recommendation is
 // DescribeInsight-only (types.Insight) and must not leak. clusterName is not
 // part of either wire shape at all and must not leak either.
 func TestListInsights_OmitsGetOnlyFields(t *testing.T) {
@@ -81,7 +98,10 @@ func TestListInsights_OmitsGetOnlyFields(t *testing.T) {
 	item := insights[0].(map[string]any)
 	for k := range item {
 		assert.Contains(t,
-			[]string{"category", "description", "id", "insightStatus", "lastRefreshTime", "lastTransitionTime"},
+			[]string{
+				"category", "description", "id", "insightStatus",
+				"kubernetesVersion", "lastRefreshTime", "lastTransitionTime", "name",
+			},
 			k,
 		)
 	}
@@ -119,7 +139,17 @@ func TestDescribeInsight_InsightStatus_Object(t *testing.T) {
 	h := newTestEKSHandler(t)
 	doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "di-cluster"})
 
-	rec := doREST(t, h, http.MethodGet, "/clusters/di-cluster/insights/some-insight-id", nil)
+	listRec := doREST(t, h, http.MethodPost, "/clusters/di-cluster/insights", nil)
+	require.Equal(t, http.StatusOK, listRec.Code)
+
+	listed, ok := parseResp(t, listRec)["insights"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, listed)
+
+	id, ok := listed[0].(map[string]any)["id"].(string)
+	require.True(t, ok)
+
+	rec := doREST(t, h, http.MethodGet, "/clusters/di-cluster/insights/"+id, nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	insight := parseResp(t, rec)["insight"].(map[string]any)

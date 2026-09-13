@@ -123,6 +123,12 @@ rows:
     verdict: fixed
     date: "2026-08-29"
     commit: 059c485c9
+  - service: appmesh
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-31"
+    commit: 92d569c91
+    source: bd_comment
   - service: apprunner
     class: filter_default_semantics
     verdict: fixed
@@ -1363,6 +1369,12 @@ rows:
     verdict: fixed
     date: "2026-08-29"
     commit: 50582e7b0
+  - service: s3
+    class: filter_default_semantics
+    verdict: clean
+    date: "2026-08-30"
+    commit: 6c73794e2
+    source: bd_comment
   - service: s3
     class: pagination_ordering
     verdict: fixed

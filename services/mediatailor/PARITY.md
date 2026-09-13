@@ -110,18 +110,30 @@ ops:
 families:
   routing: {status: ok, note: "all 47 routed ops' HTTP method+path unchanged this pass and still verified against aws-sdk-go-v2 serializers.go/botocore service-2.json from the prior audit"}
   errors: {status: ok, note: "gopherstack-vdrs: FIXED a service-wide wire bug -- respondErr never set the X-Amzn-Errortype header or any body code/__type field, so aws-sdk-go-v2's restjson.GetErrorInfo (aws/protocol/restjson/decoder_util.go, checked at v1.43.4, the pinned aws-sdk-go-v2 core) had no code to read and every mediatailor error deserialized client-side as smithy.GenericAPIError{Code:\"UnknownError\"} regardless of the real failure (404/409/400 all included). Fixed by setting X-Amzn-Errortype from the sentinel error's mapped exception name, matching the sibling convention already used by services/account and services/apigatewayv2. See Notes #11."}
-gaps:
-  - "FIXED by gopherstack-gt9o: PlaybackConfiguration's AdsPersonalizationConcurrency/AdsPersonalizationTimeouts input sub-configs now round-trip through extractExtraConfig, generalized from a fixed 14-key enumeration to exclude-known-handled-keys pass-through (handler_helpers.go). See Notes #13."
-  - "FIXED by gopherstack-ic73: PlaybackConfiguration's three response-only dual-stack fields (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, and HlsConfiguration's own DualStackManifestEndpointPrefix -- aws-sdk-go-v2/service/mediatailor@v1.63.4 types/types.go:688) are now modeled on the Go PlaybackConfiguration struct and wired into toPlaybackConfigOutput, but deliberately left unset -- no PutPlaybackConfigurationInput member sets any of them, and gopherstack has no real dual-stack endpoint to report; fabricating one would be a dialable-but-fake URL, worse than an absent field. The rest of gopherstack-ic73's premise did not hold: there is no GetHlsManifestConfiguration operation in the pinned SDK (v1.63.4 has no api_op_GetHlsManifestConfiguration.go and no such op in service-2.json's op list) -- that name does not exist to model. DualStackPlaybackUrl (types.go:1388) is real but belongs to a different, unrelated type -- ResponseOutputItem, part of Channel.Outputs (CreateChannel/DescribeChannel/UpdateChannel) -- out of scope for PlaybackConfiguration/HlsConfiguration entirely. There is also no separate 'SessionInitializationEndpoint' type in the pinned SDK; DualStackSessionInitializationEndpointPrefix appears exactly once, on PlaybackConfiguration itself, already covered above. Both claims were carried over from a prior pass's note and could not be verified against the pinned aws-sdk-go-v2 source."
+gaps: []
 deferred: []      # every deferred item from the prior manifest is now implemented this pass - see ops[*].note above
 items_still_open:
+  - "gopherstack-xhu2t slice 7 (2026-09-12): ListAlerts.MaxResults is not honored -- ListAlerts always returns an empty Items list (already documented ops row: alerts aren't modeled/generated anywhere in this backend, matching a fresh account with no alerts). Paginating an always-empty list has nothing to demonstrate an effect on, same class as this file's other honestly-empty-collection notes."
   - "ProgramScheduleEntry.ScheduleAdBreaks is always empty. Real MediaTailor populates it from SCTE-35 avails MediaTailor detects by scanning the underlying VOD/live source manifests during ingestion - a manifest-parsing capability gopherstack has nowhere in this service (or elsewhere in the fleet, as far as this pass could tell). Left empty rather than fabricated from the client-configured AdBreaks (which is a materially different, unrelated concept - AdBreaks is where a client tells MediaTailor to splice ads; ScheduleAdBreaks is what MediaTailor detected already exists in the source content). Matches a real VOD source with no scanned avails yet. Reconfirmed this pass (gopherstack-vdrs item 2): genuinely structural, not attempted. (needs bd issue if manifest-avail-detection is ever prioritized). Reconfirmed AGAIN by gopherstack-6flj (2026-08-15): this pass nearly proposed deriving ScheduleAdBreaks from Program.AdBreaks before reading this note -- exactly the fabrication this note already warns against. Left untouched."
   - "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ProgramScheduleEntry.Audiences (flagged unconfirmed by gopherstack-6flj 2026-08-15) is now populated from Program.AudienceMedia -- see GetChannelSchedule's note above for why this pass committed to that mapping."
   - "GetChannelScheduleInput.DurationMinutes (*string*, own doc comment: 'The duration in minutes of the channel schedule') is not applied. No reference point is specified anywhere in the pinned SDK -- unlike Audience (a plain membership filter against real per-program data), DurationMinutes would require inventing a windowing baseline (from-now? from-earliest-entry? something else?) this service's own model does not document. Left disclosed rather than guessed (needs a bd issue + real-AWS-account confirmation if prioritized)."
+  - "gopherstack-ifsg (2026-09-11): re-investigated -- STALE. The issue's premise (CreateProgram validates only channel existence, accepting a nonexistent SourceLocationName/VodSourceName/LiveSourceName) was already fixed by gopherstack-vdrs (Notes #11, 2026-08-10): programs.go CreateProgram now rejects all three with NotFoundException, proven live via TestCreateProgram_RejectsUnknownReferences (handler_create_program_validation_test.go) against a real mediatailorsdk.Client. Separately checked this pass whether VodSourceName/LiveSourceName are enforced as mutually exclusive (not currently -- a program can set both): CreateProgram's Errors section at docs.aws.amazon.com/mediatailor/latest/apireference/API_CreateProgram.html is empty (only the boilerplate 'see Common Error Types' link, no operation-specific entries), and aws-sdk-go-v2/service/mediatailor@v1.63.4's awsRestjson1_deserializeOpErrorCreateProgram (deserializers.go:1092-1140) models zero operation-specific error shapes -- a bare `switch { default: return &smithy.GenericAPIError{...} }`. The only supporting text found is soft User Guide prose (docs.aws.amazon.com/mediatailor/latest/ug/channel-assembly-programs.html: 'Each program contains a VOD source or a live source') describing intended usage, not a documented validation error. No authoritative source states what a real CreateProgram does when both are supplied, so per this service's established disclose-don't-guess convention (see DurationMinutes above), left unenforced -- CreateProgram still accepts both without rejection."
+  - "FIXED by gopherstack-gt9o: PlaybackConfiguration's AdsPersonalizationConcurrency/AdsPersonalizationTimeouts input sub-configs now round-trip through extractExtraConfig, generalized from a fixed 14-key enumeration to exclude-known-handled-keys pass-through (handler_helpers.go). See Notes #13."
+  - "FIXED by gopherstack-ic73: PlaybackConfiguration's three response-only dual-stack fields (DualStackPlaybackEndpointPrefix, DualStackSessionInitializationEndpointPrefix, and HlsConfiguration's own DualStackManifestEndpointPrefix -- aws-sdk-go-v2/service/mediatailor@v1.63.4 types/types.go:688) are now modeled on the Go PlaybackConfiguration struct and wired into toPlaybackConfigOutput, but deliberately left unset -- no PutPlaybackConfigurationInput member sets any of them, and gopherstack has no real dual-stack endpoint to report; fabricating one would be a dialable-but-fake URL, worse than an absent field. The rest of gopherstack-ic73's premise did not hold: there is no GetHlsManifestConfiguration operation in the pinned SDK (v1.63.4 has no api_op_GetHlsManifestConfiguration.go and no such op in service-2.json's op list) -- that name does not exist to model. DualStackPlaybackUrl (types.go:1388) is real but belongs to a different, unrelated type -- ResponseOutputItem, part of Channel.Outputs (CreateChannel/DescribeChannel/UpdateChannel) -- out of scope for PlaybackConfiguration/HlsConfiguration entirely. There is also no separate 'SessionInitializationEndpoint' type in the pinned SDK; DualStackSessionInitializationEndpointPrefix appears exactly once, on PlaybackConfiguration itself, already covered above. Both claims were carried over from a prior pass's note and could not be verified against the pinned aws-sdk-go-v2 source."
 leaks: {status: clean, note: "no goroutines, timers, or janitors in this service; all state lives in store.Table/Index + plain maps guarded by one lockmetrics.RWMutex. This pass additionally fixed two ghost-row leaks: DeleteChannel now cascade-deletes every program scheduled on it (via programsByChannel index) and its channel policy; DeletePlaybackConfiguration now cascade-deletes every attached prefetch schedule (via prefetchSchedulesByConfig index). Neither cascade existed before this pass - a channel/playback-config could be deleted and recreated with the same name while its old programs/prefetch-schedules silently lingered in their tables, invisible via any real op path but still occupying memory and corrupting Snapshot/Restore fidelity."}
 ---
 
 ## Notes
+
+### 2026-09-12 (typed coverage slice 29, gopherstack-n3zi)
+
+Added `typed_slice29_realclient_test.go`, driving all 23 previously
+typed-client-uncovered ops (channel lifecycle including logs/start/stop,
+channel policy, function delete, source location/live source/vod source
+update+delete, program update+delete, playback configuration/prefetch
+schedule/alerts, tag deletion) through the real `aws-sdk-go-v2` client.
+Zero real wire bugs found -- every op passed on the first real-client
+attempt. mediatailor: 25/48 -> 48/48 typed-client covered.
 
 ### 2026-08-22, gopherstack-r80d batch 30 -- required-output-member audit
 
@@ -646,3 +658,41 @@ all -- no per-item-status seam exists to check.
 
 No test changes; no source changes. Recorded as genuinely clean for this bug
 class.
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 2 fixed, 1 recorded as `items_still_open`, 7
+false positives (all httpQuery-param or hand-decoded-`map[string]any`-body
+blind spots — every List op except `ListPrefetchSchedules` binds
+`MaxResults`/`maxResults` as an httpQuery param, and this service's
+`extractPaginationParams`/`extractBodyPaginationParams` already read both
+case variants correctly).
+
+- **Fixed**:
+  - `PutPlaybackConfiguration.InsertionMode` (body field, serializers.go:3471-3473):
+    was declared nowhere, so a config created without it never got the
+    documented default (`STITCHED_ONLY`) applied — the key was simply
+    absent from the response instead of showing the real default. Now
+    defaulted and validated (`STITCHED_ONLY`/`PLAYER_SELECT`) before being
+    folded into the existing generic `extra` pass-through.
+  - `CreatePrefetchSchedule.StreamId` — already read correctly
+    (`handler_prefetch_schedules.go`'s `body["StreamId"].(string)`); no code
+    change needed, but a real-client test was added since none existed for
+    this exact field.
+- **Recorded**: `ListAlerts.MaxResults` (alerts are never modeled anywhere
+  in this backend, so `ListAlerts` always returns empty — pagination has
+  nothing to demonstrate an effect on).
+- **False positives** (7, all already correctly handled): `ListChannels`/
+  `ListFunctions`/`ListLiveSources`/`ListPlaybackConfigurations`/
+  `ListSourceLocations`/`ListVodSources`.`MaxResults` are httpQuery params
+  already read by `extractPaginationParams` (handler_helpers.go, reads both
+  `MaxResults` and `maxResults` case variants) and applied via real
+  `pkgs/page`-backed pagination in each `InMemoryBackend.List*` method.
+  `ListPrefetchSchedules.MaxResults` is a body field already read via
+  `extractBodyPaginationParams` and applied the same way.
+
+Gates: `go build ./...`, `go vet ./services/mediatailor/...`, `go test -race
+-count=1 ./services/mediatailor/...`, `golangci-lint run
+--new-from-rev=HEAD ./services/mediatailor/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (`InsertionMode` rides in the existing
+opaque `Extra` map), no `snapshot_inventory.json` rows, no version bump.

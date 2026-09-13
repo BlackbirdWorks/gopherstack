@@ -122,7 +122,13 @@ func (b *InMemoryBackend) PutAccountDedicatedIPWarmupAttributes(autoWarmupEnable
 	return nil
 }
 
-// GetBlacklistReports returns empty blacklist reports.
-func (b *InMemoryBackend) GetBlacklistReports() (map[string][]string, error) {
-	return map[string][]string{}, nil
+// GetBlacklistReports reports every requested IP as not blacklisted -- this
+// backend has no real DNS blacklist data source to check against.
+func (b *InMemoryBackend) GetBlacklistReports(ipAddresses []string) (map[string][]string, error) {
+	reports := make(map[string][]string, len(ipAddresses))
+	for _, ip := range ipAddresses {
+		reports[ip] = []string{}
+	}
+
+	return reports, nil
 }

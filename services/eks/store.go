@@ -38,11 +38,21 @@ type InMemoryBackend struct {
 	subscriptions                    *store.Table[AnywhereSubscription]
 	updates                          *store.Table[Update]
 	updatesByCluster                 *store.Index[Update]
+	certificateAuthorities           *store.Table[CertificateAuthority]
+	certificateAuthoritiesByCluster  *store.Index[CertificateAuthority]
+	idempotency                      *store.Table[idempotencyRecord]
 	registry                         *store.Registry
 	mu                               *lockmetrics.RWMutex
 	work                             *worker.Group
 	accountID                        string
 	region                           string
+
+	// limits holds the resource-cardinality caps enforced with
+	// ResourceLimitExceededException (see limits.go); configuredLimits
+	// preserves a WithResourceLimits override across Reset(), matching
+	// services/glue's limits/configuredLimits precedent.
+	limits           resourceLimits
+	configuredLimits resourceLimits
 }
 
 // NewInMemoryBackend creates a new in-memory EKS backend.
@@ -55,6 +65,8 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 		registry:          store.NewRegistry(),
 		mu:                lockmetrics.New("eks"),
 		work:              worker.NewGroup(ctx, "eks"),
+		limits:            defaultResourceLimits(),
+		configuredLimits:  defaultResourceLimits(),
 	}
 	registerAllTables(b)
 
@@ -63,6 +75,17 @@ func NewInMemoryBackend(ctx context.Context, accountID, region string) *InMemory
 
 // Region returns the AWS region this backend is configured for.
 func (b *InMemoryBackend) Region() string { return b.region }
+
+// WithResourceLimits overrides the resource caps enforced by
+// ResourceLimitExceededException (see limits.go) and returns the backend for
+// chaining. A zero field in l keeps its real-EKS default. The override
+// survives Reset(), matching services/glue's WithResourceLimits precedent.
+func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend {
+	applyResourceLimitOverrides(&b.limits, l)
+	applyResourceLimitOverrides(&b.configuredLimits, l)
+
+	return b
+}
 
 // Close stops all scheduled state-transition timers so none outlives the
 // backend. It is safe to call multiple times.
@@ -171,6 +194,7 @@ func (b *InMemoryBackend) Reset() {
 	// per-map make() calls this used to be (Phase 3.3 pkgs/store conversion).
 	// See registerAllTables in store_setup.go for the full list of tables.
 	b.registry.ResetAll()
+	b.limits = b.configuredLimits
 
 	b.accessPolicies = make(map[string]map[string][]*AccessPolicyAssociation)
 	b.encryptionConfigs = make(map[string][]EncryptionConfig)

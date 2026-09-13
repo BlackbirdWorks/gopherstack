@@ -34,7 +34,8 @@ families:
   trusted_advisor: {status: ok, note: "language validation now uses the real 11-code Trusted-Advisor set instead of the 4-code case-language set"}
   filter_value_semantics: {status: ok, note: "2026-08-31 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): audited every filterable List/Describe op's request-parameter semantics (this service's covledger row was empty; PARITY.md itself had never recorded this axis). DescribeCasesWithOptions/DescribeCommunicationsWithOptions: caseIdList/displayId/language are correct equality filters, afterTime/beforeTime compare against CaseDetails.TimeCreated/Communication.TimeCreated (the only date field either type has -- the doc's 'filtered date search on support case communications' wording on DescribeCases judged a generation artifact, same call as the substring/prefix doc comment dynamodb's pass correctly disbelieved). includeCommunications *bool correctly preserves the omitted-vs-false distinction (in.IncludeCommunications == nil || *in.IncludeCommunications, handler_cases.go:95) matching the documented 'By default, communications are included' -- new regression test TestSupport_DescribeCases_IncludeCommunications added and proven to fail against a temporarily-flattened version, then restored byte-identical. DescribeTrustedAdvisorChecks/CheckResult/CheckSummaries/RefreshCheck: checkIds are direct map lookups, no matcher surface. DescribeServices.serviceCodeList is a simple set-membership filter, verified correct. MaxResults: neither the pinned SDK nor the live AWS_DescribeCases API reference page (fetched, carried the agent-toolkit footer) states a default when omitted, only Valid Range 10-100 -- nothing for the existing defaultPageSize=100 to violate. One item recorded on the OTHER axis, not fixed: DescribeTrustedAdvisorCheckRefreshStatuses does not validate checkIds is non-empty/well-formed the way DescribeTrustedAdvisorCheckSummaries does -- a missing rejection, validation-shaped rather than a wrong algorithm. Another recorded as a gap: DescribeCasesWithOptions silently drops an unknown id from caseIdList rather than raising the documented CaseIdNotFound -- also a missing-rejection/validation gap, not filter semantics, left unfixed per the class's own discrimination rule."}
   errors: {status: fixed, note: "SEVERE: handleError built a bare {\"message\":...} JSON body with NO \"__type\" field and no X-Amzn-ErrorType header. aws-sdk-go-v2/service/support/deserializers.go's resolveProtocolErrorType requires one of those two to identify which exception occurred; without it every error -- regardless of the correct HTTP status/message text -- deserializes client-side as a generic smithy.GenericAPIError{Code:\"UnknownError\"}, never the typed exception (e.g. *types.CaseIdNotFound) a real caller's errors.As would expect. Fixed: handleError now emits service.JSONErrorResponse{Type, Message} (the shared convention also used by codeconnections/athena in this campaign) via a new resolveErrorType(err) switch. Separately, confirmed via the botocore support/2013-04-15/service-2.json model that NONE of support's exception shapes carry an httpStatusCode override, so the awsjson1.1 protocol default applies: HTTP 400 for every client-fault exception (including the '*NotFound'-named ones) and HTTP 500 only for the fault:true InternalServerError shape. gopherstack previously mapped CaseIdNotFound/AttachmentIdNotFound/AttachmentSetIdNotFound to HTTP 404 -- fixed to 400. This __type gap predates and is independent of the HTTP-status gap; both were unit-test-invisible because existing tests only asserted on rec.Code, never decoded the body's __type field (parity-principles.md note 3: unit tests are not full parity proof)."}
-gaps:
+gaps: []
+items_still_open:
   - "CaseDetails.Status declares 8 valid values (types.go Status field doc comment: all-open, customer-action-completed, opened, pending-customer-action, reopened, resolved, unassigned, work-in-progress); this backend reaches 3 -- opened (CreateCase cases.go:64, CreateCaseWithOptions cases.go:209), resolved (ResolveCase cases.go:134, ResolveCaseWithStatus cases.go:282), and reopened (AddCommunicationWithOptions reopening a resolved case, communications.go:83). Enumerated every Case.Status write site in services/support/*.go (non-test) and found no others. The other 5 have no client-callable trigger: of the API's 16 operations only CreateCase, AddCommunicationToCase, and ResolveCase can plausibly mutate status, and none of their doc comments (api_op_CreateCase.go, api_op_AddCommunicationToCase.go, api_op_ResolveCase.go) describe a transition into unassigned/work-in-progress/pending-customer-action/customer-action-completed -- those are AWS support-staff-side case-management states (agent assignment, agent work, an agent requesting or receiving further customer input) with no modeled client operation that sets them; DescribeCasesInput (api_op_DescribeCases.go) also has no status filter parameter at all, so all-open is not even reachable as a request value, and reads as a leaked console-filter label in AWS's own doc comment rather than a state CaseDetails.Status is documented to actually hold. Same class as gopherstack-g2eo (directoryservice TrustState/SnapshotStatus): verdict modelling gap, not a defect; no code changed. (gopherstack-hwlt)"
 deferred:
   - integration test suite (test/integration/*_parity_test.go) was not run this pass — only unit tests plus static comparison against the real SDK's deserializers.go/serializers.go and the botocore support/2013-04-15/service-2.json model (stronger than typical unit-test-only audits, but still not a live SDK-client round trip). test/integration/support_test.go exists and covers the happy-path case lifecycle only; it does not exercise error paths, so it would not have caught the missing __type field either (the Go SDK client would have surfaced a generic/wrong error type, but the existing test never triggers an error path).
@@ -215,3 +216,30 @@ value applied wrong -- both are a rejection that never fires.
 Gates: `go build`, `go vet` (repo-wide, clean), `go test -race -count=1`,
 `golangci-lint run` all pass. No production code changed; `cases_test.go`
 gained one new test (assertions: +9, 0 dropped).
+
+## 2026-09-12 (typed slice 21, gopherstack-n3zi)
+
+This package had no real-client (httptest+`NewFromConfig`) helper at all
+before this slice -- built one from scratch
+(`typed_slice21_realclient_test.go`'s `newSlice21SupportClient`, same
+pattern as identitystore's slice 19). Drove all 12 remaining
+typed-client-blind ops (`AddAttachmentsToSet`, `DescribeAttachment`,
+`DescribeCommunications`, `DescribeCreateCaseOptions`, `DescribeServices`,
+`DescribeSeverityLevels`, `DescribeSupportedLanguages`,
+`DescribeTrustedAdvisorCheckRefreshStatuses`,
+`DescribeTrustedAdvisorCheckResult`, `DescribeTrustedAdvisorCheckSummaries`,
+`DescribeTrustedAdvisorChecks`, `RefreshTrustedAdvisorCheck`) through the
+real client for the first time (3 subtests: attachment/communication
+round trip -- CreateCase -> AddAttachmentsToSet -> AddCommunicationToCase
+-> DescribeCommunications -> DescribeAttachment via the AttachmentId the
+communication echoes back -- catalog ops, and the full Trusted Advisor
+check lifecycle against the built-in "Service Limits" (`Pfx0RwqBli`)
+catalog entry). **Zero bugs** -- every op decoded and matched its
+documented shape on the first real-client run, consistent with this
+service's existing deep static (deserializers.go/service-2.json) audit
+history. Repo-wide typed-client census: support 4/16 -> 16/16 (100%).
+
+Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
+-race -count=1 ./services/support/...` clean. `golangci-lint run
+--new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
+throughout. No `snapshot_inventory.json` changes. No version bump.

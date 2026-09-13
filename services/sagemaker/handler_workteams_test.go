@@ -9,14 +9,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// defaultMemberDefinitions returns a minimal, real-shaped MemberDefinitions
+// value: required on CreateWorkteamInput alongside Description
+// (validateOpCreateWorkteamInput, validators.go).
+func defaultMemberDefinitions() []map[string]any {
+	return []map[string]any{
+		{"CognitoMemberDefinition": map[string]any{
+			"UserPool": "pool1", "UserGroup": "group1", "ClientId": "client1",
+		}},
+	}
+}
+
 func TestHandler_CreateWorkteam(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
 	rec := doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName": "my-team",
-		"Description":  "Test team",
+		"WorkteamName":      "my-team",
+		"Description":       "Test team",
+		"MemberDefinitions": defaultMemberDefinitions(),
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -30,7 +42,9 @@ func TestHandler_DescribeWorkteam(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-1", "Description": "desc"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-1", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 
 	rec := doSageMakerRequest(t, h, "DescribeWorkteam", map[string]any{"WorkteamName": "team-1"})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -46,7 +60,9 @@ func TestHandler_DeleteWorkteam(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-del"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-del", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 	rec := doSageMakerRequest(t, h, "DeleteWorkteam", map[string]any{"WorkteamName": "team-del"})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
@@ -59,8 +75,12 @@ func TestHandler_ListWorkteams(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-a"})
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-b"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-a", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-b", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 
 	rec := doSageMakerRequest(t, h, "ListWorkteams", map[string]any{})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -76,8 +96,12 @@ func TestHandler_ListWorkteams_Filters(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "alpha-team"})
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "beta-team"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "alpha-team", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "beta-team", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 
 	tests := []struct {
 		body      map[string]any
@@ -123,7 +147,9 @@ func TestHandler_CreateWorkteam_NotificationAndWorkerAccessConfig(t *testing.T) 
 	h := newTestHandler(t)
 
 	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
-		"WorkteamName": "team-config",
+		"WorkteamName":      "team-config",
+		"Description":       "desc",
+		"MemberDefinitions": defaultMemberDefinitions(),
 		"NotificationConfiguration": map[string]any{
 			"NotificationTopicArn": "arn:aws:sns:us-east-1:123456789012:topic",
 		},
@@ -157,7 +183,9 @@ func TestHandler_UpdateWorkteam_NotificationConfig(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{"WorkteamName": "team-update-config"})
+	doSageMakerRequest(t, h, "CreateWorkteam", map[string]any{
+		"WorkteamName": "team-update-config", "Description": "desc", "MemberDefinitions": defaultMemberDefinitions(),
+	})
 
 	rec := doSageMakerRequest(t, h, "UpdateWorkteam", map[string]any{
 		"WorkteamName": "team-update-config",

@@ -99,12 +99,12 @@ func TestListFlowAliasesSortIsTotal(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	flow, err := b.CreateFlow("flow1", "", nil)
+	flow, err := b.CreateFlow("flow1", "", "arn:aws:iam::111111111111:role/flow-role", nil)
 	require.NoError(t, err)
 
 	want := make(map[string]bool, 3)
 	for i := range 3 {
-		fa, createErr := b.CreateFlowAlias(flow.FlowID, "dup-name", fmt.Sprintf("desc-%d", i))
+		fa, createErr := b.CreateFlowAlias(flow.FlowID, "dup-name", fmt.Sprintf("desc-%d", i), nil)
 		require.NoError(t, createErr)
 		want[fa.FlowAliasID] = true
 	}

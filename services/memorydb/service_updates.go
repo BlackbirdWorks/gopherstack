@@ -47,7 +47,7 @@ func (b *InMemoryBackend) DescribeServiceUpdates(
 	ctx context.Context,
 	req *describeServiceUpdatesRequest,
 ) ([]*ServiceUpdate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeServiceUpdates")
 	defer b.mu.RUnlock()
 
 	targetClusters := b.serviceUpdateTargetClusters(ctx, req.ClusterNames)

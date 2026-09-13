@@ -160,32 +160,32 @@ func (b *InMemoryBackend) CreateCustomerGateway(
 	return &cp, nil
 }
 
-// DescribeCustomerGateways returns customer gateways, optionally filtered by IDs.
-func (b *InMemoryBackend) DescribeCustomerGateways(ids []string) []*CustomerGateway {
+// DescribeCustomerGateways returns customer gateways, optionally filtered by
+// IDs. Matching real AWS, naming an ID that does not exist fails the whole
+// call with InvalidCustomerGatewayID.NotFound rather than silently omitting
+// it -- a real client asking for a specific (e.g. just-deleted) customer
+// gateway got an empty, successful response instead of the NotFound it
+// depends on to detect that.
+func (b *InMemoryBackend) DescribeCustomerGateways(ids []string) ([]*CustomerGateway, error) {
 	b.mu.RLock("DescribeCustomerGateways")
 	defer b.mu.RUnlock()
 
-	idSet := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		idSet[id] = true
+	less := func(a, o *CustomerGateway) bool { return a.CustomerGatewayID < o.CustomerGatewayID }
+
+	if len(ids) > 0 {
+		return describeByIDsOrNotFound(ids, b.customerGateways.Get, ErrCustomerGatewayNotFound, less)
 	}
 
 	out := make([]*CustomerGateway, 0, b.customerGateways.Len())
 
 	for _, cgw := range b.customerGateways.All() {
-		if len(idSet) > 0 && !idSet[cgw.CustomerGatewayID] {
-			continue
-		}
-
 		cp := *cgw
 		out = append(out, &cp)
 	}
 
-	sort.Slice(out, func(i, j int) bool {
-		return out[i].CustomerGatewayID < out[j].CustomerGatewayID
-	})
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 
-	return out
+	return out, nil
 }
 
 // DeleteCustomerGateway removes a customer gateway.

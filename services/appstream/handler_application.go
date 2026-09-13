@@ -25,6 +25,10 @@ func (j *s3LocationJSON) toModel() S3Location {
 	return S3Location(*j)
 }
 
+func s3LocationToJSON(loc S3Location) map[string]any {
+	return map[string]any{"S3Bucket": loc.S3Bucket, "S3Key": loc.S3Key}
+}
+
 type createApplicationInput struct {
 	Tags             map[string]string `json:"Tags"`
 	Name             string            `json:"Name"`
@@ -32,6 +36,8 @@ type createApplicationInput struct {
 	Description      string            `json:"Description"`
 	LaunchPath       string            `json:"LaunchPath"`
 	AppBlockArn      string            `json:"AppBlockArn"`
+	LaunchParameters string            `json:"LaunchParameters"`
+	WorkingDirectory string            `json:"WorkingDirectory"`
 	Platforms        []string          `json:"Platforms"`
 	IconS3Location   *s3LocationJSON   `json:"IconS3Location"`
 	InstanceFamilies []string          `json:"InstanceFamilies"`
@@ -46,6 +52,7 @@ func (h *Handler) opCreateApplication(_ context.Context, body []byte) (any, erro
 	app, err := h.Backend.CreateApplication(
 		req.Name, req.DisplayName, req.Description, req.LaunchPath,
 		req.AppBlockArn, req.Platforms, req.IconS3Location.toModel(), req.InstanceFamilies, req.Tags,
+		req.LaunchParameters, req.WorkingDirectory,
 	)
 	if err != nil {
 		return nil, err
@@ -97,10 +104,12 @@ func (h *Handler) opDescribeApplications(_ context.Context, body []byte) (any, e
 }
 
 type updateApplicationInput struct {
-	Name        string `json:"Name"`
-	DisplayName string `json:"DisplayName"`
-	Description string `json:"Description"`
-	LaunchPath  string `json:"LaunchPath"`
+	Name             string `json:"Name"`
+	DisplayName      string `json:"DisplayName"`
+	Description      string `json:"Description"`
+	LaunchPath       string `json:"LaunchPath"`
+	LaunchParameters string `json:"LaunchParameters"`
+	WorkingDirectory string `json:"WorkingDirectory"`
 }
 
 func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, error) {
@@ -109,7 +118,9 @@ func (h *Handler) opUpdateApplication(_ context.Context, body []byte) (any, erro
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	app, err := h.Backend.UpdateApplication(req.Name, req.DisplayName, req.Description, req.LaunchPath)
+	app, err := h.Backend.UpdateApplication(
+		req.Name, req.DisplayName, req.Description, req.LaunchPath, req.LaunchParameters, req.WorkingDirectory,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -494,23 +505,34 @@ func (h *Handler) opUpdateDirectoryConfig(_ context.Context, body []byte) (any, 
 
 // --- Response helpers ---
 
+// applicationToResponse builds the real Application wire shape. Real
+// deserializeCBOR_Application (appstream@v1.64.5 deserializers.go) has no
+// Tags key -- unlike its sibling members here, this backend never emitted
+// one for Application.
 func applicationToResponse(app *Application) map[string]any {
-	return map[string]any{
-		"Name":         app.Name,        //nolint:goconst // existing issue.
-		"Arn":          app.Arn,         //nolint:goconst // existing issue.
-		"DisplayName":  app.DisplayName, //nolint:goconst // existing issue.
-		"Description":  app.Description, //nolint:goconst // existing issue.
-		"LaunchPath":   app.LaunchPath,
-		keyAppBlockArn: app.AppBlockArn,
-		"Platforms":    app.Platforms,
-		"CreatedTime":  awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
-		"IconS3Location": map[string]any{
-			"S3Bucket": app.IconS3Location.S3Bucket,
-			"S3Key":    app.IconS3Location.S3Key,
-		},
+	resp := map[string]any{
+		"Name":             app.Name,        //nolint:goconst // existing issue.
+		"Arn":              app.Arn,         //nolint:goconst // existing issue.
+		"DisplayName":      app.DisplayName, //nolint:goconst // existing issue.
+		"Description":      app.Description, //nolint:goconst // existing issue.
+		"LaunchPath":       app.LaunchPath,
+		keyAppBlockArn:     app.AppBlockArn,
+		"Platforms":        app.Platforms,
+		"CreatedTime":      awstime.Epoch(app.CreatedTime), //nolint:goconst // existing issue.
+		"IconS3Location":   s3LocationToJSON(app.IconS3Location),
 		"InstanceFamilies": app.InstanceFamilies,
-		keyTags:            app.Tags,
+		"Enabled":          app.Enabled, //nolint:goconst // existing issue.
 	}
+
+	if app.LaunchParameters != "" {
+		resp["LaunchParameters"] = app.LaunchParameters
+	}
+
+	if app.WorkingDirectory != "" {
+		resp["WorkingDirectory"] = app.WorkingDirectory
+	}
+
+	return resp
 }
 
 func entitlementToResponse(e *Entitlement) map[string]any {

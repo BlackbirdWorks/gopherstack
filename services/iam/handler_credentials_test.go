@@ -121,6 +121,93 @@ func TestHandler_ResetServiceSpecificCredential_ChangesPassword(t *testing.T) {
 	assert.Contains(t, body, "ServicePassword")
 }
 
+// TestResetServiceSpecificCredential_Dispatch pins the survivor of the
+// gopherstack-f185i dispatch-table collision: iamSSCResetDispatch's
+// backend-backed entry wins over iamResetServiceSpecificCredentialCompletenessDispatch's
+// now-deleted stub, which never validated the credential and always
+// fabricated ServiceName "codecommit.amazonaws.com" and a fixed-pattern
+// password regardless of input.
+func TestResetServiceSpecificCredential_Dispatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup       func(t *testing.T, b *iam.InMemoryBackend) (credID, origPassword string)
+		verify      func(t *testing.T, body []byte, origPassword string)
+		name        string
+		userName    string
+		wantErrCode string
+		wantCode    int
+	}{
+		{
+			name:     "unknown_credential_returns_nosuchentity",
+			userName: "ssc-dispatch-alice",
+			setup: func(_ *testing.T, b *iam.InMemoryBackend) (string, string) {
+				_, _ = b.CreateUser("ssc-dispatch-alice", "/", "")
+
+				return "ACCAI-does-not-exist", ""
+			},
+			wantCode:    http.StatusNotFound,
+			wantErrCode: "NoSuchEntity",
+		},
+		{
+			name:     "known_credential_resets_password_and_keeps_real_service_name",
+			userName: "ssc-dispatch-bob",
+			setup: func(t *testing.T, b *iam.InMemoryBackend) (string, string) {
+				t.Helper()
+
+				_, _ = b.CreateUser("ssc-dispatch-bob", "/", "")
+
+				cred, err := b.CreateServiceSpecificCredential("ssc-dispatch-bob", "cassandra.amazonaws.com")
+				require.NoError(t, err)
+
+				return cred.ServiceSpecificCredentialID, cred.ServicePassword
+			},
+			wantCode: http.StatusOK,
+			verify: func(t *testing.T, body []byte, origPassword string) {
+				t.Helper()
+
+				var resp struct {
+					Result struct {
+						Password string `xml:"ServicePassword"`
+						Service  string `xml:"ServiceName"`
+					} `xml:"ResetServiceSpecificCredentialResult>ServiceSpecificCredential"`
+				}
+				require.NoError(t, xml.Unmarshal(body, &resp))
+				assert.NotEqual(t, origPassword, resp.Result.Password)
+				assert.Equal(t, "cassandra.amazonaws.com", resp.Result.Service)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := echo.New()
+			h, b := newTestHandler(t)
+			credID, origPassword := tt.setup(t, b)
+
+			req := iamRequest("ResetServiceSpecificCredential", map[string]string{
+				"UserName":                    tt.userName,
+				"ServiceSpecificCredentialId": credID,
+			})
+			rec := httptest.NewRecorder()
+			require.NoError(t, h.Handler()(e.NewContext(req, rec)))
+			assert.Equal(t, tt.wantCode, rec.Code)
+
+			if tt.wantErrCode != "" {
+				var errResp iam.ErrorResponse
+				require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &errResp))
+				assert.Equal(t, tt.wantErrCode, errResp.Error.Code)
+			}
+
+			if tt.verify != nil {
+				tt.verify(t, rec.Body.Bytes(), origPassword)
+			}
+		})
+	}
+}
+
 func TestCreateServiceSpecificCredential_Backend(t *testing.T) {
 	t.Parallel()
 

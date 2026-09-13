@@ -875,26 +875,55 @@ func TestWorkspace_WorkspaceNameThreadedThrough(t *testing.T) {
 		"DescribeWorkspaces must echo the caller-supplied WorkspaceName, not drop it")
 }
 
+// describedRelatedWorkspace is the JSON shape asserted against
+// Workspace.RelatedWorkspaces entries in the tests below.
+type describedRelatedWorkspace struct {
+	WorkspaceID string `json:"WorkspaceId"`
+	Type        string `json:"Type"`
+}
+
+type describedWorkspace struct {
+	WorkspaceID             string `json:"WorkspaceId"`
+	DataReplicationSettings *struct {
+		DataReplication string `json:"DataReplication"`
+	} `json:"DataReplicationSettings"`
+	RelatedWorkspaces []describedRelatedWorkspace `json:"RelatedWorkspaces"`
+}
+
+func describeOneWorkspace(t *testing.T, h *workspaces.Handler, workspaceID string) describedWorkspace {
+	t.Helper()
+
+	rec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
+		"WorkspaceIds": []string{workspaceID},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		Workspaces []describedWorkspace `json:"Workspaces"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Workspaces, 1)
+
+	return out.Workspaces[0]
+}
+
 func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		primaryWorkspaceID string
-		dataReplication    string
-		dirID              string
+		name            string
+		dataReplication string
+		dirID           string
 	}{
 		{
-			name:               "standby workspace with primary and replication",
-			primaryWorkspaceID: "ws-primary1",
-			dataReplication:    "PRIMARY_AS_SOURCE",
-			dirID:              "d-standby1",
+			name:            "standby workspace with primary and replication",
+			dataReplication: "PRIMARY_AS_SOURCE",
+			dirID:           "d-standby1",
 		},
 		{
-			name:               "standby workspace with no replication",
-			primaryWorkspaceID: "ws-primary2",
-			dataReplication:    "NO_REPLICATION",
-			dirID:              "d-standby2",
+			name:            "standby workspace with no replication",
+			dataReplication: "NO_REPLICATION",
+			dirID:           "d-standby2",
 		},
 	}
 
@@ -907,11 +936,13 @@ func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {
 				"DirectoryId": tt.dirID,
 			})
 
+			primaryID := createWorkspace(t, h)
+
 			rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
 				"PrimaryRegion": "us-east-1",
 				"StandbyWorkspaces": []map[string]any{
 					{
-						"PrimaryWorkspaceId": tt.primaryWorkspaceID,
+						"PrimaryWorkspaceId": primaryID,
 						"DataReplication":    tt.dataReplication,
 						"DirectoryId":        tt.dirID,
 					},
@@ -931,32 +962,49 @@ func TestCreateStandbyWorkspaces_DataReplicationAndRelated(t *testing.T) {
 
 			standbyID := out.PendingStandbyRequests[0].WorkspaceID
 
-			descRec := doTargetRequest(t, h, "DescribeWorkspaces", map[string]any{
-				"WorkspaceIds": []string{standbyID},
-			})
-			require.Equal(t, http.StatusOK, descRec.Code)
+			standby := describeOneWorkspace(t, h, standbyID)
+			require.NotNil(t, standby.DataReplicationSettings)
+			assert.Equal(t, tt.dataReplication, standby.DataReplicationSettings.DataReplication)
+			require.Len(t, standby.RelatedWorkspaces, 1)
+			assert.Equal(t, primaryID, standby.RelatedWorkspaces[0].WorkspaceID)
+			assert.Equal(t, "PRIMARY", standby.RelatedWorkspaces[0].Type)
 
-			var descResp struct {
-				Workspaces []struct {
-					WorkspaceID             string `json:"WorkspaceId"`
-					DataReplicationSettings *struct {
-						DataReplication string `json:"DataReplication"`
-					} `json:"DataReplicationSettings"`
-					RelatedWorkspaces []struct {
-						WorkspaceID string `json:"WorkspaceId"`
-						Type        string `json:"Type"`
-					} `json:"RelatedWorkspaces"`
-				} `json:"Workspaces"`
-			}
-			require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &descResp))
-			require.Len(t, descResp.Workspaces, 1)
-
-			ws := descResp.Workspaces[0]
-			require.NotNil(t, ws.DataReplicationSettings)
-			assert.Equal(t, tt.dataReplication, ws.DataReplicationSettings.DataReplication)
-			require.Len(t, ws.RelatedWorkspaces, 1)
-			assert.Equal(t, tt.primaryWorkspaceID, ws.RelatedWorkspaces[0].WorkspaceID)
-			assert.Equal(t, "PRIMARY", ws.RelatedWorkspaces[0].Type)
+			primary := describeOneWorkspace(t, h, primaryID)
+			require.Len(t, primary.RelatedWorkspaces, 1,
+				"the primary WorkSpace must list the new standby back via RelatedWorkspaces")
+			assert.Equal(t, standbyID, primary.RelatedWorkspaces[0].WorkspaceID)
+			assert.Equal(t, "STANDBY", primary.RelatedWorkspaces[0].Type)
 		})
 	}
+}
+
+func TestCreateStandbyWorkspaces_UnknownPrimaryFails(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-unknown-primary"})
+
+	rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
+		"PrimaryRegion": "us-east-1",
+		"StandbyWorkspaces": []map[string]any{
+			{"PrimaryWorkspaceId": "ws-doesnotexist", "DirectoryId": "d-unknown-primary"},
+		},
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out struct {
+		FailedStandbyRequests []struct {
+			StandbyWorkspaceRequest struct {
+				PrimaryWorkspaceID string `json:"PrimaryWorkspaceId"`
+			} `json:"StandbyWorkspaceRequest"`
+			ErrorCode string `json:"ErrorCode"`
+		} `json:"FailedStandbyRequests"`
+		PendingStandbyRequests []any `json:"PendingStandbyRequests"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+
+	require.Empty(t, out.PendingStandbyRequests)
+	require.Len(t, out.FailedStandbyRequests, 1)
+	assert.Equal(t, "ResourceNotFoundException", out.FailedStandbyRequests[0].ErrorCode)
+	assert.Equal(t, "ws-doesnotexist", out.FailedStandbyRequests[0].StandbyWorkspaceRequest.PrimaryWorkspaceID)
 }

@@ -296,6 +296,7 @@ type Table struct {
 	StreamViewType          string                        `json:"StreamViewType,omitempty"`
 	StreamARN               string                        `json:"StreamARN,omitempty"`
 	GlobalTableName         string                        `json:"GlobalTableName,omitempty"`
+	MultiRegionConsistency  string                        `json:"MultiRegionConsistency,omitempty"`
 	TableArn                string                        `json:"TableArn"`
 	Status                  string                        `json:"Status"`
 	TableID                 string                        `json:"TableID"`

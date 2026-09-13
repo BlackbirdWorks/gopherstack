@@ -10,6 +10,7 @@
 	// backend might not match.
 	import {
 		GetRelationalDatabasesCommand,
+		GetRelationalDatabaseCommand,
 		CreateRelationalDatabaseCommand,
 		DeleteRelationalDatabaseCommand,
 		StartRelationalDatabaseCommand,
@@ -216,11 +217,13 @@
 		detailModal?.open();
 		if (!d.name) return;
 		try {
-			const [ev, streams, params] = await Promise.all([
+			const [dbResp, ev, streams, params] = await Promise.all([
+				client().send(new GetRelationalDatabaseCommand({ relationalDatabaseName: d.name })),
 				client().send(new GetRelationalDatabaseEventsCommand({ relationalDatabaseName: d.name })),
 				client().send(new GetRelationalDatabaseLogStreamsCommand({ relationalDatabaseName: d.name })),
 				client().send(new GetRelationalDatabaseParametersCommand({ relationalDatabaseName: d.name }))
 			]);
+			viewed = dbResp.relationalDatabase ?? d;
 			events = ev.relationalDatabaseEvents ?? [];
 			logStreams = streams.logStreams ?? [];
 			parameters = params.parameters ?? [];

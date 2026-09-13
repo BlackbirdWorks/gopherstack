@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -68,6 +69,21 @@ func tableVersionKey(dbName, tableName, versionID string) string {
 	return fmt.Sprintf("%s|%s|%s", dbName, tableName, versionID)
 }
 
+// countTablesInDatabase returns the number of tables currently stored under
+// dbName. Must be called with b.mu held (read or write).
+func (b *InMemoryBackend) countTablesInDatabase(dbName string) int {
+	n := 0
+	b.tables.Range(func(t *Table) bool {
+		if t.DatabaseName == dbName {
+			n++
+		}
+
+		return true
+	})
+
+	return n
+}
+
 // CreateTable creates a new Glue table in a database.
 func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, error) {
 	b.mu.Lock("CreateTable")
@@ -82,11 +98,18 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		return nil, ErrAlreadyExists
 	}
 
+	if b.countTablesInDatabase(dbName) >= b.limits.tablesPerDatabase {
+		return nil, fmt.Errorf(
+			"%w: database %q is already at the %d table limit",
+			ErrResourceNumberLimitExceeded, dbName, b.limits.tablesPerDatabase,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	t := &Table{
 		Name:              input.Name,
 		DatabaseName:      dbName,
-		CatalogID:         b.accountID,
+		CatalogID:         b.resolveCatalogID(input.CatalogID),
 		Description:       input.Description,
 		Owner:             input.Owner,
 		Retention:         input.Retention,
@@ -98,8 +121,31 @@ func (b *InMemoryBackend) CreateTable(dbName string, input TableInput) (*Table, 
 		UpdateTime:        now,
 	}
 	b.tables.Put(t)
+	b.addTableVersionLocked(t)
 
 	return t, nil
+}
+
+// addTableVersionLocked snapshots t as a new TableVersion, numbered
+// sequentially from "0" per (dbName, tableName) -- real Glue creates a new
+// table version on every CreateTable/UpdateTable (GetTableVersions/
+// GetTableVersion/BatchDeleteTableVersion), which this backend previously
+// never populated outside test-only seeding (AddTableVersionInternal), so
+// every version-history op returned empty/not-found against real production
+// state. Must be called with b.mu already held.
+func (b *InMemoryBackend) addTableVersionLocked(t *Table) {
+	prefix := tableVersionKey(t.DatabaseName, t.Name, "")
+	count := 0
+
+	b.tableVersions.Range(func(tv *TableVersion) bool {
+		if k := tableVersionEntryKeyFn(tv); len(k) > len(prefix) && k[:len(prefix)] == prefix {
+			count++
+		}
+
+		return true
+	})
+
+	b.tableVersions.Put(&TableVersion{Table: cloneTable(t), VersionID: strconv.Itoa(count)})
 }
 
 // GetTable retrieves a Glue table.
@@ -161,6 +207,10 @@ func (b *InMemoryBackend) UpdateTable(dbName string, input TableInput) error {
 	t.PartitionKeys = input.PartitionKeys
 	t.TableType = input.TableType
 	t.UpdateTime = float64(time.Now().Unix())
+
+	if !input.SkipArchive {
+		b.addTableVersionLocked(t)
+	}
 
 	return nil
 }

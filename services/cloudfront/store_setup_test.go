@@ -79,7 +79,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// fieldLevelEncryptionProfiles (references the public key above)
-	flep, err := orig.CreateFieldLevelEncryptionProfile("my-flep", "c", []cloudfront.EncryptionEntity{
+	flep, err := orig.CreateFieldLevelEncryptionProfile("", "my-flep", "c", []cloudfront.EncryptionEntity{
 		{PublicKeyID: pk.ID, ProviderID: "provider", FieldPatterns: []string{"field1"}},
 	})
 	require.NoError(t, err)
@@ -108,7 +108,10 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 
 	// trustStores
 	ts, err := orig.CreateTrustStore(
-		"my-trust-store", "c", cloudfront.TrustStoreCertificateBundle{S3Bucket: "b", S3Key: "k"}, nil,
+		"my-trust-store",
+		cloudfront.TrustStoreCACertificatesBundleSource{S3Bucket: "b", S3Key: "k", S3Region: "us-east-1"},
+		false,
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -122,7 +125,7 @@ func TestStoreSetup_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// tenantInvalidations: composite-key table keyed by tenantID + "#" + invID.
-	tenantInv, err := orig.CreateInvalidationForTenant(tenant.ID, []string{"/*"})
+	tenantInv, err := orig.CreateInvalidationForTenant(tenant.ID, "ref", []string{"/*"})
 	require.NoError(t, err)
 
 	snap := orig.Snapshot(t.Context())

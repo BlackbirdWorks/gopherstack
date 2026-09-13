@@ -37,7 +37,7 @@ func TestDeletePromptVersion_NoInventedStatusKey_RealClient(t *testing.T) {
 
 	var versionBody map[string]any
 	require.NoError(t, json.Unmarshal(versionRec.Body.Bytes(), &versionBody))
-	version, _ := versionBody["promptVersion"].(map[string]any)["version"].(string)
+	version, _ := versionBody["version"].(string)
 	require.NotEmpty(t, version)
 
 	rec := doAgentRequest(t, h, http.MethodDelete, fmt.Sprintf("/prompts/%s/versions/%s", promptID, version), nil)

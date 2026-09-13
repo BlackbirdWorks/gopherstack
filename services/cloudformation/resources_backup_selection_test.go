@@ -35,7 +35,7 @@ func TestCreateBackupSelection_ReadsNestedProperties(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, physID)
 
-	selections, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID)
+	selections, _, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID, 0, "")
 	require.NoError(t, err)
 	require.Len(t, selections, 1)
 
@@ -68,14 +68,14 @@ func TestDeleteBackupSelection_RemovesSelection(t *testing.T) {
 	physID, err := rc.Create(t.Context(), "MySelection", "AWS::Backup::BackupSelection", props, nil, nil)
 	require.NoError(t, err)
 
-	before, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID)
+	before, _, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID, 0, "")
 	require.NoError(t, err)
 	require.Len(t, before, 1)
 
 	err = rc.Delete(t.Context(), "AWS::Backup::BackupSelection", physID, props)
 	require.NoError(t, err)
 
-	after, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID)
+	after, _, err := backends.Backup.Backend.ListBackupSelections(plan.BackupPlanID, 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, after, "selection must not survive DeleteStack as a ghost row")
 }

@@ -262,7 +262,8 @@ families:
   coverage_usage_freetrial: {status: partial, note: "GetUsageStatistics emits the real UsageStatistics shape (Total objects, sumByFeature, topAccountsByFeature, usageStatisticType selection). GetCoverageStatistics/ListCoverage are wire-correct for an account with no tracked coverage resources (empty maps/arrays are the real response in that case, not synthetic placeholders -- see ops above); ListCoverage's FilterCriteria is deliberately not parsed/applied, since there is no coverage-resource state for a filter to act on. FIXED (ca2732322): GetRemainingFreeTrialDays now resolves the requested accountIds for real (previously ignored) and computes freeTrialDaysRemaining from each member's actual creation time instead of a hardcoded 30, under the real per-feature AccountFreeTrialInfo.features[] shape (previously a fabricated top-level field). Still partial: features[] only ever reports the three always-on base sources, never an account's actually-enabled optional features -- no per-member feature-enablement state exists to report from. This is the one real remaining gap in this family, see gaps/deferred"}
   malware_protection_plan_actions: {status: ok, note: "FIXED this pass (was deferred): Actions.tagging.status is now validated against the real MalwareProtectionPlanTaggingActionStatus enum on both Create and Update; ProtectedResource.s3Bucket.bucketName is now required on Create (matching CreateProtectedResource being a required input member and S3Bucket being \"the only supported protected resource\"), and correctly NOT required on Update (UpdateProtectedResource's S3Bucket has no bucketName member at all -- ObjectPrefixes only). See malware_protection_plan_schema.go"}
   investigations: {status: partial, note: "NEW family (this pass, GuardDuty Extended Threat Detection): CreateInvestigation/GetInvestigation/ListInvestigations are all real -- detector-scoped state, real detector+AI_ANALYST validation, cascade-deleted with their detector (DeleteDetectorCleansUpSubResources), Snapshot/Restore round-trips (detectorDTO[Investigation], the same pattern as filters/ipSets/publishingDestinations). status: partial (not ok) because this backend has NO threat-analysis engine: every investigation is permanently RUNNING and cloud/confidence/endTime/error/metadata/risk/riskLevel/summary/title never populate -- not a wire bug, an honest structural limitation (see the sibling wafv2 service's same treatment of honestly-empty analytics). See TestWireShape_Investigation_NoFabricatedAnalysis, which asserts none of these are ever present on the wire."}
-gaps:
+gaps: []
+items_still_open:
   - "GetMalwareScan still doesn't emit scanConfiguration/scanResultDetails/scannedResources[] (the per-resource detail list, not just its count) -- this backend has no state model for individual scanned files/objects/volumes within a scan, so these three remain absent. All three are optional on the real output so a real client won't error, just gets nil/absent fields. scanStatusReason/scanCompletedAt are correctly absent for a RUNNING scan (this backend's scans never transition to SKIPPED/COMPLETED/FAILED, so those states -- and the fields real AWS would populate for them -- are unreachable)."
   - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
   - "GetRemainingFreeTrialDays' per-account features[] only ever reports the three always-on base sources (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS); it never reports an account's actually-enabled optional features (S3_DATA_EVENTS, EKS_AUDIT_LOGS, EBS_MALWARE_PROTECTION, etc.) because this backend tracks no per-member feature-enablement state, only Features on that member's own Detector. freeTrialDaysRemaining is a real computed value (30 minus days since the member was added, floored at 0), not a placeholder, but is necessarily an approximation since this backend has no true per-feature trial-start timestamp."
@@ -781,3 +782,96 @@ guide) -- both carried the "aws agent-toolkit search-skills" footer described in
 No bugs found in this slice; `finding_criteria.go`/`malware_scan_filter.go` unchanged.
 Gates unaffected (no code touched): `go build`, `go vet`, `go test -race -count=1`,
 `golangci-lint run`, all `./services/guardduty/...`, all clean.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 16)
+
+Added `typed_slice16_realclient_test.go`: 11 subtests driving every op the
+census (`cmd/opcensus` + `cmd/clientcoverage`) listed as uncovered by a real
+`aws-sdk-go-v2/service/guardduty` client (52 ops -- UpdateDetector,
+organization admin account enable/disable, GetOrganizationStatistics,
+findings lifecycle (sample/get/list/archive/unarchive/feedback), IPSet/
+ThreatIntelSet deletion, ThreatEntitySet/TrustedEntitySet get/update/
+delete, publishing destination describe/update/delete, malware scan
+family (get/settings/list/send-object/protection-plan CRUD), member
+lifecycle (invite/get/monitor/update/disassociate/delete), legacy and
+current admin-account invitation flows (accept/decline/delete/count/get/
+disassociate), investigations CRUD, coverage listing + free-trial days,
+resource tags). Each subtest creates real state through the typed client
+and asserts decoded response values.
+
+**One real bug found and fixed**: `SendObjectMalwareScan`'s request
+decoder read a fabricated JSON key `"s3ObjectDetails"`; the real wire key
+(confirmed against `aws-sdk-go-v2/service/guardduty@v1.85.4`'s
+`serializers.go:6391-6396`,
+`awsRestjson1_serializeOpDocumentSendObjectMalwareScanInput`) is
+`"s3Object"` (with nested keys `bucket`/`key`/`versionId` --
+`serializers.go:9343-9362`). Every real client's `S3Object` was silently
+decoded as nil regardless of what was sent -- a pure request-side
+accept-and-drop, currently unobservable only because
+`SendObjectMalwareScan`'s own backend implementation doesn't yet use its
+`s3ObjectDetails` parameter for anything (a separate, pre-existing,
+documented simplification, not touched by this fix). Fixed the wire key
+in `handler_malware_protection.go`; corrected the one pre-existing unit
+test (`malware_protection_test.go`'s `send_object_malware_scan` case) that
+asserted the wrong key as correct, to the real shape rather than deleting
+or weakening it.
+
+**Accept-and-drop findings disclosed, not fixed** (both already-documented,
+pre-existing simplifications, confirmed still accurate): `AcceptInvitation`/
+`AcceptAdministratorInvitation` accept an `InvitationId` but this backend
+never validates it against a real pending invitation record (single-account
+emulation has no second party to originate one); `CreateInvestigation`'s
+`TriggerPrompt` is stored but never actually analyzed (see the existing
+`investigations` family note -- no threat-analysis engine).
+
+Coverage: guardduty 38/90 (42.2%) -> 90/90 (100%) per `cmd/clientcoverage`.
+
+Gates: `go build ./services/guardduty/...` and `go vet
+./services/guardduty/...` clean; `go test -race -count=1
+./services/guardduty/...` clean; `golangci-lint run --new-from-rev=HEAD
+./services/guardduty/...` 0 issues (three legacy-op call sites carry
+targeted `//nolint:staticcheck` comments, not a blanket path exclusion,
+since only those three of the file's ~50 calls touch deprecated SDK
+methods still required by the uncovered census: `AcceptInvitation`,
+`GetMasterAccount`, `DisassociateFromMasterAccount`). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot-inventory
+change (the fix is request-decode-only, and the field it fixes isn't
+persisted); no version bump.
+
+## 2026-09-12 (gopherstack-39710: detective's /invitation over-claim swallowed ListInvitations)
+
+Not a guardduty code defect -- guardduty's own `RouteMatcher`
+(`services/guardduty/handler.go:301`, `strings.HasPrefix(path,
+"/"+pathInvitation)`) was always correct; the bug was on the other side of
+the collision. detective's `RouteMatcher` claimed the exact `/invitation`
+path unconditionally (visible only after this sweep's
+`scanSwitchCaseIdentClaims` fix to `cmd/routecollisions` made its
+switch-case claims list extractable at all), registers at `MatchPriority`
+85 vs. guardduty's -1, and neither side checked SigV4 scope -- so every
+`ListInvitations` request (`GET /invitation`,
+`aws-sdk-go-v2/service/guardduty@v1.85.4/serializers.go:5486`) was silently
+answered by detective's `classifyPath` (which only recognizes `PUT
+/invitation` as its own `AcceptInvitation`, everything else as `Unknown`)
+with a bare 400 `InvalidInputException: unknown operation` -- guardduty's
+handler never ran. detective's `AcceptInvitation` (`PUT /invitation`,
+`aws-sdk-go-v2/service/detective@v1.41.4/serializers.go:44`) is the only
+real overlap at that exact path; every other guardduty invitation op binds
+one segment deeper (`/invitation/decline`, `/invitation/delete`,
+`/invitation/count`) or an entirely different path
+(`AcceptAdministratorInvitation` is `PUT
+/detector/{DetectorId}/administrator`; the deprecated legacy
+`AcceptInvitation` is `POST /detector/{DetectorId}/master`).
+
+Fixed by SigV4-scoping detective's claim (`services/detective/handler.go`),
+not by touching guardduty or raising either side's `MatchPriority` -- see
+`services/detective/PARITY.md`'s matching 2026-09-12 entry and
+`services/_ROUTE_COLLISIONS.md` for the full overlap-set citations, the
+before/after `cmd/routecollisions` lines, and the new real-router regression
+test (`services/detective/invitation_routing_cross_service_test.go`) that
+drives both services' real `aws-sdk-go-v2` clients through one shared
+`service.NewServiceRouter`.
+
+Gates (no guardduty source changed): `go build ./...` clean; `go vet
+./services/guardduty/...` clean; `go test -race -count=1
+./services/guardduty/...` `ok`; `golangci-lint run --new-from-rev=HEAD
+./services/guardduty/...` 0 issues; `go run ./cmd/paritylint` 0 FAIL.

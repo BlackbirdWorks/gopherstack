@@ -30,7 +30,7 @@ func TestPromptVersionCRUD(t *testing.T) {
 
 	var vb map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vb))
-	version := vb["promptVersion"].(map[string]any)["version"].(string)
+	version := vb["version"].(string)
 	assert.Equal(t, "1", version)
 
 	// Get version

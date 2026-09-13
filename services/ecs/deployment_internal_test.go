@@ -110,7 +110,7 @@ const (
 func launchFailingServiceTasks(t *testing.T, b *InMemoryBackend, tdArn string, count int) {
 	t.Helper()
 
-	if _, err := b.RunTask(RunTaskInput{
+	if _, _, err := b.RunTask(RunTaskInput{
 		Cluster:        cbCluster,
 		TaskDefinition: tdArn,
 		Group:          "service:" + cbService,

@@ -64,7 +64,8 @@ families:
   language_id_settings_validation: {status: ok, note: "FIXED this pass (gopherstack-5or5, partial): LanguageIdSettings previously had zero validation. Added: map size <= 5 entries ('Map Entries: Maximum number of 5 items'), keys must be supported language codes, and LanguageModelName sub-parameter is rejected when IdentifyMultipleLanguages is set ('multi-language identification doesn't support custom language models', per StartTranscriptionJob docs). Deliberately NOT enforced: AWS only *recommends* (does not require) also supplying LanguageOptions alongside LanguageIdSettings ('It's recommended that you include LanguageOptions when using LanguageIdSettings') -- the original issue described this as a hard cross-validation gap, but the real API doc language is a recommendation, not a rejection rule, so adding a hard error here would be inventing behavior the real service doesn't have."}
   language_code_allowlist_derived: {status: ok, note: "FIXED this pass (gopherstack-z6e7): supportedLanguageCodes() was a hardcoded 42-entry list; re-diffing against the pinned SDK's types.LanguageCode.Values() (transcribe@v1.58.4, types/enums.go:259) found 75 missing codes, not the 12 the triggering issue described -- the earlier gap note undercounted. Fixed by deriving supportedLanguageCodes() directly from sdktypes.LanguageCode(\"\").Values() (validation.go) instead of hand-copying, so it cannot drift again on a future SDK bump. Confirmed no reverse direction: every one of the old 42 hardcoded codes is a subset of the SDK enum (no code gopherstack accepted that AWS rejects). Also audited every other hand-maintained allowlist in the service (MediaFormat, VocabularyFilterMethod, RedactionType, RedactionOutput, SubtitleFormat, CallAnalyticsInputType, BaseModelName, MedicalSpecialty, MedicalType, MedicalContentIdentificationType) against their SDK enums -- all matched exactly, none drifted. Regression test: transcription_jobs_test.go's every_sdk_enum_code_accepted iterates types.LanguageCode.Values() directly against StartTranscriptionJob."}
   filter_value_semantics: {status: ok, note: "2026-08-30 (gopherstack-uox6 value-semantics pass, CLEAN -- no bug found): audited every List op's filter matching, this service's declared-but-previously-unexamined axis. All 9 backend List methods (ListVocabularies, ListMedicalVocabularies, ListVocabularyFilters, ListTranscriptionJobs, ListMedicalTranscriptionJobs, ListMedicalScribeJobs, ListCallAnalyticsJobs, ListLanguageModels, ListCallAnalyticsCategories -- the last has no filter params at all) use a uniform, correct AND-of-(equality-on-Status/StateEquals, matchesNameContains-substring) shape; matchesNameContains (store.go) is case-insensitive per its own doc citation of the AWS 'the search is not case sensitive' wording, confirmed against each caller with no per-caller disagreement (the shared-matcher-with-disagreeing-callers shape from other services' passes does not apply here -- every List op's Status/StateEquals/NameContains semantics match verbatim). No enum-mismatch: Status/StateEquals values are compared directly against internally-stored state strings, not a separately-validated user enum, so there is no unrecognized-value branch to get wrong. VocabularyFilterMethod (transcription_jobs.go) is validated against supportedVocabularyFilterMethods() but never applied to transcript content -- confirmed this is the same genuine-impossibility class as ContentRedaction and the language-model axis: transcript_synthesis.go's deriveTranscriptText/synthesizeTranscriptJSON produce wholly synthetic placeholder text (job name + media filename), so there is no real transcript content for a filter method to act on; not a value-applied-wrong bug, already covered by this service's standing synthetic-content disclosure."}
-gaps:
+gaps: []
+items_still_open:
   - "CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority. Re-checked this pass (gopherstack-5or5): still true, still no backing data to populate Skipped[] truthfully, left undone rather than fabricated. Re-confirmed gopherstack-6flj (2026-08-15): still zero grep hits, still no backing data source; disclosed not fixed."
   - "MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking. Re-checked this pass (gopherstack-5or5): still true. Re-confirmed gopherstack-6flj (2026-08-15): still unimplemented; a safe superset (real client that sets MedicalScribeContext gets no error, just a false-negative on the Provided echo), same category as xray's Sampling/SamplingStrategy no-op disclosure."
 deferred: []
@@ -470,3 +471,29 @@ trimming, etc.) is unrelated to the fields now being enforced.
 - `paginateList`'s `nextToken` is a plain string-encoded integer offset. This is fine:
   real AWS clients never parse `NextToken` — it's opaque by contract — so this doesn't
   need to match any particular AWS-internal format.
+
+### 2026-09-12 — typed-client slice 33 coverage sweep (gopherstack-n3zi)
+
+Added `typed_slice33_realclient_test.go`: one outer `t.Parallel()` test, 9
+subtests (all also parallel) driving every one of this service's 25
+typed-client-uncovered ops (per `cmd/clientcoverage`) through the real
+aws-sdk-go-v2 client — language models, vocabulary/vocabulary-filter/medical-
+vocabulary lifecycles, medical scribe/medical transcription/call analytics
+job list+delete, call analytics category update+delete, and
+tag/untag/list-tags. All 25 ops passed on the first correctly-shaped
+request against the existing handler/backend — no wire-shape bug found;
+this service's op-by-op wire correctness was already swept hard by prior
+passes (see dated sections above). Typed coverage: 18/43 -> 43/43 (25 -> 0
+uncovered).
+
+One accept-and-drop-adjacent finding, not a bug: `startCallAnalyticsJobInput`
+(`handler_call_analytics.go`) accepts a top-level `LanguageCode` field, but
+the real `StartCallAnalyticsJobInput` (`api_op_StartCallAnalyticsJob.go`,
+aws-sdk-go-v2/service/transcribe@v1.64.0) has no such member at all — Call
+Analytics jobs are always auto-language-identified or configured via
+`Settings.LanguageIdSettings`/`LanguageOptions`. The real SDK's typed
+client-generated request can never populate this field, so gopherstack's
+input struct carries dead surface; harmless (validateLanguageCode accepts
+empty), left as-is since fixing it is outside this slice's scope (no
+uncovered op touches it) and every existing test that does set it predates
+this pass.

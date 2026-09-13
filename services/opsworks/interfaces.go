@@ -9,9 +9,9 @@ import (
 type StorageBackend interface {
 	// Stack operations
 	CreateStack(name, region, defaultInstanceProfileArn, serviceRoleArn string, opts CreateStackOptions) (*Stack, error)
-	CloneStack(sourceStackID, name, region string) (*Stack, error)
+	CloneStack(sourceStackID, name, region, serviceRoleArn string, opts CloneStackOptions) (*Stack, error)
 	DescribeStacks(stackIDs []string) ([]*Stack, error)
-	UpdateStack(stackID, name string) error
+	UpdateStack(stackID, name string, opts UpdateStackOptions) error
 	DeleteStack(stackID string) error
 	StartStack(stackID string) error
 	StopStack(stackID string) error
@@ -20,19 +20,21 @@ type StorageBackend interface {
 	DescribeStackProvisioningParameters(stackID string) (agentInstallerURL string, params map[string]string, err error)
 
 	// Layer operations
-	CreateLayer(stackID, layerType, name, shortname string) (*Layer, error)
+	CreateLayer(stackID, layerType, name, shortname string, installUpdatesOnBoot *bool) (*Layer, error)
 	DescribeLayers(stackID string, layerIDs []string) ([]*Layer, error)
-	UpdateLayer(layerID, name string) error
+	UpdateLayer(layerID, name string, installUpdatesOnBoot *bool) error
 	DeleteLayer(layerID string) error
 
 	// Instance operations
-	CreateInstance(stackID, layerID, instanceType string) (*Instance, error)
+	CreateInstance(
+		stackID string, layerIDs []string, instanceType string, opts CreateInstanceOptions,
+	) (*Instance, error)
 	RegisterInstance(stackID, hostname string) (string, error)
 	DeregisterInstance(instanceID string) error
 	AssignInstance(instanceID string, layerIDs []string) error
 	UnassignInstance(instanceID string) error
 	DescribeInstances(stackID, layerID string, instanceIDs []string) ([]*Instance, error)
-	UpdateInstance(instanceID, hostname string) error
+	UpdateInstance(instanceID, hostname string, opts UpdateInstanceOptions) error
 	DeleteInstance(instanceID string) error
 	StartInstance(instanceID string) error
 	StopInstance(instanceID string) error
@@ -45,7 +47,7 @@ type StorageBackend interface {
 	DeleteApp(appID string) error
 
 	// Deployment operations
-	CreateDeployment(stackID, appID, command string) (*Deployment, error)
+	CreateDeployment(stackID, appID, command, customJSON string) (*Deployment, error)
 	DescribeDeployments(stackID, appID string, deploymentIDs []string) ([]*Deployment, error)
 
 	// Command operations
@@ -130,6 +132,7 @@ type Stack struct {
 	CreatedAt                 time.Time
 	ConfigurationManager      *StackConfigurationManager
 	ChefConfiguration         *ChefConfiguration
+	UseOpsworksSecurityGroups *bool
 	Tags                      map[string]string
 	Attributes                map[string]string
 	StackID                   string
@@ -139,6 +142,14 @@ type Stack struct {
 	DefaultInstanceProfileArn string
 	ServiceRoleArn            string
 	VpcID                     string
+	AgentVersion              string
+	CustomJSON                string
+	DefaultAvailabilityZone   string
+	DefaultOs                 string
+	DefaultRootDeviceType     string
+	DefaultSSHKeyName         string
+	DefaultSubnetID           string
+	HostnameTheme             string
 }
 
 // StackConfigurationManager mirrors the real types.StackConfigurationManager
@@ -156,16 +167,69 @@ type ChefConfiguration struct {
 }
 
 // CreateStackOptions carries CreateStack's optional parameters. AWS's
-// CreateStackInput has a much larger optional surface (AgentVersion,
-// CustomCookbooksSource, CustomJson, DefaultAvailabilityZone, DefaultOs,
-// DefaultRootDeviceType, DefaultSshKeyName, DefaultSubnetId, HostnameTheme,
-// UseCustomCookbooks, UseOpsworksSecurityGroups) that remains unmodeled --
-// see PARITY.md's deferred list.
+// CreateStackInput also has CustomCookbooksSource/UseCustomCookbooks, which
+// remain unmodeled -- honoring a cookbook source would mean fetching from a
+// git/svn/s3/http repository, which this backend has no model for (see
+// PARITY.md's items_still_open).
 type CreateStackOptions struct {
-	ConfigurationManager *StackConfigurationManager
-	ChefConfiguration    *ChefConfiguration
-	Attributes           map[string]string
-	VpcID                string
+	ConfigurationManager      *StackConfigurationManager
+	ChefConfiguration         *ChefConfiguration
+	UseOpsworksSecurityGroups *bool
+	Attributes                map[string]string
+	VpcID                     string
+	AgentVersion              string
+	CustomJSON                string
+	DefaultAvailabilityZone   string
+	DefaultOs                 string
+	DefaultRootDeviceType     string
+	DefaultSSHKeyName         string
+	DefaultSubnetID           string
+	HostnameTheme             string
+}
+
+// CloneStackOptions carries CloneStack's optional stack-attribute overrides.
+// A zero value (empty string / nil pointer) means "inherit from the source
+// stack", matching the real CloneStackInput doc comments (e.g. DefaultOs:
+// "The default option is the parent stack's operating system"). No
+// Attributes field: the real CloneStackInput has no such member (confirmed
+// against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_CloneStack.go),
+// unlike CreateStackInput/UpdateStackInput.
+type CloneStackOptions struct {
+	ConfigurationManager      *StackConfigurationManager
+	ChefConfiguration         *ChefConfiguration
+	UseOpsworksSecurityGroups *bool
+	VpcID                     string
+	AgentVersion              string
+	CustomJSON                string
+	DefaultAvailabilityZone   string
+	DefaultInstanceProfileArn string
+	DefaultOs                 string
+	DefaultRootDeviceType     string
+	DefaultSSHKeyName         string
+	DefaultSubnetID           string
+	HostnameTheme             string
+}
+
+// UpdateStackOptions carries UpdateStack's optional stack-attribute
+// overrides. An empty string / nil pointer leaves the current value
+// unchanged. No VpcId: the real UpdateStackInput has no such member
+// (confirmed against api_op_UpdateStack.go) -- a stack's VPC cannot change
+// after creation.
+type UpdateStackOptions struct {
+	ConfigurationManager      *StackConfigurationManager
+	ChefConfiguration         *ChefConfiguration
+	UseOpsworksSecurityGroups *bool
+	Attributes                map[string]string
+	AgentVersion              string
+	CustomJSON                string
+	DefaultAvailabilityZone   string
+	DefaultInstanceProfileArn string
+	DefaultOs                 string
+	DefaultRootDeviceType     string
+	DefaultSSHKeyName         string
+	DefaultSubnetID           string
+	HostnameTheme             string
+	ServiceRoleArn            string
 }
 
 // StackSummary represents summary information about a stack.
@@ -213,28 +277,56 @@ type InstancesCount struct {
 // Layer represents an OpsWorks layer.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
 type Layer struct {
-	CreatedAt time.Time
-	StackID   string
-	LayerID   string
-	Arn       string
-	Type      string
-	Name      string
-	Shortname string
+	CreatedAt            time.Time
+	InstallUpdatesOnBoot *bool
+	StackID              string
+	LayerID              string
+	Arn                  string
+	Type                 string
+	Name                 string
+	Shortname            string
 }
 
 // Instance represents an OpsWorks instance.
 // CreatedAt is first: time.Time non-pointer prefix reduces GC pointer bytes.
 type Instance struct {
-	CreatedAt    time.Time
-	StackID      string
-	LayerID      string
-	InstanceID   string
-	Arn          string
-	Hostname     string
-	InstanceType string
-	Status       string
+	CreatedAt            time.Time
+	InstallUpdatesOnBoot *bool
+	StackID              string
+	LayerIDs             []string
+	InstanceID           string
+	Arn                  string
+	Hostname             string
+	InstanceType         string
+	Status               string
+	AgentVersion         string
+	Architecture         string
+	Os                   string
+	SubnetID             string
+	Tenancy              string
 	// Registered indicates this is an on-premises registered instance.
 	Registered bool
+}
+
+// CreateInstanceOptions carries CreateInstance's optional attribute
+// overrides that this backend models (a subset of the real
+// CreateInstanceInput's optional surface -- see PARITY.md's
+// items_still_open for the unmodeled remainder).
+type CreateInstanceOptions struct {
+	InstallUpdatesOnBoot *bool
+	AgentVersion         string
+	Architecture         string
+	Os                   string
+	SubnetID             string
+	Tenancy              string
+}
+
+// UpdateInstanceOptions carries UpdateInstance's optional attribute
+// overrides that this backend models.
+type UpdateInstanceOptions struct {
+	InstallUpdatesOnBoot *bool
+	AgentVersion         string
+	Os                   string
 }
 
 // App represents an OpsWorks app.
@@ -265,6 +357,7 @@ type Deployment struct {
 	DeploymentID string
 	Command      string
 	Status       string
+	CustomJSON   string
 	Duration     int32
 }
 

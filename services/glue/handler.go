@@ -181,40 +181,44 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 	return json.Marshal(result)
 }
 
+// glueErrorCodes maps every sentinel this package returns to its AWS error
+// code. Every entry here is HTTP 400; anything matching none of them falls
+// through to a 500 InternalFailure. Order matters only in the (currently
+// nonexistent) case of an error wrapping more than one of these sentinels --
+// kept as an ordered slice, not a map, so a match is always deterministic
+// rather than depending on Go's randomized map iteration order. Codes reuse
+// each glue-local sentinel's own .Error() message where one exists (it IS
+// the wire code, by awserr.New's convention -- see store.go) rather than
+// repeating the literal, which would trip goconst against the handful of
+// other files that also reference these same wire codes.
+var glueErrorCodes = []struct { //nolint:gochecknoglobals // dispatch table, analogous to glueOpBindings above
+	sentinel error
+	code     string
+}{
+	{ErrCrawlerRunning, "CrawlerRunningException"},
+	{ErrCrawlerNotRunning, "CrawlerNotRunningException"},
+	{ErrConnectionTypeBuiltIn, "AccessDeniedException"},
+	{ErrResourcePolicyConditionFailed, "ConditionCheckFailureException"},
+	{ErrConcurrentRunsExceeded, "ConcurrentRunsExceededException"},
+	{ErrResourceNumberLimitExceeded, ErrResourceNumberLimitExceeded.Error()},
+	{ErrConflict, "ConflictException"},
+	{ErrIllegalSessionState, "IllegalSessionStateException"},
+	{ErrIllegalWorkflowState, "IllegalWorkflowStateException"},
+	{ErrMaterializedViewRefreshTaskNotRunning, "MaterializedViewRefreshTaskNotRunningException"},
+	{awserr.ErrNotFound, "EntityNotFoundException"},
+	{awserr.ErrAlreadyExists, ErrAlreadyExists.Error()},
+	{awserr.ErrInvalidParameter, "InvalidInputException"},
+	{errUnknownAction, "UnknownOperationException"},
+}
+
 func (h *Handler) handleError(_ context.Context, c *echo.Context, _ string, err error) error {
-	switch {
-	case errors.Is(err, ErrCrawlerRunning):
-		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerRunningException", err.Error()))
-	case errors.Is(err, ErrCrawlerNotRunning):
-		return c.JSON(http.StatusBadRequest, errorResponse("CrawlerNotRunningException", err.Error()))
-	case errors.Is(err, ErrConnectionTypeBuiltIn):
-		return c.JSON(http.StatusBadRequest, errorResponse("AccessDeniedException", err.Error()))
-	case errors.Is(err, ErrResourcePolicyConditionFailed):
-		return c.JSON(http.StatusBadRequest, errorResponse("ConditionCheckFailureException", err.Error()))
-	case errors.Is(err, ErrConcurrentRunsExceeded):
-		return c.JSON(http.StatusBadRequest, errorResponse("ConcurrentRunsExceededException", err.Error()))
-	case errors.Is(err, ErrResourceNumberLimitExceeded):
-		return c.JSON(http.StatusBadRequest, errorResponse("ResourceNumberLimitExceededException", err.Error()))
-	case errors.Is(err, ErrConflict):
-		return c.JSON(http.StatusBadRequest, errorResponse("ConflictException", err.Error()))
-	case errors.Is(err, ErrIllegalSessionState):
-		return c.JSON(http.StatusBadRequest, errorResponse("IllegalSessionStateException", err.Error()))
-	case errors.Is(err, ErrMaterializedViewRefreshTaskNotRunning):
-		return c.JSON(
-			http.StatusBadRequest,
-			errorResponse("MaterializedViewRefreshTaskNotRunningException", err.Error()),
-		)
-	case errors.Is(err, awserr.ErrNotFound):
-		return c.JSON(http.StatusBadRequest, errorResponse("EntityNotFoundException", err.Error()))
-	case errors.Is(err, awserr.ErrAlreadyExists):
-		return c.JSON(http.StatusBadRequest, errorResponse("AlreadyExistsException", err.Error()))
-	case errors.Is(err, awserr.ErrInvalidParameter):
-		return c.JSON(http.StatusBadRequest, errorResponse("InvalidInputException", err.Error()))
-	case errors.Is(err, errUnknownAction):
-		return c.JSON(http.StatusBadRequest, errorResponse("UnknownOperationException", err.Error()))
-	default:
-		return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
+	for _, entry := range glueErrorCodes {
+		if errors.Is(err, entry.sentinel) {
+			return c.JSON(http.StatusBadRequest, errorResponse(entry.code, err.Error()))
+		}
 	}
+
+	return c.JSON(http.StatusInternalServerError, errorResponse("InternalFailure", err.Error()))
 }
 
 func errorResponse(code, msg string) map[string]string {

@@ -355,6 +355,7 @@ type VerifiedAccessTrustProvider struct {
 	TrustProviderType             string `json:"trustProviderType,omitempty"`
 	Status                        string `json:"status,omitempty"`
 	Description                   string `json:"description,omitempty"`
+	PolicyReferenceName           string `json:"policyReferenceName,omitempty"`
 }
 
 // Traffic mirror / fleet / network insights / carrier gateway / reserved instances (formerly batch5).
@@ -363,6 +364,10 @@ const (
 	stateAnalysisSucceeded = "succeeded"
 	fleetTypeDefault       = "maintain"
 	fleetTypeInstant       = "instant"
+	// fleetExcessTerminationPolicy is FleetExcessCapacityTerminationPolicyTermination
+	// (ec2@v1.329.0 types/enums.go:3057), the default policy under which a
+	// capacity decrease terminates the excess instances.
+	fleetExcessTerminationPolicy = "termination"
 )
 
 type TrafficMirrorFilter struct {
@@ -436,17 +441,19 @@ type TrafficMirrorTarget struct {
 // Fleet holds an EC2 Fleet.
 
 type Fleet struct {
-	FleetID                          string   `json:"fleetId,omitempty"`
-	FleetState                       string   `json:"fleetState,omitempty"`
-	FleetType                        string   `json:"fleetType,omitempty"`
-	TargetCapacityUnitType           string   `json:"targetCapacityUnitType,omitempty"`
-	ExcessCapacityTerminationPolicy  string   `json:"excessCapacityTerminationPolicy,omitempty"`
-	DefaultTargetCapacityType        string   `json:"defaultTargetCapacityType,omitempty"`
-	InstanceIDs                      []string `json:"instanceIds,omitempty"`
-	TotalTargetCapacity              int      `json:"totalTargetCapacity,omitempty"`
-	OnDemandTargetCapacity           int      `json:"onDemandTargetCapacity,omitempty"`
-	SpotTargetCapacity               int      `json:"spotTargetCapacity,omitempty"`
-	TerminateInstancesWithExpiration bool     `json:"terminateInstancesWithExpiration,omitempty"`
+	FleetID                          string                      `json:"fleetId,omitempty"`
+	FleetState                       string                      `json:"fleetState,omitempty"`
+	FleetType                        string                      `json:"fleetType,omitempty"`
+	TargetCapacityUnitType           string                      `json:"targetCapacityUnitType,omitempty"`
+	ExcessCapacityTerminationPolicy  string                      `json:"excessCapacityTerminationPolicy,omitempty"`
+	DefaultTargetCapacityType        string                      `json:"defaultTargetCapacityType,omitempty"`
+	InstanceIDs                      []string                    `json:"instanceIds,omitempty"`
+	LaunchTemplateConfigs            []FleetLaunchTemplateConfig `json:"launchTemplateConfigs,omitempty"`
+	TotalTargetCapacity              int                         `json:"totalTargetCapacity,omitempty"`
+	OnDemandTargetCapacity           int                         `json:"onDemandTargetCapacity,omitempty"`
+	SpotTargetCapacity               int                         `json:"spotTargetCapacity,omitempty"`
+	FulfilledCapacity                float64                     `json:"fulfilledCapacity,omitempty"`
+	TerminateInstancesWithExpiration bool                        `json:"terminateInstancesWithExpiration,omitempty"`
 }
 
 // ---- Network Insights ----
@@ -503,16 +510,26 @@ type CarrierGateway struct {
 // ReservedInstance holds a reserved instance.
 
 type ReservedInstance struct {
-	ReservedInstancesID string  `json:"reservedInstancesId,omitempty"`
-	InstanceType        string  `json:"instanceType,omitempty"`
-	AvailabilityZone    string  `json:"availabilityZone,omitempty"`
-	ProductDescription  string  `json:"productDescription,omitempty"`
-	State               string  `json:"state,omitempty"`
-	OfferingType        string  `json:"offeringType,omitempty"`
-	InstanceCount       int     `json:"instanceCount,omitempty"`
-	Duration            int64   `json:"duration"`
-	FixedPrice          float64 `json:"fixedPrice"`
-	UsagePrice          float64 `json:"usagePrice"`
+	ReservedInstancesID string `json:"reservedInstancesId,omitempty"`
+	InstanceType        string `json:"instanceType,omitempty"`
+	AvailabilityZone    string `json:"availabilityZone,omitempty"`
+	ProductDescription  string `json:"productDescription,omitempty"`
+	State               string `json:"state,omitempty"`
+	OfferingType        string `json:"offeringType,omitempty"`
+	// OfferingClass is "standard" or "convertible" (types.OfferingClassType,
+	// ec2@v1.329.0 types/enums.go:9660-9661). Only "convertible" RIs are
+	// eligible for GetReservedInstancesExchangeQuote/
+	// AcceptReservedInstancesExchangeQuote.
+	OfferingClass string  `json:"offeringClass,omitempty"`
+	InstanceCount int     `json:"instanceCount,omitempty"`
+	Duration      int64   `json:"duration"`
+	FixedPrice    float64 `json:"fixedPrice"`
+	UsagePrice    float64 `json:"usagePrice"`
+	// Start/End mirror types.ReservedInstances.Start/End (ec2@v1.329.0
+	// types/types.go:19737,19770); set at purchase time so
+	// GetReservedInstancesExchangeQuote can compute remaining term value.
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
 }
 
 // ReservedInstancesOffering holds a reserved instances offering.
@@ -523,6 +540,7 @@ type ReservedInstancesOffering struct {
 	AvailabilityZone            string  `json:"availabilityZone,omitempty"`
 	ProductDescription          string  `json:"productDescription,omitempty"`
 	OfferingType                string  `json:"offeringType,omitempty"`
+	OfferingClass               string  `json:"offeringClass,omitempty"`
 	Duration                    int64   `json:"duration"`
 	FixedPrice                  float64 `json:"fixedPrice"`
 	UsagePrice                  float64 `json:"usagePrice"`
@@ -535,6 +553,41 @@ type ReservedInstancesListing struct {
 	ReservedInstancesID        string `json:"reservedInstancesId,omitempty"`
 	Status                     string `json:"status,omitempty"`
 	StatusMessage              string `json:"statusMessage,omitempty"`
+	PriceSchedules             []PriceScheduleEntry
+	InstanceCounts             []InstanceCountEntry
+}
+
+// InstanceCountEntry mirrors types.InstanceCount (ec2@v1.329.0 types/types.go),
+// a breakdown of listed Reserved Instances by ListingState.
+type InstanceCountEntry struct {
+	State         string
+	InstanceCount int
+}
+
+// SecurityGroupRuleUpdate mirrors types.SecurityGroupRuleUpdate (ec2@v1.329.0
+// types/types.go), one targeted in-place edit of an existing security group
+// rule identified by SecurityGroupRuleId -- distinct from an
+// AuthorizeSecurityGroupIngress/Egress-style IpPermission.
+type SecurityGroupRuleUpdate struct {
+	SecurityGroupRuleID string
+	Protocol            string
+	CIDRIPv4            string
+	ReferencedGroupID   string
+	Description         string
+	FromPort            int
+	ToPort              int
+}
+
+// PriceScheduleEntry mirrors types.PriceSchedule (ec2@v1.329.0 types/types.go).
+// Active marks whichever schedule currently applies; this backend has no
+// time-elapsing term engine, so it honors the real API's documented ordering
+// convention (schedules given longest-remaining-term first) and marks only
+// the first supplied schedule active, rather than fabricating elapsed time.
+type PriceScheduleEntry struct {
+	CurrencyCode string
+	Price        float64
+	Term         int64
+	Active       bool
 }
 
 // ReservedInstancesModification holds a reserved instances modification.
@@ -543,6 +596,27 @@ type ReservedInstancesModification struct {
 	ReservedInstancesModificationID string `json:"reservedInstancesModificationId,omitempty"`
 	Status                          string `json:"status,omitempty"`
 	StatusMessage                   string `json:"statusMessage,omitempty"`
+	ReservedInstancesIDs            []string
+	ModificationResults             []ReservedInstancesModificationResult
+}
+
+// ReservedInstancesModificationResult mirrors types.ReservedInstancesModificationResult
+// (ec2@v1.329.0 types/types.go). ReservedInstancesID is left empty: this
+// backend does not model the real behavior of a fulfilled modification
+// minting a brand-new post-modification Reserved Instance, so it is honest
+// about not fabricating one rather than echoing a misleading ID.
+type ReservedInstancesModificationResult struct {
+	ReservedInstancesID string
+	TargetConfiguration ReservedInstancesConfigurationTarget
+}
+
+// ReservedInstancesConfigurationTarget mirrors types.ReservedInstancesConfiguration
+// (ec2@v1.329.0), the element type of ModifyReservedInstancesInput.TargetConfigurations.
+type ReservedInstancesConfigurationTarget struct {
+	AvailabilityZone   string
+	AvailabilityZoneID string
+	InstanceType       string
+	InstanceCount      int
 }
 
 // QueuedPurchaseDeletionResult holds one ReservedInstance ID's outcome from

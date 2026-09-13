@@ -39,7 +39,7 @@ func TestFSx_SharedVpcConfiguration(t *testing.T) {
 
 			if tc.enable != "" {
 				rec := doFSxRequest(t, h, "UpdateSharedVpcConfiguration", map[string]any{
-					"EnableSharedVpcOnFileSystemCreation": tc.enable,
+					"EnableFsxRouteTableUpdatesFromParticipantAccounts": tc.enable,
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -48,7 +48,7 @@ func TestFSx_SharedVpcConfiguration(t *testing.T) {
 			require.Equal(t, tc.wantCode, rec.Code)
 			var out map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-			assert.Equal(t, tc.wantEnabled, out["EnableSharedVpcOnFileSystemCreation"])
+			assert.Equal(t, tc.wantEnabled, out["EnableFsxRouteTableUpdatesFromParticipantAccounts"])
 		})
 	}
 }

@@ -37,7 +37,8 @@ ops:
 families:
   report_lifecycle: {status: ok, note: "RUNNING -> SUCCEEDED transition, ConcurrentModificationException while RUNNING, per-region isolation via store.Table, NO REPORT for never-started/stale (>90d) reports -- all verified against real semantics (see DescribeReportCreation note above for this sweep's correction)"}
   error_codes: {status: ok, note: "prior sweep's core fix: every validation failure in this package was returning __type: ValidationException, which is not a shape in resourcegroupstaggingapi's error model at all (confirmed against aws-sdk-go-v2/service/resourcegroupstaggingapi/types/errors.go and deserializers.go's error-code switch). Fixed to InvalidParameterException. This sweep added the sixth and final error-model member, PaginationTokenExpiredException, which was declared but never producible by any code path -- see GetResources/GetTagKeys/GetTagValues notes above. All 6 error types in the real model (ConcurrentModificationException, ConstraintViolationException, InternalServiceException, InvalidParameterException, PaginationTokenExpiredException, ThrottledException) are now field-diff-confirmed; ConstraintViolationException/ThrottledException remain structurally unreachable because gopherstack has no tag-policy engine or rate limiter (not a wiring bug, an architectural absence tracked by gopherstack-i710)."}
-gaps:
+gaps: []
+items_still_open:
   - "GetComplianceSummary always reports zero noncompliant resources. This is NOT simply 'no tag-policy engine exists' (services/organizations does model TAG_POLICY content, attachment, and effective-policy merging) -- the real blocker is architectural: real GetComplianceSummary is a management-account-only operation that aggregates noncompliant counts across every member account in an organization (verified against the AWS API reference, whose example response returns rows for three distinct account IDs), and gopherstack has no multi-account resource-store simulation anywhere to aggregate across. A single-account approximation would misrepresent the operation's actual (cross-account) contract, so was not built. Documented, not fabricated (bd: gopherstack-i710)."
   - "CLOSED 2026-08-07 (gopherstack-3xfq): ListRequiredTags now parses a policy's report_required_tag_for element for real -- see the ListRequiredTags ops row above. NEEDS CENTRAL WIRING (cli.go, out of this service's scope): nothing currently calls resourcegroupstaggingapi.RegisterTagPolicyProvider. The wiring should look up the current account's effective TAG_POLICY via services/organizations' DescribeEffectivePolicy(\"TAG_POLICY\", accountID) and register a closure returning (content, ok) from it -- mirroring how other cross-service registrations already happen in cli.go's wireResourceGroupsTagging for RegisterProvider/RegisterARNTagger. Until wired, ListRequiredTags continues to correctly return an empty list (no tag policy configured), not an error."
   - "cli.go's wireResourceGroupsTagging covers only ~91 of gopherstack's ~90 services (RegisterProvider/RegisterARNTagger/RegisterARNUntagger for cross-service resource discovery) -- a pre-existing gap, out of this service's scope, tracked separately (bd: gopherstack-3xne)."
@@ -249,3 +250,25 @@ cap uses `total+count > tagsPerPage` (keeps items while cumulative count `<=`
 tagsPerPage) -- correctly inclusive of the exact `TagsPerPage` value.
 
 No bugs found; no code changes in this service this pass.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 15)
+
+Typed-client coverage sweep: DescribeReportCreation, GetComplianceSummary,
+GetTagKeys, GetTagValues, ListRequiredTags, StartReportCreation,
+TagResources, UntagResources driven through the real aws-sdk-go-v2 client
+for the first time (`typed_slice15_realclient_test.go`, 3 subtests: tag
+keys/values via a registered test provider, tag/untag resources via a
+registered ARNTagger/ARNUntagger, compliance summary + required tags +
+report creation). resourcegroupstaggingapi moved from 1/9 to 9/9
+typed-covered per `cmd/clientcoverage`.
+
+No real bugs found -- every op passed on the first correctly-shaped
+request. `ListRequiredTags`/`GetComplianceSummary` legitimately return
+empty results with no tag-policy provider registered (this file's own
+documented, honest-gap behavior, not a stub).
+
+Gates: `go build ./...`, `go vet ./services/resourcegroupstaggingapi/...`,
+`go test -race -count=1 ./services/resourcegroupstaggingapi/...` and
+`./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
+./services/resourcegroupstaggingapi/...` (0 issues). `go run
+./cmd/paritylint` stays at 0 FAIL. No persisted-struct/snapshot changes.

@@ -34,6 +34,7 @@ func TestHandler_VerifiedAccessEndpointPolicy(t *testing.T) {
 	ep, err := ec2.ExportDispatch(h, url.Values{
 		"Action":                {"CreateVerifiedAccessEndpoint"},
 		"VerifiedAccessGroupId": {grpID},
+		"AttachmentType":        {"vpc"},
 		"EndpointType":          {"load-balancer"},
 		"Description":           {"http policy endpoint"},
 	})
@@ -171,6 +172,7 @@ func TestHandler_GetVerifiedAccessEndpointTargets(t *testing.T) {
 	ep, err := ec2.ExportDispatch(h, url.Values{
 		"Action":                {"CreateVerifiedAccessEndpoint"},
 		"VerifiedAccessGroupId": {grpID},
+		"AttachmentType":        {"vpc"},
 		"EndpointType":          {"cidr"},
 		"Description":           {"targets endpoint"},
 	})

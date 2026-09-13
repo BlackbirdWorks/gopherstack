@@ -808,3 +808,39 @@ func TestHandler_CapacityFamily_TagDualWritePathVisibility(t *testing.T) {
 		})
 	}
 }
+
+// TestHandler_DescribeCapacityReservationBillingRequests_RoleRequired covers
+// DescribeCapacityReservationBillingRequestsInput.Role (api_op_
+// DescribeCapacityReservationBillingRequests.go: "This member is required").
+// Before the fix the handler never read Role at all.
+func TestHandler_DescribeCapacityReservationBillingRequests_RoleRequired(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		role string
+	}{
+		{name: "missing role", role: ""},
+		{name: "invalid role", role: "bogus-role"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newHandler()
+
+			vals := url.Values{}
+			vals.Set("Action", "DescribeCapacityReservationBillingRequests")
+			vals.Set("Version", "2016-11-15")
+
+			if tt.role != "" {
+				vals.Set("Role", tt.role)
+			}
+
+			_, err := ec2.ExportDispatch(h, vals)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "InvalidParameterValue")
+		})
+	}
+}

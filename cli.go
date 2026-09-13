@@ -2953,6 +2953,15 @@ func wireMessagingAndEventingIntegrations(byName map[string]service.Registerable
 	// destinations to SNS, so bounce/complaint/delivery outcomes are
 	// actually published instead of silently validated-and-stored.
 	wireSESSNS(byName["SES"], byName["SNS"])
+
+	// Wire AWS Config's DeliverConfigSnapshot to S3 (and SNS, when a
+	// delivery channel has a topic configured) so snapshot delivery is real.
+	wireAWSConfigDelivery(byName["AWSConfig"], byName["S3"], byName["SNS"])
+
+	// Wire Kinesis Data Streams channel S3 delivery: records put to a stream
+	// with an ACTIVE channel are buffered and flushed to the channel's
+	// S3DestinationConfiguration bucket (gopherstack-s781r).
+	wireKinesisS3Delivery(byName["Kinesis"], byName["S3"])
 }
 
 // wireStepFunctionsIntegrations wires Step Functions' Lambda Task and
@@ -3217,7 +3226,9 @@ func (a *networkManagerEC2ResolverAdapter) ResolveSubnet(subnetArn string) bool 
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveCustomerGateway(customerGatewayArn string) bool {
-	return len(a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})) > 0
+	cgws, err := a.backend.DescribeCustomerGateways([]string{arnResourceID(customerGatewayArn)})
+
+	return err == nil && len(cgws) > 0
 }
 
 func (a *networkManagerEC2ResolverAdapter) ResolveTransitGateway(transitGatewayArn string) bool {
@@ -3701,7 +3712,7 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 
 	// Wire IoT Analytics' RunPipelineActivity lambda/deviceRegistryEnrich/
 	// deviceShadowEnrich activities to the real Lambda and IoT backends.
-	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"])
+	wireIoTAnalyticsCrossService(byName["IoTAnalytics"], byName["Lambda"], byName["IoT"], byName["IoTDataPlane"])
 
 	// Wire Kinesis Analytics' DiscoverInputSchema to the real Kinesis and S3 backends so it
 	// samples real records instead of returning UnableToDetectSchemaException for every
@@ -3835,6 +3846,12 @@ func wireGovernanceIntegrations(byName map[string]service.Registerable, services
 
 	// Collect all services implementing FISActionProvider and register them with the FIS backend.
 	wireFISActionProviders(byName["FIS"], services)
+
+	// Wire Glue's hybrid resource-policy grants into RAM so a cross-account
+	// PutResourcePolicy(EnableHybrid=TRUE) creates a real CREATED_FROM_POLICY resource
+	// share, instead of that featureSet state machine being permanently unreachable
+	// (gopherstack-kvyy).
+	wireGlueRAMPolicyShares(byName["Glue"], byName["RAM"])
 }
 
 // registerCloudFormationAndDashboard registers CloudFormation and the
@@ -4663,7 +4680,7 @@ func (a *ebECSTaskRunnerAdapter) RunTaskWithParams(
 	payload []byte,
 ) error {
 	runInput := buildECSRunInput(clusterARN, params, payload)
-	_, err := a.backend.RunTask(runInput)
+	_, _, err := a.backend.RunTask(runInput)
 
 	return err
 }
@@ -4786,6 +4803,71 @@ func (a *sesSNSPublisherAdapter) PublishToTopic(topicARN, message string) error 
 	_, err := a.backend.Publish(topicARN, message, "Amazon SES Notification", "", nil)
 
 	return err
+}
+
+// wireAWSConfigDelivery connects the AWS Config backend to S3 and SNS so
+// DeliverConfigSnapshot actually writes a ConfigSnapshot object and (when a
+// delivery channel has an SNS topic) publishes the stream notification,
+// instead of generating a snapshot ID and persisting nothing
+// (gopherstack-ru0y).
+func wireAWSConfigDelivery(cfgReg, s3Reg, snsReg service.Registerable) {
+	cfgH, ok := cfgReg.(*awsconfigbackend.Handler)
+	if !ok || cfgH.Backend == nil {
+		return
+	}
+
+	if s3H, s3Ok := s3Reg.(*s3backend.S3Handler); s3Ok {
+		cfgH.Backend.SetS3Writer(awsconfigbackend.NewS3WriterIntegration(s3H.Backend))
+	}
+
+	if snsH, snsOk := snsReg.(*snsbackend.Handler); snsOk {
+		if snsBk, snsBkOk := snsH.Backend.(*snsbackend.InMemoryBackend); snsBkOk {
+			cfgH.Backend.SetSNSPublisher(&awsConfigSNSPublisherAdapter{backend: snsBk})
+		}
+	}
+}
+
+// awsConfigSNSPublisherAdapter adapts the SNS backend to the
+// awsconfig.SNSPublisher interface.
+type awsConfigSNSPublisherAdapter struct {
+	backend *snsbackend.InMemoryBackend
+}
+
+func (a *awsConfigSNSPublisherAdapter) PublishToTopic(topicARN, message string) error {
+	_, err := a.backend.Publish(topicARN, message, "AWS Config Notification", "", nil)
+
+	return err
+}
+
+// wireKinesisS3Delivery connects the Kinesis backend to S3 so that records
+// put to a stream with an ACTIVE channel are actually buffered and flushed
+// to the channel's S3DestinationConfiguration bucket, instead of a channel
+// existing as a manageable-but-inert resource (gopherstack-s781r).
+// s3backend.InMemoryBackend.PutObject already satisfies
+// kinesisbackend.ChannelS3Writer directly, so no adapter is needed (mirrors
+// wireFirehoseDelivery's SetS3Backend(s3Bk) call).
+func wireKinesisS3Delivery(kinesisReg, s3Reg service.Registerable) {
+	kinesisH, ok := kinesisReg.(*kinesisbackend.Handler)
+	if !ok {
+		return
+	}
+
+	kinesisBk, ok := kinesisH.Backend.(*kinesisbackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	s3H, ok := s3Reg.(*s3backend.S3Handler)
+	if !ok {
+		return
+	}
+
+	s3Bk, ok := s3H.Backend.(*s3backend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	kinesisBk.SetS3Writer(s3Bk)
 }
 
 // s3EventBridgeAdapter adapts the EventBridge backend to the s3.EventBridgePublisher interface.
@@ -5836,6 +5918,7 @@ func wireAutoScalingEC2(asgReg, ec2Reg service.Registerable) {
 	}
 
 	asgBk.SetEC2Launcher(&ec2AutoScalingLauncherAdapter{backend: ec2Bk})
+	asgBk.SetInstanceTypeResolver(&ec2AutoScalingInstanceTypeResolverAdapter{backend: ec2Bk})
 }
 
 // elbv2TargetRegistrarAdapter holds the ELBv2 backend and target-port
@@ -6103,6 +6186,120 @@ func (a *ec2AutoScalingLauncherAdapter) ResolveLaunchTemplate(
 	}
 
 	return lt.ImageID, lt.InstanceType, nil
+}
+
+// ec2AutoScalingInstanceTypeResolverAdapter adapts ec2's real instance-type
+// catalog engine (InstanceRequirementsQuery/MatchInstanceTypes,
+// services/ec2/instance_requirements_export.go) to the autoscaling.
+// InstanceTypeResolver interface, so a MixedInstancesPolicy override's
+// InstanceRequirements resolves against ec2's actual catalog
+// (services/ec2/instance_type_catalog.go) instead of being ignored --
+// gopherstack-jgrn6.
+type ec2AutoScalingInstanceTypeResolverAdapter struct {
+	backend *ec2backend.InMemoryBackend
+}
+
+func (a *ec2AutoScalingInstanceTypeResolverAdapter) ResolveInstanceTypes(
+	req autoscalingbackend.InstanceRequirements, architectures, virtualizationTypes []string,
+) []string {
+	return a.backend.MatchInstanceTypes(toEC2InstanceRequirementsQuery(req, architectures, virtualizationTypes))
+}
+
+// toEC2InstanceRequirementsQuery converts an autoscaling InstanceRequirements
+// (types per aws-sdk-go-v2/service/autoscaling@v1.70.4 types.go
+// InstanceRequirements, types.go:1267) into ec2's InstanceRequirementsQuery.
+// SpotMaxPricePercentageOverLowestPrice,
+// OnDemandMaxPricePercentageOverLowestPrice,
+// MaxSpotPriceAsPercentageOfOptimalOnDemandPrice, NetworkBandwidthGbps, and
+// BaselinePerformanceFactors have no counterpart in ec2's matching engine (no
+// price catalog is modeled, and instanceTypeMatchesRequirements never
+// filters on network bandwidth -- see InstanceRequirementsQuery's doc
+// comment), so they are intentionally dropped here rather than silently
+// ignored deeper in ec2.
+func toEC2InstanceRequirementsQuery(
+	req autoscalingbackend.InstanceRequirements, architectures, virtualizationTypes []string,
+) ec2backend.InstanceRequirementsQuery {
+	q := ec2backend.InstanceRequirementsQuery{
+		ArchTypes:                architectures,
+		VirtTypes:                virtualizationTypes,
+		BareMetal:                req.BareMetal,
+		LocalStorage:             req.LocalStorage,
+		BurstablePerformance:     req.BurstablePerformance,
+		AcceleratorTypes:         req.AcceleratorTypes,
+		LocalStorageTypes:        req.LocalStorageTypes,
+		AcceleratorNames:         req.AcceleratorNames,
+		AcceleratorManufacturers: req.AcceleratorManufacturers,
+		InstanceGenerations:      req.InstanceGenerations,
+		AllowedInstanceTypes:     req.AllowedInstanceTypes,
+		ExcludedInstanceTypes:    req.ExcludedInstanceTypes,
+		CPUManufacturers:         req.CPUManufacturers,
+		RequireHibernateSupport:  req.RequireHibernateSupport != nil && *req.RequireHibernateSupport,
+	}
+
+	applyEC2IntRange(&q.VCpuMin, &q.VCpuMax, &q.VCpuMaxSet, req.VCpuCount)
+	applyEC2IntRange(&q.MemMin, &q.MemMax, &q.MemMaxSet, req.MemoryMiB)
+	applyEC2IntRange(&q.AcceleratorCountMin, &q.AcceleratorCountMax, &q.AcceleratorCountMaxSet, req.AcceleratorCount)
+	applyEC2IntRange(
+		&q.AcceleratorTotalMemoryMiBMin, &q.AcceleratorTotalMemoryMiBMax,
+		&q.AcceleratorTotalMemoryMiBMaxSet, req.AcceleratorTotalMemoryMiB,
+	)
+	applyEC2IntRange(
+		&q.NetworkInterfaceCountMin, &q.NetworkInterfaceCountMax,
+		&q.NetworkInterfaceCountMaxSet, req.NetworkInterfaceCount,
+	)
+
+	applyEC2FloatRange(
+		&q.MemGiBPerVCpuMin, &q.MemGiBPerVCpuMax,
+		&q.MemGiBPerVCpuMinSet, &q.MemGiBPerVCpuMaxSet, req.MemoryGiBPerVCpu,
+	)
+	applyEC2FloatRange(
+		&q.TotalLocalStorageGBMin, &q.TotalLocalStorageGBMax,
+		&q.TotalLocalStorageGBMinSet, &q.TotalLocalStorageGBMaxSet, req.TotalLocalStorageGB,
+	)
+
+	return q
+}
+
+// applyEC2IntRange copies r's Min/Max (autoscaling's IntRangeRequest, *int32)
+// into minOut/maxOut (int64, matching ec2's instanceRequirementsQuery), only
+// setting maxSetOut when Max is present -- mirroring ec2's own
+// parseInt64RangeForm, which tracks "max was given" but not "min was given"
+// (an absent Min is a legitimate "no minimum", not "unset").
+func applyEC2IntRange(minOut, maxOut *int64, maxSetOut *bool, r *autoscalingbackend.IntRangeRequest) {
+	if r == nil {
+		return
+	}
+
+	if r.Min != nil {
+		*minOut = int64(*r.Min)
+	}
+
+	if r.Max != nil {
+		*maxOut = int64(*r.Max)
+		*maxSetOut = true
+	}
+}
+
+// applyEC2FloatRange copies r's Min/Max (autoscaling's FloatRangeRequest)
+// into minOut/maxOut plus their "*Set" flags, matching ec2's
+// instanceRequirementsQuery fields for MemoryGiBPerVCpu/TotalLocalStorageGB,
+// which (unlike the int ranges above) track both bounds' presence.
+func applyEC2FloatRange(
+	minOut, maxOut *float64, minSetOut, maxSetOut *bool, r *autoscalingbackend.FloatRangeRequest,
+) {
+	if r == nil {
+		return
+	}
+
+	if r.Min != nil {
+		*minOut = *r.Min
+		*minSetOut = true
+	}
+
+	if r.Max != nil {
+		*maxOut = *r.Max
+		*maxSetOut = true
+	}
 }
 
 // cwSNSPublisherAdapter adapts the SNS backend to the cloudwatch.SNSPublisher interface.
@@ -11199,6 +11396,49 @@ func wireTaggingInspector2(bk resourcegroupstaggingapibackend.StorageBackend, re
 	)
 }
 
+// wireGlueRAMPolicyShares connects glue's PutResourcePolicy/DeleteResourcePolicy to RAM
+// so a hybrid (EnableHybrid=TRUE) cross-account resource policy creates, updates, or
+// removes a real RAM CREATED_FROM_POLICY resource share, instead of
+// PromoteResourceShareCreatedFromPolicy's featureSet state machine being permanently
+// unreachable (gopherstack-kvyy: no backend path ever created a CREATED_FROM_POLICY
+// share).
+func wireGlueRAMPolicyShares(glueReg, ramReg service.Registerable) {
+	glueH, ok := glueReg.(*gluebackend.Handler)
+	if !ok {
+		return
+	}
+
+	glueBk, ok := glueH.Backend.(*gluebackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	ramH, ok := ramReg.(*rambackend.Handler)
+	if !ok {
+		return
+	}
+
+	ramBk, ok := ramH.Backend.(*rambackend.InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	glueBk.SetResourceShareCreator(&glueRAMShareAdapter{backend: ramBk})
+}
+
+// glueRAMShareAdapter adapts the RAM backend to glue.ResourceShareCreator.
+type glueRAMShareAdapter struct {
+	backend *rambackend.InMemoryBackend
+}
+
+func (a *glueRAMShareAdapter) PutPolicyBasedShare(resourceARN string, principals, actions []string) error {
+	return a.backend.PutPolicyBasedShare(resourceARN, principals, actions)
+}
+
+func (a *glueRAMShareAdapter) DeletePolicyBasedShare(resourceARN string) error {
+	return a.backend.DeletePolicyBasedShare(resourceARN)
+}
+
 // wireTaggingRAM wires the RAM backend into the Resource Groups Tagging API.
 // Real RAM's TagResource only tags resource shares (confirmed against
 // resourceShares.Get in ram/tags.go -- permission and invitation ARNs, also
@@ -12856,31 +13096,32 @@ func (a *iotAnalyticsThingRegistryAdapter) DescribeThing(thingName string) (map[
 	}, nil
 }
 
-// iotAnalyticsThingShadowAdapter adapts the IoT backend's GetThingShadow (classic shadow) to
-// the iotanalytics.ThingShadowStore interface for the "deviceShadowEnrich" pipeline activity
-// (iot:GetThingShadow).
+// iotAnalyticsThingShadowAdapter adapts the IoT Data Plane backend's GetThingShadow (classic
+// shadow) to the iotanalytics.ThingShadowStore interface for the "deviceShadowEnrich" pipeline
+// activity (iotdata:GetThingShadow).
 type iotAnalyticsThingShadowAdapter struct {
-	backend *iotbackend.InMemoryBackend
+	backend *iotdataplanebackend.InMemoryBackend
 }
 
 func (a *iotAnalyticsThingShadowAdapter) GetThingShadow(thingName string) (map[string]any, error) {
-	s, err := a.backend.GetThingShadow(thingName, "")
+	doc, err := a.backend.GetThingShadow(thingName, "")
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"state":    s.State,
-		"metadata": s.Metadata,
-		"version":  s.Version,
-	}, nil
+	var data map[string]any
+	if unmarshalErr := json.Unmarshal(doc, &data); unmarshalErr != nil {
+		return nil, fmt.Errorf("iotanalytics: unmarshal thing shadow document: %w", unmarshalErr)
+	}
+
+	return data, nil
 }
 
 // wireIoTAnalyticsCrossService wires RunPipelineActivity's lambda/deviceRegistryEnrich/
-// deviceShadowEnrich activities (services/iotanalytics/pipelines.go) to the real Lambda and
-// IoT backends, following the same LambdaInvoker/adapter patterns wireStorageAndSecretsIntegrations
-// already uses for SNS, Firehose, and SecretsManager.
-func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerable) {
+// deviceShadowEnrich activities (services/iotanalytics/pipelines.go) to the real Lambda,
+// IoT, and IoT Data Plane backends, following the same LambdaInvoker/adapter patterns
+// wireStorageAndSecretsIntegrations already uses for SNS, Firehose, and SecretsManager.
+func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg, iotDPReg service.Registerable) {
 	iotaH, ok := iotaReg.(*iotanalyticsbackend.Handler)
 	if !ok {
 		return
@@ -12897,18 +13138,17 @@ func wireIoTAnalyticsCrossService(iotaReg, lambdaReg, iotReg service.Registerabl
 		}
 	}
 
-	iotH, iotOk := iotReg.(*iotbackend.Handler)
-	if !iotOk {
-		return
+	if iotH, iotOk := iotReg.(*iotbackend.Handler); iotOk {
+		if iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend); ibkOk {
+			iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
+		}
 	}
 
-	iotBk, ibkOk := iotH.Backend.(*iotbackend.InMemoryBackend)
-	if !ibkOk {
-		return
+	if iotDPH, iotDPOk := iotDPReg.(*iotdataplanebackend.Handler); iotDPOk {
+		if iotDPBk, idpbkOk := iotDPH.Backend.(*iotdataplanebackend.InMemoryBackend); idpbkOk {
+			iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotDPBk})
+		}
 	}
-
-	iotaBk.SetThingRegistry(&iotAnalyticsThingRegistryAdapter{backend: iotBk})
-	iotaBk.SetThingShadowStore(&iotAnalyticsThingShadowAdapter{backend: iotBk})
 }
 
 // ddbKinesisStreamRecordData mirrors the "dynamodb" node of the JSON payload

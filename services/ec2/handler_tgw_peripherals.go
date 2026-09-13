@@ -411,11 +411,19 @@ type rejectTransitGatewayPeeringAttachmentResponse struct {
 	Attachment tgwPeeringAttachmentItem `xml:"transitGatewayPeeringAttachment"`
 }
 
+// rejectTransitGatewayMulticastDomainAssociationsResponse mirrors the real
+// RejectTransitGatewayMulticastDomainAssociationsOutput shape: Associations is
+// a single types.TransitGatewayMulticastDomainAssociations aggregate, not a
+// flat per-subnet item list (ec2@v1.329.0 deserializers.go's
+// awsEc2query_deserializeOpDocumentRejectTransitGatewayMulticastDomainAssociationsOutput
+// -> awsEc2query_deserializeDocumentTransitGatewayMulticastDomainAssociations),
+// same shape as its sibling AcceptTransitGatewayMulticastDomainAssociations
+// (handler_accept_ops.go).
 type rejectTransitGatewayMulticastDomainAssociationsResponse struct {
-	XMLName      xml.Name                         `xml:"RejectTransitGatewayMulticastDomainAssociationsResponse"`
-	Xmlns        string                           `xml:"xmlns,attr"`
-	RequestID    string                           `xml:"requestId"`
-	Associations tgwMulticastDomainAssociationSet `xml:"associations"`
+	XMLName      xml.Name                                `xml:"RejectTransitGatewayMulticastDomainAssociationsResponse"`
+	Xmlns        string                                  `xml:"xmlns,attr"`
+	RequestID    string                                  `xml:"requestId"`
+	Associations tgwMulticastDomainAssociationsAggregate `xml:"associations"`
 }
 
 // ---- Handlers: policy tables ----
@@ -948,15 +956,9 @@ func (h *Handler) handleRejectTransitGatewayMulticastDomainAssociations(
 		return nil, err
 	}
 
-	resp := &rejectTransitGatewayMulticastDomainAssociationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
-	for _, a := range assocs {
-		resp.Associations.Items = append(resp.Associations.Items, tgwMulticastDomainAssociationItem{
-			TransitGatewayMulticastDomainID: a.TransitGatewayMulticastDomainID,
-			TransitGatewayAttachmentID:      a.TransitGatewayAttachmentID,
-			SubnetID:                        a.SubnetID,
-			State:                           a.State,
-		})
-	}
-
-	return resp, nil
+	return &rejectTransitGatewayMulticastDomainAssociationsResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		Associations: assocsToAggregate(assocs),
+	}, nil
 }

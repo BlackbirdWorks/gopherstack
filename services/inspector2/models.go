@@ -92,7 +92,11 @@ type FindingResource struct {
 	ID   string `json:"id"`
 }
 
-// storedFinding wraps Finding for internal storage.
+// storedFinding wraps Finding for internal storage. Its persisted twin is
+// findingSnapshot (persistence.go, gopherstack-2slev) -- storedFinding itself
+// must stay a bare embed since it is also the live b.findings table's value
+// type, and redeclaring ResourceID/ResourceType here would shadow Finding's
+// own fields for every live read/write, not just JSON encoding.
 type storedFinding struct {
 	Finding
 }

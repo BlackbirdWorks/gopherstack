@@ -149,6 +149,10 @@ func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error
 	if err != nil {
 		return nil, err
 	}
+	params, err = applyDBParameterFilters(vals, params)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBParameter, 0, len(params))
 	for _, p := range params {
 		members = append(members, xmlDBParameter(p))

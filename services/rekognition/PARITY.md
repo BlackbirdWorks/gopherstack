@@ -56,7 +56,7 @@ ops:
   ListDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack wrapper-key sweep, 2026-08-29): ContainsLabels/Labeled/SourceRefContains/HasErrors (all four own doc comments, api_op_ListDatasetEntries.go) were read by nothing at all -- listDatasetEntriesReq had none of these fields. ContainsLabels/Labeled/SourceRefContains now parse the stored JSON-lines manifest entries (source-ref, *-metadata blocks) via entryLabels/entrySourceRef. HasErrors is honoured structurally, not fabricated: this backend has no entry-level error concept (see computeDatasetStats' ErrorEntries note), so HasErrors=true now correctly returns an empty result rather than inventing error entries."}
   ListDatasetLabels: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
-  DistributeDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok}
+  DistributeDatasetEntries: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 13): Datasets[].Arn's wire key is 'Arn' (serializers.go:5116, awsAwsjson11_serializeDocumentDistributeDataset), not the fabricated 'DatasetArn' this handler read -- every real client's call decoded every ARN as empty and failed ResourceNotFoundException unconditionally. Found by a real typed-client round trip; no unit test had ever driven this op through anything but the wrong key."}
   CreateFaceLivenessSession: {wire: ok, errors: ok, state: ok, persist: ok}
   GetFaceLivenessSessionResults: {wire: ok, errors: ok, state: ok, persist: ok}
   StartMediaAnalysisJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-09-06 (gopherstack-eshx): InvalidS3ObjectException now enforced on Input.S3Object when S3 is wired -- see Notes."}
@@ -64,12 +64,16 @@ ops:
   ListMediaAnalysisJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED this sweep: CreationTimestamp string->epoch-seconds — see Notes #1"}
 families:
   detect_and_recognize: {status: ok, note: "CompareFaces/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities/GetCelebrityInfo — inherently-ML ops, correctly deterministic mocks per parity-principles.md rule 4 (not flagged as bugs); DetectLabels' plausibleLabels() genuinely varies with MinConfidence/MaxLabels, CompareFaces/DetectFaces/RecognizeCelebrities always return an empty/fixed-shape result regardless of input — acceptable, these are stateless single-shot image ops with no backing resource to fake statefulness against. FIXED 2026-08-31 (gopherstack-uox6): DetectLabels' omitted-MinConfidence default was 50.0 but the op's own doc comment states 'The default is 55%.' — had zero observable effect against the current 7-entry synthetic label set (lowest confidence 55.4, above both values) but is now correct at the source (resolveMinConfidence, handler_labels.go) for any future addition to that set. See Notes #7. FIXED 2026-09-06 (gopherstack-eshx): CompareFaces (SourceImage+TargetImage)/DetectFaces/DetectLabels/DetectText/DetectCustomLabels/DetectModerationLabels/DetectProtectiveEquipment/RecognizeCelebrities all declare InvalidS3ObjectException and none checked Image.S3Object against real S3 state at all -- now enforced when S3 is wired, see Notes. AUDITED 2026-09-06 (gopherstack-qlqz): MinConfidence/QualityFilter/Attributes enum validation swept across all eight stateless detection ops. FIXED: DetectFaces.Attributes (was []string, unvalidated against types.Attribute) and CompareFaces/SearchFacesByImage.QualityFilter (declared on no field at all -- see Notes #7); both now enum-validated against the real SDK enum via types.Attribute(\"\").Values()/types.QualityFilter(\"\").Values(). MinConfidence left unvalidated by design, confirmed correct -- see Notes #9. FIXED 2026-09-06 (gopherstack-duj0): DetectProtectiveEquipment.SummarizationAttributes .MinConfidence/.RequiredEquipmentTypes are both required-when-SummarizationAttributes-set (validators.go, ProtectiveEquipmentSummarizationAttributes) but were float32/[]string with no way to distinguish omitted from zero/nil -- retyped to *float32/*[]string and enforced. See Notes #10; corrects the MinConfidence required-ness verdict in Notes #9."
-  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred. FIXED 2026-09-06 (gopherstack-eshx): every Start* op declares InvalidS3ObjectException and none checked Video.S3Object against real S3 state at all -- now enforced when S3 is wired, see Notes."}
+  async_video_jobs: {status: ok, note: "Start*/Get* (CelebrityRecognition, ContentModeration, FaceDetection, FaceSearch, LabelDetection, PersonTracking, SegmentDetection, TextDetection) — real StartAsyncJob/GetAsyncJob state machine (IN_PROGRESS -> SUCCEEDED on 2nd poll, PollCount persisted). FIXED this sweep (Notes #6): JobTag and Video (S3 reference) were parsed from every Start* request and then discarded -- both are real GetXxxOutput members, now stored and echoed back. GetSegmentDetection.SelectedSegmentTypes now echoes the Type values from StartSegmentDetection's SegmentTypes (ModelVersion omitted, no legitimate source). GetLabelDetection/GetContentModeration now return GetRequestMetadata (SortBy/AggregateBy echo). Detection-result arrays (Celebrities/ModerationLabels/Faces/Labels/Persons/Segments/TextDetections) remain synthesized-empty — acceptable mock, ML-inherent-op exemption, see gaps/deferred. FIXED 2026-09-06 (gopherstack-eshx): every Start* op declares InvalidS3ObjectException and none checked Video.S3Object against real S3 state at all -- now enforced when S3 is wired, see Notes. FIXED 2026-09-12 (gopherstack-n3zi typed slice 13): GetSegmentDetectionOutput.VideoMetadata is a LIST ([]types.VideoMetadata, api_op_GetSegmentDetection.go: \"Amazon Rekognition Video returns a single object in the VideoMetadata array\"), the one Get<Family> response that differs from the shared getJobBaseResp.VideoMetadata single-object shape every sibling op correctly uses -- a real client's decode of the old single-object shape failed outright (array destination fed a JSON object), not merely lost a field. Found by a real typed-client round trip against GetSegmentDetection specifically; fixed by shadowing getJobBaseResp's field with a dedicated []videoMetadata on getSegmentDetectionResp."}
 routing: {status: ok, note: "single X-Amz-Target: RekognitionService.<Op> POST endpoint (awsjson1.1), verified every op in the dispatch map (buildOps + appendixAOps) against a real op name in aws-sdk-go-v2/service/rekognition; no name mismatches found"}
-gaps:
+gaps: []
+items_still_open:
   - CreateProjectVersion still drops TrainingData/TestingData contents (Custom Labels external-manifest structures: TrainingData/TestingData -> []Asset -> GroundTruthManifest -> S3Object, 3-4 levels, no unions, structurally simple but pointless to store -- the only place they'd resurface is TrainingDataResult/TestingDataResult, which requires a training-completion lifecycle this backend never reaches; both-or-neither presence is still cross-validated) — see Notes #6
   - "2026-09-06 (gopherstack-eshx): IndexFaces never parses IndexFacesInput.Image at all (indexFacesReq has CollectionId/ExternalImageId only) -- a required member of a real IndexFaces request is silently dropped, not just unchecked against S3. Structural gap, out of this pass's scope (adding S3Object existence checking, not adding a missing wire field); IndexFaces is therefore excluded from this pass's InvalidS3ObjectException enforcement. Needs its own fix."
   - "2026-09-06 (gopherstack-eshx): CreateDataset never parses CreateDatasetInput.DatasetSource (createDatasetReq has ProjectArn/DatasetType only) -- DatasetSource.GroundTruthManifest.S3Object, the one Image-shaped field this op accepts, is silently dropped. Same structural-gap reasoning as IndexFaces above; excluded from this pass's InvalidS3ObjectException enforcement."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): GetPersonTracking.SortBy is not honored: GetPersonTrackingOutput.Persons is always a synthesized-empty []struct{} (this backend performs no real video person-tracking analysis), and unlike GetLabelDetection/GetContentModeration, GetPersonTrackingOutput has no RequestMetadata-shaped field to even echo the requested sort order into. Same root cause as the pre-existing getJobReq.NextToken/.MaxResults disclosure (PARITY.md Notes): a field that shapes an always-empty result has nothing to demonstrate an effect on."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): IndexFaces.DetectionAttributes is not honored: real DetectionAttributes controls how much FaceDetail metadata (Landmarks/Pose/Quality/Emotions/etc.) is attached to each FaceRecord, but IndexFaces already has a documented structural gap (see the IndexFaces.Image entry above, gopherstack-eshx) -- no face detection ever runs, so FaceRecord.Face carries only FaceId/ImageId/ExternalImageId/Confidence and there is no FaceDetail object for DetectionAttributes to shape at all. Fixing this needs IndexFaces.Image to be parsed first, out of this slice's scope."
+  - "gopherstack-xhu2t slice 7 (2026-09-12): DetectLabels.Features' IMAGE_PROPERTIES option is not honored (GENERAL_LABELS is -- see ops fix this pass): real IMAGE_PROPERTIES returns DetectLabelsOutput.ImageProperties (dominant colors, brightness/sharpness/contrast quality scores), which would mean fabricating a color/quality analysis this backend has no data model for. Left unimplemented rather than inventing plausible-looking numbers with no image behind them."
 deferred:
   - ProjectVersionDescription's BaseModelVersion (needs data this emulator cannot have: an AWS-internal base-model-catalog string, not derivable or user-supplied) and BillableTrainingTimeInSeconds/TrainingEndTimestamp/EvaluationResult/ManifestSummary/TestingDataResult/TrainingDataResult (needs a lifecycle that does not exist: all are documented as populated only once training completes, and this backend's Status never advances past TRAINING_IN_PROGRESS; EvaluationResult additionally requires a fabricated F1 score, which the no-fabrication rule forbids outright) — see Notes #6
   - ProjectVersionDescription.Feature / DescribeProjects' Feature (large mechanical surface deferred for size: Feature is set at CreateProject time, which does not currently accept or store it at all; modeling ProjectVersionDescription.Feature honestly requires a CreateProject signature change cascading through DescribeProjects too, a separate op family from this sweep's CreateProjectVersion/StartProjectVersion/CopyProjectVersion scope) — see Notes #6
@@ -730,3 +734,109 @@ uncommitted per this pass's instructions.
     (pass), `GOTOOLCHAIN=go1.26.6 golangci-lint run
     services/rekognition/...` (`0 issues.` — required reordering the new
     test's table struct fields, `fieldalignment` flagged the first attempt).
+
+## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+
+Typed-client coverage: 17/75 (22.7%) -> 75/75 (100%) ops now driven by a
+real aws-sdk-go-v2 rekognition client end to end
+(`typed_slice13_realclient_test.go`, 14 subtests, family-per-row, each a
+fresh backend: stateless detect ops, faces + collections, users + face
+association/search, celebrity info + async recognition, async video jobs
+(face detection/search, label detection, content moderation, person
+tracking, segment detection, text detection), stream processors (full
+lifecycle), project versions (create/describe/start/stop/copy/delete),
+project policies + project deletion, datasets (create/distribute/delete),
+media analysis jobs, face liveness, and tags).
+
+**Two real bugs found and fixed, both already detailed above under
+`ops.DistributeDatasetEntries` and `families.async_video_jobs`**:
+
+1. `DistributeDatasetEntries`'s request decoder read a fabricated
+   `DatasetArn` key; the real wire key (confirmed against
+   `aws-sdk-go-v2/service/rekognition@v1.58.0`'s `serializers.go:5116`,
+   `awsAwsjson11_serializeDocumentDistributeDataset`) is plain `Arn`. Every
+   real client's call therefore sent every dataset ARN under a key nothing
+   read, decoding to an empty string and failing
+   `ResourceNotFoundException` unconditionally -- this op had never worked
+   at all for a real client. Fixed the wire key; three pre-existing unit
+   tests in `handler_datasets_test.go` that encoded the wrong key were
+   corrected to the real shape, not weakened.
+2. `GetSegmentDetectionOutput.VideoMetadata` is a list
+   (`[]types.VideoMetadata`) on the real wire -- confirmed against
+   `api_op_GetSegmentDetection.go`'s own doc comment ("Amazon Rekognition
+   Video returns a single object in the VideoMetadata array") -- the one
+   `Get<Family>` video-job response that differs from the single-object
+   shape every sibling op (`GetFaceDetection`, `GetFaceSearch`,
+   `GetLabelDetection`, `GetContentModeration`, `GetPersonTracking`,
+   `GetTextDetection`, `GetCelebrityRecognition`) correctly uses via the
+   shared `getJobBaseResp.VideoMetadata *videoMetadata` field.
+   `getSegmentDetectionResp` inherited that single-object shape unchanged,
+   so a real client's JSON decode of `GetSegmentDetection` failed outright
+   (array destination fed a JSON object) rather than merely losing a
+   field -- the higher-severity bug class this campaign's method notes
+   flag distinctly from a dropped value. Fixed by giving
+   `getSegmentDetectionResp` its own `VideoMetadata []videoMetadata` field,
+   which Go's embedding-shadow rule makes `encoding/json` prefer over the
+   embedded `getJobBaseResp`'s same-named field.
+
+No accept-and-drop findings beyond what this file's `items_still_open`
+already discloses (IndexFaces/CreateDataset's un-parsed S3-shaped optional
+fields, both pre-existing and unrelated to this pass).
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/rekognition/...`
+clean, `golangci-lint run --new-from-rev=HEAD services/rekognition/...` 0
+issues, `go test -race -count=1 ./services/rekognition/...` green (including
+the three corrected `handler_datasets_test.go` cases),
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
+changes; no version bump (both fixes are wire-shape-only).
+
+## 2026-09-12 (gopherstack-xhu2t slice 7 — reqfielddiff tier-1 sweep)
+
+10 tier-1 findings reviewed. 7 fixed, 3 recorded as `items_still_open` (two
+of them extending IndexFaces' pre-existing gopherstack-eshx disclosure, one
+new). This slice also fixed two flaky tests it exposed (see below).
+
+- **Fixed**:
+  - `AssociateFaces.UserMatchThreshold` (default 75): added a deterministic
+    `associateFaceMatchConfidence` (same seeded-range convention as
+    `faceSimilarity`/`userSimilarity`), gating association with a new
+    `LOW_MATCH_CONFIDENCE` unsuccessful-reason path.
+  - `SearchFaces.FaceMatchThreshold`/`SearchFacesByImage.FaceMatchThreshold`
+    (default 80): both backends already compute a real per-candidate
+    `Similarity`; now filtered against the threshold.
+  - `SearchUsers.UserMatchThreshold`/`SearchUsersByImage.UserMatchThreshold`
+    (default 80): same filtering pattern against `userSimilarity`.
+  - `SearchUsersByImage.QualityFilter`: added enum validation matching the
+    existing `CompareFaces`/`SearchFacesByImage` precedent (gopherstack-qlqz)
+    — validated but not applied, consistent with that precedent's own
+    disclosed scope (see PARITY.md Notes #7); this field was previously
+    declared nowhere on this op at all.
+  - `DetectLabels.Features`: GENERAL_LABELS is now honored (Labels list
+    populated only when Features is empty or includes it); IMAGE_PROPERTIES
+    recorded separately (see `items_still_open`, fabrication risk).
+- **Recorded**: `GetPersonTracking.SortBy` (Persons always empty, no
+  RequestMetadata echo field either), `IndexFaces.DetectionAttributes`
+  (blocked on the same pre-existing IndexFaces.Image gap, gopherstack-eshx),
+  `DetectLabels.Features`'s IMAGE_PROPERTIES half (would require fabricating
+  a color/quality analysis).
+- **Flaky tests found and fixed while proving the FaceMatchThreshold fix**
+  (all confirmed to fail intermittently pre-fix, under `-count=50`):
+  `TestSearchFaces_RealFaceId_ReturnsMatches` used three `IndexFaces` calls
+  with no `ExternalImageId`, so `SearchFaces`' new default threshold (80)
+  sometimes dropped a match derived from the run's random UUIDs — fixed by
+  giving all three the same `ExternalImageId` (forces `faceSimilarity`'s
+  exact-match path, deterministically 100). `TestSearchFaces_SimilarityDeterministic`
+  and `TestFaceRoundTrip_IndexSearchListDelete` weren't testing threshold
+  behavior at all — fixed by passing `FaceMatchThreshold: 0` explicitly so
+  they stay about what they actually assert. `TestSearchUsers`'s
+  `SearchUsersByImage` case genuinely dropped from 2 matches to 1 at the new
+  default threshold (deterministic, not flaky — "bytes:0" vs user1/user2
+  compute to 76.168/84.025) — corrected to assert 1 at default and added a
+  second case at threshold 70 proving both are reachable when it's lowered.
+
+Gates: `go build ./...`, `go vet ./services/rekognition/...`, `go test
+-race -count=1 ./services/rekognition/...` (also `-count=50` to confirm the
+threshold-related flakiness above is fully resolved), `golangci-lint run
+--new-from-rev=HEAD ./services/rekognition/...` — all clean. No persisted
+(`backendSnapshot`) fields changed (all new fields are request-only), no
+`snapshot_inventory.json` rows, no version bump.

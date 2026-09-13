@@ -201,7 +201,9 @@ families:
   persistence-gap: {status: ok, note: "NEW FAMILY THIS PASS -- found via reading persistence.go against store.go's field list. backendSnapshot only ever round-tripped the 'batch2' raw maps (bucketReplication, storageLensConfigs, storageLensConfigTags, resourceTags, accessPointPolicies) plus the store.Table-backed resources; the 10 'batch1' raw maps (accessPointScopes, objectLambdaAPPolicies, objectLambdaAPConfigs, bucketPolicies, bucketTagging, bucketLifecycle, bucketVersioning, mrapRoutes, accessGrantsInstancePolicies, jobTags) were declared on InMemoryBackend and actively read/written by real handlers, but Snapshot() never serialized them and Restore() never restored them -- a Snapshot/Restore cycle (a service restart with persistence enabled) silently dropped access point scopes, Object Lambda AP policies/configs, Outposts bucket policy/tagging/lifecycle/versioning, MRAP routes, Access Grants instance resource policies, and job tags, even though the owning resource itself (e.g. the access point, the bucket) survived intact. Fixed: all 10 fields added to backendSnapshot, wired into Snapshot/Restore (including the version-mismatch discard-and-reset branch), s3controlSnapshotVersion bumped 1 -> 2. New test TestPersistence_Batch1Maps_SnapshotRestore locks in all 10."}
   pagination_sweep: {status: fixed, note: "2026-08-28/29 (wrapper-key-sweep-rds-cloudwatch-sqs-sns pagination pass): all List ops paginate at the handler layer via the shared s3cPaginate(items, nextToken, maxResults) index-token helper (handler.go:431), which itself correctly truncates/resumes/emits-only-when-truncated. The bug was upstream: pkgs/store.Table.All() (table.go:154) documents 'iteration order is UNSPECIFIED (Go map order)', and ListAccessPoints/ListJobs fed that unsorted order directly into s3cPaginate with no sort.Slice at all -- so a nextToken computed as an offset into one call's ordering could land on a different item in the next call's ordering, duplicating or skipping access points/jobs across a page boundary (same list-ordering-plus-pagination bug class flagged in this campaign's prior passes). Fixed: both now sort.Slice by Name/JobID before returning, matching the convention every other sorted List op in this service already follows (ListAccessGrants, ListAccessGrantsLocations, ListAccessPointsForObjectLambda, ListAccessPointsForDirectoryBuckets, ListRegionalBuckets). TestListAccessPoints_FullPagination/TestListJobs_FullPagination (wire_field_fixes_test.go) create 9 records each, page at MaxResults=4, and assert the union across the full pagination loop is exactly the created set with no duplicates; both hand-verified to fail intermittently against unfixed code (Go's randomized map iteration makes the failure probabilistic, not every run -- confirmed by running the unfixed test 5x). Also fixed the same missing-sort gap in ListMultiRegionAccessPoints/ListStorageLensConfigurations/ListStorageLensGroups for consistency, though those three are not truncation bugs in the same sense: ListMultiRegionAccessPointsInput.MaxResults/NextToken are themselves documented 'Not currently used. Do not use this parameter.' (api_op_ListMultiRegionAccessPoints.go), and ListStorageLensConfigurations/ListStorageLensGroups have no MaxResults member in the real API at all (NextToken only, and the handler already passes maxResults=0 meaning unbounded/no-token, matching that wire shape) -- so ordering stability is the only real improvement there, not a truncation fix."}
 
-gaps:
+gaps: []
+
+items_still_open:
   - "2026-09-07 (gopherstack-kx5v, filed title-only: 'DeleteBucket cannot enforce its documented
     empty-bucket precondition; no wiring exists to services/s3's object store for Outposts
     buckets'). Investigated and VERDICT: NO DEFECT -- the no-wiring claim in the title is
@@ -305,7 +307,6 @@ gaps:
   - STALE as of 2026-08-23 (manifest-harvest pass): `ListAccessPointsForObjectLambdaResult`'s per-item `types.ObjectLambdaAccessPoint` entries were missing the real `Alias` field per the original 2026-08-01 note below, but commit `fb80d66cd` (2026-08-17, #2425) closed the gap this note describes -- `ObjectLambdaAccessPoint` (models.go) now tracks `Alias`, synthesized with the real `"--ol-s3"` suffix convention (`object_lambda.go`'s `CreateAccessPointForObjectLambda`), and both `Get`/`ListAccessPointsForObjectLambda` already returned it. The one gap that commit left behind -- `CreateAccessPointForObjectLambda`'s own response never echoed the `Alias` it had just set, even though the backend now had it -- is FIXED this pass (`handler_object_lambda.go`). Proven via a real `aws-sdk-go-v2/service/s3control` client `CreateAccessPointForObjectLambda` call (`TestCreateAccessPointForObjectLambda_Alias_RealSDKClient`, `handler_object_lambda_real_client_test.go`), confirmed failing (`Alias` nil) against the unfixed handler, passing after, hand-reverted/restored/`md5sum`-verified byte-identical. Original note, now superseded, preserved for history: "`ListAccessPointsForObjectLambdaResult`'s per-item `types.ObjectLambdaAccessPoint` entries are missing the real `Alias` field (2026-08-01 sample audit, gopherstack-tir4): ObjectLambdaAccessPoint (models.go) tracks no alias data for these APs at all, and the real AWS alias-generation algorithm for Object Lambda APs is a distinct, undocumented "<random>-ol-s3alias"-style scheme (NOT the same "<name>-<accountid>-s3alias" formula regular access points use, confirmed by inspecting access_points.go's CreateAccessPoint) -- not synthesized to avoid inventing an unverified value. Now documented in-code (handler_object_lambda.go); not fixed."
   - (CLOSED 2026-07-30) Only a modestly larger sample of response XML shapes were spot-checked against deserializers.go this pass ... -- superseded: the remaining "types_not_reached" items were individually diffed this pass, see below and items_still_open.
   - (2026-07-31, gopherstack-eje5, CORRECTED same day) An earlier version of this entry claimed the c.String(http.StatusNoContent, "") -> c.NoContent(http.StatusNoContent) change (handler_bucket.go, 4 handlers) fixed a bug that "returns http.ErrBodyNotAllowed on every real call." That claim is false and was verified wrong against net/http's stdlib source: (*response).write in net/http/server.go no-ops a zero-length write (returns nil) BEFORE reaching the body-allowed check, so a real net/http server never returns that error for an empty body after a 204. Only httptest.ResponseRecorder.Write checks bodyAllowedForStatus unconditionally with no exemption for zero-length writes, so only handler-level tests dispatching through a ResponseRecorder would see the error -- meaning the real defect was a test-observability gap (no such test could exist and pass), not a client-facing bug, and c.String vs c.NoContent was never observable to a real SDK client. The identical c.String(204,"") pattern in 8 more handlers (handler_access_grants.go x4, handler_object_lambda.go x2, handler_jobs.go x1, handler_access_points.go x1) was converted to c.NoContent in a later pass this same day, with handler-level tests added to lock in the nil-error assertion that could not previously exist -- described there as a hygiene/testability change, not a bug fix, consistent with this correction.
-
 deferred:
   - AccessGrantsInstance / IdentityCenter association flows (state machine correctness beyond basic CRUD). The delete-grants-and-locations-first precondition noted in a prior version of this bullet IS enforced -- see items_still_open.
   - Chaos fault-injection interaction with the fixed routes/leak (ChaosOperations() just echoes GetSupportedOperations(), unaffected by this pass).
@@ -970,3 +971,103 @@ services/ec2` showing unrelated uncommitted changes), `go test -race
 -count=1 ./services/s3control/... ./services/neptune/...` (pass),
 `golangci-lint run ./services/s3control/... ./services/neptune/...` (0
 issues, `golines -w -m 120` applied then re-verified).
+
+## 2026-09-11 -- gopherstack-mven/r80d respsweep: GetBucketTagging.TagSet dropped the documented NoSuchTagSetError case
+
+`GetBucketTaggingOutput.TagSet` is required
+(`api_op_GetBucketTagging.go:100`), and the op's own doc comment names its
+one special error: "Error code: NoSuchTagSetError -- There is no tag set
+associated with the bucket." `GetBucketTagging` (`bucket.go`) could not
+distinguish "never tagged" (or tagging removed via `DeleteBucketTagging`)
+from "tagged with zero tags" -- both hit the same nil map lookup and
+returned 200 with an empty `TagSet`. Combined with `GetBucketTaggingResult`'s
+`xml:"TagSet>member"` nested-path tag on a nil slice (`handler_bucket.go`),
+which Go's `encoding/xml` omits entirely rather than rendering an empty
+wrapper, an untagged bucket silently dropped the required `TagSet` element
+from the wire altogether instead of returning the documented error.
+
+Fixed by tracking presence via Go map key existence
+(`tags, ok := b.bucketTagging[bucketName]`) rather than a nil check --
+`PutBucketTagging` always sets the key (even to an empty tag set) and
+`DeleteBucketTagging`/`DeleteBucket`'s cascade both delete it, so `ok`
+correctly means "a tag set exists, possibly empty." A bucket with no entry
+now returns the new `errNoSuchTagSet` sentinel (`errors.go`,
+`"NoSuchTagSetError"`/`awserr.ErrNotFound`, mapped to HTTP 404 by the
+existing `handleBackendError`). Input side checked per the r80d lesson: the
+op takes no body, nothing to fix there.
+
+`UpdateJobPriority.JobId`/`.Priority` (the sweep's other s3control
+candidate) and `GetBucketTagging`'s sibling required members were reviewed
+and found already correct -- both are unconditionally sourced from real
+backend state on every success path.
+
+Proven via a real `aws-sdk-go-v2/service/s3control` client round trip
+(`wire_output_required_respsweep_test.go`, reusing the existing
+`newTestS3ControlClient` httptest helper): a never-tagged bucket now returns
+`NoSuchTagSetError`, a tagged bucket still returns its tags correctly. Hand-
+reverted (both edited lines) and confirmed the test fails against
+unmodified code, then restored byte-identical (`md5sum`-verified). One
+pre-existing test asserted the old (incorrect) success-with-empty-tags
+behavior after a bucket delete/recreate cycle
+(`TestOutpostsBucket/delete_bucket_cascade_cleans_state`,
+`handler_bucket_test.go`) -- updated to assert the documented error instead,
+since that's the correct proof that "tagging must not survive delete."
+
+Gates: `go build ./...` clean; `go vet`/`go test -race -count=1
+./services/s3control/...` all pass; `golangci-lint run
+./services/s3control/...` 0 issues, 0 new nolints. No persisted-field
+changes, so `pkgs/persistence` was not touched for this fix.
+
+## 2026-09-12 (gopherstack-n3zi slice 7: typed-client coverage)
+
+Typed-coverage pass (not a general audit): drove 76 previously
+typed-client-blind ops through the real `aws-sdk-go-v2/service/s3control`
+client (`typed_slice7_realclient_test.go`, 9 subtests) -- census
+21/97 -> 97/97 typed-covered (0 remaining). Five real wire/logic bugs found
+and fixed, every one caught only by a decoded typed-client value:
+
+1. `CreateAccessPointForObjectLambda`'s handler never decoded the request
+   body at all -- the required `Configuration` member was silently
+   dropped, so an immediate `Get*ConfigurationForObjectLambda`/
+   `ListAccessPointsForObjectLambda` always saw an empty configuration
+   until a separate `Put` call. Fixed by decoding `Configuration` and
+   seeding it through the same store `PutAccessPointConfigurationForObjectLambda`
+   uses. `handler_object_lambda.go`.
+2. `UpdateJobPriority`/`UpdateJobStatus` read `priority`/
+   `requestedJobStatus`/`statusUpdateReason` from an XML request body, but
+   the real SDK binds all three as HTTPQuery parameters
+   (`awsRestxml_serializeOpHttpBindingsUpdateJob{Priority,Status}Input`,
+   serializers.go:8477,8556-8561) with an empty body -- both ops were
+   completely non-functional for any real client. Fixed to read
+   `c.Request().URL.Query()`; two pre-existing raw-body unit tests
+   converted to the real query-string shape, not weakened.
+   `handler_jobs.go`, `handler_jobs_test.go`.
+3. `GetStorageLensConfiguration`/`GetStorageLensGroup` wrapped their
+   payload one level too deep
+   (`<GetStorageLensConfigurationResult><StorageLensConfiguration>...`) --
+   the real deserializer has no wrapper element at all
+   (`smithyxml.FetchRootElement` decodes the response root directly as the
+   httpPayload), so every field silently decoded to its zero value with no
+   error. Fixed by making the payload struct itself the XML root.
+   `handler_storage_lens.go`.
+4. `UpdateStorageLensGroup`'s request decoder expected `<StorageLensGroup>`
+   as the request ROOT, but the real wire root is
+   `<UpdateStorageLensGroupRequest><StorageLensGroup>...` one level deeper
+   (serializers.go:8667) -- every real client request was rejected as
+   MalformedXML. Pre-existing raw-body tests updated to the real wrapped
+   shape. `handler_storage_lens.go`, `handler_storage_lens_test.go`.
+5. `GetDataAccess`'s `MatchedGrantTarget` echoed the backend's internal
+   mock presigned URL instead of the requested S3 target (the real field
+   is documented as "The S3 URI path of the data..."). Fixed to echo the
+   request's `target`. `handler_access_grants.go`.
+
+Accept-and-drop, reconfirmed not fixed (already disclosed, out of scope):
+`GetDataAccess`'s `Credentials.AccessKeyId`/`SecretAccessKey` are always
+empty -- this backend issues no real STS federation tokens and has no
+backing credential state to vend.
+
+Gates: `go build ./...` clean, `go vet ./services/s3control/...` clean,
+`go test -race -count=1 ./services/s3control/...` and
+`./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
+./services/s3control/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
+persisted-struct fields changed; no version bump.

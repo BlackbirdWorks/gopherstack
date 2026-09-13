@@ -44,7 +44,29 @@ last_audit_commit: 3b90d4523   # STALE (found 2026-08-15, gopherstack-6flj wrapp
 # field with a live value (deprecation notices don't say). Pagination/filters re-verified across
 # all 10 paginate()-using ops plus the 9 correctly-non-paginated ones. Router re-confirmed
 # structurally immune (single POST / dispatched purely by X-Amz-Target, no path routing at all).
-last_audit_date: 2026-08-15   # was 2026-08-06
+# 2026-09-11 (gopherstack-41bv6): fixed DescribeHostedConnections ignoring
+# interconnect-hosted connections -- it filtered on ParentConnectionID/LagID only, so a
+# connection allocated via AllocateConnectionOnInterconnect (which sets only InterconnectID)
+# never appeared, despite api_op_DescribeHostedConnections.go:15-16's own doc: "Lists the
+# hosted connections that have been provisioned on the specified interconnect or link
+# aggregation group (LAG)". Also found AllocateHostedConnection/AssociateHostedConnection's
+# resolveHostLocked didn't resolve an Interconnect id at all (only Connection/LAG), so hosting
+# onto an interconnect via those two ops -- api_op_AllocateHostedConnection.go:49 and
+# api_op_AssociateHostedConnection.go:39 both say "The ID of the interconnect or LAG" --
+# 404'd. Unified: hostKind (connection/lag/interconnect) + setHostParentLocked in
+# connections.go now resolve and record all three kinds symmetrically for both allocate paths
+# and AssociateHostedConnection's reassignment; DescribeHostedConnections/
+# DescribeConnectionsOnInterconnect (api_op_DescribeConnectionsOnInterconnect.go:15:
+# "Deprecated. Use DescribeHostedConnections instead.", confirmed) both read the resulting
+# InterconnectID field consistently. No wire-shape change: types.Connection has no
+# interconnectId member at all (confirmed against types/types.go), so connectionWire is
+# unchanged and every field it does carry (partnerName, ownerAccount, lagId,
+# hasLogicalRedundancy, providerName, macSecCapable, portEncryptionStatus, encryptionMode,
+# macSecKeys, awsDeviceV2, awsLogicalDeviceId, jumboFrameCapable, loaIssueTime, region,
+# location, bandwidth, vlan, connectionState, connectionName, connectionId) is still emitted
+# for a hosted connection. New coverage: hosted_connections_test.go (real SDK client, table
+# for all three parent kinds plus the move/unknown-parent cases).
+last_audit_date: 2026-09-11   # was 2026-08-15
 overall: A   # test/integration/directconnect_test.go passes for real (make build-linux && go test
 # -race -run TestIntegration_DirectConnect ./test/integration/...); every gap that could produce
 # real data is closed (cross-service EC2 validation, pkgs/arn.BuildGlobal for dx-gateway, pkgs/page
@@ -67,12 +89,12 @@ overall: A   # test/integration/directconnect_test.go passes for real (make buil
 ops:
   AcceptDirectConnectGatewayAssociationProposal: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST / (X-Amz-Target: OvertureService.AcceptDirectConnectGatewayAssociationProposal); in: AssociatedGatewayOwnerAccount*, DirectConnectGatewayId*, ProposalId*, OverrideAllowedPrefixesToDirectConnectGateway[]RouteFilterPrefix; out: DirectConnectGatewayAssociation; errors: DirectConnectClientException/DirectConnectServerException only. This is the accepting side of the cross-account proposal flow -- caller here is whoever owns the VGW/TGW being associated, confirming via AssociatedGatewayOwnerAccount (their own account id)."}
   AllocateConnectionOnInterconnect: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: Bandwidth*, ConnectionName*, InterconnectId*, OwnerAccount*, Vlan*int32; out: Connection; errors: base two only (DirectConnectClientException/DirectConnectServerException) -- the ONLY Allocate* op with no Tags input field at all and consequently no tag-related exceptions. Partner-flow op: an interconnect owner (partner) allocates a sub-connection on their interconnect to a named end-customer OwnerAccount."}
-  AllocateHostedConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: Bandwidth*, ConnectionId* (the HOSTING connection or LAG), ConnectionName*, OwnerAccount*, Vlan*int32, Tags[]; out: Connection; errors: +DuplicateTagKeysException/TooManyTagsException (has Tags) but NOT LimitExceededException (unlike the VIF Allocate* ops below) -- confirmed by direct per-op grep, not an omission in this note. Same partner/reseller shape as AllocateConnectionOnInterconnect but hosted on an existing standard Connection/LAG rather than an Interconnect."}
+  AllocateHostedConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: Bandwidth*, ConnectionId* (per api_op_AllocateHostedConnection.go:49, 'the interconnect or LAG' -- this emulator's resolveHostLocked additionally accepts a plain Connection), ConnectionName*, OwnerAccount*, Vlan*int32, Tags[]; out: Connection; errors: +DuplicateTagKeysException/TooManyTagsException (has Tags) but NOT LimitExceededException (unlike the VIF Allocate* ops below) -- confirmed by direct per-op grep, not an omission in this note. Same partner/reseller shape as AllocateConnectionOnInterconnect but hosted on an existing Connection/LAG/Interconnect rather than only an Interconnect (gopherstack-41bv6: all three now recorded and read back consistently)."}
   AllocatePrivateVirtualInterface: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (hosting connection), NewPrivateVirtualInterfaceAllocation* (VirtualInterfaceName*, Vlan*int32, plus AddressFamily/AmazonAddress/Asn/AsnLong/AuthKey/CustomerAddress/Mtu/RateLimit/Tags -- notably NO DirectConnectGatewayId/VirtualGatewayId/EnableSiteLink fields on the Allocation shape, unlike NewPrivateVirtualInterface's non-allocation twin), OwnerAccount*; out: FLATTENED VirtualInterface fields directly on the Output struct (see wire-trap #1 below) including RouteFilterPrefixes even though private VIFs don't use route filters (field just stays empty/nil); errors: +DuplicateTagKeysException/LimitExceededException/TooManyTagsException."}
   AllocatePublicVirtualInterface: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId*, NewPublicVirtualInterfaceAllocation* (VirtualInterfaceName*, Vlan*int32, plus AddressFamily/AmazonAddress/Asn/AsnLong/AuthKey/CustomerAddress/RateLimit/RouteFilterPrefixes[]/Tags), OwnerAccount*; out: FLATTENED VirtualInterface fields (same trap as AllocatePrivateVirtualInterface); errors: +DuplicateTagKeysException/LimitExceededException/TooManyTagsException."}
   AllocateTransitVirtualInterface: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId*, NewTransitVirtualInterfaceAllocation* (all fields optional incl. VirtualInterfaceName/Vlan -- the ONLY New*VirtualInterface(Allocation) variant where the name/VLAN pair isn't marked required in the Go struct tags, though real-world usage surely needs them), OwnerAccount*; out: nested `VirtualInterface *types.VirtualInterface` (UNLIKE the private/public Allocate* siblings -- see wire-trap #1); errors: +DuplicateTagKeysException/LimitExceededException/TooManyTagsException."}
   AssociateConnectionWithLag: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId*, LagId*; out: Connection; errors: DirectConnectClientException/DirectConnectServerException/LimitExceededException -- has LimitExceededException despite taking no Tags (the only op where LimitExceededException appears WITHOUT the tag-exception pair), presumably bandwidth/link-count validation against Lag.MinimumLinks/ConnectionsBandwidth, not a tagging limit. 2026-09-06 (gopherstack-55so): re-association away from a different LAG now also enforced against that LAG's MinimumLinks, with NO last-member exception (unlike DisassociateConnectionFromLag) -- see gaps: for the doc's separate same-endpoint clause, left unenforced."}
-  AssociateHostedConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (the hosted connection being reassigned), ParentConnectionId* (new hosting connection/LAG); out: Connection; errors: base two only."}
+  AssociateHostedConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (the hosted connection being reassigned), ParentConnectionId* (per api_op_AssociateHostedConnection.go:39, 'the interconnect or the LAG' -- this emulator additionally accepts a plain Connection, same resolveHostLocked as AllocateHostedConnection); out: Connection; errors: base two only. gopherstack-41bv6: now resolves and clears/sets exactly one of ParentConnectionID/LagID/InterconnectID for all three parent kinds, not just Connection/LAG."}
   AssociateMacSecKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId*, Cak+Ckn (paired, for a raw new key) OR SecretARN (a pre-existing Secrets Manager secret) -- mutually exclusive input modes, neither marked required at the Go-struct level so validation is runtime-only in real AWS; out: ConnectionId, MacSecKeys[]MacSecKey; errors: base two only. See MACsec notes below -- DisassociateMacSecKey needs a SecretARN to identify the key later, so a Cak/Ckn-provided key must still get a synthesized SecretARN in the response."}
   AssociateVirtualInterface: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (new owning connection or LAG), VirtualInterfaceId*; out: FLATTENED VirtualInterface fields (same shape as CreatePrivateVirtualInterfaceOutput -- confirmed, not the nested-struct shape); errors: base two only. Moves an existing (already hosted/allocated) virtual interface onto a different connection/LAG."}
   ConfirmConnection: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId*; out: ConnectionState only (a bare enum, not the full Connection); errors: base two only. Owner-confirms a hosted connection out of 'ordering' into 'pending'/'available'."}
@@ -106,7 +128,7 @@ ops:
   DescribeDirectConnectGatewayAssociations: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: AssociatedGatewayId/AssociationId/DirectConnectGatewayId/VirtualGatewayId (all optional filters -- four independent optional filters, any combination), MaxResults/NextToken; out: DirectConnectGatewayAssociations[], NextToken; errors: base two only."}
   DescribeDirectConnectGatewayAttachments: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: DirectConnectGatewayId/VirtualInterfaceId (optional filters), MaxResults/NextToken; out: DirectConnectGatewayAttachments[]DirectConnectGatewayAttachment{AttachmentState,AttachmentType(TransitVirtualInterface|PrivateVirtualInterface -- NO PublicVirtualInterface value exists in this enum at all, confirming public VIFs structurally cannot attach to a DCGW), DirectConnectGatewayId,StateChangeError,VirtualInterfaceId,VirtualInterfaceOwnerAccount,VirtualInterfaceRegion}, NextToken; errors: base two only."}
   DescribeDirectConnectGateways: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: DirectConnectGatewayId (optional), MaxResults/NextToken; out: DirectConnectGateways[], NextToken; errors: base two only."}
-  DescribeHostedConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (the HOSTING connection or LAG -- required, unlike DescribeConnections where the analogous field is optional), MaxResults/NextToken; out: Connections[] (the hosted/child connections riding on it), NextToken; errors: base two only."}
+  DescribeHostedConnections: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: ConnectionId* (per api_op_DescribeHostedConnections.go:15-16, 'the specified interconnect or link aggregation group (LAG)' -- required, unlike DescribeConnections where the analogous field is optional; this emulator additionally accepts a plain Connection), MaxResults/NextToken; out: Connections[] (the hosted/child connections riding on it), NextToken; errors: base two only. gopherstack-41bv6: now matches on all three of ParentConnectionID/LagID/InterconnectID -- previously an interconnect parent was silently dropped."}
   DescribeInterconnectLoa: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: InterconnectId*, LoaContentType, ProviderName; out: Loa (nested, same shape as DescribeConnectionLoa); errors: base two only."}
   DescribeInterconnects: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: InterconnectId (optional), MaxResults/NextToken; out: Interconnects[], NextToken; errors: base two only."}
   DescribeLags: {wire: ok, errors: ok, state: ok, persist: ok, note: "in: LagId (optional), MaxResults/NextToken; out: Lags[], NextToken; errors: base two only."}
@@ -132,7 +154,8 @@ ops:
 # Families audited as a group (when per-op is impractical): none needed -- all 63 ops audited
 # individually above; every op in this service is a fixed POST / with no path-parameter routing,
 # so there is no natural "route family" grouping the way REST-JSON services have.
-gaps:
+gaps: []
+items_still_open:
   - "Connection.AwsDevice, Interconnect.AwsDevice, Lag.AwsDevice, and DirectConnectGatewayAssociation.VirtualGatewayRegion (2026-08-15, gopherstack-6flj): four members confirmed present in directconnect@v1.44.1's own deserializer key switches (awsAwsjson11_deserializeDocumentConnection/Interconnect/Lag/DirectConnectGatewayAssociation, each case \"awsDevice\"/\"virtualGatewayRegion\") but never modeled anywhere in this service (zero grep hits for AwsDevice/awsDevice or VirtualGatewayRegion/virtualGatewayRegion in any non-generated .go file before this pass) -- a real client reading these fields always gets nil/absent, never a wrong value. All four are marked `// Deprecated: This member has been deprecated.` in the pinned SDK's own types.go doc comments (AwsDevice superseded by AwsDeviceV2, which IS correctly populated everywhere; VirtualGatewayRegion has no live successor field documented). Buildable -- AwsDevice could plausibly mirror AwsDeviceV2's value (many AWS services keep a deprecated field populated identically to its replacement for backward compatibility) and VirtualGatewayRegion could plausibly derive from this backend's own region -- but neither is confirmed by any primary source available here (no live AWS response, no SDK comment stating the deprecated field still populates). Left disclosed rather than guessed at, per this file's own disclose-don't-fabricate precedent; a follow-up pass with access to a real AWS account's actual (deprecated-field-inclusive) response could resolve this with certainty."
   - "No AWS::DirectConnect::* CloudFormation resource type exists in this repo (grep -rli directconnect services/cloudformation/ returned zero hits, all 71 resources_*.go files checked). This is genuinely buildable (adding a CFN resource type is ordinary software work, not a physical/legal impossibility) but lives in services/cloudformation's ownership, not services/directconnect's -- out of scope for this pass, left for a CloudFormation-focused audit to pick up."
   - "Real services/secretsmanager integration for AssociateMacSecKey's raw-Cak/Ckn path (connections.go's synthesizeMacSecSecretARN synthesizes a plausible but unbacked ARN instead of creating a real secret): buildable -- this repo has a real services/secretsmanager backend and the EC2 cross-service pattern (store.go's EC2GatewayResolver, cli.go's wireDirectConnectEC2) this would mirror. Not done this pass: cli.go had a concurrent, in-flight edit from another agent working the same branch at the time of this audit, and stacking a second cross-service wiring change onto a shared, actively-changing file risked a lost or garbled merge. The synthesized-ARN simplification is documented, tested (sdk_roundtrip_test.go, test/integration/directconnect_test.go), and wire-correct; left for a follow-up pass once cli.go settles."
@@ -640,7 +663,11 @@ Real enum values, all confirmed in `types/enums.go` (not guesses):
   **Partner** (not a typical end customer) at a colocation facility. `AllocateConnectionOnInterconnect`/
   `AllocateHostedConnection` let that partner then allocate sub-connections to *their own*
   end customers (`OwnerAccount`), who confirm via `ConfirmConnection`. `AssociateHostedConnection`
-  reassigns an already-hosted connection to a different parent connection/LAG.
+  reassigns an already-hosted connection to a different parent connection/LAG/interconnect.
+  A hosted connection's parent is exactly one of `Connection.ParentConnectionID`/`LagID`/
+  `InterconnectID` (`resolveHostLocked`/`setHostParentLocked` in connections.go) -- unified
+  2026-09-11 (gopherstack-41bv6) after `DescribeHostedConnections` was found silently dropping
+  interconnect-hosted connections.
 - **What is honestly simulatable**: the full state graph (Interconnect/Connection creation,
   `ordering`→confirm→`available` transitions, parent/child `LagId`/`ConnectionId` relationships,
   `DescribeHostedConnections`/`DescribeConnectionsOnInterconnect` correctly listing children) is
@@ -854,3 +881,16 @@ See the machine-readable `gaps:` list in the frontmatter for the authoritative v
    (`cli.go:5558-5571`), but the batch-input shape of `DescribeTags` itself is a genuine
    Direct-Connect-specific wrinkle relative to every other tagging-wiring precedent audited in
    this campaign so far.
+
+## 2026-09-12 (gopherstack-n3zi typed slice 23)
+
+Drove all 15 of this package's typed-coverage-blind ops through a real
+`aws-sdk-go-v2/service/directconnect` client for the first time
+(`typed_slice23_realclient_test.go`): a hosted-connection Allocate->Confirm
+lifecycle plus ConfirmCustomerAgreement, Allocate+Confirm for both public
+and transit VIFs plus AssociateVirtualInterface, a full Direct Connect
+gateway association proposal lifecycle (Update/Describe gateway, Create
+proposal, Describe proposals, Accept into an association, Describe
+associations, a second proposal's Delete), and an interconnect Describe+
+DescribeInterconnectLoa+Delete lifecycle. Zero bugs -- confirms the `ops:`
+table's existing verdicts.

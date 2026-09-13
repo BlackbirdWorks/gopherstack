@@ -327,9 +327,12 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 		summaries = append(summaries, h.toDistributionSummaryXML(d))
 	}
 
+	// Marker is required on DistributionList (cloudfront@v1.67.4 types/types.go:2528-2538): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	type distListXML struct {
 		XMLName     xml.Name                 `xml:"DistributionList"`
 		XMLNS       string                   `xml:"xmlns,attr"`
+		Marker      string                   `xml:"Marker"`
 		NextMarker  string                   `xml:"NextMarker,omitempty"`
 		Items       []distributionSummaryXML `xml:"Items>DistributionSummary"`
 		MaxItems    int                      `xml:"MaxItems"`
@@ -339,6 +342,7 @@ func (h *Handler) handleListDistributions(c *echo.Context) error {
 
 	list := distListXML{
 		XMLNS:       cfNS,
+		Marker:      marker,
 		MaxItems:    pageSize,
 		Quantity:    len(summaries),
 		Items:       summaries,
@@ -814,7 +818,7 @@ func (h *Handler) handleListDistributionsByRealtimeLogConfig(
 		req.MaxItems,
 	)
 
-	return h.writeDistributionList(c, page, pageSize, isTruncated)
+	return h.writeDistributionList(c, req.Marker, page, pageSize, isTruncated)
 }
 
 // marshalDistributionList paginates via Marker/MaxItems (both query-bound for every caller
@@ -825,13 +829,20 @@ func (h *Handler) handleListDistributionsByRealtimeLogConfig(
 func (h *Handler) marshalDistributionList(c *echo.Context, dists []*Distribution) error {
 	page, pageSize, isTruncated, _ := paginateByMarkerID(c, dists, func(d *Distribution) string { return d.ID })
 
-	return h.writeDistributionList(c, page, pageSize, isTruncated)
+	return h.writeDistributionList(c, c.QueryParam("Marker"), page, pageSize, isTruncated)
 }
 
-func (h *Handler) writeDistributionList(c *echo.Context, page []*Distribution, pageSize int, isTruncated bool) error {
+// Marker is required on DistributionList (cloudfront@v1.67.4 types/types.go:2528-2538): the
+// echo of the request's Marker, present even when empty/not truncated. marker is passed in
+// rather than read from c since ByRealtimeLogConfig's Marker travels in the XML body, not the
+// query string.
+func (h *Handler) writeDistributionList(
+	c *echo.Context, marker string, page []*Distribution, pageSize int, isTruncated bool,
+) error {
 	type distList struct {
 		XMLName     xml.Name                 `xml:"DistributionList"`
 		XMLNS       string                   `xml:"xmlns,attr"`
+		Marker      string                   `xml:"Marker"`
 		NextMarker  string                   `xml:"NextMarker,omitempty"`
 		Items       []distributionSummaryXML `xml:"Items>DistributionSummary"`
 		MaxItems    int                      `xml:"MaxItems"`
@@ -847,7 +858,7 @@ func (h *Handler) writeDistributionList(c *echo.Context, page []*Distribution, p
 		nextMarker = page[len(page)-1].ID
 	}
 	list := distList{
-		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
+		XMLNS: cfNS, Marker: marker, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
 		Items: summaries, IsTruncated: isTruncated,
 	}
 	out, xmlErr := xml.Marshal(list)
@@ -870,9 +881,12 @@ func (h *Handler) marshalDistributionIDList(c *echo.Context, dists []*Distributi
 		func(d *Distribution) string { return d.ID },
 	)
 
+	// Marker is required on DistributionIdList (cloudfront@v1.67.4 types/types.go:2435-2445): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	type distIDList struct {
 		XMLName     xml.Name `xml:"DistributionIdList"`
 		XMLNS       string   `xml:"xmlns,attr"`
+		Marker      string   `xml:"Marker"`
 		NextMarker  string   `xml:"NextMarker,omitempty"`
 		Items       []string `xml:"Items>DistributionId"`
 		MaxItems    int      `xml:"MaxItems"`
@@ -884,8 +898,8 @@ func (h *Handler) marshalDistributionIDList(c *echo.Context, dists []*Distributi
 		ids = append(ids, d.ID)
 	}
 	list := distIDList{
-		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(ids),
-		Items: ids, IsTruncated: isTruncated,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), NextMarker: nextMarker, MaxItems: pageSize,
+		Quantity: len(ids), Items: ids, IsTruncated: isTruncated,
 	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {
@@ -911,9 +925,13 @@ func (h *Handler) marshalDistributionIDOwnerList(c *echo.Context, dists []*Distr
 		DistributionID string   `xml:"DistributionId"`
 		OwnerAccountID string   `xml:"OwnerAccountId"`
 	}
+	// Marker is required on DistributionIdOwnerList (cloudfront@v1.67.4
+	// types/types.go:2488-2496): the echo of the request's Marker, present even when
+	// empty/not truncated.
 	type distIDOwnerList struct {
 		XMLName     xml.Name      `xml:"DistributionIdOwnerList"`
 		XMLNS       string        `xml:"xmlns,attr"`
+		Marker      string        `xml:"Marker"`
 		NextMarker  string        `xml:"NextMarker,omitempty"`
 		Items       []distIDOwner `xml:"Items>DistributionIdOwner"`
 		MaxItems    int           `xml:"MaxItems"`
@@ -925,8 +943,8 @@ func (h *Handler) marshalDistributionIDOwnerList(c *echo.Context, dists []*Distr
 		items = append(items, distIDOwner{DistributionID: d.ID, OwnerAccountID: h.Backend.AccountID()})
 	}
 	list := distIDOwnerList{
-		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(items),
-		Items: items, IsTruncated: isTruncated,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), NextMarker: nextMarker, MaxItems: pageSize,
+		Quantity: len(items), Items: items, IsTruncated: isTruncated,
 	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

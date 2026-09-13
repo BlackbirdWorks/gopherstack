@@ -34,6 +34,12 @@ type ModelCardSecurityConfig struct {
 }
 
 // ModelCard represents a SageMaker model card.
+// ModelCard represents a SageMaker model card.
+//
+// CreatedBy (types.UserContext) is "This member is required" on
+// DescribeModelCardOutput but is disclosed absent, not fabricated -- this
+// backend has no IAM-identity model to honestly derive it from, the same
+// class of gap as ModelPackageGroup.CreatedBy (model_packages.go).
 type ModelCard struct {
 	CreationTime     time.Time                `json:"CreationTime"`
 	LastModifiedTime time.Time                `json:"LastModifiedTime"`
@@ -42,8 +48,11 @@ type ModelCard struct {
 	ModelCardName    string                   `json:"ModelCardName"`
 	ModelCardArn     string                   `json:"ModelCardArn"`
 	ModelCardStatus  string                   `json:"ModelCardStatus"`
-	Content          string                   `json:"Content,omitempty"`
-	ModelCardVersion int                      `json:"ModelCardVersion"`
+	// Content has no omitempty: required on CreateModelCardInput per
+	// validateOpCreateModelCardInput (*string, nil-checked only), so a
+	// conformant client can send an empty string and reach this field empty.
+	Content          string `json:"Content"`
+	ModelCardVersion int    `json:"ModelCardVersion"`
 }
 
 func cloneModelCard(c *ModelCard) *ModelCard {

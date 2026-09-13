@@ -24,7 +24,12 @@ ops:
     the same rowid-alias detection as ExecuteStatement (see Notes).}
   BeginTransaction: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Opaque per-region sequential id (txn-NNNNNN); real engine-side sql.Tx
-    opened alongside so statements tagged with the id share atomic visibility.}
+    opened alongside so statements tagged with the id share atomic visibility.
+    gopherstack-wh8gv (fixed 2026-09-11): that sql.Tx used to be opened under
+    BeginTransaction's own per-request context, so a real net/http.Server
+    auto-rolled it back the instant that HTTP response finished; now opened
+    under an engine-owned context (sqlEngine.baseCtx) cancelled only on
+    Commit/Rollback/janitor expiry/Reset. See the dated section below.}
   CommitTransaction: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     Deletes the transaction from the region's table before returning, so
     reuse (execute/commit/rollback) correctly 400s with TransactionNotFoundException.}
@@ -90,7 +95,8 @@ families:
     AccessDeniedException/ServiceUnavailableError/StatementTimeoutException
     are unreachable by design -- consistent with an emulator that doesn't
     simulate IAM or Aurora Serverless timeouts.}
-gaps:                     # known divergences NOT fixed
+gaps: []
+items_still_open:
   - "Database/Schema (ExecuteStatement, BatchExecuteStatement, BeginTransaction,
     ExecuteSql -- all 4 ops that carry them) are decoded off the wire and never
     read anywhere (cmd/reqfieldscan, 2026-08-30 pass: 8 of rdsdata's 9 flagged
@@ -99,34 +105,35 @@ gaps:                     # known divergences NOT fixed
     both select *within* a resource. gopherstack's sqlEngine keys its one
     SQLite database per (region, resourceARN) only (engine.go's dbFor/dbKey);
     there is no per-resource multi-database or schema catalog for these
-    fields to select into, matching this service's existing typeHint gap
-    (see above) and its siblings' repeated honest-gap pattern in this
-    campaign. Confirmed via grep: no `.Database`/`.Schema` selector anywhere
-    in non-test source. Not fixed: modeling multiple named databases/schemas
-    inside one engine instance is a real feature (SQLite ATTACH DATABASE per
-    name, or a schema-qualified table namespace), not a field-read fix."
-  - "SqlParameter.typeHint (DATE/DECIMAL/JSON/TIME/TIMESTAMP/UUID) is
-    accepted on the wire but does not change bind behavior -- the mock
-    SQLite engine has no distinct DATE/TIMESTAMP/UUID column types to
-    convert strings into, so a DATE-hinted value binds identically to an
-    unhinted string. Re-examined this pass and deliberately NOT implemented:
-    real AWS's exact behavior for a malformed hinted value (which error
-    class, and whether it's a request-time or DB-execution-time failure) is
-    not independently verifiable without a live Aurora cluster, and
-    inventing that mapping would risk exactly the kind of
-    gopherstack-invented error semantics this audit is supposed to catch.
-    Only matters if a test asserts on hint-driven type coercion or
-    validation."
-  - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement/ArrayBaseColumnType
-    are always zero-valued. database/sql's sql.ColumnType (the only
-    introspection the pure-Go modernc.org/sqlite driver exposes) has no
-    origin-table/schema/autoincrement accessor, so there is no real signal to
-    populate them from without a hand-rolled SQL catalog query per column
-    keyed by the column's origin table -- which sql.ColumnType also does not
-    expose. (Contrast with generatedFields/UpdateResult, which needed the
-    origin table but got it for free by parsing it out of the INSERT
-    statement itself; a SELECT's result columns have no such textual anchor
-    in the general case, e.g. `SELECT * FROM t JOIN u`.)"
+    fields to select into, the same root cause as ExecuteSql's Database/
+    Schema fields below and its siblings' repeated honest-gap pattern in
+    this campaign. Confirmed via grep: no `.Database`/`.Schema` selector
+    anywhere in non-test source. Not fixed: modeling multiple named
+    databases/schemas inside one engine instance is a real feature (SQLite
+    ATTACH DATABASE per name, or a schema-qualified table namespace), not a
+    field-read fix."
+  - "SqlParameter.typeHint bind semantics (gopherstack-fdle, fixed this
+    pass -- see Notes): a hint now validates its stringValue's documented
+    format and 400s a malformed one, but the *bound value* is still the
+    unmodified string -- the mock SQLite engine has no distinct DATE/
+    DECIMAL/TIMESTAMP/UUID column types to coerce into, so a well-formed
+    DATE-hinted value still binds identically to an unhinted string. Real
+    AWS's exact behavior for a malformed hinted value (which error class,
+    and whether it's a request-time or DB-execution-time failure) is not
+    independently verifiable without a live Aurora cluster -- the
+    BadRequestException class and message wording gopherstack now returns
+    are a best-effort inference, not a field-diffed fact. See Notes."
+  - "ColumnMetadata.SchemaName/TableName/IsAutoIncrement (gopherstack-fdle,
+    fixed this pass for the non-transactional path -- see Notes): populated
+    via modernc.org/sqlite@v1.58.0's conn.ColumnInfo, which exposes the real
+    sqlite3_column_table_name/database_name/origin_name C APIs through
+    *sql.Conn.Raw (database/sql's own sql.ColumnType has no such accessor,
+    as the prior pass found). Still always zero-valued for a statement run
+    inside a BeginTransaction transaction: *sql.Tx has no equivalent to
+    *sql.Conn.Raw, so there's no way to recover the driver connection
+    ColumnInfo needs. ArrayBaseColumnType remains always 0 -- unaffected,
+    and correct, since this mock's result columns are never array-typed
+    (see the field_union family note above)."
 leaks: {status: clean, note: >
   sqlEngine.reset() rolls back every open *sql.Tx and closes every resourceDB
   (including its keep-alive conn) before clearing the maps; Handler.Reset()
@@ -222,8 +229,9 @@ version below.
   affinity algorithm (see `sqliteAffinity`); `nullable` and `precision`/
   `scale` reflect modernc.org/sqlite's driver limits (verified from driver
   source, not guessed).
-- `SqlParameter.typeHint` round-trips on the wire; see gaps for why it still
-  doesn't affect bind semantics.
+- `SqlParameter.typeHint` round-trips on the wire; see the gopherstack-fdle
+  section below for its format-validation semantics (added since), and
+  gaps for why it still doesn't affect the actual bound value.
 
 **Trap for the next auditor:** `ExecuteStatement`/`BatchExecuteStatement`
 degrade SQL the mock SQLite engine rejects (e.g. DML against a table that was
@@ -447,3 +455,314 @@ that actually mattered (this package's dispatch-table union) already
 carried the correct field set regardless of which fold candidate won.
 
 Verdict: confirmed zero damage, not merely predicted.
+
+## gopherstack-fdle (2026-09-11): typeHint validation, ColumnMetadata table origin, array-param wording
+
+Closed the three open items this issue tracked. Split cleanly into "verified
+from docs" (implemented) and "needs live Aurora" (disclosed, unchanged).
+
+**1. SqlParameter.typeHint bind semantics -- format validation implemented;
+actual bind coercion still a documented gap.**
+
+Verified the six enum values and their documented formats two ways: the SDK
+source (`rdsdata@v1.35.4` `types/enums.go`'s `TypeHint` and `types/types.go`'s
+`SqlParameter.TypeHint` doc comment) and the live API reference page
+(https://docs.aws.amazon.com/rdsdataservice/latest/APIReference/API_SqlParameter.html,
+fetched this pass) -- both read identically: `DATE` "YYYY-MM-DD", `DECIMAL`
+(no format constraint beyond "sent as an object of DECIMAL type"), `JSON`
+(no constraint beyond "sent as JSON"), `TIME` "HH:MM:SS[.FFF]", `TIMESTAMP`
+"YYYY-MM-DD HH:MM:SS[.FFF]", `UUID` (no format given in either source, so
+gopherstack validates against the standard 8-4-4-4-12 hex form).
+
+`typehints.go`'s `validateTypeHints`/`validateTypeHintFormat` now checks a
+hinted parameter's `stringValue` against its documented format (DATE/TIME/
+TIMESTAMP via regexp -- TIME/TIMESTAMP have an optional fractional-seconds
+suffix that doesn't fit a single `time.Parse` layout; DATE uses
+`time.Parse(time.DateOnly, ...)` directly; DECIMAL via a plain-number
+regexp; JSON via `encoding/json.Valid`; UUID via a hex-pattern regexp),
+called from both `handleExecuteStatement` and per parameter set from
+`handleBatchExecuteStatement`, alongside the existing
+`validateNoArrayParameters` call. A malformed value under a hint returns
+`ErrValidation` (`BadRequestException` -- confirmed a member of
+`ExecuteStatement`'s own error switch,
+`deserializers.go:880-923`'s `awsRestjson1_deserializeOpErrorExecuteStatement`)
+wrapping the parameter name (`fmt.Errorf("%w: parameter %q: %w", ...)`), so
+the response body names the offending parameter. **Disclosed, not
+implemented:** the actual bound *value* is unchanged by a well-formed
+hint -- the mock SQLite engine has no distinct DATE/DECIMAL/TIMESTAMP/UUID
+column types to coerce a string into, so this mock can only ever validate
+the wire-level string format, not reproduce Aurora's actual DB-side type
+coercion. Whether real AWS's malformed-value failure is request-time
+(before touching the database, as gopherstack now does) or a DB-execution-time
+error from the database engine itself, and the exact message text, is not
+independently verifiable without a live Aurora cluster -- said so directly
+in `validateTypeHints`'s doc comment and here, rather than inventing wording
+and presenting it as verified. A hint on a non-string or null `Value` is a
+no-op (matches the doc's "the corresponding *String* parameter value..."
+wording, which only defines behavior for a stringValue).
+
+**2. ColumnMetadata.SchemaName/TableName/IsAutoIncrement -- implemented for
+the non-transactional path via a real driver accessor neither prior audit
+found.**
+
+Both prior audits (2026-08-11, 2026-08-30) concluded `sql.ColumnType` (the
+only introspection `database/sql` itself exposes) has no origin-table
+accessor, and stopped there. This pass went one level deeper: the pinned
+driver, `modernc.org/sqlite@v1.58.0` (go.mod), exposes the real
+`sqlite3_column_table_name`/`sqlite3_column_database_name`/
+`sqlite3_column_origin_name` C APIs directly through its own
+`conn.ColumnInfo(query string) ([]sqlite.ColumnInfo, error)` method
+(`conn.go:342-405`), reachable from a `*sql.Conn` via the standard
+`(*sql.Conn).Raw` escape hatch -- confirmed by reading the driver source,
+not assumed from its name.
+
+`engine.go`'s new `columnOriginInfo` opens a fresh `*sql.Conn` from the
+resource's `*sql.DB` and calls `ColumnInfo` on the same statement text (a
+prepare-only call -- it doesn't execute or bind parameters, so named
+placeholders like `:id` compile fine without values); `applyColumnOrigin`
+matches each returned entry to `scanRows`'s columns by position, filling
+`TableName`/`SchemaName` (from `DatabaseName`, the closest signal SQLite has
+to a schema -- "main" for the default database) and computing
+`IsAutoIncrement` by checking whether `(TableName, OriginName)` is that
+table's sole rowid-alias `INTEGER PRIMARY KEY` column, reusing the same
+`rowIDAliasColumn` primitive `generatedFieldsFor` already relied on (a real,
+previously-verified signal, not a new invented one -- see the
+`generatedFields` Notes entry above). A column with no unambiguous source
+table (an expression, function call, or constant) reports an empty
+`TableName` per the accessor's own documented contract, which
+`applyColumnOrigin` passes through as the historical zero value --
+verified in `TestExecuteStatement_ColumnMetadata_TableOrigin`'s `SELECT 1 +
+1` case.
+
+**Disclosed, not implemented:** this only works outside a
+`BeginTransaction` transaction. `sqlEngine.execute` only has a `*sql.DB` to
+call `.Conn`/`.Raw` on in the autocommit branch; the transactional branch
+runs against an `*sql.Tx` (opened once by `BeginTransaction` and reused
+across calls), and `*sql.Tx` has no `Raw` method or equivalent in
+`database/sql` -- there is no way to recover the underlying driver
+connection from an existing `*sql.Tx` to call `ColumnInfo` on. A statement
+run with a `transactionId` therefore still reports
+`SchemaName`/`TableName`/`IsAutoIncrement` as their zero value, exactly as
+before this pass -- verified in
+`TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction`.
+`ArrayBaseColumnType` is untouched (still always 0) and correctly so: see
+the field_union family note above for why this mock's result columns are
+never array-typed.
+
+**3. Array parameters -- confirmed and message wording tightened.**
+
+Re-verified `validateNoArrayParameters`'s behavior against
+`rdsdata@v1.35.4`: `ExecuteStatementInput.Parameters`
+(`api_op_ExecuteStatement.go`) and `BatchExecuteStatementInput.ParameterSets`
+(`api_op_BatchExecuteStatement.go:87`) both carry the identical doc comment
+"Array parameters are not supported." (capital A, period) directly above the
+field. gopherstack's rejection message previously read lowercase ("array
+parameters are..."); changed to match the doc's exact capitalization while
+still naming the parameter for debuggability:
+`"%w: Array parameters are not supported (parameter %q)"`. Confirmed both
+call sites (`handleExecuteStatement`'s single-parameter-list check and
+`handleBatchExecuteStatement`'s per-parameter-set loop) still invoke it. The
+exact wording a live Aurora call returns for this case remains
+unverified without one -- this is a best-effort alignment with the
+documented constraint, not a field-diffed fact; unchanged conclusion from
+the prior two audits, restated here per this issue's ask to re-confirm it.
+
+**Tests** (all real `aws-sdk-go-v2/service/rdsdata` client against
+`httptest`, following the existing `newRoundTripClient` pattern from
+`handler_oversized_body_test.go`, except the in-transaction ColumnMetadata
+case -- see its doc comment for why): `typehints_realclient_test.go` (valid
++ malformed value per hint, table-driven; a non-string value is a no-op;
+BatchExecuteStatement applies hints per parameter set),
+`column_origin_realclient_test.go` (TableName/SchemaName/IsAutoIncrement for
+a real table's columns, a computed column's empty origin, and the
+inside-a-transaction zero-value case), `array_parameter_realclient_test.go`
+(ExecuteStatement and BatchExecuteStatement both reject with the updated
+message).
+
+**Aside found while writing the in-transaction ColumnMetadata test, filed
+separately and fixed the same day -- see "gopherstack-wh8gv" below:**
+`sqlEngine.beginTx` (engine.go) opened the engine-side `*sql.Tx` using
+`BeginTransaction`'s own per-request `context.Context`. Over a real
+`net/http.Server`, that context was canceled once the `BeginTransaction`
+request finished being served, and `database/sql` auto-rolls back a
+`*sql.Tx` whose context is canceled -- so a *separate* subsequent HTTP
+request (`ExecuteStatement` with that `transactionId`) silently hit
+`sql.ErrTxDone`, which `statements.go`'s historical lenient fallback
+swallowed into the ordinary empty-success envelope (no client-visible
+error, just silently-wrong empty/zero results, i.e. lost writes). Was out
+of scope for this issue (gopherstack-fdle: typeHint/ColumnMetadata/array
+parameters, not transaction-context lifetime); tracked as gopherstack-wh8gv
+and fixed the same day.
+
+**Gates:** `go build ./...` clean; `go vet ./services/rdsdata/...` clean;
+`go test -race -count=1 ./services/rdsdata/... ./pkgs/persistence/...` ok;
+`golangci-lint run ./services/rdsdata/...` 0 issues; no cyclop/gocyclo/
+gocognit/funlen nolints added. No persisted struct changed (ColumnMetadata/
+SQLParameter's JSON shape is identical -- only how their fields are
+populated changed; query results were never part of `backendSnapshot` to
+begin with, see `persistence.go`), so `pkgs/persistence/testdata/
+snapshot_inventory.json` needed no update and no version bump.
+
+## gopherstack-wh8gv (2026-09-11): transaction-context lifetime -- silent data loss
+
+Fixed the transaction-context-lifetime bug the gopherstack-fdle pass above
+found and filed separately: `sqlEngine.beginTx` (engine.go) opened its
+engine-side `*sql.Tx` under `BeginTransaction`'s own per-request context.
+`database/sql.DB.BeginTx`'s doc comment (`database/sql/sql.go:1866-1868`,
+go1.27 stdlib) states plainly: "The provided context is used until the
+transaction is committed or rolled back. If the context is canceled, the
+sql package will roll back the transaction." A real `net/http.Server`
+cancels a request's context the instant its response is written, so the
+moment `BeginTransaction`'s HTTP response went out, its `*sql.Tx` was
+already rolled back -- every later `ExecuteStatement`/
+`BatchExecuteStatement` against that `transactionId` then hit
+`sql.ErrTxDone` (`database/sql/sql.go:2233-2235`: "ErrTxDone is returned by
+any operation that is performed on a transaction that has already been
+committed or rolled back"), which `statements.go`'s historical lenient
+fallback swallowed into the ordinary empty-success envelope. Net effect: a
+client that began a transaction, ran an INSERT against it, and committed
+saw two 200 OKs and believed its write succeeded; the row was never there.
+
+**Fix 1 -- engine-owned transaction context.** `sqlEngine` now carries its
+own `baseCtx`/`baseCancel` (`context.WithCancel(context.Background())`,
+created in `newSQLEngine`). `beginTx` derives each transaction's context
+from `baseCtx`, not the caller's `ctx` (`engine.go`'s new `engineTx{tx,
+cancel}` pairs a `*sql.Tx` with its own cancel func). That per-transaction
+context is canceled only by `finalizeTx` (called from `CommitTransaction`/
+`RollbackTransaction` after the real `tx.Commit()`/`tx.Rollback()` call,
+and from the Janitor's `tick` on idle/max-lifetime expiry -- both already
+existing call sites, unchanged) or by `sqlEngine.reset()` (backend
+`Reset()`), which cancels `baseCtx` -- transitively canceling every still-open
+transaction's derived context -- then replaces `baseCtx`/`baseCancel` so the
+engine remains usable afterward. `ctx` (the caller's per-request context) is
+still passed to `dbFor` for opening/pinning the resource `*sql.DB`: that
+call's context only bounds waiting for a connection, not the returned
+`*sql.DB`'s lifetime (unlike `BeginTx`), so it carries no equivalent
+landmine -- confirmed by reading `database/sql.DB.Conn`'s doc comment, which
+makes no such claim.
+
+**Timeout semantics** (unchanged from the existing janitor.go
+implementation, gopherstack-02w): BeginTransaction's own doc comment
+(`rdsdata@v1.35.4 api_op_BeginTransaction.go`) and the live API reference
+(https://docs.aws.amazon.com/rdsdataservice/latest/APIReference/API_BeginTransaction.html,
+refetched this pass) both state, verbatim: "A transaction can run for a
+maximum of 24 hours. A transaction is terminated and rolled back
+automatically after 24 hours." and "A transaction times out if no calls use
+its transaction ID in three minutes. If a transaction times out before it's
+committed, it's rolled back automatically." The pre-existing Janitor
+(`janitor.go`) already enforces both thresholds via `finalizeTx`; this pass
+only changed what `finalizeTx`'s rollback races against (nothing, now,
+instead of an already-dead context) and how "now" is read -- see Fix 3.
+
+**Fix 2 -- dead-transaction execution errors instead of a fabricated
+success.** Even with Fix 1, a transaction id can still legitimately go dead
+between `Has()`'s check and engine execution in one case Fix 1 doesn't
+touch: a snapshot `Restore` records a still-`ACTIVE` `Transaction` in
+`b.transactions` (real AWS bookkeeping metadata, which persists) but
+`engine.reset()` necessarily drops every `*sql.Tx` (an open driver
+connection can't be serialized) -- so `e.txs` has no entry for that id after
+a restart. `statements.go`'s `ExecuteStatement`/`BatchExecuteStatement` now
+check `isDeadTransactionError` (engine.go: `errors.Is(err, errNoEngineTx) ||
+errors.Is(err, sql.ErrTxDone)`) on any engine error while `transactionID !=
+""`, and return `ErrTransactionNotFound` instead of falling through to the
+historical empty-success envelope. The historical lenient fallback is
+otherwise **unchanged** and deliberately still in place for genuine SQL
+problems (bad syntax, DML against a table that was never created, both in
+autocommit and inside a live transaction) -- see this file's "Trap for the
+next auditor" note above; this fix only closes the one path where the
+*transaction itself*, not the SQL, is the problem.
+
+**Error class -- `TransactionNotFoundException`, not `BadRequestException`.**
+The bd issue's initial hypothesis was `BadRequestException` with a "Transaction
+<id> is not found" message. Checking the real error lists first
+(`rdsdata@v1.35.4` `api_op_ExecuteStatement.go`/`api_op_BeginTransaction.go`/
+etc. and the live API reference's Errors sections for BeginTransaction and
+ExecuteStatement, both refetched this pass) shows AWS models this exact
+case as its own distinct exception: `TransactionNotFoundException` --
+"The transaction ID wasn't found." (HTTP 404 per the docs). gopherstack
+already has this modeled end-to-end as `ErrTransactionNotFound`
+(errors.go) and already used it for the unknown/committed/rolled-back cases
+(`CommitTransaction`/`RollbackTransaction`/the pre-existing `Has()` checks
+in `ExecuteStatement`/`BatchExecuteStatement`) -- so this fix reuses that
+existing, already-correct mechanism for the newly-caught dead-engine-tx case
+rather than inventing a second, less-accurate error path. gopherstack
+returns it over HTTP 400 (matching every other error this handler emits),
+not the documented 404: confirmed from `aws-sdk-go-v2`'s own deserializer
+(`rdsdata@v1.35.4 deserializers.go`'s
+`awsRestjson1_deserializeOpErrorExecuteStatement`) that the client selects
+the Go exception type purely from the `__type`/`code` string (header or
+body), never from the HTTP status -- so a real client still gets a typed
+`*types.TransactionNotFoundException` regardless of the status code. The
+400-vs-404 status mismatch is a pre-existing, unrelated gap (this handler
+has always used a flat 400 for every error type) rather than something this
+fix introduces or needed to correct to make the client-visible behavior
+right.
+
+**Fix 3 -- injectable clock.** `InMemoryBackend` had no clock seam;
+`BeginTransaction`/`touchTransactionLocked`/`janitor.go`'s `tick` all called
+`time.Now()` directly. Added `nowFunc func() time.Time` (default
+`time.Now`) and an exported `WithClock` method (store.go), following
+`services/polly/store.go`/`throttle.go`'s existing `WithClock` pattern
+exactly. `BeginTransaction`, `touchTransactionLocked`, and the Janitor's
+`tick` now read `nowFunc()` instead of `time.Now()`, so a test can drive the
+3-minute idle timeout deterministically (advance a fake clock, then call
+the already-exported `Janitor.SweepOnce` directly) with no `time.Sleep` and
+no real wall-clock wait or background goroutine.
+
+**Tests** (`transaction_context_realclient_test.go`, table-driven, real
+`aws-sdk-go-v2/service/rdsdata` client against a real `httptest.Server` via
+the existing `newRoundTripClient` helper, each call its own separate HTTP
+request -- unlike this package's `doRDSDataRequest`-based transaction tests,
+whose `httptest.NewRequest` carries a never-canceled `context.Background()`
+and so could never have caught this): commit makes a live-transaction
+INSERT visible to a later autocommit SELECT (the core regression case --
+confirmed it fails pre-fix: temporarily reverted `beginTx` to use the
+caller's `ctx` and reran, got a real `TransactionNotFoundException` instead
+of a silent empty result, then restored the fix); rollback discards a
+live-transaction INSERT (asserts the insert reported `NumberOfRecordsUpdated
+== 1` before rollback, to prove it ran against a live tx rather than
+"passing" for the old, wrong reason); unknown transaction id and execute
+after commit both return `TransactionNotFoundException` (these two were
+already correct pre-fix via the pre-existing `Has()` check -- kept as
+baseline coverage); idle timeout via `WithClock` + `Janitor.SweepOnce`
+also returns `TransactionNotFoundException`. `column_origin_realclient_test.go`'s
+`TestExecuteStatement_ColumnMetadata_TableOrigin_InsideTransaction` doc
+comment updated to stop describing this bug as a live reason to avoid a
+real server round trip -- it no longer is one; that test still uses
+`doRDSDataRequest` as a plain style choice, not a workaround.
+
+**Gates:** `go build ./...` clean; `go vet ./services/rdsdata/...` clean;
+`go test -race -count=1 ./services/rdsdata/... ./pkgs/persistence/...` ok;
+`go test -race -count=20 -run 'Transaction' ./services/rdsdata/...` ok (all
+20 iterations); `golangci-lint run ./services/rdsdata/...` -- one
+`fieldalignment` finding on the new test file's `fakeClock` struct, fixed by
+reordering fields (`time.Time` before `sync.Mutex`). No `cyclop`/`gocyclo`/
+`gocognit`/`funlen` nolints added. No persisted struct's JSON shape changed
+(`Transaction`'s fields are untouched; the new `nowFunc` is an unexported,
+unpersisted backend field, not part of `backendSnapshot`) -- see
+`persistence.go` -- so `pkgs/persistence/testdata/snapshot_inventory.json`
+needed no update and no version bump.
+
+## 2026-09-12 (typed-client coverage slice 17, gopherstack-n3zi)
+
+Added `typed_slice17_realclient_test.go` covering rdsdata's last typed-
+client-uncovered op: the deprecated `ExecuteSql` batch-statement entry
+point (superseded by `ExecuteStatement`/`BatchExecuteStatement`, still a
+real, callable op in the pinned SDK). Creates a table, inserts a row, and
+selects it back through the real client, asserting the decoded legacy
+`SqlStatementResult`/`ResultFrame`/`ColumnMetadata`/`Value` union shapes
+(`types.ValueMemberBigIntValue`). Zero bugs found -- `sql.go`'s
+`legacyValueFromField` already emits the correct `bigIntValue` wire key for
+this union.
+
+Every real client call to this op carries an expected `SA1019` deprecation
+notice; the whole file is exempted from `staticcheck` in `.golangci.yml`
+(same pattern as `iotanalytics`/`opsworks`'s existing deprecated-op
+exemptions) since testing this op requires calling it.
+
+Typed-client coverage: 5/6 -> 6/6 (100%).
+
+Gates: `go build ./...`, `go vet ./services/rdsdata/...`, `go test -race
+-count=1 ./services/rdsdata/...` (pass), `golangci-lint run
+--new-from-rev=HEAD ./services/rdsdata/...` (0 issues). No persisted
+struct fields changed, no version bump. `cmd/paritylint` stays at 0 FAIL.

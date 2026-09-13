@@ -58,8 +58,8 @@ ops:
   ListGroupMembers: {wire: ok, errors: ok, state: ok, persist: ok}
   ListGroupsForEntity: {wire: ok, errors: ok, state: ok, persist: ok, note: "response reused the ListGroups item shape (Id/Name/Email/State); real shape is types.GroupIdentifier (GroupId/GroupName only) -- every field the SDK actually reads was zero-valued. Fixed with a dedicated groupIdentifierResp type (prior pass). GAP CLOSED this pass: Filters.GroupNamePrefix (the op's single filter dimension) now filters the result set; previously accepted but ignored."}
   CreateResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "errcodeaudit 2026-08-29 FIX: duplicate-name rejection emitted the fabricated EntityAlreadyExistsException; switched to the real NameAvailabilityException CreateResource's own model defines."}
-  DescribeResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "BookingOptions / HiddenFromGlobalAddressList not modeled -- gap, not in this pass' declared 6; see gaps below."}
-  UpdateResource: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "STALE note corrected 2026-09-11 (gopherstack-rrmj): BookingOptions and HiddenFromGlobalAddressList are both modeled and wired (see residual_gaps' 2026-08-23 correction below) -- confirmed again against api_op_DescribeResource.go (workmail@v1.39.4)."}
+  UpdateResource: {wire: ok, errors: ok, state: fixed, persist: ok, note: "GAP CLOSED 2026-09-11 (gopherstack-rrmj): HiddenFromGlobalAddressList was decoded/threaded as a plain bool, so any UpdateResource call that didn't set it (e.g. a rename-only call) silently reset it to false -- unlike UpdateUserInput/UpdateGroupInput's already-correct *bool handling. Real UpdateResourceInput.HiddenFromGlobalAddressList is *bool (api_op_UpdateResource.go) and its serializer only emits the key when non-nil (serializers.go:8315), i.e. omitted means unchanged. Interface/backend/handler switched to *bool, matching applyUpdateUserCoreFields' existing pattern. Test_SDKRoundTrip_Resource_UpdateOmitsHiddenFromGAL_LeavesUnchanged (wire_field_fixes_test.go) fails pre-fix, passes post-fix."}
   DeleteResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "now cascade-cleans aliases/globalAliases/permissions(target+grantee)/group-memberships/other-resources'-delegate-listings/tags via cascadeCleanEntity -- see leaks below."}
   ListResources: {wire: ok, errors: ok, state: ok, persist: ok, note: "GAP CLOSED: Filters (NamePrefix/PrimaryEmailPrefix/State) now filter the result set (resourceMatchesFilter in resources.go); previously accepted but ignored."}
   AssociateDelegateToResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -129,10 +129,12 @@ families:
   route-matcher: {status: ok, note: "single X-Amz-Target-prefix POST endpoint (WorkMailService.<Op>); MatchPriority/RouteMatcher/ExtractOperation all verified against service.HandleTarget's shared dispatcher, not just a Handler() unit test. buildOps() was decomposed into 4 category builder funcs (buildOrgAndEntityOps/buildMailboxAndDomainOps/buildAccessAndImpersonationOps/buildConfigAndTokenOps) merged via maps.Copy to remove a //nolint:funlen -- purely a structural split, every op is still in the one flat dispatch map and still dispatch-reachable through service.HandleTarget -> h.dispatch. Re-verified op count unchanged (92) via HandlerOpsLen and TestSDKCompleteness (still green)."}
   persistence: {status: ok, note: "Handler.Snapshot/Restore already delegate to backend (fixed in an earlier phase per persistence.go's doc comments) so cli.go's setupPersistence picks WorkMail up. Verified all 15 org-nested/composite-keyed tables + 3 registry tables + raw maps (including tags -- see TagResource note above) round-trip through backendSnapshot; version-mismatch discard-and-reset path present. Additive struct fields (User/MailDomain/AccessControlRule/Organization) don't require a snapshot-version bump: old snapshots decode the new fields as zero values, which is the correct behavior (a pre-upgrade org genuinely never had DKIM records, migration admin, etc.)."}
   error-mapping: {status: ok, note: "every backend error path wraps one of ErrNotFound/ErrConflict/ErrValidation/ErrLimitExceeded/ErrMailDomainState/ErrEntityState; handleError's switch covers all six plus isUnknownOp -- no bare fmt.Errorf that would fall through to InternalServiceError found."}
-gaps:
+gaps: []
+items_still_open:
   - "CORRECTED 2026-08-23 (manifest-harvest pass): this bullet was stale. DescribeResource already models both BookingOptions and HiddenFromGlobalAddressList -- field-diffed against DescribeResourceOutput/types.BookingOptions (workmail@v1.39.4 api_op_DescribeResource.go:54-84, types/types.go:85-98): both fields present on handler_resources.go's describeResourceResp, BookingOptions carries all 3 real sub-fields (AutoAcceptRequests/AutoDeclineConflictingRequests/AutoDeclineRecurringRequests, interfaces.go), and CreateResource/UpdateResource both thread BookingOptions through. Already covered end-to-end by TestDescribeResource_BookingOptionsAndHiddenFromGAL (handler_resources_test.go), which passes. No code change needed -- the implementation predates this note and the note was never updated to match."
   - "Organization.State is hardcoded to ACTIVE (org creation is synchronous); real AWS transitions through Creating/Active/etc, but nothing in this backend ever leaves an org in a non-terminal state, so this is a non-issue in practice, not a hidden bug. Left as-is (re-verified this pass, not fixed -- there is nothing to fix: no code path produces an incorrect State)."
   - "ALREADY FIXED (2026-08-29 gopherstack-sm09 re-verification): this bullet was stale. CreateOrganization threads EnableInteroperability onto Organization.InteroperabilityEnabled (organizations.go:47, landed in fb80d66cd) and DescribeOrganization echoes it back (handler_organizations.go:78); TestCreateOrganization_EnableInteroperability (handler_organizations_test.go) proves both true and false round-trip through the real handler. No code change needed -- the fix predates this note and the note was never updated to match."
+  - "RE-VERIFIED 2026-09-11 (gopherstack-rrmj): CreateOrganizationInput.EnableInteroperability and DescribeResource's BookingOptions/HiddenFromGlobalAddressList were re-checked against workmail@v1.39.4 and confirmed still fixed (see the 2026-08-23/2026-08-29 gap entries above) -- typed-client regression tests added (Test_SDKRoundTrip_CreateOrganization_EnableInteroperability, wire_field_fixes_test.go) since the prior verifications only exercised the raw handler harness, not the real SDK client's deserializer. One real bug FOUND and FIXED this pass while re-verifying the HiddenFromGlobalAddressList path: UpdateResourceInput.HiddenFromGlobalAddressList is *bool on the wire (api_op_UpdateResource.go) and its serializer omits the key entirely when nil (serializers.go:8315), meaning 'not set' on a real client call. This backend's updateResourceReq/UpdateResource decoded/threaded it as a plain bool, so any UpdateResource call that didn't set HiddenFromGlobalAddressList (e.g. renaming a resource) silently reset it to false, unhiding a resource the caller never touched -- a silently-wrong bug, not a missing-field gap. Fixed by switching the field to *bool end-to-end (interfaces.go, resources.go, handler_resources.go), matching UpdateUserInput/UpdateGroupInput's already-correct pointer handling (applyUpdateUserCoreFields, users.go). Test_SDKRoundTrip_Resource_UpdateOmitsHiddenFromGAL_LeavesUnchanged (wire_field_fixes_test.go) fails against the pre-fix unconditional-assignment code and passes post-fix."
   - "LimitExceededException (gopherstack-gmny, 2026-09-06): declared on 10 ops but only 2 have a published, non-adjustable AWS quota to enforce. DOCUMENTATION-SOURCED, not SDK-verified (no wire field exists to check these numbers against) -- per docs.aws.amazon.com/workmail/latest/adminguide/workmail_limits.html: CreateAlias enforces 'Maximum number of aliases per user | 100. This is a hard quota and can't be changed.' (maxAliasesPerUser, aliases.go, scoped per entity from the existing b.aliases[orgID][entityID] bookkeeping); RegisterMailDomain enforces 'Number of domains per Amazon WorkMail organization | 1,000. This is a hard quota and can't be changed.' (maxDomainsPerOrganization, mail_domains.go, scoped per org from the existing b.mailDomainsByOrg index). CreateOrganization's published number (100 orgs/account) is explicitly NOT enforced: AWS states it 'Can be increased based on an organization's directory type' -- the same adjustable-quota shape already declined at services/efs/PARITY.md:76,80, so hardcoding it here would risk breaking legitimate high-volume use of the mock for no wire-shape benefit. The remaining 7 ops (CreateAvailabilityConfiguration, CreateImpersonationRole, CreateMobileDeviceAccessRule, PutAccessControlRule, PutRetentionPolicy, StartMailboxExportJob, UpdateImpersonationRole) have no published number anywhere on the quotas page or the API reference; durably blocked, recorded so nobody re-searches."
 deferred: []
 # The single previously-deferred item (Tags persistence) was independently
@@ -653,3 +655,35 @@ Gates re-run: `GOTOOLCHAIN=go1.26.6 go build ./services/workmail/...`
 (clean), `GOTOOLCHAIN=go1.26.6 go test -race -count=1
 ./services/workmail/...` (pass, unchanged), `GOTOOLCHAIN=go1.26.6
 golangci-lint run services/workmail/...` (0 issues).
+
+## 2026-09-12 (typed-client coverage slice 13, gopherstack-n3zi)
+
+Typed-client coverage: 34/92 (37.0%) -> 92/92 (100%) ops now driven by a
+real aws-sdk-go-v2 workmail client end to end (`typed_slice13_realclient_test.go`,
+17 subtests, family-per-row, each a fresh backend: tags, aliases,
+availability configurations, IAM Identity Center application + identity
+provider configuration, impersonation roles (incl. AssumeImpersonationRole
+and GetImpersonationRoleEffect), mobile device access rules, mobile device
+access overrides, personal access tokens (seeded via the existing
+backend-direct `CreatePersonalAccessToken` test helper -- the real WorkMail
+API has no create op for these), resource delegates, inbound DMARC
+settings, email monitoring configuration, retention policy, access control
+rules, default mail domain, mailbox extras (quota/export job lifecycle),
+DescribeEntity + group membership + UpdateGroup, and ResetPassword +
+UpdatePrimaryEmailAddress).
+
+**Zero new bugs found** -- every op passed against its real typed-decoded
+response on the first correctly-shaped request. Consistent with this
+service's long, itemized prior-pass history in this file (the addendum
+above this section alone traces a `DeleteMobileDeviceAccessOverride`
+error-code question through to a confirmed non-finding); the wire shapes
+this slice exercised had already been through the same field-by-field
+diffing this campaign's earlier passes on other services found bugs
+through.
+
+Gates: `go build ./...` (whole module, clean), `go vet ./services/workmail/...`
+clean, `golangci-lint run --new-from-rev=HEAD services/workmail/...` 0
+issues, `go test -race -count=1 ./services/workmail/...` green,
+`go run ./cmd/paritylint` stays at 0 FAIL. No persisted-struct field
+changes; no version bump; no `items_still_open` changes (nothing new
+found to disclose).

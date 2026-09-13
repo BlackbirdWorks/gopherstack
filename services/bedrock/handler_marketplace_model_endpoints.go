@@ -167,13 +167,17 @@ type createMarketplaceModelEndpointOutput struct {
 }
 
 type marketplaceEndpointOutput struct {
-	EndpointConfig        *endpointConfigWire `json:"endpointConfig,omitempty"`
-	CreatedAt             string              `json:"createdAt"`
-	UpdatedAt             string              `json:"updatedAt"`
-	EndpointArn           string              `json:"endpointArn"`
-	EndpointName          string              `json:"endpointName"`
-	ModelSourceIdentifier string              `json:"modelSourceIdentifier"`
-	Status                string              `json:"status"`
+	EndpointConfig *endpointConfigWire `json:"endpointConfig,omitempty"`
+	CreatedAt      string              `json:"createdAt"`
+	UpdatedAt      string              `json:"updatedAt"`
+	EndpointArn    string              `json:"endpointArn"`
+	EndpointName   string              `json:"endpointName"`
+	// EndpointStatus is the real, required member (bedrock@v1.66.4 types.go:5208,
+	// deserializers.go:31926) -- previously never emitted at all, so a real
+	// client's EndpointStatus always decoded empty regardless of lifecycle state.
+	EndpointStatus        string `json:"endpointStatus"`
+	ModelSourceIdentifier string `json:"modelSourceIdentifier"`
+	Status                string `json:"status"`
 }
 
 func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpointOutput {
@@ -182,6 +186,7 @@ func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpoi
 		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
 		Status:                ep.Status,
+		EndpointStatus:        ep.Status,
 		EndpointConfig:        endpointConfigToWire(ep.EndpointConfig),
 		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:             ep.UpdatedAt.Format(time.RFC3339),
@@ -212,13 +217,20 @@ func (h *Handler) handleCreateMarketplaceModelEndpoint(c *echo.Context, body []b
 	})
 }
 
+// handleGetMarketplaceModelEndpoint wraps the endpoint under the required
+// "marketplaceModelEndpoint" key (bedrock@v1.66.4 deserializers.go:9536) --
+// previously returned the flat object with no wrapper, so a real client's
+// required GetMarketplaceModelEndpointOutput.MarketplaceModelEndpoint always
+// decoded nil.
 func (h *Handler) handleGetMarketplaceModelEndpoint(c *echo.Context, id string) error {
 	ep, err := h.Backend.GetMarketplaceModelEndpoint(id)
 	if err != nil {
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, marketplaceEndpointToOutput(ep))
+	return c.JSON(http.StatusOK, createMarketplaceModelEndpointOutput{
+		MarketplaceModelEndpoint: marketplaceEndpointToOutput(ep),
+	})
 }
 
 type listMarketplaceModelEndpointsOutput struct {
@@ -260,7 +272,12 @@ func (h *Handler) handleUpdateMarketplaceModelEndpoint(c *echo.Context, id strin
 		return h.writeError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, marketplaceEndpointToOutput(ep))
+	// Wrapped under "marketplaceModelEndpoint" like Get/Create/Register
+	// (bedrock@v1.66.4 deserializers.go:18574) -- previously unwrapped, same
+	// required-field-decodes-nil bug as handleGetMarketplaceModelEndpoint.
+	return c.JSON(http.StatusOK, createMarketplaceModelEndpointOutput{
+		MarketplaceModelEndpoint: marketplaceEndpointToOutput(ep),
+	})
 }
 
 type registerMarketplaceModelEndpointInput struct {

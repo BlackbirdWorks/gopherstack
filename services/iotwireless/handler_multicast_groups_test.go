@@ -291,7 +291,7 @@ func TestHandler_SendDataToMulticastGroup_UniqueMessageID(t *testing.T) {
 	for range 5 {
 		rec = doIoTWRequest(t, h, http.MethodPost,
 			"/multicast-groups/"+mgID+"/data",
-			`{"PayloadData":"aGVsbG8="}`)
+			`{"PayloadData":"aGVsbG8=","WirelessMetadata":{}}`)
 		require.Equal(t, http.StatusCreated, rec.Code)
 
 		var resp map[string]any
@@ -301,6 +301,45 @@ func TestHandler_SendDataToMulticastGroup_UniqueMessageID(t *testing.T) {
 		assert.NotEmpty(t, msgID)
 		assert.False(t, seen[msgID], "MessageId should be unique: %s", msgID)
 		seen[msgID] = true
+	}
+}
+
+// TestHandler_SendDataToMulticastGroup_RequiresBody locks in
+// SendDataToMulticastGroupInput's two required document members
+// (PayloadData, WirelessMetadata -- iotwireless@v1.44.4
+// api_op_SendDataToMulticastGroup.go). Before this fix the handler
+// discarded the request body outright and returned 201 for any input,
+// missing fields included.
+func TestHandler_SendDataToMulticastGroup_RequiresBody(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		body string
+		want int
+	}{
+		{name: "missing payload data", body: `{"WirelessMetadata":{}}`, want: http.StatusBadRequest},
+		{name: "missing wireless metadata", body: `{"PayloadData":"aGVsbG8="}`, want: http.StatusBadRequest},
+		{name: "both present", body: `{"PayloadData":"aGVsbG8=","WirelessMetadata":{}}`, want: http.StatusCreated},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandlerHTTP()
+
+			rec := doIoTWRequest(t, h, http.MethodPost, "/multicast-groups", `{"Name":"mg-send-required"}`)
+			require.Equal(t, http.StatusCreated, rec.Code)
+
+			var createResp map[string]any
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
+			mgID, _ := createResp["Id"].(string)
+			require.NotEmpty(t, mgID)
+
+			rec = doIoTWRequest(t, h, http.MethodPost, "/multicast-groups/"+mgID+"/data", tc.body)
+			assert.Equal(t, tc.want, rec.Code, "body: %s", rec.Body.String())
+		})
 	}
 }
 

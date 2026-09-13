@@ -230,3 +230,96 @@ func Test_SDKRoundTrip_Resource_HiddenFromGlobalAddressList(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, after.HiddenFromGlobalAddressList, "UpdateResource must persist HiddenFromGlobalAddressList")
 }
+
+// Test_SDKRoundTrip_Resource_UpdateOmitsHiddenFromGAL_LeavesUnchanged proves
+// a later UpdateResource call that does not set HiddenFromGlobalAddressList
+// (nil) leaves the stored value unchanged rather than resetting it to
+// false. Real UpdateResourceInput.HiddenFromGlobalAddressList is *bool
+// (workmail@v1.39.4 api_op_UpdateResource.go) and its serializer only emits
+// the "HiddenFromGlobalAddressList" key when the pointer is non-nil
+// (serializers.go:8315), so a client updating only Name must not touch it.
+func Test_SDKRoundTrip_Resource_UpdateOmitsHiddenFromGAL_LeavesUnchanged(t *testing.T) {
+	t.Parallel()
+
+	backend := workmail.NewInMemoryBackend("000000000000", "us-east-1")
+	h := workmail.NewHandler(backend)
+	client := newWorkMailSDKClient(t, h)
+	ctx := t.Context()
+
+	org, err := client.CreateOrganization(ctx, &workmailsdk.CreateOrganizationInput{
+		Alias: aws.String("org-" + uuid.NewString()[:8]),
+	})
+	require.NoError(t, err)
+
+	resName := "res-" + uuid.NewString()[:8]
+	res, err := client.CreateResource(ctx, &workmailsdk.CreateResourceInput{
+		OrganizationId:              org.OrganizationId,
+		Name:                        aws.String(resName),
+		Type:                        types.ResourceTypeRoom,
+		HiddenFromGlobalAddressList: true,
+	})
+	require.NoError(t, err)
+
+	before, err := client.DescribeResource(ctx, &workmailsdk.DescribeResourceInput{
+		OrganizationId: org.OrganizationId,
+		ResourceId:     res.ResourceId,
+	})
+	require.NoError(t, err)
+	require.True(t, before.HiddenFromGlobalAddressList, "resource must be created hidden")
+
+	_, err = client.UpdateResource(ctx, &workmailsdk.UpdateResourceInput{
+		OrganizationId: org.OrganizationId,
+		ResourceId:     res.ResourceId,
+		Name:           aws.String(resName + "-renamed"),
+	})
+	require.NoError(t, err)
+
+	after, err := client.DescribeResource(ctx, &workmailsdk.DescribeResourceInput{
+		OrganizationId: org.OrganizationId,
+		ResourceId:     res.ResourceId,
+	})
+	require.NoError(t, err)
+	assert.True(t, after.HiddenFromGlobalAddressList,
+		"UpdateResource omitting HiddenFromGlobalAddressList must not unhide the resource")
+}
+
+// Test_SDKRoundTrip_CreateOrganization_EnableInteroperability proves
+// CreateOrganizationInput.EnableInteroperability (a real input member,
+// workmail@v1.39.4 api_op_CreateOrganization.go) is threaded onto
+// DescribeOrganizationOutput.InteroperabilityEnabled (same file), verified
+// through the real typed client rather than the raw handler harness
+// (gopherstack-rrmj).
+func Test_SDKRoundTrip_CreateOrganization_EnableInteroperability(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "enabled", enabled: true},
+		{name: "disabled", enabled: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := workmail.NewInMemoryBackend("000000000000", "us-east-1")
+			h := workmail.NewHandler(backend)
+			client := newWorkMailSDKClient(t, h)
+			ctx := t.Context()
+
+			org, err := client.CreateOrganization(ctx, &workmailsdk.CreateOrganizationInput{
+				Alias:                  aws.String("org-" + uuid.NewString()[:8]),
+				EnableInteroperability: tc.enabled,
+			})
+			require.NoError(t, err)
+
+			desc, err := client.DescribeOrganization(ctx, &workmailsdk.DescribeOrganizationInput{
+				OrganizationId: org.OrganizationId,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.enabled, desc.InteroperabilityEnabled)
+		})
+	}
+}

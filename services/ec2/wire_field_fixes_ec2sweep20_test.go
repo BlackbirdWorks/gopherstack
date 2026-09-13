@@ -62,11 +62,13 @@ func TestCancelReservedInstancesListing_SurfacesListing_RealClient(t *testing.T)
 	client := newTestEC2Client(t, h)
 
 	b.SeedReservedInstancesOffering(
-		"rio-sweep20", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", 94608000, 500.0, 0.0,
+		"rio-sweep20", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", "standard", 94608000, 500.0, 0.0,
 	)
 	ri, err := b.PurchaseReservedInstancesOffering("rio-sweep20", 1)
 	require.NoError(t, err)
-	listing, err := b.CreateReservedInstancesListing(ri.ReservedInstancesID, 1)
+	listing, err := b.CreateReservedInstancesListing(
+		ri.ReservedInstancesID, 1, []ec2.PriceScheduleEntry{{CurrencyCode: "USD", Price: 10, Term: 1}},
+	)
 	require.NoError(t, err)
 
 	out, err := client.CancelReservedInstancesListing(t.Context(), &ec2sdk.CancelReservedInstancesListingInput{

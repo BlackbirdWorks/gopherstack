@@ -21,8 +21,9 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 	proj, err := b.CreateProject(codebuild.ProjectConfig{
 		Name: "proj1",
 		Source: &codebuild.ProjectSource{
-			Type:     "GITHUB",
-			Location: "https://github.com/example/repo",
+			Type:      "GITHUB",
+			Location:  "https://github.com/example/repo",
+			Buildspec: testSingleNodeBatchSpec,
 		},
 		Artifacts: &codebuild.ProjectArtifacts{Type: "NO_ARTIFACTS"},
 		Environment: &codebuild.ProjectEnvironment{
@@ -50,7 +51,7 @@ func newPersistenceTestBackend(t *testing.T) *codebuild.InMemoryBackend {
 		Status:         "SUCCEEDED",
 	})
 
-	_, err = b.StartBuildBatch(proj.Name)
+	_, err = b.StartBuildBatch(proj.Name, codebuild.StartBuildBatchConfig{})
 	require.NoError(t, err)
 
 	sb, err := b.StartSandbox(proj.Name)
@@ -98,10 +99,11 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.Len(t, projectsByARN, 1)
 	assert.Equal(t, "proj1", projectsByARN[0].Name)
 
-	// builds table + buildsByARN + buildsByProject indexes.
+	// builds table + buildsByARN + buildsByProject indexes. proj1 has 2 builds:
+	// the standalone StartBuild and the batch's 1 build-list child.
 	buildIDs, err := fresh.ListBuildsForProject("proj1")
 	require.NoError(t, err)
-	require.Len(t, buildIDs, 1)
+	require.Len(t, buildIDs, 2)
 
 	builds, notFound := fresh.BatchGetBuilds([]string{buildIDs[0]})
 	require.Empty(t, notFound)

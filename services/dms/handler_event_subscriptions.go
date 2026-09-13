@@ -153,16 +153,16 @@ func dmsEventCategoryGroupList() []eventCategoryGroupJSON {
 func (h *Handler) handleDescribeEventCategories(
 	_ context.Context, in *describeEventCategoriesInput,
 ) (*describeEventCategoriesOutput, error) {
-	sourceType := ptrconv.String(in.SourceType)
-	if sourceType == "" {
-		sourceType = extractFilterValue(in.Filters, "source-type")
+	df := newDescribeFilters(in.Filters)
+	if sourceType := ptrconv.String(in.SourceType); sourceType != "" {
+		df = NewIdentifierFilter("source-type", sourceType)
 	}
 
 	groups := dmsEventCategoryGroupList()
 	result := make([]eventCategoryGroupJSON, 0, len(groups))
 
 	for _, group := range groups {
-		if sourceType == "" || group.SourceType == sourceType {
+		if df.Matches("source-type", group.SourceType) {
 			result = append(result, group)
 		}
 	}
@@ -193,16 +193,12 @@ type describeEventSubscriptionsOutput struct {
 func (h *Handler) handleDescribeEventSubscriptions(
 	ctx context.Context, in *describeEventSubscriptionsInput,
 ) (*describeEventSubscriptionsOutput, error) {
-	// EventSubscription has no distinct ARN in this emulation (see
-	// eventSubscriptionJSON), so event-subscription-arn and
-	// event-subscription-id both resolve against SubscriptionName, the only
-	// identifier that exists.
-	name := ptrconv.String(in.SubscriptionName)
-	if name == "" {
-		name = extractFilterValue(in.Filters, "event-subscription-arn", "event-subscription-id")
+	df := newDescribeFilters(in.Filters)
+	if name := ptrconv.String(in.SubscriptionName); name != "" {
+		df = NewIdentifierFilter("event-subscription-arn", name)
 	}
 
-	list, err := h.Backend.DescribeEventSubscriptions(ctx, name)
+	list, err := h.Backend.DescribeEventSubscriptions(ctx, df)
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +255,7 @@ func eventCategoriesIntersect(have, want []string) bool {
 type eventFilters struct {
 	startTime        time.Time
 	endTime          time.Time
-	riFilter         string
+	riFilters        DescribeFilters
 	sourceIdentifier string
 	sourceType       string
 	categories       []string
@@ -267,7 +263,7 @@ type eventFilters struct {
 
 func eventFiltersFrom(in *describeEventsInput) eventFilters {
 	f := eventFilters{
-		riFilter:         extractFilterValue(in.Filters, "replication-instance-id"),
+		riFilters:        newDescribeFilters(in.Filters),
 		sourceIdentifier: ptrconv.String(in.SourceIdentifier),
 		sourceType:       ptrconv.String(in.SourceType),
 		categories:       in.EventCategories,
@@ -285,7 +281,7 @@ func eventFiltersFrom(in *describeEventsInput) eventFilters {
 }
 
 func (f eventFilters) matchesIdentifiers(e *Event) bool {
-	if f.riFilter != "" && e.SourceIdentifier != f.riFilter {
+	if !f.riFilters.Matches("replication-instance-id", e.SourceIdentifier) {
 		return false
 	}
 
@@ -371,14 +367,21 @@ type updateSubscriptionsToEventBridgeInput struct {
 	ForceMove *bool `json:"ForceMove"`
 }
 
+// updateSubscriptionsToEventBridgeOutput mirrors the real
+// UpdateSubscriptionsToEventBridgeOutput (api_op_UpdateSubscriptionsToEventBridge.go):
+// a single Result string message, not an "Applied" bool -- the real type has
+// no such field, so a real client always decoded a fabricated member that
+// doesn't exist on the wire and missed the actual Result string entirely.
 type updateSubscriptionsToEventBridgeOutput struct {
-	Applied bool `json:"Applied"`
+	Result string `json:"Result"`
 }
 
 func (h *Handler) handleUpdateSubscriptionsToEventBridge(
 	_ context.Context, _ *updateSubscriptionsToEventBridgeInput,
 ) (*updateSubscriptionsToEventBridgeOutput, error) {
-	return &updateSubscriptionsToEventBridgeOutput{Applied: false}, nil
+	return &updateSubscriptionsToEventBridgeOutput{
+		Result: "0 event subscriptions were migrated, and 0 remain to be migrated",
+	}, nil
 }
 
 // opsEventSubscriptions returns the dispatch-table entries for the event_subscriptions operation family.

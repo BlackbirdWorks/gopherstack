@@ -14,10 +14,23 @@ type startSessionInput struct {
 	WorkGroup                   string                  `json:"WorkGroup"`
 	Description                 string                  `json:"Description"`
 	NotebookVersion             string                  `json:"NotebookVersion"`
-	NotebookID                  string                  `json:"NotebookId"`
 	ExecutionRole               string                  `json:"ExecutionRole"`
 	EngineConfiguration         EngineConfiguration     `json:"EngineConfiguration"`
 	SessionIdleTimeoutInMinutes int32                   `json:"SessionIdleTimeoutInMinutes"`
+}
+
+// notebookID extracts the session's linked notebook ID. StartSessionInput has
+// no top-level NotebookId member on the real wire (confirmed against
+// athena@v1.60.4 serializers.go's awsAwsjson11_serializeOpDocumentStartSessionInput,
+// which emits only NotebookVersion) -- the real client instead threads it
+// through EngineConfiguration.AdditionalConfigs["NotebookId"], per
+// EngineConfiguration.AdditionalConfigs's own doc comment ("add a key named
+// NotebookId to AdditionalConfigs"). Reading a nonexistent top-level field, as
+// this handler previously did, meant NotebookID was always empty from any
+// real client that specified NotebookVersion -- breaking ListNotebookSessions
+// and the session's own NotebookId association.
+func (in startSessionInput) notebookID() string {
+	return in.EngineConfiguration.AdditionalConfigs["NotebookId"]
 }
 
 type sessionIDInput struct {
@@ -64,7 +77,7 @@ func (h *Handler) sessionCoreOps() map[string]athenaActionFn {
 			id, state, err := h.Backend.StartSession(
 				input.WorkGroup, input.Description, input.NotebookVersion,
 				input.EngineConfiguration, sessionCfg,
-				input.MonitoringConfiguration, input.NotebookID,
+				input.MonitoringConfiguration, input.notebookID(),
 			)
 			if err != nil {
 				return nil, err

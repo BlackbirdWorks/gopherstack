@@ -308,16 +308,15 @@ func TestGetPasswordData(t *testing.T) { //nolint:paralleltest // existing issue
 	})
 }
 
-func TestGetInstanceTypesFromInstanceRequirements( //nolint:paralleltest // existing issue.
-	t *testing.T,
-) {
-	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
-
-	t.Run("returns static list", func(t *testing.T) {
-		types := b.GetInstanceTypesFromInstanceRequirements()
-		assert.NotEmpty(t, types)
-	})
-}
+// TestGetInstanceTypesFromInstanceRequirements previously asserted only that
+// the backend method returned a nonempty static 5-item list regardless of
+// its (nonexistent) arguments -- a defect-ratifying test for the old echo
+// stub. The real attribute-based matching engine is exercised end-to-end via
+// the real SDK client in handler_instance_types_test.go
+// (TestGetInstanceTypesFromInstanceRequirements_RealClient); this backend
+// method now takes an unexported *instanceRequirementsQuery this external
+// test package cannot construct, so coverage moved there rather than being
+// faked here with a zero-value stand-in.
 
 // ---- VPN ---- //nolint:godot // existing issue.
 
@@ -327,9 +326,56 @@ func TestHTTP_GetInstanceTypesFromInstanceRequirements( //nolint:paralleltest //
 	h := newTestHandler()
 
 	_, err := dispatchHandler(h, url.Values{
-		"Action": []string{"GetInstanceTypesFromInstanceRequirements"},
+		"Action":                             []string{"GetInstanceTypesFromInstanceRequirements"},
+		"ArchitectureType.1":                 []string{"x86_64"},
+		"VirtualizationType.1":               []string{"hvm"},
+		"InstanceRequirements.VCpuCount.Min": []string{"1"},
+		"InstanceRequirements.MemoryMiB.Min": []string{"512"},
 	})
 	require.NoError(t, err)
+}
+
+// TestHTTP_GetInstanceTypesFromInstanceRequirements_RequiredFields covers
+// ArchitectureTypes, VirtualizationTypes, and InstanceRequirements (api_op_
+// GetInstanceTypesFromInstanceRequirements.go: all "This member is
+// required"). Before the fix the handler ignored the request entirely.
+func TestHTTP_GetInstanceTypesFromInstanceRequirements_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	base := func() url.Values {
+		return url.Values{
+			"Action":                             []string{"GetInstanceTypesFromInstanceRequirements"},
+			"ArchitectureType.1":                 []string{"x86_64"},
+			"VirtualizationType.1":               []string{"hvm"},
+			"InstanceRequirements.VCpuCount.Min": []string{"1"},
+			"InstanceRequirements.MemoryMiB.Min": []string{"512"},
+		}
+	}
+
+	tests := []struct {
+		name string
+		drop string
+	}{
+		{name: "missing architecture types", drop: "ArchitectureType.1"},
+		{name: "missing virtualization types", drop: "VirtualizationType.1"},
+		{name: "missing vcpu count", drop: "InstanceRequirements.VCpuCount.Min"},
+		{name: "missing memory", drop: "InstanceRequirements.MemoryMiB.Min"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler()
+
+			vals := base()
+			delete(vals, tt.drop)
+
+			_, err := dispatchHandler(h, vals)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "InvalidParameterValue")
+		})
+	}
 }
 
 // TestGetDefaultCreditSpecification_EchoesInstanceFamily verifies that
@@ -736,6 +782,110 @@ func TestRunInstances_GroupSetPresentInResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<groupSet>")
 	assert.Contains(t, resp, "<groupId>"+sg.ID+"</groupId>")
+}
+
+// TestDescribeInstances_GroupIdentifierHasName covers gopherstack-a7vs: the
+// ASG EC2Launcher adapter (cli.go ec2AutoScalingLauncherAdapter.LaunchInstances)
+// applies KeyName/SecurityGroups via SetInstanceLaunchConfig rather than
+// RunInstances params, so DescribeInstances' groupSet must still resolve each
+// stored security-group ID to its GroupIdentifier.GroupName
+// (ec2@v1.329.0 deserializers.go:107843 groupId/groupName), the same as the
+// direct RunInstances SecurityGroupId path.
+func TestDescribeInstances_GroupIdentifierHasName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		setup func(t *testing.T, b *ec2.InMemoryBackend) (instanceID, sgID, sgName string)
+		name  string
+	}{
+		{
+			name: "run_instances_security_group_id",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) (string, string, string) {
+				t.Helper()
+
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+				require.NoError(t, err)
+
+				sg, err := b.CreateSecurityGroup("web-sg", "Web SG", vpc.ID)
+				require.NoError(t, err)
+
+				insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+				require.NoError(t, err)
+				require.NoError(t, b.SetInstanceLaunchConfig(insts[0].ID, "", []string{sg.ID}))
+
+				return insts[0].ID, sg.ID, sg.Name
+			},
+		},
+		{
+			// Mirrors cli.go's ec2AutoScalingLauncherAdapter.LaunchInstances,
+			// which calls SetInstanceLaunchConfig instead of RunInstances
+			// SecurityGroupId.N.
+			name: "asg_launcher_set_instance_launch_config",
+			setup: func(t *testing.T, b *ec2.InMemoryBackend) (string, string, string) {
+				t.Helper()
+
+				vpc, err := b.CreateVpc("10.0.0.0/16", "default")
+				require.NoError(t, err)
+
+				sg, err := b.CreateSecurityGroup("asg-sg", "ASG launched SG", vpc.ID)
+				require.NoError(t, err)
+
+				insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+				require.NoError(t, err)
+				require.NoError(t, b.SetInstanceLaunchConfig(insts[0].ID, "asg-key", []string{sg.ID}))
+
+				return insts[0].ID, sg.ID, sg.Name
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+			h := newTestHandlerWithBackend(b)
+
+			instanceID, sgID, sgName := tt.setup(t, b)
+
+			descVals := url.Values{
+				"Action":       {"DescribeInstances"},
+				"Version":      {"2016-11-15"},
+				"InstanceId.1": {instanceID},
+			}
+
+			resp, err := ec2.ExportDispatch(h, descVals)
+			require.NoError(t, err)
+			assert.Contains(t, resp, "<groupId>"+sgID+"</groupId>")
+			assert.Contains(t, resp, "<groupName>"+sgName+"</groupName>")
+		})
+	}
+}
+
+// TestDescribeInstances_GroupIdentifier_UnknownGroupOmitsName covers the edge
+// case of a security group ID that no longer resolves to a real group (e.g.
+// deleted after attachment): DescribeInstances must still emit the groupId
+// without fabricating a name.
+func TestDescribeInstances_GroupIdentifier_UnknownGroupOmitsName(t *testing.T) {
+	t.Parallel()
+
+	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+	h := newTestHandlerWithBackend(b)
+
+	insts, err := b.RunInstances("ami-123", "t3.micro", "", 1)
+	require.NoError(t, err)
+	require.NoError(t, b.SetInstanceLaunchConfig(insts[0].ID, "", []string{"sg-doesnotexist"}))
+
+	descVals := url.Values{
+		"Action":       {"DescribeInstances"},
+		"Version":      {"2016-11-15"},
+		"InstanceId.1": {insts[0].ID},
+	}
+
+	resp, err := ec2.ExportDispatch(h, descVals)
+	require.NoError(t, err)
+	assert.Contains(t, resp, "<groupId>sg-doesnotexist</groupId>")
+	assert.Contains(t, resp, "<groupName></groupName>", "unresolved group ID must not fabricate a name")
 }
 
 // ---- parseEC2Filters helper verification ----

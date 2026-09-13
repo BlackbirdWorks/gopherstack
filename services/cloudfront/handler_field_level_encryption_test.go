@@ -28,7 +28,7 @@ func TestFLEReferentialIntegrity(t *testing.T) {
 			name: "profile_with_unknown_public_key_rejected",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateFieldLevelEncryptionProfile("p", "", []cloudfront.EncryptionEntity{
+				_, err := b.CreateFieldLevelEncryptionProfile("", "p", "", []cloudfront.EncryptionEntity{
 					{PublicKeyID: "K-DOES-NOT-EXIST", ProviderID: "prov"},
 				})
 				require.ErrorIs(t, err, cloudfront.ErrPublicKeyNotFound)
@@ -48,7 +48,7 @@ func TestFLEReferentialIntegrity(t *testing.T) {
 			name: "profile_in_use_by_config_blocks_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				prof, err := b.CreateFieldLevelEncryptionProfile("prof", "", nil)
+				prof, err := b.CreateFieldLevelEncryptionProfile("", "prof", "", nil)
 				require.NoError(t, err)
 				_, err = b.CreateFieldLevelEncryption("cfg", "", []cloudfront.FLEQueryArgProfile{
 					{QueryArg: "q", ProfileID: prof.ID},
@@ -63,7 +63,7 @@ func TestFLEReferentialIntegrity(t *testing.T) {
 			name: "profile_delete_ok_after_config_drops_ref",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				prof, err := b.CreateFieldLevelEncryptionProfile("prof", "", nil)
+				prof, err := b.CreateFieldLevelEncryptionProfile("", "prof", "", nil)
 				require.NoError(t, err)
 				cfg, err := b.CreateFieldLevelEncryption("cfg", "", []cloudfront.FLEQueryArgProfile{
 					{QueryArg: "q", ProfileID: prof.ID},
@@ -83,7 +83,7 @@ func TestFLEReferentialIntegrity(t *testing.T) {
 				t.Helper()
 				pk, err := b.CreatePublicKey("cr", "pk", "", testRSA2048PublicKeyPEM)
 				require.NoError(t, err)
-				prof, err := b.CreateFieldLevelEncryptionProfile("prof", "", []cloudfront.EncryptionEntity{
+				prof, err := b.CreateFieldLevelEncryptionProfile("", "prof", "", []cloudfront.EncryptionEntity{
 					{PublicKeyID: pk.ID, ProviderID: "prov", FieldPatterns: []string{"a", "b"}},
 				})
 				require.NoError(t, err)
@@ -526,7 +526,7 @@ func TestUpdateFieldLevelEncryptionProfile_RealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	profile, err := h.Backend.CreateFieldLevelEncryptionProfile(
+	profile, err := h.Backend.CreateFieldLevelEncryptionProfile("",
 		"real-client-fle-profile", "original", []cloudfront.EncryptionEntity{
 			{PublicKeyID: pk.ID, ProviderID: "prov", FieldPatterns: []string{"field1"}},
 		},
@@ -610,7 +610,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				_, err := h.Backend.CreateFieldLevelEncryptionProfile("list-fle-profile", "comment", nil)
+				_, err := h.Backend.CreateFieldLevelEncryptionProfile("", "list-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return ""
@@ -629,7 +629,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile", "comment", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "get-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -648,7 +648,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("get-fle-profile2", "comment2", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "get-fle-profile2", "comment2", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID + "/config"
@@ -671,7 +671,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			),
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("old-fle-profile", "original", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "old-fle-profile", "original", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID + "/config"
@@ -690,7 +690,7 @@ func TestFieldLevelEncryptionProfileCRUD(t *testing.T) {
 			body:   nil,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("del-fle-profile", "delete me", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "del-fle-profile", "delete me", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID
@@ -781,7 +781,7 @@ func TestInMemoryBackend_FieldLevelEncryption(t *testing.T) {
 			name: "get_fle_profile_list_update_delete",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				p, err := b.CreateFieldLevelEncryptionProfile("profile-test", "comment", nil)
+				p, err := b.CreateFieldLevelEncryptionProfile("", "profile-test", "comment", nil)
 				require.NoError(t, err)
 
 				got, err := b.GetFieldLevelEncryptionProfile(p.ID)
@@ -825,7 +825,7 @@ func TestListFieldLevelEncryptionConfigs_ItemShape_RealClient(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	profile, err := h.Backend.CreateFieldLevelEncryptionProfile("list-shape-profile", "", nil)
+	profile, err := h.Backend.CreateFieldLevelEncryptionProfile("", "list-shape-profile", "", nil)
 	require.NoError(t, err)
 
 	first, err := h.Backend.CreateFieldLevelEncryption("list-shape-fle-1", "first", []cloudfront.FLEQueryArgProfile{
@@ -881,14 +881,14 @@ func TestListFieldLevelEncryptionProfiles_ItemShape_RealClient(t *testing.T) {
 
 	h := newTestHandler(t)
 
-	first, err := h.Backend.CreateFieldLevelEncryptionProfile(
+	first, err := h.Backend.CreateFieldLevelEncryptionProfile("",
 		"list-shape-profile-1", "first profile", []cloudfront.EncryptionEntity{
 			{ProviderID: "provider-one", FieldPatterns: []string{"field-one"}},
 		},
 	)
 	require.NoError(t, err)
 
-	second, err := h.Backend.CreateFieldLevelEncryptionProfile(
+	second, err := h.Backend.CreateFieldLevelEncryptionProfile("",
 		"list-shape-profile-2", "second profile", []cloudfront.EncryptionEntity{
 			{ProviderID: "provider-two", FieldPatterns: []string{"field-two"}},
 		},

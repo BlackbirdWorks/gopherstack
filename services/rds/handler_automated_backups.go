@@ -132,6 +132,10 @@ func toXMLInstanceBackup(ab *DBInstanceAutomatedBackup) xmlDBInstanceAutomatedBa
 func (h *Handler) handleDescribeDBClusterAutomatedBackups(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	backups := h.Backend.DescribeDBClusterAutomatedBackups(clusterID)
+	backups, err := applyDBClusterAutomatedBackupFilters(vals, backups)
+	if err != nil {
+		return nil, err
+	}
 
 	members := make([]xmlDBClusterAutomatedBackup, 0, len(backups))
 	for i := range backups {
@@ -168,6 +172,10 @@ func (h *Handler) handleDeleteDBInstanceAutomatedBackup(vals url.Values) (any, e
 func (h *Handler) handleDescribeDBInstanceAutomatedBackups(vals url.Values) (any, error) {
 	instanceID := vals.Get("DBInstanceIdentifier")
 	backups := h.Backend.DescribeDBInstanceAutomatedBackups(instanceID)
+	backups, err := applyDBInstanceAutomatedBackupFilters(vals, backups)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBInstanceAutomatedBackup, 0, len(backups))
 
 	for i := range backups {

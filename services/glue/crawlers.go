@@ -201,6 +201,13 @@ func (b *InMemoryBackend) CreateCrawlerWithOptions(
 		return nil, ErrAlreadyExists
 	}
 
+	if b.crawlers.Len() >= b.limits.crawlers {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d crawler limit",
+			ErrResourceNumberLimitExceeded, b.limits.crawlers,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	c := &Crawler{
 		Name:                         name,

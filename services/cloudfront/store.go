@@ -15,6 +15,10 @@ const (
 	// kvsStatusReady is the terminal status of a synchronously provisioned KVS.
 	kvsStatusReady   = "READY"
 	statusInProgress = "InProgress"
+	// trustStoreStatusActive is TrustStore's own status enum (cloudfront@v1.67.4
+	// types/enums.go:966-973: pending/active/failed), separate from the
+	// InProgress/Deployed pair other CloudFront resources use.
+	trustStoreStatusActive = "active"
 
 	// functionStageDevelopment and functionStageLive are the two stages a CloudFront Function
 	// or connection function can be in; Publish promotes DEVELOPMENT to LIVE.

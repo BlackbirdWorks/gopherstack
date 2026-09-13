@@ -3,7 +3,6 @@ package lambda
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -76,9 +75,15 @@ func (h *Handler) handleGetFunctionConcurrency(c *echo.Context, name string) err
 				"Function not found: "+name)
 		}
 
+		// Real GetFunctionConcurrencyOutput documents no NotFoundException for
+		// this state -- ReservedConcurrentExecutions is simply an optional
+		// (*int32) field that comes back null/absent when no reservation is
+		// set. A previous revision 404'd here instead, so a real client's
+		// GetFunctionConcurrency call on any function without a reservation
+		// (the default state) always failed instead of decoding a null
+		// value.
 		if errors.Is(err, ErrFunctionConcurrencyNotFound) {
-			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				fmt.Sprintf("Function %s has no reserved concurrency configured", name))
+			return c.JSON(http.StatusOK, map[string]any{})
 		}
 
 		return h.writeError(c, http.StatusInternalServerError, "ServiceException", err.Error())

@@ -5,6 +5,7 @@
 	// single-listener ALB analogue (services/lightsail/models.go).
 	import {
 		GetLoadBalancersCommand,
+		GetLoadBalancerCommand,
 		CreateLoadBalancerCommand,
 		DeleteLoadBalancerCommand,
 		AttachInstancesToLoadBalancerCommand,
@@ -16,10 +17,12 @@
 		DeleteLoadBalancerTlsCertificateCommand,
 		AttachLoadBalancerTlsCertificateCommand,
 		GetLoadBalancerTlsCertificatesCommand,
+		GetLoadBalancerTlsPoliciesCommand,
 		TagResourceCommand,
 		UntagResourceCommand,
 		type LoadBalancer,
 		type LoadBalancerTlsCertificate,
+		type LoadBalancerTlsPolicy,
 		type LightsailClient
 	} from '@aws-sdk/client-lightsail';
 	import { toast } from 'svelte-sonner';
@@ -163,8 +166,12 @@
 		detailModal?.open();
 		if (lb.name) {
 			try {
-				const resp = await client().send(new GetLoadBalancerTlsCertificatesCommand({ loadBalancerName: lb.name }));
-				tlsCertificates = resp.tlsCertificates ?? [];
+				const [lbResp, certResp] = await Promise.all([
+					client().send(new GetLoadBalancerCommand({ loadBalancerName: lb.name })),
+					client().send(new GetLoadBalancerTlsCertificatesCommand({ loadBalancerName: lb.name }))
+				]);
+				viewed = lbResp.loadBalancer ?? lb;
+				tlsCertificates = certResp.tlsCertificates ?? [];
 			} catch (e) {
 				toast.error(describeError(e));
 			}
@@ -298,6 +305,26 @@
 		await client().send(new UntagResourceCommand({ resourceName: viewed.name, tagKeys: [key] }));
 		viewed = { ...viewed, tags: (viewed.tags ?? []).filter((t) => t.key !== key) };
 	}
+
+	// GetLoadBalancerTlsPolicies is a static reference list (the TLS security
+	// policies available to any Lightsail load balancer), not scoped to one
+	// load balancer -- shown here rather than in the per-LB detail view.
+	let tlsPolicies = $state<LoadBalancerTlsPolicy[]>([]);
+	let tlsPoliciesLoaded = $state(false);
+	let tlsPoliciesLoading = $state(false);
+
+	async function loadTlsPolicies(): Promise<void> {
+		tlsPoliciesLoading = true;
+		try {
+			const resp = await client().send(new GetLoadBalancerTlsPoliciesCommand({}));
+			tlsPolicies = resp.tlsPolicies ?? [];
+			tlsPoliciesLoaded = true;
+		} catch (e) {
+			toast.error(describeError(e));
+		} finally {
+			tlsPoliciesLoading = false;
+		}
+	}
 </script>
 
 {#if error}
@@ -311,6 +338,33 @@
 	<button onclick={openCreate} class="px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700">
 		Create load balancer
 	</button>
+</div>
+
+<div class="rounded-lg border border-slate-200 dark:border-slate-700 p-4 space-y-2">
+	<div class="flex items-center justify-between">
+		<p class="text-sm font-medium text-slate-700 dark:text-slate-300">TLS security policies (reference)</p>
+		<button onclick={loadTlsPolicies} class="px-2 py-1 text-xs rounded-lg border border-slate-300 dark:border-slate-600">Load TLS policies</button>
+	</div>
+	{#if tlsPoliciesLoaded}
+		{#snippet protocolsCell(p: LoadBalancerTlsPolicy)}
+			{(p.protocols ?? []).join(', ') || '—'}
+		{/snippet}
+		{#snippet defaultCell(p: LoadBalancerTlsPolicy)}
+			{p.isDefault ? 'Yes' : 'No'}
+		{/snippet}
+		<DataTable
+			rows={tlsPolicies}
+			rowKey={(p) => p.name ?? ''}
+			columns={defineColumns<LoadBalancerTlsPolicy>([
+				{ key: 'name', label: 'Name' },
+				{ key: 'isDefault', label: 'Default', render: defaultCell },
+				{ key: 'protocols', label: 'Protocols', render: protocolsCell },
+				{ key: 'description', label: 'Description' }
+			])}
+			loading={tlsPoliciesLoading}
+			emptyMessage="No TLS policies found"
+		/>
+	{/if}
 </div>
 
 {#snippet createdCell(lb: LoadBalancer)}

@@ -58,7 +58,7 @@ type WorkforceVpcConfig struct {
 type Workforce struct {
 	CreateDate         time.Time           `json:"CreateDate"`
 	LastUpdatedDate    time.Time           `json:"LastUpdatedDate"`
-	Tags               map[string]string   `json:"-"`
+	Tags               map[string]string   `json:"Tags,omitempty"`
 	CognitoConfig      *CognitoConfig      `json:"CognitoConfig,omitempty"`
 	OidcConfig         *OidcConfig         `json:"OidcConfig,omitempty"`
 	SourceIPConfig     *SourceIPConfig     `json:"SourceIpConfig,omitempty"`

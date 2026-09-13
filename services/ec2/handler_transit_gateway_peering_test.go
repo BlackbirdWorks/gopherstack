@@ -17,7 +17,7 @@ func TestTGWPeeringAttachment(t *testing.T) { //nolint:paralleltest // existing 
 	var attID string
 
 	t.Run("create peering attachment", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		att, err := b.CreateTransitGatewayPeeringAttachment("tgw-111", "tgw-222", "us-west-2")
+		att, err := b.CreateTransitGatewayPeeringAttachment("tgw-111", "tgw-222", "999999999999", "us-west-2")
 		require.NoError(t, err)
 		assert.NotEmpty(t, att.TransitGatewayAttachmentID)
 		assert.Equal(t, "pendingAcceptance", att.State)
@@ -149,7 +149,7 @@ func TestTGW_PeeringAttachmentCRUD(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	att, err := b.CreateTransitGatewayPeeringAttachment("tgw-src", "tgw-dst", "us-west-2")
+	att, err := b.CreateTransitGatewayPeeringAttachment("tgw-src", "tgw-dst", "999999999999", "us-west-2")
 	require.NoError(t, err)
 	assert.NotEmpty(t, att.TransitGatewayAttachmentID)
 	assert.Contains(t, att.TransitGatewayAttachmentID, "tgw-attach-")
@@ -178,11 +178,34 @@ func TestTGW_PeeringAttachment_ViaHandler(t *testing.T) {
 		"Action":               {"CreateTransitGatewayPeeringAttachment"},
 		"TransitGatewayId":     {"tgw-111"},
 		"PeerTransitGatewayId": {"tgw-222"},
+		"PeerAccountId":        {"999999999999"},
 		"PeerRegion":           {"us-west-2"},
 	})
 	require.NoError(t, err)
 	assert.Contains(t, resp, "<transitGatewayAttachmentId>tgw-attach-")
 	assert.Contains(t, resp, "<CreateTransitGatewayPeeringAttachmentResponse")
+	assert.Contains(t, resp, "<ownerId>999999999999</ownerId>")
+	assert.Contains(t, resp, "<region>us-west-2</region>")
+}
+
+// TestTGW_PeeringAttachment_PeerAccountIdRequired covers
+// CreateTransitGatewayPeeringAttachmentInput.PeerAccountId (api_op_
+// CreateTransitGatewayPeeringAttachment.go: "This member is required").
+// Before the fix the handler never read it, and the response's
+// requesterTgwInfo/accepterTgwInfo never carried ownerId/region at all.
+func TestTGW_PeeringAttachment_PeerAccountIdRequired(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+
+	_, err := ec2.ExportDispatch(h, url.Values{
+		"Action":               {"CreateTransitGatewayPeeringAttachment"},
+		"TransitGatewayId":     {"tgw-111"},
+		"PeerTransitGatewayId": {"tgw-222"},
+		"PeerRegion":           {"us-west-2"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "InvalidParameterValue")
 }
 
 // TestTGW_ConnectCRUD verifies TGW connect CRUD cycle.

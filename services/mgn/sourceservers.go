@@ -65,19 +65,26 @@ func (b *InMemoryBackend) resolveSourceServerByUserProvidedIDLocked(userProvided
 }
 
 // applyImportRowLocked overwrites an existing SourceServer's
-// SourceProperties/FqdnForActionFramework/tags with a re-imported row's
-// values -- the "update" half of StartImport's dedup-by-UserProvidedID
-// convention (see resolveSourceServerByUserProvidedIDLocked). Callers must
-// hold b.mu.
+// SourceProperties/FqdnForActionFramework/ApplicationID/tags with a
+// re-imported row's values -- the "update" half of StartImport's
+// dedup-by-UserProvidedID/mgn:server:id convention (see
+// resolveSourceServerByUserProvidedIDLocked). A nil seed.SourceProperties
+// (a row with no IdentificationHints columns set) leaves the existing value
+// untouched rather than wiping it, since s3import.go only ever sets
+// SourceProperties when a row actually carries at least one hint. Callers
+// must hold b.mu.
 func (b *InMemoryBackend) applyImportRowLocked(s *SourceServer, seed sourceServerSeed) {
-	s.SourceProperties = seed.SourceProperties
+	if seed.SourceProperties != nil {
+		s.SourceProperties = seed.SourceProperties
+		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	}
 
 	if seed.FqdnForActionFramework != "" {
 		s.FqdnForActionFramework = seed.FqdnForActionFramework
 	}
 
-	if s.SourceProperties != nil {
-		s.SourceProperties.LastUpdatedDateTime = nowRFC3339()
+	if seed.ApplicationID != "" {
+		s.ApplicationID = seed.ApplicationID
 	}
 
 	if s.Tags != nil {
@@ -97,6 +104,7 @@ type sourceServerSeed struct {
 	SourceServerID         string
 	UserProvidedID         string
 	FqdnForActionFramework string
+	ApplicationID          string
 	ReplicationType        string
 	DiskDeviceName         string
 	TotalStorageBytes      int64
@@ -138,6 +146,7 @@ func (b *InMemoryBackend) createSourceServerLocked(seed sourceServerSeed) *Sourc
 		Arn:                    b.sourceServerARN(id),
 		UserProvidedID:         seed.UserProvidedID,
 		FqdnForActionFramework: seed.FqdnForActionFramework,
+		ApplicationID:          seed.ApplicationID,
 		ReplicationType:        replicationType,
 		SourceProperties:       seed.SourceProperties,
 		Tags:                   t,
@@ -593,21 +602,24 @@ func (b *InMemoryBackend) MarkAsArchived(sourceServerID string) (*SourceServer, 
 }
 
 // StartReplication restarts data replication for a stopped/disconnected
-// source server -- a void-result op (StartReplicationOutput genuinely has
-// no fields beyond ResultMetadata, confirmed by direct SDK read, matching
-// PARITY.md's note that this asymmetry with its Stop/Pause/Resume siblings
-// is real, not an oversight).
-func (b *InMemoryBackend) StartReplication(sourceServerID string) error {
+// source server. StartReplicationOutput is the same flattened SourceServer
+// shape as its Stop/Pause/Resume/RetryDataReplication siblings (mgn@v1.48.4
+// api_op_StartReplication.go's StartReplicationOutput, confirmed against
+// deserializers.go:13454 awsRestjson1_deserializeOpDocumentStartReplicationOutput,
+// which decodes applicationID/arn/dataReplicationInfo/lifeCycle/sourceServerID/
+// etc.) -- a prior PARITY.md pass wrongly recorded this as a genuine
+// void-result op.
+func (b *InMemoryBackend) StartReplication(sourceServerID string) (*SourceServer, error) {
 	b.mu.Lock("StartReplication")
 	defer b.mu.Unlock()
 
 	if err := b.requireInitializedLocked(); err != nil {
-		return err
+		return nil, err
 	}
 
 	s, ok := b.resolveSourceServerLocked(sourceServerID)
 	if !ok {
-		return notFoundError(resourceSourceServer, sourceServerID)
+		return nil, notFoundError(resourceSourceServer, sourceServerID)
 	}
 
 	if s.DataReplicationInfo == nil {
@@ -622,7 +634,7 @@ func (b *InMemoryBackend) StartReplication(sourceServerID string) error {
 
 	b.scheduleReplicationLocked(sourceServerID)
 
-	return nil
+	return s.clone(), nil
 }
 
 // StopReplication halts data replication. Any in-flight

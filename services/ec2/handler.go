@@ -285,6 +285,7 @@ func coreSupportedOperations() []string {
 		"AcceptTransitGatewayVpcAttachment",
 		"AcceptVpcEndpointConnections",
 		"AcceptVpcPeeringConnection",
+		"GetReservedInstancesExchangeQuote",
 		"AdvertiseByoipCidr",
 		"AllocateHosts",
 		"DescribeCapacityReservations",
@@ -670,6 +671,7 @@ var errCodeLookup = []struct {
 }{
 	{ErrInstanceNotFound, "InvalidInstanceID.NotFound"},
 	{ErrSecurityGroupNotFound, "InvalidGroup.NotFound"},
+	{ErrSecurityGroupRuleNotFound, "InvalidSecurityGroupRuleId.NotFound"},
 	{ErrVPCNotFound, "InvalidVpcID.NotFound"},
 	{ErrSubnetNotFound, "InvalidSubnetID.NotFound"},
 	{ErrDuplicateSGName, "InvalidGroup.Duplicate"},
@@ -679,6 +681,9 @@ var errCodeLookup = []struct {
 	{ErrVolumeInUse, "VolumeInUse"},
 	{ErrAddressNotFound, "InvalidAllocationID.NotFound"},
 	{ErrInternetGatewayNotFound, "InvalidInternetGatewayID.NotFound"},
+	{ErrDhcpOptionsNotFound, "InvalidDhcpOptionsID.NotFound"},
+	{ErrSnapshotNotFound, "InvalidSnapshotID.NotFound"},
+	{ErrNetworkACLNotFound, "InvalidNetworkAclID.NotFound"},
 	{ErrRouteTableNotFound, "InvalidRouteTableID.NotFound"},
 	{ErrNatGatewayNotFound, "InvalidNatGatewayID.NotFound"},
 	{ErrRouteNotFound, "InvalidRoute.NotFound"},
@@ -688,12 +693,13 @@ var errCodeLookup = []struct {
 	{ErrNetworkInterfacePermissionNotFound, "InvalidPermission.NotFound"},
 	{ErrAttachmentNotFound, "InvalidAttachmentID.NotFound"},
 	{ErrSpotRequestNotFound, "InvalidSpotInstanceRequestID.NotFound"},
-	{ErrPlacementGroupNotFound, "InvalidPlacementGroup.NotFound"},
+	{ErrPlacementGroupNotFound, "InvalidPlacementGroup.Unknown"},
 	{ErrDuplicatePlacementGroupName, "InvalidPlacementGroup.Duplicate"},
 	{ErrInvalidInstanceState, "IncorrectInstanceState"},
 	{ErrAddressTransferNotFound, "InvalidAddressTransfer.NotFound"},
 	{ErrCapacityReservationNotFound, "InvalidCapacityReservationId.NotFound"},
-	{ErrReservedInstancesNotFound, "InvalidReservedInstancesId.NotFound"},
+	{ErrReservedInstancesNotFound, "InvalidReservedInstancesId"},
+	{ErrReservedInstancesOfferingNotFound, "InvalidReservedInstancesOfferingId"},
 	{ErrTransitGatewayAttachmentNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
 	{ErrVpcPeeringConnectionNotFound, "InvalidVpcPeeringConnectionID.NotFound"},
 	{ErrVpcEndpointNotFound, "InvalidVpcEndpointService.NotFound"},
@@ -722,7 +728,10 @@ var errCodeLookup = []struct {
 	{ErrVpcEndpointIDNotFound, "InvalidVpcEndpointId.NotFound"},
 	{ErrIpamOrgAdminAccountNotFound, errCodeInvalidParameterValue},
 	{ErrTGWPolicyTableNotFound, "InvalidTransitGatewayPolicyTableId.NotFound"},
-	{ErrTGWRouteTableAnnouncementNotFound, "InvalidTransitGatewayRouteTableAnnouncementId.NotFound"},
+	{
+		ErrTGWRouteTableAnnouncementNotFound,
+		"InvalidTransitGatewayRouteTableAnnouncementId.NotFound",
+	},
 	{ErrTransitGatewayNotFound, "InvalidTransitGatewayID.NotFound"},
 	{ErrTGWRouteTableNotFound, "InvalidTransitGatewayRouteTableId.NotFound"},
 	{ErrTGWMeteringPolicyNotFound, "InvalidTransitGatewayMeteringPolicyId.NotFound"},
@@ -773,6 +782,76 @@ var errCodeLookup = []struct {
 	{ErrResourceCountExceeded, "ResourceCountExceeded"},
 	{ErrIAMInstanceProfileAlreadyAssociated, "IncorrectState"},
 	{ErrIAMAssociationNotFound, errCodeInvalidAssociationIDNotFound},
+	{ErrInvalidInstanceType, "InvalidInstanceType"},
+	// The 52 entries below (gopherstack-ggu4a, 2026-09-12) were sentinel
+	// errors already returned by real backend code paths but never mapped
+	// here -- every one of them surfaced as 500 InternalFailure to a real
+	// client instead of its correct 400 code.
+	{ErrCapacityBlockExtensionOfferingNotFound, "InvalidCapacityBlockExtensionOfferingId.NotFound"},
+	{ErrCapacityBlockOfferingNotFound, "InvalidCapacityBlockOfferingId.NotFound"},
+	{ErrCapacityManagerDataExportNotFound, "InvalidCapacityManagerDataExportId.NotFound"},
+	{
+		ErrCapacityReservationBillingRequestNotFound,
+		"InvalidCapacityReservationBillingRequestId.NotFound",
+	},
+	{ErrCapacityReservationFleetNotFound, "InvalidCapacityReservationFleetId.NotFound"},
+	{ErrCarrierGatewayNotFound, "InvalidCarrierGatewayId.NotFound"},
+	{ErrDuplicatePermission, "InvalidPermission.Duplicate"},
+	{ErrEgressOnlyIGWNotFound, "InvalidEgressOnlyInternetGatewayID.NotFound"},
+	{ErrEndpointConnectionNotificationNotFound, "InvalidConnectionNotification.NotFound"},
+	{ErrFleetNotFound, "InvalidFleetId.NotFound"},
+	{ErrInstanceConnectEndpointNotFound, "InvalidInstanceConnectEndpointId.NotFound"},
+	{ErrIpamAsnAssociationNotFound, errCodeInvalidParameterValue},
+	{ErrIpamByoasnNotFound, errCodeInvalidParameterValue},
+	{ErrIpamNotFound, "InvalidIpamId.NotFound"},
+	{ErrIpamPoolCidrNotFound, errCodeInvalidParameterValue},
+	{ErrIpamPoolNotFound, "InvalidIpamPoolId.NotFound"},
+	{ErrIpamPrefixListResolverNotFound, "InvalidIpamPrefixListResolverId.NotFound"},
+	{ErrIpamPrefixListResolverTargetNotFound, "InvalidIpamPrefixListResolverTargetId.NotFound"},
+	{ErrIpamPrefixListResolverVersionNotFound, errCodeInvalidParameterValue},
+	{ErrIpamResourceCidrNotFound, errCodeInvalidParameterValue},
+	{
+		ErrIpamResourceDiscoveryAssociationNotFound,
+		"InvalidIpamResourceDiscoveryAssociationId.NotFound",
+	},
+	{ErrIpamResourceDiscoveryInUse, "IncorrectState"},
+	{ErrIpamResourceDiscoveryNotFound, "InvalidIpamResourceDiscoveryId.NotFound"},
+	{ErrIpamScopeDefault, "IncorrectState"},
+	{ErrIpamScopeNotFound, "InvalidIpamScopeId.NotFound"},
+	{ErrIpamVerificationTokenNotFound, "InvalidIpamExternalResourceVerificationTokenId.NotFound"},
+	{ErrLaunchTemplateNotFound, "InvalidLaunchTemplateId.NotFound"},
+	{ErrLaunchTemplateVersionNotFound, "InvalidLaunchTemplateId.VersionNotFound"},
+	{ErrLaunchTemplateNameNotFound, "InvalidLaunchTemplateName.NotFoundException"},
+	{ErrLocalGatewayRouteNotFound, "InvalidLocalGatewayRoute.NotFound"},
+	{ErrLocalGatewayRouteTableNotFound, "InvalidLocalGatewayRouteTableID.NotFound"},
+	{
+		ErrLocalGatewayVifGroupAssociationNotFound,
+		"InvalidLocalGatewayRouteTableVirtualInterfaceGroupAssociationID.NotFound",
+	},
+	{ErrLocalGatewayVifGroupNotFound, "InvalidLocalGatewayVirtualInterfaceGroupID.NotFound"},
+	{ErrLocalGatewayVifNotFound, "InvalidLocalGatewayVirtualInterfaceID.NotFound"},
+	{
+		ErrLocalGatewayVpcAssociationNotFound,
+		"InvalidLocalGatewayRouteTableVpcAssociationID.NotFound",
+	},
+	{ErrManagedPrefixListNotFound, "InvalidPrefixListID.NotFound"},
+	{ErrNetworkInsightsAccessScopeAnaNF, "InvalidNetworkInsightsAccessScopeAnalysisId.NotFound"},
+	{ErrNetworkInsightsAccessScopeNF, "InvalidNetworkInsightsAccessScopeId.NotFound"},
+	{ErrNetworkInsightsAnalysisNotFound, "InvalidNetworkInsightsAnalysisId.NotFound"},
+	{ErrNetworkInsightsPathNotFound, "InvalidNetworkInsightsPathId.NotFound"},
+	{ErrReservedInstancesListingNotFound, "InvalidReservedInstancesListingId.NotFound"},
+	{ErrRouteServerAssociationNotFound, "InvalidRouteServerAssociation.NotFound"},
+	{ErrRouteServerEndpointNotFound, "InvalidRouteServerEndpointId.NotFound"},
+	{ErrRouteServerNotFound, "InvalidRouteServerId.NotFound"},
+	{ErrRouteServerPeerNotFound, "InvalidRouteServerPeerId.NotFound"},
+	{ErrRouteServerPropagationNotFound, "InvalidRouteServerPropagation.NotFound"},
+	{ErrSnapshotAlreadyLocked, "InvalidSnapshot.AlreadyLocked"},
+	{ErrSnapshotNotLocked, "InvalidSnapshot.NotLocked"},
+	{ErrSpotFleetNotFound, "InvalidSpotFleetRequestId.NotFound"},
+	{ErrSubnetCIDRNotFound, "InvalidSubnetCidrBlockAssociationID.NotFound"},
+	{ErrTGWMulticastDomainNotFound, "InvalidTransitGatewayMulticastDomainId.NotFound"},
+	{ErrTransitGatewayConnectNotFound, "InvalidTransitGatewayAttachmentID.NotFound"},
+	{ErrTransitGatewayConnectPeerNotFound, "InvalidTransitGatewayConnectPeerId.NotFound"},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.
@@ -880,7 +959,10 @@ const (
 // (defaultResults when the caller omits it) and decodes NextToken into a byte
 // offset, generalizing handleDescribeImages' parseImagesPagination with
 // per-operation bounds.
-func parseEC2Pagination(vals url.Values, minResults, maxResults, defaultResults int) (int, int, error) {
+func parseEC2Pagination(
+	vals url.Values,
+	minResults, maxResults, defaultResults int,
+) (int, int, error) {
 	limit := defaultResults
 	if v := vals.Get("MaxResults"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -898,7 +980,10 @@ func parseEC2Pagination(vals url.Values, minResults, maxResults, defaultResults 
 	if tok := vals.Get("NextToken"); tok != "" {
 		n := page.DecodeHMACToken(tok, ec2PaginationSalt)
 		if n == 0 {
-			return 0, 0, fmt.Errorf("%w: the pagination token is not valid", ErrInvalidPaginationToken)
+			return 0, 0, fmt.Errorf(
+				"%w: the pagination token is not valid",
+				ErrInvalidPaginationToken,
+			)
 		}
 
 		offset = n

@@ -317,7 +317,7 @@ func seedAuditAndSecurity(t *testing.T, b *iot.InMemoryBackend) {
 func seedCertsStreamsMetrics(t *testing.T, b *iot.InMemoryBackend) string {
 	t.Helper()
 
-	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", nil, iot.RegistrationConfig{})
+	caCert, err := b.RegisterCACertificate("fake-ca-pem", "ACTIVE", "SNI_ONLY", "", nil, iot.RegistrationConfig{})
 	require.NoError(t, err)
 
 	_, err = b.CreateStream(&iot.CreateStreamInput{
@@ -368,7 +368,9 @@ func seedPackagesAndCommands(t *testing.T, b *iot.InMemoryBackend) {
 
 	_, err = b.CreateCommand(
 		"gap-command", "Gap Command", "gap command desc", "AWS-IoT",
-		map[string]any{"foo": "bar"}, nil,
+		map[string]any{"foo": "bar"},
+		[]map[string]any{{"name": "param1", "defaultValue": map[string]any{"S": "default"}}},
+		nil,
 	)
 	require.NoError(t, err)
 
@@ -708,6 +710,9 @@ func persistenceGapChecks(seeded gapSeededIDs) []persistenceGapCheck {
 			got, err := b.GetCommand("gap-command")
 			require.NoError(t, err)
 			assert.Equal(t, "gap-command", got.CommandID)
+			require.Len(t, got.MandatoryParameters, 1,
+				"MandatoryParameters must survive Snapshot/Restore, not just Create")
+			assert.Equal(t, "param1", got.MandatoryParameters[0]["name"])
 		}},
 		{name: "commandExecutions", check: func(t *testing.T, b *iot.InMemoryBackend) {
 			t.Helper()

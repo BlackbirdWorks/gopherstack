@@ -668,6 +668,11 @@ func sqsValidationErrorDetails(err error) (errorEntry, bool) {
 			"The specified action violates a service quota.",
 			http.StatusForbidden,
 		}},
+		{ErrRequestThrottled, errorEntry{
+			"com.amazonaws.sqs#RequestThrottled",
+			"The request was denied due to request throttling.",
+			http.StatusForbidden,
+		}},
 		{ErrInvalidMessageAttributeValue, errorEntry{
 			ipv,
 			"Message attribute value is invalid. Check that the DataType and the associated value are correct.",

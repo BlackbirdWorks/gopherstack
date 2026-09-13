@@ -823,6 +823,17 @@ func (h *Handler) routeResponseOps() nestedResponseOps[RouteResponse, UpdateRout
 
 // pathSegments strips the /v2/apis prefix and returns the remaining path segments.
 // For example: /v2/apis/abc123/stages/prod → ["abc123", "stages", "prod"].
+//
+// DeleteRouteSettings is the sole apigatewayv2 op whose real URI embeds a
+// RouteKey as a path label (".../stages/{StageName}/routesettings/{RouteKey}",
+// apigatewayv2@v1.37.4 serializers.go:3532) rather than an opaque ID -- a
+// RouteKey routinely contains its own "/" (e.g. "GET /users"), and
+// net/http's URL parsing decodes that segment's "%2F" back into a literal
+// "/" in Request.URL.Path before this function ever sees it. Naively
+// splitting on "/" then produces one extra segment, so the dispatch table's
+// segment-count match always missed and every real client's
+// DeleteRouteSettings 404'd unconditionally regardless of the route. Rejoin
+// everything after "routesettings" back into one RouteKey segment.
 func pathSegments(path string) []string {
 	trimmed := strings.TrimPrefix(path, apisPathPrefix)
 	trimmed = strings.Trim(trimmed, "/")
@@ -831,7 +842,14 @@ func pathSegments(path string) []string {
 		return []string{}
 	}
 
-	return strings.Split(trimmed, "/")
+	segs := strings.Split(trimmed, "/")
+
+	const minRouteSettingsSegs = 4
+	if len(segs) > minRouteSettingsSegs && segs[1] == collStages && segs[3] == collRouteSettings {
+		return append(segs[:minRouteSettingsSegs], strings.Join(segs[minRouteSettingsSegs:], "/"))
+	}
+
+	return segs
 }
 
 // handleDeepResource handles GET/DELETE on /v2/apis/{apiId}/{coll}/{resourceId}/{subColl}/{subResourceId}.

@@ -51,7 +51,8 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
 families:
   route_matcher: {status: ok, note: "FIXED THIS PASS: deleted pathAnalyzedResource (\"analyzedResource\", no hyphen) dead legacy routing -- RouteMatcher claimed it but no parser ever resolved an op for it (always 404'd; no real SDK client sends this path, only the real hyphenated \"/analyzed-resource\" via pathAnalyzedResourceHyph). Removed the RouteMatcher prefix entry and the dead parseRESTPath case; updated TestAccessAnalyzerHandler_RouteMatcher accordingly (now asserts /analyzedResource is NOT claimed and /analyzed-resource IS). All other families re-verified unchanged against aws-sdk-go-v2 serializers.go this pass (archive-rule PUT/GET/DELETE paths+methods, tags GET/POST/DELETE, policy-generation PUT/GET paths, access-preview PUT/GET/POST) -- no further routing bugs found."}
-gaps:                     # known divergences NOT fixed — link bd issue ids
+gaps: []
+items_still_open:
   - "GetFindingRecommendation.recommendedSteps is always [] -- IAM Access Analyzer's actual unused-permission-removal recommendation content generation is a distinct feature with no backing state in InMemoryBackend to derive concrete steps from (RecommendationType/ResourceArn/Status/StartedAt/CompletedAt are ALL real, state-backed, and correctly wire-shaped as of gopherstack-kwht). Not attempted this pass; would need a genuine recommendation-generation model, not a fabricated placeholder. Tracked as bd issue gopherstack-kwht."
   - "GetGeneratedPolicy.generatedPolicyResult.generatedPolicies is always [] -- actual IAM policy generation from CloudTrail activity is a distinct, large feature (statement synthesis from simulated CloudTrail events) with no backing data in this backend. properties (including cloudTrailProperties as of gopherstack-kwht)/jobDetails ARE real, state-backed. Tracked as bd issue gopherstack-kwht."
   - "gopherstack-6flj: ListFindings/ListFindingsV2/ListAccessPreviewFindings filter criteria only evaluate the Eq operator on status/resourceType/resource/id -- Contains/Neq/Exists, and any filter key not backed by a direct Finding field (principal.*, condition.*, action, isPublic, createdAt, resourceRegion), are not evaluated (matchesFindingFilter treats them as satisfied rather than excluding, which is closer to the pre-fix always-match baseline than silently hiding results a real client should see). Same limitation applies to CreateArchiveRule/ApplyArchiveRule's auto-archive matching, which reuses the same helper."
@@ -690,3 +691,39 @@ plus new regression tests).
 
 Gates: `go test -race ./services/accessanalyzer/...` and
 `golangci-lint run services/accessanalyzer/...` both clean, 0 issues.
+
+## 2026-09-12 (typed slice 25, gopherstack-n3zi)
+
+Typed-client coverage 22/39 -> 39/39 (0 uncovered). Added
+`typed_slice25_realclient_test.go`, one outer `t.Parallel()` test with 7
+subtests driving every previously-untested op through a real
+`aws-sdk-go-v2/service/accessanalyzer` client: CheckAccessNotGranted,
+CheckNoNewAccess, CheckNoPublicAccess, CreateServiceLinkedAnalyzer,
+DeleteServiceLinkedAnalyzer, GetAnalyzedResource, GetFinding,
+GetFindingRecommendation, GetFindingV2, ListAccessPreviews,
+ListAnalyzedResources, ListPolicyGenerations, StartPolicyGeneration,
+StartResourceScan, UpdateAnalyzer, UpdateArchiveRule, UpdateFindings.
+
+**Two real wire bugs found and fixed**, both the same bug class this
+file's own `queryParamValue` doc comment already names but two handlers had
+not yet adopted: `handleGetAnalyzedResource` (`handler_analyzed_resources.go`)
+and `handleListAccessPreviews` (`handler_access_previews.go`) parsed
+`analyzerArn`/`resourceArn` straight off the raw, still percent-encoded
+query string via a bare `strings.CutPrefix`, never unescaping it. A real
+`aws-sdk-go-v2` client always percent-encodes ARNs on the wire
+(`awsRestjson1_serializeOpHttpBindingsGetAnalyzedResourceInput`,
+`accessanalyzer@v1.51.4` serializers.go), so every real `GetAnalyzedResource`
+and `ListAccessPreviews` call compared an encoded ARN against the backend's
+decoded one and always missed -- `GetAnalyzedResource` returned
+`AnalyzedResourceNotFound` and `ListAccessPreviews` silently returned an
+empty list, both on every real caller. Fixed by switching both handlers to
+the existing `queryParamValue` helper (already used correctly by
+`GetFinding`/`GenerateFindingRecommendation`), which already unescapes.
+Confirmed by the typed test failing against the pre-fix code
+(`AnalyzedResourceNotFound` / empty `ListAccessPreviews` result) and passing
+after.
+
+Zero bugs in the remaining 15 ops -- consistent with this service's deep
+prior audit history. No `items_still_open` changes (these were undisclosed
+latent bugs, not previously-known gaps); no `snapshot_inventory.json`
+change; no version bump.

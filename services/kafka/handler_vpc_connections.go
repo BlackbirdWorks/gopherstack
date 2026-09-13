@@ -70,6 +70,16 @@ func (h *Handler) handleCreateVpcConnection(
 	})
 }
 
+// deleteVpcConnectionOutput mirrors DeleteVpcConnectionOutput (state/
+// vpcConnectionArn) -- an empty body left both fields permanently absent for
+// every real client, even though vpcConnectionArn is already known from the
+// request path and this backend's synchronous delete is honestly reported as
+// the real API's transitional DELETING state (types.VpcConnectionStateDeleting).
+type deleteVpcConnectionOutput struct {
+	State            string `json:"state"`
+	VpcConnectionArn string `json:"vpcConnectionArn"`
+}
+
 func (h *Handler) handleDeleteVpcConnection(
 	ctx context.Context,
 	c *echo.Context,
@@ -79,7 +89,10 @@ func (h *Handler) handleDeleteVpcConnection(
 		return h.writeBackendError(c, err)
 	}
 
-	return c.NoContent(http.StatusOK)
+	return c.JSON(http.StatusOK, deleteVpcConnectionOutput{
+		State:            "DELETING",
+		VpcConnectionArn: vpcConnectionArn,
+	})
 }
 
 // listVpcConnectionsOutput mirrors ListVpcConnectionsOutput; its element

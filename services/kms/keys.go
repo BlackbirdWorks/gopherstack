@@ -713,12 +713,7 @@ func (b *InMemoryBackend) findPrimaryKeyForReplica(replicaKey *Key) *Key {
 func applyAlgorithmFields(k *Key, meta *KeyMetadata) {
 	switch k.KeyUsage {
 	case KeyUsageEncryptDecrypt:
-		if k.KeySpec == keySpecRSA2048 || k.KeySpec == keySpecRSA3072 ||
-			k.KeySpec == keySpecRSA4096 {
-			meta.EncryptionAlgorithms = []string{algoRSAESOAEPSHA1, encryptionAlgorithmRSAOAEP}
-		} else {
-			meta.EncryptionAlgorithms = []string{"SYMMETRIC_DEFAULT"}
-		}
+		meta.EncryptionAlgorithms = supportedEncryptionAlgorithms(k.KeySpec)
 	case KeyUsageSignVerify:
 		meta.SigningAlgorithms = defaultSigningAlgorithms(k.KeySpec)
 	case KeyUsageGenerateMac:
