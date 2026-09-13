@@ -122,12 +122,14 @@ func (b *InMemoryBackend) logDeliveryStatus(
 		return
 	}
 
+	// topicARN also reaches this delivery's outbound X-Amz-Sns-Topic-Arn
+	// header (deliverHTTPWithMeta) -- omit it here so it isn't duplicated
+	// into local logs from that header-bound value.
 	l := logger.Load(ctx).With(
 		"protocol", protocol,
 		"endpoint", endpoint,
 		"status", status,
 		"role_arn", roleArn,
-		"topic_arn", topicARN,
 	)
 	if err != nil {
 		l.InfoContext(ctx, "SNS delivery status", "error", err.Error())

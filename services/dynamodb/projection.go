@@ -65,7 +65,7 @@ func mergeAttrNames(base, extra map[string]string) map[string]string {
 		return base
 	}
 
-	merged := make(map[string]string, len(base)+len(extra))
+	merged := make(map[string]string)
 	maps.Copy(merged, base)
 	maps.Copy(merged, extra)
 

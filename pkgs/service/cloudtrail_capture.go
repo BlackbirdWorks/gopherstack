@@ -201,12 +201,21 @@ type captureResponseWriter struct {
 
 func (w *captureResponseWriter) WriteHeader(code int) {
 	w.status = code
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Write mirrors pkgs/httputils.ResponseWriter.Write's implicit-200 handling:
+// a wrapped handler that writes an error body without ever setting
+// Content-Type would otherwise let net/http sniff the tee'd bytes -- which
+// can include request-derived text -- as text/html, enabling reflected XSS.
 func (w *captureResponseWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
-		w.status = http.StatusOK
+		w.WriteHeader(http.StatusOK)
+	}
+
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	}
 
 	w.body.Write(b)

@@ -3,6 +3,7 @@ package quicksight
 import (
 	"fmt"
 	"maps"
+	"math"
 	"sort"
 	"time"
 
@@ -126,6 +127,10 @@ func (b *InMemoryBackend) DeleteAnalysis(
 	days := recoveryWindowInDays
 	if days <= 0 {
 		days = defaultAnalysisRecoveryWindowDays
+	}
+
+	if days > math.MaxInt32 {
+		return time.Time{}, ErrValidation
 	}
 
 	return time.Now().UTC().AddDate(0, 0, int(days)), nil
