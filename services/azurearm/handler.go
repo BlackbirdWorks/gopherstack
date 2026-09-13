@@ -569,12 +569,35 @@ func errorDetails(err error) errorEntry {
 			ErrResourceGroupNotFound,
 			errorEntry{"ResourceGroupNotFound", "Resource group not found.", http.StatusNotFound},
 		},
-		{ErrResourceNotFound, errorEntry{"ResourceNotFound", "The resource was not found.", http.StatusNotFound}},
+		{
+			ErrResourceNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The resource was not found.", http.StatusNotFound},
+		},
 		{
 			ErrStorageAccountNotFound,
-			errorEntry{"ResourceNotFound", "The storage account was not found.", http.StatusNotFound},
+			errorEntry{armErrorCodeResourceNotFound, "The storage account was not found.", http.StatusNotFound},
 		},
 		{ErrSubscriptionNotFound, errorEntry{"SubscriptionNotFound", "Subscription not found.", http.StatusNotFound}},
+		{
+			ErrServiceBusNamespaceNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Service Bus namespace was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusQueueNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Service Bus queue was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusTopicNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The Service Bus topic was not found.", http.StatusNotFound},
+		},
+		{
+			ErrServiceBusSubscriptionNotFound,
+			errorEntry{
+				armErrorCodeResourceNotFound,
+				"The Service Bus subscription was not found.",
+				http.StatusNotFound,
+			},
+		},
 		{
 			errAccountExistsInOtherResourceGroup,
 			errorEntry{

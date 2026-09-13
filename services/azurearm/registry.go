@@ -105,6 +105,25 @@ func (r *Registry) ProviderNamed(ns string) (ResourceProvider, bool) {
 	return p, ok
 }
 
+// SetServiceBusEntities gives the registered Microsoft.ServiceBus provider
+// (if any) a real ServiceBusEntities adapter, replacing its no-op default --
+// called post-construction by cli.go's wireAzureARMResourceProviders once
+// services/azureservicebus's own Handler exists, mirroring M8's
+// wireAzureStorageVHost pattern (this can't be wired at azurearm.Provider.Init
+// time the way StorageAccountsProvider is, since it needs a live reference to
+// a sibling service's already-constructed runtime handler). A no-op if
+// Microsoft.ServiceBus isn't registered or isn't a *ServiceBusProvider.
+func (r *Registry) SetServiceBusEntities(e ServiceBusEntities) {
+	p, ok := r.ProviderNamed(namespaceMicrosoftServiceBus)
+	if !ok {
+		return
+	}
+
+	if sb, sbOk := p.(*ServiceBusProvider); sbOk {
+		sb.dataPlane = e
+	}
+}
+
 // Put creates or updates the resource identified by id.
 func (r *Registry) Put(ctx context.Context, id ResourceID, body map[string]any) (map[string]any, bool, error) {
 	if p := r.providerFor(id); p != nil {

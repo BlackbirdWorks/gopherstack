@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/blackbirdworks/gopherstack/services/azureservicebus"
 	"github.com/blackbirdworks/gopherstack/services/ecs"
 	"github.com/blackbirdworks/gopherstack/services/eventbridge"
 	"github.com/blackbirdworks/gopherstack/services/kinesis"
@@ -88,6 +89,71 @@ func (a *schedSageMakerAdapter) StartPipelineExecution(
 	})
 
 	return err
+}
+
+// azureServiceBusEntitiesAdapter adapts services/azureservicebus's
+// StorageBackend to services/azurearm.ServiceBusEntities, translating
+// azurearm's primitive-typed calls into azureservicebus.EntityConfig -- see
+// azurearm/interfaces.go's ServiceBusEntities doc comment for why azurearm
+// itself never imports azureservicebus directly. Wired by cli.go's
+// wireAzureARMResourceProviders (AZURE.md section 10.10's M9 entry).
+type azureServiceBusEntitiesAdapter struct {
+	backend azureservicebus.StorageBackend
+}
+
+func (a *azureServiceBusEntitiesAdapter) CreateQueue(
+	name string,
+	lockDuration, defaultMessageTTL time.Duration,
+	maxDeliveryCount int,
+) error {
+	_, err := a.backend.CreateQueue(name, azureservicebus.EntityConfig{
+		LockDuration:      lockDuration,
+		DefaultMessageTTL: defaultMessageTTL,
+		MaxDeliveryCount:  maxDeliveryCount,
+	})
+
+	return err
+}
+
+func (a *azureServiceBusEntitiesAdapter) DeleteQueue(name string) error {
+	return a.backend.DeleteQueue(name)
+}
+func (a *azureServiceBusEntitiesAdapter) QueueExists(name string) bool {
+	return a.backend.QueueExists(name)
+}
+
+func (a *azureServiceBusEntitiesAdapter) CreateTopic(name string, defaultMessageTTL time.Duration) error {
+	_, err := a.backend.CreateTopic(name, azureservicebus.EntityConfig{DefaultMessageTTL: defaultMessageTTL})
+
+	return err
+}
+
+func (a *azureServiceBusEntitiesAdapter) DeleteTopic(name string) error {
+	return a.backend.DeleteTopic(name)
+}
+func (a *azureServiceBusEntitiesAdapter) TopicExists(name string) bool {
+	return a.backend.TopicExists(name)
+}
+
+func (a *azureServiceBusEntitiesAdapter) CreateSubscription(
+	topic, name string,
+	lockDuration time.Duration,
+	maxDeliveryCount int,
+) error {
+	_, err := a.backend.CreateSubscription(topic, name, azureservicebus.EntityConfig{
+		LockDuration:     lockDuration,
+		MaxDeliveryCount: maxDeliveryCount,
+	})
+
+	return err
+}
+
+func (a *azureServiceBusEntitiesAdapter) DeleteSubscription(topic, name string) error {
+	return a.backend.DeleteSubscription(topic, name)
+}
+
+func (a *azureServiceBusEntitiesAdapter) SubscriptionExists(topic, name string) bool {
+	return a.backend.SubscriptionExists(topic, name)
 }
 
 type schedECSAdapter struct {
