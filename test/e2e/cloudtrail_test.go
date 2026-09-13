@@ -17,7 +17,7 @@ func TestCloudTrailDashboard(t *testing.T) {
 
 	_, err := stack.CloudTrailHandler.Backend.CreateTrail(
 		"e2e-test-trail", "e2e-test-bucket", "", "", "", "", "",
-		true, false, false, nil,
+		true, false, false, nil, false,
 	)
 	require.NoError(t, err)
 
