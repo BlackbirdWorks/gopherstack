@@ -95,12 +95,13 @@ func sbQueueID(rg, ns, name string) azurearm.ResourceID {
 	}
 }
 
-// sbTopicID's ResourceGroup is always "rg1" -- every test call site needs
-// the same resource group, so it's hardcoded rather than a parameter.
-func sbTopicID(ns, name string) azurearm.ResourceID {
+// sbTopicID's ResourceGroup and topic name are always "rg1"/"t1" -- every
+// test call site needs the same values, so they're hardcoded rather than
+// parameters.
+func sbTopicID(ns string) azurearm.ResourceID {
 	return azurearm.ResourceID{
 		SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
-		Types: []string{"namespaces", "topics"}, Names: []string{ns, name},
+		Types: []string{"namespaces", "topics"}, Names: []string{ns, "t1"},
 	}
 }
 
@@ -123,10 +124,12 @@ func sbSubscriptionID(ns, topic, name string) azurearm.ResourceID {
 // sbNetworkRuleSetID addresses namespaces/{ns}/networkRuleSets/default -- the
 // only name real Azure (and terraform-provider-azurerm@v4.81.0's
 // NamespacesClient.GetNetworkRuleSet, which hardcodes the "default" path
-// segment) ever uses.
-func sbNetworkRuleSetID(rg, ns string) azurearm.ResourceID {
+// segment) ever uses. ResourceGroup is likewise always "rg1" -- every test
+// call site needs the same resource group, so it's hardcoded rather than a
+// parameter.
+func sbNetworkRuleSetID(ns string) azurearm.ResourceID {
 	return azurearm.ResourceID{
-		SubscriptionID: "sub1", ResourceGroup: rg, Namespace: "Microsoft.ServiceBus",
+		SubscriptionID: "sub1", ResourceGroup: "rg1", Namespace: "Microsoft.ServiceBus",
 		Types: []string{"namespaces", "networkRuleSets"}, Names: []string{ns, "default"},
 	}
 }
@@ -247,7 +250,7 @@ func TestServiceBusProvider_TopicPutGetDelete(t *testing.T) {
 	require.NoError(t, err)
 	fake.calls = nil
 
-	id := sbTopicID("ns1", "t1")
+	id := sbTopicID("ns1")
 	body, err := sp.Put(ctx, id, map[string]any{
 		"properties": map[string]any{"defaultMessageTimeToLive": "P1D"},
 	})
@@ -279,7 +282,7 @@ func TestServiceBusProvider_Topic_ParentNamespaceMissing(t *testing.T) {
 
 	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
 
-	_, err := sp.Put(t.Context(), sbTopicID("missingns", "t1"), map[string]any{})
+	_, err := sp.Put(t.Context(), sbTopicID("missingns"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }
 
@@ -292,7 +295,7 @@ func TestServiceBusProvider_SubscriptionPutGetDelete(t *testing.T) {
 
 	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
-	_, err = sp.Put(ctx, sbTopicID("ns1", "t1"), map[string]any{})
+	_, err = sp.Put(ctx, sbTopicID("ns1"), map[string]any{})
 	require.NoError(t, err)
 	fake.calls = nil
 
@@ -516,7 +519,7 @@ func TestServiceBusProvider_DeleteResourcesInGroup(t *testing.T) {
 	require.NoError(t, err)
 	_, err = sp.Put(ctx, sbQueueID("rg1", "ns1", "q1"), map[string]any{})
 	require.NoError(t, err)
-	_, err = sp.Put(ctx, sbTopicID("ns1", "t1"), map[string]any{})
+	_, err = sp.Put(ctx, sbTopicID("ns1"), map[string]any{})
 	require.NoError(t, err)
 	_, err = sp.Put(ctx, sbSubscriptionID("ns1", "t1", "s1"), map[string]any{})
 	require.NoError(t, err)
@@ -530,7 +533,7 @@ func TestServiceBusProvider_DeleteResourcesInGroup(t *testing.T) {
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 	_, err = sp.Get(ctx, sbQueueID("rg1", "ns1", "q1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusQueueNotFound)
-	_, err = sp.Get(ctx, sbTopicID("ns1", "t1"))
+	_, err = sp.Get(ctx, sbTopicID("ns1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusTopicNotFound)
 	_, err = sp.Get(ctx, sbSubscriptionID("ns1", "t1", "s1"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusSubscriptionNotFound)
@@ -621,7 +624,7 @@ func TestServiceBusProvider_NetworkRuleSet_GetWithoutPut(t *testing.T) {
 	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
 
-	id := sbNetworkRuleSetID("rg1", "ns1")
+	id := sbNetworkRuleSetID("ns1")
 
 	got, err := sp.Get(ctx, id)
 	require.NoError(t, err, "GET networkRuleSets/default must succeed even when no PUT was ever made against it")
@@ -655,7 +658,7 @@ func TestServiceBusProvider_NetworkRuleSet_PutThenGet(t *testing.T) {
 	_, err := sp.Put(ctx, sbNamespaceID("rg1", "ns1"), map[string]any{"location": "westus"})
 	require.NoError(t, err)
 
-	id := sbNetworkRuleSetID("rg1", "ns1")
+	id := sbNetworkRuleSetID("ns1")
 
 	putBody, err := sp.Put(ctx, id, map[string]any{
 		"properties": map[string]any{
@@ -686,9 +689,9 @@ func TestServiceBusProvider_NetworkRuleSet_ParentNamespaceMissing(t *testing.T) 
 
 	sp := azurearm.NewServiceBusProvider(azurearm.ServiceBusEndpointConfig{}, nil)
 
-	_, err := sp.Get(t.Context(), sbNetworkRuleSetID("rg1", "missingns"))
+	_, err := sp.Get(t.Context(), sbNetworkRuleSetID("missingns"))
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 
-	_, err = sp.Put(t.Context(), sbNetworkRuleSetID("rg1", "missingns"), map[string]any{})
+	_, err = sp.Put(t.Context(), sbNetworkRuleSetID("missingns"), map[string]any{})
 	require.ErrorIs(t, err, azurearm.ErrServiceBusNamespaceNotFound)
 }

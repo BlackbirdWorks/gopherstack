@@ -538,21 +538,29 @@ func (p *ServiceBusProvider) buildNetworkRuleSetBody(id ResourceID, props map[st
 // buildBody functions substitute their own defaults for a zero value.
 func parseSBEntityProperties(
 	body map[string]any,
-) (lockDuration, defaultTTL time.Duration, maxDeliveryCount int, err error) {
+) (time.Duration, time.Duration, int, error) {
 	props, _ := body["properties"].(map[string]any)
 
+	var lockDuration, defaultTTL time.Duration
+
+	var maxDeliveryCount int
+
 	if s, ok := props["lockDuration"].(string); ok && s != "" {
-		lockDuration, err = iso8601.Parse(s)
+		d, err := iso8601.Parse(s)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("%w: lockDuration: %w", ErrInvalidRequestBody, err)
 		}
+
+		lockDuration = d
 	}
 
 	if s, ok := props["defaultMessageTimeToLive"].(string); ok && s != "" {
-		defaultTTL, err = iso8601.Parse(s)
+		d, err := iso8601.Parse(s)
 		if err != nil {
 			return 0, 0, 0, fmt.Errorf("%w: defaultMessageTimeToLive: %w", ErrInvalidRequestBody, err)
 		}
+
+		defaultTTL = d
 	}
 
 	if n, ok := props["maxDeliveryCount"].(float64); ok {
@@ -832,7 +840,9 @@ func (p *ServiceBusProvider) DeleteResourcesInGroup(ctx context.Context, resourc
 // hold p.mu for writing. Returns the names of the deleted queues/topics
 // (for cascadeDeleteFromDataPlane to also clean up in the data plane) and
 // the "topic/name" pairs of the deleted subscriptions.
-func (p *ServiceBusProvider) deleteGroupResourcesLocked(resourceGroup string) (queues, topics, subs []string) {
+func (p *ServiceBusProvider) deleteGroupResourcesLocked(resourceGroup string) ([]string, []string, []string) {
+	var queues, topics, subs []string
+
 	for key, q := range p.queues {
 		if resourceGroupsEqual(q.resourceGroup, resourceGroup) {
 			queues = append(queues, q.name)

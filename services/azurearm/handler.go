@@ -569,7 +569,10 @@ func errorDetails(err error) errorEntry {
 			ErrResourceGroupNotFound,
 			errorEntry{"ResourceGroupNotFound", "Resource group not found.", http.StatusNotFound},
 		},
-		{ErrResourceNotFound, errorEntry{armErrorCodeResourceNotFound, "The resource was not found.", http.StatusNotFound}},
+		{
+			ErrResourceNotFound,
+			errorEntry{armErrorCodeResourceNotFound, "The resource was not found.", http.StatusNotFound},
+		},
 		{
 			ErrStorageAccountNotFound,
 			errorEntry{armErrorCodeResourceNotFound, "The storage account was not found.", http.StatusNotFound},
@@ -589,7 +592,11 @@ func errorDetails(err error) errorEntry {
 		},
 		{
 			ErrServiceBusSubscriptionNotFound,
-			errorEntry{armErrorCodeResourceNotFound, "The Service Bus subscription was not found.", http.StatusNotFound},
+			errorEntry{
+				armErrorCodeResourceNotFound,
+				"The Service Bus subscription was not found.",
+				http.StatusNotFound,
+			},
 		},
 		{
 			errAccountExistsInOtherResourceGroup,

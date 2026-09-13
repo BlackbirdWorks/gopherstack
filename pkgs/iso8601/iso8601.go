@@ -125,6 +125,7 @@ func formatSeconds(seconds, fracNanos int64) string {
 	switch {
 	case fracNanos > 0:
 		secondsFloat := float64(seconds) + float64(fracNanos)/float64(time.Second)
+
 		return strconv.FormatFloat(secondsFloat, 'f', -1, 64) + "S"
 	case seconds > 0:
 		return strconv.FormatInt(seconds, 10) + "S"
