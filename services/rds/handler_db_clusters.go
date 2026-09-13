@@ -67,6 +67,11 @@ func parseDBClusterNumericParams(vals url.Values) (dbClusterNumericParams, error
 }
 
 func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBClusterOptions {
+	piRetention := 0
+	if v, err := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); err == nil {
+		piRetention = v
+	}
+
 	return DBClusterOptions{
 		EngineVersion:               vals.Get("EngineVersion"),
 		KmsKeyID:                    vals.Get("KmsKeyId"),
@@ -77,6 +82,9 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 		NetworkType:                 vals.Get("NetworkType"),
 		EngineLifecycleSupport:      vals.Get("EngineLifecycleSupport"),
 		ReplicationSourceIdentifier: vals.Get("ReplicationSourceIdentifier"),
+		OptionGroupName:             vals.Get("OptionGroupName"),
+		ClusterScalabilityType:      vals.Get("ClusterScalabilityType"),
+		PerformanceInsightsKMSKeyID: vals.Get("PerformanceInsightsKMSKeyId"),
 		EnabledCloudwatchLogsExports: parseMultiValueParam(
 			vals,
 			"EnableCloudwatchLogsExports.member",
@@ -85,14 +93,23 @@ func buildDBClusterOptions(vals url.Values, numeric dbClusterNumericParams) DBCl
 			vals,
 			"AvailabilityZones.AvailabilityZone",
 		),
-		BacktrackWindow:       numeric.backtrackWindow,
-		BackupRetentionPeriod: numeric.backupRetention,
-		MonitoringInterval:    numeric.monitoringInterval,
-		MultiAZ:               vals.Get("MultiAZ") == formTrue,
-		StorageEncrypted:      vals.Get("StorageEncrypted") == formTrue,
-		CopyTagsToSnapshot:    vals.Get("CopyTagsToSnapshot") == formTrue,
-		DeletionProtection:    vals.Get("DeletionProtection") == formTrue,
-		OptimizedWrites:       vals.Get("EnableOptimizedWrites") == formTrue,
+		BacktrackWindow:                    numeric.backtrackWindow,
+		BackupRetentionPeriod:              numeric.backupRetention,
+		MonitoringInterval:                 numeric.monitoringInterval,
+		PerformanceInsightsRetentionPeriod: piRetention,
+		MultiAZ:                            vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:                   vals.Get("StorageEncrypted") == formTrue,
+		CopyTagsToSnapshot:                 vals.Get("CopyTagsToSnapshot") == formTrue,
+		DeletionProtection:                 vals.Get("DeletionProtection") == formTrue,
+		OptimizedWrites:                    vals.Get("EnableOptimizedWrites") == formTrue,
+		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		EnableGlobalWriteForwarding:        vals.Get("EnableGlobalWriteForwarding") == formTrue,
+		EnableLocalWriteForwarding:         vals.Get("EnableLocalWriteForwarding") == formTrue,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+		EnableHTTPEndpoint:                 vals.Get("EnableHttpEndpoint") == formTrue,
+		EnableHTTPEndpointSet:              vals.Get("EnableHttpEndpoint") != "",
 	}
 }
 
@@ -172,8 +189,9 @@ func (h *Handler) handleDeleteDBCluster(vals url.Values) (any, error) {
 	id := vals.Get("DBClusterIdentifier")
 	skipFinalSnapshot := vals.Get("SkipFinalSnapshot") == formTrue
 	finalSnapshotID := vals.Get("FinalDBSnapshotIdentifier")
+	deleteAutomatedBackups := vals.Get("DeleteAutomatedBackups") != "false"
 
-	cluster, err := h.Backend.DeleteDBClusterWithOptions(id, skipFinalSnapshot, finalSnapshotID)
+	cluster, err := h.Backend.DeleteDBClusterWithOptions(id, skipFinalSnapshot, finalSnapshotID, deleteAutomatedBackups)
 	if err != nil {
 		return nil, err
 	}
@@ -212,30 +230,53 @@ func (h *Handler) handleModifyDBCluster(vals url.Values) (any, error) {
 		}
 	}
 
+	piRetention := 0
+	if v, err := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); err == nil {
+		piRetention = v
+	}
+
 	storageEncryptedRaw := vals.Get("StorageEncrypted")
 	opts := DBClusterOptions{
-		EngineVersion:              vals.Get("EngineVersion"),
-		BackupRetentionPeriod:      backupRetentionPeriod,
-		KmsKeyID:                   vals.Get("KmsKeyId"),
-		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
-		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
-		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
-		StorageType:                vals.Get("StorageType"),
-		NetworkType:                vals.Get("NetworkType"),
-		EngineLifecycleSupport:     vals.Get("EngineLifecycleSupport"),
+		EngineVersion:                vals.Get("EngineVersion"),
+		BackupRetentionPeriod:        backupRetentionPeriod,
+		KmsKeyID:                     vals.Get("KmsKeyId"),
+		PreferredBackupWindow:        vals.Get("PreferredBackupWindow"),
+		PreferredMaintenanceWindow:   vals.Get("PreferredMaintenanceWindow"),
+		MonitoringRoleArn:            vals.Get("MonitoringRoleArn"),
+		StorageType:                  vals.Get("StorageType"),
+		NetworkType:                  vals.Get("NetworkType"),
+		EngineLifecycleSupport:       vals.Get("EngineLifecycleSupport"),
+		OptionGroupName:              vals.Get("OptionGroupName"),
+		DBInstanceParameterGroupName: vals.Get("DBInstanceParameterGroupName"),
+		PerformanceInsightsKMSKeyID:  vals.Get("PerformanceInsightsKMSKeyId"),
 		EnabledCloudwatchLogsExports: parseMultiValueParam(
 			vals,
 			"CloudwatchLogsExportConfiguration.EnableLogTypes.member",
 		),
-		BacktrackWindow:         backtrackWindow,
-		MonitoringInterval:      monitoringInterval,
-		MultiAZ:                 vals.Get("MultiAZ") == formTrue,
-		CopyTagsToSnapshot:      vals.Get("CopyTagsToSnapshot") == formTrue,
-		DeletionProtection:      vals.Get("DeletionProtection") == formTrue,
-		DeletionProtectionSet:   vals.Get("DeletionProtection") != "",
-		StorageEncrypted:        storageEncryptedRaw == formTrue,
-		StorageEncryptedChanged: storageEncryptedRaw != "",
-		OptimizedWrites:         vals.Get("EnableOptimizedWrites") == formTrue,
+		BacktrackWindow:                    backtrackWindow,
+		MonitoringInterval:                 monitoringInterval,
+		PerformanceInsightsRetentionPeriod: piRetention,
+		MultiAZ:                            vals.Get("MultiAZ") == formTrue,
+		CopyTagsToSnapshot:                 vals.Get("CopyTagsToSnapshot") == formTrue,
+		DeletionProtection:                 vals.Get("DeletionProtection") == formTrue,
+		DeletionProtectionSet:              vals.Get("DeletionProtection") != "",
+		StorageEncrypted:                   storageEncryptedRaw == formTrue,
+		StorageEncryptedChanged:            storageEncryptedRaw != "",
+		OptimizedWrites:                    vals.Get("EnableOptimizedWrites") == formTrue,
+		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		EnableGlobalWriteForwarding:        vals.Get("EnableGlobalWriteForwarding") == formTrue,
+		EnableLocalWriteForwarding:         vals.Get("EnableLocalWriteForwarding") == formTrue,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+		EnableHTTPEndpoint:                 vals.Get("EnableHttpEndpoint") == formTrue,
+		EnableHTTPEndpointSet:              vals.Get("EnableHttpEndpoint") != "",
+		// ApplyImmediately is read for wire-declaration parity but this backend
+		// applies every ModifyDBCluster change immediately regardless of its
+		// value -- see PARITY.md (existing tests pin immediate-apply as the
+		// default for both direct backend calls and HTTP calls that omit it,
+		// which conflicts with AWS's real "disabled by default" deferred
+		// semantics; changing that default would break those pinned tests).
+		ApplyImmediately: vals.Get("ApplyImmediately") == formTrue,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(id, paramGroupName, opts)
@@ -288,7 +329,21 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 	clusterID := vals.Get("DBClusterIdentifier")
 	snapshotID := vals.Get("SnapshotIdentifier")
 	engine := vals.Get("Engine")
-	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine)
+
+	piRetention := 0
+	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
+		piRetention = v
+	}
+
+	restoreOpts := DBClusterOptions{
+		OptionGroupName:                    vals.Get("OptionGroupName"),
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
+	}
+
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine, restoreOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +360,21 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(vals url.Values) (any, erro
 func (h *Handler) handleRestoreDBClusterToPointInTime(vals url.Values) (any, error) {
 	clusterID := vals.Get("DBClusterIdentifier")
 	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID)
+
+	piRetention := 0
+	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
+		piRetention = v
+	}
+
+	restoreOpts := DBClusterOptions{
+		OptionGroupName:                    vals.Get("OptionGroupName"),
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		EnableIAMDatabaseAuthentication:    vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
+	}
+
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(clusterID, sourceClusterID, restoreOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -325,41 +394,61 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		clusterCreateTime = c.ClusterCreateTime.UTC().Format(time.RFC3339)
 	}
 	x := xmlDBCluster{
-		DBClusterIdentifier:             c.DBClusterIdentifier,
-		DBClusterArn:                    c.DBClusterArn,
-		DBClusterResourceID:             c.DBClusterResourceID,
-		Engine:                          c.Engine,
-		EngineVersion:                   c.EngineVersion,
-		Status:                          c.Status,
-		MasterUsername:                  c.MasterUsername,
-		DatabaseName:                    c.DatabaseName,
-		DBClusterParameterGroupName:     c.DBClusterParameterGroupName,
-		Endpoint:                        c.Endpoint,
-		ReaderEndpoint:                  c.ReaderEndpoint,
-		NetworkType:                     c.NetworkType,
-		StorageType:                     c.StorageType,
-		EngineLifecycleSupport:          c.EngineLifecycleSupport,
-		Port:                            c.Port,
-		Capacity:                        c.ServerlessCapacity,
-		ActivityStreamStatus:            c.ActivityStreamStatus,
-		ActivityStreamMode:              c.ActivityStreamMode,
-		ActivityStreamKMSKeyID:          c.ActivityStreamKMSKeyID,
-		ActivityStreamKinesisStreamName: c.ActivityStreamKinesisStreamName,
-		PreferredBackupWindow:           c.PreferredBackupWindow,
-		PreferredMaintenanceWindow:      c.PreferredMaintenanceWindow,
-		KmsKeyID:                        c.KmsKeyID,
-		MonitoringRoleArn:               c.MonitoringRoleArn,
-		ClusterCreateTime:               clusterCreateTime,
-		BacktrackWindow:                 c.BacktrackWindow,
-		BackupRetentionPeriod:           c.BackupRetentionPeriod,
-		MonitoringInterval:              c.MonitoringInterval,
-		MultiAZ:                         c.MultiAZ,
-		StorageEncrypted:                c.StorageEncrypted,
-		CopyTagsToSnapshot:              c.CopyTagsToSnapshot,
-		DeletionProtection:              c.DeletionProtection,
-		OptimizedWrites:                 c.OptimizedWrites,
-		HTTPEndpointEnabled:             c.HTTPEndpointEnabled,
-		ReplicationSourceIdentifier:     c.ReplicationSourceIdentifier,
+		DBClusterIdentifier:                c.DBClusterIdentifier,
+		DBClusterArn:                       c.DBClusterArn,
+		DBClusterResourceID:                c.DBClusterResourceID,
+		Engine:                             c.Engine,
+		EngineVersion:                      c.EngineVersion,
+		Status:                             c.Status,
+		MasterUsername:                     c.MasterUsername,
+		DatabaseName:                       c.DatabaseName,
+		DBClusterParameterGroupName:        c.DBClusterParameterGroupName,
+		Endpoint:                           c.Endpoint,
+		ReaderEndpoint:                     c.ReaderEndpoint,
+		NetworkType:                        c.NetworkType,
+		StorageType:                        c.StorageType,
+		EngineLifecycleSupport:             c.EngineLifecycleSupport,
+		Port:                               c.Port,
+		Capacity:                           c.ServerlessCapacity,
+		ActivityStreamStatus:               c.ActivityStreamStatus,
+		ActivityStreamMode:                 c.ActivityStreamMode,
+		ActivityStreamKMSKeyID:             c.ActivityStreamKMSKeyID,
+		ActivityStreamKinesisStreamName:    c.ActivityStreamKinesisStreamName,
+		PreferredBackupWindow:              c.PreferredBackupWindow,
+		PreferredMaintenanceWindow:         c.PreferredMaintenanceWindow,
+		KmsKeyID:                           c.KmsKeyID,
+		MonitoringRoleArn:                  c.MonitoringRoleArn,
+		ClusterCreateTime:                  clusterCreateTime,
+		BacktrackWindow:                    c.BacktrackWindow,
+		BackupRetentionPeriod:              c.BackupRetentionPeriod,
+		MonitoringInterval:                 c.MonitoringInterval,
+		MultiAZ:                            c.MultiAZ,
+		StorageEncrypted:                   c.StorageEncrypted,
+		CopyTagsToSnapshot:                 c.CopyTagsToSnapshot,
+		DeletionProtection:                 c.DeletionProtection,
+		OptimizedWrites:                    c.OptimizedWrites,
+		HTTPEndpointEnabled:                c.HTTPEndpointEnabled,
+		ReplicationSourceIdentifier:        c.ReplicationSourceIdentifier,
+		AutoMinorVersionUpgrade:            c.AutoMinorVersionUpgrade,
+		PubliclyAccessible:                 c.PubliclyAccessible,
+		IAMDatabaseAuthenticationEnabled:   c.IAMDatabaseAuthenticationEnabled,
+		PerformanceInsightsEnabled:         c.PerformanceInsightsEnabled,
+		PerformanceInsightsRetentionPeriod: c.PerformanceInsightsRetentionPeriod,
+		PerformanceInsightsKMSKeyID:        c.PerformanceInsightsKMSKeyID,
+		ClusterScalabilityType:             c.ClusterScalabilityType,
+		GlobalWriteForwardingRequested:     c.EnableGlobalWriteForwarding,
+	}
+
+	if c.EnableLocalWriteForwarding {
+		x.LocalWriteForwardingStatus = "enabled"
+	}
+
+	if c.OptionGroupName != "" {
+		x.DBClusterOptionGroupMemberships = &xmlDBClusterOGMembershipList{
+			Members: []xmlDBClusterOptionGroupStatus{
+				{DBClusterOptionGroupName: c.OptionGroupName, Status: "in-sync"},
+			},
+		}
 	}
 
 	if c.ServerlessV2ScalingConfig != nil {
@@ -508,6 +597,15 @@ type xmlClusterReplicaIdentifierList struct {
 	Members []xmlClusterReplicaIdentifier `xml:"ReadReplicaIdentifier"`
 }
 
+type xmlDBClusterOptionGroupStatus struct {
+	DBClusterOptionGroupName string `xml:"DBClusterOptionGroupName,omitempty"`
+	Status                   string `xml:"Status,omitempty"`
+}
+
+type xmlDBClusterOGMembershipList struct {
+	Members []xmlDBClusterOptionGroupStatus `xml:"DBClusterOptionGroup"`
+}
+
 type xmlDBCluster struct {
 	ServerlessV2ScalingConfiguration *xmlServerlessV2Ref              `xml:"ServerlessV2ScalingConfiguration,omitempty"`
 	DBClusterMembers                 *xmlDBClusterMemberList          `xml:"DBClusterMembers,omitempty"`
@@ -515,41 +613,54 @@ type xmlDBCluster struct {
 	AvailabilityZones                *xmlAvailabilityZoneList         `xml:"AvailabilityZones,omitempty"`
 	AssociatedRoles                  *xmlDBClusterRoleList            `xml:"AssociatedRoles,omitempty"`
 	ReadReplicaIdentifiers           *xmlClusterReplicaIdentifierList `xml:"ReadReplicaIdentifiers,omitempty"`
-	DBClusterIdentifier              string                           `xml:"DBClusterIdentifier"`
-	DBClusterArn                     string                           `xml:"DBClusterArn,omitempty"`
-	DBClusterResourceID              string                           `xml:"DbClusterResourceId,omitempty"`
-	Engine                           string                           `xml:"Engine"`
-	EngineVersion                    string                           `xml:"EngineVersion,omitempty"`
-	Status                           string                           `xml:"Status"`
-	MasterUsername                   string                           `xml:"MasterUsername"`
-	DatabaseName                     string                           `xml:"DatabaseName,omitempty"`
-	DBClusterParameterGroupName      string                           `xml:"DBClusterParameterGroup"`
-	Endpoint                         string                           `xml:"Endpoint,omitempty"`
-	ReaderEndpoint                   string                           `xml:"ReaderEndpoint,omitempty"`
-	ReplicationSourceIdentifier      string                           `xml:"ReplicationSourceIdentifier,omitempty"`
-	NetworkType                      string                           `xml:"NetworkType,omitempty"`
-	StorageType                      string                           `xml:"StorageType,omitempty"`
-	EngineLifecycleSupport           string                           `xml:"EngineLifecycleSupport,omitempty"`
-	ActivityStreamStatus             string                           `xml:"ActivityStreamStatus,omitempty"`
-	ActivityStreamMode               string                           `xml:"ActivityStreamMode,omitempty"`
-	ActivityStreamKMSKeyID           string                           `xml:"ActivityStreamKmsKeyId,omitempty"`
-	ActivityStreamKinesisStreamName  string                           `xml:"ActivityStreamKinesisStreamName,omitempty"`
-	PreferredBackupWindow            string                           `xml:"PreferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow       string                           `xml:"PreferredMaintenanceWindow,omitempty"`
-	KmsKeyID                         string                           `xml:"KmsKeyId,omitempty"`
-	MonitoringRoleArn                string                           `xml:"MonitoringRoleArn,omitempty"`
-	ClusterCreateTime                string                           `xml:"ClusterCreateTime,omitempty"`
-	Port                             int                              `xml:"Port"`
-	Capacity                         int                              `xml:"Capacity,omitempty"`
-	BackupRetentionPeriod            int                              `xml:"BackupRetentionPeriod"`
-	BacktrackWindow                  int64                            `xml:"BacktrackWindow,omitempty"`
-	MonitoringInterval               int                              `xml:"MonitoringInterval,omitempty"`
-	MultiAZ                          bool                             `xml:"MultiAZ,omitempty"`
-	StorageEncrypted                 bool                             `xml:"StorageEncrypted,omitempty"`
-	CopyTagsToSnapshot               bool                             `xml:"CopyTagsToSnapshot,omitempty"`
-	DeletionProtection               bool                             `xml:"DeletionProtection,omitempty"`
-	OptimizedWrites                  bool                             `xml:"OptimizedWritesEnabled,omitempty"`
-	HTTPEndpointEnabled              bool                             `xml:"HttpEndpointEnabled,omitempty"`
+	DBClusterOptionGroupMemberships  *xmlDBClusterOGMembershipList    `xml:"DBClusterOptionGroupMemberships,omitempty"`
+
+	DBClusterIdentifier             string `xml:"DBClusterIdentifier"`
+	DBClusterArn                    string `xml:"DBClusterArn,omitempty"`
+	DBClusterResourceID             string `xml:"DbClusterResourceId,omitempty"`
+	Engine                          string `xml:"Engine"`
+	EngineVersion                   string `xml:"EngineVersion,omitempty"`
+	Status                          string `xml:"Status"`
+	MasterUsername                  string `xml:"MasterUsername"`
+	DatabaseName                    string `xml:"DatabaseName,omitempty"`
+	DBClusterParameterGroupName     string `xml:"DBClusterParameterGroup"`
+	Endpoint                        string `xml:"Endpoint,omitempty"`
+	ReaderEndpoint                  string `xml:"ReaderEndpoint,omitempty"`
+	ReplicationSourceIdentifier     string `xml:"ReplicationSourceIdentifier,omitempty"`
+	NetworkType                     string `xml:"NetworkType,omitempty"`
+	StorageType                     string `xml:"StorageType,omitempty"`
+	EngineLifecycleSupport          string `xml:"EngineLifecycleSupport,omitempty"`
+	ActivityStreamStatus            string `xml:"ActivityStreamStatus,omitempty"`
+	ActivityStreamMode              string `xml:"ActivityStreamMode,omitempty"`
+	ActivityStreamKMSKeyID          string `xml:"ActivityStreamKmsKeyId,omitempty"`
+	ActivityStreamKinesisStreamName string `xml:"ActivityStreamKinesisStreamName,omitempty"`
+	PreferredBackupWindow           string `xml:"PreferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow      string `xml:"PreferredMaintenanceWindow,omitempty"`
+	KmsKeyID                        string `xml:"KmsKeyId,omitempty"`
+	MonitoringRoleArn               string `xml:"MonitoringRoleArn,omitempty"`
+	ClusterCreateTime               string `xml:"ClusterCreateTime,omitempty"`
+	ClusterScalabilityType          string `xml:"ClusterScalabilityType,omitempty"`
+	PerformanceInsightsKMSKeyID     string `xml:"PerformanceInsightsKMSKeyId,omitempty"`
+	LocalWriteForwardingStatus      string `xml:"LocalWriteForwardingStatus,omitempty"`
+
+	Port                               int   `xml:"Port"`
+	Capacity                           int   `xml:"Capacity,omitempty"`
+	BackupRetentionPeriod              int   `xml:"BackupRetentionPeriod"`
+	BacktrackWindow                    int64 `xml:"BacktrackWindow,omitempty"`
+	MonitoringInterval                 int   `xml:"MonitoringInterval,omitempty"`
+	PerformanceInsightsRetentionPeriod int   `xml:"PerformanceInsightsRetentionPeriod,omitempty"`
+
+	MultiAZ                          bool `xml:"MultiAZ,omitempty"`
+	StorageEncrypted                 bool `xml:"StorageEncrypted,omitempty"`
+	CopyTagsToSnapshot               bool `xml:"CopyTagsToSnapshot,omitempty"`
+	DeletionProtection               bool `xml:"DeletionProtection,omitempty"`
+	OptimizedWrites                  bool `xml:"OptimizedWritesEnabled,omitempty"`
+	HTTPEndpointEnabled              bool `xml:"HttpEndpointEnabled,omitempty"`
+	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
+	PubliclyAccessible               bool `xml:"PubliclyAccessible,omitempty"`
+	IAMDatabaseAuthenticationEnabled bool `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
+	PerformanceInsightsEnabled       bool `xml:"PerformanceInsightsEnabled,omitempty"`
+	GlobalWriteForwardingRequested   bool `xml:"GlobalWriteForwardingRequested,omitempty"`
 }
 
 type xmlDBClusterList struct {
@@ -736,6 +847,7 @@ type xmlDBClusterBacktrackList struct {
 type describeDBClusterBacktracksResponse struct {
 	XMLName             xml.Name                  `xml:"DescribeDBClusterBacktracksResponse"`
 	Xmlns               string                    `xml:"xmlns,attr"`
+	Marker              string                    `xml:"DescribeDBClusterBacktracksResult>Marker,omitempty"`
 	DBClusterBacktracks xmlDBClusterBacktrackList `xml:"DescribeDBClusterBacktracksResult>DBClusterBacktracks"`
 }
 
@@ -781,13 +893,16 @@ func (h *Handler) handleDescribeDBClusterBacktracks(vals url.Values) (any, error
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterBacktrack, 0, len(backtracks))
-	for _, bt := range backtracks {
-		members = append(members, xmlDBClusterBacktrack(bt))
+	members, marker, err := paginateDescribe(vals, backtracks, func(a, b DBClusterBacktrack) bool {
+		return a.BacktrackIdentifier < b.BacktrackIdentifier
+	}, func(bt DBClusterBacktrack) xmlDBClusterBacktrack { return xmlDBClusterBacktrack(bt) })
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClusterBacktracksResponse{
 		Xmlns:               rdsXMLNS,
+		Marker:              marker,
 		DBClusterBacktracks: xmlDBClusterBacktrackList{Members: members},
 	}, nil
 }
@@ -831,8 +946,12 @@ func (h *Handler) handleRestoreDBClusterFromS3(vals url.Values) (any, error) {
 	s3IngestionRoleArn := vals.Get("S3IngestionRoleArn")
 	sourceEngine := vals.Get("SourceEngine")
 	sourceEngineVersion := vals.Get("SourceEngineVersion")
+	s3ClusterOpts := DBClusterOptions{
+		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+	}
 	cluster, err := h.Backend.RestoreDBClusterFromS3(
 		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
+		s3ClusterOpts,
 	)
 	if err != nil {
 		return nil, err

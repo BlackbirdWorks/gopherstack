@@ -56,13 +56,20 @@ func (h *Handler) handleDescribeBlueGreenDeployments(vals url.Values) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlBlueGreenDeployment, 0, len(deployments))
-	for i := range deployments {
-		members = append(members, toXMLBlueGreenDeployment(&deployments[i]))
+	members, marker, err := paginateDescribe(vals, deployments, func(a, b BlueGreenDeployment) bool {
+		return a.BlueGreenDeploymentIdentifier < b.BlueGreenDeploymentIdentifier
+	}, func(d BlueGreenDeployment) xmlBlueGreenDeployment {
+		cp := d
+
+		return toXMLBlueGreenDeployment(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeBlueGreenDeploymentsResponse{
 		Xmlns:                rdsXMLNS,
+		Marker:               marker,
 		BlueGreenDeployments: xmlBlueGreenDeploymentList{Members: members},
 	}, nil
 }
@@ -100,6 +107,7 @@ type xmlBlueGreenDeploymentList struct {
 type describeBlueGreenDeploymentsResponse struct {
 	XMLName              xml.Name                   `xml:"DescribeBlueGreenDeploymentsResponse"`
 	Xmlns                string                     `xml:"xmlns,attr"`
+	Marker               string                     `xml:"DescribeBlueGreenDeploymentsResult>Marker,omitempty"`
 	BlueGreenDeployments xmlBlueGreenDeploymentList `xml:"DescribeBlueGreenDeploymentsResult>BlueGreenDeployments"`
 }
 

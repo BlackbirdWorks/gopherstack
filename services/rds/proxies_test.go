@@ -15,7 +15,7 @@ func TestProxyTargetGroup_DefaultCreated(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy1", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
+	_, err := b.CreateDBProxy("proxy1", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	groups, err := b.DescribeDBProxyTargetGroups("proxy1", "")
@@ -28,7 +28,7 @@ func TestProxyTargetGroup_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
+	_, err := b.CreateDBProxy("proxy2", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	tg, err := b.ModifyDBProxyTargetGroup("proxy2", "default", rds.ConnectionPoolConfig{
@@ -42,7 +42,7 @@ func TestProxyTargets_RegisterByInstance(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
+	_, err := b.CreateDBProxy("proxy3", "POSTGRESQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateDBInstance(
@@ -70,7 +70,7 @@ func TestProxyTargets_Deregister(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("proxy4", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil)
+	_, err := b.CreateDBProxy("proxy4", "MYSQL", "arn:aws:iam::123:role/proxy-role", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.RegisterDBProxyTargets("proxy4", "default", []string{"inst-1"}, nil)
@@ -138,7 +138,7 @@ func TestProxyEndpoint_CRUD(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil)
+	_, err := b.CreateDBProxy("ep-proxy", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	ep, err := b.CreateDBProxyEndpoint(
@@ -147,6 +147,7 @@ func TestProxyEndpoint_CRUD(t *testing.T) {
 		"READ_ONLY",
 		[]string{"subnet-a"},
 		nil,
+		"",
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "my-endpoint", ep.DBProxyEndpointName)
@@ -167,7 +168,7 @@ func TestProxyEndpoint_Modify(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil, nil, nil)
+	_, err := b.CreateDBProxy("ep-proxy2", "MYSQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
 	_, err = b.CreateDBProxyEndpoint(
@@ -176,6 +177,7 @@ func TestProxyEndpoint_Modify(t *testing.T) {
 		"READ_ONLY",
 		[]string{"subnet-a"},
 		[]string{"sg-1"},
+		"",
 	)
 	require.NoError(t, err)
 
@@ -188,12 +190,12 @@ func TestProxyEndpoint_ListFiltered(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateDBProxy("ep-proxy3", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil)
+	_, err := b.CreateDBProxy("ep-proxy3", "POSTGRESQL", "arn:aws:iam::123:role/r", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
 
-	_, err = b.CreateDBProxyEndpoint("ep-proxy3", "ep-a", "READ_ONLY", nil, nil)
+	_, err = b.CreateDBProxyEndpoint("ep-proxy3", "ep-a", "READ_ONLY", nil, nil, "")
 	require.NoError(t, err)
-	_, err = b.CreateDBProxyEndpoint("ep-proxy3", "ep-b", "READ_WRITE", nil, nil)
+	_, err = b.CreateDBProxyEndpoint("ep-proxy3", "ep-b", "READ_WRITE", nil, nil, "")
 	require.NoError(t, err)
 
 	all, err := b.DescribeDBProxyEndpoints("ep-proxy3", "")
@@ -260,16 +262,16 @@ func TestModifyDBProxyCopied(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
 	_, err := b.CreateDBProxy("my-proxy", "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role",
-		[]rds.UserAuthConfig{{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"}}, nil, nil)
+		[]rds.UserAuthConfig{{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"}}, nil, nil, "", "", "")
 	require.NoError(t, err)
 	requireTLS := true
-	proxy1, err := b.ModifyDBProxy("my-proxy", &requireTLS, nil, nil)
+	proxy1, err := b.ModifyDBProxy("my-proxy", &requireTLS, nil, nil, "")
 	require.NoError(t, err)
 	// Verify the returned value is a copy (not a pointer to the stored proxy).
 	// Modify a subsequent call and verify proxy1 is unaffected.
 	requireTLS2 := false
 	timeout := 900
-	_, err = b.ModifyDBProxy("my-proxy", &requireTLS2, &timeout, nil)
+	_, err = b.ModifyDBProxy("my-proxy", &requireTLS2, &timeout, nil, "")
 	require.NoError(t, err)
 	assert.True(t, proxy1.RequireTLS, "first ModifyDBProxy result should be independent copy")
 	assert.Equal(t, 1800, proxy1.IdleClientTimeout, "first result should retain original timeout")

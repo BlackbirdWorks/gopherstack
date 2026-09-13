@@ -169,7 +169,13 @@ func (b *InMemoryBackend) DeleteDBClusterSnapshot(snapshotID string) (*DBCluster
 }
 
 // CopyDBClusterSnapshot creates a copy of the given cluster snapshot.
-func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error) {
+// copyTags mirrors CopyDBSnapshot's CopyTags contract (rds@v1.124.1
+// api_op_CopyDBClusterSnapshot.go's CopyTags: "By default, tags are not
+// copied"): when true, the source snapshot's tags are copied onto the new
+// target snapshot.
+func (b *InMemoryBackend) CopyDBClusterSnapshot(
+	sourceSnapshotID, targetSnapshotID string, copyTags bool,
+) (*DBClusterSnapshot, error) {
 	if sourceSnapshotID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterSnapshotIdentifier must not be empty", ErrInvalidParameter)
 	}
@@ -189,10 +195,11 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 			targetSnapshotID,
 		)
 	}
+	targetArn := b.rdsARN("cluster-snapshot", targetSnapshotID)
 	snap := &DBClusterSnapshot{
 		SnapshotCreateTime:          time.Now().UTC(),
 		DBClusterSnapshotIdentifier: targetSnapshotID,
-		DBClusterSnapshotArn:        b.rdsARN("cluster-snapshot", targetSnapshotID),
+		DBClusterSnapshotArn:        targetArn,
 		DBClusterIdentifier:         source.DBClusterIdentifier,
 		DBClusterResourceID:         source.DBClusterResourceID,
 		Engine:                      source.Engine,
@@ -201,8 +208,16 @@ func (b *InMemoryBackend) CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshot
 		SnapshotType:                snapshotTypeManual,
 		PercentProgress:             percentProgressComplete,
 		StorageEncrypted:            source.StorageEncrypted,
+		CopyTagsToSnapshot:          copyTags,
 	}
 	b.clusterSnapshots.Put(snap)
+	if copyTags {
+		if srcTags := b.tags[source.DBClusterSnapshotArn]; len(srcTags) > 0 {
+			cp := make([]Tag, len(srcTags))
+			copy(cp, srcTags)
+			b.tags[targetArn] = cp
+		}
+	}
 	cp := *snap
 
 	return &cp, nil

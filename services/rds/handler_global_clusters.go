@@ -15,14 +15,20 @@ func (h *Handler) handleDescribeGlobalClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlGlobalCluster, 0, len(clusters))
-	for _, gc := range clusters {
+	members, marker, err := paginateDescribe(vals, clusters, func(a, b GlobalCluster) bool {
+		return a.GlobalClusterIdentifier < b.GlobalClusterIdentifier
+	}, func(gc GlobalCluster) xmlGlobalCluster {
 		cp := gc
-		members = append(members, toXMLGlobalCluster(&cp))
+
+		return toXMLGlobalCluster(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeGlobalClustersResponse{
 		Xmlns:          rdsXMLNS,
+		Marker:         marker,
 		GlobalClusters: xmlGlobalClusterList{Members: members},
 	}, nil
 }
@@ -54,6 +60,7 @@ type xmlGlobalCluster struct {
 	EngineVersion           string                      `xml:"EngineVersion,omitempty"`
 	Status                  string                      `xml:"Status,omitempty"`
 	PrimaryRegion           string                      `xml:"PrimaryRegion,omitempty"`
+	EngineLifecycleSupport  string                      `xml:"EngineLifecycleSupport,omitempty"`
 	StorageEncrypted        bool                        `xml:"StorageEncrypted,omitempty"`
 	DeletionProtection      bool                        `xml:"DeletionProtection,omitempty"`
 }
@@ -65,6 +72,7 @@ type xmlGlobalClusterList struct {
 type describeGlobalClustersResponse struct {
 	XMLName        xml.Name             `xml:"DescribeGlobalClustersResponse"`
 	Xmlns          string               `xml:"xmlns,attr"`
+	Marker         string               `xml:"DescribeGlobalClustersResult>Marker,omitempty"`
 	GlobalClusters xmlGlobalClusterList `xml:"DescribeGlobalClustersResult>GlobalClusters"`
 }
 
@@ -90,10 +98,13 @@ func (h *Handler) handleCreateGlobalCluster(vals url.Values) (any, error) {
 	id := vals.Get("GlobalClusterIdentifier")
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
+	engineLifecycleSupport := vals.Get("EngineLifecycleSupport")
 	storageEncrypted := vals.Get("StorageEncrypted") == formTrue
 	deletionProtection := vals.Get("DeletionProtection") == formTrue
 
-	gc, err := h.Backend.CreateGlobalCluster(id, engine, engineVersion, storageEncrypted, deletionProtection)
+	gc, err := h.Backend.CreateGlobalCluster(
+		id, engine, engineVersion, engineLifecycleSupport, storageEncrypted, deletionProtection,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -130,8 +141,9 @@ func (h *Handler) handleModifyGlobalCluster(vals url.Values) (any, error) {
 		v := dp == formTrue
 		deletionProtection = &v
 	}
+	allowMajorVersionUpgrade := vals.Get("AllowMajorVersionUpgrade") == formTrue
 
-	gc, err := h.Backend.ModifyGlobalCluster(id, newID, engineVersion, deletionProtection)
+	gc, err := h.Backend.ModifyGlobalCluster(id, newID, engineVersion, deletionProtection, allowMajorVersionUpgrade)
 	if err != nil {
 		return nil, err
 	}
@@ -165,6 +177,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 		EngineVersion:           gc.EngineVersion,
 		Status:                  gc.Status,
 		PrimaryRegion:           gc.PrimaryRegion,
+		EngineLifecycleSupport:  gc.EngineLifecycleSupport,
 		StorageEncrypted:        gc.StorageEncrypted,
 		DeletionProtection:      gc.DeletionProtection,
 	}

@@ -33,14 +33,20 @@ func (h *Handler) handleDescribeDBClusterEndpoints(vals url.Values) (any, error)
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBClusterEndpointFields, 0, len(endpoints))
-	for _, ep := range endpoints {
+	members, marker, err := paginateDescribe(vals, endpoints, func(a, b DBClusterEndpoint) bool {
+		return a.DBClusterEndpointIdentifier < b.DBClusterEndpointIdentifier
+	}, func(ep DBClusterEndpoint) xmlDBClusterEndpointFields {
 		cp := ep
-		members = append(members, toXMLClusterEndpointFields(&cp))
+
+		return toXMLClusterEndpointFields(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClusterEndpointsResponse{
 		Xmlns:              rdsXMLNS,
+		Marker:             marker,
 		DBClusterEndpoints: xmlDBClusterEndpointList{Members: members},
 	}, nil
 }
@@ -111,6 +117,7 @@ type createDBClusterEndpointResponse struct {
 type describeDBClusterEndpointsResponse struct {
 	XMLName            xml.Name                 `xml:"DescribeDBClusterEndpointsResponse"`
 	Xmlns              string                   `xml:"xmlns,attr"`
+	Marker             string                   `xml:"DescribeDBClusterEndpointsResult>Marker,omitempty"`
 	DBClusterEndpoints xmlDBClusterEndpointList `xml:"DescribeDBClusterEndpointsResult>DBClusterEndpoints"`
 }
 

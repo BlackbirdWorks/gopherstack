@@ -107,56 +107,65 @@ type CustomDBEngineVersion struct {
 	DBEngineVersionArn string `json:"dbEngineVersionArn,omitempty"`
 	Status             string `json:"status"`
 	Description        string `json:"description"`
+	ImageID            string `json:"imageId,omitempty"`
 }
 
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
-	InstanceCreateTime                time.Time                    `json:"instanceCreateTime"`
-	DBInstanceArn                     string                       `json:"dbInstanceArn,omitempty"`
-	EnhancedMonitoringResourceArn     string                       `json:"enhancedMonitoringResourceArn,omitempty"`
-	PreferredBackupWindow             string                       `json:"preferredBackupWindow,omitempty"`
-	KmsKeyID                          string                       `json:"kmsKeyID,omitempty"`
-	DBClusterIdentifier               string                       `json:"dbClusterIdentifier,omitempty"`
-	Engine                            string                       `json:"engine"`
-	EngineVersion                     string                       `json:"engineVersion"`
-	DBInstanceStatus                  string                       `json:"dbInstanceStatus"`
-	MasterUsername                    string                       `json:"masterUsername"`
-	DBName                            string                       `json:"dbName"`
-	Endpoint                          string                       `json:"endpoint"`
-	VpcID                             string                       `json:"vpcID"`
-	DBSubnetGroupName                 string                       `json:"dbSubnetGroupName"`
-	DBParameterGroupName              string                       `json:"dbParameterGroupName"`
-	OptionGroupName                   string                       `json:"optionGroupName,omitempty"`
-	ReplicaSourceDBInstanceIdentifier string                       `json:"replicaSourceDBInstanceIdentifier"`
-	AvailabilityZone                  string                       `json:"availabilityZone"`
-	StorageType                       string                       `json:"storageType"`
-	LicenseModel                      string                       `json:"licenseModel,omitempty"`
-	MonitoringRoleArn                 string                       `json:"monitoringRoleArn,omitempty"`
-	DBInstanceIdentifier              string                       `json:"dbInstanceIdentifier"`
-	DbiResourceID                     string                       `json:"dbiResourceID"`
-	PreferredMaintenanceWindow        string                       `json:"preferredMaintenanceWindow,omitempty"`
-	DBInstanceClass                   string                       `json:"dbInstanceClass"`
-	EngineLifecycleSupport            string                       `json:"engineLifecycleSupport,omitempty"`
-	EnabledCloudwatchLogsExports      []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
-	VpcSecurityGroups                 []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
-	DBSecurityGroups                  []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
-	PendingModifiedValues             *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
-	ReadReplicaIdentifiers            []string                     `json:"readReplicaIdentifiers,omitempty"`
-	Port                              int                          `json:"port"`
-	AllocatedStorage                  int                          `json:"allocatedStorage"`
-	Iops                              int                          `json:"iops,omitempty"`
-	StorageThroughput                 int                          `json:"storageThroughput,omitempty"`
-	BackupRetentionPeriod             int                          `json:"backupRetentionPeriod"`
-	MonitoringInterval                int                          `json:"monitoringInterval,omitempty"`
-	MultiAZ                           bool                         `json:"multiAZ"`
-	StorageEncrypted                  bool                         `json:"storageEncrypted"`
-	IAMDatabaseAuthenticationEnabled  bool                         `json:"iamDatabaseAuthenticationEnabled"`
-	DeletionProtection                bool                         `json:"deletionProtection"`
-	CopyTagsToSnapshot                bool                         `json:"copyTagsToSnapshot,omitempty"`
-	PubliclyAccessible                bool                         `json:"publiclyAccessible,omitempty"`
-	PerformanceInsightsEnabled        bool                         `json:"performanceInsightsEnabled,omitempty"`
-	StorageOptimized                  bool                         `json:"storageOptimized,omitempty"`
-	OptimizedWrites                   bool                         `json:"optimizedWrites,omitempty"`
+	InstanceCreateTime                 time.Time                    `json:"instanceCreateTime"`
+	DBInstanceArn                      string                       `json:"dbInstanceArn,omitempty"`
+	EnhancedMonitoringResourceArn      string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	PreferredBackupWindow              string                       `json:"preferredBackupWindow,omitempty"`
+	KmsKeyID                           string                       `json:"kmsKeyID,omitempty"`
+	DBClusterIdentifier                string                       `json:"dbClusterIdentifier,omitempty"`
+	Engine                             string                       `json:"engine"`
+	EngineVersion                      string                       `json:"engineVersion"`
+	DBInstanceStatus                   string                       `json:"dbInstanceStatus"`
+	MasterUsername                     string                       `json:"masterUsername"`
+	DBName                             string                       `json:"dbName"`
+	Endpoint                           string                       `json:"endpoint"`
+	VpcID                              string                       `json:"vpcID"`
+	DBSubnetGroupName                  string                       `json:"dbSubnetGroupName"`
+	DBParameterGroupName               string                       `json:"dbParameterGroupName"`
+	OptionGroupName                    string                       `json:"optionGroupName,omitempty"`
+	ReplicaSourceDBInstanceIdentifier  string                       `json:"replicaSourceDBInstanceIdentifier"`
+	AvailabilityZone                   string                       `json:"availabilityZone"`
+	StorageType                        string                       `json:"storageType"`
+	LicenseModel                       string                       `json:"licenseModel,omitempty"`
+	MonitoringRoleArn                  string                       `json:"monitoringRoleArn,omitempty"`
+	DBInstanceIdentifier               string                       `json:"dbInstanceIdentifier"`
+	DbiResourceID                      string                       `json:"dbiResourceID"`
+	PreferredMaintenanceWindow         string                       `json:"preferredMaintenanceWindow,omitempty"`
+	DBInstanceClass                    string                       `json:"dbInstanceClass"`
+	EngineLifecycleSupport             string                       `json:"engineLifecycleSupport,omitempty"`
+	EnabledCloudwatchLogsExports       []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
+	VpcSecurityGroups                  []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
+	DBSecurityGroups                   []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
+	PendingModifiedValues              *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
+	ReadReplicaIdentifiers             []string                     `json:"readReplicaIdentifiers,omitempty"`
+	Port                               int                          `json:"port"`
+	AllocatedStorage                   int                          `json:"allocatedStorage"`
+	Iops                               int                          `json:"iops,omitempty"`
+	StorageThroughput                  int                          `json:"storageThroughput,omitempty"`
+	BackupRetentionPeriod              int                          `json:"backupRetentionPeriod"`
+	MonitoringInterval                 int                          `json:"monitoringInterval,omitempty"`
+	MultiAZ                            bool                         `json:"multiAZ"`
+	StorageEncrypted                   bool                         `json:"storageEncrypted"`
+	IAMDatabaseAuthenticationEnabled   bool                         `json:"iamDatabaseAuthenticationEnabled"`
+	DeletionProtection                 bool                         `json:"deletionProtection"`
+	CopyTagsToSnapshot                 bool                         `json:"copyTagsToSnapshot,omitempty"`
+	PubliclyAccessible                 bool                         `json:"publiclyAccessible,omitempty"`
+	PerformanceInsightsEnabled         bool                         `json:"performanceInsightsEnabled,omitempty"`
+	StorageOptimized                   bool                         `json:"storageOptimized,omitempty"`
+	OptimizedWrites                    bool                         `json:"optimizedWrites,omitempty"`
+	AutoMinorVersionUpgrade            bool                         `json:"autoMinorVersionUpgrade,omitempty"`
+	MultiTenant                        bool                         `json:"multiTenant,omitempty"`
+	UseDefaultProcessorFeatures        bool                         `json:"useDefaultProcessorFeatures,omitempty"`
+	PromotionTier                      int                          `json:"promotionTier,omitempty"`
+	BackupTarget                       string                       `json:"backupTarget,omitempty"`
+	ReplicaMode                        string                       `json:"replicaMode,omitempty"`
+	PerformanceInsightsKMSKeyID        string                       `json:"performanceInsightsKmsKeyId,omitempty"`
+	PerformanceInsightsRetentionPeriod int                          `json:"performanceInsightsRetentionPeriod,omitempty"`
 }
 
 // PendingModifiedValues holds deferred instance changes (ApplyImmediately=false).
@@ -253,48 +262,68 @@ type ServerlessV2ScalingConfiguration struct {
 
 // DBCluster represents an Aurora-style RDS cluster.
 type DBCluster struct {
-	ClusterCreateTime               time.Time                         `json:"clusterCreateTime"`
-	ServerlessV2ScalingConfig       *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
-	MonitoringRoleArn               string                            `json:"monitoringRoleArn,omitempty"`
-	StorageType                     string                            `json:"storageType,omitempty"`
-	Status                          string                            `json:"status"`
-	MasterUsername                  string                            `json:"masterUsername"`
-	DatabaseName                    string                            `json:"databaseName"`
-	DBClusterParameterGroupName     string                            `json:"dbClusterParameterGroupName"`
-	DBClusterArn                    string                            `json:"dbClusterArn,omitempty"`
-	DBClusterResourceID             string                            `json:"dbClusterResourceId,omitempty"`
-	Engine                          string                            `json:"engine"`
-	EngineVersion                   string                            `json:"engineVersion,omitempty"`
-	ActivityStreamAuditPolicy       string                            `json:"activityStreamAuditPolicy"`
-	DBClusterIdentifier             string                            `json:"dbClusterIdentifier"`
-	ActivityStreamKinesisStreamName string                            `json:"activityStreamKinesisStreamName"`
-	ActivityStreamKMSKeyID          string                            `json:"activityStreamKmsKeyId"`
-	ActivityStreamMode              string                            `json:"activityStreamMode"`
-	PreferredBackupWindow           string                            `json:"preferredBackupWindow,omitempty"`
-	PreferredMaintenanceWindow      string                            `json:"preferredMaintenanceWindow,omitempty"`
-	KmsKeyID                        string                            `json:"kmsKeyID,omitempty"`
-	ActivityStreamStatus            string                            `json:"activityStreamStatus"`
-	EngineLifecycleSupport          string                            `json:"engineLifecycleSupport,omitempty"`
-	NetworkType                     string                            `json:"networkType,omitempty"`
-	ReaderEndpoint                  string                            `json:"readerEndpoint,omitempty"`
-	Endpoint                        string                            `json:"endpoint"`
-	ReplicationSourceIdentifier     string                            `json:"replicationSourceIdentifier,omitempty"`
-	EnabledCloudwatchLogsExports    []string                          `json:"enabledCloudwatchLogsExports,omitempty"`
-	ReaderAvailabilityZones         []string                          `json:"readerAvailabilityZones,omitempty"`
-	AvailabilityZones               []string                          `json:"availabilityZones,omitempty"`
-	DBClusterMembers                []DBClusterMember                 `json:"dbClusterMembers,omitempty"`
-	ReadReplicaIdentifiers          []string                          `json:"readReplicaIdentifiers,omitempty"`
-	BacktrackWindow                 int64                             `json:"backtrackWindow,omitempty"`
-	Port                            int                               `json:"port"`
-	BackupRetentionPeriod           int                               `json:"backupRetentionPeriod"`
-	MonitoringInterval              int                               `json:"monitoringInterval,omitempty"`
-	ServerlessCapacity              int                               `json:"serverlessCapacity"`
-	MultiAZ                         bool                              `json:"multiAZ,omitempty"`
-	HTTPEndpointEnabled             bool                              `json:"httpEndpointEnabled"`
-	StorageEncrypted                bool                              `json:"storageEncrypted,omitempty"`
-	CopyTagsToSnapshot              bool                              `json:"copyTagsToSnapshot,omitempty"`
-	DeletionProtection              bool                              `json:"deletionProtection,omitempty"`
-	OptimizedWrites                 bool                              `json:"optimizedWrites,omitempty"`
+	ClusterCreateTime         time.Time                         `json:"clusterCreateTime"`
+	ServerlessV2ScalingConfig *ServerlessV2ScalingConfiguration `json:"serverlessV2ScalingConfiguration,omitempty"`
+
+	MonitoringRoleArn               string `json:"monitoringRoleArn,omitempty"`
+	StorageType                     string `json:"storageType,omitempty"`
+	Status                          string `json:"status"`
+	MasterUsername                  string `json:"masterUsername"`
+	DatabaseName                    string `json:"databaseName"`
+	DBClusterParameterGroupName     string `json:"dbClusterParameterGroupName"`
+	DBClusterArn                    string `json:"dbClusterArn,omitempty"`
+	DBClusterResourceID             string `json:"dbClusterResourceId,omitempty"`
+	Engine                          string `json:"engine"`
+	EngineVersion                   string `json:"engineVersion,omitempty"`
+	ActivityStreamAuditPolicy       string `json:"activityStreamAuditPolicy"`
+	DBClusterIdentifier             string `json:"dbClusterIdentifier"`
+	ActivityStreamKinesisStreamName string `json:"activityStreamKinesisStreamName"`
+	ActivityStreamKMSKeyID          string `json:"activityStreamKmsKeyId"`
+	ActivityStreamMode              string `json:"activityStreamMode"`
+	PreferredBackupWindow           string `json:"preferredBackupWindow,omitempty"`
+	PreferredMaintenanceWindow      string `json:"preferredMaintenanceWindow,omitempty"`
+	KmsKeyID                        string `json:"kmsKeyID,omitempty"`
+	ActivityStreamStatus            string `json:"activityStreamStatus"`
+	EngineLifecycleSupport          string `json:"engineLifecycleSupport,omitempty"`
+	NetworkType                     string `json:"networkType,omitempty"`
+	ReaderEndpoint                  string `json:"readerEndpoint,omitempty"`
+	Endpoint                        string `json:"endpoint"`
+	ReplicationSourceIdentifier     string `json:"replicationSourceIdentifier,omitempty"`
+	OptionGroupName                 string `json:"optionGroupName,omitempty"`
+	PerformanceInsightsKMSKeyID     string `json:"performanceInsightsKmsKeyId,omitempty"`
+	DBInstanceParameterGroupName    string `json:"dbInstanceParameterGroupName,omitempty"`
+	ClusterScalabilityType          string `json:"clusterScalabilityType,omitempty"`
+
+	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports,omitempty"`
+	ReaderAvailabilityZones      []string          `json:"readerAvailabilityZones,omitempty"`
+	AvailabilityZones            []string          `json:"availabilityZones,omitempty"`
+	DBClusterMembers             []DBClusterMember `json:"dbClusterMembers,omitempty"`
+	ReadReplicaIdentifiers       []string          `json:"readReplicaIdentifiers,omitempty"`
+
+	BacktrackWindow                    int64 `json:"backtrackWindow,omitempty"`
+	Port                               int   `json:"port"`
+	BackupRetentionPeriod              int   `json:"backupRetentionPeriod"`
+	MonitoringInterval                 int   `json:"monitoringInterval,omitempty"`
+	ServerlessCapacity                 int   `json:"serverlessCapacity"`
+	PerformanceInsightsRetentionPeriod int   `json:"performanceInsightsRetentionPeriod,omitempty"`
+
+	MultiAZ                          bool `json:"multiAZ,omitempty"`
+	HTTPEndpointEnabled              bool `json:"httpEndpointEnabled"`
+	StorageEncrypted                 bool `json:"storageEncrypted,omitempty"`
+	CopyTagsToSnapshot               bool `json:"copyTagsToSnapshot,omitempty"`
+	DeletionProtection               bool `json:"deletionProtection,omitempty"`
+	OptimizedWrites                  bool `json:"optimizedWrites,omitempty"`
+	AutoMinorVersionUpgrade          bool `json:"autoMinorVersionUpgrade,omitempty"`
+	PubliclyAccessible               bool `json:"publiclyAccessible,omitempty"`
+	IAMDatabaseAuthenticationEnabled bool `json:"iamDatabaseAuthenticationEnabled,omitempty"`
+	EnableGlobalWriteForwarding      bool `json:"enableGlobalWriteForwarding,omitempty"`
+	EnableLocalWriteForwarding       bool `json:"enableLocalWriteForwarding,omitempty"`
+	PerformanceInsightsEnabled       bool `json:"performanceInsightsEnabled,omitempty"`
+
+	// ActivityStreamEngineNativeAuditFieldsIncluded gets its own group: at 46
+	// chars it's by far the longest field name here, and gofmt aligns every
+	// field in a contiguous block to the widest one.
+	ActivityStreamEngineNativeAuditFieldsIncluded bool `json:"activityStreamEngineNativeAuditFieldsIncluded,omitempty"`
 }
 
 // DBClusterSnapshot represents an RDS cluster snapshot.
@@ -310,6 +339,7 @@ type DBClusterSnapshot struct {
 	SnapshotType                string    `json:"snapshotType,omitempty"`
 	PercentProgress             int       `json:"percentProgress"`
 	StorageEncrypted            bool      `json:"storageEncrypted,omitempty"`
+	CopyTagsToSnapshot          bool      `json:"copyTagsToSnapshot,omitempty"`
 }
 
 // DBClusterEndpoint represents a custom endpoint for an RDS cluster.
@@ -340,6 +370,7 @@ type GlobalCluster struct {
 	EngineVersion           string                `json:"engineVersion"`
 	Status                  string                `json:"status"`
 	PrimaryRegion           string                `json:"primaryRegion,omitempty"`
+	EngineLifecycleSupport  string                `json:"engineLifecycleSupport,omitempty"`
 	GlobalClusterMembers    []GlobalClusterMember `json:"globalClusterMembers,omitempty"`
 	ClusterARNs             []string              `json:"clusterARNs"`
 	StorageEncrypted        bool                  `json:"storageEncrypted"`
@@ -351,6 +382,11 @@ type DBEngineVersion struct {
 	Engine              string `json:"engine"`
 	EngineVersion       string `json:"engineVersion"`
 	DBEngineDescription string `json:"dbEngineDescription"`
+	// IsDefault is internal bookkeeping for DescribeDBEngineVersions.DefaultOnly
+	// filtering -- real AWS's DBEngineVersion output type has no corresponding
+	// wire field (rds@v1.124.1 types.DBEngineVersion), so this never appears in
+	// xmlDBEngineVersion.
+	IsDefault bool `json:"isDefault,omitempty"`
 }
 
 // DBSnapshotAttribute represents an attribute of a DB snapshot.
@@ -634,41 +670,50 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
-	EngineVersion                    string
-	StorageType                      string
-	AvailabilityZone                 string
-	DBParameterGroupName             string
-	OptionGroupName                  string
-	SourceRegion                     string
-	LicenseModel                     string
-	MonitoringRoleArn                string
-	PreferredMaintenanceWindow       string
-	PreferredBackupWindow            string
-	KmsKeyID                         string
-	DBClusterIdentifier              string
-	EngineLifecycleSupport           string
-	DBSubnetGroupName                string
-	VpcSecurityGroupIDs              []string
-	DBSecurityGroupNames             []string
-	EnabledCloudwatchLogsExports     []string
-	BackupRetentionPeriod            int
-	Iops                             int
-	StorageThroughput                int
-	MonitoringInterval               int
-	MultiAZ                          bool
-	MultiAZSet                       bool
-	StorageEncrypted                 bool
-	IAMDatabaseAuthenticationEnabled bool
-	IAMDatabaseAuthSet               bool
-	DeletionProtection               bool
-	DeletionProtectionSet            bool
-	CopyTagsToSnapshot               bool
-	AllowMajorVersionUpgrade         bool
-	ApplyImmediately                 bool
-	PubliclyAccessible               bool
-	PerformanceInsightsEnabled       bool
-	StorageOptimized                 bool
-	OptimizedWrites                  bool
+	EngineVersion                      string
+	StorageType                        string
+	AvailabilityZone                   string
+	DBParameterGroupName               string
+	OptionGroupName                    string
+	SourceRegion                       string
+	LicenseModel                       string
+	MonitoringRoleArn                  string
+	PreferredMaintenanceWindow         string
+	PreferredBackupWindow              string
+	KmsKeyID                           string
+	DBClusterIdentifier                string
+	EngineLifecycleSupport             string
+	DBSubnetGroupName                  string
+	VpcSecurityGroupIDs                []string
+	DBSecurityGroupNames               []string
+	EnabledCloudwatchLogsExports       []string
+	BackupRetentionPeriod              int
+	Iops                               int
+	StorageThroughput                  int
+	MonitoringInterval                 int
+	MultiAZ                            bool
+	MultiAZSet                         bool
+	StorageEncrypted                   bool
+	IAMDatabaseAuthenticationEnabled   bool
+	IAMDatabaseAuthSet                 bool
+	DeletionProtection                 bool
+	DeletionProtectionSet              bool
+	CopyTagsToSnapshot                 bool
+	AllowMajorVersionUpgrade           bool
+	ApplyImmediately                   bool
+	PubliclyAccessible                 bool
+	PerformanceInsightsEnabled         bool
+	StorageOptimized                   bool
+	OptimizedWrites                    bool
+	AutoMinorVersionUpgrade            bool
+	MultiTenant                        bool
+	UseDefaultProcessorFeatures        bool
+	PromotionTier                      int
+	DBPortNumber                       int
+	BackupTarget                       string
+	ReplicaMode                        string
+	PerformanceInsightsKMSKeyID        string
+	PerformanceInsightsRetentionPeriod int
 }
 
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.
@@ -680,27 +725,41 @@ type CopyDBSnapshotOptions struct {
 
 // DBClusterOptions holds optional fields for CreateDBCluster and ModifyDBCluster.
 type DBClusterOptions struct {
-	EngineVersion                string
-	KmsKeyID                     string
-	PreferredBackupWindow        string
-	PreferredMaintenanceWindow   string
-	MonitoringRoleArn            string
-	StorageType                  string
-	NetworkType                  string
-	EngineLifecycleSupport       string
-	ReplicationSourceIdentifier  string
-	EnabledCloudwatchLogsExports []string
-	AvailabilityZones            []string
-	BacktrackWindow              int64
-	BackupRetentionPeriod        int
-	MonitoringInterval           int
-	MultiAZ                      bool
-	StorageEncrypted             bool
-	StorageEncryptedChanged      bool
-	CopyTagsToSnapshot           bool
-	DeletionProtection           bool
-	DeletionProtectionSet        bool
-	OptimizedWrites              bool
+	EngineVersion                      string
+	KmsKeyID                           string
+	PreferredBackupWindow              string
+	PreferredMaintenanceWindow         string
+	MonitoringRoleArn                  string
+	StorageType                        string
+	NetworkType                        string
+	EngineLifecycleSupport             string
+	ReplicationSourceIdentifier        string
+	OptionGroupName                    string
+	ClusterScalabilityType             string
+	DBInstanceParameterGroupName       string
+	PerformanceInsightsKMSKeyID        string
+	EnabledCloudwatchLogsExports       []string
+	AvailabilityZones                  []string
+	BacktrackWindow                    int64
+	BackupRetentionPeriod              int
+	MonitoringInterval                 int
+	PerformanceInsightsRetentionPeriod int
+	MultiAZ                            bool
+	StorageEncrypted                   bool
+	StorageEncryptedChanged            bool
+	CopyTagsToSnapshot                 bool
+	DeletionProtection                 bool
+	DeletionProtectionSet              bool
+	OptimizedWrites                    bool
+	AutoMinorVersionUpgrade            bool
+	PubliclyAccessible                 bool
+	EnableIAMDatabaseAuthentication    bool
+	EnableGlobalWriteForwarding        bool
+	EnableLocalWriteForwarding         bool
+	EnableHTTPEndpoint                 bool
+	EnableHTTPEndpointSet              bool
+	PerformanceInsightsEnabled         bool
+	ApplyImmediately                   bool
 }
 
 // InMemoryBackend is the in-memory store for RDS resources.

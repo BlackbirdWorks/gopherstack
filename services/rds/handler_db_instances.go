@@ -94,39 +94,54 @@ func (h *Handler) handleCreateDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
-	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupID")
+	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
 	dbSGNames := parseMultiValueParam(vals, "DBSecurityGroups.DBSecurityGroupName")
 	logExports := parseMultiValueParam(vals, "EnableCloudwatchLogsExports.member")
 
+	promotionTier := 0
+	if v, perr := strconv.Atoi(vals.Get("PromotionTier")); perr == nil {
+		promotionTier = v
+	}
+	piRetention := 0
+	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
+		piRetention = v
+	}
+
 	opts := DBInstanceOptions{
-		EngineVersion:                    vals.Get("EngineVersion"),
-		StorageType:                      vals.Get("StorageType"),
-		AvailabilityZone:                 vals.Get("AvailabilityZone"),
-		OptionGroupName:                  vals.Get("OptionGroupName"),
-		LicenseModel:                     vals.Get("LicenseModel"),
-		MonitoringRoleArn:                vals.Get("MonitoringRoleArn"),
-		PreferredMaintenanceWindow:       vals.Get("PreferredMaintenanceWindow"),
-		PreferredBackupWindow:            vals.Get("PreferredBackupWindow"),
-		KmsKeyID:                         vals.Get("KmsKeyId"),
-		DBClusterIdentifier:              vals.Get("DBClusterIdentifier"),
-		DBSubnetGroupName:                vals.Get("DBSubnetGroupName"),
-		BackupRetentionPeriod:            backupRetention,
-		Iops:                             iops,
-		StorageThroughput:                storageThroughput,
-		MonitoringInterval:               monitoringInterval,
-		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
-		StorageEncrypted:                 vals.Get("StorageEncrypted") == formTrue,
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
-		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
-		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
-		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
-		PerformanceInsightsEnabled:       vals.Get("EnablePerformanceInsights") == formTrue,
-		StorageOptimized:                 vals.Get("StorageOptimized") == formTrue,
-		OptimizedWrites:                  vals.Get("EnableOptimizedWrites") == formTrue,
-		EngineLifecycleSupport:           vals.Get("EngineLifecycleSupport"),
-		VpcSecurityGroupIDs:              vpcSGIds,
-		DBSecurityGroupNames:             dbSGNames,
-		EnabledCloudwatchLogsExports:     logExports,
+		EngineVersion:                      vals.Get("EngineVersion"),
+		StorageType:                        vals.Get("StorageType"),
+		AvailabilityZone:                   vals.Get("AvailabilityZone"),
+		OptionGroupName:                    vals.Get("OptionGroupName"),
+		LicenseModel:                       vals.Get("LicenseModel"),
+		MonitoringRoleArn:                  vals.Get("MonitoringRoleArn"),
+		PreferredMaintenanceWindow:         vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:              vals.Get("PreferredBackupWindow"),
+		KmsKeyID:                           vals.Get("KmsKeyId"),
+		DBClusterIdentifier:                vals.Get("DBClusterIdentifier"),
+		DBSubnetGroupName:                  vals.Get("DBSubnetGroupName"),
+		BackupRetentionPeriod:              backupRetention,
+		Iops:                               iops,
+		StorageThroughput:                  storageThroughput,
+		MonitoringInterval:                 monitoringInterval,
+		MultiAZ:                            vals.Get("MultiAZ") == formTrue,
+		StorageEncrypted:                   vals.Get("StorageEncrypted") == formTrue,
+		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		DeletionProtection:                 vals.Get("DeletionProtection") == formTrue,
+		CopyTagsToSnapshot:                 vals.Get("CopyTagsToSnapshot") == formTrue,
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+		StorageOptimized:                   vals.Get("StorageOptimized") == formTrue,
+		OptimizedWrites:                    vals.Get("EnableOptimizedWrites") == formTrue,
+		EngineLifecycleSupport:             vals.Get("EngineLifecycleSupport"),
+		VpcSecurityGroupIDs:                vpcSGIds,
+		DBSecurityGroupNames:               dbSGNames,
+		EnabledCloudwatchLogsExports:       logExports,
+		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		BackupTarget:                       vals.Get("BackupTarget"),
+		MultiTenant:                        vals.Get("MultiTenant") == formTrue,
+		PromotionTier:                      promotionTier,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
 	}
 
 	inst, err := h.Backend.CreateDBInstance(
@@ -246,38 +261,57 @@ func (h *Handler) handleModifyDBInstance(vals url.Values) (any, error) {
 		)
 	}
 
-	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupID")
+	vpcSGIds := parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId")
 	logExports := parseMultiValueParam(vals, "CloudwatchLogsExportConfiguration.EnableLogTypes.member")
 
+	promotionTier := 0
+	if v, perr := strconv.Atoi(vals.Get("PromotionTier")); perr == nil {
+		promotionTier = v
+	}
+	piRetention := 0
+	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
+		piRetention = v
+	}
+	port := 0
+	if v, perr := strconv.Atoi(vals.Get("DBPortNumber")); perr == nil {
+		port = v
+	}
+
 	opts := DBInstanceOptions{
-		EngineVersion:                    vals.Get("EngineVersion"),
-		StorageType:                      vals.Get("StorageType"),
-		OptionGroupName:                  vals.Get("OptionGroupName"),
-		LicenseModel:                     vals.Get("LicenseModel"),
-		MonitoringRoleArn:                vals.Get("MonitoringRoleArn"),
-		PreferredMaintenanceWindow:       vals.Get("PreferredMaintenanceWindow"),
-		PreferredBackupWindow:            vals.Get("PreferredBackupWindow"),
-		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
-		BackupRetentionPeriod:            backupRetention,
-		Iops:                             iops,
-		StorageThroughput:                storageThroughput,
-		MonitoringInterval:               monitoringInterval,
-		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
-		MultiAZSet:                       vals.Get("MultiAZ") != "",
-		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
-		IAMDatabaseAuthSet:               vals.Get("EnableIAMDatabaseAuthentication") != "",
-		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
-		DeletionProtectionSet:            vals.Get("DeletionProtection") != "",
-		CopyTagsToSnapshot:               vals.Get("CopyTagsToSnapshot") == formTrue,
-		AllowMajorVersionUpgrade:         vals.Get("AllowMajorVersionUpgrade") == formTrue,
-		ApplyImmediately:                 vals.Get("ApplyImmediately") == formTrue,
-		PubliclyAccessible:               vals.Get("PubliclyAccessible") == formTrue,
-		PerformanceInsightsEnabled:       vals.Get("EnablePerformanceInsights") == formTrue,
-		StorageOptimized:                 vals.Get("StorageOptimized") == formTrue,
-		OptimizedWrites:                  vals.Get("EnableOptimizedWrites") == formTrue,
-		EngineLifecycleSupport:           vals.Get("EngineLifecycleSupport"),
-		VpcSecurityGroupIDs:              vpcSGIds,
-		EnabledCloudwatchLogsExports:     logExports,
+		EngineVersion:                      vals.Get("EngineVersion"),
+		StorageType:                        vals.Get("StorageType"),
+		OptionGroupName:                    vals.Get("OptionGroupName"),
+		LicenseModel:                       vals.Get("LicenseModel"),
+		MonitoringRoleArn:                  vals.Get("MonitoringRoleArn"),
+		PreferredMaintenanceWindow:         vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:              vals.Get("PreferredBackupWindow"),
+		DBParameterGroupName:               vals.Get("DBParameterGroupName"),
+		BackupRetentionPeriod:              backupRetention,
+		Iops:                               iops,
+		StorageThroughput:                  storageThroughput,
+		MonitoringInterval:                 monitoringInterval,
+		MultiAZ:                            vals.Get("MultiAZ") == formTrue,
+		MultiAZSet:                         vals.Get("MultiAZ") != "",
+		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		IAMDatabaseAuthSet:                 vals.Get("EnableIAMDatabaseAuthentication") != "",
+		DeletionProtection:                 vals.Get("DeletionProtection") == formTrue,
+		DeletionProtectionSet:              vals.Get("DeletionProtection") != "",
+		CopyTagsToSnapshot:                 vals.Get("CopyTagsToSnapshot") == formTrue,
+		AllowMajorVersionUpgrade:           vals.Get("AllowMajorVersionUpgrade") == formTrue,
+		ApplyImmediately:                   vals.Get("ApplyImmediately") == formTrue,
+		PubliclyAccessible:                 vals.Get("PubliclyAccessible") == formTrue,
+		PerformanceInsightsEnabled:         vals.Get("EnablePerformanceInsights") == formTrue,
+		StorageOptimized:                   vals.Get("StorageOptimized") == formTrue,
+		OptimizedWrites:                    vals.Get("EnableOptimizedWrites") == formTrue,
+		EngineLifecycleSupport:             vals.Get("EngineLifecycleSupport"),
+		VpcSecurityGroupIDs:                vpcSGIds,
+		EnabledCloudwatchLogsExports:       logExports,
+		ReplicaMode:                        vals.Get("ReplicaMode"),
+		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
+		PromotionTier:                      promotionTier,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
+		DBPortNumber:                       port,
 	}
 
 	inst, err := h.Backend.ModifyDBInstance(id, instanceClass, allocatedStorage, opts)
@@ -297,45 +331,52 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		instanceCreateTime = inst.InstanceCreateTime.UTC().Format(time.RFC3339)
 	}
 	result := xmlDBInstance{
-		DBInstanceIdentifier:              inst.DBInstanceIdentifier,
-		DBInstanceArn:                     inst.DBInstanceArn,
-		DbiResourceID:                     inst.DbiResourceID,
-		DBInstanceClass:                   inst.DBInstanceClass,
-		DBClusterIdentifier:               inst.DBClusterIdentifier,
-		Engine:                            inst.Engine,
-		EngineVersion:                     inst.EngineVersion,
-		DBInstanceStatus:                  inst.DBInstanceStatus,
-		MasterUsername:                    inst.MasterUsername,
-		DBName:                            inst.DBName,
-		Endpoint:                          inst.Endpoint,
-		Port:                              inst.Port,
-		AllocatedStorage:                  inst.AllocatedStorage,
-		Iops:                              inst.Iops,
-		StorageThroughput:                 inst.StorageThroughput,
-		VpcID:                             inst.VpcID,
-		DBSubnetGroupName:                 inst.DBSubnetGroupName,
-		ReplicaSourceDBInstanceIdentifier: inst.ReplicaSourceDBInstanceIdentifier,
-		StorageType:                       inst.StorageType,
-		StorageEncrypted:                  inst.StorageEncrypted,
-		MultiAZ:                           inst.MultiAZ,
-		AvailabilityZone:                  inst.AvailabilityZone,
-		BackupRetentionPeriod:             inst.BackupRetentionPeriod,
-		IAMDatabaseAuthenticationEnabled:  inst.IAMDatabaseAuthenticationEnabled,
-		DeletionProtection:                inst.DeletionProtection,
-		LicenseModel:                      inst.LicenseModel,
-		MonitoringInterval:                inst.MonitoringInterval,
-		MonitoringRoleArn:                 inst.MonitoringRoleArn,
-		EnhancedMonitoringResourceArn:     inst.EnhancedMonitoringResourceArn,
-		PreferredMaintenanceWindow:        inst.PreferredMaintenanceWindow,
-		PreferredBackupWindow:             inst.PreferredBackupWindow,
-		KmsKeyID:                          inst.KmsKeyID,
-		CopyTagsToSnapshot:                inst.CopyTagsToSnapshot,
-		PubliclyAccessible:                inst.PubliclyAccessible,
-		PerformanceInsightsEnabled:        inst.PerformanceInsightsEnabled,
-		StorageOptimized:                  inst.StorageOptimized,
-		OptimizedWrites:                   inst.OptimizedWrites,
-		EngineLifecycleSupport:            inst.EngineLifecycleSupport,
-		InstanceCreateTime:                instanceCreateTime,
+		DBInstanceIdentifier:               inst.DBInstanceIdentifier,
+		DBInstanceArn:                      inst.DBInstanceArn,
+		DbiResourceID:                      inst.DbiResourceID,
+		DBInstanceClass:                    inst.DBInstanceClass,
+		DBClusterIdentifier:                inst.DBClusterIdentifier,
+		Engine:                             inst.Engine,
+		EngineVersion:                      inst.EngineVersion,
+		DBInstanceStatus:                   inst.DBInstanceStatus,
+		MasterUsername:                     inst.MasterUsername,
+		DBName:                             inst.DBName,
+		Endpoint:                           inst.Endpoint,
+		Port:                               inst.Port,
+		AllocatedStorage:                   inst.AllocatedStorage,
+		Iops:                               inst.Iops,
+		StorageThroughput:                  inst.StorageThroughput,
+		VpcID:                              inst.VpcID,
+		DBSubnetGroupName:                  inst.DBSubnetGroupName,
+		ReplicaSourceDBInstanceIdentifier:  inst.ReplicaSourceDBInstanceIdentifier,
+		StorageType:                        inst.StorageType,
+		StorageEncrypted:                   inst.StorageEncrypted,
+		MultiAZ:                            inst.MultiAZ,
+		AvailabilityZone:                   inst.AvailabilityZone,
+		BackupRetentionPeriod:              inst.BackupRetentionPeriod,
+		IAMDatabaseAuthenticationEnabled:   inst.IAMDatabaseAuthenticationEnabled,
+		DeletionProtection:                 inst.DeletionProtection,
+		LicenseModel:                       inst.LicenseModel,
+		MonitoringInterval:                 inst.MonitoringInterval,
+		MonitoringRoleArn:                  inst.MonitoringRoleArn,
+		EnhancedMonitoringResourceArn:      inst.EnhancedMonitoringResourceArn,
+		PreferredMaintenanceWindow:         inst.PreferredMaintenanceWindow,
+		PreferredBackupWindow:              inst.PreferredBackupWindow,
+		KmsKeyID:                           inst.KmsKeyID,
+		CopyTagsToSnapshot:                 inst.CopyTagsToSnapshot,
+		PubliclyAccessible:                 inst.PubliclyAccessible,
+		PerformanceInsightsEnabled:         inst.PerformanceInsightsEnabled,
+		StorageOptimized:                   inst.StorageOptimized,
+		OptimizedWrites:                    inst.OptimizedWrites,
+		EngineLifecycleSupport:             inst.EngineLifecycleSupport,
+		InstanceCreateTime:                 instanceCreateTime,
+		AutoMinorVersionUpgrade:            inst.AutoMinorVersionUpgrade,
+		BackupTarget:                       inst.BackupTarget,
+		MultiTenant:                        inst.MultiTenant,
+		PromotionTier:                      inst.PromotionTier,
+		ReplicaMode:                        inst.ReplicaMode,
+		PerformanceInsightsKMSKeyID:        inst.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsRetentionPeriod: inst.PerformanceInsightsRetentionPeriod,
 	}
 
 	applyXMLInstanceGroups(inst, &result)
@@ -498,52 +539,62 @@ type xmlPendingModifiedValues struct {
 }
 
 type xmlDBInstance struct {
-	DBParameterGroups                 *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
-	VpcSecurityGroups                 *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
-	DBSecurityGroups                  *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
-	ReadReplicaDBInstanceIdentifiers  *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
-	EnabledCloudwatchLogsExports      *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
-	PendingModifiedValues             *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
-	OptionGroupMemberships            *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
-	LicenseModel                      string                        `xml:"LicenseModel,omitempty"`
-	PreferredBackupWindow             string                        `xml:"PreferredBackupWindow,omitempty"`
-	DBInstanceClass                   string                        `xml:"DBInstanceClass"`
-	DBClusterIdentifier               string                        `xml:"DBClusterIdentifier,omitempty"`
-	Engine                            string                        `xml:"Engine"`
-	EngineVersion                     string                        `xml:"EngineVersion,omitempty"`
-	DBInstanceStatus                  string                        `xml:"DBInstanceStatus"`
-	MasterUsername                    string                        `xml:"MasterUsername"`
-	DBName                            string                        `xml:"DBName,omitempty"`
-	Endpoint                          string                        `xml:"Endpoint>Address"`
-	VpcID                             string                        `xml:"DBSubnetGroup>VpcId,omitempty"`
-	DBSubnetGroupName                 string                        `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
-	ReplicaSourceDBInstanceIdentifier string                        `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
-	StorageType                       string                        `xml:"StorageType,omitempty"`
-	AvailabilityZone                  string                        `xml:"AvailabilityZone,omitempty"`
-	DBInstanceIdentifier              string                        `xml:"DBInstanceIdentifier"`
-	MonitoringRoleArn                 string                        `xml:"MonitoringRoleArn,omitempty"`
-	EnhancedMonitoringResourceArn     string                        `xml:"EnhancedMonitoringResourceArn,omitempty"`
-	PreferredMaintenanceWindow        string                        `xml:"PreferredMaintenanceWindow,omitempty"`
-	DbiResourceID                     string                        `xml:"DbiResourceId,omitempty"`
-	DBInstanceArn                     string                        `xml:"DBInstanceArn,omitempty"`
-	KmsKeyID                          string                        `xml:"KmsKeyId,omitempty"`
-	InstanceCreateTime                string                        `xml:"InstanceCreateTime,omitempty"`
-	EngineLifecycleSupport            string                        `xml:"EngineLifecycleSupport,omitempty"`
-	AllocatedStorage                  int                           `xml:"AllocatedStorage"`
-	Iops                              int                           `xml:"Iops,omitempty"`
-	StorageThroughput                 int                           `xml:"StorageThroughput,omitempty"`
-	BackupRetentionPeriod             int                           `xml:"BackupRetentionPeriod"`
-	MonitoringInterval                int                           `xml:"MonitoringInterval,omitempty"`
-	Port                              int                           `xml:"Endpoint>Port"`
-	StorageEncrypted                  bool                          `xml:"StorageEncrypted"`
-	IAMDatabaseAuthenticationEnabled  bool                          `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
-	DeletionProtection                bool                          `xml:"DeletionProtection,omitempty"`
-	CopyTagsToSnapshot                bool                          `xml:"CopyTagsToSnapshot,omitempty"`
-	PubliclyAccessible                bool                          `xml:"PubliclyAccessible,omitempty"`
-	PerformanceInsightsEnabled        bool                          `xml:"PerformanceInsightsEnabled,omitempty"`
-	StorageOptimized                  bool                          `xml:"StorageOptimized,omitempty"`
-	OptimizedWrites                   bool                          `xml:"OptimizedWritesEnabled,omitempty"`
-	MultiAZ                           bool                          `xml:"MultiAZ"`
+	DBParameterGroups                *xmlDBParamGroupsWrapper      `xml:"DBParameterGroups,omitempty"`
+	VpcSecurityGroups                *xmlVpcSecurityGroupList      `xml:"VpcSecurityGroups,omitempty"`
+	DBSecurityGroups                 *xmlDBSecGroupList            `xml:"DBSecurityGroups,omitempty"`
+	ReadReplicaDBInstanceIdentifiers *xmlReadReplicaIdentifierList `xml:"ReadReplicaDBInstanceIdentifiers,omitempty"`
+	EnabledCloudwatchLogsExports     *xmlLogTypeList               `xml:"EnabledCloudwatchLogsExports,omitempty"`
+	PendingModifiedValues            *xmlPendingModifiedValues     `xml:"PendingModifiedValues,omitempty"`
+	OptionGroupMemberships           *xmlOptionGroupMembershipList `xml:"OptionGroupMemberships,omitempty"`
+
+	LicenseModel                      string `xml:"LicenseModel,omitempty"`
+	PreferredBackupWindow             string `xml:"PreferredBackupWindow,omitempty"`
+	DBInstanceClass                   string `xml:"DBInstanceClass"`
+	DBClusterIdentifier               string `xml:"DBClusterIdentifier,omitempty"`
+	Engine                            string `xml:"Engine"`
+	EngineVersion                     string `xml:"EngineVersion,omitempty"`
+	DBInstanceStatus                  string `xml:"DBInstanceStatus"`
+	MasterUsername                    string `xml:"MasterUsername"`
+	DBName                            string `xml:"DBName,omitempty"`
+	Endpoint                          string `xml:"Endpoint>Address"`
+	VpcID                             string `xml:"DBSubnetGroup>VpcId,omitempty"`
+	DBSubnetGroupName                 string `xml:"DBSubnetGroup>DBSubnetGroupName,omitempty"`
+	ReplicaSourceDBInstanceIdentifier string `xml:"ReadReplicaSourceDBInstanceIdentifier,omitempty"`
+	StorageType                       string `xml:"StorageType,omitempty"`
+	AvailabilityZone                  string `xml:"AvailabilityZone,omitempty"`
+	DBInstanceIdentifier              string `xml:"DBInstanceIdentifier"`
+	MonitoringRoleArn                 string `xml:"MonitoringRoleArn,omitempty"`
+	EnhancedMonitoringResourceArn     string `xml:"EnhancedMonitoringResourceArn,omitempty"`
+	PreferredMaintenanceWindow        string `xml:"PreferredMaintenanceWindow,omitempty"`
+	DbiResourceID                     string `xml:"DbiResourceId,omitempty"`
+	DBInstanceArn                     string `xml:"DBInstanceArn,omitempty"`
+	KmsKeyID                          string `xml:"KmsKeyId,omitempty"`
+	InstanceCreateTime                string `xml:"InstanceCreateTime,omitempty"`
+	EngineLifecycleSupport            string `xml:"EngineLifecycleSupport,omitempty"`
+	BackupTarget                      string `xml:"BackupTarget,omitempty"`
+	ReplicaMode                       string `xml:"ReplicaMode,omitempty"`
+	PerformanceInsightsKMSKeyID       string `xml:"PerformanceInsightsKMSKeyId,omitempty"`
+
+	AllocatedStorage                   int `xml:"AllocatedStorage"`
+	Iops                               int `xml:"Iops,omitempty"`
+	StorageThroughput                  int `xml:"StorageThroughput,omitempty"`
+	BackupRetentionPeriod              int `xml:"BackupRetentionPeriod"`
+	MonitoringInterval                 int `xml:"MonitoringInterval,omitempty"`
+	Port                               int `xml:"Endpoint>Port"`
+	PromotionTier                      int `xml:"PromotionTier,omitempty"`
+	PerformanceInsightsRetentionPeriod int `xml:"PerformanceInsightsRetentionPeriod,omitempty"`
+
+	StorageEncrypted                 bool `xml:"StorageEncrypted"`
+	IAMDatabaseAuthenticationEnabled bool `xml:"IAMDatabaseAuthenticationEnabled,omitempty"`
+	DeletionProtection               bool `xml:"DeletionProtection,omitempty"`
+	CopyTagsToSnapshot               bool `xml:"CopyTagsToSnapshot,omitempty"`
+	PubliclyAccessible               bool `xml:"PubliclyAccessible,omitempty"`
+	PerformanceInsightsEnabled       bool `xml:"PerformanceInsightsEnabled,omitempty"`
+	StorageOptimized                 bool `xml:"StorageOptimized,omitempty"`
+	OptimizedWrites                  bool `xml:"OptimizedWritesEnabled,omitempty"`
+	MultiAZ                          bool `xml:"MultiAZ"`
+	AutoMinorVersionUpgrade          bool `xml:"AutoMinorVersionUpgrade,omitempty"`
+	MultiTenant                      bool `xml:"MultiTenant,omitempty"`
 }
 
 type xmlDBInstanceList struct {
@@ -581,7 +632,25 @@ func (h *Handler) handleCreateDBInstanceReadReplica(vals url.Values) (any, error
 	sourceRegion := vals.Get("SourceRegion")
 	paramGroupName := vals.Get("DBParameterGroupName")
 	optionGroupName := vals.Get("OptionGroupName")
-	inst, err := h.Backend.CreateDBInstanceReadReplica(id, sourceID, sourceRegion, paramGroupName, optionGroupName)
+
+	piRetention := 0
+	if v, err := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); err == nil {
+		piRetention = v
+	}
+
+	replicaOpts := DBInstanceOptions{
+		VpcSecurityGroupIDs:                parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		ReplicaMode:                        vals.Get("ReplicaMode"),
+		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
+	}
+
+	inst, err := h.Backend.CreateDBInstanceReadReplica(
+		id, sourceID, sourceRegion, paramGroupName, optionGroupName, replicaOpts,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -705,12 +774,16 @@ func (h *Handler) handleRestoreDBInstanceToPointInTime(vals url.Values) (any, er
 	id := vals.Get("TargetDBInstanceIdentifier")
 	sourceID := vals.Get("SourceDBInstanceIdentifier")
 	opts := DBInstanceOptions{
-		MultiAZ:              vals.Get("MultiAZ") == formTrue,
-		DeletionProtection:   vals.Get("DeletionProtection") == formTrue,
-		StorageType:          vals.Get("StorageType"),
-		AvailabilityZone:     vals.Get("AvailabilityZone"),
-		DBParameterGroupName: vals.Get("DBParameterGroupName"),
-		OptionGroupName:      vals.Get("OptionGroupName"),
+		MultiAZ:                          vals.Get("MultiAZ") == formTrue,
+		DeletionProtection:               vals.Get("DeletionProtection") == formTrue,
+		StorageType:                      vals.Get("StorageType"),
+		AvailabilityZone:                 vals.Get("AvailabilityZone"),
+		DBParameterGroupName:             vals.Get("DBParameterGroupName"),
+		OptionGroupName:                  vals.Get("OptionGroupName"),
+		VpcSecurityGroupIDs:              parseMultiValueParam(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		IAMDatabaseAuthenticationEnabled: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		UseDefaultProcessorFeatures:      vals.Get("UseDefaultProcessorFeatures") == formTrue,
+		BackupTarget:                     vals.Get("BackupTarget"),
 	}
 
 	inst, err := h.Backend.RestoreDBInstanceToPointInTime(id, sourceID, opts)
@@ -787,9 +860,23 @@ func (h *Handler) handleRestoreDBInstanceFromS3(vals url.Values) (any, error) {
 	sourceEngineVersion := vals.Get("SourceEngineVersion")
 	paramGroupName := vals.Get("DBParameterGroupName")
 	optionGroupName := vals.Get("OptionGroupName")
+
+	piRetention := 0
+	if v, perr := strconv.Atoi(vals.Get("PerformanceInsightsRetentionPeriod")); perr == nil {
+		piRetention = v
+	}
+
+	s3Opts := DBInstanceOptions{
+		AutoMinorVersionUpgrade:            vals.Get("AutoMinorVersionUpgrade") == formTrue,
+		IAMDatabaseAuthenticationEnabled:   vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
+		UseDefaultProcessorFeatures:        vals.Get("UseDefaultProcessorFeatures") == formTrue,
+		PerformanceInsightsKMSKeyID:        vals.Get("PerformanceInsightsKMSKeyId"),
+		PerformanceInsightsRetentionPeriod: piRetention,
+	}
+
 	inst, err := h.Backend.RestoreDBInstanceFromS3(
 		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion,
-		paramGroupName, optionGroupName,
+		paramGroupName, optionGroupName, s3Opts,
 	)
 	if err != nil {
 		return nil, err

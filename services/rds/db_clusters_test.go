@@ -179,7 +179,7 @@ func Test_DeleteDBCluster_FinalSnapshotContract(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			_, err = b.DeleteDBClusterWithOptions("del-cluster", tt.skipFinalSnapshot, tt.finalSnapshotID)
+			_, err = b.DeleteDBClusterWithOptions("del-cluster", tt.skipFinalSnapshot, tt.finalSnapshotID, true)
 
 			if tt.wantErrContains != "" {
 				require.Error(t, err)
@@ -394,7 +394,7 @@ func TestRDSBackend_DeletionProtection(t *testing.T) {
 		{
 			name: "delete_protected_global_cluster_blocked",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateGlobalCluster("gc-prot", "aurora-postgresql", "14.3", false, true)
+				_, _ = b.CreateGlobalCluster("gc-prot", "aurora-postgresql", "14.3", "", false, true)
 			},
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.DeleteGlobalCluster("gc-prot")
@@ -407,7 +407,7 @@ func TestRDSBackend_DeletionProtection(t *testing.T) {
 		{
 			name: "delete_unprotected_global_cluster_allowed",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateGlobalCluster("gc-unprot", "aurora-postgresql", "14.3", false, false)
+				_, _ = b.CreateGlobalCluster("gc-unprot", "aurora-postgresql", "14.3", "", false, false)
 			},
 			action: func(b *rds.InMemoryBackend) error {
 				_, err := b.DeleteGlobalCluster("gc-unprot")
