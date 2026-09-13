@@ -89,6 +89,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	commit1, _, _, err := original.CreateCommit(
 		repo.RepositoryName, "main", "author", "author@example.com", "init", "",
 		[]codecommit.PutFileEntry{{FilePath: "README.md", FileMode: "NORMAL", FileContent: []byte("hello")}}, nil,
+		false,
 	)
 	require.NoError(t, err)
 

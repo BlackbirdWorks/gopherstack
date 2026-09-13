@@ -6,11 +6,19 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// getCommentReactionsDefaultMaxResults is the documented default and maximum
+// page size (api_op_GetCommentReactions.go: "The default is the same as the
+// allowed maximum, 1,000.").
+const getCommentReactionsDefaultMaxResults = 1000
 
 func (h *Handler) handleGetCommentReactions(body []byte) (any, error) {
 	var req struct {
-		CommentID string `json:"commentId"`
+		CommentID  string `json:"commentId"`
+		NextToken  string `json:"nextToken"`
+		MaxResults int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -18,15 +26,24 @@ func (h *Handler) handleGetCommentReactions(body []byte) (any, error) {
 	if req.CommentID == "" {
 		return nil, fmt.Errorf("%w: commentId is required", errInvalidRequest)
 	}
+	if err := page.ValidateToken(req.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
+	}
 
 	reactions, err := h.Backend.GetCommentReactions(req.CommentID)
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{
-		"reactionsForComment": reactionsForCommentJSON(reactions),
-	}, nil
+	entries := reactionsForCommentJSON(reactions)
+	pg := page.New(entries, req.NextToken, req.MaxResults, getCommentReactionsDefaultMaxResults)
+
+	out := map[string]any{"reactionsForComment": pg.Data}
+	if pg.Next != "" {
+		out["nextToken"] = pg.Next
+	}
+
+	return out, nil
 }
 
 // reactionsForCommentJSON converts this backend's flat []Reaction into the

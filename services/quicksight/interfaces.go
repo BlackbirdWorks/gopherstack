@@ -34,11 +34,11 @@ type StorageBackend interface {
 
 	// Users
 	RegisterUser(
-		accountID, namespace, userName, email, role, identityType, sessionName string,
+		accountID, namespace, userName, email, role, identityType, sessionName, customPermissionsName string,
 		tags map[string]string,
 	) (*User, error)
 	DescribeUser(accountID, namespace, userName string) (*User, error)
-	UpdateUser(accountID, namespace, userName, email, role string) (*User, error)
+	UpdateUser(accountID, namespace, userName, email, role, customPermissionsName string) (*User, error)
 	DeleteUser(accountID, namespace, userName string) error
 	DeleteUserByPrincipalID(accountID, namespace, principalID string) error
 	ListUsers(accountID, namespace string, maxResults int32, nextToken string) ([]*User, string, error)
@@ -112,14 +112,14 @@ type StorageBackend interface {
 	// Dashboards
 	CreateDashboard(
 		accountID, dashboardID, name, themeArn, versionDescription string,
-		definition map[string]any,
+		definition, publishOptions map[string]any,
 		permissions []ResourcePermission,
 		tags map[string]string,
 	) (*Dashboard, error)
 	DescribeDashboard(accountID, dashboardID string) (*Dashboard, error)
 	UpdateDashboard(
 		accountID, dashboardID, name, themeArn, versionDescription string,
-		definition map[string]any,
+		definition, publishOptions map[string]any,
 	) (*Dashboard, error)
 	DeleteDashboard(accountID, dashboardID string, versionNumber int64) error
 	ListDashboards(accountID string, maxResults int32, nextToken string) ([]*Dashboard, string, error)
@@ -151,7 +151,9 @@ type StorageBackend interface {
 	) (*Analysis, error)
 	DescribeAnalysis(accountID, analysisID string) (*Analysis, error)
 	UpdateAnalysis(accountID, analysisID, name, themeArn string, definition map[string]any) (*Analysis, error)
-	DeleteAnalysis(accountID, analysisID string, forceDeleteWithoutRecovery bool) error
+	DeleteAnalysis(
+		accountID, analysisID string, forceDeleteWithoutRecovery bool, recoveryWindowInDays int64,
+	) (time.Time, error)
 	ListAnalyses(accountID string, maxResults int32, nextToken string) ([]*Analysis, string, error)
 	RestoreAnalysis(accountID, analysisID string) (*Analysis, error)
 	SearchAnalyses(
@@ -478,7 +480,9 @@ type StorageBackend interface {
 		tags map[string]string,
 	) (*CustomPermissions, error)
 	DescribeCustomPermissions(accountID, name string) (*CustomPermissions, error)
-	UpdateCustomPermissions(accountID, name string, capabilities map[string]any) (*CustomPermissions, error)
+	UpdateCustomPermissions(
+		accountID, name string, capabilities, governance map[string]any,
+	) (*CustomPermissions, error)
 	DeleteCustomPermissions(accountID, name string) (*CustomPermissions, error)
 	ListCustomPermissions(accountID string, maxResults int32, nextToken string) ([]*CustomPermissions, string, error)
 
@@ -594,7 +598,7 @@ type StorageBackend interface {
 		accountID string,
 		experienceConfiguration map[string]any,
 	) (string, error)
-	GetDashboardEmbedURL(accountID, dashboardID, identityType string) (string, error)
+	GetDashboardEmbedURL(accountID, dashboardID, identityType, namespace string) (string, error)
 	GetSessionEmbedURL(accountID, entryPoint string) (string, error)
 
 	// Identity context

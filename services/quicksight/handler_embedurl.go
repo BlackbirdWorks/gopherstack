@@ -126,13 +126,26 @@ func (h *Handler) handleGenerateEmbedForRegisteredUserWithIdentity(c *echo.Conte
 	})
 }
 
+// handleGetDashboardEmbedURL reads the query-bound fields
+// GetDashboardEmbedUrlInput actually declares (verified against
+// quicksight@v1.129.0 serializers.go's
+// awsRestjson1_serializeOpHttpBindingsGetDashboardEmbedUrlInput: namespace,
+// identityType ("creds-type"), resetDisabled, statePersistenceEnabled,
+// undoRedoDisabled are all httpQuery, not body, members). Namespace is
+// validated against the aggregatorLocked-style existence check every other
+// namespace-scoped embed op already uses (NamespaceNotFoundException on an
+// unknown namespace). resetDisabled/statePersistenceEnabled/undoRedoDisabled
+// remain unread: this backend's embed URL is an opaque generated string with
+// no session-config channel to reflect them into or other observable state
+// they could toggle -- see PARITY.md items_still_open.
 func (h *Handler) handleGetDashboardEmbedURL(c *echo.Context) error {
 	segs := pathSegsFromCtx(c)
 	accountID := seg(segs, segAccountID)
 	dashboardID := seg(segs, segResID)
 	identityType := queryParam(c, keyIdentityTypeParam)
+	namespace := queryParam(c, queryParamNamespace)
 
-	embedURL, err := h.Backend.GetDashboardEmbedURL(accountID, dashboardID, identityType)
+	embedURL, err := h.Backend.GetDashboardEmbedURL(accountID, dashboardID, identityType, namespace)
 	if err != nil {
 		return httpErr(c, err)
 	}

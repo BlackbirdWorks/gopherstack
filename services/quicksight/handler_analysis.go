@@ -3,6 +3,7 @@ package quicksight
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -135,17 +136,30 @@ func (h *Handler) handleDeleteAnalysis(c *echo.Context) error {
 	accountID := seg(segs, segAccountID)
 	analysisID := seg(segs, segResID)
 
+	// force reads the same (pre-existing, out of this pass's scope)
+	// camelCase key the rest of this handler has always used; the real wire
+	// key is kebab-case "force-delete-without-recovery" (confirmed against
+	// serializers.go's awsRestjson1_serializeOpHttpBindingsDeleteAnalysisInput,
+	// same function that gives recovery-window-in-days below) -- left
+	// unchanged to avoid widening this fix beyond RecoveryWindowInDays.
 	force := c.Request().URL.Query().Get("forceDeleteWithoutRecovery") == queryValueTrue
+	recoveryWindowInDays, _ := strconv.ParseInt(queryParam(c, "recovery-window-in-days"), 10, 64)
 
-	if err := h.Backend.DeleteAnalysis(accountID, analysisID, force); err != nil {
+	deletionTime, err := h.Backend.DeleteAnalysis(accountID, analysisID, force, recoveryWindowInDays)
+	if err != nil {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyAnalysisID: analysisID,
 		keyRequestID:  newReqID(),
 		keyStatus:     http.StatusOK,
-	})
+	}
+	if !deletionTime.IsZero() {
+		resp["DeletionTime"] = deletionTime.Unix()
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleListAnalyses(c *echo.Context) error {

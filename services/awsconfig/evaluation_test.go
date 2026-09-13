@@ -335,17 +335,17 @@ func TestGetResourceConfigHistory_RealHistory(t *testing.T) {
 	assert.NotZero(t, hist[0].ConfigurationItemCaptureTime)
 
 	// Pagination: one item at a time.
-	first, token := b.GetResourceConfigHistoryPage(rt, id, 1, "")
+	first, token := b.GetResourceConfigHistoryPage(rt, id, 1, "", "", 0, 0)
 	require.Len(t, first, 1)
 	require.NotEmpty(t, token)
 	assert.Equal(t, `{"v":3}`, first[0].Configuration)
 
-	second, token2 := b.GetResourceConfigHistoryPage(rt, id, 1, token)
+	second, token2 := b.GetResourceConfigHistoryPage(rt, id, 1, token, "", 0, 0)
 	require.Len(t, second, 1)
 	require.NotEmpty(t, token2)
 	assert.Equal(t, `{"v":2}`, second[0].Configuration)
 
-	third, token3 := b.GetResourceConfigHistoryPage(rt, id, 1, token2)
+	third, token3 := b.GetResourceConfigHistoryPage(rt, id, 1, token2, "", 0, 0)
 	require.Len(t, third, 1)
 	assert.Empty(t, token3)
 	assert.Equal(t, `{"v":1}`, third[0].Configuration)

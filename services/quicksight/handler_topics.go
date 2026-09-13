@@ -28,15 +28,15 @@ const (
 	// keyRefreshType, which belongs to the unrelated DataSet-level
 	// types.RefreshSchedule used by handler_refreshschedule.go.
 	keyTopicScheduleType = "TopicScheduleType"
-	keyAnswers          = "Answers"
-	keyAnswerIDs        = "AnswerIds"
-	keySucceededAnswer  = "SucceededAnswers"
-	keyInvalidAnswers   = "InvalidAnswers"
-	keyAnswerID         = "AnswerId"
-	keyQuestion         = "Question"
-	keyPrimaryVisual    = "PrimaryVisual"
-	keyTemplateField    = "Template"
-	keyUserExpVersion   = "UserExperienceVersion"
+	keyAnswers           = "Answers"
+	keyAnswerIDs         = "AnswerIds"
+	keySucceededAnswer   = "SucceededAnswers"
+	keyInvalidAnswers    = "InvalidAnswers"
+	keyAnswerID          = "AnswerId"
+	keyQuestion          = "Question"
+	keyPrimaryVisual     = "PrimaryVisual"
+	keyTemplateField     = "Template"
+	keyUserExpVersion    = "UserExperienceVersion"
 )
 
 func isTopicOp(op string) bool {

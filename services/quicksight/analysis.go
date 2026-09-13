@@ -90,24 +90,45 @@ func (b *InMemoryBackend) UpdateAnalysis(
 	return a.toAnalysis(), nil
 }
 
-func (b *InMemoryBackend) DeleteAnalysis(accountID, analysisID string, forceDeleteWithoutRecovery bool) error {
+// defaultAnalysisRecoveryWindowDays is DeleteAnalysisInput.RecoveryWindowInDays'
+// documented default ("The default value is 30.").
+const defaultAnalysisRecoveryWindowDays = 30
+
+// DeleteAnalysis soft-deletes analysisID (marking it statusDeleted) unless
+// forceDeleteWithoutRecovery, which purges it outright. It returns the time
+// the analysis is scheduled for permanent deletion -- DeleteAnalysisOutput's
+// real DeletionTime member, computed from recoveryWindowInDays (0 defaults
+// to 30, matching the documented default) -- or the zero time when force-
+// deleted, since there is no scheduled deletion in that case. DeletionTime
+// isn't itself persisted: no other op (DescribeAnalysis included) ever reads
+// it back, so it's a pure function of "now" at delete time, not stored state.
+func (b *InMemoryBackend) DeleteAnalysis(
+	accountID, analysisID string, forceDeleteWithoutRecovery bool, recoveryWindowInDays int64,
+) (time.Time, error) {
 	b.mu.Lock("DeleteAnalysis")
 	defer b.mu.Unlock()
 
 	key := analysisKey(accountID, analysisID)
 	a, ok := b.analyses.Get(key)
 	if !ok {
-		return ErrAnalysisNotFound
+		return time.Time{}, ErrAnalysisNotFound
 	}
 
 	if forceDeleteWithoutRecovery {
 		delete(b.tags, a.Arn)
 		b.analyses.Delete(key)
-	} else {
-		a.Status = statusDeleted
+
+		return time.Time{}, nil
 	}
 
-	return nil
+	a.Status = statusDeleted
+
+	days := recoveryWindowInDays
+	if days <= 0 {
+		days = defaultAnalysisRecoveryWindowDays
+	}
+
+	return time.Now().UTC().AddDate(0, 0, int(days)), nil
 }
 
 //nolint:dupl // list functions share structure but operate on different stored types

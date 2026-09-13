@@ -14,6 +14,7 @@ const (
 	keyCustomPermissions     = "CustomPermissions"
 	keyCustomPermissionsList = "CustomPermissionsList"
 	keyCapabilities          = "Capabilities"
+	keyGovernance            = "Governance"
 	keyMembersList           = "MembersList"
 )
 
@@ -78,11 +79,16 @@ func (h *Handler) dispatchRoleAndUserCustomPerm(c *echo.Context, op string) erro
 // ---- Custom permissions ----
 
 func customPermissionsToMap(cp *CustomPermissions) map[string]any {
-	return map[string]any{
+	m := map[string]any{
 		keyCustomPermissionsName: cp.Name,
 		keyArn:                   cp.Arn,
 		keyCapabilities:          cp.Capabilities,
 	}
+	if cp.Governance != nil {
+		m[keyGovernance] = cp.Governance
+	}
+
+	return m
 }
 
 func (h *Handler) handleCreateCustomPermissions(c *echo.Context) error {
@@ -141,7 +147,9 @@ func (h *Handler) handleUpdateCustomPermissions(c *echo.Context) error {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
 	}
 
-	cp, err := h.Backend.UpdateCustomPermissions(accountID, name, mapField(body, keyCapabilities))
+	cp, err := h.Backend.UpdateCustomPermissions(
+		accountID, name, mapField(body, keyCapabilities), mapField(body, keyGovernance),
+	)
 	if err != nil {
 		return httpErr(c, err)
 	}

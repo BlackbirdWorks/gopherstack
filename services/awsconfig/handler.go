@@ -14,6 +14,7 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
@@ -31,6 +32,23 @@ type (
 	emptyInput  struct{}
 	emptyOutput struct{}
 )
+
+// unboundedPageDefault is the defaultLimit passed to paginate for ops whose
+// docs say "The default is maximum" rather than a specific number: no client
+// requested cap means return everything in one page.
+const unboundedPageDefault = 1 << 30
+
+// paginate applies this service's shared Limit/NextToken pagination pattern
+// (page.New over a fully materialized slice) used across its List/Describe/Get
+// ops. defaultLimit is the operation's documented default page size, or
+// unboundedPageDefault when the docs say "the default is maximum".
+func paginate[T any](all []T, nextToken string, limit int32, defaultLimit int) (page.Page[T], error) {
+	if err := page.ValidateToken(nextToken); err != nil {
+		return page.Page[T]{}, fmt.Errorf("%w: invalid NextToken", ErrInvalidNextToken)
+	}
+
+	return page.New(all, nextToken, int(limit), defaultLimit), nil
+}
 
 // Handler is the Echo HTTP handler for AWS Config operations.
 type Handler struct {

@@ -198,6 +198,27 @@ items_still_open:
     PutThirdPartyServiceLinkedConfigurationRecorder's own, separately-enforced
     one-per-ServicePrincipal limit (still real, unchanged). Test:
     TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged.
+  - GetDiscoveredResourceCounts.Limit/NextToken are inert: they page the real,
+    required ResourceCounts per-type breakdown, which is not modeled (see the
+    existing TotalDiscoveredResources-only gap above) -- there is nothing to
+    paginate until that breakdown exists (gopherstack-xhu2t tier-1 sweep,
+    2026-09-12).
+  - GetAggregateDiscoveredResourceCounts.Limit/NextToken are inert for the same
+    reason: they page the real, optional GroupedResourceCounts breakdown, which
+    is not modeled (see the existing gap above) (gopherstack-xhu2t tier-1
+    sweep, 2026-09-12).
+  - ListDiscoveredResources.IncludeDeletedResources has no backend counterpart:
+    DeleteResourceConfig removes a resource from b.resourceConfigs outright
+    rather than tombstoning it, so there is no deleted-resource record this op
+    could ever include. Would need new tombstone tracking in
+    pkgs/store/resources.go, not a wire-key fix (gopherstack-xhu2t tier-1
+    sweep, 2026-09-12).
+  - StartResourceEvaluation.EvaluationTimeout has no backend counterpart:
+    StartResourceEvaluation completes synchronously and always lands on
+    statusSucceeded, so there is no in-flight evaluation a timeout could ever
+    interrupt. Real AWS proactive evaluation is asynchronous; modeling that
+    would need an async evaluation pipeline, not a field read (gopherstack-xhu2t
+    tier-1 sweep, 2026-09-12).
 deferred:
   - Per-field/per-op AWS validation ordering and exact message text (not audited this pass)
 leaks: {status: clean, note: "no goroutines/janitors in this service; single coarse lockmetrics.RWMutex; every new Lock/RLock this pass is defer-released; DeleteConfigurationRecorder cascade-cleans ServiceLinkedRecorderLink rows, DeleteConformancePack cascade-cleans its deployed config rules + evaluations, DeleteRemediationConfiguration cascade-cleans its recorded executions -- no ghost rows found"}
@@ -852,3 +873,98 @@ Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
 -count=1 ./services/awsconfig/...` (pass), `golangci-lint run
 --new-from-rev=HEAD ./services/awsconfig/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3)
+
+Worked all 33 tier-1 findings from `cmd/reqfielddiff` for this service.
+awsconfig is not the generic `jsonOp(h.Backend.<Op>)` shape (slice-1's blind
+spot) -- every op has its own hand-written input/output struct and handler --
+so the tool's undeclared-field findings here are all genuine: no field was
+already read via a shape the tool cannot see.
+
+29 of 33 were DROPPED PARAMETER: the field is real, on the wire, and the
+backend already holds the state to honor it -- overwhelmingly a `Limit`
+(sometimes with `NextToken`, which itself is real but couldn't hit tier-1's
+"documented default" signal) that this service's `page.New`-based pagination
+pattern (already established on `DescribeConfigRules`) had simply never been
+extended to. Fixed via a new shared `paginate[T]` helper in `handler.go`
+(`page.ValidateToken` + `page.New`, mirroring `handleDescribeConfigRules`)
+applied to:
+
+- `DescribeAggregateComplianceByConfigRules.Limit`,
+  `DescribeAggregateComplianceByConformancePacks.Limit`,
+  `DescribeAggregationAuthorizations.Limit`,
+  `DescribeComplianceByResource.Limit`,
+  `DescribeConfigRuleEvaluationStatus.Limit`,
+  `DescribeConfigurationAggregatorSourcesStatus.Limit`,
+  `DescribeConfigurationAggregators.Limit`,
+  `DescribeOrganizationConfigRuleStatuses.Limit`,
+  `DescribeOrganizationConfigRules.Limit`,
+  `DescribeOrganizationConformancePackStatuses.Limit`,
+  `DescribeOrganizationConformancePacks.Limit`,
+  `DescribePendingAggregationRequests.Limit`,
+  `DescribeRemediationExceptions.Limit`,
+  `DescribeRemediationExecutionStatus.Limit`,
+  `GetAggregateConfigRuleComplianceSummary.Limit`,
+  `GetAggregateConformancePackComplianceSummary.Limit`,
+  `GetComplianceDetailsByConfigRule.Limit`,
+  `GetConformancePackComplianceDetails.Limit`,
+  `GetOrganizationConfigRuleDetailedStatus.Limit`,
+  `GetOrganizationConformancePackDetailedStatus.Limit`,
+  `ListAggregateDiscoveredResources.Limit`, `ListDiscoveredResources.Limit`,
+  `ListResourceEvaluations.Limit`, `ListTagsForResource.Limit` now truncate to
+  the requested page size (or the operation's documented default) and return a
+  real opaque `NextToken` a follow-up call advances with -- previously every
+  one of these ops always returned its entire result set in a single
+  response regardless of `Limit`.
+
+Three fields needed real (not just mechanical) backend work:
+
+- `GetResourceConfigHistory.ChronologicalOrder`/`EarlierTime`/`LaterTime`:
+  `GetResourceConfigHistoryPage` now filters history entries to
+  `[EarlierTime, LaterTime]` (epoch seconds; a zero bound is unset) and
+  reverses to oldest-first when `ChronologicalOrder=Forward`, instead of
+  always returning the full history newest-first. `PutResourceConfig` was
+  switched from a bare `time.Now()` to the existing `b.now()`/`SetClock`
+  seam (already used elsewhere in this backend) so this is deterministically
+  testable.
+- `ListConformancePackComplianceScores.SortBy`/`SortOrder`: a new
+  `sortConformancePackComplianceScores` orders by conformance-pack name
+  (default) or numeric `Score` (`SortBy=SCORE`), ascending unless
+  `SortOrder=DESCENDING`, with `INSUFFICIENT_DATA` sorting last ascending and
+  first descending -- matching the op's doc comment verbatim. Previously the
+  fields were silently dropped and the result was always name-ascending.
+
+4 of 33 were MISSING FEATURE, recorded under `items_still_open` rather than
+faked: `GetDiscoveredResourceCounts.Limit`/`GetAggregateDiscoveredResourceCounts.Limit`
+(both page a per-type/per-group resource-count breakdown this backend has
+never modeled -- an existing, already-disclosed gap), `ListDiscoveredResources
+.IncludeDeletedResources` (this backend deletes resources outright rather than
+tombstoning them, so there is no deleted-resource record to include), and
+`StartResourceEvaluation.EvaluationTimeout` (evaluation completes
+synchronously and always succeeds, so there is no in-flight run a timeout
+could interrupt).
+
+0 false positives this slice (see the "not the generic wrapper shape" note
+above).
+
+New test: `reqfield_slice3_realclient_test.go` --
+`TestReqFieldSlice3_AWSConfig_Pagination`, 20 subtests, each driving the real
+typed `aws-sdk-go-v2/service/configservice` client against a from-scratch
+backend, seeding >=2 items, and asserting both page-1 truncation and the
+`NextToken`-driven page 2 (or, for the two sort fields, the resulting order).
+`GetAggregateConfigRuleComplianceSummary`/`GetAggregateConformancePackComplianceSummary`/
+`GetOrganizationConfigRuleDetailedStatus`/`GetOrganizationConformancePackDetailedStatus`
+were not given individual pagination proofs: each is structurally capped at a
+single result row in this emulator (one local account/region as the sole
+aggregation group; one local account as the org's sole member), so `Limit`
+has nothing observable to truncate -- still routed through the same
+`paginate` helper the other 20 ops' tests do exercise.
+
+No persisted struct fields changed (only request/response wire structs and
+one backend method signature), no version bump.
+
+Gates: `go build ./...`, `go vet ./services/awsconfig/...`, `go test -race
+-count=1 ./services/awsconfig/...` (pass, including the new suite),
+`golangci-lint run --new-from-rev=HEAD ./services/awsconfig/...`.
+`cmd/paritylint` stays at 0 missing-items-still-open FAIL.

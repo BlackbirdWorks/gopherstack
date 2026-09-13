@@ -102,12 +102,18 @@ type getComplianceDetailsByConfigRuleInput struct {
 	ConfigRuleName  string   `json:"ConfigRuleName"`
 	NextToken       string   `json:"NextToken,omitempty"`
 	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+	Limit           int32    `json:"Limit,omitempty"`
 }
 
 type getComplianceDetailsByConfigRuleOutput struct {
 	NextToken         string                     `json:"NextToken,omitempty"`
 	EvaluationResults []DetailedEvaluationResult `json:"EvaluationResults"`
 }
+
+// getComplianceDetailsByConfigRulePageDefault is the documented default page
+// size (api_op_GetComplianceDetailsByConfigRule.go: "The default is 10. You
+// cannot specify a number greater than 100.").
+const getComplianceDetailsByConfigRulePageDefault = 10
 
 // handleGetComplianceDetailsByConfigRule returns the real per-resource compliance
 // evaluation results recorded for a config rule.
@@ -120,7 +126,12 @@ func (h *Handler) handleGetComplianceDetailsByConfigRule(
 		return nil, err
 	}
 
-	return &getComplianceDetailsByConfigRuleOutput{EvaluationResults: results}, nil
+	p, err := paginate(results, in.NextToken, in.Limit, getComplianceDetailsByConfigRulePageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getComplianceDetailsByConfigRuleOutput{EvaluationResults: p.Data, NextToken: p.Next}, nil
 }
 
 type deleteConfigRuleInput struct {
@@ -227,17 +238,28 @@ func (h *Handler) handlePutConfigRule(
 
 // DescribeConfigRuleEvaluationStatus request/response types and handler.
 type describeConfigRuleEvaluationStatusInput struct {
+	NextToken       string   `json:"NextToken,omitempty"`
 	ConfigRuleNames []string `json:"ConfigRuleNames"`
+	Limit           int32    `json:"Limit,omitempty"`
 }
 type describeConfigRuleEvaluationStatusOutput struct {
+	NextToken                   string                       `json:"NextToken,omitempty"`
 	ConfigRulesEvaluationStatus []ConfigRuleEvaluationStatus `json:"ConfigRulesEvaluationStatus"`
 }
 
 func (h *Handler) handleDescribeConfigRuleEvaluationStatus(
 	_ context.Context, in *describeConfigRuleEvaluationStatusInput,
 ) (*describeConfigRuleEvaluationStatusOutput, error) {
+	all := h.Backend.DescribeConfigRuleEvaluationStatus(in.ConfigRuleNames)
+
+	p, err := paginate(all, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
 	return &describeConfigRuleEvaluationStatusOutput{
-		ConfigRulesEvaluationStatus: h.Backend.DescribeConfigRuleEvaluationStatus(in.ConfigRuleNames),
+		ConfigRulesEvaluationStatus: p.Data,
+		NextToken:                   p.Next,
 	}, nil
 }
 
@@ -263,6 +285,7 @@ type describeComplianceByResourceInput struct {
 	ResourceID      string   `json:"ResourceId,omitempty"`
 	NextToken       string   `json:"NextToken,omitempty"`
 	ComplianceTypes []string `json:"ComplianceTypes,omitempty"`
+	Limit           int32    `json:"Limit,omitempty"`
 }
 
 type describeComplianceByResourceOutput struct {
@@ -270,12 +293,22 @@ type describeComplianceByResourceOutput struct {
 	ComplianceByResources []ComplianceByResource `json:"ComplianceByResources"`
 }
 
+// describeComplianceByResourcePageDefault is the documented default page size
+// (api_op_DescribeComplianceByResource.go: "The default is 10. You cannot
+// specify a number greater than 100.").
+const describeComplianceByResourcePageDefault = 10
+
 func (h *Handler) handleDescribeComplianceByResource(
 	_ context.Context, in *describeComplianceByResourceInput,
 ) (*describeComplianceByResourceOutput, error) {
 	byResource := h.Backend.DescribeComplianceByResource(in.ResourceType, in.ResourceID, in.ComplianceTypes)
 
-	return &describeComplianceByResourceOutput{ComplianceByResources: byResource}, nil
+	p, err := paginate(byResource, in.NextToken, in.Limit, describeComplianceByResourcePageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeComplianceByResourceOutput{ComplianceByResources: p.Data, NextToken: p.Next}, nil
 }
 
 // GetComplianceDetailsByResource request/response types and handler.
@@ -374,11 +407,19 @@ func (h *Handler) handleGetAggregateComplianceDetailsByConfigRule(
 type getAggregateConfigRuleComplianceSummaryInput struct {
 	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
 	GroupByKey                  string `json:"GroupByKey,omitempty"`
+	NextToken                   string `json:"NextToken,omitempty"`
+	Limit                       int32  `json:"Limit,omitempty"`
 }
 type getAggregateConfigRuleComplianceSummaryOutput struct {
 	GroupByKey                string                     `json:"GroupByKey,omitempty"`
+	NextToken                 string                     `json:"NextToken,omitempty"`
 	AggregateComplianceCounts []AggregateComplianceCount `json:"AggregateComplianceCounts"`
 }
+
+// getAggregateConfigRuleComplianceSummaryPageDefault is the documented
+// default page size (api_op_GetAggregateConfigRuleComplianceSummary.go: "The
+// default is 1000. You cannot specify a number greater than 1000.").
+const getAggregateConfigRuleComplianceSummaryPageDefault = 1000
 
 func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 	_ context.Context, in *getAggregateConfigRuleComplianceSummaryInput,
@@ -388,22 +429,41 @@ func (h *Handler) handleGetAggregateConfigRuleComplianceSummary(
 		return nil, err
 	}
 
+	p, err := paginate(counts, in.NextToken, in.Limit, getAggregateConfigRuleComplianceSummaryPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
 	return &getAggregateConfigRuleComplianceSummaryOutput{
 		GroupByKey:                in.GroupByKey,
-		AggregateComplianceCounts: counts,
+		AggregateComplianceCounts: p.Data,
+		NextToken:                 p.Next,
 	}, nil
 }
 
 // DescribeAggregateComplianceByConfigRules request/response types and handler.
+type describeAggregateComplianceByConfigRulesInput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Limit     int32  `json:"Limit,omitempty"`
+}
 type describeAggregateComplianceByConfigRulesOutput struct {
-	AggregateComplianceByConfigRules []any `json:"AggregateComplianceByConfigRules"`
+	NextToken                        string `json:"NextToken,omitempty"`
+	AggregateComplianceByConfigRules []any  `json:"AggregateComplianceByConfigRules"`
 }
 
 func (h *Handler) handleDescribeAggregateComplianceByConfigRules(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *describeAggregateComplianceByConfigRulesInput,
 ) (*describeAggregateComplianceByConfigRulesOutput, error) {
+	p, err := paginate(
+		h.Backend.DescribeAggregateComplianceByConfigRules(), in.NextToken, in.Limit, unboundedPageDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &describeAggregateComplianceByConfigRulesOutput{
-		AggregateComplianceByConfigRules: h.Backend.DescribeAggregateComplianceByConfigRules(),
+		AggregateComplianceByConfigRules: p.Data,
+		NextToken:                        p.Next,
 	}, nil
 }
 

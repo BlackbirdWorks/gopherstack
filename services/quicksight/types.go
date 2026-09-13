@@ -205,6 +205,7 @@ type Dashboard struct {
 	LastUpdatedTime        time.Time
 	LastPublishedTime      time.Time
 	Definition             map[string]any
+	PublishOptions         map[string]any
 	DashboardID            string
 	Arn                    string
 	Name                   string
@@ -490,6 +491,7 @@ type Brand struct {
 // overrides that can be attached to roles or users.
 type CustomPermissions struct {
 	Capabilities map[string]any
+	Governance   map[string]any
 	Name         string
 	Arn          string
 }
