@@ -289,9 +289,9 @@ func (h *Handler) handleGetPackageVersionAsset(
 	// AssetName/PackageVersion/PackageVersionRevision are response HEADERS on
 	// the real GetPackageVersionAssetOutput, not body fields -- see
 	// InMemoryBackend.GetPackageVersionAsset's doc comment.
-	c.Response().Header().Set("X-AssetName", asset)
-	c.Response().Header().Set("X-PackageVersion", pv.Version)
-	c.Response().Header().Set("X-PackageVersionRevision", pv.Revision)
+	c.Response().Header().Set("X-Assetname", asset)
+	c.Response().Header().Set("X-Packageversion", pv.Version)
+	c.Response().Header().Set("X-Packageversionrevision", pv.Revision)
 
 	return c.Blob(http.StatusOK, "application/octet-stream", data)
 }
