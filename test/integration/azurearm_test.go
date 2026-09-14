@@ -181,3 +181,109 @@ func TestIntegration_AzureARM_ResourceGroupAndStorageAccountLifecycle(t *testing
 	resp = armRequest(t, http.MethodDelete, base+"/resourcegroups/"+rg, nil)
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
+
+// TestIntegration_AzureARM_ServiceBusLifecycleAndCrossServiceWiring drives
+// the ARM control-plane CRUD for a Microsoft.ServiceBus namespace/queue/
+// topic/subscription, then makes a direct HTTP call against
+// services/azureservicebus's own listener (port 10003) to prove the
+// ARM-created queue is genuinely queryable there -- i.e. that
+// wireAzureARMResourceProviders's cross-service ServiceBusEntities adapter is
+// really wired, before Terraform is even involved (AZURE.md section 10.10's
+// M9 entry).
+func TestIntegration_AzureARM_ServiceBusLifecycleAndCrossServiceWiring(t *testing.T) {
+	t.Parallel()
+	dumpContainerLogsOnFailure(t)
+
+	sub := "00000000-0000-0000-0000-000000000000"
+	rg := "test-sb-rg-" + uuid.NewString()[:8]
+	ns := "sbns" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	queue := "sbq" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	topic := "sbt" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	sub2 := "subscription1"
+
+	base := "/subscriptions/" + sub
+
+	resp := armRequest(t, http.MethodPut, base+"/resourcegroups/"+rg, []byte(`{"location":"local"}`))
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	nsPath := base + "/resourceGroups/" + rg + "/providers/Microsoft.ServiceBus/namespaces/" + ns
+
+	resp = armRequest(t, http.MethodPut, nsPath, []byte(`{"location":"local","sku":{"name":"Standard"}}`))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	nsBody := armDecodeJSON(t, resp)
+	assert.Equal(t, ns, nsBody["name"])
+
+	resp = armRequest(t, http.MethodGet, nsPath, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Create queue.
+	queuePath := nsPath + "/queues/" + queue
+	resp = armRequest(t, http.MethodPut, queuePath, []byte(`{"properties":{"lockDuration":"PT30S",`+
+		`"defaultMessageTimeToLive":"P1D","maxDeliveryCount":10}}`))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodGet, queuePath, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Create topic + subscription.
+	topicPath := nsPath + "/topics/" + topic
+	resp = armRequest(t, http.MethodPut, topicPath, []byte(`{"properties":{"defaultMessageTimeToLive":"P1D"}}`))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	subPath := topicPath + "/subscriptions/" + sub2
+	resp = armRequest(t, http.MethodPut, subPath, []byte(`{"properties":{"lockDuration":"PT1M","maxDeliveryCount":5}}`))
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodGet, subPath, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// listKeys via a namespace authorizationRule.
+	ruleName := "RootManageSharedAccessKey"
+	rulePath := nsPath + "/authorizationRules/" + ruleName
+
+	resp = armRequest(t, http.MethodPut, rulePath, nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodPost, rulePath+"/listKeys", nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	keysBody := armDecodeJSON(t, resp)
+	assert.NotEmpty(t, keysBody["primaryConnectionString"])
+	assert.Equal(t, ruleName, keysBody["keyName"])
+
+	// Cross-service assertion: the ARM-created queue must be genuinely
+	// queryable against services/azureservicebus's own listener (port 10003,
+	// azureServiceBusEndpoint) -- proving wireAzureARMResourceProviders's
+	// ServiceBusEntities adapter really delegated CreateQueue through, not
+	// just recorded local ARM bookkeeping.
+	if azureServiceBusEndpoint == "" {
+		t.Skip("Azure Service Bus endpoint not available (mapped port could not be determined)")
+	}
+
+	sbReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, azureServiceBusEndpoint+"/"+queue, nil)
+	require.NoError(t, err)
+
+	sbResp, err := http.DefaultClient.Do(sbReq)
+	require.NoError(t, err)
+
+	defer sbResp.Body.Close()
+	assert.Equal(t, http.StatusOK, sbResp.StatusCode,
+		"ARM-created queue %q should be genuinely queryable on services/azureservicebus's own listener", queue)
+
+	// Cleanup.
+	resp = armRequest(t, http.MethodDelete, subPath, nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodDelete, topicPath, nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodDelete, queuePath, nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodDelete, nsPath, nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	resp = armRequest(t, http.MethodDelete, base+"/resourcegroups/"+rg, nil)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+}
