@@ -3,8 +3,75 @@ package bedrock_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
+
+type seededBackendResources struct {
+	guardrailID string
+	modelARN    string
+	agentID     string
+	flowID      string
+	flowVersion string
+}
+
+func seedTestResources(t *testing.T, b *bedrock.InMemoryBackend) seededBackendResources {
+	t.Helper()
+
+	g, err := b.CreateGuardrail("test-guardrail", "desc", "blocked-in", "blocked-out", nil)
+	require.NoError(t, err)
+
+	cm, err := b.CreateCustomModel("test-model", nil)
+	require.NoError(t, err)
+
+	ag, err := b.CreateAgent("test-agent", "anthropic.claude-v2", "be helpful", "role-arn", nil)
+	require.NoError(t, err)
+
+	fl, err := b.CreateFlow("test-flow", "desc", "arn:aws:iam::000000000000:role/flow-role", nil)
+	require.NoError(t, err)
+
+	fv, err := b.CreateFlowVersion(fl.FlowID)
+	require.NoError(t, err)
+
+	return seededBackendResources{
+		guardrailID: g.GuardrailID,
+		modelARN:    cm.ModelArn,
+		agentID:     ag.AgentID,
+		flowID:      fl.FlowID,
+		flowVersion: fv.Version,
+	}
+}
+
+func assertRestoredResources(t *testing.T, b *bedrock.InMemoryBackend, seed seededBackendResources) {
+	t.Helper()
+
+	gotG, err := b.GetGuardrail(seed.guardrailID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.guardrailID, gotG.GuardrailID)
+	assert.Equal(t, "test-guardrail", gotG.Name)
+
+	gotCM, err := b.GetCustomModel(seed.modelARN)
+	require.NoError(t, err)
+	assert.Equal(t, seed.modelARN, gotCM.ModelArn)
+	assert.Equal(t, "test-model", gotCM.ModelName)
+
+	gotAgent, err := b.GetAgent(seed.agentID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.agentID, gotAgent.AgentID)
+	assert.Equal(t, "test-agent", gotAgent.AgentName)
+
+	gotFlow, err := b.GetFlow(seed.flowID)
+	require.NoError(t, err)
+	assert.Equal(t, seed.flowID, gotFlow.FlowID)
+	assert.Equal(t, "test-flow", gotFlow.Name)
+
+	gotFV, err := b.GetFlowVersion(seed.flowID, seed.flowVersion)
+	require.NoError(t, err)
+	assert.Equal(t, seed.flowID, gotFV.FlowID)
+	assert.Equal(t, seed.flowVersion, gotFV.Version)
+}
 
 // TestInMemoryBackend_RegistryRoundTrip exercises a full-state
 // Snapshot->Restore round trip of the Phase 3.3 pkgs/store conversion.
@@ -21,14 +88,6 @@ import (
 func TestInMemoryBackend_RegistryRoundTrip(t *testing.T) {
 	t.Parallel()
 
-	type seeded struct {
-		guardrailID string
-		modelARN    string
-		agentID     string
-		flowID      string
-		flowVersion string
-	}
-
 	tests := []struct {
 		name string
 	}{
@@ -40,101 +99,20 @@ func TestInMemoryBackend_RegistryRoundTrip(t *testing.T) {
 			t.Parallel()
 
 			b := bedrock.NewInMemoryBackend("123456789012", "us-east-1")
-
-			g, err := b.CreateGuardrail("test-guardrail", "desc", "blocked-in", "blocked-out", nil)
-			if err != nil {
-				t.Fatalf("CreateGuardrail: %v", err)
-			}
-
-			cm, err := b.CreateCustomModel("test-model", nil)
-			if err != nil {
-				t.Fatalf("CreateCustomModel: %v", err)
-			}
-
-			ag, err := b.CreateAgent("test-agent", "anthropic.claude-v2", "be helpful", "role-arn", nil)
-			if err != nil {
-				t.Fatalf("CreateAgent: %v", err)
-			}
-
-			fl, err := b.CreateFlow("test-flow", "desc", "arn:aws:iam::000000000000:role/flow-role", nil)
-			if err != nil {
-				t.Fatalf("CreateFlow: %v", err)
-			}
-
-			fv, err := b.CreateFlowVersion(fl.FlowID)
-			if err != nil {
-				t.Fatalf("CreateFlowVersion: %v", err)
-			}
-
-			seed := seeded{
-				guardrailID: g.GuardrailID,
-				modelARN:    cm.ModelArn,
-				agentID:     ag.AgentID,
-				flowID:      fl.FlowID,
-				flowVersion: fv.Version,
-			}
+			seed := seedTestResources(t, b)
 
 			snap, err := b.SnapshotTablesForTest()
-			if err != nil {
-				t.Fatalf("SnapshotTablesForTest: %v", err)
-			}
+			require.NoError(t, err)
 
 			// Clear every registered table in place (registrations survive,
 			// exactly as InMemoryBackend.Reset leaves them for reuse).
 			b.ResetTablesForTest()
 
-			if _, getErr := b.GetGuardrail(seed.guardrailID); getErr == nil {
-				t.Fatalf("expected guardrail to be absent after ResetTablesForTest")
-			}
+			_, getErr := b.GetGuardrail(seed.guardrailID)
+			require.Error(t, getErr)
 
-			if restoreErr := b.RestoreTablesForTest(snap); restoreErr != nil {
-				t.Fatalf("RestoreTablesForTest: %v", restoreErr)
-			}
-
-			gotG, err := b.GetGuardrail(seed.guardrailID)
-			if err != nil {
-				t.Fatalf("GetGuardrail after restore: %v", err)
-			}
-
-			if gotG.GuardrailID != seed.guardrailID || gotG.Name != "test-guardrail" {
-				t.Errorf("guardrail mismatch after restore: %+v", gotG)
-			}
-
-			gotCM, err := b.GetCustomModel(seed.modelARN)
-			if err != nil {
-				t.Fatalf("GetCustomModel after restore: %v", err)
-			}
-
-			if gotCM.ModelArn != seed.modelARN || gotCM.ModelName != "test-model" {
-				t.Errorf("custom model mismatch after restore: %+v", gotCM)
-			}
-
-			gotAgent, err := b.GetAgent(seed.agentID)
-			if err != nil {
-				t.Fatalf("GetAgent after restore: %v", err)
-			}
-
-			if gotAgent.AgentID != seed.agentID || gotAgent.AgentName != "test-agent" {
-				t.Errorf("agent mismatch after restore: %+v", gotAgent)
-			}
-
-			gotFlow, err := b.GetFlow(seed.flowID)
-			if err != nil {
-				t.Fatalf("GetFlow after restore: %v", err)
-			}
-
-			if gotFlow.FlowID != seed.flowID || gotFlow.Name != "test-flow" {
-				t.Errorf("flow mismatch after restore: %+v", gotFlow)
-			}
-
-			gotFV, err := b.GetFlowVersion(seed.flowID, seed.flowVersion)
-			if err != nil {
-				t.Fatalf("GetFlowVersion after restore: %v", err)
-			}
-
-			if gotFV.FlowID != seed.flowID || gotFV.Version != seed.flowVersion {
-				t.Errorf("flow version mismatch after restore: %+v", gotFV)
-			}
+			require.NoError(t, b.RestoreTablesForTest(snap))
+			assertRestoredResources(t, b, seed)
 		})
 	}
 }

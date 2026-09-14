@@ -40,6 +40,8 @@ func (h *Handler) dispatchTableOps(ctx context.Context, action string, body []by
 			ctx, action, body,
 			models.ToSDKCreateTableInput, h.Backend.CreateTable, models.FromSDKCreateTableOutput,
 		)
+	case "DescribeTable":
+		return nil, nil
 	}
 
 	return nil, nil

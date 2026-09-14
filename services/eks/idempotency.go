@@ -74,9 +74,9 @@ func idempotencyFingerprint(reqBody []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// LookupIdempotency returns the stored record for (op, token), if any.
-func (b *InMemoryBackend) LookupIdempotency(op, token string) (idempotencyRecord, bool) {
-	b.mu.RLock("LookupIdempotency")
+// lookupIdempotency returns the stored record for (op, token), if any.
+func (b *InMemoryBackend) lookupIdempotency(op, token string) (idempotencyRecord, bool) {
+	b.mu.RLock("lookupIdempotency")
 	defer b.mu.RUnlock()
 
 	rec, ok := b.idempotency.Get(idempotencyKey(op, token))
@@ -87,9 +87,9 @@ func (b *InMemoryBackend) LookupIdempotency(op, token string) (idempotencyRecord
 	return *rec, true
 }
 
-// StoreIdempotency records a successful (2xx) response for later replay.
-func (b *InMemoryBackend) StoreIdempotency(op, token, fingerprint string, statusCode int, body json.RawMessage) {
-	b.mu.Lock("StoreIdempotency")
+// storeIdempotency records a successful (2xx) response for later replay.
+func (b *InMemoryBackend) storeIdempotency(op, token, fingerprint string, statusCode int, body json.RawMessage) {
+	b.mu.Lock("storeIdempotency")
 	defer b.mu.Unlock()
 
 	b.idempotency.Put(&idempotencyRecord{
@@ -127,7 +127,7 @@ func (h *Handler) withIdempotency(
 
 	fp := idempotencyFingerprint(reqBody)
 
-	if rec, ok := h.Backend.LookupIdempotency(op, token); ok {
+	if rec, ok := h.Backend.lookupIdempotency(op, token); ok {
 		if rec.Fingerprint != fp {
 			return c.JSON(http.StatusBadRequest, errResp(
 				"InvalidParameterException",
@@ -150,7 +150,7 @@ func (h *Handler) withIdempotency(
 
 	if status >= http.StatusOK && status < http.StatusMultipleChoices {
 		if raw, mErr := json.Marshal(body); mErr == nil {
-			h.Backend.StoreIdempotency(op, token, fp, status, raw)
+			h.Backend.storeIdempotency(op, token, fp, status, raw)
 		}
 	}
 

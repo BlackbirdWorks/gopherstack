@@ -4,6 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // launchTypeEC2Test is the EC2 launch-type string, factored into a constant to
@@ -305,6 +308,64 @@ func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance(t *tes
 	}
 }
 
+func setupEC2BridgeService(t *testing.T, b *InMemoryBackend) (*ContainerInstance, *TaskDefinition) {
+	t.Helper()
+
+	_, err := b.CreateCluster(CreateClusterInput{ClusterName: "cl-bridge"})
+	require.NoError(t, err)
+
+	ci, err := b.RegisterContainerInstance("cl-bridge", "i-bridge0001")
+	require.NoError(t, err)
+
+	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:      "svc-bridge",
+		NetworkMode: networkModeBridge,
+		ContainerDefinitions: []ContainerDefinition{
+			{Name: "app", Image: "nginx", PortMappings: []PortMapping{{ContainerPort: 8080}}},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateService(CreateServiceInput{
+		Cluster:        "cl-bridge",
+		ServiceName:    "svc-bridge",
+		TaskDefinition: td.TaskDefinitionArn,
+		LaunchType:     launchTypeEC2Test,
+		LoadBalancers: []LoadBalancer{
+			{TargetGroupArn: testTGArn, ContainerName: "app", ContainerPort: 8080},
+		},
+	})
+	require.NoError(t, err)
+
+	return ci, td
+}
+
+func assertBridgeRegistration(t *testing.T, reg *fakeELBv2Registrar, instanceID string) int {
+	t.Helper()
+
+	require.Equal(t, 1, reg.registeredCount())
+	call := reg.registered[0]
+	assert.Equal(t, testTGArn, call.targetGroupARN)
+	require.Len(t, call.targets, 1)
+	assert.Equal(t, instanceID, call.targets[0].ID)
+
+	hostPort := call.targets[0].Port
+	assert.GreaterOrEqual(t, hostPort, ephemeralPortRangeMin)
+	assert.LessOrEqual(t, hostPort, ephemeralPortRangeMax)
+
+	return hostPort
+}
+
+func assertBridgeDeregistration(t *testing.T, reg *fakeELBv2Registrar, instanceID string, hostPort int) {
+	t.Helper()
+
+	require.Equal(t, 1, reg.deregisteredCount())
+	deregCall := reg.deregistered[0]
+	require.NotEmpty(t, deregCall.targets)
+	assert.Equal(t, instanceID, deregCall.targets[0].ID)
+	assert.Equal(t, hostPort, deregCall.targets[0].Port)
+}
+
 // TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort
 // is gopherstack-fpro's core fix: a bridge-mode EC2-launch-type task placed
 // on a registered container instance registers as an "instance" target-type
@@ -313,92 +374,33 @@ func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance(t *tes
 func TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort(t *testing.T) {
 	t.Parallel()
 
-	b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
-	reg := &fakeELBv2Registrar{}
-	b.SetELBv2Registrar(reg)
-
-	if _, err := b.CreateCluster(CreateClusterInput{ClusterName: "cl-bridge"}); err != nil {
-		t.Fatalf("CreateCluster: %v", err)
+	tests := []struct {
+		name string
+	}{
+		{name: "bridge mode registers and deregisters dynamic host port"},
 	}
 
-	ci, ciErr := b.RegisterContainerInstance("cl-bridge", "i-bridge0001")
-	if ciErr != nil {
-		t.Fatalf("RegisterContainerInstance: %v", ciErr)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	td, tdErr := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
-		Family:      "svc-bridge",
-		NetworkMode: networkModeBridge,
-		ContainerDefinitions: []ContainerDefinition{
-			{Name: "app", Image: "nginx", PortMappings: []PortMapping{{ContainerPort: 8080}}},
-		},
-	})
-	if tdErr != nil {
-		t.Fatalf("RegisterTaskDefinition: %v", tdErr)
-	}
+			b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
+			reg := &fakeELBv2Registrar{}
+			b.SetELBv2Registrar(reg)
 
-	if _, svcErr := b.CreateService(CreateServiceInput{
-		Cluster:        "cl-bridge",
-		ServiceName:    "svc-bridge",
-		TaskDefinition: td.TaskDefinitionArn,
-		LaunchType:     launchTypeEC2Test,
-		LoadBalancers: []LoadBalancer{
-			{TargetGroupArn: testTGArn, ContainerName: "app", ContainerPort: 8080},
-		},
-	}); svcErr != nil {
-		t.Fatalf("CreateService: %v", svcErr)
-	}
+			ci, td := setupEC2BridgeService(t, b)
 
-	if err := b.StartTaskForService("cl-bridge", "svc-bridge", td.TaskDefinitionArn); err != nil {
-		t.Fatalf("StartTaskForService: %v", err)
-	}
+			require.NoError(t, b.StartTaskForService("cl-bridge", "svc-bridge", td.TaskDefinitionArn))
+			hostPort := assertBridgeRegistration(t, reg, ci.EC2InstanceID)
 
-	if got := reg.registeredCount(); got != 1 {
-		t.Fatalf("registeredCount = %d, want 1", got)
-	}
+			tasks, _, err := b.DescribeTasks("cl-bridge", nil)
+			require.NoError(t, err)
+			require.Len(t, tasks, 1)
 
-	call := reg.registered[0]
-	if call.targetGroupARN != testTGArn {
-		t.Errorf("targetGroupARN = %q, want %q", call.targetGroupARN, testTGArn)
-	}
+			_, stopErr := b.StopTask("cl-bridge", tasks[0].TaskArn, "test stop")
+			require.NoError(t, stopErr)
 
-	if len(call.targets) != 1 {
-		t.Fatalf("targets = %v, want 1 entry", call.targets)
-	}
-
-	if call.targets[0].ID != ci.EC2InstanceID {
-		t.Errorf("target ID = %q, want ec2InstanceId %q", call.targets[0].ID, ci.EC2InstanceID)
-	}
-
-	hostPort := call.targets[0].Port
-	if hostPort < ephemeralPortRangeMin || hostPort > ephemeralPortRangeMax {
-		t.Errorf(
-			"target port = %d, want dynamic port in [%d,%d]",
-			hostPort,
-			ephemeralPortRangeMin,
-			ephemeralPortRangeMax,
-		)
-	}
-
-	tasks, _, describeErr := b.DescribeTasks("cl-bridge", nil)
-	if describeErr != nil {
-		t.Fatalf("DescribeTasks: %v", describeErr)
-	}
-
-	if len(tasks) != 1 {
-		t.Fatalf("expected 1 task, got %d", len(tasks))
-	}
-
-	if _, stopErr := b.StopTask("cl-bridge", tasks[0].TaskArn, "test stop"); stopErr != nil {
-		t.Fatalf("StopTask: %v", stopErr)
-	}
-
-	if got := reg.deregisteredCount(); got != 1 {
-		t.Fatalf("deregisteredCount = %d, want 1", got)
-	}
-
-	deregCall := reg.deregistered[0]
-	if deregCall.targets[0].ID != ci.EC2InstanceID || deregCall.targets[0].Port != hostPort {
-		t.Errorf("unexpected deregister call: %+v, want ID=%q Port=%d", deregCall, ci.EC2InstanceID, hostPort)
+			assertBridgeDeregistration(t, reg, ci.EC2InstanceID, hostPort)
+		})
 	}
 }
