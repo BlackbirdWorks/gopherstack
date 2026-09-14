@@ -111,14 +111,18 @@ func TestEC2Core_Handler_CustomerGateway(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, cgw.CustomerGatewayID)
 
-	cgws := bk.DescribeCustomerGateways([]string{cgw.CustomerGatewayID})
+	cgws, err := bk.DescribeCustomerGateways([]string{cgw.CustomerGatewayID})
+	require.NoError(t, err)
 	require.Len(t, cgws, 1)
 
-	cgws2 := bk.DescribeCustomerGateways(nil)
+	cgws2, err := bk.DescribeCustomerGateways(nil)
+	require.NoError(t, err)
 	assert.Len(t, cgws2, 1)
 
 	require.NoError(t, bk.DeleteCustomerGateway(cgw.CustomerGatewayID))
-	assert.Empty(t, bk.DescribeCustomerGateways(nil))
+	afterDelete, err := bk.DescribeCustomerGateways(nil)
+	require.NoError(t, err)
+	assert.Empty(t, afterDelete)
 
 	err2 := bk.DeleteCustomerGateway("nonexistent")
 	require.Error(t, err2)
@@ -351,14 +355,17 @@ func TestEC2Core_Handler_IPAMViaHandler(t *testing.T) {
 	body := createRec.Body.String()
 	ipamIDStart := indexOf(body, "<ipamId>") + len("<ipamId>")
 	ipamIDEnd := indexOf(body, "</ipamId>")
-	if ipamIDStart > 0 && ipamIDEnd > ipamIDStart {
+	scopeIDStart := indexOf(body, "<privateDefaultScopeId>") + len("<privateDefaultScopeId>")
+	scopeIDEnd := indexOf(body, "</privateDefaultScopeId>")
+	if ipamIDStart > 0 && ipamIDEnd > ipamIDStart && scopeIDEnd > scopeIDStart {
 		ipamID := body[ipamIDStart:ipamIDEnd]
+		scopeID := body[scopeIDStart:scopeIDEnd]
 
 		// Create pool.
 		poolRec := postForm(t, h, fmt.Sprintf(
-			"Action=CreateIpamPool&Version=2016-11-15&IpamId=%s"+
+			"Action=CreateIpamPool&Version=2016-11-15&IpamScopeId=%s"+
 				"&AddressFamily=ipv4&Locale=us-east-1&ProvisionedCidrs.item.1.Cidr=10.0.0.0/8",
-			ipamID,
+			scopeID,
 		))
 		assert.Equal(t, http.StatusOK, poolRec.Code)
 

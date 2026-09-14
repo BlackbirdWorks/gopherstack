@@ -21,6 +21,12 @@ var (
 	ErrTaggedResourceNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrValidation is returned on invalid input.
 	ErrValidation = awserr.New(errValidation, awserr.ErrInvalidParameter)
+	// ErrRevealNotClassification is returned when GetSensitiveDataOccurrences
+	// targets a finding whose category isn't CLASSIFICATION.
+	ErrRevealNotClassification = awserr.New(errUnprocessableEntity, awserr.ErrInvalidParameter)
+	// ErrRevealNotEnabled is returned when GetSensitiveDataOccurrences is
+	// called while Macie or the reveal configuration isn't enabled.
+	ErrRevealNotEnabled = awserr.New(errMacieNotEnabled, awserr.ErrInvalidParameter)
 )
 
 var (

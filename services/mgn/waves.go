@@ -14,6 +14,25 @@ func (b *InMemoryBackend) resolveWaveLocked(id string) (*Wave, bool) {
 	return b.waves.Get(id)
 }
 
+// resolveWaveByNameLocked finds the Wave whose Name matches, or false if
+// none does. Backs StartImport's mgn:wave:name alternate identification
+// (AWS MGN User Guide, Inventory Import parameters, Additional
+// considerations #4) -- s3import.go's own natural key for create-vs-update,
+// mirroring resolveApplicationByNameLocked. Callers must hold b.mu.
+func (b *InMemoryBackend) resolveWaveByNameLocked(name string) (*Wave, bool) {
+	if name == "" {
+		return nil, false
+	}
+
+	for _, w := range b.waves.Snapshot() {
+		if w.Name == name {
+			return w, true
+		}
+	}
+
+	return nil, false
+}
+
 // CreateWave creates a new Wave.
 func (b *InMemoryBackend) CreateWave(name, description string, waveTags map[string]string) (*Wave, error) {
 	b.mu.Lock("CreateWave")
@@ -27,6 +46,13 @@ func (b *InMemoryBackend) CreateWave(name, description string, waveTags map[stri
 		return nil, validationError("name is required")
 	}
 
+	return b.createWaveLocked(name, description, waveTags).clone(), nil
+}
+
+// createWaveLocked is Wave creation's single construction path, called by
+// both CreateWave and StartImport's mgn:wave:name row handling
+// (s3import.go's resolveOrCreateWaveLocked). Callers must hold b.mu.
+func (b *InMemoryBackend) createWaveLocked(name, description string, waveTags map[string]string) *Wave {
 	id := newWaveID()
 	now := nowRFC3339()
 	t := tags.New("mgn.wave." + id + ".tags")
@@ -48,7 +74,7 @@ func (b *InMemoryBackend) CreateWave(name, description string, waveTags map[stri
 	}
 	b.waves.Put(wave)
 
-	return wave.clone(), nil
+	return wave
 }
 
 // UpdateWave applies a partial update to a Wave.

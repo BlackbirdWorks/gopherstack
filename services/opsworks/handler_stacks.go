@@ -18,11 +18,20 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
 		} `json:"ChefConfiguration"`
 		Attributes                map[string]string `json:"Attributes"`
-		Name                      string            `json:"Name"`
-		Region                    string            `json:"Region"`
+		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		AgentVersion              string            `json:"AgentVersion"`
 		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
 		ServiceRoleArn            string            `json:"ServiceRoleArn"`
 		VpcID                     string            `json:"VpcId"`
+		Region                    string            `json:"Region"`
+		CustomJSON                string            `json:"CustomJson"`
+		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
+		DefaultOs                 string            `json:"DefaultOs"`
+		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string            `json:"DefaultSubnetId"`
+		HostnameTheme             string            `json:"HostnameTheme"`
+		Name                      string            `json:"Name"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -30,8 +39,17 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 	}
 
 	opts := CreateStackOptions{
-		Attributes: req.Attributes,
-		VpcID:      req.VpcID,
+		Attributes:                req.Attributes,
+		VpcID:                     req.VpcID,
+		AgentVersion:              req.AgentVersion,
+		CustomJSON:                req.CustomJSON,
+		DefaultAvailabilityZone:   req.DefaultAvailabilityZone,
+		DefaultOs:                 req.DefaultOs,
+		DefaultRootDeviceType:     req.DefaultRootDeviceType,
+		DefaultSSHKeyName:         req.DefaultSSHKeyName,
+		DefaultSubnetID:           req.DefaultSubnetID,
+		HostnameTheme:             req.HostnameTheme,
+		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
 	}
 	if req.ConfigurationManager != nil {
 		opts.ConfigurationManager = &StackConfigurationManager{
@@ -62,16 +80,62 @@ func (h *Handler) handleCreateStack(_ context.Context, body []byte) (any, error)
 // handleCloneStack handles CloneStack requests.
 func (h *Handler) handleCloneStack(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		SourceStackID string `json:"SourceStackId"`
-		Name          string `json:"Name"`
-		Region        string `json:"Region"`
+		ConfigurationManager *struct {
+			Name    string `json:"Name"`
+			Version string `json:"Version"`
+		} `json:"ConfigurationManager"`
+		ChefConfiguration *struct {
+			BerkshelfVersion string `json:"BerkshelfVersion"`
+			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
+		} `json:"ChefConfiguration"`
+		UseOpsworksSecurityGroups *bool  `json:"UseOpsworksSecurityGroups"`
+		CustomJSON                string `json:"CustomJson"`
+		DefaultInstanceProfileArn string `json:"DefaultInstanceProfileArn"`
+		ServiceRoleArn            string `json:"ServiceRoleArn"`
+		VpcID                     string `json:"VpcId"`
+		AgentVersion              string `json:"AgentVersion"`
+		Name                      string `json:"Name"`
+		DefaultAvailabilityZone   string `json:"DefaultAvailabilityZone"`
+		Region                    string `json:"Region"`
+		DefaultOs                 string `json:"DefaultOs"`
+		DefaultRootDeviceType     string `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string `json:"DefaultSubnetId"`
+		HostnameTheme             string `json:"HostnameTheme"`
+		SourceStackID             string `json:"SourceStackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	stack, err := h.Backend.CloneStack(req.SourceStackID, req.Name, req.Region)
+	opts := CloneStackOptions{
+		VpcID:                     req.VpcID,
+		AgentVersion:              req.AgentVersion,
+		CustomJSON:                req.CustomJSON,
+		DefaultAvailabilityZone:   req.DefaultAvailabilityZone,
+		DefaultInstanceProfileArn: req.DefaultInstanceProfileArn,
+		DefaultOs:                 req.DefaultOs,
+		DefaultRootDeviceType:     req.DefaultRootDeviceType,
+		DefaultSSHKeyName:         req.DefaultSSHKeyName,
+		DefaultSubnetID:           req.DefaultSubnetID,
+		HostnameTheme:             req.HostnameTheme,
+		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
+	}
+	if req.ConfigurationManager != nil {
+		opts.ConfigurationManager = &StackConfigurationManager{
+			Name:    req.ConfigurationManager.Name,
+			Version: req.ConfigurationManager.Version,
+		}
+	}
+	if req.ChefConfiguration != nil {
+		opts.ChefConfiguration = &ChefConfiguration{
+			BerkshelfVersion: req.ChefConfiguration.BerkshelfVersion,
+			ManageBerkshelf:  req.ChefConfiguration.ManageBerkshelf,
+		}
+	}
+
+	stack, err := h.Backend.CloneStack(req.SourceStackID, req.Name, req.Region, req.ServiceRoleArn, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -102,15 +166,62 @@ func (h *Handler) handleDescribeStacks(_ context.Context, body []byte) (any, err
 // handleUpdateStack handles UpdateStack requests.
 func (h *Handler) handleUpdateStack(_ context.Context, body []byte) (any, error) {
 	var req struct {
-		StackID string `json:"StackId"`
-		Name    string `json:"Name"`
+		ConfigurationManager *struct {
+			Name    string `json:"Name"`
+			Version string `json:"Version"`
+		} `json:"ConfigurationManager"`
+		ChefConfiguration *struct {
+			BerkshelfVersion string `json:"BerkshelfVersion"`
+			ManageBerkshelf  bool   `json:"ManageBerkshelf"`
+		} `json:"ChefConfiguration"`
+		Attributes                map[string]string `json:"Attributes"`
+		UseOpsworksSecurityGroups *bool             `json:"UseOpsworksSecurityGroups"`
+		DefaultInstanceProfileArn string            `json:"DefaultInstanceProfileArn"`
+		AgentVersion              string            `json:"AgentVersion"`
+		CustomJSON                string            `json:"CustomJson"`
+		DefaultAvailabilityZone   string            `json:"DefaultAvailabilityZone"`
+		Name                      string            `json:"Name"`
+		DefaultOs                 string            `json:"DefaultOs"`
+		DefaultRootDeviceType     string            `json:"DefaultRootDeviceType"`
+		DefaultSSHKeyName         string            `json:"DefaultSshKeyName"`
+		DefaultSubnetID           string            `json:"DefaultSubnetId"`
+		HostnameTheme             string            `json:"HostnameTheme"`
+		ServiceRoleArn            string            `json:"ServiceRoleArn"`
+		StackID                   string            `json:"StackId"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	if err := h.Backend.UpdateStack(req.StackID, req.Name); err != nil {
+	opts := UpdateStackOptions{
+		Attributes:                req.Attributes,
+		AgentVersion:              req.AgentVersion,
+		CustomJSON:                req.CustomJSON,
+		DefaultAvailabilityZone:   req.DefaultAvailabilityZone,
+		DefaultInstanceProfileArn: req.DefaultInstanceProfileArn,
+		DefaultOs:                 req.DefaultOs,
+		DefaultRootDeviceType:     req.DefaultRootDeviceType,
+		DefaultSSHKeyName:         req.DefaultSSHKeyName,
+		DefaultSubnetID:           req.DefaultSubnetID,
+		HostnameTheme:             req.HostnameTheme,
+		ServiceRoleArn:            req.ServiceRoleArn,
+		UseOpsworksSecurityGroups: req.UseOpsworksSecurityGroups,
+	}
+	if req.ConfigurationManager != nil {
+		opts.ConfigurationManager = &StackConfigurationManager{
+			Name:    req.ConfigurationManager.Name,
+			Version: req.ConfigurationManager.Version,
+		}
+	}
+	if req.ChefConfiguration != nil {
+		opts.ChefConfiguration = &ChefConfiguration{
+			BerkshelfVersion: req.ChefConfiguration.BerkshelfVersion,
+			ManageBerkshelf:  req.ChefConfiguration.ManageBerkshelf,
+		}
+	}
+
+	if err := h.Backend.UpdateStack(req.StackID, req.Name, opts); err != nil {
 		return nil, err
 	}
 
@@ -238,6 +349,15 @@ func stacksToJSON(stacks []*Stack) []map[string]any {
 			keyCreatedAt:                formatOpsWorksTime(s.CreatedAt),
 			"Attributes":                s.Attributes,
 			"VpcId":                     s.VpcID,
+			"AgentVersion":              s.AgentVersion,
+			"CustomJson":                s.CustomJSON,
+			"DefaultAvailabilityZone":   s.DefaultAvailabilityZone,
+			"DefaultOs":                 s.DefaultOs,
+			"DefaultRootDeviceType":     s.DefaultRootDeviceType,
+			"DefaultSshKeyName":         s.DefaultSSHKeyName,
+			"DefaultSubnetId":           s.DefaultSubnetID,
+			"HostnameTheme":             s.HostnameTheme,
+			"UseOpsworksSecurityGroups": s.UseOpsworksSecurityGroups,
 		}
 		if s.ConfigurationManager != nil {
 			entry["ConfigurationManager"] = map[string]any{

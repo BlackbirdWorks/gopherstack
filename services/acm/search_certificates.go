@@ -47,8 +47,7 @@ func (r searchTimestampRange) matches(t time.Time) bool {
 // empty at a time). AcmeAccountId/AcmeEndpointArn have no gopherstack-tracked
 // equivalent (ACME resources aren't linked to Certificate records -- see
 // acme_accounts.go) and are intentionally included but never match anything
-// real, matching CertificateSearchResult's own AcmCertificateMetadata gap in
-// PARITY.md. ManagedBy IS tracked (Certificate.ManagedBy, set via
+// real. ManagedBy IS tracked (Certificate.ManagedBy, set via
 // RequestCertificate's ManagedBy input) and matches for real, as does
 // CertificateKeyPairOrigin (derived from Certificate.Type via
 // certKeyPairOrigin, same as ListCertificates' equivalent filter) -- see the

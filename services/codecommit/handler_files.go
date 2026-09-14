@@ -124,13 +124,14 @@ func (h *Handler) handleGetFolder(body []byte) (any, error) {
 
 func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 	var req struct {
-		RepositoryName string `json:"repositoryName"`
-		BranchName     string `json:"branchName"`
-		FilePath       string `json:"filePath"`
-		ParentCommitID string `json:"parentCommitId"`
-		Name           string `json:"name"`
-		Email          string `json:"email"`
-		CommitMessage  string `json:"commitMessage"`
+		RepositoryName   string `json:"repositoryName"`
+		BranchName       string `json:"branchName"`
+		FilePath         string `json:"filePath"`
+		ParentCommitID   string `json:"parentCommitId"`
+		Name             string `json:"name"`
+		Email            string `json:"email"`
+		CommitMessage    string `json:"commitMessage"`
+		KeepEmptyFolders bool   `json:"keepEmptyFolders"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -140,10 +141,11 @@ func (h *Handler) handleDeleteFile(body []byte) (any, error) {
 	}
 
 	commit, blobID, err := h.Backend.DeleteFile(req.RepositoryName, req.BranchName, req.FilePath, DeleteFileMetadata{
-		ParentCommitID: req.ParentCommitID,
-		AuthorName:     req.Name,
-		AuthorEmail:    req.Email,
-		CommitMessage:  req.CommitMessage,
+		ParentCommitID:   req.ParentCommitID,
+		AuthorName:       req.Name,
+		AuthorEmail:      req.Email,
+		CommitMessage:    req.CommitMessage,
+		KeepEmptyFolders: req.KeepEmptyFolders,
 	})
 	if err != nil {
 		return nil, err

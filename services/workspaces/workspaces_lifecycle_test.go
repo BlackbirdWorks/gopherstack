@@ -668,11 +668,16 @@ func TestCreateStandbyWorkspaces(t *testing.T) { //nolint:paralleltest // existi
 	// succeed (per-item runtime validation, matching CreateWorkspaces).
 	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-test"})
 
+	// PrimaryWorkspaceId must resolve to a real WorkSpace in this backend
+	// (per-item runtime validation -- see CreateStandbyWorkspace).
+	primary1 := createWorkspace(t, h)
+	primary2 := createWorkspace(t, h)
+
 	rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
 		"PrimaryRegion": "us-east-1",
 		"StandbyWorkspaces": []map[string]any{
-			{"PrimaryWorkspaceId": "ws-000001", "DirectoryId": "d-test"},
-			{"PrimaryWorkspaceId": "ws-000002", "DirectoryId": "d-test"},
+			{"PrimaryWorkspaceId": primary1, "DirectoryId": "d-test"},
+			{"PrimaryWorkspaceId": primary2, "DirectoryId": "d-test"},
 		},
 	})
 	if rec.Code != http.StatusOK {
@@ -707,10 +712,12 @@ func TestCreateStandbyWorkspaces_PartialFailure(t *testing.T) {
 
 	doTargetRequest(t, h, "RegisterWorkspaceDirectory", map[string]any{"DirectoryId": "d-good"})
 
+	primary := createWorkspace(t, h)
+
 	rec := doTargetRequest(t, h, "CreateStandbyWorkspaces", map[string]any{
 		"PrimaryRegion": "us-east-1",
 		"StandbyWorkspaces": []map[string]any{
-			{"PrimaryWorkspaceId": "ws-000001", "DirectoryId": "d-good"},
+			{"PrimaryWorkspaceId": primary, "DirectoryId": "d-good"},
 			{"PrimaryWorkspaceId": "ws-000002", "DirectoryId": "d-unregistered"},
 		},
 	})

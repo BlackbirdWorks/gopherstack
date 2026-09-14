@@ -6,11 +6,77 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/lambda"
 )
+
+// TestHandler_InvokeOp_IAMActionVsExtractOperation proves gopherstack-9coa:
+// IAMAction and ExtractOperation deliberately diverge for the same request
+// on the invocations path -- IAMAction reports the real IAM action name
+// (lambda:InvokeFunction) while ExtractOperation reports the real SDK/
+// CloudTrail operation name (Invoke, per aws-sdk-go-v2/service/lambda's
+// api_op_Invoke.go operation name and the CloudTrail eventName it emits).
+// Other ops are unaffected: their IAM action and operation name share the
+// same base string.
+func TestHandler_InvokeOp_IAMActionVsExtractOperation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		method      string
+		path        string
+		wantIAM     string
+		wantExtract string
+	}{
+		{
+			name:        "invocations_path_diverges",
+			method:      http.MethodPost,
+			path:        "/2015-03-31/functions/my-func/invocations",
+			wantIAM:     "lambda:InvokeFunction",
+			wantExtract: "Invoke",
+		},
+		{
+			name:        "create_function_unchanged",
+			method:      http.MethodPost,
+			path:        "/2015-03-31/functions",
+			wantIAM:     "lambda:CreateFunction",
+			wantExtract: "CreateFunction",
+		},
+		{
+			name:        "update_code_unchanged",
+			method:      http.MethodPut,
+			path:        "/2015-03-31/functions/my-func/code",
+			wantIAM:     "lambda:UpdateFunctionCode",
+			wantExtract: "UpdateFunctionCode",
+		},
+		{
+			name:        "get_function_unchanged",
+			method:      http.MethodGet,
+			path:        "/2015-03-31/functions/my-func",
+			wantIAM:     "lambda:GetFunction",
+			wantExtract: "GetFunction",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h, _ := newHandler(t)
+
+			iamReq := httptest.NewRequest(tt.method, tt.path, nil)
+			assert.Equal(t, tt.wantIAM, h.IAMAction(iamReq))
+
+			e := echo.New()
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			c := e.NewContext(req, httptest.NewRecorder())
+			assert.Equal(t, tt.wantExtract, h.ExtractOperation(c))
+		})
+	}
+}
 
 func TestHandler_TagsRoute(t *testing.T) {
 	t.Parallel()

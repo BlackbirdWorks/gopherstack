@@ -31,7 +31,7 @@ func extractCustomModelDeploymentSubOp(path, method string) (string, bool) {
 }
 
 // routeStubDeploymentOps handles custom model deployment operations.
-func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string) (bool, error) {
+func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string, body []byte) (bool, error) {
 	switch {
 	case path == customModelDeploymentsPath && method == http.MethodGet:
 		return true, h.handleListCustomModelDeployments(c)
@@ -42,7 +42,7 @@ func (h *Handler) routeStubDeploymentOps(c *echo.Context, path, method string) (
 	case strings.HasPrefix(path, customModelDeploymentsPath+"/") && method == http.MethodPatch:
 		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeploymentsPath+"/"))
 
-		return true, h.handleUpdateCustomModelDeployment(c, deployARN)
+		return true, h.handleUpdateCustomModelDeployment(c, deployARN, body)
 	case strings.HasPrefix(path, customModelDeploymentsPath+"/") && method == http.MethodDelete:
 		deployARN, _ := url.PathUnescape(strings.TrimPrefix(path, customModelDeploymentsPath+"/"))
 
@@ -169,8 +169,20 @@ func (h *Handler) handleListCustomModelDeployments(c *echo.Context) error {
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN string) error {
-	d, err := h.Backend.UpdateCustomModelDeployment(deployARN)
+type updateCustomModelDeploymentInput struct {
+	ModelArn string `json:"modelArn"`
+}
+
+func (h *Handler) handleUpdateCustomModelDeployment(c *echo.Context, deployARN string, body []byte) error {
+	in, err := parseBody[updateCustomModelDeploymentInput](body)
+	if err != nil {
+		return c.JSON(
+			http.StatusBadRequest,
+			errorResponse("ValidationException", "invalid request body"),
+		)
+	}
+
+	d, err := h.Backend.UpdateCustomModelDeployment(deployARN, in.ModelArn)
 	if err != nil {
 		return h.writeError(c, err)
 	}

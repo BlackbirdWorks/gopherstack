@@ -1,10 +1,20 @@
 package inspector2
 
+// ec2DeepInspectionStatusActivated/Deactivated are the real
+// Ec2DeepInspectionStatus enum values (inspector2@v1.54.1 types/enums.go:
+// ACTIVATED|DEACTIVATED|PENDING|FAILED) -- distinct from this package's
+// generic statusEnabled/statusDisabled ("ENABLED"/"DISABLED"), which do not
+// appear in this enum at all.
+const (
+	ec2DeepInspectionStatusActivated   = "ACTIVATED"
+	ec2DeepInspectionStatusDeactivated = "DEACTIVATED"
+)
+
 // defaultEc2DeepInspectionConfig returns the Ec2DeepInspectionConfig a fresh
 // backend (or a reset one) starts with.
 func defaultEc2DeepInspectionConfig() Ec2DeepInspectionConfig {
 	return Ec2DeepInspectionConfig{
-		Status:       statusDisabled,
+		Status:       ec2DeepInspectionStatusDeactivated,
 		PackagePaths: []string{},
 	}
 }
@@ -26,7 +36,7 @@ func (b *InMemoryBackend) UpdateEc2DeepInspectionConfiguration(paths []string) e
 	defer b.mu.Unlock()
 
 	b.ec2DeepConfig.PackagePaths = append([]string(nil), paths...)
-	b.ec2DeepConfig.Status = statusEnabled
+	b.ec2DeepConfig.Status = ec2DeepInspectionStatusActivated
 
 	return nil
 }
@@ -56,7 +66,7 @@ func (b *InMemoryBackend) BatchGetMemberEc2DeepInspectionStatus(accountIDs []str
 			result = append(result, &MemberEc2DeepInspectionStatus{
 				AccountID:    id,
 				PackagePaths: []string{},
-				Status:       statusDisabled,
+				Status:       ec2DeepInspectionStatusDeactivated,
 			})
 		}
 	}
@@ -64,7 +74,11 @@ func (b *InMemoryBackend) BatchGetMemberEc2DeepInspectionStatus(accountIDs []str
 	return result
 }
 
-// BatchUpdateMemberEc2DeepInspectionStatus updates EC2 deep inspection status for member accounts.
+// BatchUpdateMemberEc2DeepInspectionStatus updates EC2 deep inspection
+// status for member accounts. Previously hardcoded every account's stored
+// Status to enabled regardless of the caller's ActivateDeepInspection value
+// -- a real client deactivating an account via this op would see it
+// reported activated again on the very next Get/BatchGet call.
 func (b *InMemoryBackend) BatchUpdateMemberEc2DeepInspectionStatus(
 	updates []*MemberEc2DeepInspectionStatus,
 ) []*MemberEc2DeepInspectionStatus {
@@ -78,7 +92,7 @@ func (b *InMemoryBackend) BatchUpdateMemberEc2DeepInspectionStatus(
 		s := &MemberEc2DeepInspectionStatus{
 			AccountID:    u.AccountID,
 			PackagePaths: paths,
-			Status:       statusEnabled,
+			Status:       u.Status,
 		}
 		b.memberEc2Status.Put(s)
 		cp := *s

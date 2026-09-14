@@ -38,30 +38,53 @@ type customExtensionWire struct {
 	Critical         bool   `json:"Critical"`
 }
 
-// policyInformationWire mirrors types.PolicyInformation. gopherstack does not
-// implement CertificatePolicies (see decodeExtensions); this type exists only
-// so a request that sets it can be detected and rejected explicitly instead of
-// silently dropped. The Go field name follows Go initialism convention (ID, not
-// Id); the JSON tag keeps the SDK's exact wire key.
-type policyInformationWire struct {
-	CertPolicyID string `json:"CertPolicyId"`
+// qualifierWire mirrors types.Qualifier. Amazon Web Services Private CA
+// supports only the CPS qualifier (types.PolicyQualifierId's sole enum value
+// -- see enums.go), so CpsUri is the only field.
+type qualifierWire struct {
+	CpsURI string `json:"CpsUri"`
 }
 
-// generalNameWire mirrors types.GeneralName. Only DnsName/IpAddress/Rfc822Name
-// (the three SubjectAlternativeNames variants Terraform's aws_acmpca_certificate
-// resource exposes) are implemented -- see decodeGeneralName, which rejects the
-// other variants explicitly rather than silently dropping them. Go field names
-// follow Go initialism convention (DNS, IP, ID); JSON tags keep the SDK's exact
-// wire keys.
+// policyQualifierInfoWire mirrors types.PolicyQualifierInfo.
+type policyQualifierInfoWire struct {
+	Qualifier         *qualifierWire `json:"Qualifier,omitempty"`
+	PolicyQualifierID string         `json:"PolicyQualifierId"`
+}
+
+// policyInformationWire mirrors types.PolicyInformation. The Go field name
+// follows Go initialism convention (ID, not Id); the JSON tag keeps the
+// SDK's exact wire key.
+type policyInformationWire struct {
+	CertPolicyID     string                    `json:"CertPolicyId"`
+	PolicyQualifiers []policyQualifierInfoWire `json:"PolicyQualifiers,omitempty"`
+}
+
+// otherNameWire mirrors types.OtherName.
+type otherNameWire struct {
+	TypeID string `json:"TypeId"`
+	Value  string `json:"Value"`
+}
+
+// ediPartyNameWire mirrors types.EdiPartyName.
+type ediPartyNameWire struct {
+	PartyName    string `json:"PartyName"`
+	NameAssigner string `json:"NameAssigner,omitempty"`
+}
+
+// generalNameWire mirrors types.GeneralName. Go field names follow Go
+// initialism convention (DNS, IP, ID); JSON tags keep the SDK's exact wire
+// keys. Exactly one field must be set per decodeGeneralName, matching the
+// SDK doc comment's rule that providing more than one option results in an
+// InvalidArgsException.
 type generalNameWire struct {
-	DNSName                   string `json:"DnsName,omitempty"`
-	IPAddress                 string `json:"IpAddress,omitempty"`
-	Rfc822Name                string `json:"Rfc822Name,omitempty"`
-	OtherName                 any    `json:"OtherName,omitempty"`
-	DirectoryName             any    `json:"DirectoryName,omitempty"`
-	EdiPartyName              any    `json:"EdiPartyName,omitempty"`
-	UniformResourceIdentifier string `json:"UniformResourceIdentifier,omitempty"`
-	RegisteredID              string `json:"RegisteredId,omitempty"`
+	DNSName                   string            `json:"DnsName,omitempty"`
+	IPAddress                 string            `json:"IpAddress,omitempty"`
+	Rfc822Name                string            `json:"Rfc822Name,omitempty"`
+	OtherName                 *otherNameWire    `json:"OtherName,omitempty"`
+	DirectoryName             *asn1SubjectWire  `json:"DirectoryName,omitempty"`
+	EdiPartyName              *ediPartyNameWire `json:"EdiPartyName,omitempty"`
+	UniformResourceIdentifier string            `json:"UniformResourceIdentifier,omitempty"`
+	RegisteredID              string            `json:"RegisteredId,omitempty"`
 }
 
 // extensionsWire mirrors types.Extensions.
@@ -73,24 +96,29 @@ type extensionsWire struct {
 	SubjectAlternativeNames []generalNameWire       `json:"SubjectAlternativeNames,omitempty"`
 }
 
-// asn1SubjectWire mirrors types.ASN1Subject. Only the fields also present on
-// CertificateAuthoritySubject plus SerialNumber are implemented -- see
-// decodeASN1Subject, which rejects the remaining exotic RDN types explicitly.
+// customAttributeWire mirrors types.CustomAttribute.
+type customAttributeWire struct {
+	ObjectIdentifier string `json:"ObjectIdentifier"`
+	Value            string `json:"Value"`
+}
+
+// asn1SubjectWire mirrors types.ASN1Subject in full.
 type asn1SubjectWire struct {
-	CommonName                 string `json:"CommonName,omitempty"`
-	Country                    string `json:"Country,omitempty"`
-	Organization               string `json:"Organization,omitempty"`
-	OrganizationalUnit         string `json:"OrganizationalUnit,omitempty"`
-	State                      string `json:"State,omitempty"`
-	Locality                   string `json:"Locality,omitempty"`
-	SerialNumber               string `json:"SerialNumber,omitempty"`
-	DistinguishedNameQualifier string `json:"DistinguishedNameQualifier,omitempty"`
-	GenerationQualifier        string `json:"GenerationQualifier,omitempty"`
-	Initials                   string `json:"Initials,omitempty"`
-	Pseudonym                  string `json:"Pseudonym,omitempty"`
-	Surname                    string `json:"Surname,omitempty"`
-	Title                      string `json:"Title,omitempty"`
-	CustomAttributes           []any  `json:"CustomAttributes,omitempty"`
+	CommonName                 string                `json:"CommonName,omitempty"`
+	Country                    string                `json:"Country,omitempty"`
+	Organization               string                `json:"Organization,omitempty"`
+	OrganizationalUnit         string                `json:"OrganizationalUnit,omitempty"`
+	State                      string                `json:"State,omitempty"`
+	Locality                   string                `json:"Locality,omitempty"`
+	SerialNumber               string                `json:"SerialNumber,omitempty"`
+	DistinguishedNameQualifier string                `json:"DistinguishedNameQualifier,omitempty"`
+	GenerationQualifier        string                `json:"GenerationQualifier,omitempty"`
+	GivenName                  string                `json:"GivenName,omitempty"`
+	Initials                   string                `json:"Initials,omitempty"`
+	Pseudonym                  string                `json:"Pseudonym,omitempty"`
+	Surname                    string                `json:"Surname,omitempty"`
+	Title                      string                `json:"Title,omitempty"`
+	CustomAttributes           []customAttributeWire `json:"CustomAttributes,omitempty"`
 }
 
 // apiPassthroughWire mirrors types.APIPassthrough.
@@ -218,19 +246,12 @@ func resolveValidityAbsoluteTime(v validityInput) (time.Time, error) {
 }
 
 // decodeAPIPassthrough converts the wire APIPassthrough into the backend's
-// APIPassthrough model, rejecting the sub-fields that are not implemented
-// (see the wire struct doc comments above) with a clear InvalidArgsException
-// instead of silently dropping them.
+// APIPassthrough model.
 func decodeAPIPassthrough(w *apiPassthroughWire) (*APIPassthrough, error) {
 	ap := &APIPassthrough{}
 
 	if w.Subject != nil {
-		subject, err := decodeASN1Subject(w.Subject)
-		if err != nil {
-			return nil, err
-		}
-
-		ap.Subject = subject
+		ap.Subject = decodeASN1Subject(w.Subject)
 	}
 
 	if w.Extensions != nil {
@@ -245,34 +266,71 @@ func decodeAPIPassthrough(w *apiPassthroughWire) (*APIPassthrough, error) {
 	return ap, nil
 }
 
-func decodeASN1Subject(w *asn1SubjectWire) (*APIPassthroughSubject, error) {
-	if w.DistinguishedNameQualifier != "" || w.GenerationQualifier != "" || w.Initials != "" ||
-		w.Pseudonym != "" || w.Surname != "" || w.Title != "" || len(w.CustomAttributes) > 0 {
-		return nil, fmt.Errorf(
-			"%w: APIPassthrough.Subject.{DistinguishedNameQualifier,GenerationQualifier,Initials,"+
-				"Pseudonym,Surname,Title,CustomAttributes} are not supported", ErrInvalidArgs,
-		)
+func decodeASN1Subject(w *asn1SubjectWire) *APIPassthroughSubject {
+	attrs := make([]APIPassthroughCustomAttribute, 0, len(w.CustomAttributes))
+	for _, a := range w.CustomAttributes {
+		attrs = append(attrs, APIPassthroughCustomAttribute(a))
 	}
 
 	return &APIPassthroughSubject{
-		CommonName:         w.CommonName,
-		Country:            w.Country,
-		Organization:       w.Organization,
-		OrganizationalUnit: w.OrganizationalUnit,
-		State:              w.State,
-		Locality:           w.Locality,
-		SerialNumber:       w.SerialNumber,
-	}, nil
+		CommonName:                 w.CommonName,
+		Country:                    w.Country,
+		Organization:               w.Organization,
+		OrganizationalUnit:         w.OrganizationalUnit,
+		State:                      w.State,
+		Locality:                   w.Locality,
+		SerialNumber:               w.SerialNumber,
+		DistinguishedNameQualifier: w.DistinguishedNameQualifier,
+		GenerationQualifier:        w.GenerationQualifier,
+		GivenName:                  w.GivenName,
+		Initials:                   w.Initials,
+		Pseudonym:                  w.Pseudonym,
+		Surname:                    w.Surname,
+		Title:                      w.Title,
+		CustomAttributes:           attrs,
+	}
+}
+
+const policyQualifierIDCPS = "CPS" // types.PolicyQualifierIdCps -- the SDK's only PolicyQualifierId enum value.
+
+func decodeCertificatePolicies(wire []policyInformationWire) ([]APIPassthroughPolicyInformation, error) {
+	policies := make([]APIPassthroughPolicyInformation, 0, len(wire))
+
+	for _, p := range wire {
+		qualifiers := make([]APIPassthroughPolicyQualifier, 0, len(p.PolicyQualifiers))
+
+		for _, q := range p.PolicyQualifiers {
+			if q.PolicyQualifierID != policyQualifierIDCPS {
+				return nil, fmt.Errorf(
+					"%w: PolicyQualifierInfo.PolicyQualifierId must be %q", ErrInvalidArgs, policyQualifierIDCPS,
+				)
+			}
+
+			if q.Qualifier == nil || q.Qualifier.CpsURI == "" {
+				return nil, fmt.Errorf(
+					"%w: PolicyQualifierInfo.Qualifier.CpsUri is required", ErrInvalidArgs,
+				)
+			}
+
+			qualifiers = append(qualifiers, APIPassthroughPolicyQualifier{CPSURI: q.Qualifier.CpsURI})
+		}
+
+		policies = append(policies, APIPassthroughPolicyInformation{
+			CertPolicyID: p.CertPolicyID,
+			Qualifiers:   qualifiers,
+		})
+	}
+
+	return policies, nil
 }
 
 func decodeExtensions(w *extensionsWire) (*APIPassthroughExtensions, error) {
-	if len(w.CertificatePolicies) > 0 {
-		return nil, fmt.Errorf(
-			"%w: APIPassthrough.Extensions.CertificatePolicies is not supported", ErrInvalidArgs,
-		)
+	policies, err := decodeCertificatePolicies(w.CertificatePolicies)
+	if err != nil {
+		return nil, err
 	}
 
-	ext := &APIPassthroughExtensions{}
+	ext := &APIPassthroughExtensions{CertificatePolicies: policies}
 
 	if w.KeyUsage != nil {
 		ku := w.KeyUsage
@@ -329,20 +387,59 @@ func decodeGeneralNames(wire []generalNameWire) ([]APIPassthroughSAN, error) {
 	return sans, nil
 }
 
+// generalNameVariantCount reports how many of GeneralName's 8 CHOICE
+// variants are set on gn.
+func generalNameVariantCount(gn generalNameWire) int {
+	n := 0
+	for _, set := range []bool{
+		gn.DNSName != "", gn.IPAddress != "", gn.Rfc822Name != "", gn.UniformResourceIdentifier != "",
+		gn.RegisteredID != "", gn.OtherName != nil, gn.DirectoryName != nil, gn.EdiPartyName != nil,
+	} {
+		if set {
+			n++
+		}
+	}
+
+	return n
+}
+
+// decodeGeneralName converts one wire GeneralName. Per types.GeneralName's
+// doc comment ("Only one of the following naming options should be
+// provided. Providing more than one option results in an
+// InvalidArgsException error"), exactly one of the 8 CHOICE variants must
+// be set.
 func decodeGeneralName(gn generalNameWire) (APIPassthroughSAN, error) {
-	if gn.OtherName != nil || gn.DirectoryName != nil || gn.EdiPartyName != nil ||
-		gn.UniformResourceIdentifier != "" || gn.RegisteredID != "" {
+	if n := generalNameVariantCount(gn); n != 1 {
 		return APIPassthroughSAN{}, fmt.Errorf(
-			"%w: SubjectAlternativeNames.{OtherName,DirectoryName,EdiPartyName,"+
-				"UniformResourceIdentifier,RegisteredId} are not supported", ErrInvalidArgs,
+			"%w: exactly one GeneralName variant must be set per SubjectAlternativeNames entry (got %d)",
+			ErrInvalidArgs, n,
 		)
 	}
 
-	return APIPassthroughSAN{
-		DNSName:      gn.DNSName,
-		IPAddress:    gn.IPAddress,
-		EmailAddress: gn.Rfc822Name,
-	}, nil
+	san := APIPassthroughSAN{
+		DNSName:                   gn.DNSName,
+		IPAddress:                 gn.IPAddress,
+		EmailAddress:              gn.Rfc822Name,
+		UniformResourceIdentifier: gn.UniformResourceIdentifier,
+		RegisteredID:              gn.RegisteredID,
+	}
+
+	if gn.OtherName != nil {
+		san.OtherName = &APIPassthroughOtherName{TypeID: gn.OtherName.TypeID, Value: gn.OtherName.Value}
+	}
+
+	if gn.DirectoryName != nil {
+		san.DirectoryName = decodeASN1Subject(gn.DirectoryName)
+	}
+
+	if gn.EdiPartyName != nil {
+		san.EdiPartyName = &APIPassthroughEdiPartyName{
+			PartyName:    gn.EdiPartyName.PartyName,
+			NameAssigner: gn.EdiPartyName.NameAssigner,
+		}
+	}
+
+	return san, nil
 }
 
 func (h *Handler) jsonGetCert(ctx context.Context, body []byte) (any, error) {

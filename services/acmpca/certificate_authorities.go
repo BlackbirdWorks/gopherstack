@@ -9,7 +9,9 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
+	"regexp"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -281,13 +283,32 @@ func validateCrlConfiguration(crl *CrlConfiguration) error {
 		return nil
 	}
 
+	if err := validateCrlEnabledShape(crl); err != nil {
+		return err
+	}
+
+	if err := validateCrlEnumFields(crl); err != nil {
+		return err
+	}
+
+	return validateCrlNameFields(crl)
+}
+
+// validateCrlEnabledShape enforces the Enabled/S3BucketName presence rules:
+// a disabled configuration must set only Enabled=false, and an enabled one
+// must specify the S3 bucket to write to.
+func validateCrlEnabledShape(crl *CrlConfiguration) error {
 	switch {
 	case !crl.Enabled && crlDisabledExtraFieldsSet(crl):
 		return fmt.Errorf("%w: CrlConfiguration with Enabled=false must not set any other field", ErrInvalidArgs)
 	case crl.Enabled && crl.S3BucketName == "":
 		return fmt.Errorf("%w: CrlConfiguration.S3BucketName is required when Enabled=true", ErrInvalidArgs)
+	default:
+		return nil
 	}
+}
 
+func validateCrlEnumFields(crl *CrlConfiguration) error {
 	if crl.CrlType != "" && crl.CrlType != crlTypeComplete && crl.CrlType != crlTypePartitioned {
 		return fmt.Errorf("%w: unsupported CrlType %q", ErrInvalidArgs, crl.CrlType)
 	}
@@ -299,9 +320,138 @@ func validateCrlConfiguration(crl *CrlConfiguration) error {
 	return nil
 }
 
+// validateCrlNameFields validates S3BucketName/CustomCname and the
+// OmitExtension/ExpirationInDays constraints that depend on them.
+func validateCrlNameFields(crl *CrlConfiguration) error {
+	if crl.S3BucketName != "" {
+		if err := validateS3BucketName(crl.S3BucketName); err != nil {
+			return err
+		}
+	}
+
+	if err := validateCname(crl.CustomCname, "CrlConfiguration.CustomCname"); err != nil {
+		return err
+	}
+
+	// CrlDistributionPointExtensionConfiguration is flattened into
+	// OmitExtension (see CrlConfiguration's doc comment); its own doc comment
+	// says: "This configuration cannot be enabled with a custom CNAME set."
+	if crl.OmitExtension && crl.CustomCname != "" {
+		return fmt.Errorf(
+			"%w: CrlConfiguration.OmitExtension cannot be enabled with CustomCname set", ErrInvalidArgs,
+		)
+	}
+
+	if crl.ExpirationInDays == 0 {
+		return nil
+	}
+
+	if crl.ExpirationInDays < crlExpirationMinDays || crl.ExpirationInDays > crlExpirationMaxDays {
+		return fmt.Errorf(
+			"%w: CrlConfiguration.ExpirationInDays must be between %d and %d",
+			ErrInvalidArgs, crlExpirationMinDays, crlExpirationMaxDays,
+		)
+	}
+
+	return nil
+}
+
 func validateOcspConfiguration(ocsp *OcspConfiguration) error {
-	if ocsp != nil && !ocsp.Enabled && ocsp.OcspCustomCname != "" {
+	if ocsp == nil {
+		return nil
+	}
+
+	if !ocsp.Enabled && ocsp.OcspCustomCname != "" {
 		return fmt.Errorf("%w: OcspConfiguration with Enabled=false must not set OcspCustomCname", ErrInvalidArgs)
+	}
+
+	return validateCname(ocsp.OcspCustomCname, "OcspConfiguration.OcspCustomCname")
+}
+
+// cnamePattern is the exact documented Pattern for CrlConfiguration.CustomCname
+// and OcspConfiguration.OcspCustomCname (identical on both --
+// https://docs.aws.amazon.com/privateca/latest/APIReference/API_CrlConfiguration.html
+// and API_OcspConfiguration.html): "[-a-zA-Z0-9;/?:@&=+$,%_.!~*()']*", max length 253.
+var cnamePattern = regexp.MustCompile(`^[-a-zA-Z0-9;/?:@&=+$,%_.!~*()']*$`)
+
+const cnameMaxLength = 253
+
+// validateCname enforces the documented CNAME constraints shared by
+// CrlConfiguration.CustomCname and OcspConfiguration.OcspCustomCname: RFC2396
+// URI character restrictions (the API's own Pattern), a 253-char length cap,
+// and no "http://"/"https://" protocol prefix (both doc comments state this
+// explicitly).
+func validateCname(cname, field string) error {
+	if cname == "" {
+		return nil
+	}
+
+	if len(cname) > cnameMaxLength {
+		return fmt.Errorf("%w: %s exceeds the maximum length of %d", ErrInvalidArgs, field, cnameMaxLength)
+	}
+
+	if !cnamePattern.MatchString(cname) {
+		return fmt.Errorf("%w: %s must conform to RFC2396 URI character restrictions", ErrInvalidArgs, field)
+	}
+
+	if strings.HasPrefix(cname, "http://") || strings.HasPrefix(cname, "https://") {
+		return fmt.Errorf("%w: %s must not include a protocol prefix", ErrInvalidArgs, field)
+	}
+
+	return nil
+}
+
+// s3BucketNamePattern is CrlConfiguration.S3BucketName's own documented
+// Pattern/length (API_CrlConfiguration.html: "[-a-zA-Z0-9._/]+", 3-255 chars)
+// -- looser than real Amazon S3 bucket naming rules, which its doc comment
+// separately defers to ("must conform to the S3 bucket naming rules").
+var s3BucketNamePattern = regexp.MustCompile(`^[-a-zA-Z0-9._/]+$`)
+
+const (
+	s3BucketNameMinLength = 3
+	s3BucketNameMaxLength = 255
+)
+
+func validateS3BucketName(name string) error {
+	if len(name) < s3BucketNameMinLength || len(name) > s3BucketNameMaxLength {
+		return fmt.Errorf(
+			"%w: S3BucketName must be %d-%d characters", ErrInvalidArgs, s3BucketNameMinLength, s3BucketNameMaxLength,
+		)
+	}
+
+	if !s3BucketNamePattern.MatchString(name) {
+		return fmt.Errorf("%w: S3BucketName contains characters outside [-a-zA-Z0-9._/]", ErrInvalidArgs)
+	}
+
+	return validateRealS3BucketNamingRules(name)
+}
+
+// realS3BucketNamePattern implements the actual Amazon S3 bucket naming
+// rules (https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html)
+// that CrlConfiguration.S3BucketName's doc comment defers to: 3-63 chars,
+// lowercase letters/digits/hyphens/periods only, must start and end with a
+// letter or digit.
+var realS3BucketNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+
+const s3BucketNameRealMaxLength = 63
+
+func validateRealS3BucketNamingRules(name string) error {
+	if len(name) > s3BucketNameRealMaxLength {
+		return fmt.Errorf(
+			"%w: S3BucketName must be at most %d characters per S3 bucket naming rules",
+			ErrInvalidArgs, s3BucketNameRealMaxLength,
+		)
+	}
+
+	if !realS3BucketNamePattern.MatchString(name) {
+		return fmt.Errorf(
+			"%w: S3BucketName must be lowercase letters, digits, hyphens, or periods, "+
+				"starting and ending with a letter or digit", ErrInvalidArgs,
+		)
+	}
+
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("%w: S3BucketName must not contain consecutive periods", ErrInvalidArgs)
 	}
 
 	return nil

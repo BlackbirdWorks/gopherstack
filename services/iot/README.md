@@ -9,9 +9,15 @@
 | --- | --- |
 | PARITY entries audited | 87 (87 ok) |
 | Feature families | 21 (21 ok) |
-| Known gaps | none |
+| Known gaps | 3 |
 | Deferred items | 0 |
 | Resource leaks | found_and_fixed |
+
+### Known gaps
+
+- CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask's ClientRequestToken is not honored for idempotent-replay dedup (CreateCustomMetric/CreateDimension decode it into their input struct but never read the value; the other three don't even declare it). Real semantics need a token->result cache keyed per op plus rejecting a same-token-different-params replay, and this newer SDK codegen (v1.83.0, schema-based, no per-op deserializeOpError functions) doesn't resolve to a specific declared exception type for the mismatch case the way older-gen services (see eks/fsx's ClientRequestToken idempotency) do -- implementing it without a confirmed wire error code risks inventing behavior. StartAuditMitigationActionsTask/StartDetectMitigationActionsTask already reject a reused taskId (the real practical replay-safety case) via TaskAlreadyExistsException, independent of this token (gopherstack-xhu2t slice 2).
+- DeleteOTAUpdate's ForceDeleteAWSJob is not honored: CreateOTAUpdate fabricates an AWSIoTJobId/AWSIoTJobArn string but never creates a real entry in this backend's jobs table, so there is no actual Job resource for force to act on (DeleteOTAUpdate has no state to gate on either way). Modeling this for real would mean CreateOTAUpdate actually calling CreateJob and DeleteOTAUpdate checking that job's status, a structural change out of this pass's bounds (gopherstack-xhu2t slice 2).
+- GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2).
 
 ## More
 

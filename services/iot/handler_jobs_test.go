@@ -248,8 +248,11 @@ func TestJobExecution_RoutingAndStateGuards(t *testing.T) {
 			},
 			run: func(t *testing.T, h *iot.Handler) {
 				t.Helper()
-				iotOK(t, h, http.MethodPut, "/things/force-thing/jobs/force-job/cancel",
-					map[string]any{"force": true})
+				// force is an HTTP query parameter on the real
+				// CancelJobExecutionInput wire shape (confirmed against
+				// aws-sdk-go-v2/service/iot@v1.83.0's schemas.go), not a
+				// body field.
+				iotOK(t, h, http.MethodPut, "/things/force-thing/jobs/force-job/cancel?force=true", nil)
 
 				out := iotOK(t, h, http.MethodGet, "/things/force-thing/jobs/force-job", nil)
 				exec, ok := out["execution"].(map[string]any)

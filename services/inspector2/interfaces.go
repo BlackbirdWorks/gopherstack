@@ -16,7 +16,7 @@ type StorageBackend interface {
 	) (*Filter, error)
 	UpdateFilter(arn, action, description, reason string, criteria map[string]any) (*Filter, error)
 	DeleteFilter(arn string) error
-	ListFilters(arns []string, action string) ([]*Filter, error)
+	ListFilters(arns []string, action string, maxResults int, nextToken string) ([]*Filter, string, error)
 
 	ListFindings(
 		maxResults int32, nextToken string, filterCriteria map[string]any, sortField, sortOrder string,
@@ -80,9 +80,9 @@ type StorageBackend interface {
 	StartCisSession(scanJobID, sessionToken string) (*CisSession, error)
 	StopCisSession(scanJobID string) error
 	SendCisSessionHealth(scanJobID string) error
-	SendCisSessionTelemetry(scanJobID string, messages map[string]any) error
+	SendCisSessionTelemetry(scanJobID string, messages []map[string]any) error
 	GetCisScanReport(scanJobID string) (map[string]any, error)
-	GetCisScanResultDetails(scanJobID string) (map[string]any, error)
+	GetCisScanResultDetails(scanJobID, accountID, targetResourceID string) (map[string]any, error)
 	ListCisScans() ([]map[string]any, error)
 	ListCisScanResultsAggregatedByChecks(scanJobID string) ([]map[string]any, error)
 	ListCisScanResultsAggregatedByTargetResource(scanJobID string) ([]map[string]any, error)

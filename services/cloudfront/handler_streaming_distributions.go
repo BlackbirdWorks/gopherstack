@@ -237,9 +237,13 @@ func (h *Handler) handleListStreamingDistributions(c *echo.Context) error {
 		c, items, func(sd *StreamingDistribution) string { return sd.ID },
 	)
 
+	// Marker is required on StreamingDistributionList (cloudfront@v1.67.4
+	// types/types.go:6330-6340): the echo of the request's Marker, present even when
+	// empty/not truncated.
 	type sdList struct {
 		XMLName     xml.Name                          `xml:"StreamingDistributionList"`
 		XMLNS       string                            `xml:"xmlns,attr"`
+		Marker      string                            `xml:"Marker"`
 		NextMarker  string                            `xml:"NextMarker,omitempty"`
 		Items       []streamingDistributionSummaryXML `xml:"Items>StreamingDistributionSummary"`
 		MaxItems    int                               `xml:"MaxItems"`
@@ -251,8 +255,8 @@ func (h *Handler) handleListStreamingDistributions(c *echo.Context) error {
 		summaries = append(summaries, streamingDistributionSummary(sd))
 	}
 	list := sdList{
-		XMLNS: cfNS, NextMarker: nextMarker, MaxItems: pageSize, Quantity: len(summaries),
-		Items: summaries, IsTruncated: isTruncated,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), NextMarker: nextMarker, MaxItems: pageSize,
+		Quantity: len(summaries), Items: summaries, IsTruncated: isTruncated,
 	}
 	out, xmlErr := xml.Marshal(list)
 	if xmlErr != nil {

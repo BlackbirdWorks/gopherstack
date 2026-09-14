@@ -77,13 +77,27 @@ func (h *Handler) handleDisableDelegatedAdminAccount(c *echo.Context) error {
 	})
 }
 
+// handleGetDelegatedAdminAccount serves GetDelegatedAdminAccount. The real
+// output wraps types.DelegatedAdmin, whose status member is wire-keyed
+// "relationshipStatus" (inspector2@v1.54.1 deserializers.go's
+// awsRestjson1_deserializeDocumentDelegatedAdmin) -- a DIFFERENT key from
+// the sibling ListDelegatedAdminAccounts' types.DelegatedAdminAccount,
+// which really is "status" (awsRestjson1_deserializeDocumentDelegatedAdminAccount).
+// Marshaling the shared DelegatedAdminAccount model (json:"status") directly
+// here emitted the wrong key, so a real client's RelationshipStatus always
+// decoded empty.
 func (h *Handler) handleGetDelegatedAdminAccount(c *echo.Context) error {
 	d, err := h.Backend.GetDelegatedAdminAccount()
 	if err != nil {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"delegatedAdmin": d})
+	return c.JSON(http.StatusOK, map[string]any{
+		"delegatedAdmin": map[string]any{
+			keyAccountID:         d.AccountID,
+			"relationshipStatus": d.Status,
+		},
+	})
 }
 
 func (h *Handler) handleListDelegatedAdminAccounts(c *echo.Context) error {

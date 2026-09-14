@@ -69,8 +69,8 @@ func TestE2E_LambdaDashboard_FunctionList(t *testing.T) {
 		ImageURI:     "my-registry/my-image:v1",
 		Runtime:      "",
 		Handler:      "",
-		MemorySize:   128, //nolint:mnd // 128 MB default
-		Timeout:      15,  //nolint:mnd // 15s default
+		MemorySize:   128,
+		Timeout:      15,
 	}))
 
 	server := httptest.NewServer(stack.Echo)
@@ -131,8 +131,8 @@ func TestE2E_LambdaDashboard_FunctionDetail_ZipFunction(t *testing.T) {
 		PackageType:  lambdabackend.PackageTypeZip,
 		Runtime:      "python3.12",
 		Handler:      "index.handler",
-		MemorySize:   256, //nolint:mnd // 256 MB
-		Timeout:      30,  //nolint:mnd // 30s
+		MemorySize:   256,
+		Timeout:      30,
 	}))
 
 	server := httptest.NewServer(stack.Echo)

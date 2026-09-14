@@ -46,9 +46,28 @@ type getPartitionIndexesInput struct {
 	TableName    string `json:"TableName"`
 }
 
+// keySchemaElementWire mirrors types.KeySchemaElement: a partition index
+// descriptor's Keys are {Name, Type} objects, not bare strings.
+type keySchemaElementWire struct {
+	Name string `json:"Name"`
+	Type string `json:"Type"`
+}
+
+// partitionIndexDescriptorWire mirrors types.PartitionIndexDescriptor
+// (glue@v1.157.0 types/types.go:8875) -- distinct from types.PartitionIndex
+// (the CreatePartitionIndex input shape), whose Keys really is []string.
+// GetPartitionIndexes previously reused the input shape for its response
+// too, so a real client's decode of Keys ("dt", a bare string) failed
+// outright against the object shape the deserializer expects.
+type partitionIndexDescriptorWire struct {
+	IndexName   string                 `json:"IndexName"`
+	IndexStatus string                 `json:"IndexStatus"`
+	Keys        []keySchemaElementWire `json:"Keys"`
+}
+
 // getPartitionIndexesOutput holds the result for GetPartitionIndexes.
 type getPartitionIndexesOutput struct {
-	PartitionIndexDescriptorList []*PartitionIndex `json:"PartitionIndexDescriptorList"`
+	PartitionIndexDescriptorList []partitionIndexDescriptorWire `json:"PartitionIndexDescriptorList"`
 }
 
 func (h *Handler) handleGetPartitionIndexes(
@@ -60,5 +79,34 @@ func (h *Handler) handleGetPartitionIndexes(
 		return nil, err
 	}
 
-	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: indexes}, nil
+	keyTypes := make(map[string]string)
+
+	if table, tblErr := h.Backend.GetTable(in.DatabaseName, in.TableName); tblErr == nil {
+		for _, col := range table.PartitionKeys {
+			keyTypes[col.Name] = col.Type
+		}
+	}
+
+	list := make([]partitionIndexDescriptorWire, 0, len(indexes))
+
+	for _, idx := range indexes {
+		keys := make([]keySchemaElementWire, 0, len(idx.Keys))
+
+		for _, k := range idx.Keys {
+			typ := keyTypes[k]
+			if typ == "" {
+				typ = "string"
+			}
+
+			keys = append(keys, keySchemaElementWire{Name: k, Type: typ})
+		}
+
+		list = append(list, partitionIndexDescriptorWire{
+			IndexName:   idx.IndexName,
+			IndexStatus: idx.IndexStatus,
+			Keys:        keys,
+		})
+	}
+
+	return &getPartitionIndexesOutput{PartitionIndexDescriptorList: list}, nil
 }

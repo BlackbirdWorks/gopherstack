@@ -156,6 +156,8 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 		LastUpdatedTime             string                 `xml:"LastUpdatedTime,omitempty"`
 		DeletionTime                string                 `xml:"DeletionTime,omitempty"`
 		RoleARN                     string                 `xml:"RoleARN,omitempty"`
+		ParentID                    string                 `xml:"ParentId,omitempty"`
+		RootID                      string                 `xml:"RootId,omitempty"`
 		Parameters                  []Parameter            `xml:"Parameters>member,omitempty"`
 		Outputs                     []Output               `xml:"Outputs>member,omitempty"`
 		Tags                        []Tag                  `xml:"Tags>member,omitempty"`
@@ -184,6 +186,8 @@ func (h *Handler) handleDescribeStacks(form url.Values, c *echo.Context) error {
 			TimeoutInMinutes:            s.TimeoutInMinutes,
 			RoleARN:                     s.RoleARN,
 			RollbackConfiguration:       s.RollbackConfiguration,
+			ParentID:                    s.ParentID,
+			RootID:                      s.RootID,
 		}
 		if s.LastUpdatedTime != nil {
 			x.LastUpdatedTime = s.LastUpdatedTime.UTC().Format("2006-01-02T15:04:05Z")

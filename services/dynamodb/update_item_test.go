@@ -45,7 +45,7 @@ func TestUpdateItem(t *testing.T) {
 					TableName: "UpdateTestTable",
 					Item: map[string]any{
 						"pk":    map[string]any{"S": "update-item"},
-						"count": map[string]any{"N": "1"},
+						"tally": map[string]any{"N": "1"},
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
@@ -55,7 +55,7 @@ func TestUpdateItem(t *testing.T) {
 			input: `{
 				"TableName": "UpdateTestTable",
 				"Key": {"pk": {"S": "update-item"}},
-				"UpdateExpression": "SET count = :val",
+				"UpdateExpression": "SET tally = :val",
 				"ExpressionAttributeValues": {":val": {"N": "5"}},
 				"ReturnValues": "ALL_NEW"
 			}`,
@@ -63,7 +63,7 @@ func TestUpdateItem(t *testing.T) {
 				t.Helper()
 				assert.NotNil(t, out.Attributes)
 				wireAttrs := models.FromSDKItem(out.Attributes)
-				assert.Equal(t, "5", wireAttrs["count"].(map[string]any)["N"])
+				assert.Equal(t, "5", wireAttrs["tally"].(map[string]any)["N"])
 			},
 		},
 		{
@@ -100,8 +100,8 @@ func TestUpdateItem(t *testing.T) {
 				putInput := models.PutItemInput{
 					TableName: "UpdateTestTable",
 					Item: map[string]any{
-						"pk":      map[string]any{"S": "add-item"},
-						"counter": map[string]any{"N": "10"},
+						"pk":  map[string]any{"S": "add-item"},
+						"ctr": map[string]any{"N": "10"},
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
@@ -111,13 +111,13 @@ func TestUpdateItem(t *testing.T) {
 			input: `{
 				"TableName": "UpdateTestTable",
 				"Key": {"pk": {"S": "add-item"}},
-				"UpdateExpression": "ADD counter :incr",
+				"UpdateExpression": "ADD ctr :incr",
 				"ExpressionAttributeValues": {":incr": {"N": "5"}}
 			}`,
 			verifyFunc: func(t *testing.T, db *dynamodb.InMemoryDB, _ *dynamodb_sdk.UpdateItemOutput) {
 				t.Helper()
 				item := getItem(t, db, "UpdateTestTable", "add-item")
-				assert.Equal(t, "15", item["counter"].(map[string]any)["N"])
+				assert.Equal(t, "15", item["ctr"].(map[string]any)["N"])
 			},
 		},
 		{
@@ -154,8 +154,8 @@ func TestUpdateItem(t *testing.T) {
 				putInput := models.PutItemInput{
 					TableName: "UpdateTestTable",
 					Item: map[string]any{
-						"pk":   map[string]any{"S": "old-val-item"},
-						"data": map[string]any{"S": "original"},
+						"pk":      map[string]any{"S": "old-val-item"},
+						"payload": map[string]any{"S": "original"},
 					},
 				}
 				sdkPut, _ := models.ToSDKPutItemInput(&putInput)
@@ -165,7 +165,7 @@ func TestUpdateItem(t *testing.T) {
 			input: `{
 				"TableName": "UpdateTestTable",
 				"Key": {"pk": {"S": "old-val-item"}},
-				"UpdateExpression": "SET data = :new",
+				"UpdateExpression": "SET payload = :new",
 				"ExpressionAttributeValues": {":new": {"S": "updated"}},
 				"ReturnValues": "ALL_OLD"
 			}`,
@@ -173,7 +173,7 @@ func TestUpdateItem(t *testing.T) {
 				t.Helper()
 				assert.NotNil(t, out.Attributes)
 				wireAttrs := models.FromSDKItem(out.Attributes)
-				assert.Equal(t, "original", wireAttrs["data"].(map[string]any)["S"])
+				assert.Equal(t, "original", wireAttrs["payload"].(map[string]any)["S"])
 			},
 		},
 	}

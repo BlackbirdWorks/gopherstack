@@ -25,7 +25,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("AssociateAgentCollaborator")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 func (b *InMemoryBackend) GetAgentCollaborator(
 	_ context.Context, agentID, agentVersion, collaboratorID string,
 ) (*AgentCollaborator, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgentCollaborator")
 	defer b.mu.RUnlock()
 
 	c, ok := b.agentCollaborators.Get(agentCollabKey(agentID, agentVersion, collaboratorID))
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) UpdateAgentCollaborator(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateAgentCollaborator")
 	defer b.mu.Unlock()
 
 	c, ok := b.agentCollaborators.Get(agentCollabKey(agentID, agentVersion, collaboratorID))
@@ -125,7 +125,7 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DisassociateAgentCollaborator")
 	defer b.mu.Unlock()
 
 	key := agentCollabKey(agentID, agentVersion, collaboratorID)
@@ -142,7 +142,7 @@ func (b *InMemoryBackend) DisassociateAgentCollaborator(
 func (b *InMemoryBackend) ListAgentCollaborators(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
 ) ([]*AgentCollaborator, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgentCollaborators")
 	defer b.mu.RUnlock()
 
 	group := b.agentCollaboratorsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))

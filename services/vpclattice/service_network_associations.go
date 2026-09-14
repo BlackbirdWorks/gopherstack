@@ -134,7 +134,7 @@ func (b *InMemoryBackend) DeleteServiceNetworkServiceAssociation(snsaID string) 
 
 // ListServiceNetworkServiceAssociations lists SNSAs with optional filters.
 //
-//nolint:dupl // structurally mirrors ListServiceNetworkResourceAssociations but filters a distinct table/type
+
 func (b *InMemoryBackend) ListServiceNetworkServiceAssociations(
 	ctx context.Context,
 	serviceNetworkID, serviceID string,

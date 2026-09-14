@@ -67,6 +67,10 @@ func TestDeleteFunction_ClearsSideState(t *testing.T) {
 
 	concGetRec := callInMemoryHandler(t, h, http.MethodGet,
 		"/2019-09-30/functions/"+fnName+"/concurrency", "")
-	assert.Equal(t, http.StatusNotFound, concGetRec.Code,
+	require.Equal(t, http.StatusOK, concGetRec.Code)
+
+	var concOut map[string]any
+	require.NoError(t, json.NewDecoder(concGetRec.Body).Decode(&concOut))
+	assert.NotContains(t, concOut, "ReservedConcurrentExecutions",
 		"recreated function must not inherit the deleted function's reserved concurrency")
 }

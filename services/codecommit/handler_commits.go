@@ -23,14 +23,15 @@ type createCommitDeleteFileEntry struct {
 }
 
 type createCommitInput struct {
-	RepositoryName string                        `json:"repositoryName"`
-	BranchName     string                        `json:"branchName"`
-	AuthorName     string                        `json:"authorName"`
-	Email          string                        `json:"email"`
-	CommitMessage  string                        `json:"commitMessage"`
-	ParentCommitID string                        `json:"parentCommitId"`
-	PutFiles       []createCommitPutFileEntry    `json:"putFiles"`
-	DeleteFiles    []createCommitDeleteFileEntry `json:"deleteFiles"`
+	RepositoryName   string                        `json:"repositoryName"`
+	BranchName       string                        `json:"branchName"`
+	AuthorName       string                        `json:"authorName"`
+	Email            string                        `json:"email"`
+	CommitMessage    string                        `json:"commitMessage"`
+	ParentCommitID   string                        `json:"parentCommitId"`
+	PutFiles         []createCommitPutFileEntry    `json:"putFiles"`
+	DeleteFiles      []createCommitDeleteFileEntry `json:"deleteFiles"`
+	KeepEmptyFolders bool                          `json:"keepEmptyFolders"`
 }
 
 // commitToMap converts a Commit to the AWS-accurate JSON map representation.
@@ -138,7 +139,7 @@ func (h *Handler) handleCreateCommit(body []byte) (any, error) {
 	commit, blobIDsAdded, blobIDsDeleted, err := h.Backend.CreateCommit(
 		in.RepositoryName, in.BranchName,
 		in.AuthorName, in.Email, in.CommitMessage,
-		in.ParentCommitID, putFiles, deleteFiles,
+		in.ParentCommitID, putFiles, deleteFiles, in.KeepEmptyFolders,
 	)
 	if err != nil {
 		return nil, err
@@ -210,6 +211,7 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 		RepositoryName        string `json:"repositoryName"`
 		AfterCommitSpecifier  string `json:"afterCommitSpecifier"`
 		BeforeCommitSpecifier string `json:"beforeCommitSpecifier"`
+		AfterPath             string `json:"afterPath"`
 		NextToken             string `json:"NextToken"`
 		MaxResults            int    `json:"MaxResults"`
 	}
@@ -222,6 +224,7 @@ func (h *Handler) handleGetDifferences(body []byte) (any, error) {
 
 	pg, err := h.Backend.GetDifferences(
 		req.RepositoryName, req.AfterCommitSpecifier, req.BeforeCommitSpecifier, req.NextToken, req.MaxResults,
+		req.AfterPath,
 	)
 	if err != nil {
 		return nil, err

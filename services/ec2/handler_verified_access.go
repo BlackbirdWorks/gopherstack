@@ -2,8 +2,13 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 )
+
+// verifiedAccessEndpointAttachmentTypeVPC is the sole real
+// VerifiedAccessEndpointAttachmentType enum value (ec2@v1.329.0 types/enums.go:13083).
+const verifiedAccessEndpointAttachmentTypeVPC = "vpc"
 
 type createVerifiedAccessEndpointResponse struct {
 	XMLName                xml.Name                   `xml:"CreateVerifiedAccessEndpointResponse"`
@@ -119,6 +124,7 @@ type verifiedAccessTrustProviderItem struct {
 	TrustProviderType             string          `xml:"trustProviderType"`
 	Status                        string          `xml:"status"`
 	Description                   string          `xml:"description,omitempty"`
+	PolicyReferenceName           string          `xml:"policyReferenceName,omitempty"`
 	TagSet                        []simpleTagItem `xml:"tagSet>item"`
 }
 
@@ -139,6 +145,13 @@ type describeVerifiedAccessTrustProvidersResponse struct {
 // ---- ManagedPrefixList handlers ----
 
 func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID string) (any, error) {
+	if vals.Get("AttachmentType") != verifiedAccessEndpointAttachmentTypeVPC {
+		return nil, fmt.Errorf(
+			"%w: AttachmentType is required and must be %q",
+			ErrInvalidParameter, verifiedAccessEndpointAttachmentTypeVPC,
+		)
+	}
+
 	groupID := vals.Get("VerifiedAccessGroupId")
 	endpointType := vals.Get("EndpointType")
 	description := vals.Get("Description")
@@ -146,6 +159,13 @@ func (h *Handler) handleCreateVerifiedAccessEndpoint(vals url.Values, reqID stri
 	ep, err := h.Backend.CreateVerifiedAccessEndpoint(groupID, endpointType, description)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "verified-access-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.VerifiedAccessEndpointID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createVerifiedAccessEndpointResponse{
@@ -176,6 +196,13 @@ type deleteVerifiedAccessEndpointResponse struct {
 func (h *Handler) handleDescribeVerifiedAccessEndpoints(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "VerifiedAccessEndpointId")
 	eps := h.Backend.DescribeVerifiedAccessEndpoints(ids)
+
+	if err := requireAllIDsPresent(
+		ids, eps, func(e *VerifiedAccessEndpoint) string { return e.VerifiedAccessEndpointID },
+		ErrVerifiedAccessEndpointNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeVerifiedAccessEndpointsResponse{RequestID: reqID}
 	for _, ep := range eps {
@@ -217,6 +244,13 @@ func (h *Handler) handleCreateVerifiedAccessGroup(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "verified-access-group")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{grp.VerifiedAccessGroupID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVerifiedAccessGroupResponse{
 		RequestID:           reqID,
 		VerifiedAccessGroup: h.toVerifiedAccessGroupItem(grp),
@@ -246,6 +280,13 @@ func (h *Handler) handleDescribeVerifiedAccessGroups(vals url.Values, reqID stri
 	ids := parseMemberList(vals, "VerifiedAccessGroupId")
 	groups := h.Backend.DescribeVerifiedAccessGroups(ids)
 
+	if err := requireAllIDsPresent(
+		ids, groups, func(g *VerifiedAccessGroup) string { return g.VerifiedAccessGroupID },
+		ErrVerifiedAccessGroupNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVerifiedAccessGroupsResponse{RequestID: reqID}
 	for _, grp := range groups {
 		resp.VerifiedAccessGroupSet.Items = append(
@@ -263,6 +304,13 @@ func (h *Handler) handleCreateVerifiedAccessInstance(vals url.Values, reqID stri
 	inst, err := h.Backend.CreateVerifiedAccessInstance(description)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "verified-access-instance")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{inst.VerifiedAccessInstanceID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createVerifiedAccessInstanceResponse{
@@ -294,6 +342,13 @@ func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID s
 	ids := parseMemberList(vals, "VerifiedAccessInstanceId")
 	instances := h.Backend.DescribeVerifiedAccessInstances(ids)
 
+	if err := requireAllIDsPresent(
+		ids, instances, func(i *VerifiedAccessInstance) string { return i.VerifiedAccessInstanceID },
+		ErrVerifiedAccessInstanceNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVerifiedAccessInstancesResponse{RequestID: reqID}
 	for _, inst := range instances {
 		resp.VerifiedAccessInstanceSet.Items = append(
@@ -308,10 +363,18 @@ func (h *Handler) handleDescribeVerifiedAccessInstances(vals url.Values, reqID s
 func (h *Handler) handleCreateVerifiedAccessTrustProvider(vals url.Values, reqID string) (any, error) {
 	providerType := vals.Get("TrustProviderType")
 	description := vals.Get("Description")
+	policyReferenceName := vals.Get("PolicyReferenceName")
 
-	tp, err := h.Backend.CreateVerifiedAccessTrustProvider(providerType, description)
+	tp, err := h.Backend.CreateVerifiedAccessTrustProvider(providerType, description, policyReferenceName)
 	if err != nil {
 		return nil, err
+	}
+
+	tags := parseTagSpecification(vals, "verified-access-trust-provider")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{tp.VerifiedAccessTrustProviderID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createVerifiedAccessTrustProviderResponse{
@@ -346,6 +409,13 @@ func (h *Handler) handleDescribeVerifiedAccessTrustProviders(
 	ids := parseMemberList(vals, "VerifiedAccessTrustProviderId")
 	providers := h.Backend.DescribeVerifiedAccessTrustProviders(ids)
 
+	if err := requireAllIDsPresent(
+		ids, providers, func(tp *VerifiedAccessTrustProvider) string { return tp.VerifiedAccessTrustProviderID },
+		ErrVerifiedAccessTrustProviderNF,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeVerifiedAccessTrustProvidersResponse{RequestID: reqID}
 	for _, tp := range providers {
 		resp.VerifiedAccessTrustProviderSet.Items = append(
@@ -379,6 +449,7 @@ func (h *Handler) toVerifiedAccessTrustProviderItem(tp *VerifiedAccessTrustProvi
 		TrustProviderType:             tp.TrustProviderType,
 		Status:                        tp.Status,
 		Description:                   tp.Description,
+		PolicyReferenceName:           tp.PolicyReferenceName,
 		TagSet:                        tagItemsFromMap(h.Backend.TagsForResource(tp.VerifiedAccessTrustProviderID)),
 	}
 }

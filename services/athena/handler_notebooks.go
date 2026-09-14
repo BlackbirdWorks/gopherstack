@@ -81,9 +81,16 @@ func (h *Handler) notebookOps() map[string]athenaActionFn {
 			}
 
 			return map[string]any{
-				"NotebookUrl":             url,
-				"AuthToken":               authToken,
-				"AuthTokenExpirationTime": authTokenExpiration,
+				"NotebookUrl": url,
+				"AuthToken":   authToken,
+				// CreatePresignedNotebookUrlOutput.AuthTokenExpirationTime is a
+				// plain *int64 (athena@v1.60.4 api_op_CreatePresignedNotebookUrl.go),
+				// NOT a smithy timestamp like GetSessionEndpointOutput's
+				// same-named field -- its deserializer calls strconv.ParseInt,
+				// which errors on a fractional value. newSessionAuthToken's
+				// shared float64 epoch-seconds value is correct for
+				// GetSessionEndpoint but must be truncated here.
+				"AuthTokenExpirationTime": int64(authTokenExpiration),
 			}, nil
 		},
 		"DeleteNotebook": func(b []byte) (any, error) {

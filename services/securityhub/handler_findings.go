@@ -256,8 +256,9 @@ func (h *Handler) handleBatchUpdateFindingsV2(c *echo.Context, body map[string]a
 
 func (h *Handler) handleGetFindingStatisticsV2(c *echo.Context, body map[string]any) error {
 	groupByFields := groupByFieldsFromRules(body[keyGroupByRules])
+	sortOrder, _ := body[keySortOrder].(string)
 
-	stats := h.Backend.GetFindingStatisticsV2(groupByFields)
+	stats := h.Backend.GetFindingStatisticsV2(groupByFields, sortOrder)
 
 	if stats == nil {
 		stats = []map[string]any{}

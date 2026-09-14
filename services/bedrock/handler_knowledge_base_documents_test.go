@@ -10,6 +10,44 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// s3DocumentContent builds the real bedrock-agent DocumentContent wire shape
+// (serializers.go:8166) for an S3-sourced document.
+func s3DocumentContent(uri string) map[string]any {
+	return map[string]any{
+		"dataSourceType": "S3",
+		"s3": map[string]any{
+			"s3Location": map[string]any{"uri": uri},
+		},
+	}
+}
+
+// s3DocumentIdentifier builds the real DocumentIdentifier wire shape
+// (serializers.go:8192) for an S3-sourced document.
+func s3DocumentIdentifier(uri string) map[string]any {
+	return map[string]any{
+		"dataSourceType": "S3",
+		"s3":             map[string]any{"uri": uri},
+	}
+}
+
+func ingestDocs(uris ...string) map[string]any {
+	docs := make([]map[string]any, 0, len(uris))
+	for _, uri := range uris {
+		docs = append(docs, map[string]any{"content": s3DocumentContent(uri)})
+	}
+
+	return map[string]any{"documents": docs}
+}
+
+func documentIdentifiers(uris ...string) map[string]any {
+	idents := make([]map[string]any, 0, len(uris))
+	for _, uri := range uris {
+		idents = append(idents, s3DocumentIdentifier(uri))
+	}
+
+	return map[string]any{"documentIdentifiers": idents}
+}
+
 // TestKBDocumentsCRUD drives IngestKnowledgeBaseDocuments,
 // ListKnowledgeBaseDocuments, and DeleteKnowledgeBaseDocuments via their real
 // wire shapes: Ingest is PUT to the base .../documents path, List is POST to
@@ -25,9 +63,9 @@ func TestKBDocumentsCRUD(t *testing.T) {
 	docPath := fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID)
 
 	// Ingest documents: real IngestKnowledgeBaseDocuments is PUT.
-	rec := doAgentRequest(t, h, http.MethodPut, docPath, map[string]any{
-		"documentIds": []string{"doc-1", "doc-2"},
-	})
+	rec := doAgentRequest(t, h, http.MethodPut, docPath, ingestDocs(
+		"s3://bucket/doc-1", "s3://bucket/doc-2",
+	))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var ib map[string]any
@@ -45,9 +83,9 @@ func TestKBDocumentsCRUD(t *testing.T) {
 
 	// Delete documents: real DeleteKnowledgeBaseDocuments is POST to the
 	// /deleteDocuments sub-path (not DELETE on the base path).
-	rec = doAgentRequest(t, h, http.MethodPost, docPath+"/deleteDocuments", map[string]any{
-		"documentIds": []string{"doc-1"},
-	})
+	rec = doAgentRequest(t, h, http.MethodPost, docPath+"/deleteDocuments", documentIdentifiers(
+		"s3://bucket/doc-1",
+	))
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doAgentRequest(t, h, http.MethodPost, docPath, nil)
@@ -72,9 +110,7 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 
 	// A real IngestKnowledgeBaseDocuments call is PUT to the base
 	// .../documents path and returns the ingested document's details.
-	putRec := doAgentRequest(t, h, http.MethodPut, docPath, map[string]any{
-		"documentIds": []string{"wire-doc-1"},
-	})
+	putRec := doAgentRequest(t, h, http.MethodPut, docPath, ingestDocs("s3://bucket/wire-doc-1"))
 	require.Equal(t, http.StatusOK, putRec.Code,
 		"PUT .../documents (real Ingest wire shape) should reach IngestKnowledgeBaseDocuments: %s",
 		putRec.Body.String())
@@ -87,7 +123,7 @@ func TestKBDocumentsRealWireRouting(t *testing.T) {
 	// A real ListKnowledgeBaseDocuments call is POST to the same base
 	// .../documents path and must return the previously-ingested document --
 	// not be silently treated as an empty Ingest of a payload with no
-	// documentIds field.
+	// documents field.
 	postRec := doAgentRequest(t, h, http.MethodPost, docPath, nil)
 	require.Equal(t, http.StatusOK, postRec.Code,
 		"POST .../documents (real List wire shape) should reach ListKnowledgeBaseDocuments: %s",
@@ -136,7 +172,7 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 	ingestRec := doAgentRequest(
 		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kb.KnowledgeBaseID, dsID),
-		map[string]any{"documentIds": []string{"doc-1", "doc-2", "doc-3"}},
+		ingestDocs("s3://bucket/doc-1", "s3://bucket/doc-2", "s3://bucket/doc-3"),
 	)
 	require.Equal(t, http.StatusOK, ingestRec.Code)
 
@@ -145,10 +181,11 @@ func TestAccuracy_KBDocuments_IngestWithBDAParsingStrategy(t *testing.T) {
 	docs := ingestBody["documentDetails"].([]any)
 	assert.Len(t, docs, 3)
 
-	// Verify documents are active
+	// Verify documents are indexed (real DocumentStatus values never include
+	// "ACTIVE" -- bedrockagent@v1.58.4 types/enums.go DocumentStatus).
 	for _, doc := range docs {
 		d := doc.(map[string]any)
-		assert.Equal(t, "ACTIVE", d["status"])
+		assert.Equal(t, "INDEXED", d["status"])
 	}
 }
 
@@ -162,7 +199,7 @@ func TestAccuracy_KBDocuments_GetSpecificDocuments(t *testing.T) {
 	ingestRec := doAgentRequest(
 		t, h, http.MethodPut,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID),
-		map[string]any{"documentIds": []string{"d1", "d2", "d3", "d4", "d5"}},
+		ingestDocs("s3://bucket/d1", "s3://bucket/d2", "s3://bucket/d3", "s3://bucket/d4", "s3://bucket/d5"),
 	)
 	require.Equal(t, http.StatusOK, ingestRec.Code)
 
@@ -170,7 +207,7 @@ func TestAccuracy_KBDocuments_GetSpecificDocuments(t *testing.T) {
 	getDocRec := doAgentRequest(
 		t, h, http.MethodPost,
 		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents/getDocuments", kbID, dsID),
-		map[string]any{"documentIds": []string{"d2", "d4"}},
+		documentIdentifiers("s3://bucket/d2", "s3://bucket/d4"),
 	)
 	require.Equal(t, http.StatusOK, getDocRec.Code)
 

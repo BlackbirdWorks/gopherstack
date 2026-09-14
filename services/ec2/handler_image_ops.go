@@ -346,6 +346,16 @@ func (h *Handler) handleCreateRestoreImageTask(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	// CreateRestoreImageTaskInput.TagSpecifications also accepts ResourceType
+	// "snapshot" (api_op_CreateRestoreImageTask.go:60-66), but this backend's
+	// CreateRestoreImageTask does not model the restored snapshots, so only
+	// the "image" tag specification can be applied.
+	if tags := parseTagSpecification(vals, "image"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{img.ImageID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createRestoreImageTaskResponse{Xmlns: ec2XMLNS, RequestID: reqID, ImageID: img.ImageID}, nil
 }
 
@@ -373,6 +383,12 @@ func (h *Handler) handleCreateImageUsageReport(vals url.Values, reqID string) (a
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if tags := parseTagSpecification(vals, "image-usage-report"); len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{report.ReportID}, tags); err != nil {
+			return nil, err
+		}
 	}
 
 	return &createImageUsageReportResponse{Xmlns: ec2XMLNS, RequestID: reqID, ReportID: report.ReportID}, nil

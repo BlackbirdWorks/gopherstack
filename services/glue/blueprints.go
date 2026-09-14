@@ -142,7 +142,15 @@ func (b *InMemoryBackend) ListBlueprints() []string {
 	return names
 }
 
-// StartBlueprintRun creates a new blueprint run record.
+// StartBlueprintRun creates a new blueprint run record. WorkflowName is left
+// empty: the real field is only populated "as a result of a successful
+// blueprint run" (types.BlueprintRun.WorkflowName doc,
+// aws-sdk-go-v2/service/glue@v1.157.0 types/types.go:842-844), and this
+// backend has no blueprint-execution engine that ever actually creates that
+// workflow or advances State past RUNNING (matching the run-never-fabricates
+// completion pattern already established for MLTaskRun/DataQualityEvaluationRun
+// elsewhere in this file) -- fabricating a WorkflowName here would point a
+// client at a workflow that was never created.
 func (b *InMemoryBackend) StartBlueprintRun(blueprintName, roleARN, parameters string) (*BlueprintRun, error) {
 	b.mu.Lock("StartBlueprintRun")
 	defer b.mu.Unlock()
@@ -155,7 +163,6 @@ func (b *InMemoryBackend) StartBlueprintRun(blueprintName, roleARN, parameters s
 	run := &BlueprintRun{
 		BlueprintName: blueprintName,
 		RunID:         runID,
-		WorkflowName:  "workflow-" + runID,
 		State:         stateRunning,
 		RoleARN:       roleARN,
 		Parameters:    parameters,

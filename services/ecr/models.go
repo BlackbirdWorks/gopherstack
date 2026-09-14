@@ -267,8 +267,13 @@ type RegistryScanningRule struct {
 }
 
 // ReplicationConfig stores ECR replication destinations.
+// Rules has no omitempty: it's "This member is required" on the real wire
+// (ecr@v1.64.0 types/types.go:846), but the client-side required check
+// (validators.go:1250-1251) only rejects nil, not an empty slice -- a
+// conformant client can legitimately send an empty (but non-nil) rules
+// list.
 type ReplicationConfig struct {
-	Rules []ReplicationRule `json:"rules,omitempty"`
+	Rules []ReplicationRule `json:"rules"`
 }
 
 // ReplicationRule is an ECR replication rule.
@@ -297,8 +302,13 @@ type RepositoryPolicyResult struct {
 }
 
 // SigningSettings stores registry signing config.
+// Rules has no omitempty: it's "This member is required" on the real wire
+// (ecr@v1.64.0 types/types.go:1110), but the client-side required check
+// (validators.go:1415-1416) only rejects nil, not an empty slice -- a
+// conformant client can legitimately send an empty (but non-nil) rules
+// list.
 type SigningSettings struct {
-	Rules []SigningRule `json:"rules,omitempty"`
+	Rules []SigningRule `json:"rules"`
 }
 
 // SigningRule is a registry signing rule.

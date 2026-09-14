@@ -237,16 +237,23 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		map[string]any{"TopicId": "stp", "Name": "S1"},
 	)
 
+	// CreateTopicRefreshScheduleInput carries no DatasetId member at all --
+	// only DatasetArn/DatasetName (quicksight@v1.129.0
+	// api_op_CreateTopicRefreshSchedule.go:35-38) -- so a real client never
+	// sends "DatasetId" here; the handler derives it from DatasetArn.
+	// RefreshSchedule is a flat types.TopicRefreshSchedule object
+	// (TopicScheduleType, not RefreshType; types/types.go:22926-22951).
 	createRec := doRequest(
 		t,
 		h,
 		http.MethodPost,
 		accountPath("/topics/stp/schedules"),
 		map[string]any{
-			"DatasetId":   "ds1",
-			"DatasetArn":  "arn:aws:quicksight:us-east-1:000000000000:dataset/ds1",
-			"IsEnabled":   true,
-			"RefreshType": "INCREMENTAL_REFRESH",
+			"DatasetArn": "arn:aws:quicksight:us-east-1:000000000000:dataset/ds1",
+			"RefreshSchedule": map[string]any{
+				"IsEnabled":         true,
+				"TopicScheduleType": "INCREMENTAL_REFRESH",
+			},
 		},
 	)
 	require.Equal(t, http.StatusOK, createRec.Code)
@@ -262,12 +269,12 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		h,
 		http.MethodPost,
 		accountPath("/topics/stp/schedules"),
-		map[string]any{"DatasetId": "ds1"},
+		map[string]any{"DatasetArn": "arn:aws:quicksight:us-east-1:000000000000:dataset/ds1"},
 	)
 	assert.Equal(t, http.StatusConflict, dupRec.Code)
 	assert.Equal(t, "ResourceExistsException", parseBody(t, dupRec)["Code"])
 
-	// Missing DatasetId -> validation.
+	// Missing DatasetArn -> validation.
 	invalidRec := doRequest(
 		t,
 		h,
@@ -283,7 +290,7 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		h,
 		http.MethodPost,
 		accountPath("/topics/notexist/schedules"),
-		map[string]any{"DatasetId": "ds2"},
+		map[string]any{"DatasetArn": "arn:aws:quicksight:us-east-1:000000000000:dataset/ds2"},
 	)
 	assert.Equal(t, http.StatusNotFound, missingTopicRec.Code)
 
@@ -294,7 +301,7 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	sched, ok := describeBody["RefreshSchedule"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, true, sched["IsEnabled"])
-	assert.Equal(t, "INCREMENTAL_REFRESH", sched["RefreshType"])
+	assert.Equal(t, "INCREMENTAL_REFRESH", sched["TopicScheduleType"])
 	assert.Contains(t, describeBody["TopicArn"], "topic/stp")
 
 	// Describe missing schedule -> 404.
@@ -323,7 +330,7 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 		http.MethodPut,
 		accountPath("/topics/stp/schedules/ds1"),
 		map[string]any{
-			"IsEnabled": false,
+			"RefreshSchedule": map[string]any{"IsEnabled": false},
 		},
 	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
@@ -339,8 +346,8 @@ func TestQuickSight_TopicRefreshScheduleCRUD(t *testing.T) {
 	afterBody := parseBody(t, describeAfterUpdate)
 	afterSched := afterBody["RefreshSchedule"].(map[string]any)
 	assert.Equal(t, false, afterSched["IsEnabled"])
-	// RefreshType untouched by the partial update.
-	assert.Equal(t, "INCREMENTAL_REFRESH", afterSched["RefreshType"])
+	// TopicScheduleType untouched by the partial update.
+	assert.Equal(t, "INCREMENTAL_REFRESH", afterSched["TopicScheduleType"])
 	assert.Contains(t, afterBody["TopicArn"], "topic/stp")
 
 	// Update missing -> 404.
@@ -441,7 +448,9 @@ func TestQuickSight_TopicReviewedAnswers(t *testing.T) {
 	deleteBody := parseBody(t, deleteRec)
 	deletedSucceeded, ok := deleteBody["SucceededAnswers"].([]any)
 	require.True(t, ok)
-	assert.Equal(t, []any{"ans1"}, deletedSucceeded)
+	// SucceededTopicReviewedAnswer is an {AnswerId} object, not a bare string
+	// (quicksight@v1.129.0 deserializers.go:126545-126548).
+	assert.Equal(t, []any{map[string]any{"AnswerId": "ans1"}}, deletedSucceeded)
 	deletedInvalid, ok := deleteBody["InvalidAnswers"].([]any)
 	require.True(t, ok)
 	require.Len(t, deletedInvalid, 1)

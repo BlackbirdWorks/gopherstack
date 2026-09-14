@@ -9,6 +9,10 @@ type mfaSessionEntry struct {
 	ClientID      string    `json:"clientID,omitempty"`
 	Username      string    `json:"username,omitempty"`
 	ChallengeType string    `json:"challengeType,omitempty"` // "SOFTWARE_TOKEN_MFA", "NEW_PASSWORD_REQUIRED" ...
+	// AvailableChallenges holds the offered factor set for a pending SELECT_CHALLENGE
+	// round (user_auth.go), so RespondToSelectChallenge can validate ANSWER against
+	// exactly what InitiateAuth(USER_AUTH) offered.
+	AvailableChallenges []string `json:"availableChallenges,omitempty"`
 	// SRPA/SRPb/SRPB/SRPSecretBlock hold the server's per-session SRP-6a state between
 	// InitiateAuth (which picks b and computes B) and RespondToAuthChallenge (which
 	// needs A, b, and B again to recompute S and verify the client's password-claim
@@ -42,6 +46,12 @@ type mfaSessionEntry struct {
 	// (CognitoEventUserPoolsChallengeResult) that DefineAuthChallenge receives on each
 	// subsequent round, letting the Lambda decide (e.g.) "fail after 3 wrong answers".
 	CustomAuthSession []customAuthChallengeResult `json:"customAuthSession,omitempty"`
+	// FirstFactor marks a USER_AUTH first-factor round (PASSWORD/EMAIL_OTP/SMS_OTP started
+	// by InitiateUserAuth or RespondToSelectChallenge, user_auth.go). It is what tells
+	// RespondToFirstFactorChallenge to continue through postCredentialCheckLocked instead
+	// of issuing tokens directly the way a second-factor MFA round does -- the two rounds
+	// can share a ChallengeType value (e.g. "EMAIL_OTP") but need different continuations.
+	FirstFactor bool `json:"firstFactor,omitempty"`
 }
 
 // customAuthChallengeResult mirrors aws-lambda-go's

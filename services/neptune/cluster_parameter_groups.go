@@ -163,7 +163,9 @@ func (b *InMemoryBackend) ModifyDBClusterParameterGroup(
 			name,
 		)
 	}
-	if err := applyParameterInputs(b.clusterParameterOverridesFor(region, name), params); err != nil {
+	if err := applyParameterInputs(
+		neptuneClusterParameterCatalogIndex(), b.clusterParameterOverridesFor(region, name), params,
+	); err != nil {
 		return nil, err
 	}
 	cp := *pg
@@ -187,7 +189,9 @@ func (b *InMemoryBackend) DescribeDBClusterParameters(
 		)
 	}
 
-	return describeParameters(b.clusterParameterOverrides[regionKey(region, name)]), nil
+	return describeParameters(
+		neptuneClusterParameterCatalog(), b.clusterParameterOverrides[regionKey(region, name)],
+	), nil
 }
 
 // CopyDBClusterParameterGroup copies a Neptune DB cluster parameter group.
@@ -238,7 +242,9 @@ func (b *InMemoryBackend) ResetDBClusterParameterGroup(
 			name,
 		)
 	}
-	if err := resetParameterInputs(b.clusterParameterOverridesFor(region, name), resetAll, params); err != nil {
+	if err := resetParameterInputs(
+		neptuneClusterParameterCatalogIndex(), b.clusterParameterOverridesFor(region, name), resetAll, params,
+	); err != nil {
 		return nil, err
 	}
 	cp := *pg

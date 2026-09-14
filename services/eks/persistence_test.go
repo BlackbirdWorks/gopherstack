@@ -1,6 +1,7 @@
 package eks_test
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,15 @@ func TestEKS_FullStatePersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
+	_, err = b.CreateCapability(
+		"c1",
+		"cap1",
+		"ARGOCD",
+		"arn:aws:iam::123456789012:role/capability-role",
+		"RETAIN",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateEksAnywhereSubscription(
@@ -239,7 +248,15 @@ func TestPersistenceRoundTrip_AddonCapabilityEncryptionConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create capability.
-	_, err = b.CreateCapability("c1", "cap1", "ARGOCD", "arn:aws:iam::123456789012:role/capability-role", "RETAIN", nil)
+	_, err = b.CreateCapability(
+		"c1",
+		"cap1",
+		"ARGOCD",
+		"arn:aws:iam::123456789012:role/capability-role",
+		"RETAIN",
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	// Create subscription.
@@ -332,4 +349,168 @@ func TestPersistenceRoundTrip_ClusterAndNodegroup(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, names, 1)
 	assert.Equal(t, "ng1", names[0])
+}
+
+// TestPersistenceRoundTrip_UpdateNodegroupNameFilter covers gopherstack-34g03:
+// Update.NodegroupName carried json:"-" with no DTO twin, so
+// Snapshot/Restore (Update is registered directly on b.registry,
+// store_setup.go) dropped it, and the documented nodegroupName filter
+// (handler_updates.go:286) returned nothing for any pre-restart update.
+func TestPersistenceRoundTrip_UpdateNodegroupNameFilter(t *testing.T) {
+	t.Parallel()
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	mustCreateClusterNoVpc(t, b, "upd-ng-filter-cluster")
+
+	b.StoreUpdate(&eks.Update{
+		ID:            "upd-1",
+		ClusterName:   "upd-ng-filter-cluster",
+		NodegroupName: "ng-1",
+		Status:        "Successful",
+		Type:          "ConfigUpdate",
+	})
+
+	h := eks.NewHandler(b)
+	snap := h.Snapshot(t.Context())
+	require.NotEmpty(t, snap)
+
+	b2 := eks.NewInMemoryBackend(t.Context(), "123456789012", config.DefaultRegion)
+	h2 := eks.NewHandler(b2)
+	require.NoError(t, h2.Restore(t.Context(), snap))
+
+	rec := doREST(t, h2, http.MethodGet, "/clusters/upd-ng-filter-cluster/updates?nodegroupName=ng-1", nil)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	resp := parseResp(t, rec)
+	ids, ok := resp["updateIds"].([]any)
+	require.True(t, ok)
+	require.Len(t, ids, 1)
+	assert.Equal(t, "upd-1", ids[0])
+}
+
+// TestRestore_Version2Fixture_TolerantDecode is the coordinator-requested
+// follow-up to gopherstack-wf8f: two fields (ConnectorConfig.ActivationExpiry,
+// Capability.Configuration) were retyped in this pass without bumping
+// eksSnapshotVersion, relying instead on tolerant decoders (activationExpiry's
+// UnmarshalJSON in models.go, Capability's UnmarshalJSON in
+// capability_configuration.go) so a genuine pre-existing (version-2)
+// snapshot still restores correctly. This test proves that against a
+// hand-written fixture using the OLD shapes -- a bare RFC3339
+// activationExpiry string (the Go field type before this pass was plain
+// string) and a map-shaped argoCd configuration (Capability.Configuration
+// was map[string]any before this pass, holding the same camelCase keys the
+// real SDK client serializes) -- not against anything this pass's own code
+// produced, which would prove nothing about backward compatibility.
+func TestRestore_Version2Fixture_TolerantDecode(t *testing.T) {
+	t.Parallel()
+
+	// oldActivationExpiry is 2026-01-02T03:04:05Z, i.e. Unix 1767323045 --
+	// verified independently (python datetime), not derived from this
+	// package's own code.
+	const fixture = `{
+		"version": 2,
+		"accountId": "123456789012",
+		"region": "us-east-1",
+		"tables": {
+			"clusters": [
+				{
+					"name": "old-connected-cluster",
+					"arn": "arn:aws:eks:us-east-1:123456789012:cluster/old-connected-cluster",
+					"version": "1.32",
+					"status": "ACTIVE",
+					"accountId": "123456789012",
+					"region": "us-east-1",
+					"createdAt": "2026-01-01T00:00:00Z",
+					"tags": {},
+					"connectorConfig": {
+						"provider": "EKS_ANYWHERE",
+						"roleArn": "arn:aws:iam::123456789012:role/connector",
+						"activationId": "activation-id-1",
+						"activationCode": "activation-code-1",
+						"activationExpiry": "2026-01-02T03:04:05Z"
+					}
+				}
+			],
+			"capabilities": [
+				{
+					"clusterName": "old-connected-cluster",
+					"capabilityName": "old-argocd",
+					"arn": "arn:aws:eks:us-east-1:123456789012:capability/old-connected-cluster/old-argocd",
+					"type": "ARGOCD",
+					"roleArn": "arn:aws:iam::123456789012:role/capability",
+					"deletePropagationPolicy": "RETAIN",
+					"status": "ACTIVE",
+					"createdAt": "2026-01-01T00:00:00Z",
+					"modifiedAt": "2026-01-01T00:00:00Z",
+					"tags": {},
+					"configuration": {
+						"argoCd": {
+							"awsIdc": {"idcInstanceArn": "arn:aws:sso:::instance/ssoins-old"},
+							"namespace": "argocd-ns",
+							"rbacRoleMappings": [
+								{"role": "ADMIN", "identities": [{"id": "u1", "type": "SSO_USER"}]}
+							]
+						}
+					}
+				},
+				{
+					"clusterName": "old-connected-cluster",
+					"capabilityName": "old-ack-unrepresentable",
+					"arn": "arn:aws:eks:us-east-1:123456789012:capability/old-connected-cluster/old-ack-unrepresentable",
+					"type": "ACK",
+					"roleArn": "arn:aws:iam::123456789012:role/capability",
+					"deletePropagationPolicy": "RETAIN",
+					"status": "ACTIVE",
+					"createdAt": "2026-01-01T00:00:00Z",
+					"modifiedAt": "2026-01-01T00:00:00Z",
+					"tags": {},
+					"configuration": ["not", "an", "object", "-- unrepresentable by CapabilityConfiguration"]
+				}
+			]
+		}
+	}`
+
+	b := eks.NewInMemoryBackend(t.Context(), "123456789012", "us-east-1")
+	require.NoError(t, b.Restore(t.Context(), []byte(fixture)))
+
+	t.Run("cluster_and_both_capabilities_survived_restore", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, 1, b.ClusterCount())
+		assert.Equal(t, 2, b.CapabilityCount())
+	})
+
+	t.Run("activation_expiry_old_rfc3339_string_decodes", func(t *testing.T) {
+		t.Parallel()
+
+		c, err := b.DescribeCluster("old-connected-cluster")
+		require.NoError(t, err)
+		require.NotNil(t, c.ConnectorConfig)
+
+		assert.False(t, c.ConnectorConfig.ActivationExpiry.IsZero())
+		assert.Equal(t, int64(1767323045), c.ConnectorConfig.ActivationExpiry.Time().Unix())
+	})
+
+	t.Run("argocd_configuration_old_map_shape_decodes_into_typed_struct", func(t *testing.T) {
+		t.Parallel()
+
+		capa, err := b.DescribeCapability("old-connected-cluster", "old-argocd")
+		require.NoError(t, err)
+		require.NotNil(t, capa.Configuration)
+		require.NotNil(t, capa.Configuration.ArgoCd)
+
+		require.NotNil(t, capa.Configuration.ArgoCd.AwsIdc)
+		assert.Equal(t, "arn:aws:sso:::instance/ssoins-old", capa.Configuration.ArgoCd.AwsIdc.IdcInstanceArn)
+		assert.Equal(t, "argocd-ns", capa.Configuration.ArgoCd.Namespace)
+		require.Len(t, capa.Configuration.ArgoCd.RbacRoleMappings, 1)
+		assert.Equal(t, "ADMIN", capa.Configuration.ArgoCd.RbacRoleMappings[0].Role)
+	})
+
+	t.Run("unrepresentable_configuration_degrades_to_nil_not_a_restore_failure", func(t *testing.T) {
+		t.Parallel()
+
+		capa, err := b.DescribeCapability("old-connected-cluster", "old-ack-unrepresentable")
+		require.NoError(t, err)
+		assert.Nil(t, capa.Configuration)
+	})
 }

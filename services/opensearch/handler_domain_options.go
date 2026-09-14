@@ -1,5 +1,7 @@
 package opensearch
 
+import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
+
 // domainClusterConfig holds the cluster configuration request parameters for a domain.
 type domainClusterConfig struct {
 	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
@@ -149,6 +151,102 @@ type blueGreenDeploymentOptionsJSON struct {
 	Enabled bool `json:"Enabled"`
 }
 
+// autoTuneOptionsRequestJSON is the request-side JSON shape shared by
+// CreateDomain's AutoTuneOptions (types.AutoTuneOptionsInput) and
+// UpdateDomainConfig's AutoTuneOptions (types.AutoTuneOptions) --
+// RollbackOnDisable is simply absent from a real CreateDomain request body
+// (its type has no such member) and is dropped rather than validated when
+// this shape is used for that op (see applyReqToCreateDomainInput).
+// MaintenanceSchedules reuses AutoTuneMaintenanceSchedule directly: that
+// backend type's own JSON tags (CronExpressionForRecurrence/Duration/StartAt)
+// already match the real wire keys exactly (advanced.go), the same
+// established pattern SetAutoTune's public signature already relies on.
+type autoTuneOptionsRequestJSON struct {
+	UseOffPeakWindow     *bool                         `json:"UseOffPeakWindow,omitempty"`
+	DesiredState         string                        `json:"DesiredState,omitempty"`
+	RollbackOnDisable    string                        `json:"RollbackOnDisable,omitempty"`
+	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"MaintenanceSchedules,omitempty"`
+}
+
+// autoTuneOptionsOutputJSON mirrors types.AutoTuneOptionsOutput
+// (DomainStatus.AutoTuneOptions on CreateDomain/DescribeDomain responses).
+type autoTuneOptionsOutputJSON struct {
+	UseOffPeakWindow *bool  `json:"UseOffPeakWindow,omitempty"`
+	ErrorMessage     string `json:"ErrorMessage,omitempty"`
+	State            string `json:"State,omitempty"`
+}
+
+// autoTuneOptionsValueJSON mirrors types.AutoTuneOptions as nested inside
+// AutoTuneOptionsStatus.Options (DescribeDomainConfig's echo of the stored
+// settings) -- unlike autoTuneOptionsRequestJSON, this is a response-side
+// twin so RollbackOnDisable is always legitimately present here regardless
+// of which op originally set it.
+type autoTuneOptionsValueJSON struct {
+	UseOffPeakWindow     *bool                         `json:"UseOffPeakWindow,omitempty"`
+	DesiredState         string                        `json:"DesiredState,omitempty"`
+	RollbackOnDisable    string                        `json:"RollbackOnDisable,omitempty"`
+	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"MaintenanceSchedules,omitempty"`
+}
+
+// autoTuneStatusJSON mirrors types.AutoTuneStatus. CreationDate/UpdateDate
+// deserialize as epoch-seconds numbers (opensearch@v1.75.4 deserializers.go
+// awsRestjson1_deserializeDocumentAutoTuneStatus, smithytime.ParseEpochSeconds),
+// matching this backend's existing awstime.Epoch convention (domain_status.go).
+type autoTuneStatusJSON struct {
+	State           string  `json:"State"`
+	ErrorMessage    string  `json:"ErrorMessage,omitempty"`
+	CreationDate    float64 `json:"CreationDate"`
+	UpdateDate      float64 `json:"UpdateDate"`
+	UpdateVersion   int     `json:"UpdateVersion,omitempty"`
+	PendingDeletion bool    `json:"PendingDeletion,omitempty"`
+}
+
+// autoTuneOptionsStatusJSON mirrors types.AutoTuneOptionsStatus
+// (DomainConfig.AutoTuneOptions on DescribeDomainConfig/UpdateDomainConfig
+// responses).
+type autoTuneOptionsStatusJSON struct {
+	Options *autoTuneOptionsValueJSON `json:"Options,omitempty"`
+	Status  *autoTuneStatusJSON       `json:"Status,omitempty"`
+}
+
+// toAutoTuneOptionsOutputJSON converts a domain's stored AutoTuneConfig to
+// DomainStatus.AutoTuneOptions' wire shape.
+func toAutoTuneOptionsOutputJSON(cfg *AutoTuneConfig) *autoTuneOptionsOutputJSON {
+	if cfg == nil {
+		return nil
+	}
+
+	return &autoTuneOptionsOutputJSON{
+		State:            cfg.State,
+		ErrorMessage:     cfg.ErrorMessage,
+		UseOffPeakWindow: cfg.UseOffPeakWindow,
+	}
+}
+
+// toAutoTuneOptionsStatusJSON converts a domain's stored AutoTuneConfig to
+// DomainConfig.AutoTuneOptions' wire shape.
+func toAutoTuneOptionsStatusJSON(cfg *AutoTuneConfig) *autoTuneOptionsStatusJSON {
+	if cfg == nil {
+		return nil
+	}
+
+	return &autoTuneOptionsStatusJSON{
+		Options: &autoTuneOptionsValueJSON{
+			DesiredState:         cfg.DesiredState,
+			RollbackOnDisable:    cfg.RollbackOnDisable,
+			MaintenanceSchedules: cfg.MaintenanceSchedules,
+			UseOffPeakWindow:     cfg.UseOffPeakWindow,
+		},
+		Status: &autoTuneStatusJSON{
+			State:         cfg.State,
+			ErrorMessage:  cfg.ErrorMessage,
+			CreationDate:  awstime.Epoch(cfg.CreatedAt),
+			UpdateDate:    awstime.Epoch(cfg.UpdatedAt),
+			UpdateVersion: cfg.UpdateVersion,
+		},
+	}
+}
+
 // clusterConfigJSON is the JSON representation of cluster config.
 type clusterConfigJSON struct {
 	ZoneAwarenessConfig        *zoneAwarenessConfigJSON        `json:"ZoneAwarenessConfig,omitempty"`
@@ -240,11 +338,44 @@ func parseLogPublishingOptsFromReq(
 	return out
 }
 
+// autoTuneCreateInputFromReq converts the request-side AutoTuneOptions JSON
+// to CreateDomain's AutoTuneOptionsInput. RollbackOnDisable is intentionally
+// dropped: it has no member on the real CreateDomainInput.AutoTuneOptions
+// shape (types.AutoTuneOptionsInput), so a real CreateDomain client could
+// never have sent it in the first place -- see autoTuneOptionsRequestJSON.
+func autoTuneCreateInputFromReq(req *autoTuneOptionsRequestJSON) *AutoTuneOptionsInput {
+	if req == nil {
+		return nil
+	}
+
+	return &AutoTuneOptionsInput{
+		DesiredState:         req.DesiredState,
+		MaintenanceSchedules: req.MaintenanceSchedules,
+		UseOffPeakWindow:     req.UseOffPeakWindow,
+	}
+}
+
+// autoTuneUpdateInputFromReq converts the request-side AutoTuneOptions JSON
+// to UpdateDomainConfig's AutoTuneUpdateInput.
+func autoTuneUpdateInputFromReq(req *autoTuneOptionsRequestJSON) *AutoTuneUpdateInput {
+	if req == nil {
+		return nil
+	}
+
+	return &AutoTuneUpdateInput{
+		DesiredState:         req.DesiredState,
+		RollbackOnDisable:    req.RollbackOnDisable,
+		MaintenanceSchedules: req.MaintenanceSchedules,
+		UseOffPeakWindow:     req.UseOffPeakWindow,
+	}
+}
+
 // applyReqToUpdateInput maps parsed domainJSON fields onto an UpdateDomainConfigInput.
 func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 	input := UpdateDomainConfigInput{
-		EngineVersion:  req.EngineVersion,
-		AccessPolicies: req.AccessPolicies,
+		EngineVersion:   req.EngineVersion,
+		AccessPolicies:  req.AccessPolicies,
+		AutoTuneOptions: autoTuneUpdateInputFromReq(req.AutoTuneOptions),
 	}
 	if req.ClusterConfig != nil {
 		cc := parseClusterConfigFromReq(req.ClusterConfig)

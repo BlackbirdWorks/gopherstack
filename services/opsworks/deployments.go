@@ -7,7 +7,7 @@ import (
 )
 
 // CreateDeployment creates a new deployment.
-func (b *InMemoryBackend) CreateDeployment(stackID, appID, command string) (*Deployment, error) {
+func (b *InMemoryBackend) CreateDeployment(stackID, appID, command, customJSON string) (*Deployment, error) {
 	b.mu.Lock("CreateDeployment")
 	defer b.mu.Unlock()
 
@@ -27,6 +27,7 @@ func (b *InMemoryBackend) CreateDeployment(stackID, appID, command string) (*Dep
 		DeploymentID: id,
 		Command:      command,
 		Status:       deploymentStatusSuccessful,
+		CustomJSON:   customJSON,
 		Duration:     1,
 	}
 	b.deployments.Put(d)

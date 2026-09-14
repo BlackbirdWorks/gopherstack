@@ -3,10 +3,10 @@ package memorydb
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -166,24 +166,24 @@ func getRegion(ctx context.Context, defaultRegion string) string {
 // map key, not a value field), and events is slice-valued
 // (map[string][]*Event), neither of which store.Table can represent.
 type InMemoryBackend struct {
-	registry                   *store.Registry
-	multiRegionClusters        *store.Table[MultiRegionCluster]
+	parameterGroups            map[string]*store.Table[ParameterGroup]
+	reservedNodes              map[string]*store.Table[ReservedNode]
 	multiRegionParameterGroups *store.Table[MultiRegionParameterGroup]
 	serviceUpdates             *store.Table[ServiceUpdate]
 	clusters                   map[string]*store.Table[Cluster]
 	acls                       map[string]*store.Table[ACL]
 	subnetGroups               map[string]*store.Table[SubnetGroup]
 	users                      map[string]*store.Table[User]
-	parameterGroups            map[string]*store.Table[ParameterGroup]
+	multiRegionClusters        *store.Table[MultiRegionCluster]
+	registry                   *store.Registry
 	snapshots                  map[string]*store.Table[Snapshot]
-	reservedNodes              map[string]*store.Table[ReservedNode]
 	arnToResource              map[string]map[string]resourceRef
 	events                     map[string][]*Event
 	clock                      func() time.Time
-	accountID                  string
+	mu                         *lockmetrics.RWMutex
 	defaultRegion              string
+	accountID                  string
 	lifecycleDelay             time.Duration
-	mu                         sync.RWMutex
 }
 
 type resourceRef struct {
@@ -209,6 +209,7 @@ func newInMemoryBackendWithDefaults(region, accountID string) *InMemoryBackend {
 		arnToResource:   make(map[string]map[string]resourceRef),
 		accountID:       accountID,
 		defaultRegion:   region,
+		mu:              lockmetrics.New("memorydb"),
 	}
 	b.multiRegionClusters = store.Register(b.registry, "multiRegionClusters", store.New(multiRegionClusterKeyFn))
 	b.multiRegionParameterGroups = store.Register(
@@ -314,7 +315,7 @@ func (b *InMemoryBackend) Region() string { return b.defaultRegion }
 
 // Reset clears all state and re-seeds defaults, returning the backend to a clean state.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.resetLocked()

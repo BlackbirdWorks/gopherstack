@@ -189,6 +189,13 @@ func (b *InMemoryBackend) CreateMLTransformWithOptions(
 	b.mu.Lock("CreateMLTransform")
 	defer b.mu.Unlock()
 
+	if b.mlTransforms.Len() >= b.limits.mlTransforms {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d ML transform limit",
+			ErrResourceNumberLimitExceeded, b.limits.mlTransforms,
+		)
+	}
+
 	id := "transform-" + uuid.NewString()[:8]
 	m := &MLTransform{
 		TransformID:         id,

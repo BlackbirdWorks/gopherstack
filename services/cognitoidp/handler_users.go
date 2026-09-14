@@ -181,6 +181,7 @@ func (h *Handler) handleGetUserAccurate(
 		UserAttributes:      sortedAttributeList(userAttrsWithSub(user)),
 		UserMFASettingList:  user.UserMFASettingList,
 		PreferredMfaSetting: user.PreferredMfaSetting,
+		MFAOptions:          toMFAOptionsWire(user.MFAOptions),
 	}, nil
 }
 

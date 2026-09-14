@@ -15,7 +15,7 @@ func (b *InMemoryBackend) SFNRunTask(_ context.Context, input map[string]any) (a
 		rti.Count = n
 	}
 
-	tasks, err := b.RunTask(rti)
+	tasks, failures, err := b.RunTask(rti)
 	if err != nil {
 		return nil, err
 	}
@@ -25,9 +25,14 @@ func (b *InMemoryBackend) SFNRunTask(_ context.Context, input map[string]any) (a
 		taskAny[i] = t
 	}
 
+	failureAny := make([]any, len(failures))
+	for i, f := range failures {
+		failureAny[i] = map[string]any{"Arn": f.Arn, "Reason": f.Reason, "Detail": f.Detail}
+	}
+
 	return map[string]any{
 		"Tasks":    taskAny,
-		"Failures": []any{},
+		"Failures": failureAny,
 	}, nil
 }
 

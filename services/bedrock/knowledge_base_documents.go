@@ -3,18 +3,37 @@ package bedrock
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 const (
-	docStatusActive = "ACTIVE"
+	docStatusIndexed = "INDEXED"
 )
 
 func kbDocKey(kbID, dsID, docID string) string { return kbID + "/" + dsID + "/" + docID }
 
+// KBDocumentIdentifier identifies a knowledge base document by data source
+// type, matching bedrockagent@v1.58.4 types.DocumentIdentifier (dataSourceType
+// plus exactly one of s3.uri / custom.id).
+type KBDocumentIdentifier struct {
+	DataSourceType string
+	S3URI          string
+	CustomID       string
+}
+
+// id returns the identifier value to use as the document's lookup key.
+func (i KBDocumentIdentifier) id() string {
+	if i.DataSourceType == "CUSTOM" {
+		return i.CustomID
+	}
+
+	return i.S3URI
+}
+
 // IngestKnowledgeBaseDocuments adds documents to a KB data source.
 func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	kbID, dsID string,
-	documentIDs []string,
+	identifiers []KBDocumentIdentifier,
 ) ([]*KnowledgeBaseDocument, error) {
 	b.mu.Lock("IngestKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
@@ -27,14 +46,16 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
-	docs := make([]*KnowledgeBaseDocument, 0, len(documentIDs))
+	docs := make([]*KnowledgeBaseDocument, 0, len(identifiers))
 
-	for _, docID := range documentIDs {
+	for _, ident := range identifiers {
 		doc := &KnowledgeBaseDocument{
 			KnowledgeBaseID: kbID,
 			DataSourceID:    dsID,
-			DocumentID:      docID,
-			Status:          docStatusActive,
+			DocumentID:      ident.id(),
+			DataSourceType:  ident.DataSourceType,
+			Status:          docStatusIndexed,
+			UpdatedAt:       time.Now().UTC(),
 		}
 		b.kbDocuments.Put(doc)
 		cp := *doc
@@ -70,7 +91,7 @@ func (b *InMemoryBackend) ListKnowledgeBaseDocuments(
 // GetKnowledgeBaseDocuments returns selected documents for a KB data source.
 func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 	kbID, dsID string,
-	documentIDs []string,
+	identifiers []KBDocumentIdentifier,
 ) ([]*KnowledgeBaseDocument, error) {
 	b.mu.RLock("GetKnowledgeBaseDocuments")
 	defer b.mu.RUnlock()
@@ -79,12 +100,14 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 		return nil, fmt.Errorf("%w: data source %q not found", ErrNotFound, dsID)
 	}
 
-	docs := make([]*KnowledgeBaseDocument, 0, len(documentIDs))
-	for _, documentID := range documentIDs {
-		doc, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, documentID))
+	docs := make([]*KnowledgeBaseDocument, 0, len(identifiers))
+
+	for _, ident := range identifiers {
+		doc, ok := b.kbDocuments.Get(kbDocKey(kbID, dsID, ident.id()))
 		if !ok {
 			continue
 		}
+
 		cp := *doc
 		docs = append(docs, &cp)
 	}
@@ -95,13 +118,13 @@ func (b *InMemoryBackend) GetKnowledgeBaseDocuments(
 // DeleteKnowledgeBaseDocuments removes documents from a KB data source.
 func (b *InMemoryBackend) DeleteKnowledgeBaseDocuments(
 	kbID, dsID string,
-	documentIDs []string,
+	identifiers []KBDocumentIdentifier,
 ) error {
 	b.mu.Lock("DeleteKnowledgeBaseDocuments")
 	defer b.mu.Unlock()
 
-	for _, docID := range documentIDs {
-		b.kbDocuments.Delete(kbDocKey(kbID, dsID, docID))
+	for _, ident := range identifiers {
+		b.kbDocuments.Delete(kbDocKey(kbID, dsID, ident.id()))
 	}
 
 	return nil

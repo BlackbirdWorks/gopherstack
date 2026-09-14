@@ -165,7 +165,13 @@ func (h *Handler) handleCreateConfigurationTemplate(ctx context.Context, vals ur
 		description,
 		solutionStack,
 		tags,
-		ConfigurationTemplateParams{PlatformArn: platformArn, OptionSettings: optionSettings},
+		ConfigurationTemplateParams{
+			PlatformArn:           platformArn,
+			OptionSettings:        optionSettings,
+			EnvironmentID:         vals.Get("EnvironmentId"),
+			SourceApplicationName: vals.Get("SourceConfiguration.ApplicationName"),
+			SourceTemplateName:    vals.Get("SourceConfiguration.TemplateName"),
+		},
 	)
 	if err != nil {
 		return nil, err

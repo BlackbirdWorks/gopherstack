@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -209,23 +210,24 @@ func TestUpdateStreamMode_InvalidMode(t *testing.T) {
 	}
 }
 
-// TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor verifies AWS's
-// documented PROVISIONED -> ON_DEMAND auto-scale behavior: a stream under the
-// default on-demand shard floor (4, matching a freshly created ON_DEMAND
-// stream) is resharded up to it, with the old shards retained CLOSED for
-// lineage. A stream already at or above the floor is left untouched.
-func TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor(t *testing.T) {
+// TestUpdateStreamMode_OnDemandTransitionKeepsShardCount verifies AWS's
+// documented PROVISIONED -> ON_DEMAND behavior: "your data stream initially
+// retains whatever shard count it had before the transition"
+// (docs.aws.amazon.com/streams/latest/dev/how-do-i-size-a-stream.html#switchingmodes)
+// -- no reshard happens at transition time regardless of how many shards the
+// stream started with, unlike the emulator's previous (incorrect) behavior
+// of flooring every transition up to defaultOnDemandShardCount (4).
+func TestUpdateStreamMode_OnDemandTransitionKeepsShardCount(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name          string
-		startShards   int
-		wantOpenAfter int
+		name        string
+		startShards int
 	}{
-		{name: "below_floor_1_shard", startShards: 1, wantOpenAfter: 4},
-		{name: "below_floor_2_shards", startShards: 2, wantOpenAfter: 4},
-		{name: "at_floor_4_shards", startShards: 4, wantOpenAfter: 4},
-		{name: "above_floor_6_shards", startShards: 6, wantOpenAfter: 6},
+		{name: "below_floor_1_shard", startShards: 1},
+		{name: "below_floor_2_shards", startShards: 2},
+		{name: "at_floor_4_shards", startShards: 4},
+		{name: "above_floor_6_shards", startShards: 6},
 	}
 
 	for _, tt := range tests {
@@ -253,20 +255,147 @@ func TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor(t *testing.T) {
 			// its length is exactly the new open shard count.
 			openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
 			require.NoError(t, err)
-			assert.Len(t, openAfter.Shards, tt.wantOpenAfter)
-
-			if tt.startShards < tt.wantOpenAfter {
-				// Old shards must still be visible, CLOSED, for lineage.
-				listOut, listErr := b.ListShards(ctx, &kinesis.ListShardsInput{
-					StreamName:  streamName,
-					ShardFilter: "FROM_TRIM_HORIZON",
-				})
-				require.NoError(t, listErr)
-				assert.Len(t, listOut.Shards, tt.startShards+tt.wantOpenAfter,
-					"old closed shards plus new open shards")
-			}
+			assert.Len(
+				t,
+				openAfter.Shards,
+				tt.startShards,
+				"PROVISIONED -> ON_DEMAND must retain the pre-transition shard count, not floor to defaultOnDemandShardCount",
+			)
 		})
 	}
+}
+
+// TestUpdateStreamMode_ProvisionedToOnDemand_RealClientKeepsShardCount is
+// TestUpdateStreamMode_OnDemandTransitionKeepsShardCount's real
+// aws-sdk-go-v2 client counterpart: proves the wire round trip, not just
+// the Go API, retains the pre-transition shard count instead of the old
+// (incorrect) flooring-to-4 behavior.
+func TestUpdateStreamMode_ProvisionedToOnDemand_RealClientKeepsShardCount(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "real-client-mode-transition"
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(2),
+	})
+	require.NoError(t, err)
+
+	descBefore, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	require.Len(t, descBefore.StreamDescription.Shards, 2)
+
+	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
+		StreamARN: descBefore.StreamDescription.StreamARN,
+		StreamModeDetails: &kinesissdktypes.StreamModeDetails{
+			StreamMode: kinesissdktypes.StreamModeOnDemand,
+		},
+	})
+	require.NoError(t, err)
+
+	descAfter, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	assert.Len(t, descAfter.StreamDescription.Shards, 2,
+		"real-client PROVISIONED -> ON_DEMAND must retain the pre-transition shard count")
+	assert.Equal(t, kinesissdktypes.StreamModeOnDemand, descAfter.StreamDescription.StreamModeDetails.StreamMode)
+}
+
+// TestUpdateStreamMode_OnDemandAutoScalesOnSustainedWrite verifies the
+// reactive side of on-demand scaling: once a stream is in ON_DEMAND mode,
+// sustained write throughput above the documented per-shard threshold
+// ("When the incoming traffic exceeds 500 KB/s per shard, it splits the
+// shard within 15 minutes," how-do-i-size-a-stream.html#hotshards) doubles
+// the stream's open shard count (see ondemand_scaling.go). Uses WithClock
+// so the sliding window advances deterministically instead of depending on
+// real wall-clock timing.
+func TestUpdateStreamMode_OnDemandAutoScalesOnSustainedWrite(t *testing.T) {
+	t.Parallel()
+
+	fakeNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	b := kinesis.NewInMemoryBackend().WithClock(func() time.Time { return fakeNow })
+	ctx := context.Background()
+	streamName := "ondemand-autoscale"
+
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: streamName,
+		StreamMode: "ON_DEMAND",
+	}))
+
+	descBefore, err := b.DescribeStream(ctx, &kinesis.DescribeStreamInput{StreamName: streamName})
+	require.NoError(t, err)
+	openBefore := len(descBefore.Shards)
+	require.Positive(t, openBefore)
+
+	// Raise the per-record size cap so the threshold can be crossed with a
+	// handful of PutRecord calls instead of hundreds at the untouched 1 MiB
+	// default -- MaxRecordSizeInKiB's own unit/shape is UpdateMaxRecordSize's
+	// own concern (see its dedicated round-trip test); this only needs a
+	// large enough per-call payload.
+	const maxRecordSizeKiB = 10 * 1024 // absoluteMaxRecordSizeBytes
+	err = b.UpdateMaxRecordSize(ctx, &kinesis.UpdateMaxRecordSizeInput{
+		StreamARN:          descBefore.StreamARN,
+		MaxRecordSizeInKiB: maxRecordSizeKiB,
+	})
+	require.NoError(t, err)
+
+	// Push writes whose aggregate rate over the tracker's 60s window
+	// comfortably exceeds openBefore * onDemandShardCapacityBytesPerSec (500
+	// KiB/s per shard) but stays under double that, so exactly one doubling
+	// fires: capacity = openBefore * 500 KiB/s; threshold total bytes over
+	// the 60s window = capacity * 60. 13 records at the 10 MiB cap clears
+	// that for openBefore == 4 (CreateStream's ON_DEMAND default) without
+	// reaching the next doubling's threshold.
+	payload := make([]byte, maxRecordSizeKiB*1024)
+	const numRecords = 13
+	for range numRecords {
+		_, putErr := b.PutRecord(ctx, &kinesis.PutRecordInput{
+			StreamName:   streamName,
+			PartitionKey: "pk",
+			Data:         payload,
+		})
+		require.NoError(t, putErr)
+	}
+
+	openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
+	require.NoError(t, err)
+	assert.Len(t, openAfter.Shards, openBefore*2,
+		"sustained write throughput above the per-shard threshold must double the open shard count")
+}
+
+// TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned verifies
+// maybeAutoScaleOnDemand is a no-op for a PROVISIONED stream: real AWS only
+// auto-scales on-demand streams, and UpdateShardCount already owns
+// provisioned resharding.
+func TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned(t *testing.T) {
+	t.Parallel()
+
+	fakeNow := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	b := kinesis.NewInMemoryBackend().WithClock(func() time.Time { return fakeNow })
+	ctx := context.Background()
+	streamName := "provisioned-no-autoscale"
+
+	require.NoError(t, b.CreateStream(ctx, &kinesis.CreateStreamInput{
+		StreamName: streamName,
+		ShardCount: 1,
+	}))
+
+	payload := make([]byte, 600*1024)
+	_, err := b.PutRecord(ctx, &kinesis.PutRecordInput{
+		StreamName:   streamName,
+		PartitionKey: "pk",
+		Data:         payload,
+	})
+	require.NoError(t, err)
+
+	openAfter, err := b.ListShards(ctx, &kinesis.ListShardsInput{StreamName: streamName})
+	require.NoError(t, err)
+	assert.Len(t, openAfter.Shards, 1, "a PROVISIONED stream must never be auto-scaled by write throughput")
 }
 
 // TestUpdateStreamMode_OnDemandToProvisionedKeepsShardCount verifies the

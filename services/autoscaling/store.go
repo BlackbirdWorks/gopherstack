@@ -73,6 +73,11 @@ type InMemoryBackend struct {
 	// DescribeInstances. Nil preserves the historical fabricated-instance-ID
 	// behavior.
 	ec2Launcher EC2Launcher
+	// instanceTypeResolver, when set (see SetInstanceTypeResolver), resolves
+	// MixedInstancesPolicy overrides' InstanceRequirements against a real
+	// instance-type catalog. Nil falls back to instanceTypeForOverride's
+	// documented fallback behavior.
+	instanceTypeResolver InstanceTypeResolver
 	// elbv2Registrar, when set (see SetELBv2Registrar), registers/deregisters
 	// real ELBv2 targets as group membership and TargetGroupARNs change. Nil
 	// preserves the historical behavior of TargetGroupARNs/LoadBalancerNames

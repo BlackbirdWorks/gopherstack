@@ -228,6 +228,14 @@ type StorageBackend interface {
 	PutBucketAbac(ctx context.Context, bucket, configXML string) error
 	GetBucketAbac(ctx context.Context, bucket string) (string, error)
 
+	// Object Lambda: the Lambda ARN a completed s3control
+	// CreateAccessPointForObjectLambda/PutAccessPointConfigurationForObjectLambda
+	// resolves to for the underlying bucket (see ObjectLambdaConfigSink in
+	// services/s3control). Stored per-bucket under the bucket's own coarse lock,
+	// so it is cleared automatically once the bucket record is removed.
+	SetObjectLambdaConfig(bucket, lambdaARN string)
+	ObjectLambdaConfig(bucket string) string
+
 	// S3 Express directory buckets
 	ListDirectoryBuckets(ctx context.Context) ([]types.Bucket, error)
 

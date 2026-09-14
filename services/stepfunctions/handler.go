@@ -141,8 +141,11 @@ func (h *Handler) GetSupportedOperations() []string {
 	}
 }
 
+// awsServiceStates is the "states" ARN service segment and Chaos service name.
+const awsServiceStates = "states"
+
 // ChaosServiceName returns the lowercase AWS service name for fault rule matching.
-func (h *Handler) ChaosServiceName() string { return "states" }
+func (h *Handler) ChaosServiceName() string { return awsServiceStates }
 
 // ChaosOperations returns all operations that can be fault-injected.
 func (h *Handler) ChaosOperations() []string { return h.GetSupportedOperations() }

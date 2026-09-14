@@ -62,14 +62,18 @@ type taskWork struct {
 	td   *TaskDefinition
 }
 
-// RunTask starts one or more tasks on the given cluster.
-func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
+// RunTask starts one or more tasks on the given cluster. A per-task
+// placement failure (no eligible container instance, or its host ports
+// cannot satisfy the task definition's port mappings) is reported as a
+// Failure entry rather than an error, matching real RunTask -- see
+// createTaskEntriesLocked.
+func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, []Failure, error) {
 	if input.TaskDefinition == "" {
-		return nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
+		return nil, nil, fmt.Errorf("%w: taskDefinition is required", ErrInvalidParameter)
 	}
 
 	if err := validatePlatformVersion(input.PlatformVersion); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	count := input.Count
@@ -80,8 +84,9 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 	clusterName := clusterKey(b.resolveCluster(input.Cluster))
 
 	var (
-		ferr error
-		work []taskWork
+		ferr     error
+		work     []taskWork
+		failures []Failure
 	)
 
 	func() {
@@ -126,7 +131,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 
 		// Create all task entries in PROVISIONING state under the lock so they are
 		// immediately visible, then release the lock before issuing Docker API calls.
-		work = b.createTaskEntriesLocked(
+		work, failures = b.createTaskEntriesLocked(
 			clusterName,
 			clusterArn,
 			launchType,
@@ -138,7 +143,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 	}()
 
 	if ferr != nil {
-		return nil, ferr
+		return nil, nil, ferr
 	}
 
 	b.startTasksOutsideLock(work)
@@ -153,7 +158,7 @@ func (b *InMemoryBackend) RunTask(input RunTaskInput) ([]Task, error) {
 		tasks = append(tasks, cp)
 	}
 
-	return tasks, nil
+	return tasks, failures, nil
 }
 
 // startTasksOutsideLock starts containers outside the lock to avoid serializing other
@@ -281,7 +286,13 @@ func (b *InMemoryBackend) applyRunnerTransition(task *Task, clusterName string, 
 	b.recordServiceTaskFailureLocked(clusterName, task)
 }
 
-// createTaskEntriesLocked creates task entries in PROVISIONING state.
+// createTaskEntriesLocked creates task entries in PROVISIONING state. For an
+// EC2-launch-type task that cannot be placed (no eligible container
+// instance, or the chosen instance's ports cannot satisfy the task
+// definition), no task is created and a Failure is appended instead --
+// matching real RunTask/StartTask, which report placement failures inline
+// rather than raising an exception (see
+// https://docs.aws.amazon.com/AmazonECS/latest/developerguide/api_failures_messages.html).
 // Must be called with write lock held; the lock is NOT released here.
 func (b *InMemoryBackend) createTaskEntriesLocked(
 	clusterName, clusterArn, launchType string,
@@ -289,53 +300,27 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 	count int,
 	td *TaskDefinition,
 	input RunTaskInput,
-) []taskWork {
+) ([]taskWork, []Failure) {
 	work := make([]taskWork, 0, count)
 
+	var failures []Failure
+
 	for range count {
-		taskArn := fmt.Sprintf(
-			"arn:aws:ecs:%s:%s:task/%s/%s",
-			b.region, b.accountID, clusterName, uuid.NewString(),
-		)
+		task := newTaskEntryLocked(b.region, b.accountID, clusterName, clusterArn, launchType, resolvedTags, td, input)
 
-		now := time.Now()
+		var hostPortBindings map[string][]NetworkBinding
 
-		// Resolve the effective task IAM role: per-run override takes precedence.
-		taskRoleArn := td.TaskRoleArn
-		if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
-			taskRoleArn = input.Overrides.TaskRoleArn
-		}
+		if launchType == launchTypeFargate {
+			task.Attachments = []TaskAttachment{newFargateTaskAttachment(task.TaskArn)}
+		} else {
+			bindings, failure := b.placeEC2TaskLocked(clusterName, task, td, input)
+			if failure != nil {
+				failures = append(failures, *failure)
 
-		// CapacityProviderName reflects the capacity provider actually selected for
-		// this task. AWS distributes tasks across the strategy's providers by
-		// weight/base; this backend does not model that distribution and always
-		// selects the first entry (documented simplification -- see the
-		// CapacityProviderName doc comment on the Task struct in models.go).
-		var capacityProviderName string
-		if len(input.CapacityProviderStrategy) > 0 {
-			capacityProviderName = input.CapacityProviderStrategy[0].CapacityProvider
-		}
+				continue
+			}
 
-		task := &Task{
-			TaskArn:              taskArn,
-			ClusterArn:           clusterArn,
-			TaskDefinitionArn:    td.TaskDefinitionArn,
-			LastStatus:           statusProvisioning,
-			DesiredStatus:        statusRunning,
-			Group:                input.Group,
-			LaunchType:           launchType,
-			StartedBy:            input.StartedBy,
-			PlatformVersion:      input.PlatformVersion,
-			PropagateTags:        input.PropagateTags,
-			Tags:                 resolvedTags,
-			StartedAt:            &now,
-			Connectivity:         connectivityConnected,
-			ConnectivityAt:       &now,
-			Overrides:            input.Overrides,
-			NetworkConfiguration: input.NetworkConfiguration,
-			EnableExecuteCommand: input.EnableExecuteCommand,
-			TaskRoleArn:          taskRoleArn,
-			CapacityProviderName: capacityProviderName,
+			hostPortBindings = bindings
 		}
 
 		// Mirror tags into the resourceTags side map so TagResource/UntagResource/
@@ -344,31 +329,14 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		// creation, matching the fix already applied to ExpressGatewayService and
 		// CapacityProvider. Without this, task.Tags and resourceTags are two
 		// independent stores and a TagResource call after RunTask is invisible to
-		// DescribeTasks.
+		// DescribeTasks. Applied only once placement (if any) has succeeded, since
+		// a failed placement creates no task to tag.
 		if len(resolvedTags) > 0 {
-			b.setResourceTagsLocked(taskArn, resolvedTags)
-		}
-
-		if launchType == launchTypeFargate {
-			task.Attachments = []TaskAttachment{newFargateTaskAttachment(taskArn)}
-		} else {
-			// EC2 launch type: select a container instance respecting placement
-			// constraints and strategies, then record it in the reverse index.
-			// Merge task-definition constraints with any run-time override constraints.
-			constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
-			if instanceArn := selectContainerInstance(
-				b.containerInstancesByCluster.Get(clusterName),
-				b.tasksByCluster.Get(clusterName),
-				constraints,
-				input.PlacementStrategy,
-				input.serviceNameForTags,
-			); instanceArn != "" {
-				task.ContainerInstanceArn = instanceArn
-				b.indexTaskOnInstance(clusterName, instanceArn, taskArn)
-			}
+			b.setResourceTagsLocked(task.TaskArn, resolvedTags)
 		}
 
 		task.Containers = buildContainersForTask(task, td)
+		applyHostPortBindings(task, hostPortBindings)
 
 		b.tasks.Put(task)
 		work = append(work, taskWork{task: task, td: td})
@@ -379,7 +347,105 @@ func (b *InMemoryBackend) createTaskEntriesLocked(
 		}
 	}
 
-	return work
+	return work, failures
+}
+
+// newTaskEntryLocked builds a fresh Task in PROVISIONING state, resolving
+// the effective task IAM role and selected capacity provider name. Does not
+// set Attachments/ContainerInstanceArn/Containers -- those depend on launch
+// type and are filled in by createTaskEntriesLocked's caller.
+func newTaskEntryLocked(
+	region, accountID, clusterName, clusterArn, launchType string,
+	resolvedTags []Tag,
+	td *TaskDefinition,
+	input RunTaskInput,
+) *Task {
+	taskArn := fmt.Sprintf("arn:aws:ecs:%s:%s:task/%s/%s", region, accountID, clusterName, uuid.NewString())
+	now := time.Now()
+
+	// Resolve the effective task IAM role: per-run override takes precedence.
+	taskRoleArn := td.TaskRoleArn
+	if input.Overrides != nil && input.Overrides.TaskRoleArn != "" {
+		taskRoleArn = input.Overrides.TaskRoleArn
+	}
+
+	// CapacityProviderName reflects the capacity provider actually selected for
+	// this task. AWS distributes tasks across the strategy's providers by
+	// weight/base; this backend does not model that distribution and always
+	// selects the first entry (documented simplification -- see the
+	// CapacityProviderName doc comment on the Task struct in models.go).
+	var capacityProviderName string
+	if len(input.CapacityProviderStrategy) > 0 {
+		capacityProviderName = input.CapacityProviderStrategy[0].CapacityProvider
+	}
+
+	return &Task{
+		TaskArn:              taskArn,
+		ClusterArn:           clusterArn,
+		TaskDefinitionArn:    td.TaskDefinitionArn,
+		LastStatus:           statusProvisioning,
+		DesiredStatus:        statusRunning,
+		Group:                input.Group,
+		LaunchType:           launchType,
+		StartedBy:            input.StartedBy,
+		PlatformVersion:      input.PlatformVersion,
+		PropagateTags:        input.PropagateTags,
+		Tags:                 resolvedTags,
+		StartedAt:            &now,
+		Connectivity:         connectivityConnected,
+		ConnectivityAt:       &now,
+		Overrides:            input.Overrides,
+		NetworkConfiguration: input.NetworkConfiguration,
+		EnableExecuteCommand: input.EnableExecuteCommand,
+		TaskRoleArn:          taskRoleArn,
+		CapacityProviderName: capacityProviderName,
+	}
+}
+
+// placeEC2TaskLocked selects a container instance for an EC2-launch-type
+// task, respecting placement constraints/strategy, and reserves any host
+// ports its network mode requires. On success it sets task.ContainerInstanceArn,
+// indexes the task on the instance, and returns the resulting NetworkBinding
+// map (see reserveTaskHostPortsLocked). On failure it returns a Failure
+// describing why the task could not be placed (see host_ports.go's
+// failureReasonResource/failureReasonResourcePorts) and task is left
+// unmodified -- the caller must not create a task entry for it. Must be
+// called with the write lock held.
+func (b *InMemoryBackend) placeEC2TaskLocked(
+	clusterName string, task *Task, td *TaskDefinition, input RunTaskInput,
+) (map[string][]NetworkBinding, *Failure) {
+	constraints := mergeConstraints(td.PlacementConstraints, input.PlacementConstraints)
+	instanceArn := selectContainerInstance(
+		b.containerInstancesByCluster.Get(clusterName),
+		b.tasksByCluster.Get(clusterName),
+		constraints,
+		input.PlacementStrategy,
+		input.serviceNameForTags,
+	)
+
+	if instanceArn == "" {
+		return nil, &Failure{
+			Reason: failureReasonResource,
+			Detail: "no container instance available in the cluster that satisfies " +
+				"the requested placement constraints",
+		}
+	}
+
+	bindings, ok := b.reserveTaskHostPortsLocked(clusterName, instanceArn, td)
+	if !ok {
+		return nil, &Failure{
+			Reason: failureReasonResourcePorts,
+			Detail: fmt.Sprintf(
+				"no available host ports on container instance %s for task definition %s",
+				instanceArn, td.TaskDefinitionArn,
+			),
+		}
+	}
+
+	task.ContainerInstanceArn = instanceArn
+	b.indexTaskOnInstance(clusterName, instanceArn, task.TaskArn)
+
+	return bindings, nil
 }
 
 // DescribeTasks returns tasks on a given cluster, optionally filtered by ARN.
@@ -513,6 +579,7 @@ func (b *InMemoryBackend) StopTask(cluster, taskArn, reason string) (*Task, erro
 		task.StoppedAt = &now
 		syncContainerStatuses(task, nil)
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn
@@ -606,6 +673,7 @@ func (b *InMemoryBackend) markTaskStoppedByContainerExit(taskArn, containerName 
 		}
 
 		b.deregisterTaskFromELBv2Locked(task, clusterName)
+		b.releaseTaskHostPortsLocked(clusterName, task)
 		delete(b.lifecycle, taskArn)
 
 		instanceArn = task.ContainerInstanceArn

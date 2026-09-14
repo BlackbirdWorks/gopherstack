@@ -237,3 +237,128 @@ func TestStreams_JanitorSweep_PreservesRecordsUnder24Hours(t *testing.T) {
 	require.Len(t, recOut.Records, 1, "sweep must not discard the record still under 24h old")
 	assert.Equal(t, "fresh", aws.ToString(recOut.Records[0].EventID))
 }
+
+// putStreamsTestItem writes one item to StreamsTestTable, generating a stream record.
+func putStreamsTestItem(t *testing.T, db *InMemoryDB, pkVal string) {
+	t.Helper()
+
+	_, err := db.PutItem(t.Context(), &sdkdynamodb.PutItemInput{
+		TableName: aws.String("StreamsTestTable"),
+		Item: map[string]sdktypes.AttributeValue{
+			"pk": &sdktypes.AttributeValueMemberS{Value: pkVal},
+		},
+	})
+	require.NoError(t, err)
+}
+
+// TestStreamShards_SurviveSnapshotRestore is the regression test for
+// gopherstack-xwfy: closed-shard genealogy (EndingSequenceNum, ParentShardID)
+// exists only on the StreamShard struct and is not derivable from streamSeq
+// or StreamRecords alone once the ring buffer has advanced past the split
+// point, so it must be persisted rather than recomputed on Restore.
+// setStreamShards injects a deterministic 2-shard split (closed parent,
+// open child) the same way TestStreams_DescribeStream_ShardFilter_Validation
+// does, avoiding the cost of forcing a real 1000-record ring-buffer split.
+func TestStreamShards_SurviveSnapshotRestore(t *testing.T) {
+	t.Parallel()
+
+	db := newWhiteboxStreamsDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, db.EnableStream(ctx, "StreamsTestTable", "NEW_AND_OLD_IMAGES"))
+
+	for i := range 3 {
+		putStreamsTestItem(t, db, fmt.Sprintf("before-split-%d", i))
+	}
+
+	setStreamShards(db, "StreamsTestTable", []StreamShard{
+		{ShardID: "shardId-parent", StartingSequenceNum: 1, EndingSequenceNum: 3},
+		{ShardID: "shardId-child", ParentShardID: "shardId-parent", StartingSequenceNum: 4},
+	})
+
+	for i := range 2 {
+		putStreamsTestItem(t, db, fmt.Sprintf("after-split-%d", i))
+	}
+
+	table, ok := db.GetTable("StreamsTestTable")
+	require.True(t, ok)
+	streamARN := table.StreamARN
+
+	snap := db.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	restored := NewInMemoryDB()
+	require.NoError(t, restored.Restore(ctx, snap))
+
+	out, err := restored.DescribeStream(ctx, &dynamodbstreams.DescribeStreamInput{
+		StreamArn: aws.String(streamARN),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.StreamDescription.Shards, 2, "shard genealogy must survive restore")
+
+	byID := make(map[string]streamstypes.Shard, len(out.StreamDescription.Shards))
+	for _, s := range out.StreamDescription.Shards {
+		byID[aws.ToString(s.ShardId)] = s
+	}
+
+	shardTests := []struct {
+		name        string
+		wantShardID string
+		wantParent  string
+		wantStart   int64
+		wantEnd     int64
+	}{
+		{name: "closed parent shard", wantShardID: "shardId-parent", wantStart: 1, wantEnd: 3},
+		{name: "open child shard", wantShardID: "shardId-child", wantParent: "shardId-parent", wantStart: 4},
+	}
+
+	for _, tt := range shardTests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, found := byID[tt.wantShardID]
+			require.True(t, found, "shard %s must be present after restore", tt.wantShardID)
+			assert.Equal(t, tt.wantParent, aws.ToString(got.ParentShardId))
+			assert.Equal(t, seqNumString(tt.wantStart),
+				aws.ToString(got.SequenceNumberRange.StartingSequenceNumber))
+
+			wantEnd := ""
+			if tt.wantEnd != 0 {
+				wantEnd = seqNumString(tt.wantEnd)
+			}
+			assert.Equal(t, wantEnd, aws.ToString(got.SequenceNumberRange.EndingSequenceNumber))
+		})
+	}
+
+	iterOut, err := restored.GetShardIterator(ctx, &dynamodbstreams.GetShardIteratorInput{
+		StreamArn:         aws.String(streamARN),
+		ShardId:           aws.String("shardId-child"),
+		ShardIteratorType: streamstypes.ShardIteratorTypeTrimHorizon,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, iterOut.ShardIterator)
+
+	recOut, err := restored.GetRecords(ctx, &dynamodbstreams.GetRecordsInput{
+		ShardIterator: iterOut.ShardIterator,
+	})
+	require.NoError(t, err)
+	require.Len(t, recOut.Records, 2,
+		"GetRecords via a fresh iterator on the restored child shard must return the records written after the split")
+	assert.Equal(t, "after-split-0", extractStreamsTestPK(t, recOut.Records[0]))
+	assert.Equal(t, "after-split-1", extractStreamsTestPK(t, recOut.Records[1]))
+}
+
+// extractStreamsTestPK reads the "pk" attribute from a stream record's Keys map.
+func extractStreamsTestPK(t *testing.T, record streamstypes.Record) string {
+	t.Helper()
+
+	require.NotNil(t, record.Dynamodb)
+
+	pk, ok := record.Dynamodb.Keys["pk"]
+	require.True(t, ok, "record must carry the pk key attribute")
+
+	member, ok := pk.(*streamstypes.AttributeValueMemberS)
+	require.True(t, ok, "pk must be a string attribute value")
+
+	return member.Value
+}

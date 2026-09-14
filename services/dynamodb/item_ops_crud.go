@@ -35,17 +35,9 @@ func (db *InMemoryDB) PutItem(
 	}
 
 	condExpr := aws.ToString(input.ConditionExpression)
-	if len(input.ExpressionAttributeNames) > 0 {
-		if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(input.ExpressionAttributeValues) > 0 {
-		wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
-		if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
-			return nil, err
-		}
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := validateConditionExpressionAttributes(input.ExpressionAttributeNames, wireEAV, condExpr); err != nil {
+		return nil, err
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -486,11 +478,11 @@ func (db *InMemoryDB) GetItem(
 	}
 
 	// Resolve effective projection (fallback to AttributesToGet).
-	effectiveProj := resolveProjection(projExpr, input.AttributesToGet)
+	effectiveProj, atgNames := resolveProjection(projExpr, input.AttributesToGet)
 	result := item
 
 	if effectiveProj != "" {
-		result, err = projectItem(item, effectiveProj, input.ExpressionAttributeNames)
+		result, err = projectItem(item, effectiveProj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 		if err != nil {
 			return nil, err
 		}
@@ -538,17 +530,9 @@ func (db *InMemoryDB) DeleteItem(
 	}
 
 	condExpr := aws.ToString(input.ConditionExpression)
-	if len(input.ExpressionAttributeNames) > 0 {
-		if err := checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, condExpr); err != nil {
-			return nil, err
-		}
-	}
-
-	if len(input.ExpressionAttributeValues) > 0 {
-		wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
-		if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
-			return nil, err
-		}
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	if err := validateConditionExpressionAttributes(input.ExpressionAttributeNames, wireEAV, condExpr); err != nil {
+		return nil, err
 	}
 
 	table, err := db.getTable(ctx, tableName)
@@ -712,6 +696,39 @@ func (db *InMemoryDB) buildDeleteItemOutput(
 	return out
 }
 
+// validateConditionExpressionAttributes runs the undefined-placeholder and
+// unused-placeholder checks shared by PutItem and DeleteItem's
+// ConditionExpression, decomposed out to keep both callers' cyclomatic
+// complexity down.
+func validateConditionExpressionAttributes(
+	ean map[string]string,
+	wireEAV map[string]any,
+	condExpr string,
+) error {
+	if condExpr != "" {
+		if err := checkUndefinedExpressionAttributeNames(ean, "ConditionExpression", condExpr); err != nil {
+			return err
+		}
+		if err := checkUndefinedExpressionAttributeValues(wireEAV, "ConditionExpression", condExpr); err != nil {
+			return err
+		}
+	}
+
+	if len(ean) > 0 {
+		if err := checkUnusedExpressionAttributeNames(ean, condExpr); err != nil {
+			return err
+		}
+	}
+
+	if len(wireEAV) > 0 {
+		if err := checkUnusedExpressionAttributeValues(wireEAV, condExpr); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (db *InMemoryDB) UpdateItem(
 	ctx context.Context,
 	input *dynamodb.UpdateItemInput,
@@ -734,11 +751,28 @@ func (db *InMemoryDB) UpdateItem(
 	condExpr := aws.ToString(input.ConditionExpression)
 	allExprs := []string{updateExpr, condExpr}
 
+	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
+	for _, label := range []struct{ name, expression string }{
+		{"UpdateExpression", updateExpr},
+		{"ConditionExpression", condExpr},
+	} {
+		if label.expression == "" {
+			continue
+		}
+		if err = checkUndefinedExpressionAttributeNames(
+			input.ExpressionAttributeNames, label.name, label.expression,
+		); err != nil {
+			return nil, err
+		}
+		if err = checkUndefinedExpressionAttributeValues(wireEAV, label.name, label.expression); err != nil {
+			return nil, err
+		}
+	}
+
 	if err = checkUnusedExpressionAttributeNames(input.ExpressionAttributeNames, allExprs...); err != nil {
 		return nil, err
 	}
 
-	wireEAV := models.FromSDKItem(input.ExpressionAttributeValues)
 	if err = checkUnusedExpressionAttributeValues(wireEAV, allExprs...); err != nil {
 		return nil, err
 	}

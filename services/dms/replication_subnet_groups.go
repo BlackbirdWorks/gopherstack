@@ -12,6 +12,7 @@ import (
 func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 	ctx context.Context,
 	identifier, description, vpcID string,
+	subnetIDs []string,
 	kv map[string]string,
 ) (*ReplicationSubnetGroup, error) {
 	b.mu.Lock("CreateReplicationSubnetGroup")
@@ -37,6 +38,7 @@ func (b *InMemoryBackend) CreateReplicationSubnetGroup(
 		ReplicationSubnetGroupArn:         sgARN,
 		ReplicationSubnetGroupDescription: description,
 		VpcID:                             vpcID,
+		SubnetIDs:                         subnetIDs,
 		AccountID:                         b.accountID,
 		Region:                            region,
 		Tags:                              t,
@@ -71,13 +73,17 @@ func (b *InMemoryBackend) DeleteReplicationSubnetGroup(ctx context.Context, iden
 	return fmt.Errorf("%w: replication subnet group %s not found", ErrNotFound, identifierOrArn)
 }
 
-// ModifyReplicationSubnetGroup updates a subnet group's description by
-// identifier or ARN. SubnetIds are accepted (as required by the real AWS
-// request shape) but not modeled further since gopherstack does not emulate
-// VPC subnet membership for DMS subnet groups.
+// ModifyReplicationSubnetGroup updates a subnet group's description and
+// subnet membership by identifier or ARN. SubnetIds is a required
+// ModifyReplicationSubnetGroupInput member (api_op_ModifyReplicationSubnetGroup.go)
+// that this backend previously dropped entirely -- real
+// types.ReplicationSubnetGroup.Subnets (types.go:4135) was never populated by
+// either Create or Modify, so a real client always saw an empty Subnets list
+// regardless of what it requested.
 func (b *InMemoryBackend) ModifyReplicationSubnetGroup(
 	ctx context.Context,
 	identifierOrArn, description string,
+	subnetIDs []string,
 ) (*ReplicationSubnetGroup, error) {
 	b.mu.Lock("ModifyReplicationSubnetGroup")
 	defer b.mu.Unlock()
@@ -88,6 +94,10 @@ func (b *InMemoryBackend) ModifyReplicationSubnetGroup(
 		if description != "" {
 			sg.ReplicationSubnetGroupDescription = description
 		}
+
+		if len(subnetIDs) > 0 {
+			sg.SubnetIDs = subnetIDs
+		}
 		cp := *sg
 
 		return &cp, nil
@@ -96,6 +106,10 @@ func (b *InMemoryBackend) ModifyReplicationSubnetGroup(
 	if sg, ok := lookupUnique(b.replicationSubnetGroupsByARN, regionKey(region, identifierOrArn)); ok {
 		if description != "" {
 			sg.ReplicationSubnetGroupDescription = description
+		}
+
+		if len(subnetIDs) > 0 {
+			sg.SubnetIDs = subnetIDs
 		}
 		cp := *sg
 

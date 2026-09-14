@@ -727,7 +727,8 @@ func TestDeleteVpc_DependencyViolation_Dependents(t *testing.T) {
 	// All dependent resources must be removed.
 	assert.Empty(t, b.DescribeSubnets([]string{subnet.ID}), "subnet must be removed")
 	assert.Empty(t, b.DescribeSecurityGroups([]string{sg.ID}), "security group must be removed")
-	assert.Empty(t, b.DescribeRouteTables([]string{rt.ID}), "route table must be removed")
+	_, err = b.DescribeRouteTables([]string{rt.ID})
+	require.Error(t, err, "route table must be removed")
 	assert.Empty(t, b.DescribeNetworkInterfaces([]string{eni.ID}), "ENI must be removed")
 
 	// Tags for all dependents (and the VPC's own auto-created default SG) must
@@ -1092,7 +1093,8 @@ func TestDeleteVpc_DependencyViolation_IGWsAndNatGateways(t *testing.T) {
 	require.NoError(t, b.DeleteSubnet(subnet.ID))
 	require.NoError(t, b.DeleteVpc(vpc.ID))
 
-	assert.Empty(t, b.DescribeInternetGateways([]string{igw.ID}))
+	_, err = b.DescribeInternetGateways([]string{igw.ID})
+	require.Error(t, err, "deleted IGW must NotFound, not silently vanish from the result")
 	assert.Empty(t, b.DescribeNatGateways([]string{ngw.ID}))
 	assert.Empty(t, b.DescribeVpcs([]string{vpc.ID}))
 }

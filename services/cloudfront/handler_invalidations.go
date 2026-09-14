@@ -107,15 +107,18 @@ func (h *Handler) handleListInvalidations(c *echo.Context, distID string) error 
 		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
 	}
 
+	// Marker is required on InvalidationList (cloudfront@v1.67.4 types/types.go:3678-3688): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<InvalidationList xmlns="%s">`+
+		`<Marker>%s</Marker>`+
 		`<IsTruncated>%t</IsTruncated>`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
 		`%s`+
 		`<Items>%s</Items>`+
 		`</InvalidationList>`,
-		cfNS, isTruncated, pageSize, len(page), nextMarkerXML, sb.String())
+		cfNS, xmlEscape(c.QueryParam("Marker")), isTruncated, pageSize, len(page), nextMarkerXML, sb.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }

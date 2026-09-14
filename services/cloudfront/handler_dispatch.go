@@ -100,11 +100,17 @@ func (h *Handler) dispatchCreateExtended(c *echo.Context, operation string) erro
 //
 
 func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource string) error {
-	if err := h.dispatchGetOrMutateCoreOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchGetOrMutateCoreOps(c, operation, resource); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
-	if err := h.dispatchGetOrMutateEncryptionOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchGetOrMutateEncryptionOps(c, operation, resource); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
@@ -113,7 +119,10 @@ func (h *Handler) dispatchGetOrMutate(c *echo.Context, operation, resource strin
 
 // dispatchGetOrMutateCoreOps handles core GET, DELETE, and UPDATE operations.
 func (h *Handler) dispatchGetOrMutateCoreOps(c *echo.Context, operation, resource string) error {
-	if err := h.dispatchGetDistributionAndCachePolicyOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchGetDistributionAndCachePolicyOps(c, operation, resource); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
@@ -177,8 +186,14 @@ func (h *Handler) dispatchGetIdentityAndPolicyDeleteOps(
 }
 
 // dispatchGetOrMutateEncryptionOps handles OAI, policy, and encryption operations.
-func (h *Handler) dispatchGetOrMutateEncryptionOps(c *echo.Context, operation, resource string) error {
-	if err := h.dispatchUpdateDeletePolicyAndOAIOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+func (h *Handler) dispatchGetOrMutateEncryptionOps(
+	c *echo.Context,
+	operation, resource string,
+) error {
+	if err := h.dispatchUpdateDeletePolicyAndOAIOps(c, operation, resource); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
@@ -244,7 +259,10 @@ func (h *Handler) dispatchFieldLevelEncryptionOps(
 // dispatchGetOrMutateExtOps handles public key, key group, log config, key value store, VPC origin,
 // and streaming distribution operations.
 func (h *Handler) dispatchGetOrMutateExtOps(c *echo.Context, operation, resource string) error {
-	if err := h.dispatchPublicKeyAndGroupOps(c, operation, resource); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchPublicKeyAndGroupOps(c, operation, resource); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
@@ -256,7 +274,10 @@ func (h *Handler) dispatchGetOrMutateExtOps(c *echo.Context, operation, resource
 }
 
 // dispatchStreamingDistributionOps handles get, update, and delete operations for streaming distributions.
-func (h *Handler) dispatchStreamingDistributionOps(c *echo.Context, operation, resource string) error {
+func (h *Handler) dispatchStreamingDistributionOps(
+	c *echo.Context,
+	operation, resource string,
+) error {
 	switch operation {
 	case opGetStreamingDistribution:
 		return h.handleGetStreamingDistribution(c, resource)
@@ -315,8 +336,10 @@ func (h *Handler) dispatchLogStoreVPCOps(c *echo.Context, operation, resource st
 		return h.handleUpdateVpcOrigin(c, resource)
 	case opDeleteVpcOrigin:
 		return h.handleDeleteVpcOrigin(c, resource)
-	case opGetContinuousDeploymentPolicy, opGetContinuousDeploymentPolicyConfig:
+	case opGetContinuousDeploymentPolicy:
 		return h.handleGetContinuousDeploymentPolicy(c, resource)
+	case opGetContinuousDeploymentPolicyConfig:
+		return h.handleGetContinuousDeploymentPolicyConfig(c, resource)
 	case opUpdateContinuousDeploymentPolicy:
 		return h.handleUpdateContinuousDeploymentPolicy(c, resource)
 	case opDeleteContinuousDeploymentPolicy:
@@ -482,7 +505,10 @@ func (h *Handler) dispatchStubsDistributionTenant(c *echo.Context, operation str
 	case opListDistributionTenantsByCustom:
 		return h.handleListDistributionTenantsByCustomization(c)
 	case opUpdateDistributionWithStagingConfig:
-		return h.handleUpdateDistributionWithStagingConfig(c, extractResourceID(path, "distribution/"))
+		return h.handleUpdateDistributionWithStagingConfig(
+			c,
+			extractResourceID(path, "distribution/"),
+		)
 	case opUpdateDomainAssociation:
 		return h.handleUpdateDomainAssociation(c)
 	case opVerifyDNSConfiguration:
@@ -567,7 +593,10 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, operation str
 	path := c.Request().URL.Path
 	switch operation {
 	case opDescribeConnectionFunction:
-		return h.handleDescribeConnectionFunction(c, extractResourceID(path, "connection-function/"))
+		return h.handleDescribeConnectionFunction(
+			c,
+			extractResourceID(path, "connection-function/"),
+		)
 	case opGetConnectionFunction:
 		return h.handleGetConnectionFunction(c, extractResourceID(path, "connection-function/"))
 	case opUpdateConnectionFunction:
@@ -594,7 +623,10 @@ func (h *Handler) dispatchStubsConnectionFunction(c *echo.Context, operation str
 
 // dispatchStubsConnectionAndPolicy handles connection group, continuous deployment, resource policy, and misc stubs.
 func (h *Handler) dispatchStubsConnectionAndPolicy(c *echo.Context, operation string) error {
-	if err := h.dispatchStubsConnectionGroupAndCDP(c, operation); !errors.Is(err, errNotDispatched) {
+	if err := h.dispatchStubsConnectionGroupAndCDP(c, operation); !errors.Is(
+		err,
+		errNotDispatched,
+	) {
 		return err
 	}
 
@@ -651,7 +683,10 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 
 	switch operation {
 	case opListDistributionsByCachePolicyID:
-		return h.handleListDistributionsByCachePolicyID(c, extractResourceID(path, "distributionsByCachePolicyId/"))
+		return h.handleListDistributionsByCachePolicyID(
+			c,
+			extractResourceID(path, "distributionsByCachePolicyId/"),
+		)
 	case opListDistributionsByOriginRequestPol:
 		return h.handleListDistributionsByOriginRequestPolicyID(
 			c,
@@ -663,13 +698,25 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 			extractResourceID(path, "distributionsByResponseHeadersPolicyId/"),
 		)
 	case opListDistributionsByWebACLID:
-		return h.handleListDistributionsByWebACLID(c, extractResourceID(path, "distributionsByWebACLId/"))
+		return h.handleListDistributionsByWebACLID(
+			c,
+			extractResourceID(path, "distributionsByWebACLId/"),
+		)
 	case opListDistributionsByRealtimeLogConfig:
-		return h.handleListDistributionsByRealtimeLogConfig(c, decodeListDistributionsByRealtimeLogConfigBody(c))
+		return h.handleListDistributionsByRealtimeLogConfig(
+			c,
+			decodeListDistributionsByRealtimeLogConfigBody(c),
+		)
 	case opListDistributionsByKeyGroup:
-		return h.handleListDistributionsByKeyGroup(c, extractResourceID(path, "distributionsByKeyGroupId/"))
+		return h.handleListDistributionsByKeyGroup(
+			c,
+			extractResourceID(path, "distributionsByKeyGroupId/"),
+		)
 	case opListDistributionsByVpcOriginID:
-		return h.handleListDistributionsByVpcOriginID(c, extractResourceID(path, "distributionsByVpcOriginId/"))
+		return h.handleListDistributionsByVpcOriginID(
+			c,
+			extractResourceID(path, "distributionsByVpcOriginId/"),
+		)
 	case opListDistributionsByAnycastIPListID:
 		return h.handleListDistributionsByAnycastIPListID(
 			c,
@@ -681,9 +728,15 @@ func (h *Handler) dispatchStubsDistributionListBy(c *echo.Context, operation str
 			c.Request().URL.Query().Get("ConnectionFunctionIdentifier"),
 		)
 	case opListDistributionsByConnectionMode:
-		return h.handleListDistributionsByConnectionMode(c, extractResourceID(path, "distributionsByConnectionMode/"))
+		return h.handleListDistributionsByConnectionMode(
+			c,
+			extractResourceID(path, "distributionsByConnectionMode/"),
+		)
 	case opListDistributionsByTrustStore:
-		return h.handleListDistributionsByTrustStore(c, c.Request().URL.Query().Get("TrustStoreIdentifier"))
+		return h.handleListDistributionsByTrustStore(
+			c,
+			c.Request().URL.Query().Get("TrustStoreIdentifier"),
+		)
 	case opListDistributionsByOwnedResource:
 		return h.handleListDistributionsByOwnedResource(
 			c,
@@ -705,16 +758,29 @@ func (h *Handler) dispatchStubsTenantAndCerts(c *echo.Context, operation string)
 
 	switch operation {
 	case opCreateInvalidationForDistTenant:
-		return h.handleCreateInvalidationForTenant(c, extractResourceID(path, "distribution-tenant/"))
+		return h.handleCreateInvalidationForTenant(
+			c,
+			extractResourceID(path, "distribution-tenant/"),
+		)
 	case opGetInvalidationForDistTenant:
 		return h.handleGetInvalidationForTenant(c, extractResourceID(path, "distribution-tenant/"))
 	case opListInvalidationsForDistTenant:
-		return h.handleListInvalidationsForTenant(c, extractResourceID(path, "distribution-tenant/"))
+		return h.handleListInvalidationsForTenant(
+			c,
+			extractResourceID(path, "distribution-tenant/"),
+		)
 	case opGetManagedCertificateDetails:
-		return h.handleGetManagedCertificateDetails(c, extractResourceID(path, "managed-certificate/"))
+		return h.handleGetManagedCertificateDetails(
+			c,
+			extractResourceID(path, "managed-certificate/"),
+		)
 	default:
 
-		return xmlResp(c, http.StatusNotFound, cfErrorXML("NoSuchOperation", "unknown operation: "+operation))
+		return xmlResp(
+			c,
+			http.StatusNotFound,
+			cfErrorXML("NoSuchOperation", "unknown operation: "+operation),
+		)
 	}
 }
 
@@ -818,12 +884,20 @@ var errCodeMapping = []struct {
 	{ErrOACInUse, "OriginAccessControlInUse", http.StatusConflict},
 	{ErrKeyGroupInUse, "ResourceInUse", http.StatusConflict},
 	{ErrDistributionAlreadyExists, "DistributionAlreadyExists", http.StatusConflict},
-	{ErrStreamingDistributionAlreadyExists, "StreamingDistributionAlreadyExists", http.StatusConflict},
+	{
+		ErrStreamingDistributionAlreadyExists,
+		"StreamingDistributionAlreadyExists",
+		http.StatusConflict,
+	},
 	{ErrIllegalDelete, "IllegalDelete", http.StatusBadRequest},
 	{ErrIllegalUpdate, "IllegalUpdate", http.StatusBadRequest},
 	{ErrCachePolicyAlreadyExists, "CachePolicyAlreadyExists", http.StatusConflict},
 	{ErrOriginRequestPolicyAlreadyExists, "OriginRequestPolicyAlreadyExists", http.StatusConflict},
-	{ErrResponseHeadersPolicyAlreadyExists, "ResponseHeadersPolicyAlreadyExists", http.StatusConflict},
+	{
+		ErrResponseHeadersPolicyAlreadyExists,
+		"ResponseHeadersPolicyAlreadyExists",
+		http.StatusConflict,
+	},
 	{ErrOriginAccessControlAlreadyExists, "OriginAccessControlAlreadyExists", http.StatusConflict},
 	{ErrFunctionAlreadyExists, "FunctionAlreadyExists", http.StatusConflict},
 	{ErrFLEAlreadyExists, "FieldLevelEncryptionConfigAlreadyExists", http.StatusConflict},

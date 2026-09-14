@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -22,15 +21,17 @@ const testTaggingARN = "arn:aws:s3:::e2e-tagged-bucket"
 func TestResourceGroupsTaggingAPIDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(func(_ context.Context) []taggingbackend.TaggedResource {
-		return []taggingbackend.TaggedResource{
-			{
-				ResourceARN:  testTaggingARN,
-				ResourceType: "s3:bucket",
-				Tags:         map[string]string{"env": "e2e"},
-			},
-		}
-	})
+	stack.ResourceGroupsTaggingHandler.Backend.RegisterProvider(
+		func(_ context.Context) []taggingbackend.TaggedResource {
+			return []taggingbackend.TaggedResource{
+				{
+					ResourceARN:  testTaggingARN,
+					ResourceType: "s3:bucket",
+					Tags:         map[string]string{"env": "e2e"},
+				},
+			}
+		},
+	)
 
 	server := httptest.NewServer(stack.Echo)
 	defer server.Close()

@@ -176,11 +176,11 @@ func (b *InMemoryBackend) ListBackupPlanVersions(planID string) ([]*Plan, error)
 	// Find plan by ID.
 	name, ok := b.planIDIndex[planID]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", errBackupPlanNotFoundB1, planID)
+		return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
 	}
 	plan, ok := b.plans.Get(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", errBackupPlanNotFoundB1, name)
+		return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, name)
 	}
 
 	cp := *plan
@@ -195,11 +195,11 @@ func (b *InMemoryBackend) ExportBackupPlanTemplate(planID string) (string, error
 
 	name, ok := b.planIDIndex[planID]
 	if !ok {
-		return "", fmt.Errorf("%w: %s", errBackupPlanNotFoundB1, planID)
+		return "", fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
 	}
 	plan, ok := b.plans.Get(name)
 	if !ok {
-		return "", fmt.Errorf("%w: %s", errBackupPlanNotFoundB1, name)
+		return "", fmt.Errorf("%w: backup plan %s not found", ErrNotFound, name)
 	}
 
 	doc := backupPlanBodyDoc{

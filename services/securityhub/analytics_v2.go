@@ -2,6 +2,7 @@ package securityhub
 
 import (
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -61,7 +62,9 @@ func groupByFieldsFromRules(raw any) []string {
 // this backend's internal storage key for the actual lookup, so findings
 // storing "SeverityLabel" can still be grouped by the client's "severity".
 // Pass nil to look items up by the requested name verbatim.
-func groupByResults(items []map[string]any, groupByFields []string, fieldMap map[string]string) []map[string]any {
+func groupByResults(
+	items []map[string]any, groupByFields []string, fieldMap map[string]string, sortOrder string,
+) []map[string]any {
 	results := make([]map[string]any, 0, len(groupByFields))
 
 	for _, field := range groupByFields {
@@ -86,6 +89,18 @@ func groupByResults(items []map[string]any, groupByFields []string, fieldMap map
 
 			counts[val]++
 		}
+
+		// GetFindingStatisticsV2/GetResourcesStatisticsV2's own doc comment:
+		// "Orders the aggregation count in descending or ascending order.
+		// Descending order is the default" (api_op_GetFindingStatisticsV2.go).
+		ascending := sortOrder == "asc"
+		sort.SliceStable(order, func(i, j int) bool {
+			if ascending {
+				return counts[order[i]] < counts[order[j]]
+			}
+
+			return counts[order[i]] > counts[order[j]]
+		})
 
 		values := make([]map[string]any, 0, len(order))
 		for _, val := range order {

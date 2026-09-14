@@ -360,11 +360,15 @@ type WorkspaceBundle struct {
 // StandbyWorkspaceSpec holds the fields for creating a single standby
 // WorkSpace, matching the real StandbyWorkspace request shape (DirectoryId,
 // PrimaryWorkspaceId, DataReplication, Tags, VolumeEncryptionKey -- no
-// UserName/BundleId, unlike WorkspaceCreationSpec).
+// UserName/BundleId, unlike WorkspaceCreationSpec). PrimaryRegion is not a
+// StandbyWorkspace member -- it's CreateStandbyWorkspacesInput's batch-level
+// required field (api_op_CreateStandbyWorkspaces.go:29-33), applied uniformly
+// to every item in the request.
 type StandbyWorkspaceSpec struct {
 	Tags                map[string]string
 	DirectoryID         string
 	PrimaryWorkspaceID  string
+	PrimaryRegion       string
 	DataReplication     string
 	VolumeEncryptionKey string
 }

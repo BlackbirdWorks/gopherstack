@@ -215,12 +215,16 @@ const (
 	resourceConnection   = "connection"
 	resourceLag          = "LAG"
 	resourceInterconnect = "interconnect"
-	resourceVif          = "virtual interface"
-	resourceGateway      = "Direct Connect gateway"
-	resourceAssociation  = "Direct Connect gateway association"
-	resourceProposal     = "Direct Connect gateway association proposal"
-	resourceBGPPeer      = "BGP peer"
-	resourceMacSecKey    = "MACsec key"
-	resourceTaggable     = "resource"
-	resourceVifTest      = "virtual interface test"
+	// resourceHostParent covers AllocateHostedConnection/AssociateHostedConnection's
+	// connectionId/parentConnectionId, which can each name a connection, LAG, or
+	// interconnect (see resolveHostLocked).
+	resourceHostParent  = "connection, LAG, or interconnect"
+	resourceVif         = "virtual interface"
+	resourceGateway     = "Direct Connect gateway"
+	resourceAssociation = "Direct Connect gateway association"
+	resourceProposal    = "Direct Connect gateway association proposal"
+	resourceBGPPeer     = "BGP peer"
+	resourceMacSecKey   = "MACsec key"
+	resourceTaggable    = "resource"
+	resourceVifTest     = "virtual interface test"
 )

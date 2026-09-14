@@ -708,10 +708,11 @@ func validateCreateStandbyWorkspacesInput(req *createStandbyWorkspacesInput) err
 	return nil
 }
 
-func specToStandbyCreationSpec(spec standbyWorkspaceSpec) StandbyWorkspaceSpec {
+func specToStandbyCreationSpec(spec standbyWorkspaceSpec, primaryRegion string) StandbyWorkspaceSpec {
 	return StandbyWorkspaceSpec{
 		DirectoryID:         spec.DirectoryId,
 		PrimaryWorkspaceID:  spec.PrimaryWorkspaceId,
+		PrimaryRegion:       primaryRegion,
 		DataReplication:     spec.DataReplication,
 		VolumeEncryptionKey: spec.VolumeEncryptionKey,
 		Tags:                tagsToMap(spec.Tags),
@@ -733,7 +734,7 @@ func (h *Handler) handleCreateStandbyWorkspaces(
 	// request (e.g. an unregistered DirectoryId) must not abort the rest of
 	// the batch.
 	for _, s := range req.StandbyWorkspaces {
-		ws, err := h.Backend.CreateStandbyWorkspace(ctx, specToStandbyCreationSpec(s))
+		ws, err := h.Backend.CreateStandbyWorkspace(ctx, specToStandbyCreationSpec(s, req.PrimaryRegion))
 		if err != nil {
 			code, message := classifyCreateError(err)
 			failed = append(failed, failedStandbyItem{

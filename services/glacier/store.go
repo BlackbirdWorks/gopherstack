@@ -4,10 +4,10 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -24,33 +24,22 @@ const idChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 // archiveData remain plain maps because their values are slice/string-typed
 // (not *T) with no identity field of their own to key a Table by.
 type InMemoryBackend struct {
-	// s3 is the (optional) wired S3 backend a completed Select job's real
-	// OutputLocation output is written to -- see select_output.go. Nil until
-	// SetS3Backend is called (cli.go's wireGlacierS3); nil is a valid, silently
-	// degraded state (no S3 write-back, matching pre-wiring behavior).
 	s3                      S3Accessor
-	multipartUploadsByVault *store.Index[MultipartUpload]
+	vaultLocks              *store.Table[VaultLock]
+	dataRetrievalPolicies   map[string]string
+	multipartPartData       map[uploadKey]map[string][]byte
+	jobs                    *store.Table[Job]
+	jobsByVault             *store.Index[Job]
+	multipartUploads        *store.Table[MultipartUpload]
 	multipartParts          map[uploadKey][]MultipartPart
-	// multipartPartData holds the raw uploaded bytes for each in-progress part,
-	// keyed by the same uploadKey as multipartParts and then by RangeInBytes. Kept
-	// separate from MultipartPart (the wire DTO) so raw bytes never leak into
-	// ListParts JSON. Like archiveData, it is never persisted (see persistence.go).
-	multipartPartData     map[uploadKey]map[string][]byte
-	jobs                  *store.Table[Job]
-	jobsByVault           *store.Index[Job]
-	multipartUploads      *store.Table[MultipartUpload]
-	registry              *store.Registry
-	vaultLocks            *store.Table[VaultLock]
-	vaultsByAccountRegion *store.Index[Vault]
-	provisionedCapacity   map[string][]*ProvisionedCapacity
-	dataRetrievalPolicies map[string]string
-	archiveData           map[string][]byte
-	vaults                *store.Table[Vault]
-	// retrievalDelay is the simulated asynchronous retrieval window applied to newly
-	// initiated jobs. Jobs stay InProgress until CreationDate+retrievalDelay, matching
-	// AWS, which does not make archive/inventory output available immediately.
-	retrievalDelay time.Duration
-	mu             sync.RWMutex
+	vaultsByAccountRegion   *store.Index[Vault]
+	registry                *store.Registry
+	provisionedCapacity     map[string][]*ProvisionedCapacity
+	multipartUploadsByVault *store.Index[MultipartUpload]
+	archiveData             map[string][]byte
+	vaults                  *store.Table[Vault]
+	mu                      *lockmetrics.RWMutex
+	retrievalDelay          time.Duration
 }
 
 // NewInMemoryBackend creates a new in-memory Glacier backend.
@@ -63,6 +52,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		dataRetrievalPolicies: make(map[string]string),
 		archiveData:           make(map[string][]byte),
 		retrievalDelay:        defaultRetrievalDelay,
+		mu:                    lockmetrics.New("glacier"),
 	}
 
 	registerAllTables(b)
@@ -118,7 +108,7 @@ func vaultARN(accountID, region, vaultName string) string {
 
 // Reset clears all backend state, resetting to an empty store.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

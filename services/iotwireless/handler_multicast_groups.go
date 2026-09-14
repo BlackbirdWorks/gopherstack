@@ -196,7 +196,29 @@ func (h *Handler) startMulticastGroupSession(c *echo.Context, id string) error {
 	return nil
 }
 
+// sendDataToMulticastGroup validates SendDataToMulticastGroupInput's two
+// required body members (PayloadData, WirelessMetadata -- both httpPayload
+// document fields, iotwireless@v1.44.4 serializers.go:
+// awsRestjson1_serializeOpDocumentSendDataToMulticastGroupInput) instead of
+// discarding the body outright. There is no reachable read-back API for
+// multicast group sent data (confirmed in PARITY.md), so nothing further to
+// persist -- but a request missing them must still be rejected like AWS
+// would, not answered with a fabricated success.
 func (h *Handler) sendDataToMulticastGroup(c *echo.Context, _ string) error {
+	var req struct {
+		PayloadData      string          `json:"PayloadData"`
+		WirelessMetadata json.RawMessage `json:"WirelessMetadata"`
+	}
+	body := readStubBody(c)
+	_ = json.Unmarshal(body, &req)
+
+	if req.PayloadData == "" {
+		return writeError(c, http.StatusBadRequest, "ValidationException: PayloadData is required")
+	}
+	if len(req.WirelessMetadata) == 0 {
+		return writeError(c, http.StatusBadRequest, "ValidationException: WirelessMetadata is required")
+	}
+
 	return writeJSON(c, http.StatusCreated, sendDataToMulticastGroupResponse{
 		MessageID: uuid.NewString(),
 	})

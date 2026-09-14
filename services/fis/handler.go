@@ -372,8 +372,30 @@ func (h *Handler) dispatchTargetAccountOps(
 // Error helpers
 // ----------------------------------------
 
+// writeError omitted __type on every malformed-request and dispatch-miss
+// site (empty errType, omitempty tag), so restjson.GetErrorInfo
+// (aws-sdk-go-v2 aws/protocol/restjson/decoder_util.go:15) found no code in
+// header or body and every such failure decoded client-side as
+// smithy.GenericAPIError{Code:"UnknownError"} instead of a typed FIS
+// exception. errTypeForStatus recovers the type from the status these call
+// sites already pass, matching classifyError's status choices below.
 func (h *Handler) writeError(c *echo.Context, status int, message, resourceID string) error {
-	return h.writeTypedError(c, status, "", message, resourceID)
+	return h.writeTypedError(c, status, errTypeForStatus(status), message, resourceID)
+}
+
+func errTypeForStatus(status int) string {
+	switch status {
+	case http.StatusNotFound:
+		return exceptionResourceNotFound
+	case http.StatusConflict:
+		return exceptionConflict
+	case http.StatusPaymentRequired:
+		return exceptionServiceQuotaExceeded
+	case http.StatusBadRequest:
+		return exceptionValidation
+	default:
+		return exceptionInternalServer
+	}
 }
 
 func (h *Handler) writeTypedError(
@@ -385,6 +407,17 @@ func (h *Handler) writeTypedError(
 
 	return c.JSON(status, resp)
 }
+
+// FIS's four modeled exception shapes, per classifyError's doc comment
+// below, plus InternalServerError which is not modeled but used as the
+// closest faithful label for the fault-server default case.
+const (
+	exceptionValidation           = "ValidationException"
+	exceptionResourceNotFound     = "ResourceNotFoundException"
+	exceptionConflict             = "ConflictException"
+	exceptionServiceQuotaExceeded = "ServiceQuotaExceededException"
+	exceptionInternalServer       = "InternalServerError"
+)
 
 // errorClass holds the AWS exception type name and HTTP status code that a sentinel
 // backend error maps to.
@@ -414,11 +447,11 @@ type errorClass struct {
 func classifyError(err error) errorClass {
 	switch {
 	case errors.Is(err, ErrValidation), errors.Is(err, ErrTooManyTags), errors.Is(err, ErrExperimentNotRunning):
-		return errorClass{exceptionType: "ValidationException", httpStatus: http.StatusBadRequest}
+		return errorClass{exceptionType: exceptionValidation, httpStatus: http.StatusBadRequest}
 	case errors.Is(err, ErrTooManyExperiments):
-		return errorClass{exceptionType: "ServiceQuotaExceededException", httpStatus: http.StatusPaymentRequired}
+		return errorClass{exceptionType: exceptionServiceQuotaExceeded, httpStatus: http.StatusPaymentRequired}
 	case errors.Is(err, ErrSafetyLeverEngaged):
-		return errorClass{exceptionType: "ConflictException", httpStatus: http.StatusConflict}
+		return errorClass{exceptionType: exceptionConflict, httpStatus: http.StatusConflict}
 	case errors.Is(err, ErrTemplateNotFound),
 		errors.Is(err, ErrExperimentNotFound),
 		errors.Is(err, ErrActionNotFound),
@@ -426,9 +459,9 @@ func classifyError(err error) errorClass {
 		errors.Is(err, ErrResourceNotFound),
 		errors.Is(err, ErrSafetyLeverNotFound),
 		errors.Is(err, ErrTargetAccountConfigNotFound):
-		return errorClass{exceptionType: "ResourceNotFoundException", httpStatus: http.StatusNotFound}
+		return errorClass{exceptionType: exceptionResourceNotFound, httpStatus: http.StatusNotFound}
 	default:
-		return errorClass{exceptionType: "InternalServerError", httpStatus: http.StatusInternalServerError}
+		return errorClass{exceptionType: exceptionInternalServer, httpStatus: http.StatusInternalServerError}
 	}
 }
 

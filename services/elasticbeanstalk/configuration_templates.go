@@ -3,7 +3,6 @@ package elasticbeanstalk
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -59,8 +58,19 @@ type ConfigurationTemplateParams struct {
 	// Real AWS documents PlatformArn and SolutionStackName as mutually
 	// exclusive -- see CreateConfigurationTemplateInput.
 	PlatformArn string
+	// EnvironmentID seeds the template from an existing environment's option
+	// settings (CreateConfigurationTemplateInput.EnvironmentId: "The ID of an
+	// environment whose settings you want to use to create the configuration
+	// template").
+	EnvironmentID string
+	// SourceApplicationName/SourceTemplateName seed the template from another
+	// configuration template's option settings
+	// (CreateConfigurationTemplateInput.SourceConfiguration). SourceApplicationName
+	// defaults to the request's own ApplicationName when unset.
+	SourceApplicationName string
+	SourceTemplateName    string
 	// OptionSettings overrides option values obtained from the solution
-	// stack/platform for this template.
+	// stack/platform/EnvironmentID/SourceConfiguration for this template.
 	OptionSettings []OptionSetting
 }
 
@@ -106,21 +116,90 @@ func (b *InMemoryBackend) CreateConfigurationTemplateWithParams(
 		)
 	}
 
+	baseSolutionStack, basePlatformArn, baseOptionSettings, err := b.resolveConfigurationTemplateSourceLocked(
+		region, appName, solutionStack, params,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	tmpl := &ConfigurationTemplate{
 		ApplicationName:   appName,
 		TemplateName:      templateName,
 		Description:       description,
 		DateCreated:       nowISO8601(),
 		DateUpdated:       nowISO8601(),
-		SolutionStackName: solutionStack,
-		PlatformArn:       params.PlatformArn,
-		OptionSettings:    slices.Clone(params.OptionSettings),
+		SolutionStackName: baseSolutionStack,
+		PlatformArn:       basePlatformArn,
+		OptionSettings:    updateOptionSettings(baseOptionSettings, params.OptionSettings, nil),
 		Tags:              copyTags(tags),
 		region:            region,
 	}
 	b.configTemplatePut(tmpl)
 
 	return cloneConfigurationTemplate(tmpl), nil
+}
+
+// resolveConfigurationTemplateSourceLocked resolves the solution stack,
+// platform ARN and option settings a new configuration template seeds from:
+// EnvironmentId (an existing environment's live settings) or SourceConfiguration
+// (another template's settings), per CreateConfigurationTemplateInput's doc
+// comments. requestedSolutionStack wins over a seeded one ("If both solution
+// stack name and source configuration are specified, the solution stack of the
+// source configuration template must match the specified solution stack
+// name"). Caller must hold b.mu.
+func (b *InMemoryBackend) resolveConfigurationTemplateSourceLocked(
+	region, appName, requestedSolutionStack string,
+	params ConfigurationTemplateParams,
+) (string, string, []OptionSetting, error) {
+	switch {
+	case params.EnvironmentID != "":
+		env, ok := b.environmentByID(region, params.EnvironmentID)
+		if !ok {
+			return "", "", nil, fmt.Errorf(
+				"%w: environment %s not found", ErrNotFound, params.EnvironmentID,
+			)
+		}
+
+		return requestedOrElse(requestedSolutionStack, env.SolutionStackName),
+			env.PlatformARN, env.OptionSettings, nil
+
+	case params.SourceTemplateName != "":
+		srcApp := params.SourceApplicationName
+		if srcApp == "" {
+			srcApp = appName
+		}
+
+		src, ok := b.configTemplateGet(region, srcApp, params.SourceTemplateName)
+		if !ok {
+			return "", "", nil, fmt.Errorf(
+				"%w: configuration template %s not found", ErrNotFound, params.SourceTemplateName,
+			)
+		}
+
+		if requestedSolutionStack != "" && src.SolutionStackName != "" &&
+			requestedSolutionStack != src.SolutionStackName {
+			return "", "", nil, fmt.Errorf(
+				"%w: SolutionStackName %s does not match source configuration template's solution stack %s",
+				ErrInvalidParameter, requestedSolutionStack, src.SolutionStackName,
+			)
+		}
+
+		return requestedOrElse(requestedSolutionStack, src.SolutionStackName),
+			requestedOrElse(params.PlatformArn, src.PlatformArn), src.OptionSettings, nil
+
+	default:
+		return requestedSolutionStack, params.PlatformArn, nil, nil
+	}
+}
+
+// requestedOrElse returns requested if non-empty, otherwise fallback.
+func requestedOrElse(requested, fallback string) string {
+	if requested != "" {
+		return requested
+	}
+
+	return fallback
 }
 
 // createDefaultConfigurationTemplate seeds the "Default" configuration

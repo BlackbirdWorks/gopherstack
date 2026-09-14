@@ -111,6 +111,7 @@ type fleetItem struct {
 	// types/types.go:6646, FleetData.Errors/Instances doc comments).
 	Errors                 fleetErrorSet        `xml:"errorSet"`
 	Instances              fleetInstanceItemSet `xml:"fleetInstanceSet"`
+	TagSet                 []simpleTagItem      `xml:"tagSet>item"`
 	TotalTargetCapacity    int                  `xml:"targetCapacitySpecification>totalTargetCapacity"`
 	OnDemandTargetCapacity int                  `xml:"targetCapacitySpecification>onDemandTargetCapacity,omitempty"`
 	SpotTargetCapacity     int                  `xml:"targetCapacitySpecification>spotTargetCapacity,omitempty"`

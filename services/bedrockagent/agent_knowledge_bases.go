@@ -29,7 +29,7 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("AssociateAgentKnowledgeBase")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 func (b *InMemoryBackend) GetAgentKnowledgeBase(
 	_ context.Context, agentID, agentVersion, kbID string,
 ) (*AgentKnowledgeBase, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgentKnowledgeBase")
 	defer b.mu.RUnlock()
 
 	assoc, ok := b.agentKBAssocs.Get(agKBKey(agentID, agentVersion, kbID))
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateAgentKnowledgeBase")
 	defer b.mu.Unlock()
 
 	key := agKBKey(agentID, agentVersion, kbID)
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DisassociateAgentKnowledgeBase")
 	defer b.mu.Unlock()
 
 	key := agKBKey(agentID, agentVersion, kbID)
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) DisassociateAgentKnowledgeBase(
 func (b *InMemoryBackend) ListAgentKnowledgeBases(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
 ) ([]*AgentKnowledgeBaseSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgentKnowledgeBases")
 	defer b.mu.RUnlock()
 
 	group := b.agentKBAssocsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))

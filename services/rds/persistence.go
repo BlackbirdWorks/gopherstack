@@ -29,21 +29,23 @@ import (
 const rdsSnapshotVersion = 3
 
 type backendSnapshot struct {
-	Tables                  map[string]json.RawMessage             `json:"tables"`
-	Tags                    map[string][]Tag                       `json:"tags"`
-	ClusterRoles            map[string][]DBClusterRole             `json:"clusterRoles"`
-	InstanceRoles           map[string]map[string]string           `json:"instanceRoles"`
-	ProxyTargets            map[string][]DBProxyTarget             `json:"proxyTargets"`
-	InstanceReadyAt         map[string]time.Time                   `json:"instanceReadyAt"`
-	ClusterReadyAt          map[string]time.Time                   `json:"clusterReadyAt"`
-	AutomatedBackups        map[string]*DBInstanceAutomatedBackup  `json:"automatedBackups"`
-	SnapshotTenantDatabases map[string][]*DBSnapshotTenantDatabase `json:"snapshotTenantDatabases"`
-	InstanceLogFiles        map[string][]DBLogFile                 `json:"instanceLogFiles"`
-	InstanceLogContent      map[string]map[string]string           `json:"instanceLogContent"`
-	AccountID               string                                 `json:"accountID"`
-	Region                  string                                 `json:"region"`
-	DefaultCACertificateID  string                                 `json:"defaultCACertificateID"`
-	Version                 int                                    `json:"version"`
+	Tables                    map[string]json.RawMessage             `json:"tables"`
+	Tags                      map[string][]Tag                       `json:"tags"`
+	ClusterRoles              map[string][]DBClusterRole             `json:"clusterRoles"`
+	InstanceRoles             map[string]map[string]string           `json:"instanceRoles"`
+	ProxyTargets              map[string][]DBProxyTarget             `json:"proxyTargets"`
+	InstanceReadyAt           map[string]time.Time                   `json:"instanceReadyAt"`
+	ClusterReadyAt            map[string]time.Time                   `json:"clusterReadyAt"`
+	AutomatedBackups          map[string]*DBInstanceAutomatedBackup  `json:"automatedBackups"`
+	SnapshotTenantDatabases   map[string][]*DBSnapshotTenantDatabase `json:"snapshotTenantDatabases"`
+	ClusterBacktracks         map[string][]*DBClusterBacktrack       `json:"clusterBacktracks"`
+	PendingMaintenanceActions map[string][]*PendingMaintenanceAction `json:"pendingMaintenanceActions"`
+	InstanceLogFiles          map[string][]DBLogFile                 `json:"instanceLogFiles"`
+	InstanceLogContent        map[string]map[string]string           `json:"instanceLogContent"`
+	AccountID                 string                                 `json:"accountID"`
+	Region                    string                                 `json:"region"`
+	DefaultCACertificateID    string                                 `json:"defaultCACertificateID"`
+	Version                   int                                    `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -64,21 +66,23 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:                 rdsSnapshotVersion,
-		Tables:                  tables,
-		Tags:                    b.tags,
-		ClusterRoles:            b.clusterRoles,
-		InstanceRoles:           b.instanceRoles,
-		ProxyTargets:            b.proxyTargets,
-		InstanceReadyAt:         b.instanceReadyAt,
-		ClusterReadyAt:          b.clusterReadyAt,
-		AutomatedBackups:        b.automatedBackups,
-		SnapshotTenantDatabases: b.snapshotTenantDatabases,
-		InstanceLogFiles:        b.instanceLogFiles,
-		InstanceLogContent:      b.instanceLogContent,
-		AccountID:               b.accountID,
-		Region:                  b.region,
-		DefaultCACertificateID:  b.defaultCACertificateID,
+		Version:                   rdsSnapshotVersion,
+		Tables:                    tables,
+		Tags:                      b.tags,
+		ClusterRoles:              b.clusterRoles,
+		InstanceRoles:             b.instanceRoles,
+		ProxyTargets:              b.proxyTargets,
+		InstanceReadyAt:           b.instanceReadyAt,
+		ClusterReadyAt:            b.clusterReadyAt,
+		AutomatedBackups:          b.automatedBackups,
+		SnapshotTenantDatabases:   b.snapshotTenantDatabases,
+		ClusterBacktracks:         b.clusterBacktracks,
+		PendingMaintenanceActions: b.pendingMaintenanceActions,
+		InstanceLogFiles:          b.instanceLogFiles,
+		InstanceLogContent:        b.instanceLogContent,
+		AccountID:                 b.accountID,
+		Region:                    b.region,
+		DefaultCACertificateID:    b.defaultCACertificateID,
 	}
 
 	data, err := json.Marshal(snap)
@@ -139,6 +143,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.region = snap.Region
 	b.automatedBackups = snap.AutomatedBackups
 	b.snapshotTenantDatabases = snap.SnapshotTenantDatabases
+	b.clusterBacktracks = snap.ClusterBacktracks
+	b.pendingMaintenanceActions = snap.PendingMaintenanceActions
 	b.instanceLogFiles = snap.InstanceLogFiles
 	b.instanceLogContent = snap.InstanceLogContent
 	if snap.DefaultCACertificateID != "" {
@@ -193,6 +199,14 @@ func ensureNonNilMaps(snap *backendSnapshot) {
 
 	if snap.SnapshotTenantDatabases == nil {
 		snap.SnapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
+	}
+
+	if snap.ClusterBacktracks == nil {
+		snap.ClusterBacktracks = make(map[string][]*DBClusterBacktrack)
+	}
+
+	if snap.PendingMaintenanceActions == nil {
+		snap.PendingMaintenanceActions = make(map[string][]*PendingMaintenanceAction)
 	}
 
 	if snap.InstanceLogFiles == nil {

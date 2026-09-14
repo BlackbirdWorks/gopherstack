@@ -130,8 +130,26 @@ func (b *InMemoryBackend) CreateStream(ctx context.Context, input *CreateStreamI
 	return nil
 }
 
-// DeleteStream removes a stream.
+// DeleteStream removes a stream, then flushes (best-effort) the buffer of
+// any channel sourced from it, so records already accepted by PutRecord are
+// not silently dropped by the removal (see channel_delivery.go).
 func (b *InMemoryBackend) DeleteStream(ctx context.Context, input *DeleteStreamInput) error {
+	region := getRegion(ctx, b.region)
+	channelARNs := b.channelARNsForStream(region, input.StreamName)
+
+	if err := b.deleteStreamLocked(ctx, input); err != nil {
+		return err
+	}
+
+	for _, channelARN := range channelARNs {
+		b.FlushChannel(ctx, channelARN)
+	}
+
+	return nil
+}
+
+// deleteStreamLocked performs DeleteStream's actual state removal.
+func (b *InMemoryBackend) deleteStreamLocked(ctx context.Context, input *DeleteStreamInput) error {
 	region := getRegion(ctx, b.region)
 
 	var stream *Stream

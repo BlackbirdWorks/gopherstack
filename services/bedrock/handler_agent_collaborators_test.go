@@ -35,8 +35,10 @@ func TestAgentCollaboratorCRUD(t *testing.T) {
 
 	// Associate collaborator
 	rec = doAgentRequest(t, h, http.MethodPut, collabPath, map[string]any{
-		"agentVersion":             "DRAFT",
-		"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/other",
+		"agentVersion": "DRAFT",
+		"agentDescriptor": map[string]any{
+			"aliasArn": "arn:aws:bedrock:us-east-1:000000000000:agent/other",
+		},
 		"relayConversationHistory": "TO_COLLABORATOR",
 	})
 	assert.Equal(t, http.StatusOK, rec.Code)
@@ -92,10 +94,17 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 			require.NoError(t, err)
 
 			rec := doAgentRequest(
-				t, h, http.MethodPut,
-				fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
+				t,
+				h,
+				http.MethodPut,
+				fmt.Sprintf(
+					"/agents/%s/agentversions/DRAFT/agentcollaborators",
+					supervisor.AgentID,
+				),
 				map[string]any{
-					"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
+					"agentDescriptor": map[string]any{
+						"aliasArn": "arn:aws:bedrock:us-east-1:000000000000:agent/collab-agent",
+					},
 					"agentVersion":             "DRAFT",
 					"relayConversationHistory": tt.relayHistory,
 				},
@@ -110,8 +119,17 @@ func TestAccuracy_AgentCollaborator_RelayConversationHistoryPreserved(t *testing
 			assert.Equal(t, tt.relayHistory, collab["relayConversationHistory"])
 
 			// Verify GET preserves the relay setting
-			getRec := doAgentRequest(t, h, http.MethodGet,
-				fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators/%s", supervisor.AgentID, collabID), nil)
+			getRec := doAgentRequest(
+				t,
+				h,
+				http.MethodGet,
+				fmt.Sprintf(
+					"/agents/%s/agentversions/DRAFT/agentcollaborators/%s",
+					supervisor.AgentID,
+					collabID,
+				),
+				nil,
+			)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getBody map[string]any
@@ -134,7 +152,9 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 		map[string]any{
-			"collaboratorArn":          "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
+			"agentDescriptor": map[string]any{
+				"aliasArn": "arn:aws:bedrock:us-east-1:000000000000:agent/subagent",
+			},
 			"agentVersion":             "DRAFT",
 			"relayConversationHistory": "DISABLED",
 		},
@@ -147,8 +167,14 @@ func TestAccuracy_AgentCollaborator_UpdateRelayHistory(t *testing.T) {
 
 	// Update relay to enabled
 	updateRec := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators/%s", supervisor.AgentID, collabID),
+		t,
+		h,
+		http.MethodPut,
+		fmt.Sprintf(
+			"/agents/%s/agentversions/DRAFT/agentcollaborators/%s",
+			supervisor.AgentID,
+			collabID,
+		),
 		map[string]any{"relayConversationHistory": "TO_COLLABORATOR"},
 	)
 	require.Equal(t, http.StatusOK, updateRec.Code)
@@ -179,8 +205,13 @@ func TestAccuracy_AgentCollaborator_SupervisorPattern(t *testing.T) {
 			t, h, http.MethodPut,
 			fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", supervisor.AgentID),
 			map[string]any{
-				"collaboratorArn": fmt.Sprintf("arn:aws:bedrock:us-east-1:000000000000:agent/subagent-%d", i),
-				"agentVersion":    "DRAFT",
+				"agentDescriptor": map[string]any{
+					"aliasArn": fmt.Sprintf(
+						"arn:aws:bedrock:us-east-1:000000000000:agent/subagent-%d",
+						i,
+					),
+				},
+				"agentVersion": "DRAFT",
 			},
 		)
 		require.Equal(t, http.StatusOK, rec.Code)
@@ -208,8 +239,10 @@ func TestAccuracy_AgentCollaborator_DisassociateRemovesFromList(t *testing.T) {
 		t, h, http.MethodPut,
 		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators", agent.AgentID),
 		map[string]any{
-			"collaboratorArn": "arn:aws:bedrock:us-east-1:000000000000:agent/temp-collab",
-			"agentVersion":    "DRAFT",
+			"agentDescriptor": map[string]any{
+				"aliasArn": "arn:aws:bedrock:us-east-1:000000000000:agent/temp-collab",
+			},
+			"agentVersion": "DRAFT",
 		},
 	)
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -219,8 +252,17 @@ func TestAccuracy_AgentCollaborator_DisassociateRemovesFromList(t *testing.T) {
 	collabID := body["agentCollaborator"].(map[string]any)["collaboratorId"].(string)
 
 	// Disassociate
-	deleteRec := doAgentRequest(t, h, http.MethodDelete,
-		fmt.Sprintf("/agents/%s/agentversions/DRAFT/agentcollaborators/%s", agent.AgentID, collabID), nil)
+	deleteRec := doAgentRequest(
+		t,
+		h,
+		http.MethodDelete,
+		fmt.Sprintf(
+			"/agents/%s/agentversions/DRAFT/agentcollaborators/%s",
+			agent.AgentID,
+			collabID,
+		),
+		nil,
+	)
 	require.Equal(t, http.StatusNoContent, deleteRec.Code)
 
 	// List should be empty

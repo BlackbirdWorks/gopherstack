@@ -62,20 +62,27 @@ type AIRecommendationJob struct {
 }
 
 // MarshalJSON emits CreationTime/StartTime/EndTime as AWS awsjson1.1
-// epoch-seconds numbers rather than Go's default RFC3339 strings.
+// epoch-seconds numbers rather than Go's default RFC3339 strings, and Tags
+// as the []{Key,Value} list DescribeAIRecommendationJobOutput.Tags
+// ([]types.Tag, sagemaker@v1.263.2 api_op_DescribeAIRecommendationJob.go:115)
+// declares -- the embedded map[string]string field would otherwise
+// serialize as a JSON object, which a real client's []types.Tag
+// deserializer rejects outright.
 func (j *AIRecommendationJob) MarshalJSON() ([]byte, error) {
 	type alias AIRecommendationJob
 
 	return json.Marshal(struct {
 		*alias
-		StartTime    *float64 `json:"StartTime,omitempty"`
-		EndTime      *float64 `json:"EndTime,omitempty"`
-		CreationTime float64  `json:"CreationTime"`
+		StartTime    *float64    `json:"StartTime,omitempty"`
+		EndTime      *float64    `json:"EndTime,omitempty"`
+		Tags         []tagObject `json:"Tags,omitempty"`
+		CreationTime float64     `json:"CreationTime"`
 	}{
 		alias:        (*alias)(j),
 		CreationTime: epochSeconds(j.CreationTime),
 		StartTime:    epochSecondsPtr(j.StartTime),
 		EndTime:      epochSecondsPtr(j.EndTime),
+		Tags:         toTagObjects(j.Tags),
 	})
 }
 

@@ -247,10 +247,14 @@ func (h *Handler) handleSearchDataSources(c *echo.Context) error {
 		items = append(items, dataSourceSummaryToMap(ds))
 	}
 
+	// SearchDataSourcesOutput wraps results under DataSourceSummaries, not
+	// ListDataSourcesOutput's DataSources (quicksight@v1.129.0
+	// api_op_SearchDataSources.go:53 vs api_op_ListDataSources.go:48) -- a real
+	// client always decoded this as empty.
 	resp := map[string]any{
-		keyDataSources: items,
-		keyRequestID:   reqIDPlaceholder,
-		keyStatus:      http.StatusOK,
+		keyDataSourceSummaries: items,
+		keyRequestID:           reqIDPlaceholder,
+		keyStatus:              http.StatusOK,
 	}
 	if next != "" {
 		resp[keyNextToken] = next

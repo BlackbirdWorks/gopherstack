@@ -474,6 +474,8 @@ type productPageSnapshot struct {
 	LastModified    *isoTime       `json:"lastModified,omitempty"`
 	DisplayContent  map[string]any `json:"displayContent,omitempty"`
 	ProductPageID   string         `json:"productPageId"`
+	ProductPageArn  string         `json:"productPageArn,omitempty"`
+	PageTitle       string         `json:"pageTitle,omitempty"`
 	PortalProductID string         `json:"portalProductId"`
 }
 
@@ -486,6 +488,8 @@ func toProductPageSnapshot(v *ProductPage) *productPageSnapshot {
 		LastModified:    v.LastModified,
 		DisplayContent:  v.DisplayContent,
 		ProductPageID:   v.ProductPageID,
+		ProductPageArn:  v.ProductPageArn,
+		PageTitle:       v.PageTitle,
 		PortalProductID: v.PortalProductID,
 	}
 }
@@ -495,16 +499,22 @@ func fromProductPageSnapshot(v *productPageSnapshot) *ProductPage {
 		LastModified:    v.LastModified,
 		DisplayContent:  v.DisplayContent,
 		ProductPageID:   v.ProductPageID,
+		ProductPageArn:  v.ProductPageArn,
+		PageTitle:       v.PageTitle,
 		PortalProductID: v.PortalProductID,
 	}
 }
 
 type productREPageSnapshot struct {
-	LastModified              *isoTime                `json:"lastModified,omitempty"`
-	RestEndpointIdentifier    *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
-	DisplayContent            map[string]any          `json:"displayContent,omitempty"`
-	ProductRestEndpointPageID string                  `json:"productRestEndpointPageId"`
-	PortalProductID           string                  `json:"portalProductId"`
+	LastModified               *isoTime                `json:"lastModified,omitempty"`
+	RestEndpointIdentifier     *RestEndpointIdentifier `json:"restEndpointIdentifier,omitempty"`
+	DisplayContent             map[string]any          `json:"displayContent,omitempty"`
+	ProductRestEndpointPageID  string                  `json:"productRestEndpointPageId"`
+	ProductRestEndpointPageArn string                  `json:"productRestEndpointPageArn,omitempty"`
+	Endpoint                   string                  `json:"endpoint,omitempty"`
+	Status                     string                  `json:"status,omitempty"`
+	TryItState                 string                  `json:"tryItState,omitempty"`
+	PortalProductID            string                  `json:"portalProductId"`
 }
 
 func productREPageSnapshotKey(v *productREPageSnapshot) string {
@@ -513,21 +523,29 @@ func productREPageSnapshotKey(v *productREPageSnapshot) string {
 
 func toProductREPageSnapshot(v *ProductRestEndpointPage) *productREPageSnapshot {
 	return &productREPageSnapshot{
-		LastModified:              v.LastModified,
-		DisplayContent:            v.DisplayContent,
-		RestEndpointIdentifier:    v.RestEndpointIdentifier,
-		ProductRestEndpointPageID: v.ProductRestEndpointPageID,
-		PortalProductID:           v.PortalProductID,
+		LastModified:               v.LastModified,
+		DisplayContent:             v.DisplayContent,
+		RestEndpointIdentifier:     v.RestEndpointIdentifier,
+		ProductRestEndpointPageID:  v.ProductRestEndpointPageID,
+		ProductRestEndpointPageArn: v.ProductRestEndpointPageArn,
+		Endpoint:                   v.Endpoint,
+		Status:                     v.Status,
+		TryItState:                 v.TryItState,
+		PortalProductID:            v.PortalProductID,
 	}
 }
 
 func fromProductREPageSnapshot(v *productREPageSnapshot) *ProductRestEndpointPage {
 	return &ProductRestEndpointPage{
-		LastModified:              v.LastModified,
-		DisplayContent:            v.DisplayContent,
-		RestEndpointIdentifier:    v.RestEndpointIdentifier,
-		ProductRestEndpointPageID: v.ProductRestEndpointPageID,
-		PortalProductID:           v.PortalProductID,
+		LastModified:               v.LastModified,
+		DisplayContent:             v.DisplayContent,
+		RestEndpointIdentifier:     v.RestEndpointIdentifier,
+		ProductRestEndpointPageID:  v.ProductRestEndpointPageID,
+		ProductRestEndpointPageArn: v.ProductRestEndpointPageArn,
+		Endpoint:                   v.Endpoint,
+		Status:                     v.Status,
+		TryItState:                 v.TryItState,
+		PortalProductID:            v.PortalProductID,
 	}
 }
 

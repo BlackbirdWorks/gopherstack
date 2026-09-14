@@ -345,11 +345,151 @@ func (h *Handler) miscOps() opTable {
 
 // --- Stack handlers ---
 
+// userSettingJSON mirrors appstream@v1.64.5 types.UserSetting's wire shape.
+type userSettingJSON struct {
+	Action        string `json:"Action"`
+	Permission    string `json:"Permission"`
+	MaximumLength int    `json:"MaximumLength"`
+}
+
+func toUserSettings(in []userSettingJSON) []UserSetting {
+	out := make([]UserSetting, len(in))
+	for i, u := range in {
+		out[i] = UserSetting(u)
+	}
+
+	return out
+}
+
+// applicationSettingsJSON mirrors appstream@v1.64.5 types.ApplicationSettings's
+// (request-side) wire shape.
+type applicationSettingsJSON struct {
+	SettingsGroup string `json:"SettingsGroup"`
+	Enabled       bool   `json:"Enabled"`
+}
+
+func (j *applicationSettingsJSON) toModel() *ApplicationSettings {
+	if j == nil {
+		return nil
+	}
+
+	return &ApplicationSettings{Enabled: j.Enabled, SettingsGroup: j.SettingsGroup}
+}
+
+// accessEndpointJSON mirrors appstream@v1.64.5 types.AccessEndpoint's wire shape.
+type accessEndpointJSON struct {
+	EndpointType string `json:"EndpointType"`
+	VpceId       string `json:"VpceId"` //nolint:revive,staticcheck // matches real SDK field name.
+}
+
+func toAccessEndpoints(in []accessEndpointJSON) []AccessEndpoint {
+	out := make([]AccessEndpoint, len(in))
+	for i, e := range in {
+		out[i] = AccessEndpoint{EndpointType: e.EndpointType, VpceID: e.VpceId}
+	}
+
+	return out
+}
+
+func accessEndpointsToJSON(in []AccessEndpoint) []map[string]any {
+	out := make([]map[string]any, len(in))
+	for i, e := range in {
+		out[i] = map[string]any{"EndpointType": e.EndpointType, "VpceId": e.VpceID}
+	}
+
+	return out
+}
+
+// storageConnectorJSON mirrors appstream@v1.64.5 types.StorageConnector's wire shape.
+type storageConnectorJSON struct {
+	ConnectorType              string   `json:"ConnectorType"`
+	ResourceIdentifier         string   `json:"ResourceIdentifier"`
+	Domains                    []string `json:"Domains"`
+	DomainsRequireAdminConsent []string `json:"DomainsRequireAdminConsent"`
+}
+
+func toStorageConnectors(in []storageConnectorJSON) []StorageConnector {
+	out := make([]StorageConnector, len(in))
+	for i, c := range in {
+		out[i] = StorageConnector(c)
+	}
+
+	return out
+}
+
+func storageConnectorsToJSON(in []StorageConnector) []map[string]any {
+	out := make([]map[string]any, len(in))
+	for i, c := range in {
+		out[i] = map[string]any{
+			"ConnectorType":              c.ConnectorType,
+			"ResourceIdentifier":         c.ResourceIdentifier,
+			"Domains":                    c.Domains,
+			"DomainsRequireAdminConsent": c.DomainsRequireAdminConsent,
+		}
+	}
+
+	return out
+}
+
+// streamingExperienceSettingsJSON mirrors appstream@v1.64.5
+// types.StreamingExperienceSettings's wire shape.
+type streamingExperienceSettingsJSON struct {
+	PreferredProtocol string `json:"PreferredProtocol"`
+}
+
+func (j *streamingExperienceSettingsJSON) toModel() *StreamingExperienceSettings {
+	if j == nil {
+		return nil
+	}
+
+	return &StreamingExperienceSettings{PreferredProtocol: j.PreferredProtocol}
+}
+
+// urlRedirectionConfigJSON mirrors appstream@v1.64.5 types.UrlRedirectionConfig's
+// wire shape.
+type urlRedirectionConfigJSON struct {
+	Enabled     *bool    `json:"Enabled"`
+	AllowedUrls []string `json:"AllowedUrls"`
+	DeniedUrls  []string `json:"DeniedUrls"`
+}
+
+// contentRedirectionJSON mirrors appstream@v1.64.5 types.ContentRedirection's
+// wire shape.
+type contentRedirectionJSON struct {
+	HostToClient *urlRedirectionConfigJSON `json:"HostToClient"`
+}
+
+func (j *contentRedirectionJSON) toModel() *ContentRedirection {
+	if j == nil {
+		return nil
+	}
+
+	cr := &ContentRedirection{}
+	if j.HostToClient != nil {
+		cr.HostToClient = &UrlRedirectionConfig{
+			Enabled:     j.HostToClient.Enabled,
+			AllowedUrls: j.HostToClient.AllowedUrls,
+			DeniedUrls:  j.HostToClient.DeniedUrls,
+		}
+	}
+
+	return cr
+}
+
 type createStackInput struct {
-	Tags        map[string]string `json:"Tags"`
-	Name        string            `json:"Name"`
-	DisplayName string            `json:"DisplayName"`
-	Description string            `json:"Description"`
+	Tags                        map[string]string                `json:"Tags"`
+	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
+	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
+	StreamingExperienceSettings *streamingExperienceSettingsJSON `json:"StreamingExperienceSettings"`
+	Name                        string                           `json:"Name"`
+	DisplayName                 string                           `json:"DisplayName"`
+	Description                 string                           `json:"Description"`
+	RedirectURL                 string                           `json:"RedirectURL"`
+	FeedbackURL                 string                           `json:"FeedbackURL"`
+	EmbedHostDomains            []string                         `json:"EmbedHostDomains"`
+	UserSettings                []userSettingJSON                `json:"UserSettings"`
+	StorageConnectors           []storageConnectorJSON           `json:"StorageConnectors"`
+	AccessEndpoints             []accessEndpointJSON             `json:"AccessEndpoints"`
 }
 
 func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
@@ -358,7 +498,20 @@ func (h *Handler) opCreateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	stack, err := h.Backend.CreateStack(req.Name, req.DisplayName, req.Description, req.Tags)
+	stack, err := h.Backend.CreateStack(req.Name, CreateStackOptions{
+		Tags:                        req.Tags,
+		DisplayName:                 req.DisplayName,
+		Description:                 req.Description,
+		RedirectURL:                 req.RedirectURL,
+		FeedbackURL:                 req.FeedbackURL,
+		EmbedHostDomains:            req.EmbedHostDomains,
+		UserSettings:                toUserSettings(req.UserSettings),
+		StorageConnectors:           toStorageConnectors(req.StorageConnectors),
+		AccessEndpoints:             toAccessEndpoints(req.AccessEndpoints),
+		ApplicationSettings:         req.ApplicationSettings.toModel(),
+		ContentRedirection:          req.ContentRedirection.toModel(),
+		StreamingExperienceSettings: req.StreamingExperienceSettings.toModel(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -392,9 +545,20 @@ func (h *Handler) opDescribeStacks(_ context.Context, body []byte) (any, error) 
 }
 
 type updateStackInput struct {
-	Name        string `json:"Name"`
-	DisplayName string `json:"DisplayName"`
-	Description string `json:"Description"`
+	ApplicationSettings         *applicationSettingsJSON         `json:"ApplicationSettings"`
+	ContentRedirection          *contentRedirectionJSON          `json:"ContentRedirection"`
+	StreamingExperienceSettings *streamingExperienceSettingsJSON `json:"StreamingExperienceSettings"`
+	DeleteStorageConnectors     *bool                            `json:"DeleteStorageConnectors"`
+	Name                        string                           `json:"Name"`
+	DisplayName                 string                           `json:"DisplayName"`
+	Description                 string                           `json:"Description"`
+	RedirectURL                 string                           `json:"RedirectURL"`
+	FeedbackURL                 string                           `json:"FeedbackURL"`
+	EmbedHostDomains            []string                         `json:"EmbedHostDomains"`
+	UserSettings                []userSettingJSON                `json:"UserSettings"`
+	StorageConnectors           []storageConnectorJSON           `json:"StorageConnectors"`
+	AccessEndpoints             []accessEndpointJSON             `json:"AccessEndpoints"`
+	AttributesToDelete          []string                         `json:"AttributesToDelete"`
 }
 
 func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
@@ -403,7 +567,21 @@ func (h *Handler) opUpdateStack(_ context.Context, body []byte) (any, error) {
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	stack, err := h.Backend.UpdateStack(req.Name, req.DisplayName, req.Description)
+	stack, err := h.Backend.UpdateStack(req.Name, UpdateStackOptions{
+		DeleteStorageConnectors:     req.DeleteStorageConnectors,
+		RedirectURL:                 req.RedirectURL,
+		FeedbackURL:                 req.FeedbackURL,
+		DisplayName:                 req.DisplayName,
+		Description:                 req.Description,
+		EmbedHostDomains:            req.EmbedHostDomains,
+		UserSettings:                toUserSettings(req.UserSettings),
+		StorageConnectors:           toStorageConnectors(req.StorageConnectors),
+		AccessEndpoints:             toAccessEndpoints(req.AccessEndpoints),
+		AttributesToDelete:          req.AttributesToDelete,
+		ApplicationSettings:         req.ApplicationSettings.toModel(),
+		ContentRedirection:          req.ContentRedirection.toModel(),
+		StreamingExperienceSettings: req.StreamingExperienceSettings.toModel(),
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -434,10 +612,67 @@ type computeCapacityInput struct {
 	DesiredInstances int `json:"DesiredInstances"`
 }
 
+// vpcConfigJSON mirrors appstream@v1.64.5 types.VpcConfig's wire shape.
+type vpcConfigJSON struct {
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	SubnetIDs        []string `json:"SubnetIds"`
+}
+
+func (j *vpcConfigJSON) toModel() VpcConfig {
+	if j == nil {
+		return VpcConfig{}
+	}
+
+	return VpcConfig{SecurityGroupIDs: j.SecurityGroupIDs, SubnetIDs: j.SubnetIDs}
+}
+
+func vpcConfigToJSON(v VpcConfig) map[string]any {
+	return map[string]any{"SecurityGroupIds": v.SecurityGroupIDs, "SubnetIds": v.SubnetIDs}
+}
+
+// domainJoinInfoJSON mirrors appstream@v1.64.5 types.DomainJoinInfo's wire shape.
+type domainJoinInfoJSON struct {
+	DirectoryName                       string `json:"DirectoryName"`
+	OrganizationalUnitDistinguishedName string `json:"OrganizationalUnitDistinguishedName"`
+}
+
+func (j *domainJoinInfoJSON) toModel() DomainJoinInfo {
+	if j == nil {
+		return DomainJoinInfo{}
+	}
+
+	return DomainJoinInfo(*j)
+}
+
+func domainJoinInfoToJSON(d DomainJoinInfo) map[string]any {
+	return map[string]any{
+		"DirectoryName":                       d.DirectoryName,
+		"OrganizationalUnitDistinguishedName": d.OrganizationalUnitDistinguishedName,
+	}
+}
+
+// volumeConfigJSON mirrors appstream@v1.64.5 types.VolumeConfig's wire shape.
+type volumeConfigJSON struct {
+	VolumeSizeInGb int `json:"VolumeSizeInGb"`
+}
+
+func (j *volumeConfigJSON) toModel() *VolumeConfig {
+	if j == nil {
+		return nil
+	}
+
+	return &VolumeConfig{VolumeSizeInGb: j.VolumeSizeInGb}
+}
+
 type createFleetInput struct {
 	Tags                           map[string]string     `json:"Tags"`
 	ComputeCapacity                *computeCapacityInput `json:"ComputeCapacity"`
 	EnableDefaultInternetAccess    *bool                 `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1                  *bool                 `json:"DisableIMDSV1"`
+	VpcConfig                      *vpcConfigJSON        `json:"VpcConfig"`
+	DomainJoinInfo                 *domainJoinInfoJSON   `json:"DomainJoinInfo"`
+	RootVolumeConfig               *volumeConfigJSON     `json:"RootVolumeConfig"`
+	SessionScriptS3Location        *s3LocationJSON       `json:"SessionScriptS3Location"`
 	Name                           string                `json:"Name"`
 	DisplayName                    string                `json:"DisplayName"`
 	Description                    string                `json:"Description"`
@@ -445,9 +680,15 @@ type createFleetInput struct {
 	FleetType                      string                `json:"FleetType"`
 	ImageName                      string                `json:"ImageName"`
 	ImageArn                       string                `json:"ImageArn"`
+	IamRoleArn                     string                `json:"IamRoleArn"`
+	StreamView                     string                `json:"StreamView"`
+	Platform                       string                `json:"Platform"`
+	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
 	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
 	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
 	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
+	MaxSessionsPerInstance         int                   `json:"MaxSessionsPerInstance"`
+	MaxConcurrentSessions          int                   `json:"MaxConcurrentSessions"`
 }
 
 func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
@@ -461,13 +702,31 @@ func (h *Handler) opCreateFleet(_ context.Context, body []byte) (any, error) {
 		desired = req.ComputeCapacity.DesiredInstances
 	}
 
-	fleet, err := h.Backend.CreateFleet(
-		req.Name, req.DisplayName, req.Description,
-		req.InstanceType, req.FleetType, req.ImageName, req.ImageArn,
-		desired, req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
-		req.IdleDisconnectTimeoutInSeconds, req.EnableDefaultInternetAccess,
-		req.Tags,
-	)
+	fleet, err := h.Backend.CreateFleet(req.Name, CreateFleetOptions{
+		Tags:                        req.Tags,
+		EnableDefaultInternetAccess: req.EnableDefaultInternetAccess,
+		DisableIMDSV1:               req.DisableIMDSV1,
+		VpcConfig:                   req.VpcConfig.toModel(),
+		DomainJoinInfo:              req.DomainJoinInfo.toModel(),
+		RootVolumeConfig:            req.RootVolumeConfig.toModel(),
+		SessionScriptS3Location:     req.SessionScriptS3Location.toModel(),
+		UsbDeviceFilterStrings:      req.UsbDeviceFilterStrings,
+		DisplayName:                 req.DisplayName,
+		Description:                 req.Description,
+		InstanceType:                req.InstanceType,
+		FleetType:                   req.FleetType,
+		ImageName:                   req.ImageName,
+		ImageArn:                    req.ImageArn,
+		IamRoleArn:                  req.IamRoleArn,
+		StreamView:                  req.StreamView,
+		Platform:                    req.Platform,
+		DesiredInstances:            desired,
+		MaxUserDurationSecs:         req.MaxUserDurationInSeconds,
+		DisconnectTimeoutSecs:       req.DisconnectTimeoutInSeconds,
+		IdleDisconnectTimeoutSecs:   req.IdleDisconnectTimeoutInSeconds,
+		MaxSessionsPerInstance:      req.MaxSessionsPerInstance,
+		MaxConcurrentSessions:       req.MaxConcurrentSessions,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -503,15 +762,27 @@ func (h *Handler) opDescribeFleets(_ context.Context, body []byte) (any, error) 
 type updateFleetInput struct {
 	ComputeCapacity                *computeCapacityInput `json:"ComputeCapacity"`
 	EnableDefaultInternetAccess    *bool                 `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1                  *bool                 `json:"DisableIMDSV1"`
+	VpcConfig                      *vpcConfigJSON        `json:"VpcConfig"`
+	DomainJoinInfo                 *domainJoinInfoJSON   `json:"DomainJoinInfo"`
+	RootVolumeConfig               *volumeConfigJSON     `json:"RootVolumeConfig"`
+	SessionScriptS3Location        *s3LocationJSON       `json:"SessionScriptS3Location"`
 	Name                           string                `json:"Name"`
 	DisplayName                    string                `json:"DisplayName"`
 	Description                    string                `json:"Description"`
 	InstanceType                   string                `json:"InstanceType"`
 	ImageName                      string                `json:"ImageName"`
 	ImageArn                       string                `json:"ImageArn"`
+	IamRoleArn                     string                `json:"IamRoleArn"`
+	StreamView                     string                `json:"StreamView"`
+	Platform                       string                `json:"Platform"`
+	UsbDeviceFilterStrings         []string              `json:"UsbDeviceFilterStrings"`
+	AttributesToDelete             []string              `json:"AttributesToDelete"`
 	MaxUserDurationInSeconds       int                   `json:"MaxUserDurationInSeconds"`
 	DisconnectTimeoutInSeconds     int                   `json:"DisconnectTimeoutInSeconds"`
 	IdleDisconnectTimeoutInSeconds int                   `json:"IdleDisconnectTimeoutInSeconds"`
+	MaxSessionsPerInstance         int                   `json:"MaxSessionsPerInstance"`
+	MaxConcurrentSessions          int                   `json:"MaxConcurrentSessions"`
 }
 
 func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
@@ -525,12 +796,30 @@ func (h *Handler) opUpdateFleet(_ context.Context, body []byte) (any, error) {
 		desired = req.ComputeCapacity.DesiredInstances
 	}
 
-	fleet, err := h.Backend.UpdateFleet(
-		req.Name, req.DisplayName, req.Description, req.InstanceType,
-		req.ImageName, req.ImageArn,
-		desired, req.MaxUserDurationInSeconds, req.DisconnectTimeoutInSeconds,
-		req.IdleDisconnectTimeoutInSeconds, req.EnableDefaultInternetAccess,
-	)
+	fleet, err := h.Backend.UpdateFleet(req.Name, UpdateFleetOptions{
+		EnableDefaultInternetAccess: req.EnableDefaultInternetAccess,
+		DisableIMDSV1:               req.DisableIMDSV1,
+		VpcConfig:                   req.VpcConfig.toModel(),
+		DomainJoinInfo:              req.DomainJoinInfo.toModel(),
+		RootVolumeConfig:            req.RootVolumeConfig.toModel(),
+		SessionScriptS3Location:     req.SessionScriptS3Location.toModel(),
+		UsbDeviceFilterStrings:      req.UsbDeviceFilterStrings,
+		AttributesToDelete:          req.AttributesToDelete,
+		DisplayName:                 req.DisplayName,
+		Description:                 req.Description,
+		InstanceType:                req.InstanceType,
+		ImageName:                   req.ImageName,
+		ImageArn:                    req.ImageArn,
+		IamRoleArn:                  req.IamRoleArn,
+		StreamView:                  req.StreamView,
+		Platform:                    req.Platform,
+		DesiredInstances:            desired,
+		MaxUserDurationSecs:         req.MaxUserDurationInSeconds,
+		DisconnectTimeoutSecs:       req.DisconnectTimeoutInSeconds,
+		IdleDisconnectTimeoutSecs:   req.IdleDisconnectTimeoutInSeconds,
+		MaxSessionsPerInstance:      req.MaxSessionsPerInstance,
+		MaxConcurrentSessions:       req.MaxConcurrentSessions,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -713,15 +1002,91 @@ func (h *Handler) opListTagsForResource(_ context.Context, body []byte) (any, er
 
 // --- Response helpers ---
 
+// stackToResponse builds the real Stack wire shape. Real deserializeCBOR_Stack
+// (appstream@v1.64.5 deserializers.go) has no Tags key -- unlike its sibling
+// members here, this backend never emitted one for Stack.
 func stackToResponse(s *Stack) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Name":        s.Name,               //nolint:goconst // existing issue.
 		"Arn":         s.Arn,                //nolint:goconst // existing issue.
 		"DisplayName": s.DisplayName,        //nolint:goconst // existing issue.
 		"Description": s.Description,        //nolint:goconst // existing issue.
 		"CreatedTime": s.CreatedTime.Unix(), //nolint:goconst // existing issue.
-		keyTags:       s.Tags,
 	}
+
+	if s.RedirectURL != "" {
+		resp["RedirectURL"] = s.RedirectURL
+	}
+
+	if s.FeedbackURL != "" {
+		resp["FeedbackURL"] = s.FeedbackURL
+	}
+
+	if len(s.EmbedHostDomains) > 0 {
+		resp["EmbedHostDomains"] = s.EmbedHostDomains
+	}
+
+	if len(s.UserSettings) > 0 {
+		settings := make([]map[string]any, len(s.UserSettings))
+
+		for i, us := range s.UserSettings {
+			entry := map[string]any{"Action": us.Action, "Permission": us.Permission}
+			if us.MaximumLength > 0 {
+				entry["MaximumLength"] = us.MaximumLength
+			}
+
+			settings[i] = entry
+		}
+
+		resp["UserSettings"] = settings
+	}
+
+	if len(s.StorageConnectors) > 0 {
+		resp["StorageConnectors"] = storageConnectorsToJSON(s.StorageConnectors)
+	}
+
+	if len(s.AccessEndpoints) > 0 {
+		resp["AccessEndpoints"] = accessEndpointsToJSON(s.AccessEndpoints)
+	}
+
+	if s.ApplicationSettings != nil {
+		resp["ApplicationSettings"] = map[string]any{
+			"Enabled":       s.ApplicationSettings.Enabled, //nolint:goconst // existing issue.
+			"SettingsGroup": s.ApplicationSettings.SettingsGroup,
+			"S3BucketName":  s.ApplicationSettings.S3BucketName, //nolint:goconst // existing issue.
+		}
+	}
+
+	if s.StreamingExperienceSettings != nil {
+		resp["StreamingExperienceSettings"] = map[string]any{
+			"PreferredProtocol": s.StreamingExperienceSettings.PreferredProtocol,
+		}
+	}
+
+	if s.ContentRedirection != nil {
+		resp["ContentRedirection"] = contentRedirectionToJSON(s.ContentRedirection)
+	}
+
+	return resp
+}
+
+func contentRedirectionToJSON(cr *ContentRedirection) map[string]any {
+	out := map[string]any{}
+	if cr.HostToClient == nil {
+		return out
+	}
+
+	htc := map[string]any{
+		"AllowedUrls": cr.HostToClient.AllowedUrls,
+		"DeniedUrls":  cr.HostToClient.DeniedUrls,
+	}
+	if cr.HostToClient.Enabled != nil {
+		htc["Enabled"] = *cr.HostToClient.Enabled
+	}
+
+	out["HostToClient"] = htc
+
+	return out
 }
 
 func fleetToResponse(f *Fleet) map[string]any {
@@ -737,7 +1102,6 @@ func fleetToResponse(f *Fleet) map[string]any {
 		"DisconnectTimeoutInSeconds":     f.DisconnectTimeoutSecs,
 		"IdleDisconnectTimeoutInSeconds": f.IdleDisconnectTimeoutSecs,
 		"CreatedTime":                    f.CreatedTime.Unix(),
-		keyTags:                          f.Tags,
 		"ComputeCapacityStatus": map[string]any{
 			"Desired":   f.DesiredInstances,
 			"Running":   0,
@@ -758,5 +1122,57 @@ func fleetToResponse(f *Fleet) map[string]any {
 		resp["EnableDefaultInternetAccess"] = *f.EnableDefaultInternetAccess
 	}
 
+	addOptionalFleetFields(resp, f)
+
 	return resp
+}
+
+// addOptionalFleetFields sets every Fleet response member gopherstack now
+// wires through that real AWS models as optional (the deserializer's Nil
+// check on that key) -- split out of fleetToResponse to keep both functions
+// under this repo's cyclop/gocognit budgets.
+func addOptionalFleetFields(resp map[string]any, f *Fleet) {
+	if f.DisableIMDSV1 != nil {
+		resp["DisableIMDSV1"] = *f.DisableIMDSV1
+	}
+
+	if len(f.VpcConfig.SecurityGroupIDs) > 0 || len(f.VpcConfig.SubnetIDs) > 0 {
+		resp["VpcConfig"] = vpcConfigToJSON(f.VpcConfig)
+	}
+
+	if f.IamRoleArn != "" {
+		resp["IamRoleArn"] = f.IamRoleArn
+	}
+
+	if f.StreamView != "" {
+		resp["StreamView"] = f.StreamView
+	}
+
+	if f.Platform != "" {
+		resp["Platform"] = f.Platform
+	}
+
+	if f.MaxConcurrentSessions > 0 {
+		resp["MaxConcurrentSessions"] = f.MaxConcurrentSessions
+	}
+
+	if len(f.UsbDeviceFilterStrings) > 0 {
+		resp["UsbDeviceFilterStrings"] = f.UsbDeviceFilterStrings
+	}
+
+	if f.SessionScriptS3Location.S3Bucket != "" {
+		resp["SessionScriptS3Location"] = s3LocationToJSON(f.SessionScriptS3Location)
+	}
+
+	if f.MaxSessionsPerInstance > 0 {
+		resp["MaxSessionsPerInstance"] = f.MaxSessionsPerInstance
+	}
+
+	if f.RootVolumeConfig != nil {
+		resp["RootVolumeConfig"] = map[string]any{"VolumeSizeInGb": f.RootVolumeConfig.VolumeSizeInGb}
+	}
+
+	if f.DomainJoinInfo.DirectoryName != "" || f.DomainJoinInfo.OrganizationalUnitDistinguishedName != "" {
+		resp["DomainJoinInfo"] = domainJoinInfoToJSON(f.DomainJoinInfo)
+	}
 }

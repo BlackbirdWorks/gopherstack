@@ -262,6 +262,35 @@ gaps: []
 // classifyToken doesn't recognize must fail the run exactly like an entry
 // that doesn't parse at all (gopherstack-7o96), rather than silently
 // bucketing it as "other".
+// TestParseParityFile_ItemsStillOpen proves gopherstack-anjf's canonical
+// open-item field parses as a real reserved key (doc.ItemsStillOpen), not an
+// unknown block silently skipped, and that openItems() combines it with a
+// still-present legacy gaps: list for count/render purposes.
+func TestParseParityFile_ItemsStillOpen(t *testing.T) {
+	t.Parallel()
+
+	content := `---
+service: example
+overall: A
+gaps:
+  - "legacy gap not yet migrated"
+items_still_open:
+  - "op X: one-line gap (recorded 2026-09-11, bd: gopherstack-xxx)"
+---
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "PARITY.md")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	doc, err := ParseParityFile(path)
+	require.NoError(t, err)
+
+	require.Len(t, doc.ItemsStillOpen, 1)
+	assert.Equal(t, "op X: one-line gap (recorded 2026-09-11, bd: gopherstack-xxx)", doc.ItemsStillOpen[0])
+	assert.Len(t, doc.openItems(), 2, "openItems must combine gaps: and items_still_open:")
+	assert.Empty(t, doc.Warnings)
+}
+
 func TestParseParityFile_UnrecognizedStatusToken(t *testing.T) {
 	t.Parallel()
 

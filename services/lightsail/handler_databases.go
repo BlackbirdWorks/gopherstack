@@ -130,6 +130,7 @@ func (h *Handler) handleCreateRelationalDatabase(_ context.Context, body []byte)
 	ops, createErr := h.Backend.CreateRelationalDatabase(
 		req.RelationalDatabaseName, req.MasterDatabaseName, req.MasterUsername, req.MasterUserPassword,
 		req.RelationalDatabaseBlueprintID, req.RelationalDatabaseBundleID, req.AvailabilityZone,
+		req.PreferredBackupWindow, req.PreferredMaintenanceWindow,
 		req.PubliclyAccessible, tagsFromWire(req.Tags),
 	)
 	if createErr != nil {
@@ -354,7 +355,7 @@ func (h *Handler) handleGetRelationalDatabaseEvents(_ context.Context, body []by
 		return nil, err
 	}
 
-	pg, pgErr := h.Backend.GetRelationalDatabaseEvents(req.RelationalDatabaseName, req.PageToken)
+	pg, pgErr := h.Backend.GetRelationalDatabaseEvents(req.RelationalDatabaseName, req.PageToken, req.DurationInMinutes)
 	if pgErr != nil {
 		return nil, pgErr
 	}

@@ -41,8 +41,9 @@ func (h *AgentsHandler) handleCreateFlowAlias(
 	c *echo.Context, flowID string, body []byte,
 ) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name                 string             `json:"name"`
+		Description          string             `json:"description"`
+		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -52,7 +53,7 @@ func (h *AgentsHandler) handleCreateFlowAlias(
 		)
 	}
 
-	fa, err := h.Backend.CreateFlowAlias(flowID, req.Name, req.Description)
+	fa, err := h.Backend.CreateFlowAlias(flowID, req.Name, req.Description, req.RoutingConfiguration)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
@@ -86,8 +87,9 @@ func (h *AgentsHandler) handleUpdateFlowAlias(
 	c *echo.Context, flowID, aliasID string, body []byte,
 ) error {
 	var req struct {
-		Name        string `json:"name"`
-		Description string `json:"description"`
+		Name                 string             `json:"name"`
+		Description          string             `json:"description"`
+		RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -97,7 +99,7 @@ func (h *AgentsHandler) handleUpdateFlowAlias(
 		)
 	}
 
-	fa, err := h.Backend.UpdateFlowAlias(flowID, aliasID, req.Name, req.Description)
+	fa, err := h.Backend.UpdateFlowAlias(flowID, aliasID, req.Name, req.Description, req.RoutingConfiguration)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}

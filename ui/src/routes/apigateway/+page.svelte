@@ -371,6 +371,14 @@
 		setTimeout(() => { copiedKeyId = null; }, 2000);
 	}
 
+	// GetStagesCommand's real Stage schema has no invokeUrl (17-member schema,
+	// no such field). Gopherstack serves invocations at /proxy/{restApiId}/{stageName}
+	// (services/apigateway/store.go stageInvokeURL) rather than a real AWS
+	// execute-api domain, so the invoke URL is computed the same way here.
+	function stageInvokeUrl(apiId: string, stageName: string): string {
+		return `${window.location.origin}/proxy/${apiId}/${stageName}`;
+	}
+
 	async function createUsagePlan() {
 		if (!newPlanName.trim()) return;
 		creating = true;
@@ -760,11 +768,11 @@
 												{stage.lastUpdatedDate ? new Date(stage.lastUpdatedDate).toLocaleDateString() : '—'}
 											</span>
 										</div>
-										{#if (stage as any).invokeUrl}
+										{#if stage.stageName}
 											<div class="mt-1 flex items-center gap-2">
-												<span class="text-xs font-mono text-green-600 dark:text-green-400 truncate">{(stage as any).invokeUrl}</span>
+												<span class="text-xs font-mono text-green-600 dark:text-green-400 truncate">{stageInvokeUrl(selectedApi.id ?? '', stage.stageName)}</span>
 												<button
-													onclick={() => copyToClipboard((stage as any).invokeUrl, stage.stageName ?? '')}
+													onclick={() => copyToClipboard(stageInvokeUrl(selectedApi?.id ?? '', stage.stageName ?? ''), stage.stageName ?? '')}
 													class="shrink-0 rounded p-0.5 text-muted-foreground hover:text-foreground"
 													title="Copy invoke URL"
 												>

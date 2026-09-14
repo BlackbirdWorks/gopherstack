@@ -107,6 +107,19 @@ func applyOperationalConfig(d *Domain, input UpdateDomainConfigInput) {
 	}
 }
 
+// applyAutoTuneConfig applies UpdateDomainConfig's AutoTuneOptions, if any.
+// Always builds a fresh AutoTuneConfig (applyAutoTuneUpdateLocked never
+// mutates d's existing one in place), so this is safe to call on either the
+// live domain (UpdateDomainConfig) or a preview copy (PreviewDomainConfig)
+// without the two interfering.
+func applyAutoTuneConfig(d *Domain, input UpdateDomainConfigInput, now time.Time) {
+	if input.AutoTuneOptions == nil {
+		return
+	}
+
+	d.AutoTuneOptions = applyAutoTuneUpdateLocked(d.AutoTuneOptions, now, *input.AutoTuneOptions)
+}
+
 // UpdateDomainConfig updates mutable fields on a domain and records a change ID.
 func (b *InMemoryBackend) UpdateDomainConfig(
 	name string,
@@ -120,11 +133,16 @@ func (b *InMemoryBackend) UpdateDomainConfig(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
+	if err := validateAutoTuneUpdateInput(input.AutoTuneOptions); err != nil {
+		return nil, err
+	}
+
 	applyClusterConfig(d, input)
 	applyStorageConfig(d, input)
 	applySecurityConfig(d, input)
 	applyNetworkConfig(d, input)
 	applyOperationalConfig(d, input)
+	applyAutoTuneConfig(d, input, b.clock())
 
 	changeID := fmt.Sprintf("change-%s-%d", name, time.Now().UnixNano())
 	d.LastChangeID = changeID
@@ -152,12 +170,17 @@ func (b *InMemoryBackend) PreviewDomainConfig(
 		return nil, fmt.Errorf("%w: domain %s not found", ErrDomainNotFound, name)
 	}
 
+	if err := validateAutoTuneUpdateInput(input.AutoTuneOptions); err != nil {
+		return nil, err
+	}
+
 	cp := *d
 	applyClusterConfig(&cp, input)
 	applyStorageConfig(&cp, input)
 	applySecurityConfig(&cp, input)
 	applyNetworkConfig(&cp, input)
 	applyOperationalConfig(&cp, input)
+	applyAutoTuneConfig(&cp, input, b.clock())
 
 	return &cp, nil
 }

@@ -419,7 +419,7 @@ func TestCloudWatchLogsBackend_StoredBytesTracking(t *testing.T) {
 			require.Len(t, streams, 1)
 			assert.Equal(t, tt.wantStreamBytes, streams[0].StoredBytes)
 
-			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 10)
+			groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 10)
 			require.NoError(t, err)
 			require.Len(t, groups, 1)
 			assert.Equal(t, tt.wantGroupBytes, groups[0].StoredBytes)
@@ -440,7 +440,7 @@ func TestCloudWatchLogsBackend_StoredBytesTracking(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		groups, _, err := b.DescribeLogGroups(context.Background(), "", "", 10)
+		groups, _, err := b.DescribeLogGroups(context.Background(), "", "", "", 10)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		assert.Equal(t, int64(5), groups[0].StoredBytes)
@@ -448,7 +448,7 @@ func TestCloudWatchLogsBackend_StoredBytesTracking(t *testing.T) {
 		err = b.DeleteLogStream(context.Background(), "g", "s")
 		require.NoError(t, err)
 
-		groups, _, err = b.DescribeLogGroups(context.Background(), "", "", 10)
+		groups, _, err = b.DescribeLogGroups(context.Background(), "", "", "", 10)
 		require.NoError(t, err)
 		require.Len(t, groups, 1)
 		assert.Equal(t, int64(0), groups[0].StoredBytes)

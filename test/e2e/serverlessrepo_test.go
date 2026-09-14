@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -60,7 +59,7 @@ func TestServerlessRepoDashboard(t *testing.T) {
 	assert.Contains(t, content, "Publish App")
 }
 
-// TestServerlessRepoDashboard_Empty verifies the Serverless Application Repository dashboard renders correctly with no applications.
+// TestServerlessRepoDashboard_Empty verifies the dashboard renders correctly with no applications.
 func TestServerlessRepoDashboard_Empty(t *testing.T) {
 	stack := newStack(t)
 

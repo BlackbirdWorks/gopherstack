@@ -39,6 +39,35 @@ func checkFIFOPerGroupRateLimit(q *Queue, group string, now time.Time) error {
 	return nil
 }
 
+// checkFIFOPerQueueRateLimit enforces the AWS-documented queue-wide 300 TPS
+// send rate for FIFO queues at FifoThroughputLimit=perQueue — the AWS
+// default, applied whenever the attribute is unset or explicitly "perQueue".
+// Same sliding-1s-window mechanism as checkFIFOPerGroupRateLimit, keyed by
+// the queue as a whole instead of by message group.
+//
+// Caller must hold q.mu (write). now must come from the backend's clock
+// (InMemoryBackend.now), not time.Now() directly, so tests can drive the
+// window deterministically without real sleeps.
+func checkFIFOPerQueueRateLimit(q *Queue, now time.Time) error {
+	cutoff := now.Add(-time.Second)
+	prev := q.fifoSendTimesQueue
+	kept := prev[:0]
+	for _, t := range prev {
+		if t.After(cutoff) {
+			kept = append(kept, t)
+		}
+	}
+	q.fifoSendTimesQueue = kept
+
+	if len(q.fifoSendTimesQueue) >= fifoPerQueueTPS {
+		return ErrRequestThrottled
+	}
+
+	q.fifoSendTimesQueue = append(q.fifoSendTimesQueue, now)
+
+	return nil
+}
+
 // fifoThroughputPairingValid reports whether the effective FifoThroughputLimit/
 // DeduplicationScope combination — incoming attributes overlaid on existing
 // queue state — is legal. AWS: "The perMessageGroupId value is allowed only
@@ -88,10 +117,16 @@ func preflightFIFOSend(
 		return fifoPreflight{Err: err, Handled: true}
 	}
 
+	// Unset FifoThroughputLimit defaults to perQueue (models.go's
+	// buildDefaultAttributes never stamps it), so only the explicit
+	// perMessageGroupId value takes the per-group path; everything else
+	// (including "") gets the queue-wide limiter.
 	if q.Attributes[attrFifoThroughputLimit] == fifoThroughputLimitPerMessageGroupID {
 		if err := checkFIFOPerGroupRateLimit(q, input.MessageGroupID, now); err != nil {
 			return fifoPreflight{Err: err, Handled: true}
 		}
+	} else if err := checkFIFOPerQueueRateLimit(q, now); err != nil {
+		return fifoPreflight{Err: err, Handled: true}
 	}
 
 	if out, dup := checkDedup(

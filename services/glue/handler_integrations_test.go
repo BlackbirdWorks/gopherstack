@@ -107,8 +107,8 @@ func TestDeleteIntegrationResourceProperty(t *testing.T) {
 
 			if tc.createFirst {
 				rec := doGlueRequest(t, h, "CreateIntegrationResourceProperty", map[string]any{
-					"ResourceArn":      tc.resourceArn,
-					"SourceProperties": map[string]string{"key": "val"},
+					"ResourceArn":                tc.resourceArn,
+					"SourceProcessingProperties": map[string]any{"key": "val"},
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 			}
@@ -301,8 +301,8 @@ func TestListIntegrationResourceProperties_ReturnsStoredEntries(t *testing.T) {
 	assert.Empty(t, empty.IntegrationResourcePropertyList)
 
 	doGlueRequest(t, h, "CreateIntegrationResourceProperty", map[string]any{
-		"ResourceArn":      "arn:aws:glue:us-east-1:123456789012:connection/conn1",
-		"SourceProperties": map[string]string{"key": "val"},
+		"ResourceArn":                "arn:aws:glue:us-east-1:123456789012:connection/conn1",
+		"SourceProcessingProperties": map[string]any{"key": "val"},
 	})
 
 	rec = doGlueRequest(t, h, "ListIntegrationResourceProperties", map[string]any{})
@@ -326,19 +326,19 @@ func TestUpdateIntegrationResourceProperty_RequiresExistingEntry(t *testing.T) {
 	arn := "arn:aws:glue:us-east-1:123456789012:connection/conn1"
 
 	rec := doGlueRequest(t, h, "UpdateIntegrationResourceProperty", map[string]any{
-		"ResourceArn":      arn,
-		"SourceProperties": map[string]string{"a": "b"},
+		"ResourceArn":                arn,
+		"SourceProcessingProperties": map[string]any{"a": "b"},
 	})
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "no entry created yet")
 
 	doGlueRequest(t, h, "CreateIntegrationResourceProperty", map[string]any{
-		"ResourceArn":      arn,
-		"SourceProperties": map[string]string{"key": "original"},
+		"ResourceArn":                arn,
+		"SourceProcessingProperties": map[string]any{"key": "original"},
 	})
 
 	rec = doGlueRequest(t, h, "UpdateIntegrationResourceProperty", map[string]any{
-		"ResourceArn":      arn,
-		"SourceProperties": map[string]string{"key": "updated"},
+		"ResourceArn":                arn,
+		"SourceProcessingProperties": map[string]any{"key": "updated"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -346,10 +346,10 @@ func TestUpdateIntegrationResourceProperty_RequiresExistingEntry(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var out struct {
-		SourceProperties map[string]string `json:"SourceProperties"`
+		SourceProcessingProperties map[string]any `json:"SourceProcessingProperties"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, "updated", out.SourceProperties["key"])
+	assert.Equal(t, "updated", out.SourceProcessingProperties["key"])
 }
 
 // TestUpdateIntegrationTableProperties_RequiresExistingEntry mirrors
@@ -474,8 +474,8 @@ func TestIntegrationResourceProperty(t *testing.T) {
 		{
 			name: "create_and_retrieve",
 			createInput: map[string]any{
-				"ResourceArn":      "arn:aws:glue:us-east-1:123:resource/r1",
-				"SourceProperties": map[string]any{"key": "val"},
+				"ResourceArn":                "arn:aws:glue:us-east-1:123:resource/r1",
+				"SourceProcessingProperties": map[string]any{"key": "val"},
 			},
 			getInput:   map[string]any{"ResourceArn": "arn:aws:glue:us-east-1:123:resource/r1"},
 			wantCreate: http.StatusOK,

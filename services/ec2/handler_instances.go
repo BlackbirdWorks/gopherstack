@@ -347,12 +347,13 @@ type defaultCreditSpecificationResponse struct {
 }
 
 type replaceRootVolumeTaskItem struct {
-	ReplaceRootVolumeTaskID string `xml:"replaceRootVolumeTaskId"`
-	InstanceID              string `xml:"instanceId"`
-	TaskState               string `xml:"taskState"`
-	StartTime               string `xml:"startTime"`
-	CompleteTime            string `xml:"completeTime,omitempty"`
-	SnapshotID              string `xml:"snapshotId,omitempty"`
+	ReplaceRootVolumeTaskID string          `xml:"replaceRootVolumeTaskId"`
+	InstanceID              string          `xml:"instanceId"`
+	TaskState               string          `xml:"taskState"`
+	StartTime               string          `xml:"startTime"`
+	CompleteTime            string          `xml:"completeTime,omitempty"`
+	SnapshotID              string          `xml:"snapshotId,omitempty"`
+	TagSet                  []simpleTagItem `xml:"tagSet>item"`
 }
 
 // handleEnableSerialConsoleAccess and handleDisableSerialConsoleAccess:
@@ -447,6 +448,7 @@ type instanceEventWindowItem struct {
 	CronExpression        string                                   `xml:"cronExpression,omitempty"`
 	State                 string                                   `xml:"state"`
 	AssociationTarget     instanceEventWindowAssociationTargetItem `xml:"associationTarget"`
+	TagSet                []simpleTagItem                          `xml:"tagSet>item"`
 }
 
 type createInstanceEventWindowResponse struct {
@@ -485,25 +487,17 @@ type consoleScreenshotResponse struct {
 	ImageData  string   `xml:"imageData"`
 }
 
-type instanceTypeOfferingItem2 struct {
-	InstanceType string `xml:"instanceType"`
-}
-
-type getInstanceTypesFromReqsResponse struct {
-	XMLName         xml.Name `xml:"GetInstanceTypesFromInstanceRequirementsResponse"`
-	RequestID       string   `xml:"requestId"`
-	InstanceTypeSet struct {
-		Items []instanceTypeOfferingItem2 `xml:"item"`
-	} `xml:"instanceTypeSet"`
-}
-
-func toInstanceConnectEndpointItem(ep *InstanceConnectEndpoint) instanceConnectEndpointItem {
+func toInstanceConnectEndpointItem(
+	ep *InstanceConnectEndpoint,
+	tags map[string]string,
+) instanceConnectEndpointItem {
 	return instanceConnectEndpointItem{
 		InstanceConnectEndpointID: ep.InstanceConnectEndpointID,
 		SubnetID:                  ep.SubnetID,
 		VPCID:                     ep.VPCID,
 		State:                     ep.State,
 		PreserveClientIP:          ep.PreserveClientIP,
+		TagSet:                    tagItemsFromMap(tags),
 	}
 }
 
@@ -517,9 +511,16 @@ func (h *Handler) handleCreateInstanceConnectEndpoint(vals url.Values, reqID str
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "instance-connect-endpoint")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ep.InstanceConnectEndpointID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInstanceConnectEndpointResponse{
 		RequestID:               reqID,
-		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep),
+		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep, tags),
 	}, nil
 }
 
@@ -531,6 +532,7 @@ type deleteInstanceConnectEndpointResponse struct {
 
 func (h *Handler) handleDeleteInstanceConnectEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceConnectEndpointId")
+	tags := h.Backend.TagsForResource(id)
 
 	ep, err := h.Backend.DeleteInstanceConnectEndpoint(id)
 	if err != nil {
@@ -539,7 +541,7 @@ func (h *Handler) handleDeleteInstanceConnectEndpoint(vals url.Values, reqID str
 
 	return &deleteInstanceConnectEndpointResponse{
 		RequestID:               reqID,
-		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep),
+		InstanceConnectEndpoint: toInstanceConnectEndpointItem(ep, tags),
 	}, nil
 }
 
@@ -562,7 +564,7 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 	for _, ep := range eps {
 		resp.InstanceConnectEndpointSet.Items = append(
 			resp.InstanceConnectEndpointSet.Items,
-			toInstanceConnectEndpointItem(ep),
+			toInstanceConnectEndpointItem(ep, h.Backend.TagsForResource(ep.InstanceConnectEndpointID)),
 		)
 	}
 
@@ -583,7 +585,7 @@ func (h *Handler) handleModifyInstanceConnectEndpoint(vals url.Values, reqID str
 	}, nil
 }
 
-func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem {
+func toInstanceEventWindowItem(ew *InstanceEventWindow, tags map[string]string) instanceEventWindowItem {
 	return instanceEventWindowItem{
 		InstanceEventWindowID: ew.InstanceEventWindowID,
 		Name:                  ew.Name,
@@ -593,6 +595,7 @@ func toInstanceEventWindowItem(ew *InstanceEventWindow) instanceEventWindowItem 
 			InstanceIDs:      ew.InstanceIDs,
 			DedicatedHostIDs: ew.DedicatedHostIDs,
 		},
+		TagSet: tagItemsFromMap(tags),
 	}
 }
 
@@ -605,9 +608,16 @@ func (h *Handler) handleCreateInstanceEventWindow(vals url.Values, reqID string)
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "instance-event-window")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ew.InstanceEventWindowID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createInstanceEventWindowResponse{
 		RequestID:           reqID,
-		InstanceEventWindow: toInstanceEventWindowItem(ew),
+		InstanceEventWindow: toInstanceEventWindowItem(ew, tags),
 	}, nil
 }
 
@@ -655,7 +665,7 @@ func (h *Handler) handleDescribeInstanceEventWindows(vals url.Values, reqID stri
 	for _, ew := range ews {
 		resp.InstanceEventWindowSet.Items = append(
 			resp.InstanceEventWindowSet.Items,
-			toInstanceEventWindowItem(ew),
+			toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 		)
 	}
 
@@ -680,7 +690,7 @@ func (h *Handler) handleModifyInstanceEventWindow(vals url.Values, reqID string)
 
 	return &modifyInstanceEventWindowResponse{
 		RequestID:           reqID,
-		InstanceEventWindow: toInstanceEventWindowItem(ew),
+		InstanceEventWindow: toInstanceEventWindowItem(ew, h.Backend.TagsForResource(ew.InstanceEventWindowID)),
 	}, nil
 }
 
@@ -713,31 +723,24 @@ func (h *Handler) handleGetConsoleScreenshot(vals url.Values, reqID string) (any
 	}, nil
 }
 
-func (h *Handler) handleGetInstanceTypesFromInstanceRequirements(
-	_ url.Values,
-	reqID string,
-) (any, error) {
-	types := h.Backend.GetInstanceTypesFromInstanceRequirements()
-
-	resp := &getInstanceTypesFromReqsResponse{RequestID: reqID}
-	for _, t := range types {
-		resp.InstanceTypeSet.Items = append(
-			resp.InstanceTypeSet.Items,
-			instanceTypeOfferingItem2{InstanceType: t},
-		)
-	}
-
-	return resp, nil
-}
-
 func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "InstanceId")
 	if len(ids) == 0 {
 		return nil, fmt.Errorf("%w: at least one InstanceId is required", ErrInvalidParameter)
 	}
+
+	reasonCodes := parseMemberList(vals, "ReasonCode")
+	if len(reasonCodes) == 0 {
+		return nil, fmt.Errorf("%w: at least one ReasonCode is required", ErrInvalidParameter)
+	}
+
 	status := vals.Get("Status")
+	if status == "" {
+		return nil, fmt.Errorf("%w: Status is required", ErrInvalidParameter)
+	}
+
 	description := vals.Get("Description")
-	if err := h.Backend.ReportInstanceStatus(ids, status, description); err != nil {
+	if err := h.Backend.ReportInstanceStatus(ids, reasonCodes, status, description); err != nil {
 		return nil, err
 	}
 
@@ -746,66 +749,6 @@ func (h *Handler) handleReportInstanceStatus(vals url.Values, reqID string) (any
 		RequestID: reqID,
 		Return:    true,
 	}, nil
-}
-
-type describeInstanceTypeOfferingsResponse struct {
-	XMLName                 xml.Name `xml:"DescribeInstanceTypeOfferingsResponse"`
-	RequestID               string   `xml:"requestId"`
-	InstanceTypeOfferingSet struct {
-		Items []instanceTypeOfferingItem `xml:"item"`
-	} `xml:"instanceTypeOfferingSet"`
-}
-
-// applyInstanceTypeOfferingFilters filters offerings by the real "instance-type"
-// and "location" filter names (ec2@v1.319.1 api_op_DescribeInstanceTypeOfferings.go
-// DescribeInstanceTypeOfferingsInput.Filters doc comment).
-func applyInstanceTypeOfferingFilters(
-	offerings []InstanceTypeOffering,
-	filters map[string][]string,
-) []InstanceTypeOffering {
-	if len(filters) == 0 {
-		return offerings
-	}
-
-	out := make([]InstanceTypeOffering, 0, len(offerings))
-	for _, o := range offerings {
-		if vals, ok := filters[filterKeyInstanceType]; ok && !anyEqual(o.InstanceType, vals) {
-			continue
-		}
-		if vals, ok := filters["location"]; ok && !anyEqual(o.Location, vals) {
-			continue
-		}
-		out = append(out, o)
-	}
-
-	return out
-}
-
-func (h *Handler) handleDescribeInstanceTypeOfferings(vals url.Values, reqID string) (any, error) {
-	resp := &describeInstanceTypeOfferingsResponse{RequestID: reqID}
-
-	// This backend only ever generates availability-zone offerings; an explicit
-	// request for another real LocationType (region/availability-zone-id/outpost)
-	// honestly has none, rather than fabricating a match.
-	if lt := vals.Get("LocationType"); lt != "" && lt != filterKeyAvailabilityZone {
-		return resp, nil
-	}
-
-	offerings := h.Backend.DescribeInstanceTypeOfferings()
-	offerings = applyInstanceTypeOfferingFilters(offerings, parseEC2Filters(vals))
-
-	for _, o := range offerings {
-		resp.InstanceTypeOfferingSet.Items = append(
-			resp.InstanceTypeOfferingSet.Items,
-			instanceTypeOfferingItem{
-				InstanceType: o.InstanceType,
-				Location:     o.Location,
-				LocationType: o.LocationType,
-			},
-		)
-	}
-
-	return resp, nil
 }
 
 type sendDiagnosticInterruptResponse struct {

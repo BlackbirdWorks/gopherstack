@@ -39,11 +39,12 @@ type runTaskInput struct {
 }
 
 type runTaskOutput struct {
-	Tasks []taskView `json:"tasks"`
+	Tasks    []taskView    `json:"tasks"`
+	Failures []failureView `json:"failures"`
 }
 
 func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOutput, error) {
-	tasks, err := h.Backend.RunTask(RunTaskInput{
+	tasks, failures, err := h.Backend.RunTask(RunTaskInput{
 		Cluster:                  in.Cluster,
 		TaskDefinition:           in.TaskDefinition,
 		Count:                    in.Count,
@@ -68,7 +69,12 @@ func (h *Handler) handleRunTask(_ context.Context, in *runTaskInput) (*runTaskOu
 		views = append(views, toTaskView(t))
 	}
 
-	return &runTaskOutput{Tasks: views}, nil
+	failViews := make([]failureView, 0, len(failures))
+	for _, f := range failures {
+		failViews = append(failViews, failureView(f))
+	}
+
+	return &runTaskOutput{Tasks: views, Failures: failViews}, nil
 }
 
 type describeTasksInput struct {
@@ -391,10 +397,12 @@ type containerNetworkInterfaceView struct {
 
 // containerNetworkBindingView is the handler view of a container's port binding.
 type containerNetworkBindingView struct {
-	BindIP        string `json:"bindIP,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
-	ContainerPort int    `json:"containerPort,omitempty"`
-	HostPort      int    `json:"hostPort,omitempty"`
+	BindIP             string `json:"bindIP,omitempty"`
+	Protocol           string `json:"protocol,omitempty"`
+	ContainerPortRange string `json:"containerPortRange,omitempty"`
+	HostPortRange      string `json:"hostPortRange,omitempty"`
+	ContainerPort      int    `json:"containerPort,omitempty"`
+	HostPort           int    `json:"hostPort,omitempty"`
 }
 
 // containerView is the handler view of a runtime container within a task.

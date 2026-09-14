@@ -661,7 +661,7 @@ func TestListCrawls_ReturnsRealCrawlHistory(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &after))
 	require.Len(t, after.Crawls, 1)
 	assert.NotEmpty(t, after.Crawls[0]["CrawlId"])
-	assert.NotEmpty(t, after.Crawls[0]["StartTime"])
+	assert.NotEmpty(t, after.Crawls[0]["StartedOn"])
 }
 
 func TestCreateCrawler_WithoutDatabase(t *testing.T) {

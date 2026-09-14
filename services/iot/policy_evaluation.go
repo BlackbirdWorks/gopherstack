@@ -70,7 +70,7 @@ func (b *InMemoryBackend) TestAuthorization(input *TestAuthorizationInput) ([]*A
 		return nil, fmt.Errorf("%w: principal is required", ErrValidation)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("TestAuthorization")
 	defer b.mu.RUnlock()
 
 	policies, err := b.effectiveTestPolicies(input)
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) TestInvokeAuthorizer(
 	authorizerName string,
 	input *TestInvokeAuthorizerInput,
 ) (*TestInvokeAuthorizerOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("TestInvokeAuthorizer")
 	a, ok := b.authorizers.Get(authorizerName)
 	b.mu.RUnlock()
 

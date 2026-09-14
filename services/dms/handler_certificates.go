@@ -61,8 +61,7 @@ func (h *Handler) handleDescribeCertificates(
 		return nil, err
 	}
 
-	arnFilter := extractFilterValue(in.Filters, "certificate-arn")
-	idFilter := extractFilterValue(in.Filters, "certificate-id")
+	df := newDescribeFilters(in.Filters)
 
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].CertificateIdentifier < list[j].CertificateIdentifier
@@ -70,11 +69,11 @@ func (h *Handler) handleDescribeCertificates(
 
 	all := make([]certificateJSON, 0, len(list))
 	for _, cert := range list {
-		if arnFilter != "" && cert.CertificateArn != arnFilter {
+		if !df.Matches("certificate-arn", cert.CertificateArn) {
 			continue
 		}
 
-		if idFilter != "" && cert.CertificateIdentifier != idFilter {
+		if !df.Matches("certificate-id", cert.CertificateIdentifier) {
 			continue
 		}
 

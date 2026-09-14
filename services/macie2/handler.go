@@ -439,23 +439,31 @@ func parseRESTPath(method, path string) (string, string) {
 	return parser(method, parts)
 }
 
+// handleError classifies err into an HTTP status and an AWS exception name
+// (__type) independently of err.Error(), which carries the human message.
+// Previously both fields were set from the same err.Error() text (errBody(msg,
+// msg)); restjson.GetErrorInfo (aws-sdk-go-v2
+// aws/protocol/restjson/decoder_util.go:15) would read that text as __type,
+// so any macie2 sentinel whose message ever stopped equalling its exception
+// name would reach a real client as an untyped code instead of the modeled
+// exception.
 func (h *Handler) handleError(c *echo.Context, err error) error {
 	msg := err.Error()
 
-	var code int
-
 	switch {
+	case errors.Is(err, ErrRevealNotClassification):
+		return c.JSON(http.StatusUnprocessableEntity, errBody(errUnprocessableEntity, msg))
+	case errors.Is(err, ErrRevealNotEnabled), errors.Is(err, ErrNotEnabled):
+		return c.JSON(http.StatusForbidden, errBody(errMacieNotEnabled, msg))
 	case errors.Is(err, awserr.ErrNotFound):
-		code = http.StatusNotFound
+		return c.JSON(http.StatusNotFound, errBody(errResourceNotFound, msg))
 	case errors.Is(err, awserr.ErrConflict):
-		code = http.StatusConflict
+		return c.JSON(http.StatusConflict, errBody(errConflictException, msg))
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		code = http.StatusBadRequest
-	default:
-		code = http.StatusInternalServerError
+		return c.JSON(http.StatusBadRequest, errBody(errValidation, msg))
 	}
 
-	return c.JSON(code, errBody(msg, msg))
+	return c.JSON(http.StatusInternalServerError, errBody(errInternalServer, msg))
 }
 
 func errBody(code, message string) map[string]string {

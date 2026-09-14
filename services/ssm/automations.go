@@ -310,6 +310,15 @@ func (b *InMemoryBackend) DescribeAutomationStepExecutions(
 		steps = []AutomationStepExec{}
 	}
 
+	if input.ReverseOrder != nil && *input.ReverseOrder {
+		reversed := make([]AutomationStepExec, len(steps))
+		for i, s := range steps {
+			reversed[len(steps)-1-i] = s
+		}
+
+		steps = reversed
+	}
+
 	maxResults := 0
 	if input.MaxResults != nil {
 		maxResults = int(*input.MaxResults)

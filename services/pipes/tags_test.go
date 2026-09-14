@@ -97,7 +97,7 @@ func TestTags_UpdateViaTagResource(t *testing.T) {
 			tagsRec := auditDo(t, h, http.MethodGet, "/tags/"+pipeARN, nil)
 			var tagsResp map[string]any
 			require.NoError(t, json.Unmarshal(tagsRec.Body.Bytes(), &tagsResp))
-			tags, _ := tagsResp["Tags"].(map[string]any)
+			tags, _ := tagsResp["tags"].(map[string]any)
 
 			for k, v := range tt.wantTags {
 				assert.Equal(t, v, tags[k])

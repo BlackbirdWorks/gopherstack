@@ -64,29 +64,50 @@ func TestSSE_S3_RoundTripEncryptsAtRest(t *testing.T) {
 func TestSSE_S3_SurvivesSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
-	handler, backend := newTestHandler(t)
-	mustCreateBucket(t, backend, "sse-persist")
+	tests := []struct {
+		name      string
+		bucket    string
+		key       string
+		algorithm string
+		plaintext []byte
+	}{
+		{
+			name:      "AES256",
+			bucket:    "sse-persist",
+			key:       "k.txt",
+			algorithm: "AES256",
+			plaintext: []byte("payload that must survive a restart intact"),
+		},
+	}
 
-	plaintext := []byte("payload that must survive a restart intact")
-	req := httptest.NewRequest(http.MethodPut, "/sse-persist/k.txt", bytes.NewReader(plaintext))
-	req.Header.Set("X-Amz-Server-Side-Encryption", "AES256")
-	rec := httptest.NewRecorder()
-	serveS3Handler(handler, rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	snap := backend.Snapshot(t.Context())
-	require.NotNil(t, snap)
+			handler, backend := newTestHandler(t)
+			mustCreateBucket(t, backend, tt.bucket)
 
-	fresh := s3.NewInMemoryBackend(&s3.GzipCompressor{})
-	require.NoError(t, fresh.Restore(t.Context(), snap))
+			req := httptest.NewRequest(http.MethodPut, "/"+tt.bucket+"/"+tt.key, bytes.NewReader(tt.plaintext))
+			req.Header.Set("X-Amz-Server-Side-Encryption", tt.algorithm)
+			rec := httptest.NewRecorder()
+			serveS3Handler(handler, rec, req)
+			require.Equal(t, http.StatusOK, rec.Code)
 
-	out, err := fresh.GetObject(context.Background(), &sdk_s3.GetObjectInput{
-		Bucket: aws.String("sse-persist"),
-		Key:    aws.String("k.txt"),
-	})
-	require.NoError(t, err, "restored SSE object must remain decryptable")
-	got, _ := io.ReadAll(out.Body)
-	require.Equal(t, plaintext, got)
+			snap := backend.Snapshot(t.Context())
+			require.NotNil(t, snap)
+
+			fresh := s3.NewInMemoryBackend(&s3.GzipCompressor{})
+			require.NoError(t, fresh.Restore(t.Context(), snap))
+
+			out, err := fresh.GetObject(context.Background(), &sdk_s3.GetObjectInput{
+				Bucket: aws.String(tt.bucket),
+				Key:    aws.String(tt.key),
+			})
+			require.NoError(t, err, "restored SSE object must remain decryptable")
+			got, _ := io.ReadAll(out.Body)
+			require.Equal(t, tt.plaintext, got)
+		})
+	}
 }
 
 // TestSSE_S3_MultipartEncryptsAtRest verifies that a multipart upload created

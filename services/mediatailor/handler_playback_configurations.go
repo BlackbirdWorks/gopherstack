@@ -1,6 +1,7 @@
 package mediatailor
 
 import (
+	"fmt"
 	"maps"
 	"net/http"
 
@@ -9,12 +10,35 @@ import (
 
 // --- PlaybackConfiguration handlers ---
 
+// insertionModeStitchedOnly is InsertionMode's documented default: "The
+// default for players that do not specify an insertion mode is stitched."
+// (mediatailor@v1.63.4 api_op_PutPlaybackConfiguration.go:99-103).
+const insertionModeStitchedOnly = "STITCHED_ONLY"
+
+// isValidInsertionMode mirrors types.InsertionMode.Values(), so it cannot
+// drift from the real enum.
+func isValidInsertionMode(v string) bool {
+	return v == insertionModeStitchedOnly || v == "PLAYER_SELECT"
+}
+
 func (h *Handler) handlePutPlaybackConfiguration(c *echo.Context, body map[string]any) error {
 	name, _ := body[keyName].(string)
 	adsURL, _ := body[keyAdDecisionServerURL].(string)
 	videoURL, _ := body[keyVideoContentSourceURL].(string)
 	tags := extractTags(body)
 	extra := extractExtraConfig(body)
+
+	insertionMode, ok := extra["InsertionMode"].(string)
+	if !ok || insertionMode == "" {
+		insertionMode = insertionModeStitchedOnly
+	}
+	if !isValidInsertionMode(insertionMode) {
+		return respondErr(c, fmt.Errorf("%w: InsertionMode value %q is not valid", ErrInvalidParameter, insertionMode))
+	}
+	if extra == nil {
+		extra = make(map[string]any)
+	}
+	extra["InsertionMode"] = insertionMode
 
 	cfg, err := h.Backend.PutPlaybackConfiguration(name, adsURL, videoURL, tags, extra)
 	if err != nil {

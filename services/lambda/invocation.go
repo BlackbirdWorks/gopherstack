@@ -132,7 +132,7 @@ func (b *InMemoryBackend) InvokeFunctionWithQualifier(
 	// Enforce reserved concurrency limits for all invocation types.
 	// Reserved concurrency of 0 blocks all invocations; non-zero limits are enforced
 	// for both synchronous (RequestResponse) and asynchronous (Event) invocations.
-	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName)
+	trackConcurrency, concErr := b.acquireConcurrencySlot(fn.FunctionName, fn.Version)
 	if concErr != nil {
 		return nil, "", "", http.StatusTooManyRequests, concErr
 	}
@@ -535,14 +535,19 @@ func scheduleAsyncRetry(
 // for a function. It returns (true, nil) when a slot was acquired (caller must release),
 // (false, nil) when the function has no reserved concurrency limit, or (false, err) when
 // the limit is already exhausted. Must not be called with b.mu held.
-func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, error) {
+//
+// scalingQualifier is the invocation's resolved qualifier (an alias already resolved to its
+// target version), used only for the per-qualifier FunctionScalingConfig lookup -- reserved
+// concurrency stays keyed by function name alone, matching PutFunctionConcurrency's "apply to
+// the function as a whole" scope (api_op_PutFunctionConcurrency.go:13-14, lambda@v1.107.0).
+func (b *InMemoryBackend) acquireConcurrencySlot(functionName, scalingQualifier string) (bool, error) {
 	b.mu.Lock("acquireConcurrencySlot")
 	defer b.mu.Unlock()
 
 	reserved, hasLimit := b.functionConcurrencies[functionName]
 	if !hasLimit {
-		// No reserved concurrency limit — check scaling config MaxExecutionEnvironments instead.
-		if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
+		if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, scalingQualifier)]; ok &&
+			sc.MaxExecutionEnvironments != nil {
 			active := b.activeConcurrencies[functionName]
 			if active >= int(*sc.MaxExecutionEnvironments) {
 				return false, fmt.Errorf(
@@ -579,7 +584,8 @@ func (b *InMemoryBackend) acquireConcurrencySlot(functionName string) (bool, err
 	}
 
 	// Also enforce MaxExecutionEnvironments from scaling config when set.
-	if sc, ok := b.functionScalingConfigs[functionName]; ok && sc.MaxExecutionEnvironments != nil {
+	if sc, ok := b.functionScalingConfigs[permissionMapKey(functionName, scalingQualifier)]; ok &&
+		sc.MaxExecutionEnvironments != nil {
 		if active >= int(*sc.MaxExecutionEnvironments) {
 			return false, fmt.Errorf(
 				"%w: scaling concurrency limit reached for function %s",

@@ -226,13 +226,55 @@ func (h *Handler) handleGetReservedNodeExchangeOfferings(vals url.Values) (any, 
 
 // ---- GetReservedNodeExchangeConfigurationOptions ----
 
+// xmlReservedNodeConfigurationOption mirrors
+// types.ReservedNodeConfigurationOption. Previously this op's response had
+// no GetReservedNodeExchangeConfigurationOptionsResult wrapper element (or
+// any data) at all -- a disguised stub: a real client's XML deserializer
+// failed outright looking for that required nesting, confirmed live
+// ("failed to decode response body, ...Result node not found").
+//
+//nolint:govet // fieldalignment: embeds existing xml structs; reordering fields here doesn't help
+type xmlReservedNodeConfigurationOption struct {
+	SourceReservedNode         xmlReservedNode         `xml:"SourceReservedNode"`
+	TargetReservedNodeOffering xmlReservedNodeOffering `xml:"TargetReservedNodeOffering"`
+	TargetReservedNodeCount    int                     `xml:"TargetReservedNodeCount"`
+}
+
+type xmlReservedNodeConfigurationOptionList struct {
+	Members []xmlReservedNodeConfigurationOption `xml:"ReservedNodeConfigurationOption"`
+}
+
+type getReservedNodeExchangeConfigurationOptionsResult struct {
+	XMLName xml.Name                               `xml:"GetReservedNodeExchangeConfigurationOptionsResult"`
+	Marker  string                                 `xml:"Marker,omitempty"`
+	Options xmlReservedNodeConfigurationOptionList `xml:"ReservedNodeConfigurationOptionList"`
+}
+
 type getReservedNodeExchangeConfigurationOptionsResponse struct {
-	XMLName xml.Name `xml:"GetReservedNodeExchangeConfigurationOptionsResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                                          `xml:"GetReservedNodeExchangeConfigurationOptionsResponse"`
+	Xmlns   string                                            `xml:"xmlns,attr"`
+	Result  getReservedNodeExchangeConfigurationOptionsResult `xml:"GetReservedNodeExchangeConfigurationOptionsResult"`
 }
 
 func (h *Handler) handleGetReservedNodeExchangeConfigurationOptions(_ url.Values) (any, error) {
-	return &getReservedNodeExchangeConfigurationOptionsResponse{Xmlns: redshiftXMLNS}, nil
+	opts := h.Backend.GetReservedNodeExchangeConfigurationOptions()
+
+	xmlOpts := make([]xmlReservedNodeConfigurationOption, 0, len(opts))
+
+	for _, o := range opts {
+		xmlOpts = append(xmlOpts, xmlReservedNodeConfigurationOption{
+			SourceReservedNode:         reservedNodeToXML(&o.SourceReservedNode),
+			TargetReservedNodeOffering: xmlReservedNodeOffering(o.TargetReservedNodeOffering),
+			TargetReservedNodeCount:    o.TargetReservedNodeCount,
+		})
+	}
+
+	return &getReservedNodeExchangeConfigurationOptionsResponse{
+		Xmlns: redshiftXMLNS,
+		Result: getReservedNodeExchangeConfigurationOptionsResult{
+			Options: xmlReservedNodeConfigurationOptionList{Members: xmlOpts},
+		},
+	}, nil
 }
 
 // ---- AcceptReservedNodeExchange ----

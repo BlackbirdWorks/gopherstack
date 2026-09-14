@@ -245,8 +245,14 @@ func (h *Handler) handleDeleteFieldLevelEncryption(c *echo.Context, id string) e
 
 	ifMatch := c.Request().Header.Get("If-Match")
 	if ifMatch == "" || ifMatch != current.ETag {
-		return xmlResp(c, http.StatusPreconditionFailed,
-			cfErrorXML("PreconditionFailed", "If-Match ETag did not match the current FieldLevelEncryption ETag"))
+		return xmlResp(
+			c,
+			http.StatusPreconditionFailed,
+			cfErrorXML(
+				"PreconditionFailed",
+				"If-Match ETag did not match the current FieldLevelEncryption ETag",
+			),
+		)
 	}
 
 	if err := h.Backend.DeleteFieldLevelEncryption(id); err != nil {
@@ -311,9 +317,10 @@ func fleProfileConfigInnerXML(p *FieldLevelEncryptionProfile) string {
 	}
 
 	return fmt.Sprintf(`<Name>%s</Name>`+
+		`<CallerReference>%s</CallerReference>`+
 		`<Comment>%s</Comment>`+
 		`<EncryptionEntities><Quantity>%d</Quantity><Items>%s</Items></EncryptionEntities>`,
-		xmlEscape(p.Name), xmlEscape(p.Comment),
+		xmlEscape(p.Name), xmlEscape(p.CallerReference), xmlEscape(p.Comment),
 		len(p.EncryptionEntities), entities.String())
 }
 
@@ -358,7 +365,12 @@ func (h *Handler) handleCreateFieldLevelEncryptionProfile(c *echo.Context) error
 		req.Name = generateID()
 	}
 
-	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(req.Name, req.Comment, req.toBackend())
+	p, createErr := h.Backend.CreateFieldLevelEncryptionProfile(
+		req.CallerReference,
+		req.Name,
+		req.Comment,
+		req.toBackend(),
+	)
 	if createErr != nil {
 		return h.handleError(c, createErr)
 	}
@@ -492,7 +504,12 @@ func (h *Handler) handleUpdateFieldLevelEncryptionProfile(c *echo.Context, id st
 		name = current.Name
 	}
 
-	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(id, name, req.Comment, req.toBackend())
+	p, updateErr := h.Backend.UpdateFieldLevelEncryptionProfile(
+		id,
+		name,
+		req.Comment,
+		req.toBackend(),
+	)
 	if updateErr != nil {
 		return h.handleError(c, updateErr)
 	}

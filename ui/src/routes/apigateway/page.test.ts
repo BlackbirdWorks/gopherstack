@@ -190,6 +190,43 @@ describe("API Gateway Page", () => {
     expect(screen.getByText("Create Custom Domain")).toBeInTheDocument();
   });
 
+  // GetStagesCommand's real Stage schema has no invokeUrl -- the real
+  // deserializer only copies schema members, so this field was always
+  // undefined (gopherstack-wztt6). The dashboard now computes it client-side
+  // from the API id and stage name using the same /proxy/{apiId}/{stageName}
+  // path the emulator itself serves (services/apigateway/store.go
+  // stageInvokeURL).
+  it("computes and displays the stage invoke URL client-side", async () => {
+    mockSend.mockResolvedValueOnce({
+      items: [
+        {
+          id: "api123",
+          name: "my-rest-api",
+          description: "My test API",
+          endpointConfiguration: { types: ["REGIONAL"] },
+          createdDate: new Date("2024-01-01"),
+        },
+      ],
+    });
+    render(APIGatewayPage);
+    await waitFor(() => expect(screen.getByText("my-rest-api")).toBeInTheDocument());
+
+    // loadApiDetail fires five parallel Get*Command calls in this order:
+    // Resources, Stages, Deployments, Authorizers, Models.
+    mockSend.mockResolvedValueOnce({ items: [] });
+    mockSend.mockResolvedValueOnce({ item: [{ stageName: "prod", deploymentId: "d1" }] });
+    mockSend.mockResolvedValueOnce({ items: [] });
+    mockSend.mockResolvedValueOnce({ items: [] });
+    mockSend.mockResolvedValueOnce({ items: [] });
+
+    await fireEvent.click(screen.getByText("my-rest-api"));
+    await waitFor(() => expect(screen.getByText("Stages")).toBeInTheDocument());
+    await fireEvent.click(screen.getByText("Stages"));
+
+    await waitFor(() => expect(screen.getByText("prod")).toBeInTheDocument());
+    expect(screen.getByText(/\/proxy\/api123\/prod$/)).toBeInTheDocument();
+  });
+
   describe("All regions mode", () => {
     const api = {
       id: "api123",

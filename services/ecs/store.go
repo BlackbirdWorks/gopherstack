@@ -13,6 +13,7 @@ const (
 	statusStopped           = "STOPPED"
 	statusActive            = "ACTIVE"
 	statusInactive          = "INACTIVE"
+	statusDeleteInProgress  = "DELETE_IN_PROGRESS"
 	statusProvisioning      = "PROVISIONING"
 	statusPending           = "PENDING"
 	statusDeactivating      = "DEACTIVATING"

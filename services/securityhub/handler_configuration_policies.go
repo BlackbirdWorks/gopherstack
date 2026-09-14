@@ -92,7 +92,12 @@ func (h *Handler) handleCreateConfigurationPolicy(
 
 	cp, err := h.Backend.CreateConfigurationPolicy(name, description, policy, tags)
 	if err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
@@ -108,13 +113,22 @@ func (h *Handler) handleGetConfigurationPolicy(c *echo.Context, identifier strin
 			)
 		}
 
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
 }
 
-func (h *Handler) handleUpdateConfigurationPolicy(c *echo.Context, identifier string, body map[string]any) error {
+func (h *Handler) handleUpdateConfigurationPolicy(
+	c *echo.Context,
+	identifier string,
+	body map[string]any,
+) error {
 	name, _ := body["Name"].(string)
 	description, _ := body["Description"].(string)
 
@@ -135,7 +149,12 @@ func (h *Handler) handleUpdateConfigurationPolicy(c *echo.Context, identifier st
 			)
 		}
 
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, configPolicyToResponse(cp))
@@ -152,7 +171,12 @@ func (h *Handler) handleDeleteConfigurationPolicy(c *echo.Context, identifier st
 			)
 		}
 
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
@@ -231,22 +255,38 @@ func extractConfigPolicyTarget(body map[string]any) (string, string) {
 	return "", ""
 }
 
-func (h *Handler) handleGetConfigurationPolicyAssociation(c *echo.Context, body map[string]any) error {
+func (h *Handler) handleGetConfigurationPolicyAssociation(
+	c *echo.Context,
+	body map[string]any,
+) error {
 	targetID, targetType := extractConfigPolicyTarget(body)
 
 	assoc, err := h.Backend.GetConfigurationPolicyAssociation(targetID, targetType)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return typedErrorResponse(c, http.StatusNotFound, "ResourceNotFoundException", "Association not found")
+			return typedErrorResponse(
+				c,
+				http.StatusNotFound,
+				"ResourceNotFoundException",
+				"Association not found",
+			)
 		}
 
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, configPolicyAssocToResponse(assoc))
 }
 
-func (h *Handler) handleListConfigurationPolicyAssociations(c *echo.Context, body map[string]any) error {
+func (h *Handler) handleListConfigurationPolicyAssociations(
+	c *echo.Context,
+	body map[string]any,
+) error {
 	filterPolicyID := ""
 	filterType := ""
 	nextToken := ""
@@ -265,7 +305,12 @@ func (h *Handler) handleListConfigurationPolicyAssociations(c *echo.Context, bod
 		maxResults = int(v)
 	}
 
-	assocs, next := h.Backend.ListConfigurationPolicyAssociations(filterPolicyID, filterType, nextToken, maxResults)
+	assocs, next := h.Backend.ListConfigurationPolicyAssociations(
+		filterPolicyID,
+		filterType,
+		nextToken,
+		maxResults,
+	)
 
 	var out []map[string]any //nolint:prealloc // existing issue.
 
@@ -288,7 +333,10 @@ func (h *Handler) handleListConfigurationPolicyAssociations(c *echo.Context, bod
 	return c.JSON(http.StatusOK, resp)
 }
 
-func (h *Handler) handleStartConfigurationPolicyAssociation(c *echo.Context, body map[string]any) error {
+func (h *Handler) handleStartConfigurationPolicyAssociation(
+	c *echo.Context,
+	body map[string]any,
+) error {
 	policyID := ""
 
 	if t, ok := body["ConfigurationPolicyIdentifier"].(string); ok {
@@ -308,13 +356,21 @@ func (h *Handler) handleStartConfigurationPolicyAssociation(c *echo.Context, bod
 			)
 		}
 
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, configPolicyAssocToResponse(assoc))
 }
 
-func (h *Handler) handleStartConfigurationPolicyDisassociation(c *echo.Context, body map[string]any) error {
+func (h *Handler) handleStartConfigurationPolicyDisassociation(
+	c *echo.Context,
+	body map[string]any,
+) error {
 	policyID := ""
 
 	if t, ok := body["ConfigurationPolicyIdentifier"].(string); ok {
@@ -324,21 +380,51 @@ func (h *Handler) handleStartConfigurationPolicyDisassociation(c *echo.Context, 
 	targetID, targetType := extractConfigPolicyTarget(body)
 
 	if err := h.Backend.StartConfigurationPolicyDisassociation(policyID, targetID, targetType); err != nil {
-		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
+		return typedErrorResponse(
+			c,
+			http.StatusInternalServerError,
+			"InternalException",
+			err.Error(),
+		)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{})
 }
 
-func (h *Handler) handleBatchGetConfigurationPolicyAssociations(c *echo.Context, body map[string]any) error {
+// batchGetConfigPolicyAssocRequests normalizes the real
+// ConfigurationPolicyAssociationIdentifiers wire shape -- each item is
+// {"Target": {"AccountId"|"OrganizationalUnitId"|"RootId": ...}}
+// (securityhub@v1.75.4 serializers.go's
+// awsRestjson1_serializeDocumentConfigurationPolicyAssociation; there is no
+// flat "TargetId" member) -- into the flat {"TargetId", "TargetType"} shape
+// InMemoryBackend.BatchGetConfigurationPolicyAssociations expects. Reading
+// "TargetId" directly off each raw item, as this previously did, always saw
+// an absent key for a real client's request, so every association was
+// reported unprocessed regardless of backend state.
+func batchGetConfigPolicyAssocRequests(raw []any) []map[string]any {
+	var requests []map[string]any
+
+	for _, item := range raw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		targetID, targetType := extractConfigPolicyTarget(m)
+		requests = append(requests, map[string]any{"TargetId": targetID, "TargetType": targetType})
+	}
+
+	return requests
+}
+
+func (h *Handler) handleBatchGetConfigurationPolicyAssociations(
+	c *echo.Context,
+	body map[string]any,
+) error {
 	var requests []map[string]any
 
 	if raw, ok := body["ConfigurationPolicyAssociationIdentifiers"].([]any); ok {
-		for _, item := range raw {
-			if m, ok := item.(map[string]any); ok { //nolint:govet // existing issue.
-				requests = append(requests, m)
-			}
-		}
+		requests = batchGetConfigPolicyAssocRequests(raw)
 	}
 
 	found, unprocessed := h.Backend.BatchGetConfigurationPolicyAssociations(requests)

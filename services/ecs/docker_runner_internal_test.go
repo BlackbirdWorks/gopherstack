@@ -521,7 +521,7 @@ func TestDeleteCluster_LeavesNoRunningContainers(t *testing.T) {
 				require.NoError(t, err)
 
 				for range tt.numTasks {
-					tasks, runErr := backend.RunTask(RunTaskInput{
+					tasks, _, runErr := backend.RunTask(RunTaskInput{
 						Cluster:        "test-cluster",
 						TaskDefinition: "test",
 					})
@@ -680,7 +680,7 @@ func TestBackend_RunTask_FailedRunnerSetsSTOPPED(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			tasks, err := backend.RunTask(RunTaskInput{
+			tasks, _, err := backend.RunTask(RunTaskInput{
 				Cluster:        "test",
 				TaskDefinition: "fail-task",
 				Count:          tt.count,
@@ -718,7 +718,7 @@ func TestBackend_StopTask_LockReleasedBeforeDockerCall(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	runOut, err := backend.RunTask(RunTaskInput{
+	runOut, _, err := backend.RunTask(RunTaskInput{
 		Cluster:        "test",
 		TaskDefinition: "svc-task",
 		Count:          1,
@@ -776,7 +776,7 @@ func TestDockerRunner_ForwardsAwslogsContainerOutput(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-docker"})
+	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-docker"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -817,7 +817,7 @@ func TestDockerRunner_NonAwslogsContainer_LogsNotRequested(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "no-logconfig"})
+	_, _, err = backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "no-logconfig"})
 	require.NoError(t, err)
 
 	fake.mu.Lock()
@@ -849,7 +849,7 @@ func TestDockerRunner_StopTask_CancelsLogForwarding(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-block"})
+	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "awslogs-block"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 
@@ -891,7 +891,7 @@ func TestDockerRunner_ContainerExit_MovesTaskToStopped(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "batch-job"})
+	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "batch-job"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 	taskArn := tasks[0].TaskArn
@@ -943,7 +943,7 @@ func TestDockerRunner_StopTask_CancelsContainerWait(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	tasks, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "long-runner"})
+	tasks, _, err := backend.RunTask(RunTaskInput{Cluster: "test", TaskDefinition: "long-runner"})
 	require.NoError(t, err)
 	require.Len(t, tasks, 1)
 

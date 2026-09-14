@@ -143,6 +143,10 @@ func (b *InMemoryBackend) CreateGrant(
 		)
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	now := time.Now()
 	grantID := uuid.New().String()
 	grantToken := uuid.New().String()
@@ -363,6 +367,10 @@ func (b *InMemoryBackend) RevokeGrant(ctx context.Context, input *RevokeGrantInp
 		return ErrGrantNotFound
 	}
 
+	if input.DryRun {
+		return ErrDryRun
+	}
+
 	// A single Delete keeps the byToken and byKey indexes consistent
 	// automatically (including dropping now-empty index groups on purge).
 	b.grantsStore(region).Delete(input.GrantID)
@@ -376,17 +384,7 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 	defer b.mu.Unlock()
 
 	if input.GrantToken != "" {
-		// Search all regions for the grant token.
-		for _, gs := range b.grants {
-			if matches := gs.byToken.Get(input.GrantToken); len(matches) > 0 {
-				g := matches[0]
-				gs.table.Delete(g.GrantID)
-
-				return nil
-			}
-		}
-
-		return ErrGrantNotFound
+		return b.retireGrantByToken(input.GrantToken, input.DryRun)
 	}
 
 	if input.GrantID == "" {
@@ -398,24 +396,65 @@ func (b *InMemoryBackend) RetireGrant(ctx context.Context, input *RetireGrantInp
 	// grant created via a cross-region ARN is retired consistently. When no KeyId
 	// is supplied there is no region hint, so search every region for the grant ID.
 	if input.KeyID != "" {
-		key, region, err := b.resolveKeyAndRegion(ctx, input.KeyID, ErrInvalidArn)
-		if err != nil {
-			return err
+		return b.retireGrantByKeyID(ctx, input.KeyID, input.GrantID, input.DryRun)
+	}
+
+	return b.retireGrantByIDOnly(input.GrantID, input.DryRun)
+}
+
+// retireGrantByToken searches all regions for a grant token and retires the matching grant.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) retireGrantByToken(grantToken string, dryRun bool) error {
+	for _, gs := range b.grants {
+		matches := gs.byToken.Get(grantToken)
+		if len(matches) == 0 {
+			continue
 		}
 
-		grant, ok := b.grantsStore(region).Get(input.GrantID)
-		if !ok || grant.KeyID != key.KeyID {
-			return ErrGrantNotFound
+		if dryRun {
+			return ErrDryRun
 		}
 
-		b.grantsStore(region).Delete(input.GrantID)
+		gs.table.Delete(matches[0].GrantID)
 
 		return nil
 	}
 
+	return ErrGrantNotFound
+}
+
+// retireGrantByKeyID retires a grant by ID, scoped to the region the given KeyId resolves to.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) retireGrantByKeyID(ctx context.Context, keyID, grantID string, dryRun bool) error {
+	key, region, err := b.resolveKeyAndRegion(ctx, keyID, ErrInvalidArn)
+	if err != nil {
+		return err
+	}
+
+	grant, ok := b.grantsStore(region).Get(grantID)
+	if !ok || grant.KeyID != key.KeyID {
+		return ErrGrantNotFound
+	}
+
+	if dryRun {
+		return ErrDryRun
+	}
+
+	b.grantsStore(region).Delete(grantID)
+
+	return nil
+}
+
+// retireGrantByIDOnly searches all regions for a grant ID (no KeyId region hint) and retires it.
+// Must be called with the write lock held.
+func (b *InMemoryBackend) retireGrantByIDOnly(grantID string, dryRun bool) error {
 	for _, gs := range b.grants {
-		if _, ok := gs.table.Get(input.GrantID); ok {
-			gs.table.Delete(input.GrantID)
+		if _, ok := gs.table.Get(grantID); ok {
+			if dryRun {
+				return ErrDryRun
+			}
+
+			gs.table.Delete(grantID)
 
 			return nil
 		}

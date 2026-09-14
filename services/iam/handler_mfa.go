@@ -164,40 +164,8 @@ func (h *Handler) iamVirtualMFADispatch() map[string]iamActionFn {
 	}
 }
 
-// iamMFADeviceDispatch's "ListMFADevices" entry is shadowed by
-// iamMFALinkDispatch's opListMFADevices (buildDispatchTable merges
-// iamComprehensiveDispatchTable last) and never runs.
 func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 	return map[string]iamActionFn{
-		"ListMFADevices": func(vals url.Values, reqID string) (any, error) {
-			userName := vals.Get("UserName")
-
-			p, err := h.Backend.ListMFADevicesForUser(userName, vals.Get("Marker"), parseMaxItems(vals.Get("MaxItems")))
-			if err != nil {
-				// If user not found, return empty list (matches AWS behavior for optional UserName).
-				p = page.Page[VirtualMFADevice]{}
-			}
-
-			members := make([]mfaDeviceXML, 0, len(p.Data))
-			for _, d := range p.Data {
-				members = append(members, mfaDeviceXML{
-					UserName:     h.Backend.GetMFADeviceOwner(d.SerialNumber),
-					SerialNumber: d.SerialNumber,
-					EnableDate:   isoTime(d.CreateDate),
-				})
-			}
-
-			return &listMFADevicesResponse{
-				XMLName: xml.Name{Local: "ListMFADevicesResponse"},
-				Xmlns:   iamXMLNS,
-				ListMFADevicesResult: listMFADevicesResult{
-					MFADevices:  members,
-					Marker:      p.Next,
-					IsTruncated: p.Next != "",
-				},
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
 		"ListMFADeviceTags": func(vals url.Values, reqID string) (any, error) {
 			serial := vals.Get("SerialNumber")
 			members := tagsMapToKV(h.getTags("mfa:" + serial))
@@ -223,31 +191,6 @@ func (h *Handler) iamMFADeviceDispatch() map[string]iamActionFn {
 
 			return &iamSimpleTagResponse{
 				XMLName:          xml.Name{Local: "UntagMFADeviceResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"DeactivateMFADevice": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.DeactivateMFADevice(vals.Get("UserName"), vals.Get("SerialNumber")); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "DeactivateMFADeviceResponse"},
-				Xmlns:            iamXMLNS,
-				ResponseMetadata: ResponseMetadata{RequestID: reqID},
-			}, nil
-		},
-		"EnableMFADevice": func(vals url.Values, reqID string) (any, error) {
-			if err := h.Backend.EnableMFADevice(
-				vals.Get("UserName"), vals.Get("SerialNumber"),
-				vals.Get("AuthenticationCode1"), vals.Get("AuthenticationCode2"),
-			); err != nil {
-				return nil, err
-			}
-
-			return &iamSimpleTagResponse{
-				XMLName:          xml.Name{Local: "EnableMFADeviceResponse"},
 				Xmlns:            iamXMLNS,
 				ResponseMetadata: ResponseMetadata{RequestID: reqID},
 			}, nil

@@ -58,6 +58,7 @@ type backendSnapshot struct {
 	SessionStatements         map[string][]*Statement                   `json:"sessionStatements"`
 	CrawlHistory              map[string][]*CrawlHistoryEntry           `json:"crawlHistory"`
 	SchemaVersionMetadata     map[string]map[string]string              `json:"schemaVersionMetadata"`
+	ResourceTags              map[string]map[string]string              `json:"resourceTags"`
 	IterableFormItems         iterableFormItemsMap                      `json:"iterableFormItems"`
 	GlueIdentityCenterConfig  *IdentityCenterConfig                     `json:"glueIdentityCenterConfig,omitempty"`
 	DataCatalogExportConfig   *DataCatalogExportConfiguration           `json:"dataCatalogExportConfig,omitempty"`
@@ -95,6 +96,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SessionStatements:         b.sessionStatements,
 		CrawlHistory:              b.crawlHistory,
 		SchemaVersionMetadata:     b.schemaVersionMetadata,
+		ResourceTags:              b.resourceTagsSnapshot(),
 		GlueIdentityCenterConfig:  b.glueIdentityCenterConfig,
 		DataCatalogExportConfig:   b.dataCatalogExportConfig,
 		IterableFormItems:         b.iterableFormItems,
@@ -135,8 +137,28 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	initSnapshotDefaults(&snap)
 	b.restoreFromSnapshot(snap)
+	b.restoreDeterministicARNs()
+	b.restoreResourceTags(snap.ResourceTags)
 
 	return nil
+}
+
+// restoreDeterministicARNs recomputes DevEndpoint.ARN and
+// UserDefinedFunction.FunctionARN after a restore. Both fields are json:"-":
+// real Glue's types.DevEndpoint and types.UserDefinedFunction expose no ARN
+// on the wire (aws-sdk-go-v2 service/glue/types/types.go), so neither is
+// persisted, and both read back as "" after RestoreAll otherwise. Recomputed
+// the same deterministic way CreateDevEndpoint/CreateUserDefinedFunction set
+// them (devEndpointARN/udfARN), matching restoreResourceTags's use of the
+// same helpers for the same reason (tags.go).
+func (b *InMemoryBackend) restoreDeterministicARNs() {
+	for _, dep := range b.devEndpoints.All() {
+		dep.ARN = b.devEndpointARN(dep.EndpointName)
+	}
+
+	for _, u := range b.udfs.All() {
+		u.FunctionARN = b.udfARN(u.DatabaseName, u.FunctionName)
+	}
 }
 
 // initSnapshotDefaults ensures every raw (non-store.Table) snapshot map is
@@ -187,6 +209,9 @@ func initSnapshotListDefaults(snap *backendSnapshot) {
 	}
 	if snap.SchemaVersionMetadata == nil {
 		snap.SchemaVersionMetadata = make(map[string]map[string]string)
+	}
+	if snap.ResourceTags == nil {
+		snap.ResourceTags = make(map[string]map[string]string)
 	}
 	if snap.IterableFormItems == nil {
 		snap.IterableFormItems = make(iterableFormItemsMap)

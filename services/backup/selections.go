@@ -78,8 +78,15 @@ func (b *InMemoryBackend) GetBackupSelection(planID, selectionID string) (*Selec
 	return &cp, nil
 }
 
-// ListBackupSelections returns all backup selections for a plan.
-func (b *InMemoryBackend) ListBackupSelections(planID string) ([]*Selection, error) {
+// ListBackupSelections returns backup selections for a plan, paginated by
+// MaxResults/NextToken (real query params, ListBackupSelections
+// serializers.go:5539-5545 -- lowercase "maxResults"/"nextToken" on the
+// wire; BackupPlanId is a required URI label, not a query param).
+func (b *InMemoryBackend) ListBackupSelections(
+	planID string,
+	maxResults int,
+	nextToken string,
+) ([]*Selection, string, error) {
 	b.mu.RLock("ListBackupSelections")
 	defer b.mu.RUnlock()
 
@@ -88,7 +95,7 @@ func (b *InMemoryBackend) ListBackupSelections(planID string) ([]*Selection, err
 		if p, exists := b.plans.Get(planID); exists {
 			planID = p.BackupPlanID
 		} else {
-			return nil, fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
+			return nil, "", fmt.Errorf("%w: backup plan %s not found", ErrNotFound, planID)
 		}
 	}
 
@@ -110,7 +117,9 @@ func (b *InMemoryBackend) ListBackupSelections(planID string) ([]*Selection, err
 		return 0
 	})
 
-	return list, nil
+	page, next := paginateByID(list, func(s *Selection) string { return s.SelectionName }, maxResults, nextToken)
+
+	return page, next, nil
 }
 
 // DeleteBackupSelection deletes a backup selection.

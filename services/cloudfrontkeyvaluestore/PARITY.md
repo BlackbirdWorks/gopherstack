@@ -11,7 +11,8 @@ ops:
   DeleteKey: {wire: ok, errors: ok, state: ok, persist: ok}
   ListKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken pagination via pkgs/page"}
   UpdateKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "all-or-nothing per the real API is NOT modeled -- see gaps"}
-gaps:
+gaps: []
+items_still_open:
   - "TotalSizeInBytes is len(key)+len(value) summed per item. AWS's real byte accounting includes undocumented per-item overhead this emulator cannot replicate exactly; the number is real and deterministic (derived from actual stored data, not fabricated) but will not byte-for-byte match a real account. (bd: gopherstack-4ara)"
   - "UpdateKeys is not transactional: puts and deletes apply sequentially against the shared InMemoryBackend lock rather than as a single all-or-nothing batch. A backend error partway through (never currently possible, since PutKVSValue/DeleteKVSValue on an already-validated store/ETag cannot fail mid-batch) would leave a partial result. (bd: gopherstack-4ara)"
   - "No per-store size/count quotas enforced and no AccessDeniedException path (no IAM enforcement in this emulator) -- see errors.go's doc comment. The AWS Developer Guide's 'Quotas on key value stores' table (docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-keyvaluestores; not stated in the SDK doc comments themselves) documents: max key size 512 Bytes, max value size 1 KB, max UpdateKeys batch 50 keys or 3 MB payload, max individual store size 5 MB, max key value stores per account 200. None of these are enforced here, so ServiceQuotaExceededException/AccessDeniedException are never returned, though both are in the real client's exception set for several ops. (bd: gopherstack-4ara)"

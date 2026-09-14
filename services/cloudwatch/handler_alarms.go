@@ -39,6 +39,7 @@ func (h *Handler) handlePutMetricAlarm(form url.Values, c *echo.Context) error {
 		TreatMissingData:        form.Get("TreatMissingData"),
 		AlarmDescription:        form.Get("AlarmDescription"),
 		ThresholdMetricID:       form.Get("ThresholdMetricId"),
+		Unit:                    form.Get("Unit"),
 		Threshold:               threshold,
 		EvaluationPeriods:       int32(evalPeriods),
 		DatapointsToAlarm:       int32(datapointsToAlarm),
@@ -82,6 +83,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 		ExtendedStatistic:       a.ExtendedStatistic,
 		TreatMissingData:        a.TreatMissingData,
 		ThresholdMetricID:       a.ThresholdMetricID,
+		Unit:                    a.Unit,
 		Threshold:               a.Threshold,
 		StateValue:              a.StateValue,
 		StateReason:             a.StateReason,
@@ -94,6 +96,9 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 	}
 	if !a.StateTransitionedTimestamp.IsZero() {
 		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
+	}
+	if !a.StateUpdatedTimestamp.IsZero() {
+		x.StateUpdatedTimestamp = a.StateUpdatedTimestamp.UTC().Format(time.RFC3339)
 	}
 	if !a.AlarmConfigurationUpdatedTimestamp.IsZero() {
 		x.AlarmConfigurationUpdatedTimestamp = a.AlarmConfigurationUpdatedTimestamp.UTC().
@@ -113,6 +118,7 @@ func metricAlarmToXML(a MetricAlarm) metricAlarmXML {
 type metricAlarmXML struct {
 	AlarmConfigurationUpdatedTimestamp string   `xml:"AlarmConfigurationUpdatedTimestamp,omitempty"`
 	StateTransitionedTimestamp         string   `xml:"StateTransitionedTimestamp,omitempty"`
+	StateUpdatedTimestamp              string   `xml:"StateUpdatedTimestamp,omitempty"`
 	AlarmDescription                   string   `xml:"AlarmDescription,omitempty"`
 	Namespace                          string   `xml:"Namespace,omitempty"`
 	MetricName                         string   `xml:"MetricName,omitempty"`
@@ -121,6 +127,7 @@ type metricAlarmXML struct {
 	ExtendedStatistic                  string   `xml:"ExtendedStatistic,omitempty"`
 	TreatMissingData                   string   `xml:"TreatMissingData,omitempty"`
 	ThresholdMetricID                  string   `xml:"ThresholdMetricId,omitempty"`
+	Unit                               string   `xml:"Unit,omitempty"`
 	AlarmArn                           string   `xml:"AlarmArn"`
 	StateValue                         string   `xml:"StateValue"`
 	AlarmName                          string   `xml:"AlarmName"`

@@ -22,14 +22,44 @@ type Handler struct {
 	ops           map[string]kinesisDispatchFn
 	DefaultRegion string
 	AccountID     string
+	// subscribeToShardStreamDuration/PollInterval/HeartbeatInterval control
+	// handleSubscribeToShardHTTP's cadence (handler_consumers.go). Defaulted
+	// in NewHandler to the documented/inferred values; overridable via
+	// WithSubscribeToShardTiming (tests use short values so a synchronous
+	// httptest.ResponseRecorder call, or a full stream.Events() drain,
+	// completes quickly instead of waiting out the real 5-minute window).
+	subscribeToShardStreamDuration    time.Duration
+	subscribeToShardPollInterval      time.Duration
+	subscribeToShardHeartbeatInterval time.Duration
 }
 
 // NewHandler creates a new Kinesis Handler.
 func NewHandler(backend StorageBackend) *Handler {
 	h := &Handler{
-		Backend: backend,
+		Backend:                           backend,
+		subscribeToShardStreamDuration:    defaultSubscribeToShardStreamDuration,
+		subscribeToShardPollInterval:      defaultSubscribeToShardPollInterval,
+		subscribeToShardHeartbeatInterval: defaultSubscribeToShardHeartbeatInterval,
 	}
 	h.ops = h.buildOps()
+
+	return h
+}
+
+// WithSubscribeToShardTiming overrides SubscribeToShard's stream duration,
+// poll interval, and heartbeat interval (see handler_consumers.go). A
+// zero argument keeps that setting's current value, mirroring
+// services/polly's WithStreamLimits zero-means-keep-default pattern.
+func (h *Handler) WithSubscribeToShardTiming(streamDuration, pollInterval, heartbeatInterval time.Duration) *Handler {
+	if streamDuration > 0 {
+		h.subscribeToShardStreamDuration = streamDuration
+	}
+	if pollInterval > 0 {
+		h.subscribeToShardPollInterval = pollInterval
+	}
+	if heartbeatInterval > 0 {
+		h.subscribeToShardHeartbeatInterval = heartbeatInterval
+	}
 
 	return h
 }
@@ -48,10 +78,15 @@ func (h *Handler) WithJanitor(interval time.Duration, taskTimeout ...time.Durati
 	return h
 }
 
-// StartWorker starts the background janitor if one is configured.
+// StartWorker starts the background janitor (if configured) and the channel
+// delivery interval flusher (see channel_delivery.go's runChannelFlusher).
 func (h *Handler) StartWorker(ctx context.Context) error {
 	if h.janitor != nil {
 		go h.janitor.Run(ctx)
+	}
+
+	if mem, ok := h.Backend.(*InMemoryBackend); ok {
+		go mem.runChannelFlusher(ctx)
 	}
 
 	return nil
@@ -61,6 +96,30 @@ func (h *Handler) StartWorker(ctx context.Context) error {
 func (h *Handler) StopWorker() {
 	if h.janitor != nil {
 		h.janitor.Stop()
+	}
+}
+
+// Shutdown implements service.Shutdowner: it flushes any channel-buffered
+// records to S3 before the process exits, so records accepted since the
+// last interval flush are not lost (this backend does not persist buffered
+// records across a snapshot/restore cycle -- see PARITY.md). If ctx expires
+// before the flush finishes, Shutdown returns immediately.
+func (h *Handler) Shutdown(ctx context.Context) {
+	mem, ok := h.Backend.(*InMemoryBackend)
+	if !ok {
+		return
+	}
+
+	done := make(chan struct{})
+
+	go func() {
+		mem.FlushAllChannels(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-ctx.Done():
 	}
 }
 
@@ -127,6 +186,11 @@ func (h *Handler) GetSupportedOperations() []string {
 		"PutResourcePolicy",
 		"ListTagsForResource",
 		"UpdateStreamMode",
+		"CreateChannel",
+		"DeleteChannel",
+		"DescribeChannel",
+		"ListChannels",
+		"UpdateChannel",
 	}
 }
 
@@ -258,6 +322,11 @@ func (h *Handler) buildOps() map[string]kinesisDispatchFn {
 		"UpdateShardCount":              h.handleUpdateShardCount,
 		"EnableEnhancedMonitoring":      h.handleEnableEnhancedMonitoring,
 		"DisableEnhancedMonitoring":     h.handleDisableEnhancedMonitoring,
+		"CreateChannel":                 h.handleCreateChannel,
+		"DeleteChannel":                 h.handleDeleteChannel,
+		"DescribeChannel":               h.handleDescribeChannel,
+		"ListChannels":                  h.handleListChannels,
+		"UpdateChannel":                 h.handleUpdateChannel,
 	}
 }
 
@@ -359,6 +428,14 @@ func resourceErrorDetails(err error) (string, string, int, bool) {
 	case errors.Is(err, ErrResourcePolicyNotFound):
 		return errTypeResourceNotFound,
 			"Resource policy not found.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrChannelNotFound):
+		return errTypeResourceNotFound,
+			"Channel not found.",
+			http.StatusBadRequest, true
+	case errors.Is(err, ErrChannelAlreadyExists):
+		return errTypeResourceInUse,
+			"A channel with this name already exists.",
 			http.StatusBadRequest, true
 	default:
 		return "", "", 0, false

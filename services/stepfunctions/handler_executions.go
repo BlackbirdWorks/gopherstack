@@ -2,6 +2,7 @@ package stepfunctions
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type startExecutionInput struct {
@@ -31,7 +32,12 @@ type listExecutionsInput struct {
 	StateMachineArn string `json:"stateMachineArn"`
 	StatusFilter    string `json:"statusFilter"`
 	NextToken       string `json:"nextToken"`
-	MaxResults      int    `json:"maxResults"`
+	// MapRunArn lists a Distributed Map Run's child executions instead of a
+	// state machine's top-level ones. Mutually exclusive with
+	// StateMachineArn (AWS: "You can specify either a mapRunArn or a
+	// stateMachineArn, but not both", api_op_ListExecutions.go).
+	MapRunArn  string `json:"mapRunArn"`
+	MaxResults int    `json:"maxResults"`
 }
 
 type getExecutionHistoryInput struct {
@@ -57,9 +63,13 @@ type listExecutionsOutput struct {
 
 // executionListItem mirrors AWS's ExecutionListItem, which -- unlike the
 // full Execution shape DescribeExecution returns -- has no input, output,
-// error, or cause (types.go, sfn@v1.45.4). ItemCount/MapRunArn are also
-// declared on ExecutionListItem but are not tracked on the domain Execution
-// struct here; that is a separate (missing-field, not over-wide) gap.
+// error, or cause (types.go, sfn@v1.49.0). ItemCount/MapRunArn are real
+// (Distributed Map child) fields here too: AWS documents both as "returned
+// only if mapRunArn was specified in the ListExecutions API action" --
+// newExecutionListItem always copies them from Execution, but they are only
+// ever non-zero on an Execution returned by ListExecutionsByMapRun, since a
+// non-child Execution's MapRunArn/ItemCount stay at their zero values and
+// the omitempty tags drop them from the wire.
 type executionListItem struct {
 	RedriveDate            *float64 `json:"redriveDate,omitempty"`
 	StopDate               *float64 `json:"stopDate,omitempty"`
@@ -69,8 +79,10 @@ type executionListItem struct {
 	Status                 string   `json:"status"`
 	StateMachineAliasArn   string   `json:"stateMachineAliasArn,omitempty"`
 	StateMachineVersionArn string   `json:"stateMachineVersionArn,omitempty"`
+	MapRunArn              string   `json:"mapRunArn,omitempty"`
 	StartDate              float64  `json:"startDate"`
 	RedriveCount           int      `json:"redriveCount,omitempty"`
+	ItemCount              int      `json:"itemCount,omitempty"`
 }
 
 func newExecutionListItem(e *Execution) executionListItem {
@@ -85,6 +97,8 @@ func newExecutionListItem(e *Execution) executionListItem {
 		StateMachineAliasArn:   e.StateMachineAliasArn,
 		StateMachineVersionArn: e.StateMachineVersionArn,
 		StopDate:               e.StopDate,
+		MapRunArn:              e.MapRunArn,
+		ItemCount:              e.ItemCount,
 	}
 }
 
@@ -227,9 +241,29 @@ func (h *Handler) handleListExecutions(b []byte) (any, error) {
 		return nil, err
 	}
 
-	execs, next, err := h.Backend.ListExecutions(
-		input.StateMachineArn, input.StatusFilter, input.NextToken, input.MaxResults,
+	if input.StateMachineArn != "" && input.MapRunArn != "" {
+		return nil, fmt.Errorf(
+			"%w: you can specify either a mapRunArn or a stateMachineArn, but not both",
+			ErrValidation,
+		)
+	}
+
+	var (
+		execs []Execution
+		next  string
+		err   error
 	)
+
+	if input.MapRunArn != "" {
+		execs, next, err = h.Backend.ListExecutionsByMapRun(
+			input.MapRunArn, input.StatusFilter, input.NextToken, input.MaxResults,
+		)
+	} else {
+		execs, next, err = h.Backend.ListExecutions(
+			input.StateMachineArn, input.StatusFilter, input.NextToken, input.MaxResults,
+		)
+	}
+
 	if err != nil {
 		return nil, err
 	}

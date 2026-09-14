@@ -148,5 +148,5 @@ func TestResetAndUnknownRoutes(t *testing.T) {
 
 	rec = request(t, handler, http.MethodGet, "/v1/not-supported", nil)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
-	assert.Contains(t, rec.Body.String(), "Unknown")
+	assert.Contains(t, rec.Body.String(), "ValidationException")
 }

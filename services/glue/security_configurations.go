@@ -26,6 +26,14 @@ func (b *InMemoryBackend) CreateSecurityConfiguration(
 			ErrAlreadyExists,
 		)
 	}
+
+	if b.securityConfigs.Len() >= b.limits.securityConfigs {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d security configuration limit",
+			ErrResourceNumberLimitExceeded, b.limits.securityConfigs,
+		)
+	}
+
 	sc := &SecurityConfiguration{
 		Name:                    name,
 		EncryptionConfiguration: enc,

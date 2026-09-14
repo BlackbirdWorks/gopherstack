@@ -1,13 +1,17 @@
 package cloudformation
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (b *InMemoryBackend) CreateStackRefactor(
 	description string,
+	stackDefinitions []StackDefinition,
 	resourceMappings []ResourceMapping,
 	enableStackCreation bool,
 ) (string, error) {
@@ -19,6 +23,7 @@ func (b *InMemoryBackend) CreateStackRefactor(
 		Description:         description,
 		Status:              "CREATE_COMPLETE",
 		ResourceMappings:    resourceMappings,
+		StackDefinitions:    stackDefinitions,
 		EnableStackCreation: enableStackCreation,
 	})
 
@@ -71,16 +76,54 @@ func (b *InMemoryBackend) resolveStackRefactorMoves(mappings []ResourceMapping) 
 	return moves, nil
 }
 
+// createMissingRefactorStacks creates, from r.StackDefinitions, any mapping
+// destination stack that doesn't already exist. Only reached when
+// EnableStackCreation is set (CreateStackRefactorInput.StackDefinitions,
+// cloudformation@v1.76.1 api_op_CreateStackRefactor.go); without it, a
+// missing destination stays a genuine ErrStackNotFound, matching AWS.
+func (b *InMemoryBackend) createMissingRefactorStacks(ctx context.Context, r *StackRefactor) error {
+	defs := make(map[string]StackDefinition, len(r.StackDefinitions))
+	for _, d := range r.StackDefinitions {
+		defs[d.StackName] = d
+	}
+	created := make(map[string]bool)
+	for _, m := range r.ResourceMappings {
+		name := m.Destination.StackName
+		if created[name] {
+			continue
+		}
+		if _, ok := b.resolveStack(name); ok {
+			continue
+		}
+		def, ok := defs[name]
+		if !ok {
+			continue
+		}
+		if _, err := b.createStackLocked(ctx, name, def.TemplateBody, nil, StackOptions{}, ""); err != nil {
+			return fmt.Errorf("creating refactor destination stack %s: %w", name, err)
+		}
+		created[name] = true
+	}
+
+	return nil
+}
+
 // ExecuteStackRefactor moves each mapped resource out of its source stack's
 // resource table and into its destination stack's — observable afterward
 // through DescribeStackResources on both stacks.
-func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
+func (b *InMemoryBackend) ExecuteStackRefactor(ctx context.Context, stackRefactorID string) error {
 	b.mu.Lock("ExecuteStackRefactor")
 	defer b.mu.Unlock()
 
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrStackRefactorNotFound, stackRefactorID)
+	}
+
+	if r.EnableStackCreation {
+		if err := b.createMissingRefactorStacks(ctx, r); err != nil {
+			return err
+		}
 	}
 
 	moves, err := b.resolveStackRefactorMoves(r.ResourceMappings)
@@ -112,11 +155,17 @@ func (b *InMemoryBackend) ExecuteStackRefactor(stackRefactorID string) error {
 	return nil
 }
 
-func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, error) {
+// ListStackRefactors returns stack refactors, paginated by
+// MaxResults/NextToken (real query-protocol form fields,
+// api_op_ListStackRefactors.go). Snapshot (not All) for a deterministic,
+// sortable-by-RefactorID order -- required for stable pagination.
+func (b *InMemoryBackend) ListStackRefactors(
+	maxResults int, nextToken string,
+) (page.Page[StackRefactorSummary], error) {
 	b.mu.RLock("ListStackRefactors")
 	defer b.mu.RUnlock()
 	summaries := make([]StackRefactorSummary, 0, b.stackRefactors.Len())
-	for _, r := range b.stackRefactors.All() {
+	for _, r := range b.stackRefactors.Snapshot() {
 		summaries = append(summaries, StackRefactorSummary{
 			StackRefactorID: r.RefactorID,
 			Status:          r.Status,
@@ -124,17 +173,20 @@ func (b *InMemoryBackend) ListStackRefactors(_ string) ([]StackRefactorSummary, 
 		})
 	}
 
-	return summaries, nil
+	return page.New(summaries, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
+// ListStackRefactorActions returns a stack refactor's actions, paginated by
+// MaxResults/NextToken (real query-protocol form fields,
+// api_op_ListStackRefactorActions.go).
 func (b *InMemoryBackend) ListStackRefactorActions(
-	stackRefactorID string,
-) ([]StackRefactorAction, error) {
+	stackRefactorID string, maxResults int, nextToken string,
+) (page.Page[StackRefactorAction], error) {
 	b.mu.RLock("ListStackRefactorActions")
 	defer b.mu.RUnlock()
 	r, ok := b.stackRefactors.Get(stackRefactorID)
 	if !ok {
-		return []StackRefactorAction{}, nil
+		return page.New([]StackRefactorAction{}, nextToken, maxResults, cfnDefaultPageSize), nil
 	}
 	actions := make([]StackRefactorAction, 0, len(r.ResourceMappings))
 	for _, m := range r.ResourceMappings {
@@ -156,5 +208,5 @@ func (b *InMemoryBackend) ListStackRefactorActions(
 		})
 	}
 
-	return actions, nil
+	return page.New(actions, nextToken, maxResults, cfnDefaultPageSize), nil
 }

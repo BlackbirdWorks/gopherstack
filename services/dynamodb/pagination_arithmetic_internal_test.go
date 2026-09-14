@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -165,23 +166,13 @@ func TestPaginateBackupSummaries_Empty(t *testing.T) {
 	assert.Empty(t, tok)
 }
 
-// TestPaginateBackupSummaries_StaleCursorRestartsFromZero records observed
-// (not asserted-correct) behaviour: paginateBackupSummaries locates the
-// cursor by exact ARN match. When the named backup has since been deleted,
-// the match fails and start silently falls back to 0, restarting pagination
-// from the beginning rather than resuming past the deleted entry.
-//
-// This diverges from this package's own findStartIndex (used by ListTables),
-// which is deletion-tolerant by construction: it searches for the first
-// entry strictly greater than the cursor rather than an exact match, so a
-// deleted cursor still resumes in the right place. paginateBackupSummaries
-// cannot adopt that pattern directly because its sort order is a composite
-// (CreationDateTime, BackupArn) key and the cursor carries only the ARN half
-// -- reconstructing the correct resume position for a deleted ARN would
-// require encoding the creation time in the cursor too, which AWS's
-// LastEvaluatedBackupArn (a bare ARN string) does not leave room for. AWS
-// does not document ListBackups' behaviour for a stale ExclusiveStartBackupArn,
-// so this test pins the current behaviour rather than asserting it is right.
+// TestPaginateBackupSummaries_StaleCursorRestartsFromZero covers the
+// fallback path for a cursor that doesn't even parse as a gopherstack backup
+// ARN (backupArnCreatedAtSeconds finds no "/backup/{millis}-" segment to
+// recover a sort position from): resumeIndexAfterBackupCursor falls back to
+// 0, matching this package's pre-gopherstack-zdwf behaviour for that case.
+// The letter-only ARNs here ("a", "b", ...) are deliberately not
+// gopherstack-shaped, to exercise exactly this fallback.
 func TestPaginateBackupSummaries_StaleCursorRestartsFromZero(t *testing.T) {
 	t.Parallel()
 
@@ -196,5 +187,79 @@ func TestPaginateBackupSummaries_StaleCursorRestartsFromZero(t *testing.T) {
 
 	page2, _ := paginateBackupSummaries(remaining, tok, 2)
 	assert.Equal(t, []string{"a", "c"}, arnsOf(page2),
-		"documented current behaviour: restarts from the beginning rather than resuming after the deleted cursor")
+		"non-ARN cursor: falls back to restarting from the beginning")
+}
+
+// TestPaginateBackupSummaries_StaleCursorResumesFromEmbeddedTimestamp covers
+// gopherstack-zdwf: when ExclusiveStartBackupArn names a backup deleted since
+// the cursor was issued, gopherstack recovers the (CreationDateTime,
+// BackupArn) sort position from the creation timestamp its own ARN format
+// embeds (backupARN, backup_ops.go:24-33), instead of silently restarting at
+// page one.
+func TestPaginateBackupSummaries_StaleCursorResumesFromEmbeddedTimestamp(t *testing.T) {
+	t.Parallel()
+
+	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	buildRealARNSummaries := func(count int) []models.BackupSummary {
+		out := make([]models.BackupSummary, 0, count)
+		for i := range count {
+			ts := base.Add(time.Duration(i) * time.Second)
+			out = append(out, models.BackupSummary{
+				BackupArn:              backupARN("us-east-1", "000000000000", "tbl", ts),
+				BackupCreationDateTime: float64(ts.Unix()),
+			})
+		}
+
+		return out
+	}
+
+	tests := []struct {
+		name           string
+		wantAfterPage  []int
+		firstPageSize  int
+		deleteIndex    int
+		secondPageSize int
+	}{
+		{
+			name:          "deleted_cursor_resumes_after_its_position",
+			firstPageSize: 2, deleteIndex: 1, secondPageSize: 2,
+			wantAfterPage: []int{2, 3},
+		},
+		{
+			name:          "deleted_last_cursor_resumes_at_end",
+			firstPageSize: 4, deleteIndex: 3, secondPageSize: 2,
+			wantAfterPage: []int{4},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			all := buildRealARNSummaries(5)
+
+			_, tok := paginateBackupSummaries(all, "", tt.firstPageSize)
+			require.NotEmpty(t, tok)
+
+			cursorArn := all[tt.deleteIndex].BackupArn
+			require.Equal(t, cursorArn, tok, "test setup: cursor must name the last item of the first page")
+
+			remaining := make([]models.BackupSummary, 0, len(all)-1)
+			for i, s := range all {
+				if i != tt.deleteIndex {
+					remaining = append(remaining, s)
+				}
+			}
+
+			page2, _ := paginateBackupSummaries(remaining, tok, tt.secondPageSize)
+
+			want := make([]string, 0, len(tt.wantAfterPage))
+			for _, i := range tt.wantAfterPage {
+				want = append(want, all[i].BackupArn)
+			}
+
+			assert.Equal(t, want, arnsOf(page2))
+		})
+	}
 }

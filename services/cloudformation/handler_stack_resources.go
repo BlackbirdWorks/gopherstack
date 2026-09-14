@@ -183,12 +183,14 @@ func (h *Handler) handleDescribeStackResources(form url.Values, c *echo.Context)
 }
 
 func (h *Handler) handleSignalResource(form url.Values, c *echo.Context) error {
-	_ = h.Backend.SignalResource(
+	if err := h.Backend.SignalResource(
 		form.Get("StackName"),
 		form.Get("LogicalResourceId"),
 		form.Get("UniqueId"),
 		form.Get("Status"),
-	)
+	); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
 	type response struct {
 		XMLName   xml.Name `xml:"SignalResourceResponse"`
 		Xmlns     string   `xml:"xmlns,attr"`

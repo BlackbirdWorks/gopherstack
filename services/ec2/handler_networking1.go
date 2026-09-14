@@ -257,6 +257,13 @@ func (h *Handler) handleDescribeTransitGatewayVpcAttachments(
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 	atts := h.Backend.DescribeTransitGatewayVpcAttachments(ids)
 
+	if err := requireAllIDsPresent(
+		ids, atts, func(a *TransitGatewayVpcAttachment) string { return a.TransitGatewayAttachmentID },
+		ErrTransitGatewayAttachmentNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeTransitGatewayVpcAttachmentsResponse{RequestID: reqID}
 
 	for _, att := range atts {
@@ -399,7 +406,12 @@ func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, e
 
 func (h *Handler) handleDescribeDhcpOptions(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "DhcpOptionsId")
-	opts := h.Backend.DescribeDhcpOptions(ids)
+
+	opts, err := h.Backend.DescribeDhcpOptions(ids)
+	if err != nil {
+		return nil, err
+	}
+
 	opts = applyDhcpOptionsFilters(opts, parseEC2Filters(vals), h.Backend)
 
 	resp := &describeDhcpOptionsResponse{RequestID: reqID}
@@ -433,8 +445,14 @@ func (h *Handler) handleDeleteDhcpOptions(vals url.Values, reqID string) (any, e
 	return &deleteDhcpOptionsResponse{RequestID: reqID, Return: true}, nil
 }
 
+// handleModifyLaunchTemplate previously read "SetDefaultVersion.VersionNumber",
+// but ModifyLaunchTemplateInput.DefaultVersion serializes as the flat scalar key
+// "SetDefaultVersion" (aws-sdk-go-v2/service/ec2@v1.329.0 serializers.go
+// awsEc2query_serializeOpDocumentModifyLaunchTemplateInput), not a nested struct --
+// a real client's SetDefaultVersion was silently dropped, so the default version
+// never actually changed.
 func (h *Handler) handleModifyLaunchTemplate(vals url.Values, reqID string) (any, error) {
-	defaultVersion, _ := strconv.ParseInt(vals.Get("SetDefaultVersion.VersionNumber"), 10, 64)
+	defaultVersion, _ := strconv.ParseInt(vals.Get("SetDefaultVersion"), 10, 64)
 	lt, err := h.Backend.ModifyLaunchTemplate(vals.Get("LaunchTemplateId"), defaultVersion)
 	if err != nil {
 		return nil, err

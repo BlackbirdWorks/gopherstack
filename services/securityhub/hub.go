@@ -11,12 +11,20 @@ func (b *InMemoryBackend) hubARN() string {
 	return arn.Build("securityhub", b.region, b.accountID, "hub/default")
 }
 
-func (b *InMemoryBackend) EnableHub(enableDefaultStandards bool, tags map[string]string) error {
+func (b *InMemoryBackend) EnableHub(
+	enableDefaultStandards bool,
+	controlFindingGenerator string,
+	tags map[string]string,
+) error {
 	b.mu.Lock("EnableHub")
 	defer b.mu.Unlock()
 
 	if b.hubEnabled {
 		return ErrHubAlreadyExists
+	}
+
+	if controlFindingGenerator == "" {
+		controlFindingGenerator = "SECURITY_CONTROL"
 	}
 
 	b.hubEnabled = true
@@ -26,7 +34,7 @@ func (b *InMemoryBackend) EnableHub(enableDefaultStandards bool, tags map[string
 		SubscribedAt:            now,
 		AutoEnableControls:      true,
 		AutoEnableStandards:     "DEFAULT",
-		ControlFindingGenerator: "SECURITY_CONTROL",
+		ControlFindingGenerator: controlFindingGenerator,
 	}
 
 	if len(tags) > 0 {

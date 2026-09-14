@@ -73,11 +73,11 @@ type getSendQuotaResponse struct {
 }
 
 type xmlSendDataPoint struct {
-	Timestamp        string  `xml:"Timestamp"`
-	DeliveryAttempts float64 `xml:"DeliveryAttempts"`
-	Bounces          float64 `xml:"Bounces"`
-	Complaints       float64 `xml:"Complaints"`
-	Rejects          float64 `xml:"Rejects"`
+	Timestamp        string `xml:"Timestamp"`
+	DeliveryAttempts int64  `xml:"DeliveryAttempts"`
+	Bounces          int64  `xml:"Bounces"`
+	Complaints       int64  `xml:"Complaints"`
+	Rejects          int64  `xml:"Rejects"`
 }
 
 type xmlSendDataPointList struct {

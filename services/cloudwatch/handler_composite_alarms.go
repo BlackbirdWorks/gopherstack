@@ -27,6 +27,9 @@ func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
 	if !a.StateTransitionedTimestamp.IsZero() {
 		x.StateTransitionedTimestamp = a.StateTransitionedTimestamp.UTC().Format(time.RFC3339)
 	}
+	if !a.StateUpdatedTimestamp.IsZero() {
+		x.StateUpdatedTimestamp = a.StateUpdatedTimestamp.UTC().Format(time.RFC3339)
+	}
 
 	return x
 }
@@ -34,6 +37,7 @@ func compositeAlarmToXML(a CompositeAlarm) compositeAlarmXMLType {
 // compositeAlarmXMLType is the XML representation of a CompositeAlarm.
 type compositeAlarmXMLType struct {
 	StateTransitionedTimestamp string   `xml:"StateTransitionedTimestamp,omitempty"`
+	StateUpdatedTimestamp      string   `xml:"StateUpdatedTimestamp,omitempty"`
 	AlarmName                  string   `xml:"AlarmName"`
 	AlarmArn                   string   `xml:"AlarmArn"`
 	AlarmRule                  string   `xml:"AlarmRule"`

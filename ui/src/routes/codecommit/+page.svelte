@@ -219,7 +219,6 @@
 	function prStatusBadge(status?: string): string {
 		if (status === 'OPEN') return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
 		if (status === 'CLOSED') return 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400';
-		if (status === 'MERGED') return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
 		return 'bg-gray-100 text-gray-600';
 	}
 

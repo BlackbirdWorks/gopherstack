@@ -90,9 +90,12 @@ func (h *Handler) handleDescribeLocationS3(
 		CreationTime:   l.CreationTime.Unix(),
 	}
 
-	if l.S3Config.BucketAccessRoleArn != "" {
-		out.S3Config = &s3ConfigOutput{BucketAccessRoleArn: l.S3Config.BucketAccessRoleArn}
-	}
+	// S3Config always exists for an S3 location: CreateLocationS3 requires
+	// it, and UpdateLocationS3 only replaces it, never clears it back to
+	// unset (see UpdateLocationS3's own nil-check). Gating this on
+	// BucketAccessRoleArn != "" would have silently dropped S3Config if the
+	// stored role ARN ever went empty.
+	out.S3Config = &s3ConfigOutput{BucketAccessRoleArn: l.S3Config.BucketAccessRoleArn}
 
 	return out, nil
 }
@@ -178,9 +181,9 @@ func (h *Handler) handleUpdateLocationS3(
 		return nil, fmt.Errorf("%w: LocationArn is required", errInvalidRequest)
 	}
 
-	var cfg S3Config
+	var cfg *S3Config
 	if in.S3Config != nil {
-		cfg.BucketAccessRoleArn = in.S3Config.BucketAccessRoleArn
+		cfg = &S3Config{BucketAccessRoleArn: in.S3Config.BucketAccessRoleArn}
 	}
 
 	if err := h.Backend.UpdateLocationS3(in.LocationArn, in.Subdirectory, in.S3StorageClass, cfg); err != nil {

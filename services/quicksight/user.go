@@ -14,7 +14,7 @@ import (
 // ---- Users ----
 
 func (b *InMemoryBackend) RegisterUser(
-	accountID, namespace, userName, email, role, identityType, sessionName string,
+	accountID, namespace, userName, email, role, identityType, sessionName, customPermissionsName string,
 	tags map[string]string,
 ) (*User, error) {
 	if userName == "" || email == "" {
@@ -31,6 +31,10 @@ func (b *InMemoryBackend) RegisterUser(
 	key := userKey(accountID, namespace, userName)
 	if b.users.Has(key) {
 		return nil, ErrUserAlreadyExists
+	}
+
+	if customPermissionsName != "" && !b.customPermissions.Has(customPermissionsKey(accountID, customPermissionsName)) {
+		return nil, ErrCustomPermissionsNotFound
 	}
 
 	if role == "" {
@@ -53,11 +57,18 @@ func (b *InMemoryBackend) RegisterUser(
 	}
 	b.users.Put(u)
 
+	if customPermissionsName != "" {
+		b.userCustomPermissions[userCustomPermissionKey(accountID, namespace, userName)] = customPermissionsName
+	}
+
 	if len(tags) > 0 {
 		b.tags[u.Arn] = maps.Clone(tags)
 	}
 
-	return u.toUser(), nil
+	out := u.toUser()
+	out.CustomPermissionsName = customPermissionsName
+
+	return out, nil
 }
 
 func (b *InMemoryBackend) DescribeUser(accountID, namespace, userName string) (*User, error) {
@@ -75,7 +86,9 @@ func (b *InMemoryBackend) DescribeUser(accountID, namespace, userName string) (*
 	return out, nil
 }
 
-func (b *InMemoryBackend) UpdateUser(accountID, namespace, userName, email, role string) (*User, error) {
+func (b *InMemoryBackend) UpdateUser(
+	accountID, namespace, userName, email, role, customPermissionsName string,
+) (*User, error) {
 	b.mu.Lock("UpdateUser")
 	defer b.mu.Unlock()
 
@@ -92,7 +105,18 @@ func (b *InMemoryBackend) UpdateUser(accountID, namespace, userName, email, role
 		u.Role = role
 	}
 
-	return u.toUser(), nil
+	if customPermissionsName != "" {
+		if !b.customPermissions.Has(customPermissionsKey(accountID, customPermissionsName)) {
+			return nil, ErrCustomPermissionsNotFound
+		}
+
+		b.userCustomPermissions[userCustomPermissionKey(accountID, namespace, userName)] = customPermissionsName
+	}
+
+	out := u.toUser()
+	out.CustomPermissionsName = b.userCustomPermissions[userCustomPermissionKey(accountID, namespace, userName)]
+
+	return out, nil
 }
 
 func (b *InMemoryBackend) DeleteUser(accountID, namespace, userName string) error {

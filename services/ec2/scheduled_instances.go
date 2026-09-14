@@ -178,7 +178,15 @@ func scheduledInstanceCatalog(region string) []ScheduledInstanceAvailability {
 // given instance type / availability zone filters and slot duration bounds.
 func (b *InMemoryBackend) DescribeScheduledInstanceAvailability(
 	filters map[string][]string, minSlotDurationHours, maxSlotDurationHours int32,
-) []ScheduledInstanceAvailability {
+	earliestTime, latestTime time.Time,
+) ([]ScheduledInstanceAvailability, error) {
+	if earliestTime.IsZero() || latestTime.IsZero() {
+		return nil, fmt.Errorf(
+			"%w: FirstSlotStartTimeRange.EarliestTime and FirstSlotStartTimeRange.LatestTime are required",
+			ErrInvalidParameter,
+		)
+	}
+
 	b.mu.RLock("DescribeScheduledInstanceAvailability")
 	region := b.Region
 	b.mu.RUnlock()
@@ -198,12 +206,16 @@ func (b *InMemoryBackend) DescribeScheduledInstanceAvailability(
 			continue
 		}
 
+		if entry.FirstSlotStartTime.Before(earliestTime) || entry.FirstSlotStartTime.After(latestTime) {
+			continue
+		}
+
 		out = append(out, entry)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].PurchaseToken < out[j].PurchaseToken })
 
-	return out
+	return out, nil
 }
 
 // matchesScheduledInstanceFilters applies the availability-zone / instance-type / platform

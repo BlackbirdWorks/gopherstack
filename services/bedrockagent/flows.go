@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateFlow")
 	defer b.mu.Unlock()
 
 	if _, exists := b.flowsByName[cfg.Name]; exists {
@@ -53,7 +53,7 @@ func (b *InMemoryBackend) CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow
 
 // GetFlow returns a flow.
 func (b *InMemoryBackend) GetFlow(_ context.Context, flowID string) (*Flow, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetFlow")
 	defer b.mu.RUnlock()
 
 	f, ok := b.flows.Get(flowID)
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) GetFlow(_ context.Context, flowID string) (*Flow, erro
 
 // UpdateFlow updates a flow.
 func (b *InMemoryBackend) UpdateFlow(_ context.Context, flowID string, cfg FlowConfig) (*Flow, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateFlow")
 	defer b.mu.Unlock()
 
 	f, ok := b.flows.Get(flowID)
@@ -100,7 +100,7 @@ func applyFlowConfig(f *Flow, cfg FlowConfig) {
 
 // DeleteFlow deletes a flow.
 func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFlow")
 	defer b.mu.Unlock()
 
 	f, ok := b.flows.Get(flowID)
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string) error {
 func (b *InMemoryBackend) ListFlows(
 	_ context.Context, maxResults int, nextToken string,
 ) ([]*FlowSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListFlows")
 	defer b.mu.RUnlock()
 
 	ids := tableIDs(b.flows.Snapshot(), func(f *Flow) string { return f.FlowID })
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) ListFlows(
 
 // PrepareFlow transitions a flow to prepared status.
 func (b *InMemoryBackend) PrepareFlow(_ context.Context, flowID string) (*Flow, error) {
-	b.mu.Lock()
+	b.mu.Lock("PrepareFlow")
 	defer b.mu.Unlock()
 
 	f, ok := b.flows.Get(flowID)
@@ -186,7 +186,7 @@ func (b *InMemoryBackend) ValidateFlowDefinition(
 func (b *InMemoryBackend) CreateFlowVersion(
 	_ context.Context, flowID, description string,
 ) (*FlowVersion, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateFlowVersion")
 	defer b.mu.Unlock()
 
 	f, ok := b.flows.Get(flowID)
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) CreateFlowVersion(
 func (b *InMemoryBackend) GetFlowVersion(
 	_ context.Context, flowID, flowVersion string,
 ) (*FlowVersion, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetFlowVersion")
 	defer b.mu.RUnlock()
 
 	if !b.flows.Has(flowID) {
@@ -247,7 +247,7 @@ func (b *InMemoryBackend) GetFlowVersion(
 func (b *InMemoryBackend) DeleteFlowVersion(
 	_ context.Context, flowID, flowVersion string, skipResourceInUseCheck bool,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFlowVersion")
 	defer b.mu.Unlock()
 
 	if !b.flows.Has(flowID) {
@@ -281,7 +281,7 @@ func (b *InMemoryBackend) DeleteFlowVersion(
 func (b *InMemoryBackend) ListFlowVersions(
 	_ context.Context, flowID string, maxResults int, nextToken string,
 ) ([]*FlowVersionSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListFlowVersions")
 	defer b.mu.RUnlock()
 
 	if !b.flows.Has(flowID) {
@@ -324,7 +324,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateFlowAlias")
 	defer b.mu.Unlock()
 
 	if !b.flows.Has(flowID) {
@@ -356,7 +356,7 @@ func (b *InMemoryBackend) CreateFlowAlias(
 
 // GetFlowAlias returns a flow alias.
 func (b *InMemoryBackend) GetFlowAlias(_ context.Context, flowID, aliasID string) (*FlowAlias, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetFlowAlias")
 	defer b.mu.RUnlock()
 
 	al, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
@@ -371,7 +371,7 @@ func (b *InMemoryBackend) GetFlowAlias(_ context.Context, flowID, aliasID string
 func (b *InMemoryBackend) UpdateFlowAlias(
 	_ context.Context, flowID, aliasID string, cfg FlowAliasConfig,
 ) (*FlowAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateFlowAlias")
 	defer b.mu.Unlock()
 
 	al, ok := b.flowAliases.Get(flowAliasKey(flowID, aliasID))
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 
 // DeleteFlowAlias deletes a flow alias.
 func (b *InMemoryBackend) DeleteFlowAlias(_ context.Context, flowID, aliasID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFlowAlias")
 	defer b.mu.Unlock()
 
 	key := flowAliasKey(flowID, aliasID)
@@ -418,7 +418,7 @@ func (b *InMemoryBackend) DeleteFlowAlias(_ context.Context, flowID, aliasID str
 func (b *InMemoryBackend) ListFlowAliases(
 	_ context.Context, flowID string, maxResults int, nextToken string,
 ) ([]*FlowAliasSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListFlowAliases")
 	defer b.mu.RUnlock()
 
 	group := b.flowAliasesByFlow.Get(flowID)

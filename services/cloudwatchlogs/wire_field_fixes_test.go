@@ -1,13 +1,16 @@
 package cloudwatchlogs_test
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
 	"github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs/types"
+	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -508,4 +511,123 @@ func TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers(t *testing.T) {
 
 	_, err = client.DescribeIndexPolicies(ctx, &cwlsdk.DescribeIndexPoliciesInput{})
 	require.Error(t, err, "LogGroupIdentifiers is required and must not be silently accepted as absent")
+}
+
+// TestGetScheduledQueryHistory_RealShape covers gopherstack-glxp1:
+// GetScheduledQueryHistoryOutput wraps its records under "triggerHistory"
+// (types.TriggerHistoryRecord, types.go:3191), not the wholesale-fabricated
+// "scheduledQueryRunSummaries"/ScheduledQueryRunSummary{Arn,FailureReason,
+// RunStatus,ExecutionTime,InvocationTime} shape a previous revision
+// invented -- none of those members exist on the real type. Before the
+// fix, a real client always decoded zero records, no matter how many times
+// a scheduled query ran.
+func TestGetScheduledQueryHistory_RealShape(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	handler := cloudwatchlogs.NewHandler(backend)
+	client := newTestCloudWatchLogsClient(t, handler)
+	ctx := t.Context()
+
+	created, err := client.CreateScheduledQuery(ctx, &cwlsdk.CreateScheduledQueryInput{
+		Name:               aws.String("sq-history-shape"),
+		QueryString:        aws.String("fields @message | limit 100"),
+		QueryLanguage:      types.QueryLanguageCwli,
+		ScheduleExpression: aws.String("cron(0 * * * ? *)"),
+		ExecutionRoleArn:   aws.String("arn:aws:iam::123456789012:role/r"),
+	})
+	require.NoError(t, err)
+	arn := aws.ToString(created.ScheduledQueryArn)
+	require.NotEmpty(t, arn)
+
+	// CreateScheduledQuery already seeds one Complete run; seed a second,
+	// Failed run through the internal test seam -- this backend has no
+	// scheduler that fires queries on their cron expression over time.
+	cloudwatchlogs.AddScheduledQueryRunInternal(backend, arn, cloudwatchlogs.ScheduledQueryRunSummary{
+		QueryID:            "run-failed-1",
+		ExecutionStatus:    string(types.ExecutionStatusFailed),
+		ErrorMessage:       "query timed out",
+		TriggeredTimestamp: 999,
+	})
+
+	out, err := client.GetScheduledQueryHistory(ctx, &cwlsdk.GetScheduledQueryHistoryInput{
+		Identifier: aws.String(arn),
+		StartTime:  aws.Int64(0),
+		EndTime:    aws.Int64(9999999999),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.TriggerHistory, 2,
+		"a real client must decode both runs; pre-fix the wrapper key mismatch always decoded zero")
+	assert.Equal(t, "sq-history-shape", aws.ToString(out.Name))
+	assert.Equal(t, arn, aws.ToString(out.ScheduledQueryArn))
+
+	byQueryID := make(map[string]types.TriggerHistoryRecord, len(out.TriggerHistory))
+	for _, rec := range out.TriggerHistory {
+		id := aws.ToString(rec.QueryId)
+		require.NotEmpty(t, id, "every record must carry a real QueryId")
+		byQueryID[id] = rec
+	}
+	require.Len(t, byQueryID, 2, "QueryId must uniquely identify each run")
+
+	failedRec, ok := byQueryID["run-failed-1"]
+	require.True(t, ok, "seeded run-failed-1 must round-trip by its real QueryId")
+
+	var completeID string
+	for id := range byQueryID {
+		if id != "run-failed-1" {
+			completeID = id
+		}
+	}
+	require.NotEmpty(t, completeID, "CreateScheduledQuery's auto-seeded run must carry a real QueryId")
+
+	tests := []struct {
+		rec           types.TriggerHistoryRecord
+		name          string
+		wantErrMsg    string
+		wantStatus    types.ExecutionStatus
+		wantTimestamp int64
+	}{
+		{
+			name:          "seeded_failed_run",
+			rec:           failedRec,
+			wantStatus:    types.ExecutionStatusFailed,
+			wantTimestamp: 999,
+			wantErrMsg:    "query timed out",
+		},
+		{
+			name:       "auto_seeded_complete_run",
+			rec:        byQueryID[completeID],
+			wantStatus: types.ExecutionStatusComplete,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.wantStatus, tt.rec.ExecutionStatus)
+			assert.NotZero(t, aws.ToInt64(tt.rec.TriggeredTimestamp))
+
+			if tt.wantTimestamp != 0 {
+				assert.Equal(t, tt.wantTimestamp, aws.ToInt64(tt.rec.TriggeredTimestamp))
+			}
+
+			if tt.wantErrMsg != "" {
+				assert.Equal(t, tt.wantErrMsg, aws.ToString(tt.rec.ErrorMessage))
+			}
+		})
+	}
+
+	// Raw wire check: the wrapper key must be "triggerHistory", never the
+	// fabricated "scheduledQueryRunSummaries".
+	rawRec := doLogsRequest(t, handler, echo.New(), "GetScheduledQueryHistory",
+		`{"identifier":"`+arn+`","startTime":0,"endTime":9999999999}`)
+	require.Equal(t, http.StatusOK, rawRec.Code)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(rawRec.Body.Bytes(), &raw))
+	_, hasReal := raw["triggerHistory"]
+	assert.True(t, hasReal, "wrapper key must be triggerHistory")
+	_, hasFabricated := raw["scheduledQueryRunSummaries"]
+	assert.False(t, hasFabricated, "fabricated scheduledQueryRunSummaries key must not appear on the wire")
 }

@@ -89,6 +89,18 @@ type ConfigurationProfileSummary struct {
 }
 
 // HostedConfigurationVersion represents a hosted configuration version.
+//
+// Content carries a real json tag rather than "-": it is never rendered as
+// a JSON body field on the wire (handleCreateHostedConfigurationVersion and
+// handleGetHostedConfigurationVersion serve it via c.Blob with its own
+// Content-Type, matching real AppConfig's httpPayload binding --
+// aws-sdk-go-v2/service/appconfig@v1.48.4 deserializers.go:5381-5400 reads
+// the raw response body into Content, and
+// types.HostedConfigurationVersionSummary, deserializers.go:13825, has no
+// Content member at all), so "-" protected nothing there -- but
+// hostedConfigVersions registers directly on the registry (store_setup.go),
+// so store.Table's snapshotJSON marshals this struct straight to disk and
+// "-" dropped Content from every persisted snapshot (gopherstack-zxdex).
 type HostedConfigurationVersion struct {
 	CreatedAt              time.Time `json:"CreatedAt,omitzero"`
 	ApplicationID          string    `json:"ApplicationId"`
@@ -96,7 +108,7 @@ type HostedConfigurationVersion struct {
 	ContentType            string    `json:"ContentType"`
 	Description            string    `json:"Description,omitempty"`
 	VersionLabel           string    `json:"VersionLabel,omitempty"`
-	Content                []byte    `json:"-"`
+	Content                []byte    `json:"content"`
 	VersionNumber          int32     `json:"VersionNumber"`
 }
 

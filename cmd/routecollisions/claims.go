@@ -33,15 +33,25 @@ func newClaimCollector(body string) *claimCollector {
 }
 
 func (cc *claimCollector) add(lit string, pos, endPos int) {
-	if !strings.HasPrefix(lit, "/") || lit == "/" {
-		return
-	}
-
 	if isExclusion(cc.body, pos, endPos) {
 		return
 	}
 
-	kind := inferKind(cc.body, pos)
+	cc.addRaw(lit, inferKind(cc.body, pos))
+}
+
+// addExact records lit as a kindExact claim with no position-based
+// exclusion/kind inference -- for shapes with no surrounding HasPrefix/==
+// text to infer from, namely a map composite-literal key (never a prefix
+// check by construction; see scanMapKeyClaims in delegation.go).
+func (cc *claimCollector) addExact(lit string) {
+	cc.addRaw(lit, kindExact)
+}
+
+func (cc *claimCollector) addRaw(lit string, kind claimKind) {
+	if !strings.HasPrefix(lit, "/") || lit == "/" {
+		return
+	}
 
 	key := lit + "|" + kind.String()
 	if _, dup := cc.seen[key]; dup {
@@ -69,10 +79,20 @@ func (cc *claimCollector) claims() []claim {
 // standalone. kind is inferred from nearby context (== implies exact,
 // HasPrefix/CutPrefix implies prefix; anything else is conservatively
 // treated as prefix, since that's the riskier case to under-report).
-func extractClaims(body string, consts map[string]string, sliceConsts map[string][]string) []claim {
+// declRanges excludes the literal text of a local const declaration's own
+// value (e.g. "const suffix = \"/tags\"" inside a chased helper function --
+// see localConstTable in delegation.go) from the raw quoted-literal scan,
+// so it contributes a claim only through an actual comparison/concatenation
+// usage resolved against consts, not merely from declaring the name.
+func extractClaims(
+	body string,
+	consts map[string]string,
+	sliceConsts map[string][]string,
+	declRanges [][2]int,
+) []claim {
 	cc := newClaimCollector(body)
 
-	scanQuotedLiterals(cc, body)
+	scanQuotedLiterals(cc, body, declRanges)
 	scanConcatLiterals(cc, body, consts)
 	scanIdentifierLiterals(cc, body, consts, sliceConsts)
 	scanSecondArgPrefixIdent(cc, body, consts)
@@ -93,10 +113,24 @@ func scanSecondArgPrefixIdent(cc *claimCollector, body string, consts map[string
 	}
 }
 
-func scanQuotedLiterals(cc *claimCollector, body string) {
+func scanQuotedLiterals(cc *claimCollector, body string, declRanges [][2]int) {
 	for _, m := range quotedRe.FindAllStringSubmatchIndex(body, -1) {
+		if inDeclRange(m[0], m[1], declRanges) {
+			continue
+		}
+
 		cc.add(body[m[2]:m[3]], m[0], m[1])
 	}
+}
+
+func inDeclRange(start, end int, ranges [][2]int) bool {
+	for _, r := range ranges {
+		if start >= r[0] && end <= r[1] {
+			return true
+		}
+	}
+
+	return false
 }
 
 func scanConcatLiterals(cc *claimCollector, body string, consts map[string]string) {
@@ -142,6 +176,24 @@ func scanIdentifierLiterals(
 // call, or a "return false" appearing before any "return true" in the
 // window immediately following the literal (the single-condition
 // `if strings.HasPrefix(path, "/x/") { return false }` shape).
+//
+// Known false-negative (documented, not fixed here): a claim GUARDED by a
+// runtime check that returns a boolean expression rather than a literal
+// "true" (omics' `if rest, ok := CutPrefix(path, "/tags/"); ok { return
+// Contains(rest, ":omics:") }`, mq's `if HasPrefix(p, configurationsPath) ||
+// ... { return isMQRequest(...) }`) reads as excluded here, because the
+// RouteMatcher's own unrelated trailing "return false" fallback is the
+// first return-false-or-true text found in the lookahead window (there's no
+// literal "return true" anywhere in the function to find first instead). A
+// narrower attempt to fix this generically (truncating the lookahead at the
+// literal's own enclosing "}") was tried and reverted: it turned this one
+// real gap into ~120 new spurious UNGUARDED-WINNER collision pairs across
+// the primary report, because every service using this same guarded-/tags/
+// idiom then reads as claiming a bare, UNCONDITIONAL "/tags/" (the "guarded"
+// bit is package-wide, not per-claim, so the fix loses exactly the
+// conditional nature that made the pattern safe). See
+// services/_ROUTE_COLLISIONS.md's "Unclaimed dispatcher paths" section for
+// the services this affects and why each is verified safe by hand instead.
 func isExclusion(body string, pos, endPos int) bool {
 	behindStart := max(pos-exclusionLookbehindChars, 0)
 
@@ -165,7 +217,8 @@ func inferKind(body string, pos int) claimKind {
 	start := max(pos-inferKindLookbehindChars, 0)
 	ctx := body[start:pos]
 
-	if strings.Contains(ctx, "HasPrefix") || strings.Contains(ctx, "CutPrefix") || strings.Contains(ctx, "HasSuffix") {
+	if strings.Contains(ctx, "HasPrefix") || strings.Contains(ctx, "CutPrefix") ||
+		strings.Contains(ctx, "HasSuffix") {
 		return kindPrefix
 	}
 

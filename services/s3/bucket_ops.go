@@ -577,6 +577,16 @@ func (h *S3Handler) createBucket(
 	input := &s3.CreateBucketInput{
 		Bucket: aws.String(bucketName),
 	}
+	// s3@v1.111.0 serializers.go:707-710: ObjectLockEnabledForBucket is bound
+	// to X-Amz-Bucket-Object-Lock-Enabled, not the request body -- previously
+	// never read here, so any real client's request to create an
+	// object-lock-enabled bucket silently produced a non-object-lock bucket
+	// instead (every subsequent PutObjectLockConfiguration then failed with
+	// ErrObjectLockNotEnabled for a bucket the caller believed was created
+	// with the flag set).
+	if lockHeader := r.Header.Get("X-Amz-Bucket-Object-Lock-Enabled"); lockHeader != "" {
+		input.ObjectLockEnabledForBucket = aws.Bool(strings.EqualFold(lockHeader, "true"))
+	}
 	if region != defaultRegionName || len(tags) > 0 {
 		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
 			Tags: tags,
@@ -628,12 +638,6 @@ func (h *S3Handler) deleteBucket(
 
 		return
 	}
-
-	// Object Lambda access-point config lives on the handler (not the backend
-	// table), keyed by bucket name. Clear it so a future bucket recreated
-	// under the same name doesn't inherit a stale Lambda wiring left over
-	// from the deleted bucket's identity.
-	h.clearObjectLambdaConfig(bucketName)
 
 	logger.Load(ctx).DebugContext(ctx, "S3 deleteBucket output", "bucket", bucketName)
 

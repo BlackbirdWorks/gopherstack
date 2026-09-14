@@ -105,6 +105,7 @@ var resourceTypeDispatchTable = sync.OnceValue(func() map[string]resourceTypeCla
 		pathSegIdentityContext:     classifySingleOpPost(opGetIdentityContext),
 		pathSegAppTokenGrant:       classifySingleOpPut(opUpdateAppTokenGrant),
 		pathSegQA:                  classifyQAPaths,
+		pathSegDataLossPrevention:  classifyDlpSettingPaths,
 	}
 })
 
@@ -182,6 +183,13 @@ func classifyRequest(method, path string) (string, string) {
 	// /account/{accountId} (singular) — AccountSubscription ops
 	if n >= nSegsAccountRoot && segs[0] == pathSegAccountSingular {
 		return classifyAccountSubscriptionPaths(method, segs, n)
+	}
+
+	// /governance/... — ApprovalPolicy and LimitsProfile ops (minted outside
+	// the usual /accounts/{id}/... shape; see quicksightGovernancePathPrefix's
+	// doc comment in handler.go)
+	if n >= 1 && segs[0] == pathSegGovernance {
+		return classifyGovernancePaths(method, segs, n)
 	}
 
 	// All remaining paths start with /accounts/{accountId}

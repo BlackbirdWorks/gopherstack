@@ -30,10 +30,6 @@ const (
 	opListTopicRules                   = "ListTopicRules"
 	opReplaceTopicRule                 = "ReplaceTopicRule"
 	opUpdateThing                      = "UpdateThing"
-	opGetThingShadow                   = "GetThingShadow"
-	opUpdateThingShadow                = "UpdateThingShadow"
-	opDeleteThingShadow                = "DeleteThingShadow"
-	opListNamedShadowsForThing         = "ListNamedShadowsForThing"
 )
 
 // New operation name constants for stateful implementations.
@@ -294,7 +290,7 @@ const (
 // GetSupportedOperations uses only the explicit core list in handler.go.
 func allStubOps() []string { return nil }
 
-// coreResourceOperationNames lists thing/shadow/thing-type/thing-group/certificate/
+// coreResourceOperationNames lists thing/thing-type/thing-group/certificate/
 // policy/topic-rule-destination/certificate-provider operation names.
 func coreResourceOperationNames() []string {
 	return []string{
@@ -327,11 +323,6 @@ func coreResourceOperationNames() []string {
 		opListTopicRules,
 		opReplaceTopicRule,
 		opUpdateThing,
-		// Device Shadows
-		opGetThingShadow,
-		opUpdateThingShadow,
-		opDeleteThingShadow,
-		opListNamedShadowsForThing,
 		// ThingType
 		opCreateThingType,
 		opDescribeThingType,

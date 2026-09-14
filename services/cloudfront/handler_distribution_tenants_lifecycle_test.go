@@ -408,8 +408,8 @@ func TestVerifyDNSConfiguration(t *testing.T) {
 	if !strings.Contains(resp, "VerifyDnsConfigurationResponse") {
 		t.Errorf("expected VerifyDnsConfigurationResponse, got: %s", resp)
 	}
-	if !strings.Contains(resp, "PASSED") {
-		t.Errorf("expected PASSED, got: %s", resp)
+	if !strings.Contains(resp, "valid-configuration") {
+		t.Errorf("expected valid-configuration, got: %s", resp)
 	}
 }
 

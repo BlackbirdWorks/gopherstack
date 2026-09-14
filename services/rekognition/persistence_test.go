@@ -84,7 +84,7 @@ func newPersistenceTestBackend(t *testing.T) (*rekognition.InMemoryBackend, pers
 
 	require.NoError(t, b.CreateUser("coll1", "user1"))
 
-	associated, unsuccessful, err := b.AssociateFaces("coll1", "user1", []string{faces[0].FaceID})
+	associated, unsuccessful, err := b.AssociateFaces("coll1", "user1", []string{faces[0].FaceID}, 75.0)
 	require.NoError(t, err)
 	require.Len(t, associated, 1)
 	require.Empty(t, unsuccessful)

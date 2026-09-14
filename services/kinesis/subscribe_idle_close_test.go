@@ -2,6 +2,7 @@ package kinesis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
@@ -14,16 +15,32 @@ import (
 
 // TestSubscribeToShard_IdleCloseIsGraceful reproduces
 // test/integration/kinesis_test.go's TestIntegration_Kinesis_EnhancedFanOut
-// shape (gopherstack-j60e) over a real TCP loopback connection (httptest.NewServer,
-// not the in-process httptest.ResponseRecorder the rest of this file's helpers
-// use), to determine whether the handler's idle-poll self-close
-// (handler_consumers.go's subscribeToShardMaxIdlePolls) ends the stream
-// cleanly for a real SDK client or surfaces as stream.Err() != nil.
+// shape (gopherstack-j60e) over a real TCP loopback connection
+// (httptest.NewServer, not the in-process httptest.ResponseRecorder the
+// rest of this file's helpers use), to determine whether the handler's
+// deadline close (handler_consumers.go's subscribeToShardStreamDuration,
+// shortened here via WithSubscribeToShardTiming so the test doesn't wait
+// out the real 5-minute window) ends the stream cleanly for a real SDK
+// client, or surfaces as stream.Err() != nil. Before gopherstack-s0ju item
+// 4, this stream closed after 3 empty polls (~600ms) instead of staying
+// open with heartbeats until the documented deadline -- this test now also
+// confirms at least one heartbeat (an empty-Records SubscribeToShardEvent
+// with a non-empty ContinuationSequenceNumber) is observed before close,
+// which the old idle-close behavior never sent at all.
 func TestSubscribeToShard_IdleCloseIsGraceful(t *testing.T) {
 	t.Parallel()
 
+	const (
+		streamDuration    = 300 * time.Millisecond
+		pollInterval      = 10 * time.Millisecond
+		heartbeatInterval = 40 * time.Millisecond
+	)
+
 	backend := kinesis.NewInMemoryBackend()
-	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+	client := newTestKinesisClient(
+		t,
+		kinesis.NewHandler(backend).WithSubscribeToShardTiming(streamDuration, pollInterval, heartbeatInterval),
+	)
 
 	streamName := "idle-close-stream"
 	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
@@ -64,14 +81,24 @@ func TestSubscribeToShard_IdleCloseIsGraceful(t *testing.T) {
 	require.NotNil(t, stream)
 
 	var got []string
+	var sawHeartbeat bool
 	for event := range stream.Events() {
-		if ev, ok := event.(*kinesissdktypes.SubscribeToShardEventStreamMemberSubscribeToShardEvent); ok {
-			for _, r := range ev.Value.Records {
-				got = append(got, string(r.Data))
-			}
+		ev, ok := event.(*kinesissdktypes.SubscribeToShardEventStreamMemberSubscribeToShardEvent)
+		if !ok {
+			continue
+		}
+		for _, r := range ev.Value.Records {
+			got = append(got, string(r.Data))
+		}
+		if len(ev.Value.Records) == 0 && ev.Value.ContinuationSequenceNumber != nil &&
+			*ev.Value.ContinuationSequenceNumber != "" {
+			sawHeartbeat = true
 		}
 	}
 	require.NoError(t, stream.Err(),
-		"the emulator's idle-poll self-close should end the SDK's event stream cleanly (io.EOF), not as a socket error")
+		"the emulator's deadline close should end the SDK's event stream cleanly (io.EOF), not as a socket error")
 	assert.Contains(t, got, "idle-close-payload")
+	assert.True(t, sawHeartbeat,
+		"expected at least one heartbeat SubscribeToShardEvent (empty Records, real ContinuationSequenceNumber) "+
+			"before the stream's deadline closed it")
 }

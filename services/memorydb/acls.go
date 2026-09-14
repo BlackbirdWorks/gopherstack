@@ -12,7 +12,7 @@ import (
 
 // CreateACL creates a new ACL.
 func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) (*ACL, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateACL")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) CreateACL(ctx context.Context, req *createACLRequest) 
 
 // DescribeACLs returns ACLs, optionally filtered by name.
 func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeACLs")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -85,7 +85,7 @@ func (b *InMemoryBackend) DescribeACLs(ctx context.Context, name string) ([]*ACL
 
 // DeleteACL removes an ACL.
 func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteACL")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -120,7 +120,7 @@ func (b *InMemoryBackend) DeleteACL(ctx context.Context, name string) (*ACL, err
 
 // UpdateACL modifies an existing ACL.
 func (b *InMemoryBackend) UpdateACL(ctx context.Context, req *updateACLRequest) (*ACL, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateACL")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -189,7 +189,7 @@ func cloneACL(a *ACL) *ACL {
 
 // AddACLInternal inserts an ACL directly into the backend for testing.
 func (b *InMemoryBackend) AddACLInternal(name string) *ACL {
-	b.mu.Lock()
+	b.mu.Lock("AddACLInternal")
 	defer b.mu.Unlock()
 
 	aclARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "acl/"+name)

@@ -97,7 +97,7 @@ func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource
 	case opGetAccount:
 		return h.handleGetAccount()
 	case opGetBlacklistReports:
-		return h.handleGetBlacklistReports()
+		return h.handleGetBlacklistReports(c)
 	case opPutAccountDedicatedIPWarmupAttributes:
 		return h.handlePutAccountDedicatedIPWarmupAttributes(c)
 	case opPutAccountDetails:

@@ -1160,6 +1160,341 @@ func TestHandler_CreateCluster_OrchestratorValidation(t *testing.T) {
 	}
 }
 
+// TestHandler_CreateCluster_RestrictedInstanceGroups_RealClient verifies the
+// full RestrictedInstanceGroups/RestrictedInstanceGroupsConfig type tree
+// (gopherstack-i359): EnvironmentConfig->FSxLustreConfig, the
+// ClusterInstanceStorageConfig union (FsxLustreConfig member),
+// ScheduledUpdateConfig->DeploymentConfig->RollingUpdatePolicy/
+// AutoRollbackConfiguration, and RestrictedInstanceGroupsConfig->
+// SharedEnvironmentConfig all round-trip through the real SDK client, and
+// that ListClusterNodes/DescribeClusterNode project nodes for a restricted
+// group identically to a regular one.
+func TestHandler_CreateCluster_RestrictedInstanceGroups_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("restricted-cluster"),
+		RestrictedInstanceGroups: []smtypes.ClusterRestrictedInstanceGroupSpecification{
+			{
+				InstanceGroupName: aws.String("rig-1"),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/RigRole"),
+				InstanceType:      smtypes.ClusterInstanceTypeMlP4d24xlarge,
+				InstanceCount:     aws.Int32(2),
+				EnvironmentConfig: &smtypes.EnvironmentConfig{
+					FSxLustreConfig: &smtypes.FSxLustreConfig{
+						PerUnitStorageThroughput: aws.Int32(250),
+						SizeInGiB:                aws.Int32(1200),
+					},
+				},
+				InstanceStorageConfigs: []smtypes.ClusterInstanceStorageConfig{
+					&smtypes.ClusterInstanceStorageConfigMemberFsxLustreConfig{
+						Value: smtypes.ClusterFsxLustreConfig{
+							DnsName:   aws.String("fs-1.fsx.example.com"),
+							MountName: aws.String("mymount"),
+							MountPath: aws.String("/mnt/lustre"),
+						},
+					},
+				},
+				ScheduledUpdateConfig: &smtypes.ScheduledUpdateConfig{
+					ScheduleExpression: aws.String("cron(0 0 * * ? *)"),
+					DeploymentConfig: &smtypes.DeploymentConfiguration{
+						WaitIntervalInSeconds: aws.Int32(60),
+						RollingUpdatePolicy: &smtypes.RollingDeploymentPolicy{
+							MaximumBatchSize: &smtypes.CapacitySizeConfig{
+								Type:  smtypes.NodeUnavailabilityTypeInstanceCount,
+								Value: aws.Int32(1),
+							},
+							RollbackMaximumBatchSize: &smtypes.CapacitySizeConfig{
+								Type:  smtypes.NodeUnavailabilityTypeCapacityPercentage,
+								Value: aws.Int32(10),
+							},
+						},
+						AutoRollbackConfiguration: []smtypes.AlarmDetails{
+							{AlarmName: aws.String("rig-alarm")},
+						},
+					},
+				},
+			},
+		},
+		RestrictedInstanceGroupsConfig: &smtypes.ClusterRestrictedInstanceGroupsConfig{
+			SharedEnvironmentConfig: &smtypes.ClusterSharedEnvironmentConfig{
+				FSxLustreConfig: &smtypes.FSxLustreConfig{
+					PerUnitStorageThroughput: aws.Int32(500),
+					SizeInGiB:                aws.Int32(2400),
+				},
+				FSxLustreDeletionPolicy: smtypes.ClusterFSxLustreDeletionPolicyDeleteIfNotUsed,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCluster(t.Context(), &sagemakersdk.DescribeClusterInput{
+		ClusterName: aws.String("restricted-cluster"),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.RestrictedInstanceGroups, 1)
+	rig := out.RestrictedInstanceGroups[0]
+	assert.Equal(t, "rig-1", aws.ToString(rig.InstanceGroupName))
+	assert.Equal(t, "arn:aws:iam::000000000000:role/RigRole", aws.ToString(rig.ExecutionRole))
+	assert.Equal(t, smtypes.ClusterInstanceTypeMlP4d24xlarge, rig.InstanceType)
+	assert.Equal(t, int32(2), aws.ToInt32(rig.CurrentCount))
+	assert.Equal(t, int32(2), aws.ToInt32(rig.TargetCount))
+	assert.NotEmpty(t, rig.Status)
+
+	require.NotNil(t, rig.EnvironmentConfig)
+	require.NotNil(t, rig.EnvironmentConfig.FSxLustreConfig)
+	assert.Equal(t, int32(250), aws.ToInt32(rig.EnvironmentConfig.FSxLustreConfig.PerUnitStorageThroughput))
+	assert.Equal(t, int32(1200), aws.ToInt32(rig.EnvironmentConfig.FSxLustreConfig.SizeInGiB))
+
+	require.Len(t, rig.InstanceStorageConfigs, 1)
+	member, ok := rig.InstanceStorageConfigs[0].(*smtypes.ClusterInstanceStorageConfigMemberFsxLustreConfig)
+	require.True(t, ok, "InstanceStorageConfigs[0] must round-trip as the FsxLustreConfig union member")
+	assert.Equal(t, "fs-1.fsx.example.com", aws.ToString(member.Value.DnsName))
+	assert.Equal(t, "mymount", aws.ToString(member.Value.MountName))
+	assert.Equal(t, "/mnt/lustre", aws.ToString(member.Value.MountPath))
+
+	require.NotNil(t, rig.ScheduledUpdateConfig)
+	assert.Equal(t, "cron(0 0 * * ? *)", aws.ToString(rig.ScheduledUpdateConfig.ScheduleExpression))
+	require.NotNil(t, rig.ScheduledUpdateConfig.DeploymentConfig)
+	assert.Equal(t, int32(60), aws.ToInt32(rig.ScheduledUpdateConfig.DeploymentConfig.WaitIntervalInSeconds))
+	require.NotNil(t, rig.ScheduledUpdateConfig.DeploymentConfig.RollingUpdatePolicy)
+	assert.Equal(t,
+		smtypes.NodeUnavailabilityTypeInstanceCount,
+		rig.ScheduledUpdateConfig.DeploymentConfig.RollingUpdatePolicy.MaximumBatchSize.Type,
+	)
+	assert.Equal(t,
+		smtypes.NodeUnavailabilityTypeCapacityPercentage,
+		rig.ScheduledUpdateConfig.DeploymentConfig.RollingUpdatePolicy.RollbackMaximumBatchSize.Type,
+	)
+	require.Len(t, rig.ScheduledUpdateConfig.DeploymentConfig.AutoRollbackConfiguration, 1)
+	assert.Equal(t, "rig-alarm",
+		aws.ToString(rig.ScheduledUpdateConfig.DeploymentConfig.AutoRollbackConfiguration[0].AlarmName))
+
+	require.NotNil(t, out.RestrictedInstanceGroupsConfig)
+	require.NotNil(t, out.RestrictedInstanceGroupsConfig.SharedEnvironmentConfig)
+	sec := out.RestrictedInstanceGroupsConfig.SharedEnvironmentConfig
+	require.NotNil(t, sec.CurrentFSxLustreConfig)
+	assert.Equal(t, int32(500), aws.ToInt32(sec.CurrentFSxLustreConfig.PerUnitStorageThroughput))
+	require.NotNil(t, sec.DesiredFSxLustreConfig)
+	assert.Equal(t, int32(2400), aws.ToInt32(sec.DesiredFSxLustreConfig.SizeInGiB))
+	assert.Equal(t, smtypes.ClusterFSxLustreDeletionPolicyDeleteIfNotUsed, sec.CurrentFSxLustreDeletionPolicy)
+	assert.Equal(t, smtypes.ClusterFSxLustreDeletionPolicyDeleteIfNotUsed, sec.DesiredFSxLustreDeletionPolicy)
+
+	nodes, err := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+		ClusterName:               aws.String("restricted-cluster"),
+		InstanceGroupNameContains: aws.String("rig-1"),
+	})
+	require.NoError(t, err)
+	assert.Len(t, nodes.ClusterNodeSummaries, 2, "restricted instance groups must provision nodes like regular ones")
+
+	node, err := client.DescribeClusterNode(t.Context(), &sagemakersdk.DescribeClusterNodeInput{
+		ClusterName: aws.String("restricted-cluster"),
+		NodeId:      nodes.ClusterNodeSummaries[0].InstanceId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "rig-1", aws.ToString(node.NodeDetails.InstanceGroupName))
+}
+
+// TestHandler_UpdateCluster_RestrictedInstanceGroups_RealClient verifies
+// UpdateCluster's RestrictedInstanceGroups semantics: upsert-by-name (there
+// is no InstanceGroupsToDelete-equivalent field for restricted groups,
+// api_op_UpdateCluster.go:60-70), resizing the node pool and replacing
+// RestrictedInstanceGroupsConfig wholesale.
+func TestHandler_UpdateCluster_RestrictedInstanceGroups_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateCluster(t.Context(), &sagemakersdk.CreateClusterInput{
+		ClusterName: aws.String("update-restricted-cluster"),
+		RestrictedInstanceGroups: []smtypes.ClusterRestrictedInstanceGroupSpecification{
+			{
+				InstanceGroupName: aws.String("rig-1"),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/RigRole"),
+				InstanceType:      smtypes.ClusterInstanceTypeMlP4d24xlarge,
+				InstanceCount:     aws.Int32(1),
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateCluster(t.Context(), &sagemakersdk.UpdateClusterInput{
+		ClusterName: aws.String("update-restricted-cluster"),
+		RestrictedInstanceGroups: []smtypes.ClusterRestrictedInstanceGroupSpecification{
+			{
+				InstanceGroupName: aws.String("rig-1"),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/RigRoleV2"),
+				InstanceType:      smtypes.ClusterInstanceTypeMlP548xlarge,
+				InstanceCount:     aws.Int32(3),
+			},
+			{
+				InstanceGroupName: aws.String("rig-2"),
+				ExecutionRole:     aws.String("arn:aws:iam::000000000000:role/Rig2Role"),
+				InstanceType:      smtypes.ClusterInstanceTypeMlP4d24xlarge,
+				InstanceCount:     aws.Int32(1),
+			},
+		},
+		RestrictedInstanceGroupsConfig: &smtypes.ClusterRestrictedInstanceGroupsConfig{
+			SharedEnvironmentConfig: &smtypes.ClusterSharedEnvironmentConfig{
+				FSxLustreConfig: &smtypes.FSxLustreConfig{
+					PerUnitStorageThroughput: aws.Int32(500),
+					SizeInGiB:                aws.Int32(2400),
+				},
+				FSxLustreDeletionPolicy: smtypes.ClusterFSxLustreDeletionPolicyKeep,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeCluster(t.Context(), &sagemakersdk.DescribeClusterInput{
+		ClusterName: aws.String("update-restricted-cluster"),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, out.RestrictedInstanceGroups, 2)
+
+	byName := make(map[string]smtypes.ClusterRestrictedInstanceGroupDetails, len(out.RestrictedInstanceGroups))
+	for _, rig := range out.RestrictedInstanceGroups {
+		byName[aws.ToString(rig.InstanceGroupName)] = rig
+	}
+
+	rig1, ok := byName["rig-1"]
+	require.True(t, ok, "rig-1 must survive the update as an upsert, not be replaced wholesale")
+	assert.Equal(t, smtypes.ClusterInstanceTypeMlP548xlarge, rig1.InstanceType)
+	assert.Equal(t, int32(3), aws.ToInt32(rig1.TargetCount))
+	assert.Equal(t, "arn:aws:iam::000000000000:role/RigRoleV2", aws.ToString(rig1.ExecutionRole),
+		"ExecutionRole must update in place by upsert, not create a duplicate entry")
+
+	rig2, ok := byName["rig-2"]
+	require.True(t, ok, "rig-2 must be appended by upsert when it did not previously exist")
+	assert.Equal(t, int32(1), aws.ToInt32(rig2.TargetCount))
+
+	require.NotNil(t, out.RestrictedInstanceGroupsConfig)
+	require.NotNil(t, out.RestrictedInstanceGroupsConfig.SharedEnvironmentConfig)
+	assert.Equal(t,
+		smtypes.ClusterFSxLustreDeletionPolicyKeep,
+		out.RestrictedInstanceGroupsConfig.SharedEnvironmentConfig.CurrentFSxLustreDeletionPolicy,
+	)
+
+	nodes, err := client.ListClusterNodes(t.Context(), &sagemakersdk.ListClusterNodesInput{
+		ClusterName:               aws.String("update-restricted-cluster"),
+		InstanceGroupNameContains: aws.String("rig-1"),
+	})
+	require.NoError(t, err)
+	assert.Len(t, nodes.ClusterNodeSummaries, 3, "rig-1's node pool must resize to the updated InstanceCount")
+}
+
+// TestHandler_CreateCluster_InstanceStorageConfigUnion_Validation checks
+// ClusterInstanceStorageConfig's real union constraint: exactly one member
+// (EbsVolumeConfig/FsxLustreConfig/FsxOpenZfsConfig) must be set per entry.
+func TestHandler_CreateCluster_InstanceStorageConfigUnion_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		storageConfig map[string]any
+		name          string
+	}{
+		{
+			name:          "no member set",
+			storageConfig: map[string]any{},
+		},
+		{
+			name: "two members set",
+			storageConfig: map[string]any{
+				"EbsVolumeConfig": map[string]any{"VolumeSizeInGB": 100},
+				"FsxLustreConfig": map[string]any{"DnsName": "fs-1", "MountName": "mymount"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+				"ClusterName": "bad-storage-config-cluster",
+				"RestrictedInstanceGroups": []map[string]any{
+					{
+						"InstanceGroupName":      "rig-1",
+						"ExecutionRole":          "arn:aws:iam::000000000000:role/RigRole",
+						"InstanceType":           "ml.p4d.24xlarge",
+						"InstanceCount":          1,
+						"InstanceStorageConfigs": []map[string]any{tt.storageConfig},
+					},
+				},
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "ValidationException", body["__type"])
+		})
+	}
+}
+
+// TestHandler_CreateCluster_RestrictedInstanceGroupsConfig_Validation checks
+// ClusterRestrictedInstanceGroupsConfig's real required members
+// (SharedEnvironmentConfig, its FSxLustreConfig, and its
+// FSxLustreDeletionPolicy are all "This member is required",
+// types/types.go:5598,:5727, sagemaker@v1.263.2).
+func TestHandler_CreateCluster_RestrictedInstanceGroupsConfig_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		config map[string]any
+		name   string
+	}{
+		{
+			name:   "missing SharedEnvironmentConfig",
+			config: map[string]any{},
+		},
+		{
+			name: "missing FSxLustreConfig",
+			config: map[string]any{
+				"SharedEnvironmentConfig": map[string]any{
+					"FSxLustreDeletionPolicy": "Keep",
+				},
+			},
+		},
+		{
+			name: "missing FSxLustreDeletionPolicy",
+			config: map[string]any{
+				"SharedEnvironmentConfig": map[string]any{
+					"FSxLustreConfig": map[string]any{
+						"PerUnitStorageThroughput": 250,
+						"SizeInGiB":                1200,
+					},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+
+			rec := doSageMakerRequest(t, h, "CreateCluster", map[string]any{
+				"ClusterName":                    "bad-rig-config-cluster",
+				"RestrictedInstanceGroupsConfig": tt.config,
+			})
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+
+			var body map[string]string
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, "ValidationException", body["__type"])
+		})
+	}
+}
+
 func TestHandler_StartClusterHealthCheck(t *testing.T) {
 	t.Parallel()
 

@@ -116,7 +116,7 @@ func (b *InMemoryBackend) GenerateEmbedURLForRegisteredUserWithIdentity(
 	return b.generateEmbedURL(experienceResourceHint(experienceConfiguration)), nil
 }
 
-func (b *InMemoryBackend) GetDashboardEmbedURL(accountID, dashboardID, identityType string) (string, error) {
+func (b *InMemoryBackend) GetDashboardEmbedURL(accountID, dashboardID, identityType, namespace string) (string, error) {
 	if dashboardID == "" || identityType == "" {
 		return "", ErrValidation
 	}
@@ -126,6 +126,10 @@ func (b *InMemoryBackend) GetDashboardEmbedURL(accountID, dashboardID, identityT
 
 	if !b.dashboards.Has(dashboardKey(accountID, dashboardID)) {
 		return "", ErrDashboardNotFound
+	}
+
+	if namespace != "" && !b.namespaces.Has(nsKey(accountID, namespace)) {
+		return "", ErrNamespaceNotFound
 	}
 
 	return b.generateEmbedURL("dashboards/" + dashboardID), nil

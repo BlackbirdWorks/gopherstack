@@ -29,6 +29,7 @@ type Contact struct {
 func (b *InMemoryBackend) CreateContact(
 	contactListName, emailAddress string,
 	topicPreferences []TopicPreference,
+	unsubscribeAll bool,
 ) (*Contact, error) {
 	b.mu.Lock("CreateContact")
 	defer b.mu.Unlock()
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) CreateContact(
 		EmailAddress:     emailAddress,
 		ContactListName:  contactListName,
 		TopicPreferences: prefs,
+		UnsubscribeAll:   unsubscribeAll,
 		CreatedAt:        now,
 		LastUpdatedAt:    now,
 	}
@@ -111,10 +113,11 @@ func (b *InMemoryBackend) DeleteContact(contactListName, emailAddress string) er
 	return nil
 }
 
-// UpdateContact updates a contact's topic preferences.
+// UpdateContact updates a contact's topic preferences and unsubscribe-all status.
 func (b *InMemoryBackend) UpdateContact(
 	contactListName, emailAddress string,
 	topicPreferences []TopicPreference,
+	unsubscribeAll bool,
 ) error {
 	b.mu.Lock("UpdateContact")
 	defer b.mu.Unlock()
@@ -136,6 +139,7 @@ func (b *InMemoryBackend) UpdateContact(
 	prefs := make([]TopicPreference, len(topicPreferences))
 	copy(prefs, topicPreferences)
 	c.TopicPreferences = prefs
+	c.UnsubscribeAll = unsubscribeAll
 	c.LastUpdatedAt = time.Now()
 
 	return nil

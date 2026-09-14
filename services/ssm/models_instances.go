@@ -80,13 +80,18 @@ type DescribeInstancePatchStatesForPatchGroupOutput struct {
 }
 
 // PatchComplianceData holds the patch compliance data for a single patch.
+//
+// InstalledTime is required on the real wire (types.PatchComplianceData,
+// deserializers.go:41268-41276) but was tagged omitempty: a Missing-state
+// patch (never installed) has a zero installedTime, so the key vanished
+// from the response entirely instead of being present-and-empty.
 type PatchComplianceData struct {
 	Classification string  `json:"Classification"`
 	KBId           string  `json:"KBId,omitempty"`
 	Severity       string  `json:"Severity"`
 	State          string  `json:"State"`
 	Title          string  `json:"Title"`
-	InstalledTime  float64 `json:"InstalledTime,omitempty"`
+	InstalledTime  float64 `json:"InstalledTime"`
 }
 
 // DescribeInstancePatchesInput is the request for DescribeInstancePatches.

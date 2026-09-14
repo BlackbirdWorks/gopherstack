@@ -155,7 +155,7 @@ func TestModifyTenantDatabase(t *testing.T) {
 		_, err := b.CreateTenantDatabase("db-1", "tdb-mod", "admin")
 		require.NoError(t, err)
 
-		tdb, err := b.ModifyTenantDatabase("db-1", "tdb-mod")
+		tdb, err := b.ModifyTenantDatabase("db-1", "tdb-mod", "")
 		require.NoError(t, err)
 		assert.Equal(t, "tdb-mod", tdb.TenantDBName)
 	})
@@ -163,7 +163,7 @@ func TestModifyTenantDatabase(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		t.Parallel()
 		b := newTestBackend(t)
-		_, err := b.ModifyTenantDatabase("db-1", "missing")
+		_, err := b.ModifyTenantDatabase("db-1", "missing", "")
 		require.Error(t, err)
 		require.ErrorIs(t, err, rds.ErrTenantDatabaseNotFound)
 	})

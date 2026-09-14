@@ -717,9 +717,9 @@ func faultErrorForAction(actionID string) chaos.FaultError {
 	case "aws:fis:inject-api-throttle-error":
 		return chaos.FaultError{Code: "ThrottlingException", StatusCode: statusThrottling}
 	case "aws:fis:inject-api-internal-error":
-		return chaos.FaultError{Code: "InternalServerError", StatusCode: statusInternalError}
+		return chaos.FaultError{Code: exceptionInternalServer, StatusCode: statusInternalError}
 	case "aws:fis:inject-api-not-found-error":
-		return chaos.FaultError{Code: "ResourceNotFoundException", StatusCode: statusNotFound}
+		return chaos.FaultError{Code: exceptionResourceNotFound, StatusCode: statusNotFound}
 	default:
 		return chaos.FaultError{Code: "ServiceUnavailable", StatusCode: statusServiceUnavail}
 	}

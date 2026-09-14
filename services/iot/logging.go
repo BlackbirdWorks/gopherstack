@@ -43,7 +43,7 @@ func cloneV2LogLevel(l *V2LoggingLevel) *V2LoggingLevel {
 }
 
 func (b *InMemoryBackend) GetV2LoggingOptions() *V2LoggingOptions {
-	b.mu.RLock()
+	b.mu.RLock("GetV2LoggingOptions")
 	defer b.mu.RUnlock()
 
 	if b.v2LoggingOptions == nil {
@@ -57,7 +57,7 @@ func (b *InMemoryBackend) GetV2LoggingOptions() *V2LoggingOptions {
 func (b *InMemoryBackend) SetV2LoggingOptions(
 	roleARN, defaultLogLevel string, disableAllLogs bool, eventConfigurations []LogEventConfigurationV2,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("SetV2LoggingOptions")
 	defer b.mu.Unlock()
 
 	b.v2LoggingOptions = &V2LoggingOptions{
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) SetV2LoggingOptions(
 }
 
 func (b *InMemoryBackend) SetV2LoggingLevel(target map[string]any, logLevel string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetV2LoggingLevel")
 	defer b.mu.Unlock()
 
 	tgt := make(map[string]any, len(target))
@@ -82,7 +82,7 @@ func (b *InMemoryBackend) SetV2LoggingLevel(target map[string]any, logLevel stri
 }
 
 func (b *InMemoryBackend) DeleteV2LoggingLevel(target map[string]any) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteV2LoggingLevel")
 	defer b.mu.Unlock()
 
 	key := v2LogLevelKey(target)
@@ -95,7 +95,7 @@ func (b *InMemoryBackend) DeleteV2LoggingLevel(target map[string]any) error {
 }
 
 func (b *InMemoryBackend) ListV2LoggingLevels() []*V2LoggingLevel {
-	b.mu.RLock()
+	b.mu.RLock("ListV2LoggingLevels")
 	defer b.mu.RUnlock()
 
 	items := b.v2LoggingLevels.Snapshot()
@@ -114,7 +114,7 @@ type LoggingOptions struct {
 }
 
 func (b *InMemoryBackend) GetLoggingOptions() *LoggingOptions {
-	b.mu.RLock()
+	b.mu.RLock("GetLoggingOptions")
 	defer b.mu.RUnlock()
 
 	if b.loggingOptions == nil {
@@ -126,7 +126,7 @@ func (b *InMemoryBackend) GetLoggingOptions() *LoggingOptions {
 }
 
 func (b *InMemoryBackend) SetLoggingOptions(roleARN, logLevel string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetLoggingOptions")
 	defer b.mu.Unlock()
 
 	b.loggingOptions = &LoggingOptions{RoleARN: roleARN, LogLevel: logLevel}

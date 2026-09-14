@@ -126,12 +126,12 @@ type describeDataMigrationsOutput struct {
 func (h *Handler) handleDescribeDataMigrations(
 	ctx context.Context, in *describeDataMigrationsInput,
 ) (*describeDataMigrationsOutput, error) {
-	identifier := ptrconv.String(in.DataMigrationIdentifier)
-	if identifier == "" {
-		identifier = extractFilterValue(in.Filters, "data-migration-identifier")
+	df := newDescribeFilters(in.Filters)
+	if identifier := ptrconv.String(in.DataMigrationIdentifier); identifier != "" {
+		df = NewIdentifierFilter("data-migration-identifier", identifier)
 	}
 
-	list, err := h.Backend.DescribeDataMigrations(ctx, identifier)
+	list, err := h.Backend.DescribeDataMigrations(ctx, df)
 	if err != nil {
 		return nil, err
 	}
@@ -159,6 +159,7 @@ func (h *Handler) handleDescribeDataMigrations(
 
 type modifyDataMigrationInput struct {
 	DataMigrationIdentifier *string `json:"DataMigrationIdentifier"`
+	DataMigrationName       *string `json:"DataMigrationName"`
 	DataMigrationType       *string `json:"DataMigrationType"`
 	ServiceAccessRoleArn    *string `json:"ServiceAccessRoleArn"`
 	NumberOfJobs            *int32  `json:"NumberOfJobs"`
@@ -174,6 +175,7 @@ func (h *Handler) handleModifyDataMigration(
 	dm, err := h.Backend.ModifyDataMigration(
 		ctx,
 		ptrconv.String(in.DataMigrationIdentifier),
+		ptrconv.String(in.DataMigrationName),
 		ptrconv.String(in.DataMigrationType),
 		ptrconv.String(in.ServiceAccessRoleArn),
 		in.NumberOfJobs,

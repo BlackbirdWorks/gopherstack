@@ -188,8 +188,14 @@ type TokenParams struct {
 	Groups                []string          `json:"groups,omitempty"`
 	ClaimsToSuppress      []string          `json:"claimsToSuppress,omitempty"`
 	AuthTime              int64             `json:"authTime,omitempty"`
-	AccessTokenExpiry     time.Duration     `json:"accessTokenExpiry,omitempty"`
-	IDTokenExpiry         time.Duration     `json:"idTokenExpiry,omitempty"`
+	// AuthSeq is a monotonic per-mint sequence number (InMemoryBackend.tokenSeq),
+	// distinct from AuthTime: AuthTime is real-AWS-shaped (JWT NumericDate,
+	// whole seconds) and cannot distinguish a token minted just before vs.
+	// just after a same-second GlobalSignOut. AuthSeq can, with no clock
+	// dependency at all -- see claimAuthSeq's doc comment.
+	AuthSeq           int64         `json:"authSeq,omitempty"`
+	AccessTokenExpiry time.Duration `json:"accessTokenExpiry,omitempty"`
+	IDTokenExpiry     time.Duration `json:"idTokenExpiry,omitempty"`
 }
 
 // JWT/Cognito claim names, factored into constants so the id-token map, the
@@ -211,8 +217,14 @@ const (
 	claimClientID        = "client_id"
 	claimUsername        = "username"
 	claimOriginJTI       = "origin_jti"
-	tokenUseID           = "id"
-	tokenUseAccess       = "access"
+	// claimAuthSeq is a gopherstack-private claim (not part of real Cognito's
+	// token shape) used only by findUserByAccessTokenLocked's GlobalSignOut
+	// check -- see TokenParams.AuthSeq's doc comment. Real clients never
+	// inspect token claims (they pass tokens back opaquely), so an extra
+	// private claim is invisible to real-world usage.
+	claimAuthSeq   = "gs_auth_seq"
+	tokenUseID     = "id"
+	tokenUseAccess = "access"
 )
 
 // protectedTokenClaims lists claim names a PreTokenGeneration trigger's
@@ -227,6 +239,7 @@ var protectedTokenClaims = map[string]struct{}{ //nolint:gochecknoglobals // sta
 	claimExp:             {},
 	claimIat:             {},
 	claimAuthTime:        {},
+	claimAuthSeq:         {},
 	claimTokenUse:        {},
 	claimCognitoUsername: {},
 	claimCognitoGroups:   {},
@@ -368,6 +381,7 @@ func (t *tokenIssuer) signAccessToken(
 		claimIat:      now.Unix(),
 		claimExp:      now.Add(accessExpiry).Unix(),
 		claimAuthTime: p.AuthTime,
+		claimAuthSeq:  p.AuthSeq,
 	}
 	if len(p.Groups) > 0 {
 		accessClaims[claimCognitoGroups] = p.Groups

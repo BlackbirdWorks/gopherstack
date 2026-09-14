@@ -23,7 +23,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 
 	region := ctxRegion(ctx, b.defaultRegion)
 
-	b.mu.Lock()
+	b.mu.Lock("CreateAgentAlias")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
@@ -76,7 +76,7 @@ func (b *InMemoryBackend) CreateAgentAlias(
 
 // GetAgentAlias returns an agent alias.
 func (b *InMemoryBackend) GetAgentAlias(_ context.Context, agentID, aliasID string) (*AgentAlias, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgentAlias")
 	defer b.mu.RUnlock()
 
 	al, ok := b.agentAliases.Get(aliasKey(agentID, aliasID))
@@ -91,7 +91,7 @@ func (b *InMemoryBackend) GetAgentAlias(_ context.Context, agentID, aliasID stri
 func (b *InMemoryBackend) UpdateAgentAlias(
 	_ context.Context, agentID, aliasID string, cfg AliasConfig,
 ) (*AgentAlias, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAgentAlias")
 	defer b.mu.Unlock()
 
 	al, ok := b.agentAliases.Get(aliasKey(agentID, aliasID))
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) UpdateAgentAlias(
 
 // DeleteAgentAlias deletes an agent alias and its tags map entry.
 func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAgentAlias")
 	defer b.mu.Unlock()
 
 	key := aliasKey(agentID, aliasID)
@@ -140,7 +140,7 @@ func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID s
 func (b *InMemoryBackend) ListAgentAliases(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentAliasSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgentAliases")
 	defer b.mu.RUnlock()
 
 	group := b.agentAliasesByAgent.Get(agentID)

@@ -239,6 +239,13 @@ func newID() string {
 	return strings.ReplaceAll(uuid.New().String(), "-", "")[:12]
 }
 
+// newUUID generates a real RFC 4122 UUID string for the SDK's "uuid" fields
+// (types.WorkflowUuid/RunUuid etc.), distinct from newID's truncated form
+// used for "id" fields.
+func newUUID() string {
+	return uuid.New().String()
+}
+
 func copyTags(tags map[string]string) map[string]string {
 	if tags == nil {
 		return map[string]string{}

@@ -1706,7 +1706,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				aBk := appstreambackend.NewInMemoryBackend(accountID, region)
-				s, err := aBk.CreateStack("wiring-test-stack", "", "", nil)
+				s, err := aBk.CreateStack("wiring-test-stack", appstreambackend.CreateStackOptions{})
 				require.NoError(t, err)
 				require.NoError(t, aBk.TagResource(s.Arn, map[string]string{wantTagKey: wantTagValue}))
 
@@ -1896,7 +1896,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 				t.Helper()
 
 				shBk := securityhubbackend.NewInMemoryBackend(accountID, region)
-				require.NoError(t, shBk.EnableHub(false, map[string]string{wantTagKey: wantTagValue}))
+				require.NoError(t, shBk.EnableHub(false, "", map[string]string{wantTagKey: wantTagValue}))
 
 				hubARN := "arn:aws:securityhub:" + region + ":" + accountID + ":hub/default"
 
@@ -2055,7 +2055,7 @@ func TestWireResourceGroupsTagging_CrossServiceResources(t *testing.T) {
 
 				crBk := cleanroomsbackend.NewInMemoryBackend(accountID, region)
 				collab, err := crBk.CreateCollaboration(
-					"wiring-test-collab", "", "creator", nil, nil, "",
+					"wiring-test-collab", "", "creator", nil, nil, "", "", false, nil,
 					map[string]string{wantTagKey: wantTagValue},
 				)
 				require.NoError(t, err)
@@ -3814,6 +3814,14 @@ func TestEBECSTaskRunnerAdapter(t *testing.T) {
 						{Name: "worker", Image: "busybox"},
 					},
 				})
+				require.NoError(t, err)
+
+				// EC2 launch type needs a container instance to place onto; the
+				// distinctInstance placement constraint below needs two, one per
+				// requested task (see createTaskEntriesLocked in services/ecs).
+				_, err = bk.RegisterContainerInstance("cluster-2", "i-eb-params-1")
+				require.NoError(t, err)
+				_, err = bk.RegisterContainerInstance("cluster-2", "i-eb-params-2")
 				require.NoError(t, err)
 			},
 			clusterARN: "cluster-2",

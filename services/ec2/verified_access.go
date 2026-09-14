@@ -230,10 +230,14 @@ func (b *InMemoryBackend) DescribeVerifiedAccessInstances(ids []string) []*Verif
 
 // CreateVerifiedAccessTrustProvider creates a Verified Access trust provider.
 func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
-	trustProviderType, description string,
+	trustProviderType, description, policyReferenceName string,
 ) (*VerifiedAccessTrustProvider, error) {
 	if trustProviderType == "" {
 		return nil, fmt.Errorf("%w: TrustProviderType is required", ErrInvalidParameter)
+	}
+
+	if policyReferenceName == "" {
+		return nil, fmt.Errorf("%w: PolicyReferenceName is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("CreateVerifiedAccessTrustProvider")
@@ -245,6 +249,7 @@ func (b *InMemoryBackend) CreateVerifiedAccessTrustProvider(
 		TrustProviderType:             trustProviderType,
 		Status:                        stateActive,
 		Description:                   description,
+		PolicyReferenceName:           policyReferenceName,
 	}
 	b.verifiedAccessTrustProviders.Put(tp)
 

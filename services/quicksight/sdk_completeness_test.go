@@ -20,28 +20,16 @@ func TestSDKCompleteness(t *testing.T) {
 
 	notImplemented := []string{
 		// Added by the quicksight SDK bump v1.123.1 -> v1.129.0; unimplemented.
+		// ApprovalPolicy, DlpSetting, and LimitsProfile op families are now
+		// implemented (see governance.go/handler_governance.go). The App
+		// family and BatchDescribeUserLimits remain unimplemented.
 		"BatchDescribeUserLimits",
-		"CreateApprovalPolicy",
-		"CreateDlpSetting",
-		"CreateLimitsProfile",
 		"DeleteApp",
-		"DeleteApprovalPolicy",
-		"DeleteDlpSetting",
-		"DeleteLimitsProfile",
 		"DescribeApp",
 		"DescribeAppPermissions",
-		"DescribeApprovalPolicy",
-		"DescribeDlpSetting",
-		"DescribeLimitsProfile",
-		"ListApprovalPolicies",
 		"ListApps",
-		"ListDlpSettings",
-		"ListLimitsProfiles",
 		"SearchApps",
 		"UpdateAppPermissions",
-		"UpdateApprovalPolicy",
-		"UpdateDlpSetting",
-		"UpdateLimitsProfile",
 	}
 
 	sdkcheck.CheckCompleteness(t, &quicksightsdk.Client{}, h.GetSupportedOperations(), notImplemented)

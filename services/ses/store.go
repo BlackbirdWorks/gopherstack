@@ -47,6 +47,8 @@ type InMemoryBackend struct {
 	emails                []Email
 	emailTTL              time.Duration
 	configuredEmailTTL    time.Duration
+	limits                resourceLimits
+	configuredLimits      resourceLimits
 	accountSendingEnabled bool
 }
 
@@ -67,6 +69,8 @@ func NewInMemoryBackend() *InMemoryBackend {
 		policies:              make(map[string]map[string]string),
 		emailTTL:              defaultEmailTTL,
 		configuredEmailTTL:    defaultEmailTTL,
+		limits:                defaultResourceLimits(),
+		configuredLimits:      defaultResourceLimits(),
 		accountSendingEnabled: true,
 		region:                config.DefaultRegion,
 		accountID:             defaultAccountID,
@@ -107,8 +111,20 @@ func (b *InMemoryBackend) WithEmailTTL(ttl time.Duration) *InMemoryBackend {
 	return b
 }
 
+// WithResourceLimits overrides the resource caps enforced by
+// LimitExceededException (see limits.go) and returns the backend for
+// chaining. A zero field in l keeps its real-SES default. The override
+// survives Reset(), matching WithEmailTTL's configuredEmailTTL precedent.
+func (b *InMemoryBackend) WithResourceLimits(l ResourceLimits) *InMemoryBackend {
+	applyResourceLimitOverrides(&b.limits, l)
+	applyResourceLimitOverrides(&b.configuredLimits, l)
+
+	return b
+}
+
 // Reset clears all in-memory state, restoring the backend to its initial empty state.
-// The configured email TTL (set via WithEmailTTL) is preserved.
+// The configured email TTL (set via WithEmailTTL) and resource limits (set via
+// WithResourceLimits) are preserved.
 func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
@@ -119,6 +135,7 @@ func (b *InMemoryBackend) Reset() {
 	b.activeRuleSet = ""
 	b.accountSendingEnabled = true
 	b.emailTTL = b.configuredEmailTTL
+	b.limits = b.configuredLimits
 }
 
 // resetTablesLocked resets every store.Table-backed resource field to empty:

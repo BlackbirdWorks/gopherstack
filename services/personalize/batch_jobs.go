@@ -31,10 +31,8 @@ func (b *InMemoryBackend) requireSolutionVersion(solutionVersionArn string) erro
 }
 
 // CreateBatchInferenceJob creates a new batch inference job.
-//
-//nolint:dupl // structurally identical to CreateBatchSegmentJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchInferenceJob(
-	jobName, solutionVersionArn, roleArn string,
+	jobName, solutionVersionArn, roleArn, jobMode string,
 	jobInput, jobOutput map[string]any,
 	tags map[string]string,
 ) (*BatchInferenceJob, error) {
@@ -48,18 +46,30 @@ func (b *InMemoryBackend) CreateBatchInferenceJob(
 		return nil, err
 	}
 
+	if jobMode == "" {
+		jobMode = "BATCH_INFERENCE"
+	}
+
+	if jobMode != "BATCH_INFERENCE" && jobMode != "THEME_GENERATION" {
+		return nil, fmt.Errorf(
+			"%w: invalid BatchInferenceJobMode %q; valid: BATCH_INFERENCE, THEME_GENERATION",
+			ErrValidation, jobMode,
+		)
+	}
+
 	now := time.Now().UTC()
 	jobArn := b.personalizeARN("batch-inference-job", jobName)
 	job := &BatchInferenceJob{
-		BatchInferenceJobArn: jobArn,
-		JobName:              jobName,
-		SolutionVersionArn:   solutionVersionArn,
-		RoleArn:              roleArn,
-		JobInput:             jobInput,
-		JobOutput:            jobOutput,
-		Status:               statusActive,
-		CreationDateTime:     now,
-		LastUpdatedDateTime:  now,
+		BatchInferenceJobArn:  jobArn,
+		JobName:               jobName,
+		SolutionVersionArn:    solutionVersionArn,
+		RoleArn:               roleArn,
+		JobInput:              jobInput,
+		JobOutput:             jobOutput,
+		Status:                statusActive,
+		CreationDateTime:      now,
+		LastUpdatedDateTime:   now,
+		BatchInferenceJobMode: jobMode,
 	}
 	b.batchInferenceJobs.Put(job)
 	if len(tags) > 0 {
@@ -105,8 +115,6 @@ func (b *InMemoryBackend) ListBatchInferenceJobs(
 // --- BatchSegmentJob ---
 
 // CreateBatchSegmentJob creates a new batch segment job.
-//
-//nolint:dupl // structurally identical to CreateBatchInferenceJob by design; different resource types
 func (b *InMemoryBackend) CreateBatchSegmentJob(
 	jobName, solutionVersionArn, roleArn string,
 	jobInput, jobOutput map[string]any,

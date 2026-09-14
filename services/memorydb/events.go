@@ -11,7 +11,7 @@ import (
 // AddEvent appends an event to the backend event log (used internally for seeding).
 // Events are capped at maxEvents; oldest entries are dropped when the cap is reached.
 func (b *InMemoryBackend) AddEvent(ev *Event) {
-	b.mu.Lock()
+	b.mu.Lock("AddEvent")
 	defer b.mu.Unlock()
 	b.appendEventLocked(b.defaultRegion, ev)
 }
@@ -30,7 +30,7 @@ func (b *InMemoryBackend) appendEventLocked(region string, ev *Event) {
 // DescribeEvents returns events for the calling request's region, optionally
 // filtered by source name and type.
 func (b *InMemoryBackend) DescribeEvents(ctx context.Context, req *describeEventsRequest) ([]*Event, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeEvents")
 	defer b.mu.RUnlock()
 
 	startTime, err := resolveEventStartTime(req)

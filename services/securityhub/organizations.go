@@ -45,31 +45,46 @@ func (b *InMemoryBackend) UpdateOrganizationConfiguration(
 	return nil
 }
 
-func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID string) error {
+func (b *InMemoryBackend) EnableOrganizationAdminAccount(accountID, feature string) error {
 	b.mu.Lock("EnableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
 	b.orgAdminAccounts[accountID] = statusEnabled
+	b.orgAdminAccountFeatures[accountID] = feature
 
 	return nil
 }
 
-func (b *InMemoryBackend) DisableOrganizationAdminAccount(accountID string) error {
+func (b *InMemoryBackend) DisableOrganizationAdminAccount(accountID, feature string) error {
 	b.mu.Lock("DisableOrganizationAdminAccount")
 	defer b.mu.Unlock()
 
+	// Only remove the admin account if it was enabled under the requested
+	// feature -- an account enabled for SecurityHubV2 stays a SecurityHub
+	// admin (and vice versa) if disabled under the other feature.
+	if b.orgAdminAccountFeatures[accountID] != feature {
+		return nil
+	}
+
 	delete(b.orgAdminAccounts, accountID)
+	delete(b.orgAdminAccountFeatures, accountID)
 
 	return nil
 }
 
-func (b *InMemoryBackend) ListOrganizationAdminAccounts(nextToken string, maxResults int) ([]*OrgAdminAccount, string) {
+func (b *InMemoryBackend) ListOrganizationAdminAccounts(
+	nextToken string, maxResults int, feature string,
+) ([]*OrgAdminAccount, string) {
 	b.mu.RLock("ListOrganizationAdminAccounts")
 	defer b.mu.RUnlock()
 
 	all := make([]*OrgAdminAccount, 0, len(b.orgAdminAccounts))
 
 	for id, status := range b.orgAdminAccounts {
+		if b.orgAdminAccountFeatures[id] != feature {
+			continue
+		}
+
 		all = append(all, &OrgAdminAccount{AccountId: id, Status: status})
 	}
 

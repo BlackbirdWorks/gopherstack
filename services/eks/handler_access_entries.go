@@ -136,11 +136,12 @@ func accessEntryToJSON(entry *AccessEntry) map[string]any {
 }
 
 type createAccessEntryBody struct {
-	Tags             map[string]string `json:"tags"`
-	PrincipalArn     string            `json:"principalArn"`
-	Type             string            `json:"type"`
-	Username         string            `json:"username"`
-	KubernetesGroups []string          `json:"kubernetesGroups"`
+	Tags               map[string]string `json:"tags"`
+	PrincipalArn       string            `json:"principalArn"`
+	Type               string            `json:"type"`
+	Username           string            `json:"username"`
+	ClientRequestToken string            `json:"clientRequestToken"`
+	KubernetesGroups   []string          `json:"kubernetesGroups"`
 }
 
 func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, body []byte) error {
@@ -153,20 +154,20 @@ func (h *Handler) handleCreateAccessEntry(c *echo.Context, clusterName string, b
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "principalArn is required"))
 	}
 
-	entry, err := h.Backend.CreateAccessEntry(
-		clusterName,
-		in.PrincipalArn,
-		in.Type,
-		in.Username,
-		in.KubernetesGroups,
-		in.Tags,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateAccessEntry, in.ClientRequestToken, body, func() (int, any, error) {
+		entry, err := h.Backend.CreateAccessEntry(
+			clusterName,
+			in.PrincipalArn,
+			in.Type,
+			in.Username,
+			in.KubernetesGroups,
+			in.Tags,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAccessEntry: accessEntryToJSON(entry),
+		return http.StatusOK, map[string]any{keyAccessEntry: accessEntryToJSON(entry)}, nil
 	})
 }
 
@@ -215,8 +216,9 @@ func (h *Handler) handleListAccessEntries(c *echo.Context, clusterName string) e
 }
 
 type updateAccessEntryBody struct {
-	Username         string   `json:"username"`
-	KubernetesGroups []string `json:"kubernetesGroups"`
+	Username           string   `json:"username"`
+	ClientRequestToken string   `json:"clientRequestToken"`
+	KubernetesGroups   []string `json:"kubernetesGroups"`
 }
 
 func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principalARN string, body []byte) error {
@@ -227,13 +229,15 @@ func (h *Handler) handleUpdateAccessEntry(c *echo.Context, clusterName, principa
 		}
 	}
 
-	entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, AccessEntryUpdate(in))
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	upd := AccessEntryUpdate{Username: in.Username, KubernetesGroups: in.KubernetesGroups}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"accessEntry": accessEntryToJSON(entry),
+	return h.withIdempotency(c, opUpdateAccessEntry, in.ClientRequestToken, body, func() (int, any, error) {
+		entry, err := h.Backend.UpdateAccessEntry(clusterName, principalARN, upd)
+		if err != nil {
+			return 0, nil, err
+		}
+
+		return http.StatusOK, map[string]any{"accessEntry": accessEntryToJSON(entry)}, nil
 	})
 }
 

@@ -110,6 +110,24 @@ func createTestBroker(t *testing.T, h *mq.Handler, name, engineType string) stri
 	return parseResponse(t, rec)["brokerId"].(string)
 }
 
+// createTestReplicaBroker creates a broker via the HTTP handler with a
+// dataReplicationPrimaryBrokerArn set, making it the replica side of a CRDR
+// pair (mq@v1.39.4 api_op_CreateBroker.go: DataReplicationPrimaryBrokerArn),
+// and returns its ID.
+func createTestReplicaBroker(t *testing.T, h *mq.Handler, name, engineType string) string {
+	t.Helper()
+
+	rec := doRequest(t, h, http.MethodPost, "/v1/brokers", map[string]any{
+		"brokerName":                      name,
+		"engineType":                      engineType,
+		"dataReplicationMode":             "CRDR",
+		"dataReplicationPrimaryBrokerArn": "arn:aws:mq:us-east-1:000000000000:broker:primary-broker:b-primary",
+	})
+	require.Equal(t, http.StatusOK, rec.Code, "CreateBroker %s failed: %s", name, rec.Body.String())
+
+	return parseResponse(t, rec)["brokerId"].(string)
+}
+
 // describeTestBroker fetches a broker's full DescribeBroker response.
 func describeTestBroker(t *testing.T, h *mq.Handler, brokerID string) map[string]any {
 	t.Helper()

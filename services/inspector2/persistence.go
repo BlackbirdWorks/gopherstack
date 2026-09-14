@@ -22,12 +22,55 @@ import (
 // incompatible snapshot is.
 const inspector2SnapshotVersion = 1
 
+// findingSnapshot is storedFinding's persisted twin (gopherstack-2slev).
+// ResourceID/ResourceType carry `json:"-"` on Finding: the real wire type has
+// no such top-level members (inspector2@v1.54.1 types/types.go:3319-3399 --
+// only nested inside Resources), and findingToWire builds the response as a
+// map rather than marshaling Finding directly, so the tag is correct for the
+// wire. But storedFinding is registered directly on the registry with no
+// DTO, so SnapshotAll honored that tag and dropped both fields from
+// persistence too: findingFilterCriteria.matches (findings.go) compares
+// ListFindings' resourceId/resourceType criteria against them, so every
+// restored finding became unmatchable by either filter.
+//
+// Embedding Finding and redeclaring the two fields at depth 0 shadows the
+// embedded json:"-" copies for both encode and decode, so every other
+// Finding field flows through unmodified.
+type findingSnapshot struct {
+	ResourceID   string `json:"resourceId,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+	Finding
+}
+
+func toFindingSnapshot(sf *storedFinding) *findingSnapshot {
+	return &findingSnapshot{
+		Finding:      sf.Finding,
+		ResourceID:   sf.Finding.ResourceID,
+		ResourceType: sf.Finding.ResourceType,
+	}
+}
+
+func fromFindingSnapshot(fs *findingSnapshot) *storedFinding {
+	f := fs.Finding
+	f.ResourceID = fs.ResourceID
+	f.ResourceType = fs.ResourceType
+
+	return &storedFinding{Finding: f}
+}
+
+// findingsTableName is the name storedFinding is registered under
+// (store_setup.go's registerAllTables) -- Snapshot/Restore special-case this
+// one table to route it through findingSnapshot instead of the registry's
+// generic per-table encoding.
+const findingsTableName = "findings"
+
 // backendSnapshot is the top-level on-disk shape for the Inspector2 backend.
 //
 // Tables holds one JSON-encoded array per registered table name, produced by
 // b.registry.SnapshotAll() -- every store.Table-backed resource field is a
-// "clean" table (see store_setup.go's file doc comment), so no ephemeral DTO
-// registry is needed here. Tags, EnabledTypes, and CodeSecurityScans are the
+// "clean" table (see store_setup.go's file doc comment) except findings,
+// whose entry Snapshot/Restore overwrite with the findingSnapshot DTO shape
+// (gopherstack-2slev). Tags, EnabledTypes, and CodeSecurityScans are the
 // raw maps left un-converted (their values are not *T). Config,
 // Ec2DeepConfig, OrgEc2Config, and OrgConfig are single structs, not
 // collections, so they were never map-shaped and are simply carried
@@ -65,6 +108,25 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 		return nil
 	}
+
+	// Overwrite the generic findings table encoding (which would drop
+	// ResourceID/ResourceType, since both carry `json:"-"`) with the
+	// findingSnapshot DTO shape.
+	findings := b.findings.Snapshot()
+	dtos := make([]*findingSnapshot, len(findings))
+
+	for i, f := range findings {
+		dtos[i] = toFindingSnapshot(f)
+	}
+
+	findingsData, err := json.Marshal(dtos)
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "inspector2: snapshot findings table marshal failed", "error", err)
+
+		return nil
+	}
+
+	tables[findingsTableName] = findingsData
 
 	snap := backendSnapshot{
 		Version:           inspector2SnapshotVersion,
@@ -113,8 +175,32 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return nil
 	}
 
+	// findingSnapshot decodes findings (see Snapshot); pull the raw entry out
+	// of snap.Tables first so registry.RestoreAll doesn't decode it as a bare
+	// storedFinding and silently drop ResourceID/ResourceType via their
+	// `json:"-"` tags. RestoreAll resets any table absent from the map it's
+	// given, so removing this key here is what makes the manual restore
+	// below authoritative rather than racing a stale decode.
+	findingsRaw, hasFindings := snap.Tables[findingsTableName]
+	delete(snap.Tables, findingsTableName)
+
 	if err := b.registry.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("inspector2: restore snapshot tables: %w", err)
+	}
+
+	if hasFindings {
+		var dtos []*findingSnapshot
+
+		if err := json.Unmarshal(findingsRaw, &dtos); err != nil {
+			return fmt.Errorf("inspector2: restore findings table: %w", err)
+		}
+
+		items := make([]*storedFinding, len(dtos))
+		for i, d := range dtos {
+			items[i] = fromFindingSnapshot(d)
+		}
+
+		b.findings.Restore(items)
 	}
 
 	b.restoreRawState(&snap)

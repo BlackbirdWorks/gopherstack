@@ -664,7 +664,10 @@ func (b *InMemoryBackend) ChangePassword(oldPassword, newPassword string) error 
 
 // ChangePasswordForCaller changes the IAM user password for the caller identified by accessKeyID.
 // When accessKeyID identifies a known user with a LoginProfile, that user's password is changed.
-// Otherwise, it updates the backend's current password.
+// An empty accessKeyID (no SigV4 credential on the request) falls back to the backend's single
+// account-wide password, preserving pre-caller-resolution behavior for unsigned callers. A
+// non-empty accessKeyID that cannot be resolved to a user with a LoginProfile is rejected rather
+// than silently falling back, so one caller's password never lands on another's account.
 func (b *InMemoryBackend) ChangePasswordForCaller(accessKeyID, oldPassword, newPassword string) error {
 	if oldPassword == "" {
 		return fmt.Errorf("%w: OldPassword must not be empty", ErrOldPasswordIncorrect)
@@ -698,8 +701,12 @@ func (b *InMemoryBackend) ChangePasswordForCaller(accessKeyID, oldPassword, newP
 	return nil
 }
 
-// changeCallerUserPasswordLocked updates the password for a caller's LoginProfile if found.
-// Returns handled=true when accessKeyID corresponds to an IAM user with a LoginProfile.
+// changeCallerUserPasswordLocked updates the password for a caller's LoginProfile.
+// Returns handled=false only when accessKeyID is empty (no resolvable caller identity at
+// all), so ChangePasswordForCaller falls back to the account-wide password for that case.
+// A non-empty accessKeyID is always handled here, even on failure to resolve it to a user
+// with a LoginProfile: it must not fall through to the shared account-wide password, or one
+// caller's identity would resolve to another caller's password.
 func (b *InMemoryBackend) changeCallerUserPasswordLocked(
 	accessKeyID, oldPassword, newPassword string,
 ) (bool, error) {
@@ -709,12 +716,12 @@ func (b *InMemoryBackend) changeCallerUserPasswordLocked(
 
 	ak, exists := b.accessKeys.Get(accessKeyID)
 	if !exists || ak.UserName == "" {
-		return false, nil
+		return true, fmt.Errorf("%w: access key %q does not resolve to an IAM user", ErrUserNotFound, accessKeyID)
 	}
 
 	lp, found := b.loginProfiles.Get(ak.UserName)
 	if !found {
-		return false, nil
+		return true, fmt.Errorf("%w: login profile for user %q not found", ErrLoginProfileNotFound, ak.UserName)
 	}
 
 	if lp.Password != "" && oldPassword != lp.Password {
@@ -730,7 +737,6 @@ func (b *InMemoryBackend) changeCallerUserPasswordLocked(
 		lp.PasswordHistory, newPassword, reusePreventionLimit(b.passwordPolicy),
 	)
 	b.loginProfiles.Put(lp)
-	b.currentPassword = newPassword
 
 	return true, nil
 }

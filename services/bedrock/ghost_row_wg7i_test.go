@@ -41,7 +41,8 @@ func TestDeleteAgent_ClearsVersionsAndCollaborators(t *testing.T) {
 	require.NoError(t, err)
 
 	collab, err := b.AssociateAgentCollaborator(
-		ag.AgentID, ver.AgentVersion, "arn:aws:bedrock:us-east-1:000000000000:agent/other", "DISABLED",
+		ag.AgentID, ver.AgentVersion, "arn:aws:bedrock:us-east-1:000000000000:agent/other",
+		"other-collab", "collaborate", "DISABLED",
 	)
 	require.NoError(t, err)
 

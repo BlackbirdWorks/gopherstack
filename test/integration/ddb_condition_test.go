@@ -101,7 +101,7 @@ func TestIntegration_DDB_ConditionsAndFilters(t *testing.T) {
 					Key: map[string]types.AttributeValue{
 						"pk": &types.AttributeValueMemberS{Value: "item1"},
 					},
-					UpdateExpression:         aws.String("SET status = :newStatus"),
+					UpdateExpression:         aws.String("SET #s = :newStatus"),
 					ConditionExpression:      aws.String("#s = :currStatus"),
 					ExpressionAttributeNames: map[string]string{"#s": "status"},
 					ExpressionAttributeValues: map[string]types.AttributeValue{

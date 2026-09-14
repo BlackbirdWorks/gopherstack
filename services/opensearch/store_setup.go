@@ -17,11 +17,14 @@ package opensearch
 // DataSource and DomainIndex gained a `DomainName string `json:"-"`` field for
 // exactly this reason.
 //
-// Two more single-value-per-domain maps (dryRuns: domainName -> *DryRunStatus,
-// autoTunes: "autotune:"+domainName -> *AutoTuneConfig) have the same problem
-// in miniature: the value type carried no field of its own to key a Table by,
-// so DryRunStatus and AutoTuneConfig also gained a `DomainName string
-// `json:"-"`` field.
+// One more single-value-per-domain map (dryRuns: domainName -> *DryRunStatus)
+// has the same problem in miniature: the value type carried no field of its
+// own to key a Table by, so DryRunStatus gained a `DomainName string
+// `json:"-"`` field. AutoTuneConfig (Auto-Tune settings) is nested directly
+// on Domain instead (Domain.AutoTuneOptions) rather than living in its own
+// table -- CreateDomain/UpdateDomainConfig already own the write lock on the
+// domain record they're configuring, so no separate identity/keying problem
+// exists for it.
 //
 // A handful of fields are deliberately NOT registered here and remain plain
 // maps -- see registerAllTables's doc for the full list and why.
@@ -60,8 +63,6 @@ func domainIndexKeyFn(v *DomainIndex) string {
 
 func dryRunKeyFn(v *DryRunStatus) string { return v.DomainName }
 
-func autoTuneConfigKeyFn(v *AutoTuneConfig) string { return autoTuneKey(v.DomainName) }
-
 // slCollectionKeyFn/slAccessPolicyKeyFn/... reuse the serverless*Key helpers
 // (defined in serverless.go, next to the other serverless
 // constructors) so the table key matches exactly what every access site
@@ -99,29 +100,37 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 // Two groups, split by whether their store.Table can be snapshotted directly:
 //
 //   - "Clean" tables (domains, inboundConnections, outboundConnections,
-//     directQueryDataSources, vpcEndpoints, applications, packages,
+//     directQueryDataSources, applications,
 //     reservedInstances, slCollections, slAccessPolicies, slSecurityConfigs,
-//     slEncryptionPolicies, slNetworkPolicies, dataSourceAttachments,
+//     slEncryptionPolicies, slNetworkPolicies,
 //     capabilities, migrations, workspaces) are registered on b.registry via
 //     store.Register, so persistence.go's Snapshot/Restore can drive them
 //     through b.registry.SnapshotAll()/RestoreAll() -- their value types
-//     marshal to JSON with no information loss. (Package.VersionHistory
-//     carries a pre-existing `json:"-"` tag of its own, unrelated to this
-//     conversion, so it was already excluded from persistence before this
-//     change and remains so -- not a regression, just an existing quirk this
-//     conversion preserves byte-for-byte.)
-//   - "Dirty" tables (dryRuns, autoTunes, domainDataSources, domainIndexes)
-//     are built with store.New but deliberately NOT registered on b.registry.
-//     Their key depends on a field (DomainName) tagged `json:"-"` on the live
-//     type, so a direct json.Marshal/Unmarshal round trip through
-//     Table.Snapshot/Restore would silently drop that field and corrupt the
-//     table's key on restore. persistence.go instead builds a throwaway DTO
-//     [store.Registry] purely to get a correctly-tagged JSON encoding (mirrors
-//     the services/sqs pilot, commit 0f09d77c, and services/apigateway,
-//     commit 6da0334e), then restores the live tables directly via
-//     Table.Restore. Because they aren't registered on b.registry,
-//     InMemoryBackend.Reset resets each of them with an explicit Table.Reset()
-//     call alongside b.registry.ResetAll().
+//     marshal to JSON with no information loss. Migration.CreatedAt/UpdatedAt
+//     carry real tags despite matching this description (gopherstack-ike6y):
+//     unlike vpcEndpoints/dataSourceAttachments/packages below, Migration is
+//     never marshaled directly onto the wire (migrationJSON in
+//     handler_migrations.go always mediates), so nothing needs those two
+//     fields hidden from JSON -- see the Migration doc comment in models.go.
+//   - "Dirty" tables (dryRuns, domainDataSources, domainIndexes,
+//     vpcEndpoints, dataSourceAttachments, packages) are built with store.New
+//     but deliberately NOT registered on b.registry.
+//     dryRuns/domainDataSources/domainIndexes are dirty because
+//     their key depends on a field (DomainName) tagged `json:"-"` on the live
+//     type; vpcEndpoints/dataSourceAttachments/packages are dirty for a
+//     different reason (gopherstack-8mcb, gopherstack-ike6y) -- each carries
+//     a `json:"-"` field that is not an identity field but genuinely needs to
+//     stay off the wire (the live type is marshaled directly by one or more
+//     handlers, and the real SDK type has no such member; see each field's
+//     doc comment in models.go), so the tag must stay. Either way, a direct
+//     json.Marshal/Unmarshal round trip through Table.Snapshot/Restore would
+//     silently drop the tagged field. persistence.go instead builds a
+//     throwaway DTO [store.Registry] purely to get a correctly-tagged JSON
+//     encoding (mirrors the services/sqs pilot, commit 0f09d77c, and
+//     services/apigateway, commit 6da0334e), then restores the live tables
+//     directly via Table.Restore. Because they aren't registered on
+//     b.registry, InMemoryBackend.Reset resets each of them with an explicit
+//     Table.Reset() call alongside b.registry.ResetAll().
 //
 // The following fields are deliberately plain maps, not store.Table at all:
 //   - vpcAuthorizations (domainName -> []AuthorizedPrincipal),
@@ -167,15 +176,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 		)
 	},
 	func(b *InMemoryBackend) {
-		b.vpcEndpoints = store.Register(b.registry, "vpcEndpoints", store.New(vpcEndpointKeyFn))
-	},
-	func(b *InMemoryBackend) {
 		b.applications = store.Register(b.registry, "applications", store.New(applicationKeyFn))
 		b.applicationsByName = b.applications.AddIndex("byName", applicationNameKeyFn)
 		b.applicationsByARN = b.applications.AddIndex("byARN", applicationARNKeyFn)
-	},
-	func(b *InMemoryBackend) {
-		b.packages = store.Register(b.registry, "packages", store.New(packageKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.reservedInstances = store.Register(b.registry, "reservedInstances", store.New(reservedInstanceKeyFn))
@@ -194,14 +197,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slNetworkPolicies = store.Register(b.registry, "slNetworkPolicies", store.New(slNetworkPolicyKeyFn))
-	},
-	func(b *InMemoryBackend) {
-		b.dataSourceAttachments = store.Register(
-			b.registry, "dataSourceAttachments", store.New(dataSourceAttachmentKeyFn),
-		)
-		b.dataSourceAttachmentsByApp = b.dataSourceAttachments.AddIndex(
-			"byApplication", func(v *DataSourceAttachment) string { return v.ApplicationID },
-		)
 	},
 	func(b *InMemoryBackend) {
 		b.capabilities = store.Register(b.registry, "capabilities", store.New(capabilityKeyFn))
@@ -224,9 +219,6 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.dryRuns = store.New(dryRunKeyFn)
 	},
 	func(b *InMemoryBackend) {
-		b.autoTunes = store.New(autoTuneConfigKeyFn)
-	},
-	func(b *InMemoryBackend) {
 		b.domainDataSources = store.New(dataSourceKeyFn)
 		b.domainDataSourcesByDomain = b.domainDataSources.AddIndex(
 			"byDomain", func(v *DataSource) string { return v.DomainName },
@@ -237,5 +229,17 @@ var tableRegistrations = []func(*InMemoryBackend){
 		b.domainIndexesByDomain = b.domainIndexes.AddIndex(
 			"byDomain", func(v *DomainIndex) string { return v.DomainName },
 		)
+	},
+	func(b *InMemoryBackend) {
+		b.vpcEndpoints = store.New(vpcEndpointKeyFn)
+	},
+	func(b *InMemoryBackend) {
+		b.dataSourceAttachments = store.New(dataSourceAttachmentKeyFn)
+		b.dataSourceAttachmentsByApp = b.dataSourceAttachments.AddIndex(
+			"byApplication", func(v *DataSourceAttachment) string { return v.ApplicationID },
+		)
+	},
+	func(b *InMemoryBackend) {
+		b.packages = store.New(packageKeyFn)
 	},
 }

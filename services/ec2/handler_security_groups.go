@@ -141,7 +141,12 @@ func (h *Handler) handleDescribeStaleSecurityGroups(vals url.Values, reqID strin
 	}
 	stale := h.Backend.DescribeStaleSecurityGroups(vpcID)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +174,12 @@ func (h *Handler) handleDescribeSecurityGroupVpcAssociations(
 	sgIDs := parseMemberList(vals, "GroupId")
 	assocs := h.Backend.DescribeSecurityGroupVpcAssociations(sgIDs)
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +224,12 @@ func (h *Handler) handleGetSecurityGroupsForVpc(vals url.Values, reqID string) (
 		return nil, err
 	}
 
-	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
+	maxResults, offset, err := parseEC2Pagination(
+		vals,
+		ec2PageMinDefault,
+		ec2PageMaxDefault,
+		ec2PageMaxDefault,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -329,13 +344,47 @@ func (h *Handler) handleDescribeSecurityGroupRules(vals url.Values, reqID string
 	}, nil
 }
 
+// handleModifySecurityGroupRules requires SecurityGroupRules (api_op_
+// ModifySecurityGroupRules.go: "This member is required"). Pre-fix this
+// handler read an "Egress" flag and IpPermissions.N.* that do not exist on
+// the real input at all (that shape belongs to Authorize/RevokeSecurityGroup
+// {Ingress,Egress}) and replaced the group's ENTIRE ingress or egress rule
+// set, discarding every rule not in the request -- a fabricated shape, not a
+// missing field. The real op targets individual existing rules by
+// SecurityGroupRuleId (wire key "SecurityGroupRule.N.SecurityGroupRuleId" /
+// "SecurityGroupRule.N.SecurityGroupRule.{CidrIpv4,Description,FromPort,
+// IpProtocol,ReferencedGroupId,ToPort}", serializers.go:
+// awsEc2query_serializeOpDocumentModifySecurityGroupRulesInput).
 func (h *Handler) handleModifySecurityGroupRules(vals url.Values, reqID string) (any, error) {
 	groupID := vals.Get("GroupId")
-	egress := vals.Get("Egress") == ec2BooleanTrue
 
-	rules := parseIPPermissions(vals)
+	var updates []SecurityGroupRuleUpdate
 
-	if err := h.Backend.ModifySecurityGroupRules(groupID, rules, egress); err != nil {
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("SecurityGroupRule.%d.", i)
+
+		ruleID := vals.Get(prefix + "SecurityGroupRuleId")
+		if ruleID == "" {
+			break
+		}
+
+		fromPort := 0
+		parseIntValue(vals.Get(prefix+"SecurityGroupRule.FromPort"), &fromPort)
+		toPort := 0
+		parseIntValue(vals.Get(prefix+"SecurityGroupRule.ToPort"), &toPort)
+
+		updates = append(updates, SecurityGroupRuleUpdate{
+			SecurityGroupRuleID: ruleID,
+			Protocol:            vals.Get(prefix + "SecurityGroupRule.IpProtocol"),
+			CIDRIPv4:            vals.Get(prefix + "SecurityGroupRule.CidrIpv4"),
+			ReferencedGroupID:   vals.Get(prefix + "SecurityGroupRule.ReferencedGroupId"),
+			Description:         vals.Get(prefix + "SecurityGroupRule.Description"),
+			FromPort:            fromPort,
+			ToPort:              toPort,
+		})
+	}
+
+	if err := h.Backend.ModifySecurityGroupRules(groupID, updates); err != nil {
 		return nil, err
 	}
 
@@ -481,7 +530,12 @@ func parseIPPermissions(vals url.Values) []SecurityGroupRule {
 // rather than inserts and rejects duplicates (validateSecurityGroupRules), so
 // the tail of the direction-filtered, index-ordered list is exactly the set
 // just added.
-func newlyAddedRuleDetails(b Backend, groupID string, n int, egress bool) ([]*SecurityGroupRuleDetail, error) {
+func newlyAddedRuleDetails(
+	b Backend,
+	groupID string,
+	n int,
+	egress bool,
+) ([]*SecurityGroupRuleDetail, error) {
 	all, err := b.DescribeSecurityGroupRules(groupID)
 	if err != nil {
 		return nil, err
@@ -669,8 +723,20 @@ func (h *Handler) handleDescribeSecurityGroups(vals url.Values, reqID string) (a
 				groups = append(groups, sg)
 			}
 		}
+
+		if err := requireAllIDsPresent(
+			names, groups, func(sg *SecurityGroup) string { return sg.Name }, ErrSecurityGroupNotFound,
+		); err != nil {
+			return nil, err
+		}
 	} else {
 		groups = h.Backend.DescribeSecurityGroups(ids)
+
+		if err := requireAllIDsPresent(
+			ids, groups, func(sg *SecurityGroup) string { return sg.ID }, ErrSecurityGroupNotFound,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	// Apply named filters: vpc-id, group-name, group-id.

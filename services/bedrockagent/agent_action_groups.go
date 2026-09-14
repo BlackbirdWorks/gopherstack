@@ -34,7 +34,7 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateAgentActionGroup")
 	defer b.mu.Unlock()
 
 	if !b.agents.Has(agentID) {
@@ -71,7 +71,7 @@ func (b *InMemoryBackend) CreateAgentActionGroup(
 func (b *InMemoryBackend) GetAgentActionGroup(
 	_ context.Context, agentID, agentVersion, actionGroupID string,
 ) (*AgentActionGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetAgentActionGroup")
 	defer b.mu.RUnlock()
 
 	ag, ok := b.actionGroups.Get(agActionGroupKey(agentID, agentVersion, actionGroupID))
@@ -96,7 +96,7 @@ func (b *InMemoryBackend) UpdateAgentActionGroup(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateAgentActionGroup")
 	defer b.mu.Unlock()
 
 	key := agActionGroupKey(agentID, agentVersion, actionGroupID)
@@ -152,7 +152,7 @@ func (b *InMemoryBackend) DeleteAgentActionGroup(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("DeleteAgentActionGroup")
 	defer b.mu.Unlock()
 
 	key := agActionGroupKey(agentID, agentVersion, actionGroupID)
@@ -170,7 +170,7 @@ func (b *InMemoryBackend) DeleteAgentActionGroup(
 func (b *InMemoryBackend) ListAgentActionGroups(
 	_ context.Context, agentID, agentVersion string, maxResults int, nextToken string,
 ) ([]*ActionGroupSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAgentActionGroups")
 	defer b.mu.RUnlock()
 
 	group := b.actionGroupsByAgentVersion.Get(agentVersionScope(agentID, agentVersion))

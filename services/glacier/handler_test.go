@@ -614,12 +614,12 @@ func TestErrorResponse_RequestIDUnique(t *testing.T) {
 func TestErrorResponse_FormatFields(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
+	tests := []struct {
 		name        string
 		method      string
 		path        string
-		wantStatus  int
 		wantCodeKey string
+		wantStatus  int
 	}{
 		{
 			name:        "vault_not_found_has_type_field",
@@ -687,12 +687,12 @@ func TestErrorResponse_XAmznRequestID(t *testing.T) {
 func TestPagination_MarkerNotFound_EmptyList(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct { //nolint:govet // fieldalignment: readability over minimal padding
+	tests := []struct {
+		setupFn func(h *glacier.Handler)
 		name    string
 		method  string
 		path    string
 		jsonKey string
-		setupFn func(h *glacier.Handler)
 	}{
 		{
 			name:    "list_vaults_unknown_marker",

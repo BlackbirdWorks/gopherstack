@@ -13,7 +13,7 @@ func (b *InMemoryBackend) Purge(ctx context.Context, cutoff time.Time) {
 		return
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("Purge")
 	defer b.mu.Unlock()
 
 	for region, t := range b.clusters {

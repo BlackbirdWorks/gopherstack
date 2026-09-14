@@ -356,6 +356,20 @@ func writeXML(c *echo.Context, v any) error {
 	return xml.NewEncoder(w).Encode(v)
 }
 
+// parseFormMaxResults parses the MaxResults query-protocol form field as an
+// int, defaulting to 0 (meaning "unset" to page.New's defaultLimit fallback)
+// on absence or malformed input rather than erroring -- matching this
+// handler's existing tolerant form-parsing convention (parseMemberList,
+// parseParams).
+func parseFormMaxResults(form url.Values) int {
+	v, err := strconv.Atoi(form.Get("MaxResults"))
+	if err != nil {
+		return 0
+	}
+
+	return v
+}
+
 // parseMemberList parses form values like "Prefix.member.1", "Prefix.member.2".
 func parseMemberList(form url.Values, prefix string) []string {
 	var result []string

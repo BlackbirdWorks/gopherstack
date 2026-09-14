@@ -460,7 +460,7 @@ func (b *InMemoryBackend) isAuthFlowAllowed(clientID, authFlow string) bool {
 func (b *InMemoryBackend) precheckAuthLocked(pool *UserPool, clientID, authFlow string, user *User) error {
 	switch authFlow {
 	case "USER_PASSWORD_AUTH", "ADMIN_USER_PASSWORD_AUTH", "ADMIN_NO_SRP_AUTH",
-		"USER_SRP_AUTH", "ADMIN_USER_SRP_AUTH", "CUSTOM_AUTH":
+		"USER_SRP_AUTH", "ADMIN_USER_SRP_AUTH", "CUSTOM_AUTH", authFlowUserAuth:
 		// valid flows; ADMIN_NO_SRP_AUTH is a legacy alias for ADMIN_USER_PASSWORD_AUTH
 	default:
 		return fmt.Errorf("%w: unsupported auth flow %q", ErrInvalidUserPoolConfig, authFlow)

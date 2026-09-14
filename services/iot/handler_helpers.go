@@ -60,7 +60,6 @@ func writeIoTError(c *echo.Context, err error) error {
 		errors.Is(err, ErrRegistrationTaskNotFound),
 		errors.Is(err, ErrManagedJobTemplateNotFound),
 		errors.Is(err, ErrIndexNotFound),
-		errors.Is(err, ErrShadowNotFound),
 		errors.Is(err, ErrResourceNotFound):
 
 		return respondNotFound(c, err.Error())

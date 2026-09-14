@@ -41,6 +41,26 @@ type updateFunctionRequestXML struct {
 	functionRequestFields
 }
 
+// decodeFunctionCode decodes a base64-encoded FunctionCode payload, matching
+// the real CloudFront wire format (cloudfront@v1.67.4 serializers.go:
+// el.Base64EncodeBytes(v.FunctionCode) for both Create/UpdateFunctionInput).
+// This previously stored the raw base64 text verbatim, so GetFunction's real
+// (raw-bytes) response returned base64 gibberish to any real client instead
+// of executable function source, matching decodeConnectionFunctionCode's
+// tolerant-fallback precedent (handler_connection.go) so a test sending raw
+// text still works.
+func decodeFunctionCode(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
+		return string(decoded)
+	}
+
+	return s
+}
+
 func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
@@ -66,6 +86,7 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	if code == "" {
 		code = req.FunctionConfig.FunctionCode
 	}
+	code = decodeFunctionCode(code)
 
 	fn, createErr := h.Backend.CreateFunction(
 		req.Name,
@@ -84,6 +105,15 @@ func (h *Handler) handleCreateFunction(c *echo.Context) error {
 	return xmlResp(c, http.StatusCreated, functionResponseXML(fn))
 }
 
+// handleGetFunction returns the function's raw code and content type
+// (GetFunctionOutput: ContentType/ETag headers + a FunctionCode blob body),
+// mirroring handleGetConnectionFunction's precedent for the same real
+// Get-vs-Describe split (cloudfront@v1.67.4 api_op_GetFunction.go: "Gets the
+// code of a CloudFront function. To get configuration information and
+// metadata about a function, use DescribeFunction"). This previously
+// returned the same XML FunctionSummary metadata body as DescribeFunction,
+// so a real client's FunctionCode always decoded as XML metadata bytes
+// instead of the actual function source.
 func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 	fn, err := h.Backend.GetFunction(name)
 	if err != nil {
@@ -92,7 +122,7 @@ func (h *Handler) handleGetFunction(c *echo.Context, name string) error {
 
 	c.Response().Header().Set("ETag", fn.ETag)
 
-	return xmlResp(c, http.StatusOK, functionResponseXML(fn))
+	return c.Blob(http.StatusOK, "application/octet-stream", []byte(fn.FunctionCode))
 }
 
 func (h *Handler) handleDescribeFunction(c *echo.Context, name string) error {
@@ -115,7 +145,11 @@ func (h *Handler) handleListFunctions(c *echo.Context) error {
 		fns = filterSlice(fns, func(fn *Function) bool { return fn.Status == stage })
 	}
 
-	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(c, fns, func(fn *Function) string { return fn.Name })
+	page, pageSize, isTruncated, nextMarker := paginateByMarkerID(
+		c,
+		fns,
+		func(fn *Function) string { return fn.Name },
+	)
 
 	var sb strings.Builder
 
@@ -226,6 +260,7 @@ func (h *Handler) handleUpdateFunction(c *echo.Context, name string) error {
 	if code == "" {
 		code = req.FunctionConfig.FunctionCode
 	}
+	code = decodeFunctionCode(code)
 
 	fn, updateErr := h.Backend.UpdateFunction(
 		name,
@@ -317,7 +352,11 @@ func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
 	}
 
 	if req.EventObject == "" {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "EventObject is required"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "EventObject is required"),
+		)
 	}
 
 	eventObject, decodeErr := base64.StdEncoding.DecodeString(req.EventObject)
@@ -330,7 +369,11 @@ func (h *Handler) handleTestFunction(c *echo.Context, name string) error {
 	}
 
 	if !json.Valid(eventObject) {
-		return xmlResp(c, http.StatusBadRequest, cfErrorXML("InvalidArgument", "EventObject must be valid JSON"))
+		return xmlResp(
+			c,
+			http.StatusBadRequest,
+			cfErrorXML("InvalidArgument", "EventObject must be valid JSON"),
+		)
 	}
 
 	return xmlResp(

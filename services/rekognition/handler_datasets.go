@@ -274,9 +274,16 @@ func (h *Handler) handleUpdateDatasetEntries(
 	return &struct{}{}, nil
 }
 
+// distributeDatasetEntriesReq's Datasets[].Arn wire key is "Arn", NOT
+// "DatasetArn" -- confirmed against aws-sdk-go-v2/service/rekognition@v1.58.0's
+// serializers.go:5116 (awsAwsjson11_serializeDocumentDistributeDataset),
+// which writes object.Key("Arn") only. A real client's DistributeDatasetEntries
+// call always sent an ARN under a key this handler never read, so every
+// dataset in the request decoded to an empty ARN and the op failed
+// ResourceNotFoundException unconditionally.
 type distributeDatasetEntriesReq struct {
 	Datasets []struct {
-		DatasetArn string `json:"DatasetArn"`
+		Arn string `json:"Arn"`
 	} `json:"Datasets"`
 }
 
@@ -285,7 +292,7 @@ func (h *Handler) handleDistributeDatasetEntries(
 ) (*struct{}, error) {
 	datasets := make([]DatasetDistribution, 0, len(req.Datasets))
 	for _, d := range req.Datasets {
-		datasets = append(datasets, DatasetDistribution{DatasetARN: d.DatasetArn})
+		datasets = append(datasets, DatasetDistribution{DatasetARN: d.Arn})
 	}
 
 	if err := h.Backend.DistributeDatasetEntries(datasets); err != nil {

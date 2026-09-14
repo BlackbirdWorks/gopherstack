@@ -134,6 +134,43 @@ func (m *mockRecorder) RecordManagementEvent(ev CloudTrailEventInput) {
 	m.events = append(m.events, ev)
 }
 
+func TestCaptureResponseWriterContentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		presetCT      string
+		wantCT        string
+		explicitWrite bool
+	}{
+		{"no_content_type_implicit_status", "", "text/plain; charset=utf-8", false},
+		{"no_content_type_explicit_status", "", "text/plain; charset=utf-8", true},
+		{"existing_content_type_preserved", "application/json", "application/json", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := httptest.NewRecorder()
+			w := &captureResponseWriter{ResponseWriter: rec}
+
+			if tt.presetCT != "" {
+				w.Header().Set("Content-Type", tt.presetCT)
+			}
+			if tt.explicitWrite {
+				w.WriteHeader(http.StatusOK)
+			}
+
+			_, err := w.Write([]byte("<script>alert(1)</script>"))
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantCT, rec.Header().Get("Content-Type"))
+			assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+		})
+	}
+}
+
 func TestWrapCloudTrailCapture(t *testing.T) {
 	t.Parallel()
 

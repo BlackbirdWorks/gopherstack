@@ -220,9 +220,14 @@ func TestEndpointBatch_FullShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(appRec.Body.Bytes(), &appResp))
 	appID := appResp["Id"].(string)
 
+	// Real EndpointBatchRequest.Item is a JSON array of EndpointBatchItem,
+	// each carrying its own Id field -- not a JSON object keyed by endpoint
+	// ID (awsRestjson1_serializeDocumentEndpointBatchRequest,
+	// pinpoint@v1.42.4 serializers.go:12045).
 	batchBody := map[string]any{
-		"Item": map[string]any{
-			"ep-batch-1": map[string]any{
+		"Item": []any{
+			map[string]any{
+				"Id":          "ep-batch-1",
 				"ChannelType": "EMAIL",
 				"Address":     "a@example.com",
 				"Attributes": map[string]any{
@@ -236,7 +241,8 @@ func TestEndpointBatch_FullShape(t *testing.T) {
 				},
 				"User": map[string]any{"UserId": "u-1"},
 			},
-			"ep-batch-2": map[string]any{
+			map[string]any{
+				"Id":             "ep-batch-2",
 				"ChannelType":    "SMS",
 				"Address":        "+15555550200",
 				"EndpointStatus": "INACTIVE",
@@ -450,8 +456,9 @@ func TestEndpoint_UserAttributes_BatchUpdate(t *testing.T) {
 	batchRec := doPinpointRequest(t, h, http.MethodPut,
 		"/v1/apps/"+appID+"/endpoints",
 		map[string]any{
-			"Item": map[string]any{
-				"ep-batch-1": map[string]any{
+			"Item": []any{
+				map[string]any{
+					"Id":          "ep-batch-1",
 					"ChannelType": "PUSH",
 					"Address":     "token-abc",
 					"User": map[string]any{
@@ -461,7 +468,8 @@ func TestEndpoint_UserAttributes_BatchUpdate(t *testing.T) {
 						},
 					},
 				},
-				"ep-batch-2": map[string]any{
+				map[string]any{
+					"Id":          "ep-batch-2",
 					"ChannelType": "EMAIL",
 					"Address":     "batch2@example.com",
 					"User": map[string]any{

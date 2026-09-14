@@ -179,8 +179,15 @@ func (b *InMemoryBackend) GetGeneratedTemplate(idOrName string) (string, error) 
 	return gt.TemplateBody, nil
 }
 
+// ListGeneratedTemplates default 50 / max 100 per MaxResults
+// (cloudformation@v1.76.1 api_op_ListGeneratedTemplates.go:35).
+const (
+	cfnGeneratedTemplatesDefaultPageSize = 50
+	cfnGeneratedTemplatesMaxPageSize     = 100
+)
+
 func (b *InMemoryBackend) ListGeneratedTemplates(
-	nextToken string,
+	maxResults int, nextToken string,
 ) (page.Page[GeneratedTemplate], error) {
 	b.mu.RLock("ListGeneratedTemplates")
 	defer b.mu.RUnlock()
@@ -196,7 +203,9 @@ func (b *InMemoryBackend) ListGeneratedTemplates(
 		return result[i].GeneratedTemplateID < result[j].GeneratedTemplateID
 	})
 
-	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnGeneratedTemplatesMaxPageSize)
+
+	return page.New(result, nextToken, limit, cfnGeneratedTemplatesDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) StartResourceScan() (string, error) {
@@ -250,7 +259,16 @@ func (b *InMemoryBackend) DescribeResourceScan(scanID string) (*ResourceScan, er
 	return rs, nil
 }
 
-func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[ResourceScan], error) {
+// ListResourceScans default 10 / max 100 per MaxResults
+// (cloudformation@v1.76.1 api_op_ListResourceScans.go:35).
+const (
+	cfnResourceScansDefaultPageSize = 10
+	cfnResourceScansMaxPageSize     = 100
+)
+
+func (b *InMemoryBackend) ListResourceScans(
+	maxResults int, nextToken string,
+) (page.Page[ResourceScan], error) {
 	b.mu.RLock("ListResourceScans")
 	defer b.mu.RUnlock()
 	result := make([]ResourceScan, 0, b.resourceScans.Len())
@@ -260,7 +278,9 @@ func (b *InMemoryBackend) ListResourceScans(nextToken string) (page.Page[Resourc
 
 	sort.Slice(result, func(i, j int) bool { return result[i].ResourceScanID < result[j].ResourceScanID })
 
-	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnResourceScansMaxPageSize)
+
+	return page.New(result, nextToken, limit, cfnResourceScansDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]ScannedResource, error) {

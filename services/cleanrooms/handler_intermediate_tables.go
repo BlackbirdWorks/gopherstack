@@ -123,6 +123,9 @@ func (h *Handler) handleListIntermediateTableVersions(
 	if err != nil {
 		return nil, err
 	}
+	if items == nil {
+		items = []*IntermediateTableVersionSummary{}
+	}
 	resp := map[string]any{"intermediateTableVersionSummaries": items}
 	if next != "" {
 		resp["nextToken"] = next

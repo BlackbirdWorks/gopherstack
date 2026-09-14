@@ -104,7 +104,7 @@ func (b *InMemoryBackend) ReleaseAddress(allocationID string) error {
 
 	b.addresses.Delete(allocationID)
 	delete(b.tags, allocationID)
-	delete(b.addressTransfers, allocationID)
+	delete(b.addressTransfers, addr.PublicIP)
 
 	return nil
 }
@@ -238,7 +238,13 @@ func (b *InMemoryBackend) EnableAddressTransfer(
 		TransferOfferStatus: "pending",
 		TransferOfferExpiry: time.Now().UTC().AddDate(0, 0, addressTransferOfferDays),
 	}
-	b.addressTransfers[allocationID] = transfer
+	// Keyed by PublicIP, not AllocationId: AcceptAddressTransferInput's sole
+	// identifier is Address (a public IP), not AllocationId
+	// (api_op_AcceptAddressTransfer.go) -- unlike this real map's other two
+	// callers, Enable/DisableAddressTransferInput. Keying by AllocationId
+	// here left AcceptAddressTransfer's lookup permanently unable to find a
+	// transfer any real client had just enabled.
+	b.addressTransfers[addr.PublicIP] = transfer
 
 	return transfer, nil
 }
@@ -257,13 +263,13 @@ func (b *InMemoryBackend) DisableAddressTransfer(allocationID string) (*AddressT
 		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, allocationID)
 	}
 
-	transfer, existed := b.addressTransfers[allocationID]
+	transfer, existed := b.addressTransfers[addr.PublicIP]
 	if !existed {
 		transfer = &AddressTransfer{AllocationID: allocationID, PublicIP: addr.PublicIP}
 	}
 
 	cp := *transfer
-	delete(b.addressTransfers, allocationID)
+	delete(b.addressTransfers, addr.PublicIP)
 
 	return &cp, nil
 }

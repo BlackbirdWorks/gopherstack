@@ -130,9 +130,10 @@ func (b *InMemoryBackend) DeleteGlobalCluster(
 
 // FailoverGlobalCluster fails a Neptune global cluster over to
 // targetDBClusterID, promoting it to the new primary/writer -- see
-// promoteGlobalClusterWriter for the member-promotion logic shared with
-// SwitchoverGlobalCluster (partition-scoped, but the target is looked up in
-// the ctx region when it names an existing DB cluster rather than an ARN).
+// promoteGlobalClusterWriter for the member-promotion logic and error
+// semantics shared with SwitchoverGlobalCluster (partition-scoped, but the
+// target is looked up in the ctx region when it names an existing DB cluster
+// rather than an ARN).
 func (b *InMemoryBackend) FailoverGlobalCluster(
 	ctx context.Context, globalClusterID, targetDBClusterID string,
 ) (*GlobalCluster, error) {
@@ -147,7 +148,9 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 			globalClusterID,
 		)
 	}
-	b.promoteGlobalClusterWriter(region, gc, targetDBClusterID)
+	if err := b.promoteGlobalClusterWriter(region, gc, targetDBClusterID); err != nil {
+		return nil, err
+	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
 	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)
@@ -157,52 +160,62 @@ func (b *InMemoryBackend) FailoverGlobalCluster(
 
 // promoteGlobalClusterWriter flips IsWriter on gc.GlobalClusterMembers so
 // that targetDBClusterID becomes the sole writer, mirroring the real
-// FailoverGlobalCluster/SwitchoverGlobalCluster member promotion. When
-// targetDBClusterID is empty, this is a no-op (nothing to promote). When it
-// isn't yet a tracked member, this backend has no separate "join global
-// cluster" operation to have attached it beforehand (real Neptune clusters
-// join via CreateDBCluster's GlobalClusterIdentifier at creation time, which
-// this backend does not model), so a target that resolves to a real DB
-// cluster in this account is attached as the new writer -- the closest real
-// analogue this backend can express. A target this backend cannot resolve at
-// all (neither an existing member, an ARN, nor a known cluster identifier)
-// is left as a no-op rather than an error: real AWS would reject it, but
-// this backend has no way to distinguish "a genuine but not-yet-modeled
-// cross-region secondary" from "a typo" without a join operation, so it
-// favors not erroring on input it cannot fully validate over falsely
-// rejecting a legitimate caller.
-func (b *InMemoryBackend) promoteGlobalClusterWriter(region string, gc *GlobalCluster, targetDBClusterID string) {
+// FailoverGlobalCluster/SwitchoverGlobalCluster member promotion -- both
+// operations declare the identical error set (DBClusterNotFoundFault,
+// GlobalClusterNotFoundFault, InvalidDBClusterStateFault,
+// InvalidGlobalClusterStateFault; neptune@v1.48.4 deserializers.go:5338
+// awsAwsquery_deserializeOpErrorFailoverGlobalCluster and :8147
+// ...Switchover..., both switching on exactly those four codes).
+// TargetDbClusterIdentifier's doc comment
+// (api_op_FailoverGlobalCluster.go:53) names it "the ARN of the secondary
+// Neptune DB cluster" to promote: a target that resolves to no DB cluster
+// this backend tracks at all is DBClusterNotFoundFault; one that resolves to
+// a real cluster but isn't a member of THIS global cluster, or is already
+// its writer (nothing to fail over to), is InvalidDBClusterStateFault --
+// real AWS rejects both cases since the argument must name an existing
+// secondary. Caller must hold b.mu (write lock).
+func (b *InMemoryBackend) promoteGlobalClusterWriter(
+	region string, gc *GlobalCluster, targetDBClusterID string,
+) error {
 	if targetDBClusterID == "" {
-		return
+		return fmt.Errorf("%w: TargetDbClusterIdentifier is required", ErrInvalidParameter)
 	}
 	targetARN := targetDBClusterID
-	var targetCluster *DBCluster
-	targetExists := isNeptuneARN(targetDBClusterID)
-	if !targetExists {
-		if cl, ok := b.clusterGet(region, targetDBClusterID); ok {
-			targetARN = b.clusterARN(region, cl.DBClusterIdentifier)
-			targetExists = true
-			targetCluster = cl
+	if !isNeptuneARN(targetDBClusterID) {
+		cl, ok := b.clusterGet(region, targetDBClusterID)
+		if !ok {
+			return fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
+		}
+		targetARN = b.clusterARN(region, cl.DBClusterIdentifier)
+	} else if _, ok := b.clusterByARNLocked(targetARN, region); !ok {
+		return fmt.Errorf("%w: DB cluster %s not found", ErrClusterNotFound, targetDBClusterID)
+	}
+
+	idx := -1
+	for i := range gc.GlobalClusterMembers {
+		if gc.GlobalClusterMembers[i].DBClusterARN == targetARN {
+			idx = i
+
+			break
 		}
 	}
-	found := false
+	if idx == -1 {
+		return fmt.Errorf(
+			"%w: DB cluster %s is not a member of global cluster %s",
+			ErrInvalidDBClusterStateFault, targetDBClusterID, gc.GlobalClusterIdentifier,
+		)
+	}
+	if gc.GlobalClusterMembers[idx].IsWriter {
+		return fmt.Errorf(
+			"%w: DB cluster %s is already the primary of global cluster %s",
+			ErrInvalidDBClusterStateFault, targetDBClusterID, gc.GlobalClusterIdentifier,
+		)
+	}
 	for i := range gc.GlobalClusterMembers {
-		gc.GlobalClusterMembers[i].IsWriter = gc.GlobalClusterMembers[i].DBClusterARN == targetARN
-		found = found || gc.GlobalClusterMembers[i].IsWriter
+		gc.GlobalClusterMembers[i].IsWriter = i == idx
 	}
-	if found || !targetExists {
-		return
-	}
-	for i := range gc.GlobalClusterMembers {
-		gc.GlobalClusterMembers[i].IsWriter = false
-	}
-	gc.GlobalClusterMembers = append(gc.GlobalClusterMembers, GlobalClusterMember{
-		DBClusterARN: targetARN,
-		IsWriter:     true,
-	})
-	if targetCluster != nil {
-		targetCluster.GlobalClusterIdentifier = gc.GlobalClusterIdentifier
-	}
+
+	return nil
 }
 
 // ModifyGlobalCluster applies deletion-protection/engine-version/rename
@@ -301,7 +314,9 @@ func (b *InMemoryBackend) SwitchoverGlobalCluster(
 			globalClusterID,
 		)
 	}
-	b.promoteGlobalClusterWriter(region, gc, targetDBClusterID)
+	if err := b.promoteGlobalClusterWriter(region, gc, targetDBClusterID); err != nil {
+		return nil, err
+	}
 	cp := *gc
 	cp.GlobalClusterMembers = make([]GlobalClusterMember, len(gc.GlobalClusterMembers))
 	copy(cp.GlobalClusterMembers, gc.GlobalClusterMembers)

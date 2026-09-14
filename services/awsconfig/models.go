@@ -26,6 +26,28 @@ type ConfigurationRecorder struct {
 	Status             string              `json:"status,omitempty"` // PENDING or ACTIVE
 }
 
+// wireConfigurationRecorder is ConfigurationRecorder's wire twin for
+// DescribeConfigurationRecorders: types.ConfigurationRecorder (configservice
+// v1.68.4 types/types.go:1024-1146) has no status member -- recorder status
+// is only returned by the separate DescribeConfigurationRecorderStatus
+// operation via types.ConfigurationRecorderStatus (types/types.go:1178-1213).
+// Status MUST stay persisted on ConfigurationRecorder (do not retag it
+// json:"-"); the nil *struct{} here shadows the embedded field and, with
+// omitempty, drops the key.
+type wireConfigurationRecorder struct {
+	*ConfigurationRecorder
+	Status *struct{} `json:"status,omitempty"`
+}
+
+func toWireConfigurationRecorders(recorders []ConfigurationRecorder) []wireConfigurationRecorder {
+	out := make([]wireConfigurationRecorder, len(recorders))
+	for i := range recorders {
+		out[i] = wireConfigurationRecorder{ConfigurationRecorder: &recorders[i]}
+	}
+
+	return out
+}
+
 // ServiceLinkedRecorderLink tracks which AWS service principal owns a
 // service-linked configuration recorder, so
 // PutServiceLinkedConfigurationRecorder/DeleteServiceLinkedConfigurationRecorder
@@ -345,17 +367,43 @@ type DetailedEvaluationResult struct {
 	ConfigRuleInvokedTime      float64                    `json:"ConfigRuleInvokedTime"`
 }
 
-// DeliveryChannelStatusInfo holds status info for a delivery channel.
-type DeliveryChannelStatusInfo struct {
-	LastStatus      string  `json:"lastStatus"`
-	LastAttemptTime float64 `json:"lastAttemptTime"`
+// ConfigExportDeliveryInfo holds the delivery status of a configuration
+// snapshot or history export to S3 (configservice@v1.68.4 types/types.go:561;
+// wire keys verified against deserializers.go:15453
+// awsAwsjson11_deserializeDocumentConfigExportDeliveryInfo). Timestamps are
+// nil until a delivery attempt has actually happened.
+type ConfigExportDeliveryInfo struct {
+	LastAttemptTime    *float64 `json:"lastAttemptTime,omitempty"`
+	LastSuccessfulTime *float64 `json:"lastSuccessfulTime,omitempty"`
+	NextDeliveryTime   *float64 `json:"nextDeliveryTime,omitempty"`
+	LastErrorCode      string   `json:"lastErrorCode,omitempty"`
+	LastErrorMessage   string   `json:"lastErrorMessage,omitempty"`
+	LastStatus         string   `json:"lastStatus,omitempty"`
 }
 
-// DeliveryChannelStatus holds the status of a delivery channel.
+// ConfigStreamDeliveryInfo holds the delivery status of the configuration
+// stream to SNS (configservice@v1.68.4 types/types.go:846; wire keys
+// verified against deserializers.go:16009
+// awsAwsjson11_deserializeDocumentConfigStreamDeliveryInfo). A distinct
+// shape from ConfigExportDeliveryInfo -- no NextDeliveryTime, and
+// LastStatusChangeTime instead of LastAttemptTime/LastSuccessfulTime.
+type ConfigStreamDeliveryInfo struct {
+	LastStatusChangeTime *float64 `json:"lastStatusChangeTime,omitempty"`
+	LastErrorCode        string   `json:"lastErrorCode,omitempty"`
+	LastErrorMessage     string   `json:"lastErrorMessage,omitempty"`
+	LastStatus           string   `json:"lastStatus,omitempty"`
+}
+
+// DeliveryChannelStatus holds the status of a delivery channel
+// (configservice@v1.68.4 types/types.go:1668; wire keys verified against
+// deserializers.go:18209 awsAwsjson11_deserializeDocumentDeliveryChannelStatus).
+// Each slot is nil until that kind of delivery has actually been attempted
+// (see DescribeDeliveryChannelStatus).
 type DeliveryChannelStatus struct {
-	ConfigHistoryDeliveryInfo *DeliveryChannelStatusInfo `json:"configHistoryDeliveryInfo,omitempty"`
-	ConfigStreamDeliveryInfo  *DeliveryChannelStatusInfo `json:"configStreamDeliveryInfo,omitempty"`
-	Name                      string                     `json:"name"`
+	ConfigHistoryDeliveryInfo  *ConfigExportDeliveryInfo `json:"configHistoryDeliveryInfo,omitempty"`
+	ConfigSnapshotDeliveryInfo *ConfigExportDeliveryInfo `json:"configSnapshotDeliveryInfo,omitempty"`
+	ConfigStreamDeliveryInfo   *ConfigStreamDeliveryInfo `json:"configStreamDeliveryInfo,omitempty"`
+	Name                       string                    `json:"name"`
 }
 
 // ConformancePackStatus holds status of a conformance pack.

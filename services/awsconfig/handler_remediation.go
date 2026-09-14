@@ -75,25 +75,40 @@ func (h *Handler) handleDescribeRemediationConfigurations(
 // DescribeRemediationExceptions request/response types and handler.
 type describeRemediationExceptionsInput struct {
 	ConfigRuleName string `json:"ConfigRuleName"`
+	NextToken      string `json:"NextToken,omitempty"`
+	Limit          int32  `json:"Limit,omitempty"`
 }
 type describeRemediationExceptionsOutput struct {
+	NextToken             string                 `json:"NextToken,omitempty"`
 	RemediationExceptions []RemediationException `json:"RemediationExceptions"`
 }
+
+// describeRemediationExceptionsPageDefault is the documented default page
+// size (api_op_DescribeRemediationExceptions.go: "The default is 25.").
+const describeRemediationExceptionsPageDefault = 25
 
 func (h *Handler) handleDescribeRemediationExceptions(
 	_ context.Context, in *describeRemediationExceptionsInput,
 ) (*describeRemediationExceptionsOutput, error) {
-	return &describeRemediationExceptionsOutput{
-		RemediationExceptions: h.Backend.DescribeRemediationExceptions(in.ConfigRuleName),
-	}, nil
+	all := h.Backend.DescribeRemediationExceptions(in.ConfigRuleName)
+
+	p, err := paginate(all, in.NextToken, in.Limit, describeRemediationExceptionsPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeRemediationExceptionsOutput{RemediationExceptions: p.Data, NextToken: p.Next}, nil
 }
 
 // DescribeRemediationExecutionStatus request/response types and handler.
 type describeRemediationExecutionStatusInput struct {
 	ConfigRuleName string        `json:"ConfigRuleName"`
+	NextToken      string        `json:"NextToken,omitempty"`
 	ResourceKeys   []ResourceKey `json:"ResourceKeys,omitempty"`
+	Limit          int32         `json:"Limit,omitempty"`
 }
 type describeRemediationExecutionStatusOutput struct {
+	NextToken                    string                            `json:"NextToken,omitempty"`
 	RemediationExecutionStatuses []RemediationExecutionStatusEntry `json:"RemediationExecutionStatuses"`
 }
 
@@ -105,7 +120,15 @@ func (h *Handler) handleDescribeRemediationExecutionStatus(
 		return nil, err
 	}
 
-	return &describeRemediationExecutionStatusOutput{RemediationExecutionStatuses: statuses}, nil
+	p, err := paginate(statuses, in.NextToken, in.Limit, unboundedPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &describeRemediationExecutionStatusOutput{
+		RemediationExecutionStatuses: p.Data,
+		NextToken:                    p.Next,
+	}, nil
 }
 
 // PutRemediationConfigurations request/response types and handler.

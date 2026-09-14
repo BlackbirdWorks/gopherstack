@@ -245,7 +245,7 @@ func (db *InMemoryDB) doScan(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 	limit := int(aws.ToInt32(input.Limit))
-	proj := resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet)
+	proj, atgNames := resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet)
 	filter := aws.ToString(input.FilterExpression)
 
 	// Collect all non-expired items that are in the target index.
@@ -274,9 +274,20 @@ func (db *InMemoryDB) doScan(
 		tableKeySchema,
 	)
 
-	projector, err := ParseProjector(proj, input.ExpressionAttributeNames)
+	projector, err := ParseProjector(proj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 	if err != nil {
 		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
+	}
+
+	if filter != "" {
+		if undefErr := checkUndefinedExpressionAttributeNames(
+			input.ExpressionAttributeNames, "FilterExpression", filter,
+		); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
+		if undefErr := checkUndefinedExpressionAttributeValues(eav, "FilterExpression", filter); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
 	}
 
 	// Pre-parse the filter expression once to avoid re-parsing per item in the hot loop.

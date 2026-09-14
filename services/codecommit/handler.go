@@ -162,7 +162,6 @@ func (h *Handler) buildOps() map[string]func([]byte) (any, error) {
 		"PostCommentForComparedCommit":          h.handlePostCommentForComparedCommit,
 		"PostCommentForPullRequest":             h.handlePostCommentForPullRequest,
 		"PostCommentReply":                      h.handlePostCommentReply,
-		"PutCommentReaction":                    h.handlePutCommentReaction,
 		"PutFile":                               h.handlePutFile,
 		"PutRepositoryTriggers":                 h.handlePutRepositoryTriggers,
 		"TestRepositoryTriggers":                h.handleTestRepositoryTriggers,
@@ -346,6 +345,15 @@ func (h *Handler) dispatch(ctx context.Context, action string, body []byte) ([]b
 		return json.Marshal(resp)
 	}
 
+	if action == "PutCommentReaction" {
+		resp, err := h.handlePutCommentReaction(ctx, body)
+		if err != nil {
+			return nil, err
+		}
+
+		return json.Marshal(resp)
+	}
+
 	fn, ok := h.ops[action]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errUnknownAction, action)
@@ -426,7 +434,7 @@ var errCodeLookup = []errCodeEntry{
 		code:     http.StatusBadRequest,
 		errType:  "InvalidPullRequestEventTypeException",
 	},
-	{sentinel: ErrValidation, code: http.StatusBadRequest, errType: "InvalidParameterException"},
+	{sentinel: ErrCommitSpecifierRequired, code: http.StatusBadRequest, errType: "CommitRequiredException"},
 	{sentinel: ErrInvalidMergeOption, code: http.StatusBadRequest, errType: "InvalidMergeOptionException"},
 	{
 		sentinel: ErrInvalidPullRequestStatus,

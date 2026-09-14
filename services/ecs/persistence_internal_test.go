@@ -31,7 +31,7 @@ func Test_Snapshot_Restore_FullState(t *testing.T) {
 		t.Fatalf("CreateService: %v", err)
 	}
 
-	tasks, err := src.RunTask(RunTaskInput{
+	tasks, _, err := src.RunTask(RunTaskInput{
 		Cluster: "full-state-cluster", TaskDefinition: tdArn, Count: 1,
 	})
 	if err != nil {

@@ -9,7 +9,7 @@
 | --- | --- |
 | PARITY entries audited | 73 (72 ok, 1 partial) |
 | Feature families | 15 (15 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
@@ -19,6 +19,7 @@
 - SetTypeConfiguration accepts configuration for any type name without requiring prior registration (intentional permissiveness for first-party AWS types — see ops: SetTypeConfiguration note); real AWS models TypeNotFoundException here but this emulator doesn't track the full built-in-type catalog (bd: gopherstack-e5h)
 - StackSets DeploymentTargets.AccountFilterType INTERSECTION/DIFFERENCE/UNION filtering and AccountsUrl are not implemented — only the unset/NONE case (union of Accounts and OU-resolved accounts) is honoured; other AccountFilterType values are now rejected explicitly with ValidationError (fixed gopherstack-nirx; previously silently dropped despite being documented as rejected — bd: gopherstack-g7b5, gopherstack-nirx)
 - ImportStacksToStackSet still doesn't tag imported instances with a real OU (no DeploymentTargets on that op in the SDK to source one from) — unaffected by the gopherstack-g7b5 OU work
+- "StackSetOperations complete synchronously as SUCCEEDED the instant recordStackSetOperation creates them (stack_sets.go) — RUNNING/STOPPING are therefore unreachable through any public API. DELIBERATE, not accidental (2026-09-11, gopherstack-b3pm): cloudformation has no clock/janitor-driven lifecycle anywhere in this package — CreateStack's CREATE_IN_PROGRESS -> CREATE_COMPLETE, change sets' EXECUTE_IN_PROGRESS -> EXECUTE_COMPLETE/FAILED, and every stack-instance/stack-set operation all resolve inside the same handler call, no goroutine/ticker ever revisits a status later — so giving stack-set operations alone an async lifecycle would be inconsistent with the rest of the service. StopStackSetOperation on an already-SUCCEEDED (i.e. every) operation already returns the correct InvalidOperationException (verified against cloudformation@v1.76.1 deserializers.go's 3-way modeled error switch for this op: InvalidOperationException/OperationNotFoundException/StackSetNotFoundException) — this was pre-existing correct behavior, not a bug. See families: stacksets and the dated note at the end of this file for the full writeup and tests."
 - Stack policy enforcement (gopherstack-cqy3) does not implement NotAction/NotResource (disclosed, not approximated — see families: stack_policy_enforcement); a Replacement=='Conditionally' change (only reachable for DynamoDB AttributeDefinitions and RDS Engine/AvailabilityZone per requiresRecreation) is deliberately treated as Update:Replace for policy purposes, erring toward the more protective classification since this backend cannot resolve the ambiguity statically; a policy set via StackPolicyBody/StackPolicyURL at CreateStack/UpdateStack time (as opposed to SetStackPolicy) and the URL variant of either are not modeled, consistent with SetStackPolicy never having supported StackPolicyURL; enforcement is computed from the same template-body text diff CreateChangeSet uses, so a parameter-only update (TemplateBody omitted, UsePreviousTemplate not modeled) produces no diff and is not checked — a pre-existing limitation of computeChanges this pass did not extend
 
 ## More

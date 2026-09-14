@@ -422,18 +422,19 @@ func (n *storedNode) toSummary(cpgIDs []string) *NodeSummary {
 }
 
 type storedSignalMap struct {
-	CreatedAt                       time.Time         `json:"createdAt"`
-	ModifiedAt                      time.Time         `json:"modifiedAt"`
-	Tags                            map[string]string `json:"tags"`
-	Arn                             string            `json:"arn"`
-	ID                              string            `json:"id"`
-	Name                            string            `json:"name"`
-	Description                     string            `json:"description"`
-	DiscoveryEntryPointArn          string            `json:"discoveryEntryPointArn"`
-	Status                          string            `json:"status"`
-	MonitorDeploymentStatus         string            `json:"monitorDeploymentStatus"`
-	CloudWatchAlarmTemplateGroupIDs []string          `json:"cloudWatchAlarmTemplateGroupIds"`
-	EventBridgeRuleTemplateGroupIDs []string          `json:"eventBridgeRuleTemplateGroupIds"`
+	LastSuccessfulMonitorDeployment *SuccessfulMonitorDeployment `json:"lastSuccessfulMonitorDeployment,omitempty"`
+	CreatedAt                       time.Time                    `json:"createdAt"`
+	ModifiedAt                      time.Time                    `json:"modifiedAt"`
+	Tags                            map[string]string            `json:"tags"`
+	Arn                             string                       `json:"arn"`
+	ID                              string                       `json:"id"`
+	Name                            string                       `json:"name"`
+	Description                     string                       `json:"description"`
+	DiscoveryEntryPointArn          string                       `json:"discoveryEntryPointArn"`
+	Status                          string                       `json:"status"`
+	MonitorDeploymentStatus         string                       `json:"monitorDeploymentStatus"`
+	CloudWatchAlarmTemplateGroupIDs []string                     `json:"cloudWatchAlarmTemplateGroupIds"`
+	EventBridgeRuleTemplateGroupIDs []string                     `json:"eventBridgeRuleTemplateGroupIds"`
 }
 
 func (s *storedSignalMap) toSignalMap() *SignalMap {
@@ -443,6 +444,12 @@ func (s *storedSignalMap) toSignalMap() *SignalMap {
 	copy(cwIDs, s.CloudWatchAlarmTemplateGroupIDs)
 	ebIDs := make([]string, len(s.EventBridgeRuleTemplateGroupIDs))
 	copy(ebIDs, s.EventBridgeRuleTemplateGroupIDs)
+
+	var lastSuccessful *SuccessfulMonitorDeployment
+	if s.LastSuccessfulMonitorDeployment != nil {
+		cp := *s.LastSuccessfulMonitorDeployment
+		lastSuccessful = &cp
+	}
 
 	return &SignalMap{
 		Tags:                            tags,
@@ -457,6 +464,7 @@ func (s *storedSignalMap) toSignalMap() *SignalMap {
 		MonitorDeploymentStatus:         s.MonitorDeploymentStatus,
 		CreatedAt:                       s.CreatedAt,
 		ModifiedAt:                      s.ModifiedAt,
+		LastSuccessfulMonitorDeployment: lastSuccessful,
 	}
 }
 
@@ -614,8 +622,10 @@ func (r *storedReservation) toReservation() *Reservation {
 
 // storedScheduleAction persists one schedule action for a channel.
 type storedScheduleAction struct {
-	ActionName string `json:"actionName"`
-	ActionType string `json:"actionType"`
+	ScheduleActionSettings      map[string]any `json:"scheduleActionSettings"`
+	ScheduleActionStartSettings map[string]any `json:"scheduleActionStartSettings"`
+	ActionName                  string         `json:"actionName"`
+	ActionType                  string         `json:"actionType"`
 }
 
 type storedNetwork struct {

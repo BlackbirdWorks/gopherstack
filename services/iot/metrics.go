@@ -59,7 +59,7 @@ type CreateFleetMetricInput struct {
 }
 
 func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*FleetMetric, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateFleetMetric")
 	defer b.mu.Unlock()
 
 	if b.fleetMetrics.Has(input.MetricName) {
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) CreateFleetMetric(input *CreateFleetMetricInput) (*Fle
 }
 
 func (b *InMemoryBackend) DescribeFleetMetric(name string) (*FleetMetric, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeFleetMetric")
 	defer b.mu.RUnlock()
 
 	fm, ok := b.fleetMetrics.Get(name)
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) DescribeFleetMetric(name string) (*FleetMetric, error)
 }
 
 func (b *InMemoryBackend) ListFleetMetrics() []*FleetMetric {
-	b.mu.RLock()
+	b.mu.RLock("ListFleetMetrics")
 	defer b.mu.RUnlock()
 
 	out := make([]*FleetMetric, 0, b.fleetMetrics.Len())
@@ -126,7 +126,7 @@ type UpdateFleetMetricInput struct {
 }
 
 func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetricInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateFleetMetric")
 	defer b.mu.Unlock()
 
 	fm, ok := b.fleetMetrics.Get(name)
@@ -169,7 +169,7 @@ func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetri
 }
 
 func (b *InMemoryBackend) DeleteFleetMetric(name string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteFleetMetric")
 	defer b.mu.Unlock()
 
 	fm, ok := b.fleetMetrics.Get(name)
@@ -220,7 +220,7 @@ type CreateCustomMetricInput struct {
 }
 
 func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*CustomMetric, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCustomMetric")
 	defer b.mu.Unlock()
 
 	if b.customMetrics.Has(input.MetricName) {
@@ -244,7 +244,7 @@ func (b *InMemoryBackend) CreateCustomMetric(input *CreateCustomMetricInput) (*C
 }
 
 func (b *InMemoryBackend) DescribeCustomMetric(name string) (*CustomMetric, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCustomMetric")
 	defer b.mu.RUnlock()
 
 	cm, ok := b.customMetrics.Get(name)
@@ -256,7 +256,7 @@ func (b *InMemoryBackend) DescribeCustomMetric(name string) (*CustomMetric, erro
 }
 
 func (b *InMemoryBackend) ListCustomMetrics() []*CustomMetric {
-	b.mu.RLock()
+	b.mu.RLock("ListCustomMetrics")
 	defer b.mu.RUnlock()
 
 	out := make([]*CustomMetric, 0, b.customMetrics.Len())
@@ -273,7 +273,7 @@ type UpdateCustomMetricInput struct {
 }
 
 func (b *InMemoryBackend) UpdateCustomMetric(name, displayName string) (*CustomMetric, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCustomMetric")
 	defer b.mu.Unlock()
 
 	cm, ok := b.customMetrics.Get(name)
@@ -290,7 +290,7 @@ func (b *InMemoryBackend) UpdateCustomMetric(name, displayName string) (*CustomM
 }
 
 func (b *InMemoryBackend) DeleteCustomMetric(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCustomMetric")
 	defer b.mu.Unlock()
 
 	if !b.customMetrics.Has(name) {
@@ -335,7 +335,7 @@ type CreateDimensionInput struct {
 }
 
 func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimension, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateDimension")
 	defer b.mu.Unlock()
 
 	if b.dimensions.Has(input.Name) {
@@ -358,7 +358,7 @@ func (b *InMemoryBackend) CreateDimension(input *CreateDimensionInput) (*Dimensi
 }
 
 func (b *InMemoryBackend) DescribeDimension(name string) (*Dimension, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDimension")
 	defer b.mu.RUnlock()
 
 	d, ok := b.dimensions.Get(name)
@@ -370,7 +370,7 @@ func (b *InMemoryBackend) DescribeDimension(name string) (*Dimension, error) {
 }
 
 func (b *InMemoryBackend) ListDimensions() []*Dimension {
-	b.mu.RLock()
+	b.mu.RLock("ListDimensions")
 	defer b.mu.RUnlock()
 
 	out := make([]*Dimension, 0, b.dimensions.Len())
@@ -387,7 +387,7 @@ type UpdateDimensionInput struct {
 }
 
 func (b *InMemoryBackend) UpdateDimension(name string, stringValues []string) (*Dimension, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDimension")
 	defer b.mu.Unlock()
 
 	d, ok := b.dimensions.Get(name)
@@ -403,7 +403,7 @@ func (b *InMemoryBackend) UpdateDimension(name string, stringValues []string) (*
 }
 
 func (b *InMemoryBackend) DeleteDimension(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDimension")
 	defer b.mu.Unlock()
 
 	if !b.dimensions.Has(name) {
@@ -448,7 +448,7 @@ func (b *InMemoryBackend) ListMetricValues(
 		return nil, "", fmt.Errorf("%w: thingName and metricName are required", ErrValidation)
 	}
 
-	b.mu.RLock()
+	b.mu.RLock("ListMetricValues")
 	defer b.mu.RUnlock()
 
 	if !b.things.Has(thingName) {
@@ -480,7 +480,7 @@ func (b *InMemoryBackend) ListMetricValues(
 // (there is no public PutMetricValue control-plane operation; values are
 // normally reported by the device SDK's Device Defender metrics agent).
 func (b *InMemoryBackend) AddMetricValueInternal(thingName, metricName string, dp MetricDatapoint) {
-	b.mu.Lock()
+	b.mu.Lock("AddMetricValueInternal")
 	defer b.mu.Unlock()
 
 	key := metricValueKey(thingName, metricName)

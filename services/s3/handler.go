@@ -65,8 +65,12 @@ type S3Handler struct {
 	// by default so presigned URLs are accepted on structure/expiry alone,
 	// preserving backwards-compatible behaviour.
 	PresignSecret string
-	objectLambdaHandlerFields
-	notificationMu sync.RWMutex
+	// pendingObjectLambdaRequests holds in-flight WriteGetObjectResponse
+	// tokens: request-scoped bookkeeping, not backend resource state, so it
+	// stays request-local rather than moving into the backend with the rest
+	// of Object Lambda's config (see object_lambda.go).
+	pendingObjectLambdaRequests sync.Map
+	notificationMu              sync.RWMutex
 }
 
 // NewHandler creates a new S3 Handler with the given backend.

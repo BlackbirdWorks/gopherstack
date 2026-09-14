@@ -1,6 +1,8 @@
 package eks
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -112,13 +114,74 @@ type ClusterLogEntry struct {
 	Enabled bool     `json:"enabled"`
 }
 
+// activationExpiry is ConnectorConfig.ActivationExpiry's persisted
+// representation. It behaves like a time.Time (use .Time() to get one) but
+// carries its own UnmarshalJSON so Restore tolerates every shape this field
+// has ever been snapshotted in:
+//   - a bare RFC3339 string (every snapshot written before gopherstack-wf8f,
+//     back when the Go field type was plain string)
+//   - the RFC3339Nano string encoding/json's default time.Time
+//     MarshalJSON produces (what this type itself currently persists as)
+//   - an epoch-seconds JSON number, defensively, in case persistence ever
+//     switches to the wire's numeric convention (see MarshalJSON below --
+//     not the case today, but this keeps that door open for free)
+//
+// LANDMINE: do not simplify this back to a bare time.Time. gopherstack-wf8f
+// (2026-09-11) retyped the WIRE-facing shape from string to time.Time to
+// fix a real bug (real types.ConnectorConfigResponse.ActivationExpiry
+// deserializes an epoch-seconds JSON number on the wire, not RFC3339 --
+// see connectorConfigToJSON in handler_clusters.go), but the snapshot
+// representation is a separate concern from the wire shape (this codebase
+// snapshots domain structs via plain encoding/json, not through the wire
+// builders) -- this type is what lets that wire-shape fix stay purely
+// additive to backendSnapshot instead of forcing an eksSnapshotVersion
+// bump that would discard every user's persisted eks state on restore.
+type activationExpiry time.Time
+
+// Time returns the wrapped time.Time.
+func (a activationExpiry) Time() time.Time { return time.Time(a) }
+
+// IsZero reports whether the wrapped time.Time is the zero value.
+func (a activationExpiry) IsZero() bool { return time.Time(a).IsZero() }
+
+func (a activationExpiry) MarshalJSON() ([]byte, error) {
+	return json.Marshal(time.Time(a))
+}
+
+func (a *activationExpiry) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		return nil
+	}
+
+	var t time.Time
+	if err := json.Unmarshal(data, &t); err == nil {
+		*a = activationExpiry(t)
+
+		return nil
+	}
+
+	var epochSeconds float64
+	if err := json.Unmarshal(data, &epochSeconds); err != nil {
+		return fmt.Errorf("activationExpiry: unsupported JSON value %s: %w", data, err)
+	}
+
+	sec := int64(epochSeconds)
+	nsec := int64((epochSeconds - float64(sec)) * float64(time.Second))
+	*a = activationExpiry(time.Unix(sec, nsec).UTC())
+
+	return nil
+}
+
 // ConnectorConfig holds metadata for externally-registered clusters.
+// ActivationExpiry's wire emission is epoch seconds, built via .Time().Unix()
+// in the handler layer (connectorConfigToJSON) -- see activationExpiry's doc
+// comment for why the persisted (snapshot) shape is a separate concern.
 type ConnectorConfig struct {
-	ActivationCode   string `json:"activationCode,omitempty"`
-	ActivationExpiry string `json:"activationExpiry,omitempty"`
-	ActivationID     string `json:"activationId,omitempty"`
-	Provider         string `json:"provider,omitempty"`
-	RoleARN          string `json:"roleArn,omitempty"`
+	ActivationExpiry activationExpiry `json:"activationExpiry"`
+	ActivationCode   string           `json:"activationCode,omitempty"`
+	ActivationID     string           `json:"activationId,omitempty"`
+	Provider         string           `json:"provider,omitempty"`
+	RoleARN          string           `json:"roleArn,omitempty"`
 }
 
 // Cluster represents an EKS cluster.
@@ -299,25 +362,91 @@ type CapabilityHealth struct {
 	Issues []CapabilityIssue `json:"issues"`
 }
 
+// SsoIdentity mirrors aws-sdk-go-v2/service/eks/types.SsoIdentity
+// (types.go:3200) -- both Id and Type are required members.
+type SsoIdentity struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
+}
+
+// ArgoCdRoleMapping mirrors aws-sdk-go-v2/service/eks/types.ArgoCdRoleMapping
+// (types.go:474) -- Role and Identities are both required members.
+type ArgoCdRoleMapping struct {
+	Role       string        `json:"role"`
+	Identities []SsoIdentity `json:"identities"`
+}
+
+// ArgoCdAwsIdcConfig is this backend's stored form of the union of
+// aws-sdk-go-v2/service/eks/types.ArgoCdAwsIdcConfigRequest (types.go:348,
+// IdcInstanceArn/IdcRegion) and ArgoCdAwsIdcConfigResponse (types.go:365,
+// adds IdcManagedApplicationArn). IdcManagedApplicationArn is real AWS's
+// server-computed ARN of the IAM Identity Center managed application EKS
+// creates for the capability -- neither the SDK doc comment nor
+// https://docs.aws.amazon.com/eks/latest/userguide/capabilities.html
+// (WebFetch'd 2026-09-11) document a derivable ARN pattern, so it is left
+// empty here rather than fabricated (see PARITY.md gaps).
+type ArgoCdAwsIdcConfig struct {
+	IdcInstanceArn           string `json:"idcInstanceArn,omitempty"`
+	IdcManagedApplicationArn string `json:"idcManagedApplicationArn,omitempty"`
+	IdcRegion                string `json:"idcRegion,omitempty"`
+}
+
+// ArgoCdNetworkAccessConfig mirrors
+// aws-sdk-go-v2/service/eks/types.ArgoCdNetworkAccessConfigRequest/Response
+// (types.go:446,461) -- both carry only VpceIDs.
+type ArgoCdNetworkAccessConfig struct {
+	VpceIDs []string `json:"vpceIds,omitempty"`
+}
+
+// ArgoCdConfig is this backend's stored form of the union of
+// aws-sdk-go-v2/service/eks/types.ArgoCdConfigRequest (types.go:386) and
+// ArgoCdConfigResponse (types.go:418). ServerURL is real AWS's
+// server-computed Argo CD web/API URL -- no derivation pattern is documented
+// in the SDK doc comment or the EKS user guide's capabilities pages
+// (WebFetch'd 2026-09-11), so it is left empty here rather than fabricated
+// (see PARITY.md gaps).
+type ArgoCdConfig struct {
+	AwsIdc           *ArgoCdAwsIdcConfig        `json:"awsIdc,omitempty"`
+	NetworkAccess    *ArgoCdNetworkAccessConfig `json:"networkAccess,omitempty"`
+	Namespace        string                     `json:"namespace,omitempty"`
+	ServerURL        string                     `json:"serverUrl,omitempty"`
+	RbacRoleMappings []ArgoCdRoleMapping        `json:"rbacRoleMappings,omitempty"`
+}
+
+// CapabilityConfiguration is this backend's typed replacement for the
+// former untyped map[string]any Configuration passthrough (gopherstack-wf8f
+// item 1). Only ArgoCd is modeled: aws-sdk-go-v2/service/eks@v1.98.0's
+// CapabilityConfigurationRequest/Response (types.go:645,655) carry only an
+// ArgoCd member -- this pinned SDK version has no typed Configuration
+// schema for ACK or KRO capabilities at all despite CapabilityType having
+// ACK/ARGOCD/KRO values (confirmed: types.go has zero "Ack"/"Kro"-prefixed
+// struct types beyond the CapabilityType enum values themselves). A
+// CreateCapability/UpdateCapability for an ACK or KRO capability therefore
+// carries no Configuration on the wire in this SDK version, matching real
+// AWS's own shape.
+type CapabilityConfiguration struct {
+	ArgoCd *ArgoCdConfig `json:"argoCd,omitempty"`
+}
+
 // Capability represents an EKS capability. Capabilities are cluster-scoped:
 // CapabilityName is unique per cluster, not globally (verified against
 // aws-sdk-go-v2/service/eks -- CreateCapabilityInput requires ClusterName,
 // CapabilityName, Type, RoleArn, and DeletePropagationPolicy; the route is
 // /clusters/{clusterName}/capabilities[/{capabilityName}]).
 type Capability struct {
-	CreatedAt               time.Time         `json:"createdAt"`
-	ModifiedAt              time.Time         `json:"modifiedAt"`
-	Tags                    *tags.Tags        `json:"tags,omitempty"`
-	Configuration           map[string]any    `json:"configuration,omitempty"`
-	Health                  *CapabilityHealth `json:"health,omitempty"`
-	ClusterName             string            `json:"clusterName"`
-	CapabilityName          string            `json:"capabilityName"`
-	ARN                     string            `json:"arn"`
-	Type                    string            `json:"type,omitempty"`
-	RoleARN                 string            `json:"roleArn,omitempty"`
-	DeletePropagationPolicy string            `json:"deletePropagationPolicy,omitempty"`
-	Version                 string            `json:"version,omitempty"`
-	Status                  string            `json:"status"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	ModifiedAt              time.Time                `json:"modifiedAt"`
+	Tags                    *tags.Tags               `json:"tags,omitempty"`
+	Configuration           *CapabilityConfiguration `json:"configuration,omitempty"`
+	Health                  *CapabilityHealth        `json:"health,omitempty"`
+	ClusterName             string                   `json:"clusterName"`
+	CapabilityName          string                   `json:"capabilityName"`
+	ARN                     string                   `json:"arn"`
+	Type                    string                   `json:"type,omitempty"`
+	RoleARN                 string                   `json:"roleArn,omitempty"`
+	DeletePropagationPolicy string                   `json:"deletePropagationPolicy,omitempty"`
+	Version                 string                   `json:"version,omitempty"`
+	Status                  string                   `json:"status"`
 }
 
 // SubscriptionTerm holds the term duration/unit for an EKS Anywhere
@@ -403,6 +532,12 @@ type PodIdentityAssociationSpec struct {
 }
 
 // Insight represents an EKS cluster insight.
+// Insight represents an EKS cluster insight, derived honestly from state
+// this backend actually has (see insights.go's deriveUpgradeReadinessInsights)
+// -- gopherstack-wf8f item 2. ClusterName is backend-internal routing only:
+// neither types.Insight nor types.InsightSummary carries it on the wire (the
+// cluster is already identified by the URL path) -- see insightToJSON/
+// insightToSummaryJSON, which both omit it.
 type Insight struct {
 	LastRefreshTime time.Time         `json:"lastRefreshTime"`
 	LastTransition  time.Time         `json:"lastTransitionTime"`
@@ -411,8 +546,24 @@ type Insight struct {
 	ClusterName     string            `json:"clusterName"`
 	Category        string            `json:"category"`
 	Status          string            `json:"status"`
-	Description     string            `json:"description,omitempty"`
-	Recommendation  string            `json:"recommendation,omitempty"`
+	// StatusReason mirrors types.InsightStatus.Reason ("Explanation on the
+	// reasoning for the status of the resource") -- distinct from
+	// Recommendation (types.Insight.Recommendation, "how to remediate").
+	// Previously conflated: insightToJSON used Recommendation for both.
+	StatusReason string `json:"statusReason,omitempty"`
+	// KubernetesVersion mirrors types.Insight/InsightSummary.KubernetesVersion
+	// ("The Kubernetes minor version associated with an insight if
+	// applicable") -- honestly derivable now that insights are computed
+	// from the cluster's real Version field, unlike the prior fabricated
+	// model.
+	KubernetesVersion string `json:"kubernetesVersion,omitempty"`
+	// Name mirrors types.Insight/InsightSummary.Name -- a human-readable
+	// label for the check this insight represents (e.g. "Kubernetes
+	// version end of standard support"), analogous to how real EKS names
+	// its own generated insight checks.
+	Name           string `json:"name,omitempty"`
+	Description    string `json:"description,omitempty"`
+	Recommendation string `json:"recommendation,omitempty"`
 }
 
 // InsightsRefresh represents the cluster-level (singleton -- there is no
@@ -447,15 +598,54 @@ type Cancellation struct {
 
 // Update represents an EKS update record. NodegroupName is backend-internal
 // (not part of the real Update wire shape) -- it exists only so ListUpdates
-// can honor ListUpdatesInput.NodegroupName.
+// can honor ListUpdatesInput.NodegroupName. It carries a real json tag
+// (gopherstack-34g03): verified against the pinned SDK
+// (aws-sdk-go-v2/service/eks@v1.98.0 types/types.go:3257-3282) that real
+// types.Update has no such member, and updateToJSON (handler_updates.go) --
+// the actual wire converter for DescribeUpdate/ListUpdates -- builds the
+// response map by hand and never includes it, so a real tag changes nothing
+// about the wire. b.updates is registered directly on b.registry
+// (store_setup.go) and Snapshot/Restore marshal Update as-is, so json:"-"
+// here only dropped the field from persistence, leaving it empty on every
+// restored Update and emptying the nodegroupName filter
+// (handler_updates.go:286) for any pre-restart update.
 type Update struct {
 	CreatedAt     time.Time     `json:"createdAt"`
 	Cancellation  *Cancellation `json:"cancellation,omitempty"`
 	ID            string        `json:"id"`
 	ClusterName   string        `json:"clusterName"`
-	NodegroupName string        `json:"-"`
+	NodegroupName string        `json:"nodegroupName,omitempty"`
 	Status        string        `json:"status"`
 	Type          string        `json:"type"`
 	Params        []UpdateParam `json:"params,omitempty"`
 	Errors        []UpdateError `json:"errors,omitempty"`
+}
+
+// CertificateAuthority represents an EKS Hybrid Nodes cluster certificate
+// authority (eks@v1.98.0's Create/Activate/Delete/Describe/
+// ListCertificateAuthorities family, types.CertificateAuthority/
+// types.CertificateAuthoritySummary). ClusterName carries a real json tag
+// (unlike Update.NodegroupName's json:"-" precedent above) because it keys
+// certificateAuthoritiesByCluster: losing it on restore would misfile every
+// persisted CA under the empty-string group. Neither real type puts a
+// cluster identity on the wire -- certificateAuthorityToJSON/
+// certificateAuthoritySummaryToJSON (handler_certificate_authorities.go)
+// never emit this field, so the tag only affects persistence, not the API
+// response. ScheduledEvents (types.CertificateAuthorityScheduledEvents) is
+// deliberately unmodeled: real EKS computes it from the CA's validity period
+// with no published formula, so nothing is fabricated in its place (see
+// PARITY.md gaps).
+type CertificateAuthority struct {
+	CreatedAt          time.Time  `json:"createdAt"`
+	NotBefore          time.Time  `json:"notBefore"`
+	NotAfter           time.Time  `json:"notAfter"`
+	ActivatedAt        *time.Time `json:"activatedAt,omitempty"`
+	ID                 string     `json:"id"`
+	ClusterName        string     `json:"clusterName"`
+	Data               string     `json:"data"`
+	CreatedBy          string     `json:"createdBy"`
+	ActivatedBy        string     `json:"activatedBy,omitempty"`
+	DistributionStatus string     `json:"distributionStatus"`
+	SigningStatus      string     `json:"signingStatus"`
+	RollbackAvailable  bool       `json:"rollbackAvailable"`
 }

@@ -92,6 +92,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 	}
 
 	now := float64(time.Now().Unix())
+	existing := len(b.partitionsByTable.Get(tableKey(dbName, tableName)))
 
 	for _, input := range inputs {
 		key := partitionKey(dbName, tableName, input.Values)
@@ -101,6 +102,21 @@ func (b *InMemoryBackend) BatchCreatePartition(
 				ErrorDetail: ErrorDetail{
 					ErrorCode:    "AlreadyExistsException",
 					ErrorMessage: "partition already exists",
+				},
+			})
+
+			continue
+		}
+
+		if existing >= b.limits.partitionsPerTable {
+			errs = append(errs, PartitionError{
+				PartitionValues: input.Values,
+				ErrorDetail: ErrorDetail{
+					ErrorCode: "ResourceNumberLimitExceededException",
+					ErrorMessage: fmt.Sprintf(
+						"table %s.%s is already at the %d partition limit",
+						dbName, tableName, b.limits.partitionsPerTable,
+					),
 				},
 			})
 
@@ -118,6 +134,7 @@ func (b *InMemoryBackend) BatchCreatePartition(
 		}
 		b.partitions.Put(p)
 		created = append(created, p)
+		existing++
 	}
 
 	return created, errs

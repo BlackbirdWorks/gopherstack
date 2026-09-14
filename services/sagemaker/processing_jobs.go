@@ -62,9 +62,13 @@ type ProcessingS3Output struct {
 }
 
 // ProcessingOutputConfig wraps outputs plus optional KMS key.
+// Outputs is "This member is required" whenever ProcessingOutputConfig
+// itself is present (validateProcessingOutputConfig, validators.go,
+// nil-checked only) -- a conformant client can send an empty-but-non-nil
+// array, which omitempty would have silently dropped.
 type ProcessingOutputConfig struct {
 	KmsKeyID string             `json:"KmsKeyId,omitempty"`
-	Outputs  []ProcessingOutput `json:"Outputs,omitempty"`
+	Outputs  []ProcessingOutput `json:"Outputs"`
 }
 
 // ProcessingResources specifies compute for a processing job.

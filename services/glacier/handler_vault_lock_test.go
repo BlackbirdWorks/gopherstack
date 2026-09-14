@@ -22,9 +22,12 @@ func TestGetVaultLock(t *testing.T) {
 		initiateLock bool
 	}{
 		{
+			// Bug fix (slice 21): GetVaultLock 404s when no vault lock policy
+			// is set -- api_op_GetVaultLock.go's own doc comment -- not a
+			// fabricated 200/"Unlocked" (never a real GetVaultLockOutput.State
+			// value; the doc comment lists only InProgress/Locked).
 			name:       "unlocked_vault",
-			wantStatus: http.StatusOK,
-			wantState:  "Unlocked",
+			wantStatus: http.StatusNotFound,
 		},
 		{
 			name:         "locked_vault",
@@ -338,14 +341,11 @@ func TestVaultLock_ExpiryAllowsReinitiation(t *testing.T) {
 	// Backdating the lock expiry simulates the 24-hour window passing.
 	glacier.SetVaultLockExpired(bk, testAccountID, testRegion, "expire-vault")
 
-	// GetVaultLock should return Unlocked after expiry.
+	// GetVaultLock should 404 after expiry, same as never-initiated (slice
+	// 21 bug fix -- see TestGetVaultLock's unlocked_vault case).
 	rec = doRequest(t, h, http.MethodGet,
 		"/"+testAccountID+"/vaults/expire-vault/lock-policy", "")
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "Unlocked", resp["State"])
+	require.Equal(t, http.StatusNotFound, rec.Code)
 }
 
 func TestVaultLock_ExpiredLockAllowsNewInitiation(t *testing.T) {
@@ -521,13 +521,11 @@ func TestVaultLock_FullLifecycle(t *testing.T) {
 			h := newTestHandler()
 			createVault(t, h, "lock-lifecycle-vault")
 
-			// GetVaultLock on unlocked vault.
+			// GetVaultLock on unlocked vault 404s (slice 21 bug fix -- see
+			// TestGetVaultLock's unlocked_vault case).
 			rec := doRequestWithHeaders(t, h, http.MethodGet,
 				"/"+testAccountID+"/vaults/lock-lifecycle-vault/lock-policy", "", nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-			var lockState map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState))
-			assert.Equal(t, "Unlocked", lockState["State"])
+			require.Equal(t, http.StatusNotFound, rec.Code)
 
 			// Initiate.
 			body := `{"Policy":"` + strings.ReplaceAll(tt.policy, `"`, `\"`) + `"}`
@@ -543,6 +541,7 @@ func TestVaultLock_FullLifecycle(t *testing.T) {
 			rec = doRequestWithHeaders(t, h, http.MethodGet,
 				"/"+testAccountID+"/vaults/lock-lifecycle-vault/lock-policy", "", nil)
 			require.Equal(t, http.StatusOK, rec.Code)
+			var lockState map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState))
 			assert.Equal(t, "InProgress", lockState["State"])
 			assert.NotEmpty(t, lockState["ExpirationDate"])
@@ -613,12 +612,11 @@ func TestVaultLock_AbortRemovesLock(t *testing.T) {
 				"/"+testAccountID+"/vaults/lock-abort-vault/lock-policy", "", nil)
 			require.Equal(t, http.StatusNoContent, rec.Code)
 
+			// Aborted lock 404s on Get (slice 21 bug fix -- see
+			// TestGetVaultLock's unlocked_vault case).
 			rec = doRequestWithHeaders(t, h, http.MethodGet,
 				"/"+testAccountID+"/vaults/lock-abort-vault/lock-policy", "", nil)
-			require.Equal(t, http.StatusOK, rec.Code)
-			var lockState map[string]any
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &lockState))
-			assert.Equal(t, "Unlocked", lockState["State"], tt.name)
+			require.Equal(t, http.StatusNotFound, rec.Code, tt.name)
 		})
 	}
 }

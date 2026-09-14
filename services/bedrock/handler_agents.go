@@ -290,7 +290,7 @@ func (h *AgentsHandler) handleDeleteAgentVersion(
 
 	return c.JSON(
 		http.StatusAccepted,
-		map[string]any{keyAgentID: agentID, keyVersion: version, opAgentStatusKey: statusDeleting},
+		map[string]any{keyAgentID: agentID, respAgentVersion: version, opAgentStatusKey: statusDeleting},
 	)
 }
 

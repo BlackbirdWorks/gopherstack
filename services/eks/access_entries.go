@@ -31,6 +31,10 @@ func (b *InMemoryBackend) CreateAccessEntry(
 		)
 	}
 
+	if n := len(b.accessEntriesByCluster.Get(clusterName)); n >= b.limits.accessEntriesPerCluster {
+		return nil, resourceLimitExceededErr("access entries per cluster", b.limits.accessEntriesPerCluster)
+	}
+
 	entryARN := arn.Build(
 		"eks",
 		b.region,

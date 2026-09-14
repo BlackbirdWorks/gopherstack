@@ -95,9 +95,9 @@ func TestDescribeManagedPrefixLists_Filters_RealClient(t *testing.T) {
 
 	b, client := newTestBackendAndClient(t)
 
-	want, err := b.CreateManagedPrefixList("allow-list", "IPv4", 10)
+	want, err := b.CreateManagedPrefixList("allow-list", "IPv4", 10, nil)
 	require.NoError(t, err)
-	_, err = b.CreateManagedPrefixList("deny-list", "IPv4", 10)
+	_, err = b.CreateManagedPrefixList("deny-list", "IPv4", 10, nil)
 	require.NoError(t, err)
 
 	out, err := client.DescribeManagedPrefixLists(t.Context(), &ec2sdk.DescribeManagedPrefixListsInput{

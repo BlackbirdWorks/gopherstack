@@ -50,9 +50,7 @@ func customMetricsKeyFn(v *CustomMetric) string                     { return v.M
 // duplicate name, so runtime resets go through registry.ResetAll() instead
 // (see InMemoryBackend.Reset in store.go).
 //
-// Fields left as plain maps: shadows (keyed by composite shadowKey{thingName,
-// shadowName}, no pure keyFn without changing ThingShadow's shape; cleared
-// separately in Reset());
+// Fields left as plain maps:
 // packageVersionSboms/commandExecutions/thingConnectivity (value carries no
 // recoverable identity field for its key); resourceTags, certificateTransfers,
 // thingBillingGroups, thingThingGroups, thingGroupMembers, jobTargets,

@@ -90,7 +90,7 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 
 	excessPolicy := input.ExcessCapacityTerminationPolicy
 	if excessPolicy == "" {
-		excessPolicy = "termination"
+		excessPolicy = fleetExcessTerminationPolicy
 	}
 
 	id := "fleet-" + uuid.New().String()[:8]
@@ -101,13 +101,15 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 		TargetCapacityUnitType:           input.TargetCapacityUnitType,
 		ExcessCapacityTerminationPolicy:  excessPolicy,
 		DefaultTargetCapacityType:        input.DefaultTargetCapacityType,
+		LaunchTemplateConfigs:            input.LaunchTemplateConfigs,
 		TotalTargetCapacity:              input.TotalTargetCapacity,
 		OnDemandTargetCapacity:           input.OnDemandTargetCapacity,
 		SpotTargetCapacity:               input.SpotTargetCapacity,
 		TerminateInstancesWithExpiration: input.TerminateInstancesWithExpiration,
 	}
 
-	results := b.launchFleetInstancesLocked(f, input.LaunchTemplateConfigs, input.TotalTargetCapacity)
+	results, fulfilled := b.launchFleetInstancesLocked(f, input.LaunchTemplateConfigs, input.TotalTargetCapacity)
+	f.FulfilledCapacity = fulfilled
 
 	b.fleets.Put(f)
 
@@ -121,6 +123,7 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 
 	cp := *f
 	cp.InstanceIDs = append([]string(nil), f.InstanceIDs...)
+	cp.LaunchTemplateConfigs = cloneFleetLaunchTemplateConfigs(f.LaunchTemplateConfigs)
 
 	return &cp, results, nil
 }
@@ -129,11 +132,12 @@ func (b *InMemoryBackend) CreateFleet(input FleetCreateInput) (*Fleet, []CreateF
 // and spawns instances round-robin across the resolved overrides until
 // fulfilled weighted capacity reaches targetCapacity, appending each
 // instance's ID to fleet.InstanceIDs. Must be called with b.mu held for
-// writing. Returns the launched instances grouped by instance type, the
-// shape CreateFleetOutput.Instances needs for fleets of type instant.
+// writing. Returns the launched instances grouped by instance type (the
+// shape CreateFleetOutput.Instances needs for fleets of type instant) and
+// the weighted capacity fulfilled.
 func (b *InMemoryBackend) launchFleetInstancesLocked(
 	fleet *Fleet, configs []FleetLaunchTemplateConfig, targetCapacity int,
-) []CreateFleetInstanceResult {
+) ([]CreateFleetInstanceResult, float64) {
 	overrides := b.resolveFleetLaunchOverridesLocked(configs)
 
 	var order []string
@@ -166,7 +170,23 @@ func (b *InMemoryBackend) launchFleetInstancesLocked(
 		results = append(results, CreateFleetInstanceResult{InstanceType: it, InstanceIDs: byType[it]})
 	}
 
-	return results
+	return results, fulfilled
+}
+
+// cloneFleetLaunchTemplateConfigs deep-copies configs so a returned Fleet
+// does not share backend-owned slices with the caller.
+func cloneFleetLaunchTemplateConfigs(configs []FleetLaunchTemplateConfig) []FleetLaunchTemplateConfig {
+	if configs == nil {
+		return nil
+	}
+
+	out := make([]FleetLaunchTemplateConfig, len(configs))
+	for i, cfg := range configs {
+		out[i] = cfg
+		out[i].Overrides = append([]FleetLaunchTemplateOverride(nil), cfg.Overrides...)
+	}
+
+	return out
 }
 
 // resolveFleetLaunchOverridesLocked expands each launch template config's
@@ -427,6 +447,7 @@ func (b *InMemoryBackend) DescribeFleets(ids []string) []*Fleet {
 
 		cp := *f
 		cp.InstanceIDs = append([]string(nil), f.InstanceIDs...)
+		cp.LaunchTemplateConfigs = cloneFleetLaunchTemplateConfigs(f.LaunchTemplateConfigs)
 		result = append(result, &cp)
 	}
 
@@ -446,21 +467,78 @@ func (b *InMemoryBackend) ModifyFleet(id string, totalTargetCapacity int, excess
 		return fmt.Errorf("%w: %s", ErrFleetNotFound, id)
 	}
 
-	if totalTargetCapacity > 0 {
-		f.TotalTargetCapacity = totalTargetCapacity
-	}
-
 	if excessPolicy != "" {
 		f.ExcessCapacityTerminationPolicy = excessPolicy
 	}
 
+	if totalTargetCapacity > 0 {
+		f.TotalTargetCapacity = totalTargetCapacity
+
+		switch {
+		case float64(totalTargetCapacity) > f.FulfilledCapacity:
+			b.growFleetLocked(f, totalTargetCapacity)
+		case float64(totalTargetCapacity) < f.FulfilledCapacity &&
+			f.ExcessCapacityTerminationPolicy == fleetExcessTerminationPolicy:
+			b.shrinkFleetLocked(f, totalTargetCapacity)
+		}
+	}
+
 	b.appendEC2FleetHistoryLocked(id, FleetHistoryRecord{
-		Timestamp:        time.Now().UTC(),
-		EventType:        fleetHistoryEventType,
-		EventInformation: fmt.Sprintf("fleet %s target capacity changed to %d", id, f.TotalTargetCapacity),
+		Timestamp: time.Now().UTC(),
+		EventType: fleetHistoryEventType,
+		EventInformation: fmt.Sprintf(
+			"fleet %s target capacity changed to %d (%d instances)", id, f.TotalTargetCapacity, len(f.InstanceIDs),
+		),
 	})
 
 	return nil
+}
+
+// growFleetLocked spawns instances round-robin across the fleet's resolved
+// launch template overrides until FulfilledCapacity reaches newTarget,
+// mirroring launchFleetInstancesLocked's fulfillment loop but resuming from
+// the fleet's current capacity instead of starting at zero. Must be called
+// with b.mu held for writing.
+func (b *InMemoryBackend) growFleetLocked(fleet *Fleet, newTarget int) {
+	overrides := b.resolveFleetLaunchOverridesLocked(fleet.LaunchTemplateConfigs)
+
+	for i := 0; fleet.FulfilledCapacity < float64(newTarget) && len(fleet.InstanceIDs) < spotFleetMaxInstances; i++ {
+		ov := overrides[i%len(overrides)]
+
+		vpcID := ""
+		if sub, ok := b.subnets.Get(ov.SubnetID); ok {
+			vpcID = sub.VPCID
+		}
+
+		b.spawnFleetMemberInstanceLocked(fleet, ov.ImageID, ov.InstanceType, ov.SubnetID, vpcID)
+		fleet.FulfilledCapacity += ov.WeightedCapacity
+	}
+}
+
+// shrinkFleetLocked terminates the fleet's most recently launched instances
+// until FulfilledCapacity <= newTarget, mirroring spot fleet's
+// scaleFleetDownLocked. Must be called with b.mu held for writing.
+func (b *InMemoryBackend) shrinkFleetLocked(fleet *Fleet, newTarget int) {
+	weightedCap := 1.0
+
+	if len(fleet.LaunchTemplateConfigs) > 0 && len(fleet.LaunchTemplateConfigs[0].Overrides) > 0 {
+		if w := fleet.LaunchTemplateConfigs[0].Overrides[0].WeightedCapacity; w > 0 {
+			weightedCap = w
+		}
+	}
+
+	for fleet.FulfilledCapacity > float64(newTarget) && len(fleet.InstanceIDs) > 0 {
+		lastIdx := len(fleet.InstanceIDs) - 1
+		instID := fleet.InstanceIDs[lastIdx]
+		fleet.InstanceIDs = fleet.InstanceIDs[:lastIdx]
+
+		if inst, exists := b.instances.Get(instID); exists {
+			inst.State = StateTerminated
+			inst.TerminatedAt = time.Now().UTC()
+		}
+
+		fleet.FulfilledCapacity -= weightedCap
+	}
 }
 
 // DescribeFleetInstances returns the fleet's running instances, optionally

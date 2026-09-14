@@ -91,6 +91,10 @@ func (h *Handler) handleDescribeDBParameters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	params, err = applyDBParameterFilters(vals, params)
+	if err != nil {
+		return nil, err
+	}
 	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
 		return a.ParameterName < b.ParameterName
 	}, func(item DBParameter) xmlDBParameter {
@@ -237,6 +241,10 @@ type describeEngineDefaultParametersResponse struct {
 func (h *Handler) handleDescribeEngineDefaultParameters(vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	params := h.Backend.DescribeEngineDefaultParameters(family)
+	params, err := applyDBParameterFilters(vals, params)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBParameter, 0, len(params))
 	for _, p := range params {
 		members = append(members, xmlDBParameter{

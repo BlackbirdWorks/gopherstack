@@ -333,7 +333,7 @@ func TestConfigurationPolicy(t *testing.T) {
 					path:   "/configurationPolicyAssociation/batchget",
 					body: map[string]any{
 						"ConfigurationPolicyAssociationIdentifiers": []any{
-							map[string]any{"TargetId": "123456789012"},
+							map[string]any{"Target": map[string]any{"AccountId": "123456789012"}},
 						},
 					},
 					check: func(t *testing.T, code int, resp map[string]any) string {
@@ -410,7 +410,11 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 		name           string
 		wantTargetType string
 	}{
-		{name: "account", target: map[string]any{"AccountId": "111111111111"}, wantTargetType: "ACCOUNT"},
+		{
+			name:           "account",
+			target:         map[string]any{"AccountId": "111111111111"},
+			wantTargetType: "ACCOUNT",
+		},
 		{
 			name:           "organizational_unit",
 			target:         map[string]any{"OrganizationalUnitId": "ou-abcd-12345678"},
@@ -425,11 +429,17 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 
 			h := newTestHandler(t)
 
-			createRec := doRequest(t, h, http.MethodPost, "/configurationPolicy/create", map[string]any{
-				"Name":                "test-policy",
-				"Description":         "test",
-				"ConfigurationPolicy": map[string]any{},
-			})
+			createRec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/configurationPolicy/create",
+				map[string]any{
+					"Name":                "test-policy",
+					"Description":         "test",
+					"ConfigurationPolicy": map[string]any{},
+				},
+			)
 			require.Equal(t, http.StatusOK, createRec.Code)
 
 			var createResp map[string]any
@@ -437,22 +447,38 @@ func TestConfigurationPolicyAssociation_TargetTypeDerived(t *testing.T) {
 			policyID, _ := createResp["Id"].(string)
 			require.NotEmpty(t, policyID)
 
-			assocRec := doRequest(t, h, http.MethodPost, "/configurationPolicyAssociation/associate", map[string]any{
-				"ConfigurationPolicyIdentifier": policyID,
-				"Target":                        tc.target,
-			})
+			assocRec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/configurationPolicyAssociation/associate",
+				map[string]any{
+					"ConfigurationPolicyIdentifier": policyID,
+					"Target":                        tc.target,
+				},
+			)
 			require.Equal(t, http.StatusOK, assocRec.Code)
 
 			var assocResp map[string]any
 			require.NoError(t, json.Unmarshal(assocRec.Body.Bytes(), &assocResp))
-			assert.Equal(t, tc.wantTargetType, assocResp["TargetType"],
-				"TargetType must be derived from the Target union key, not read from a nonexistent request field")
+			assert.Equal(
+				t,
+				tc.wantTargetType,
+				assocResp["TargetType"],
+				"TargetType must be derived from the Target union key, not read from a nonexistent request field",
+			)
 
 			// GetConfigurationPolicyAssociation must derive the same TargetType
 			// when looking the association back up.
-			getRec := doRequest(t, h, http.MethodPost, "/configurationPolicyAssociation/get", map[string]any{
-				"Target": tc.target,
-			})
+			getRec := doRequest(
+				t,
+				h,
+				http.MethodPost,
+				"/configurationPolicyAssociation/get",
+				map[string]any{
+					"Target": tc.target,
+				},
+			)
 			require.Equal(t, http.StatusOK, getRec.Code)
 
 			var getResp map[string]any

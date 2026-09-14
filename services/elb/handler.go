@@ -309,7 +309,11 @@ func elbErrorCode(opErr error) (string, int) {
 		{ErrLoadBalancerNotFound, "LoadBalancerNotFound", http.StatusBadRequest},
 		{ErrLoadBalancerAlreadyExists, "DuplicateLoadBalancerName", http.StatusBadRequest},
 		{ErrUnknownAction, "InvalidAction", http.StatusBadRequest},
-		{ErrInvalidConfiguration, "InvalidConfigurationRequest", http.StatusBadRequest},
+		// InvalidConfigurationRequestException is the one exception in this service
+		// whose model declares httpStatusCode 409, not 400 (aws-sdk-go@v1.55.8
+		// models/apis/elasticloadbalancing/2012-06-01/api-2.json) -- every other
+		// exception shape here is 400. Do not flatten this one to 400.
+		{ErrInvalidConfiguration, "InvalidConfigurationRequest", http.StatusConflict},
 		{ErrTooManyLoadBalancers, "TooManyLoadBalancers", http.StatusBadRequest},
 		{ErrTooManyTags, "TooManyTags", http.StatusBadRequest},
 		{ErrDuplicateTagKeys, "DuplicateTagKeys", http.StatusBadRequest},

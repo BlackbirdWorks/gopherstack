@@ -720,7 +720,7 @@ type describePipelineResponse struct {
 type pipelineDetail struct {
 	Name                  string                        `json:"name"`
 	ARN                   string                        `json:"arn"`
-	Activities            []PipelineActivity            `json:"pipelineActivities,omitempty"`
+	Activities            []PipelineActivity            `json:"activities,omitempty"`
 	ReprocessingSummaries []pipelineReprocessingSummary `json:"reprocessingSummaries,omitempty"`
 	Tags                  []tagDTO                      `json:"tags,omitempty"`
 	CreationTime          float64                       `json:"creationTime"`

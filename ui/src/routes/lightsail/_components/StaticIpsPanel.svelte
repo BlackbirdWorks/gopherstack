@@ -4,6 +4,7 @@
 	// panel deliberately never renders tag UI for it.
 	import {
 		GetStaticIpsCommand,
+		GetStaticIpCommand,
 		AllocateStaticIpCommand,
 		AttachStaticIpCommand,
 		DetachStaticIpCommand,
@@ -168,9 +169,16 @@
 	let detailModal = $state<Modal | null>(null);
 	let viewed = $state<StaticIp | null>(null);
 
-	function openDetail(s: StaticIp): void {
+	async function openDetail(s: StaticIp): Promise<void> {
 		viewed = s;
 		detailModal?.open();
+		if (!s.name) return;
+		try {
+			const resp = await client().send(new GetStaticIpCommand({ staticIpName: s.name }));
+			viewed = resp.staticIp ?? s;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 </script>
 

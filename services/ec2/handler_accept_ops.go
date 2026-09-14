@@ -9,17 +9,19 @@ import (
 
 // ---- XML response types for accept/advertise/allocate operations ----
 
-type addressTransferItem struct {
-	AllocationID        string `xml:"allocationId"`
-	TransferAccountID   string `xml:"transferAccountId,omitempty"`
-	TransferOfferStatus string `xml:"transferOfferStatus"`
-}
-
+// acceptAddressTransferResponse reuses addressTransferDetailItem
+// (handler_volumes.go), the same real types.AddressTransfer shape
+// EnableAddressTransfer/DescribeAddressTransfers already render correctly
+// (addressTransferStatus/transferOfferExpirationTimestamp element names,
+// ec2@v1.319.1 deserializers.go awsEc2query_deserializeDocumentAddressTransfer)
+// -- the previous addressTransferItem here had the same wrapper-key bug that
+// struct's own doc comment already fixed for its sibling ops, plus a missing
+// publicIp member.
 type acceptAddressTransferResponse struct {
-	XMLName         xml.Name            `xml:"AcceptAddressTransferResponse"`
-	Xmlns           string              `xml:"xmlns,attr"`
-	RequestID       string              `xml:"requestId"`
-	AddressTransfer addressTransferItem `xml:"addressTransfer"`
+	XMLName         xml.Name                  `xml:"AcceptAddressTransferResponse"`
+	Xmlns           string                    `xml:"xmlns,attr"`
+	RequestID       string                    `xml:"requestId"`
+	AddressTransfer addressTransferDetailItem `xml:"addressTransfer"`
 }
 
 type capacityReservationItem struct {
@@ -52,26 +54,27 @@ type acceptReservedInstancesExchangeQuoteResponse struct {
 	ExchangeID string   `xml:"exchangeId"`
 }
 
-type tgwMulticastDomainAssociationItem struct {
-	TransitGatewayMulticastDomainID string `xml:"transitGatewayMulticastDomainId"`
-	TransitGatewayAttachmentID      string `xml:"transitGatewayAttachmentId"`
-	SubnetID                        string `xml:"subnetId"`
-	State                           string `xml:"state"`
-}
-
-type tgwMulticastDomainAssociationSet struct {
-	Items []tgwMulticastDomainAssociationItem `xml:"item"`
-}
-
+// acceptTransitGatewayMulticastDomainAssociationsResponse mirrors the real
+// AcceptTransitGatewayMulticastDomainAssociationsOutput shape: Associations is
+// a single types.TransitGatewayMulticastDomainAssociations aggregate (one
+// record with a nested Subnets list), not a flat per-subnet item list
+// (ec2@v1.329.0 deserializers.go's
+// awsEc2query_deserializeOpDocumentAcceptTransitGatewayMulticastDomainAssociationsOutput
+// -> awsEc2query_deserializeDocumentTransitGatewayMulticastDomainAssociations).
+// Reuses the same tgwMulticastDomainAssociationsAggregate/assocsToAggregate
+// this file's sibling AssociateTransitGatewayMulticastDomain already gets
+// right (handler_tgw_multicast.go).
 type acceptTransitGatewayMulticastDomainAssociationsResponse struct {
-	XMLName      xml.Name                         `xml:"AcceptTransitGatewayMulticastDomainAssociationsResponse"`
-	Xmlns        string                           `xml:"xmlns,attr"`
-	RequestID    string                           `xml:"requestId"`
-	Associations tgwMulticastDomainAssociationSet `xml:"associations"`
+	XMLName      xml.Name                                `xml:"AcceptTransitGatewayMulticastDomainAssociationsResponse"`
+	Xmlns        string                                  `xml:"xmlns,attr"`
+	RequestID    string                                  `xml:"requestId"`
+	Associations tgwMulticastDomainAssociationsAggregate `xml:"associations"`
 }
 
 type peeringTgwInfoItem struct {
 	TransitGatewayID string `xml:"transitGatewayId,omitempty"`
+	OwnerID          string `xml:"ownerId,omitempty"`
+	Region           string `xml:"region,omitempty"`
 }
 
 // tgwPeeringAttachmentItem mirrors the real TransitGatewayPeeringAttachment
@@ -149,14 +152,16 @@ type vpcPeeringConnectionItem struct {
 	RequesterVpcInfo       vpcPeeringConnectionVpcInfoItem `xml:"requesterVpcInfo"`
 	AccepterVpcInfo        vpcPeeringConnectionVpcInfoItem `xml:"accepterVpcInfo"`
 	Status                 vpcPeeringConnectionStatusItem  `xml:"status"`
+	TagSet                 []simpleTagItem                 `xml:"tagSet>item"`
 }
 
-func toVpcPeeringConnectionItem(pc *VpcPeeringConnection) vpcPeeringConnectionItem {
+func toVpcPeeringConnectionItem(pc *VpcPeeringConnection, tags map[string]string) vpcPeeringConnectionItem {
 	return vpcPeeringConnectionItem{
 		VpcPeeringConnectionID: pc.VpcPeeringConnectionID,
 		RequesterVpcInfo:       vpcPeeringConnectionVpcInfoItem{VpcID: pc.RequesterVpcID},
 		AccepterVpcInfo:        vpcPeeringConnectionVpcInfoItem{VpcID: pc.AccepterVpcID},
 		Status:                 vpcPeeringConnectionStatusItem{Code: pc.State},
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
@@ -205,13 +210,9 @@ func (h *Handler) handleAcceptAddressTransfer(vals url.Values, reqID string) (an
 	}
 
 	return &acceptAddressTransferResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		AddressTransfer: addressTransferItem{
-			AllocationID:        transfer.AllocationID,
-			TransferAccountID:   transfer.TransferAccountID,
-			TransferOfferStatus: transfer.TransferOfferStatus,
-		},
+		Xmlns:           ec2XMLNS,
+		RequestID:       reqID,
+		AddressTransfer: toAddressTransferDetailItem(transfer),
 	}, nil
 }
 
@@ -294,21 +295,11 @@ func (h *Handler) handleAcceptTransitGatewayMulticastDomainAssociations(
 		return nil, err
 	}
 
-	resp := &acceptTransitGatewayMulticastDomainAssociationsResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-	}
-
-	for _, a := range assocs {
-		resp.Associations.Items = append(resp.Associations.Items, tgwMulticastDomainAssociationItem{
-			TransitGatewayMulticastDomainID: a.TransitGatewayMulticastDomainID,
-			TransitGatewayAttachmentID:      a.TransitGatewayAttachmentID,
-			SubnetID:                        a.SubnetID,
-			State:                           a.State,
-		})
-	}
-
-	return resp, nil
+	return &acceptTransitGatewayMulticastDomainAssociationsResponse{
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		Associations: assocsToAggregate(assocs),
+	}, nil
 }
 
 func (h *Handler) handleAcceptTransitGatewayPeeringAttachment(
@@ -400,7 +391,7 @@ func (h *Handler) handleAcceptVpcPeeringConnection(vals url.Values, reqID string
 	return &acceptVpcPeeringConnectionResponse{
 		Xmlns:                ec2XMLNS,
 		RequestID:            reqID,
-		VpcPeeringConnection: toVpcPeeringConnectionItem(pc),
+		VpcPeeringConnection: toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
 	}, nil
 }
 
@@ -481,6 +472,13 @@ func (h *Handler) handleDescribeCapacityReservations(vals url.Values, reqID stri
 	}
 
 	reservations := h.Backend.DescribeCapacityReservations(ids)
+
+	if err := requireAllIDsPresent(
+		ids, reservations, func(cr *CapacityReservation) string { return cr.CapacityReservationID },
+		ErrCapacityReservationNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
@@ -578,6 +576,9 @@ func (h *Handler) handleDescribeHosts(vals url.Values, reqID string) (any, error
 		ids = append(ids, id)
 	}
 
+	// HostId.N is a soft filter here, not a hard lookup: TestHostReservations_HTTP_Lifecycle
+	// pins "released/unknown host id -> empty result, no error" (gopherstack-ggu4a:
+	// verified, not the silent-omission bug for this particular op).
 	hosts := h.Backend.DescribeHosts(ids)
 
 	resp := &describeHostsResponse{
@@ -636,7 +637,8 @@ func (h *Handler) handleDescribeVpcPeeringConnections(vals url.Values, reqID str
 
 	for _, pc := range connections {
 		resp.VpcPeeringConnections.Items = append(
-			resp.VpcPeeringConnections.Items, toVpcPeeringConnectionItem(pc),
+			resp.VpcPeeringConnections.Items,
+			toVpcPeeringConnectionItem(pc, h.Backend.TagsForResource(pc.VpcPeeringConnectionID)),
 		)
 	}
 

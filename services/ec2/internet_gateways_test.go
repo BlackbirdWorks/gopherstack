@@ -43,7 +43,8 @@ func TestInternetGatewayOperations(t *testing.T) {
 			case "describe_all":
 				_, err := b.CreateInternetGateway()
 				require.NoError(t, err)
-				igws := b.DescribeInternetGateways(nil)
+				igws, err := b.DescribeInternetGateways(nil)
+				require.NoError(t, err)
 				assert.NotEmpty(t, igws)
 
 			case "delete":
@@ -51,8 +52,8 @@ func TestInternetGatewayOperations(t *testing.T) {
 				require.NoError(t, err)
 				err = b.DeleteInternetGateway(igw.ID)
 				require.NoError(t, err)
-				igws := b.DescribeInternetGateways([]string{igw.ID})
-				assert.Empty(t, igws)
+				_, err = b.DescribeInternetGateways([]string{igw.ID})
+				require.Error(t, err, "deleted IGW must NotFound, not silently vanish from the result")
 
 			case "delete_nonexistent":
 				err := b.DeleteInternetGateway("igw-nonexistent")
@@ -65,12 +66,14 @@ func TestInternetGatewayOperations(t *testing.T) {
 				require.NoError(t, err)
 				err = b.AttachInternetGateway(igw.ID, vpc.ID)
 				require.NoError(t, err)
-				igws := b.DescribeInternetGateways([]string{igw.ID})
+				igws, err := b.DescribeInternetGateways([]string{igw.ID})
+				require.NoError(t, err)
 				require.Len(t, igws, 1)
 				assert.Len(t, igws[0].Attachments, 1)
 				err = b.DetachInternetGateway(igw.ID, vpc.ID)
 				require.NoError(t, err)
-				igws = b.DescribeInternetGateways([]string{igw.ID})
+				igws, err = b.DescribeInternetGateways([]string{igw.ID})
+				require.NoError(t, err)
 				require.Len(t, igws, 1)
 				assert.Empty(t, igws[0].Attachments)
 
@@ -282,9 +285,12 @@ func TestDeleteInternetGateway_DependencyViolation(t *testing.T) {
 	err = b.DeleteInternetGateway(igw.ID)
 	require.Error(t, err, "DeleteInternetGateway must fail while attached")
 	require.ErrorIs(t, err, ec2.ErrDependencyViolation)
-	assert.NotEmpty(t, b.DescribeInternetGateways([]string{igw.ID}))
+	stillThere, err := b.DescribeInternetGateways([]string{igw.ID})
+	require.NoError(t, err)
+	assert.NotEmpty(t, stillThere)
 
 	require.NoError(t, b.DetachInternetGateway(igw.ID, vpc.ID))
 	require.NoError(t, b.DeleteInternetGateway(igw.ID))
-	assert.Empty(t, b.DescribeInternetGateways([]string{igw.ID}))
+	_, err = b.DescribeInternetGateways([]string{igw.ID})
+	require.Error(t, err, "deleted IGW must NotFound, not silently vanish from the result")
 }

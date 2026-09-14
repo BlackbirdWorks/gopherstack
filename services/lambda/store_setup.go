@@ -22,7 +22,7 @@ package lambda
 // feeds backendSnapshot.Tables). This preserves every field's persisted/
 // not-persisted status exactly as it was before the conversion.
 //
-// permissions: a Table, but not on either registry
+// permissions and functions: Tables, but not on either registry
 //
 // b.permissions IS a *store.Table[FunctionPermission] (its key -- function
 // name + qualifier + statement ID -- is a pure function of the value) but it
@@ -36,6 +36,17 @@ package lambda
 // pattern for dirty structs" the services/sqs pilot, commit 0f09d77c,
 // established) and calls b.permissions.Restore/.Reset directly. See
 // Reset/Snapshot/Restore for the mechanics.
+//
+// b.functions was registered directly on b.registry until gopherstack-rluhj:
+// FunctionConfiguration.CreatedAt/S3BucketCode/S3KeyCode all carry `json:"-"`
+// (real types.FunctionConfiguration has no such members -- the tag is correct
+// for the wire), so the generic registry round trip silently dropped them
+// from every snapshot too. A restored function's zero CreatedAt then failed
+// the TTL purge's `!fn.CreatedAt.Before(cutoff)` check unconditionally, and a
+// restored S3-sourced function lost the bucket/key startZipContainer needs to
+// refetch its code. b.functions moved off b.registry to the same
+// unregistered-Table-plus-DTO-twin shape as b.permissions; see
+// functionConfigurationSnapshot in persistence.go.
 //
 // Fields deliberately left as plain maps (NOT registered anywhere) and why:
 //
@@ -106,7 +117,8 @@ import (
 // functionsKeyFn is the store.Table key function for b.functions.
 // FunctionName is set once at CreateFunction and never renamed afterward
 // (Lambda has no rename API), so it is a stable identity for the table's
-// lifetime.
+// lifetime. functionConfigurationSnapshotKey in persistence.go mirrors this
+// exactly for the DTO registry Snapshot/Restore build around.
 func functionsKeyFn(v *FunctionConfiguration) string { return v.FunctionName }
 
 // functionURLConfigsKeyFn is the store.Table key function for
@@ -198,10 +210,11 @@ func provisionedConcurrencyFunctionKeyFn(v *ProvisionedConcurrencyConfig) string
 // called during construction only (immediately after both registries are
 // created), never on every Reset() -- store.Register panics on a duplicate
 // name, so runtime resets go through registry.ResetAll() on both registries
-// instead (see InMemoryBackend.Reset). b.permissions is constructed here too
-// but deliberately left off both registries -- see the package doc above.
+// instead (see InMemoryBackend.Reset). b.permissions and b.functions are both
+// constructed here too but deliberately left off both registries -- see the
+// package doc above.
 func registerAllTables(b *InMemoryBackend) {
-	b.functions = store.Register(b.registry, "functions", store.New(functionsKeyFn))
+	b.functions = store.New(functionsKeyFn)
 	b.functionURLConfigs = store.Register(b.registry, "functionURLConfigs", store.New(functionURLConfigsKeyFn))
 	b.eventSourceMappings = store.Register(b.registry, "eventSourceMappings", store.New(eventSourceMappingsKeyFn))
 

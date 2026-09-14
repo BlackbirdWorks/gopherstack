@@ -9,20 +9,26 @@ import (
 
 func (h *Handler) handleCreateMembership(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		DefaultResultConfiguration map[string]any    `json:"defaultResultConfiguration"`
-		PaymentConfiguration       map[string]any    `json:"paymentConfiguration"`
-		Tags                       map[string]string `json:"tags"`
-		CollaborationIdentifier    string            `json:"collaborationIdentifier"`
-		QueryLogStatus             string            `json:"queryLogStatus"`
-		MemberAbilities            []string          `json:"memberAbilities"`
+		DefaultResultConfiguration    map[string]any    `json:"defaultResultConfiguration"`
+		DefaultJobResultConfiguration map[string]any    `json:"defaultJobResultConfiguration"`
+		PaymentConfiguration          map[string]any    `json:"paymentConfiguration"`
+		Tags                          map[string]string `json:"tags"`
+		CollaborationIdentifier       string            `json:"collaborationIdentifier"`
+		QueryLogStatus                string            `json:"queryLogStatus"`
+		JobLogStatus                  string            `json:"jobLogStatus"`
+		MemberAbilities               []string          `json:"memberAbilities"`
+		IsMetricsEnabled              bool              `json:"isMetricsEnabled"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.CreateMembership(
 		req.CollaborationIdentifier,
 		req.QueryLogStatus,
+		req.JobLogStatus,
 		req.MemberAbilities,
 		req.DefaultResultConfiguration,
+		req.DefaultJobResultConfiguration,
 		req.PaymentConfiguration,
+		req.IsMetricsEnabled,
 		req.Tags,
 	)
 	if err != nil {
@@ -64,15 +70,19 @@ func (h *Handler) handleListMemberships(
 
 func (h *Handler) handleUpdateMembership(_ context.Context, body []byte) ([]byte, error) {
 	var req struct {
-		DefaultResultConfiguration map[string]any `json:"defaultResultConfiguration"`
-		MembershipIdentifier       string         `json:"membershipIdentifier"`
-		QueryLogStatus             string         `json:"queryLogStatus"`
+		DefaultResultConfiguration    map[string]any `json:"defaultResultConfiguration"`
+		DefaultJobResultConfiguration map[string]any `json:"defaultJobResultConfiguration"`
+		MembershipIdentifier          string         `json:"membershipIdentifier"`
+		QueryLogStatus                string         `json:"queryLogStatus"`
+		JobLogStatus                  string         `json:"jobLogStatus"`
 	}
 	_ = json.Unmarshal(body, &req)
 	m, err := h.Backend.UpdateMembership(
 		req.MembershipIdentifier,
 		req.QueryLogStatus,
+		req.JobLogStatus,
 		req.DefaultResultConfiguration,
+		req.DefaultJobResultConfiguration,
 	)
 	if err != nil {
 		return nil, err

@@ -96,7 +96,11 @@ type StorageBackend interface {
 	) (*DBCluster, error)
 	DescribeDBClusters(id string) ([]DBCluster, error)
 	DeleteDBCluster(id string) (*DBCluster, error)
-	DeleteDBClusterWithOptions(id string, skipFinalSnapshot bool, finalSnapshotID string) (*DBCluster, error)
+	DeleteDBClusterWithOptions(
+		id string,
+		skipFinalSnapshot bool,
+		finalSnapshotID string,
+	) (*DBCluster, error)
 	ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error)
 	StartDBCluster(id string) (*DBCluster, error)
 	StopDBCluster(id string) (*DBCluster, error)
@@ -155,7 +159,10 @@ type StorageBackend interface {
 	DescribeCustomDBEngineVersions(engine, engineVersion string) []CustomDBEngineVersion
 	DescribeOrderableDBInstanceOptions(engine, engineVersion string) []OrderableDBInstanceOption
 	DescribeDBLogFiles(instanceID string, filter LogFileFilter) ([]DBLogFile, error)
-	DownloadDBLogFilePortion(instanceID, logFileName, marker string, numberOfLines int) (LogFilePortion, error)
+	DownloadDBLogFilePortion(
+		instanceID, logFileName, marker string,
+		numberOfLines int,
+	) (LogFilePortion, error)
 
 	// IAM role operations
 	AddRoleToDBCluster(clusterID, roleARN, featureName string) error
@@ -305,16 +312,18 @@ type StorageBackend interface {
 	RebootDBShardGroup(id string) (*DBShardGroup, error)
 
 	// Integration operations
-	CreateIntegration(name, sourceARN, targetARN, kmsKeyID, dataFilter, description string) (*Integration, error)
+	CreateIntegration(
+		name, sourceARN, targetARN, kmsKeyID, dataFilter, description string,
+	) (*Integration, error)
 	DeleteIntegration(identifier string) (*Integration, error)
 	DescribeIntegrations(identifier string) ([]Integration, error)
-	ModifyIntegration(identifier, dataFilter, description string) (*Integration, error)
+	ModifyIntegration(identifier, dataFilter, description, newName string) (*Integration, error)
 
 	// Tenant Database operations
 	CreateTenantDatabase(instanceID, tenantDBName, masterUsername string) (*TenantDatabase, error)
 	DeleteTenantDatabase(instanceID, tenantDBName string) (*TenantDatabase, error)
 	DescribeTenantDatabases(instanceID, tenantDBName string) ([]TenantDatabase, error)
-	ModifyTenantDatabase(instanceID, tenantDBName string) (*TenantDatabase, error)
+	ModifyTenantDatabase(instanceID, tenantDBName, newTenantDBName string) (*TenantDatabase, error)
 
 	// DB Cluster Automated Backup operations
 	DeleteDBClusterAutomatedBackup(resourceID string) (*DBClusterAutomatedBackup, error)

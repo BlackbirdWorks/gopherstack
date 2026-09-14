@@ -60,7 +60,32 @@ func (b *InMemoryBackend) UpdateTableObjects(
 		b.tableObjects[key] = append(b.tableObjects[key], list)
 	}
 
+	for _, w := range writes {
+		if w.DeleteObject != nil {
+			removeTableObjectByURI(b.tableObjects[key], w.DeleteObject.URI)
+		}
+	}
+
 	return nil
+}
+
+// removeTableObjectByURI deletes any TableObject matching uri from every
+// partition list in place. Real DeleteObjectInput.Uri identifies the object
+// to remove (lakeformation@v1.50.4 types/types.go:345); UpdateTableObjects
+// previously only read WriteOperation.AddObject and silently dropped every
+// DeleteObject write.
+func removeTableObjectByURI(lists []PartitionedTableObjectsList, uri string) {
+	for i := range lists {
+		kept := lists[i].Objects[:0]
+
+		for _, o := range lists[i].Objects {
+			if o.URI != uri {
+				kept = append(kept, o)
+			}
+		}
+
+		lists[i].Objects = kept
+	}
 }
 
 // tableStorageKey returns a composite key for table storage optimizer lookups.

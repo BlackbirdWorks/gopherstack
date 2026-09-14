@@ -57,7 +57,7 @@ func sdkRouteCases() []struct{ op, method, path string } {
 // "Unknown" (as a bare, exact __type) was grepped across every non-test .go
 // file in this package: writeBackendError's onceErrorTable maps every
 // domain sentinel to its own distinct AWS exception name (e.g.
-// "LexiconNotFoundException", "InvalidParameterValueException") or, for any
+// "LexiconNotFoundException", "ValidationException") or, for any
 // unmapped error, "ServiceFailureException" -- none of which equal the bare
 // string "Unknown", so this service cannot collide on this sentinel.
 func TestExtractOperation_SDKRouteTable(t *testing.T) {

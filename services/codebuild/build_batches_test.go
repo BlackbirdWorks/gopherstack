@@ -17,7 +17,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
-		createTestProject(t, h, "batch-proj")
+		createBatchProject(t, h, "batch-proj")
 
 		startRec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-proj"})
 		require.Equal(t, http.StatusOK, startRec.Code)
@@ -54,7 +54,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
-		createTestProject(t, h, "batch-retry-proj")
+		createBatchProject(t, h, "batch-retry-proj")
 
 		startRec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-retry-proj"})
 		require.Equal(t, http.StatusOK, startRec.Code)
@@ -95,7 +95,7 @@ func TestCodeBuild_BuildBatch(t *testing.T) {
 		t.Parallel()
 
 		h := newTestHandler(t)
-		createTestProject(t, h, "batch-list-proj")
+		createBatchProject(t, h, "batch-list-proj")
 
 		// Start 2 batches.
 		doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-list-proj"})
@@ -153,7 +153,7 @@ func TestHandler_DeleteBuildBatch_RemovesBatch(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			createTestProject(t, h, "batch-proj-"+tt.name)
+			createBatchProject(t, h, "batch-proj-"+tt.name)
 
 			var batchID string
 			if !tt.missing {
@@ -214,7 +214,7 @@ func TestHandler_StartBuildBatch_SetsInProgress(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			createTestProject(t, h, "batch-status-proj")
+			createBatchProject(t, h, "batch-status-proj")
 
 			rec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-status-proj"})
 			require.Equal(t, http.StatusOK, rec.Code)
@@ -255,7 +255,7 @@ func TestHandler_StopBuildBatch_SetsEndTime(t *testing.T) {
 			t.Parallel()
 
 			h := newTestHandler(t)
-			createTestProject(t, h, "stop-batch-proj")
+			createBatchProject(t, h, "stop-batch-proj")
 
 			startRec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "stop-batch-proj"})
 			require.Equal(t, http.StatusOK, startRec.Code)
@@ -291,7 +291,7 @@ func TestHandler_StartBuildBatch_ArnSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	makeProject(t, h, "batch-arn-proj")
+	createBatchProject(t, h, "batch-arn-proj")
 
 	rec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "batch-arn-proj"})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -310,7 +310,7 @@ func TestHandler_RetryBuildBatch_ArnSet(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
-	makeProject(t, h, "retry-batch-proj")
+	createBatchProject(t, h, "retry-batch-proj")
 
 	startRec := doRequest(t, h, "StartBuildBatch", map[string]any{"projectName": "retry-batch-proj"})
 	require.Equal(t, http.StatusOK, startRec.Code)

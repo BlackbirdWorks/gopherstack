@@ -14,14 +14,14 @@ ops:
   ListStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "StreamNames (required) correctly populated; StreamSummaries (optional, richer per-stream shape) is not -- see gaps. gopherstack-wksw (constraint-not-honoured sweep, 2026-08-29): Limit's documented default AND max of 100 (api_op_ListStreams.go: 'The default value is 100. If you specify a value greater than 100, at most 100 results are returned.') was not applied -- an omitted Limit returned the entire account's stream inventory in one page instead of capping at 100, and a Limit > 100 was accepted uncapped rather than clamped. Fixed: both directions now resolve to 100. TestListStreams_DefaultLimit (streams_test.go) confirmed failing pre-fix (105 streams, 0 Limit -> 105 returned, HasMoreStreams false)."}
   PutRecord: {wire: ok, errors: ok, state: ok, persist: ok, note: "MD5 hash routing, explicit hash key, per-shard monotonic sequence numbers verified correct. SequenceNumberForOrdering is accepted-and-ignored: confirmed non-issue (gopherstack-enpq) -- it is a client-side ordering hint only ('If this parameter is not set, records are coarsely ordered based on arrival time'), not a server-enforced/validated field, and this backend already assigns strictly increasing per-shard sequence numbers regardless of it."}
   PutRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: empty Records list now rejected (was silently 200); stream-not-found now fails the whole call with top-level ResourceNotFoundException instead of InternalFailure on every result entry"}
-  GetShardIterator: {wire: ok, errors: ok, state: ok, persist: n/a, note: "TRIM_HORIZON/LATEST/AT_(AFTER_)SEQUENCE_NUMBER/AT_TIMESTAMP all verified; iterator token carries region so cross-region record stores stay isolated; fixed: AT_TIMESTAMP with a genuinely omitted Timestamp (JSON field absent, distinguished from an explicit epoch-zero value via *float64) now rejected InvalidArgumentException instead of silently reading from position 0"}
+  GetShardIterator: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "TRIM_HORIZON/LATEST/AT_(AFTER_)SEQUENCE_NUMBER/AT_TIMESTAMP all verified; iterator token carries region so cross-region record stores stay isolated; fixed: AT_TIMESTAMP with a genuinely omitted Timestamp (JSON field absent, distinguished from an explicit epoch-zero value via *float64) now rejected InvalidArgumentException instead of silently reading from position 0. 2026-09-11 (gopherstack-s0ju item 3): TRIM_HORIZON previously always resolved to ring-buffer position 0, which is only actually the oldest untrimmed record once the background janitor sweep (janitor.go, real 1-minute ticker) has physically evicted expired ones -- a query issued between a DecreaseStreamRetentionPeriod call and the next sweep could return records already outside the new, shorter retention window. Now resolves synchronously via retentionCutoff(stream, now) (shards.go) and searches for the first record at/after that cutoff, matching 'TRIM_HORIZON - Start reading at the last untrimmed record in the shard' (api_op_GetShardIterator.go) exactly, independent of janitor timing. AT_TIMESTAMP with a Timestamp older than the retention cutoff now clamps up to the cutoff before searching, per the Input's own doc comment: 'If the time stamp is older than the current trim horizon, the iterator returned is for the oldest untrimmed data record (TRIM_HORIZON)' (same file). now is InMemoryBackend.nowFunc (new WithClock seam, store.go, mirroring services/polly's pattern) rather than time.Now(), so tests can drive retention edge cases deterministically. Tests: TestGetShardIterator_HonoursRetentionWindow, TestGetShardIterator_RetentionDecreaseAppliesBeforeJanitorSweep (retention_iterator_test.go)."}
   GetRecords: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "fixed (gopherstack-enpq, cmd/structfielddiff): ChildShards (real GetRecordsOutput member, populated 'only when the end of the current shard is reached') had no Go field at all and was never returned, even though this backend already computes the exact end-of-shard condition (Closed && fully-consumed) to null out NextShardIterator. Same fix also caught a second, independent bug in that shared condition: NextShardIterator was always sent as an explicit empty string rather than omitted, and the real SDK deserializer reads an explicit \"\" as a non-nil *string, not nil -- so GetRecordsOutput's own doc-documented end-of-shard signal ('If set to null, the shard has been closed...') never actually fired for a real client, only json:\",omitempty\" makes that true. New childShardsOf walks stream.Shards for ParentShardID/AdjacentParentShardID matches (split children have one parent, merge children have two) and builds the real ChildShard{ShardId,ParentShards,HashKeyRange} shape. 10k-record / 10MiB caps and MillisBehindLatest re-verified unchanged. gopherstack-wksw (2026-08-29): Limit's documented default of 10,000 (api_op_GetRecords.go: 'Specify a value of up to 10,000 ... The default value is 10,000.') was wired as 1,000 (defaultGetRecordsLimit, models.go) -- a real client omitting Limit got a 10x-smaller page than AWS returns, silently changing pagination cadence (not a data-loss bug: the shard iterator still advances correctly and a follow-up GetRecords reads the rest, but every omitted-Limit call under-returned relative to the documented contract). Fixed: constant corrected to 10000. TestGetRecords_ZeroLimitDefaultsTo10000 (records_get_test.go) confirmed failing pre-fix (10500 records seeded, 0 Limit -> 1000 returned, not 10000); the pre-existing TestGetRecords_ZeroLimitUsesDefault only used 5 records so never crossed either candidate default and could not have caught this."}
   ListShards: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "fixed: deleted invented 'AT_SHARD_ID' ShardFilterType (not in the real SDK enum) and its lineage-matching behavior; AFTER_SHARD_ID now implements the real exclusive-start-cursor-over-all-shards semantics; AT_TRIM_HORIZON/AT_TIMESTAMP/FROM_TIMESTAMP now do true per-shard-timestamp filtering (Shard.StartedAt/ClosedAt) instead of approximating as 'include everything'; AT_TIMESTAMP/FROM_TIMESTAMP now require ShardFilterTimestamp (InvalidArgumentException if omitted). gopherstack-enpq (2026-08-22): Input also had no StreamARN member (api_op_ListShards.go:46-126 (StreamARN:110)); fixed via resolveStreamNameAndRegion, also added StreamARN to the NextToken mutual-exclusion check. gopherstack-wksw (2026-08-29): MaxResults' documented default AND max of 1000 (api_op_ListShards.go) was applied only when MaxResults was explicitly set and smaller than the result -- an omitted MaxResults (or one > 1000) returned every matching shard unbounded. Ordinarily masked because the default filter (open shards only) is capped by maxShardsPerStream=100, but AT_TRIM_HORIZON/FROM_TRIM_HORIZON/FROM_TIMESTAMP include CLOSED lineage shards too, which DescribeStream's own comment notes 'accumulates ... forever' for a heavily-resharded stream -- a real account can cross 1000. Fixed both directions to resolve to 1000. TestListShards_DefaultMaxResults (whitebox_test.go, package kinesis -- 1500 shards fabricated directly since reaching this count via real resharding isn't the thing under test) confirmed failing pre-fix (1500 returned)."}
   RegisterStreamConsumer: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: added missing 20-consumers-per-stream limit (LimitExceededException). gopherstack-enpq (2026-08-22): Tags (real, optional RegisterStreamConsumerInput member -- api_op_RegisterStreamConsumer.go: 'You can add tags to the registered consumer when making a RegisterStreamConsumer request by setting the Tags parameter') had no Go field at all and was silently dropped. Fixed: Consumer gained a Tags map (additive, no snapshot version bump), and ListTagsForResource/TagResource/UntagResource now route to it for a consumer ARN -- previously these three only ever resolved a *stream* ARN (streamNameFromARN unconditionally), so a consumer ARN always 404'd even after this fix's own Tags parameter worked. 2026-08-19 wrapper-key/nested-shape sweep: the Consumer object in the response was wired from the same jsonConsumer struct DescribeStreamConsumer uses, which carries a StreamARN key -- but the real types.Consumer (deserializers.go:6279-6349, used by RegisterStreamConsumer and ListStreamConsumers) has no StreamARN member at all; only types.ConsumerDescription (deserializers.go:6353-6432, DescribeStreamConsumer only) does. Fabricated key with no case in the real per-field switch (falls to its silent default, so a real client never broke, just received an extra ignored key). Split into jsonConsumer (no StreamARN) and jsonConsumerDescription (StreamARN); handler_consumers.go."}
   DescribeStreamConsumer: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-19: ConsumerDescription's StreamARN confirmed correct (real types.ConsumerDescription member, deserializers.go:6403-6410) -- only the sibling ops' fabricated copy of it was wrong; see RegisterStreamConsumer."}
   ListStreamConsumers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-19: same fabricated Consumer.StreamARN key as RegisterStreamConsumer (real types.Consumer has no StreamARN), same fix (jsonConsumer). gopherstack-wksw (2026-08-29): MaxResults' documented default of 100 (api_op_ListStreamConsumers.go) is also only applied when explicitly set and smaller than the result (same pattern as ListShards, consumers.go:197) -- judged NOT to need fixing: RegisterStreamConsumer enforces maxConsumersPerStream=20 (models.go:93) as a hard cap with no deletion-then-recreation-past-the-cap path modeled, so the unbounded branch can never actually return more than 20 consumers, structurally under the 100 default. Left as-is per RESTRAINT (medialive ListOfferings precedent) rather than fixed defensively."}
   DeregisterStreamConsumer: {wire: ok, errors: ok, state: ok, persist: ok}
-  SubscribeToShard: {wire: ok, errors: ok, state: ok, persist: n/a, note: "event-stream binary framing verified byte-for-byte (prelude/CRC/headers); polling goroutine bounded by idle-poll count and 5-min deadline, no leak; fixed: AT_TIMESTAMP with a genuinely omitted Timestamp now rejected InvalidArgumentException (was previously ambiguous between omitted and explicit-zero, both silently read from position 0). 2026-08-19: prior byte-level framing checks never ran the real aws-sdk-go-v2 client's own event-stream reader end to end -- new TestSubscribeToShard_RoundTrip (subscribe_roundtrip_test.go) drives client.SubscribeToShard + out.GetStream().Events() for real and confirms the SDK decodes a SubscribeToShardEvent with the record; SubscribeToShardEvent field names (ContinuationSequenceNumber/MillisBehindLatest/Records, deserializers.go:5549-5605) re-confirmed against the per-field switch. ChildShards (optional member of the same event, deserializers.go:5570-5573) is not populated on SubscribeToShardEvent -- see gaps."}
+  SubscribeToShard: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "event-stream binary framing verified byte-for-byte (prelude/CRC/headers); polling goroutine bounded by a real 5-min deadline, no leak; fixed: AT_TIMESTAMP with a genuinely omitted Timestamp now rejected InvalidArgumentException (was previously ambiguous between omitted and explicit-zero, both silently read from position 0). 2026-08-19: prior byte-level framing checks never ran the real aws-sdk-go-v2 client's own event-stream reader end to end -- new TestSubscribeToShard_RoundTrip (subscribe_roundtrip_test.go) drives client.SubscribeToShard + out.GetStream().Events() for real and confirms the SDK decodes a SubscribeToShardEvent with the record; SubscribeToShardEvent field names (ContinuationSequenceNumber/MillisBehindLatest/Records, deserializers.go:5549-5605) re-confirmed against the per-field switch. ChildShards (optional member of the same event, deserializers.go:5570-5573) is not populated on SubscribeToShardEvent -- see gaps. 2026-09-11 (gopherstack-s0ju item 4): fixed a real cadence bug -- the emulator closed an idle stream after 3 empty polls (~600ms, subscribeToShardMaxIdlePolls, now removed), directly contradicting 'The connection remains open for up to 5 minutes' (docs.aws.amazon.com/streams/latest/dev/building-enhanced-consumers-api.html); a real client idle-polling for more than 600ms would see the stream close and have to resubscribe, far more often than the documented 5-minute cadence. Now the stream stays open for the full (Handler-configurable, WithSubscribeToShardTiming) deadline, sending a heartbeat SubscribeToShardEvent (empty Records, real ContinuationSequenceNumber, MillisBehindLatest=0) once subscribeToShardHeartbeatInterval has elapsed since the last frame instead of closing -- API_SubscribeToShardEvent.html documents ContinuationSequenceNumber as required even with no data ('captures your shard progress even when no data is written to the shard'), which only makes sense if heartbeats are sent; SubscribeToShard's own backend method previously left ContinuationSequenceNumber empty whenever it returned zero new records, which is also now fixed (subscribeToShardContinuationSeq, consumers.go), reusing the last delivered record's sequence number, or the shard's own last record if the subscriber never advanced past a real delivery, or '' only for a shard with literally zero records ever (disclosed approximation, see gaps). TRIM_HORIZON/AT_TIMESTAMP StartingPosition now honor the same retentionCutoff GetShardIterator does (see that op's note above) instead of assuming position 0 is always untrimmed. Neither building-enhanced-consumers-api.html nor API_SubscribeToShardEvent.html states an exact heartbeat interval, so defaultSubscribeToShardHeartbeatInterval (5s) is a disclosed inference, not a verified AWS constant -- see gaps. Tests: TestSubscribeToShard_IdleCloseIsGraceful (rewritten to assert deadline-close-with-heartbeats instead of the old idle-close, via WithSubscribeToShardTiming), TestSubscribeToShard_HonoursRetentionWindow (retention_iterator_test.go), plus the existing 5-min-window default is exercised via short per-test overrides everywhere newTestHandler/subscribe_idle_close_test.go build a Handler -- the previous idle-close self-terminated fast enough that no test needed this before."}
   UpdateShardCount: {wire: fixed, errors: ok, state: ok, persist: ok, note: "double/half scaling window, parent/adjacent-parent lineage, old shards kept CLOSED verified. gopherstack-enpq (2026-08-22): Input had no StreamARN member (api_op_UpdateShardCount.go:77-108 (StreamARN:102)); fixed via resolveStreamNameAndRegion."}
   EnableEnhancedMonitoring: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-enpq (2026-08-22): Input had no StreamARN member (api_op_EnableEnhancedMonitoring.go:34-71 (StreamARN:65)); fixed via resolveStreamNameAndRegion."}
   DisableEnhancedMonitoring: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-enpq (2026-08-22): same missing-StreamARN bug as EnableEnhancedMonitoring (api_op_DisableEnhancedMonitoring.go:34-71 (StreamARN:65)), fixed the same way (shared jsonEnhancedMonitoringReq)."}
@@ -43,16 +43,34 @@ ops:
   ListTagsForStream: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: now reads Backend.ListTagsForResource. gopherstack-enpq (2026-08-22): same missing-StreamARN bug (api_op_ListTagsForStream.go:35-53 (StreamARN:47)), fixed the same way."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now enforces the 50-tag cap consistently with AddTagsToStream (previously uncapped)"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateStreamMode: {wire: fixed, errors: ok, state: ok, persist: ok, note: "fixed: PROVISIONED -> ON_DEMAND now auto-reshards up to defaultOnDemandShardCount (4, matching CreateStream's ON_DEMAND default) when the stream is currently below that floor, closing the old open shards (CLOSED, retained for lineage) and opening new ones spanning the full hash range -- reuses the same reshardTo helper UpdateShardCount uses. This approximates AWS's documented 'scale to double the max/peak-30-day throughput, whichever is higher' behavior, which requires a throughput-history model this emulator doesn't have; see gaps for the remaining approximation gap. ON_DEMAND -> PROVISIONED never reshards (keeps current shard count as the new baseline), matching AWS. 2026-08-23 (request-side accept-and-drop sweep): WarmThroughputMiBps (real, optional UpdateStreamModeInput member, 'only valid when the stream mode is being updated to on-demand') had no Go field at all in the decode struct -- dropped even on an ON_DEMAND transition, though the backend already tracks Stream.WarmThroughputMiBps and reads it back on DescribeStreamSummary. Fixed: applied (with the same range check UpdateStreamWarmThroughput uses) only when the transition target is ON_DEMAND, matching the documented constraint; ignored on a PROVISIONED transition rather than erroring."}
+  UpdateStreamMode: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-09-11 (gopherstack-s0ju item 2): CORRECTED this pass -- the prior 'fixed: PROVISIONED -> ON_DEMAND now auto-reshards up to defaultOnDemandShardCount (4)...when the stream is currently below that floor' behavior was itself wrong, contradicting the real doc it cited: 'When you switch from provisioned to on-demand capacity mode, your data stream initially retains whatever shard count it had before the transition, and from this point on, Kinesis Data Streams monitors your data traffic and scales the shard count' (docs.aws.amazon.com/streams/latest/dev/how-do-i-size-a-stream.html#switchingmodes). A 1-shard PROVISIONED stream switching to ON_DEMAND was being resharded up to 4 shards immediately, which real AWS never does -- it keeps 1. Removed the flooring reshard entirely; the transition now only flips StreamMode, matching the doc exactly for both directions (ON_DEMAND -> PROVISIONED already correctly kept the shard count, unchanged). CreateStream's own separate ON_DEMAND default (4 shards for a brand-new stream, 'A data stream in the on-demand mode accommodates up to double the peak write throughput observed in the previous 30 days,' same page's #ondemandmode section) is untouched by this fix -- that is a different, still-correct code path. Reactive scaling is now real, not absent: maybeAutoScaleOnDemand (new ondemand_scaling.go) tracks each ON_DEMAND stream's write-rate over a 60s sliding window (transient, in-memory only, InMemoryBackend.throughputTrackers -- never wired into backendSnapshot, so it does not appear in snapshot_inventory.json) and doubles the open shard count (capped at maxShardsPerStream, via the same reshardTo helper UpdateShardCount uses) once the aggregate rate exceeds the documented per-shard trigger: 'Kinesis Data Streams monitors traffic for each shard. When the incoming traffic exceeds 500 KB/s per shard, it splits the shard within 15 minutes' (same page, 'Handle read and write throughput exceptions'). Disclosed approximations, all in ondemand_scaling.go's own doc comments: (1) a 60-second window stands in for AWS's real 30-day peak-throughput history, which this emulator has no model for; (2) the whole stream's open shard count is doubled rather than splitting only the specific overloaded shard, since write-rate is tracked per-stream, not per-shard; (3) '500 KB' is read as 500 KiB (binary), matching this file's existing UpdateMaxRecordSize KiB convention, since AWS's own docs are not consistent about decimal vs. binary KB/MB. WarmThroughputMiBps handling (2026-08-23, request-side accept-and-drop sweep fix) is unchanged by this pass. Tests: TestUpdateStreamMode_OnDemandTransitionKeepsShardCount (replaces the old, now-incorrect TestUpdateStreamMode_OnDemandTransitionReshardsUpToFloor), TestUpdateStreamMode_ProvisionedToOnDemand_RealClientKeepsShardCount (real aws-sdk-go-v2 client round trip), TestUpdateStreamMode_OnDemandAutoScalesOnSustainedWrite, TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned (stream_modes_test.go)."}
 families:
   hash_key_routing: {status: ok, note: "MD5-based partition-key routing and explicit-hash-key routing verified against big.Int range math; shardForHashKey fallback-to-first-open-shard behavior documented"}
   sequence_numbers: {status: ok, note: "per-shard monotonic NextSeq counter, 49-prefixed AWS-shaped sequence string, persisted via Shard.NextSeq"}
   reshard_lineage: {status: ok, note: "SplitShard/MergeShards/UpdateShardCount/UpdateStreamMode all set ParentShardID/AdjacentParentShardID correctly; closed shards retained forever for DescribeStream/ListShards lineage (see leaks note); Shard gained StartedAt/ClosedAt (set by every shard-creation/closeShard call site) so ListShards' timestamp-bounded ShardFilter types can do real time-bounded filtering instead of approximating"}
   error_codes: {status: ok, note: "ResourceNotFoundException/ResourceInUseException/InvalidArgumentException/ProvisionedThroughputExceededException/ExpiredIteratorException/LimitExceededException/UnknownOperationException all verified exact string + 400 status. fixed: KMSNotFoundException/KMSDisabledException/KMSInvalidStateException are now modeled and reachable via StartStreamEncryption's optional KMSKeyValidator (see StartStreamEncryption note) -- the previous audit's claim that Kinesis has no KMS-specific exceptions was wrong; deserializers.go's awsAwsjson11_deserializeOpErrorStartStreamEncryption lists KMSAccessDeniedException/KMSDisabledException/KMSInvalidStateException/KMSNotFoundException/KMSOptInRequired/KMSThrottlingException/AccessDeniedException as real modeled errors for this op. KMSAccessDeniedException specifically remains unreachable -- see gaps."}
-gaps:
+  CreateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11 (channels sweep, gopherstack channels): implemented per api_op_CreateChannel.go. Requires exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration (InvalidArgumentException otherwise, per the doc comment's exact wording); rejects PROVISIONED-mode source streams with InvalidArgumentException per 'This operation is only supported for data streams with the on-demand capacity mode' -- the doc comment names no specific exception for this case, so InvalidArgumentException was chosen as the closest declared CreateChannel exception (deserializers.go's awsAwsjson11_deserializeOpErrorCreateChannel lists AccessDeniedException/InvalidArgumentException/KMS*/LimitExceededException/ResourceInUseException/ResourceNotFoundException/ValidationException); ChannelName collision -> ResourceInUseException (doc: 'unique within your Amazon Web Services account and Amazon Web Services Region'); unknown source stream ARN -> ResourceNotFoundException. 'state: fixed' documents this backend's disclosed simplification: real AWS is asynchronous (CREATING then ACTIVE); this backend applies it synchronously and returns ACTIVE immediately, the same precedent already set by UpdateStreamWarmThroughput/UpdateStreamMode in this file. UPDATE 2026-09-11 (gopherstack-s781r): records put to the source stream ARE now delivered to an S3DestinationConfiguration destination (buffered, then flushed to the real S3 backend) -- see the new 'Channel record delivery' dated note below. S3TablesDestinationConfiguration (Iceberg on S3 Tables) delivery remains unmodeled -- see gaps."}
+  DeleteChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DeleteChannel.go. Unlike CreateChannel/UpdateChannel, DeleteChannel's own doc comment describes no asynchronous CREATING/UPDATING-style transition, so there is no documented DELETING state to model; the channel is removed synchronously. Unknown ChannelARN -> ResourceNotFoundException. UPDATE 2026-09-11 (gopherstack-s781r): now flushes any buffered records to S3 (best-effort) before removing the channel row, so accepted-but-unflushed records are not silently dropped by deletion."}
+  DescribeChannel: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_DescribeChannel.go. Keyed by ChannelARN only (the op takes no other identifier). Unknown ChannelARN -> ResourceNotFoundException."}
+  ListChannels: {wire: new, errors: ok, state: ok, persist: ok, note: "2026-09-11: implemented per api_op_ListChannels.go. MaxResults defaults to and caps at 100 ('If you specify a value greater than 100, at most 100 results are returned'); NextToken is an exclusive-start ChannelName cursor, mirroring ListStreamConsumers' existing pagination shape in this file. StreamFilter.StreamARN filters by association; StreamFilter.StreamCreationTimestamp is accepted but not applied as a filter -- see gaps."}
+  UpdateChannel: {wire: new, errors: ok, state: fixed, persist: ok, note: "2026-09-11: implemented per api_op_UpdateChannel.go. Only LoggingConfiguration and the existing destination's DataFreshnessInSeconds can change ('You cannot change the destination, source stream, record format, schema, encryption configuration, or service execution role of an existing channel'); supplying the destination type the channel does NOT already have, or both destination update blocks at once, is InvalidArgumentException. 'state: fixed' documents the same disclosed synchronous-apply simplification as CreateChannel (real AWS: UPDATING then ACTIVE). Unknown ChannelARN -> ResourceNotFoundException."}
+gaps: []
+items_still_open:
+  - "UPDATE 2026-09-11 (gopherstack-s781r): the entry below (previously claiming channels 'never deliver records') is now PARTIALLY resolved. This pass re-fetched the streams dev-guide -- unlike the prior pass, WebFetch against docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html and data-delivery-s3-about.html returned full usable content this time, including the documented default OutputKeyTemplate string and its variable table. See the dated 'Channel record delivery' note below for what is now real. S3TablesDestinationConfiguration (Iceberg on Amazon S3 Tables) delivery remains UNMODELED: gopherstack has no services/s3tables data-file/manifest write path (services/s3tables only manages table-bucket/namespace/table *metadata* -- confirmed by grepping for PutObject/DataFile/Manifest-shaped methods there, none exist), so there is no honest way to write Parquet-in-Iceberg data even with the destination fully documented. A channel with only S3TablesDestinationConfiguration set still accepts records into its buffer's main-record list, which is now silently never flushed (see the next gap entry) -- effectively an ongoing gap for that destination type specifically, distinct from the DataFreshnessInSeconds-based flush that IS wired for S3DestinationConfiguration."
+  - "deliverPutToChannels (channel_delivery.go) only matches channels with a non-nil S3DestinationConfiguration -- a channel whose only destination is S3TablesDestinationConfiguration is filtered out before ever reaching appendToChannelBuffer, so it never buffers or accumulates records at all (deliberately: buffering records with no delivery path would be worse than not buffering them -- they'd sit in memory pretending to be 'in flight' for a destination this backend cannot honestly write to). Records put to such a channel's source stream are simply never observed by the delivery layer, same end effect as before this pass but now for a narrower, correctly-scoped reason. (gopherstack-s781r follow-up)"
+  - "S3 output key template VALIDATION (docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html's 'Template rules': 1024-char object-key cap after the ~38-char unique suffix, no path traversal, no consecutive slashes, single extension placeholder only at the end, restricted literal charset) is not enforced at CreateChannel/UpdateChannel time -- an OutputKeyTemplate violating these rules is accepted, and buildChannelObjectKey (channel_delivery.go) will still expand it as best-effort at flush time rather than rejecting it upfront the way real AWS's CreateChannel validator would. Key EXPANSION itself (variable substitution, default template, extension derivation) is real and tested. (gopherstack-s781r follow-up)"
+  - "The unique suffix S3 delivery documents as always appended to every object key ('Amazon Kinesis Data Streams automatically appends a unique suffix to every object key') has no documented insertion point or format (length/charset) in the fetched docs. buildChannelObjectKey inserts a 12-character slice of a UUIDv4 immediately before the file extension (or at the end, with no extension), mirroring the position Firehose's own buildS3Key (services/firehose/delivery_s3.go) uses for its uniqueness token -- disclosed as an inference, not a verified AWS behavior."
+  - "The exact byte-level layout of a delivered S3 object's body is not documented beyond data-delivery.html's 'Records are delivered in their original source format with no transformation applied' (general purpose S3 destinations only -- GSR_JSON/Iceberg conversion is documented separately for streaming tables, which this backend does not implement). writeChannelObject (channel_delivery.go) therefore concatenates each buffered record's raw bytes with NO delimiter inserted between records, the literal reading of 'no transformation applied'. Not verified against a captured real AWS object; disclosed as the most literal reading of the documented behavior."
+  - "The dead-letter queue's exact object schema is documented only at the field-list level (data-delivery-s3-about.html / the 'What's New' announcement: 'stream ARN, shard ID, sequence number, and error context'), with no documented JSON key names or file layout. writeChannelDeadLetterQueue (channel_delivery.go) writes newline-delimited JSON with keys streamARN/shardID/sequenceNumber/errorMessage, one line per failed record -- disclosed as an inference, not a verified wire format. The default dead-letter prefix used when DeadLetterQueueS3Configuration is unset (defaultChannelErrorPrefix = \"kinesis-channel-errors/\") is likewise inferred: AWS documents only the behavior ('defaults to the destination bucket with an error prefix'), not the literal prefix string."
+  - "DataFreshnessInSeconds is confirmed (both by the pinned SDK's S3DestinationConfiguration/S3StorageConfiguration Go types and by data-delivery-s3-about.html) to be the ONLY documented buffering control for channel S3 delivery -- there is no separate size-based BufferingHints field on S3DestinationConfiguration (unlike Firehose's S3DestinationDescription.BufferingHints.SizeInMBs). Flush is therefore purely interval-based here, which is a verified-correct simplification, not a disclosed gap by itself; noted so a future pass doesn't assume a missing size trigger is a bug."
+  - "Kinesis has NO injectable clock anywhere in this backend (checked: no Clock interface, no nowFn/timeSource field on InMemoryBackend; the existing janitor.go retention sweeper also uses time.Now() directly on a real time.Ticker). runChannelFlusher (channel_delivery.go) therefore polls a real 1-second time.Ticker for DataFreshnessInSeconds-elapsed channels, mirroring Firehose's own intervalFlusher (services/firehose/flush.go), which has the same real-ticker, no-injectable-clock design. FlushChannel/FlushAllChannels are exported so tests and DeleteChannel/Handler.Shutdown can force an immediate flush without waiting on or sleeping past the ticker."
+  - "Buffered-but-unflushed channel records are NOT persisted across a Snapshot/Restore cycle -- channelBuffers is in-memory-only state on InMemoryBackend, not part of backendSnapshot. Handler.Shutdown (mirroring Firehose's) best-effort flushes every channel via FlushAllChannels before the process exits, and DeleteChannel/DeleteStream flush their affected channel(s) before removing state, which covers graceful shutdown and explicit deletion; an ungraceful process exit (crash, SIGKILL) between an accepted PutRecord and the next flush still loses that channel's currently-buffered records on restart. Disclosed rather than silently accepted; no snapshot_inventory.json changes were needed since no new persisted field was added."
+  - "Channel ARN format (arn:{partition}:kinesis:{region}:{accountID}:channel/{channelName}) is inferred by following the same '{service}/{resource-name}' convention AWS uses for every other Kinesis resource (stream/{name}, stream/{name}/consumer/{name}) -- the pinned SDK's doc comments give no ARN format for channels at all (unlike streams/consumers, documented in the IAM access-control guide, which itself predates the channels feature and was re-fetched this pass with no channel-ARN mention added). Not verified against a real AWS response; disclosed rather than asserted as confirmed."
+  - "CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel's documented 5 TPS-per-account call-limit LimitExceededException is not modeled. The service already has a couple of injectable-clock throttle precedents elsewhere in the codebase (e.g. services/polly's per-engine sliding-window throttle), but wiring an equivalent per-op rate model into this already-large file was judged disproportionate to this pass's ask; not fabricated. LimitExceededException remains reachable through this service's other existing rate-limited paths (tag limits, consumer-registration cap) -- it is only the channel-specific 5 TPS window that is unmodeled."
+  - "ChannelDescription/ChannelSummary's S3TablesConfiguration.PartitionSpec is modeled and round-trips (ChannelPartitionSpec/ChannelPartitionField), but this backend performs no actual Iceberg partitioning -- there is no partitioning behavior to verify the accepted spec against, only storage/echo."
   - "KMSAccessDeniedException (types.KMSAccessDeniedException) is a real modeled StartStreamEncryption/StopStreamEncryption error but has no trigger path: it requires evaluating a KMS key policy/grant against a calling principal, and gopherstack has no IAM policy evaluation engine anywhere (not just in kinesis) to produce an access-denied decision from. The sentinel (ErrKMSAccessDenied) and its InvalidArgumentException-style wire mapping (KMSAccessDeniedException, 400) are defined for wire-shape completeness, matching the real error type string exactly, but nothing in the backend can ever return it. Fabricating a fake denial rule (e.g. 'deny if KeyId contains X') would itself be a stub, so this stays an honest gap rather than a fake implementation. (bd: gopherstack-ud2)"
-  - "UpdateStreamMode's PROVISIONED -> ON_DEMAND auto-reshard (see UpdateStreamMode note) approximates AWS's real throughput-history-based scaling with a fixed floor (defaultOnDemandShardCount = 4); it does not scale further for streams whose sustained load would earn a higher on-demand shard count in real AWS, since that requires tracking throughput history this emulator has no model for. Low priority: most callers re-describe the stream after the transition and adapt to whatever shard count comes back. (bd: gopherstack-ud2)"
-  - "AT_TRIM_HORIZON's trim-horizon instant is computed from the stream's RetentionPeriod but clamped to never predate the stream's own oldest tracked shard StartedAt (see trimHorizon in shards.go), so it degrades gracefully for young streams instead of AWS's true 'oldest data still available' semantics that would require tracking exactly when each record was trimmed, not just when its shard opened/closed. Close enough for shard-lineage filtering (the documented ShardFilter use case); would diverge from AWS in a scenario with partial mid-shard trimming, which this emulator's record ring-buffer model doesn't represent per-shard trim timestamps for."
+  - "RESOLVED 2026-09-11 (gopherstack-s0ju item 2): the entry previously here claimed UpdateStreamMode's PROVISIONED -> ON_DEMAND transition 'approximates AWS's real throughput-history-based scaling with a fixed floor' -- that floor-reshard-at-transition-time behavior has been removed entirely (it directly contradicted the doc: real AWS keeps the pre-transition shard count on this exact transition, with no immediate reshard). What remains approximated, honestly, in the new reactive maybeAutoScaleOnDemand (ondemand_scaling.go, see UpdateStreamMode's own ops: note for the full citation): a 60-second write-rate window stands in for AWS's real 30-day peak-throughput history; a stream-wide shard-count doubling stands in for AWS's per-shard hot-shard split; and '500 KB/s per shard' is read as 500 KiB/s, an inferred unit. (bd: gopherstack-ud2)"
+  - "RESOLVED 2026-09-11 (gopherstack-s0ju item 3): the entry previously here described AT_TRIM_HORIZON's ListShards ShardFilter clamp (trimHorizon, shards.go) as also standing in for per-record retention filtering more broadly -- that conflation was itself a gap. trimHorizon's clamp-to-oldest-shard-StartedAt behavior is correct and unchanged for its actual, narrow use (ListShards' shard-existence/lineage filtering, where an empty result for a freshly created stream would be wrong). It is no longer used for GetShardIterator/SubscribeToShard's record-level TRIM_HORIZON/AT_TIMESTAMP, which now call the new, unclamped retentionCutoff directly (see GetShardIterator's own ops: note) and therefore honor true per-record ApproximateArrivalTimestamp-vs-retention semantics, including immediately after a DecreaseStreamRetentionPeriod and before the janitor's next sweep. No remaining approximation gap for GetShardIterator/SubscribeToShard's retention handling specifically."
   - "CORRECTED this pass: the previous gap entry claiming resource policies (PutResourcePolicy/GetResourcePolicy/DeleteResourcePolicy) are lost across a persistence restart was stale/incorrect. persistence.go's backendSnapshot already has a ResourcePolicies field wired into both Snapshot (line ~60) and Restore (line ~119), and TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip already exercises PutResourcePolicy through an actual snapshot/restore cycle and passes. No code change needed; this was a documentation-only correction (carried forward unchanged from the prior ledger)."
   - "CORRECTED this pass: the deferred entry below claiming Lambda event-source-mapping trigger wiring 'lives in cli.go per task constraints; not touched' was stale -- cli.go's wireKinesisLambda (called at cli.go:2657) already wires services/kinesis to services/lambda's event-source poller via kinesisReaderAdapter, and this has been true since before this pass. Moved out of deferred; documentation-only correction, no code changed for this item."
   - "AccessDeniedException is declared in UpdateMaxRecordSize's and UpdateStreamWarmThroughput's error switches (deserializers.go's awsAwsjson11_deserializeOpErrorUpdateMaxRecordSize / ...UpdateStreamWarmThroughput both list it) but has no trigger path, for the same reason as KMSAccessDeniedException above: no IAM policy evaluation engine anywhere in gopherstack to produce an access-denied decision from. Not fabricated a fake rule for it; stays an honest gap. (gopherstack-nbg8)"
@@ -63,11 +81,252 @@ gaps:
   - "DISCLOSED, not fixed (2026-08-19 wrapper-key/nested-shape sweep, Layer 3 -- never-emitted optional members, explicitly out of scope as a hunt per that sweep's charter): StreamDescriptionSummary is missing three optional real members it could populate from backend state already tracked on Stream -- MaxRecordSizeInKiB (Stream.MaxRecordSizeBytes / bytesPerKiB), StreamId (n/a -- real AWS documents this as 'Not Implemented. Reserved for future use.', same known-noise class as other StreamId fields), and WarmThroughput (Stream.WarmThroughputMiBps, same WarmThroughputObject shape UpdateStreamWarmThroughput already emits correctly). UpdateShardCountOutput.StreamARN (optional) is also never emitted -- UpdateShardCountOutput (models.go) has no StreamARN field at the backend-output level, so this needs backend plumbing, not a one-line wire fix. Record.EncryptionType (optional, both GetRecordsOutput.Records and SubscribeToShardEvent.Records) is never emitted -- this backend does track Stream.EncryptionType but doesn't thread it onto individual jsonRecord entries. None of these are wrong keys or wrong types; they are members with no case reached at all because nothing writes them. (bd: gopherstack-ud2)"
   - "DISCLOSED, not fixed (gopherstack-enpq): ListStreamsOutput.StreamSummaries ([]types.StreamSummary -- ARN/name/status/creation-timestamp/mode per stream, optional not required) is not populated; only the required StreamNames is. Real AWS's newer SDKs/console traffic favor StreamSummaries over the legacy StreamNames-only shape, so a client reading only StreamSummaries would see an empty list even though StreamNames (the field the real validator actually requires) is correct. Not fixed this pass: the backend's ListStreams pagination is built entirely around a sorted []string of names (streams.go), and building StreamSummaries correctly means carrying the full *Stream (or at least ARN/Status/CreatedAt/StreamMode) through that same pagination window rather than bolting a lookup on afterward -- a real reshape of ListStreamsOutput/the backend method signature, not a one-line add, so it was left disclosed rather than rushed. (bd: gopherstack-ud2)"
 deferred:
-  - "Enhanced fan-out SubscribeToShard real streaming cadence / HTTP2 push semantics beyond the polling emulation already in place"
-leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Close()'d on DeleteStream/Purge; SubscribeToShard polling goroutine bounded by subscribeToShardMaxIdlePolls (3) and a 5-minute deadline, exits on ctx.Done(); FIS throughput-fault goroutines bound to experiment ctx or scheduled cleanup, lazily evict on read; janitor retention sweep is a single ticker goroutine stopped via context cancellation, no per-stream goroutines; this pass's reshardTo/closeShard/KMSKeyValidator additions introduce no goroutines, tickers, or new lock-acquisition orderings -- KMS validation is a synchronous in-process call into the kms package's own locked backend while kinesis holds stream.mu, safe because kms never calls back into kinesis"}
+  - "RESOLVED 2026-09-11 (gopherstack-s0ju item 4): this entry previously read 'Enhanced fan-out SubscribeToShard real streaming cadence / HTTP2 push semantics beyond the polling emulation already in place.' The emulator still polls internally (no injectable I/O push mechanism) rather than truly pushing over HTTP/2, but the previously-deferred cadence divergence is fixed: the stream now stays open for the documented 5-minute window and sends periodic heartbeats instead of self-closing after 3 empty polls (~600ms) -- see SubscribeToShard's own ops: note for the full citation and remaining disclosed approximations (heartbeat interval not documented exactly by AWS; ChildShards still not populated on any SubscribeToShardEvent, data or heartbeat -- see the existing ChildShards gap above)."
+leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Close()'d on DeleteStream/Purge; SubscribeToShard polling goroutine bounded by a real 5-minute deadline (subscribeToShardMaxIdlePolls removed 2026-09-11, gopherstack-s0ju item 4 -- the stream now heartbeats instead of self-closing on idle, but the same deadline-bounded, ctx.Done()-exiting goroutine lifecycle applies), exits on ctx.Done(); FIS throughput-fault goroutines bound to experiment ctx or scheduled cleanup, lazily evict on read; janitor retention sweep is a single ticker goroutine stopped via context cancellation, no per-stream goroutines; this pass's reshardTo/closeShard/KMSKeyValidator additions introduce no goroutines, tickers, or new lock-acquisition orderings -- KMS validation is a synchronous in-process call into the kms package's own locked backend while kinesis holds stream.mu, safe because kms never calls back into kinesis. 2026-09-11 (gopherstack-s0ju items 2-4): the new InMemoryBackend.throughputMu (ondemand_scaling.go) is acquired only from putRecordLocked while the caller already holds that stream's mu (stream.mu -> throughputMu, a new but consistent ordering never reversed elsewhere) and is released before reshardTo/maybeAutoScaleOnDemand mutate shard state, so it never overlaps b.mu; introduces no goroutines or tickers."}
 ---
 
 ## Notes
+
+### 2026-09-11: implemented the Kinesis Data Streams "channels" API (CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel)
+
+The pinned SDK bump to kinesis@v1.53.0 added five new operations for the
+"channels" feature (delivering records from a stream to a general-purpose S3
+bucket or to Apache Iceberg / Amazon S3 Tables streaming tables), previously
+listed in sdk_completeness_test.go's notImplemented slice. All five are now
+routed and backed by a real store.Table[Channel] (channels.go/models.go/
+handler_channels.go); see each op's own ops: entry above for its specific
+wire/error notes and the gaps: entries below for what is honestly NOT
+modeled.
+
+Authority used: the pinned SDK's api_op_CreateChannel.go / DeleteChannel /
+DescribeChannel / ListChannels / UpdateChannel doc comments and Input/Output
+structs, types/types.go (ChannelDescription, ChannelSummary,
+S3DestinationConfiguration/Description/UpdateInput,
+S3TablesDestinationConfiguration/Description/UpdateInput,
+S3StorageConfiguration, DeadLetterQueueS3Configuration, RecordConfiguration,
+PartitionSpec/PartitionField, StreamFilter), types/enums.go (ChannelStatus,
+ChannelDestinationType, ChannelEncryptionType, RecordFormatType,
+S3CompressionType/S3StorageClass/S3TablesCompressionType), types/errors.go
+(confirmed no new exception TYPES were added for channels -- they reuse the
+existing ResourceNotFoundException/ResourceInUseException/
+InvalidArgumentException/LimitExceededException/ValidationException/
+AccessDeniedException/KMS* family), and validators.go/deserializers.go for
+exact required-field sets and the declared exception list per op (see each
+ops: entry). WebFetch against
+docs.aws.amazon.com/streams/latest/dev/introduction-to-kinesis-data-streams-channels.html
+and the dev-guide index returned no usable page content this pass (tool
+limitation, not a 404 confirmed by other means), and a WebSearch/WebFetch of
+the IAM access-control guide (controlling-access.html) turned up no
+channel-specific ARN format or additional detail either -- every claim in
+this note and the ops:/gaps: entries above is therefore sourced from the SDK
+doc comments and generated validator/deserializer code only, never the
+developer guide.
+
+Semantics modeled honestly, per instruction:
+
+- Exactly one of S3DestinationConfiguration/S3TablesDestinationConfiguration
+  is required on CreateChannel (InvalidArgumentException otherwise) --
+  verbatim from the CreateChannelInput doc comment.
+- Only on-demand streams: CreateChannel checks the referenced stream's
+  StreamMode and rejects PROVISIONED with InvalidArgumentException. The doc
+  comment states the restriction ("This operation is only supported for data
+  streams with the on-demand capacity mode") but names no specific exception
+  for it; InvalidArgumentException was chosen as CreateChannel's closest
+  declared, semantically-appropriate exception -- documented as an inference,
+  not a verified fact.
+- Async CREATING->ACTIVE (Create) / UPDATING->ACTIVE (Update) lifecycle is
+  applied synchronously, i.e. a channel is ACTIVE immediately on
+  CreateChannel/UpdateChannel's own return. This is the same disclosed
+  simplification this file already documents for UpdateStreamWarmThroughput
+  and UpdateStreamMode (no transient-state model anywhere in this backend).
+- DeleteChannel removes the channel synchronously -- its own doc comment,
+  unlike Create/Update's, describes no asynchronous transition at all, so
+  there is no DELETING state to honestly model here (this differs from the
+  general instruction's "DELETING then gone" framing, which describes real
+  AWS's Create/Update async pattern, not what DeleteChannel's own doc
+  comment actually says).
+- ResourceNotFoundException for an unknown ChannelARN (Describe/Update/
+  Delete) or an unknown source StreamARN (Create); ResourceInUseException
+  for a duplicate ChannelName within account+region (the doc comment's own
+  uniqueness statement).
+- The documented 5 TPS LimitExceededException is NOT modeled -- see gaps.
+  Not fabricated.
+
+Delivery: after checking whether an S3Writer-style seam (services/awsconfig's
+S3Writer, wired in cli.go) could honestly deliver put records to a channel's
+S3 destination, the answer was no: S3StorageConfiguration.OutputKeyTemplate's
+own doc comment only says "If not specified, a default template is used"
+with no template given anywhere reachable (SDK doc comments or the
+unfetchable dev-guide page). Inventing an object-key layout not backed by
+verified AWS behavior would itself be exactly the kind of fabricated stub
+this repo's no-stub rule exists to prevent, so no S3Writer seam was added and
+cli.go was NOT touched. Channels exist and are fully manageable
+(create/describe/list/update/delete, plus tagging); records put to their
+source stream are simply never delivered. See gaps.
+
+Persistence: added a new "channels" store.Table[Channel], registered
+additively on the existing b.registry alongside "streams"
+(store.Registry.RestoreAll resets any table absent from an older snapshot to
+empty), so kinesisSnapshotVersion stayed at 1 -- confirmed via
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard -update`,
+whose diff is 45 pure-addition lines all under the existing "kinesis" golden
+entry, version unchanged.
+
+Tags: CreateChannelInput.Tags is stored and reachable through the existing
+generic ARN-routed ListTagsForResource/TagResource/UntagResource ops (new
+isChannelARN/listChannelTags/tagChannel/untagChannel in tags.go), mirroring
+the consumer-ARN routing precedent already established for
+RegisterStreamConsumer.Tags (see that op's own ops: entry/PARITY note above)
+-- chosen specifically because this exact service's history includes two
+prior real "accept a Tags field, never expose a way to read it back" bugs
+(RegisterStreamConsumer.Tags, gopherstack-enpq), so the same class was closed
+proactively here rather than left as a new instance of it.
+
+Tests: services/kinesis/channels_test.go drives the full lifecycle
+(Create->Describe->List->Update->Delete) for both destination variants
+through the real aws-sdk-go-v2 kinesis client over httptest
+(newTestKinesisClient, existing helper), plus the exactly-one-destination
+rule, provisioned-stream rejection, unknown-stream rejection, duplicate
+ChannelName, not-found across Describe/Update/Delete, ListChannels
+MaxResults/NextToken pagination, and the tag round trip described above.
+
+### 2026-09-11: channel record delivery to general purpose S3 (gopherstack-s781r)
+
+The dated note above (same day, earlier pass) left channel record delivery
+unimplemented because the object-key layout could not be verified: WebFetch
+against the streams dev-guide returned no usable content that pass. Re-run
+this pass, WebFetch against
+docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-key-template.html
+and docs.aws.amazon.com/streams/latest/dev/data-delivery-s3-about.html
+returned full page content, so delivery to S3DestinationConfiguration is now
+implemented for real. Also fetched: docs.aws.amazon.com/streams/latest/dev/
+data-delivery.html (data flow / capabilities overview),
+docs.aws.amazon.com/kinesis/latest/APIReference/API_S3DestinationConfiguration.html,
+and aws.amazon.com/about-aws/whats-new/2026/08/kinesis/
+data-delivery-general-purpose-s3-buckets.html and
+.../data-delivery-s3-tables.html (the two "What's New" announcements). The
+pinned SDK's types.go (S3DestinationConfiguration/S3StorageConfiguration,
+kinesis@v1.53.0) was cross-checked and confirmed to have no separate
+size-based BufferingHints field -- DataFreshnessInSeconds (300-900s, default
+300) is the only documented buffering control, matching the fetched pages.
+
+Verified facts used (see channel_delivery.go's own doc comments for the
+per-function citation):
+
+- Default OutputKeyTemplate:
+  `kinesis-channel/!{channel-name}/!{channel-id}/!{yyyy}/!{MM}/!{dd}/!{HH}/!{channel-name}-!{channel-id}-!{yyyy}-!{MM}-!{dd}-!{HH}-!{mm}!{extension}`,
+  and the full template-variable table (!{channel-name}, !{channel-id},
+  !{stream-name}, !{yyyy}, !{yy}, !{MM}, !{dd}, !{HH}, !{mm}, !{extension},
+  !{extension:.literal}) -- data-delivery-s3-key-template.html.
+- !{extension} is derived from CompressionType: ".gz" for GZIP, ".zst" for
+  ZSTD -- same page.
+- Buffering is DataFreshnessInSeconds only (5-15 min, default 300s); no
+  size-based trigger is documented for channel S3 delivery -- confirmed both
+  by data-delivery-s3-about.html's "Data freshness" section and by the
+  absence of any BufferingHints-shaped field on the pinned SDK's
+  S3DestinationConfiguration/S3StorageConfiguration Go types.
+- Compression: NONE/GZIP/ZSTD, CompressionType required --
+  data-delivery-s3-about.html's "Compression options", matching
+  types.S3CompressionType's three enum values exactly.
+- Record formats: JSON/STRING/BYTE_ARRAY for general purpose S3;
+  GSR_JSON is documented as streaming-tables-only -- same page's "Record
+  formats" section.
+- Validation: STRING records must be valid UTF-8, JSON records must be
+  valid JSON; records failing validation go to the dead-letter queue --
+  data-delivery-s3-about.html's "How delivery works" steps 3/6.
+- Dead-letter queue: optional for general purpose S3; when unset, "defaults
+  to the destination bucket with an error prefix" (exact prefix string not
+  documented -- see gaps); failure metadata includes stream ARN, shard ID,
+  sequence number, and error context (exact JSON schema not documented --
+  see gaps) -- same page's "Dead-letter queue" section, plus the
+  general-purpose-S3-buckets "What's New" announcement's "Dead-letter
+  queue" bullet.
+- Records "are delivered in their original source format with no
+  transformation applied" for general purpose S3 (vs. Parquet/Iceberg
+  conversion for streaming tables) -- data-delivery.html's "Delivery
+  destinations" section; read literally as "concatenate raw bytes, no
+  delimiter" since no delimiter option is documented anywhere for channels
+  (unlike Firehose, which has an explicit, separate newline-delimiter
+  toggle).
+- "Amazon Kinesis Data Streams automatically appends a unique suffix to
+  every object key" -- exact insertion point/format not documented; see
+  gaps for the disclosed inference used.
+
+Implemented (see services/kinesis/channel_delivery.go unless noted):
+
+- ChannelS3Writer interface (interfaces.go), mirroring
+  services/firehose/interfaces.go's S3Storer and
+  services/awsconfig/interfaces.go's S3Writer; wired via
+  InMemoryBackend.SetS3Writer and cli.go's new wireKinesisS3Delivery
+  (next to wireAWSConfigDelivery), which binds it directly to
+  s3backend.InMemoryBackend.PutObject (no adapter needed, same as
+  wireFirehoseDelivery's SetS3Backend(s3Bk)).
+- PutRecord (records.go) delivers the record to every ACTIVE channel
+  sourced from the stream, AFTER stream.mu is released (PutRecord was
+  split into PutRecord + putRecordLocked so the caller can run channel
+  delivery, which needs b.mu, without violating this file's established
+  b.mu-then-stream.mu lock order).
+- Per-channel buffering keyed by ChannelARN (channelBuffer), guarded by a
+  new leaf lock (InMemoryBackend.deliveryMu) that is never held while
+  acquiring b.mu or a Stream's mu, so it is safe to take regardless of
+  what the caller already holds.
+- Interval flush: runChannelFlusher polls a real 1-second time.Ticker
+  (Kinesis has NO injectable clock anywhere -- see gaps -- so this mirrors
+  Firehose's own real-ticker intervalFlusher design exactly, including
+  never sleeping in tests: FlushChannel/FlushAllChannels force an
+  immediate flush for tests, DeleteChannel, and Handler.Shutdown).
+- Delivery runs outside every backend lock: extractChannelBufferLocked
+  snapshots-and-clears a buffer under deliveryMu, deliveryMu is released,
+  then the S3 PutObject call happens with no lock held at all -- the
+  capture/release/write pattern services/lambda/lifecycle.go's Reset
+  already uses in this codebase.
+- DeleteChannel and DeleteStream now flush any buffered records for the
+  affected channel(s) before removing state, so accepted-but-unflushed
+  records are not silently dropped by deletion (DeleteStream does this via
+  a thin wrapper around the original locked delete, capturing affected
+  channel ARNs before deletion and flushing them afterward with no lock
+  held, to avoid the same b.mu/stream.mu ordering hazard).
+- Handler.Shutdown (new, implements service.Shutdowner) best-effort
+  flushes every channel before the process exits, mirroring Firehose's
+  Handler.Shutdown exactly.
+
+NOT implemented / disclosed (see gaps for the full list with citations):
+S3TablesDestinationConfiguration (Iceberg on Amazon S3 Tables) delivery --
+services/s3tables has no data-file/manifest write path, only table-bucket/
+namespace/table metadata management, so there is no honest way to write
+Iceberg data even now that the destination itself is documented; channels
+with only that destination type never buffer records at all (filtered out
+before appendToChannelBuffer, deliberately, rather than buffering into a
+dead end). OutputKeyTemplate's documented validation RULES (length cap,
+path-traversal/slash restrictions, single-extension-at-end) are not
+enforced at CreateChannel/UpdateChannel time, only template EXPANSION at
+flush time. The unique-suffix insertion point/format, the dead-letter
+queue's exact object schema, and the default dead-letter error prefix are
+all disclosed inferences, not verified facts -- see gaps for each.
+
+Persistence: channelBuffers is NOT added to backendSnapshot (buffered
+records are runtime-only state, flushed best-effort on
+DeleteChannel/DeleteStream/Handler.Shutdown -- see gaps for what an
+ungraceful exit loses). No new persisted field was added anywhere, so
+pkgs/persistence/testdata/snapshot_inventory.json needed no update and
+`go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` (no
+-update) passes unchanged; kinesisSnapshotVersion stays at 1.
+
+Tests: services/kinesis/channel_delivery_internal_test.go (package kinesis,
+table-driven: object-key expansion for the default/custom/Hive-style
+templates and the extension variable, GZIP/ZSTD/NONE compression round
+trips, STRING/JSON/BYTE_ARRAY record validation, DataFreshnessInSeconds-due
+logic) and services/kinesis/channel_delivery_test.go (package kinesis_test,
+table-driven, real SDK client + a fake ChannelS3Writer: single-record and
+PutRecords-batch delivery with a decompressed body assertion, custom
+OutputKeyTemplate, invalid-UTF8-record-to-dead-letter-queue routing,
+DeleteChannel flushing a buffered record, and the no-writer-wired no-op
+case). cli_kinesis_channel_s3_delivery_wiring_test.go (root package, mirrors
+cli_mgn_s3_import_wiring_test.go) drives the real initializeServices
+composition root end to end: a bucket created through the real S3 backend,
+a real CreateStream/CreateChannel/PutRecord/FlushChannel call sequence
+against the real Kinesis backend, and a real gzip-compressed object read
+back from the real S3 backend's GetObject.
 
 ### 2026-08-29 constraint-not-honoured sweep (gopherstack-wksw, this pass)
 
@@ -636,3 +895,149 @@ All three fix groups: full gate suite green (`go build`, `go vet`, `gofmt -l` cl
 `golangci-lint run` 0 findings / 0 nolints added after fixing 1 `err113` + 3 `modernize` (mapsloop) +
 1 `golines` finding by refactoring, `go fix -diff` no diff, `make build-check` clean). Working tree
 left uncommitted per this session's constraints.
+
+### 2026-09-11: gopherstack-s0ju items 2-4 (on-demand auto-scale, retention-aware trim horizon, SubscribeToShard cadence)
+
+Scope: items 2-4 of the four-item follow-up filed after the 2026-07-23 audit
+(item 1, KMSAccessDeniedException, is left untouched -- it needs an IAM
+policy-evaluation engine gopherstack does not have anywhere, not just in
+kinesis; the existing gaps entry for it already discloses this honestly and
+required no change).
+
+**Item 2 (UpdateStreamMode):** the previous "fixed" behavior --
+PROVISIONED -> ON_DEMAND reshards up to a fixed floor of
+`defaultOnDemandShardCount` (4) -- was itself wrong, contradicting the very
+doc it cited. Verified via WebFetch against
+docs.aws.amazon.com/streams/latest/dev/how-do-i-size-a-stream.html (both the
+`#ondemandmode` and `#switchingmodes` sections): switching
+PROVISIONED -> ON_DEMAND "initially retains whatever shard count it had
+before the transition" -- no immediate reshard at all. Removed the floor
+reshard. Real AWS then "monitors your data traffic and scales the shard
+count... depending on your write throughput" reactively; this is now
+modeled honestly with a disclosed approximation via the new
+`ondemand_scaling.go`: a 60-second in-memory sliding write-rate window
+(transient, never persisted -- `InMemoryBackend.throughputTrackers`, no
+`backendSnapshot`/`snapshot_inventory.json` changes needed) doubles the open
+shard count when the aggregate rate crosses the documented per-shard
+trigger, "When the incoming traffic exceeds 500 KB/s per shard, it splits
+the shard within 15 minutes" (same page, "Handle read and write throughput
+exceptions"). Disclosed, not fabricated: the 60s window stands in for AWS's
+real 30-day peak history; a stream-wide doubling stands in for AWS's
+per-shard split (this backend has no per-shard write-rate attribution, only
+a per-stream aggregate); "500 KB" is read as 500 KiB.
+
+**Item 3 (retention-aware TRIM_HORIZON/AT_TIMESTAMP):** GetShardIterator's
+TRIM_HORIZON previously always resolved to ring-buffer position 0, correct
+only once the background janitor's periodic sweep (real 1-minute ticker,
+`janitor.go`) has physically evicted expired records -- a query issued
+between a `DecreaseStreamRetentionPeriod` call and the next sweep could
+return records already outside the new retention window. Added
+`retentionCutoff` (shards.go), used directly (unclamped) by
+GetShardIterator and SubscribeToShard's TRIM_HORIZON/AT_TIMESTAMP position
+resolution, distinct from the existing `trimHorizon` (kept, unchanged,
+still clamped to the stream's oldest shard `StartedAt`) which remains
+correct for its actual purpose: ListShards' `AT_TRIM_HORIZON`/
+`FROM_TIMESTAMP` ShardFilter, a shard-existence/lineage query where an empty
+result for a young stream would be wrong. Conflating the two was the root
+cause of a real regression caught by this pass's own new tests: an early
+draft that reused the clamped `trimHorizon` for GetShardIterator broke
+`TestGetRecords_MillisBehindLatest`'s and `TestRetentionPeriod_
+JanitorEvictsOldRecords`' fixtures (both use `PushOldRecordForTest`, whose
+short backdates fell before the stream's own creation-time clamp) --
+resolved by keeping the two cutoffs genuinely separate rather than papering
+over the test failures. Added `InMemoryBackend.nowFunc`/`WithClock` (new
+seam, `store.go`, mirroring `services/polly/store.go`'s existing
+`nowFunc`/`WithClock` pattern per this task's own instruction), used by
+`GetShardIterator`, `SubscribeToShard`, and `PutRecord`'s
+`ApproximateArrivalTimestamp` for deterministic retention-edge-case tests
+with no wall-clock sleeps.
+
+**Item 4 (SubscribeToShard cadence):** verified against
+docs.aws.amazon.com/streams/latest/dev/building-enhanced-consumers-api.html
+("The connection remains open for up to 5 minutes") and
+docs.aws.amazon.com/kinesis/latest/APIReference/API_SubscribeToShardEvent.html
+(`ContinuationSequenceNumber`, "Required: Yes," "captures your shard
+progress even when no data is written to the shard"). The emulator's
+polling emulation previously self-closed an idle stream after 3 empty polls
+(~600ms, `subscribeToShardMaxIdlePolls`, removed) -- a real client idle for
+longer than 600ms would see the connection close and have to resubscribe,
+nowhere near the documented 5-minute cadence, and heartbeats were never
+sent at all (zero-record polls were silently skipped). Fixed:
+`handleSubscribeToShardHTTP` (decomposed into `parseSubscribeToShardRequest`
+/ `openSubscribeToShardStream` / `runSubscribeToShardStream` to keep
+cognitive complexity under this repo's gocognit threshold without a nolint)
+now keeps the stream open for a real (Handler-configurable,
+`WithSubscribeToShardTiming`) deadline and sends a heartbeat
+`SubscribeToShardEvent` (empty `Records`, real `ContinuationSequenceNumber`,
+`MillisBehindLatest: 0`) once `subscribeToShardHeartbeatInterval` has
+elapsed since the last frame. Neither fetched page states an exact
+heartbeat interval, so the chosen 5s default is a disclosed inference, not
+a verified AWS constant. The backend's own `SubscribeToShard` method also
+had a latent bug this surfaced: `ContinuationSequenceNumber` was left empty
+whenever zero new records were returned, even mid-subscription after real
+records had already been delivered -- fixed via
+`subscribeToShardContinuationSeq` (consumers.go), which reuses the position
+already advanced past (`StartingPosition.SequenceNumber`) or, absent that,
+the shard's last record's sequence number; a shard with literally zero
+records ever has no real sequence number to report and gets `""` rather
+than a fabricated one (disclosed edge case, not fixed further). TRIM_HORIZON/
+AT_TIMESTAMP `StartingPosition` resolution (`subscribeToShardStartPos`) now
+shares the same `retentionCutoff` fix as GetShardIterator (item 3).
+
+Flake-avoidance (gopherstack-byku): the fixed-duration stream-open
+behavior would make every synchronous `httptest.NewRecorder`-driven test in
+this package (which blocks on `h.Handler()(c)` until the stream closes, with
+no goroutine to interrupt it) hang for the real 5-minute default. Rather
+than reintroducing timing fragility, `Handler` gained
+`WithSubscribeToShardTiming(streamDuration, pollInterval,
+heartbeatInterval)` (zero argument = keep current value, mirroring
+`services/polly`'s `WithStreamLimits`); `newTestHandler` (handler_test.go)
+now applies short values (500ms/10ms/50ms) so every test built on it stays
+fast and deterministic, and `subscribe_idle_close_test.go`'s real-client
+test does the same (300ms/10ms/40ms) while also asserting at least one
+heartbeat frame is observed before the deadline closes the stream -- proof
+the fix does something a defect-ratifying "stream closes fast" assertion
+alone would have hidden. No `time.Sleep` anywhere in the new/changed tests;
+`go test -race -count=10 -run 'SubscribeToShard' ./services/kinesis/...`
+passed clean.
+
+Tests added/changed: `retention_iterator_test.go` (new -- 
+`TestGetShardIterator_HonoursRetentionWindow` table-driven over
+TRIM_HORIZON/AT_TIMESTAMP, `TestGetShardIterator_
+RetentionDecreaseAppliesBeforeJanitorSweep`, `TestSubscribeToShard_
+HonoursRetentionWindow`); `stream_modes_test.go` (`TestUpdateStreamMode_
+OnDemandTransitionReshardsUpToFloor` replaced with `TestUpdateStreamMode_
+OnDemandTransitionKeepsShardCount` -- the old test asserted the now-removed
+incorrect floor-reshard behavior and would have ratified the defect if left
+in place; added `TestUpdateStreamMode_ProvisionedToOnDemand_
+RealClientKeepsShardCount` (real aws-sdk-go-v2 client round trip),
+`TestUpdateStreamMode_OnDemandAutoScalesOnSustainedWrite`,
+`TestUpdateStreamMode_OnDemandAutoScaleIgnoresProvisioned`);
+`janitor_test.go` (`TestRetentionPeriod_JanitorEvictsOldRecords` updated --
+its pre-sweep assertion of "2 records visible" was itself testing the old
+bug, now asserts the correct pre-sweep-exclusion behavior plus a new
+physical-ring-buffer-count sanity check via `ShardRecordCountForTest`);
+`subscribe_idle_close_test.go` (rewritten per above);
+`handler_test.go`/`consumers_test.go` (short `WithSubscribeToShardTiming`
+defaults and updated doc comments, no behavior change to the assertions
+themselves).
+
+Snapshot: no `backendSnapshot`-reachable struct was touched (the new
+`InMemoryBackend.nowFunc`/`throughputMu`/`throughputTrackers` fields all
+live on the backend itself, not on `Stream`/`Shard`/`Channel`), so
+`pkgs/persistence/testdata/snapshot_inventory.json` needed no kinesis
+changes and none were made; `kinesisSnapshotVersion` unchanged.
+`go test -race ./pkgs/persistence/...` fails only on a pre-existing,
+concurrent, out-of-scope `eks` violation (another agent's in-flight work,
+confirmed via `git status` showing only `services/eks/*` files modified
+besides this pass's own kinesis changes) -- not sagemaker, not kinesis.
+
+Gates: `go build ./...`, `go vet ./services/kinesis/...`, `gofmt -l`/
+`goimports -l`/`golines -l` clean, `go test -race -count=1
+./services/kinesis/...` and the broader `... ./pkgs/persistence/...` (eks-only
+failure as above), `go test -race -count=10 -run 'SubscribeToShard'
+./services/kinesis/...`, `golangci-lint run ./services/kinesis/...` (0
+issues, 0 new nolints -- one `gocognit` finding on
+`handleSubscribeToShardHTTP` resolved by decomposition, one `mnd` finding
+resolved with a named constant, all formatting findings resolved by
+gofmt/goimports/golines) all green.

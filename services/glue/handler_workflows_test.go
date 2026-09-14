@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	gluesdk "github.com/aws/aws-sdk-go-v2/service/glue"
+	"github.com/aws/aws-sdk-go-v2/service/glue/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -271,7 +274,11 @@ func TestWorkflowRunExtras(t *testing.T) {
 	})
 }
 
-// TestResumeWorkflowRun_Stateful verifies resume of a running workflow run.
+// TestResumeWorkflowRun_Stateful verifies ResumeWorkflowRun's real state
+// gate: only a STOPPED run can be resumed (api_op_ResumeWorkflowRun.go:
+// "Restarts ... a previous partially completed workflow run"), and a
+// required-member-missing request is rejected rather than silently
+// succeeding with an empty response.
 func TestResumeWorkflowRun_Stateful(t *testing.T) {
 	t.Parallel()
 
@@ -281,33 +288,35 @@ func TestResumeWorkflowRun_Stateful(t *testing.T) {
 		wantCode int
 	}{
 		{
-			name: "empty_inputs_returns_ok",
+			name: "empty_inputs_rejected",
 			setup: func(_ *testing.T, _ *glue.Handler) (string, string) {
 				return "", ""
 			},
-			wantCode: http.StatusOK,
+			wantCode: http.StatusBadRequest,
 		},
 		{
-			name: "existing_run_returns_run_id",
+			name: "running_run_rejected_not_stopped",
 			setup: func(t *testing.T, h *glue.Handler) (string, string) {
 				t.Helper()
 
-				createRec := doGlueRequest(t, h, "CreateWorkflow", map[string]any{
-					"Name": "my-workflow",
+				return startedWorkflowRun(t, h, "my-workflow-running")
+			},
+			wantCode: http.StatusBadRequest,
+		},
+		{
+			name: "stopped_run_resumes_with_new_run_id",
+			setup: func(t *testing.T, h *glue.Handler) (string, string) {
+				t.Helper()
+
+				wfName, runID := startedWorkflowRun(t, h, "my-workflow-stopped")
+
+				stopRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{
+					"Name":  wfName,
+					"RunId": runID,
 				})
-				require.Equal(t, http.StatusOK, createRec.Code)
+				require.Equal(t, http.StatusOK, stopRec.Code)
 
-				startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{
-					"Name": "my-workflow",
-				})
-				require.Equal(t, http.StatusOK, startRec.Code)
-
-				var startOut struct {
-					RunID string `json:"RunId"`
-				}
-				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
-
-				return "my-workflow", startOut.RunID
+				return wfName, runID
 			},
 			wantCode: http.StatusOK,
 		},
@@ -330,37 +339,35 @@ func TestResumeWorkflowRun_Stateful(t *testing.T) {
 			rec := doGlueRequest(t, h, "ResumeWorkflowRun", map[string]any{
 				"Name":    wfName,
 				"RunId":   runID,
-				"NodeIds": []string{},
+				"NodeIds": []string{"node-a"},
 			})
-			assert.Equal(t, tc.wantCode, rec.Code)
+			assert.Equal(t, tc.wantCode, rec.Code, rec.Body.String())
 
-			if tc.wantCode == http.StatusOK && wfName != "" {
-				var out struct {
-					RunID   string   `json:"RunId"`
-					NodeIDs []string `json:"NodeIds"`
-				}
-				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-				assert.Equal(t, runID, out.RunID)
+			if tc.wantCode != http.StatusOK {
+				return
 			}
+
+			var out struct {
+				RunID   string   `json:"RunId"`
+				NodeIDs []string `json:"NodeIds"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+			assert.NotEmpty(t, out.RunID)
+			assert.NotEqual(t, runID, out.RunID, "resume must mint a new RunId, not echo the original")
+			assert.Equal(t, []string{"node-a"}, out.NodeIDs)
 		})
 	}
 }
 
-// TestResumeWorkflowRun_EchoesRequestedNodes verifies NodeIds ("This member
-// is required" per api_op_ResumeWorkflowRun.go) is actually threaded through
-// to the backend and echoed back in ResumeWorkflowRunOutput.NodeIds ("The
-// new nodes that were actually restarted"), rather than the request always
-// getting silently dropped and the response always reporting an empty list.
-func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
-	t.Parallel()
+// startedWorkflowRun creates a workflow and starts one run on it, returning
+// (workflow name, run ID).
+func startedWorkflowRun(t *testing.T, h *glue.Handler, name string) (string, string) {
+	t.Helper()
 
-	h := newTestHandler(t)
+	createRec := doGlueRequest(t, h, "CreateWorkflow", map[string]any{"Name": name})
+	require.Equal(t, http.StatusOK, createRec.Code)
 
-	require.Equal(t, http.StatusOK, doGlueRequest(t, h, "CreateWorkflow", map[string]any{
-		"Name": "my-workflow",
-	}).Code)
-
-	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "my-workflow"})
+	startRec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": name})
 	require.Equal(t, http.StatusOK, startRec.Code)
 
 	var startOut struct {
@@ -368,9 +375,30 @@ func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
 
+	return name, startOut.RunID
+}
+
+// TestResumeWorkflowRun_EchoesRequestedNodes verifies NodeIds ("This member
+// is required" per api_op_ResumeWorkflowRun.go) is actually threaded through
+// to the backend and echoed back in ResumeWorkflowRunOutput.NodeIds ("The
+// new nodes that were actually restarted"), rather than the request always
+// getting silently dropped and the response always reporting an empty list.
+// The run must be STOPPED before it can be resumed (see
+// TestResumeWorkflowRun_Stateful).
+func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	wfName, runID := startedWorkflowRun(t, h, "my-workflow")
+
+	require.Equal(t, http.StatusOK, doGlueRequest(t, h, "StopWorkflowRun", map[string]any{
+		"Name":  wfName,
+		"RunId": runID,
+	}).Code)
+
 	rec := doGlueRequest(t, h, "ResumeWorkflowRun", map[string]any{
-		"Name":    "my-workflow",
-		"RunId":   startOut.RunID,
+		"Name":    wfName,
+		"RunId":   runID,
 		"NodeIds": []string{"node-a", "node-b"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -381,6 +409,7 @@ func TestResumeWorkflowRun_EchoesRequestedNodes(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, []string{"node-a", "node-b"}, out.NodeIDs)
+	assert.NotEqual(t, runID, out.RunID)
 }
 
 func TestGlue_Workflows(t *testing.T) {
@@ -537,4 +566,201 @@ func TestWorkflow_LastRun(t *testing.T) {
 
 	lastRun := wf["LastRun"].(map[string]any)
 	assert.Equal(t, runID, lastRun["WorkflowRunId"])
+	// Real wire key is "Name", not "WorkflowName" (deserializers.go's
+	// awsAwsjson11_deserializeDocumentWorkflowRun case list) -- a real client's
+	// sv.Name stayed nil before this fix.
+	assert.Equal(t, "graphwf", lastRun["Name"])
+	assert.NotContains(t, lastRun, "WorkflowName")
+}
+
+// TestStopWorkflowRun_StateGuard verifies StopWorkflowRun only applies to a
+// RUNNING run (IllegalWorkflowStateException otherwise, per
+// deserializers.go's awsAwsjson11_deserializeOpErrorStopWorkflowRun error
+// switch) and that stopping settles the run to STOPPED synchronously rather
+// than stranding it in STOPPING forever.
+func TestStopWorkflowRun_StateGuard(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	wfName, runID := startedWorkflowRun(t, h, "my-workflow")
+
+	getRec := doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	var getOut map[string]any
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Equal(t, "RUNNING", getOut["Run"].(map[string]any)["Status"])
+
+	stopRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
+	require.Equal(t, http.StatusOK, stopRec.Code)
+
+	getRec = doGlueRequest(t, h, "GetWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
+	require.Equal(t, http.StatusOK, getRec.Code)
+	require.NoError(t, json.Unmarshal(getRec.Body.Bytes(), &getOut))
+	assert.Equal(t, "STOPPED", getOut["Run"].(map[string]any)["Status"])
+
+	// Stopping again must fail: the run is no longer RUNNING.
+	stopAgainRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": runID})
+	assert.Equal(t, http.StatusBadRequest, stopAgainRec.Code)
+	var errOut map[string]string
+	require.NoError(t, json.Unmarshal(stopAgainRec.Body.Bytes(), &errOut))
+	assert.Equal(t, "IllegalWorkflowStateException", errOut["__type"])
+
+	// Stopping a nonexistent run is EntityNotFoundException, not the state error.
+	missingRec := doGlueRequest(t, h, "StopWorkflowRun", map[string]any{"Name": wfName, "RunId": "no-such-run"})
+	assert.Equal(t, http.StatusBadRequest, missingRec.Code)
+	require.NoError(t, json.Unmarshal(missingRec.Body.Bytes(), &errOut))
+	assert.Equal(t, "EntityNotFoundException", errOut["__type"])
+}
+
+// TestGetWorkflowRunProperties_RequiredMembersAndNotFound verifies
+// GetWorkflowRunProperties propagates EntityNotFoundException for an unknown
+// workflow/run (declared in its real error catalog,
+// deserializers.go's awsAwsjson11_deserializeOpErrorGetWorkflowRunProperties)
+// instead of silently returning an empty 200, and rejects a request missing
+// required members (Name/RunId, both "This member is required" on the real
+// GetWorkflowRunPropertiesInput).
+func TestGetWorkflowRunProperties_RequiredMembersAndNotFound(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		body map[string]any
+		name string
+	}{
+		{name: "missing_name", body: map[string]any{"RunId": "some-run"}},
+		{name: "missing_run_id", body: map[string]any{"Name": "some-wf"}},
+		{name: "unknown_workflow", body: map[string]any{"Name": "no-such-wf", "RunId": "no-such-run"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			rec := doGlueRequest(t, h, "GetWorkflowRunProperties", tc.body)
+			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// TestSDKRoundTrip_GetWorkflowRuns_Pagination drives the real aws-sdk-go-v2
+// client. GetWorkflowRunsInput carries real MaxResults/NextToken query
+// members (api_op_GetWorkflowRuns.go) that the handler previously never
+// declared or read at all, so every call returned every stored run in one
+// unbounded response.
+func TestSDKRoundTrip_GetWorkflowRuns_Pagination(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestGlueClient(t, h)
+
+	require.Equal(t, http.StatusOK, doGlueRequest(t, h, "CreateWorkflow", map[string]any{
+		"Name": "paginated-wf",
+	}).Code)
+
+	const numRuns = 5
+
+	wantIDs := make(map[string]bool, numRuns)
+	for range numRuns {
+		rec := doGlueRequest(t, h, "StartWorkflowRun", map[string]any{"Name": "paginated-wf"})
+		require.Equal(t, http.StatusOK, rec.Code)
+
+		var out struct {
+			RunID string `json:"RunId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+		wantIDs[out.RunID] = true
+	}
+	require.Len(t, wantIDs, numRuns)
+
+	gotIDs := make(map[string]bool)
+	input := &gluesdk.GetWorkflowRunsInput{
+		Name:       aws.String("paginated-wf"),
+		MaxResults: aws.Int32(2),
+	}
+
+	for pages := 0; ; pages++ {
+		require.Less(t, pages, 10, "pagination did not terminate")
+
+		out, err := client.GetWorkflowRuns(t.Context(), input)
+		require.NoError(t, err)
+		require.LessOrEqual(t, len(out.Runs), 2, "must honor MaxResults")
+
+		for _, r := range out.Runs {
+			require.NotNil(t, r.WorkflowRunId)
+			gotIDs[*r.WorkflowRunId] = true
+		}
+
+		if out.NextToken == nil || *out.NextToken == "" {
+			break
+		}
+
+		input.NextToken = out.NextToken
+	}
+
+	assert.Equal(t, wantIDs, gotIDs, "paginated union must equal the seeded set exactly")
+}
+
+// TestSDKRoundTrip_WorkflowRun_NameWireKeyAndResumeLinksPreviousRun drives
+// the real aws-sdk-go-v2 client to prove two fixes: (1) WorkflowRun's wire
+// key for the workflow's name is "Name", not the previously-emitted
+// "WorkflowName" -- a real client's types.WorkflowRun.Name stayed nil before
+// the fix, since no known key matched during decode; (2) ResumeWorkflowRun
+// mints a new run linked via PreviousRunId ("Each resume of a workflow run
+// will have a new run ID", api_op_ResumeWorkflowRun.go), not the pre-fix
+// behavior of mutating and echoing back the same run ID.
+func TestSDKRoundTrip_WorkflowRun_NameWireKeyAndResumeLinksPreviousRun(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestGlueClient(t, h)
+
+	_, err := client.CreateWorkflow(t.Context(), &gluesdk.CreateWorkflowInput{Name: aws.String("resume-wf")})
+	require.NoError(t, err)
+
+	startOut, err := client.StartWorkflowRun(t.Context(), &gluesdk.StartWorkflowRunInput{
+		Name: aws.String("resume-wf"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startOut.RunId)
+	origRunID := *startOut.RunId
+
+	getOut, err := client.GetWorkflowRun(t.Context(), &gluesdk.GetWorkflowRunInput{
+		Name: aws.String("resume-wf"), RunId: aws.String(origRunID),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.Run)
+	require.NotNil(t, getOut.Run.Name, "real client decode must populate WorkflowRun.Name via the \"Name\" wire key")
+	assert.Equal(t, "resume-wf", *getOut.Run.Name)
+
+	_, err = client.StopWorkflowRun(t.Context(), &gluesdk.StopWorkflowRunInput{
+		Name: aws.String("resume-wf"), RunId: aws.String(origRunID),
+	})
+	require.NoError(t, err)
+
+	resumeOut, err := client.ResumeWorkflowRun(t.Context(), &gluesdk.ResumeWorkflowRunInput{
+		Name:    aws.String("resume-wf"),
+		RunId:   aws.String(origRunID),
+		NodeIds: []string{"node-a"},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resumeOut.RunId)
+	assert.NotEqual(t, origRunID, *resumeOut.RunId)
+	assert.Equal(t, []string{"node-a"}, resumeOut.NodeIds)
+
+	newRunOut, err := client.GetWorkflowRun(t.Context(), &gluesdk.GetWorkflowRunInput{
+		Name: aws.String("resume-wf"), RunId: resumeOut.RunId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, newRunOut.Run.PreviousRunId)
+	assert.Equal(t, origRunID, *newRunOut.Run.PreviousRunId)
+	assert.Equal(t, types.WorkflowRunStatusRunning, newRunOut.Run.Status)
+
+	// Resuming a still-RUNNING run must fail.
+	_, err = client.ResumeWorkflowRun(t.Context(), &gluesdk.ResumeWorkflowRunInput{
+		Name:    aws.String("resume-wf"),
+		RunId:   resumeOut.RunId,
+		NodeIds: []string{"node-a"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "IllegalWorkflowStateException")
 }

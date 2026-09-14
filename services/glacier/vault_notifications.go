@@ -9,7 +9,7 @@ func isValidNotificationEvent(ev string) bool {
 
 // SetVaultNotifications sets the notification configuration for a vault.
 func (b *InMemoryBackend) SetVaultNotifications(accountID, region, vaultName, snsTopic string, events []string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetVaultNotifications")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -34,7 +34,7 @@ func (b *InMemoryBackend) SetVaultNotifications(accountID, region, vaultName, sn
 
 // GetVaultNotifications returns the notification configuration for a vault.
 func (b *InMemoryBackend) GetVaultNotifications(accountID, region, vaultName string) (string, []string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetVaultNotifications")
 	defer b.mu.RUnlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -47,7 +47,7 @@ func (b *InMemoryBackend) GetVaultNotifications(accountID, region, vaultName str
 
 // DeleteVaultNotifications deletes the notification configuration for a vault.
 func (b *InMemoryBackend) DeleteVaultNotifications(accountID, region, vaultName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteVaultNotifications")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))

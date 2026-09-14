@@ -82,6 +82,39 @@ func TestHandler_EnforcedGuardrailConfig_PutListDelete(t *testing.T) {
 	assert.Empty(t, listOut3["guardrailsConfig"])
 }
 
+// TestHandler_EnforcedGuardrailConfig_PutRealWireShapeOmitsInputTags proves
+// PutEnforcedGuardrailConfiguration succeeds on the exact shape a real
+// client sends: the real PutEnforcedGuardrailConfigurationInput
+// (bedrock@v1.66.4 serializers.go's
+// awsRestjson1_serializeDocumentAccountEnforcedGuardrailInferenceInputConfiguration)
+// has no inputTags member at all -- it exists only on the deprecated OUTPUT
+// shape -- so requiring it on input made every real client's call fail
+// unconditionally with ValidationException (gopherstack-n3zi slice 22).
+func TestHandler_EnforcedGuardrailConfig_PutRealWireShapeOmitsInputTags(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	gRec := doRequest(t, h, http.MethodPost, "/guardrails", map[string]any{"name": "egc-real-shape"})
+	require.Equal(t, http.StatusOK, gRec.Code)
+
+	var gOut map[string]any
+	mustUnmarshal(t, gRec, &gOut)
+	guardrailID := gOut["guardrailId"].(string)
+
+	putRec := doRequest(t, h, http.MethodPut, "/enforcedGuardrailsConfiguration", map[string]any{
+		"guardrailInferenceConfig": map[string]any{
+			"guardrailIdentifier": guardrailID,
+			"guardrailVersion":    "DRAFT",
+		},
+	})
+	require.Equal(t, http.StatusOK, putRec.Code, putRec.Body.String())
+
+	var putOut map[string]any
+	mustUnmarshal(t, putRec, &putOut)
+	assert.NotEmpty(t, putOut["configId"])
+}
+
 func TestHandler_EnforcedGuardrailConfig_PutWithExistingConfigIDUpdatesInPlace(t *testing.T) {
 	t.Parallel()
 
@@ -154,15 +187,6 @@ func TestHandler_EnforcedGuardrailConfig_PutMissingRequiredFieldsRejected(t *tes
 		name string
 	}{
 		{name: "missing guardrailInferenceConfig entirely", body: map[string]any{}},
-		{
-			name: "missing inputTags",
-			body: map[string]any{
-				"guardrailInferenceConfig": map[string]any{
-					"guardrailIdentifier": "g-1",
-					"guardrailVersion":    "DRAFT",
-				},
-			},
-		},
 		{
 			name: "invalid inputTags value",
 			body: map[string]any{

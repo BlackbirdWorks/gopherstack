@@ -41,12 +41,36 @@ func (h *Handler) handleCreateChannel(c *echo.Context, body []byte) error {
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyChannelArn:   ch.ChannelARN,
 		keyName:         ch.Name,
 		keySource:       ch.Source,
 		keyDestinations: ch.Destinations,
-	})
+	}
+	if tl := channelTagsList(ch); tl != nil {
+		resp["Tags"] = tl
+	}
+
+	return c.JSON(http.StatusOK, resp)
+}
+
+// channelTagsList renders a Channel's tags as the Tags shape
+// (CreateChannelOutput's only tag field; []types.Tag{Key,Value},
+// cloudtrail@v1.58.4 api_op_CreateChannel.go:76 -- previously decoded and
+// stored at creation but never echoed back on the response).
+func channelTagsList(ch *Channel) []map[string]string {
+	if ch.Tags == nil || ch.Tags.Len() == 0 {
+		return nil
+	}
+
+	kv := ch.Tags.Clone()
+	out := make([]map[string]string, 0, len(kv))
+
+	for k, v := range kv {
+		out = append(out, map[string]string{keyKey: k, keyValue: v})
+	}
+
+	return out
 }
 
 // --- DeleteChannel ---

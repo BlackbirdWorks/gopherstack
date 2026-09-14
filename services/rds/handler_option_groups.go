@@ -66,8 +66,10 @@ func (h *Handler) handleModifyOptionGroup(vals url.Values) (any, error) {
 			break
 		}
 		optionsToAdd = append(optionsToAdd, OptionGroupOption{
-			OptionName:    optName,
-			OptionVersion: vals.Get(fmt.Sprintf("OptionsToInclude.OptionConfiguration.%d.OptionVersion", i)),
+			OptionName: optName,
+			OptionVersion: vals.Get(
+				fmt.Sprintf("OptionsToInclude.OptionConfiguration.%d.OptionVersion", i),
+			),
 		})
 	}
 	var optionsToRemove []string
@@ -155,9 +157,34 @@ type modifyOptionGroupResponse struct {
 	OptionGroup xmlOptionGroup `xml:"ModifyOptionGroupResult>OptionGroup"`
 }
 
+// describeOptionGroupOptionsResponse previously had no
+// DescribeOptionGroupOptionsResult element at all -- every real RDS query/XML
+// response nests its payload under "<Operation>Result" (rds@v1.124.1
+// serializers.go's response-root convention), so a real client's
+// deserializer failed outright with "DescribeOptionGroupOptionsResult node
+// not found" regardless of engine/state. The per-engine option catalog
+// itself isn't modeled (no persistent per-engine option metadata in this
+// backend to source it from), so OptionGroupOptions is disclosed as an
+// empty, correctly-wrapped list rather than fabricated.
 type describeOptionGroupOptionsResponse struct {
-	XMLName xml.Name `xml:"DescribeOptionGroupOptionsResponse"`
-	Xmlns   string   `xml:"xmlns,attr"`
+	XMLName xml.Name                         `xml:"DescribeOptionGroupOptionsResponse"`
+	Xmlns   string                           `xml:"xmlns,attr"`
+	Result  describeOptionGroupOptionsResult `xml:"DescribeOptionGroupOptionsResult"`
+}
+
+type describeOptionGroupOptionsResult struct {
+	Marker             string                    `xml:"Marker,omitempty"`
+	OptionGroupOptions xmlOptionGroupOptionsList `xml:"OptionGroupOptions"`
+}
+
+type xmlOptionGroupOptionsList struct {
+	Members []xmlOptionGroupOptionDetail `xml:"OptionGroupOption"`
+}
+
+type xmlOptionGroupOptionDetail struct {
+	Name        string `xml:"Name"`
+	Description string `xml:"Description,omitempty"`
+	EngineName  string `xml:"EngineName,omitempty"`
 }
 
 func (h *Handler) handleCopyOptionGroup(vals url.Values) (any, error) {

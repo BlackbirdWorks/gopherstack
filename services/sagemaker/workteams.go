@@ -67,15 +67,20 @@ type MemberDefinition struct {
 type Workteam struct {
 	CreateDate                time.Time                  `json:"CreateDate"`
 	LastUpdatedDate           time.Time                  `json:"LastUpdatedDate"`
-	Tags                      map[string]string          `json:"-"`
+	Tags                      map[string]string          `json:"Tags,omitempty"`
 	NotificationConfiguration *NotificationConfiguration `json:"NotificationConfiguration,omitempty"`
 	WorkerAccessConfiguration *WorkerAccessConfiguration `json:"WorkerAccessConfiguration,omitempty"`
 	WorkteamName              string                     `json:"WorkteamName"`
 	WorkteamArn               string                     `json:"WorkteamArn"`
 	WorkforceArn              string                     `json:"WorkforceArn,omitempty"`
-	Description               string                     `json:"Description,omitempty"`
-	SubDomain                 string                     `json:"SubDomain,omitempty"`
-	MemberDefinitions         []MemberDefinition         `json:"MemberDefinitions,omitempty"`
+	// Description/MemberDefinitions are both "This member is required" on
+	// CreateWorkteamInput (validateOpCreateWorkteamInput, validators.go,
+	// nil-checked only) and on Workteam itself -- a conformant client can
+	// send an empty string / empty-but-non-nil array, which omitempty would
+	// have silently dropped.
+	Description       string             `json:"Description"`
+	SubDomain         string             `json:"SubDomain,omitempty"`
+	MemberDefinitions []MemberDefinition `json:"MemberDefinitions"`
 }
 
 func cloneWorkteam(w *Workteam) *Workteam {

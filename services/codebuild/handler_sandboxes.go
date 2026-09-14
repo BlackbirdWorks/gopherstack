@@ -107,9 +107,17 @@ type startSandboxConnectionInput struct {
 }
 
 type startSandboxConnectionOutput struct {
-	Endpoint string `json:"endpoint"`
+	SsmSession *SSMSession `json:"ssmSession"`
 }
 
+// handleStartSandboxConnection previously returned a fabricated
+// {"endpoint": "wss://..."} shape, a field the real StartSandboxConnectionOutput
+// does not have at all (real member: ssmSession, an SSMSession object --
+// aws-sdk-go-v2/service/codebuild@v1.72.4 api_op_StartSandboxConnection.go:38-41,
+// deserializers.go:16919). A real client's out.SsmSession was always nil
+// regardless of what gopherstack sent. Fixed to emit the documented shape;
+// no real Session Manager streaming is simulated, so the values are
+// synthesized placeholders (see SSMSession's doc comment).
 func (h *Handler) handleStartSandboxConnection(
 	_ context.Context,
 	in *startSandboxConnectionInput,
@@ -118,7 +126,11 @@ func (h *Handler) handleStartSandboxConnection(
 		return nil, fmt.Errorf("%w: sandboxId is required", errInvalidRequest)
 	}
 
-	return &startSandboxConnectionOutput{Endpoint: "wss://localhost:9999/" + in.SandboxID}, nil
+	return &startSandboxConnectionOutput{SsmSession: &SSMSession{
+		SessionID:  "session-" + in.SandboxID,
+		StreamURL:  "wss://localhost:9999/" + in.SandboxID,
+		TokenValue: "token-" + in.SandboxID,
+	}}, nil
 }
 
 type stopSandboxInput struct {

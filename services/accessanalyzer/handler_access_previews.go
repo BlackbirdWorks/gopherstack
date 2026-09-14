@@ -3,7 +3,6 @@ package accessanalyzer
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -17,7 +16,10 @@ const (
 )
 
 // dispatchAccessPreviewOps routes access preview operations.
-func (h *Handler) dispatchAccessPreviewOps(op, path, query string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchAccessPreviewOps(
+	op, path, query string,
+	body []byte,
+) (any, int, bool, error) {
 	switch op {
 	case opCreateAccessPreview:
 		r, c, e := h.handleCreateAccessPreview(body)
@@ -85,14 +87,14 @@ func (h *Handler) handleGetAccessPreview(
 	return map[string]any{"accessPreview": accessPreviewToJSON(ap, true)}, http.StatusOK, nil
 }
 
+// handleListAccessPreviews serves GET /access-preview?analyzerArn=... .
+// analyzerArn is a query parameter carrying an ARN, which the real SDK
+// client always percent-encodes on the wire; queryParamValue unescapes it
+// the same way GetFinding/GenerateFindingRecommendation already do, since a
+// comparison against a raw, still-encoded ARN never matches an analyzer's
+// decoded ARN.
 func (h *Handler) handleListAccessPreviews(query string) (any, int, error) {
-	var analyzerArn string
-
-	for part := range strings.SplitSeq(query, "&") {
-		if v, ok := strings.CutPrefix(part, "analyzerArn="); ok {
-			analyzerArn = v
-		}
-	}
+	analyzerArn := queryParamValue(query, keyAnalyzerArn)
 
 	previews, err := h.Backend.ListAccessPreviews(analyzerArn)
 	if err != nil {

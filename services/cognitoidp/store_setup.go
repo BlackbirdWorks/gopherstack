@@ -121,8 +121,9 @@ func (b *InMemoryBackend) userBySub(poolID, sub string) (*User, bool) {
 //   - attrVerificationCodes: attrVerificationEntry (ExpiresAt, Code) carries
 //     no identity fields at all; the poolID:username:attrName key is entirely
 //     external to the value.
-//   - tokenRevokedBefore: value type is time.Time, not a resource struct with
-//     an identity field -- the poolID:username key is external to the value.
+//   - tokenRevokedBeforeSeq / tokenRevokedBefore: value types are int64 and
+//     time.Time, not resource structs with an identity field -- the
+//     poolID:username key is external to the value in both maps.
 //   - resourceTags: value type is map[string]string (tag key -> tag value),
 //     not a *T resource struct.
 //   - riskConfigurations / logDeliveryConfigs / poolMfaConfigs: RiskConfiguration

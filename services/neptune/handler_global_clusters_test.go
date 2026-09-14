@@ -1,7 +1,6 @@
 package neptune_test
 
 import (
-	"maps"
 	"net/http"
 	"net/url"
 	"testing"
@@ -168,13 +167,13 @@ func TestGlobalCluster_FailoverGlobalCluster(t *testing.T) {
 
 	h := newTestHandler(t)
 	createCluster(t, h, "gc-fo-primary")
-	createCluster(t, h, "gc-fo-secondary")
 	doRequest(t, h, url.Values{
 		"Action":                    {"CreateGlobalCluster"},
 		"Version":                   {"2014-10-31"},
 		"GlobalClusterIdentifier":   {"gc-failover"},
 		"SourceDBClusterIdentifier": {"gc-fo-primary"},
 	})
+	createClusterInGlobalCluster(t, h, "gc-fo-secondary", "gc-failover")
 
 	rr := doRequest(t, h, url.Values{
 		"Action":                    {"FailoverGlobalCluster"},
@@ -182,7 +181,7 @@ func TestGlobalCluster_FailoverGlobalCluster(t *testing.T) {
 		"GlobalClusterIdentifier":   {"gc-failover"},
 		"TargetDbClusterIdentifier": {"gc-fo-secondary"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	assert.Contains(t, rr.Body.String(), "gc-failover")
 }
 
@@ -191,13 +190,13 @@ func TestGlobalCluster_SwitchoverGlobalCluster(t *testing.T) {
 
 	h := newTestHandler(t)
 	createCluster(t, h, "gc-sw-primary")
-	createCluster(t, h, "gc-sw-secondary")
 	doRequest(t, h, url.Values{
 		"Action":                    {"CreateGlobalCluster"},
 		"Version":                   {"2014-10-31"},
 		"GlobalClusterIdentifier":   {"gc-switchover"},
 		"SourceDBClusterIdentifier": {"gc-sw-primary"},
 	})
+	createClusterInGlobalCluster(t, h, "gc-sw-secondary", "gc-switchover")
 
 	rr := doRequest(t, h, url.Values{
 		"Action":                    {"SwitchoverGlobalCluster"},
@@ -205,7 +204,7 @@ func TestGlobalCluster_SwitchoverGlobalCluster(t *testing.T) {
 		"GlobalClusterIdentifier":   {"gc-switchover"},
 		"TargetDbClusterIdentifier": {"gc-sw-secondary"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	assert.Contains(t, rr.Body.String(), "gc-switchover")
 }
 
@@ -445,49 +444,131 @@ func TestGlobalCluster_ModifyFailoverSwitchover(t *testing.T) {
 	tests := []struct {
 		name         string
 		action       string
-		extraVals    url.Values
 		wantContains string
 	}{
-		{
-			name:         "modify",
-			action:       "ModifyGlobalCluster",
-			extraVals:    url.Values{},
-			wantContains: "gc-ops",
-		},
-		{
-			name:         "failover",
-			action:       "FailoverGlobalCluster",
-			extraVals:    url.Values{"TargetDbClusterIdentifier": {"some-target"}},
-			wantContains: "gc-ops",
-		},
-		{
-			name:         "switchover",
-			action:       "SwitchoverGlobalCluster",
-			extraVals:    url.Values{"TargetDbClusterIdentifier": {"some-target"}},
-			wantContains: "gc-ops",
-		},
+		{name: "modify", action: "ModifyGlobalCluster", wantContains: "gc-ops"},
+		{name: "failover", action: "FailoverGlobalCluster", wantContains: "gc-ops-secondary"},
+		{name: "switchover", action: "SwitchoverGlobalCluster", wantContains: "gc-ops-secondary"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			h := newTestHandler(t)
+			createCluster(t, h, "gc-ops-primary")
 			doRequest(t, h, url.Values{
-				"Action":                  {"CreateGlobalCluster"},
-				"Version":                 {"2014-10-31"},
-				"GlobalClusterIdentifier": {"gc-ops"},
+				"Action":                    {"CreateGlobalCluster"},
+				"Version":                   {"2014-10-31"},
+				"GlobalClusterIdentifier":   {"gc-ops"},
+				"SourceDBClusterIdentifier": {"gc-ops-primary"},
 			})
 			vals := url.Values{
 				"Action":                  {tt.action},
 				"Version":                 {"2014-10-31"},
 				"GlobalClusterIdentifier": {"gc-ops"},
 			}
-			maps.Copy(vals, tt.extraVals)
+			if tt.action != "ModifyGlobalCluster" {
+				createClusterInGlobalCluster(t, h, "gc-ops-secondary", "gc-ops")
+				vals.Set("TargetDbClusterIdentifier", "gc-ops-secondary")
+			}
 			rr := doRequest(t, h, vals)
 			assert.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})
 	}
+}
+
+// TestGlobalCluster_FailoverGlobalCluster_UnknownTargetRejected verifies the
+// real-AWS behavior this backend used to get wrong: FailoverGlobalCluster/
+// SwitchoverGlobalCluster to a TargetDbClusterIdentifier this backend
+// tracks no DB cluster for at all must reject with DBClusterNotFoundFault
+// (previously a silent no-op), and to a real cluster that is not a member of
+// the named global cluster must reject with InvalidDBClusterStateFault.
+func TestGlobalCluster_FailoverGlobalCluster_UnknownTargetRejected(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		action       string
+		setup        func(t *testing.T, h *neptune.Handler)
+		target       string
+		wantContains string
+	}{
+		{
+			name:         "failover to nonexistent cluster",
+			action:       "FailoverGlobalCluster",
+			target:       "no-such-cluster",
+			wantContains: "DBClusterNotFoundFault",
+		},
+		{
+			name:   "failover to a real cluster that is not a member",
+			action: "FailoverGlobalCluster",
+			setup: func(t *testing.T, h *neptune.Handler) {
+				t.Helper()
+				createCluster(t, h, "gc-unrelated-cluster")
+			},
+			target:       "gc-unrelated-cluster",
+			wantContains: "InvalidDBClusterStateFault",
+		},
+		{
+			name:         "switchover to nonexistent cluster",
+			action:       "SwitchoverGlobalCluster",
+			target:       "no-such-cluster",
+			wantContains: "DBClusterNotFoundFault",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			createCluster(t, h, "gc-target-primary")
+			doRequest(t, h, url.Values{
+				"Action":                    {"CreateGlobalCluster"},
+				"Version":                   {"2014-10-31"},
+				"GlobalClusterIdentifier":   {"gc-target-checks"},
+				"SourceDBClusterIdentifier": {"gc-target-primary"},
+			})
+			if tt.setup != nil {
+				tt.setup(t, h)
+			}
+
+			rr := doRequest(t, h, url.Values{
+				"Action":                    {tt.action},
+				"Version":                   {"2014-10-31"},
+				"GlobalClusterIdentifier":   {"gc-target-checks"},
+				"TargetDbClusterIdentifier": {tt.target},
+			})
+			assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+			assert.Contains(t, rr.Body.String(), tt.wantContains)
+		})
+	}
+}
+
+// TestGlobalCluster_FailoverGlobalCluster_AlreadyPrimaryRejected verifies
+// failing over to the current writer (nothing to promote) is rejected as
+// InvalidDBClusterStateFault rather than silently succeeding.
+func TestGlobalCluster_FailoverGlobalCluster_AlreadyPrimaryRejected(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	createCluster(t, h, "gc-already-primary")
+	doRequest(t, h, url.Values{
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-already-writer"},
+		"SourceDBClusterIdentifier": {"gc-already-primary"},
+	})
+
+	rr := doRequest(t, h, url.Values{
+		"Action":                    {"FailoverGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-already-writer"},
+		"TargetDbClusterIdentifier": {"gc-already-primary"},
+	})
+	assert.Equal(t, http.StatusBadRequest, rr.Code, rr.Body.String())
+	assert.Contains(t, rr.Body.String(), "InvalidDBClusterStateFault")
 }
 
 func TestGlobalCluster_RemoveFrom(t *testing.T) {
@@ -529,15 +610,20 @@ func TestCreateDescribeDeleteGlobalCluster(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
+	createCluster(t, h, "gc-01-primary")
 
-	// Create global cluster
+	// Create global cluster, with a real primary so Failover/Switchover below
+	// have a genuine member to promote (an arbitrary identifier is now
+	// correctly rejected -- see TestGlobalCluster_FailoverGlobalCluster_UnknownTargetRejected).
 	rr := doRequest(t, h, url.Values{
-		"Action":                  {"CreateGlobalCluster"},
-		"Version":                 {"2014-10-31"},
-		"GlobalClusterIdentifier": {"gc-01"},
+		"Action":                    {"CreateGlobalCluster"},
+		"Version":                   {"2014-10-31"},
+		"GlobalClusterIdentifier":   {"gc-01"},
+		"SourceDBClusterIdentifier": {"gc-01-primary"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "gc-01")
+	createClusterInGlobalCluster(t, h, "gc-01-secondary", "gc-01")
 
 	// Describe
 	rr = doRequest(t, h, url.Values{
@@ -555,32 +641,35 @@ func TestCreateDescribeDeleteGlobalCluster(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 
-	// Failover
+	// Failover promotes the secondary
 	rr = doRequest(t, h, url.Values{
 		"Action":                    {"FailoverGlobalCluster"},
 		"Version":                   {"2014-10-31"},
 		"GlobalClusterIdentifier":   {"gc-01"},
-		"TargetDbClusterIdentifier": {"some-cluster"},
+		"TargetDbClusterIdentifier": {"gc-01-secondary"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
-	// Switchover
+	// Switchover promotes the (now-demoted) original primary back
 	rr = doRequest(t, h, url.Values{
 		"Action":                    {"SwitchoverGlobalCluster"},
 		"Version":                   {"2014-10-31"},
 		"GlobalClusterIdentifier":   {"gc-01"},
-		"TargetDbClusterIdentifier": {"some-cluster"},
+		"TargetDbClusterIdentifier": {"gc-01-primary"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 
-	// Remove from global cluster
-	rr = doRequest(t, h, url.Values{
-		"Action":                  {"RemoveFromGlobalCluster"},
-		"Version":                 {"2014-10-31"},
-		"GlobalClusterIdentifier": {"gc-01"},
-		"DbClusterIdentifier":     {"some-cluster"},
-	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	// Remove both members so DeleteGlobalCluster's no-attached-members
+	// precondition is satisfied.
+	for _, id := range []string{"gc-01-primary", "gc-01-secondary"} {
+		rr = doRequest(t, h, url.Values{
+			"Action":                  {"RemoveFromGlobalCluster"},
+			"Version":                 {"2014-10-31"},
+			"GlobalClusterIdentifier": {"gc-01"},
+			"DbClusterIdentifier":     {"arn:aws:neptune:us-east-1:000000000000:cluster:" + id},
+		})
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+	}
 
 	// Delete
 	rr = doRequest(t, h, url.Values{
@@ -588,7 +677,7 @@ func TestCreateDescribeDeleteGlobalCluster(t *testing.T) {
 		"Version":                 {"2014-10-31"},
 		"GlobalClusterIdentifier": {"gc-01"},
 	})
-	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 }
 
 // TestGlobalCluster_HasArnResourceIdEngine verifies GlobalCluster includes ARN/ResourceId/Engine fields.
@@ -714,13 +803,13 @@ func TestGlobalCluster_FailoverGlobalCluster_PromotesRealTarget(t *testing.T) {
 
 	h := newTestHandler(t)
 	createCluster(t, h, "gc-real-primary")
-	createCluster(t, h, "gc-real-secondary")
 	doRequest(t, h, url.Values{
 		"Action":                    {"CreateGlobalCluster"},
 		"Version":                   {"2014-10-31"},
 		"GlobalClusterIdentifier":   {"gc-real-failover"},
 		"SourceDBClusterIdentifier": {"gc-real-primary"},
 	})
+	createClusterInGlobalCluster(t, h, "gc-real-secondary", "gc-real-failover")
 
 	rr := doRequest(t, h, url.Values{
 		"Action":                    {"FailoverGlobalCluster"},

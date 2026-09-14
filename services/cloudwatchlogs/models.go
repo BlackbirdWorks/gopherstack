@@ -69,6 +69,27 @@ type OutputLogEvent struct {
 	Timestamp     int64  `json:"timestamp"`
 }
 
+// wireOutputLogEvent is OutputLogEvent's wire twin for GetLogEvents:
+// types.OutputLogEvent (cloudwatchlogs v1.86.0 types/types.go:2077-2091) has
+// no ptr member. Ptr MUST stay persisted on OutputLogEvent (do not retag it
+// json:"-") -- it is used internally as a GetLogRecord lookup key and as the
+// fallback source for FilterLogEvents' eventId (see filteredEventID in
+// log_events.go); the nil *struct{} here shadows the embedded field and,
+// with omitempty, drops the key from GetLogEvents' response only.
+type wireOutputLogEvent struct {
+	*OutputLogEvent
+	Ptr *struct{} `json:"ptr,omitempty"`
+}
+
+func toWireOutputLogEvents(events []OutputLogEvent) []wireOutputLogEvent {
+	out := make([]wireOutputLogEvent, len(events))
+	for i := range events {
+		out[i] = wireOutputLogEvent{OutputLogEvent: &events[i]}
+	}
+
+	return out
+}
+
 // FilteredLogEvent represents a single matched event returned by FilterLogEvents.
 // Unlike OutputLogEvent (used by GetLogEvents), it carries the originating log
 // stream name and a unique eventId, matching the AWS FilteredLogEvent shape.
@@ -153,13 +174,30 @@ type Anomaly struct {
 	Active                    bool               `json:"active"`
 }
 
-// ScheduledQueryRunSummary describes a single scheduled query execution.
+// ScheduledQueryRunSummary describes a single scheduled query execution,
+// field-diffed against aws-sdk-go-v2 types.TriggerHistoryRecord (types.go:3191).
+// A previous revision fabricated this shape wholesale (Arn/FailureReason/
+// RunStatus/ExecutionTime/InvocationTime -- none of these are real members),
+// so a real client always decoded an empty history. Destinations is always
+// empty: this backend does not simulate destination delivery for scheduled
+// query runs (see ScheduledQueryDestination).
 type ScheduledQueryRunSummary struct {
-	Arn            string `json:"arn"`
-	FailureReason  string `json:"failureReason,omitempty"`
-	RunStatus      string `json:"runStatus"`
-	ExecutionTime  int64  `json:"executionTime"`
-	InvocationTime int64  `json:"invocationTime"`
+	ErrorMessage       string                      `json:"errorMessage,omitempty"`
+	ExecutionStatus    string                      `json:"executionStatus"`
+	QueryID            string                      `json:"queryId"`
+	Destinations       []ScheduledQueryDestination `json:"destinations,omitempty"`
+	TriggeredTimestamp int64                       `json:"triggeredTimestamp"`
+}
+
+// ScheduledQueryDestination describes destination-processing status for one
+// scheduled query execution (aws-sdk-go-v2 types.ScheduledQueryDestination,
+// types.go:2873).
+type ScheduledQueryDestination struct {
+	DestinationIdentifier string `json:"destinationIdentifier,omitempty"`
+	DestinationType       string `json:"destinationType,omitempty"`
+	ErrorMessage          string `json:"errorMessage,omitempty"`
+	ProcessedIdentifier   string `json:"processedIdentifier,omitempty"`
+	Status                string `json:"status,omitempty"`
 }
 
 // Distribution constants for subscription filter event routing.
@@ -256,9 +294,18 @@ type ExportTask struct {
 // which are not real CloudWatch Logs import statuses). The wire key for this
 // field is importStatus (aws-sdk-go-v2 types.Import.ImportStatus), not status;
 // ImportRoleArn is accepted on CreateImportTask but is deliberately not part
-// of the real Import describe/list shape (types.Import has no such field), so
+// of the real Import describe/list shape (types.Import has no such field,
+// confirmed against aws-sdk-go-v2 cloudwatchlogs@v1.86.0 types/types.go), so
 // it is kept here for this backend's own bookkeeping but is excluded when
-// serialized to the wire (see wireImportTask in handler_export_tasks.go).
+// serialized to the wire -- describeImportTasksOutput
+// (handler_export_tasks.go) embeds []ImportTask directly, so this tag IS the
+// wire converter for DescribeImportTasks, unlike CWLDestination/Transformer's
+// hand-rolled wire-shape functions. See persistence.go's importTaskSnapshot
+// for why ImportRoleArn still needs a real tag for persistence
+// (gopherstack-gqxy0): importTasks was a "clean" table (store_setup.go)
+// whose own json.Marshal round trip honored this tag too, silently dropping
+// ImportRoleArn from every snapshot -- previously noted but never fixed,
+// see PARITY.md.
 type ImportTask struct {
 	ImportID             string `json:"importId"`
 	ImportSourceArn      string `json:"importSourceArn"`
@@ -496,6 +543,15 @@ type ResourcePolicy struct {
 // deliveryDestinationWireShape in handler_deliveries.go for the actual
 // AWS-shaped response mapping used by the handlers.
 type DeliveryDestination struct {
+	// CreatedAt carries json:"-": real types.DeliveryDestination
+	// (aws-sdk-go-v2 cloudwatchlogs@v1.86.0 types/types.go) has no
+	// creation-timestamp member, and deliveryDestinationWireShape
+	// (handler_deliveries.go) is the actual wire converter for this type, so
+	// the tag is correct for the wire. See persistence.go's
+	// deliveryDestinationSnapshot for why it still needs a real tag for
+	// persistence (gopherstack-gqxy0): deliveryDestinations was a "clean"
+	// table (store_setup.go) whose own json.Marshal round trip honored this
+	// tag too, silently dropping CreatedAt from every snapshot.
 	CreatedAt               time.Time         `json:"-"`
 	Tags                    map[string]string `json:"tags,omitempty"`
 	Name                    string            `json:"name"`
@@ -513,6 +569,14 @@ type DeliveryDestination struct {
 // "The Amazon Web Services service that is sending logs"), so this backend
 // derives it the same way -- see serviceFromARN in deliveries.go.
 type DeliverySource struct {
+	// CreatedAt carries json:"-": real types.DeliverySource (aws-sdk-go-v2
+	// cloudwatchlogs@v1.86.0 types/types.go) has no creation-timestamp
+	// member, and deliverySourceWireShape (handler_deliveries.go) is the
+	// actual wire converter for this type, so the tag is correct for the
+	// wire. See persistence.go's deliverySourceSnapshot for why it still
+	// needs a real tag for persistence (gopherstack-gqxy0): deliverySources
+	// was a "clean" table (store_setup.go) whose own json.Marshal round trip
+	// honored this tag too, silently dropping CreatedAt from every snapshot.
 	CreatedAt    time.Time         `json:"-"`
 	Tags         map[string]string `json:"tags,omitempty"`
 	Name         string            `json:"name"`
@@ -524,7 +588,15 @@ type DeliverySource struct {
 
 // CWLDestination represents a CloudWatch Logs log routing destination.
 type CWLDestination struct {
-	CreatedAt       time.Time `json:"-"`
+	// CreatedAt carries a real tag: types.Destination.CreationTime
+	// (aws-sdk-go-v2 cloudwatchlogs@v1.86.0 types/types.go:756) IS a real
+	// wire member (epoch millis). destinationWireShape (handler_destinations.go)
+	// is the actual wire converter for this type -- it reads CreatedAt by
+	// name via .UnixMilli() and never uses this tag -- so the tag only
+	// reaches store's json.Marshal persistence path (destinations is a
+	// "clean" table, store_setup.go), which json:"-" silently broke
+	// (gopherstack-gqxy0).
+	CreatedAt       time.Time `json:"createdAt,omitzero"`
 	DestinationName string    `json:"destinationName"`
 	TargetArn       string    `json:"targetArn"`
 	RoleArn         string    `json:"roleArn"`
@@ -550,13 +622,31 @@ type IndexPolicy struct {
 
 // Transformer represents a CloudWatch Logs log transformer.
 type Transformer struct {
-	CreatedAt          time.Time        `json:"-"`
+	// CreatedAt carries a real tag: GetTransformerOutput.CreationTime
+	// (aws-sdk-go-v2 cloudwatchlogs@v1.86.0 api_op_GetTransformer.go) IS a
+	// real wire member (epoch millis). handleGetTransformer
+	// (handler_transformers.go) is the actual wire converter for this type
+	// -- it reads CreatedAt by name via .UnixMilli() and never uses this tag
+	// -- so the tag only reaches store's json.Marshal persistence path
+	// (transformers is a "clean" table, store_setup.go), which json:"-"
+	// silently broke (gopherstack-gqxy0).
+	CreatedAt          time.Time        `json:"createdAt,omitzero"`
 	LogGroupIdentifier string           `json:"logGroupIdentifier"`
 	Processors         []map[string]any `json:"transformerConfig"`
 }
 
 // CWLIntegration represents a CloudWatch Logs integration (e.g. OpenSearch).
 type CWLIntegration struct {
+	// CreatedAt carries json:"-": neither GetIntegrationOutput,
+	// IntegrationSummary, nor PutIntegrationOutput (aws-sdk-go-v2
+	// cloudwatchlogs@v1.86.0 api_op_GetIntegration.go, types/types.go,
+	// api_op_PutIntegration.go) has a creation-timestamp member, and this
+	// backend builds its wire responses from those fields directly, so the
+	// tag is correct for the wire. See persistence.go's
+	// cwlIntegrationSnapshot for why it still needs a real tag for
+	// persistence (gopherstack-gqxy0): integrations was a "clean" table
+	// (store_setup.go) whose own json.Marshal round trip honored this tag
+	// too, silently dropping CreatedAt from every snapshot.
 	CreatedAt                time.Time                 `json:"-"`
 	OpenSearchResourceConfig *OpenSearchResourceConfig `json:"openSearchResourceConfig,omitempty"`
 	Name                     string                    `json:"integrationName"`

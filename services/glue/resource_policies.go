@@ -40,6 +40,23 @@ func (b *InMemoryBackend) PutResourcePolicy(
 		return "", fmt.Errorf("%w: EnableHybrid must be TRUE or FALSE", ErrValidation)
 	}
 
+	hash, err := b.putResourcePolicyLocked(policy, resourceARN, existsCondition, hashCondition, enableHybrid)
+	if err != nil {
+		return "", err
+	}
+
+	b.syncRAMPolicyShare(resourceARN, enableHybrid, policy)
+
+	return hash, nil
+}
+
+// putResourcePolicyLocked performs the actual policy-map mutation under b.mu. Split out
+// of PutResourcePolicy so the RAM seam call (syncRAMPolicyShare) happens after the lock
+// is released -- ram's lock must never nest inside glue's (services/lambda/lifecycle.go
+// pattern).
+func (b *InMemoryBackend) putResourcePolicyLocked(
+	policy, resourceARN, existsCondition, hashCondition, enableHybrid string,
+) (string, error) {
 	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
@@ -119,6 +136,22 @@ func (b *InMemoryBackend) GetResourcePolicy(resourceARN string) (string, string,
 }
 
 func (b *InMemoryBackend) DeleteResourcePolicy(resourceARN, policyHash string) error {
+	if err := b.deleteResourcePolicyLocked(resourceARN, policyHash); err != nil {
+		return err
+	}
+
+	creator, _ := b.resourceShareCreatorLocked()
+	if creator != nil && resourceARN != "" {
+		_ = creator.DeletePolicyBasedShare(resourceARN)
+	}
+
+	return nil
+}
+
+// deleteResourcePolicyLocked performs the actual policy-map mutation under b.mu. Split
+// out of DeleteResourcePolicy so the RAM seam call happens after the lock is released
+// (see putResourcePolicyLocked's doc for why).
+func (b *InMemoryBackend) deleteResourcePolicyLocked(resourceARN, policyHash string) error {
 	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 

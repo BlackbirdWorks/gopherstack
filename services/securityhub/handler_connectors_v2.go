@@ -170,14 +170,15 @@ func (h *Handler) handleRegisterConnectorV2(c *echo.Context, body map[string]any
 
 func connectorV2ToResponse(conn *ConnectorV2) map[string]any {
 	return map[string]any{
-		keyConnectorID:     conn.ConnectorId,
-		keyConnectorArn:    conn.ConnectorArn,
-		keyName:            conn.Name,
-		keyDescription:     conn.Description,
-		keyCreatedAt:       conn.CreatedAt,
-		keyUpdatedAt:       conn.UpdatedAt,
-		keyConnectorStatus: conn.ConnectorStatus,
-		"Provider":         conn.Provider,
+		keyConnectorID:      conn.ConnectorId,
+		keyConnectorArn:     conn.ConnectorArn,
+		keyName:             conn.Name,
+		keyDescription:      conn.Description,
+		keyCreatedAt:        conn.CreatedAt,
+		keyUpdatedAt:        conn.UpdatedAt,
+		keyConnectorStatus:  conn.ConnectorStatus,
+		keyEnablementStatus: conn.EnablementStatus,
+		"Provider":          conn.Provider,
 	}
 }
 

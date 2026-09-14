@@ -268,9 +268,10 @@ func TestCloneStack(t *testing.T) {
 				t.Helper()
 				stackID := createTestStack(t, h)
 				rec := doTarget(t, h, "CloneStack", map[string]any{
-					"SourceStackId": stackID,
-					"Name":          "cloned-stack",
-					"Region":        "us-west-2",
+					"SourceStackId":  stackID,
+					"Name":           "cloned-stack",
+					"Region":         "us-west-2",
+					"ServiceRoleArn": "arn:aws:iam::000000000000:role/opsworks",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				resp := parseJSON(t, rec.Body.Bytes())
@@ -285,9 +286,22 @@ func TestCloneStack(t *testing.T) {
 			check: func(t *testing.T, h *opsworks.Handler) {
 				t.Helper()
 				rec := doTarget(t, h, "CloneStack", map[string]any{
-					"SourceStackId": "nonexistent",
+					"SourceStackId":  "nonexistent",
+					"ServiceRoleArn": "arn:aws:iam::000000000000:role/opsworks",
 				})
 				assert.Equal(t, http.StatusNotFound, rec.Code)
+			},
+		},
+		{
+			name: "CloneStack missing required ServiceRoleArn returns 400",
+			check: func(t *testing.T, h *opsworks.Handler) {
+				t.Helper()
+				stackID := createTestStack(t, h)
+				rec := doTarget(t, h, "CloneStack", map[string]any{
+					"SourceStackId": stackID,
+					"Name":          "cloned-stack",
+				})
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
 			},
 		},
 		{
@@ -296,8 +310,9 @@ func TestCloneStack(t *testing.T) {
 				t.Helper()
 				stackID := createTestStack(t, h)
 				rec := doTarget(t, h, "CloneStack", map[string]any{
-					"SourceStackId": stackID,
-					"Name":          "clone2",
+					"SourceStackId":  stackID,
+					"Name":           "clone2",
+					"ServiceRoleArn": "arn:aws:iam::000000000000:role/opsworks",
 				})
 				require.Equal(t, http.StatusOK, rec.Code)
 				cloneID := parseJSON(t, rec.Body.Bytes())["StackId"].(string)

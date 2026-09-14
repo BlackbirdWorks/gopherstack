@@ -2,6 +2,7 @@ package appsync
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/vektah/gqlparser/v2/ast"
 
@@ -298,8 +299,9 @@ type AdditionalAuthenticationProvider struct {
 // UpdateGraphqlApi all leaked a caller's real environment-variable values
 // into a response AWS never puts them in, once PutGraphqlApiEnvironmentVariables
 // had been called. Region/CreatedAt/UpdatedAt are also fabricated (not on the
-// real type either) but harmless (no customer data) and left on the wire,
-// disclosed rather than fixed -- see PARITY.md.
+// real type either, appsync v1.60.0 deserializers.go:15221, 22-case list);
+// gopherstack-z887j strips them from the wire too via wireGraphqlAPI below --
+// see PARITY.md.
 type GraphqlAPI struct {
 	URIs                              map[string]string                  `json:"uris"`
 	Tags                              *tags.Tags                         `json:"tags,omitempty"`
@@ -324,6 +326,36 @@ type GraphqlAPI struct {
 	QueryDepthLimit                   int32                              `json:"queryDepthLimit,omitempty"`
 	ResolverCountLimit                int32                              `json:"resolverCountLimit,omitempty"`
 	XrayEnabled                       bool                               `json:"xrayEnabled,omitempty"`
+}
+
+// wireGraphqlAPI is GraphqlAPI's wire twin for CreateGraphqlAPI,
+// GetGraphqlAPI, UpdateGraphqlAPI and ListGraphqlAPIs: types.GraphqlApi
+// (appsync v1.60.0 deserializers.go:15221, 22-case list) has no region,
+// createdAt or updatedAt member. All three MUST stay persisted on
+// GraphqlAPI (do not retag them json:"-"); the nil *struct{} fields here
+// shadow the embedded fields and, with omitempty, drop the keys.
+type wireGraphqlAPI struct {
+	*GraphqlAPI
+	Region    *struct{} `json:"region,omitempty"`
+	CreatedAt *struct{} `json:"createdAt,omitempty"`
+	UpdatedAt *struct{} `json:"updatedAt,omitempty"`
+}
+
+func toWireGraphqlAPI(api *GraphqlAPI) *wireGraphqlAPI {
+	if api == nil {
+		return nil
+	}
+
+	return &wireGraphqlAPI{GraphqlAPI: api}
+}
+
+func toWireGraphqlAPIs(apis []*GraphqlAPI) []*wireGraphqlAPI {
+	out := make([]*wireGraphqlAPI, len(apis))
+	for i, api := range apis {
+		out[i] = toWireGraphqlAPI(api)
+	}
+
+	return out
 }
 
 // GraphqlAPIConfig bundles optional auth/logging config for CreateGraphqlAPI and UpdateGraphqlAPI.
@@ -377,15 +409,58 @@ type APIKey struct {
 }
 
 // APICache represents an AppSync API cache configuration.
+//
+// HealthMetricsConfig is a string enum ("ENABLED"/"DISABLED") in the real
+// wire shape (appsync@v1.60.0 types/types.go:128, types/enums.go:176-181),
+// not a bool -- a bool field here made json.Unmarshal reject every real
+// client's non-empty CacheHealthMetricsConfig value outright.
 type APICache struct {
-	APIID              string `json:"apiId"`
-	Type               string `json:"type"`
-	Status             string `json:"status"`
-	APICachingBehavior string `json:"apiCachingBehavior"`
-	TTL                int64  `json:"ttl"`
-	TransitEncryption  bool   `json:"transitEncryptionEnabled,omitempty"`
-	AtRestEncryption   bool   `json:"atRestEncryptionEnabled,omitempty"`
-	HealthMetrics      bool   `json:"healthMetricsConfig,omitempty"`
+	APIID               string `json:"apiId"`
+	Type                string `json:"type"`
+	Status              string `json:"status"`
+	APICachingBehavior  string `json:"apiCachingBehavior"`
+	HealthMetricsConfig string `json:"healthMetricsConfig,omitempty"`
+	TTL                 int64  `json:"ttl"`
+	TransitEncryption   bool   `json:"transitEncryptionEnabled,omitempty"`
+	AtRestEncryption    bool   `json:"atRestEncryptionEnabled,omitempty"`
+}
+
+// UnmarshalJSON tolerates a snapshot written before HealthMetricsConfig
+// became a string: back when the field was `bool` with the same
+// "healthMetricsConfig" tag, omitempty meant only `true` could ever have
+// been persisted. LANDMINE: do not bump appsyncSnapshotVersion for this.
+func (a *APICache) UnmarshalJSON(data []byte) error {
+	type alias APICache
+
+	aux := struct {
+		*alias
+		HealthMetricsConfig json.RawMessage `json:"healthMetricsConfig,omitempty"`
+	}{alias: (*alias)(a)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if len(aux.HealthMetricsConfig) == 0 {
+		return nil
+	}
+
+	// A real string (or null, a no-op unmarshal target) decodes here directly.
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &a.HealthMetricsConfig); err == nil {
+		return nil
+	}
+
+	var legacy bool
+	if err := json.Unmarshal(aux.HealthMetricsConfig, &legacy); err != nil {
+		return fmt.Errorf("APICache: invalid healthMetricsConfig %s: %w", aux.HealthMetricsConfig, err)
+	}
+
+	a.HealthMetricsConfig = "DISABLED"
+	if legacy {
+		a.HealthMetricsConfig = "ENABLED"
+	}
+
+	return nil
 }
 
 // Function represents an AppSync pipeline function.

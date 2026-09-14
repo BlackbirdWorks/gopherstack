@@ -3049,7 +3049,7 @@ func (r *mockHistoryRecorder) RecordStateExited(_, stateName, _ string, _ any) {
 	r.exited = append(r.exited, stateName)
 }
 
-func (r *mockHistoryRecorder) RecordTaskScheduled(_, stateName, _ string, _ any) {
+func (r *mockHistoryRecorder) RecordTaskScheduled(_, stateName, _ string, _ any, _, _ int) {
 	r.scheduled = append(r.scheduled, stateName)
 }
 

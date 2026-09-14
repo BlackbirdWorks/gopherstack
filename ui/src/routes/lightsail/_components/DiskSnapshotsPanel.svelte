@@ -6,6 +6,7 @@
 	// since that's the tab it's mounted from.
 	import {
 		GetDiskSnapshotsCommand,
+		GetDiskSnapshotCommand,
 		CreateDiskSnapshotCommand,
 		DeleteDiskSnapshotCommand,
 		CopySnapshotCommand,
@@ -174,9 +175,16 @@
 	let detailModal = $state<Modal | null>(null);
 	let viewed = $state<DiskSnapshot | null>(null);
 
-	function openDetail(s: DiskSnapshot): void {
+	async function openDetail(s: DiskSnapshot): Promise<void> {
 		viewed = s;
 		detailModal?.open();
+		if (!s.name) return;
+		try {
+			const resp = await client().send(new GetDiskSnapshotCommand({ diskSnapshotName: s.name }));
+			viewed = resp.diskSnapshot ?? s;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
 	async function addTag(key: string, value: string): Promise<void> {

@@ -165,13 +165,13 @@ func TestPartiQL_Select(t *testing.T) {
 		},
 		{
 			name:      "select projection specific columns",
-			statement: `SELECT pk, status FROM "TT1"`,
+			statement: `SELECT pk, phase FROM "TT1"`,
 			wantCount: 1,
 			skipAttrs: []string{"secret"},
 			rows: []map[string]any{
 				{
 					"pk":     map[string]string{"S": "p1"},
-					"status": map[string]string{"S": "active"},
+					"phase":  map[string]string{"S": "active"},
 					"secret": map[string]string{"S": "hidden"},
 				},
 			},
@@ -359,23 +359,23 @@ func TestPartiQL_Update(t *testing.T) {
 	}{
 		{
 			name:      "update with params",
-			statement: `UPDATE "TT1" SET status = ? WHERE pk = ?`,
+			statement: `UPDATE "TT1" SET phase = ? WHERE pk = ?`,
 			params:    []map[string]any{{"S": "new"}, {"S": "a"}},
 			lookupPK:  "a",
-			wantAttr:  "status",
+			wantAttr:  "phase",
 			wantVal:   map[string]any{"S": "new"},
 		},
 		{
 			name:      "update with string literal in SET",
-			statement: `UPDATE "TT1" SET status = 'updated' WHERE pk = ?`,
+			statement: `UPDATE "TT1" SET phase = 'updated' WHERE pk = ?`,
 			params:    []map[string]any{{"S": "b"}},
 			lookupPK:  "b",
-			wantAttr:  "status",
+			wantAttr:  "phase",
 			wantVal:   map[string]any{"S": "updated"},
 		},
 		{
 			name:      "update no WHERE clause",
-			statement: `UPDATE "TT1" SET status = ?`,
+			statement: `UPDATE "TT1" SET phase = ?`,
 			params:    []map[string]any{{"S": "new"}},
 			wantErr:   true,
 		},
@@ -514,14 +514,14 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 
 	rows := []map[string]any{
 		{
-			"pk":    map[string]string{"S": "user1"},
-			"sk":    map[string]string{"S": "order1"},
-			"total": map[string]string{"N": "100"},
+			"pk":     map[string]string{"S": "user1"},
+			"sk":     map[string]string{"S": "order1"},
+			"amount": map[string]string{"N": "100"},
 		},
 		{
-			"pk":    map[string]string{"S": "user1"},
-			"sk":    map[string]string{"S": "order2"},
-			"total": map[string]string{"N": "200"},
+			"pk":     map[string]string{"S": "user1"},
+			"sk":     map[string]string{"S": "order2"},
+			"amount": map[string]string{"N": "200"},
 		},
 	}
 
@@ -536,10 +536,10 @@ func TestPartiQL_CompositeKey_CaseInsensitiveAND(t *testing.T) {
 	}{
 		{
 			name:      "update with lowercase and in WHERE",
-			statement: `UPDATE "TT1" SET total = ? WHERE pk = ? and sk = ?`,
+			statement: `UPDATE "TT1" SET amount = ? WHERE pk = ? and sk = ?`,
 			params:    []map[string]any{{"N": "999"}, {"S": "user1"}, {"S": "order1"}},
 			lookupSK:  "order1",
-			wantAttr:  "total",
+			wantAttr:  "amount",
 			wantVal:   map[string]any{"N": "999"},
 		},
 		{
@@ -613,9 +613,17 @@ func TestPartiQL_Batch(t *testing.T) {
 		wantErrAt    int
 	}{
 		{
-			name: "batch select all returns first item each",
+			// BatchExecuteStatement SELECT statements must specify an equality
+			// condition on all key attributes (AWS: "Each read statement in a
+			// BatchExecuteStatement must specify an equality condition on all
+			// key attributes"), so a WHERE-less full scan isn't valid here --
+			// unlike standalone ExecuteStatement, where it is.
+			name: "batch select keyed returns item",
 			statements: []map[string]any{
-				{"Statement": `SELECT * FROM "TT1"`},
+				{
+					"Statement":  `SELECT * FROM "TT1" WHERE pk = ?`,
+					"Parameters": []map[string]any{{"S": "ba"}},
+				},
 			},
 			wantLen:     1,
 			wantFirstPK: "ba",
@@ -844,9 +852,9 @@ func TestPartiQL_UpdateREMOVE(t *testing.T) {
 			seed: map[string]any{
 				"pk": map[string]string{"S": "r3"},
 			},
-			stmt:        `UPDATE "PQTBL" REMOVE missing WHERE pk='r3'`,
+			stmt:        `UPDATE "PQTBL" REMOVE absent WHERE pk='r3'`,
 			wantPresent: []string{"pk"},
-			wantAbsent:  []string{"missing"},
+			wantAbsent:  []string{"absent"},
 		},
 	}
 

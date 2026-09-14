@@ -1008,13 +1008,19 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 
 	// Pre-filter by ID, then apply named EC2 filters (name, architecture, state, etc.).
 	idFiltered := make([]*AMIStub, 0, len(amis))
+	found := make(map[string]struct{}, len(requested))
 	for i := range amis {
 		if len(requested) > 0 {
 			if _, ok := requested[amis[i].ImageID]; !ok {
 				continue
 			}
+			found[amis[i].ImageID] = struct{}{}
 		}
 		idFiltered = append(idFiltered, &amis[i])
+	}
+
+	if err := firstMissingID(requested, found, ErrImageNotFound); err != nil {
+		return nil, err
 	}
 
 	filters := parseEC2Filters(vals)

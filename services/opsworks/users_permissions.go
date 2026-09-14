@@ -105,12 +105,21 @@ func (b *InMemoryBackend) DescribeMyUserProfile() (*UserProfile, error) {
 		IamUserArn:          fmt.Sprintf("arn:aws:iam::%s:user/opsworks-user", b.accountID),
 		Name:                "opsworks-user",
 		SSHUsername:         "opsworks",
+		SSHPublicKey:        b.myUserProfileSSHKey,
 		AllowSelfManagement: false,
 	}, nil
 }
 
-// UpdateMyUserProfile updates the SSH public key for the current user.
-func (b *InMemoryBackend) UpdateMyUserProfile(_ string) error {
+// UpdateMyUserProfile updates the SSH public key for the current user. This
+// was previously a no-op stub that silently dropped every real client's
+// SshPublicKey -- a subsequent DescribeMyUserProfile could never observe a
+// change UpdateMyUserProfile claimed to make.
+func (b *InMemoryBackend) UpdateMyUserProfile(sshPublicKey string) error {
+	b.mu.Lock("UpdateMyUserProfile")
+	defer b.mu.Unlock()
+
+	b.myUserProfileSSHKey = sshPublicKey
+
 	return nil
 }
 

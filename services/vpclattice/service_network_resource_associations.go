@@ -124,11 +124,10 @@ func (b *InMemoryBackend) DeleteServiceNetworkResourceAssociation(
 }
 
 // ListServiceNetworkResourceAssociations lists SNRAs with optional filters.
-//
-//nolint:dupl // structurally mirrors ListServiceNetworkServiceAssociations but filters a distinct table/type
 func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	ctx context.Context,
 	serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+	includeChildren bool,
 	maxResults int32,
 	nextToken string,
 ) ([]*ServiceNetworkResourceAssociationSummary, string, error) {
@@ -138,18 +137,24 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	region := b.regionFor(ctx)
 	all := make([]*ServiceNetworkResourceAssociationSummary, 0)
 
+	// IncludeChildren's own doc comment: "Include service network resource
+	// associations of the child resource configuration with the grouped
+	// resource configuration. ... default value is false"
+	// (api_op_ListServiceNetworkResourceAssociations.go). Resolve the
+	// requested group's own ID once so children (matched by
+	// ResourceConfigurationGroupID) can be recognized regardless of whether
+	// the caller passed an ID or an ARN.
+	groupID, groupResolved := b.resolveResourceConfigurationID(resourceConfigurationIdentifier)
+
 	for _, s := range b.snras.All() {
 		if s.Region != region {
 			continue
 		}
 
-		if serviceNetworkIdentifier != "" && s.ServiceNetworkID != serviceNetworkIdentifier &&
-			s.ServiceNetworkARN != serviceNetworkIdentifier {
-			continue
-		}
-
-		if resourceConfigurationIdentifier != "" && s.ResourceConfigurationID != resourceConfigurationIdentifier &&
-			s.ResourceConfigurationARN != resourceConfigurationIdentifier {
+		matches := b.matchesSNRAFilters(
+			s, serviceNetworkIdentifier, resourceConfigurationIdentifier, includeChildren, groupID, groupResolved,
+		)
+		if !matches {
 			continue
 		}
 
@@ -161,6 +166,37 @@ func (b *InMemoryBackend) ListServiceNetworkResourceAssociations(
 	p := page.New(all, nextToken, int(maxResults), defaultMaxResults)
 
 	return p.Data, p.Next, nil
+}
+
+// matchesSNRAFilters is split out of ListServiceNetworkResourceAssociations
+// to keep that function's cognitive complexity under the gocognit limit.
+func (b *InMemoryBackend) matchesSNRAFilters(
+	s *storedSNRA,
+	serviceNetworkIdentifier, resourceConfigurationIdentifier string,
+	includeChildren bool,
+	groupID string,
+	groupResolved bool,
+) bool {
+	if serviceNetworkIdentifier != "" && s.ServiceNetworkID != serviceNetworkIdentifier &&
+		s.ServiceNetworkARN != serviceNetworkIdentifier {
+		return false
+	}
+
+	if resourceConfigurationIdentifier == "" {
+		return true
+	}
+
+	matchesSelf := s.ResourceConfigurationID == resourceConfigurationIdentifier ||
+		s.ResourceConfigurationARN == resourceConfigurationIdentifier
+
+	matchesChild := false
+	if includeChildren && groupResolved {
+		if rc, ok := b.resourceConfigurations.Get(s.ResourceConfigurationID); ok {
+			matchesChild = rc.ResourceConfigurationGroupID == groupID
+		}
+	}
+
+	return matchesSelf || matchesChild
 }
 
 // ------- ResourceEndpointAssociation / ServiceNetworkVpcEndpointAssociation -------

@@ -21,7 +21,8 @@ func TestCACertificate(t *testing.T) {
 	// Register, including registrationConfig -- a real client can send this
 	// as a JSON object (types.RegistrationConfig, iot@v1.77.4), not a string.
 	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
-		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"caCertificate":   "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"certificateMode": "SNI_ONLY",
 		"registrationConfig": map[string]any{
 			"templateName": "my-template",
 			"roleArn":      "arn:aws:iam::000000000000:role/ProvisioningRole",
@@ -81,7 +82,8 @@ func TestUpdateCACertificate_QueryParamsAndBodyFields(t *testing.T) {
 	h := newIoTHandler(t)
 
 	out := iotOK(t, h, http.MethodPost, "/cacertificate/register", map[string]any{
-		"caCertificate": "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"caCertificate":   "-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----",
+		"certificateMode": "SNI_ONLY",
 	})
 	certID, _ := out["certificateId"].(string)
 	require.NotEmpty(t, certID)
@@ -232,11 +234,12 @@ func TestRegisterCertificate_MultipleHaveUniqueIDs(t *testing.T) {
 func TestCreateCertFromCsr_ResponseIncludesStatus_Active(t *testing.T) {
 	t.Parallel()
 
+	// setAsActive is bound as an HTTPQuery param, not a JSON body member
+	// (iot@v1.83.0 schemas.go CreateCertificateFromCsrRequest_setAsActive).
 	h, _ := newR3Handler()
 	var out map[string]string
-	code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
+	code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr?setAsActive=true", map[string]any{
 		"certificateSigningRequest": "csr-data",
-		"setAsActive":               true,
 	}, &out)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "ACTIVE", out["status"])
@@ -249,7 +252,6 @@ func TestCreateCertFromCsr_ResponseIncludesStatus_Inactive(t *testing.T) {
 	var out map[string]string
 	code := r3JSON(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
 		"certificateSigningRequest": "csr-data",
-		"setAsActive":               false,
 	}, &out)
 	require.Equal(t, http.StatusOK, code)
 	assert.Equal(t, "INACTIVE", out["status"])
@@ -340,9 +342,12 @@ func TestCertificateTransferLifecycle_WireShape(t *testing.T) {
 
 	const originalOwner = "123456789012"
 
+	// setAsActive is bound as an HTTPQuery param, not a JSON body member
+	// (iot@v1.83.0 schemas.go AcceptCertificateTransferRequest_setAsActive).
+	//
 	// Accepting before any transfer was initiated fails.
 	rec := doRefRequest(t, h, http.MethodPatch,
-		"/accept-certificate-transfer/"+cert.CertificateID, map[string]any{"setAsActive": true}, nil)
+		"/accept-certificate-transfer/"+cert.CertificateID+"?setAsActive=true", nil, nil)
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "accept with no pending transfer must fail: %s", rec.Body.String())
 
 	rec = doRefRequest(t, h, http.MethodPatch,
@@ -351,7 +356,7 @@ func TestCertificateTransferLifecycle_WireShape(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	rec = doRefRequest(t, h, http.MethodPatch,
-		"/accept-certificate-transfer/"+cert.CertificateID, map[string]any{"setAsActive": true}, nil)
+		"/accept-certificate-transfer/"+cert.CertificateID+"?setAsActive=true", nil, nil)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	var out map[string]any
@@ -385,9 +390,8 @@ func TestListCertificates_WireShape(t *testing.T) {
 	t.Parallel()
 
 	h, _ := newR3Handler()
-	r3Req(t, h, http.MethodPost, "/certificates/create-from-csr", map[string]any{
+	r3Req(t, h, http.MethodPost, "/certificates/create-from-csr?setAsActive=true", map[string]any{
 		"certificateSigningRequest": "csr",
-		"setAsActive":               true,
 	})
 
 	var out struct {

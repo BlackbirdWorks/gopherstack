@@ -29,7 +29,7 @@ func renderServiceReadme(slug string, doc *ParityDoc, hasGuide bool) string {
 	writeCoverageRows(&b, doc)
 	b.WriteString("\n")
 
-	writeKnownGaps(&b, doc.Gaps)
+	writeKnownGaps(&b, doc.openItems())
 	writeStructuralGaps(&b, doc.StructuralGaps)
 	writeDeferredSection(&b, doc.Deferred)
 
@@ -84,8 +84,8 @@ func writeCoverageRows(b *strings.Builder, doc *ParityDoc) {
 	}
 
 	gapsCell := "none"
-	if len(doc.Gaps) > 0 {
-		gapsCell = strconv.Itoa(len(doc.Gaps))
+	if openItems := doc.openItems(); len(openItems) > 0 {
+		gapsCell = strconv.Itoa(len(openItems))
 	}
 	b.WriteString("| Known gaps | " + gapsCell + " |\n")
 

@@ -46,10 +46,7 @@ type describeConnectionsOutput struct {
 func (h *Handler) handleDescribeConnections(
 	ctx context.Context, in *describeConnectionsInput,
 ) (*describeConnectionsOutput, error) {
-	riArn := extractFilterValue(in.Filters, "replication-instance-id")
-	epArn := extractFilterValue(in.Filters, "endpoint-id")
-
-	list, err := h.Backend.DescribeConnections(ctx, riArn, epArn)
+	list, err := h.Backend.DescribeConnections(ctx, newDescribeFilters(in.Filters))
 	if err != nil {
 		return nil, err
 	}

@@ -231,6 +231,15 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 
 	eav := models.FromSDKItem(input.ExpressionAttributeValues)
 
+	if err := checkUndefinedExpressionAttributeNames(
+		input.ExpressionAttributeNames, "KeyConditionExpression", cond,
+	); err != nil {
+		return nil, err
+	}
+	if err := checkUndefinedExpressionAttributeValues(eav, "KeyConditionExpression", cond); err != nil {
+		return nil, err
+	}
+
 	if err := validateQueryKeyValues(exprParts, keySchema, eav, input.ExpressionAttributeNames); err != nil {
 		return nil, err
 	}
@@ -240,7 +249,7 @@ func (db *InMemoryDB) filterCandidatesForKeyCondition(
 	for _, part := range exprParts {
 		pc, err := ParseConditionStr(part)
 		if err != nil {
-			return nil, err
+			return nil, NewValidationException("Invalid KeyConditionExpression: " + err.Error())
 		}
 		parsedParts = append(parsedParts, pc)
 	}
@@ -599,16 +608,27 @@ func (db *InMemoryDB) collectQueryPage(
 ) ([]map[string]any, map[string]any, int, error) {
 	limit := int(aws.ToInt32(input.Limit))
 
-	projector, err := ParseProjector(
-		resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet),
-		input.ExpressionAttributeNames,
-	)
+	proj, atgNames := resolveProjection(aws.ToString(input.ProjectionExpression), input.AttributesToGet)
+
+	projector, err := ParseProjector(proj, mergeAttrNames(input.ExpressionAttributeNames, atgNames))
 	if err != nil {
 		return nil, nil, 0, NewValidationException("Invalid ProjectionExpression: " + err.Error())
 	}
 
+	filterExpr := aws.ToString(input.FilterExpression)
+	if filterExpr != "" {
+		if undefErr := checkUndefinedExpressionAttributeNames(
+			input.ExpressionAttributeNames, "FilterExpression", filterExpr,
+		); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
+		if undefErr := checkUndefinedExpressionAttributeValues(eav, "FilterExpression", filterExpr); undefErr != nil {
+			return nil, nil, 0, undefErr
+		}
+	}
+
 	// Pre-parse the filter expression once to avoid per-item re-lexing overhead.
-	parsedFilter, err := ParseConditionStr(aws.ToString(input.FilterExpression))
+	parsedFilter, err := ParseConditionStr(filterExpr)
 	if err != nil {
 		return nil, nil, 0, NewValidationException("Invalid FilterExpression: " + err.Error())
 	}

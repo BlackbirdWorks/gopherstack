@@ -2,6 +2,7 @@ package rekognition
 
 import (
 	"context"
+	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -16,8 +17,27 @@ func (h *Handler) labelOps() map[string]service.JSONOpFunc {
 
 type detectLabelsReq struct {
 	Image         imageRef `json:"Image"`
+	Features      []string `json:"Features"`
 	MaxLabels     int32    `json:"MaxLabels"`
 	MinConfidence float64  `json:"MinConfidence"`
+}
+
+// detectLabelsFeatureGeneralLabels is the only feature this backend can
+// honor: real DetectLabelsInput.Features also accepts IMAGE_PROPERTIES
+// (rekognition@v1.58.0 api_op_DetectLabels.go:186, DetectLabelsOutput.ImageProperties),
+// which would require fabricating a dominant-color/quality analysis this
+// backend has no data model for at all -- left unimplemented, see PARITY.md.
+const detectLabelsFeatureGeneralLabels = "GENERAL_LABELS"
+
+// wantsGeneralLabels reports whether Labels should be populated: real AWS
+// defaults to GENERAL_LABELS when Features is omitted, and omits Labels
+// entirely when Features is non-empty and excludes it (api_op_DetectLabels.go:149-153).
+func wantsGeneralLabels(features []string) bool {
+	if len(features) == 0 {
+		return true
+	}
+
+	return slices.Contains(features, detectLabelsFeatureGeneralLabels)
 }
 
 type labelEntry struct {
@@ -35,7 +55,10 @@ func (h *Handler) handleDetectLabels(ctx context.Context, req *detectLabelsReq) 
 		return nil, err
 	}
 
-	labels := plausibleLabels(resolveMinConfidence(req.MinConfidence), req.MaxLabels)
+	labels := []labelEntry{}
+	if wantsGeneralLabels(req.Features) {
+		labels = plausibleLabels(resolveMinConfidence(req.MinConfidence), req.MaxLabels)
+	}
 
 	return &detectLabelsResp{
 		Labels:                labels,

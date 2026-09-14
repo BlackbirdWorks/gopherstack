@@ -28,6 +28,10 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	tasks, err = applyExportTaskFilters(vals, tasks)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlExportTask, 0, len(tasks))
 	for _, task := range tasks {
 		cp := task

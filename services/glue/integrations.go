@@ -56,6 +56,13 @@ func (b *InMemoryBackend) CreateIntegration(
 		return nil, fmt.Errorf("%w: TargetArn is required", ErrValidation)
 	}
 
+	if b.integrations.Len() >= b.limits.integrations {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d integration limit",
+			ErrResourceNumberLimitExceeded, b.limits.integrations,
+		)
+	}
+
 	now := time.Now().UTC()
 	ig := &Integration{
 		IntegrationName: name,
@@ -143,8 +150,8 @@ func (b *InMemoryBackend) ModifyIntegration(identifier string) (*Integration, er
 // the lock can't race with UpdateIntegrationResourceProperty mutating the original).
 func cloneIntegrationResourceProperty(p *IntegrationResourceProperty) *IntegrationResourceProperty {
 	cp := *p
-	cp.SourceProperties = maps.Clone(p.SourceProperties)
-	cp.TargetProperties = maps.Clone(p.TargetProperties)
+	cp.SourceProcessingProperties = maps.Clone(p.SourceProcessingProperties)
+	cp.TargetProcessingProperties = maps.Clone(p.TargetProcessingProperties)
 
 	return &cp
 }
@@ -152,7 +159,7 @@ func cloneIntegrationResourceProperty(p *IntegrationResourceProperty) *Integrati
 // CreateIntegrationResourceProperty stores properties for an integration resource.
 func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 	resourceArn string,
-	sourceProps, targetProps map[string]string,
+	sourceProps, targetProps map[string]any,
 ) (*IntegrationResourceProperty, error) {
 	if resourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
@@ -162,10 +169,10 @@ func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 	defer b.mu.Unlock()
 
 	prop := &IntegrationResourceProperty{
-		CreatedAt:        time.Now(),
-		ResourceArn:      resourceArn,
-		SourceProperties: sourceProps,
-		TargetProperties: targetProps,
+		CreatedAt:                  time.Now(),
+		ResourceArn:                resourceArn,
+		SourceProcessingProperties: sourceProps,
+		TargetProcessingProperties: targetProps,
 	}
 	b.integrationResourceProps.Put(prop)
 
@@ -192,7 +199,7 @@ func (b *InMemoryBackend) GetIntegrationResourceProperty(resourceArn string) (*I
 // UpdateIntegrationResourceProperty updates a previously created resource property.
 func (b *InMemoryBackend) UpdateIntegrationResourceProperty(
 	resourceArn string,
-	sourceProps, targetProps map[string]string,
+	sourceProps, targetProps map[string]any,
 ) (*IntegrationResourceProperty, error) {
 	if resourceArn == "" {
 		return nil, fmt.Errorf("%w: ResourceArn is required", ErrValidation)
@@ -207,11 +214,11 @@ func (b *InMemoryBackend) UpdateIntegrationResourceProperty(
 	}
 
 	if sourceProps != nil {
-		prop.SourceProperties = sourceProps
+		prop.SourceProcessingProperties = sourceProps
 	}
 
 	if targetProps != nil {
-		prop.TargetProperties = targetProps
+		prop.TargetProcessingProperties = targetProps
 	}
 
 	return cloneIntegrationResourceProperty(prop), nil

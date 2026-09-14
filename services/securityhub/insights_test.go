@@ -222,7 +222,7 @@ func TestBackend_GetInsights_Pagination(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 
 			_, err := b.CreateInsight("Insight1", "SeverityLabel", map[string]any{})
 			require.NoError(t, err)
@@ -253,7 +253,7 @@ func TestBackend_GetInsights_ByArn(t *testing.T) {
 	}
 
 	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.EnableHub(false, nil))
+	require.NoError(t, b.EnableHub(false, "", nil))
 	arn, err := b.CreateInsight("SomeInsight", "SeverityLabel", map[string]any{})
 	require.NoError(t, err)
 
@@ -307,7 +307,7 @@ func TestBackend_UpdateInsight(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 
 			var insightArn string
 			if !tc.notFound {
@@ -345,7 +345,7 @@ func TestBackend_GetInsightResults(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 
 			var insightArn string
 			if tc.preCreate {
@@ -390,7 +390,7 @@ func TestBackend_DeleteInsight(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 
 			var insightArn string
 			if tc.preCreate {
@@ -421,7 +421,7 @@ func TestBackend_GetInsightResults_AggregatesFindings(t *testing.T) {
 	t.Parallel()
 
 	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.EnableHub(false, nil))
+	require.NoError(t, b.EnableHub(false, "", nil))
 
 	_, failed, failedFindings := b.ImportFindings([]map[string]any{
 		securityhub.ValidFinding(map[string]any{"Id": "f1", "Severity": map[string]any{"Label": "HIGH"}}),

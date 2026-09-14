@@ -129,16 +129,15 @@ func (h *Handler) handleDescribeFleetAdvisorCollectors(
 		return nil, err
 	}
 
-	nameFilter := extractFilterValue(in.Filters, "collector-name")
-	idFilter := extractFilterValue(in.Filters, "collector-referenced-id")
+	df := newDescribeFilters(in.Filters)
 
 	result := make([]fleetAdvisorCollectorJSON, 0, len(list))
 	for _, col := range list {
-		if nameFilter != "" && col.CollectorName != nameFilter {
+		if !df.Matches("collector-name", col.CollectorName) {
 			continue
 		}
 
-		if idFilter != "" && col.CollectorReferencedID != idFilter {
+		if !df.Matches("collector-referenced-id", col.CollectorReferencedID) {
 			continue
 		}
 
@@ -174,47 +173,37 @@ type describeFleetAdvisorDatabasesOutput struct {
 	Databases []map[string]any `json:"Databases"`
 }
 
-// fleetAdvisorDatabaseFilters holds the five documented
-// DescribeFleetAdvisorDatabases filter values
-// (api_op_DescribeFleetAdvisorDatabases.go). server-ip-address and
-// database-ip-address both resolve against IPAddress: this backend models
-// one IP per discovered database, not a separate server/database pair.
-type fleetAdvisorDatabaseFilters struct {
-	id            string
-	name          string
-	engine        string
-	ip            string
-	collectorName string
-}
-
-func fleetAdvisorDatabaseFiltersFrom(filters []filterEntry) fleetAdvisorDatabaseFilters {
-	return fleetAdvisorDatabaseFilters{
-		id:            extractFilterValue(filters, "database-id"),
-		name:          extractFilterValue(filters, "database-name"),
-		engine:        extractFilterValue(filters, "database-engine"),
-		ip:            extractFilterValue(filters, "database-ip-address", "server-ip-address"),
-		collectorName: extractFilterValue(filters, "collector-name"),
-	}
-}
-
-func (f fleetAdvisorDatabaseFilters) matches(db *FleetAdvisorDatabase, collectorNames map[string]string) bool {
-	if f.id != "" && db.DatabaseID != f.id {
+// fleetAdvisorDatabaseMatchesFilters applies every documented
+// DescribeFleetAdvisorDatabases filter name
+// (api_op_DescribeFleetAdvisorDatabases.go: database-id, database-name,
+// database-engine, server-ip-address, database-ip-address, collector-name)
+// to a single database. server-ip-address and database-ip-address both
+// resolve against IPAddress: this backend models one IP per discovered
+// database, not a separate server/database pair.
+func fleetAdvisorDatabaseMatchesFilters(
+	db *FleetAdvisorDatabase, filters DescribeFilters, collectorNames map[string]string,
+) bool {
+	if !filters.Matches("database-id", db.DatabaseID) {
 		return false
 	}
 
-	if f.name != "" && db.DatabaseName != f.name {
+	if !filters.Matches("database-name", db.DatabaseName) {
 		return false
 	}
 
-	if f.engine != "" && db.EngineName != f.engine {
+	if !filters.Matches("database-engine", db.EngineName) {
 		return false
 	}
 
-	if f.ip != "" && db.IPAddress != f.ip {
+	if !filters.Matches("database-ip-address", db.IPAddress) {
 		return false
 	}
 
-	return f.collectorName == "" || collectorNames[db.CollectorReferencedID] == f.collectorName
+	if !filters.Matches("server-ip-address", db.IPAddress) {
+		return false
+	}
+
+	return filters.Matches("collector-name", collectorNames[db.CollectorReferencedID])
 }
 
 func fleetAdvisorDatabaseJSON(db *FleetAdvisorDatabase) map[string]any {
@@ -239,10 +228,10 @@ func (h *Handler) handleDescribeFleetAdvisorDatabases(
 		return nil, err
 	}
 
-	filters := fleetAdvisorDatabaseFiltersFrom(in.Filters)
+	filters := newDescribeFilters(in.Filters)
 
 	var collectorNames map[string]string
-	if filters.collectorName != "" {
+	if len(filters.Values("collector-name")) > 0 {
 		collectors, colErr := h.Backend.DescribeFleetAdvisorCollectors(ctx)
 		if colErr != nil {
 			return nil, colErr
@@ -256,7 +245,7 @@ func (h *Handler) handleDescribeFleetAdvisorDatabases(
 
 	dbs := make([]map[string]any, 0, len(list))
 	for _, db := range list {
-		if filters.matches(db, collectorNames) {
+		if fleetAdvisorDatabaseMatchesFilters(db, filters, collectorNames) {
 			dbs = append(dbs, fleetAdvisorDatabaseJSON(db))
 		}
 	}

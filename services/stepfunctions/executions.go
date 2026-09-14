@@ -151,6 +151,7 @@ func (b *InMemoryBackend) StartSyncExecution(
 	executor.SetMapRunNotifier(
 		&syncMapRunNotifier{backend: b, execARN: execARN, smARN: baseSMArn},
 	)
+	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	executor.SetExecutionContext(
 		execARN,
 		name,
@@ -233,7 +234,7 @@ func (b *InMemoryBackend) initializeExecutionRecord(
 		Name:                   name,
 		Status:                 statusRunning,
 		Input:                  input,
-		InputDetails:           &CloudWatchEventsExecutionDataDetails{Truncated: false},
+		InputDetails:           &CloudWatchEventsExecutionDataDetails{Included: true},
 		RedriveStatus:          redriveStatusNotRedrivable,
 		RedriveStatusReason:    redriveStatusReasonRunning,
 		history: []*HistoryEvent{
@@ -260,6 +261,12 @@ type startedExecution struct {
 	exec            *Execution
 	parsedSM        *asl.StateMachine
 	execArn         string
+	// reused is true when exec is an existing RUNNING execution returned
+	// under StartExecution's STANDARD idempotency rule, not a freshly
+	// created one -- the caller must not spawn another interpreter
+	// goroutine or otherwise treat this as a new execution. See
+	// startExecutionLocked.
+	reused bool
 }
 
 // startExecutionLocked validates the state machine, registers the new execution
@@ -302,8 +309,27 @@ func (b *InMemoryBackend) startExecutionLocked(
 	// was a version or alias ARN -- see resolveExecutionTarget's doc comment.
 	baseSMArn := sm.StateMachineArn
 	execArn := b.execARN(baseSMArn, sm.Name, name)
-	if sm.Type != "EXPRESS" && b.executions.Has(execArn) {
-		return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+
+	// StartExecution is idempotent for STANDARD workflows: calling it again
+	// with the same name and input against a still-RUNNING execution
+	// returns that same execution rather than erroring (api_op_
+	// StartExecution.go doc on Name: "StartExecution is idempotent for
+	// STANDARD workflows... if you call it with the same name and input as
+	// a running execution, the call succeeds and return[s] the same
+	// response as the original request. If the execution is closed or if
+	// the input is different, it returns a 400 ExecutionAlreadyExists
+	// error."). EXPRESS names may be reused immediately (same doc) -- no
+	// uniqueness check runs for them at all.
+	if sm.Type != "EXPRESS" {
+		if existing, ok := b.executions.Get(execArn); ok {
+			if existing.Status == statusRunning && existing.Input == input {
+				cp := *existing
+
+				return &startedExecution{exec: &cp, execArn: execArn, reused: true}, nil
+			}
+
+			return nil, fmt.Errorf("%w: %s", ErrExecutionAlreadyExists, name)
+		}
 	}
 
 	// Parse the definition before inserting any state, so a bad definition never
@@ -365,6 +391,13 @@ func (b *InMemoryBackend) StartExecutionWithTrace(
 	started, err := b.startExecutionLocked(stateMachineArn, name, input)
 	if err != nil {
 		return nil, err
+	}
+
+	// Idempotent STANDARD replay: return the original running execution's
+	// response unchanged, including its original TraceHeader -- no new
+	// execution, goroutine, or state mutation.
+	if started.reused {
+		return started.exec, nil
 	}
 
 	if traceHeader != "" {
@@ -434,6 +467,7 @@ func (b *InMemoryBackend) runParsedExecution(
 	executor.SetActivityInvoker(activityInvoker)
 	executor.SetTaskTokenCallbackInvoker(b)
 	executor.SetMapRunNotifier(b)
+	executor.SetDistributedMapRunner(&distributedMapChildRunner{backend: b})
 	b.applyExecutorContext(executor, execARN)
 	result, execErr := executor.Execute(ctx, execARN, input)
 
@@ -506,7 +540,7 @@ func (b *InMemoryBackend) finalizeExecutionRecordLocked(
 	outputBytes, _ := json.Marshal(result.Output)
 	exec.Status = statusSucceeded
 	exec.Output = string(outputBytes)
-	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Truncated: false}
+	exec.OutputDetails = &CloudWatchEventsExecutionDataDetails{Included: true}
 	exec.RedriveStatus = redriveStatusNotRedrivable
 	exec.RedriveStatusReason = redriveStatusReasonSucceeded
 	b.removeFromStatusBucket(exec.StateMachineArn, statusRunning, execARN)
@@ -615,6 +649,54 @@ func (b *InMemoryBackend) ListExecutions(
 	all := make([]Execution, 0, len(execs))
 	b.historyMu.RLock()
 	for _, exec := range execs {
+		// Distributed Map child executions share their parent's
+		// StateMachineArn (AWS's ItemProcessor is nested ASL, not a
+		// separately registered state machine), but AWS only surfaces them
+		// via ListExecutions(mapRunArn=...), never in the default
+		// stateMachineArn-scoped listing -- see ListExecutionsByMapRun.
+		if exec.MapRunArn != "" {
+			continue
+		}
+
+		all = append(all, *exec)
+	}
+	b.historyMu.RUnlock()
+
+	sort.Slice(all, func(i, j int) bool { return all[i].StartDate > all[j].StartDate })
+
+	page, token := paginate(all, nextToken, maxResults)
+
+	return page, token, nil
+}
+
+// ListExecutionsByMapRun returns the Distributed Map child executions
+// attributed to mapRunARN via Execution.MapRunArn -- the AWS
+// ListExecutions(mapRunArn=...) query mode (mutually exclusive with
+// stateMachineArn; see handleListExecutions). An unknown mapRunARN models
+// MapRunDoesNotExist, matching DescribeMapRun's error for the same
+// condition.
+func (b *InMemoryBackend) ListExecutionsByMapRun(
+	mapRunARN, statusFilter, nextToken string, maxResults int,
+) ([]Execution, string, error) {
+	b.mu.RLock("ListExecutionsByMapRun")
+	defer b.mu.RUnlock()
+
+	if !b.mapRuns.Has(mapRunARN) {
+		return nil, "", fmt.Errorf("%w: %s", ErrMapRunDoesNotExist, mapRunARN)
+	}
+
+	execs := b.executionsByMapRun.Get(mapRunARN)
+
+	// See the comment in DescribeExecution: whole-struct copies of *Execution
+	// touch history, which appendHistory writes under historyMu rather than
+	// b.mu's write lock, so copying it here needs the same guard.
+	all := make([]Execution, 0, len(execs))
+	b.historyMu.RLock()
+	for _, exec := range execs {
+		if statusFilter != "" && exec.Status != statusFilter {
+			continue
+		}
+
 		all = append(all, *exec)
 	}
 	b.historyMu.RUnlock()

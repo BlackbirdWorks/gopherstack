@@ -16,10 +16,21 @@ func (h *Handler) handleDescribeSchedule(c *echo.Context, channelID string) erro
 
 	out := make([]map[string]any, 0, len(actions))
 	for _, a := range actions {
-		out = append(out, map[string]any{keyActionName: a.ActionName})
+		out = append(out, scheduleActionToResponse(a))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{keyScheduleActions: out})
+}
+
+// scheduleActionToResponse builds the real ScheduleAction wire shape.
+// ActionName/ScheduleActionSettings/ScheduleActionStartSettings are all
+// "This member is required" (medialive@v1.101.4 types/types.go:7277-7287).
+func scheduleActionToResponse(a ScheduleAction) map[string]any {
+	return map[string]any{
+		keyActionName:                 a.ActionName,
+		"scheduleActionSettings":      a.ScheduleActionSettings,
+		"scheduleActionStartSettings": a.ScheduleActionStartSettings,
+	}
 }
 
 func (h *Handler) handleDeleteSchedule(c *echo.Context, channelID string) error {
@@ -45,7 +56,13 @@ func (h *Handler) handleBatchUpdateSchedule(
 					continue
 				}
 				actionName, _ := m[keyActionName].(string)
-				creates = append(creates, ScheduleAction{ActionName: actionName})
+				settings, _ := m["scheduleActionSettings"].(map[string]any)
+				startSettings, _ := m["scheduleActionStartSettings"].(map[string]any)
+				creates = append(creates, ScheduleAction{
+					ActionName:                  actionName,
+					ScheduleActionSettings:      settings,
+					ScheduleActionStartSettings: startSettings,
+				})
 			}
 		}
 	}
@@ -59,14 +76,14 @@ func (h *Handler) handleBatchUpdateSchedule(
 	}
 	createsOut := make([]map[string]any, 0, len(result.Creates))
 	for _, a := range result.Creates {
-		createsOut = append(createsOut, map[string]any{keyActionName: a.ActionName})
+		createsOut = append(createsOut, scheduleActionToResponse(a))
 	}
 	// BatchScheduleActionDeleteResult also echoes back "scheduleActions"
 	// (the full deleted actions), NOT "actionNames" -- verified against
 	// the SDK deserializer (awsRestjson1_deserializeDocumentBatchScheduleActionDeleteResult).
 	deletesOut := make([]map[string]any, 0, len(result.Deletes))
 	for _, a := range result.Deletes {
-		deletesOut = append(deletesOut, map[string]any{keyActionName: a.ActionName})
+		deletesOut = append(deletesOut, scheduleActionToResponse(a))
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

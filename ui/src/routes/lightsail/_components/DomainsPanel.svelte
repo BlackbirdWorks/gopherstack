@@ -6,6 +6,7 @@
 	// reports us-east-1).
 	import {
 		GetDomainsCommand,
+		GetDomainCommand,
 		CreateDomainCommand,
 		DeleteDomainCommand,
 		CreateDomainEntryCommand,
@@ -130,19 +131,25 @@
 	let newEntryType = $state('A');
 	let newEntryTarget = $state('');
 
-	function openDetail(d: Domain): void {
+	async function openDetail(d: Domain): Promise<void> {
 		viewed = d;
 		newEntryName = '';
 		newEntryType = 'A';
 		newEntryTarget = '';
 		detailModal?.open();
+		if (!d.name) return;
+		try {
+			const resp = await client().send(new GetDomainCommand({ domainName: d.name }));
+			viewed = resp.domain ?? d;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
 	async function refreshDomain(): Promise<void> {
 		if (!viewed?.name) return;
-		const resp = await client().send(new GetDomainsCommand({}));
-		const found = (resp.domains ?? []).find((d) => d.name === viewed?.name);
-		if (found) viewed = found;
+		const resp = await client().send(new GetDomainCommand({ domainName: viewed.name }));
+		if (resp.domain) viewed = resp.domain;
 	}
 
 	async function addEntry(): Promise<void> {

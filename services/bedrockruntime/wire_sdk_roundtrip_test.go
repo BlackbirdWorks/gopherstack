@@ -1,10 +1,12 @@
 package bedrockruntime_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awscfg "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	bedrockruntimesdk "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
@@ -22,6 +24,15 @@ import (
 // Handler, wired through the same pkgs/service registry/router used in
 // production -- so event-stream framing is proven by the real client's own
 // eventstream reader, not by hand-parsing the raw binary frames.
+//
+// Keep-alives are disabled for the same reason as
+// services/kinesis/handler_create_tags_test.go's newTestKinesisClient: a
+// stale-idle-connection reuse race in net/http's Transport (confirmed
+// there via a goroutine dump showing (*persistConn).writeLoop tearing down
+// a connection while the SDK's event-stream reader was still blocked
+// reading it) surfaces as "use of closed network connection" instead of a
+// clean EOF under heavy CI load. Forcing a fresh connection per request
+// removes the reuse window; it does not change what any test observes.
 func newTestBedrockRuntimeSDKClient(
 	t *testing.T,
 	h *bedrockruntime.Handler,
@@ -47,6 +58,9 @@ func newTestBedrockRuntimeSDKClient(
 
 	return bedrockruntimesdk.NewFromConfig(cfg, func(o *bedrockruntimesdk.Options) {
 		o.BaseEndpoint = aws.String(srv.URL)
+		o.HTTPClient = awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+			tr.DisableKeepAlives = true
+		})
 	})
 }
 

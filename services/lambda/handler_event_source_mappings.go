@@ -43,6 +43,7 @@ type handleCreateESMInput struct {
 	EventSourceARN                      string                               `json:"EventSourceArn"`
 	FunctionName                        string                               `json:"FunctionName"`
 	StartingPosition                    string                               `json:"StartingPosition"`
+	KMSKeyArn                           string                               `json:"KMSKeyArn"`
 	SourceAccessConfigurations          []SourceAccessConfiguration          `json:"SourceAccessConfigurations"`
 	Topics                              []string                             `json:"Topics"`
 	Queues                              []string                             `json:"Queues"`
@@ -76,6 +77,7 @@ func (h *Handler) handleCreateESM(c *echo.Context) error {
 			EventSourceARN:                      req.EventSourceARN,
 			FunctionName:                        req.FunctionName,
 			StartingPosition:                    req.StartingPosition,
+			KMSKeyArn:                           req.KMSKeyArn,
 			BatchSize:                           req.BatchSize,
 			Enabled:                             enabled,
 			FilterCriteria:                      req.FilterCriteria,
@@ -158,6 +160,7 @@ type handleUpdateESMInput struct {
 	FilterCriteria                 *FilterCriteria             `json:"FilterCriteria"`
 	DestinationConfig              *ESMDestinationConfig       `json:"DestinationConfig"`
 	BisectBatchOnFunctionError     *bool                       `json:"BisectBatchOnFunctionError"`
+	KMSKeyArn                      string                      `json:"KMSKeyArn"`
 	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
 	Topics                         []string                    `json:"Topics"`
 	Queues                         []string                    `json:"Queues"`
@@ -190,6 +193,7 @@ func (h *Handler) handleUpdateESM(c *echo.Context, id string) error {
 	m, err := lambdaBk.UpdateEventSourceMapping(id, &UpdateEventSourceMappingInput{
 		Enabled:                        req.Enabled,
 		BatchSize:                      req.BatchSize,
+		KMSKeyArn:                      req.KMSKeyArn,
 		FilterCriteria:                 req.FilterCriteria,
 		DestinationConfig:              req.DestinationConfig,
 		SourceAccessConfigurations:     req.SourceAccessConfigurations,

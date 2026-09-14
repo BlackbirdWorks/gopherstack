@@ -204,6 +204,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.restoreCoreFields(&snap)
 	b.restoreExtendedFields(&snap)
+	b.recomputeIpamPrefixListResolverCurrentVersionsLocked()
 	b.rebuildSecondaryIndexesLocked()
 	b.restoreMiscMapFields(&snap)
 

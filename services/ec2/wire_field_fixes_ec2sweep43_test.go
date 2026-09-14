@@ -99,7 +99,7 @@ func TestDescribeReservedInstancesOfferings_DefaultMaxResults(t *testing.T) {
 
 	for i := range seedCount {
 		b.SeedReservedInstancesOffering(
-			fmt.Sprintf("ec2sweep43-offering-%03d", i), "t3.micro", "us-east-1a", "Linux/UNIX", "Standard",
+			fmt.Sprintf("ec2sweep43-offering-%03d", i), "t3.micro", "us-east-1a", "Linux/UNIX", "Standard", "standard",
 			31536000, 0, 0.05,
 		)
 	}
@@ -239,11 +239,12 @@ func TestDescribeScheduledInstanceAvailability_MaxResultsRangeEnforced(t *testin
 
 	_, client := newTestBackendAndClient(t)
 
-	// The backend never reads FirstSlotStartTimeRange/Recurrence (confirmed
-	// against DescribeScheduledInstanceAvailability's backend implementation,
-	// which only consults Filters/MinSlotDurationInHours/MaxSlotDurationInHours),
-	// but the generated client validates them client-side before the request
-	// is ever sent, so both are populated here purely to clear that gate.
+	// FirstSlotStartTimeRange is required (required-INPUT-member sweep pass
+	// 4b): the backend now rejects a missing EarliestTime/LatestTime and
+	// filters the static catalog's FirstSlotStartTime (now+7 days) against
+	// this window. Recurrence remains unread -- the client validates it
+	// client-side before the request is ever sent, so it is populated here
+	// purely to clear that gate.
 	req := func(maxResults int32) *ec2sdk.DescribeScheduledInstanceAvailabilityInput {
 		return &ec2sdk.DescribeScheduledInstanceAvailabilityInput{
 			MaxResults:             aws.Int32(maxResults),

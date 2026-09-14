@@ -43,6 +43,7 @@ const (
 	keyWebAppID           = "WebAppId"
 	keySecurityPolicyName = "SecurityPolicyName"
 	keyRole               = "Role"
+	keyServerID           = "ServerId"
 )
 
 var (

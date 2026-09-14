@@ -229,9 +229,9 @@ func TestListGeneratedTemplates_TiedNamePageWalk(t *testing.T) {
 
 	b := newBackend()
 
-	// ListGeneratedTemplates hardcodes cfnDefaultPageSize (100) as its page
-	// size -- it takes no maxResults param -- so total must exceed 100 to
-	// force a page boundary at all.
+	// ListGeneratedTemplates defaults to 50 per page when maxResults is unset
+	// (cloudformation@v1.76.1 api_op_ListGeneratedTemplates.go:35) -- total
+	// must exceed 50 to force a page boundary at all.
 	const total = 110
 
 	want := make(map[string]bool, total)
@@ -242,14 +242,14 @@ func TestListGeneratedTemplates_TiedNamePageWalk(t *testing.T) {
 		want[gt.GeneratedTemplateID] = true
 	}
 
-	const pageSize = 100
+	const pageSize = 50
 
 	for iter := range 30 {
 		got := make(map[string]int, total)
 
 		token := ""
 		for range total/pageSize + 2 {
-			p, err := b.ListGeneratedTemplates(token)
+			p, err := b.ListGeneratedTemplates(0, token)
 			require.NoError(t, err)
 
 			for _, gt := range p.Data {
@@ -362,9 +362,9 @@ func TestListResourceScans_PageWalkReproducesFullSet(t *testing.T) {
 
 	b := newBackend()
 
-	// ListResourceScans hardcodes cfnDefaultPageSize (100) as its page size
-	// -- it takes no maxResults param -- so total must exceed 100 to force a
-	// page boundary at all.
+	// ListResourceScans defaults to 10 per page when maxResults is unset
+	// (cloudformation@v1.76.1 api_op_ListResourceScans.go:35) -- total must
+	// exceed 10 to force a page boundary at all.
 	const total = 110
 
 	want := make(map[string]bool, total)
@@ -375,14 +375,14 @@ func TestListResourceScans_PageWalkReproducesFullSet(t *testing.T) {
 		want[scanID] = true
 	}
 
-	const pageSize = 100
+	const pageSize = 10
 
 	for iter := range 30 {
 		got := make(map[string]int, total)
 
 		token := ""
 		for range total/pageSize + 2 {
-			p, err := b.ListResourceScans(token)
+			p, err := b.ListResourceScans(0, token)
 			require.NoError(t, err)
 
 			for _, rs := range p.Data {

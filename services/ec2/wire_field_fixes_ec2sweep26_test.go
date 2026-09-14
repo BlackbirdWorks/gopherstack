@@ -210,7 +210,7 @@ func TestVerifiedAccessFamily_TagSet_RealClient(t *testing.T) {
 	require.NoError(t, err)
 	grp, err := b.CreateVerifiedAccessGroup(inst.VerifiedAccessInstanceID, "sweep26 group")
 	require.NoError(t, err)
-	tp, err := b.CreateVerifiedAccessTrustProvider("user", "sweep26 trust provider")
+	tp, err := b.CreateVerifiedAccessTrustProvider("user", "sweep26 trust provider", "policy-ref")
 	require.NoError(t, err)
 	ep, err := b.CreateVerifiedAccessEndpoint(grp.VerifiedAccessGroupID, "network-interface", "sweep26 endpoint")
 	require.NoError(t, err)

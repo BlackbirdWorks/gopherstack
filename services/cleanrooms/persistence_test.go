@@ -33,13 +33,13 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 	t.Helper()
 
 	collab, err := b.CreateCollaboration(
-		"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED",
+		"collab-1", "a collab", "creator", []string{"CAN_QUERY"}, nil, "ENABLED", "", false, nil,
 		map[string]string{"env": "test"},
 	)
 	require.NoError(t, err)
 
 	membership, err := b.CreateMembership(
-		collab.CollaborationIdentifier, "ENABLED", []string{"CAN_QUERY"}, nil, nil,
+		collab.CollaborationIdentifier, "ENABLED", "", []string{"CAN_QUERY"}, nil, nil, nil, false,
 		map[string]string{"team": "core"},
 	)
 	require.NoError(t, err)
@@ -160,7 +160,7 @@ func seedFullState(t *testing.T, b *cleanrooms.InMemoryBackend) seedState {
 func assertTopLevelRestored(t *testing.T, fresh *cleanrooms.InMemoryBackend, seed seedState) {
 	t.Helper()
 
-	newCollab, err := fresh.CreateCollaboration("collab-2", "", "creator-2", nil, nil, "", nil)
+	newCollab, err := fresh.CreateCollaboration("collab-2", "", "creator-2", nil, nil, "", "", false, nil, nil)
 	require.NoError(t, err)
 	assert.Contains(t, newCollab.Arn, "111122223333")
 	assert.Contains(t, newCollab.Arn, "us-west-2")
@@ -385,7 +385,7 @@ func TestInMemoryBackend_Restore(t *testing.T) {
 			t.Parallel()
 			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 			if tt.wants.emptyCollab {
-				_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+				_, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", "", false, nil, nil)
 				require.NoError(t, err)
 			}
 

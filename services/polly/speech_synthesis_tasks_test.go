@@ -90,9 +90,9 @@ func TestTaskListPaginationAndValidation(t *testing.T) {
 		query   string
 		wantErr string
 	}{
-		{query: "?MaxResults=0", wantErr: "InvalidParameterValueException"},
-		{query: "?MaxResults=bad", wantErr: "InvalidParameterValueException"},
-		{query: "?Status=nope", wantErr: "InvalidParameterValueException"},
+		{query: "?MaxResults=0", wantErr: "ValidationException"},
+		{query: "?MaxResults=bad", wantErr: "ValidationException"},
+		{query: "?Status=nope", wantErr: "ValidationException"},
 		{query: "?NextToken=bad", wantErr: "InvalidNextTokenException"},
 	}
 	for _, tc := range invalidQueries {
@@ -116,7 +116,7 @@ func TestTaskListPaginationAndValidation(t *testing.T) {
 
 // TestStartSpeechSynthesisTaskRequiredAndLimit verifies that
 // StartSpeechSynthesisTask rejects missing OutputS3BucketName
-// (InvalidParameterValueException) and text exceeding 100000 characters
+// (ValidationException) and text exceeding 100000 characters
 // (TextLengthExceededException).
 func TestStartSpeechSynthesisTaskRequiredAndLimit(t *testing.T) {
 	t.Parallel()
@@ -135,7 +135,7 @@ func TestStartSpeechSynthesisTaskRequiredAndLimit(t *testing.T) {
 				"VoiceId":      "Joanna",
 			},
 			wantCode: http.StatusBadRequest,
-			wantErr:  "InvalidParameterValueException",
+			wantErr:  "ValidationException",
 		},
 		{
 			name: "text over 100000 returns 400",

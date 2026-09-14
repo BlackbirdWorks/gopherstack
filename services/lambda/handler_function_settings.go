@@ -134,8 +134,6 @@ func (h *Handler) handleRecursionConfigRoute(c *echo.Context, path, method strin
 }
 
 // handleScalingConfigRoute handles /2025-11-30/functions/{name}/function-scaling-config routes.
-//
-//nolint:dupl // similar get/put pattern shared with handleRuntimeMgmtRoute by design
 func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string) error {
 	lambdaBk, ok := h.Backend.(*InMemoryBackend)
 	if !ok {
@@ -156,9 +154,17 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 
 	name := parts[0]
 
+	// Qualifier is a required query param on both Get/PutFunctionScalingConfig
+	// (validators.go:2858-2860/3305-3307, aws-sdk-go-v2/service/lambda@v1.107.0).
+	qualifier := c.Request().URL.Query().Get("Qualifier")
+	if qualifier == "" {
+		return h.writeError(c, http.StatusBadRequest, "InvalidParameterValueException",
+			"Qualifier is required for "+method+" FunctionScalingConfig")
+	}
+
 	switch method {
 	case http.MethodGet:
-		cfg, err := lambdaBk.GetFunctionScalingConfig(name)
+		cfg, err := lambdaBk.GetFunctionScalingConfig(name, qualifier)
 		if err != nil {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
 				"Function not found: "+name)
@@ -178,7 +184,7 @@ func (h *Handler) handleScalingConfigRoute(c *echo.Context, path, method string)
 			}
 		}
 
-		cfg, putErr := lambdaBk.PutFunctionScalingConfig(name, &input)
+		cfg, putErr := lambdaBk.PutFunctionScalingConfig(name, qualifier, &input)
 		if putErr != nil {
 			if errors.Is(putErr, ErrFunctionNotFound) {
 				return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",

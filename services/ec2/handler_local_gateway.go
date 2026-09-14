@@ -107,13 +107,14 @@ type localGatewayVifGroupItem struct {
 }
 
 type localGatewayRouteTableItem struct {
-	LocalGatewayRouteTableID  string `xml:"localGatewayRouteTableId"`
-	LocalGatewayRouteTableArn string `xml:"localGatewayRouteTableArn"`
-	LocalGatewayID            string `xml:"localGatewayId"`
-	OutpostArn                string `xml:"outpostArn"`
-	Mode                      string `xml:"mode"`
-	State                     string `xml:"state"`
-	OwnerID                   string `xml:"ownerId"`
+	LocalGatewayRouteTableID  string          `xml:"localGatewayRouteTableId"`
+	LocalGatewayRouteTableArn string          `xml:"localGatewayRouteTableArn"`
+	LocalGatewayID            string          `xml:"localGatewayId"`
+	OutpostArn                string          `xml:"outpostArn"`
+	Mode                      string          `xml:"mode"`
+	State                     string          `xml:"state"`
+	OwnerID                   string          `xml:"ownerId"`
+	TagSet                    []simpleTagItem `xml:"tagSet>item"`
 }
 
 type localGatewayRouteItem struct {
@@ -129,13 +130,14 @@ type localGatewayRouteItem struct {
 }
 
 type localGatewayVpcAssociationItem struct {
-	LocalGatewayRouteTableVpcAssociationID string `xml:"localGatewayRouteTableVpcAssociationId"`
-	LocalGatewayRouteTableID               string `xml:"localGatewayRouteTableId"`
-	LocalGatewayRouteTableArn              string `xml:"localGatewayRouteTableArn"`
-	LocalGatewayID                         string `xml:"localGatewayId"`
-	VpcID                                  string `xml:"vpcId"`
-	State                                  string `xml:"state"`
-	OwnerID                                string `xml:"ownerId"`
+	LocalGatewayRouteTableVpcAssociationID string          `xml:"localGatewayRouteTableVpcAssociationId"`
+	LocalGatewayRouteTableID               string          `xml:"localGatewayRouteTableId"`
+	LocalGatewayRouteTableArn              string          `xml:"localGatewayRouteTableArn"`
+	LocalGatewayID                         string          `xml:"localGatewayId"`
+	VpcID                                  string          `xml:"vpcId"`
+	State                                  string          `xml:"state"`
+	OwnerID                                string          `xml:"ownerId"`
+	TagSet                                 []simpleTagItem `xml:"tagSet>item"`
 }
 
 // lgwVifGroupAssocItem is the XML item for a local gateway route table virtual
@@ -143,13 +145,14 @@ type localGatewayVpcAssociationItem struct {
 // (LocalGatewayRouteTableVirtualInterfaceGroupAssociation...) to keep lines within
 // the repo's line-length limit; the xml tags carry the exact AWS wire names.
 type lgwVifGroupAssocItem struct {
-	ID                                  string `xml:"localGatewayRouteTableVirtualInterfaceGroupAssociationId"`
-	LocalGatewayRouteTableID            string `xml:"localGatewayRouteTableId"`
-	LocalGatewayRouteTableArn           string `xml:"localGatewayRouteTableArn"`
-	LocalGatewayID                      string `xml:"localGatewayId"`
-	LocalGatewayVirtualInterfaceGroupID string `xml:"localGatewayVirtualInterfaceGroupId"`
-	State                               string `xml:"state"`
-	OwnerID                             string `xml:"ownerId"`
+	ID                                  string          `xml:"localGatewayRouteTableVirtualInterfaceGroupAssociationId"`
+	LocalGatewayRouteTableID            string          `xml:"localGatewayRouteTableId"`
+	LocalGatewayRouteTableArn           string          `xml:"localGatewayRouteTableArn"`
+	LocalGatewayID                      string          `xml:"localGatewayId"`
+	LocalGatewayVirtualInterfaceGroupID string          `xml:"localGatewayVirtualInterfaceGroupId"`
+	State                               string          `xml:"state"`
+	OwnerID                             string          `xml:"ownerId"`
+	TagSet                              []simpleTagItem `xml:"tagSet>item"`
 }
 
 // ---- XML response types ----
@@ -311,7 +314,7 @@ func localGatewayVifGroupToItem(
 	}
 }
 
-func localGatewayRouteTableToItem(rt *LocalGatewayRouteTable) localGatewayRouteTableItem {
+func localGatewayRouteTableToItem(rt *LocalGatewayRouteTable, tags map[string]string) localGatewayRouteTableItem {
 	return localGatewayRouteTableItem{
 		LocalGatewayRouteTableID:  rt.LocalGatewayRouteTableID,
 		LocalGatewayRouteTableArn: rt.LocalGatewayRouteTableArn,
@@ -320,6 +323,7 @@ func localGatewayRouteTableToItem(rt *LocalGatewayRouteTable) localGatewayRouteT
 		Mode:                      rt.Mode,
 		State:                     rt.State,
 		OwnerID:                   rt.OwnerID,
+		TagSet:                    tagItemsFromMap(tags),
 	}
 }
 
@@ -337,7 +341,10 @@ func localGatewayRouteToItem(r *LocalGatewayRoute) localGatewayRouteItem {
 	}
 }
 
-func localGatewayVpcAssociationToItem(a *LocalGatewayRouteTableVpcAssociation) localGatewayVpcAssociationItem {
+func localGatewayVpcAssociationToItem(
+	a *LocalGatewayRouteTableVpcAssociation,
+	tags map[string]string,
+) localGatewayVpcAssociationItem {
 	return localGatewayVpcAssociationItem{
 		LocalGatewayRouteTableVpcAssociationID: a.LocalGatewayRouteTableVpcAssociationID,
 		LocalGatewayRouteTableID:               a.LocalGatewayRouteTableID,
@@ -346,11 +353,13 @@ func localGatewayVpcAssociationToItem(a *LocalGatewayRouteTableVpcAssociation) l
 		VpcID:                                  a.VpcID,
 		State:                                  a.State,
 		OwnerID:                                a.OwnerID,
+		TagSet:                                 tagItemsFromMap(tags),
 	}
 }
 
 func lgwVifGroupAssocToItem(
 	a *LocalGatewayRouteTableVirtualInterfaceGroupAssociation,
+	tags map[string]string,
 ) lgwVifGroupAssocItem {
 	return lgwVifGroupAssocItem{
 		ID:                                  a.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID,
@@ -360,6 +369,7 @@ func lgwVifGroupAssocToItem(
 		LocalGatewayVirtualInterfaceGroupID: a.LocalGatewayVirtualInterfaceGroupID,
 		State:                               a.State,
 		OwnerID:                             a.OwnerID,
+		TagSet:                              tagItemsFromMap(tags),
 	}
 }
 
@@ -424,9 +434,16 @@ func (h *Handler) handleCreateLocalGatewayRouteTable(vals url.Values, reqID stri
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "local-gateway-route-table")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{rt.LocalGatewayRouteTableID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createLocalGatewayRouteTableResponse{
 		RequestID:              reqID,
-		LocalGatewayRouteTable: localGatewayRouteTableToItem(rt),
+		LocalGatewayRouteTable: localGatewayRouteTableToItem(rt, tags),
 	}, nil
 }
 
@@ -438,7 +455,7 @@ func (h *Handler) handleDescribeLocalGatewayRouteTables(vals url.Values, reqID s
 	for _, rt := range rts {
 		resp.LocalGatewayRouteTables.Items = append(
 			resp.LocalGatewayRouteTables.Items,
-			localGatewayRouteTableToItem(rt),
+			localGatewayRouteTableToItem(rt, h.Backend.TagsForResource(rt.LocalGatewayRouteTableID)),
 		)
 	}
 
@@ -449,6 +466,7 @@ func (h *Handler) handleDeleteLocalGatewayRouteTable(vals url.Values, reqID stri
 	id := vals.Get("LocalGatewayRouteTableId")
 
 	existing := h.Backend.DescribeLocalGatewayRouteTables([]string{id})
+	tags := h.Backend.TagsForResource(id)
 
 	if err := h.Backend.DeleteLocalGatewayRouteTable(id); err != nil {
 		return nil, err
@@ -456,7 +474,7 @@ func (h *Handler) handleDeleteLocalGatewayRouteTable(vals url.Values, reqID stri
 
 	var item localGatewayRouteTableItem
 	if len(existing) > 0 {
-		item = localGatewayRouteTableToItem(existing[0])
+		item = localGatewayRouteTableToItem(existing[0], tags)
 		item.State = localGatewayRouteStateDeleted
 	}
 
@@ -581,9 +599,16 @@ func (h *Handler) handleCreateLocalGatewayRouteTableVpcAssociation(
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "local-gateway-route-table-vpc-association")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{assoc.LocalGatewayRouteTableVpcAssociationID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createLocalGatewayRouteTableVpcAssociationResponse{
 		RequestID: reqID,
-		Assoc:     localGatewayVpcAssociationToItem(assoc),
+		Assoc:     localGatewayVpcAssociationToItem(assoc, tags),
 	}, nil
 }
 
@@ -591,16 +616,17 @@ func (h *Handler) handleDeleteLocalGatewayRouteTableVpcAssociation(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	assoc, err := h.Backend.DeleteLocalGatewayRouteTableVpcAssociation(
-		vals.Get("LocalGatewayRouteTableVpcAssociationId"),
-	)
+	id := vals.Get("LocalGatewayRouteTableVpcAssociationId")
+	tags := h.Backend.TagsForResource(id)
+
+	assoc, err := h.Backend.DeleteLocalGatewayRouteTableVpcAssociation(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteLocalGatewayRouteTableVpcAssociationResponse{
 		RequestID: reqID,
-		Assoc:     localGatewayVpcAssociationToItem(assoc),
+		Assoc:     localGatewayVpcAssociationToItem(assoc, tags),
 	}, nil
 }
 
@@ -615,7 +641,7 @@ func (h *Handler) handleDescribeLocalGatewayRouteTableVpcAssociations(
 	for _, a := range assocs {
 		resp.LocalGatewayRouteTableVpcAssociations.Items = append(
 			resp.LocalGatewayRouteTableVpcAssociations.Items,
-			localGatewayVpcAssociationToItem(a),
+			localGatewayVpcAssociationToItem(a, h.Backend.TagsForResource(a.LocalGatewayRouteTableVpcAssociationID)),
 		)
 	}
 
@@ -633,23 +659,33 @@ func (h *Handler) handleCreateLGWVifGroupAssoc(vals url.Values, reqID string) (a
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "local-gateway-route-table-virtual-interface-group-association")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags(
+			[]string{assoc.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID}, tags,
+		); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createLGWVifGroupAssocResponse{
 		RequestID: reqID,
-		Assoc:     lgwVifGroupAssocToItem(assoc),
+		Assoc:     lgwVifGroupAssocToItem(assoc, tags),
 	}, nil
 }
 
 func (h *Handler) handleDeleteLGWVifGroupAssoc(vals url.Values, reqID string) (any, error) {
-	assoc, err := h.Backend.DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(
-		vals.Get("LocalGatewayRouteTableVirtualInterfaceGroupAssociationId"),
-	)
+	id := vals.Get("LocalGatewayRouteTableVirtualInterfaceGroupAssociationId")
+	tags := h.Backend.TagsForResource(id)
+
+	assoc, err := h.Backend.DeleteLocalGatewayRouteTableVirtualInterfaceGroupAssociation(id)
 	if err != nil {
 		return nil, err
 	}
 
 	return &deleteLGWVifGroupAssocResponse{
 		RequestID: reqID,
-		Assoc:     lgwVifGroupAssocToItem(assoc),
+		Assoc:     lgwVifGroupAssocToItem(assoc, tags),
 	}, nil
 }
 
@@ -659,7 +695,8 @@ func (h *Handler) handleDescribeLGWVifGroupAssocs(vals url.Values, reqID string)
 
 	resp := &describeLGWVifGroupAssocsResponse{RequestID: reqID}
 	for _, a := range assocs {
-		resp.Assocs.Items = append(resp.Assocs.Items, lgwVifGroupAssocToItem(a))
+		tags := h.Backend.TagsForResource(a.LocalGatewayRouteTableVirtualInterfaceGroupAssociationID)
+		resp.Assocs.Items = append(resp.Assocs.Items, lgwVifGroupAssocToItem(a, tags))
 	}
 
 	return resp, nil

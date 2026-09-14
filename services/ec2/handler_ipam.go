@@ -33,6 +33,13 @@ func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{ipam.IpamID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -42,6 +49,11 @@ func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
 
 func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamId")
+	// DescribeIpams treats IpamId.N as a soft filter, not a hard lookup: real
+	// AWS documents no operation-specific error for this op (errors-overview.html
+	// lists none), and TestDescribeIpams_IpamIdFilter_RealClient already pins
+	// "unknown id -> empty result, no error" (gopherstack-ggu4a: verified,
+	// not the silent-omission bug for this particular op).
 	ipams := h.Backend.DescribeIpams(ids)
 
 	resp := &describeIpamsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
@@ -94,6 +106,13 @@ func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, err
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-scope")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{scope.IpamScopeID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamScopeResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -104,6 +123,12 @@ func (h *Handler) handleCreateIpamScope(vals url.Values, reqID string) (any, err
 func (h *Handler) handleDescribeIpamScopes(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamScopeId")
 	scopes := h.Backend.DescribeIpamScopes(ids)
+
+	if err := requireAllIDsPresent(
+		ids, scopes, func(s *IpamScope) string { return s.IpamScopeID }, ErrIpamScopeNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeIpamScopesResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
@@ -176,12 +201,18 @@ func parseNetmaskLength(raw string) (int32, error) {
 }
 
 func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, error) {
-	// Accept either IpamId directly or fall back to the scope's parent IPAM.
-	// For simplicity, prefer IpamId; if not present, use IpamScopeId as-is.
-	ipamID := vals.Get("IpamId")
-	if ipamID == "" {
-		ipamID = vals.Get("IpamScopeId")
+	// The real CreateIpamPoolInput has no IpamId member at all (api_op_CreateIpamPool.go:36-47)
+	// -- IpamScopeId is the only identifier a real client ever sends. Resolve it to its
+	// parent IPAM here; treating the scope ID as an IPAM ID (the prior behavior) made this
+	// op fail InvalidIpamId.NotFound for every real client.
+	scopeID := vals.Get("IpamScopeId")
+
+	scopes := h.Backend.DescribeIpamScopes([]string{scopeID})
+	if len(scopes) == 0 {
+		return nil, fmt.Errorf("%w: %s", ErrIpamScopeNotFound, scopeID)
 	}
+
+	ipamID := scopes[0].IpamID
 
 	minNetmask, err := parseNetmaskLength(vals.Get("AllocationMinNetmaskLength"))
 	if err != nil {
@@ -217,6 +248,13 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "ipam-pool")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pool.IpamPoolID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createIpamPoolResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
@@ -227,6 +265,12 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 func (h *Handler) handleDescribeIpamPools(vals url.Values, reqID string) (any, error) {
 	ids := parseMemberList(vals, "IpamPoolId")
 	pools := h.Backend.DescribeIpamPools(ids)
+
+	if err := requireAllIDsPresent(
+		ids, pools, func(p *IpamPool) string { return p.IpamPoolID }, ErrIpamPoolNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeIpamPoolsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
@@ -435,7 +479,7 @@ func (h *Handler) handleDescribeIpamResourceDiscoveries(vals url.Values, reqID s
 
 	for _, d := range discoveries {
 		resp.IpamResourceDiscoverySet.Items = append(
-			resp.IpamResourceDiscoverySet.Items, toIpamResourceDiscoveryItem(d),
+			resp.IpamResourceDiscoverySet.Items, h.toIpamResourceDiscoveryItem(d),
 		)
 	}
 

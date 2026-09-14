@@ -211,12 +211,25 @@ func (b *InMemoryBackend) DescribeStorageVirtualMachines( //nolint:dupl // exist
 	return result, next, nil
 }
 
+// updateStorageVirtualMachineInput mirrors UpdateStorageVirtualMachineInput
+// (fsx@v1.68.4 api_op_UpdateStorageVirtualMachine.go): SvmAdminPassword is
+// the only scalar updatable field on the real wire (plus
+// ActiveDirectoryConfiguration, not modeled -- this backend does not track
+// AD-joined SVMs). Subtype is NOT a real input member of either
+// Create or UpdateStorageVirtualMachineInput -- it is server-derived
+// (DEFAULT/SYNC_SOURCE/SYNC_DESTINATION/DP_DESTINATION based on internal
+// cross-region replication state) and was previously (wrongly) exposed here
+// as a client-settable field a real client's request could never populate.
 type updateStorageVirtualMachineInput struct {
 	StorageVirtualMachineID string `json:"StorageVirtualMachineId"`
-	Subtype                 string `json:"Subtype,omitempty"`
+	SvmAdminPassword        string `json:"SvmAdminPassword,omitempty"`
 }
 
-// UpdateStorageVirtualMachine updates an SVM.
+// UpdateStorageVirtualMachine updates an SVM. SvmAdminPassword is accepted
+// (matching the real op's only scalar updatable field) but not persisted:
+// real AWS never echoes it back on any Describe/Update response either
+// (write-only credential), so there is no observable difference between
+// storing and dropping it.
 func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	input *updateStorageVirtualMachineInput,
 ) (*StorageVirtualMachine, error) {
@@ -226,10 +239,6 @@ func (b *InMemoryBackend) UpdateStorageVirtualMachine(
 	svm, ok := b.storageVirtualMachines.Get(input.StorageVirtualMachineID)
 	if !ok {
 		return nil, ErrStorageVirtualMachineNotFound
-	}
-
-	if input.Subtype != "" {
-		svm.Subtype = input.Subtype
 	}
 
 	return svm.toPublic(), nil

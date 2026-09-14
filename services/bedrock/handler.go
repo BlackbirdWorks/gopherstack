@@ -570,7 +570,7 @@ func (h *Handler) routeStubOps(c *echo.Context, path, method string, body []byte
 		return true, err
 	}
 
-	return h.routeStubMiscOps(c, path, method)
+	return h.routeStubMiscOps(c, path, method, body)
 }
 
 // routeStubJobOps handles model copy, import, and invocation job stubs.
@@ -592,8 +592,8 @@ func (h *Handler) routeStubModelOps(c *echo.Context, path, method string, body [
 }
 
 // routeStubMiscOps handles custom model deployment, use case, and enforced guardrail stubs.
-func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string) (bool, error) {
-	if ok, err := h.routeStubDeploymentOps(c, path, method); ok {
+func (h *Handler) routeStubMiscOps(c *echo.Context, path, method string, body []byte) (bool, error) {
+	if ok, err := h.routeStubDeploymentOps(c, path, method, body); ok {
 		return true, err
 	}
 

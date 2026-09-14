@@ -102,8 +102,25 @@ func (b *InMemoryBackend) ListUsers(
 }
 
 // AssociateFaces associates faces with a user.
+// defaultAssociateFacesUserMatchThreshold mirrors AssociateFacesInput.UserMatchThreshold's
+// documented default (rekognition@v1.58.0 api_op_AssociateFaces.go:84-86: "The
+// default value is 75.").
+const defaultAssociateFacesUserMatchThreshold = 75.0
+
+// associateFaceMatchConfidence derives a deterministic face-to-user match
+// confidence in [minSearchSimilarity, exactMatchSimilarity), the same
+// seeded-range convention faceSimilarity/userSimilarity use elsewhere in
+// this package, so UserMatchThreshold has a real, reproducible value to
+// gate on instead of being ignored.
+func associateFaceMatchConfidence(faceID, userID string) float64 {
+	seed := imageKeySeed(faceID + "|" + userID)
+	span := uint32((exactMatchSimilarity - minSearchSimilarity) * milliScale)
+
+	return minSearchSimilarity + float64(seed%span)/milliScale
+}
+
 func (b *InMemoryBackend) AssociateFaces(
-	collectionID, userID string, faceIDs []string,
+	collectionID, userID string, faceIDs []string, userMatchThreshold float64,
 ) ([]*AssociatedFace, []*UnsuccessfulFaceAssociation, error) {
 	b.mu.Lock("AssociateFaces")
 	defer b.mu.Unlock()
@@ -127,14 +144,20 @@ func (b *InMemoryBackend) AssociateFaces(
 	var unsuccessful []*UnsuccessfulFaceAssociation
 
 	for _, faceID := range faceIDs {
-		if knownFaces[faceID] {
-			user.FaceIDs = append(user.FaceIDs, faceID)
-			associated = append(associated, &AssociatedFace{FaceID: faceID})
-		} else {
+		switch {
+		case !knownFaces[faceID]:
 			unsuccessful = append(unsuccessful, &UnsuccessfulFaceAssociation{
 				FaceID:  faceID,
 				Reasons: []string{"FACE_NOT_FOUND"},
 			})
+		case associateFaceMatchConfidence(faceID, userID) < userMatchThreshold:
+			unsuccessful = append(unsuccessful, &UnsuccessfulFaceAssociation{
+				FaceID:  faceID,
+				Reasons: []string{"LOW_MATCH_CONFIDENCE"},
+			})
+		default:
+			user.FaceIDs = append(user.FaceIDs, faceID)
+			associated = append(associated, &AssociatedFace{FaceID: faceID})
 		}
 	}
 
@@ -200,8 +223,14 @@ func userSimilarity(queryKey string, candidate *storedUser) float64 {
 	return minSearchSimilarity + float64(seed%span)/milliScale
 }
 
+// defaultUserMatchThreshold mirrors SearchUsersInput/SearchUsersByImageInput's
+// documented default ("Default value of 80.").
+const defaultUserMatchThreshold = 80.0
+
 // SearchUsers returns up to maxUsers users with a simulated similarity score.
-func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int32) ([]*UserMatch, error) {
+func (b *InMemoryBackend) SearchUsers(
+	collectionID, userID string, maxUsers int32, userMatchThreshold float64,
+) ([]*UserMatch, error) {
 	b.mu.RLock("SearchUsers")
 	defer b.mu.RUnlock()
 
@@ -225,9 +254,14 @@ func (b *InMemoryBackend) SearchUsers(collectionID, userID string, maxUsers int3
 			continue
 		}
 
+		similarity := userSimilarity(userID, u)
+		if similarity < userMatchThreshold {
+			continue
+		}
+
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: userSimilarity(userID, u),
+			Similarity: similarity,
 		})
 
 		if len(matches) >= limit {
@@ -298,6 +332,7 @@ func (b *InMemoryBackend) SearchUsersByImage(
 	collectionID string,
 	maxUsers int32,
 	imageKey string,
+	userMatchThreshold float64,
 ) ([]*UserMatch, error) {
 	b.mu.RLock("SearchUsersByImage")
 	defer b.mu.RUnlock()
@@ -318,9 +353,14 @@ func (b *InMemoryBackend) SearchUsersByImage(
 
 	var matches []*UserMatch
 	for _, u := range group {
+		similarity := userSimilarity(imageKey, u)
+		if similarity < userMatchThreshold {
+			continue
+		}
+
 		matches = append(matches, &UserMatch{
 			User:       u.toUser(),
-			Similarity: userSimilarity(imageKey, u),
+			Similarity: similarity,
 		})
 
 		if len(matches) >= limit {

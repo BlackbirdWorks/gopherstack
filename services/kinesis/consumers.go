@@ -238,11 +238,16 @@ func (b *InMemoryBackend) DeregisterStreamConsumer(ctx context.Context, input *D
 	return nil
 }
 
-// subscribeToShardStartPos resolves a StartingPosition to a record index within shard.
-func subscribeToShardStartPos(shard *Shard, pos StartingPosition) (int, error) {
+// subscribeToShardStartPos resolves a StartingPosition to a record index
+// within shard. cutoff is the stream's retention cutoff (retentionCutoff,
+// evaluated at the caller's now) -- TRIM_HORIZON and a too-old AT_TIMESTAMP
+// both honor it the same way GetShardIterator does (see shard_iterators.go),
+// instead of assuming ring-buffer position 0 is always still within
+// retention.
+func subscribeToShardStartPos(shard *Shard, pos StartingPosition, cutoff time.Time) (int, error) {
 	switch pos.Type {
 	case iteratorTypeTrimHorizon:
-		return 0, nil
+		return findTimestampPosition(&shard.Records, cutoff), nil
 	case iteratorTypeLatest:
 		return shard.Records.len(), nil
 	case iteratorTypeAtSequenceNumber:
@@ -257,10 +262,39 @@ func subscribeToShardStartPos(shard *Shard, pos StartingPosition) (int, error) {
 			return 0, ErrInvalidArgument
 		}
 
-		return findTimestampPosition(&shard.Records, *pos.Timestamp), nil
+		ts := *pos.Timestamp
+		if ts.Before(cutoff) {
+			ts = cutoff
+		}
+
+		return findTimestampPosition(&shard.Records, ts), nil
 	default:
 		return 0, ErrInvalidArgument
 	}
+}
+
+// subscribeToShardContinuationSeq derives SubscribeToShardEvent's
+// ContinuationSequenceNumber for the "no new records this poll" case.
+// api_op's own doc comment requires it even then: "Use this as SequenceNumber
+// in the next call to SubscribeToShard ... captures your shard progress even
+// when no data is written to the shard." (API_SubscribeToShardEvent.html).
+// When the caller already advanced past a real delivered record
+// (pos.SequenceNumber set, via AFTER_SEQUENCE_NUMBER), that value is reused
+// unchanged. Otherwise, if the shard already holds records (the subscriber
+// started at LATEST/TRIM_HORIZON/AT_TIMESTAMP and is caught up to the tip),
+// the last record's sequence number is used. A shard with no records at all
+// yet has no real sequence number to report; "" is returned rather than
+// fabricating one -- disclosed in PARITY.md as an approximation for that
+// edge case only.
+func subscribeToShardContinuationSeq(shard *Shard, pos StartingPosition) string {
+	if pos.SequenceNumber != "" {
+		return pos.SequenceNumber
+	}
+	if last := shard.Records.last(); last != nil {
+		return last.SequenceNumber
+	}
+
+	return ""
 }
 
 // SubscribeToShard delivers records from a shard to an enhanced fan-out consumer.
@@ -293,7 +327,9 @@ func (b *InMemoryBackend) SubscribeToShard(
 		return nil, ErrInvalidArgument
 	}
 
-	startPos, err := subscribeToShardStartPos(shard, input.StartingPosition)
+	cutoff := retentionCutoff(stream, b.nowFunc())
+
+	startPos, err := subscribeToShardStartPos(shard, input.StartingPosition, cutoff)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +353,7 @@ func (b *InMemoryBackend) SubscribeToShard(
 		})
 	}
 
-	var continuationSeq string
+	continuationSeq := subscribeToShardContinuationSeq(shard, input.StartingPosition)
 	if len(records) > 0 {
 		continuationSeq = records[len(records)-1].SequenceNumber
 	}

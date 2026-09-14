@@ -164,8 +164,18 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	require.NoError(t, original.CreateTags(channel.ARN, map[string]string{"team": "media"}))
 
+	inputSwitchSettings := map[string]any{
+		"inputSwitchSettings": map[string]any{"inputAttachmentNameReference": "in1"},
+	}
+	immediateStartSettings := map[string]any{"immediateModeScheduleActionStartSettings": map[string]any{}}
+
 	_, err = original.BatchUpdateSchedule(channel.ID, []medialive.ScheduleAction{
-		{ActionName: "action-1", ActionType: "INPUT_SWITCH"},
+		{
+			ActionName:                  "action-1",
+			ActionType:                  "INPUT_SWITCH",
+			ScheduleActionSettings:      inputSwitchSettings,
+			ScheduleActionStartSettings: immediateStartSettings,
+		},
 	}, nil)
 	require.NoError(t, err)
 
@@ -266,6 +276,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, schedule, 1)
 	assert.Equal(t, "action-1", schedule[0].ActionName)
+	assert.Equal(t, inputSwitchSettings, schedule[0].ScheduleActionSettings,
+		"ScheduleActionSettings must survive Snapshot/Restore, not just Create")
+	assert.Equal(t, immediateStartSettings, schedule[0].ScheduleActionStartSettings)
 
 	// Ephemeral pendingTransferDeviceIDs index, rebuilt from the restored
 	// inputDevices table's PendingTransfer field (not itself persisted).

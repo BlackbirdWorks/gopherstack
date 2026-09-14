@@ -35,6 +35,7 @@ func (b *InMemoryBackend) CreateTrail(
 	cloudWatchLogsLogGroupARN, cloudWatchLogsRoleARN, kmsKeyID string,
 	includeGlobalServiceEvents, isMultiRegionTrail, enableLogFileValidation bool,
 	kv map[string]string,
+	isOrganizationTrail bool,
 ) (*Trail, error) {
 	b.mu.Lock("CreateTrail")
 	defer b.mu.Unlock()
@@ -72,6 +73,7 @@ func (b *InMemoryBackend) CreateTrail(
 		IncludeGlobalServiceEvents: includeGlobalServiceEvents,
 		IsMultiRegionTrail:         isMultiRegionTrail,
 		LogFileValidationEnabled:   enableLogFileValidation,
+		IsOrganizationTrail:        isOrganizationTrail,
 		IsLogging:                  false,
 		CreationTime:               time.Now().UTC(),
 		Tags:                       t,
@@ -138,6 +140,7 @@ func (b *InMemoryBackend) UpdateTrail(
 	name, s3BucketName, s3KeyPrefix, snsTopicName,
 	cloudWatchLogsLogGroupARN, cloudWatchLogsRoleARN, kmsKeyID string,
 	includeGlobalServiceEvents, isMultiRegionTrail, enableLogFileValidation *bool,
+	isOrganizationTrail *bool,
 ) (*Trail, error) {
 	b.mu.Lock("UpdateTrail")
 	defer b.mu.Unlock()
@@ -178,6 +181,9 @@ func (b *InMemoryBackend) UpdateTrail(
 	}
 	if enableLogFileValidation != nil {
 		t.LogFileValidationEnabled = *enableLogFileValidation
+	}
+	if isOrganizationTrail != nil {
+		t.IsOrganizationTrail = *isOrganizationTrail
 	}
 
 	cp := *t

@@ -2,6 +2,7 @@ package ec2_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -9,12 +10,36 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
+// scheduledInstanceAvailabilityWindow returns an [EarliestTime, LatestTime]
+// window wide enough to bracket the static catalog's fixed
+// "now + 7 days" FirstSlotStartTime.
+func scheduledInstanceAvailabilityWindow() (time.Time, time.Time) {
+	return time.Now(), time.Now().AddDate(0, 1, 0)
+}
+
+// mustDescribeScheduledInstanceAvailability wraps
+// Backend.DescribeScheduledInstanceAvailability with the default valid
+// [EarliestTime, LatestTime] window and no slot-duration bounds, and fails
+// the test on error.
+func mustDescribeScheduledInstanceAvailability(
+	t *testing.T, b *ec2.InMemoryBackend, filters map[string][]string,
+) []ec2.ScheduledInstanceAvailability {
+	t.Helper()
+
+	earliest, latest := scheduledInstanceAvailabilityWindow()
+
+	catalog, err := b.DescribeScheduledInstanceAvailability(filters, 0, 0, earliest, latest)
+	require.NoError(t, err)
+
+	return catalog
+}
+
 func TestBackend_ScheduledInstanceAvailability_ReturnsStaticCatalog(t *testing.T) {
 	t.Parallel()
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	catalog := b.DescribeScheduledInstanceAvailability(nil, 0, 0)
+	catalog := mustDescribeScheduledInstanceAvailability(t, b, nil)
 	require.NotEmpty(t, catalog)
 	assert.NotEmpty(t, catalog[0].PurchaseToken)
 	assert.NotEmpty(t, catalog[0].InstanceType)
@@ -25,11 +50,11 @@ func TestBackend_ScheduledInstanceAvailability_FiltersByInstanceType(t *testing.
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	catalog := b.DescribeScheduledInstanceAvailability(nil, 0, 0)
+	catalog := mustDescribeScheduledInstanceAvailability(t, b, nil)
 	require.NotEmpty(t, catalog)
 
 	want := catalog[0].InstanceType
-	filtered := b.DescribeScheduledInstanceAvailability(map[string][]string{"instance-type": {want}}, 0, 0)
+	filtered := mustDescribeScheduledInstanceAvailability(t, b, map[string][]string{"instance-type": {want}})
 	require.NotEmpty(t, filtered)
 
 	for _, e := range filtered {
@@ -42,8 +67,8 @@ func TestBackend_ScheduledInstanceAvailability_NoMatchReturnsEmpty(t *testing.T)
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	filtered := b.DescribeScheduledInstanceAvailability(
-		map[string][]string{"instance-type": {"does-not-exist"}}, 0, 0,
+	filtered := mustDescribeScheduledInstanceAvailability(
+		t, b, map[string][]string{"instance-type": {"does-not-exist"}},
 	)
 	assert.Empty(t, filtered)
 }
@@ -64,7 +89,7 @@ func TestBackend_PurchaseScheduledInstances_ThenDescribeRoundTrips(t *testing.T)
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	catalog := b.DescribeScheduledInstanceAvailability(nil, 0, 0)
+	catalog := mustDescribeScheduledInstanceAvailability(t, b, nil)
 	require.NotEmpty(t, catalog)
 
 	purchased, err := b.PurchaseScheduledInstances(
@@ -94,7 +119,7 @@ func purchaseScheduledInstanceFixture(t *testing.T) (*ec2.InMemoryBackend, strin
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	catalog := b.DescribeScheduledInstanceAvailability(nil, 0, 0)
+	catalog := mustDescribeScheduledInstanceAvailability(t, b, nil)
 	require.NotEmpty(t, catalog)
 
 	purchased, err := b.PurchaseScheduledInstances(

@@ -125,9 +125,49 @@ func (b *InMemoryBackend) OnMapRunEnd(mapRunARN, status string, succeeded, faile
 	mr.ItemCounts.Pending = 0
 	mr.ItemCounts.Running = 0
 	mr.ItemCounts.ResultsWritten = resultsWritten
+	// ExecutionCounts stays genuinely zero (its pre-existing default) for an
+	// INLINE Map Run or a DISTRIBUTED one whose runner was never wired:
+	// executionsByMapRun.Get returns nothing for a mapRunARN no child
+	// execution was ever filed under.
+	mr.ExecutionCounts = tallyMapRunExecutionCounts(b.executionsByMapRun.Get(mapRunARN))
 }
 
-// DescribeMapRun returns details for a Map Run.
+// tallyMapRunExecutionCounts buckets a Distributed Map Run's real child
+// executions by their current Status into AWS's MapRunExecutionCounts shape
+// (sfn@v1.49.0 types.go:841-906, mirrors MapRunItemCounts). Children are
+// always terminal by the time OnMapRunEnd runs (runDistributedMapChild
+// blocks until each child finishes before the Map state itself can finish),
+// so Running/Pending stay 0 in practice; the cases are handled anyway so a
+// mid-flight DescribeMapRun call (which computes this same way) reports
+// accurately too.
+func tallyMapRunExecutionCounts(children []*Execution) MapRunExecutionCounts {
+	var c MapRunExecutionCounts
+
+	c.Total = len(children)
+
+	for _, child := range children {
+		switch child.Status {
+		case statusSucceeded:
+			c.Succeeded++
+		case statusFailed:
+			c.Failed++
+		case statusAborted:
+			c.Aborted++
+		case statusRunning:
+			c.Running++
+		default:
+			c.TimedOut++
+		}
+	}
+
+	return c
+}
+
+// DescribeMapRun returns details for a Map Run. ExecutionCounts is
+// recomputed live from the Run's real child executions (rather than read
+// back from whatever OnMapRunEnd last stored) so a DescribeMapRun call made
+// while a DISTRIBUTED Map Run is still in progress reports accurate
+// in-flight counts, not just the final snapshot.
 func (b *InMemoryBackend) DescribeMapRun(mapRunARN string) (*MapRun, error) {
 	b.mu.RLock("DescribeMapRun")
 	defer b.mu.RUnlock()
@@ -138,6 +178,7 @@ func (b *InMemoryBackend) DescribeMapRun(mapRunARN string) (*MapRun, error) {
 	}
 
 	cp := *mr
+	cp.ExecutionCounts = tallyMapRunExecutionCounts(b.executionsByMapRun.Get(mapRunARN))
 
 	return &cp, nil
 }

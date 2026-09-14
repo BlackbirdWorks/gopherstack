@@ -258,7 +258,7 @@ func TestConfigRootXML(t *testing.T) {
 			name: "fle_profile_config",
 			setup: func(t *testing.T) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("fle-prof-root", "cmt", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "fle-prof-root", "cmt", nil)
 				require.NoError(t, err)
 
 				return prefix + "field-level-encryption-profile/" + p.ID + "/config"
@@ -856,10 +856,9 @@ func TestListDistributionsByWebACLId_ItemShape_RealClient(t *testing.T) {
 	h := newTestHandler(t)
 	client := newTestCloudFrontClient(t, h)
 
-	// A slash-free WebACLId (WAF Classic-style) is used deliberately: the ARN form
-	// (WAFV2) trips an unrelated routing bug in extractResourceID (handler.go), which
-	// cuts a URI-label identifier at its first "/" -- out of this test's scope, filed
-	// separately (gopherstack-21my final report).
+	// A slash-free WebACLId (WAF Classic-style); the ARN form (WAFV2) is covered
+	// separately by TestListDistributionsByWebACLId_ARNIdentifier_RealClient
+	// (gopherstack-de19).
 	const webACLArn = "a1b2c3d4-5678-90ab-cdef-example11111"
 
 	mk := func(ref, comment string, priceClass types.PriceClass, alias string) *cfsdk.CreateDistributionOutput {
@@ -933,6 +932,73 @@ func TestListDistributionsByWebACLId_ItemShape_RealClient(t *testing.T) {
 	require.NotNil(t, item2.Aliases)
 	require.Len(t, item2.Aliases.Items, 1)
 	assert.Equal(t, "two.example.com", item2.Aliases.Items[0])
+}
+
+// TestListDistributionsByWebACLId_ARNIdentifier_RealClient is a regression test for
+// gopherstack-de19: extractResourceID (handler.go) cut a URI-label identifier at its first "/",
+// truncating a WAFV2 web ACL ARN's slash-bearing resource part
+// (arn:aws:wafv2:REGION:ACCOUNT:regional/webacl/NAME/UUID) down to just the account segment.
+// ListDistributionsByWebACLId for that ARN then matched no distribution and silently returned
+// an empty list for a legitimate request.
+func TestListDistributionsByWebACLId_ARNIdentifier_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestCloudFrontClient(t, h)
+
+	const webACLArn = "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/ExampleWebACL/" +
+		"a1b2c3d4-5678-90ab-cdef-EXAMPLE11111"
+
+	created, err := client.CreateDistribution(t.Context(), &cfsdk.CreateDistributionInput{
+		DistributionConfig: &types.DistributionConfig{
+			CallerReference: aws.String("ref-webacl-arn"),
+			Comment:         aws.String("arn identifier"),
+			Enabled:         aws.Bool(true),
+			Origins: &types.Origins{
+				Quantity: aws.Int32(1),
+				Items: []types.Origin{
+					{Id: aws.String("origin1"), DomainName: aws.String("example.com")},
+				},
+			},
+			DefaultCacheBehavior: &types.DefaultCacheBehavior{
+				TargetOriginId:       aws.String("origin1"),
+				ViewerProtocolPolicy: types.ViewerProtocolPolicyAllowAll,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.AssociateDistributionWebACL(t.Context(), &cfsdk.AssociateDistributionWebACLInput{
+		Id:        created.Distribution.Id,
+		WebACLArn: aws.String(webACLArn),
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name      string
+		webACLID  string
+		wantCount int
+	}{
+		{name: "full_arn_matches", webACLID: webACLArn, wantCount: 1},
+		{
+			name:      "truncated_arn_prefix_no_match",
+			webACLID:  "arn:aws:wafv2:us-east-1:123456789012:regional",
+			wantCount: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			listed, listErr := client.ListDistributionsByWebACLId(t.Context(), &cfsdk.ListDistributionsByWebACLIdInput{
+				WebACLId: aws.String(tt.webACLID),
+			})
+			require.NoError(t, listErr)
+			require.NotNil(t, listed.DistributionList)
+			assert.Len(t, listed.DistributionList.Items, tt.wantCount)
+		})
+	}
 }
 
 // TestListConflictingAliases_AccountID_RealClient covers the per-item AccountId field: the

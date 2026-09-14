@@ -34,9 +34,10 @@ func TestAppMesh_TagOperations(t *testing.T) {
 	assert.Len(t, tags, 1)
 	assert.Equal(t, "env", tags[0].(map[string]any)["key"])
 
-	// TagResource
-	rec = doRequest(t, h, http.MethodPut, "/tag",
-		map[string]any{"resourceArn": arn, "tags": []map[string]string{{"key": "team", "value": "platform"}}})
+	// TagResource. resourceArn is a query param on the real wire
+	// (serializers.go's SetQuery("resourceArn")), not a body field.
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/tag?resourceArn=%s", arn),
+		map[string]any{"tags": []map[string]string{{"key": "team", "value": "platform"}}})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify tag added
@@ -45,8 +46,8 @@ func TestAppMesh_TagOperations(t *testing.T) {
 	assert.Len(t, body["tags"].([]any), 2)
 
 	// UntagResource
-	rec = doRequest(t, h, http.MethodPut, "/untag",
-		map[string]any{"resourceArn": arn, "tagKeys": []string{"env"}})
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/untag?resourceArn=%s", arn),
+		map[string]any{"tagKeys": []string{"env"}})
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify tag removed
@@ -82,11 +83,12 @@ func TestAppMesh_TagResourceTooManyTags(t *testing.T) {
 	for i := range 50 {
 		tags[fmt.Sprintf("k%d", i)] = "v"
 	}
-	rec = doRequest(t, h, http.MethodPut, "/tag", map[string]any{"resourceArn": arn, "tags": toTagList(tags)})
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/tag?resourceArn=%s", arn),
+		map[string]any{"tags": toTagList(tags)})
 	assert.Equal(t, http.StatusOK, rec.Code, "50 tags is exactly at the limit and must succeed")
 
-	rec = doRequest(t, h, http.MethodPut, "/tag",
-		map[string]any{"resourceArn": arn, "tags": []map[string]string{{"key": "overflow", "value": "v"}}})
+	rec = doRequest(t, h, http.MethodPut, fmt.Sprintf("/tag?resourceArn=%s", arn),
+		map[string]any{"tags": []map[string]string{{"key": "overflow", "value": "v"}}})
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	body := getBody(t, rec)
 	assert.Equal(t, "TooManyTagsException", body["code"])

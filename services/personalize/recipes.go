@@ -88,6 +88,16 @@ func (h *Handler) listRecipes(input map[string]any) (map[string]any, error) {
 	maxResults := intField(input, "maxResults")
 	nextToken, _ := input["nextToken"].(string)
 
+	// RecipeProvider's own doc comment: "The default is SERVICE." Real AWS
+	// currently defines only one RecipeProvider enum value (types/enums.go:
+	// RecipeProviderService = "SERVICE") -- every built-in recipe here is
+	// already SERVICE-provided, so there is no CUSTOM recipe catalog to
+	// filter against; any other value is rejected, matching client-side
+	// smithy enum validation.
+	if recipeProvider, _ := input["recipeProvider"].(string); recipeProvider != "" && recipeProvider != "SERVICE" {
+		return nil, fmt.Errorf("%w: invalid RecipeProvider %q; valid: SERVICE", ErrValidation, recipeProvider)
+	}
+
 	if maxResults <= 0 || maxResults > len(recipes) {
 		maxResults = len(recipes)
 	}

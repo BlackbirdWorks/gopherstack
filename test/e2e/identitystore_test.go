@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -21,11 +20,15 @@ func TestIdentityStoreDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	// Seed a user.
-	user, err := stack.IdentityStoreHandler.Backend.CreateUser(t.Context(), testE2EStoreID, &identitystorebackend.CreateUserRequest{
-		UserName:    "alice.smith",
-		DisplayName: "Alice Smith",
-		Name:        &identitystorebackend.Name{GivenName: "Alice", FamilyName: "Smith"},
-	})
+	user, err := stack.IdentityStoreHandler.Backend.CreateUser(
+		t.Context(),
+		testE2EStoreID,
+		&identitystorebackend.CreateUserRequest{
+			UserName:    "alice.smith",
+			DisplayName: "Alice Smith",
+			Name:        &identitystorebackend.Name{GivenName: "Alice", FamilyName: "Smith"},
+		},
+	)
 	require.NoError(t, err)
 
 	// Seed a group.

@@ -44,6 +44,10 @@ func (b *InMemoryBackend) CreateReceiptRuleSet(name string) error {
 		return fmt.Errorf("%w: receipt rule set %s already exists", ErrReceiptRuleSetExists, name)
 	}
 
+	if b.receiptRuleSets.Len() >= b.limits.receiptRuleSets {
+		return limitExceeded("receipt rule sets per account")
+	}
+
 	b.receiptRuleSets.Put(&ReceiptRuleSet{
 		Name:      name,
 		CreatedAt: time.Now().UTC(),
@@ -73,6 +77,10 @@ func (b *InMemoryBackend) CloneReceiptRuleSet(originalName, newName string) erro
 
 	if b.receiptRuleSets.Has(newName) {
 		return fmt.Errorf("%w: receipt rule set %s already exists", ErrReceiptRuleSetExists, newName)
+	}
+
+	if b.receiptRuleSets.Len() >= b.limits.receiptRuleSets {
+		return limitExceeded("receipt rule sets per account")
 	}
 
 	rules := make([]ReceiptRule, len(src.Rules))

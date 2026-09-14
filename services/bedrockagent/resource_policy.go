@@ -82,7 +82,7 @@ func knowledgeBaseIDFromResourceArn(resourceArn string) string {
 func (b *InMemoryBackend) PutResourcePolicy(
 	_ context.Context, resourceArn, policy, expectedRevisionID string,
 ) (*ResourcePolicy, error) {
-	b.mu.Lock()
+	b.mu.Lock("PutResourcePolicy")
 	defer b.mu.Unlock()
 
 	if policy == "" {
@@ -148,7 +148,7 @@ func (b *InMemoryBackend) checkResourcePolicyRevision(resourceArn, expectedRevis
 // GetResourcePolicy returns the resource policy attached to a knowledge base
 // ARN.
 func (b *InMemoryBackend) GetResourcePolicy(_ context.Context, resourceArn string) (*ResourcePolicy, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetResourcePolicy")
 	defer b.mu.RUnlock()
 
 	rp, ok := b.resourcePolicies.Get(resourceArn)
@@ -174,7 +174,7 @@ func (b *InMemoryBackend) GetResourcePolicy(_ context.Context, resourceArn strin
 func (b *InMemoryBackend) DeleteResourcePolicy(
 	_ context.Context, resourceArn, expectedRevisionID string,
 ) (string, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteResourcePolicy")
 	defer b.mu.Unlock()
 
 	existing, ok := b.resourcePolicies.Get(resourceArn)

@@ -409,7 +409,13 @@ func (b *InMemoryBackend) DeleteTaskDefinitions(
 			}
 		}
 
-		deleted = append(deleted, *td)
+		// Real AWS: "it is immediately transitions from the INACTIVE to
+		// DELETE_IN_PROGRESS" (api_op_DeleteTaskDefinitions.go doc comment)
+		// -- the response must report the new status, not the pre-delete
+		// INACTIVE snapshot.
+		out := *td
+		out.Status = statusDeleteInProgress
+		deleted = append(deleted, out)
 	}
 
 	return deleted, failures, nil

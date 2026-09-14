@@ -6,10 +6,13 @@ import (
 	"sort"
 )
 
-// GetLaunchTemplate returns a copy of the LaunchTemplate matching idOrName (by ID first,
-// then by Name), or (nil, ErrLaunchTemplateNotFound) if not found. The version argument is
-// accepted for versioned resolution (currently all templates in this mock have a single version).
-func (b *InMemoryBackend) GetLaunchTemplate(idOrName, _ string) (*LaunchTemplate, error) {
+// GetLaunchTemplate returns a copy of the LaunchTemplate matching idOrName (by ID
+// first, then by Name), with ImageID/InstanceType resolved to the requested version
+// -- a version number, "$Latest", "$Default", or "" (meaning "$Default") -- per
+// resolveLaunchTemplateVersion. Returns (nil, ErrLaunchTemplateNotFound) if idOrName
+// doesn't match a template, or (nil, ErrLaunchTemplateVersionNotFound) if version
+// doesn't match one of its recorded versions.
+func (b *InMemoryBackend) GetLaunchTemplate(idOrName, version string) (*LaunchTemplate, error) {
 	if idOrName == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId or LaunchTemplateName is required", ErrInvalidParameter)
 	}
@@ -17,21 +20,37 @@ func (b *InMemoryBackend) GetLaunchTemplate(idOrName, _ string) (*LaunchTemplate
 	b.mu.RLock("GetLaunchTemplate")
 	defer b.mu.RUnlock()
 
-	if lt, ok := b.launchTemplates.Get(idOrName); ok {
-		cp := *lt
+	lt := b.findLaunchTemplateLocked(idOrName)
+	if lt == nil {
+		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, idOrName)
+	}
 
-		return &cp, nil
+	ver, err := resolveLaunchTemplateVersion(lt, version)
+	if err != nil {
+		return nil, err
+	}
+
+	cp := *lt
+	cp.ImageID = ver.ImageID
+	cp.InstanceType = ver.InstanceType
+
+	return &cp, nil
+}
+
+// findLaunchTemplateLocked looks up a launch template by ID first, then by
+// Name, returning the live (not copied) record. Must be called with b.mu held.
+func (b *InMemoryBackend) findLaunchTemplateLocked(idOrName string) *LaunchTemplate {
+	if lt, ok := b.launchTemplates.Get(idOrName); ok {
+		return lt
 	}
 
 	for _, lt := range b.launchTemplates.All() {
 		if lt.Name == idOrName {
-			cp := *lt
-
-			return &cp, nil
+			return lt
 		}
 	}
 
-	return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, idOrName)
+	return nil
 }
 
 // DeleteLaunchTemplate removes a launch template by ID and returns the
@@ -55,8 +74,11 @@ func (b *InMemoryBackend) DeleteLaunchTemplate(id string) (*LaunchTemplate, erro
 	return &cp, nil
 }
 
-// DescribeLaunchTemplateVersions returns versions of a specific launch template.
-// In this mock, every template has exactly one version.
+// DescribeLaunchTemplateVersions returns the current state of a specific launch
+// template as a single item. lt.Versions now holds real per-version history (see
+// GetLaunchTemplate/resolveLaunchTemplateVersion), but this op's own handler
+// (handleDescribeLaunchTemplateVersions) still only surfaces this one merged view --
+// expanding it to the full Versions list is a separate, larger wire-shape change.
 func (b *InMemoryBackend) DescribeLaunchTemplateVersions(id string) ([]*LaunchTemplate, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)

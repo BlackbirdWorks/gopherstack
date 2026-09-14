@@ -336,8 +336,9 @@ func TestUpdateDomainAssociation_RealClient(t *testing.T) {
 }
 
 // TestVerifyDNSConfiguration_RealPerTenantStatus verifies that VerifyDNSConfiguration returns a
-// real per-domain status list for a known tenant, FAILED for malformed domains, 404 for an
-// unknown identifier, and the legacy generic PASSED response when no identifier is given.
+// real per-domain status list for a known tenant, invalid-configuration for malformed domains,
+// 404 for an unknown identifier, and the legacy generic valid-configuration response when no
+// identifier is given.
 func TestVerifyDNSConfiguration_RealPerTenantStatus(t *testing.T) {
 	t.Parallel()
 
@@ -351,8 +352,8 @@ func TestVerifyDNSConfiguration_RealPerTenantStatus(t *testing.T) {
 	}
 
 	resp := rr.Body.String()
-	if !strings.Contains(resp, "valid.example.com") || !strings.Contains(resp, "PASSED") {
-		t.Errorf("expected valid domain marked PASSED, got: %s", resp)
+	if !strings.Contains(resp, "valid.example.com") || !strings.Contains(resp, "valid-configuration") {
+		t.Errorf("expected valid domain marked valid-configuration, got: %s", resp)
 	}
 
 	// Unknown identifier -> 404.
@@ -362,10 +363,10 @@ func TestVerifyDNSConfiguration_RealPerTenantStatus(t *testing.T) {
 		t.Fatalf("expected 404 for unknown identifier, got %d: %s", rrNotFound.Code, rrNotFound.Body.String())
 	}
 
-	// No identifier -> legacy generic PASSED response (back-compat).
+	// No identifier -> legacy generic valid-configuration response (back-compat).
 	rrLegacy := cfRequest(t, h, http.MethodPost, tenantDomainPrefix+"verify-dns-configuration", "")
-	if rrLegacy.Code != http.StatusOK || !strings.Contains(rrLegacy.Body.String(), "PASSED") {
-		t.Errorf("expected legacy PASSED response, got %d: %s", rrLegacy.Code, rrLegacy.Body.String())
+	if rrLegacy.Code != http.StatusOK || !strings.Contains(rrLegacy.Body.String(), "valid-configuration") {
+		t.Errorf("expected legacy valid-configuration response, got %d: %s", rrLegacy.Code, rrLegacy.Body.String())
 	}
 }
 

@@ -1,16 +1,22 @@
 package glue
 
 import (
+	"encoding/json"
 	"time"
 )
 
 // DatabaseInput is the input for creating or updating a Glue database.
 type DatabaseInput struct {
-	Parameters                    map[string]string      `json:"Parameters,omitempty"`
-	TargetDatabase                *DatabaseIdentifier    `json:"TargetDatabase,omitempty"`
-	Name                          string                 `json:"Name"`
-	Description                   string                 `json:"Description,omitempty"`
-	LocationURI                   string                 `json:"LocationUri,omitempty"`
+	Parameters     map[string]string   `json:"Parameters,omitempty"`
+	TargetDatabase *DatabaseIdentifier `json:"TargetDatabase,omitempty"`
+	Name           string              `json:"Name"`
+	Description    string              `json:"Description,omitempty"`
+	LocationURI    string              `json:"LocationUri,omitempty"`
+	// CatalogID carries CreateDatabaseInput's top-level CatalogId (not a
+	// DatabaseInput member on the wire) into CreateDatabase; handlers set it
+	// before calling the backend. No json tag: never decoded from the
+	// nested DatabaseInput wire object.
+	CatalogID                     string                 `json:"-"`
 	CreateTableDefaultPermissions []PrincipalPermissions `json:"CreateTableDefaultPermissions,omitempty"`
 }
 
@@ -89,14 +95,21 @@ type StorageDescriptor struct {
 
 // TableInput is the input for creating or updating a Glue table.
 type TableInput struct {
-	Parameters        map[string]string `json:"Parameters,omitempty"`
-	Name              string            `json:"Name"`
-	Description       string            `json:"Description,omitempty"`
-	Owner             string            `json:"Owner,omitempty"`
-	TableType         string            `json:"TableType,omitempty"`
+	Parameters  map[string]string `json:"Parameters,omitempty"`
+	Name        string            `json:"Name"`
+	Description string            `json:"Description,omitempty"`
+	Owner       string            `json:"Owner,omitempty"`
+	TableType   string            `json:"TableType,omitempty"`
+	// CatalogID carries CreateTableInput's top-level CatalogId (not a
+	// TableInput member on the wire) into CreateTable; handlers set it
+	// before calling the backend.
+	CatalogID         string            `json:"-"`
 	PartitionKeys     []Column          `json:"PartitionKeys,omitempty"`
 	StorageDescriptor StorageDescriptor `json:"StorageDescriptor,omitzero"`
 	Retention         int               `json:"Retention,omitempty"`
+	// SkipArchive carries UpdateTableInput's top-level SkipArchive into
+	// UpdateTable, unused by CreateTable.
+	SkipArchive bool `json:"-"`
 }
 
 // Table represents a Glue catalog table.
@@ -276,29 +289,32 @@ type JobCommand struct {
 
 // Job represents a Glue job.
 type Job struct {
-	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
 	Tags                 map[string]string     `json:"-"`
 	DefaultArguments     map[string]string     `json:"DefaultArguments,omitempty"`
+	SourceControlDetails *SourceControlDetails `json:"SourceControlDetails,omitempty"`
 	Command              JobCommand            `json:"Command,omitzero"`
-	WorkerType           string                `json:"WorkerType,omitempty"`
-	Role                 string                `json:"Role,omitempty"`
-	GlueVersion          string                `json:"GlueVersion,omitempty"`
-	Name                 string                `json:"Name"`
-	ARN                  string                `json:"Arn,omitempty"`
-	Description          string                `json:"Description,omitempty"`
-	Connections          ConnectionsList       `json:"Connections,omitzero"`
-	NotificationProperty NotificationProperty  `json:"NotificationProperty,omitzero"`
-	NumberOfWorkers      int                   `json:"NumberOfWorkers,omitempty"`
-	MaxRetries           int                   `json:"MaxRetries,omitempty"`
-	Timeout              int                   `json:"Timeout,omitempty"`
+	// JobMode describes how the job was created (SCRIPT/VISUAL/NOTEBOOK);
+	// missing or null defaults to SCRIPT (glue@v1.157.0 api_op_CreateJob.go).
+	JobMode         string          `json:"JobMode,omitempty"`
+	WorkerType      string          `json:"WorkerType,omitempty"`
+	Role            string          `json:"Role,omitempty"`
+	GlueVersion     string          `json:"GlueVersion,omitempty"`
+	Name            string          `json:"Name"`
+	ARN             string          `json:"Arn,omitempty"`
+	Description     string          `json:"Description,omitempty"`
+	Connections     ConnectionsList `json:"Connections,omitzero"`
+	NumberOfWorkers int             `json:"NumberOfWorkers,omitempty"`
+	MaxRetries      int             `json:"MaxRetries,omitempty"`
+	Timeout         int             `json:"Timeout,omitempty"`
 	// MaxCapacity is the DPU capacity for jobs that use it instead of
 	// WorkerType+NumberOfWorkers (e.g. Python shell jobs, or Spark jobs on
 	// Glue versions that predate worker-type based capacity). AWS rejects a
 	// request that sets both MaxCapacity and WorkerType/NumberOfWorkers.
-	MaxCapacity       float64           `json:"MaxCapacity,omitempty"`
-	ExecutionProperty ExecutionProperty `json:"ExecutionProperty,omitzero"`
-	CreatedOn         float64           `json:"CreatedOn,omitempty"`
-	LastModifiedOn    float64           `json:"LastModifiedOn,omitempty"`
+	MaxCapacity          float64              `json:"MaxCapacity,omitempty"`
+	ExecutionProperty    ExecutionProperty    `json:"ExecutionProperty,omitzero"`
+	CreatedOn            float64              `json:"CreatedOn,omitempty"`
+	LastModifiedOn       float64              `json:"LastModifiedOn,omitempty"`
+	NotificationProperty NotificationProperty `json:"NotificationProperty,omitzero"`
 }
 
 // NotificationProperty specifies the delay, in minutes, after which a job run
@@ -383,6 +399,7 @@ type Connection struct {
 	ConnectionType                 string                          `json:"ConnectionType,omitempty"`
 	ARN                            string                          `json:"Arn,omitempty"`
 	Description                    string                          `json:"Description,omitempty"`
+	CatalogID                      string                          `json:"CatalogId,omitempty"`
 	MatchCriteria                  []string                        `json:"MatchCriteria,omitempty"`
 	CreationTime                   float64                         `json:"CreationTime,omitempty"`
 	LastUpdatedTime                float64                         `json:"LastUpdatedTime,omitempty"`
@@ -517,12 +534,39 @@ type StartJobRunOptions struct {
 }
 
 // JobBookmark holds the bookmark state for a job run.
+//
+// RunId (not the fictitious "ActiveRun" key) is the real
+// JobBookmarkEntry.RunId member -- glue@v1.157.0 types/types.go:7077,
+// deserializers.go:61792 decodes "Run" as a JSON number (int32), so it must
+// not be string-typed even though this backend never populates it.
 type JobBookmark struct {
-	JobName   string `json:"JobName"`
-	Run       string `json:"Run,omitempty"`
-	ActiveRun string `json:"ActiveRun,omitempty"`
-	Version   int    `json:"Version"`
-	Attempt   int    `json:"Attempt,omitempty"`
+	JobName string `json:"JobName"`
+	RunID   string `json:"RunId,omitempty"`
+	Run     int    `json:"Run,omitempty"`
+	Version int    `json:"Version"`
+	Attempt int    `json:"Attempt,omitempty"`
+}
+
+// UnmarshalJSON tolerates a persisted snapshot written before RunID was
+// renamed from the fictitious "ActiveRun" wire key, so an older snapshot's
+// in-progress run id survives the upgrade instead of silently zeroing.
+func (b *JobBookmark) UnmarshalJSON(data []byte) error {
+	type alias JobBookmark
+
+	aux := &struct {
+		*alias
+		ActiveRun string `json:"ActiveRun,omitempty"`
+	}{alias: (*alias)(b)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if b.RunID == "" && aux.ActiveRun != "" {
+		b.RunID = aux.ActiveRun
+	}
+
+	return nil
 }
 
 // BatchStopJobRunError holds error info for a single stop attempt.
@@ -571,12 +615,14 @@ type DataQualityTargetTable struct {
 
 // DataQualityEvaluationRun represents a data quality ruleset evaluation run.
 type DataQualityEvaluationRun struct {
-	RunID        string   `json:"RunId"`
-	Status       string   `json:"Status"`
-	ErrorString  string   `json:"ErrorString,omitempty"`
-	RulesetNames []string `json:"RulesetNames,omitempty"`
-	StartedOn    float64  `json:"StartedOn,omitempty"`
-	CompletedOn  float64  `json:"CompletedOn,omitempty"`
+	RunID           string   `json:"RunId"`
+	Status          string   `json:"Status"`
+	ErrorString     string   `json:"ErrorString,omitempty"`
+	RulesetNames    []string `json:"RulesetNames,omitempty"`
+	StartedOn       float64  `json:"StartedOn,omitempty"`
+	CompletedOn     float64  `json:"CompletedOn,omitempty"`
+	NumberOfWorkers int32    `json:"NumberOfWorkers,omitempty"`
+	Timeout         int32    `json:"Timeout,omitempty"`
 }
 
 // CrawlerOptions holds the CreateCrawler/UpdateCrawler fields beyond the core
@@ -608,10 +654,13 @@ type UsageProfile struct {
 }
 
 // BlueprintRun represents a single execution of a Glue blueprint.
+// WorkflowName is only ever populated by a successful run (see
+// StartBlueprintRun's doc comment) -- omitempty matches the real field's
+// *string (optional) shape.
 type BlueprintRun struct {
 	BlueprintName string  `json:"BlueprintName"`
 	RunID         string  `json:"RunId"`
-	WorkflowName  string  `json:"WorkflowName"`
+	WorkflowName  string  `json:"WorkflowName,omitempty"`
 	State         string  `json:"State"`
 	RoleARN       string  `json:"RoleArn,omitempty"`
 	Parameters    string  `json:"Parameters,omitempty"`
@@ -624,6 +673,8 @@ type DQRuleRecommendationRun struct {
 	DataSourceS3Path    string  `json:"DataSourceS3Path,omitempty"`
 	Status              string  `json:"Status"`
 	StartedOn           float64 `json:"StartedOn,omitempty"`
+	NumberOfWorkers     int32   `json:"NumberOfWorkers,omitempty"`
+	Timeout             int32   `json:"Timeout,omitempty"`
 }
 
 // ColumnStatisticsTaskSettings represents column statistics task settings.
@@ -687,12 +738,56 @@ type IdentityCenterConfig struct {
 	UserBackgroundSessionsEnabled bool     `json:"UserBackgroundSessionsEnabled,omitempty"`
 }
 
-// IntegrationResourceProperty stores resource-level properties for a Zero-ETL integration.
+// IntegrationResourceProperty stores resource-level properties for a Zero-ETL
+// integration.
+//
+// SourceProcessingProperties/TargetProcessingProperties (not the fictitious
+// "SourceProperties"/"TargetProperties") are the real member names --
+// glue@v1.157.0 types/types.go:11323 (SourceProcessingProperties: RoleArn)
+// and :12251 (TargetProcessingProperties: ConnectionName/EventBusArn/KmsArn).
+// Stored as map[string]any, same as IntegrationTableProperties'
+// SourceTableConfig/TargetTableConfig, since this backend does not interpret
+// their contents.
 type IntegrationResourceProperty struct {
-	CreatedAt        time.Time         `json:"CreateTime"`
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	CreatedAt                  time.Time      `json:"CreateTime"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
+}
+
+// UnmarshalJSON tolerates a persisted snapshot written before
+// SourceProcessingProperties/TargetProcessingProperties were renamed from
+// the fictitious "SourceProperties"/"TargetProperties" wire keys, so an
+// older snapshot's stored properties survive the upgrade instead of
+// silently zeroing.
+func (p *IntegrationResourceProperty) UnmarshalJSON(data []byte) error {
+	type alias IntegrationResourceProperty
+
+	aux := &struct {
+		SourceProperties map[string]string `json:"SourceProperties,omitempty"`
+		TargetProperties map[string]string `json:"TargetProperties,omitempty"`
+		*alias
+	}{alias: (*alias)(p)}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+
+	if p.SourceProcessingProperties == nil && aux.SourceProperties != nil {
+		p.SourceProcessingProperties = make(map[string]any, len(aux.SourceProperties))
+		for k, v := range aux.SourceProperties {
+			p.SourceProcessingProperties[k] = v
+		}
+	}
+
+	if p.TargetProcessingProperties == nil && aux.TargetProperties != nil {
+		p.TargetProcessingProperties = make(map[string]any, len(aux.TargetProperties))
+		for k, v := range aux.TargetProperties {
+			p.TargetProcessingProperties[k] = v
+		}
+	}
+
+	return nil
 }
 
 // IntegrationTableProperties stores table-level properties for a Zero-ETL integration.
@@ -854,6 +949,7 @@ type Session struct {
 	CreatedOn        float64           `json:"CreatedOn,omitempty"`
 	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
 	Timeout          int32             `json:"Timeout,omitempty"`
+	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
 }
 
 // Statement represents a statement run within a Glue session.
@@ -1247,15 +1343,28 @@ type WorkflowEdge struct {
 	DestinationID string `json:"DestinationId,omitempty"`
 }
 
-// WorkflowRun represents a single run of a Glue workflow.
+// WorkflowRun represents a single run of a Glue workflow. WorkflowName's real
+// wire key is "Name", not "WorkflowName" -- confirmed against
+// aws-sdk-go-v2/service/glue@v1.157.0 deserializers.go's
+// awsAwsjson11_deserializeDocumentWorkflowRun case list, which has no
+// "WorkflowName" key at all; a real client's sv.Name was silently left nil on
+// every GetWorkflowRun/GetWorkflowRuns/GetWorkflow(LastRun) response. The tag
+// here is deliberately left as "WorkflowName" (NOT renamed to match) because
+// this struct's own json tags double as the on-disk snapshot shape
+// (persistence.go's backendSnapshot.WorkflowRuns); renaming this key would
+// silently drop WorkflowName on every snapshot restored from before this fix.
+// The wire-correct "Name" key is produced only at the HTTP response layer by
+// workflowRunWire (wire_arn.go), the same wire/persistence split workflowWire
+// already uses for Workflow's Graph/ARN.
 type WorkflowRun struct {
-	Properties   map[string]string      `json:"WorkflowRunProperties,omitempty"`
-	Statistics   *WorkflowRunStatistics `json:"Statistics,omitempty"`
-	WorkflowName string                 `json:"WorkflowName"`
-	RunID        string                 `json:"WorkflowRunId"`
-	Status       string                 `json:"Status"`
-	StartedOn    float64                `json:"StartedOn,omitempty"`
-	CompletedOn  float64                `json:"CompletedOn,omitempty"`
+	Properties    map[string]string      `json:"WorkflowRunProperties,omitempty"`
+	Statistics    *WorkflowRunStatistics `json:"Statistics,omitempty"`
+	WorkflowName  string                 `json:"WorkflowName"`
+	RunID         string                 `json:"WorkflowRunId"`
+	Status        string                 `json:"Status"`
+	PreviousRunID string                 `json:"PreviousRunId,omitempty"`
+	StartedOn     float64                `json:"StartedOn,omitempty"`
+	CompletedOn   float64                `json:"CompletedOn,omitempty"`
 }
 
 // WorkflowRunStatistics mirrors aws-sdk-go-v2/service/glue/types.WorkflowRunStatistics

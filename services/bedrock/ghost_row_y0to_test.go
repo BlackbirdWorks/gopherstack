@@ -30,7 +30,10 @@ func TestDeleteDataSource_PrunesIngestionJobsAndDocuments(t *testing.T) {
 	job, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, "")
 	require.NoError(t, err)
 
-	_, err = b.IngestKnowledgeBaseDocuments(kb.KnowledgeBaseID, ds.DataSourceID, []string{"doc1"})
+	_, err = b.IngestKnowledgeBaseDocuments(
+		kb.KnowledgeBaseID, ds.DataSourceID,
+		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: "doc1"}},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteDataSource(kb.KnowledgeBaseID, ds.DataSourceID))
@@ -80,7 +83,10 @@ func TestDeleteDataSource_DoesNotAffectSiblingDataSource(t *testing.T) {
 	job2, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds2.DataSourceID, "")
 	require.NoError(t, err)
 
-	_, err = b.IngestKnowledgeBaseDocuments(kb.KnowledgeBaseID, ds2.DataSourceID, []string{"doc1"})
+	_, err = b.IngestKnowledgeBaseDocuments(
+		kb.KnowledgeBaseID, ds2.DataSourceID,
+		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: "doc1"}},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteDataSource(kb.KnowledgeBaseID, ds1.DataSourceID))
@@ -118,7 +124,10 @@ func TestDeleteKnowledgeBase_StillCascadesAfterDataSourceCascadeFix(t *testing.T
 	job, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, "")
 	require.NoError(t, err)
 
-	_, err = b.IngestKnowledgeBaseDocuments(kb.KnowledgeBaseID, ds.DataSourceID, []string{"doc1"})
+	_, err = b.IngestKnowledgeBaseDocuments(
+		kb.KnowledgeBaseID, ds.DataSourceID,
+		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: "doc1"}},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteKnowledgeBase(kb.KnowledgeBaseID))

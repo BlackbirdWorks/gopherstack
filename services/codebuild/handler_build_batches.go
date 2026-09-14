@@ -125,8 +125,12 @@ func (h *Handler) handleListBuildBatchesForProject(
 	return &listBuildBatchesForProjectOutput{IDs: pg.Data, NextToken: pg.Next}, nil
 }
 
+// retryBuildBatchInput mirrors api_op_RetryBuildBatch.go's
+// RetryBuildBatchInput. RetryType is accepted but not behaviorally
+// distinguished -- see RetryBuildBatch's doc comment (build_batches.go).
 type retryBuildBatchInput struct {
-	ID string `json:"id"`
+	ID        string `json:"id"`
+	RetryType string `json:"retryType,omitempty"`
 }
 
 type retryBuildBatchOutput struct {
@@ -146,8 +150,40 @@ func (h *Handler) handleRetryBuildBatch(_ context.Context, in *retryBuildBatchIn
 	return &retryBuildBatchOutput{BuildBatch: bb}, nil
 }
 
+// startBuildBatchInput mirrors aws-sdk-go-v2/service/codebuild@v1.72.4's
+// api_op_StartBuildBatch.go StartBuildBatchInput. IdempotencyToken and
+// LogsConfigOverride are intentionally not modeled -- see
+// StartBuildBatchConfig's doc comment (build_batches.go).
 type startBuildBatchInput struct {
-	ProjectName string `json:"projectName"`
+	ArtifactsOverride                *ProjectArtifacts      `json:"artifactsOverride,omitempty"`
+	BuildBatchConfigOverride         *BuildBatchConfig      `json:"buildBatchConfigOverride,omitempty"`
+	CacheOverride                    *ProjectCache          `json:"cacheOverride,omitempty"`
+	RegistryCredentialOverride       *RegistryCredential    `json:"registryCredentialOverride,omitempty"`
+	SourceAuthOverride               *SourceAuth            `json:"sourceAuthOverride,omitempty"`
+	GitSubmodulesConfigOverride      *GitSubmodulesConfig   `json:"gitSubmodulesConfigOverride,omitempty"`
+	InsecureSslOverride              *bool                  `json:"insecureSslOverride,omitempty"`
+	ReportBuildBatchStatusOverride   *bool                  `json:"reportBuildBatchStatusOverride,omitempty"`
+	PrivilegedModeOverride           *bool                  `json:"privilegedModeOverride,omitempty"`
+	GitCloneDepthOverride            *int32                 `json:"gitCloneDepthOverride,omitempty"`
+	BuildTimeoutInMinutesOverride    *int32                 `json:"buildTimeoutInMinutesOverride,omitempty"`
+	QueuedTimeoutInMinutesOverride   *int32                 `json:"queuedTimeoutInMinutesOverride,omitempty"`
+	SourceVersion                    string                 `json:"sourceVersion,omitempty"`
+	EncryptionKeyOverride            string                 `json:"encryptionKeyOverride,omitempty"`
+	ImageOverride                    string                 `json:"imageOverride,omitempty"`
+	ServiceRoleOverride              string                 `json:"serviceRoleOverride,omitempty"`
+	BuildspecOverride                string                 `json:"buildspecOverride,omitempty"`
+	SourceTypeOverride               string                 `json:"sourceTypeOverride,omitempty"`
+	SourceLocationOverride           string                 `json:"sourceLocationOverride,omitempty"`
+	EnvironmentTypeOverride          string                 `json:"environmentTypeOverride,omitempty"`
+	CertificateOverride              string                 `json:"certificateOverride,omitempty"`
+	ImagePullCredentialsTypeOverride string                 `json:"imagePullCredentialsTypeOverride,omitempty"`
+	ComputeTypeOverride              string                 `json:"computeTypeOverride,omitempty"`
+	ProjectName                      string                 `json:"projectName"`
+	SecondaryArtifactsOverride       []ProjectArtifacts     `json:"secondaryArtifactsOverride,omitempty"`
+	SecondarySourcesOverride         []ProjectSource        `json:"secondarySourcesOverride,omitempty"`
+	SecondarySourcesVersionOverride  []ProjectSourceVersion `json:"secondarySourcesVersionOverride,omitempty"`
+	EnvironmentVariablesOverride     []EnvironmentVariable  `json:"environmentVariablesOverride,omitempty"`
+	DebugSessionEnabled              bool                   `json:"debugSessionEnabled,omitempty"`
 }
 
 type startBuildBatchOutput struct {
@@ -159,7 +195,36 @@ func (h *Handler) handleStartBuildBatch(_ context.Context, in *startBuildBatchIn
 		return nil, fmt.Errorf("%w: projectName is required", errInvalidRequest)
 	}
 
-	bb, err := h.Backend.StartBuildBatch(in.ProjectName)
+	bb, err := h.Backend.StartBuildBatch(in.ProjectName, StartBuildBatchConfig{
+		ArtifactsOverride:                in.ArtifactsOverride,
+		BuildBatchConfigOverride:         in.BuildBatchConfigOverride,
+		CacheOverride:                    in.CacheOverride,
+		RegistryCredentialOverride:       in.RegistryCredentialOverride,
+		SourceAuthOverride:               in.SourceAuthOverride,
+		GitSubmodulesConfigOverride:      in.GitSubmodulesConfigOverride,
+		InsecureSslOverride:              in.InsecureSslOverride,
+		ReportBuildBatchStatusOverride:   in.ReportBuildBatchStatusOverride,
+		PrivilegedModeOverride:           in.PrivilegedModeOverride,
+		GitCloneDepthOverride:            in.GitCloneDepthOverride,
+		BuildTimeoutInMinutesOverride:    in.BuildTimeoutInMinutesOverride,
+		QueuedTimeoutInMinutesOverride:   in.QueuedTimeoutInMinutesOverride,
+		SourceVersion:                    in.SourceVersion,
+		EncryptionKeyOverride:            in.EncryptionKeyOverride,
+		ImageOverride:                    in.ImageOverride,
+		ServiceRoleOverride:              in.ServiceRoleOverride,
+		BuildspecOverride:                in.BuildspecOverride,
+		SourceTypeOverride:               in.SourceTypeOverride,
+		SourceLocationOverride:           in.SourceLocationOverride,
+		EnvironmentTypeOverride:          in.EnvironmentTypeOverride,
+		CertificateOverride:              in.CertificateOverride,
+		ImagePullCredentialsTypeOverride: in.ImagePullCredentialsTypeOverride,
+		ComputeTypeOverride:              in.ComputeTypeOverride,
+		SecondaryArtifactsOverride:       in.SecondaryArtifactsOverride,
+		SecondarySourcesOverride:         in.SecondarySourcesOverride,
+		SecondarySourcesVersionOverride:  in.SecondarySourcesVersionOverride,
+		EnvVarsOverride:                  in.EnvironmentVariablesOverride,
+		DebugSessionEnabled:              in.DebugSessionEnabled,
+	})
 	if err != nil {
 		return nil, err
 	}

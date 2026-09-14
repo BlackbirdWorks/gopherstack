@@ -1,5 +1,4 @@
 //go:build e2e
-// +build e2e
 
 package e2e_test
 
@@ -16,7 +15,14 @@ import (
 func TestResourceGroupsDashboard(t *testing.T) {
 	stack := newStack(t)
 
-	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup(t.Context(), "test-group", "an e2e test group", nil, nil, nil)
+	_, err := stack.ResourceGroupsHandler.Backend.CreateGroup(
+		t.Context(),
+		"test-group",
+		"an e2e test group",
+		nil,
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	server := httptest.NewServer(stack.Echo)

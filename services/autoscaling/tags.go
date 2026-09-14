@@ -27,6 +27,7 @@ func (b *InMemoryBackend) CreateOrUpdateTags(tags []ResourceTag) error {
 		for i, t := range g.Tags {
 			if t.Key == tag.Key {
 				g.Tags[i].Value = tag.Value
+				g.Tags[i].PropagateAtLaunch = tag.PropagateAtLaunch
 				updated = true
 
 				break
@@ -34,7 +35,11 @@ func (b *InMemoryBackend) CreateOrUpdateTags(tags []ResourceTag) error {
 		}
 
 		if !updated {
-			g.Tags = append(g.Tags, Tag{Key: tag.Key, Value: tag.Value})
+			g.Tags = append(g.Tags, Tag{
+				Key:               tag.Key,
+				Value:             tag.Value,
+				PropagateAtLaunch: tag.PropagateAtLaunch,
+			})
 		}
 	}
 

@@ -2,6 +2,7 @@ package cognitoidp
 
 import (
 	"context"
+	"maps"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
@@ -18,6 +19,15 @@ func (h *Handler) handleAdminForgetDevice(
 }
 
 // toDeviceType converts a stored Device into its AWS wire representation.
+// DeviceStatus is a gopherstack-only top-level field with no counterpart on
+// the real wire (types.DeviceType has only DeviceAttributes/DeviceKey/3
+// dates -- verified against cognitoidentityprovider@v1.67.4 types/types.go).
+// UpdateDeviceStatus/AdminUpdateDeviceStatus's effect was therefore
+// unobservable by any real client through Get/ListDevices: the extra field
+// decodes to nothing. Mirrored into DeviceAttributes as "device_status" (the
+// key real Cognito uses for this) alongside DeviceStatus so existing
+// raw-body assertions on the old field keep passing while a real client can
+// now actually see the value it set.
 func toDeviceType(d *Device) *deviceType {
 	if d == nil {
 		return nil
@@ -27,13 +37,17 @@ func toDeviceType(d *Device) *deviceType {
 	modified := float64(d.LastModifiedAt.Unix())
 	lastAuth := float64(d.LastAuthenticatedAt.Unix())
 
+	attrs := make(map[string]string, len(d.Attributes)+1)
+	maps.Copy(attrs, d.Attributes)
+	attrs["device_status"] = d.Status
+
 	return &deviceType{
 		DeviceKey:                   d.DeviceKey,
 		DeviceStatus:                d.Status,
 		DeviceCreateDate:            &created,
 		DeviceLastModifiedDate:      &modified,
 		DeviceLastAuthenticatedDate: &lastAuth,
-		DeviceAttributes:            sortedAttributeList(d.Attributes),
+		DeviceAttributes:            sortedAttributeList(attrs),
 	}
 }
 

@@ -11,8 +11,8 @@ type batchGetTriggersInput struct {
 
 // batchGetTriggersOutput holds the result for BatchGetTriggers.
 type batchGetTriggersOutput struct {
-	Triggers         []*Trigger `json:"Triggers"`
-	TriggersNotFound []string   `json:"TriggersNotFound"`
+	Triggers         []*triggerWire `json:"Triggers"`
+	TriggersNotFound []string       `json:"TriggersNotFound"`
 }
 
 func (h *Handler) handleBatchGetTriggers(
@@ -21,7 +21,7 @@ func (h *Handler) handleBatchGetTriggers(
 ) (*batchGetTriggersOutput, error) {
 	found, missing := h.Backend.BatchGetTriggers(in.TriggerNames)
 
-	return &batchGetTriggersOutput{Triggers: found, TriggersNotFound: missing}, nil
+	return &batchGetTriggersOutput{Triggers: toTriggerWireList(found), TriggersNotFound: missing}, nil
 }
 
 // createTriggerInput holds input for CreateTrigger.
@@ -95,7 +95,7 @@ type getTriggerInput struct {
 
 // getTriggerOutput holds the result for GetTrigger.
 type getTriggerOutput struct {
-	Trigger *Trigger `json:"Trigger"`
+	Trigger *triggerWire `json:"Trigger"`
 }
 
 func (h *Handler) handleGetTrigger(
@@ -107,7 +107,7 @@ func (h *Handler) handleGetTrigger(
 		return nil, err
 	}
 
-	return &getTriggerOutput{Trigger: t}, nil
+	return &getTriggerOutput{Trigger: toTriggerWire(t)}, nil
 }
 
 // defaultGetTriggersLimit is used when MaxResults is unset on
@@ -159,8 +159,8 @@ type getTriggersInput struct {
 
 // getTriggersOutput holds the result for GetTriggers.
 type getTriggersOutput struct {
-	NextToken string     `json:"NextToken,omitempty"`
-	Triggers  []*Trigger `json:"Triggers"`
+	NextToken string         `json:"NextToken,omitempty"`
+	Triggers  []*triggerWire `json:"Triggers"`
 }
 
 func (h *Handler) handleGetTriggers(
@@ -176,7 +176,7 @@ func (h *Handler) handleGetTriggers(
 
 	page, next := paginateSlice(triggers, in.NextToken, limit)
 
-	return &getTriggersOutput{Triggers: page, NextToken: next}, nil
+	return &getTriggersOutput{Triggers: toTriggerWireList(page), NextToken: next}, nil
 }
 
 // listTriggersInput holds input for ListTriggers.
@@ -285,7 +285,7 @@ type triggerUpdate struct {
 
 // updateTriggerOutput holds the result for UpdateTrigger.
 type updateTriggerOutput struct {
-	Trigger *Trigger `json:"Trigger"`
+	Trigger *triggerWire `json:"Trigger"`
 }
 
 func (h *Handler) handleUpdateTrigger(
@@ -308,5 +308,5 @@ func (h *Handler) handleUpdateTrigger(
 		return nil, err
 	}
 
-	return &updateTriggerOutput{Trigger: t}, nil
+	return &updateTriggerOutput{Trigger: toTriggerWire(t)}, nil
 }

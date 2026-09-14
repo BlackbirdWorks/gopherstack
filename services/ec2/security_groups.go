@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 )
 
 // AuthorizeSecurityGroupIngress adds ingress rules to a security group.
@@ -520,13 +522,42 @@ func (b *InMemoryBackend) DescribeSecurityGroupRules(
 
 // ModifySecurityGroupRules updates one or more rules (by position index) within a security group.
 // Only protocol, IPRange, and port range can be mutated; egress/ingress direction is immutable.
+// parseSecurityGroupRuleID decodes the deterministic "sgr-<groupID>-{in,out}-<index>"
+// IDs DescribeSecurityGroupRules synthesizes (security_groups.go
+// DescribeSecurityGroupRules), returning which direction's rule slice and
+// index the caller means. ok is false for any ID not shaped that way or not
+// belonging to groupID.
+func parseSecurityGroupRuleID(groupID, ruleID string) (bool, int, bool) {
+	if suffix, found := strings.CutPrefix(ruleID, "sgr-"+groupID+"-in-"); found {
+		n, err := strconv.Atoi(suffix)
+
+		return false, n, err == nil
+	}
+
+	if suffix, found := strings.CutPrefix(ruleID, "sgr-"+groupID+"-out-"); found {
+		n, err := strconv.Atoi(suffix)
+
+		return true, n, err == nil
+	}
+
+	return false, 0, false
+}
+
+// ModifySecurityGroupRules updates existing rules in place by
+// SecurityGroupRuleId, matching the real operation -- distinct from
+// Authorize/RevokeSecurityGroup{Ingress,Egress}, which add/remove whole
+// rules. An unrecognized SecurityGroupRuleId reports
+// ErrSecurityGroupRuleNotFound rather than being silently ignored.
 func (b *InMemoryBackend) ModifySecurityGroupRules(
 	groupID string,
-	updates []SecurityGroupRule,
-	egress bool,
+	updates []SecurityGroupRuleUpdate,
 ) error {
 	if groupID == "" {
 		return fmt.Errorf("%w: GroupId is required", ErrInvalidParameter)
+	}
+
+	if len(updates) == 0 {
+		return fmt.Errorf("%w: SecurityGroupRules is required", ErrInvalidParameter)
 	}
 
 	b.mu.Lock("ModifySecurityGroupRules")
@@ -537,10 +568,29 @@ func (b *InMemoryBackend) ModifySecurityGroupRules(
 		return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, groupID)
 	}
 
-	if egress {
-		sg.EgressRules = updates
-	} else {
-		sg.IngressRules = updates
+	for _, u := range updates {
+		egress, idx, found := parseSecurityGroupRuleID(groupID, u.SecurityGroupRuleID)
+		if !found {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupRuleNotFound, u.SecurityGroupRuleID)
+		}
+
+		rules := sg.IngressRules
+		if egress {
+			rules = sg.EgressRules
+		}
+
+		if idx < 0 || idx >= len(rules) {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupRuleNotFound, u.SecurityGroupRuleID)
+		}
+
+		rules[idx] = SecurityGroupRule{
+			Protocol:      u.Protocol,
+			IPRange:       u.CIDRIPv4,
+			SourceGroupID: u.ReferencedGroupID,
+			Description:   u.Description,
+			FromPort:      u.FromPort,
+			ToPort:        u.ToPort,
+		}
 	}
 
 	return nil

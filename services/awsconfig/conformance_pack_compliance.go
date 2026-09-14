@@ -211,7 +211,7 @@ func (b *InMemoryBackend) packComplianceStatusLocked(packName string) string {
 // Config's documented behavior ("Conformance packs with no evaluation results
 // will have a compliance score of INSUFFICIENT_DATA").
 func (b *InMemoryBackend) ListConformancePackComplianceScores(
-	packNameFilter []string,
+	packNameFilter []string, sortBy, sortOrder string,
 ) []ConformancePackComplianceScoreEntry {
 	b.mu.RLock("ListConformancePackComplianceScores")
 	defer b.mu.RUnlock()
@@ -236,7 +236,43 @@ func (b *InMemoryBackend) ListConformancePackComplianceScores(
 		out = append(out, b.packComplianceScoreLocked(name))
 	}
 
+	sortConformancePackComplianceScores(out, sortBy, sortOrder)
+
 	return out
+}
+
+// sortConformancePackComplianceScores orders scores per
+// ListConformancePackComplianceScoresInput's documented SortBy/SortOrder
+// (api_op_ListConformancePackComplianceScores.go): by conformance pack name
+// (default) or by the numeric Score value (SortBy=SCORE), ascending unless
+// SortOrder=DESCENDING. A pack scored INSUFFICIENT_DATA sorts last ascending
+// and first descending, per that same doc comment.
+func sortConformancePackComplianceScores(entries []ConformancePackComplianceScoreEntry, sortBy, sortOrder string) {
+	descending := sortOrder == "DESCENDING"
+
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, c := entries[i], entries[j]
+		if descending {
+			a, c = c, a
+		}
+
+		if sortBy != "SCORE" {
+			return a.ConformancePackName < c.ConformancePackName
+		}
+
+		av, aErr := strconv.ParseFloat(a.Score, 64)
+		cv, cErr := strconv.ParseFloat(c.Score, 64)
+
+		if aErr == nil && cErr == nil {
+			return av < cv
+		}
+
+		if aErr == nil {
+			return true
+		}
+
+		return false
+	})
 }
 
 // packComplianceScoreLocked computes one pack's compliance score entry.

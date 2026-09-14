@@ -58,6 +58,11 @@ const (
 	// is a free string field (no generated enum), but types.BrokerStateReplica
 	// ("REPLICA") confirms this is the real spelling AWS uses.
 	DataReplicationRoleReplica = "REPLICA"
+	// DataReplicationRolePrimary is the role a replica broker takes on after
+	// Promote -- the counterpart to DataReplicationRoleReplica ("When a
+	// replica broker is promoted to primary, this role is interchanged",
+	// aws-sdk-go-v2/service/mq/types.DataReplicationMetadataOutput doc).
+	DataReplicationRolePrimary = "PRIMARY"
 )
 
 // BrokerInstance holds endpoint information for a broker instance.
@@ -185,9 +190,14 @@ type EncryptionOptions struct {
 }
 
 // WeeklyStartTime defines the broker maintenance window start time.
+// TimeOfDay has no omitempty: it's *string on the real wire
+// (mq@v1.39.4 types/types.go:677), so the client-side required check
+// (validators.go:623-625) only rejects nil, not an empty string, and this
+// struct is reused directly as the CreateBroker/UpdateBroker wire input
+// shape -- a legitimate empty value must round-trip, not vanish.
 type WeeklyStartTime struct {
 	DayOfWeek string `json:"dayOfWeek,omitempty"`
-	TimeOfDay string `json:"timeOfDay,omitempty"`
+	TimeOfDay string `json:"timeOfDay"`
 	TimeZone  string `json:"timeZone,omitempty"`
 }
 
@@ -199,16 +209,25 @@ type WeeklyStartTime struct {
 // encode, matching AWS's split between LdapServerMetadataInput (has the
 // password) and LdapServerMetadataOutput (does not) in
 // aws-sdk-go-v2/service/mq/types/types.go.
+// RoleBase/RoleSearchMatching/UserBase/UserSearchMatching/
+// ServiceAccountUsername/Hosts have no omitempty: all six are
+// LdapServerMetadataOutput's "This member is required" fields
+// (mq@v1.39.4 types/types.go:381-425), but as *string/[]string on the real
+// wire the client-side required check (validators.go:564-589) only rejects
+// nil, not empty -- and this struct is reused directly as the
+// CreateBroker/UpdateBroker wire input shape, so a legitimate empty value
+// must round-trip, not vanish. RoleName/UserRoleName stay optional
+// (genuinely not required).
 type LdapServerMetadata struct {
-	RoleBase               string   `json:"roleBase,omitempty"`
+	RoleBase               string   `json:"roleBase"`
 	RoleName               string   `json:"roleName,omitempty"`
-	RoleSearchMatching     string   `json:"roleSearchMatching,omitempty"`
-	UserBase               string   `json:"userBase,omitempty"`
+	RoleSearchMatching     string   `json:"roleSearchMatching"`
+	UserBase               string   `json:"userBase"`
 	UserRoleName           string   `json:"userRoleName,omitempty"`
-	UserSearchMatching     string   `json:"userSearchMatching,omitempty"`
-	ServiceAccountUsername string   `json:"serviceAccountUsername,omitempty"`
+	UserSearchMatching     string   `json:"userSearchMatching"`
+	ServiceAccountUsername string   `json:"serviceAccountUsername"`
 	ServiceAccountPassword string   `json:"serviceAccountPassword,omitempty"`
-	Hosts                  []string `json:"hosts,omitempty"`
+	Hosts                  []string `json:"hosts"`
 	RoleSearchSubtree      bool     `json:"roleSearchSubtree"`
 	UserSearchSubtree      bool     `json:"userSearchSubtree"`
 }

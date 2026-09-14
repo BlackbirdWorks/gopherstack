@@ -105,8 +105,12 @@ func (b *InMemoryBackend) DeleteRouteTable(id string) error {
 
 // DescribeRouteTables returns route tables, optionally filtered by IDs.
 // When ids are provided, lookups are O(len(ids)) via the route-table map
-// rather than scanning every route table in the backend.
-func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
+// rather than scanning every route table in the backend. Matching real AWS,
+// naming an ID that does not exist fails the whole call with
+// InvalidRouteTableID.NotFound rather than silently omitting it -- a real
+// client asking for a specific (e.g. just-deleted) route table got an empty,
+// successful response instead of the NotFound it depends on to detect that.
+func (b *InMemoryBackend) DescribeRouteTables(ids []string) ([]*RouteTable, error) {
 	b.mu.RLock("DescribeRouteTables")
 	defer b.mu.RUnlock()
 
@@ -116,14 +120,14 @@ func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
 		for _, id := range ids {
 			rt, ok := b.routeTables.Get(id)
 			if !ok {
-				continue
+				return nil, fmt.Errorf("%w: %s", ErrRouteTableNotFound, id)
 			}
 
 			cp := *rt
 			out = append(out, &cp)
 		}
 
-		return out
+		return out, nil
 	}
 
 	out := make([]*RouteTable, 0, b.routeTables.Len())
@@ -133,7 +137,7 @@ func (b *InMemoryBackend) DescribeRouteTables(ids []string) []*RouteTable {
 		out = append(out, &cp)
 	}
 
-	return out
+	return out, nil
 }
 
 // CreateRoute adds a route to a route table.

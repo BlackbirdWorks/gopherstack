@@ -210,6 +210,7 @@ func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
 	type rlcListXML struct {
 		XMLName     xml.Name     `xml:"RealtimeLogConfigs"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		Marker      string       `xml:"Marker"`
 		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []rlcItemXML `xml:"Items>member"`
 		MaxItems    int          `xml:"MaxItems"`
@@ -240,6 +241,7 @@ func (h *Handler) handleListRealtimeLogConfigs(c *echo.Context) error {
 
 	list := rlcListXML{
 		XMLNS:       cfNS,
+		Marker:      c.QueryParam("Marker"),
 		NextMarker:  nextMarker,
 		MaxItems:    pageSize,
 		Items:       summaries,

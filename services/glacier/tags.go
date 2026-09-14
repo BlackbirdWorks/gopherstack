@@ -75,7 +75,7 @@ func validateTagValue(v string) error {
 
 // AddTagsToVault adds or updates tags on a vault.
 func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, tags map[string]string) error {
-	b.mu.Lock()
+	b.mu.Lock("AddTagsToVault")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -118,7 +118,7 @@ func (b *InMemoryBackend) AddTagsToVault(accountID, region, vaultName string, ta
 
 // ListTagsForVault returns all tags for a vault.
 func (b *InMemoryBackend) ListTagsForVault(accountID, region, vaultName string) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListTagsForVault")
 	defer b.mu.RUnlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -135,7 +135,7 @@ func (b *InMemoryBackend) ListTagsForVault(accountID, region, vaultName string) 
 
 // RemoveTagsFromVault removes tags from a vault.
 func (b *InMemoryBackend) RemoveTagsFromVault(accountID, region, vaultName string, tagKeys []string) error {
-	b.mu.Lock()
+	b.mu.Lock("RemoveTagsFromVault")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))

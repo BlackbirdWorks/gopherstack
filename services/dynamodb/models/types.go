@@ -99,22 +99,23 @@ type TableDescription struct {
 	SSEDescription            *SSEDescription                   `json:"SSEDescription,omitempty"`
 	OnDemandThroughput        *OnDemandThroughput               `json:"OnDemandThroughput,omitempty"`
 	TableClassSummary         *TableClassSummaryDescription     `json:"TableClassSummary,omitempty"`
-	TableName                 string                            `json:"TableName"`
+	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
 	TableStatus               string                            `json:"TableStatus"`
 	TableArn                  string                            `json:"TableArn,omitempty"`
 	TableID                   string                            `json:"TableId,omitempty"`
-	LatestStreamArn           string                            `json:"LatestStreamArn,omitempty"`
+	TableName                 string                            `json:"TableName"`
 	LatestStreamLabel         string                            `json:"LatestStreamLabel,omitempty"`
 	GlobalTableVersion        string                            `json:"GlobalTableVersion,omitempty"`
-	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
-	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
+	MultiRegionConsistency    string                            `json:"MultiRegionConsistency,omitempty"`
 	GlobalSecondaryIndexes    []GlobalSecondaryIndexDescription `json:"GlobalSecondaryIndexes,omitempty"`
+	AttributeDefinitions      []AttributeDefinition             `json:"AttributeDefinitions"`
 	LocalSecondaryIndexes     []LocalSecondaryIndexDescription  `json:"LocalSecondaryIndexes,omitempty"`
 	Replicas                  []ReplicaDescription              `json:"Replicas,omitempty"`
+	KeySchema                 []KeySchemaElement                `json:"KeySchema"`
 	CreationDateTime          float64                           `json:"CreationDateTime,omitempty"`
 	TableSizeBytes            int64                             `json:"TableSizeBytes"`
-	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 	ItemCount                 int                               `json:"ItemCount"`
+	DeletionProtectionEnabled bool                              `json:"DeletionProtectionEnabled,omitempty"`
 }
 
 type SSEDescription struct {
@@ -188,6 +189,7 @@ type UpdateTableInput struct {
 	TableName                   string                       `json:"TableName"`
 	BillingMode                 string                       `json:"BillingMode,omitempty"`
 	TableClass                  string                       `json:"TableClass,omitempty"`
+	MultiRegionConsistency      string                       `json:"MultiRegionConsistency,omitempty"`
 	AttributeDefinitions        []AttributeDefinition        `json:"AttributeDefinitions,omitempty"`
 	GlobalSecondaryIndexUpdates []GlobalSecondaryIndexUpdate `json:"GlobalSecondaryIndexUpdates,omitempty"`
 	ReplicaUpdates              []ReplicaUpdate              `json:"ReplicaUpdates,omitempty"`
@@ -534,7 +536,19 @@ type BatchWriteItemOutput struct {
 // --- Capacity & Metrics ---
 
 type ConsumedCapacity struct {
-	TableName          string  `json:"TableName,omitempty"`
+	Table                  *Capacity           `json:"Table,omitempty"`
+	GlobalSecondaryIndexes map[string]Capacity `json:"GlobalSecondaryIndexes,omitempty"`
+	LocalSecondaryIndexes  map[string]Capacity `json:"LocalSecondaryIndexes,omitempty"`
+	TableName              string              `json:"TableName,omitempty"`
+	CapacityUnits          float64             `json:"CapacityUnits,omitempty"`
+	ReadCapacityUnits      float64             `json:"ReadCapacityUnits,omitempty"`
+	WriteCapacityUnits     float64             `json:"WriteCapacityUnits,omitempty"`
+}
+
+// Capacity mirrors types.Capacity, the per-table/per-index throughput
+// breakdown nested inside ConsumedCapacity under ReturnConsumedCapacity=INDEXES
+// (dynamodb SDK types.go:644-656).
+type Capacity struct {
 	CapacityUnits      float64 `json:"CapacityUnits,omitempty"`
 	ReadCapacityUnits  float64 `json:"ReadCapacityUnits,omitempty"`
 	WriteCapacityUnits float64 `json:"WriteCapacityUnits,omitempty"`

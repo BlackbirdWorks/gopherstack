@@ -8,9 +8,14 @@
 | Metric | Value |
 | --- | --- |
 | Feature families | 9 (9 ok) |
-| Known gaps | none |
+| Known gaps | 2 |
 | Deferred items | 0 |
 | Resource leaks | ok |
+
+### Known gaps
+
+- "ListDurableExecutionsByFunction always returns zero DurableExecutions for any function: DurableExecution.FunctionARN is never assigned anywhere in the package (durable_execution.go) because CheckpointDurableExecution -- the only test/client-reachable creation path -- carries no function identity, and its DurableExecutionArn is intentionally treated as client-opaque. Same root cause as the durable_execution family note's documented FunctionArn-always-empty gap (no StartDurableExecution/Invoke entry point); this is that gap's consequence for the List op specifically. Fixing needs the same out-of-scope Invoke rewiring that gap already defers to. See 2026-09-12 dated section."
+- "2026-09-12 (reqfielddiff slice 4), same root cause as the item above: InvokeInput.DurableExecutionName (an httpHeader binding, X-Amz-Durable-Execution-Name, confirmed against awsRestjson1_serializeOpHttpBindingsInvokeInput) is read nowhere in handler_invocation.go, and InvokeOutput.DurableExecutionArn (the real, optional response field a durable invocation would echo) does not exist anywhere in this package's Invoke response shape. Invoke has zero durable-execution awareness today -- the only way to create a DurableExecution is to call CheckpointDurableExecution directly against an already-known arn, bypassing Invoke entirely. Wiring this properly (Invoke resolves/creates a DurableExecution, sets its real FunctionARN, and returns DurableExecutionArn) is the same Invoke-rewiring this file already defers ListDurableExecutionsByFunction's FunctionARN gap to, not a standalone one-field fix -- not fabricated a bare pass-through with no backing execution semantics. ListDurableExecutionsByFunctionInput.Qualifier (httpQuery, matchesListFilter has no version/qualifier comparison) is unobservable for the identical reason: DurableExecution.Version is declared (durable_execution.go) but never assigned anywhere, since nothing resolves which function version/alias a durable execution actually ran under absent the same Invoke entry point."
 
 ## More
 

@@ -123,6 +123,7 @@ func (h *Handler) handleListImports(c *echo.Context, body []byte) error {
 			keyImportStatus:     imp.ImportStatus,
 			keyCreatedTimestamp: float64(imp.CreatedTimestamp.Unix()),
 			keyUpdatedTimestamp: float64(imp.UpdatedTimestamp.Unix()),
+			keyDestinations:     imp.Destinations,
 		})
 	}
 

@@ -2,6 +2,7 @@ package rdsdata
 
 import (
 	"context"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -72,6 +73,7 @@ type InMemoryBackend struct {
 	txCounter          map[string]int
 	engine             *sqlEngine
 	mu                 *lockmetrics.RWMutex
+	nowFunc            func() time.Time
 	accountID          string
 	defaultRegion      string
 }
@@ -84,9 +86,21 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		txCounter:          make(map[string]int),
 		engine:             newSQLEngine(),
 		mu:                 lockmetrics.New("rdsdata"),
+		nowFunc:            time.Now,
 		accountID:          accountID,
 		defaultRegion:      region,
 	}
+}
+
+// WithClock overrides the backend's time source, used by tests to drive
+// transaction idle-timeout/max-lifetime expiry (janitor.go) deterministically
+// -- no time.Sleep, no real wall-clock waits.
+func (b *InMemoryBackend) WithClock(now func() time.Time) *InMemoryBackend {
+	if now != nil {
+		b.nowFunc = now
+	}
+
+	return b
 }
 
 // Region returns the AWS region this backend is configured for.

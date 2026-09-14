@@ -109,11 +109,27 @@ type GetContextKeysResult struct {
 	ContextKeyNames []string `xml:"ContextKeyNames>member"`
 }
 
-// GetContextKeysResponse is the XML response for GetContextKeysForCustomPolicy
-// and GetContextKeysForPrincipalPolicy.
+// GetContextKeysResponse is the XML response for GetContextKeysForCustomPolicy.
 type GetContextKeysResponse struct {
 	XMLName              xml.Name             `xml:"GetContextKeysForCustomPolicyResponse"`
 	Xmlns                string               `xml:"xmlns,attr"`
 	ResponseMetadata     ResponseMetadata     `xml:"ResponseMetadata"`
 	GetContextKeysResult GetContextKeysResult `xml:"GetContextKeysForCustomPolicyResult"`
+}
+
+// GetContextKeysForPrincipalPolicyResponse is the XML response for
+// GetContextKeysForPrincipalPolicy. A distinct type from
+// GetContextKeysResponse is required: xml.Marshal uses each struct's own
+// XMLName/field tags as the wire root/wrapper element names, and the real
+// client's deserializer for this op looks specifically for
+// "GetContextKeysForPrincipalPolicyResult"
+// (aws-sdk-go-v2/service/iam@v1.63.0 deserializers.go:7156,
+// decoder.GetElement("GetContextKeysForPrincipalPolicyResult")) -- reusing
+// GetContextKeysResponse's "...CustomPolicy..." wrapper for this op made
+// that GetElement call fail with a DeserializationError every time.
+type GetContextKeysForPrincipalPolicyResponse struct {
+	XMLName              xml.Name             `xml:"GetContextKeysForPrincipalPolicyResponse"`
+	Xmlns                string               `xml:"xmlns,attr"`
+	ResponseMetadata     ResponseMetadata     `xml:"ResponseMetadata"`
+	GetContextKeysResult GetContextKeysResult `xml:"GetContextKeysForPrincipalPolicyResult"`
 }

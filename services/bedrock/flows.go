@@ -16,11 +16,16 @@ import (
 const (
 	flowStatusNotPrepared = "NotPrepared"
 	flowStatusPrepared    = "Prepared"
+	// flowDraftVersion is the Flow resource's own top-level "version" member,
+	// distinct from the numbered FlowVersion snapshots created by
+	// CreateFlowVersion -- CreateFlowOutput's doc comment says the version
+	// created is the DRAFT version.
+	flowDraftVersion = "DRAFT"
 )
 
 // CreateFlow creates a new Bedrock Flow.
 func (b *InMemoryBackend) CreateFlow(
-	name, description string,
+	name, description, executionRoleArn string,
 	tags map[string]string,
 ) (*Flow, error) {
 	b.mu.Lock("CreateFlow")
@@ -39,14 +44,16 @@ func (b *InMemoryBackend) CreateFlow(
 	maps.Copy(tagsCopy, tags)
 
 	f := &Flow{
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		FlowID:      id,
-		FlowArn:     flowArn,
-		Name:        name,
-		Description: description,
-		Status:      flowStatusNotPrepared,
-		Tags:        tagsCopy,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+		FlowID:           id,
+		FlowArn:          flowArn,
+		Name:             name,
+		Description:      description,
+		Status:           flowStatusNotPrepared,
+		ExecutionRoleArn: executionRoleArn,
+		Version:          flowDraftVersion,
+		Tags:             tagsCopy,
 	}
 	b.flows.Put(f)
 	b.flowsByName[name] = id
@@ -87,7 +94,7 @@ func (b *InMemoryBackend) ListFlows(maxResults int, nextToken string) ([]*Flow, 
 }
 
 // UpdateFlow updates a Flow.
-func (b *InMemoryBackend) UpdateFlow(flowID, name, description string) (*Flow, error) {
+func (b *InMemoryBackend) UpdateFlow(flowID, name, description, executionRoleArn string) (*Flow, error) {
 	b.mu.Lock("UpdateFlow")
 	defer b.mu.Unlock()
 
@@ -104,6 +111,10 @@ func (b *InMemoryBackend) UpdateFlow(flowID, name, description string) (*Flow, e
 
 	if description != "" {
 		f.Description = description
+	}
+
+	if executionRoleArn != "" {
+		f.ExecutionRoleArn = executionRoleArn
 	}
 
 	f.UpdatedAt = time.Now()

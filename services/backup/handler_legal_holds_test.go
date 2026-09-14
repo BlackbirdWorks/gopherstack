@@ -21,7 +21,7 @@ func TestLegalHold(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "test hold", found.Title)
 
-	holds := b.ListLegalHolds()
+	holds, _ := b.ListLegalHolds(0, "")
 	assert.NotEmpty(t, holds)
 
 	rps := b.ListRecoveryPointsByLegalHold(lh.LegalHoldID)
