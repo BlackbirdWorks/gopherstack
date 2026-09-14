@@ -149,6 +149,7 @@ type storedDashboard struct {
 	LastUpdatedTime        time.Time            `json:"lastUpdatedTime"`
 	LastPublishedTime      time.Time            `json:"lastPublishedTime"`
 	Definition             map[string]any       `json:"definition,omitempty"`
+	PublishOptions         map[string]any       `json:"publishOptions,omitempty"`
 	DashboardID            string               `json:"dashboardId"`
 	Arn                    string               `json:"arn"`
 	Name                   string               `json:"name"`
@@ -156,6 +157,7 @@ type storedDashboard struct {
 	ThemeArn               string               `json:"themeArn,omitempty"`
 	VersionDescription     string               `json:"versionDescription,omitempty"`
 	Permissions            []ResourcePermission `json:"permissions,omitempty"`
+	LinkPermissions        []ResourcePermission `json:"linkPermissions,omitempty"`
 	LinkEntities           []string             `json:"linkEntities,omitempty"`
 	VersionNumber          int64                `json:"versionNumber"`
 	PublishedVersionNumber int64                `json:"publishedVersionNumber"`
@@ -175,7 +177,9 @@ func (d *storedDashboard) toDashboard() *Dashboard {
 		VersionNumber:          d.VersionNumber,
 		PublishedVersionNumber: d.PublishedVersionNumber,
 		Definition:             d.Definition,
+		PublishOptions:         d.PublishOptions,
 		Permissions:            clonePermissions(d.Permissions),
+		LinkPermissions:        clonePermissions(d.LinkPermissions),
 		LinkEntities:           append([]string(nil), d.LinkEntities...),
 	}
 }

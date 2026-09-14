@@ -1,6 +1,7 @@
 package appsync_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -261,4 +262,45 @@ func TestInMemoryBackend_DeleteAPICache_APINotFound(t *testing.T) {
 
 	err := b.DeleteAPICache("nonexistent")
 	require.ErrorIs(t, err, awserr.ErrNotFound)
+}
+
+// TestAPICache_UnmarshalJSON_HealthMetricsConfig covers gopherstack-n3zi's
+// tolerant decoder: HealthMetricsConfig was a bool (json tag
+// "healthMetricsConfig") before this fix, so a snapshot from before it must
+// still decode.
+func TestAPICache_UnmarshalJSON_HealthMetricsConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		body    string
+		want    string
+		wantErr bool
+	}{
+		{name: "legacy_true", body: `{"healthMetricsConfig":true}`, want: "ENABLED"},
+		{name: "legacy_false", body: `{"healthMetricsConfig":false}`, want: "DISABLED"},
+		{name: "string_enabled", body: `{"healthMetricsConfig":"ENABLED"}`, want: "ENABLED"},
+		{name: "string_disabled", body: `{"healthMetricsConfig":"DISABLED"}`, want: "DISABLED"},
+		{name: "absent", body: `{}`, want: ""},
+		{name: "null", body: `{"healthMetricsConfig":null}`, want: ""},
+		{name: "invalid_type", body: `{"healthMetricsConfig":42}`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var got appsync.APICache
+			err := json.Unmarshal([]byte(tt.body), &got)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.HealthMetricsConfig)
+		})
+	}
 }

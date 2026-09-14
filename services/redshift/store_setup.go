@@ -109,6 +109,8 @@ func slEndpointAccessesKeyFn(v *ServerlessEndpointAccess) string { return v.Endp
 
 func slLakehouseConfigKeyFn(v *ServerlessLakehouseConfig) string { return v.NamespaceName }
 
+func slReservationsKeyFn(v *Reservation) string { return v.ReservationID }
+
 func namespaceRegistrationsKeyFn(v *NamespaceRegistration) string { return v.NamespaceKey }
 
 func clusterLakehouseConfigKeyFn(v *ClusterLakehouseConfig) string { return v.ClusterIdentifier }
@@ -247,6 +249,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slLakehouseConfig = store.Register(b.registry, "slLakehouseConfig", store.New(slLakehouseConfigKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slReservations = store.Register(b.registry, "slReservations", store.New(slReservationsKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.namespaceRegistrations = store.Register(

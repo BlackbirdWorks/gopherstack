@@ -25,17 +25,30 @@ func tagSupportedOps() []string {
 // ListTagsForResource request/response types and handler.
 type listTagsForResourceInput struct {
 	ResourceArn string `json:"ResourceArn"`
+	NextToken   string `json:"NextToken,omitempty"`
+	Limit       int32  `json:"Limit,omitempty"`
 }
 type listTagsForResourceOutput struct {
-	Tags []Tag `json:"Tags"`
+	NextToken string `json:"NextToken,omitempty"`
+	Tags      []Tag  `json:"Tags"`
 }
+
+// listTagsForResourcePageDefault is the documented cap (api_op_
+// ListTagsForResource.go: "The limit maximum is 50."); the docs give no
+// separate default below the cap, so the cap doubles as the default.
+const listTagsForResourcePageDefault = 50
 
 func (h *Handler) handleListTagsForResource(
 	_ context.Context, in *listTagsForResourceInput,
 ) (*listTagsForResourceOutput, error) {
-	return &listTagsForResourceOutput{
-		Tags: h.Backend.ListTagsForResource(in.ResourceArn),
-	}, nil
+	all := h.Backend.ListTagsForResource(in.ResourceArn)
+
+	p, err := paginate(all, in.NextToken, in.Limit, listTagsForResourcePageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listTagsForResourceOutput{Tags: p.Data, NextToken: p.Next}, nil
 }
 
 // TagResource request/response types and handler.

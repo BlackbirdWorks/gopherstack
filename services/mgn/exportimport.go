@@ -16,11 +16,12 @@ import (
 // writes real S3 object bytes -- its Summary is a real, live count of this
 // account's resources, never derived from written content -- but StartImport
 // DOES read a real S3 object via the S3Accessor cross-service seam
-// (s3import.go). Every SourceServer StartImport creates or updates comes from
-// an actually-parsed row; every malformed row becomes a real ImportTaskError,
-// never silently dropped nor fabricated as a success. SeedVcenterClient
-// (vcenterclients.go) remains the only non-SDK creation seam -- no import path
-// exists for VcenterClient.
+// (s3import.go). Every SourceServer/Application/Wave StartImport creates or
+// updates comes from an actually-parsed row; every malformed or unresolvable
+// row becomes a real ImportTaskError, never silently dropped nor fabricated
+// as a success. SeedVcenterClient (vcenterclients.go) remains the only
+// non-SDK creation seam -- no import path exists for VcenterClient (real
+// AWS's own ImportTaskSummary has no VcenterClients count field either).
 
 // StartExport starts a new (Pending -> Started -> Succeeded) async
 // ExportTask, snapshotting this account's real current Applications/Waves/
@@ -123,9 +124,10 @@ func (b *InMemoryBackend) ListExportErrors() error {
 }
 
 // StartImport starts a new (Pending -> Started -> Succeeded|Failed) async
-// ImportTask that really reads and parses source (see s3import.go). Summary
-// counts reflect what was actually parsed and created -- never fabricated
-// (see models.go's ImportTaskSummary doc comment).
+// ImportTask that really reads and parses source (see s3import.go), creating
+// or updating real SourceServers/Applications/Waves. Summary counts reflect
+// what was actually parsed and created -- never fabricated (see models.go's
+// ImportTaskSummary doc comment).
 func (b *InMemoryBackend) StartImport(source *S3BucketSource, importTags map[string]string) (*ImportTask, error) {
 	b.mu.Lock("StartImport")
 	defer b.mu.Unlock()
@@ -187,13 +189,14 @@ func (b *InMemoryBackend) scheduleImportLocked(id string, source *S3BucketSource
 }
 
 // finishImportLocked records readImportSourceServers' real outcome onto
-// importID's ImportTask: a whole-object read/parse failure (parseErr set) fails
-// the task with one recorded ImportTaskError and zero created/modified records;
-// otherwise every successfully-parsed row either updates an existing
-// SourceServer (dedup by UserProvidedID, ModifiedCount) or creates a new one
-// (CreatedCount), every malformed row's error is recorded, and the task
-// SUCCEEDS -- partial success is still SUCCEEDED, matching real AWS's
-// ImportTaskSummary/ListImportErrors split.
+// importID's ImportTask: a whole-object read/parse failure (parseErr set)
+// fails the task with one recorded ImportTaskError and zero created/modified
+// records; otherwise every successfully-parsed row resolves/creates/updates
+// whichever of Wave/Application/SourceServer it references
+// (processImportRowLocked), every row-level failure (a malformed row from
+// parseImportCSV, or an mgn:*:id that names a resource this account doesn't
+// have) is recorded, and the task SUCCEEDS -- partial success is still
+// SUCCEEDED, matching real AWS's ImportTaskSummary/ListImportErrors split.
 func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult, parseErr error) {
 	b.mu.Lock("ImportSucceeded-async")
 	defer b.mu.Unlock()
@@ -217,30 +220,28 @@ func (b *InMemoryBackend) finishImportLocked(id string, result *importCSVResult,
 		return
 	}
 
-	var created, modified int64
+	summary := &ImportTaskSummary{}
 
-	for _, row := range result.servers {
-		seed := sourceServerSeed{
-			UserProvidedID:         row.userProvidedID,
-			FqdnForActionFramework: row.fqdnForActionFramework,
-			SourceProperties:       row.sourceProperties,
-			ImportTags:             row.importTags,
-		}
+	for _, row := range result.rows {
+		rowErrs, servers, apps, waves := b.processImportRowLocked(row)
 
-		if existing, found := b.resolveSourceServerByUserProvidedIDLocked(row.userProvidedID); found {
-			b.applyImportRowLocked(existing, seed)
-			modified++
-
-			continue
-		}
-
-		b.createSourceServerLocked(seed)
-		created++
+		t.Errors = append(t.Errors, rowErrs...)
+		summary.Servers = addCountPair(summary.Servers, servers)
+		summary.Applications = addCountPair(summary.Applications, apps)
+		summary.Waves = addCountPair(summary.Waves, waves)
 	}
 
 	t.Errors = append(t.Errors, result.errors...)
-	t.Summary.Servers = countPair{CreatedCount: created, ModifiedCount: modified}
+	t.Summary = summary
 	t.Status = TaskStatusSucceeded
+}
+
+// addCountPair returns the element-wise sum of a and b.
+func addCountPair(a, b countPair) countPair {
+	return countPair{
+		CreatedCount:  a.CreatedCount + b.CreatedCount,
+		ModifiedCount: a.ModifiedCount + b.ModifiedCount,
+	}
 }
 
 // ListImports returns a page of ImportTasks, optionally filtered by ids.

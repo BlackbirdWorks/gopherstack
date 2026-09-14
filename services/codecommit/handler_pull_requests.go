@@ -6,7 +6,14 @@ import (
 	"fmt"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// describePullRequestEventsDefaultMaxResults is the documented default and
+// maximum page size (api_op_DescribePullRequestEvents.go: "The default is
+// 100 events, which is also the maximum number of events that can be
+// returned in a result.").
+const describePullRequestEventsDefaultMaxResults = 100
 
 // isValidPullRequestEventType reports whether v is one of the nine
 // PullRequestEventType enum values (codecommit@v1.36.4 types/enums.go).
@@ -443,6 +450,8 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 		PullRequestID        string `json:"pullRequestId"`
 		PullRequestEventType string `json:"pullRequestEventType"`
 		ActorArn             string `json:"actorArn"`
+		NextToken            string `json:"nextToken"`
+		MaxResults           int    `json:"maxResults"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -457,14 +466,19 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 	if err := validateActorArn(req.ActorArn); err != nil {
 		return nil, err
 	}
+	if err := page.ValidateToken(req.NextToken); err != nil {
+		return nil, fmt.Errorf("%w: invalid nextToken", ErrInvalidContinuationToken)
+	}
 
 	events, err := h.Backend.DescribePullRequestEvents(req.PullRequestID, req.PullRequestEventType, req.ActorArn)
 	if err != nil {
 		return nil, err
 	}
 
-	wireEvents := make([]map[string]any, len(events))
-	for i, e := range events {
+	pg := page.New(events, req.NextToken, req.MaxResults, describePullRequestEventsDefaultMaxResults)
+
+	wireEvents := make([]map[string]any, len(pg.Data))
+	for i, e := range pg.Data {
 		wireEvents[i] = map[string]any{
 			"pullRequestEventType": e.PullRequestEventType,
 			"eventDate":            e.EventDate.Unix(),
@@ -474,9 +488,12 @@ func (h *Handler) handleDescribePullRequestEvents(body []byte) (any, error) {
 		}
 	}
 
-	return map[string]any{
-		"pullRequestEvents": wireEvents,
-	}, nil
+	out := map[string]any{"pullRequestEvents": wireEvents}
+	if pg.Next != "" {
+		out["nextToken"] = pg.Next
+	}
+
+	return out, nil
 }
 
 func (h *Handler) handleEvaluatePullRequestApprovalRules(body []byte) (any, error) {

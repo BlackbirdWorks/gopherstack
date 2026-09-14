@@ -35,6 +35,18 @@ const (
 	indexStatusDeleted = "DELETED"
 )
 
+// docResultCreated/docResultUpdated/docResultDeleted/docResultNotFound are
+// the real Index/Update/Delete Document API "result" values
+// (https://opensearch.org/docs/latest/api-reference/document-apis/), shared
+// by the single-document routes (handler_indices.go) and _bulk
+// (handler_bulk.go).
+const (
+	docResultCreated  = "created"
+	docResultUpdated  = "updated"
+	docResultDeleted  = "deleted"
+	docResultNotFound = "not_found"
+)
+
 // reservedInstanceStateActive matches the documented (freeform, non-enum in
 // the SDK) ReservedInstance.State value AWS returns for an active
 // reservation: "payment-pending" | "active" | "payment-failed" | "retired",
@@ -141,10 +153,6 @@ const (
 	jsonKeyCognitoEnabled          = "CognitoEnabled"
 	jsonKeyEncryptEnabled          = "EncryptionEnabled"
 	jsonKeyWarmEnabled             = "WarmEnabled"
-	engineVersionOpenSearch211     = "OpenSearch_2.11"
-	engineVersionOpenSearch29      = "OpenSearch_2.9"
-	engineVersionOpenSearch27      = "OpenSearch_2.7"
-	engineVersionOpenSearch13      = "OpenSearch_1.3"
 	nodeRoleData                   = "Data"
 	jsonKeyAdvancedSecurityEnabled = "AdvancedSecurityEnabled"
 	jsonKeyInstanceRole            = "InstanceRole"
@@ -293,7 +301,15 @@ type Package struct {
 	PackageDescription       string                    `json:"PackageDescription"`
 	PackageStatus            string                    `json:"PackageStatus"`
 	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
-	VersionHistory           []*PackageVersionHistory  `json:"-"`
+	// VersionHistory carries json:"-": real types.PackageDetails
+	// (opensearch@v1.75.4 types/types.go:2631-2681) has no such member --
+	// version history is only ever returned by the separate
+	// GetPackageVersionHistory operation, as a top-level list (see
+	// handler_packages.go) -- and Package is marshaled directly onto the wire
+	// by DescribePackages/UpdatePackage (handler_packages.go), so the tag is
+	// correct for the wire. See persistence.go's packageSnapshot for why it
+	// must still be given a real tag for persistence (gopherstack-ike6y).
+	VersionHistory []*PackageVersionHistory `json:"-"`
 	// PackageUserList holds the package's scope (users who can view/associate
 	// it), maintained by UpdatePackageScope. Not part of the Package/
 	// PackageDetails wire shape itself -- only UpdatePackageScopeOutput
@@ -374,9 +390,15 @@ type DomainIndex struct {
 	// than parsed into Mappings/Settings/Aliases.
 	IndexSchema any `json:"IndexSchema,omitempty"`
 	// Documents holds the real per-index document store keyed by document ID.
-	Documents   map[string]map[string]any `json:"Documents,omitempty"`
-	IndexName   string                    `json:"IndexName"`
-	IndexStatus string                    `json:"IndexStatus"`
+	Documents map[string]map[string]any `json:"Documents,omitempty"`
+	// DocMeta tracks the real OpenSearch per-document _version/_seq_no
+	// (updated on every index or delete of that document ID) -- the raw
+	// data-plane REST surface this backend serves under /index/{name}/_doc
+	// (not an AWS SDK op; see documents.go) echoes these back like a real
+	// OpenSearch node does.
+	DocMeta     map[string]DocumentMeta `json:"DocMeta,omitempty"`
+	IndexName   string                  `json:"IndexName"`
+	IndexStatus string                  `json:"IndexStatus"`
 	// DomainName identifies the owning domain and is used only to key the
 	// pkgs/store composite table (domainName#indexName); it is never
 	// serialized on the wire, matching how the domain name was already
@@ -384,6 +406,16 @@ type DomainIndex struct {
 	DomainName string `json:"-"`
 	// DocumentCount is the number of documents currently stored in the index.
 	DocumentCount int `json:"DocumentCount"`
+	// NextSeqNo is the real per-index _seq_no counter (this backend models
+	// one shard per index, so it is tracked per index rather than per shard).
+	NextSeqNo int `json:"NextSeqNo,omitempty"`
+}
+
+// DocumentMeta is the real per-document _version/_seq_no pair for the
+// data-plane document store (see DomainIndex.DocMeta).
+type DocumentMeta struct {
+	Version int `json:"Version"`
+	SeqNo   int `json:"SeqNo"`
 }
 
 // DNSRegistrar can register and deregister hostnames with an embedded DNS server.
@@ -545,6 +577,7 @@ type LogPublishingOption struct {
 type Domain struct {
 	ProcessingUntil             time.Time                       `json:"processingUntil,omitzero"`
 	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	AutoTuneOptions             *AutoTuneConfig                 `json:"autoTuneOptions,omitempty"`
 	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
 	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
 	DomainEndpointOptions       *DomainEndpointOptions          `json:"domainEndpointOptions,omitempty"`
@@ -577,6 +610,7 @@ type Domain struct {
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.
 type CreateDomainInput struct {
+	AutoTuneOptions             *AutoTuneOptionsInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
 	EncryptionAtRestOptions     *EncryptionAtRestOptions
@@ -598,6 +632,7 @@ type CreateDomainInput struct {
 
 // UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
 type UpdateDomainConfigInput struct {
+	AutoTuneOptions             *AutoTuneUpdateInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
 	EncryptionAtRestOptions     *EncryptionAtRestOptions
@@ -632,6 +667,12 @@ type RollbackServiceSoftwareOptions struct {
 // types.DataSourceAttachmentSummary plus the identity fields
 // (AttachmentId/DataSourceArn/Status) shared by Attach/Detach/
 // DescribeDataSourceAttachment's outputs.
+// CreatedAt carries json:"-": real types.DataSourceAttachmentSummary
+// (opensearch@v1.75.4 types/types.go:943-959) has no creation-timestamp
+// member, and dataSourceAttachmentJSON (handler_data_source_attachments.go)
+// is the actual wire converter for every op that returns this type, so the
+// tag is correct for the wire. See persistence.go's dataSourceAttachmentSnapshot
+// for why it must still be given a real tag for persistence (gopherstack-ike6y).
 type DataSourceAttachment struct {
 	CreatedAt     time.Time `json:"-"`
 	AttachmentID  string    `json:"attachmentId"`
@@ -663,9 +704,18 @@ type Capability struct {
 // transitions PENDING -> IN_PROGRESS -> SUCCEEDED against the backend's clock
 // (see resolveMigrationStatus in migrations.go), it just always migrates zero
 // objects -- an honest "nothing to migrate" result rather than invented data.
+// CreatedAt/UpdatedAt carry real tags, unlike this file's other internal
+// timing fields: real types.MigrationSummary (opensearch@v1.75.4
+// types/types.go:2299,2320) has both members, and migrationJSON
+// (handler_migrations.go) -- the actual wire converter for every op that
+// returns this type -- reads them by direct field access, independent of
+// Migration's own tags. So json:"-" here was never wire-motivated; it only
+// suppressed both fields from persistence (registered directly,
+// store_setup.go), which is what made resolveMigrationStatus's elapsed
+// calculation see a zero CreatedAt after every restore (gopherstack-ike6y).
 type Migration struct {
-	CreatedAt     time.Time `json:"-"`
-	UpdatedAt     time.Time `json:"-"`
+	CreatedAt     time.Time `json:"createdAt,omitzero"`
+	UpdatedAt     time.Time `json:"updatedAt,omitzero"`
 	MigrationID   string    `json:"migrationId"`
 	ApplicationID string    `json:"applicationId"`
 	SourceArn     string    `json:"sourceArn"`

@@ -78,6 +78,7 @@ type clientVpnEndpointItem struct {
 	ServerCertificateArn string                      `xml:"serverCertificateArn,omitempty"`
 	DNSServers           stringItemSet               `xml:"dnsServer"`
 	SecurityGroupIDSet   stringItemSet               `xml:"securityGroupIdSet"`
+	TagSet               []simpleTagItem             `xml:"tagSet>item"`
 	VpnPort              int32                       `xml:"vpnPort,omitempty"`
 	SessionTimeoutHours  int32                       `xml:"sessionTimeoutHours,omitempty"`
 	SplitTunnel          bool                        `xml:"splitTunnel,omitempty"`
@@ -105,14 +106,37 @@ func (h *Handler) handleCreateManagedPrefixList(vals url.Values, reqID string) (
 		parseIntValue(v, &maxEntries)
 	}
 
-	pl, err := h.Backend.CreateManagedPrefixList(name, af, maxEntries)
+	// Real wire field is the flat "Entry.N.Cidr"/"Entry.N.Description" list
+	// (ec2@v1.329.0 serializers.go: awsEc2query_serializeOpDocumentCreateManagedPrefixListInput,
+	// object.FlatKey("Entry")), distinct from ModifyManagedPrefixList's own
+	// "AddEntry.N.*" naming below.
+	var entries []PrefixListEntry
+	for i := 1; ; i++ {
+		cidr := vals.Get("Entry." + itoa(i) + ".Cidr")
+		if cidr == "" {
+			break
+		}
+		entries = append(entries, PrefixListEntry{
+			Cidr:        cidr,
+			Description: vals.Get("Entry." + itoa(i) + ".Description"),
+		})
+	}
+
+	pl, err := h.Backend.CreateManagedPrefixList(name, af, maxEntries, entries)
 	if err != nil {
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "prefix-list")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{pl.PrefixListID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createManagedPrefixListResponse{
 		RequestID:  reqID,
-		PrefixList: toManagedPrefixListItem(pl, h.Backend.TagsForResource(pl.PrefixListID)),
+		PrefixList: toManagedPrefixListItem(pl, tags),
 	}, nil
 }
 

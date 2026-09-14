@@ -52,6 +52,10 @@ func (b *InMemoryBackend) CreateCustomVerificationEmailTemplate(tmpl CustomVerif
 		)
 	}
 
+	if b.customVerifTemplates.Len() >= b.limits.customVerificationTemplates {
+		return limitExceeded("custom verification email templates")
+	}
+
 	t := tmpl
 	b.customVerifTemplates.Put(&t)
 

@@ -41,7 +41,7 @@ func TestSchemasBackend(t *testing.T) {
 			t.Parallel()
 			b := cleanrooms.NewInMemoryBackend(config.DefaultAccountID, config.DefaultRegion)
 
-			collab, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", nil)
+			collab, err := b.CreateCollaboration("seed-collab", "", "creator", nil, nil, "", "", false, nil, nil)
 			require.NoError(t, err)
 
 			_, _, err = b.BatchGetSchema(collab.CollaborationIdentifier, []string{tt.args.name})

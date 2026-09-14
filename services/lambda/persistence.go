@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -30,17 +31,28 @@ const lambdaSnapshotVersion = 1
 // those two fields real json tags purely for the on-disk shape, following the
 // DTO-registry pattern the services/sqs pilot (commit 0f09d77c) established
 // for exactly this "dirty struct" case.
+//
+// FunctionURLAuthType and InvokedViaFunctionURL (gopherstack-rluhj) are the
+// same case: both carry `json:"-"` on the live type because they are
+// input-only on the real AddPermission request (aws-sdk-go-v2/service/lambda
+// @v1.107.0 api_op_AddPermission.go:94,98) -- GetPolicy returns them baked
+// into the policy JSON's Condition block, never as top-level fields (see
+// buildPermissionStatementJSON in permissions.go) -- so the wire tag is
+// correct and stays. Without a persisted copy, GetPolicy's Condition block
+// went missing these two after a restore.
 type permissionSnapshot struct {
-	StatementID      string `json:"statementId"`
-	FunctionName     string `json:"functionName"`
-	Qualifier        string `json:"qualifier,omitempty"`
-	Action           string `json:"action"`
-	Effect           string `json:"effect"`
-	Principal        string `json:"principal"`
-	SourceAccount    string `json:"sourceAccount,omitempty"`
-	SourceArn        string `json:"sourceArn,omitempty"`
-	EventSourceToken string `json:"eventSourceToken,omitempty"`
-	PrincipalOrgID   string `json:"principalOrgId,omitempty"`
+	InvokedViaFunctionURL *bool  `json:"invokedViaFunctionUrl,omitempty"`
+	StatementID           string `json:"statementId"`
+	FunctionName          string `json:"functionName"`
+	Qualifier             string `json:"qualifier,omitempty"`
+	Action                string `json:"action"`
+	Effect                string `json:"effect"`
+	Principal             string `json:"principal"`
+	SourceAccount         string `json:"sourceAccount,omitempty"`
+	SourceArn             string `json:"sourceArn,omitempty"`
+	EventSourceToken      string `json:"eventSourceToken,omitempty"`
+	PrincipalOrgID        string `json:"principalOrgId,omitempty"`
+	FunctionURLAuthType   string `json:"functionUrlAuthType,omitempty"`
 }
 
 // permissionSnapshotKey is the store.Table key function for the ephemeral DTO
@@ -53,40 +65,95 @@ func permissionSnapshotKey(p *permissionSnapshot) string {
 
 func permissionToSnapshot(p *FunctionPermission) *permissionSnapshot {
 	return &permissionSnapshot{
-		StatementID:      p.StatementID,
-		FunctionName:     p.FunctionName,
-		Qualifier:        p.Qualifier,
-		Action:           p.Action,
-		Effect:           p.Effect,
-		Principal:        p.Principal,
-		SourceAccount:    p.SourceAccount,
-		SourceArn:        p.SourceArn,
-		EventSourceToken: p.EventSourceToken,
-		PrincipalOrgID:   p.PrincipalOrgID,
+		StatementID:           p.StatementID,
+		FunctionName:          p.FunctionName,
+		Qualifier:             p.Qualifier,
+		Action:                p.Action,
+		Effect:                p.Effect,
+		Principal:             p.Principal,
+		SourceAccount:         p.SourceAccount,
+		SourceArn:             p.SourceArn,
+		EventSourceToken:      p.EventSourceToken,
+		PrincipalOrgID:        p.PrincipalOrgID,
+		FunctionURLAuthType:   p.FunctionURLAuthType,
+		InvokedViaFunctionURL: p.InvokedViaFunctionURL,
 	}
 }
 
 func permissionFromSnapshot(p *permissionSnapshot) *FunctionPermission {
 	return &FunctionPermission{
-		StatementID:      p.StatementID,
-		FunctionName:     p.FunctionName,
-		Qualifier:        p.Qualifier,
-		Action:           p.Action,
-		Effect:           p.Effect,
-		Principal:        p.Principal,
-		SourceAccount:    p.SourceAccount,
-		SourceArn:        p.SourceArn,
-		EventSourceToken: p.EventSourceToken,
-		PrincipalOrgID:   p.PrincipalOrgID,
+		StatementID:           p.StatementID,
+		FunctionName:          p.FunctionName,
+		Qualifier:             p.Qualifier,
+		Action:                p.Action,
+		Effect:                p.Effect,
+		Principal:             p.Principal,
+		SourceAccount:         p.SourceAccount,
+		SourceArn:             p.SourceArn,
+		EventSourceToken:      p.EventSourceToken,
+		PrincipalOrgID:        p.PrincipalOrgID,
+		FunctionURLAuthType:   p.FunctionURLAuthType,
+		InvokedViaFunctionURL: p.InvokedViaFunctionURL,
 	}
+}
+
+// functionConfigurationSnapshot is FunctionConfiguration's persisted twin
+// (gopherstack-rluhj, the same wire/persisted conflation as opensearch's
+// vpcEndpointSnapshot, gopherstack-8mcb). CreatedAt/S3BucketCode/S3KeyCode
+// carry `json:"-"` on the live type; verified against the pinned SDK
+// (aws-sdk-go-v2/service/lambda@v1.107.0 types/types.go:1396-1580) that real
+// types.FunctionConfiguration has no such members, so that tag is correct for
+// the wire and stays. b.functions was registered directly on b.registry with
+// no DTO, so SnapshotAll marshaled the live type as-is and dropped all three
+// from persistence too: a restored function's zero CreatedAt failed the TTL
+// purge's `!fn.CreatedAt.Before(cutoff)` check unconditionally (Purge in
+// lifecycle.go), and a restored S3-sourced function lost the bucket/key
+// startZipContainer needs to refetch its code (containers.go).
+//
+// Embedding FunctionConfiguration and re-declaring just these three fields at
+// depth 0 shadows the embedded (json:"-") copies for both encode and decode
+// -- encoding/json's field resolution always prefers the shallower depth,
+// regardless of tags, so there is no duplicate JSON key. Every other
+// FunctionConfiguration field therefore flows through unmodified without
+// needing to be hand-copied here.
+type functionConfigurationSnapshot struct {
+	CreatedAt    time.Time `json:"createdAt,omitzero"`
+	S3BucketCode string    `json:"s3BucketCode,omitempty"`
+	S3KeyCode    string    `json:"s3KeyCode,omitempty"`
+	FunctionConfiguration
+}
+
+// functionConfigurationSnapshotKey mirrors functionsKeyFn (store_setup.go)
+// exactly, so the DTO registry table Snapshot/Restore build is keyed
+// identically to the live b.functions table.
+func functionConfigurationSnapshotKey(v *functionConfigurationSnapshot) string {
+	return v.FunctionName
+}
+
+func toFunctionConfigurationSnapshot(fn *FunctionConfiguration) *functionConfigurationSnapshot {
+	return &functionConfigurationSnapshot{
+		FunctionConfiguration: *fn,
+		CreatedAt:             fn.CreatedAt,
+		S3BucketCode:          fn.S3BucketCode,
+		S3KeyCode:             fn.S3KeyCode,
+	}
+}
+
+func fromFunctionConfigurationSnapshot(v *functionConfigurationSnapshot) *FunctionConfiguration {
+	fn := v.FunctionConfiguration
+	fn.CreatedAt = v.CreatedAt
+	fn.S3BucketCode = v.S3BucketCode
+	fn.S3KeyCode = v.S3KeyCode
+
+	return &fn
 }
 
 type backendSnapshot struct {
 	// Tables holds one JSON-encoded array per table registered on b.registry
-	// (functions, functionURLConfigs, eventSourceMappings, aliases) PLUS a
-	// "permissions" entry built separately from permissionSnapshot DTOs (see
-	// Snapshot/Restore below) -- b.permissions itself is not registered on
-	// b.registry; see store_setup.go's package doc. Tables registered on
+	// (functionURLConfigs, eventSourceMappings, aliases) PLUS a "permissions"
+	// entry and a "functions" entry, both built separately from DTOs (see
+	// Snapshot/Restore below) -- neither b.permissions nor b.functions is
+	// registered on b.registry; see store_setup.go's package doc. Tables registered on
 	// b.ephemeralRegistry (codeSigningConfigs, capacityProviders,
 	// provisionedConcurrencies) are deliberately NOT included here -- they
 	// were never persisted before this refactor and must stay that way.
@@ -142,6 +209,24 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	tables["permissions"] = permTables["permissions"]
+
+	// b.functions is likewise not on b.registry (gopherstack-rluhj, see
+	// store_setup.go's package doc and functionConfigurationSnapshot above).
+	funcDTOReg := store.NewRegistry()
+	funcDTOs := store.Register(funcDTOReg, "functions", store.New(functionConfigurationSnapshotKey))
+
+	for _, fn := range b.functions.Snapshot() {
+		funcDTOs.Put(toFunctionConfigurationSnapshot(fn))
+	}
+
+	funcTables, err := funcDTOReg.SnapshotAll()
+	if err != nil {
+		logger.Load(ctx).WarnContext(ctx, "lambda: snapshot functions marshal failed", "error", err)
+
+		return nil
+	}
+
+	tables["functions"] = funcTables["functions"]
 
 	snap := backendSnapshot{
 		Version:               lambdaSnapshotVersion,
@@ -199,6 +284,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.permissions.Reset()
+		b.functions.Reset()
 
 		return nil
 	}
@@ -207,21 +293,13 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("lambda: restore snapshot tables: %w", err)
 	}
 
-	// b.permissions is not on b.registry (see store_setup.go's package doc),
-	// so it is restored separately from its "permissions" DTO entry.
-	permDTOReg := store.NewRegistry()
-	permDTOs := store.Register(permDTOReg, "permissions", store.New(permissionSnapshotKey))
-
-	if err := permDTOReg.RestoreAll(snap.Tables); err != nil {
-		return fmt.Errorf("lambda: restore snapshot permissions: %w", err)
+	if err := b.restoreFunctionsFromDTO(snap.Tables); err != nil {
+		return err
 	}
 
-	livePerms := make([]*FunctionPermission, 0, permDTOs.Len())
-	for _, p := range permDTOs.All() {
-		livePerms = append(livePerms, permissionFromSnapshot(p))
+	if err := b.restorePermissionsFromDTO(snap.Tables); err != nil {
+		return err
 	}
-
-	b.permissions.Restore(livePerms)
 
 	b.eventInvokeConfigs = snap.EventInvokeConfigs
 	b.versions = snap.Versions
@@ -270,6 +348,48 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.esmByFunctionARN[m.FunctionARN][m.UUID] = struct{}{}
 	}
+
+	return nil
+}
+
+// restoreFunctionsFromDTO restores b.functions from its "functions" DTO
+// entry in tables (gopherstack-rluhj; b.functions is not on b.registry, see
+// store_setup.go's package doc and functionConfigurationSnapshot above).
+func (b *InMemoryBackend) restoreFunctionsFromDTO(tables map[string]json.RawMessage) error {
+	funcDTOReg := store.NewRegistry()
+	funcDTOs := store.Register(funcDTOReg, "functions", store.New(functionConfigurationSnapshotKey))
+
+	if err := funcDTOReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("lambda: restore snapshot functions: %w", err)
+	}
+
+	liveFunctions := make([]*FunctionConfiguration, 0, funcDTOs.Len())
+	for _, v := range funcDTOs.All() {
+		liveFunctions = append(liveFunctions, fromFunctionConfigurationSnapshot(v))
+	}
+
+	b.functions.Restore(liveFunctions)
+
+	return nil
+}
+
+// restorePermissionsFromDTO restores b.permissions from its "permissions"
+// DTO entry in tables (b.permissions is not on b.registry, see
+// store_setup.go's package doc).
+func (b *InMemoryBackend) restorePermissionsFromDTO(tables map[string]json.RawMessage) error {
+	permDTOReg := store.NewRegistry()
+	permDTOs := store.Register(permDTOReg, "permissions", store.New(permissionSnapshotKey))
+
+	if err := permDTOReg.RestoreAll(tables); err != nil {
+		return fmt.Errorf("lambda: restore snapshot permissions: %w", err)
+	}
+
+	livePerms := make([]*FunctionPermission, 0, permDTOs.Len())
+	for _, p := range permDTOs.All() {
+		livePerms = append(livePerms, permissionFromSnapshot(p))
+	}
+
+	b.permissions.Restore(livePerms)
 
 	return nil
 }

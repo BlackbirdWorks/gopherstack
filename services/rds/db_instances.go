@@ -636,6 +636,11 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	); err != nil {
 		return nil, err
 	}
+	if inst.PendingModifiedValues != nil && inst.PendingModifiedValues.EngineVersion != "" {
+		b.registerDBUpgradeActionLocked(inst)
+	} else {
+		b.clearDBUpgradeActionLocked(inst.DBInstanceIdentifier)
+	}
 	inst.DBInstanceStatus = instanceStatusModifying
 	b.instanceReadyAt[inst.DBInstanceIdentifier] = time.Now().Add(instanceTransitionDelay)
 	b.scheduleReconcilerLocked()

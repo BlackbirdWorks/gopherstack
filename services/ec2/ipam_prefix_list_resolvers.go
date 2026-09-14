@@ -144,6 +144,17 @@ func (b *InMemoryBackend) ModifyIpamPrefixListResolver(
 	return copyIpamPrefixListResolver(resolver), nil
 }
 
+// recomputeIpamPrefixListResolverCurrentVersionsLocked derives CurrentVersion (json:"-", so
+// never itself persisted) from ipamPrefixListResolverVersions, which is: seeded to []int64{1}
+// at create (line 52) and appended exactly one strictly-incrementing entry per Modify that
+// changes rules (line 136-138), so its length always equals CurrentVersion. Must be called
+// with b.mu held, after both the registry tables and ipamPrefixListResolverVersions restore.
+func (b *InMemoryBackend) recomputeIpamPrefixListResolverCurrentVersionsLocked() {
+	for _, r := range b.ipamPrefixListResolvers.All() {
+		r.CurrentVersion = int64(len(b.ipamPrefixListResolverVersions[r.IpamPrefixListResolverID]))
+	}
+}
+
 // copyIpamPrefixListResolver returns a deep copy of a resolver so callers cannot mutate
 // backend state (in particular its Rules slice) through the returned pointer.
 func copyIpamPrefixListResolver(r *IpamPrefixListResolver) *IpamPrefixListResolver {

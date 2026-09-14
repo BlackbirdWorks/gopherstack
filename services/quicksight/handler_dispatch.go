@@ -97,7 +97,7 @@ func (h *Handler) dispatchGenerativeBI(c *echo.Context, op string) error {
 // dispatchTopicFamily's complexity in budget.
 func isFinalStubOp(op string) bool {
 	return isActionConnectorOp(op) || isAutomationJobOp(op) || isFlowOp(op) || isSelfUpgradeOp(op) ||
-		isGenerativeBIOp(op) || isTopicV2Op(op)
+		isGenerativeBIOp(op) || isTopicV2Op(op) || isGovernanceOp(op)
 }
 
 func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
@@ -114,6 +114,8 @@ func (h *Handler) dispatchFinalStub(c *echo.Context, op string) error {
 		return h.dispatchGenerativeBI(c, op)
 	case isTopicV2Op(op):
 		return h.dispatchTopicV2(c, op)
+	case isGovernanceOp(op):
+		return h.dispatchGovernance(c, op)
 	}
 
 	return writeError(

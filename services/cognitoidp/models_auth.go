@@ -6,6 +6,8 @@ type AuthResult struct {
 	ChallengeParameters map[string]string `json:"challengeParameters,omitempty"`
 	MFASession          string            `json:"mfaSession,omitempty"`
 	ChallengeName       string            `json:"challengeName,omitempty"`
+	// AvailableChallenges is set only for a USER_AUTH SELECT_CHALLENGE result (user_auth.go).
+	AvailableChallenges []string `json:"availableChallenges,omitempty"`
 }
 
 type authResult struct {
@@ -21,6 +23,7 @@ type authOutput struct {
 	ChallengeName        *string           `json:"ChallengeName,omitempty"`
 	Session              *string           `json:"Session,omitempty"`
 	ChallengeParameters  map[string]string `json:"ChallengeParameters,omitempty"`
+	AvailableChallenges  []string          `json:"AvailableChallenges,omitempty"`
 }
 
 type adminConfirmSignUpInput struct {

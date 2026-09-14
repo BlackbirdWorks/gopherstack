@@ -23,6 +23,7 @@ families:
   route_matcher: {status: ok, note: "X-Amz-Target prefix 'DynamoDBStreams_20120810.' verified against serializers.go (all 4 ops); Content-Type 'application/x-amz-json-1.0' (awsjson1.0, not 1.1) verified; no collision with DynamoDB_20120810. prefix used by the main dynamodb service"}
   persistence: {status: ok, note: "Handler intentionally has no Snapshot/Restore -- stream state (StreamARN/StreamsEnabled/StreamViewType/StreamCreatedAt/StreamRecords ring buffer) lives entirely in the shared *ddbbackend.InMemoryDB object (services/dynamodb), which already persists it under the 'DynamoDB' key. Guarded by persistence_test.go:TestHandler_OwnsNoState. Shard iterators are correctly NOT persisted (ephemeral, matches real AWS 15-min iterator TTL)."}
 gaps: []                  # both prior gaps closed by 8ba0d8ad2, verified in this pass -- see Re-audit 2026-07-24 note below
+items_still_open: []
 deferred: []               # all 4 routed ops fully audited this pass
 leaks: {status: clean, note: "Handler owns zero maps/goroutines; all state lives in the shared dynamodb backend which manages its own ring buffer eviction (streamTrimSeq) and iterator TTL expiry (iteratorStore)"}
 ---

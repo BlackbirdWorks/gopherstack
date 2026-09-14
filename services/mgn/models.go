@@ -879,31 +879,40 @@ type S3BucketSource struct {
 	S3Key         string
 }
 
-// ImportTaskSummary mirrors types.ImportTaskSummary. Servers.CreatedCount/
-// ModifiedCount are real, live counts of what StartImport actually did
-// (s3import.go/exportimport.go) -- never fabricated. A row whose
-// mgn:server:user-provided-id matches an existing SourceServer updates it
-// (ModifiedCount), matching AWS's own documented dedup-by-user-provided-id
-// behavior; every other successfully-parsed row creates a new SourceServer
-// (CreatedCount). Applications/Waves are always zero -- this pass's importer
-// only implements the SourceServer-scoped subset of AWS's documented CSV
-// schema (see s3import.go's doc comment for the mgn:app:*/mgn:wave:*/
-// mgn:launch:* scope decision).
+// ImportTaskSummary mirrors types.ImportTaskSummary. Servers/Applications/
+// Waves.CreatedCount/ModifiedCount are real, live counts of what StartImport
+// actually did (s3import.go/exportimport.go) -- never fabricated. A row
+// whose mgn:server:user-provided-id (or explicit mgn:server:id/mgn:app:id/
+// mgn:wave:id) matches an existing resource updates it (ModifiedCount),
+// matching AWS's own documented alternate-identification/update-by-id
+// behavior (import-parameters.html, Additional considerations #3-6); every
+// other successfully-identified row creates a new resource (CreatedCount).
+// mgn:launch:*/mgn:replication:* per-row overrides remain out of scope (see
+// s3import.go's doc comment) -- Applications/Waves/SourceServers this
+// backend creates always get their existing default
+// LaunchConfiguration/ReplicationConfiguration, never row-specific values.
 type ImportTaskSummary struct {
 	Applications countPair
 	Servers      countPair
 	Waves        countPair
 }
 
-// ImportErrorData mirrors types.ImportErrorData -- one CSV row's failure detail.
-// AccountID/ApplicationID/Ec2LaunchTemplateID are always empty: no
-// delegated-account import path, no ApplicationID column in the documented CSV
-// schema, and no per-server EC2 launch template modeled at import time.
-// RowNumber/RawError are always real, describing the actual malformed row
-// parseSourceServerCSV rejected.
+// ImportErrorData mirrors types.ImportErrorData -- one CSV row's failure
+// detail. AccountID/Ec2LaunchTemplateID are always empty: no
+// delegated-account import path, and no per-server EC2 launch template
+// modeled at import time. SourceServerID/ApplicationID/WaveID are populated
+// with the mgn:server:id/mgn:app:id/mgn:wave:id value a row referenced when
+// that specific resource's resolution failed (see s3import.go's
+// newImportRowError) -- never fabricated, and left empty when the failing
+// row named no such ID (e.g. a malformed row parseImportCSV itself
+// rejected, which has no resolved resource to report). RowNumber/RawError
+// are always real, describing the actual failure.
 type ImportErrorData struct {
-	RawError  string
-	RowNumber int64
+	SourceServerID string
+	ApplicationID  string
+	WaveID         string
+	RawError       string
+	RowNumber      int64
 }
 
 func (e *ImportErrorData) clone() *ImportErrorData {

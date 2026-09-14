@@ -9,7 +9,7 @@ import (
 )
 
 func (b *InMemoryBackend) SetDefaultAuthorizer(authorizerName string) error {
-	b.mu.Lock()
+	b.mu.Lock("SetDefaultAuthorizer")
 	defer b.mu.Unlock()
 
 	b.defaultAuthorizer = authorizerName
@@ -18,7 +18,7 @@ func (b *InMemoryBackend) SetDefaultAuthorizer(authorizerName string) error {
 }
 
 func (b *InMemoryBackend) ClearDefaultAuthorizer() error {
-	b.mu.Lock()
+	b.mu.Lock("ClearDefaultAuthorizer")
 	defer b.mu.Unlock()
 
 	b.defaultAuthorizer = ""
@@ -27,7 +27,7 @@ func (b *InMemoryBackend) ClearDefaultAuthorizer() error {
 }
 
 func (b *InMemoryBackend) DescribeDefaultAuthorizer() (string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDefaultAuthorizer")
 	defer b.mu.RUnlock()
 
 	if b.defaultAuthorizer == "" {
@@ -76,7 +76,7 @@ type CreateAuthorizerInput struct {
 }
 
 func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Authorizer, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateAuthorizer")
 	defer b.mu.Unlock()
 
 	if b.authorizers.Has(input.AuthorizerName) {
@@ -110,7 +110,7 @@ func (b *InMemoryBackend) CreateAuthorizer(input *CreateAuthorizerInput) (*Autho
 }
 
 func (b *InMemoryBackend) DescribeAuthorizer(name string) (*Authorizer, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAuthorizer")
 	defer b.mu.RUnlock()
 
 	a, ok := b.authorizers.Get(name)
@@ -122,7 +122,7 @@ func (b *InMemoryBackend) DescribeAuthorizer(name string) (*Authorizer, error) {
 }
 
 func (b *InMemoryBackend) ListAuthorizers() []*Authorizer {
-	b.mu.RLock()
+	b.mu.RLock("ListAuthorizers")
 	defer b.mu.RUnlock()
 
 	out := make([]*Authorizer, 0, b.authorizers.Len())
@@ -134,7 +134,7 @@ func (b *InMemoryBackend) ListAuthorizers() []*Authorizer {
 }
 
 func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*Authorizer, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateAuthorizer")
 	defer b.mu.Unlock()
 
 	a, ok := b.authorizers.Get(name)
@@ -153,7 +153,7 @@ func (b *InMemoryBackend) UpdateAuthorizer(name, functionARN, status string) (*A
 }
 
 func (b *InMemoryBackend) DeleteAuthorizer(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteAuthorizer")
 	defer b.mu.Unlock()
 
 	if !b.authorizers.Has(name) {

@@ -27,7 +27,7 @@ func TestHandlerOpsLen(t *testing.T) {
 	h := opensearch.NewHandler(opensearch.NewInMemoryBackend(testAccountID, testRegion))
 	// See the matching comment on TestOpenSearchHandler_GetSupportedOperations'
 	// assert.Len below: 8 fabricated AOSS policy op names replaced by 5 real ones.
-	assert.Equal(t, 115, opensearch.HandlerOpsLen(h))
+	assert.Equal(t, 118, opensearch.HandlerOpsLen(h))
 }
 
 func TestExtractOperation_NewRoutes(t *testing.T) {
@@ -275,7 +275,7 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	// DeleteSecurityPolicy/GetSecurityPolicy/ListSecurityPolicies/
 	// UpdateSecurityPolicy (5 ops, since AOSS discriminates encryption vs.
 	// network by a "type" field rather than by operation name).
-	assert.Len(t, ops, 115)
+	assert.Len(t, ops, 118)
 }
 
 func TestOpenSearchHandler_ExtractOperation(t *testing.T) {

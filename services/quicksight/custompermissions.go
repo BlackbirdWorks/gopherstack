@@ -12,6 +12,7 @@ import (
 // custom permissions profile.
 type storedCustomPermissions struct {
 	Capabilities map[string]any `json:"capabilities,omitempty"`
+	Governance   map[string]any `json:"governance,omitempty"`
 	Name         string         `json:"name"`
 	Arn          string         `json:"arn"`
 }
@@ -21,6 +22,7 @@ func (c *storedCustomPermissions) toCustomPermissions() *CustomPermissions {
 		Name:         c.Name,
 		Arn:          c.Arn,
 		Capabilities: c.Capabilities,
+		Governance:   c.Governance,
 	}
 }
 
@@ -85,7 +87,7 @@ func (b *InMemoryBackend) DescribeCustomPermissions(accountID, name string) (*Cu
 
 func (b *InMemoryBackend) UpdateCustomPermissions(
 	accountID, name string,
-	capabilities map[string]any,
+	capabilities, governance map[string]any,
 ) (*CustomPermissions, error) {
 	b.mu.Lock("UpdateCustomPermissions")
 	defer b.mu.Unlock()
@@ -98,6 +100,8 @@ func (b *InMemoryBackend) UpdateCustomPermissions(
 	if capabilities != nil {
 		cp.Capabilities = capabilities
 	}
+
+	cp.Governance = governance
 
 	return cp.toCustomPermissions(), nil
 }

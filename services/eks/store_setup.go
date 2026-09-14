@@ -126,6 +126,18 @@ func updateKeyFn(v *Update) string { return updateKey(v.ClusterName, v.ID) }
 
 func updateClusterKeyFn(v *Update) string { return v.ClusterName }
 
+// certificateAuthorityKey builds the composite key shared by every
+// certificate authority nested under a cluster.
+func certificateAuthorityKey(clusterName, id string) string {
+	return clusterName + "\x00" + id
+}
+
+func certificateAuthorityKeyFn(v *CertificateAuthority) string {
+	return certificateAuthorityKey(v.ClusterName, v.ID)
+}
+
+func certificateAuthorityClusterKeyFn(v *CertificateAuthority) string { return v.ClusterName }
+
 // registerAllTables constructs every store.Table-backed resource field
 // exactly once, at construction time. It must be called during construction
 // only, never on every Reset(): store.Register panics on a duplicate name, so
@@ -173,4 +185,25 @@ func registerAllTables(b *InMemoryBackend) {
 
 	b.updates = store.Register(b.registry, "updates", store.New(updateKeyFn))
 	b.updatesByCluster = b.updates.AddIndex("byCluster", updateClusterKeyFn)
+
+	// certificateAuthorities is additive (gopherstack-lruaw, 2026-09-11): a
+	// new registered table needs no eksSnapshotVersion bump -- an older
+	// snapshot simply decodes with this table empty, same as any other new
+	// store.Register call (see persistence.go's version-bump rules).
+	b.certificateAuthorities = store.Register(
+		b.registry,
+		"certificateAuthorities",
+		store.New(certificateAuthorityKeyFn),
+	)
+	b.certificateAuthoritiesByCluster = b.certificateAuthorities.AddIndex(
+		"byCluster",
+		certificateAuthorityClusterKeyFn,
+	)
+
+	// idempotency stores ClientRequestToken replay records (gopherstack-wf8f
+	// item 3) -- see idempotency.go. Keyed by op name + token, not scoped to
+	// a cluster (a ClientRequestToken carries no cluster identity of its
+	// own; the full request body, captured in the record's fingerprint,
+	// already disambiguates by whatever the op's own parameters are).
+	b.idempotency = store.Register(b.registry, "idempotency", store.New(idempotencyKeyFn))
 }

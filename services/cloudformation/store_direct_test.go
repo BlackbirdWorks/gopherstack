@@ -55,7 +55,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	instances, err := b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err := b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(
@@ -72,7 +72,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "IN_SYNC", instances.Data[0].DriftStatus)
@@ -87,7 +87,7 @@ func TestStackSetDrift_UpdatesInstanceDriftStatus(t *testing.T) {
 	_, err = b.DetectStackSetDrift("drift-instance-ss")
 	require.NoError(t, err)
 
-	instances, err = b.ListStackInstances("drift-instance-ss", "", cloudformation.ListStackInstancesFilter{})
+	instances, err = b.ListStackInstances("drift-instance-ss", 0, "", cloudformation.ListStackInstancesFilter{})
 	require.NoError(t, err)
 	require.Len(t, instances.Data, 1)
 	assert.Equal(t, "DRIFTED", instances.Data[0].DriftStatus)
@@ -114,7 +114,7 @@ func TestStackSetOperationList(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	p, err := b.ListStackSetOperations("op-list-ss", "")
+	p, err := b.ListStackSetOperations("op-list-ss", 0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, p.Data)
 }
@@ -161,7 +161,7 @@ func TestGeneratedTemplate_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, body)
 
-	list, err := b.ListGeneratedTemplates("")
+	list, err := b.ListGeneratedTemplates(0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, list.Data)
 
@@ -187,7 +187,7 @@ func TestResourceScan_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", scan.Status)
 
-	scans, err := b.ListResourceScans("")
+	scans, err := b.ListResourceScans(0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, scans.Data)
 
@@ -207,17 +207,18 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, token)
 
-	regStatus, err := b.DescribeTypeRegistration(token)
+	regStatus, regTypeArn, err := b.DescribeTypeRegistration(token)
 	require.NoError(t, err)
 	assert.NotEmpty(t, regStatus)
+	assert.NotEmpty(t, regTypeArn)
 
-	types, err := b.ListTypes("")
+	types, err := b.ListTypes("", 0, "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, types)
+	assert.NotEmpty(t, types.Data)
 
-	typeVersions, err := b.ListTypeVersions("MyCompany::MyService::MyType", "")
+	typeVersions, err := b.ListTypeVersions("MyCompany::MyService::MyType", "", 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, typeVersions)
+	assert.NotNil(t, typeVersions.Data)
 }
 
 func TestTypeManagement_ActivateDeactivate(t *testing.T) {
@@ -410,7 +411,7 @@ func TestStackRefactor_CRUD(t *testing.T) {
 
 	b := newBackend()
 
-	refactorID, err := b.CreateStackRefactor("my refactor", nil, false)
+	refactorID, err := b.CreateStackRefactor("my refactor", nil, nil, false)
 	require.NoError(t, err)
 	assert.NotEmpty(t, refactorID)
 
@@ -418,15 +419,15 @@ func TestStackRefactor_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEmpty(t, desc)
 
-	list, err := b.ListStackRefactors("")
+	list, err := b.ListStackRefactors(0, "")
 	require.NoError(t, err)
-	assert.NotEmpty(t, list)
+	assert.NotEmpty(t, list.Data)
 
-	actions, err := b.ListStackRefactorActions(refactorID)
+	actions, err := b.ListStackRefactorActions(refactorID, 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, actions)
+	assert.NotNil(t, actions.Data)
 
-	err = b.ExecuteStackRefactor(refactorID)
+	err = b.ExecuteStackRefactor(t.Context(), refactorID)
 	require.NoError(t, err)
 }
 
@@ -465,9 +466,9 @@ func TestListStackSetAutoDeploymentTargets(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	targets, err := b.ListStackSetAutoDeploymentTargets("auto-deploy-ss")
+	targets, err := b.ListStackSetAutoDeploymentTargets("auto-deploy-ss", 0, "")
 	require.NoError(t, err)
-	assert.NotNil(t, targets)
+	assert.NotNil(t, targets.Data)
 }
 
 // ---- Backend: DependsOn ordering in template -----------------------------------

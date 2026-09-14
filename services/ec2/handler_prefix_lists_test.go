@@ -16,7 +16,7 @@ func TestManagedPrefixList(t *testing.T) { //nolint:paralleltest // existing iss
 	var plID string
 
 	t.Run("create prefix list", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		pl, err := b.CreateManagedPrefixList("my-list", "IPv4", 10)
+		pl, err := b.CreateManagedPrefixList("my-list", "IPv4", 10, nil)
 		require.NoError(t, err)
 		assert.NotEmpty(t, pl.PrefixListID)
 		assert.Equal(t, "my-list", pl.PrefixListName)
@@ -70,7 +70,7 @@ func TestManagedPrefixList(t *testing.T) { //nolint:paralleltest // existing iss
 	})
 
 	t.Run("create with empty name returns error", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		_, err := b.CreateManagedPrefixList("", "IPv4", 10)
+		_, err := b.CreateManagedPrefixList("", "IPv4", 10, nil)
 		require.Error(t, err)
 	})
 }
@@ -97,7 +97,7 @@ func TestManagedPrefixList_FullCycle(t *testing.T) {
 
 			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-			pl, err := b.CreateManagedPrefixList(tt.listName, tt.addressFamily, tt.maxEntries)
+			pl, err := b.CreateManagedPrefixList(tt.listName, tt.addressFamily, tt.maxEntries, nil)
 			require.NoError(t, err)
 			assert.Contains(t, pl.PrefixListID, "pl-")
 			assert.Equal(t, tt.listName, pl.PrefixListName)

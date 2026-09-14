@@ -30,11 +30,12 @@ const codebuildSnapshotVersion = 2
 // snapshot from an incompatible (older or newer) build of this backend as
 // though it were the current shape; see Restore.
 type backendSnapshot struct {
-	Tables           map[string]json.RawMessage `json:"tables"`
-	ResourcePolicies map[string]string          `json:"resourcePolicies"`
-	AccountID        string                     `json:"accountID"`
-	Region           string                     `json:"region"`
-	Version          int                        `json:"version"`
+	Tables            map[string]json.RawMessage `json:"tables"`
+	ResourcePolicies  map[string]string          `json:"resourcePolicies"`
+	BuildBatchNumbers map[string]int64           `json:"buildBatchNumbers"`
+	AccountID         string                     `json:"accountID"`
+	Region            string                     `json:"region"`
+	Version           int                        `json:"version"`
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -55,11 +56,12 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 	}
 
 	snap := backendSnapshot{
-		Version:          codebuildSnapshotVersion,
-		Tables:           tables,
-		ResourcePolicies: b.resourcePolicies,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		Version:           codebuildSnapshotVersion,
+		Tables:            tables,
+		ResourcePolicies:  b.resourcePolicies,
+		BuildBatchNumbers: b.buildBatchNumbers,
+		AccountID:         b.accountID,
+		Region:            b.region,
 	}
 
 	return persistence.MarshalSnapshot(ctx, "codebuild", &snap)
@@ -89,6 +91,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.resourcePolicies = make(map[string]string)
+		b.buildBatchNumbers = make(map[string]int64)
 		b.accountID = snap.AccountID
 		b.region = snap.Region
 
@@ -103,7 +106,12 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.ResourcePolicies = make(map[string]string)
 	}
 
+	if snap.BuildBatchNumbers == nil {
+		snap.BuildBatchNumbers = make(map[string]int64)
+	}
+
 	b.resourcePolicies = snap.ResourcePolicies
+	b.buildBatchNumbers = snap.BuildBatchNumbers
 	b.accountID = snap.AccountID
 	b.region = snap.Region
 

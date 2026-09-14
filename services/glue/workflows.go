@@ -7,8 +7,23 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
 )
 
+// ErrIllegalWorkflowState is returned by StopWorkflowRun/ResumeWorkflowRun
+// when the target run is not in a state the operation applies to, mirroring
+// AWS's IllegalWorkflowStateException (confirmed present in both ops' real
+// error catalogs: aws-sdk-go-v2/service/glue@v1.157.0 deserializers.go's
+// awsAwsjson11_deserializeOpErrorStopWorkflowRun and
+// ...ResumeWorkflowRun switches).
+var ErrIllegalWorkflowState = awserr.New("IllegalWorkflowStateException", awserr.ErrConflict)
+
+// StopWorkflowRun settles the run directly to STOPPED (this backend has no
+// async execution engine to model a real STOPPING interval, the same honest
+// "immediate settlement" choice already made for every sibling Cancel/Stop
+// run op in this package -- e.g. CancelDataQualityRulesetEvaluationRun,
+// CancelMLTaskRun). Only a RUNNING run can be stopped; AWS does not allow
+// stopping an already-stopped or otherwise-settled run.
 func (b *InMemoryBackend) StopWorkflowRun(workflowName, runID string) error {
 	b.mu.Lock("StopWorkflowRun")
 	defer b.mu.Unlock()
@@ -19,7 +34,14 @@ func (b *InMemoryBackend) StopWorkflowRun(workflowName, runID string) error {
 	}
 	for _, r := range runs {
 		if r.RunID == runID {
-			r.Status = stateStopping
+			if r.Status != stateRunning {
+				return fmt.Errorf(
+					"workflow run %q is %s, not RUNNING: %w",
+					runID, r.Status, ErrIllegalWorkflowState,
+				)
+			}
+			r.Status = stateStopped
+			r.CompletedOn = float64(time.Now().Unix())
 
 			return nil
 		}
@@ -63,11 +85,21 @@ func (b *InMemoryBackend) PutWorkflowRunProperties(
 	)
 }
 
-// ResumeWorkflowRun echoes nodeIDs back as "the new nodes that were actually
-// restarted" (ResumeWorkflowRunOutput.NodeIds) -- this backend has no
-// per-node run-attempt state (WorkflowRun.Graph is a disclosed gap, see
-// PARITY.md), so every requested node is honestly reported as restarted
-// rather than silently dropped from the response.
+// ResumeWorkflowRun creates a new run linked to the original via
+// PreviousRunId, matching the real op's documented contract ("The new ID
+// assigned to the resumed workflow run. Each resume of a workflow run will
+// have a new run ID" -- api_op_ResumeWorkflowRun.go's ResumeWorkflowRunOutput
+// doc). Only a STOPPED run can be resumed ("[r]estarts ... a previous
+// partially completed workflow run" -- same file's op doc); a run that is
+// still RUNNING has nothing to resume from.
+//
+// nodeIDs is echoed back as "the new nodes that were actually restarted"
+// (ResumeWorkflowRunOutput.NodeIds) -- this backend has no per-node
+// run-attempt state (WorkflowRun.Graph is a disclosed gap, see PARITY.md), so
+// every requested node is honestly reported as restarted rather than
+// silently dropped from the response, and no new job/crawler actions are
+// fired (this backend cannot honestly determine which entry trigger's
+// actions correspond to the caller's selected nodes).
 func (b *InMemoryBackend) ResumeWorkflowRun(workflowName, runID string, nodeIDs []string) (string, []string, error) {
 	b.mu.Lock("ResumeWorkflowRun")
 	defer b.mu.Unlock()
@@ -78,14 +110,40 @@ func (b *InMemoryBackend) ResumeWorkflowRun(workflowName, runID string, nodeIDs 
 	}
 
 	for _, run := range runs {
-		if run.RunID == runID {
-			run.Status = stateRunning
-
-			return runID, nodeIDs, nil
+		if run.RunID != runID {
+			continue
 		}
+
+		if run.Status != stateStopped {
+			return "", nil, fmt.Errorf(
+				"workflow run %q is %s, not STOPPED: %w",
+				runID, run.Status, ErrIllegalWorkflowState,
+			)
+		}
+
+		newRun := &WorkflowRun{
+			WorkflowName:  workflowName,
+			RunID:         newWorkflowRunID(),
+			PreviousRunID: runID,
+			Status:        stateRunning,
+			StartedOn:     float64(time.Now().Unix()),
+		}
+		b.workflowRuns[workflowName] = append(b.workflowRuns[workflowName], newRun)
+
+		return newRun.RunID, nodeIDs, nil
 	}
 
 	return "", nil, fmt.Errorf("workflow run %q not found: %w", runID, ErrNotFound)
+}
+
+// newWorkflowRunID generates a mock run ID; the real ID-generation algorithm
+// is not discoverable from the public SDK shapes alone.
+func newWorkflowRunID() string {
+	return fmt.Sprintf(
+		"wr_%d_%04d",
+		time.Now().UnixNano(),
+		mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
+	)
 }
 
 // cloneWorkflow returns a shallow copy of a Workflow with cloned maps.
@@ -113,6 +171,13 @@ func (b *InMemoryBackend) CreateWorkflow(w Workflow, tags map[string]string) (*W
 
 	if b.workflows.Has(w.Name) {
 		return nil, ErrAlreadyExists
+	}
+
+	if b.workflows.Len() >= b.limits.workflows {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d workflow limit",
+			ErrResourceNumberLimitExceeded, b.limits.workflows,
+		)
 	}
 
 	now := float64(time.Now().Unix())
@@ -288,7 +353,7 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 		if w.MaxConcurrentRuns > 0 {
 			active := 0
 			for _, r := range b.workflowRuns[name] {
-				if r.Status == stateRunning || r.Status == stateStopping {
+				if r.Status == stateRunning {
 					active++
 				}
 			}
@@ -297,14 +362,9 @@ func (b *InMemoryBackend) StartWorkflowRun(name string) (*WorkflowRun, error) {
 			}
 		}
 
-		runID := fmt.Sprintf(
-			"wr_%d_%04d",
-			time.Now().UnixNano(),
-			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
-		)
 		run := &WorkflowRun{
 			WorkflowName: name,
-			RunID:        runID,
+			RunID:        newWorkflowRunID(),
 			Status:       stateRunning,
 			StartedOn:    float64(time.Now().Unix()),
 		}

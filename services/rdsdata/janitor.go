@@ -94,7 +94,7 @@ type expiredTxKey struct {
 // open past MaxLifetime, rolling each back on the engine and removing its
 // Transaction record.
 func (j *Janitor) tick(ctx context.Context) {
-	now := time.Now()
+	now := j.Backend.nowFunc()
 
 	var expired []expiredTxKey
 

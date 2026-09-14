@@ -3,6 +3,7 @@ package appstream
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -16,49 +17,91 @@ const (
 	defaultFleetType         = "ON_DEMAND"
 	defaultMaxUserDuration   = 57600 // 16 hours
 	defaultDisconnectTimeout = 300   // 5 minutes
+
+	// FleetAttribute enum values a real UpdateFleetInput.AttributesToDelete
+	// may carry (appstream@v1.64.5 types/enums.go) that this backend models.
+	fleetAttrVpcConfiguration                 = "VPC_CONFIGURATION"
+	fleetAttrVpcConfigurationSecurityGroupIDs = "VPC_CONFIGURATION_SECURITY_GROUP_IDS"
+	fleetAttrDomainJoinInfo                   = "DOMAIN_JOIN_INFO"
+	fleetAttrIamRoleArn                       = "IAM_ROLE_ARN"
+	fleetAttrUsbDeviceFilterStrings           = "USB_DEVICE_FILTER_STRINGS"
+	fleetAttrSessionScriptS3Location          = "SESSION_SCRIPT_S3_LOCATION"
+	fleetAttrMaxSessionsPerInstance           = "MAX_SESSIONS_PER_INSTANCE"
+	fleetAttrVolumeConfiguration              = "VOLUME_CONFIGURATION"
 )
 
 type storedFleet struct {
-	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
 	CreatedTime                 time.Time         `json:"createdTime"`
+	DisableIMDSV1               *bool             `json:"disableImdsv1,omitempty"`
+	RootVolumeConfig            *VolumeConfig     `json:"rootVolumeConfig,omitempty"`
 	Tags                        map[string]string `json:"tags"`
+	EnableDefaultInternetAccess *bool             `json:"enableDefaultInternetAccess,omitempty"`
+	DomainJoinInfo              DomainJoinInfo    `json:"domainJoinInfo"`
+	SessionScriptS3Location     S3Location        `json:"sessionScriptS3Location"`
+	Description                 string            `json:"description"`
+	Platform                    string            `json:"platform,omitempty"`
 	Name                        string            `json:"name"`
 	Arn                         string            `json:"arn"`
 	DisplayName                 string            `json:"displayName"`
-	Description                 string            `json:"description"`
+	StreamView                  string            `json:"streamView,omitempty"`
 	InstanceType                string            `json:"instanceType"`
 	FleetType                   string            `json:"fleetType"`
 	State                       string            `json:"state"`
 	ImageName                   string            `json:"imageName,omitempty"`
 	ImageArn                    string            `json:"imageArn,omitempty"`
+	IamRoleArn                  string            `json:"iamRoleArn,omitempty"`
+	VpcConfig                   VpcConfig         `json:"vpcConfig"`
+	UsbDeviceFilterStrings      []string          `json:"usbDeviceFilterStrings"`
 	DesiredInstances            int               `json:"desiredInstances"`
 	MaxUserDurationSecs         int               `json:"maxUserDurationSecs"`
 	DisconnectTimeoutSecs       int               `json:"disconnectTimeoutSecs"`
 	IdleDisconnectTimeoutSecs   int               `json:"idleDisconnectTimeoutSecs"`
+	MaxSessionsPerInstance      int               `json:"maxSessionsPerInstance,omitempty"`
+	MaxConcurrentSessions       int               `json:"maxConcurrentSessions,omitempty"`
 }
 
 func (f *storedFleet) toFleet() *Fleet {
 	tags := make(map[string]string)
 	maps.Copy(tags, f.Tags)
 
-	return &Fleet{
+	fleet := &Fleet{
 		EnableDefaultInternetAccess: f.EnableDefaultInternetAccess,
+		DisableIMDSV1:               f.DisableIMDSV1,
 		CreatedTime:                 f.CreatedTime,
 		Tags:                        tags,
-		Name:                        f.Name,
-		Arn:                         f.Arn,
-		DisplayName:                 f.DisplayName,
-		Description:                 f.Description,
-		InstanceType:                f.InstanceType,
-		FleetType:                   f.FleetType,
-		State:                       f.State,
-		ImageName:                   f.ImageName,
-		ImageArn:                    f.ImageArn,
-		DesiredInstances:            f.DesiredInstances,
-		MaxUserDurationSecs:         f.MaxUserDurationSecs,
-		DisconnectTimeoutSecs:       f.DisconnectTimeoutSecs,
-		IdleDisconnectTimeoutSecs:   f.IdleDisconnectTimeoutSecs,
+		VpcConfig: VpcConfig{
+			SecurityGroupIDs: append([]string(nil), f.VpcConfig.SecurityGroupIDs...),
+			SubnetIDs:        append([]string(nil), f.VpcConfig.SubnetIDs...),
+		},
+		SessionScriptS3Location:   f.SessionScriptS3Location,
+		DomainJoinInfo:            f.DomainJoinInfo,
+		UsbDeviceFilterStrings:    append([]string(nil), f.UsbDeviceFilterStrings...),
+		Name:                      f.Name,
+		Arn:                       f.Arn,
+		DisplayName:               f.DisplayName,
+		Description:               f.Description,
+		InstanceType:              f.InstanceType,
+		FleetType:                 f.FleetType,
+		State:                     f.State,
+		ImageName:                 f.ImageName,
+		ImageArn:                  f.ImageArn,
+		IamRoleArn:                f.IamRoleArn,
+		StreamView:                f.StreamView,
+		Platform:                  f.Platform,
+		DesiredInstances:          f.DesiredInstances,
+		MaxUserDurationSecs:       f.MaxUserDurationSecs,
+		DisconnectTimeoutSecs:     f.DisconnectTimeoutSecs,
+		IdleDisconnectTimeoutSecs: f.IdleDisconnectTimeoutSecs,
+		MaxSessionsPerInstance:    f.MaxSessionsPerInstance,
+		MaxConcurrentSessions:     f.MaxConcurrentSessions,
 	}
+
+	if f.RootVolumeConfig != nil {
+		rvc := *f.RootVolumeConfig
+		fleet.RootVolumeConfig = &rvc
+	}
+
+	return fleet
 }
 
 func (b *InMemoryBackend) fleetARN(name string) string {
@@ -76,21 +119,16 @@ func isValidFleetType(ft string) bool {
 }
 
 // CreateFleet creates a new fleet.
-func (b *InMemoryBackend) CreateFleet(
-	name, displayName, description, instanceType, fleetType, imageName, imageArn string,
-	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
-	enableDefaultInternetAccess *bool,
-	tags map[string]string,
-) (*Fleet, error) {
-	if instanceType == "" {
+func (b *InMemoryBackend) CreateFleet(name string, opts CreateFleetOptions) (*Fleet, error) {
+	if opts.InstanceType == "" {
 		return nil, fmt.Errorf("%w: InstanceType is required", awserr.ErrInvalidParameter)
 	}
 
-	if fleetType != "" && !isValidFleetType(fleetType) {
+	if opts.FleetType != "" && !isValidFleetType(opts.FleetType) {
 		return nil, fmt.Errorf(
 			"%w: FleetType %q is not valid; must be ALWAYS_ON, ON_DEMAND, or ELASTIC",
 			awserr.ErrInvalidParameter,
-			fleetType,
+			opts.FleetType,
 		)
 	}
 
@@ -101,50 +139,61 @@ func (b *InMemoryBackend) CreateFleet(
 		return nil, ErrAlreadyExists
 	}
 
-	arn := b.fleetARN(name)
+	fleetArn := b.fleetARN(name)
 	storedTags := make(map[string]string)
-	maps.Copy(storedTags, tags)
+	maps.Copy(storedTags, opts.Tags)
 
-	ft := fleetType
+	ft := opts.FleetType
 	if ft == "" {
 		ft = defaultFleetType
 	}
 
-	mux := maxUserDuration
+	mux := opts.MaxUserDurationSecs
 	if mux == 0 {
 		mux = defaultMaxUserDuration
 	}
 
-	dt := disconnectTimeout
+	dt := opts.DisconnectTimeoutSecs
 	if dt == 0 {
 		dt = defaultDisconnectTimeout
 	}
 
-	desired := desiredInstances
+	desired := opts.DesiredInstances
 	if desired == 0 {
 		desired = 1
 	}
 
 	f := &storedFleet{
-		EnableDefaultInternetAccess: enableDefaultInternetAccess,
-		CreatedTime:                 time.Now().UTC(),
+		EnableDefaultInternetAccess: opts.EnableDefaultInternetAccess,
+		DisableIMDSV1:               opts.DisableIMDSV1,
+		RootVolumeConfig:            opts.RootVolumeConfig,
+		CreatedTime:                 b.now(),
 		Tags:                        storedTags,
+		VpcConfig:                   opts.VpcConfig,
+		SessionScriptS3Location:     opts.SessionScriptS3Location,
+		DomainJoinInfo:              opts.DomainJoinInfo,
+		UsbDeviceFilterStrings:      append([]string(nil), opts.UsbDeviceFilterStrings...),
 		Name:                        name,
-		Arn:                         arn,
-		DisplayName:                 displayName,
-		Description:                 description,
-		InstanceType:                instanceType,
+		Arn:                         fleetArn,
+		DisplayName:                 opts.DisplayName,
+		Description:                 opts.Description,
+		InstanceType:                opts.InstanceType,
 		FleetType:                   ft,
 		State:                       fleetStateStopped,
-		ImageName:                   imageName,
-		ImageArn:                    imageArn,
+		ImageName:                   opts.ImageName,
+		ImageArn:                    opts.ImageArn,
+		IamRoleArn:                  opts.IamRoleArn,
+		StreamView:                  opts.StreamView,
+		Platform:                    opts.Platform,
 		DesiredInstances:            desired,
 		MaxUserDurationSecs:         mux,
 		DisconnectTimeoutSecs:       dt,
-		IdleDisconnectTimeoutSecs:   idleDisconnectTimeout,
+		IdleDisconnectTimeoutSecs:   opts.IdleDisconnectTimeoutSecs,
+		MaxSessionsPerInstance:      opts.MaxSessionsPerInstance,
+		MaxConcurrentSessions:       opts.MaxConcurrentSessions,
 	}
 	b.fleets.Put(f)
-	b.tags[arn] = storedTags
+	b.tags[fleetArn] = storedTags
 
 	return f.toFleet(), nil
 }
@@ -177,12 +226,34 @@ func (b *InMemoryBackend) DescribeFleets(names []string) ([]*Fleet, error) {
 	return result, nil
 }
 
+// applyFleetAttributesToDelete clears the fields named by opts.AttributesToDelete,
+// applied after every set field so a delete always wins over a same-request set
+// (matches UpdateThemeForStack's convention).
+func applyFleetAttributesToDelete(f *storedFleet, attrs []string) {
+	for _, attr := range attrs {
+		switch attr {
+		case fleetAttrVpcConfiguration:
+			f.VpcConfig = VpcConfig{}
+		case fleetAttrVpcConfigurationSecurityGroupIDs:
+			f.VpcConfig.SecurityGroupIDs = nil
+		case fleetAttrDomainJoinInfo:
+			f.DomainJoinInfo = DomainJoinInfo{}
+		case fleetAttrIamRoleArn:
+			f.IamRoleArn = ""
+		case fleetAttrUsbDeviceFilterStrings:
+			f.UsbDeviceFilterStrings = nil
+		case fleetAttrSessionScriptS3Location:
+			f.SessionScriptS3Location = S3Location{}
+		case fleetAttrMaxSessionsPerInstance:
+			f.MaxSessionsPerInstance = 0
+		case fleetAttrVolumeConfiguration:
+			f.RootVolumeConfig = nil
+		}
+	}
+}
+
 // UpdateFleet updates mutable fields of an existing fleet.
-func (b *InMemoryBackend) UpdateFleet(
-	name, displayName, description, instanceType, imageName, imageArn string,
-	desiredInstances, maxUserDuration, disconnectTimeout, idleDisconnectTimeout int,
-	enableDefaultInternetAccess *bool,
-) (*Fleet, error) {
+func (b *InMemoryBackend) UpdateFleet(name string, opts UpdateFleetOptions) (*Fleet, error) {
 	b.mu.Lock("UpdateFleet")
 	defer b.mu.Unlock()
 
@@ -191,47 +262,111 @@ func (b *InMemoryBackend) UpdateFleet(
 		return nil, ErrNotFound
 	}
 
-	if displayName != "" {
-		f.DisplayName = displayName
-	}
-
-	if description != "" {
-		f.Description = description
-	}
-
-	if instanceType != "" {
-		f.InstanceType = instanceType
-	}
-
-	if imageName != "" {
-		f.ImageName = imageName
-	}
-
-	if imageArn != "" {
-		f.ImageArn = imageArn
-	}
-
-	if desiredInstances > 0 {
-		f.DesiredInstances = desiredInstances
-	}
-
-	if maxUserDuration > 0 {
-		f.MaxUserDurationSecs = maxUserDuration
-	}
-
-	if disconnectTimeout > 0 {
-		f.DisconnectTimeoutSecs = disconnectTimeout
-	}
-
-	if idleDisconnectTimeout >= 0 && idleDisconnectTimeout != f.IdleDisconnectTimeoutSecs {
-		f.IdleDisconnectTimeoutSecs = idleDisconnectTimeout
-	}
-
-	if enableDefaultInternetAccess != nil {
-		f.EnableDefaultInternetAccess = enableDefaultInternetAccess
-	}
+	applyFleetCoreUpdates(f, opts)
+	applyFleetExtendedUpdates(f, opts)
+	applyFleetAttributesToDelete(f, opts.AttributesToDelete)
 
 	return f.toFleet(), nil
+}
+
+// applyFleetCoreUpdates sets the fields UpdateFleet has always supported
+// (name/capacity/timeouts) -- split out of UpdateFleet to keep it under
+// this repo's gocognit budget.
+func applyFleetCoreUpdates(f *storedFleet, opts UpdateFleetOptions) {
+	if opts.DisplayName != "" {
+		f.DisplayName = opts.DisplayName
+	}
+
+	if opts.Description != "" {
+		f.Description = opts.Description
+	}
+
+	if opts.InstanceType != "" {
+		f.InstanceType = opts.InstanceType
+	}
+
+	if opts.ImageName != "" {
+		f.ImageName = opts.ImageName
+	}
+
+	if opts.ImageArn != "" {
+		f.ImageArn = opts.ImageArn
+	}
+
+	if opts.DesiredInstances > 0 {
+		f.DesiredInstances = opts.DesiredInstances
+	}
+
+	if opts.MaxUserDurationSecs > 0 {
+		f.MaxUserDurationSecs = opts.MaxUserDurationSecs
+	}
+
+	if opts.DisconnectTimeoutSecs > 0 {
+		f.DisconnectTimeoutSecs = opts.DisconnectTimeoutSecs
+	}
+
+	if opts.IdleDisconnectTimeoutSecs >= 0 && opts.IdleDisconnectTimeoutSecs != f.IdleDisconnectTimeoutSecs {
+		f.IdleDisconnectTimeoutSecs = opts.IdleDisconnectTimeoutSecs
+	}
+
+	if opts.EnableDefaultInternetAccess != nil {
+		f.EnableDefaultInternetAccess = opts.EnableDefaultInternetAccess
+	}
+}
+
+// applyFleetExtendedUpdates sets the members this pass added (VpcConfig,
+// IamRoleArn, StreamView, RootVolumeConfig, MaxSessionsPerInstance,
+// UsbDeviceFilterStrings, SessionScriptS3Location, Platform, DomainJoinInfo,
+// MaxConcurrentSessions, DisableIMDSV1) -- split out of UpdateFleet to keep
+// it under this repo's gocognit budget.
+func applyFleetExtendedUpdates(f *storedFleet, opts UpdateFleetOptions) {
+	if opts.DisableIMDSV1 != nil {
+		f.DisableIMDSV1 = opts.DisableIMDSV1
+	}
+
+	if len(opts.VpcConfig.SecurityGroupIDs) > 0 || len(opts.VpcConfig.SubnetIDs) > 0 {
+		f.VpcConfig = VpcConfig{
+			SecurityGroupIDs: slices.Clone(opts.VpcConfig.SecurityGroupIDs),
+			SubnetIDs:        slices.Clone(opts.VpcConfig.SubnetIDs),
+		}
+	}
+
+	if opts.IamRoleArn != "" {
+		f.IamRoleArn = opts.IamRoleArn
+	}
+
+	if opts.StreamView != "" {
+		f.StreamView = opts.StreamView
+	}
+
+	if opts.Platform != "" {
+		f.Platform = opts.Platform
+	}
+
+	if opts.MaxSessionsPerInstance > 0 {
+		f.MaxSessionsPerInstance = opts.MaxSessionsPerInstance
+	}
+
+	if opts.MaxConcurrentSessions > 0 {
+		f.MaxConcurrentSessions = opts.MaxConcurrentSessions
+	}
+
+	if len(opts.UsbDeviceFilterStrings) > 0 {
+		f.UsbDeviceFilterStrings = slices.Clone(opts.UsbDeviceFilterStrings)
+	}
+
+	if opts.SessionScriptS3Location.S3Bucket != "" {
+		f.SessionScriptS3Location = opts.SessionScriptS3Location
+	}
+
+	if opts.DomainJoinInfo.DirectoryName != "" {
+		f.DomainJoinInfo = opts.DomainJoinInfo
+	}
+
+	if opts.RootVolumeConfig != nil {
+		rvc := *opts.RootVolumeConfig
+		f.RootVolumeConfig = &rvc
+	}
 }
 
 // DeleteFleet removes a fleet. Returns ErrResourceInUse if fleet is running.

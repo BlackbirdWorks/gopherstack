@@ -264,6 +264,25 @@ func calculateGSIWriteBreakdowns(table *Table, writeUnits float64, items ...map[
 	return gsiWCU
 }
 
+// mergeWCUMap adds src's values into dst, summing on key collision, and
+// lazily allocates dst. Used to accumulate per-index WCU across multiple
+// write actions in a single BatchWriteItem/TransactWriteItems call.
+func mergeWCUMap(dst, src map[string]float64) map[string]float64 {
+	if src == nil {
+		return dst
+	}
+
+	if dst == nil {
+		dst = make(map[string]float64, len(src))
+	}
+
+	for k, v := range src {
+		dst[k] += v
+	}
+
+	return dst
+}
+
 func calculateLSIWriteBreakdowns(table *Table, writeUnits float64, items ...map[string]any) map[string]float64 {
 	if len(table.LocalSecondaryIndexes) == 0 {
 		return nil

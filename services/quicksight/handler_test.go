@@ -57,7 +57,10 @@ func TestQuickSight_Search(t *testing.T) { //nolint:paralleltest // existing iss
 			path:       accountPath("/search/data-sources"),
 			body:       map[string]any{"Filters": []any{}},
 			wantStatus: http.StatusOK,
-			wantKey:    "DataSources",
+			// SearchDataSourcesOutput wraps results under DataSourceSummaries,
+			// not ListDataSourcesOutput's DataSources (quicksight@v1.129.0
+			// api_op_SearchDataSources.go:53).
+			wantKey: "DataSourceSummaries",
 		},
 		{
 			name:       "search topics",

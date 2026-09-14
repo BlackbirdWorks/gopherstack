@@ -24,9 +24,14 @@ type createConfigurationOutput struct {
 	LatestRevision configurationRevision `json:"latestRevision"`
 }
 
+// configurationRevision mirrors types.ConfigurationRevision. CreationTime is
+// a real required member (types.go:653, kafka@v1.57.2) that was entirely
+// absent here -- every real client's LatestRevision.CreationTime came back
+// nil regardless of this backend already tracking it (Configuration.CreationTime).
 type configurationRevision struct {
-	Description string `json:"description,omitempty"`
-	Revision    int64  `json:"revision"`
+	Description  string `json:"description,omitempty"`
+	CreationTime string `json:"creationTime"`
+	Revision     int64  `json:"revision"`
 }
 
 type describeConfigurationOutput struct {
@@ -73,8 +78,9 @@ func (h *Handler) handleCreateConfiguration(
 		Name:  config.Name,
 		State: ClusterStateActive,
 		LatestRevision: configurationRevision{
-			Revision:    1,
-			Description: config.Description,
+			Revision:     1,
+			Description:  config.Description,
+			CreationTime: config.CreationTime,
 		},
 	})
 }
@@ -120,8 +126,9 @@ func (h *Handler) handleDescribeConfiguration(
 		KafkaVersions: config.KafkaVersions,
 		State:         ClusterStateActive,
 		LatestRevision: configurationRevision{
-			Revision:    1,
-			Description: config.Description,
+			Revision:     1,
+			Description:  config.Description,
+			CreationTime: config.CreationTime,
 		},
 	})
 }
@@ -148,6 +155,20 @@ type updateConfigurationInput struct {
 	ServerProperties string `json:"serverProperties,omitempty"`
 }
 
+// describeConfigurationRevisionOutput mirrors DescribeConfigurationRevisionOutput
+// exactly (deserializers.go:4297, kafka@v1.57.2) -- a flat body keyed "arn",
+// distinct from ConfigurationRevision's on-disk "configurationArn" tag (see
+// that type's doc comment). Built explicitly rather than marshaling
+// *ConfigurationRevision directly, the same pattern describeTopicOutputFrom
+// uses for Topic.
+type describeConfigurationRevisionOutput struct {
+	Arn              string `json:"arn"`
+	Description      string `json:"description,omitempty"`
+	ServerProperties string `json:"serverProperties,omitempty"`
+	CreationTime     string `json:"creationTime"`
+	Revision         int64  `json:"revision"`
+}
+
 func (h *Handler) handleDescribeConfigurationRevision(
 	ctx context.Context,
 	c *echo.Context,
@@ -171,7 +192,13 @@ func (h *Handler) handleDescribeConfigurationRevision(
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, rev)
+	return c.JSON(http.StatusOK, describeConfigurationRevisionOutput{
+		Arn:              rev.ConfigurationArn,
+		Description:      rev.Description,
+		ServerProperties: rev.ServerProperties,
+		CreationTime:     rev.CreationTime,
+		Revision:         rev.Revision,
+	})
 }
 
 func (h *Handler) handleListConfigurationRevisions(
@@ -236,8 +263,9 @@ func (h *Handler) handleUpdateConfiguration(
 		Name:  config.Name,
 		State: ClusterStateActive,
 		LatestRevision: configurationRevision{
-			Revision:    1,
-			Description: config.Description,
+			Revision:     1,
+			Description:  config.Description,
+			CreationTime: config.CreationTime,
 		},
 	})
 }

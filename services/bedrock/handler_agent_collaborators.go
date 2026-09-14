@@ -64,14 +64,55 @@ func collabSuffixFrom(suffix string) string {
 	return suffix[idx:]
 }
 
+// wireAgentDescriptor matches types.AgentDescriptor (serializers.go:7469):
+// the collaborator agent is identified by its alias ARN, nested here, never
+// a flat "collaboratorArn".
+type wireAgentDescriptor struct {
+	AliasArn string `json:"aliasArn"`
+}
+
+type wireAgentCollaboratorRequest struct {
+	AgentDescriptor          wireAgentDescriptor `json:"agentDescriptor"`
+	AgentVersion             string              `json:"agentVersion"`
+	CollaborationInstruction string              `json:"collaborationInstruction"`
+	CollaboratorName         string              `json:"collaboratorName"`
+	RelayConversationHistory string              `json:"relayConversationHistory"`
+}
+
+// wireAgentCollaborator matches types.AgentCollaborator
+// (deserializers.go:14971): agentDescriptor, agentId, agentVersion,
+// collaborationInstruction, collaboratorId, collaboratorName, createdAt,
+// lastUpdatedAt, relayConversationHistory.
+type wireAgentCollaborator struct {
+	AgentDescriptor          wireAgentDescriptor `json:"agentDescriptor"`
+	AgentID                  string              `json:"agentId"`
+	AgentVersion             string              `json:"agentVersion"`
+	CollaborationInstruction string              `json:"collaborationInstruction"`
+	CollaboratorID           string              `json:"collaboratorId"`
+	CollaboratorName         string              `json:"collaboratorName"`
+	CreatedAt                string              `json:"createdAt"`
+	LastUpdatedAt            string              `json:"lastUpdatedAt"`
+	RelayConversationHistory string              `json:"relayConversationHistory,omitempty"`
+}
+
+func agentCollaboratorWire(ac *AgentCollaborator) wireAgentCollaborator {
+	return wireAgentCollaborator{
+		AgentDescriptor:          wireAgentDescriptor{AliasArn: ac.AgentAliasArn},
+		AgentID:                  ac.AgentID,
+		AgentVersion:             ac.AgentVersion,
+		CollaborationInstruction: ac.CollaborationInstruction,
+		CollaboratorID:           ac.CollaboratorID,
+		CollaboratorName:         ac.CollaboratorName,
+		CreatedAt:                ac.CreatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z"),
+		LastUpdatedAt:            ac.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.999999999Z"),
+		RelayConversationHistory: ac.RelayConversation,
+	}
+}
+
 func (h *AgentsHandler) handleAssociateAgentCollaborator(
 	c *echo.Context, agentID string, body []byte,
 ) error {
-	var req struct {
-		AgentVersion      string `json:"agentVersion"`
-		CollaboratorArn   string `json:"collaboratorArn"`
-		RelayConversation string `json:"relayConversationHistory"`
-	}
+	var req wireAgentCollaboratorRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(
@@ -81,13 +122,14 @@ func (h *AgentsHandler) handleAssociateAgentCollaborator(
 	}
 
 	ac, err := h.Backend.AssociateAgentCollaborator(
-		agentID, req.AgentVersion, req.CollaboratorArn, req.RelayConversation,
+		agentID, req.AgentVersion, req.AgentDescriptor.AliasArn,
+		req.CollaboratorName, req.CollaborationInstruction, req.RelayConversationHistory,
 	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respCollaborator: ac})
+	return c.JSON(http.StatusOK, map[string]any{respCollaborator: agentCollaboratorWire(ac)})
 }
 
 func (h *AgentsHandler) handleGetAgentCollaborator(
@@ -98,12 +140,18 @@ func (h *AgentsHandler) handleGetAgentCollaborator(
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respCollaborator: ac})
+	return c.JSON(http.StatusOK, map[string]any{respCollaborator: agentCollaboratorWire(ac)})
 }
 
 func (h *AgentsHandler) handleListAgentCollaborators(c *echo.Context, agentID string) error {
 	list, outToken := h.Backend.ListAgentCollaborators(agentID, 0, c.QueryParam("nextToken"))
-	resp := map[string]any{"agentCollaboratorSummaries": list}
+
+	summaries := make([]wireAgentCollaborator, 0, len(list))
+	for _, ac := range list {
+		summaries = append(summaries, agentCollaboratorWire(ac))
+	}
+
+	resp := map[string]any{"agentCollaboratorSummaries": summaries}
 
 	if outToken != "" {
 		resp["nextToken"] = outToken
@@ -115,9 +163,7 @@ func (h *AgentsHandler) handleListAgentCollaborators(c *echo.Context, agentID st
 func (h *AgentsHandler) handleUpdateAgentCollaborator(
 	c *echo.Context, agentID, collaboratorID string, body []byte,
 ) error {
-	var req struct {
-		RelayConversation string `json:"relayConversationHistory"`
-	}
+	var req wireAgentCollaboratorRequest
 
 	if err := json.Unmarshal(body, &req); err != nil {
 		return c.JSON(
@@ -126,12 +172,15 @@ func (h *AgentsHandler) handleUpdateAgentCollaborator(
 		)
 	}
 
-	ac, err := h.Backend.UpdateAgentCollaborator(agentID, collaboratorID, req.RelayConversation)
+	ac, err := h.Backend.UpdateAgentCollaborator(
+		agentID, collaboratorID, req.AgentDescriptor.AliasArn,
+		req.CollaboratorName, req.CollaborationInstruction, req.RelayConversationHistory,
+	)
 	if err != nil {
 		return c.JSON(http.StatusNotFound, agentErrResp("ResourceNotFoundException", err.Error()))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{respCollaborator: ac})
+	return c.JSON(http.StatusOK, map[string]any{respCollaborator: agentCollaboratorWire(ac)})
 }
 
 func (h *AgentsHandler) handleDisassociateAgentCollaborator(

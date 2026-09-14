@@ -7,7 +7,7 @@ import "context"
 type describeSharedVpcConfigurationInput struct{}
 
 type describeSharedVpcConfigurationOutput struct {
-	EnableSharedVpcOnFileSystemCreation string `json:"EnableSharedVpcOnFileSystemCreation"`
+	EnableFsxRouteTableUpdatesFromParticipantAccounts string `json:"EnableFsxRouteTableUpdatesFromParticipantAccounts"`
 }
 
 func (h *Handler) handleDescribeSharedVpcConfiguration(
@@ -20,14 +20,14 @@ func (h *Handler) handleDescribeSharedVpcConfiguration(
 	}
 
 	return &describeSharedVpcConfigurationOutput{
-		EnableSharedVpcOnFileSystemCreation: cfg.EnableSharedVpcOnFileSystemCreation,
+		EnableFsxRouteTableUpdatesFromParticipantAccounts: cfg.EnableFsxRouteTableUpdatesFromParticipantAccounts,
 	}, nil
 }
 
 // --- UpdateSharedVpcConfiguration ---
 
 type updateSharedVpcConfigurationOutput struct {
-	EnableSharedVpcOnFileSystemCreation string `json:"EnableSharedVpcOnFileSystemCreation"`
+	EnableFsxRouteTableUpdatesFromParticipantAccounts string `json:"EnableFsxRouteTableUpdatesFromParticipantAccounts"`
 }
 
 func (h *Handler) handleUpdateSharedVpcConfiguration(
@@ -40,6 +40,6 @@ func (h *Handler) handleUpdateSharedVpcConfiguration(
 	}
 
 	return &updateSharedVpcConfigurationOutput{
-		EnableSharedVpcOnFileSystemCreation: cfg.EnableSharedVpcOnFileSystemCreation,
+		EnableFsxRouteTableUpdatesFromParticipantAccounts: cfg.EnableFsxRouteTableUpdatesFromParticipantAccounts,
 	}, nil
 }

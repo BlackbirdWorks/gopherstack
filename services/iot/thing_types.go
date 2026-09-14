@@ -16,7 +16,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 		return nil, fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateThingType")
 	defer b.mu.Unlock()
 
 	if b.thingTypes.Has(input.ThingTypeName) {
@@ -41,7 +41,7 @@ func (b *InMemoryBackend) CreateThingType(input *CreateThingTypeInput) (*ThingTy
 
 // DescribeThingType returns a ThingType by name.
 func (b *InMemoryBackend) DescribeThingType(thingTypeName string) (*ThingType, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeThingType")
 	defer b.mu.RUnlock()
 
 	tt, ok := b.thingTypes.Get(thingTypeName)
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) DescribeThingType(thingTypeName string) (*ThingType, e
 
 // ListThingTypes returns all thing types sorted by name.
 func (b *InMemoryBackend) ListThingTypes() []*ThingType {
-	b.mu.RLock()
+	b.mu.RLock("ListThingTypes")
 	defer b.mu.RUnlock()
 
 	items := b.thingTypes.Snapshot()
@@ -72,7 +72,7 @@ func (b *InMemoryBackend) ListThingTypes() []*ThingType {
 
 // DeprecateThingType marks a thing type as deprecated (or un-deprecates it).
 func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) error {
-	b.mu.Lock()
+	b.mu.Lock("DeprecateThingType")
 	defer b.mu.Unlock()
 
 	tt, ok := b.thingTypes.Get(input.ThingTypeName)
@@ -93,7 +93,7 @@ func (b *InMemoryBackend) DeprecateThingType(input *DeprecateThingTypeInput) err
 
 // DeleteThingType deletes a thing type by name. The type must be deprecated first.
 func (b *InMemoryBackend) DeleteThingType(thingTypeName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteThingType")
 	defer b.mu.Unlock()
 
 	tt, ok := b.thingTypes.Get(thingTypeName)
@@ -119,7 +119,7 @@ func (b *InMemoryBackend) UpdateThingType(input *UpdateThingTypeInput) error {
 		return fmt.Errorf("%w: ThingTypeName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateThingType")
 	defer b.mu.Unlock()
 
 	tt, ok := b.thingTypes.Get(input.ThingTypeName)

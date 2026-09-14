@@ -456,6 +456,16 @@ func TestRetentionPeriod_JanitorEvictsOldRecords(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// The physical ring buffer still holds both records at this point -- the
+	// janitor sweep below hasn't run yet. But GetShardIterator's TRIM_HORIZON
+	// now resolves the retention cutoff synchronously (see
+	// shard_iterators.go), so it already excludes the 2-hour-old record
+	// against the stream's 1-hour retention before the janitor ever gets to
+	// it -- proving retention is honored per-record, not just once the
+	// background sweep catches up.
+	assert.Equal(t, 2, b.ShardRecordCountForTest("retention-test", 0),
+		"sanity: both records are still physically present pre-sweep")
+
 	itOut, err := b.GetShardIterator(ctx, &kinesis.GetShardIteratorInput{
 		StreamName:        "retention-test",
 		ShardID:           "shardId-000000000000",
@@ -465,7 +475,9 @@ func TestRetentionPeriod_JanitorEvictsOldRecords(t *testing.T) {
 
 	rBefore, err := b.GetRecords(ctx, &kinesis.GetRecordsInput{ShardIterator: itOut.ShardIterator})
 	require.NoError(t, err)
-	assert.Len(t, rBefore.Records, 2)
+	require.Len(t, rBefore.Records, 1,
+		"TRIM_HORIZON must honor the retention cutoff synchronously, even before the janitor sweeps")
+	assert.Contains(t, string(rBefore.Records[0].Data), "fresh")
 
 	j := kinesis.NewJanitorForTest(b, time.Minute)
 	j.SweepOnceForTest(ctx)
@@ -481,4 +493,6 @@ func TestRetentionPeriod_JanitorEvictsOldRecords(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, rAfter.Records, 1, "old record must be evicted after janitor sweep")
 	assert.Contains(t, string(rAfter.Records[0].Data), "fresh")
+	assert.Equal(t, 1, b.ShardRecordCountForTest("retention-test", 0),
+		"the janitor sweep must physically evict the expired record from the ring buffer")
 }

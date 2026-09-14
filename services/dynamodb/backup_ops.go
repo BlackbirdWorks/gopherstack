@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,16 +222,9 @@ func paginateBackupSummaries(
 	startArn string,
 	limit int,
 ) ([]models.BackupSummary, string) {
-	// Apply ExclusiveStartBackupArn as the starting cursor.
 	start := 0
 	if startArn != "" {
-		for i, s := range summaries {
-			if s.BackupArn == startArn {
-				start = i + 1
-
-				break
-			}
-		}
+		start = resumeIndexAfterBackupCursor(summaries, startArn)
 	}
 
 	// Apply pagination limit relative to the starting cursor.
@@ -247,6 +241,63 @@ func paginateBackupSummaries(
 	}
 
 	return summaries[start:end], lastEvaluatedArn
+}
+
+// resumeIndexAfterBackupCursor finds where a ListBackups page should resume
+// after ExclusiveStartBackupArn. AWS does not document behavior for a cursor
+// naming a since-deleted backup (ListBackups' error set has no
+// ValidationException case at all, deserializers.go:3938-3985) -- rather than
+// restart at page one (gopherstack-zdwf), gopherstack recovers the missing
+// backup's position from its own ARN format (backupARN, backup_ops.go:24-33),
+// which embeds the creation-time half of the (creation time, ARN) sort key
+// summaries are ordered by (see the sort.Slice in listBackups), and resumes
+// right after where a backup with that ARN would have sorted. A cursor that
+// doesn't even parse as a gopherstack backup ARN falls back to index 0,
+// matching prior behavior for that case.
+func resumeIndexAfterBackupCursor(summaries []models.BackupSummary, startArn string) int {
+	for i, s := range summaries {
+		if s.BackupArn == startArn {
+			return i + 1
+		}
+	}
+
+	createdAt, ok := backupArnCreatedAtSeconds(startArn)
+	if !ok {
+		return 0
+	}
+
+	return sort.Search(len(summaries), func(i int) bool {
+		if summaries[i].BackupCreationDateTime != createdAt {
+			return summaries[i].BackupCreationDateTime > createdAt
+		}
+
+		return summaries[i].BackupArn > startArn
+	})
+}
+
+// backupArnCreatedAtSeconds extracts the creation timestamp gopherstack
+// embeds in its own backup ARNs (backupARN: .../backup/{16-digit-millis}-{uuid}).
+func backupArnCreatedAtSeconds(backupArn string) (float64, bool) {
+	const marker = "/backup/"
+
+	idx := strings.LastIndex(backupArn, marker)
+	if idx < 0 {
+		return 0, false
+	}
+
+	suffix := backupArn[idx+len(marker):]
+
+	millisStr, _, found := strings.Cut(suffix, "-")
+	if !found {
+		return 0, false
+	}
+
+	millis, err := strconv.ParseInt(millisStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return float64(time.UnixMilli(millis).Unix()), true
 }
 
 // restoredTableParams holds the schema and data for a table restore operation.

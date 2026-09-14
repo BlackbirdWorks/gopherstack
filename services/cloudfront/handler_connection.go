@@ -373,16 +373,25 @@ func connectionFunctionPreconditionFailedXML() string {
 
 // connectionFunctionSummaryXML builds the ConnectionFunctionSummary XML representation used by
 // DescribeConnectionFunction, Publish, and List responses.
+// connectionFunctionSummaryFields renders the field set of types.ConnectionFunctionSummary
+// (ConnectionFunctionArn/ConnectionFunctionConfig/CreatedTime/Id/LastModifiedTime/Name/Stage/
+// Status, all required per cloudfront@v1.67.4/types/types.go) without an outer element, so
+// callers can nest it under either a top-level <ConnectionFunctionSummary> root or as a child
+// of a different response (e.g. TestConnectionFunctionOutput's ConnectionFunctionTestResult).
+func connectionFunctionSummaryFields(fn *ConnectionFunction) string {
+	return fmt.Sprintf(
+		`<Id>%s</Id><ConnectionFunctionArn>%s</ConnectionFunctionArn><Name>%s</Name>`+
+			`<ConnectionFunctionConfig><Comment>%s</Comment><Runtime>%s</Runtime></ConnectionFunctionConfig>`+
+			`<Stage>%s</Stage><Status>%s</Status>`+
+			`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`,
+		fn.ID, fn.ARN, fn.Name, fn.Comment, fn.Runtime, fn.Stage, fn.Status,
+		fn.CreatedTime, fn.LastModifiedTime)
+}
+
 func connectionFunctionSummaryXML(fn *ConnectionFunction) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<ConnectionFunctionSummary xmlns="%s">`+
-		`<Id>%s</Id><ConnectionFunctionArn>%s</ConnectionFunctionArn><Name>%s</Name>`+
-		`<ConnectionFunctionConfig><Comment>%s</Comment><Runtime>%s</Runtime></ConnectionFunctionConfig>`+
-		`<Stage>%s</Stage><Status>%s</Status>`+
-		`<CreatedTime>%s</CreatedTime><LastModifiedTime>%s</LastModifiedTime>`+
-		`</ConnectionFunctionSummary>`,
-		cfNS, fn.ID, fn.ARN, fn.Name, fn.Comment, fn.Runtime, fn.Stage, fn.Status,
-		fn.CreatedTime, fn.LastModifiedTime)
+		`<ConnectionFunctionSummary xmlns="%s">%s</ConnectionFunctionSummary>`,
+		cfNS, connectionFunctionSummaryFields(fn))
 }
 
 // handleGetConnectionFunction returns the connection function's code and content type, mirroring
@@ -627,13 +636,13 @@ func (h *Handler) handleTestConnectionFunction(c *echo.Context, id string) error
 	return xmlResp(c, http.StatusOK, fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
 			`<TestResult xmlns="%s">`+
-			`<ConnectionFunctionSummary><Id>%s</Id><Name>%s</Name><Stage>%s</Stage></ConnectionFunctionSummary>`+
+			`<ConnectionFunctionSummary>%s</ConnectionFunctionSummary>`+
 			`<ConnectionFunctionExecutionLogs>%s</ConnectionFunctionExecutionLogs>`+
 			`<ConnectionFunctionErrorMessage></ConnectionFunctionErrorMessage>`+
 			`<ConnectionFunctionOutput>%s</ConnectionFunctionOutput>`+
 			`<ComputeUtilization>%s</ComputeUtilization>`+
 			`</TestResult>`,
-		cfNS, current.ID, current.Name, current.Stage,
+		cfNS, connectionFunctionSummaryFields(current),
 		logsXML.String(), result.FunctionOutput, result.ComputeUtilization,
 	))
 }

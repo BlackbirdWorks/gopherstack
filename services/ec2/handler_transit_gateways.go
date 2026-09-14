@@ -81,6 +81,13 @@ func (h *Handler) handleDescribeTransitGateways(vals url.Values, reqID string) (
 	ids := parseMemberList(vals, "TransitGatewayIds")
 
 	tgws := h.Backend.DescribeTransitGateways(ids)
+
+	if err := requireAllIDsPresent(
+		ids, tgws, func(tgw *TransitGateway) string { return tgw.ID }, ErrTransitGatewayNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	resp := &describeTransitGatewaysResponse{RequestID: reqID}
 
 	for _, tgw := range tgws {
@@ -221,6 +228,13 @@ func (h *Handler) handleDescribeTransitGatewayAttachments(vals url.Values, reqID
 	ids := parseMemberList(vals, "TransitGatewayAttachmentIds")
 
 	atts := h.Backend.DescribeTransitGatewayAttachments(ids)
+
+	if err := requireAllIDsPresent(
+		ids, atts, func(a *TransitGatewayAttachmentSummary) string { return a.TransitGatewayAttachmentID },
+		ErrTransitGatewayAttachmentNotFound,
+	); err != nil {
+		return nil, err
+	}
 
 	resp := &describeTransitGatewayAttachmentsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, att := range atts {

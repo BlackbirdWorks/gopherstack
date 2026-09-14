@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	sdktypes "github.com/aws/aws-sdk-go-v2/service/quicksight/types"
 	"github.com/google/uuid"
 )
 
@@ -596,8 +597,8 @@ func (b *InMemoryBackend) BatchCreateTopicReviewedAnswer(
 
 		if answerID == "" || question == "" || datasetArn == "" {
 			failed = append(failed, TopicAnswerError{
-				AnswerID: answerID,
-				Message:  "AnswerId, Question, and DatasetArn are required",
+				AnswerID:  answerID,
+				ErrorCode: string(sdktypes.ReviewedAnswerErrorCodeMissingRequiredFields),
 			})
 
 			continue
@@ -639,7 +640,10 @@ func (b *InMemoryBackend) BatchDeleteTopicReviewedAnswer(
 
 	for _, id := range answerIDs {
 		if _, exists := t.ReviewedAnswers[id]; !exists {
-			failed = append(failed, TopicAnswerError{AnswerID: id, Message: "reviewed answer not found"})
+			failed = append(failed, TopicAnswerError{
+				AnswerID:  id,
+				ErrorCode: string(sdktypes.ReviewedAnswerErrorCodeMissingAnswer),
+			})
 
 			continue
 		}

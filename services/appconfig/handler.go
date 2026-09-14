@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -19,6 +20,10 @@ const (
 	keyMessageField       = "message"
 	errInvalidRequestBody = "invalid request body"
 )
+
+// errRouteNotFound is the dispatch-miss sentinel for a request whose path/
+// method RouteMatcher claimed but parseAppConfigPath maps to no operation.
+var errRouteNotFound = errors.New("not found")
 
 const (
 	opUnknown = "Unknown"
@@ -993,7 +998,11 @@ func (h *Handler) Handler() echo.HandlerFunc {
 			c.Request().URL.Path,
 		)
 
-		return c.JSON(http.StatusNotFound, map[string]string{keyMessageField: "not found"})
+		// This dispatch-miss response used to omit amznErrorTypeHeader and any
+		// __type body field, so restjson.GetErrorInfo (aws-sdk-go-v2
+		// aws/protocol/restjson/decoder_util.go:15) found no code anywhere and
+		// every unmatched route decoded client-side as UnknownError.
+		return notFoundResponse(c, errRouteNotFound)
 	}
 }
 

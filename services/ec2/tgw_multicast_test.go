@@ -180,6 +180,79 @@ func TestTGWMulticast_AssociateDisassociateGetAssociations(t *testing.T) {
 	assert.Equal(t, "disassociated", unknown[0].State)
 }
 
+// TestTGWMulticast_AssociationResourceFields proves gopherstack-9sau:
+// GetTransitGatewayMulticastDomainAssociations (and the Associate/Disassociate
+// responses) resolve ResourceId to the VPC an attachment backs, and always
+// populate ResourceOwnerId/ResourceType -- fields the association record
+// previously had nowhere to store (pinned SDK types.go:24606-24625,
+// TransitGatewayMulticastDomainAssociation.ResourceId/ResourceOwnerId).
+func TestTGWMulticast_AssociationResourceFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		attachmentID     string
+		wantResourceID   string
+		createAttachment bool
+	}{
+		{
+			name:             "known vpc attachment resolves resource id",
+			attachmentID:     "",
+			createAttachment: true,
+			wantResourceID:   "vpc-mcast-assoc-test",
+		},
+		{
+			name:             "unknown attachment leaves resource id empty",
+			attachmentID:     "tgw-attach-does-not-exist",
+			createAttachment: false,
+			wantResourceID:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			bk := newTestBackend()
+
+			tgw, err := bk.CreateTransitGateway(ec2.CreateTransitGatewayParams{Description: "test-tgw"})
+			require.NoError(t, err)
+
+			domain, err := bk.CreateTransitGatewayMulticastDomain(tgw.ID, "", "", "", nil)
+			require.NoError(t, err)
+
+			attachmentID := tt.attachmentID
+			if tt.createAttachment {
+				att, attErr := bk.CreateTransitGatewayVpcAttachment(tgw.ID, tt.wantResourceID, nil, nil)
+				require.NoError(t, attErr)
+				attachmentID = att.TransitGatewayAttachmentID
+			}
+
+			assocs, err := bk.AssociateTransitGatewayMulticastDomain(domain.ID, attachmentID, []string{"subnet-1"})
+			require.NoError(t, err)
+			require.Len(t, assocs, 1)
+			assert.Equal(t, tt.wantResourceID, assocs[0].ResourceID)
+			assert.Equal(t, "000000000000", assocs[0].ResourceOwnerID)
+			assert.Equal(t, "vpc", assocs[0].ResourceType)
+
+			got := bk.GetTransitGatewayMulticastDomainAssociations(domain.ID)
+			require.Len(t, got, 1)
+			assert.Equal(t, tt.wantResourceID, got[0].ResourceID)
+			assert.Equal(t, "000000000000", got[0].ResourceOwnerID)
+			assert.Equal(t, "vpc", got[0].ResourceType)
+
+			disassocs, err := bk.DisassociateTransitGatewayMulticastDomain(
+				domain.ID, attachmentID, []string{"subnet-1"},
+			)
+			require.NoError(t, err)
+			require.Len(t, disassocs, 1)
+			assert.Equal(t, tt.wantResourceID, disassocs[0].ResourceID)
+			assert.Equal(t, "000000000000", disassocs[0].ResourceOwnerID)
+			assert.Equal(t, "vpc", disassocs[0].ResourceType)
+		})
+	}
+}
+
 func TestTGWMulticast_AssociateValidation(t *testing.T) {
 	t.Parallel()
 

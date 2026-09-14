@@ -25,8 +25,12 @@ var (
 // ---------------------------------------------------------------------------
 
 // AutoMLOutputDataConfig specifies the S3 output location for an AutoML job.
+//
+// S3OutputPath is "This member is required" (validateAutoMLOutputDataConfig,
+// validators.go, *string nil-checked only) -- a conformant client can send
+// an empty string, which omitempty would have silently dropped.
 type AutoMLOutputDataConfig struct {
-	S3OutputPath string `json:"S3OutputPath,omitempty"`
+	S3OutputPath string `json:"S3OutputPath"`
 	KmsKeyID     string `json:"KmsKeyId,omitempty"`
 }
 
@@ -52,12 +56,15 @@ type AutoMLDataSource struct {
 // DescribeAutoMLJobOutput is InputDataConfig ([]types.AutoMLChannel). The V2
 // field of a similar name, AutoMLJobInputDataConfig ([]types.AutoMLJobChannel,
 // CreateAutoMLJobV2Input:91), is a distinct, narrower type — see AutoMLJobChannel.
+// TargetAttributeName is "This member is required" (validateAutoMLChannel,
+// validators.go, *string nil-checked only) -- a conformant client can send
+// an empty string, which omitempty would have silently dropped.
 type AutoMLChannel struct {
 	DataSource                *AutoMLDataSource `json:"DataSource,omitempty"`
 	ChannelType               string            `json:"ChannelType,omitempty"`
 	CompressionType           string            `json:"CompressionType,omitempty"`
 	ContentType               string            `json:"ContentType,omitempty"`
-	TargetAttributeName       string            `json:"TargetAttributeName,omitempty"`
+	TargetAttributeName       string            `json:"TargetAttributeName"`
 	SampleWeightAttributeName string            `json:"SampleWeightAttributeName,omitempty"`
 }
 

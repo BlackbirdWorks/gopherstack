@@ -260,14 +260,20 @@ func matchesDescribePackagesFilters(filters []describePackagesFilter, pkg *Packa
 
 func (h *Handler) handleUpdatePackage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		PackageID          string `json:"PackageID"`
-		PackageDescription string `json:"PackageDescription"`
+		PackageSource      *packageSourceJSON `json:"PackageSource"`
+		PackageID          string             `json:"PackageID"`
+		PackageDescription string             `json:"PackageDescription"`
 	}
 	if !h.decodeRequest(w, r, &req) {
 		return
 	}
 
-	pkg, err := h.Backend.UpdatePackage(h.reqContext(r), req.PackageID, req.PackageDescription)
+	var source PackageSource
+	if req.PackageSource != nil {
+		source = PackageSource{S3BucketName: req.PackageSource.S3BucketName, S3Key: req.PackageSource.S3Key}
+	}
+
+	pkg, err := h.Backend.UpdatePackage(h.reqContext(r), req.PackageID, req.PackageDescription, source)
 	if err != nil {
 		h.writeOperationError(r, w, err)
 

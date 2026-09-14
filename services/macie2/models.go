@@ -395,9 +395,13 @@ type ClassificationScope struct {
 }
 
 // ClassificationScopeS3 holds S3 exclusion criteria (types.S3ClassificationScope,
-// GetClassificationScopeOutput.S3).
+// GetClassificationScopeOutput.S3). Excludes has no omitempty: it's "This
+// member is required" on the real wire (macie2@v1.54.4 types/types.go:2532)
+// -- every classification scope has one, even a freshly-created default
+// scope with an empty exclusion list, so it must always be present as
+// excludes: {bucketNames: []}, not omitted.
 type ClassificationScopeS3 struct {
-	Excludes *ClassificationScopeS3Exclusion `json:"excludes,omitempty"`
+	Excludes *ClassificationScopeS3Exclusion `json:"excludes"`
 }
 
 // ClassificationScopeS3Exclusion is the excluded-bucket list

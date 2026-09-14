@@ -414,6 +414,11 @@ func (b *InMemoryBackend) CancelRotateSecret(
 		ver.StagingLabels = newLabels
 	}
 
+	// "Turns off automatic rotation" (api_op_CancelRotateSecret.go doc
+	// comment, secretsmanager@v1.48.0) -- DescribeSecret's RotationEnabled
+	// must flip to false, not just the in-progress AWSPENDING version drop.
+	secret.RotationEnabled = false
+
 	return &CancelRotateSecretOutput{
 		ARN:       secret.ARN,
 		Name:      secret.Name,

@@ -38,15 +38,28 @@ var errScanFallback = errors.New("scan fallback required")
 // treat this as a signal to fall back to Scan; UPDATE/DELETE treat it as an error.
 var errNoKeyCondition = errors.New("no key condition in WHERE clause")
 
-// fromClauseRegex extracts the table name from a SELECT/DELETE ... FROM "tableName" statement.
-// Supports DynamoDB table names: alphanumeric, hyphen, dot, and underscore.
-var fromClauseRegex = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"`)
+// partiqlFromRe extracts the table name and optional index name from a
+// SELECT/DELETE ... FROM "tableName"[."indexName"] clause. Supports DynamoDB
+// table/index names: alphanumeric, hyphen, dot, and underscore.
+//
+// Grammar (DynamoDB PartiQL SELECT reference):
+//
+//	FROM {{table}}[.{{index}}]
+//	"You must add double quotation marks to the table name and index name
+//	when querying an index."
+//
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-reference.select.html
+// INSERT/UPDATE/DELETE have no such [.{{index}}] in their grammar -- writes
+// against an index are not part of the language.
+var partiqlFromRe = regexp.MustCompile(`(?i)FROM\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
-// partiqlInsertTableRe extracts the table name from INSERT INTO "tableName" statements.
-var partiqlInsertTableRe = regexp.MustCompile(`(?i)INTO\s+"([\w.\-]+)"`)
+// partiqlInsertTableRe extracts the table name from INSERT INTO "tableName" statements,
+// and an optional dotted index component so it can be rejected explicitly.
+var partiqlInsertTableRe = regexp.MustCompile(`(?i)INTO\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
-// partiqlUpdateTableRe extracts the table name from UPDATE "tableName" statements.
-var partiqlUpdateTableRe = regexp.MustCompile(`(?i)^\s*UPDATE\s+"([\w.\-]+)"`)
+// partiqlUpdateTableRe extracts the table name from UPDATE "tableName" statements,
+// and an optional dotted index component so it can be rejected explicitly.
+var partiqlUpdateTableRe = regexp.MustCompile(`(?i)^\s*UPDATE\s+"([\w.\-]+)"(?:\s*\.\s*"([\w.\-]+)")?`)
 
 // Statement type detection regexes.
 var (
@@ -55,6 +68,24 @@ var (
 	partiqlUpdateRe = regexp.MustCompile(`(?i)^\s*UPDATE\s+`)
 	partiqlDeleteRe = regexp.MustCompile(`(?i)^\s*DELETE\s+FROM\s+`)
 )
+
+// partiqlStatementIsRead reports whether stmt is a SELECT (read) statement, as
+// opposed to INSERT/UPDATE/DELETE (a write). EXISTS(...) is classified by
+// partiqlExistsRe instead (execute_transaction.go) -- AWS documents it as the
+// one exception to the read/write mixing rule, not a plain read.
+func partiqlStatementIsRead(stmt string) bool {
+	return partiqlSelectRe.MatchString(strings.TrimSpace(stmt))
+}
+
+// partiqlStatementIsWrite reports whether stmt is an INSERT/UPDATE/DELETE
+// (write) statement.
+func partiqlStatementIsWrite(stmt string) bool {
+	trimmed := strings.TrimSpace(stmt)
+
+	return partiqlInsertRe.MatchString(trimmed) ||
+		partiqlUpdateRe.MatchString(trimmed) ||
+		partiqlDeleteRe.MatchString(trimmed)
+}
 
 // Clause extraction regexes.
 var (
@@ -84,6 +115,11 @@ var (
 // minRegexMatch is the minimum number of submatches expected from a regex with one capture group.
 const minRegexMatch = 2
 
+// minFromMatch is the minimum number of submatches expected from partiqlFromRe,
+// partiqlInsertTableRe, or partiqlUpdateTableRe: full match, table, index (index
+// is "" when the optional dotted-index group did not participate).
+const minFromMatch = 3
+
 // executeStatementRequest is the wire format for ExecuteStatement.
 //
 // Limit is the SDK's structured page-size field (dynamodb.ExecuteStatementInput.Limit,
@@ -91,11 +127,12 @@ const minRegexMatch = 2
 // awsAwsjson10_serializeOpDocumentExecuteStatementInput), distinct from a
 // "LIMIT n" clause embedded in the Statement text itself.
 type executeStatementRequest struct {
-	Limit          *int32           `json:"Limit,omitempty"`
-	Statement      string           `json:"Statement"`
-	NextToken      string           `json:"NextToken,omitempty"`
-	Parameters     []map[string]any `json:"Parameters,omitempty"`
-	ConsistentRead bool             `json:"ConsistentRead,omitempty"`
+	Limit                  *int32                       `json:"Limit,omitempty"`
+	Statement              string                       `json:"Statement"`
+	NextToken              string                       `json:"NextToken,omitempty"`
+	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"ReturnConsumedCapacity,omitempty"`
+	Parameters             []map[string]any             `json:"Parameters,omitempty"`
+	ConsistentRead         bool                         `json:"ConsistentRead,omitempty"`
 }
 
 // executeStatementResponse is the wire response for ExecuteStatement.
@@ -108,10 +145,12 @@ type executeStatementRequest struct {
 // it left any client reading output.LastEvaluatedKey (the Query/Scan-style
 // pagination field) always empty even when more pages existed.
 type executeStatementResponse struct {
-	TableName        string           `json:"-"` // internal: table name for ConsumedCapacity tracking
-	NextToken        string           `json:"NextToken,omitempty"`
-	LastEvaluatedKey map[string]any   `json:"LastEvaluatedKey,omitempty"`
-	Items            []map[string]any `json:"Items"`
+	LastEvaluatedKey     map[string]any           `json:"LastEvaluatedKey,omitempty"`
+	ConsumedCapacity     *types.ConsumedCapacity  `json:"-"`
+	WireConsumedCapacity *models.ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
+	TableName            string                   `json:"-"`
+	NextToken            string                   `json:"NextToken,omitempty"`
+	Items                []map[string]any         `json:"Items"`
 }
 
 // batchStatementRequest is one statement entry inside BatchExecuteStatement.
@@ -128,7 +167,8 @@ type batchStatementRequest struct {
 
 // batchExecuteStatementRequest is the wire format for BatchExecuteStatement.
 type batchExecuteStatementRequest struct {
-	Statements []batchStatementRequest `json:"Statements"`
+	ReturnConsumedCapacity types.ReturnConsumedCapacity `json:"ReturnConsumedCapacity,omitempty"`
+	Statements             []batchStatementRequest      `json:"Statements"`
 }
 
 // batchStatementResponse is one result entry inside BatchExecuteStatement response.
@@ -147,8 +187,12 @@ type batchStatementError struct {
 }
 
 // batchExecuteStatementResponse is the wire response for BatchExecuteStatement.
+// ConsumedCapacity is one entry per statement in request order (dynamodb SDK
+// v1.67.0 api_op_BatchExecuteStatement.go:70-71), a value slice (not pointers)
+// so a failed statement's zero-valued entry marshals to "{}", not "null".
 type batchExecuteStatementResponse struct {
-	Responses []batchStatementResponse `json:"Responses"`
+	Responses        []batchStatementResponse  `json:"Responses"`
+	ConsumedCapacity []models.ConsumedCapacity `json:"ConsumedCapacity,omitempty"`
 }
 
 // partiQLRunner executes individual PartiQL statements against any StorageBackend.
@@ -180,6 +224,49 @@ func (r *partiQLRunner) lookupKeySchema(
 	return models.FromSDKKeySchema(descOut.Table.KeySchema), nil
 }
 
+// getIndexKeySchemaForPartiQL returns the key schema for indexName on
+// tableName. Reuses extractKeySchema (item_ops_query.go), which the direct
+// Query API already uses for the identical resolution: ResourceNotFoundException
+// for an unknown index, ValidationException for ConsistentRead=true on a GSI.
+func (db *InMemoryDB) getIndexKeySchemaForPartiQL(
+	ctx context.Context,
+	tableName, indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	table, err := db.getTable(ctx, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	gsis, lsis := copySecondaryIndexDefsRLocked(table)
+
+	keySchema, _, err := db.extractKeySchema(
+		&Table{GlobalSecondaryIndexes: gsis, LocalSecondaryIndexes: lsis},
+		indexName,
+		consistentRead,
+	)
+
+	return keySchema, err
+}
+
+// copySecondaryIndexDefsRLocked returns copies of a table's GSI/LSI
+// definitions under a defer-protected RLock, following the same
+// clone-before-return convention as copyKeySchemaRLocked (item_ops.go).
+func copySecondaryIndexDefsRLocked(
+	table *Table,
+) ([]models.GlobalSecondaryIndex, []models.LocalSecondaryIndex) {
+	table.mu.RLock("getIndexKeySchemaForPartiQL")
+	defer table.mu.RUnlock()
+
+	gsis := make([]models.GlobalSecondaryIndex, len(table.GlobalSecondaryIndexes))
+	copy(gsis, table.GlobalSecondaryIndexes)
+
+	lsis := make([]models.LocalSecondaryIndex, len(table.LocalSecondaryIndexes))
+	copy(lsis, table.LocalSecondaryIndexes)
+
+	return gsis, lsis
+}
+
 // executeStatement dispatches a single PartiQL statement to the appropriate handler.
 func (r *partiQLRunner) executeStatement(
 	ctx context.Context,
@@ -188,6 +275,15 @@ func (r *partiQLRunner) executeStatement(
 	stmt := strings.TrimSpace(req.Statement)
 
 	switch {
+	case partiqlExistsRe.MatchString(stmt):
+		// AWS: "The EXISTS function can only be used in transactions." /
+		// "This function can only be used in transactional operations."
+		// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/ql-functions.exists.html
+		// ExecuteTransaction never reaches this dispatcher for an EXISTS
+		// statement -- executeTransactionStatement intercepts it first (see
+		// execute_transaction.go) -- so this rejects it for both standalone
+		// ExecuteStatement and BatchExecuteStatement, its only two other callers.
+		return nil, NewValidationException("The EXISTS function can only be used in transactions")
 	case partiqlSelectRe.MatchString(stmt):
 		return r.executePartiQLSelect(ctx, req)
 	case partiqlInsertRe.MatchString(stmt):
@@ -219,6 +315,8 @@ func (h *DynamoDBHandler) handleExecuteStatement(ctx context.Context, body []byt
 		return nil, err
 	}
 
+	out.WireConsumedCapacity = models.FromSDKConsumedCapacity(out.ConsumedCapacity)
+
 	return out, nil
 }
 
@@ -233,14 +331,52 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		return nil, err
 	}
 
-	// Pre-allocate responses and sdkStmts; track which original indices have pending
-	// SDK responses so the final slice can be assembled in original order.
-	responses := make([]batchStatementResponse, len(req.Statements))
-	sdkStmts := make([]types.BatchStatementRequest, 0, len(req.Statements))
-	// originalIdx maps sdkStmts position → req.Statements position.
-	originalIdx := make([]int, 0, len(req.Statements))
+	returnCC := req.ReturnConsumedCapacity != "" &&
+		req.ReturnConsumedCapacity != types.ReturnConsumedCapacityNone
 
-	for i, s := range req.Statements {
+	sdkStmts, originalIdx, responses := convertBatchStatements(req.Statements)
+
+	var consumedCapacity []models.ConsumedCapacity
+	if returnCC {
+		// A statement whose parameters fail to convert never reaches the
+		// backend, so its entry stays zero-valued -- same "no data available"
+		// treatment as a statement the backend itself fails (see
+		// InMemoryDB.BatchExecuteStatement).
+		consumedCapacity = make([]models.ConsumedCapacity, len(req.Statements))
+	}
+
+	if len(sdkStmts) > 0 {
+		out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
+			Statements:             sdkStmts,
+			ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		applyBatchExecuteStatementOutput(out, originalIdx, responses, consumedCapacity, returnCC)
+	}
+
+	return &batchExecuteStatementResponse{
+		Responses:        responses,
+		ConsumedCapacity: consumedCapacity,
+	}, nil
+}
+
+// convertBatchStatements converts each wire batchStatementRequest into an SDK
+// types.BatchStatementRequest. responses is pre-allocated to len(stmts) and
+// pre-filled with a ValidationError entry for any statement whose parameters
+// fail conversion, since that statement never reaches the backend. sdkStmts
+// and originalIdx carry only the statements that do reach it; originalIdx[j]
+// gives sdkStmts[j]'s position in stmts/responses.
+func convertBatchStatements(
+	stmts []batchStatementRequest,
+) ([]types.BatchStatementRequest, []int, []batchStatementResponse) {
+	responses := make([]batchStatementResponse, len(stmts))
+	sdkStmts := make([]types.BatchStatementRequest, 0, len(stmts))
+	originalIdx := make([]int, 0, len(stmts))
+
+	for i, s := range stmts {
 		sdkParams := make([]types.AttributeValue, 0, len(s.Parameters))
 
 		var convFailed bool
@@ -275,38 +411,47 @@ func (h *DynamoDBHandler) handleBatchExecuteStatement(
 		originalIdx = append(originalIdx, i)
 	}
 
-	if len(sdkStmts) > 0 {
-		out, err := h.Backend.BatchExecuteStatement(ctx, &dynamodb.BatchExecuteStatementInput{
-			Statements: sdkStmts,
-		})
-		if err != nil {
-			return nil, err
-		}
+	return sdkStmts, originalIdx, responses
+}
 
-		for j, resp := range out.Responses {
-			idx := originalIdx[j]
-			if resp.Error != nil {
-				responses[idx] = batchStatementResponse{
-					Error: &batchStatementError{
-						Code:    string(resp.Error.Code),
-						Message: aws.ToString(resp.Error.Message),
-					},
-					TableName: aws.ToString(resp.TableName),
-				}
-
-				continue
+// applyBatchExecuteStatementOutput copies the backend's per-statement
+// responses, and (when returnCC) ConsumedCapacity, into their original
+// request-order positions via originalIdx.
+func applyBatchExecuteStatementOutput(
+	out *dynamodb.BatchExecuteStatementOutput,
+	originalIdx []int,
+	responses []batchStatementResponse,
+	consumedCapacity []models.ConsumedCapacity,
+	returnCC bool,
+) {
+	for j, resp := range out.Responses {
+		idx := originalIdx[j]
+		if resp.Error != nil {
+			responses[idx] = batchStatementResponse{
+				Error: &batchStatementError{
+					Code:    string(resp.Error.Code),
+					Message: aws.ToString(resp.Error.Message),
+				},
+				TableName: aws.ToString(resp.TableName),
 			}
 
-			wireResp := batchStatementResponse{}
-			if resp.Item != nil {
-				wireResp.Item = models.FromSDKItem(resp.Item)
-			}
-
-			responses[idx] = wireResp
+			continue
 		}
+
+		wireResp := batchStatementResponse{}
+		if resp.Item != nil {
+			wireResp.Item = models.FromSDKItem(resp.Item)
+		}
+
+		responses[idx] = wireResp
 	}
 
-	return &batchExecuteStatementResponse{Responses: responses}, nil
+	if returnCC {
+		for j := range out.ConsumedCapacity {
+			idx := originalIdx[j]
+			consumedCapacity[idx] = *models.FromSDKConsumedCapacity(&out.ConsumedCapacity[j])
+		}
+	}
 }
 
 // partiqlExtractScanIndexForward returns false when an ORDER BY … DESC clause is
@@ -331,7 +476,7 @@ func (r *partiQLRunner) executePartiQLSelect(
 		return nil, err
 	}
 
-	tableName, err := extractTableNameFromStatement(substituted)
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
 	if err != nil {
 		return nil, err
 	}
@@ -347,11 +492,13 @@ func (r *partiQLRunner) executePartiQLSelect(
 	colList := partiqlExtractColumns(substituted)
 	scanIndexForward := partiqlExtractScanIndexForward(substituted)
 
-	// Try to use Query if the partition key is present in the WHERE clause.
+	// Try to use Query if the partition key (the index's own partition key,
+	// when one is named) is present in the WHERE clause.
 	out, queryErr := r.tryQueryOptimization(
 		ctx,
 		req,
 		tableName,
+		indexName,
 		whereClause,
 		filterExpr,
 		eav,
@@ -370,46 +517,38 @@ func (r *partiQLRunner) executePartiQLSelect(
 	logger.Load(ctx).DebugContext(
 		ctx, "PartiQL SELECT falling back to Scan",
 		slog.String("table", tableName),
+		slog.String("index", indexName),
 		slog.String("where", whereClause),
 	)
 
-	return r.executeScanSelect(ctx, req, tableName, filterExpr, eav, colList, limit)
+	return r.executeScanSelect(ctx, req, tableName, indexName, filterExpr, eav, colList, limit)
 }
 
 // tryQueryOptimization attempts to convert the PartiQL SELECT into a Query operation
 // when the partition key is present. Returns (nil, nil) when scan should be used instead,
 // or (result, nil) on success, or (nil, err) when a definitive error occurred.
 //
+// When indexName is set, the WHERE clause is evaluated against the NAMED
+// INDEX's key schema, not the table's -- a WHERE on the index's partition key
+// queries the index; anything else falls back to a Scan against the index
+// (executeScanSelect), never a full-table scan. An unresolvable index name is
+// a real error (errScanFallback is never returned for it): silently scanning
+// the base table would ignore what the statement explicitly asked to query.
+//
 // Key schema lookups are performed via getKeySchemaForPartiQL, which caches results
 // in the expression cache to avoid repeated global-lock acquisitions on hot paths.
 func (r *partiQLRunner) tryQueryOptimization(
 	ctx context.Context,
 	req executeStatementRequest,
-	tableName, whereClause, filterExpr string,
+	tableName, indexName, whereClause, filterExpr string,
 	eav map[string]any,
 	colList string,
 	limit int,
 	scanIndexForward bool,
 ) (*executeStatementResponse, error) {
-	var keySchema []models.KeySchemaElement
-
-	if db, ok := r.backend.(*InMemoryDB); ok {
-		ks, err := db.getKeySchemaForPartiQL(ctx, tableName)
-		if err != nil {
-			return nil, errScanFallback
-		}
-
-		keySchema = ks
-	} else {
-		// Fallback for alternative backends that don't implement the cache.
-		descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
-			TableName: aws.String(tableName),
-		})
-		if descErr != nil {
-			return nil, errScanFallback
-		}
-
-		keySchema = models.FromSDKKeySchema(descOut.Table.KeySchema)
+	keySchema, err := r.resolveQueryKeySchema(ctx, tableName, indexName, req.ConsistentRead)
+	if err != nil {
+		return nil, err
 	}
 
 	keyAttrs := make(map[string]bool, len(keySchema))
@@ -423,7 +562,8 @@ func (r *partiQLRunner) tryQueryOptimization(
 			// A real validation error (e.g., missing placeholder): propagate it.
 			return nil, err
 		}
-		// No PK equality condition found in WHERE; fall back to full scan.
+		// No PK equality condition found in WHERE; fall back to a scan
+		// (of the named index, when one was given).
 		return nil, errScanFallback
 	}
 
@@ -436,6 +576,7 @@ func (r *partiQLRunner) tryQueryOptimization(
 	queryInput, err := r.buildQueryInput(
 		req,
 		tableName,
+		indexName,
 		whereClause,
 		filterExpr,
 		eav,
@@ -461,14 +602,146 @@ func (r *partiQLRunner) tryQueryOptimization(
 		Items:            itemsToWire(out.Items),
 		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
 		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
+		ConsumedCapacity: out.ConsumedCapacity,
 	}, nil
+}
+
+// resolveQueryKeySchema returns the key schema to evaluate the WHERE clause
+// against: the table's own primary key when indexName is empty, or the named
+// GSI/LSI's key schema when set. A (nil, nil) result signals "fall back to a
+// full Scan" -- reserved for the base-table lookup itself failing (e.g. table
+// not found), letting the subsequent Scan surface the real error, matching
+// prior behavior. A named index that cannot be resolved returns a real error:
+// see the doc comment on tryQueryOptimization.
+func (r *partiQLRunner) resolveQueryKeySchema(
+	ctx context.Context,
+	tableName, indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	if indexName == "" {
+		if db, ok := r.backend.(*InMemoryDB); ok {
+			ks, err := db.getKeySchemaForPartiQL(ctx, tableName)
+			if err != nil {
+				return nil, errScanFallback
+			}
+
+			return ks, nil
+		}
+
+		descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+			TableName: aws.String(tableName),
+		})
+		if descErr != nil {
+			return nil, errScanFallback
+		}
+
+		return models.FromSDKKeySchema(descOut.Table.KeySchema), nil
+	}
+
+	if db, ok := r.backend.(*InMemoryDB); ok {
+		return db.getIndexKeySchemaForPartiQL(ctx, tableName, indexName, consistentRead)
+	}
+
+	descOut, descErr := r.backend.DescribeTable(ctx, &dynamodb.DescribeTableInput{
+		TableName: aws.String(tableName),
+	})
+	if descErr != nil {
+		return nil, descErr
+	}
+
+	return resolveSDKIndexKeySchema(descOut.Table, indexName, consistentRead)
+}
+
+// validateBatchSelectIsFullyKeyed enforces the documented BatchExecuteStatement
+// restriction on SELECT statements: "Each read statement in a
+// BatchExecuteStatement must specify an equality condition on all key
+// attributes. This enforces that each SELECT statement in a batch returns at
+// most a single item."
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_BatchExecuteStatement.html
+//
+// A statement whose table/index cannot be resolved here is left for the real
+// execution path to reject with its own accurate error (e.g.
+// ResourceNotFoundException) -- this only rejects a resolvable SELECT that
+// under-specifies its key.
+func (r *partiQLRunner) validateBatchSelectIsFullyKeyed(
+	ctx context.Context,
+	stmt string,
+	params []map[string]any,
+) error {
+	substituted, eav, err := partiqlSubstituteParams(stmt, params)
+	if err != nil {
+		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
+	}
+
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
+	if err != nil {
+		return nil //nolint:nilerr // malformed statement; real execution surfaces its own error
+	}
+
+	whereClause := partiqlExtractWhere(substituted)
+	whereClause, eav = partiqlSubstituteLiterals(whereClause, eav)
+
+	keySchema, err := r.resolveQueryKeySchema(ctx, tableName, indexName, false)
+	if err != nil {
+		return nil //nolint:nilerr // table/index resolution failure; real execution surfaces its own error
+	}
+
+	keyAttrs := make(map[string]bool, len(keySchema))
+	for _, k := range keySchema {
+		keyAttrs[k.AttributeName] = true
+	}
+
+	key, keyErr := partiqlExtractKeyFromWhere(whereClause, eav, keyAttrs)
+	if keyErr != nil || len(key) != len(keyAttrs) {
+		return NewValidationException(
+			"Each read statement in a BatchExecuteStatement must specify an equality " +
+				"condition on all key attributes",
+		)
+	}
+
+	return nil
+}
+
+// resolveSDKIndexKeySchema resolves indexName's key schema from a
+// DescribeTable-shaped TableDescription. Mirrors extractKeySchema's rule for
+// the direct Query API (item_ops_query.go): ConsistentRead=true on a GSI is a
+// ValidationException, and an index absent from both lists is a
+// ResourceNotFoundException -- per the DynamoDB Query API Errors reference
+// ("The operation tried to access a nonexistent table or index."),
+// https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/API_Query.html.
+func resolveSDKIndexKeySchema(
+	table *types.TableDescription,
+	indexName string,
+	consistentRead bool,
+) ([]models.KeySchemaElement, error) {
+	for _, gsi := range table.GlobalSecondaryIndexes {
+		if aws.ToString(gsi.IndexName) != indexName {
+			continue
+		}
+
+		if consistentRead {
+			return nil, NewValidationException(
+				"Consistent reads are not supported on global secondary indexes",
+			)
+		}
+
+		return models.FromSDKKeySchema(gsi.KeySchema), nil
+	}
+
+	for _, lsi := range table.LocalSecondaryIndexes {
+		if aws.ToString(lsi.IndexName) == indexName {
+			return models.FromSDKKeySchema(lsi.KeySchema), nil
+		}
+	}
+
+	return nil, NewResourceNotFoundException(fmt.Sprintf("Index: %s not found", indexName))
 }
 
 // buildQueryInput constructs a QueryInput from the parsed PartiQL components.
 // ConsistentRead from the original statement request is forwarded.
 func (r *partiQLRunner) buildQueryInput(
 	req executeStatementRequest,
-	tableName, whereClause, filterExpr string,
+	tableName, indexName, whereClause, filterExpr string,
 	eav map[string]any,
 	pkAttr, colList string,
 	limit int,
@@ -484,6 +757,11 @@ func (r *partiQLRunner) buildQueryInput(
 		TableName:                 aws.String(tableName),
 		ExpressionAttributeValues: sdkEAV,
 		KeyConditionExpression:    aws.String(keyCond),
+		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
+	}
+
+	if indexName != "" {
+		queryInput.IndexName = aws.String(indexName)
 	}
 
 	if req.ConsistentRead {
@@ -514,13 +792,18 @@ func (r *partiQLRunner) buildQueryInput(
 func (r *partiQLRunner) executeScanSelect(
 	ctx context.Context,
 	req executeStatementRequest,
-	tableName, filterExpr string,
+	tableName, indexName, filterExpr string,
 	eav map[string]any,
 	colList string,
 	limit int,
 ) (*executeStatementResponse, error) {
 	scanInput := &dynamodb.ScanInput{
-		TableName: aws.String(tableName),
+		TableName:              aws.String(tableName),
+		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+	}
+
+	if indexName != "" {
+		scanInput.IndexName = aws.String(indexName)
 	}
 
 	if req.ConsistentRead {
@@ -560,6 +843,7 @@ func (r *partiQLRunner) executeScanSelect(
 		Items:            itemsToWire(out.Items),
 		NextToken:        encodePartiQLNextToken(out.LastEvaluatedKey),
 		LastEvaluatedKey: lastEvaluatedKeyToWire(out.LastEvaluatedKey),
+		ConsumedCapacity: out.ConsumedCapacity,
 	}, nil
 }
 
@@ -643,11 +927,17 @@ func (r *partiQLRunner) executePartiQLInsert(
 	req executeStatementRequest,
 ) (*executeStatementResponse, error) {
 	matches := partiqlInsertTableRe.FindStringSubmatch(req.Statement)
-	if len(matches) < minRegexMatch {
+	if len(matches) < minFromMatch {
 		return nil, fmt.Errorf("%w: cannot extract table name from INSERT", ErrInvalidStatement)
 	}
 
 	tableName := matches[1]
+	if matches[2] != "" {
+		return nil, fmt.Errorf(
+			"%w: INSERT does not support an index target (INTO %q.%q)",
+			ErrInvalidStatement, tableName, matches[2],
+		)
+	}
 
 	valueMatches := partiqlValueRe.FindStringSubmatch(req.Statement)
 	if len(valueMatches) < minRegexMatch {
@@ -670,24 +960,30 @@ func (r *partiQLRunner) executePartiQLInsert(
 	// with the same key already exists; PutItem silently overwrites.
 	keySchema, ksErr := r.lookupKeySchema(ctx, tableName)
 	if ksErr != nil || len(keySchema) == 0 {
-		if _, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
-			TableName: aws.String(tableName),
-			Item:      sdkItem,
-		}); putErr != nil {
+		putOut, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+			TableName:              aws.String(tableName),
+			Item:                   sdkItem,
+			ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+		})
+		if putErr != nil {
 			return nil, putErr
 		}
 
-		return &executeStatementResponse{Items: []map[string]any{}}, nil
+		return &executeStatementResponse{
+			Items:            []map[string]any{},
+			ConsumedCapacity: putOut.ConsumedCapacity,
+		}, nil
 	}
 
 	pkDef, _ := getPKAndSK(keySchema)
 	condExpr := "attribute_not_exists(#__pk)"
 	sdkEANs := map[string]string{"#__pk": pkDef.AttributeName}
-	_, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
+	putOut, putErr := r.backend.PutItem(ctx, &dynamodb.PutItemInput{
 		TableName:                aws.String(tableName),
 		Item:                     sdkItem,
 		ConditionExpression:      aws.String(condExpr),
 		ExpressionAttributeNames: sdkEANs,
+		ReturnConsumedCapacity:   req.ReturnConsumedCapacity,
 	})
 	if putErr != nil {
 		var ddbErr *Error
@@ -701,7 +997,10 @@ func (r *partiQLRunner) executePartiQLInsert(
 		return nil, putErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: putOut.ConsumedCapacity,
+	}, nil
 }
 
 // partiqlUpdateParsed holds parsed clauses from a PartiQL UPDATE statement.
@@ -716,11 +1015,17 @@ type partiqlUpdateParsed struct {
 // parsePartiQLUpdateClauses extracts table name, SET/REMOVE/WHERE clauses, and substitutes params.
 func parsePartiQLUpdateClauses(req executeStatementRequest) (*partiqlUpdateParsed, error) {
 	matches := partiqlUpdateTableRe.FindStringSubmatch(req.Statement)
-	if len(matches) < minRegexMatch {
+	if len(matches) < minFromMatch {
 		return nil, fmt.Errorf("%w: cannot extract table name from UPDATE", ErrInvalidStatement)
 	}
 
 	tableName := matches[1]
+	if matches[2] != "" {
+		return nil, fmt.Errorf(
+			"%w: UPDATE does not support an index target (UPDATE %q.%q)",
+			ErrInvalidStatement, tableName, matches[2],
+		)
+	}
 
 	substituted, eav, err := partiqlSubstituteParams(req.Statement, req.Parameters)
 	if err != nil {
@@ -809,16 +1114,21 @@ func (r *partiQLRunner) executePartiQLUpdate(
 		return nil, err
 	}
 
-	if _, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
+	updateOut, updateErr := r.backend.UpdateItem(ctx, &dynamodb.UpdateItemInput{
 		TableName:                 aws.String(parsed.tableName),
 		Key:                       sdkKey,
 		UpdateExpression:          aws.String(updateExpr),
 		ExpressionAttributeValues: sdkEAV,
-	}); updateErr != nil {
+		ReturnConsumedCapacity:    req.ReturnConsumedCapacity,
+	})
+	if updateErr != nil {
 		return nil, updateErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: updateOut.ConsumedCapacity,
+	}, nil
 }
 
 // executePartiQLDelete handles DELETE FROM "table" WHERE ... statements.
@@ -832,9 +1142,16 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, err
 	}
 
-	tableName, err := extractTableNameFromStatement(substituted)
+	tableName, indexName, err := extractTableAndIndexFromStatement(substituted)
 	if err != nil {
 		return nil, err
+	}
+
+	if indexName != "" {
+		return nil, fmt.Errorf(
+			"%w: DELETE does not support an index target (FROM %q.%q)",
+			ErrInvalidStatement, tableName, indexName,
+		)
 	}
 
 	whereClause := partiqlExtractWhere(substituted)
@@ -864,32 +1181,37 @@ func (r *partiQLRunner) executePartiQLDelete(
 		return nil, err
 	}
 
-	if _, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
-		TableName: aws.String(tableName),
-		Key:       sdkKey,
-	}); delErr != nil {
+	delOut, delErr := r.backend.DeleteItem(ctx, &dynamodb.DeleteItemInput{
+		TableName:              aws.String(tableName),
+		Key:                    sdkKey,
+		ReturnConsumedCapacity: req.ReturnConsumedCapacity,
+	})
+	if delErr != nil {
 		return nil, delErr
 	}
 
-	return &executeStatementResponse{Items: []map[string]any{}}, nil
+	return &executeStatementResponse{
+		Items:            []map[string]any{},
+		ConsumedCapacity: delOut.ConsumedCapacity,
+	}, nil
 }
 
-// extractTableNameFromStatement extracts the table name from a SELECT/DELETE PartiQL statement.
-func extractTableNameFromStatement(statement string) (string, error) {
-	const minMatchLen = 2 // full match + first capture group
-
-	matches := fromClauseRegex.FindStringSubmatch(statement)
-	if len(matches) < minMatchLen {
-		return "", fmt.Errorf("%w: %q", ErrInvalidStatement, statement)
+// extractTableAndIndexFromStatement extracts the table name and optional
+// dotted index name from a SELECT/DELETE ... FROM "table"[."index"] statement.
+// index is "" when no index was named.
+func extractTableAndIndexFromStatement(statement string) (string, string, error) {
+	matches := partiqlFromRe.FindStringSubmatch(statement)
+	if len(matches) < minFromMatch {
+		return "", "", fmt.Errorf("%w: %q", ErrInvalidStatement, statement)
 	}
 
-	return matches[1], nil
+	return matches[1], matches[2], nil
 }
 
 // extractPartiQLTableName returns the table name from any PartiQL DML statement.
 // Returns empty string when the statement type or table name cannot be determined.
 func extractPartiQLTableName(stmt string) string {
-	if m := fromClauseRegex.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
+	if m := partiqlFromRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {
 		return m[1]
 	}
 	if m := partiqlInsertTableRe.FindStringSubmatch(stmt); len(m) >= minRegexMatch {

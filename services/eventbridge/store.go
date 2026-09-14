@@ -14,6 +14,7 @@ import (
 
 const (
 	stateActive           = "ACTIVE"
+	statePending          = "PENDING"
 	replayStateStarting   = "STARTING"
 	replayStateCancelling = "CANCELLING"
 	replayStateCancelled  = "CANCELLED"

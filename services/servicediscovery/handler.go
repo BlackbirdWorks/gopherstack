@@ -386,7 +386,6 @@ var sentinelErrorCodes = sync.OnceValue(func() []struct {
 		{ErrServiceNotFound, "ServiceNotFound"},
 		{ErrInstanceNotFound, "InstanceNotFound"},
 		{ErrOperationNotFound, "OperationNotFound"},
-		{ErrServiceAttributesNotFound, "ServiceAttributesNotFound"},
 		{ErrResourceNotFound, "ResourceNotFoundException"},
 		{ErrCustomHealthNotFound, "CustomHealthNotFound"},
 		{ErrNamespaceAlreadyExists, "NamespaceAlreadyExists"},

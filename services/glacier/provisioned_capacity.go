@@ -33,7 +33,7 @@ func (b *InMemoryBackend) reapExpiredCapacity(accountID string) {
 
 // ListProvisionedCapacity returns all non-expired provisioned capacity units for an account.
 func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*ProvisionedCapacity {
-	b.mu.Lock()
+	b.mu.Lock("ListProvisionedCapacity")
 	defer b.mu.Unlock()
 
 	b.reapExpiredCapacity(accountID)
@@ -54,7 +54,7 @@ func (b *InMemoryBackend) ListProvisionedCapacity(accountID string) []*Provision
 // PurchaseProvisionedCapacity adds a provisioned capacity unit for an account.
 // Returns ErrProvisionedCapacityLimit if the account already has 2 active units.
 func (b *InMemoryBackend) PurchaseProvisionedCapacity(accountID string) (*ProvisionedCapacity, error) {
-	b.mu.Lock()
+	b.mu.Lock("PurchaseProvisionedCapacity")
 	defer b.mu.Unlock()
 
 	b.reapExpiredCapacity(accountID)

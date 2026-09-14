@@ -386,7 +386,7 @@ func TestRotation_ListKeyRotations_ContainsAutoRotationType(t *testing.T) {
 	for _, r := range rotList.Rotations {
 		types[r.RotationType] = true
 	}
-	assert.True(t, types["IMPORTED"], "on-demand rotation type should be present")
+	assert.True(t, types["ON_DEMAND"], "on-demand rotation type should be present")
 }
 
 func TestRotation_ListKeyRotations_Pagination(t *testing.T) {
@@ -829,11 +829,11 @@ func TestListKeyRotationsFields(t *testing.T) {
 
 	keyID := key.KeyMetadata.KeyID
 
-	// Rotation via EnableKeyRotation (AWS_KMS rotation type).
+	// Rotation via EnableKeyRotation (AUTOMATIC rotation type).
 	err = b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID})
 	require.NoError(t, err)
 
-	// Rotation via RotateKeyOnDemand (IMPORTED rotation type).
+	// Rotation via RotateKeyOnDemand (ON_DEMAND rotation type).
 	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
@@ -849,7 +849,7 @@ func TestListKeyRotationsFields(t *testing.T) {
 }
 
 // TestListKeyRotationsTypedRecords verifies that rotations are stored with their
-// correct types (AWS_KMS for scheduled, IMPORTED for on-demand) using the new
+// correct types (AUTOMATIC for scheduled, ON_DEMAND for on-demand) using the new
 // typed RotationRecord storage.
 func TestListKeyRotationsTypedRecords(t *testing.T) {
 	t.Parallel()
@@ -873,7 +873,7 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 
 				return err
 			},
-			wantTypes: []string{"IMPORTED"},
+			wantTypes: []string{"ON_DEMAND"},
 		},
 		{
 			name: "enable_then_on_demand_rotation_has_one_record",
@@ -887,7 +887,7 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 
 				return err
 			},
-			wantTypes: []string{"IMPORTED"},
+			wantTypes: []string{"ON_DEMAND"},
 		},
 	}
 
@@ -916,7 +916,7 @@ func TestListKeyRotationsTypedRecords(t *testing.T) {
 	}
 }
 
-// TestListKeyRotationsLegacyFallback verifies that RotateKeyOnDemand creates an IMPORTED
+// TestListKeyRotationsLegacyFallback verifies that RotateKeyOnDemand creates an ON_DEMAND
 // rotation record. EnableKeyRotation no longer causes an immediate rotation; only on-demand
 // rotation creates a record.
 func TestListKeyRotationsLegacyFallback(t *testing.T) {
@@ -931,7 +931,7 @@ func TestListKeyRotationsLegacyFallback(t *testing.T) {
 	// Enabling rotation does not create an immediate rotation record.
 	require.NoError(t, b.EnableKeyRotation(context.Background(), &kms.EnableKeyRotationInput{KeyID: keyID}))
 
-	// On-demand rotation creates a record with type IMPORTED.
+	// On-demand rotation creates a record with type ON_DEMAND.
 	_, err = b.RotateKeyOnDemand(context.Background(), &kms.RotateKeyOnDemandInput{KeyID: keyID})
 	require.NoError(t, err)
 
@@ -939,5 +939,5 @@ func TestListKeyRotationsLegacyFallback(t *testing.T) {
 	out, err := b.ListKeyRotations(context.Background(), &kms.ListKeyRotationsInput{KeyID: keyID})
 	require.NoError(t, err)
 	require.Len(t, out.Rotations, 1)
-	assert.Equal(t, "IMPORTED", out.Rotations[0].RotationType)
+	assert.Equal(t, "ON_DEMAND", out.Rotations[0].RotationType)
 }

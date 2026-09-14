@@ -65,7 +65,7 @@ type StorageBackend interface {
 	DeleteStackSet(name string) error
 	DescribeStackSet(name string) (*StackSet, error)
 	StackSetRegions(name string) []string
-	ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error)
+	ListStackSets(maxResults int, nextToken, status string) (page.Page[StackSetSummary], error)
 	CreateStackInstances(
 		ctx context.Context,
 		stackSetName string,
@@ -75,22 +75,25 @@ type StorageBackend interface {
 		ctx context.Context,
 		stackSetName string,
 		accounts, ouIDs, regions []string,
+		retainStacks bool,
 	) (string, error)
 	UpdateStackInstances(stackSetName string, accounts, ouIDs, regions []string) (string, error)
 	ListStackInstances(
-		stackSetName, nextToken string, filter ListStackInstancesFilter,
+		stackSetName string, maxResults int, nextToken string, filter ListStackInstancesFilter,
 	) (page.Page[StackInstance], error)
 	DescribeStackInstance(stackSetName, account, region string) (*StackInstance, error)
 	DetectStackSetDrift(stackSetName string) (string, error)
 	ListStackSetOperations(
-		stackSetName, nextToken string,
+		stackSetName string, maxResults int, nextToken string,
 	) (page.Page[StackSetOperationSummary], error)
 	DescribeStackSetOperation(stackSetName, operationID string) (*StackSetOperation, error)
 	StopStackSetOperation(stackSetName, operationID string) error
 	ListStackSetOperationResults(
-		stackSetName, operationID, nextToken string,
-	) ([]StackSetOperationResult, error)
-	ListStackSetAutoDeploymentTargets(stackSetName string) ([]AutoDeploymentTarget, error)
+		stackSetName, operationID string, maxResults int, nextToken string,
+	) (page.Page[StackSetOperationResult], error)
+	ListStackSetAutoDeploymentTargets(
+		stackSetName string, maxResults int, nextToken string,
+	) (page.Page[AutoDeploymentTarget], error)
 	ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error)
 	ListStackInstanceResourceDrifts(
 		stackSetName, operationID, account, region string,
@@ -101,11 +104,11 @@ type StorageBackend interface {
 	DeleteGeneratedTemplate(id string) error
 	DescribeGeneratedTemplate(id string) (*GeneratedTemplate, error)
 	GetGeneratedTemplate(id string) (string, error)
-	ListGeneratedTemplates(nextToken string) (page.Page[GeneratedTemplate], error)
+	ListGeneratedTemplates(maxResults int, nextToken string) (page.Page[GeneratedTemplate], error)
 	// Resource scans
 	StartResourceScan() (string, error)
 	DescribeResourceScan(scanID string) (*ResourceScan, error)
-	ListResourceScans(nextToken string) (page.Page[ResourceScan], error)
+	ListResourceScans(maxResults int, nextToken string) (page.Page[ResourceScan], error)
 	ListResourceScanResources(scanID, nextToken string) ([]ScannedResource, error)
 	ListResourceScanRelatedResources(scanID string, resources []string) ([]string, error)
 	// Type management
@@ -119,10 +122,12 @@ type StorageBackend interface {
 	BatchDescribeTypeConfigurations(
 		identifiers []TypeConfigurationIdentifier,
 	) ([]TypeConfigurationDetail, []BatchDescribeTypeConfigurationsError, []TypeConfigurationIdentifier)
-	ListTypes(nextToken string) ([]TypeSummary, error)
-	ListTypeVersions(typeName, deprecatedStatus string) ([]string, error)
-	ListTypeRegistrations(typeName, nextToken string) ([]string, error)
-	DescribeTypeRegistration(registrationToken string) (string, error)
+	ListTypes(_ string, maxResults int, nextToken string) (page.Page[TypeSummary], error)
+	ListTypeVersions(
+		typeName, deprecatedStatus string, maxResults int, nextToken string,
+	) (page.Page[string], error)
+	ListTypeRegistrations(typeName, typeFilter string, maxResults int, nextToken string) (page.Page[string], error)
+	DescribeTypeRegistration(registrationToken string) (status, typeArn string, err error)
 	DescribeType(typeName, arn, versionID string) (*TypeDetails, error)
 	TestType(typeName, arn string) (string, error)
 	RegisterPublisher(connectionArn string) (string, error)
@@ -130,13 +135,16 @@ type StorageBackend interface {
 	// Stack refactor
 	CreateStackRefactor(
 		description string,
+		stackDefinitions []StackDefinition,
 		resourceMappings []ResourceMapping,
 		enableStackCreation bool,
 	) (string, error)
 	DescribeStackRefactor(stackRefactorID string) (*StackRefactor, error)
-	ExecuteStackRefactor(stackRefactorID string) error
-	ListStackRefactors(nextToken string) ([]StackRefactorSummary, error)
-	ListStackRefactorActions(stackRefactorID string) ([]StackRefactorAction, error)
+	ExecuteStackRefactor(ctx context.Context, stackRefactorID string) error
+	ListStackRefactors(maxResults int, nextToken string) (page.Page[StackRefactorSummary], error)
+	ListStackRefactorActions(
+		stackRefactorID string, maxResults int, nextToken string,
+	) (page.Page[StackRefactorAction], error)
 	// Org access
 	ActivateOrganizationsAccess() error
 	DeactivateOrganizationsAccess() error

@@ -166,6 +166,78 @@ func Test_SDKRoundTrip_SearchCertificates(t *testing.T) {
 	assert.NotZero(t, result.X509Attributes.NotAfter)
 }
 
+// Test_SDKRoundTrip_SearchCertificates_CertificateKeyPairOrigin proves
+// AcmCertificateMetadata.CertificateKeyPairOrigin (types.go:22, real SDK
+// field previously never emitted -- gopherstack-7j07) decodes correctly
+// through the real client for both derivable origins.
+func Test_SDKRoundTrip_SearchCertificates_CertificateKeyPairOrigin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		setup  func(t *testing.T, client *acmsdk.Client)
+		status types.CertificateStatus
+		want   types.CertificateKeyPairOrigin
+	}{
+		{
+			name: "aws_managed",
+			setup: func(t *testing.T, client *acmsdk.Client) {
+				t.Helper()
+
+				_, err := client.RequestCertificate(t.Context(), &acmsdk.RequestCertificateInput{
+					DomainName: aws.String("origin-awsmanaged.example.com"),
+				})
+				require.NoError(t, err)
+			},
+			status: types.CertificateStatusIssued,
+			want:   types.CertificateKeyPairOriginAwsManaged,
+		},
+		{
+			name: "customer_provided",
+			setup: func(t *testing.T, client *acmsdk.Client) {
+				t.Helper()
+
+				certPEM, keyPEM := generateTestCert(t)
+				_, err := client.ImportCertificate(t.Context(), &acmsdk.ImportCertificateInput{
+					Certificate: []byte(certPEM),
+					PrivateKey:  []byte(keyPEM),
+				})
+				require.NoError(t, err)
+			},
+			status: types.CertificateStatusIssued,
+			want:   types.CertificateKeyPairOriginCustomerProvided,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := acm.NewInMemoryBackend("000000000000", wireTestRegion)
+			h := acm.NewHandler(backend)
+			client := newTestACMClient(t, h)
+
+			tt.setup(t, client)
+
+			out, err := client.SearchCertificates(t.Context(), &acmsdk.SearchCertificatesInput{
+				FilterStatement: &types.CertificateFilterStatementMemberFilter{
+					Value: &types.CertificateFilterMemberAcmCertificateMetadataFilter{
+						Value: &types.AcmCertificateMetadataFilterMemberStatus{
+							Value: tt.status,
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Results, 1)
+
+			meta, ok := out.Results[0].CertificateMetadata.(*types.CertificateMetadataMemberAcmCertificateMetadata)
+			require.True(t, ok)
+			assert.Equal(t, tt.want, meta.Value.CertificateKeyPairOrigin)
+		})
+	}
+}
+
 // TestACMHandler_ListCertificates_SummaryHasCreatedAtAndInUse locks in the
 // fix for CertificateSummary previously omitting CreatedAt entirely (a field
 // always present on the real AWS wire) and never surfacing InUse.

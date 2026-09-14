@@ -174,15 +174,16 @@ func TestProvisioningTemplate(t *testing.T) {
 		t.Errorf("expected type on ListProvisioningTemplates entry, got %v", tmplEntry)
 	}
 
-	// CreateProvisioningTemplateVersion
+	// CreateProvisioningTemplateVersion: setAsDefault is an HTTP query
+	// parameter on the real wire shape (aws-sdk-go-v2/service/iot@v1.83.0's
+	// schemas.go), not a body field.
 	out4 := iotOK(
 		t,
 		h,
 		http.MethodPost,
-		"/provisioning-templates/my-template/versions",
+		"/provisioning-templates/my-template/versions?setAsDefault=true",
 		map[string]any{
 			"templateBody": `{"Parameters":{"v2":{}}}`,
-			"setAsDefault": true,
 		},
 	)
 	if out4["templateName"] != "my-template" {

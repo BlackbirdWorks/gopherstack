@@ -51,7 +51,12 @@ func TestHandler_StartExecution(t *testing.T) {
 			wantCode: http.StatusNotFound,
 		},
 		{
-			name: "duplicate execution name returns conflict",
+			// Different input than startExec's fixed "{}" conflicts
+			// regardless of whether the first execution is still RUNNING or
+			// already closed by the time this call runs -- STANDARD's new
+			// same-name-same-input idempotent-reuse case is covered by
+			// Test_StartExecution_NameReuseSemantics.
+			name: "duplicate execution name with different input returns conflict",
 			setup: func(t *testing.T, ctx context.Context, h *stepfunctions.Handler, e *echo.Echo) string {
 				t.Helper()
 
@@ -60,7 +65,9 @@ func TestHandler_StartExecution(t *testing.T) {
 
 				return arn
 			},
-			bodyFn:   func(arn string) string { return `{"stateMachineArn":"` + arn + `","name":"exec-dup","input":"{}"}` },
+			bodyFn: func(arn string) string {
+				return `{"stateMachineArn":"` + arn + `","name":"exec-dup","input":"{\"different\":true}"}`
+			},
 			wantCode: http.StatusConflict,
 		},
 	}

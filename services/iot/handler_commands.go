@@ -2,11 +2,22 @@ package iot
 
 import (
 	"net/http"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
+)
+
+// listCommandsDefaultPageSize/listCommandsMaxPageSize match
+// ListCommandsInput.MaxResults's doc comment (aws-sdk-go-v2/service/iot@v1.83.0's
+// api_op_ListCommands.go: "returns up to a maximum of 25 results... override
+// this default value to return up to a maximum of 100 results").
+const (
+	listCommandsDefaultPageSize = 25
+	listCommandsMaxPageSize     = 100
 )
 
 func resolveCommandOps(path, method string) string {
@@ -67,17 +78,19 @@ func resolveCommandSubPathOps(parts []string, method string) string {
 func (h *Handler) handleCreateCommand(c *echo.Context) error {
 	id := strings.TrimPrefix(c.Request().URL.Path, "/commands/")
 	var req struct {
-		Payload     map[string]any `json:"payload"`
-		DisplayName string         `json:"displayName"`
-		Description string         `json:"description"`
-		Namespace   string         `json:"namespace"`
-		Tags        []tags.KV      `json:"tags"`
+		Payload             map[string]any   `json:"payload"`
+		DisplayName         string           `json:"displayName"`
+		Description         string           `json:"description"`
+		Namespace           string           `json:"namespace"`
+		Tags                []tags.KV        `json:"tags"`
+		MandatoryParameters []map[string]any `json:"mandatoryParameters"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 	cmd, err := h.Backend.CreateCommand(
-		id, req.DisplayName, req.Description, req.Namespace, req.Payload, tags.MapFromKV(req.Tags),
+		id, req.DisplayName, req.Description, req.Namespace, req.Payload,
+		req.MandatoryParameters, tags.MapFromKV(req.Tags),
 	)
 	if err != nil {
 		return respondAsConflictCode(c, err, ErrAlreadyExists, "ConflictException")
@@ -142,12 +155,53 @@ func commandSummaryFields(cmd *IoTCommand) map[string]any {
 
 func (h *Handler) handleListCommands(c *echo.Context) error {
 	items := h.Backend.ListCommands()
+
+	if ns := c.QueryParam("namespace"); ns != "" {
+		filtered := items[:0:0]
+		for _, cmd := range items {
+			if cmd.Namespace == ns {
+				filtered = append(filtered, cmd)
+			}
+		}
+		items = filtered
+	}
+
+	// Default order is descending by creation time (ListCommandsInput's
+	// sortOrder doc comment); "ASCENDING" is the only other real enum value.
+	descending := c.QueryParam("sortOrder") != "ASCENDING"
+	sort.SliceStable(items, func(i, j int) bool {
+		if descending {
+			return items[i].CreationDate > items[j].CreationDate
+		}
+
+		return items[i].CreationDate < items[j].CreationDate
+	})
+
 	out := make([]map[string]any, 0, len(items))
 	for _, cmd := range items {
 		out = append(out, commandSummaryFields(cmd))
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"commands": out})
+	pageSize := listCommandsDefaultPageSize
+	if v := parseInt32QueryParam(c, "maxResults"); v > 0 && int(v) < listCommandsMaxPageSize {
+		pageSize = int(v)
+	}
+
+	start := 0
+	if tok := c.QueryParam("nextToken"); tok != "" {
+		if n, err := strconv.Atoi(tok); err == nil && n > 0 {
+			start = n
+		}
+	}
+
+	page, nextToken := paginateMaps(out, pageSize, start)
+
+	resp := map[string]any{"commands": page}
+	if nextToken != "" {
+		resp["nextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 // handleGetCommandExecution serves both the real top-level route (GET
@@ -215,11 +269,23 @@ func (h *Handler) handleListCommandExecutions(c *echo.Context) error {
 			CommandArn string `json:"commandArn"`
 			TargetArn  string `json:"targetArn"`
 			Status     string `json:"status"`
+			SortOrder  string `json:"sortOrder"`
 		}
 		if err := readBody(c, &body); err != nil {
 			return err
 		}
 		items = h.Backend.ListCommandExecutionsByFilter(body.CommandArn, body.TargetArn, body.Status)
+
+		// Default order is descending by creation time (ListCommandExecutionsInput's
+		// sortOrder doc comment); "ASCENDING" is the only other real enum value.
+		descending := body.SortOrder != "ASCENDING"
+		sort.SliceStable(items, func(i, j int) bool {
+			if descending {
+				return items[i].CreationDate > items[j].CreationDate
+			}
+
+			return items[i].CreationDate < items[j].CreationDate
+		})
 	} else {
 		// Legacy nested route: /commands/{commandId}/executions.
 		trimmed := strings.TrimPrefix(c.Request().URL.Path, "/commands/")

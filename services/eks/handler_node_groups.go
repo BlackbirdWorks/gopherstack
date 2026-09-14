@@ -225,22 +225,23 @@ type nodegroupUpdateConfigJSON struct {
 }
 
 type createNodegroupBody struct {
-	Tags           map[string]string          `json:"tags"`
-	Labels         map[string]string          `json:"labels"`
-	RemoteAccess   *remoteAccessJSON          `json:"remoteAccess"`
-	LaunchTemplate *launchTemplateJSON        `json:"launchTemplate"`
-	UpdateConfig   *nodegroupUpdateConfigJSON `json:"updateConfig"`
-	NodegroupName  string                     `json:"nodegroupName"`
-	NodeRole       string                     `json:"nodeRole"`
-	AMIType        string                     `json:"amiType"`
-	CapacityType   string                     `json:"capacityType"`
-	Version        string                     `json:"version"`
-	ReleaseVersion string                     `json:"releaseVersion"`
-	InstanceTypes  []string                   `json:"instanceTypes"`
-	Subnets        []string                   `json:"subnets"`
-	Taints         []nodegroupTaintJSON       `json:"taints"`
-	ScalingConfig  scalingConfigJSON          `json:"scalingConfig"`
-	DiskSize       int32                      `json:"diskSize"`
+	Tags               map[string]string          `json:"tags"`
+	Labels             map[string]string          `json:"labels"`
+	RemoteAccess       *remoteAccessJSON          `json:"remoteAccess"`
+	LaunchTemplate     *launchTemplateJSON        `json:"launchTemplate"`
+	UpdateConfig       *nodegroupUpdateConfigJSON `json:"updateConfig"`
+	CapacityType       string                     `json:"capacityType"`
+	NodeRole           string                     `json:"nodeRole"`
+	AMIType            string                     `json:"amiType"`
+	NodegroupName      string                     `json:"nodegroupName"`
+	Version            string                     `json:"version"`
+	ReleaseVersion     string                     `json:"releaseVersion"`
+	ClientRequestToken string                     `json:"clientRequestToken"`
+	InstanceTypes      []string                   `json:"instanceTypes"`
+	Subnets            []string                   `json:"subnets"`
+	Taints             []nodegroupTaintJSON       `json:"taints"`
+	ScalingConfig      scalingConfigJSON          `json:"scalingConfig"`
+	DiskSize           int32                      `json:"diskSize"`
 }
 
 func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, body []byte) error {
@@ -296,28 +297,28 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		}
 	}
 
-	ng, err := h.Backend.CreateNodegroup(
-		clusterName, in.NodegroupName, in.NodeRole,
-		in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
-		in.InstanceTypes,
-		in.ScalingConfig.DesiredSize, in.ScalingConfig.MinSize, in.ScalingConfig.MaxSize,
-		NodegroupInput{
-			Labels:         in.Labels,
-			RemoteAccess:   remoteAccess,
-			LaunchTemplate: lt,
-			Subnets:        in.Subnets,
-			Taints:         taints,
-			DiskSize:       in.DiskSize,
-			UpdateConfig:   ngUpdateCfg,
-		},
-		in.Tags,
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreateNodegroup, in.ClientRequestToken, body, func() (int, any, error) {
+		ng, err := h.Backend.CreateNodegroup(
+			clusterName, in.NodegroupName, in.NodeRole,
+			in.AMIType, in.CapacityType, in.Version, in.ReleaseVersion,
+			in.InstanceTypes,
+			in.ScalingConfig.DesiredSize, in.ScalingConfig.MinSize, in.ScalingConfig.MaxSize,
+			NodegroupInput{
+				Labels:         in.Labels,
+				RemoteAccess:   remoteAccess,
+				LaunchTemplate: lt,
+				Subnets:        in.Subnets,
+				Taints:         taints,
+				DiskSize:       in.DiskSize,
+				UpdateConfig:   ngUpdateCfg,
+			},
+			in.Tags,
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyNodegroup: nodegroupToJSON(ng),
+		return http.StatusOK, map[string]any{keyNodegroup: nodegroupToJSON(ng)}, nil
 	})
 }
 
@@ -377,10 +378,11 @@ type updateNodegroupUpdateConfigJSON struct {
 }
 
 type updateNodegroupConfigInput struct {
-	ScalingConfig *updateNodegroupScalingConfigJSON `json:"scalingConfig,omitempty"`
-	Labels        *updateNodegroupLabelsPayload     `json:"labels,omitempty"`
-	Taints        *updateNodegroupTaintsPayload     `json:"taints,omitempty"`
-	UpdateConfig  *updateNodegroupUpdateConfigJSON  `json:"updateConfig,omitempty"`
+	ScalingConfig      *updateNodegroupScalingConfigJSON `json:"scalingConfig,omitempty"`
+	Labels             *updateNodegroupLabelsPayload     `json:"labels,omitempty"`
+	Taints             *updateNodegroupTaintsPayload     `json:"taints,omitempty"`
+	UpdateConfig       *updateNodegroupUpdateConfigJSON  `json:"updateConfig,omitempty"`
+	ClientRequestToken string                            `json:"clientRequestToken,omitempty"`
 }
 
 func (h *Handler) handleUpdateNodegroupConfig(
@@ -424,37 +426,40 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		}
 	}
 
-	ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, upd)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateNodegroupConfig, in.ClientRequestToken, body, func() (int, any, error) {
+		ng, err := h.Backend.UpdateNodegroupConfig(clusterName, nodegroupName, upd)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	now := time.Now().UTC()
-	u := &Update{
-		ID:            uuid.NewString()[:8],
-		ClusterName:   clusterName,
-		NodegroupName: nodegroupName,
-		Status:        statusInProgress,
-		Type:          "ConfigUpdate",
-		CreatedAt:     now,
-	}
-	h.Backend.StoreUpdate(u)
-	h.Backend.scheduleUpdateTransition(clusterName, u.ID)
+		now := time.Now().UTC()
+		u := &Update{
+			ID:            uuid.NewString()[:8],
+			ClusterName:   clusterName,
+			NodegroupName: nodegroupName,
+			Status:        statusInProgress,
+			Type:          "ConfigUpdate",
+			CreatedAt:     now,
+		}
+		h.Backend.StoreUpdate(u)
+		h.Backend.scheduleUpdateTransition(clusterName, u.ID)
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: map[string]any{
-			"id":            u.ID,
-			keyStatusField:  u.Status,
-			keyType:         u.Type,
-			keyCreatedAt:    float64(now.Unix()),
-			keyClusterName:  clusterName,
-			"nodegroupName": ng.NodegroupName,
-		},
+		return http.StatusOK, map[string]any{
+			keyUpdate: map[string]any{
+				"id":            u.ID,
+				keyStatusField:  u.Status,
+				keyType:         u.Type,
+				keyCreatedAt:    float64(now.Unix()),
+				keyClusterName:  clusterName,
+				"nodegroupName": ng.NodegroupName,
+			},
+		}, nil
 	})
 }
 
 type updateNodegroupVersionBody struct {
-	Version string `json:"version"`
+	Version            string `json:"version"`
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nodegroupName string, body []byte) error {
@@ -465,12 +470,12 @@ func (h *Handler) handleUpdateNodegroupVersion(c *echo.Context, clusterName, nod
 		}
 	}
 
-	update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdateNodegroupVersion, in.ClientRequestToken, body, func() (int, any, error) {
+		update, err := h.Backend.UpdateNodegroupVersion(clusterName, nodegroupName, in.Version)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyUpdate: updateToJSON(update),
+		return http.StatusOK, map[string]any{keyUpdate: updateToJSON(update)}, nil
 	})
 }

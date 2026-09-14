@@ -333,6 +333,12 @@ func (h *Handler) handleDescribeNetworkInterfaces(vals url.Values, reqID string)
 	ids := parseMemberList(vals, "NetworkInterfaceId")
 	enis := h.Backend.DescribeNetworkInterfaces(ids)
 
+	if err := requireAllIDsPresent(
+		ids, enis, func(e *NetworkInterface) string { return e.ID }, ErrNetworkInterfaceNotFound,
+	); err != nil {
+		return nil, err
+	}
+
 	filters := parseEC2Filters(vals)
 	enis = applyENIFilters(enis, filters, h.Backend)
 

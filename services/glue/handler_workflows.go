@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"fmt"
 )
 
 // batchGetWorkflowsInput holds input for BatchGetWorkflows.
@@ -12,8 +13,8 @@ type batchGetWorkflowsInput struct {
 
 // batchGetWorkflowsOutput holds the result for BatchGetWorkflows.
 type batchGetWorkflowsOutput struct {
-	Workflows        []*Workflow `json:"Workflows"`
-	MissingWorkflows []string    `json:"MissingWorkflows"`
+	Workflows        []*workflowWire `json:"Workflows"`
+	MissingWorkflows []string        `json:"MissingWorkflows"`
 }
 
 func (h *Handler) handleBatchGetWorkflows(
@@ -22,7 +23,7 @@ func (h *Handler) handleBatchGetWorkflows(
 ) (*batchGetWorkflowsOutput, error) {
 	found, missing := h.Backend.BatchGetWorkflows(in.Names, in.IncludeGraph)
 
-	return &batchGetWorkflowsOutput{Workflows: found, MissingWorkflows: missing}, nil
+	return &batchGetWorkflowsOutput{Workflows: toWorkflowWireList(found), MissingWorkflows: missing}, nil
 }
 
 // createWorkflowInput holds input for CreateWorkflow.
@@ -87,7 +88,7 @@ type getWorkflowInput struct {
 
 // getWorkflowOutput holds the result for GetWorkflow.
 type getWorkflowOutput struct {
-	Workflow *Workflow `json:"Workflow"`
+	Workflow *workflowWire `json:"Workflow"`
 }
 
 func (h *Handler) handleGetWorkflow(
@@ -99,7 +100,7 @@ func (h *Handler) handleGetWorkflow(
 		return nil, err
 	}
 
-	return &getWorkflowOutput{Workflow: w}, nil
+	return &getWorkflowOutput{Workflow: toWorkflowWire(w)}, nil
 }
 
 // getWorkflowRunInput holds input for GetWorkflowRun.
@@ -110,7 +111,7 @@ type getWorkflowRunInput struct {
 
 // getWorkflowRunOutput holds the result for GetWorkflowRun.
 type getWorkflowRunOutput struct {
-	Run *WorkflowRun `json:"Run"`
+	Run *workflowRunWire `json:"Run"`
 }
 
 func (h *Handler) handleGetWorkflowRun(
@@ -122,7 +123,7 @@ func (h *Handler) handleGetWorkflowRun(
 		return nil, err
 	}
 
-	return &getWorkflowRunOutput{Run: run}, nil
+	return &getWorkflowRunOutput{Run: toWorkflowRunWire(run)}, nil
 }
 
 // getWorkflowRunPropertiesInput holds input for GetWorkflowRunProperties.
@@ -140,36 +141,63 @@ func (h *Handler) handleGetWorkflowRunProperties(
 	_ context.Context,
 	in *getWorkflowRunPropertiesInput,
 ) (*getWorkflowRunPropertiesOutput, error) {
-	if in.Name != "" && in.RunID != "" {
-		run, err := h.Backend.GetWorkflowRun(in.Name, in.RunID)
-		if err == nil && run.Properties != nil {
-			return &getWorkflowRunPropertiesOutput{RunProperties: run.Properties}, nil
-		}
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	if in.RunID == "" {
+		return nil, fmt.Errorf("%w: RunId is required", ErrValidation)
 	}
 
-	return &getWorkflowRunPropertiesOutput{RunProperties: map[string]string{}}, nil
+	run, err := h.Backend.GetWorkflowRun(in.Name, in.RunID)
+	if err != nil {
+		return nil, err
+	}
+
+	props := run.Properties
+	if props == nil {
+		props = map[string]string{}
+	}
+
+	return &getWorkflowRunPropertiesOutput{RunProperties: props}, nil
 }
 
-// getWorkflowRunsInput holds input for GetWorkflowRuns.
+// defaultGetWorkflowRunsLimit is used when GetWorkflowRunsInput.MaxResults is unset.
+const defaultGetWorkflowRunsLimit = 100
+
+// getWorkflowRunsInput holds input for GetWorkflowRuns. MaxResults/NextToken
+// are real GetWorkflowRunsInput members (glue@v1.157.0
+// api_op_GetWorkflowRuns.go) that were previously declared nowhere on this
+// wire struct, so every call returned every stored run in one unbounded
+// response regardless of what a real client requested.
 type getWorkflowRunsInput struct {
-	Name string `json:"Name"`
+	Name       string `json:"Name"`
+	NextToken  string `json:"NextToken,omitempty"`
+	MaxResults int32  `json:"MaxResults,omitempty"`
 }
 
 // getWorkflowRunsOutput holds the result for GetWorkflowRuns.
 type getWorkflowRunsOutput struct {
-	Runs []*WorkflowRun `json:"Runs"`
+	NextToken string             `json:"NextToken,omitempty"`
+	Runs      []*workflowRunWire `json:"Runs"`
 }
 
 func (h *Handler) handleGetWorkflowRuns(
 	_ context.Context,
 	in *getWorkflowRunsInput,
 ) (*getWorkflowRunsOutput, error) {
-	runs, err := h.Backend.GetWorkflowRuns(in.Name)
+	all, err := h.Backend.GetWorkflowRuns(in.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	return &getWorkflowRunsOutput{Runs: runs}, nil
+	limit := int(in.MaxResults)
+	if limit <= 0 {
+		limit = defaultGetWorkflowRunsLimit
+	}
+
+	page, next := paginateSlice(all, in.NextToken, limit)
+
+	return &getWorkflowRunsOutput{Runs: toWorkflowRunWireList(page), NextToken: next}, nil
 }
 
 // defaultListWorkflowsLimit is used when ListWorkflowsInput.MaxResults is unset.
@@ -234,8 +262,14 @@ func (h *Handler) handleResumeWorkflowRun(
 	_ context.Context,
 	in *resumeWorkflowRunInput,
 ) (*resumeWorkflowRunOutput, error) {
-	if in.Name == "" || in.RunID == "" {
-		return &resumeWorkflowRunOutput{NodeIDs: []string{}}, nil
+	if in.Name == "" {
+		return nil, fmt.Errorf("%w: Name is required", ErrValidation)
+	}
+	if in.RunID == "" {
+		return nil, fmt.Errorf("%w: RunId is required", ErrValidation)
+	}
+	if len(in.NodeIDs) == 0 {
+		return nil, fmt.Errorf("%w: NodeIds is required", ErrValidation)
 	}
 
 	runID, nodeIDs, err := h.Backend.ResumeWorkflowRun(in.Name, in.RunID, in.NodeIDs)

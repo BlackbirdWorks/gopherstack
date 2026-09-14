@@ -12,24 +12,26 @@ import (
 // NewInMemoryBackend creates a new InMemoryBackend with a background reconciler.
 func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:                store.NewRegistry(),
-		instanceReadyAt:         make(map[string]time.Time),
-		tags:                    make(map[string][]Tag),
-		clusterRoles:            make(map[string][]DBClusterRole),
-		instanceRoles:           make(map[string]map[string]string),
-		events:                  make([]Event, 0),
-		fisFailoverFaults:       make(map[string]time.Time),
-		proxyTargets:            make(map[string][]DBProxyTarget),
-		automatedBackups:        make(map[string]*DBInstanceAutomatedBackup),
-		snapshotTenantDatabases: make(map[string][]*DBSnapshotTenantDatabase),
-		clusterReadyAt:          make(map[string]time.Time),
-		piMetrics:               make(map[string]map[string][]PIDataPoint),
-		instanceLogFiles:        make(map[string][]DBLogFile),
-		instanceLogContent:      make(map[string]map[string]string),
-		accountID:               accountID,
-		region:                  region,
-		defaultCACertificateID:  defaultCACertificateID,
-		mu:                      lockmetrics.New("rds"),
+		registry:                  store.NewRegistry(),
+		instanceReadyAt:           make(map[string]time.Time),
+		tags:                      make(map[string][]Tag),
+		clusterRoles:              make(map[string][]DBClusterRole),
+		instanceRoles:             make(map[string]map[string]string),
+		events:                    make([]Event, 0),
+		fisFailoverFaults:         make(map[string]time.Time),
+		proxyTargets:              make(map[string][]DBProxyTarget),
+		automatedBackups:          make(map[string]*DBInstanceAutomatedBackup),
+		snapshotTenantDatabases:   make(map[string][]*DBSnapshotTenantDatabase),
+		clusterBacktracks:         make(map[string][]*DBClusterBacktrack),
+		pendingMaintenanceActions: make(map[string][]*PendingMaintenanceAction),
+		clusterReadyAt:            make(map[string]time.Time),
+		piMetrics:                 make(map[string]map[string][]PIDataPoint),
+		instanceLogFiles:          make(map[string][]DBLogFile),
+		instanceLogContent:        make(map[string]map[string]string),
+		accountID:                 accountID,
+		region:                    region,
+		defaultCACertificateID:    defaultCACertificateID,
+		mu:                        lockmetrics.New("rds"),
 	}
 	registerAllTables(b)
 
@@ -90,6 +92,8 @@ func (b *InMemoryBackend) Reset() {
 	b.proxyTargets = make(map[string][]DBProxyTarget)
 	b.automatedBackups = make(map[string]*DBInstanceAutomatedBackup)
 	b.snapshotTenantDatabases = make(map[string][]*DBSnapshotTenantDatabase)
+	b.clusterBacktracks = make(map[string][]*DBClusterBacktrack)
+	b.pendingMaintenanceActions = make(map[string][]*PendingMaintenanceAction)
 	b.clusterReadyAt = make(map[string]time.Time)
 	b.piMetrics = make(map[string]map[string][]PIDataPoint)
 	b.instanceLogFiles = make(map[string][]DBLogFile)
@@ -125,6 +129,7 @@ func (b *InMemoryBackend) reconcileInstancesLocked() {
 			if inst, ok := b.instances.Get(normalizeID(id)); ok {
 				applyPendingModifications(inst)
 				inst.DBInstanceStatus = instanceStatusAvailable
+				b.clearDBUpgradeActionLocked(id)
 				b.publishInstanceEventLocked(id, "DB instance is now available")
 			}
 			delete(b.instanceReadyAt, id)

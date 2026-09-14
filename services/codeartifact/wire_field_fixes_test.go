@@ -31,7 +31,13 @@ func TestHandler_PermissionsPolicy_RequiresPolicyDocument(t *testing.T) {
 		h := newTestHandler(t)
 		setupDomain(t, h, "ppd-domain")
 
-		rec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=ppd-domain", nil)
+		// domain travels in the JSON body for this op (no httpQuery binding
+		// on the real PutDomainPermissionsPolicyInput, unlike its Get/Delete
+		// siblings) -- see the handler's own doc comment.
+		rec := doRequest(
+			t, h, http.MethodPut, "/v1/domain/permissions/policy",
+			map[string]any{"domain": "ppd-domain"},
+		)
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 	})
 

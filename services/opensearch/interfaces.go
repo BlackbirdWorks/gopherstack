@@ -176,9 +176,14 @@ type StorageBackend interface {
 	UpdateIndex(domainName, indexName string, mappings, settings map[string]any, indexSchema any) (*DomainIndex, error)
 
 	// Document operations (real per-index document storage + bounded search)
-	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, error)
-	GetDocument(domainName, indexName, docID string) (map[string]any, error)
-	DeleteDocument(domainName, indexName, docID string) error
+	IndexDocument(domainName, indexName, docID string, doc map[string]any) (string, bool, DocumentMeta, error)
+	CreateDocument(domainName, indexName, docID string, doc map[string]any) (string, DocumentMeta, error)
+	UpdateDocument(
+		domainName, indexName, docID string, doc map[string]any, docAsUpsert bool,
+	) (bool, DocumentMeta, error)
+	GetDocument(domainName, indexName, docID string) (map[string]any, DocumentMeta, error)
+	DeleteDocument(domainName, indexName, docID string) (DocumentMeta, error)
+	BulkDeleteDocument(domainName, indexName, docID string) (bool, DocumentMeta, error)
 	CountDocuments(domainName, indexName string) (int, error)
 	DomainDocumentCount(domainName string) int
 	SearchIndex(domainName, indexName string, query map[string]any, size int) (*SearchResult, error)
@@ -212,6 +217,12 @@ type StorageBackend interface {
 	) (*ServerlessCollection, error)
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
+
+	// Serverless resource tagging (collections only; see serverless.go's
+	// findServerlessCollectionByARNLocked)
+	ListServerlessResourceTags(resourceArn string) (map[string]string, error)
+	TagServerlessResource(resourceArn string, tagMap map[string]string) error
+	UntagServerlessResource(resourceArn string, tagKeys []string) error
 
 	// Serverless access policy operations
 	CreateServerlessAccessPolicy(policyType, name, description, policy string) (*ServerlessAccessPolicy, error)

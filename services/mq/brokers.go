@@ -1008,11 +1008,16 @@ func (b *InMemoryBackend) DescribeBrokerInstanceOptions(
 	return result
 }
 
-// Promote promotes a standby broker to the primary role.
-// In the in-memory stub this is a no-op that validates the broker exists.
+// Promote promotes a data-replication replica broker to the primary role,
+// interchanging its DataReplicationRole from REPLICA to PRIMARY (mq@v1.39.4
+// api_op_Promote.go: "Promotes a data replication replica broker to the
+// primary broker role"; types.DataReplicationMetadataOutput.DataReplicationRole
+// doc: "When a replica broker is promoted to primary, this role is
+// interchanged"). A broker with no active CRDR replica role is rejected --
+// Promote is documented as operating only on a replica, not any broker.
 func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
-	b.mu.RLock("Promote")
-	defer b.mu.RUnlock()
+	b.mu.Lock("Promote")
+	defer b.mu.Unlock()
 
 	if mode != PromoteModeFailover && mode != PromoteModeSwitchover {
 		return nil, fmt.Errorf(
@@ -1025,6 +1030,15 @@ func (b *InMemoryBackend) Promote(brokerID, mode string) (*Broker, error) {
 	if br == nil {
 		return nil, fmt.Errorf("%w: broker %s not found", ErrNotFound, brokerID)
 	}
+
+	if br.DataReplicationMetadata == nil ||
+		br.DataReplicationMetadata.DataReplicationRole != DataReplicationRoleReplica {
+		return nil, fmt.Errorf(
+			"%w: broker %s is not a data replication replica broker", ErrValidation, brokerID,
+		)
+	}
+
+	br.DataReplicationMetadata.DataReplicationRole = DataReplicationRolePrimary
 
 	return b.copyBroker(br), nil
 }

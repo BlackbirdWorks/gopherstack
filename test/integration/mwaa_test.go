@@ -1,10 +1,10 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -145,14 +145,7 @@ func TestIntegration_MWAA_EnvironmentLifecycle(t *testing.T) {
 			listOut, err := client.ListEnvironments(ctx, &mwaaSDK.ListEnvironmentsInput{})
 			require.NoError(t, err, "ListEnvironments should succeed")
 
-			found := false
-			for _, name := range listOut.Environments {
-				if name == uniqueName {
-					found = true
-
-					break
-				}
-			}
+			found := slices.Contains(listOut.Environments, uniqueName)
 			assert.True(t, found, "environment should appear in ListEnvironments")
 
 			// TagResource.
@@ -276,10 +269,10 @@ func TestIntegration_MWAA_PublishMetrics(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		metrics  []mwaaSDKtypes.MetricDatum
 		name     string
 		envName  string
 		cidrBase string
+		metrics  []mwaaSDKtypes.MetricDatum
 		wantErr  bool
 	}{
 		{

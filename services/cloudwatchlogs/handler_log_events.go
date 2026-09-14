@@ -40,9 +40,9 @@ type putLogEventsOutput struct {
 }
 
 type getLogEventsOutput struct {
-	NextForwardToken  string           `json:"nextForwardToken"`
-	NextBackwardToken string           `json:"nextBackwardToken"`
-	Events            []OutputLogEvent `json:"events"`
+	NextForwardToken  string               `json:"nextForwardToken"`
+	NextBackwardToken string               `json:"nextBackwardToken"`
+	Events            []wireOutputLogEvent `json:"events"`
 }
 
 type filterLogEventsOutput struct {
@@ -96,7 +96,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 			}
 
 			return &getLogEventsOutput{
-				Events:            evts,
+				Events:            toWireOutputLogEvents(evts),
 				NextForwardToken:  fwd,
 				NextBackwardToken: bwd,
 			}, nil

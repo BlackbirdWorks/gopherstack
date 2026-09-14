@@ -48,6 +48,10 @@ func (b *InMemoryBackend) GenerateMac(
 		return nil, err
 	}
 
+	if input.DryRun {
+		return nil, ErrDryRun
+	}
+
 	mac, err := computeHMAC(input.Message, input.MacAlgorithm, km)
 	if err != nil {
 		return nil, err
@@ -104,6 +108,10 @@ func (b *InMemoryBackend) VerifyMac(
 	km, err := b.requireKeyMaterial(region, key)
 	if err != nil {
 		return nil, err
+	}
+
+	if input.DryRun {
+		return nil, ErrDryRun
 	}
 
 	expected, err := computeHMAC(input.Message, input.MacAlgorithm, km)

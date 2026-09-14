@@ -35,8 +35,12 @@ var (
 )
 
 // ParallelismConfiguration limits concurrent steps in a pipeline execution.
+// MaxParallelExecutionSteps is "This member is required" whenever
+// ParallelismConfiguration itself is present (validateParallelismConfiguration,
+// validators.go, *int32 nil-checked only) -- omitempty would drop a
+// conformant client's explicit 0.
 type ParallelismConfiguration struct {
-	MaxParallelExecutionSteps int32 `json:"MaxParallelExecutionSteps,omitempty"`
+	MaxParallelExecutionSteps int32 `json:"MaxParallelExecutionSteps"`
 }
 
 // PipelineParameter is a name/value pair passed to StartPipelineExecution.

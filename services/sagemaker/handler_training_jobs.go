@@ -50,6 +50,19 @@ func (h *Handler) handleCreateTrainingJobFull(ctx context.Context, body []byte) 
 		return nil, fmt.Errorf("%w: TrainingJobName is required", errInvalidRequest)
 	}
 
+	// RoleArn and OutputDataConfig.S3OutputPath are both "This member is
+	// required" on CreateTrainingJobInput (validateOpCreateTrainingJobInput/
+	// validateOutputDataConfig, validators.go) -- previously unenforced, so
+	// a request omitting OutputDataConfig would have stored a job whose
+	// Describe response could never derive a real ModelArtifacts location.
+	if req.RoleArn == "" {
+		return nil, fmt.Errorf("%w: RoleArn is required", errInvalidRequest)
+	}
+
+	if req.OutputDataConfig.S3OutputPath == "" {
+		return nil, fmt.Errorf("%w: OutputDataConfig.S3OutputPath is required", errInvalidRequest)
+	}
+
 	metrics := make([]MetricDefinition, len(req.AlgorithmSpecification.MetricDefinitions))
 	for i, md := range req.AlgorithmSpecification.MetricDefinitions {
 		metrics[i] = MetricDefinition{Name: md.Name, Regex: md.Regex}
@@ -125,8 +138,13 @@ func (h *Handler) handleDescribeTrainingJobFull(ctx context.Context, body []byte
 		"AlgorithmSpecification": tj.AlgorithmSpecification,
 		"ResourceConfig":         tj.ResourceConfig,
 		"StoppingCondition":      tj.StoppingCondition,
-		keyCreationTime:          epochSeconds(tj.CreationTime),
-		keyLastModifiedTime:      epochSeconds(tj.LastModifiedTime),
+		// ModelArtifacts is "This member is required"
+		// (api_op_DescribeTrainingJob.go:56-61) even while the job is still
+		// InProgress -- CreateTrainingJobFull now computes it synchronously,
+		// so it is always non-nil here.
+		"ModelArtifacts":    tj.ModelArtifacts,
+		keyCreationTime:     epochSeconds(tj.CreationTime),
+		keyLastModifiedTime: epochSeconds(tj.LastModifiedTime),
 	}
 	addTrainingJobOptionalFields(resp, tj)
 
@@ -151,9 +169,6 @@ func addTrainingJobOptionalFields(resp map[string]any, tj *TrainingJob) {
 	}
 	if len(tj.Environment) > 0 {
 		resp["Environment"] = tj.Environment
-	}
-	if tj.ModelArtifacts != nil {
-		resp["ModelArtifacts"] = tj.ModelArtifacts
 	}
 	if tj.TrainingStartTime != nil {
 		resp["TrainingStartTime"] = epochSeconds(*tj.TrainingStartTime)

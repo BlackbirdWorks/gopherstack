@@ -100,22 +100,40 @@ func (b *InMemoryBackend) DescribeIntegrations(identifier string) ([]Integration
 }
 
 // ModifyIntegration modifies an integration's description or data filter.
-func (b *InMemoryBackend) ModifyIntegration(identifier, dataFilter, description string) (*Integration, error) {
+// ModifyIntegration also applies IntegrationName -- a real, documented
+// rename field (rds@v1.124.1 api_op_ModifyIntegration.go:46) that was
+// previously not accepted as a parameter at all, so every real client's
+// rename request was silently dropped regardless of the value sent.
+func (b *InMemoryBackend) ModifyIntegration(
+	identifier, dataFilter, description, newName string,
+) (*Integration, error) {
 	b.mu.Lock("ModifyIntegration")
 	defer b.mu.Unlock()
 
 	for _, intg := range b.integrations.All() {
-		if intg.IntegrationName == identifier || intg.IntegrationArn == identifier {
-			if dataFilter != "" {
-				intg.DataFilter = dataFilter
-			}
-			if description != "" {
-				intg.IntegrationDescription = description
-			}
-			cp := *intg
-
-			return &cp, nil
+		if intg.IntegrationName != identifier && intg.IntegrationArn != identifier {
+			continue
 		}
+
+		if dataFilter != "" {
+			intg.DataFilter = dataFilter
+		}
+		if description != "" {
+			intg.IntegrationDescription = description
+		}
+		if newName != "" && newName != intg.IntegrationName {
+			if _, taken := b.integrations.Get(newName); taken {
+				return nil, fmt.Errorf("%w: %s", ErrIntegrationAlreadyExists, newName)
+			}
+
+			b.integrations.Delete(intg.IntegrationName)
+			intg.IntegrationName = newName
+			b.integrations.Put(intg)
+		}
+
+		cp := *intg
+
+		return &cp, nil
 	}
 
 	return nil, fmt.Errorf("%w: %s", ErrIntegrationNotFound, identifier)

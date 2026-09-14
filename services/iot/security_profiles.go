@@ -14,7 +14,7 @@ import (
 // AttachSecurityProfile attaches a security profile to a target. Real AWS
 // IoT returns ResourceNotFoundException for an unknown security profile name.
 func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AttachSecurityProfile")
 	defer b.mu.Unlock()
 
 	if !b.securityProfiles.Has(input.SecurityProfileName) {
@@ -35,7 +35,7 @@ func (b *InMemoryBackend) AttachSecurityProfile(input *AttachSecurityProfileInpu
 // (gopherstack-ep0r); DetachSecurityProfile silently no-op'd for any name
 // previously.
 func (b *InMemoryBackend) DetachSecurityProfile(profileName, targetARN string) error {
-	b.mu.Lock()
+	b.mu.Lock("DetachSecurityProfile")
 	defer b.mu.Unlock()
 
 	if !b.securityProfiles.Has(profileName) {
@@ -56,7 +56,7 @@ func (b *InMemoryBackend) DetachSecurityProfile(profileName, targetARN string) e
 
 // ListTargetsForSecurityProfile returns the target ARNs attached to a security profile.
 func (b *InMemoryBackend) ListTargetsForSecurityProfile(profileName string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListTargetsForSecurityProfile")
 	defer b.mu.RUnlock()
 
 	targets := b.securityProfileTargets[profileName]
@@ -68,7 +68,7 @@ func (b *InMemoryBackend) ListTargetsForSecurityProfile(profileName string) []st
 
 // ListSecurityProfilesForTarget returns profile names attached to a target ARN.
 func (b *InMemoryBackend) ListSecurityProfilesForTarget(targetARN string) []string {
-	b.mu.RLock()
+	b.mu.RLock("ListSecurityProfilesForTarget")
 	defer b.mu.RUnlock()
 
 	var out []string
@@ -299,7 +299,7 @@ type CreateSecurityProfileInput struct {
 func (b *InMemoryBackend) CreateSecurityProfile(
 	input *CreateSecurityProfileInput,
 ) (*SecurityProfile, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateSecurityProfile")
 	defer b.mu.Unlock()
 
 	if b.securityProfiles.Has(input.SecurityProfileName) {
@@ -331,7 +331,7 @@ func (b *InMemoryBackend) CreateSecurityProfile(
 }
 
 func (b *InMemoryBackend) DescribeSecurityProfile(name string) (*SecurityProfile, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeSecurityProfile")
 	defer b.mu.RUnlock()
 
 	sp, ok := b.securityProfiles.Get(name)
@@ -343,7 +343,7 @@ func (b *InMemoryBackend) DescribeSecurityProfile(name string) (*SecurityProfile
 }
 
 func (b *InMemoryBackend) ListSecurityProfiles() []*SecurityProfile {
-	b.mu.RLock()
+	b.mu.RLock("ListSecurityProfiles")
 	defer b.mu.RUnlock()
 
 	out := make([]*SecurityProfile, 0, b.securityProfiles.Len())
@@ -381,7 +381,7 @@ type UpdateSecurityProfileInput struct {
 func (b *InMemoryBackend) UpdateSecurityProfile(
 	input *UpdateSecurityProfileInput,
 ) (*SecurityProfile, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateSecurityProfile")
 	defer b.mu.Unlock()
 
 	sp, ok := b.securityProfiles.Get(input.SecurityProfileName)
@@ -511,7 +511,7 @@ func applyMetricsExportConfigUpdate(sp *SecurityProfile, input *UpdateSecurityPr
 // ListSecurityProfilesForTarget could leak attachment data for a profile
 // that DescribeSecurityProfile reports as ResourceNotFoundException).
 func (b *InMemoryBackend) DeleteSecurityProfile(name string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteSecurityProfile")
 	defer b.mu.Unlock()
 
 	sp, ok := b.securityProfiles.Get(name)

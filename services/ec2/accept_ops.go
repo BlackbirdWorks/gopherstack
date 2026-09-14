@@ -14,8 +14,18 @@ var (
 	ErrAddressTransferNotFound = errors.New("InvalidAddressTransfer.NotFound")
 	// ErrCapacityReservationNotFound is returned when a capacity reservation is not found.
 	ErrCapacityReservationNotFound = errors.New("InvalidCapacityReservationId.NotFound")
-	// ErrReservedInstancesNotFound is returned when reserved instances are not found.
-	ErrReservedInstancesNotFound = errors.New("InvalidReservedInstancesId.NotFound")
+	// ErrReservedInstancesNotFound backs the real EC2 error code
+	// "InvalidReservedInstancesId" (docs.aws.amazon.com/AWSEC2/latest/
+	// APIReference/errors-overview.html: "The specified Reserved Instance
+	// does not exist" -- no ".NotFound" suffix, unlike most other EC2
+	// not-found codes).
+	ErrReservedInstancesNotFound = errors.New("InvalidReservedInstancesId")
+	// ErrReservedInstancesOfferingNotFound backs the real EC2 error code
+	// "InvalidReservedInstancesOfferingId" (same errors-overview.html page:
+	// "The specified Reserved Instances offering does not exist") -- a
+	// distinct code from ErrReservedInstancesNotFound, previously conflated
+	// with it (gopherstack-ggu4a).
+	ErrReservedInstancesOfferingNotFound = errors.New("InvalidReservedInstancesOfferingId")
 	// ErrTransitGatewayAttachmentNotFound is returned when a TGW attachment is not found.
 	ErrTransitGatewayAttachmentNotFound = errors.New("InvalidTransitGatewayAttachmentID.NotFound")
 	// ErrVpcPeeringConnectionNotFound is returned when a VPC peering connection is not found.
@@ -69,6 +79,9 @@ type TransitGatewayMulticastDomainAssociation struct {
 	TransitGatewayAttachmentID      string `json:"transitGatewayAttachmentID,omitempty"`
 	SubnetID                        string `json:"subnetID,omitempty"`
 	State                           string `json:"state,omitempty"`
+	ResourceID                      string `json:"resourceID,omitempty"`
+	ResourceOwnerID                 string `json:"resourceOwnerID,omitempty"`
+	ResourceType                    string `json:"resourceType,omitempty"`
 }
 
 // TransitGatewayPeeringAttachment represents a TGW peering attachment.
@@ -77,6 +90,10 @@ type TransitGatewayPeeringAttachment struct {
 	TransitGatewayAttachmentID string    `json:"transitGatewayAttachmentID,omitempty"`
 	RequesterTransitGatewayID  string    `json:"requesterTransitGatewayID,omitempty"`
 	AccepterTransitGatewayID   string    `json:"accepterTransitGatewayID,omitempty"`
+	RequesterOwnerID           string    `json:"requesterOwnerID,omitempty"`
+	RequesterRegion            string    `json:"requesterRegion,omitempty"`
+	AccepterOwnerID            string    `json:"accepterOwnerID,omitempty"`
+	AccepterRegion             string    `json:"accepterRegion,omitempty"`
 	State                      string    `json:"state,omitempty"`
 }
 
@@ -253,7 +270,13 @@ func (b *InMemoryBackend) DescribeCapacityReservations(ids []string) []*Capacity
 // ---- AcceptReservedInstancesExchangeQuote ----
 
 // AcceptReservedInstancesExchangeQuote accepts an exchange quote for reserved instances,
-// creating a new exchange record with "successful" status.
+// creating a new exchange record with "successful" status. It applies the
+// same eligibility checks as GetReservedInstancesExchangeQuote (gopherstack-1qth):
+// an unknown ID is InvalidReservedInstancesId.NotFound, and a non-convertible
+// source RI -- which the quote call reports via IsValidExchange=false rather
+// than an error -- fails this call with InvalidParameterValue, since Accept
+// has no such soft-failure field
+// (types.AcceptReservedInstancesExchangeQuoteOutput only has ExchangeId).
 func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 	reservedInstanceIDs []string,
 ) (*ReservedInstancesExchange, error) {
@@ -266,6 +289,21 @@ func (b *InMemoryBackend) AcceptReservedInstancesExchangeQuote(
 
 	b.mu.Lock("AcceptReservedInstancesExchangeQuote")
 	defer b.mu.Unlock()
+
+	ris := make([]*ReservedInstance, 0, len(reservedInstanceIDs))
+
+	for _, id := range reservedInstanceIDs {
+		ri, ok := b.reservedInstances.Get(id)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrReservedInstancesNotFound, id)
+		}
+
+		ris = append(ris, ri)
+	}
+
+	if reason := nonExchangeableReason(ris); reason != "" {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, reason)
+	}
 
 	exchangeID := newReservedInstanceExchangeID()
 	targetID := newReservedInstanceTargetID()

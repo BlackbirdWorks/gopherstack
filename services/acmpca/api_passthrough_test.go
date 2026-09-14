@@ -155,12 +155,11 @@ func TestACMPCAHandler_IssueCertificate_ApiPassthrough_IgnoredWithoutPassthrough
 	assert.NotEqual(t, "should-be-ignored.example.com", parsed.Subject.CommonName)
 }
 
-// TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected
-// verifies that ApiPassthrough sub-fields gopherstack does not implement
-// (CertificatePolicies, exotic ASN1Subject RDNs, exotic GeneralName variants)
-// are rejected with a clear InvalidArgsException instead of being
-// silently dropped -- per parity-principles.md's no-silent-gaps rule.
-func TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected(t *testing.T) {
+// TestACMPCAHandler_IssueCertificate_ApiPassthrough_InvalidFieldsRejected
+// verifies that malformed ApiPassthrough sub-field *values* -- as opposed to
+// the fields themselves, which gopherstack-cq4o made real -- are still
+// rejected with InvalidArgsException.
+func TestACMPCAHandler_IssueCertificate_ApiPassthrough_InvalidFieldsRejected(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -168,24 +167,43 @@ func TestACMPCAHandler_IssueCertificate_ApiPassthrough_UnsupportedFieldsRejected
 		name           string
 	}{
 		{
-			name: "CertificatePolicies",
+			name: "CertificatePolicies malformed OID",
 			apiPassthrough: map[string]any{
 				"Extensions": map[string]any{
-					"CertificatePolicies": []map[string]any{{"CertPolicyId": "2.5.29.32.0"}},
+					"CertificatePolicies": []map[string]any{{"CertPolicyId": "not-an-oid"}},
 				},
 			},
 		},
 		{
-			name: "Subject.Title",
+			name: "CertificatePolicies unsupported PolicyQualifierId",
 			apiPassthrough: map[string]any{
-				"Subject": map[string]any{"Title": "Dr."},
+				"Extensions": map[string]any{
+					"CertificatePolicies": []map[string]any{{
+						"CertPolicyId": "2.5.29.32.0",
+						"PolicyQualifiers": []map[string]any{{
+							"PolicyQualifierId": "UNOTICE",
+							"Qualifier":         map[string]any{"CpsUri": "https://example.com/cps"},
+						}},
+					}},
+				},
 			},
 		},
 		{
-			name: "SubjectAlternativeNames.RegisteredId",
+			name: "SubjectAlternativeNames two variants set on one entry",
 			apiPassthrough: map[string]any{
 				"Extensions": map[string]any{
-					"SubjectAlternativeNames": []map[string]any{{"RegisteredId": "1.2.3.4"}},
+					"SubjectAlternativeNames": []map[string]any{{
+						"DnsName":      "a.example.com",
+						"RegisteredId": "1.2.3.4",
+					}},
+				},
+			},
+		},
+		{
+			name: "SubjectAlternativeNames malformed RegisteredId",
+			apiPassthrough: map[string]any{
+				"Extensions": map[string]any{
+					"SubjectAlternativeNames": []map[string]any{{"RegisteredId": "not-an-oid"}},
 				},
 			},
 		},

@@ -296,7 +296,7 @@ func buildCluster(region, clusterARN, aclName string, req *createClusterRequest,
 }
 
 func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterRequest) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -369,7 +369,7 @@ func (b *InMemoryBackend) CreateCluster(ctx context.Context, req *createClusterR
 
 // DescribeClusters returns clusters, optionally filtered by name.
 func (b *InMemoryBackend) DescribeClusters(ctx context.Context, name string) ([]*Cluster, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeClusters")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -398,7 +398,7 @@ func (b *InMemoryBackend) DescribeClusters(ctx context.Context, name string) ([]
 
 // DeleteCluster removes a cluster.
 func (b *InMemoryBackend) DeleteCluster(ctx context.Context, name string) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -426,7 +426,7 @@ func (b *InMemoryBackend) DeleteClusterWithSnapshot(
 	ctx context.Context,
 	clusterName, snapshotName string,
 ) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteClusterWithSnapshot")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -590,7 +590,7 @@ func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 
 // UpdateCluster modifies an existing cluster.
 func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterRequest) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -634,7 +634,7 @@ func (b *InMemoryBackend) UpdateCluster(ctx context.Context, req *updateClusterR
 
 // FailoverShard simulates a shard failover for a cluster, returning the cluster state.
 func (b *InMemoryBackend) FailoverShard(ctx context.Context, clusterName, shardName string) (*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("FailoverShard")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -676,7 +676,7 @@ func allowedNodeTypes() []string {
 
 // ListAllowedNodeTypeUpdates returns the set of node types a cluster can be updated to.
 func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, clusterName string) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListAllowedNodeTypeUpdates")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -697,7 +697,7 @@ func (b *InMemoryBackend) ListAllowedNodeTypeUpdates(ctx context.Context, cluste
 func (b *InMemoryBackend) BatchUpdateCluster(
 	ctx context.Context, clusterNames []string, serviceUpdateName string,
 ) (map[string]*Cluster, error) {
-	b.mu.Lock()
+	b.mu.Lock("BatchUpdateCluster")
 	defer b.mu.Unlock()
 
 	if serviceUpdateName != "" {
@@ -728,7 +728,7 @@ func (b *InMemoryBackend) BatchUpdateCluster(
 
 // ListClusters returns all clusters for use by the dashboard.
 func (b *InMemoryBackend) ListClusters() []*Cluster {
-	b.mu.RLock()
+	b.mu.RLock("ListClusters")
 	defer b.mu.RUnlock()
 
 	var result []*Cluster
@@ -757,7 +757,7 @@ func cloneCluster(c *Cluster) *Cluster {
 
 // AddClusterInternal inserts a cluster directly into the backend for testing.
 func (b *InMemoryBackend) AddClusterInternal(name, nodeType string) *Cluster {
-	b.mu.Lock()
+	b.mu.Lock("AddClusterInternal")
 	defer b.mu.Unlock()
 
 	clusterARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "cluster/"+name)

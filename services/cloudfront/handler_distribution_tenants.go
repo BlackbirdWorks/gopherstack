@@ -664,14 +664,19 @@ func (h *Handler) handleVerifyDNSConfiguration(c *echo.Context) error {
 		return h.handleError(c, verifyErr)
 	}
 
+	// Item wrapper is <DnsConfiguration>, not <Item>: real deserializer
+	// (awsRestxml_deserializeDocumentDnsConfigurationList,
+	// cloudfront@v1.67.4/deserializers.go) only recognizes that element
+	// name inside <DnsConfigurationList>; a real client decoded an empty
+	// slice regardless of backend state before this fix.
 	var items strings.Builder
 	for _, dc := range configs {
-		fmt.Fprintf(
-			&items,
-			`<Item><Domain>%s</Domain><Status>%s</Status></Item>`,
-			dc.Domain,
-			dc.Status,
-		)
+		items.WriteString("<DnsConfiguration>")
+		fmt.Fprintf(&items, `<Domain>%s</Domain><Status>%s</Status>`, dc.Domain, dc.Status)
+		if dc.Reason != "" {
+			fmt.Fprintf(&items, `<Reason>%s</Reason>`, dc.Reason)
+		}
+		items.WriteString("</DnsConfiguration>")
 	}
 
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
@@ -750,7 +755,7 @@ func (h *Handler) handleCreateInvalidationForTenant(c *echo.Context, tenantID st
 		}
 	}
 
-	inv, backendErr := h.Backend.CreateInvalidationForTenant(tenantID, batch.Paths.Items)
+	inv, backendErr := h.Backend.CreateInvalidationForTenant(tenantID, batch.CallerReference, batch.Paths.Items)
 	if backendErr != nil {
 		return h.handleError(c, backendErr)
 	}
@@ -804,13 +809,26 @@ func (h *Handler) handleGetInvalidationForTenant(c *echo.Context, tenantID strin
 		return h.handleError(c, err)
 	}
 
+	// InvalidationBatch is a required member of types.Invalidation
+	// (cloudfront@v1.67.4/types/types.go); omitting it decoded nil for
+	// every real client regardless of backend state.
+	var pathsSB strings.Builder
+	for _, p := range inv.Paths {
+		fmt.Fprintf(&pathsSB, "<Path>%s</Path>", p)
+	}
+
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<Invalidation xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Status>%s</Status>`+
 		`<CreateTime>%s</CreateTime>`+
+		`<InvalidationBatch>`+
+		`<CallerReference>%s</CallerReference>`+
+		`<Paths><Quantity>%d</Quantity><Items>%s</Items></Paths>`+
+		`</InvalidationBatch>`+
 		`</Invalidation>`,
-		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339))
+		cfNS, inv.ID, inv.Status, inv.CreateTime.Format(time.RFC3339),
+		inv.CallerRef, len(inv.Paths), pathsSB.String())
 
 	return xmlResp(c, http.StatusOK, resp)
 }
@@ -832,9 +850,12 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 		Status     string   `xml:"Status"`
 		CreateTime string   `xml:"CreateTime"`
 	}
+	// Marker is required on InvalidationList (cloudfront@v1.67.4 types/types.go:3678-3688): the
+	// echo of the request's Marker, present even when empty/not truncated.
 	type invList struct {
 		XMLName     xml.Name     `xml:"InvalidationList"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		Marker      string       `xml:"Marker"`
 		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []invSummary `xml:"Items>InvalidationSummary"`
 		MaxItems    int          `xml:"MaxItems"`
@@ -851,7 +872,7 @@ func (h *Handler) handleListInvalidationsForTenant(c *echo.Context, tenantID str
 		})
 	}
 	list := invList{
-		XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
+		XMLNS: cfNS, Marker: c.QueryParam("Marker"), MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
 		IsTruncated: isTruncated, NextMarker: nextMarker,
 	}
 	out, xmlErr := xml.Marshal(list)

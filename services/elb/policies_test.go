@@ -239,7 +239,7 @@ func TestCreateLoadBalancerPolicy(t *testing.T) {
 				"PolicyAttributes.member.1.AttributeName":  {"NotARealAttribute"},
 				"PolicyAttributes.member.1.AttributeValue": {"true"},
 			},
-			wantStatus: http.StatusBadRequest,
+			wantStatus: http.StatusConflict,
 		},
 		{
 			name: "duplicate_policy_returns_conflict",
@@ -869,7 +869,7 @@ func TestDeletePolicyInUseByListenerRejected(t *testing.T) {
 		"LoadBalancerName": {"del-inuse-lb"},
 		"PolicyName":       {"in-use-pol"},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusConflict, rec.Code)
 }
 
 func TestDeletePolicyAfterClearOk(t *testing.T) {
@@ -975,8 +975,8 @@ func TestStickinessPolicyTCPRejected(t *testing.T) {
 		port       string
 		wantStatus int
 	}{
-		{"tcp_listener_rejected", "TCP", "", "80", http.StatusBadRequest},
-		{"ssl_listener_rejected", "SSL", certARN, "443", http.StatusBadRequest},
+		{"tcp_listener_rejected", "TCP", "", "80", http.StatusConflict},
+		{"ssl_listener_rejected", "SSL", certARN, "443", http.StatusConflict},
 		{"http_listener_accepted", "HTTP", "", "80", http.StatusOK},
 	}
 

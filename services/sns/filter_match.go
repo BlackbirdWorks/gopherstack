@@ -122,6 +122,10 @@ func matchesOrBody(subPolicies []json.RawMessage, message string) bool {
 	return false
 }
 
+// matchesParsedFilterPolicy is the sole filter-policy engine that governs
+// delivery: SNS prunes non-matching subscribers here before Publish ever
+// reaches SQS. See gopherstack-3ntv — sqs.matchesFilterPolicy was the other,
+// dead half and has been deleted.
 func matchesParsedFilterPolicy(policy parsedFilterPolicy, attrs map[string]MessageAttribute) bool {
 	if policy == nil {
 		return true

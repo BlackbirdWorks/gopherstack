@@ -135,10 +135,10 @@ func (b *InMemoryBackend) CreateDevEndpoint(
 		return nil, ErrAlreadyExists
 	}
 
-	if b.devEndpoints.Len() >= maxDevEndpointsPerAccount {
+	if b.devEndpoints.Len() >= b.limits.devEndpoints {
 		return nil, fmt.Errorf(
 			"%w: account is already at the %d development endpoint limit",
-			ErrResourceNumberLimitExceeded, maxDevEndpointsPerAccount,
+			ErrResourceNumberLimitExceeded, b.limits.devEndpoints,
 		)
 	}
 

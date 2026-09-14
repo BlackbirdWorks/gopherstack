@@ -9,6 +9,10 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 	versions := h.Backend.DescribeDBEngineVersions(engine, engineVersion)
+	versions, err := applyDBEngineVersionFilters(vals, versions)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBEngineVersion, 0, len(versions))
 	for _, v := range versions {
 		members = append(members, xmlDBEngineVersion(v))

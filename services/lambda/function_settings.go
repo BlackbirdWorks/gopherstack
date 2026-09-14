@@ -1,5 +1,7 @@
 package lambda
 
+import "fmt"
+
 // GetRuntimeManagementConfig returns the runtime management config for a function.
 func (b *InMemoryBackend) GetRuntimeManagementConfig(
 	name string,
@@ -93,8 +95,11 @@ func (b *InMemoryBackend) PutFunctionRecursionConfig(
 	return cfg, nil
 }
 
-// GetFunctionScalingConfig returns the scaling config for a function.
-func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*GetFunctionScalingConfigOutput, error) {
+// GetFunctionScalingConfig returns the scaling config for a function version
+// or alias. Qualifier is required on the real op (validators.go:2858-2860,
+// aws-sdk-go-v2/service/lambda@v1.107.0) -- each qualifier holds its own
+// config (gopherstack-gjn1).
+func (b *InMemoryBackend) GetFunctionScalingConfig(name, qualifier string) (*GetFunctionScalingConfigOutput, error) {
 	b.mu.RLock("GetFunctionScalingConfig")
 	defer b.mu.RUnlock()
 
@@ -103,9 +108,13 @@ func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*GetFunctionSca
 		return nil, ErrFunctionNotFound
 	}
 
+	if qualifier == "" {
+		return nil, fmt.Errorf("%w: Qualifier is required", ErrInvalidParameterValue)
+	}
+
 	out := &GetFunctionScalingConfigOutput{FunctionArn: fn.FunctionArn}
 
-	if cfg, hasConfig := b.functionScalingConfigs[name]; hasConfig {
+	if cfg, hasConfig := b.functionScalingConfigs[permissionMapKey(name, qualifier)]; hasConfig {
 		applied := *cfg
 		requested := *cfg
 		out.AppliedFunctionScalingConfig = &applied
@@ -115,9 +124,12 @@ func (b *InMemoryBackend) GetFunctionScalingConfig(name string) (*GetFunctionSca
 	return out, nil
 }
 
-// PutFunctionScalingConfig sets the scaling config for a function.
+// PutFunctionScalingConfig sets the scaling config for a function version or
+// alias, keyed by function+Qualifier (both required, same as
+// GetFunctionScalingConfig) so per-version/per-alias configs don't collapse
+// into one (gopherstack-gjn1).
 func (b *InMemoryBackend) PutFunctionScalingConfig(
-	name string,
+	name, qualifier string,
 	input *PutFunctionScalingConfigInput,
 ) (*PutFunctionScalingConfigOutput, error) {
 	b.mu.Lock("PutFunctionScalingConfig")
@@ -128,9 +140,13 @@ func (b *InMemoryBackend) PutFunctionScalingConfig(
 		return nil, ErrFunctionNotFound
 	}
 
+	if qualifier == "" {
+		return nil, fmt.Errorf("%w: Qualifier is required", ErrInvalidParameterValue)
+	}
+
 	if input.FunctionScalingConfig != nil {
 		cfg := *input.FunctionScalingConfig
-		b.functionScalingConfigs[name] = &cfg
+		b.functionScalingConfigs[permissionMapKey(name, qualifier)] = &cfg
 	}
 
 	return &PutFunctionScalingConfigOutput{FunctionState: fn.State}, nil

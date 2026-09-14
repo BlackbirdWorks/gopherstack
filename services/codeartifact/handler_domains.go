@@ -178,21 +178,31 @@ func (h *Handler) handleGetDomainPermissionsPolicy(c *echo.Context, domainName s
 	})
 }
 
+// putDomainPermissionsPolicyBody mirrors PutDomainPermissionsPolicyInput's
+// real wire shape: unlike its Get/Delete siblings (domain/domain-owner as
+// httpQuery params, confirmed against serializers.go's
+// awsRestjson1_serializeOpHttpBindingsGetDomainPermissionsPolicyInput /
+// ...DeleteDomainPermissionsPolicyInput), Put has NO httpQuery bindings at
+// all -- domain/domainOwner/policyDocument/policyRevision are all plain
+// JSON body members (awsRestjson1_serializeOpDocumentPutDomainPermissionsPolicyInput).
+// A real client's Domain never reaches this handler via the query string.
 type putDomainPermissionsPolicyBody struct {
+	Domain         string `json:"domain"`
 	PolicyDocument string `json:"policyDocument"`
 	PolicyRevision string `json:"policyRevision"`
 }
 
-func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, domainName string, body []byte) error {
-	if domainName == "" {
-		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
-	}
-
+func (h *Handler) handlePutDomainPermissionsPolicy(c *echo.Context, body []byte) error {
 	var in putDomainPermissionsPolicyBody
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &in); err != nil {
 			return c.JSON(http.StatusBadRequest, errResp("ValidationException", "invalid request body"))
 		}
+	}
+
+	domainName := in.Domain
+	if domainName == "" {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", "domain is required"))
 	}
 
 	// PolicyDocument is "This member is required." on the real

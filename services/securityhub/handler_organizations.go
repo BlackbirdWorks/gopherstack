@@ -61,7 +61,12 @@ func (h *Handler) handleEnableOrganizationAdminAccount(c *echo.Context, body map
 		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "AdminAccountId is required")
 	}
 
-	if err := h.Backend.EnableOrganizationAdminAccount(accountID); err != nil {
+	feature, _ := body["Feature"].(string)
+	if feature == "" {
+		feature = defaultSecurityHubFeature
+	}
+
+	if err := h.Backend.EnableOrganizationAdminAccount(accountID, feature); err != nil {
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
@@ -75,7 +80,12 @@ func (h *Handler) handleDisableOrganizationAdminAccount(c *echo.Context, body ma
 		return typedErrorResponse(c, http.StatusBadRequest, "InvalidInputException", "AdminAccountId is required")
 	}
 
-	if err := h.Backend.DisableOrganizationAdminAccount(accountID); err != nil {
+	feature, _ := body["Feature"].(string)
+	if feature == "" {
+		feature = defaultSecurityHubFeature
+	}
+
+	if err := h.Backend.DisableOrganizationAdminAccount(accountID, feature); err != nil {
 		return typedErrorResponse(c, http.StatusInternalServerError, "InternalException", err.Error())
 	}
 
@@ -100,7 +110,7 @@ func (h *Handler) handleListOrganizationAdminAccounts(c *echo.Context) error {
 		feature = defaultSecurityHubFeature
 	}
 
-	accounts, next := h.Backend.ListOrganizationAdminAccounts(nextToken, maxResults)
+	accounts, next := h.Backend.ListOrganizationAdminAccounts(nextToken, maxResults, feature)
 
 	var out []map[string]any //nolint:prealloc // existing issue.
 
@@ -117,9 +127,7 @@ func (h *Handler) handleListOrganizationAdminAccounts(c *echo.Context) error {
 
 	// Real ListOrganizationAdminAccountsOutput always echoes Feature (the
 	// request's filter, or its default) -- confirmed
-	// api_op_ListOrganizationAdminAccounts.go. This backend doesn't track
-	// admin accounts per-feature, so the echo isn't filtered by it, only
-	// reflected back.
+	// api_op_ListOrganizationAdminAccounts.go.
 	resp := map[string]any{"AdminAccounts": out, "Feature": feature}
 
 	if next != "" {

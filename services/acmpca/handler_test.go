@@ -3,8 +3,10 @@ package acmpca_test
 import (
 	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +17,20 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/acmpca"
 )
+
+// parsePEMCert decodes a PEM-encoded certificate and parses it with
+// crypto/x509, failing the test on any error.
+func parsePEMCert(t *testing.T, certPEM string) *x509.Certificate {
+	t.Helper()
+
+	block, _ := pem.Decode([]byte(certPEM))
+	require.NotNil(t, block)
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	require.NoError(t, err)
+
+	return cert
+}
 
 // b64 base64-encodes s the way aws-sdk-go-v2 encodes []byte-typed blob
 // fields (IssueCertificateInput.Csr, ImportCertificateAuthorityCertificateInput.

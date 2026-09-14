@@ -2,7 +2,10 @@ package appstream
 
 import (
 	"fmt"
+	"sort"
 	"time"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 const (
@@ -12,6 +15,11 @@ const (
 	// defaultStreamingURLValiditySeconds matches real AWS's CreateStreamingURL
 	// default (60 seconds) when the caller omits Validity.
 	defaultStreamingURLValiditySeconds = 60
+
+	// defaultDescribeSessionsLimit/maxDescribeSessionsLimit match real AWS's
+	// documented DescribeSessionsInput.Limit default/max (api_op_DescribeSessions.go).
+	defaultDescribeSessionsLimit = 20
+	maxDescribeSessionsLimit     = 50
 )
 
 type storedSession struct {
@@ -52,7 +60,8 @@ func (b *InMemoryBackend) nextSessionID() string {
 // streaming-instance concept) and so isn't filterable.
 func (b *InMemoryBackend) DescribeSessions(
 	stackName, fleetName, userID, authenticationType string,
-) ([]*Session, error) {
+	limit int, nextToken string,
+) ([]*Session, string, error) {
 	b.mu.RLock("DescribeSessions")
 	defer b.mu.RUnlock()
 
@@ -75,10 +84,24 @@ func (b *InMemoryBackend) DescribeSessions(
 			continue
 		}
 
-		result = append(result, s.toSession())
+		sess := s.toSession()
+
+		if f, ok := b.fleets.Get(s.FleetName); ok {
+			sess.MaxExpirationTime = s.StartTime.Add(time.Duration(f.MaxUserDurationSecs) * time.Second)
+		}
+
+		result = append(result, sess)
 	}
 
-	return result, nil
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+
+	if limit > maxDescribeSessionsLimit {
+		limit = maxDescribeSessionsLimit
+	}
+
+	p := page.New(result, nextToken, limit, defaultDescribeSessionsLimit)
+
+	return p.Data, p.Next, nil
 }
 
 // DrainSessionInstance removes a session.
@@ -129,7 +152,7 @@ func (b *InMemoryBackend) CreateStreamingURL(
 
 	sessionID := b.nextSessionID()
 	s := &storedSession{
-		StartTime:          time.Now().UTC(),
+		StartTime:          b.now(),
 		ID:                 sessionID,
 		FleetName:          fleetName,
 		StackName:          stackName,
@@ -145,7 +168,7 @@ func (b *InMemoryBackend) CreateStreamingURL(
 		validity = defaultStreamingURLValiditySeconds
 	}
 
-	expires := time.Now().UTC().Add(time.Duration(validity) * time.Second)
+	expires := b.now().Add(time.Duration(validity) * time.Second)
 
 	url := fmt.Sprintf(
 		"https://appstream2.%s.aws.amazon.com/authenticate?param=%s", b.region, sessionID,

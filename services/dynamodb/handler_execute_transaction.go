@@ -10,7 +10,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	sdkDDB "github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 
@@ -33,7 +32,7 @@ type executeTransactionItemResponse struct {
 }
 
 type executeTransactionOutput struct {
-	ConsumedCapacity []map[string]any                 `json:"ConsumedCapacity,omitempty"`
+	ConsumedCapacity []*models.ConsumedCapacity       `json:"ConsumedCapacity,omitempty"`
 	Responses        []executeTransactionItemResponse `json:"Responses,omitempty"`
 }
 
@@ -83,17 +82,14 @@ func (h *DynamoDBHandler) handleExecuteTransaction(ctx context.Context, body []b
 		responses = append(responses, resp)
 	}
 
-	var consumedCapacity []map[string]any
+	var consumedCapacity []*models.ConsumedCapacity
 	if req.ReturnConsumedCapacity != "" &&
 		types.ReturnConsumedCapacity(
 			req.ReturnConsumedCapacity,
 		) != types.ReturnConsumedCapacityNone {
-		for _, cc := range out.ConsumedCapacity {
-			entry := map[string]any{"TableName": aws.ToString(cc.TableName)}
-			if cc.CapacityUnits != nil {
-				entry["CapacityUnits"] = *cc.CapacityUnits
-			}
-			consumedCapacity = append(consumedCapacity, entry)
+		consumedCapacity = make([]*models.ConsumedCapacity, len(out.ConsumedCapacity))
+		for i := range out.ConsumedCapacity {
+			consumedCapacity[i] = models.FromSDKConsumedCapacity(&out.ConsumedCapacity[i])
 		}
 	}
 

@@ -295,7 +295,7 @@ func resolveOperation(path, method string) string {
 }
 
 // resolveCoreOperation resolves the handful of special-cased top-level paths (thing
-// listing/registration, named shadows, thing-group/job shortcuts under /things/, rule
+// listing/registration, thing-group/job shortcuts under /things/, rule
 // listing, the account endpoint and fleet indexing) before falling through to the
 // per-family resolvers.
 func resolveCoreOperation(path, method string) string {
@@ -307,10 +307,6 @@ func resolveCoreOperation(path, method string) string {
 	case path == "/things/register" && method == http.MethodPost:
 
 		return opRegisterThing
-	// ListNamedShadowsForThing uses a special /api/things/shadow/ prefix.
-	case strings.HasPrefix(path, "/api/things/shadow/ListNamedShadowsForThing/"):
-
-		return opListNamedShadowsForThing
 	case strings.HasPrefix(path, "/things/"):
 
 		return resolveThingsPathOperation(path, method)
@@ -355,10 +351,13 @@ func resolveThingsPathOperation(path, method string) string {
 	case strings.HasPrefix(path, "/things/") && strings.Contains(path, "/jobs/"):
 
 		return resolveThingJobExecutionOps(path, method)
-	// Shadow ops use /things/{name}/shadow — must come before generic thing routing.
+	// Shadow ops (/things/{name}/shadow) belong to iotdataplane, not iot
+	// (gopherstack-1252): must return unknownOperation here rather than fall
+	// through to thingOperation's default, which would misroute a shadow GET
+	// as DescribeThing.
 	case strings.HasPrefix(path, "/things/") && strings.HasSuffix(path, "/shadow"):
 
-		return shadowOperation(method)
+		return unknownOperation
 	default:
 
 		return thingOperation(path, method)
@@ -617,19 +616,6 @@ func resolveJobAndAuditOps(path, method string) string {
 		method == http.MethodPut:
 
 		return opCancelAuditTask
-	}
-
-	return unknownOperation
-}
-
-func shadowOperation(method string) string {
-	switch method {
-	case http.MethodGet:
-		return opGetThingShadow
-	case http.MethodPost:
-		return opUpdateThingShadow
-	case http.MethodDelete:
-		return opDeleteThingShadow
 	}
 
 	return unknownOperation

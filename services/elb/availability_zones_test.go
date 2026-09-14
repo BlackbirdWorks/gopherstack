@@ -131,7 +131,7 @@ func TestEnableAZVPCLBRejected(t *testing.T) {
 		wantStatus int
 		isVPC      bool
 	}{
-		{"vpc_lb_rejected", http.StatusBadRequest, true},
+		{"vpc_lb_rejected", http.StatusConflict, true},
 		{"ec2_classic_lb_accepted", http.StatusOK, false},
 	}
 

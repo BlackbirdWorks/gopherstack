@@ -475,20 +475,17 @@ func TestGlue_Tags(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// GetDatabase to find ARN
+	// GetDatabase -- Database.ARN is internal-only (gopherstack-6vwds; real
+	// GetDatabaseOutput carries no Arn member), so the ARN used to tag it is
+	// the deterministic one databaseARN builds, not something read off the
+	// wire.
 	rec = doGlueRequest(t, h, "GetDatabase", map[string]any{"Name": "tagdb"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var dbOut struct {
-		Database struct {
-			ARN string `json:"Arn"`
-		} `json:"Database"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &dbOut))
-	assert.NotEmpty(t, dbOut.Database.ARN)
+	dbARN := "arn:aws:glue:" + testRegion + ":" + testAccountID + ":database/tagdb"
 
 	// GetTags
-	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": dbOut.Database.ARN})
+	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": dbARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsOut struct {
@@ -499,20 +496,20 @@ func TestGlue_Tags(t *testing.T) {
 
 	// TagResource
 	rec = doGlueRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": dbOut.Database.ARN,
+		"ResourceArn": dbARN,
 		"TagsToAdd":   map[string]string{"key2": "value2"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// UntagResource
 	rec = doGlueRequest(t, h, "UntagResource", map[string]any{
-		"ResourceArn":  dbOut.Database.ARN,
+		"ResourceArn":  dbARN,
 		"TagsToRemove": []string{"key1"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// Verify tags
-	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": dbOut.Database.ARN})
+	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": dbARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var finalTagsOut struct {
@@ -685,26 +682,24 @@ func TestGlue_CrawlerTagsLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Get crawler ARN
+	// Get crawler -- Crawler.ARN is internal-only (gopherstack-6vwds; real
+	// GetCrawlerOutput carries no Arn member), so the ARN used to tag it is
+	// the deterministic one crawlerARN builds, not something read off the
+	// wire.
 	rec = doGlueRequest(t, h, "GetCrawler", map[string]any{"Name": "tagcrawler"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var crawlerOut struct {
-		Crawler struct {
-			ARN string `json:"Arn"`
-		} `json:"Crawler"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &crawlerOut))
+	crawlerARN := "arn:aws:glue:" + testRegion + ":" + testAccountID + ":crawler/tagcrawler"
 
 	// Tag crawler
 	rec = doGlueRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": crawlerOut.Crawler.ARN,
+		"ResourceArn": crawlerARN,
 		"TagsToAdd":   map[string]string{"extra": "tag"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// GetTags for crawler
-	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": crawlerOut.Crawler.ARN})
+	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": crawlerARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsOut struct {
@@ -716,7 +711,7 @@ func TestGlue_CrawlerTagsLifecycle(t *testing.T) {
 
 	// Untag crawler
 	rec = doGlueRequest(t, h, "UntagResource", map[string]any{
-		"ResourceArn":  crawlerOut.Crawler.ARN,
+		"ResourceArn":  crawlerARN,
 		"TagsToRemove": []string{"env"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -739,26 +734,23 @@ func TestGlue_JobTagsLifecycle(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// Get job ARN
+	// Get job -- Job.ARN is internal-only (gopherstack-6vwds; real GetJobOutput
+	// carries no Arn member), so the ARN used to tag it is the deterministic
+	// one jobARN builds, not something read off the wire.
 	rec = doGlueRequest(t, h, "GetJob", map[string]any{"JobName": "tagjob"})
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var jobOut struct {
-		Job struct {
-			ARN string `json:"Arn"`
-		} `json:"Job"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &jobOut))
+	jobARN := "arn:aws:glue:" + testRegion + ":" + testAccountID + ":job/tagjob"
 
 	// Tag job
 	rec = doGlueRequest(t, h, "TagResource", map[string]any{
-		"ResourceArn": jobOut.Job.ARN,
+		"ResourceArn": jobARN,
 		"TagsToAdd":   map[string]string{"team": "data"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	// GetTags for job
-	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": jobOut.Job.ARN})
+	rec = doGlueRequest(t, h, "GetTags", map[string]any{"ResourceArn": jobARN})
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var tagsOut struct {
@@ -770,7 +762,7 @@ func TestGlue_JobTagsLifecycle(t *testing.T) {
 
 	// Untag job
 	rec = doGlueRequest(t, h, "UntagResource", map[string]any{
-		"ResourceArn":  jobOut.Job.ARN,
+		"ResourceArn":  jobARN,
 		"TagsToRemove": []string{"env"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)

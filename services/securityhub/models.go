@@ -190,15 +190,16 @@ type AutomationRuleV2 struct {
 
 // ConnectorV2 represents a Security Hub V2 connector.
 type ConnectorV2 struct {
-	Provider        map[string]any    `json:"Provider"`
-	Tags            map[string]string `json:"Tags"`
-	ConnectorId     string            `json:"ConnectorId"` //nolint:revive,staticcheck // existing issue.
-	ConnectorArn    string            `json:"ConnectorArn"`
-	Name            string            `json:"Name"`
-	Description     string            `json:"Description"`
-	CreatedAt       string            `json:"CreatedAt"`
-	UpdatedAt       string            `json:"UpdatedAt"`
-	ConnectorStatus string            `json:"ConnectorStatus"`
+	Provider         map[string]any    `json:"Provider"`
+	Tags             map[string]string `json:"Tags"`
+	ConnectorId      string            `json:"ConnectorId"` //nolint:revive,staticcheck // existing issue.
+	ConnectorArn     string            `json:"ConnectorArn"`
+	Name             string            `json:"Name"`
+	Description      string            `json:"Description"`
+	CreatedAt        string            `json:"CreatedAt"`
+	UpdatedAt        string            `json:"UpdatedAt"`
+	ConnectorStatus  string            `json:"ConnectorStatus"`
+	EnablementStatus string            `json:"EnablementStatus"`
 }
 
 // CspmConnector represents a Security Hub CSPM connector to a third-party

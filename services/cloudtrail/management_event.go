@@ -17,19 +17,28 @@ const eventVersion = "1.08"
 // the CloudTrailEvent field of a LookupEvents result: a full, self-contained
 // record of the API call, independent of the top-level Event summary fields.
 type managementEventDetail struct {
-	UserIdentity       managementEventIdentity `json:"userIdentity"`
-	EventVersion       string                  `json:"eventVersion"`
-	EventTime          string                  `json:"eventTime"`
-	EventSource        string                  `json:"eventSource"`
-	EventName          string                  `json:"eventName"`
-	AwsRegion          string                  `json:"awsRegion"`
-	RequestID          string                  `json:"requestID"`
-	EventID            string                  `json:"eventID"`
-	EventType          string                  `json:"eventType"`
-	RecipientAccountID string                  `json:"recipientAccountId,omitempty"`
-	EventCategory      string                  `json:"eventCategory"`
-	ReadOnly           bool                    `json:"readOnly"`
-	ManagementEvent    bool                    `json:"managementEvent"`
+	UserIdentity managementEventIdentity `json:"userIdentity"`
+	EventVersion string                  `json:"eventVersion"`
+	EventTime    string                  `json:"eventTime"`
+	EventSource  string                  `json:"eventSource"`
+	EventName    string                  `json:"eventName"`
+	AwsRegion    string                  `json:"awsRegion"`
+	// ErrorCode/ErrorMessage: "The AWS service error if the request returns
+	// an error" / "If the request returns an error, the description of the
+	// error" -- both documented, top-level, "Since: 1.0" record fields
+	// (docs.aws.amazon.com/awscloudtrail/latest/userguide/
+	// cloudtrail-event-reference-record-contents.html), populated only for
+	// a failed call -- see pkgs/service/cloudtrail_capture.go's
+	// extractErrorInfo for how (and how completely) that's detected.
+	ErrorCode          string `json:"errorCode,omitempty"`
+	ErrorMessage       string `json:"errorMessage,omitempty"`
+	RequestID          string `json:"requestID"`
+	EventID            string `json:"eventID"`
+	EventType          string `json:"eventType"`
+	RecipientAccountID string `json:"recipientAccountId,omitempty"`
+	EventCategory      string `json:"eventCategory"`
+	ReadOnly           bool   `json:"readOnly"`
+	ManagementEvent    bool   `json:"managementEvent"`
 }
 
 // managementEventIdentity is the "userIdentity" block of a CloudTrail record.
@@ -72,6 +81,8 @@ func (b *InMemoryBackend) RecordManagementEvent(ev service.CloudTrailEventInput)
 		EventSource:        ev.EventSource,
 		EventName:          ev.EventName,
 		AwsRegion:          ev.AwsRegion,
+		ErrorCode:          ev.ErrorCode,
+		ErrorMessage:       ev.ErrorMessage,
 		RequestID:          uuid.NewString(),
 		EventID:            eventID,
 		EventType:          "AwsApiCall",

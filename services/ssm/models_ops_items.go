@@ -214,6 +214,7 @@ type UpdateOpsItemInput struct {
 type UpdateOpsMetadataInput struct {
 	Metadata       map[string]MetadataValue `json:"MetadataToUpdate,omitempty"`
 	OpsMetadataArn string                   `json:"OpsMetadataArn"`
+	KeysToDelete   []string                 `json:"KeysToDelete,omitempty"`
 }
 
 // UpdateOpsMetadataOutput is the response payload for UpdateOpsMetadata.

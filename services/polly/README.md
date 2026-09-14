@@ -7,11 +7,15 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 10 (10 ok) |
+| PARITY entries audited | 10 (5 ok, 5 partial) |
 | Feature families | 4 (4 ok) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 0 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- errcodeaudit 2026-09-12 (gopherstack-r3pr): ErrValidation's mapped wire code was fabricated ("InvalidParameterValueException", no such type in polly@v1.60.4) and is now the real "ValidationException" type -- confirmed modeled by StartSpeechSynthesisStream, but UNCONFIRMED for the other six operations that also raise this shared sentinel (PutLexicon/DescribeVoices/SynthesizeSpeech/ListSpeechSynthesisTasks/StartSpeechSynthesisTask/GetSpeechSynthesisTask via speech_synthesis_tasks.go's Status check): none of those declare ANY generic validation exception in their own deserializeOpError, so a real client can only ever see this as an untyped smithy.GenericAPIError regardless of the code text. Splitting ErrValidation per-operation into whatever each one's own model actually supports (if anything) is future work, not done this pass.
 
 ## More
 

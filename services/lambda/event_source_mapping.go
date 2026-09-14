@@ -41,6 +41,7 @@ type EventSourceMapping struct {
 	EventSourceARN                      string                               `json:"eventSourceARN"`
 	FunctionARN                         string                               `json:"functionARN"`
 	UUID                                string                               `json:"uuid"`
+	KMSKeyArn                           string                               `json:"kmsKeyArn,omitempty"`
 	State                               EventSourceMappingState              `json:"state"`
 	StartingPosition                    string                               `json:"startingPosition"`
 	LastProcessingResult                string                               `json:"lastProcessingResult"`
@@ -120,6 +121,7 @@ type CreateEventSourceMappingInput struct {
 	EventSourceARN                      string
 	FunctionName                        string
 	StartingPosition                    string
+	KMSKeyArn                           string
 	SourceAccessConfigurations          []SourceAccessConfiguration
 	Topics                              []string
 	Queues                              []string
@@ -141,6 +143,7 @@ type UpdateEventSourceMappingInput struct {
 	DestinationConfig              *ESMDestinationConfig
 	BisectBatchOnFunctionError     *bool
 	UUID                           string
+	KMSKeyArn                      string
 	SourceAccessConfigurations     []SourceAccessConfiguration
 	Topics                         []string
 	Queues                         []string
@@ -164,6 +167,7 @@ type jsonESMResponse struct {
 	LastProcessingResult                string                               `json:"LastProcessingResult,omitempty"`
 	UUID                                string                               `json:"UUID"`
 	FunctionARN                         string                               `json:"FunctionArn"`
+	KMSKeyArn                           string                               `json:"KMSKeyArn,omitempty"`
 	State                               string                               `json:"State"`
 	EventSourceARN                      string                               `json:"EventSourceArn"`
 	StartingPosition                    string                               `json:"StartingPosition,omitempty"`
@@ -193,6 +197,7 @@ func toJSONESMResponse(m *EventSourceMapping) jsonESMResponse {
 		UUID:                                m.UUID,
 		EventSourceARN:                      m.EventSourceARN,
 		FunctionARN:                         m.FunctionARN,
+		KMSKeyArn:                           m.KMSKeyArn,
 		State:                               string(m.State),
 		LastModified:                        awstime.Epoch(m.LastModified),
 		BatchSize:                           m.BatchSize,
@@ -279,6 +284,7 @@ func (b *InMemoryBackend) CreateEventSourceMapping(
 		UUID:                                id,
 		EventSourceARN:                      input.EventSourceARN,
 		FunctionARN:                         fnARN,
+		KMSKeyArn:                           input.KMSKeyArn,
 		State:                               state,
 		BatchSize:                           batchSize,
 		StartingPosition:                    startingPosition,
@@ -427,6 +433,10 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 
 	if input.BisectBatchOnFunctionError != nil {
 		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
+	}
+
+	if input.KMSKeyArn != "" {
+		esm.KMSKeyArn = input.KMSKeyArn
 	}
 
 	applyESMWindowFields(esm, input)

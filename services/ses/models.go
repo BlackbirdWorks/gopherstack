@@ -132,6 +132,12 @@ type Email struct {
 	// classifySimulatedRecipients.
 	Bounced    bool `json:"bounced,omitempty"`
 	Complained bool `json:"complained,omitempty"`
+	// SimulatorOnly is set when every recipient (To+Cc+Bcc) is a mailbox
+	// simulator address. sentLast24HoursLocked (sending_stats.go) excludes
+	// these rows from the 24-hour send quota, matching real AWS SES: sends to
+	// the simulator "don't affect your daily sending quota" (see
+	// allRecipientsAreSimulator's doc comment, email_sending.go).
+	SimulatorOnly bool `json:"simulatorOnly,omitempty"`
 }
 
 // EmailTemplate represents a stored SES email template.
@@ -246,10 +252,10 @@ type SendQuota struct {
 // SendDataPoint represents a single send statistics time bucket.
 type SendDataPoint struct {
 	Timestamp        time.Time `json:"timestamp"`
-	DeliveryAttempts float64   `json:"deliveryAttempts"`
-	Bounces          float64   `json:"bounces"`
-	Complaints       float64   `json:"complaints"`
-	Rejects          float64   `json:"rejects"`
+	DeliveryAttempts int64     `json:"deliveryAttempts"`
+	Bounces          int64     `json:"bounces"`
+	Complaints       int64     `json:"complaints"`
+	Rejects          int64     `json:"rejects"`
 }
 
 const (

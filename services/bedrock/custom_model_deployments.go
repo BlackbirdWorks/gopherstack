@@ -155,16 +155,25 @@ func matchesCustomModelDeploymentFilter(
 	return true
 }
 
-// UpdateCustomModelDeployment updates mutable fields of a deployment.
-func (b *InMemoryBackend) UpdateCustomModelDeployment(deployARN string) (*CustomModelDeployment, error) {
+// UpdateCustomModelDeployment points a deployment at a new custom model.
+// Real UpdateCustomModelDeploymentInput.ModelArn is a required member
+// (bedrock@v1.66.4 api_op_UpdateCustomModelDeployment.go) -- it was
+// previously dropped entirely (handler never read the request body), so a
+// real client's model swap silently did nothing.
+func (b *InMemoryBackend) UpdateCustomModelDeployment(deployARN, modelARN string) (*CustomModelDeployment, error) {
 	b.mu.Lock("UpdateCustomModelDeployment")
 	defer b.mu.Unlock()
+
+	if modelARN == "" {
+		return nil, fmt.Errorf("%w: modelArn is required", ErrValidation)
+	}
 
 	d, ok := b.customModelDeployments.Get(deployARN)
 	if !ok {
 		return nil, fmt.Errorf("%w: custom model deployment %s not found", ErrNotFound, deployARN)
 	}
 
+	d.ModelArn = modelARN
 	d.LastModifiedTime = time.Now().UTC()
 
 	cp := *d

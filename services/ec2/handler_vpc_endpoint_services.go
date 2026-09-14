@@ -20,10 +20,17 @@ func (h *Handler) handleCreateVpcEndpointServiceConfiguration(
 		return nil, err
 	}
 
+	tags := parseTagSpecification(vals, "vpc-endpoint-service")
+	if len(tags) > 0 {
+		if err = h.Backend.CreateTags([]string{cfg.ServiceID}, tags); err != nil {
+			return nil, err
+		}
+	}
+
 	return &createVpcEndpointServiceConfigurationResponse{
 		Xmlns:         ec2XMLNS,
 		RequestID:     reqID,
-		ServiceConfig: toVpcEndpointServiceConfigItem(cfg),
+		ServiceConfig: toVpcEndpointServiceConfigItem(cfg, tags),
 	}, nil
 }
 
@@ -37,7 +44,10 @@ func (h *Handler) handleDescribeVpcEndpointServiceConfigurations(
 	resp := &describeVpcEndpointServiceConfigurationsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 
 	for _, cfg := range cfgs {
-		resp.ServiceConfigSet.Items = append(resp.ServiceConfigSet.Items, toVpcEndpointServiceConfigItem(cfg))
+		resp.ServiceConfigSet.Items = append(
+			resp.ServiceConfigSet.Items,
+			toVpcEndpointServiceConfigItem(cfg, h.Backend.TagsForResource(cfg.ServiceID)),
+		)
 	}
 
 	return resp, nil

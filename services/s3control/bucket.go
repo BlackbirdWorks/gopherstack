@@ -164,7 +164,11 @@ func (b *InMemoryBackend) DeleteBucketPolicy(bucketName string) error {
 	return nil
 }
 
-// GetBucketTagging returns tags for an Outposts bucket.
+// GetBucketTagging returns tags for an Outposts bucket. A bucket that has
+// never had PutBucketTagging called on it (or had DeleteBucketTagging
+// called since) has no tag set at all, not an empty one -- the real op
+// documents this as its own error (NoSuchTagSetError), not a success with
+// zero tags.
 func (b *InMemoryBackend) GetBucketTagging(bucketName string) (TagSet, error) {
 	b.mu.RLock("GetBucketTagging")
 	defer b.mu.RUnlock()
@@ -172,9 +176,9 @@ func (b *InMemoryBackend) GetBucketTagging(bucketName string) (TagSet, error) {
 	if !b.outpostsBuckets.Has(bucketName) {
 		return nil, fmt.Errorf("%w: %s", errBucketNotFound, bucketName)
 	}
-	tags := b.bucketTagging[bucketName]
-	if tags == nil {
-		return TagSet{}, nil
+	tags, ok := b.bucketTagging[bucketName]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errNoSuchTagSet, bucketName)
 	}
 	cp := make(TagSet, len(tags))
 	maps.Copy(cp, tags)

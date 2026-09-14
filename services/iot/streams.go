@@ -52,7 +52,7 @@ type CreateStreamInput struct {
 }
 
 func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateStream")
 	defer b.mu.Unlock()
 
 	if b.streams.Has(input.StreamID) {
@@ -77,7 +77,7 @@ func (b *InMemoryBackend) CreateStream(input *CreateStreamInput) (*IoTStream, er
 }
 
 func (b *InMemoryBackend) DescribeStream(id string) (*IoTStream, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeStream")
 	defer b.mu.RUnlock()
 
 	s, ok := b.streams.Get(id)
@@ -89,7 +89,7 @@ func (b *InMemoryBackend) DescribeStream(id string) (*IoTStream, error) {
 }
 
 func (b *InMemoryBackend) ListStreams() []*IoTStream {
-	b.mu.RLock()
+	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
 	out := make([]*IoTStream, 0, b.streams.Len())
@@ -101,7 +101,7 @@ func (b *InMemoryBackend) ListStreams() []*IoTStream {
 }
 
 func (b *InMemoryBackend) UpdateStream(id, description, roleARN string, files []StreamFile) (*IoTStream, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateStream")
 	defer b.mu.Unlock()
 
 	s, ok := b.streams.Get(id)
@@ -124,7 +124,7 @@ func (b *InMemoryBackend) UpdateStream(id, description, roleARN string, files []
 }
 
 func (b *InMemoryBackend) DeleteStream(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteStream")
 	defer b.mu.Unlock()
 
 	if !b.streams.Has(id) {

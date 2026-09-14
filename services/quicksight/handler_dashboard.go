@@ -71,6 +71,13 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		name = dashboardID
 	}
 
+	// Parameters (real, on the wire) is decoded nowhere: no Describe* op
+	// echoes it back (verified against quicksight@v1.129.0's
+	// DescribeDashboardDefinitionOutput, which has no Parameters member at
+	// all), and this backend's Dashboard.Definition is an opaque blob with no
+	// parameter-driven rendering to apply initial overrides to -- disclosed
+	// as a gap (PARITY.md items_still_open) rather than stored with nowhere
+	// to prove it landed.
 	d, err := h.Backend.CreateDashboard(
 		accountID,
 		dashboardID,
@@ -78,6 +85,7 @@ func (h *Handler) handleCreateDashboard(c *echo.Context) error {
 		strField(body, "ThemeArn"),
 		strField(body, keyVersionDescription),
 		mapField(body, keyDefinition),
+		mapField(body, "DashboardPublishOptions"),
 		permissionsField(body, keyPermissions),
 		tagsFromBody(body),
 	)
@@ -129,6 +137,7 @@ func (h *Handler) handleUpdateDashboard(c *echo.Context) error {
 		strField(body, "ThemeArn"),
 		strField(body, keyVersionDescription),
 		mapField(body, keyDefinition),
+		mapField(body, "DashboardPublishOptions"),
 	)
 	if err != nil {
 		return httpErr(c, err)
@@ -292,7 +301,7 @@ func (h *Handler) handleDescribeDashboardDefinition(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyName:           d.Name,
 		keyDashboardID:    d.DashboardID,
 		keyResourceStatus: d.Status,
@@ -300,7 +309,12 @@ func (h *Handler) handleDescribeDashboardDefinition(c *echo.Context) error {
 		"ThemeArn":        d.ThemeArn,
 		keyRequestID:      reqIDPlaceholder,
 		keyStatus:         http.StatusOK,
-	})
+	}
+	if d.PublishOptions != nil {
+		resp["DashboardPublishOptions"] = d.PublishOptions
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeDashboardPermissions(c *echo.Context) error {
@@ -313,13 +327,20 @@ func (h *Handler) handleDescribeDashboardPermissions(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyDashboardID:  dashboardID,
 		keyDashboardArn: d.Arn,
 		keyPermissions:  permissionsToMaps(perms),
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-	})
+	}
+	if len(d.LinkPermissions) > 0 {
+		resp["LinkSharingConfiguration"] = map[string]any{
+			keyPermissions: permissionsToMaps(d.LinkPermissions),
+		}
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
@@ -337,18 +358,27 @@ func (h *Handler) handleUpdateDashboardPermissions(c *echo.Context) error {
 		dashboardID,
 		permissionsField(body, "GrantPermissions"),
 		permissionsField(body, "RevokePermissions"),
+		permissionsField(body, "GrantLinkPermissions"),
+		permissionsField(body, "RevokeLinkPermissions"),
 	)
 	if err != nil {
 		return httpErr(c, err)
 	}
 
-	return writeJSON(c, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		keyDashboardID:  dashboardID,
 		keyDashboardArn: d.Arn,
 		keyPermissions:  permissionsToMaps(perms),
 		keyRequestID:    reqIDPlaceholder,
 		keyStatus:       http.StatusOK,
-	})
+	}
+	if len(d.LinkPermissions) > 0 {
+		resp["LinkSharingConfiguration"] = map[string]any{
+			keyPermissions: permissionsToMaps(d.LinkPermissions),
+		}
+	}
+
+	return writeJSON(c, http.StatusOK, resp)
 }
 
 // handleUpdateDashboardPublishedVersion flips which stored version of a

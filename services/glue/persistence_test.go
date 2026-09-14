@@ -168,7 +168,10 @@ func verifyFullState(t *testing.T, b *glue.InMemoryBackend) {
 	assert.Equal(t, 1, glue.DatabaseCount(b))
 	assert.Equal(t, 1, glue.TableCount(b))
 	assert.Equal(t, 1, glue.PartitionCount(b))
-	assert.Equal(t, 1, glue.TableVersionCount(b))
+	// CreateTable itself now also records version "0" (real Glue creates a
+	// table version on every Create/UpdateTable); seedFullState's own
+	// AddTableVersionInternal call adds a second, "1".
+	assert.Equal(t, 2, glue.TableVersionCount(b))
 	assert.Equal(t, 1, glue.CrawlerCount(b))
 	assert.Equal(t, 1, glue.JobCount(b))
 	assert.Equal(t, 1, glue.JobRunCount(b))

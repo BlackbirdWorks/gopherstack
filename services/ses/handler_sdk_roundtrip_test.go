@@ -125,7 +125,13 @@ func testListTemplates(t *testing.T, backend *ses.InMemoryBackend, client *sessd
 func TestListReceiptRuleSets_Pagination(t *testing.T) {
 	t.Parallel()
 
-	backend := ses.NewInMemoryBackend()
+	// The real per-account cap (40, quotas.html) is lower than the 100-per-page
+	// pagination default this test exercises -- gopherstack-ssk's
+	// LimitExceededException enforcement (limits.go) would otherwise make it
+	// impossible to create enough rule sets to observe a truncated page, a
+	// real-AWS inconsistency this test works around via WithResourceLimits
+	// (the pagination boundary under test is orthogonal to the resource cap).
+	backend := ses.NewInMemoryBackend().WithResourceLimits(ses.ResourceLimits{ReceiptRuleSets: 200})
 	h := ses.NewHandler(backend)
 	client := newTestSESClient(t, h)
 	ctx := t.Context()

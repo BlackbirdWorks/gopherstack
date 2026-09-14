@@ -191,7 +191,10 @@ func TestStorageLensGroups(t *testing.T) {
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
 		_ = doS3Request(t, h, http.MethodPost, listPath, createGroupBody)
 
-		rec := doS3Request(t, h, http.MethodPut, groupPath, `<StorageLensGroup/>`)
+		rec := doS3Request(
+			t, h, http.MethodPut, groupPath,
+			`<UpdateStorageLensGroupRequest><StorageLensGroup/></UpdateStorageLensGroupRequest>`,
+		)
 		assert.Equal(t, http.StatusOK, rec.Code)
 	})
 
@@ -200,7 +203,10 @@ func TestStorageLensGroups(t *testing.T) {
 
 		h := s3control.NewHandler(s3control.NewInMemoryBackend())
 
-		rec := doS3Request(t, h, http.MethodPut, groupPath, `<StorageLensGroup/>`)
+		rec := doS3Request(
+			t, h, http.MethodPut, groupPath,
+			`<UpdateStorageLensGroupRequest><StorageLensGroup/></UpdateStorageLensGroupRequest>`,
+		)
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 	})
 
@@ -825,16 +831,18 @@ func TestStorageLensGroup_UpdateFilter_Table(t *testing.T) {
 		{
 			name:      "update_with_filter",
 			groupName: "my-grp",
-			body: `<StorageLensGroup><Name>my-grp</Name>` +
+			body: `<UpdateStorageLensGroupRequest><StorageLensGroup><Name>my-grp</Name>` +
 				`<Filter><MatchAnyPrefix><Prefix>data/</Prefix></MatchAnyPrefix></Filter>` +
-				`</StorageLensGroup>`,
+				`</StorageLensGroup></UpdateStorageLensGroupRequest>`,
 			wantCode: http.StatusOK,
 		},
 		{
 			name:      "update_no_filter",
 			groupName: "my-grp2",
-			body:      `<StorageLensGroup><Name>my-grp2</Name></StorageLensGroup>`,
-			wantCode:  http.StatusOK,
+			body: `<UpdateStorageLensGroupRequest>` +
+				`<StorageLensGroup><Name>my-grp2</Name></StorageLensGroup>` +
+				`</UpdateStorageLensGroupRequest>`,
+			wantCode: http.StatusOK,
 		},
 	}
 
@@ -862,7 +870,9 @@ func TestStorageLensGroup_UpdateMissing(t *testing.T) {
 
 	rec := doS3ControlNewOpRequest(t, h, http.MethodPut,
 		"/v20180820/storagelensgroup/no-such-group", "000000000000",
-		`<StorageLensGroup><Name>no-such-group</Name></StorageLensGroup>`)
+		`<UpdateStorageLensGroupRequest>`+
+			`<StorageLensGroup><Name>no-such-group</Name></StorageLensGroup>`+
+			`</UpdateStorageLensGroupRequest>`)
 	assert.Equal(t, http.StatusNotFound, rec.Code)
 }
 

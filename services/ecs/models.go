@@ -136,12 +136,16 @@ type NetworkInterface struct {
 	Ipv6Address        string `json:"ipv6Address,omitempty"`
 }
 
-// NetworkBinding maps a container port to a host port.
+// NetworkBinding maps a container port to a host port. Field names verified
+// against ecs@v1.96.0 deserializers.go's awsAwsjson11_deserializeDocumentNetworkBinding
+// (bindIP, containerPort, containerPortRange, hostPort, hostPortRange, protocol).
 type NetworkBinding struct {
-	BindIP        string `json:"bindIP,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
-	ContainerPort int    `json:"containerPort,omitempty"`
-	HostPort      int    `json:"hostPort,omitempty"`
+	BindIP             string `json:"bindIP,omitempty"`
+	Protocol           string `json:"protocol,omitempty"`
+	ContainerPortRange string `json:"containerPortRange,omitempty"`
+	HostPortRange      string `json:"hostPortRange,omitempty"`
+	ContainerPort      int    `json:"containerPort,omitempty"`
+	HostPort           int    `json:"hostPort,omitempty"`
 }
 
 // Container holds the runtime status of a single container within a task.
@@ -927,16 +931,24 @@ type ListTaskDefinitionsInput struct {
 
 // ContainerInstance represents a registered ECS container instance.
 type ContainerInstance struct {
-	RegisteredAt         time.Time `json:"registeredAt"`
-	ContainerInstanceArn string    `json:"containerInstanceArn"`
-	EC2InstanceID        string    `json:"ec2InstanceId"`
-	ClusterArn           string    `json:"clusterArn"`
-	Status               string    `json:"status"`
-	AgentUpdateStatus    string    `json:"agentUpdateStatus,omitempty"`
-	Version              int64     `json:"version"`
-	RunningTasksCount    int       `json:"runningTasksCount"`
-	PendingTasksCount    int       `json:"pendingTasksCount"`
-	AgentConnected       bool      `json:"agentConnected"`
+	RegisteredAt time.Time `json:"registeredAt"`
+	// AllocatedPorts tracks host ports currently reserved on this instance by
+	// bridge/host-mode EC2-launch-type tasks, keyed by "<protocol>/<hostPort>"
+	// (e.g. "tcp/51000") -- see host_ports.go. Not part of any real ECS wire
+	// shape (AWS exposes reserved ports via DescribeContainerInstances'
+	// remainingResources instead); this is purely gopherstack's internal
+	// placement-bookkeeping, persisted additively so reservations survive a
+	// restart instead of going stale.
+	AllocatedPorts       map[string]bool `json:"allocatedPorts,omitempty"`
+	ContainerInstanceArn string          `json:"containerInstanceArn"`
+	EC2InstanceID        string          `json:"ec2InstanceId"`
+	ClusterArn           string          `json:"clusterArn"`
+	Status               string          `json:"status"`
+	AgentUpdateStatus    string          `json:"agentUpdateStatus,omitempty"`
+	Version              int64           `json:"version"`
+	RunningTasksCount    int             `json:"runningTasksCount"`
+	PendingTasksCount    int             `json:"pendingTasksCount"`
+	AgentConnected       bool            `json:"agentConnected"`
 }
 
 // TaskSetScale specifies a scale for a task set.

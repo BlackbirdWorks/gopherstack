@@ -9,9 +9,13 @@
 | --- | --- |
 | PARITY entries audited | 21 (21 ok) |
 | Feature families | 6 (5 ok, 1 deferred) |
-| Known gaps | none |
+| Known gaps | 1 |
 | Deferred items | 1 |
 | Resource leaks | clean |
+
+### Known gaps
+
+- InsufficientClusterCapacityFault / ServiceLinkedRoleNotFoundFault (types.InsufficientClusterCapacityFault, types.ServiceLinkedRoleNotFoundFault) are real CreateCluster error types not modeled. Reason: both are account/infrastructure-state faults (missing DAX service-linked role; opportunistic hardware capacity shortage) with no deterministic, request-shape-driven trigger condition -- gopherstack tracks neither IAM service-linked-role state nor a hardware capacity pool. Inventing an arbitrary trigger (e.g. erroring above some ReplicationFactor) would itself be exactly the kind of fabricated, non-AWS-accurate behavior this audit exists to prevent. Left unmodeled; would need a deliberate design decision (e.g. a backend flag simulating SLR presence) before implementing.
 
 ### Deferred
 

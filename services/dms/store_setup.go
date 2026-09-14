@@ -58,43 +58,6 @@ func lookupUnique[V any](idx *store.Index[V], key string) (*V, bool) {
 	return group[0], true
 }
 
-// describeByIdentifierOrARN implements the "try identifier, then ARN index,
-// then list everything in the region" shape shared by every plain
-// DescribeXxx(ctx, identifierOrArn) method (DescribeReplicationInstances,
-// DescribeEndpoints, DescribeReplicationTasks, ...). Factoring it out here
-// keeps those methods from being byte-for-byte duplicates of each other.
-func describeByIdentifierOrARN[V any](
-	t *store.Table[V],
-	byARN, byRegion *store.Index[V],
-	region, identifierOrArn string,
-) []*V {
-	if identifierOrArn != "" {
-		if v, ok := t.Get(regionKey(region, identifierOrArn)); ok {
-			cp := *v
-
-			return []*V{&cp}
-		}
-
-		if v, ok := lookupUnique(byARN, regionKey(region, identifierOrArn)); ok {
-			cp := *v
-
-			return []*V{&cp}
-		}
-
-		return []*V{}
-	}
-
-	items := byRegion.Get(region)
-	list := make([]*V, 0, len(items))
-
-	for _, v := range items {
-		cp := *v
-		list = append(list, &cp)
-	}
-
-	return list
-}
-
 func replicationInstanceKeyFn(v *ReplicationInstance) string {
 	return regionKey(v.Region, v.ReplicationInstanceIdentifier)
 }

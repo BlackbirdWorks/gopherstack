@@ -7,11 +7,16 @@ import (
 // getMaterializedViewRefreshTaskRunInput holds input for
 // GetMaterializedViewRefreshTaskRun. The real member name is
 // MaterializedViewRefreshTaskRunId, not RunId (glue@v1.152.0
-// api_op_GetMaterializedViewRefreshTaskRun.go), and CatalogId is a required
-// member not modeled: this backend keeps one flat namespace of refresh runs
-// with no per-catalog scoping -- accepted on the wire and otherwise inert.
+// api_op_GetMaterializedViewRefreshTaskRun.go). CatalogId is required on the
+// real op; this backend keeps one implicit catalog (the account ID, see
+// InMemoryBackend.AccountID), and never requires the run's DatabaseName/
+// TableName to reference an actually-registered Table (a real client can
+// start a refresh run against a db/table pair without ever having called
+// CreateTable), so scoping compares directly against the account ID rather
+// than looking up a Table that may not exist.
 type getMaterializedViewRefreshTaskRunInput struct {
 	MaterializedViewRefreshTaskRunID string `json:"MaterializedViewRefreshTaskRunId"`
+	CatalogID                        string `json:"CatalogId,omitempty"`
 }
 
 // getMaterializedViewRefreshTaskRunOutput holds the result for
@@ -26,6 +31,10 @@ func (h *Handler) handleGetMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *getMaterializedViewRefreshTaskRunInput,
 ) (*getMaterializedViewRefreshTaskRunOutput, error) {
+	if catalogIDMismatch(in.CatalogID, h.Backend.AccountID()) {
+		return nil, ErrNotFound
+	}
+
 	run, err := h.Backend.GetMaterializedViewRefreshTaskRun(in.MaterializedViewRefreshTaskRunID)
 	if err != nil {
 		return nil, err
@@ -104,6 +113,7 @@ func (h *Handler) handleListMaterializedViewRefreshTaskRuns(
 type startMaterializedViewRefreshTaskRunInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 // startMaterializedViewRefreshTaskRunOutput holds the result for
@@ -118,6 +128,10 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *startMaterializedViewRefreshTaskRunInput,
 ) (*startMaterializedViewRefreshTaskRunOutput, error) {
+	if catalogIDMismatch(in.CatalogID, h.Backend.AccountID()) {
+		return nil, ErrNotFound
+	}
+
 	run, err := h.Backend.StartMaterializedViewRefreshTaskRun(in.DatabaseName, in.TableName)
 	if err != nil {
 		return nil, err
@@ -137,11 +151,16 @@ func (h *Handler) handleStartMaterializedViewRefreshTaskRun(
 type stopMaterializedViewRefreshTaskRunInput struct {
 	DatabaseName string `json:"DatabaseName"`
 	TableName    string `json:"TableName"`
+	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
 func (h *Handler) handleStopMaterializedViewRefreshTaskRun(
 	_ context.Context,
 	in *stopMaterializedViewRefreshTaskRunInput,
 ) (*emptyOutput, error) {
+	if catalogIDMismatch(in.CatalogID, h.Backend.AccountID()) {
+		return nil, ErrNotFound
+	}
+
 	return &emptyOutput{}, h.Backend.StopMaterializedViewRefreshTaskRun(in.DatabaseName, in.TableName)
 }

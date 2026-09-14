@@ -36,9 +36,13 @@ func TestListUsersIndexCapacityCrossNamespaceSortIsTotal(t *testing.T) {
 	_, err = b.CreateNamespace(accountID, "ns-b", "", nil)
 	require.NoError(t, err)
 
-	userA, err := b.RegisterUser(accountID, "ns-a", "alice", "alice@ns-a.example.com", "READER", "QUICKSIGHT", "", nil)
+	userA, err := b.RegisterUser(
+		accountID, "ns-a", "alice", "alice@ns-a.example.com", "READER", "QUICKSIGHT", "", "", nil,
+	)
 	require.NoError(t, err)
-	userB, err := b.RegisterUser(accountID, "ns-b", "alice", "alice@ns-b.example.com", "READER", "QUICKSIGHT", "", nil)
+	userB, err := b.RegisterUser(
+		accountID, "ns-b", "alice", "alice@ns-b.example.com", "READER", "QUICKSIGHT", "", "", nil,
+	)
 	require.NoError(t, err)
 
 	want := map[string]bool{userA.Arn: true, userB.Arn: true}

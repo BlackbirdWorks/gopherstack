@@ -217,10 +217,19 @@ func (b *InMemoryBackend) UpdateService(
 				svc.DNSConfig.DNSRecords[i].TTL = newRec.TTL
 			}
 		}
+	} else if svc.DNSConfig != nil {
+		// Omitting DnsRecords deletes them (api_op_UpdateService.go:22-23).
+		// DnsConfigChange carries only DnsRecords -- RoutingPolicy/NamespaceID
+		// are immutable service-level fields (types.go:1070-1071) and survive.
+		svc.DNSConfig.DNSRecords = nil
 	}
 
 	if hcc != nil {
 		svc.HealthCheckConfig = copyHealthCheckConfig(hcc)
+	} else {
+		// Omitting HealthCheckConfig deletes it (api_op_UpdateService.go:22-23);
+		// HealthCheckCustomConfig is a separate field UpdateService never touches.
+		svc.HealthCheckConfig = nil
 	}
 
 	now := time.Now()
@@ -237,7 +246,12 @@ func (b *InMemoryBackend) UpdateService(
 	return opID, nil
 }
 
-// GetServiceAttributes returns the custom attributes for a service.
+// GetServiceAttributes returns the custom attributes for a service. A
+// service with no attributes set returns an empty map, not an error --
+// GetServiceAttributesOutput.ServiceAttributes.Attributes is a plain
+// map[string]string (servicediscovery@v1.43.4 types/types.go) and that
+// operation's own deserializeOpError models only InvalidInput and
+// ServiceNotFound, no "attributes not found" shape.
 func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[string]string, error) {
 	b.mu.RLock("GetServiceAttributes")
 	defer b.mu.RUnlock()
@@ -247,12 +261,7 @@ func (b *InMemoryBackend) GetServiceAttributes(serviceID string) (string, map[st
 		return "", nil, fmt.Errorf("%w: service %s not found", ErrServiceNotFound, serviceID)
 	}
 
-	attrs, ok := b.serviceAttributes[serviceID]
-	if !ok {
-		return "", nil, fmt.Errorf("%w: no attributes found for service %s", ErrServiceAttributesNotFound, serviceID)
-	}
-
-	return svc.ARN, copyAttrs(attrs), nil
+	return svc.ARN, copyAttrs(b.serviceAttributes[serviceID]), nil
 }
 
 // UpdateServiceAttributes sets or merges custom attributes for a service

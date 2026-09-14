@@ -296,6 +296,14 @@ type modifyClusterDBRevisionResponse struct {
 
 func (h *Handler) handleModifyClusterDBRevision(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
+	// RevisionTarget (required, api_op_ModifyClusterDbRevision.go) names a
+	// revision from DescribeClusterDbRevisions -- this backend has no real
+	// revision catalog to validate it against (DescribeClusterDBRevisions
+	// above already reports a fixed "1"), so this only enforces presence
+	// rather than fabricating revision tracking.
+	if vals.Get("RevisionTarget") == "" {
+		return nil, fmt.Errorf("%w: RevisionTarget is required", ErrInvalidParameter)
+	}
 	clusters, _, err := h.Backend.DescribeClusters(id, "", 0, nil, nil)
 	if err != nil {
 		return nil, err

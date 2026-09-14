@@ -620,7 +620,7 @@ func TestBackend_UpdateFindings(t *testing.T) {
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
 
 			if tc.hubEnabled {
-				require.NoError(t, b.EnableHub(false, nil))
+				require.NoError(t, b.EnableHub(false, "", nil))
 				_, _, _ = b.ImportFindings([]map[string]any{
 					securityhub.ValidFinding(
 						map[string]any{

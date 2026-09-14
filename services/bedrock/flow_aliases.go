@@ -10,9 +10,14 @@ import (
 
 func flowAliasKey(flowID, aliasID string) string { return flowID + "/" + aliasID }
 
-// CreateFlowAlias creates an alias for a Flow.
+// CreateFlowAlias creates an alias for a Flow. routingConfiguration is the
+// real, required CreateFlowAliasInput member naming which flow version the
+// alias routes to (types.FlowAliasRoutingConfigurationListItem,
+// bedrockagent@v1.58.4 serializers.go); nil is tolerated for callers that
+// don't exercise it.
 func (b *InMemoryBackend) CreateFlowAlias(
 	flowID, name, description string,
+	routingConfiguration []FlowAliasRouting,
 ) (*FlowAlias, error) {
 	b.mu.Lock("CreateFlowAlias")
 	defer b.mu.Unlock()
@@ -32,13 +37,14 @@ func (b *InMemoryBackend) CreateFlowAlias(
 	now := time.Now()
 
 	fa := &FlowAlias{
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		FlowAliasID:  aliasID,
-		FlowAliasArn: aliasArn,
-		FlowID:       flowID,
-		Name:         name,
-		Description:  description,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		FlowAliasID:          aliasID,
+		FlowAliasArn:         aliasArn,
+		FlowID:               flowID,
+		Name:                 name,
+		Description:          description,
+		RoutingConfiguration: routingConfiguration,
 	}
 	b.flowAliases.Put(fa)
 	cp := *fa
@@ -90,9 +96,12 @@ func (b *InMemoryBackend) ListFlowAliases(
 	return paginate(list, maxResults, nextToken)
 }
 
-// UpdateFlowAlias updates a Flow alias.
+// UpdateFlowAlias updates a Flow alias. routingConfiguration is applied only
+// when non-nil, matching CreateFlowAlias's tolerance for callers that don't
+// exercise it (see its doc comment).
 func (b *InMemoryBackend) UpdateFlowAlias(
 	flowID, aliasID, name, description string,
+	routingConfiguration []FlowAliasRouting,
 ) (*FlowAlias, error) {
 	b.mu.Lock("UpdateFlowAlias")
 	defer b.mu.Unlock()
@@ -108,6 +117,10 @@ func (b *InMemoryBackend) UpdateFlowAlias(
 
 	if description != "" {
 		fa.Description = description
+	}
+
+	if routingConfiguration != nil {
+		fa.RoutingConfiguration = routingConfiguration
 	}
 
 	fa.UpdatedAt = time.Now()

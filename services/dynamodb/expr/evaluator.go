@@ -52,6 +52,31 @@ var (
 	ErrUnsupportedAddType = errors.New(
 		"ADD action is only supported for Number and Set types",
 	)
+	// ErrDocumentPathInvalidForUpdate matches the real AWS ValidationException
+	// message: SET cannot create a nested attribute under a parent map that
+	// does not already exist on the item.
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+	ErrDocumentPathInvalidForUpdate = errors.New(
+		"the document path provided in the update expression is invalid for update",
+	)
+	// ErrOperandIncorrectType is returned when an update expression operand's
+	// runtime type does not match what the operation requires (e.g. ADD/DELETE
+	// against an existing attribute that is not a Number/Set, or +/- against a
+	// non-Number operand).
+	ErrOperandIncorrectType = errors.New(
+		"an operand in the update expression has an incorrect data type",
+	)
+	// ErrOverlappingDocumentPaths is returned when two actions in the same
+	// UpdateExpression reference the same or overlapping document paths.
+	ErrOverlappingDocumentPaths = errors.New(
+		"two document paths overlap with each other; must remove or rewrite one of these paths",
+	)
+	// ErrContainsOperandsNotDistinct matches the documented contains() restriction:
+	// "The path and the operand must be distinct. That is, contains (a, a) returns an error."
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
+	ErrContainsOperandsNotDistinct = errors.New(
+		"contains() arguments must be distinct",
+	)
 )
 
 // twoArgs is the expected argument count for two-argument functions.
@@ -64,6 +89,13 @@ type Evaluator struct {
 
 	// UpdatedPaths tracks the top-level attribute names touched by ApplyUpdate.
 	UpdatedPaths map[string]struct{}
+
+	// original snapshots Item before ApplyUpdate mutates it. AWS evaluates every
+	// action's right-hand side against the pre-update item, not against results
+	// of earlier actions in the same expression, so SET/ADD/DELETE values are
+	// resolved against this snapshot rather than the (possibly already-mutated) Item.
+	// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+	original map[string]any
 }
 
 func (e *Evaluator) Evaluate(node Node) (any, error) {
@@ -159,9 +191,13 @@ func (e *Evaluator) evaluateArithmetic(n *ComparisonExpr) (any, error) {
 		return nil, err
 	}
 
-	// Extract numeric values from DynamoDB attribute format
-	leftNum := e.toNumber(left)
-	rightNum := e.toNumber(right)
+	// +/- require both operands to be Number; AWS rejects other types rather
+	// than silently coercing them.
+	leftNum, leftIsNum := e.parseNumeric(left)
+	rightNum, rightIsNum := e.parseNumeric(right)
+	if !leftIsNum || !rightIsNum {
+		return nil, ErrOperandIncorrectType
+	}
 
 	var result float64
 	switch n.Operator {
@@ -300,6 +336,9 @@ func (e *Evaluator) evalContainsFunc(n *FunctionExpr) (any, error) {
 	if len(n.Args) != twoArgs {
 		return nil, ErrContainsExpectsTwo
 	}
+	if samePathExpr(n.Args[0], n.Args[1]) {
+		return nil, ErrContainsOperandsNotDistinct
+	}
 	pathVal, err := e.Evaluate(n.Args[0])
 	if err != nil {
 		return nil, err
@@ -320,6 +359,23 @@ func (e *Evaluator) evalContainsFunc(n *FunctionExpr) (any, error) {
 	}
 
 	return strings.Contains(e.toString(pathVal), e.toString(targetVal)), nil
+}
+
+// samePathExpr reports whether both nodes are PathExpr with identical
+// elements, matching AWS's "contains (a, a) returns an error" restriction.
+func samePathExpr(a, b Node) bool {
+	pa, okA := a.(*PathExpr)
+	pb, okB := b.(*PathExpr)
+	if !okA || !okB || len(pa.Elements) != len(pb.Elements) {
+		return false
+	}
+	for i := range pa.Elements {
+		if pa.Elements[i] != pb.Elements[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // evalContainsSetOrList handles contains() for SS, NS, BS, and L operands.
@@ -546,31 +602,6 @@ func (e *Evaluator) unwrapAttributeValue(v any) any {
 	}
 
 	return v
-}
-
-// toNumber converts a DynamoDB attribute value to a float64.
-func (e *Evaluator) toNumber(v any) float64 {
-	unwrapped := e.unwrapAttributeValue(v)
-	switch n := unwrapped.(type) {
-	case float64:
-		return n
-	case int:
-		return float64(n)
-	case int64:
-		return float64(n)
-	case int32:
-		return float64(n)
-	case string:
-		// DynamoDB numbers are stored as strings
-		f, err := strconv.ParseFloat(n, 64)
-		if err != nil {
-			return 0
-		}
-
-		return f
-	default:
-		return 0
-	}
 }
 
 func (e *Evaluator) toString(v any) string {
@@ -822,6 +853,11 @@ func (e *Evaluator) navigateList(current any, index int) (any, bool) {
 
 func (e *Evaluator) ApplyUpdate(u *UpdateExpr) error {
 	e.UpdatedPaths = make(map[string]struct{})
+	e.original = deepCopyItemMap(e.Item)
+
+	if err := e.checkNoOverlappingPaths(u); err != nil {
+		return err
+	}
 
 	for _, action := range u.Actions {
 		if err := e.applyUpdateAction(action); err != nil {
@@ -830,6 +866,66 @@ func (e *Evaluator) ApplyUpdate(u *UpdateExpr) error {
 	}
 
 	return nil
+}
+
+// checkNoOverlappingPaths rejects an UpdateExpression that references the same
+// document path twice, or two paths where one is a prefix of the other (e.g.
+// "a" and "a.b" in the same expression). AWS rejects both with a
+// ValidationException; exact wording not published in the developer guide,
+// this uses the commonly observed AWS error text.
+func (e *Evaluator) checkNoOverlappingPaths(u *UpdateExpr) error {
+	var resolved [][]string
+	for _, action := range u.Actions {
+		for _, item := range action.Items {
+			path, ok := item.Path.(*PathExpr)
+			if !ok {
+				return ErrUpdatePathMustBePathExpr
+			}
+			resolved = append(resolved, e.resolvePathTokens(path.Elements))
+		}
+	}
+
+	for i := range resolved {
+		for j := i + 1; j < len(resolved); j++ {
+			if pathOverlaps(resolved[i], resolved[j]) {
+				return ErrOverlappingDocumentPaths
+			}
+		}
+	}
+
+	return nil
+}
+
+// resolvePathTokens converts path elements into comparable string tokens,
+// resolving #name aliases so overlap detection compares real attribute names.
+func (e *Evaluator) resolvePathTokens(elems []PathElement) []string {
+	tokens := make([]string, len(elems))
+	for i, el := range elems {
+		if el.Type == ElementIndex {
+			tokens[i] = "[" + strconv.Itoa(el.Index) + "]"
+
+			continue
+		}
+		name := el.Name
+		if resolved, ok := e.AttrNames[name]; ok {
+			name = resolved
+		}
+		tokens[i] = name
+	}
+
+	return tokens
+}
+
+// pathOverlaps reports whether a and b are equal or one is a prefix of the other.
+func pathOverlaps(a, b []string) bool {
+	minLen := min(len(b), len(a))
+	for i := range minLen {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (e *Evaluator) applyUpdateAction(action UpdateAction) error {
@@ -847,6 +943,53 @@ func (e *Evaluator) applyUpdateAction(action UpdateAction) error {
 	}
 
 	return nil
+}
+
+// evalAgainstSnapshot evaluates a SET/ADD/DELETE right-hand-side value node
+// against the item as it was before ApplyUpdate began, matching AWS's
+// documented all-actions-see-the-pre-update-item semantics.
+func (e *Evaluator) evalAgainstSnapshot(node Node) (any, error) {
+	snapshot := e.original
+	if snapshot == nil {
+		snapshot = e.Item
+	}
+	reader := &Evaluator{Item: snapshot, AttrNames: e.AttrNames, AttrValues: e.AttrValues}
+
+	return reader.Evaluate(node)
+}
+
+// deepCopyItemMap deep-copies an item map, falling back to the original
+// (never mutated further after this call fails, since ApplyUpdate errors out
+// long before it would matter) if the copy is somehow not itself a map.
+func deepCopyItemMap(m map[string]any) map[string]any {
+	if copied, ok := deepCopyValue(m).(map[string]any); ok {
+		return copied
+	}
+
+	return m
+}
+
+// deepCopyValue recursively copies map[string]any / []any structures so that
+// a snapshot survives later in-place mutation of the original.
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, inner := range val {
+			out[k] = deepCopyValue(inner)
+		}
+
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, inner := range val {
+			out[i] = deepCopyValue(inner)
+		}
+
+		return out
+	default:
+		return v
+	}
 }
 
 // trackUpdatedPath records the top-level attribute name touched by an update action.
@@ -878,8 +1021,46 @@ func (e *Evaluator) applyUpdateItem(actionType TokenType, path *PathExpr, item U
 	return nil
 }
 
+// checkParentPathExists rejects SET/ADD of a nested document path when the
+// parent (every non-terminal segment) does not already exist on the item.
+// AWS does not auto-vivify intermediate maps.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
+func (e *Evaluator) checkParentPathExists(path []PathElement) error {
+	if len(path) <= 1 {
+		return nil
+	}
+
+	current := any(e.Item)
+	for _, elem := range path[:len(path)-1] {
+		name := elem.Name
+		if strings.HasPrefix(name, "#") {
+			if resolved, ok := e.AttrNames[name]; ok {
+				name = resolved
+			}
+		}
+
+		var next any
+		var exists bool
+		if elem.Type == ElementKey {
+			next, exists = e.navigateMap(current, name)
+		} else {
+			next, exists = e.navigateList(current, elem.Index)
+		}
+		if !exists {
+			return ErrDocumentPathInvalidForUpdate
+		}
+		current = e.unwrapAttributeValue(next)
+	}
+
+	return nil
+}
+
 func (e *Evaluator) applySet(path *PathExpr, item UpdateItem) error {
-	val, err := e.Evaluate(item.Value)
+	if err := e.checkParentPathExists(path.Elements); err != nil {
+		return err
+	}
+
+	val, err := e.evalAgainstSnapshot(item.Value)
 	if err != nil {
 		return err
 	}
@@ -907,7 +1088,7 @@ func (e *Evaluator) applyRemove(path *PathExpr) error {
 }
 
 func (e *Evaluator) applyAddAction(path *PathExpr, item UpdateItem) error {
-	val, err := e.Evaluate(item.Value)
+	val, err := e.evalAgainstSnapshot(item.Value)
 	if err != nil {
 		return err
 	}
@@ -917,7 +1098,7 @@ func (e *Evaluator) applyAddAction(path *PathExpr, item UpdateItem) error {
 
 func (e *Evaluator) applyDeleteAction(path *PathExpr, item UpdateItem) error {
 	// DELETE removes values from a set
-	val, err := e.Evaluate(item.Value)
+	val, err := e.evalAgainstSnapshot(item.Value)
 	if err != nil {
 		return err
 	}
@@ -944,54 +1125,92 @@ func (e *Evaluator) ApplyProjection(p *ProjectionExpr) map[string]any {
 	return newItem
 }
 
+// applyAdd implements the ADD action. AWS: "The ADD action supports only
+// number and set data types." An ADD value of any other type, or an ADD
+// against an existing attribute that is not itself Number/Set, is rejected.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
 func (e *Evaluator) applyAdd(path []PathElement, val any) error {
+	valMap, isValMap := val.(map[string]any)
+	_, isValNumber := valMap["N"]
+	ssVal, isValSS := valMap["SS"]
+	nsVal, isValNS := valMap["NS"]
+	bsVal, isValBS := valMap["BS"]
+
+	if !isValMap || (!isValNumber && !isValSS && !isValNS && !isValBS) {
+		return ErrUnsupportedAddType
+	}
+
 	cur, exists := e.getValueAtPath(e.Item, path)
 	if !exists {
-		updated, err := e.setValueAtPath(e.Item, path, val)
-		if err != nil {
-			return err
-		}
-		if m, ok := updated.(map[string]any); ok {
-			e.Item = m
-		}
-
-		return nil
+		return e.applyAddCreate(path, val)
 	}
 
-	// Numeric addition
-	curNum, ok1 := e.parseNumeric(cur)
-	valNum, ok2 := e.parseNumeric(val)
-	if ok1 && ok2 {
-		sum := curNum + valNum
-		updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": formatDynamoNumber(sum)})
-		if err != nil {
-			return err
-		}
-		if m, ok := updated.(map[string]any); ok {
-			e.Item = m
-		}
-
-		return nil
+	if isValNumber {
+		return e.applyAddNumber(path, cur, val)
 	}
 
-	// Set union for SS, NS, BS
-	valMap, ok := val.(map[string]any)
-	if !ok {
-		return nil
+	return e.applyAddSet(path, cur, isValSS, isValNS, ssVal, nsVal, bsVal)
+}
+
+// applyAddCreate handles ADD against a path that does not yet exist: the
+// value is written directly, once the parent path is confirmed to exist.
+func (e *Evaluator) applyAddCreate(path []PathElement, val any) error {
+	if err := e.checkParentPathExists(path); err != nil {
+		return err
 	}
+	updated, err := e.setValueAtPath(e.Item, path, val)
+	if err != nil {
+		return err
+	}
+	if m, isMap := updated.(map[string]any); isMap {
+		e.Item = m
+	}
+
+	return nil
+}
+
+// applyAddSet dispatches ADD's set-union branch (SS/NS/BS) once the existing
+// attribute is confirmed to itself be some kind of Set.
+func (e *Evaluator) applyAddSet(
+	path []PathElement,
+	cur any,
+	isValSS, isValNS bool,
+	ssVal, nsVal, bsVal any,
+) error {
 	curMap, ok := cur.(map[string]any)
 	if !ok {
-		return nil
+		return ErrOperandIncorrectType
+	}
+	_, curHasSS := curMap["SS"]
+	_, curHasNS := curMap["NS"]
+	_, curHasBS := curMap["BS"]
+	if !curHasSS && !curHasNS && !curHasBS {
+		return ErrOperandIncorrectType
 	}
 
-	if ssAdd, hasSS := valMap["SS"]; hasSS {
-		return e.addToStringSet(path, curMap, "SS", ssAdd)
+	switch {
+	case isValSS:
+		return e.addToStringSet(path, curMap, "SS", ssVal)
+	case isValNS:
+		return e.addToStringSet(path, curMap, "NS", nsVal)
+	default:
+		return e.addToBinarySet(path, curMap, bsVal)
 	}
-	if nsAdd, hasNS := valMap["NS"]; hasNS {
-		return e.addToStringSet(path, curMap, "NS", nsAdd)
+}
+
+func (e *Evaluator) applyAddNumber(path []PathElement, cur, val any) error {
+	curNum, ok := e.parseNumeric(cur)
+	if !ok {
+		return ErrOperandIncorrectType
 	}
-	if bsAdd, hasBS := valMap["BS"]; hasBS {
-		return e.addToBinarySet(path, curMap, bsAdd)
+	valNum, _ := e.parseNumeric(val)
+	sum := curNum + valNum
+	updated, err := e.setValueAtPath(e.Item, path, map[string]any{"N": formatDynamoNumber(sum)})
+	if err != nil {
+		return err
+	}
+	if m, isMap := updated.(map[string]any); isMap {
+		e.Item = m
 	}
 
 	return nil
@@ -1072,37 +1291,41 @@ func (e *Evaluator) addToBinarySet(path []PathElement, curMap map[string]any, to
 	return e.updateItemSet(path, "BS", unique)
 }
 
+// applyDelete implements the DELETE action, which "supports only Set data
+// types" per AWS. A non-set operand, or an existing attribute that is not
+// itself a Set, is rejected rather than silently ignored.
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.UpdateExpressions.html
 func (e *Evaluator) applyDelete(path []PathElement, val any) error {
-	// DELETE removes elements from a set (SS, NS, BS)
+	valMap, ok := val.(map[string]any)
+	ssToRemove, okSS := valMap["SS"]
+	nsToRemove, okNS := valMap["NS"]
+	bsToRemove, okBS := valMap["BS"]
+
+	if !ok || (!okSS && !okNS && !okBS) {
+		return ErrDeleteValueMustBeSet
+	}
+
 	cur, exists := e.getValueAtPath(e.Item, path)
 	if !exists {
 		return nil
 	}
 
-	valMap, ok := val.(map[string]any)
-	if !ok {
-		return ErrDeleteValueMustBeSet
+	curMap, curIsMap := cur.(map[string]any)
+	_, curHasSS := curMap["SS"]
+	_, curHasNS := curMap["NS"]
+	_, curHasBS := curMap["BS"]
+	if !curIsMap || (!curHasSS && !curHasNS && !curHasBS) {
+		return ErrOperandIncorrectType
 	}
 
-	if ssToRemove, okSS := valMap["SS"]; okSS {
-		if err := e.deleteSS(path, cur, ssToRemove); err != nil {
-			return err
-		}
+	if okSS {
+		return e.deleteSS(path, cur, ssToRemove)
+	}
+	if okNS {
+		return e.deleteNS(path, cur, nsToRemove)
 	}
 
-	if nsToRemove, okNS := valMap["NS"]; okNS {
-		if err := e.deleteNS(path, cur, nsToRemove); err != nil {
-			return err
-		}
-	}
-
-	if bsToRemove, okBS := valMap["BS"]; okBS {
-		if err := e.deleteBS(path, cur, bsToRemove); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return e.deleteBS(path, cur, bsToRemove)
 }
 
 func (e *Evaluator) deleteSS(path []PathElement, cur any, ssToRemove any) error {
@@ -1132,7 +1355,7 @@ func (e *Evaluator) deleteSS(path []PathElement, cur any, ssToRemove any) error 
 		return e.updateItemSet(path, "SS", newSet)
 	}
 
-	return nil
+	return ErrSetTypeMismatch
 }
 
 func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error {
@@ -1162,7 +1385,7 @@ func (e *Evaluator) deleteNS(path []PathElement, cur any, nsToRemove any) error 
 		return e.updateItemSet(path, "NS", newSet)
 	}
 
-	return nil
+	return ErrSetTypeMismatch
 }
 
 func (e *Evaluator) deleteBS(path []PathElement, cur any, bsToRemove any) error {
@@ -1192,7 +1415,7 @@ func (e *Evaluator) deleteBS(path []PathElement, cur any, bsToRemove any) error 
 		return e.updateItemSet(path, "BS", newSet)
 	}
 
-	return nil
+	return ErrSetTypeMismatch
 }
 
 // containsBytes reports whether the slice contains a value equal to b.
@@ -1315,7 +1538,11 @@ func (e *Evaluator) mutateMapNested(
 		if isRemove {
 			return nil // Path doesn't exist, nothing to remove
 		}
-		// Create intermediate map
+		// This low-level mutate() is shared by ApplyUpdate's SET and by
+		// ApplyProjection building a fresh output item, so it still auto-creates
+		// intermediate maps here. AWS's "SET a.b fails when a doesn't already
+		// exist on the item" rule is enforced earlier, by checkParentPathExists,
+		// before SET/ADD reach this helper.
 		next = map[string]any{"M": make(map[string]any)}
 		m[name] = next
 	}

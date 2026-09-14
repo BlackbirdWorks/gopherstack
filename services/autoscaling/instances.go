@@ -49,6 +49,7 @@ func (b *InMemoryBackend) AttachInstances(groupName string, instanceIDs []string
 			LaunchConfigurationName: g.LaunchConfigurationName,
 			InstanceType:            "t2.micro",
 		})
+		b.instanceIndex[id] = groupName
 		added = append(added, id)
 	}
 

@@ -97,10 +97,13 @@ func (b *InMemoryBackend) DescribeResource(orgID, entityID string) (*Resource, e
 	return r, nil
 }
 
-// UpdateResource updates resource fields.
+// UpdateResource updates resource fields. A nil hiddenFromGAL leaves
+// HiddenFromGlobalAddressList unchanged, matching UpdateResourceInput's
+// optional-field semantics (real workmail@v1.39.4 serializers.go only emits
+// the "HiddenFromGlobalAddressList" key when the pointer is non-nil).
 func (b *InMemoryBackend) UpdateResource(
 	orgID, entityID, name, description string,
-	hiddenFromGAL bool,
+	hiddenFromGAL *bool,
 	bookingOptions *BookingOptions,
 ) error {
 	b.mu.Lock("UpdateResource")
@@ -120,7 +123,9 @@ func (b *InMemoryBackend) UpdateResource(
 	if description != "" {
 		r.Description = description
 	}
-	r.HiddenFromGlobalAddressList = hiddenFromGAL
+	if hiddenFromGAL != nil {
+		r.HiddenFromGlobalAddressList = *hiddenFromGAL
+	}
 	if bookingOptions != nil {
 		cp := *bookingOptions
 		r.BookingOptions = &cp

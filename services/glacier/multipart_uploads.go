@@ -73,7 +73,7 @@ func (b *InMemoryBackend) InitiateMultipartUpload(
 	accountID, region, vaultName, description string,
 	partSize int64,
 ) (*MultipartUpload, error) {
-	b.mu.Lock()
+	b.mu.Lock("InitiateMultipartUpload")
 	defer b.mu.Unlock()
 
 	v, ok := b.vaults.Get(vaultARN(accountID, region, vaultName))
@@ -115,7 +115,7 @@ func (b *InMemoryBackend) UploadMultipartPart(
 	accountID, region, vaultName, uploadID, rangeHeader, checksum string,
 	data []byte,
 ) error {
-	b.mu.Lock()
+	b.mu.Lock("UploadMultipartPart")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -207,7 +207,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	accountID, region, vaultName, uploadID, checksum string,
 	archiveSize int64,
 ) (*Archive, error) {
-	b.mu.Lock()
+	b.mu.Lock("CompleteMultipartUpload")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -343,7 +343,7 @@ func aggregatePartTreeHashes(parts []MultipartPart) (string, error) {
 
 // AbortMultipartUpload cancels an in-progress multipart upload.
 func (b *InMemoryBackend) AbortMultipartUpload(accountID, region, vaultName, uploadID string) error {
-	b.mu.Lock()
+	b.mu.Lock("AbortMultipartUpload")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -369,7 +369,7 @@ func (b *InMemoryBackend) AbortMultipartUpload(accountID, region, vaultName, upl
 
 // ListMultipartUploads returns all in-progress multipart uploads for a vault.
 func (b *InMemoryBackend) ListMultipartUploads(accountID, region, vaultName string) []*MultipartUpload {
-	b.mu.RLock()
+	b.mu.RLock("ListMultipartUploads")
 	defer b.mu.RUnlock()
 
 	ups := b.multipartUploadsByVault.Get(vaultARN(accountID, region, vaultName))
@@ -391,7 +391,7 @@ func (b *InMemoryBackend) ListMultipartUploads(accountID, region, vaultName stri
 func (b *InMemoryBackend) ListParts(
 	accountID, region, vaultName, uploadID string,
 ) (*ListPartsOutput, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListParts")
 	defer b.mu.RUnlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -450,7 +450,7 @@ func rangeStart(rangeHeader string) int64 {
 // VaultARN is always recomputed from the accountID/region/vaultName parameters -- see the
 // AddVaultInternal doc comment for why.
 func (b *InMemoryBackend) AddMultipartUploadInternal(accountID, region, vaultName string, up *MultipartUpload) {
-	b.mu.Lock()
+	b.mu.Lock("AddMultipartUploadInternal")
 	defer b.mu.Unlock()
 
 	cp := *up
@@ -461,7 +461,7 @@ func (b *InMemoryBackend) AddMultipartUploadInternal(accountID, region, vaultNam
 // AddMultipartPartInternal adds an uploaded part directly to the backend for testing,
 // bypassing the real byte-range upload + tree-hash computation.
 func (b *InMemoryBackend) AddMultipartPartInternal(accountID, region, vaultName, uploadID string, part MultipartPart) {
-	b.mu.Lock()
+	b.mu.Lock("AddMultipartPartInternal")
 	defer b.mu.Unlock()
 
 	uKey := uploadKey{AccountID: accountID, Region: region, VaultName: vaultName, UploadID: uploadID}

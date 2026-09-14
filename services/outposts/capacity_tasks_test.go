@@ -148,10 +148,14 @@ func TestStartCapacityTask_OnlyOneActivePerOutpostOrderPair(t *testing.T) {
 	require.ErrorAs(t, err, &ce)
 }
 
-// TestStartCapacityTask_LifecycleTransitions proves the capacity task
-// genuinely moves through IN_PROGRESS before COMPLETED, and that
-// InstanceTypeCapacities are only applied once COMPLETED (not at
-// IN_PROGRESS).
+// TestStartCapacityTask_LifecycleTransitions proves a capacity task started
+// over the wire reaches COMPLETED, with InstanceTypeCapacities applied. The
+// genuinely interesting proof -- that it passes through IN_PROGRESS first,
+// with capacity NOT yet applied there -- is covered deterministically
+// against a fake clock by TestStartCapacityTask_LifecycleTransitions_Synctest
+// (transitions_synctest_test.go): asserting a real-timer-driven mid-chain
+// status over the network via require.Eventually can miss the window
+// entirely under -race -shuffle scheduler contention (gopherstack-yf2hu).
 func TestStartCapacityTask_LifecycleTransitions(t *testing.T) {
 	t.Parallel()
 
@@ -179,7 +183,7 @@ func TestStartCapacityTask_LifecycleTransitions(t *testing.T) {
 		client,
 		created.OutpostId,
 		start.CapacityTaskId,
-		types.CapacityTaskStatusInProgress,
+		types.CapacityTaskStatusCompleted,
 	)
 
 	instTypes, err := client.GetOutpostInstanceTypes(
@@ -189,26 +193,16 @@ func TestStartCapacityTask_LifecycleTransitions(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	require.Empty(t, instTypes.InstanceTypes, "capacity must not apply until COMPLETED")
-
-	waitForCapacityTaskStatus(
-		t,
-		client,
-		created.OutpostId,
-		start.CapacityTaskId,
-		types.CapacityTaskStatusCompleted,
-	)
-
-	instTypes, err = client.GetOutpostInstanceTypes(
-		t.Context(),
-		&outpostssdk.GetOutpostInstanceTypesInput{
-			OutpostId: created.OutpostId,
-		},
-	)
-	require.NoError(t, err)
 	require.NotEmpty(t, instTypes.InstanceTypes)
 }
 
+// TestCancelCapacityTask covers the "while requested" case, which has no
+// async wait to miss (REQUESTED is the status set synchronously by
+// StartCapacityTask, so there is no window a poller could skip over). The
+// "while in progress" case -- which does have such a window -- is covered
+// deterministically against a fake clock by
+// TestCancelCapacityTask_WhileInProgress_Synctest (transitions_synctest_test.go);
+// see gopherstack-yf2hu.
 func TestCancelCapacityTask(t *testing.T) {
 	t.Parallel()
 
@@ -217,7 +211,6 @@ func TestCancelCapacityTask(t *testing.T) {
 		name    string
 	}{
 		{name: "while requested", waitFor: types.CapacityTaskStatusRequested},
-		{name: "while in progress", waitFor: types.CapacityTaskStatusInProgress},
 	}
 
 	for _, tt := range tests {

@@ -488,5 +488,11 @@ func (h *Handler) handleDescribeDomainChangeProgress(w http.ResponseWriter, r *h
 		return
 	}
 
-	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{"Status": "COMPLETED"}})
+	// types.ChangeProgressStatusDetails has no "Status" member; the real
+	// deserializer reads "ConfigChangeStatus" (deserializers.go:10112,
+	// elasticsearchservice@v1.45.4) -- the fabricated key left every real
+	// client's ConfigChangeStatus permanently empty. The enum value itself is
+	// mixed-case ("Completed", types.ConfigChangeStatusCompleted,
+	// enums.go:83), not "COMPLETED".
+	h.writeJSON(r, w, map[string]any{"ChangeProgressStatus": map[string]any{"ConfigChangeStatus": "Completed"}})
 }

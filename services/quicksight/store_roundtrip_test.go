@@ -36,7 +36,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateGroupMembership(testAccountID, ns, "group1", "user1")
 	require.NoError(t, err)
 
-	_, err = b.RegisterUser(testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "", nil)
+	_, err = b.RegisterUser(testAccountID, ns, "user1", "user1@example.com", "READER", "QUICKSIGHT", "", "", nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateDataSource(testAccountID, "ds1", "DataSource1", "MYSQL", nil, nil)
@@ -59,7 +59,7 @@ func TestQuickSight_Phase3_3_StoreRoundTrip(t *testing.T) {
 	_, err = b.CreateIngestion(testAccountID, "dset1", "ingest1")
 	require.NoError(t, err)
 
-	dash, err := b.CreateDashboard(testAccountID, "dash1", "Dashboard1", "", "", nil, nil, nil)
+	dash, err := b.CreateDashboard(testAccountID, "dash1", "Dashboard1", "", "", nil, nil, nil, nil)
 	require.NoError(t, err)
 
 	_, err = b.CreateAnalysis(testAccountID, "an1", "Analysis1", "", nil, nil, nil)

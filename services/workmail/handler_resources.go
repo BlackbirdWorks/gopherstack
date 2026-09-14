@@ -82,11 +82,11 @@ func (h *Handler) handleDescribeResource(_ context.Context, req *describeResourc
 
 type updateResourceReq struct {
 	BookingOptions              *BookingOptions `json:"BookingOptions,omitempty"`
+	HiddenFromGlobalAddressList *bool           `json:"HiddenFromGlobalAddressList,omitempty"`
 	OrganizationID              string          `json:"OrganizationId"`
 	ResourceID                  string          `json:"ResourceId"`
 	Name                        string          `json:"Name"`
 	Description                 string          `json:"Description"`
-	HiddenFromGlobalAddressList bool            `json:"HiddenFromGlobalAddressList"`
 }
 
 func (h *Handler) handleUpdateResource(_ context.Context, req *updateResourceReq) (*emptyResp, error) {

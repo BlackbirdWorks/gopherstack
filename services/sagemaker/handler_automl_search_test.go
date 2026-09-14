@@ -54,6 +54,7 @@ func TestHandler_Search_TrainingJob(t *testing.T) {
 
 	doSageMakerRequest(t, h, "CreateTrainingJob", map[string]any{
 		"TrainingJobName":        "search-job",
+		"RoleArn":                "arn:aws:iam::000000000000:role/training",
 		"AlgorithmSpecification": map[string]any{"TrainingInputMode": "File"},
 		"OutputDataConfig":       map[string]any{"S3OutputPath": "s3://bucket/output"},
 		"ResourceConfig": map[string]any{

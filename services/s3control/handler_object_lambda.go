@@ -113,11 +113,36 @@ type createAccessPointForObjectLambdaResponseXML struct {
 	ObjectLambdaAccessPointArn string       `xml:"ObjectLambdaAccessPointArn"`
 }
 
+// createAccessPointForObjectLambdaRequestXML mirrors
+// CreateAccessPointForObjectLambdaInput's required Configuration member
+// (api_op_CreateAccessPointForObjectLambda.go). The handler previously never
+// decoded the request body at all -- a real client's Configuration was
+// silently dropped, so an immediate GetAccessPointConfigurationForObjectLambda
+// (or Get/ListAccessPointsForObjectLambda) always came back empty until a
+// separate PutAccessPointConfigurationForObjectLambda call.
+type createAccessPointForObjectLambdaRequestXML struct {
+	XMLName       xml.Name            `xml:"CreateAccessPointForObjectLambdaRequest"`
+	Configuration createJobXMLCapture `xml:"Configuration"`
+}
+
 func (h *Handler) handleCreateAccessPointForObjectLambda(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	name := strings.TrimPrefix(c.Request().URL.Path, pathObjectLambdaPrefix)
 
+	var body createAccessPointForObjectLambdaRequestXML
+	if err := decodeXML(c, &body); err != nil {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
+	}
+
 	ap := h.Backend.CreateAccessPointForObjectLambda(accountID, name)
+
+	if body.Configuration.Raw != "" {
+		if err := h.Backend.PutAccessPointConfigurationForObjectLambda(
+			accountID, name, body.Configuration.Raw,
+		); err != nil {
+			return handleBackendError(c, err)
+		}
+	}
 
 	var alias *olAliasItem
 	if ap.Alias != nil {

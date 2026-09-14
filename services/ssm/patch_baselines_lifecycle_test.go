@@ -478,9 +478,9 @@ func TestSendCommand_RunPatchBaseline_PopulatesInstanceState(t *testing.T) {
 	var sawInstalled bool
 	for _, p := range patches.Patches {
 		if p.Title == "ALAS2-2024-2451" {
-			assert.Equal(t, "Installed", p.State)
+			assert.Equal(t, "INSTALLED", p.State)
 			sawInstalled = true
 		}
 	}
-	assert.True(t, sawInstalled, "the explicitly-approved patch must be reported Installed")
+	assert.True(t, sawInstalled, "the explicitly-approved patch must be reported INSTALLED")
 }

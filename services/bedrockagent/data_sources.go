@@ -21,7 +21,7 @@ func (b *InMemoryBackend) CreateDataSource(
 		return nil, fmt.Errorf("%w: name is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateDataSource")
 	defer b.mu.Unlock()
 
 	if !b.knowledgeBases.Has(kbID) {
@@ -51,7 +51,7 @@ func (b *InMemoryBackend) CreateDataSource(
 
 // GetDataSource returns a data source.
 func (b *InMemoryBackend) GetDataSource(_ context.Context, kbID, dsID string) (*DataSource, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetDataSource")
 	defer b.mu.RUnlock()
 
 	ds, ok := b.dataSources.Get(dsKey(kbID, dsID))
@@ -66,7 +66,7 @@ func (b *InMemoryBackend) GetDataSource(_ context.Context, kbID, dsID string) (*
 func (b *InMemoryBackend) UpdateDataSource(
 	_ context.Context, kbID, dsID string, cfg DataSourceConfig,
 ) (*DataSource, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateDataSource")
 	defer b.mu.Unlock()
 
 	ds, ok := b.dataSources.Get(dsKey(kbID, dsID))
@@ -102,7 +102,7 @@ func (b *InMemoryBackend) UpdateDataSource(
 // DeleteDataSource deletes a data source, cascade-cleaning every ingestion
 // job and ingested KB document scoped under it.
 func (b *InMemoryBackend) DeleteDataSource(_ context.Context, kbID, dsID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteDataSource")
 	defer b.mu.Unlock()
 
 	key := dsKey(kbID, dsID)
@@ -139,7 +139,7 @@ func (b *InMemoryBackend) deleteDataSourceChildrenLocked(kbID, dsID string) {
 func (b *InMemoryBackend) ListDataSources(
 	_ context.Context, kbID string, maxResults int, nextToken string,
 ) ([]*DataSourceSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListDataSources")
 	defer b.mu.RUnlock()
 
 	group := b.dataSourcesByKB.Get(kbID)

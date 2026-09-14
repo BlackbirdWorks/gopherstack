@@ -53,6 +53,10 @@ func (b *InMemoryBackend) CreateAccessPoint(
 		}
 	}
 
+	if len(b.apFSStore(region, req.FileSystemID)) >= b.limits.accessPointsPerFileSys {
+		return nil, accessPointLimitExceededErr(req.FileSystemID, b.limits.accessPointsPerFileSys)
+	}
+
 	id := "fsap-" + uuid.NewString()[:8]
 	apARN := arn.Build("elasticfilesystem", region, b.accountID, "access-point/"+id)
 	t := tags.New("efs.accesspoint." + id + ".tags")

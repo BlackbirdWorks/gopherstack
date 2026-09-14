@@ -197,7 +197,13 @@ func findSGRule(
 	return nil
 }
 
-// TestHandlerModifySecurityGroupRules covers handleModifySecurityGroupRules.
+// TestHandlerModifySecurityGroupRules covers handleModifySecurityGroupRules
+// and its required SecurityGroupRules member (api_op_
+// ModifySecurityGroupRules.go). Pre-fix this test posted an "Egress"/
+// "IpPermissions.N.*" shape that does not exist on the real input at all
+// (that belongs to Authorize/RevokeSecurityGroupIngress) and passed only
+// because the handler silently replaced the group's whole rule set instead
+// of targeting one by SecurityGroupRuleId.
 func TestHandlerModifySecurityGroupRules(t *testing.T) {
 	t.Parallel()
 
@@ -212,14 +218,70 @@ func TestHandlerModifySecurityGroupRules(t *testing.T) {
 	sg, err := b.CreateSecurityGroup("test-sg", "test", vpc.ID)
 	require.NoError(t, err)
 
+	require.NoError(t, b.AuthorizeSecurityGroupIngress(sg.ID, []ec2.SecurityGroupRule{
+		{Protocol: "tcp", IPRange: "0.0.0.0/0", FromPort: 80, ToPort: 80},
+	}))
+
+	rules, err := b.DescribeSecurityGroupRules(sg.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, rules)
+	ruleID := rules[0].SecurityGroupRuleID
+
 	rec := postForm(t, h, "Action=ModifySecurityGroupRules&Version=2016-11-15"+
 		"&GroupId="+sg.ID+
-		"&Egress=false"+
-		"&IpPermissions.1.IpProtocol=tcp"+
-		"&IpPermissions.1.FromPort=443"+
-		"&IpPermissions.1.ToPort=443"+
-		"&IpPermissions.1.IpRanges.1.CidrIp=10.0.0.0/8")
+		"&SecurityGroupRule.1.SecurityGroupRuleId="+ruleID+
+		"&SecurityGroupRule.1.SecurityGroupRule.IpProtocol=tcp"+
+		"&SecurityGroupRule.1.SecurityGroupRule.FromPort=443"+
+		"&SecurityGroupRule.1.SecurityGroupRule.ToPort=443"+
+		"&SecurityGroupRule.1.SecurityGroupRule.CidrIpv4=10.0.0.0%2F8")
 	assert.Equal(t, http.StatusOK, rec.Code)
+
+	after, err := b.DescribeSecurityGroupRules(sg.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, after)
+	assert.Equal(t, 443, after[0].FromPort)
+	assert.Equal(t, "10.0.0.0/8", after[0].CIDRIPv4)
+}
+
+// TestHandlerModifySecurityGroupRules_RequiredFieldsRejected covers the
+// required GroupId and SecurityGroupRules members and an unknown
+// SecurityGroupRuleId.
+func TestHandlerModifySecurityGroupRules_RequiredFieldsRejected(t *testing.T) {
+	t.Parallel()
+
+	t.Run("missing security group rules", func(t *testing.T) {
+		t.Parallel()
+
+		h := newHandler()
+
+		vals := url.Values{"Action": {"ModifySecurityGroupRules"}, "Version": {"2016-11-15"}, "GroupId": {"sg-x"}}
+
+		_, err := ec2.ExportDispatch(h, vals)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "InvalidParameterValue")
+	})
+
+	t.Run("unknown security group rule id", func(t *testing.T) {
+		t.Parallel()
+
+		b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
+		h := ec2.NewHandler(b)
+
+		sg, err := b.CreateSecurityGroup("test-sg", "test", "vpc-default")
+		require.NoError(t, err)
+
+		vals := url.Values{
+			"Action":  {"ModifySecurityGroupRules"},
+			"Version": {"2016-11-15"},
+			"GroupId": {sg.ID},
+			"SecurityGroupRule.1.SecurityGroupRuleId":          {"sgr-doesnotexist"},
+			"SecurityGroupRule.1.SecurityGroupRule.IpProtocol": {"tcp"},
+		}
+
+		_, err = ec2.ExportDispatch(h, vals)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "InvalidSecurityGroupRuleId.NotFound")
+	})
 }
 
 // TestHandlerReplaceNetworkACLAssociation covers handleReplaceNetworkACLAssociation.

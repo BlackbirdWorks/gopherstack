@@ -145,11 +145,19 @@ type GetCommandInvocationOutput struct {
 }
 
 // ListCommandInvocationsInput is the request payload for ListCommandInvocations.
+// ListCommandInvocationsInput is the request payload for ListCommandInvocations.
+//
+// Details is not modeled: real AWS only populates CommandInvocation.
+// CommandPlugins (per-plugin status/output) when Details=true, and this
+// backend has no CommandPlugin type or per-plugin execution state at all
+// (CommandInvocation stores one flat stdout/stderr per invocation) --
+// accepted on the wire and otherwise inert.
 type ListCommandInvocationsInput struct {
 	CommandID  string `json:"CommandId,omitempty"`
 	InstanceID string `json:"InstanceId,omitempty"`
 	MaxResults *int64 `json:"MaxResults,omitempty"`
 	NextToken  string `json:"NextToken,omitempty"`
+	Details    bool   `json:"Details,omitempty"`
 }
 
 // ListCommandInvocationsOutput is the response payload for ListCommandInvocations.

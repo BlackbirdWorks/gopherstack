@@ -30,6 +30,7 @@ type createSessionInput struct {
 	Role             string            `json:"Role,omitempty"`
 	Description      string            `json:"Description,omitempty"`
 	Timeout          int32             `json:"Timeout,omitempty"`
+	IdleTimeout      int32             `json:"IdleTimeout,omitempty"`
 	MaxCapacity      float64           `json:"MaxCapacity,omitempty"`
 }
 
@@ -44,6 +45,7 @@ func (h *Handler) handleCreateSession(
 ) (*createSessionOutput, error) {
 	opts := Session{
 		Timeout:          in.Timeout,
+		IdleTimeout:      in.IdleTimeout,
 		MaxCapacity:      in.MaxCapacity,
 		Description:      in.Description,
 		DefaultArguments: in.DefaultArguments,

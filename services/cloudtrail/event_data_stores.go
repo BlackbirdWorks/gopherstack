@@ -17,6 +17,7 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	advancedEventSelectors []AdvancedEventSelector,
 	billingMode, kmsKeyID string,
 	kv map[string]string,
+	startIngestion bool,
 ) (*EventDataStore, error) {
 	b.mu.Lock("CreateEventDataStore")
 	defer b.mu.Unlock()
@@ -41,12 +42,17 @@ func (b *InMemoryBackend) CreateEventDataStore(
 	if retentionPeriod == 0 {
 		retentionPeriod = 2557
 	}
+	status := statusEnabled
+	if !startIngestion {
+		status = "STOPPED_INGESTION"
+	}
+
 	now := time.Now().UTC()
 	eds := &EventDataStore{
 		EventDataStoreID:       id,
 		EventDataStoreARN:      edsARN,
 		Name:                   name,
-		Status:                 statusEnabled,
+		Status:                 status,
 		MultiRegionEnabled:     multiRegionEnabled,
 		OrganizationEnabled:    organizationEnabled,
 		TerminationProtected:   terminationProtected,

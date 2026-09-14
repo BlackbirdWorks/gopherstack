@@ -44,7 +44,7 @@ func TestBackend_Reset(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
 				securityhub.ValidFinding(map[string]any{"Id": "f1", "ProductArn": "arn:aws:securityhub:::product/x/y"}),
 			})
@@ -72,7 +72,7 @@ func TestBackend_SnapshotRestore(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 			_, _, _ = b.ImportFindings([]map[string]any{
 				securityhub.ValidFinding(
 					map[string]any{"Id": "snap-1", "ProductArn": "arn:aws:securityhub:::product/x/y"},

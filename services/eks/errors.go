@@ -22,4 +22,12 @@ var (
 	// lists InvalidRequestException as a distinct client-fault shape from
 	// InvalidParameterException on ops like CancelUpdate.
 	ErrInvalidRequest = awserr.New("InvalidRequestException", awserr.ErrConflict)
+	// ErrResourceLimitExceeded is returned when a create call would push a
+	// resource count past its published EKS service quota (see limits.go).
+	// HTTP Status Code 400 -- confirmed against the API reference's Errors
+	// table for CreateCluster/CreateNodegroup/etc.
+	// (docs.aws.amazon.com/eks/latest/APIReference/API_CreateCluster.html,
+	// WebFetch'd 2026-09-11): "ResourceLimitExceededException ... HTTP Status
+	// Code: 400".
+	ErrResourceLimitExceeded = awserr.New("ResourceLimitExceededException", awserr.ErrInvalidParameter)
 )

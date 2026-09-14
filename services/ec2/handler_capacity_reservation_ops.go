@@ -2,9 +2,16 @@ package ec2
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
 	"strconv"
 	"time"
+)
+
+// Real CallerRole enum values (ec2@v1.329.0 types/enums.go:1179-1180).
+const (
+	callerRoleOdcrOwner                     = "odcr-owner"
+	callerRoleUnusedReservationBillingOwner = "unused-reservation-billing-owner"
 )
 
 // ---- Capacity Reservation splitting / instance movement ----
@@ -172,10 +179,25 @@ type describeCapacityReservationBillingRequestsResponse struct {
 	} `xml:"capacityReservationBillingRequestSet"`
 }
 
+// handleDescribeCapacityReservationBillingRequests requires Role
+// (api_op_DescribeCapacityReservationBillingRequests.go: "This member is
+// required" -- odcr-owner views requests you initiated, unused-reservation-
+// billing-owner views requests sent to you). Real per-role filtering needs a
+// caller-identity distinct from the single b.AccountID this backend models;
+// not modeled here, so every request is returned for either valid role once
+// presence/enum-validated -- documented, not fabricated.
 func (h *Handler) handleDescribeCapacityReservationBillingRequests(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
+	role := vals.Get("Role")
+	if role != callerRoleOdcrOwner && role != callerRoleUnusedReservationBillingOwner {
+		return nil, fmt.Errorf(
+			"%w: Role is required and must be one of %s, %s",
+			ErrInvalidParameter, callerRoleOdcrOwner, callerRoleUnusedReservationBillingOwner,
+		)
+	}
+
 	ids := parseMemberList(vals, "CapacityReservationId")
 	filters := parseEC2Filters(vals)
 

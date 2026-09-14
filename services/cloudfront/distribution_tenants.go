@@ -29,9 +29,12 @@ func (b *InMemoryBackend) AssociateDistributionTenantWebACL(tenantID, webACLID s
 
 // dnsStatusPassed and dnsStatusFailed are the two outcomes of the syntactic domain-validation
 // check dnsCheckStatus performs, standing in for real DNS/ACM validation in this emulator.
+// Values match types.DnsConfigurationStatus (enums.go) exactly -- "PASSED"/"FAILED" decode
+// into the real client's typed field without erroring but never equal any of the three real
+// enum constants, so every caller's status comparison silently always fails.
 const (
-	dnsStatusPassed = "PASSED"
-	dnsStatusFailed = "FAILED"
+	dnsStatusPassed = "valid-configuration"   //nolint:gosec // real AWS enum value, not a credential
+	dnsStatusFailed = "invalid-configuration" //nolint:gosec // real AWS enum value, not a credential
 )
 
 // distributionTenantARN returns the ARN for a distribution tenant ID.
@@ -499,7 +502,10 @@ func (b *InMemoryBackend) DisassociateDistributionTenantWebACL(tenantID string) 
 }
 
 // CreateInvalidationForTenant creates an invalidation for a distribution tenant.
-func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []string) (*Invalidation, error) {
+func (b *InMemoryBackend) CreateInvalidationForTenant(
+	tenantID, callerRef string,
+	paths []string,
+) (*Invalidation, error) {
 	b.mu.Lock("CreateInvalidationForTenant")
 	defer b.mu.Unlock()
 
@@ -514,6 +520,7 @@ func (b *InMemoryBackend) CreateInvalidationForTenant(tenantID string, paths []s
 		ID:         uuid.NewString()[:12],
 		Status:     statusInProgress,
 		CreateTime: now,
+		CallerRef:  callerRef,
 		Paths:      paths,
 		tenantID:   tenantID,
 	}

@@ -14,6 +14,23 @@ const asyncTransitionDelay = 100 * time.Millisecond
 // PageToken-out -- so this bounds page size independent of caller input).
 const defaultPageLimit = 100
 
+// defaultPreferredBackupWindow/defaultPreferredMaintenanceWindow are
+// CreateRelationalDatabaseInput's documented defaults ("a 30-minute window
+// selected at random from an 8-hour block of time for each AWS Region")
+// when the caller omits them -- fixed rather than random since this
+// emulator has no per-region rotation state to pick from.
+//
+//nolint:gosec // G101 false positive: HH:MM backup/maintenance time windows, not credentials.
+const (
+	defaultPreferredBackupWindow      = "07:00-07:30"
+	defaultPreferredMaintenanceWindow = "sun:08:00-sun:08:30"
+)
+
+// treatMissingDataDefault is PutAlarmInput.TreatMissingData's documented
+// default ("If treatMissingData is not specified, the default behavior of
+// missing is used"), matching types.TreatMissingDataMissing's wire value.
+const treatMissingDataDefault = "missing"
+
 // OperationStatus wire values (types.OperationStatus) -- exactly 5, per
 // PARITY.md section 2.
 const (

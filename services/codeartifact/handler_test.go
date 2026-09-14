@@ -521,11 +521,17 @@ func TestHandler_ErrorPaths(t *testing.T) {
 		{
 			name:   "put_domain_permissions_not_found",
 			method: http.MethodPut,
-			path:   "/v1/domain/permissions/policy?domain=nope",
-			// PolicyDocument is required on the real PutDomainPermissionsPolicyInput
-			// -- must be present so this case exercises the domain-not-found path,
-			// not the (now-enforced) required-field check.
-			body:       map[string]any{"policyDocument": `{"Version":"2012-10-17","Statement":[]}`},
+			path:   "/v1/domain/permissions/policy",
+			// Unlike its Get/Delete siblings, PutDomainPermissionsPolicy's real
+			// wire shape carries "domain" as a JSON body member, not an
+			// httpQuery param (serializers.go has no httpBindings for this op
+			// at all) -- domain must be present here so this case exercises
+			// the domain-not-found path, not the (now-enforced) required-field
+			// check.
+			body: map[string]any{
+				"domain":         "nope",
+				"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+			},
 			wantStatus: http.StatusNotFound,
 		},
 		{

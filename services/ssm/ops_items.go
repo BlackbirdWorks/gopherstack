@@ -556,6 +556,10 @@ func (b *InMemoryBackend) UpdateOpsMetadata(
 
 	meta := *metaPtr
 
+	for _, key := range input.KeysToDelete {
+		delete(meta.Metadata, key)
+	}
+
 	if input.Metadata != nil {
 		if meta.Metadata == nil {
 			meta.Metadata = make(map[string]MetadataValue)

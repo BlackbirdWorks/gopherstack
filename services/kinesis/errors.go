@@ -24,13 +24,25 @@ var (
 	// registered enhanced fan-out consumers and EnforceConsumerDeletion is
 	// unset or false (real DeleteStreamInput.EnforceConsumerDeletion doc
 	// comment: "the call to DeleteStream fails with a ResourceInUseException").
-	ErrStreamHasConsumers            = awserr.New("ResourceInUseException", awserr.ErrConflict)
-	ErrInvalidArgument               = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
-	ErrUnknownAction                 = errors.New("UnknownOperationException")
-	ErrShardIteratorExpired          = errors.New("ExpiredIteratorException")
-	ErrConsumerNotFound              = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
-	ErrConsumerAlreadyExists         = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
-	ErrResourcePolicyNotFound        = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrStreamHasConsumers     = awserr.New("ResourceInUseException", awserr.ErrConflict)
+	ErrInvalidArgument        = awserr.New("InvalidArgumentException", awserr.ErrInvalidParameter)
+	ErrUnknownAction          = errors.New("UnknownOperationException")
+	ErrShardIteratorExpired   = errors.New("ExpiredIteratorException")
+	ErrConsumerNotFound       = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	ErrConsumerAlreadyExists  = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
+	ErrResourcePolicyNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrChannelNotFound is returned by DescribeChannel/UpdateChannel/
+	// DeleteChannel when ChannelARN does not match any channel, and by
+	// ListTagsForResource/TagResource/UntagResource for an unrecognized
+	// channel ARN.
+	ErrChannelNotFound = awserr.New("ResourceNotFoundException", awserr.ErrNotFound)
+	// ErrChannelAlreadyExists is returned by CreateChannel when ChannelName
+	// collides with an existing channel: "The name is unique within your
+	// Amazon Web Services account and Amazon Web Services Region"
+	// (api_op_CreateChannel.go doc comment on ChannelName). ResourceInUseException
+	// is one of CreateChannel's declared exceptions (deserializers.go
+	// deserializeOpErrorCreateChannel).
+	ErrChannelAlreadyExists          = awserr.New("ResourceInUseException", awserr.ErrAlreadyExists)
 	ErrProvisionedThroughputExceeded = awserr.New(
 		"ProvisionedThroughputExceededException",
 		errRateExceeded,

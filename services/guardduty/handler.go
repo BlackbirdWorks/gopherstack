@@ -768,20 +768,27 @@ func parseTagPath(method string, parts []string) (string, string) {
 	return opUnknown, ""
 }
 
+// handleError previously passed the raw error message as both the __type
+// and message fields (errBody(msg, msg)), so restjson.GetErrorInfo
+// (aws-sdk-go-v2 aws/protocol/restjson/decoder_util.go:15) read the message
+// text as the error code on every operation instead of a modeled exception
+// name -- no real client could ever decode a typed guardduty exception from
+// this path.
 func (h *Handler) handleError(c *echo.Context, err error) error {
-	code := http.StatusInternalServerError
+	status := http.StatusInternalServerError
+	code := "InternalServerErrorException"
 	msg := err.Error()
 
 	switch {
 	case errors.Is(err, awserr.ErrNotFound):
-		code = http.StatusNotFound
+		status, code = http.StatusNotFound, errResourceNotFound
 	case errors.Is(err, awserr.ErrConflict):
-		code = http.StatusConflict
+		status, code = http.StatusConflict, "ConflictException"
 	case errors.Is(err, awserr.ErrInvalidParameter):
-		code = http.StatusBadRequest
+		status, code = http.StatusBadRequest, "BadRequestException"
 	}
 
-	return c.JSON(code, errBody(msg, msg))
+	return c.JSON(status, errBody(code, msg))
 }
 
 func tagsOrEmpty(m map[string]string) map[string]string {

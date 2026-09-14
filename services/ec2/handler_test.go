@@ -223,10 +223,14 @@ func TestEC2Handler_PostForm(t *testing.T) {
 			wantContains: []string{"DescribeInstanceTypesResponse", "t2.small"},
 		},
 		{
+			// No InstanceType/Filter: real AWS lists the whole (region-scoped)
+			// catalog. instanceTypeCatalog exceeds the 100-item MaxResults page
+			// cap, so the first page is the alphabetically-first entries, not
+			// every cataloged type -- "c5.12xlarge" sorts first among them.
 			name:         "DescribeInstanceTypes_default",
 			body:         "Action=DescribeInstanceTypes&Version=2016-11-15",
 			wantCode:     http.StatusOK,
-			wantContains: []string{"DescribeInstanceTypesResponse", "t2.micro"},
+			wantContains: []string{"DescribeInstanceTypesResponse", "c5.12xlarge", "<nextToken>"},
 		},
 		{
 			name:     "DescribeVpcAttribute",

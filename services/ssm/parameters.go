@@ -932,6 +932,10 @@ func (b *InMemoryBackend) DescribeParameters(
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
+	if input.Shared != nil && *input.Shared {
+		return &DescribeParametersOutput{Parameters: []ParameterMetadata{}}, nil
+	}
+
 	paramsTable := b.parametersStore(region)
 	all := make([]ParameterMetadata, 0, paramsTable.Len())
 

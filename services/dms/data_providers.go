@@ -177,25 +177,21 @@ func (b *InMemoryBackend) findDataProvider(ctx context.Context, nameOrArn string
 	return nil
 }
 
-// DescribeDataProviders returns all data providers (optionally filtered by name/arn).
-func (b *InMemoryBackend) DescribeDataProviders(ctx context.Context, nameOrArn string) ([]*DataProvider, error) {
+// DescribeDataProviders returns data providers matching filters (valid
+// filter names per api_op_DescribeDataProviders.go: data-provider-identifier
+// -- "The data provider name or ARN").
+func (b *InMemoryBackend) DescribeDataProviders(ctx context.Context, filters DescribeFilters) ([]*DataProvider, error) {
 	b.mu.RLock("DescribeDataProviders")
 	defer b.mu.RUnlock()
 
-	if nameOrArn != "" {
-		dp := b.findDataProvider(ctx, nameOrArn)
-		if dp == nil {
-			return []*DataProvider{}, nil
-		}
-
-		cp := *dp
-
-		return []*DataProvider{&cp}, nil
-	}
-
 	items := b.dataProvidersByRegion.Get(getRegion(ctx, b.region))
 	list := make([]*DataProvider, 0, len(items))
+
 	for _, dp := range items {
+		if !filters.MatchesAny("data-provider-identifier", dp.DataProviderName, dp.DataProviderArn) {
+			continue
+		}
+
 		cp := *dp
 		list = append(list, &cp)
 	}

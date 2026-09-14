@@ -125,6 +125,7 @@ type createPodIdentityAssociationBody struct {
 	ServiceAccount     string            `json:"serviceAccount"`
 	RoleArn            string            `json:"roleArn"`
 	Policy             string            `json:"policy"`
+	ClientRequestToken string            `json:"clientRequestToken"`
 	DisableSessionTags bool              `json:"disableSessionTags"`
 }
 
@@ -142,20 +143,20 @@ func (h *Handler) handleCreatePodIdentityAssociation(c *echo.Context, clusterNam
 		return c.JSON(http.StatusBadRequest, errResp("InvalidParameterException", "serviceAccount is required"))
 	}
 
-	assoc, err := h.Backend.CreatePodIdentityAssociation(
-		clusterName,
-		in.Namespace,
-		in.ServiceAccount,
-		in.RoleArn,
-		in.Tags,
-		PodIdentityAssociationInput{Policy: in.Policy, DisableSessionTags: in.DisableSessionTags},
-	)
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opCreatePodIdentityAssociation, in.ClientRequestToken, body, func() (int, any, error) {
+		assoc, err := h.Backend.CreatePodIdentityAssociation(
+			clusterName,
+			in.Namespace,
+			in.ServiceAccount,
+			in.RoleArn,
+			in.Tags,
+			PodIdentityAssociationInput{Policy: in.Policy, DisableSessionTags: in.DisableSessionTags},
+		)
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAssociation: podIdentityToJSON(assoc),
+		return http.StatusOK, map[string]any{keyAssociation: podIdentityToJSON(assoc)}, nil
 	})
 }
 
@@ -215,6 +216,7 @@ type updatePodIdentityBody struct {
 	Policy             *string `json:"policy"`
 	DisableSessionTags *bool   `json:"disableSessionTags"`
 	RoleArn            string  `json:"roleArn"`
+	ClientRequestToken string  `json:"clientRequestToken"`
 }
 
 func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterName, assocID string, body []byte) error {
@@ -225,16 +227,16 @@ func (h *Handler) handleUpdatePodIdentityAssociation(c *echo.Context, clusterNam
 		}
 	}
 
-	assoc, err := h.Backend.UpdatePodIdentityAssociation(clusterName, assocID, PodIdentityAssociationUpdate{
-		RoleARN:            in.RoleArn,
-		Policy:             in.Policy,
-		DisableSessionTags: in.DisableSessionTags,
-	})
-	if err != nil {
-		return h.handleError(c, err)
-	}
+	return h.withIdempotency(c, opUpdatePodIdentityAssociation, in.ClientRequestToken, body, func() (int, any, error) {
+		assoc, err := h.Backend.UpdatePodIdentityAssociation(clusterName, assocID, PodIdentityAssociationUpdate{
+			RoleARN:            in.RoleArn,
+			Policy:             in.Policy,
+			DisableSessionTags: in.DisableSessionTags,
+		})
+		if err != nil {
+			return 0, nil, err
+		}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		keyAssociation: podIdentityToJSON(assoc),
+		return http.StatusOK, map[string]any{keyAssociation: podIdentityToJSON(assoc)}, nil
 	})
 }

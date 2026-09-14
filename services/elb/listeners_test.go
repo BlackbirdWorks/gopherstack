@@ -433,8 +433,8 @@ func TestSetSSLCertNonHTTPSListener(t *testing.T) {
 		port       string
 		wantStatus int
 	}{
-		{"http_listener_rejected", "HTTP", "80", http.StatusBadRequest},
-		{"tcp_listener_rejected", "TCP", "80", http.StatusBadRequest},
+		{"http_listener_rejected", "HTTP", "80", http.StatusConflict},
+		{"tcp_listener_rejected", "TCP", "80", http.StatusConflict},
 	}
 
 	for i, tt := range tests {
@@ -553,7 +553,7 @@ func TestAccountLimitMaxListeners(t *testing.T) {
 		"Listeners.member.1.LoadBalancerPort": {"2048"},
 		"Listeners.member.1.InstancePort":     {"8080"},
 	})
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusConflict, rec.Code)
 	assert.Contains(t, rec.Body.String(), "InvalidConfigurationRequest")
 }
 

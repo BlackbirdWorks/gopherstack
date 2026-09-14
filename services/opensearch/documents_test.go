@@ -34,15 +34,16 @@ func TestIndexDocumentLifecycle(t *testing.T) {
 	b := seedIndex(t, "products")
 
 	// Explicit ID create.
-	id, created, err := b.IndexDocument("dom", "products", "p1", map[string]any{
+	id, created, meta, err := b.IndexDocument("dom", "products", "p1", map[string]any{
 		"name": "widget", "price": float64(10),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "p1", id)
 	assert.True(t, created)
+	assert.Equal(t, 1, meta.Version)
 
 	// Auto-generated ID.
-	id2, created2, err := b.IndexDocument("dom", "products", "", map[string]any{"name": "gadget"})
+	id2, created2, _, err := b.IndexDocument("dom", "products", "", map[string]any{"name": "gadget"})
 	require.NoError(t, err)
 	assert.NotEmpty(t, id2)
 	assert.True(t, created2)
@@ -67,21 +68,24 @@ func TestIndexDocumentLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Re-index existing ID updates, does not create.
-	_, createdAgain, err := b.IndexDocument("dom", "products", "p1", map[string]any{"name": "widget2"})
+	_, createdAgain, meta2, err := b.IndexDocument("dom", "products", "p1", map[string]any{"name": "widget2"})
 	require.NoError(t, err)
 	assert.False(t, createdAgain)
+	assert.Equal(t, 2, meta2.Version, "re-indexing the same doc ID bumps _version")
 
-	got, err := b.GetDocument("dom", "products", "p1")
+	got, _, err := b.GetDocument("dom", "products", "p1")
 	require.NoError(t, err)
 	assert.Equal(t, "widget2", got["name"])
 
-	// Delete decrements the count.
-	require.NoError(t, b.DeleteDocument("dom", "products", "p1"))
+	// Delete decrements the count and bumps the tombstone version.
+	delMeta, err := b.DeleteDocument("dom", "products", "p1")
+	require.NoError(t, err)
+	assert.Equal(t, 3, delMeta.Version)
 	count, err = b.CountDocuments("dom", "products")
 	require.NoError(t, err)
 	assert.Equal(t, 1, count)
 
-	_, err = b.GetDocument("dom", "products", "p1")
+	_, _, err = b.GetDocument("dom", "products", "p1")
 	require.ErrorIs(t, err, opensearch.ErrConnectionNotFound)
 }
 
@@ -98,7 +102,7 @@ func TestIndexDocumentErrors(t *testing.T) {
 		{
 			name: "index_unknown_domain",
 			run: func() error {
-				_, _, err := b.IndexDocument("nope", "i", "1", map[string]any{})
+				_, _, _, err := b.IndexDocument("nope", "i", "1", map[string]any{})
 
 				return err
 			},
@@ -106,7 +110,7 @@ func TestIndexDocumentErrors(t *testing.T) {
 		{
 			name: "get_unknown_index",
 			run: func() error {
-				_, err := b.GetDocument("nope", "i", "1")
+				_, _, err := b.GetDocument("nope", "i", "1")
 
 				return err
 			},
@@ -114,7 +118,9 @@ func TestIndexDocumentErrors(t *testing.T) {
 		{
 			name: "delete_unknown_doc",
 			run: func() error {
-				return b.DeleteDocument("nope", "i", "1")
+				_, err := b.DeleteDocument("nope", "i", "1")
+
+				return err
 			},
 		},
 		{
@@ -148,7 +154,7 @@ func TestSearchIndex(t *testing.T) {
 		"b3": {"title": "Rust in Action", "author": "McNamara", "year": float64(2021)},
 	}
 	for id, doc := range docs {
-		_, _, err := b.IndexDocument("dom", "books", id, doc)
+		_, _, _, err := b.IndexDocument("dom", "books", id, doc)
 		require.NoError(t, err)
 	}
 
@@ -223,7 +229,7 @@ func TestSearchIndexSizeBound(t *testing.T) {
 
 	b := seedIndex(t, "big")
 	for i := range 25 {
-		_, _, err := b.IndexDocument("dom", "big", string(rune('a'+i)), map[string]any{"n": float64(i)})
+		_, _, _, err := b.IndexDocument("dom", "big", string(rune('a'+i)), map[string]any{"n": float64(i)})
 		require.NoError(t, err)
 	}
 
@@ -239,7 +245,7 @@ func TestSearchIndexUnsupportedQuery(t *testing.T) {
 	t.Parallel()
 
 	b := seedIndex(t, "q")
-	_, _, err := b.IndexDocument("dom", "q", "1", map[string]any{"f": "v"})
+	_, _, _, err := b.IndexDocument("dom", "q", "1", map[string]any{"f": "v"})
 	require.NoError(t, err)
 
 	_, err = b.SearchIndex("dom", "q", map[string]any{"range": map[string]any{"f": "v"}}, 10)

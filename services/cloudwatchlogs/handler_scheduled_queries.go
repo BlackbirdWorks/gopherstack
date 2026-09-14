@@ -37,8 +37,10 @@ type deleteScheduledQueryOutput struct{}
 
 // --- ListScheduledQueries ---.
 type listScheduledQueriesInput struct {
-	NextToken  string `json:"nextToken"`
-	MaxResults int    `json:"maxResults"`
+	NextToken    string `json:"nextToken"`
+	ScheduleType string `json:"scheduleType,omitempty"`
+	State        string `json:"state,omitempty"`
+	MaxResults   int    `json:"maxResults"`
 }
 
 type listScheduledQueriesOutput struct {
@@ -113,9 +115,15 @@ type getScheduledQueryHistoryInput struct {
 	MaxResults int    `json:"maxResults"`
 }
 
+// getScheduledQueryHistoryOutput is GetScheduledQueryHistoryOutput's real
+// shape (deserializers.go's awsAwsjson11_deserializeOpDocumentGetScheduledQueryHistoryOutput):
+// wrapper key "triggerHistory", not the previously fabricated
+// "scheduledQueryRunSummaries".
 type getScheduledQueryHistoryOutput struct {
-	NextToken                  string                     `json:"nextToken,omitempty"`
-	ScheduledQueryRunSummaries []ScheduledQueryRunSummary `json:"scheduledQueryRunSummaries"`
+	Name              string                     `json:"name,omitempty"`
+	NextToken         string                     `json:"nextToken,omitempty"`
+	ScheduledQueryArn string                     `json:"scheduledQueryArn,omitempty"`
+	TriggerHistory    []ScheduledQueryRunSummary `json:"triggerHistory"`
 }
 
 func (h *Handler) handleCreateScheduledQuery(
@@ -183,7 +191,9 @@ func (h *Handler) handleListScheduledQueries(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	queries, next, err := h.Backend.ListScheduledQueries(input.MaxResults, input.NextToken)
+	queries, next, err := h.Backend.ListScheduledQueries(
+		input.MaxResults, input.NextToken, input.ScheduleType, input.State,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +251,7 @@ func (h *Handler) handleGetScheduledQueryHistory(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	summaries, next, err := h.Backend.GetScheduledQueryHistory(
+	runs, next, err := h.Backend.GetScheduledQueryHistory(
 		input.Identifier,
 		input.NextToken,
 		input.MaxResults,
@@ -250,5 +260,15 @@ func (h *Handler) handleGetScheduledQueryHistory(
 		return nil, err
 	}
 
-	return &getScheduledQueryHistoryOutput{ScheduledQueryRunSummaries: summaries, NextToken: next}, nil
+	sq, err := h.Backend.GetScheduledQuery(input.Identifier)
+	if err != nil {
+		return nil, err
+	}
+
+	return &getScheduledQueryHistoryOutput{
+		TriggerHistory:    runs,
+		NextToken:         next,
+		Name:              sq.Name,
+		ScheduledQueryArn: sq.ScheduledQueryArn,
+	}, nil
 }

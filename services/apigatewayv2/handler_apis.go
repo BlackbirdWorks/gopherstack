@@ -582,6 +582,13 @@ func (h *Handler) handleExportAPI(c *echo.Context, apiID, specification string) 
 		return writeErr(c, http.StatusBadRequest, "outputType must be JSON or YAML")
 	}
 
+	// exportVersion is a query param (api_op_ExportApi.go doc: "Currently, the
+	// only supported version is 1.0"); reject anything else rather than
+	// silently ignoring an unsupported version.
+	if exportVersion := c.QueryParam("exportVersion"); exportVersion != "" && exportVersion != "1.0" {
+		return writeErr(c, http.StatusBadRequest, "exportVersion must be 1.0")
+	}
+
 	spec, err := h.Backend.ExportAPI(apiID)
 	if err != nil {
 		if errors.Is(err, ErrAPINotFound) {

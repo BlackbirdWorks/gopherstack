@@ -7,7 +7,7 @@
 
 | Metric | Value |
 | --- | --- |
-| PARITY entries audited | 25 (23 ok, 2 partial) |
+| PARITY entries audited | 25 (24 ok, 1 partial) |
 | Feature families | 2 (2 ok) |
 | Known gaps | 3 |
 | Deferred items | 1 |
@@ -21,7 +21,7 @@
 
 ### Deferred
 
-- Full CRDR (cross-region data replication) simulation: Promote/DataReplicationMetadata population when dataReplicationMode=CRDR is not modeled beyond accepting/echoing the mode string and (as of this pass) seeding DataReplicationMetadata.DataReplicationCounterpart from CreateBroker's dataReplicationPrimaryBrokerArn. Considered explicitly this pass (gopherstack-7wz5) and ruled out of scope: a half-modelled cross-region replication state machine (pairing brokers, propagating data, promote semantics) would report a state no client could rely on, which is worse than the current honest non-implementation. User.ReplicationUser is now accepted/echoed (see CreateUser/UpdateUser/DescribeUser above) but its CRDR *effects* (actual replication) remain part of this same deferred surface. 2026-08-20 wrapper-key sweep fixed the WIRE SHAPE of what is emitted (DataReplicationCounterpart is now the real nested {brokerId, region} object, parsed best-effort from the given ARN since there is no real cross-region broker to look up) without expanding the deferred simulation itself -- see CreateBroker's note.
+- Full CRDR (cross-region data replication) simulation: Promote/DataReplicationMetadata population when dataReplicationMode=CRDR is not modeled beyond accepting/echoing the mode string, seeding DataReplicationMetadata.DataReplicationCounterpart from CreateBroker's dataReplicationPrimaryBrokerArn, and (2026-09-12) requiring/flipping DataReplicationRole REPLICA->PRIMARY on Promote -- no data actually moves between a simulated pair, and the counterpart broker's own role is not updated in tandem (this backend has no bidirectional pairing state to update it through). Considered explicitly this pass (gopherstack-7wz5) and ruled out of scope: a half-modelled cross-region replication state machine (pairing brokers, propagating data, promote semantics) would report a state no client could rely on, which is worse than the current honest non-implementation. User.ReplicationUser is now accepted/echoed (see CreateUser/UpdateUser/DescribeUser above) but its CRDR *effects* (actual replication) remain part of this same deferred surface. 2026-08-20 wrapper-key sweep fixed the WIRE SHAPE of what is emitted (DataReplicationCounterpart is now the real nested {brokerId, region} object, parsed best-effort from the given ARN since there is no real cross-region broker to look up) without expanding the deferred simulation itself -- see CreateBroker's note.
 
 ## More
 

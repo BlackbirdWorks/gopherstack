@@ -27,6 +27,7 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 		"trail1", "bucket1", "prefix", "", "", "", "",
 		true, false, false,
 		map[string]string{"env": "test"},
+		false,
 	)
 	require.NoError(t, err)
 
@@ -41,7 +42,7 @@ func newPersistenceTestBackend(t *testing.T) *cloudtrail.InMemoryBackend {
 	// eventDataStores table + edsByARN + edsByName indexes.
 	eds, err := b.CreateEventDataStore(
 		"eds1", true, false, false, 2557, nil, "", "",
-		map[string]string{"k": "v"},
+		map[string]string{"k": "v"}, true,
 	)
 	require.NoError(t, err)
 
@@ -124,7 +125,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "eds1", eds.Name)
 
 	// edsByName uniqueness enforced post-restore (index survived).
-	_, err = fresh.CreateEventDataStore("eds1", true, false, false, 0, nil, "", "", nil)
+	_, err = fresh.CreateEventDataStore("eds1", true, false, false, 0, nil, "", "", nil, true)
 	require.ErrorIs(t, err, cloudtrail.ErrEventDataStoreAlreadyExists)
 
 	// queries table.
@@ -196,18 +197,18 @@ func TestInMemoryBackend_UpdateEventDataStore_RenamePreservesIndex(t *testing.T)
 
 	b := cloudtrail.NewInMemoryBackend("000000000000", "us-east-1")
 
-	eds, err := b.CreateEventDataStore("original-name", false, false, false, 0, nil, "", "", nil)
+	eds, err := b.CreateEventDataStore("original-name", false, false, false, 0, nil, "", "", nil, true)
 	require.NoError(t, err)
 
 	_, err = b.UpdateEventDataStore(eds.EventDataStoreID, "renamed", nil, nil, nil, nil, nil, "", "")
 	require.NoError(t, err)
 
 	// The old name must no longer resolve to anything.
-	_, err = b.CreateEventDataStore("original-name", false, false, false, 0, nil, "", "", nil)
+	_, err = b.CreateEventDataStore("original-name", false, false, false, 0, nil, "", "", nil, true)
 	require.NoError(t, err, "original-name index entry must have been removed on rename")
 
 	// The new name must be findable and unique.
-	_, err = b.CreateEventDataStore("renamed", false, false, false, 0, nil, "", "", nil)
+	_, err = b.CreateEventDataStore("renamed", false, false, false, 0, nil, "", "", nil, true)
 	require.ErrorIs(t, err, cloudtrail.ErrEventDataStoreAlreadyExists, "renamed index entry must be present")
 
 	snap := b.Snapshot(t.Context())
@@ -282,6 +283,7 @@ func TestInMemoryBackend_SnapshotRestore_EventConfiguration(t *testing.T) {
 	trail, err := b.CreateTrail(
 		"evtcfg-trail", "bucket1", "", "", "", "", "",
 		false, false, false, nil,
+		false,
 	)
 	require.NoError(t, err)
 

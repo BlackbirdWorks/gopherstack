@@ -89,8 +89,8 @@ func notesCell(doc *ParityDoc) string {
 	if len(doc.Ops) == 0 && len(doc.Families) > 0 {
 		parts = append(parts, plural(len(doc.Families), "family", "families"))
 	}
-	if len(doc.Gaps) > 0 {
-		parts = append(parts, plural(len(doc.Gaps), "gap", "gaps"))
+	if openItems := doc.openItems(); len(openItems) > 0 {
+		parts = append(parts, plural(len(openItems), "gap", "gaps"))
 	}
 	if len(doc.StructuralGaps) > 0 {
 		parts = append(parts, plural(len(doc.StructuralGaps), "structural gap", "structural gaps"))

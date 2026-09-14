@@ -78,11 +78,25 @@ func (h *Handler) sdkActions() map[string]actionFn {
 
 			return http.StatusOK, &sdkTypeView{ID: t.ID, FriendlyName: t.FriendlyName}, nil
 		},
-		opGetSdkTypes: func(_ []byte) (int, any, error) {
-			types := h.Backend.GetSdkTypes()
-			items := make([]sdkTypeView, 0, len(types))
+		opGetSdkTypes: func(b []byte) (int, any, error) {
+			var input struct {
+				Limit int `json:"limit,omitempty"`
+			}
+			if err := json.Unmarshal(b, &input); err != nil {
+				return 0, nil, err
+			}
 
-			for _, t := range types {
+			catalog := h.Backend.GetSdkTypes()
+			// GetSdkTypesOutput has no Position/continuation-token field
+			// (apigateway@v1.42.4 api_op_GetSdkTypes.go:41-49, Items only), so
+			// Limit can only truncate -- there is no wire-shape way to hand
+			// back a cursor for a further page.
+			if input.Limit > 0 && input.Limit < len(catalog) {
+				catalog = catalog[:input.Limit]
+			}
+
+			items := make([]sdkTypeView, 0, len(catalog))
+			for _, t := range catalog {
 				items = append(items, sdkTypeView(t))
 			}
 

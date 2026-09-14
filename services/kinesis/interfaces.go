@@ -3,7 +3,16 @@ package kinesis
 import (
 	"context"
 	"time"
+
+	sdk_s3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
+
+// ChannelS3Writer is the subset of S3 operations that channel record
+// delivery needs to write an object to a general purpose S3 destination.
+// Mirrors firehose.S3Storer (services/firehose/interfaces.go).
+type ChannelS3Writer interface {
+	PutObject(ctx context.Context, input *sdk_s3.PutObjectInput) (*sdk_s3.PutObjectOutput, error)
+}
 
 // StorageBackend defines the interface for a Kinesis backend.
 //
@@ -61,6 +70,11 @@ type StorageBackend interface {
 		input *UpdateStreamWarmThroughputInput,
 	) (*UpdateStreamWarmThroughputOutput, error)
 	DescribeAccountSettings(ctx context.Context) (*DescribeAccountSettingsOutput, error)
+	CreateChannel(ctx context.Context, input *CreateChannelInput) (*CreateChannelOutput, error)
+	DeleteChannel(ctx context.Context, input *DeleteChannelInput) error
+	DescribeChannel(ctx context.Context, input *DescribeChannelInput) (*DescribeChannelOutput, error)
+	ListChannels(ctx context.Context, input *ListChannelsInput) (*ListChannelsOutput, error)
+	UpdateChannel(ctx context.Context, input *UpdateChannelInput) (*UpdateChannelOutput, error)
 	CountOpenShards(ctx context.Context) int
 	CountOnDemandStreams(ctx context.Context) int
 	OnDemandStreamCountLimit(ctx context.Context) int

@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 102 (102 ok) |
-| Known gaps | 6 |
+| Known gaps | 10 |
 | Deferred items | 1 |
 | Resource leaks | clean |
 
@@ -20,6 +20,10 @@
 - PutConformancePack accepts zero template sources (TemplateBody/TemplateS3Uri/ TemplateSSMDocumentDetails all empty) without erroring, though real AWS Config requires exactly one. This pass added rejection for *more than one* source (a genuine new validation, real and tested), but left the zero-sources case alone: this codebase's existing test suite routinely calls PutConformancePack with no template purely to establish a pack's existence for unrelated assertions (DeleteConformancePack, ARN format, etc.), and enforcing the full requirement would need updating every one of those call sites' intent, which is per-field validation-taxonomy work already tracked under gopherstack-eboy, not this issue's scope.
 - MaxNumberOfConnectorsExceededException (PutConnector's per-account connector-count limit) is declared by the real API but its numeric value isn't published anywhere in AWS's docs (checked the API reference and the Config service-limits page as of this pass -- no "connectors" row exists in either). Not enforced rather than guessing an unverifiable number; the wire error type isn't wired into errorWireMappings since nothing in this backend raises it.
 - FIXED (parity sweep 2026-09-04): the single-customer-managed-recorder-per-account limit ("You can create only one customer managed configuration recorder for each account for each Amazon Web Services Region" -- api_op_PutConfigurationRecorder.go doc comment) was unenforced: PutConfigurationRecorder created a new recorder for any unseen name with no cap. Now hasCustomerManagedRecorderLocked (configuration_recorders.go) rejects a second customer-managed recorder under a different name with MaxNumberOfConfigurationRecordersExceededException (ErrAlreadyExists), matching the modelled error on PutConfigurationRecorder's deserializer. Service-linked and third-party service-linked recorders don't count against the limit -- confirmed via PutThirdPartyServiceLinkedConfigurationRecorder's own, separately-enforced one-per-ServicePrincipal limit (still real, unchanged). Test: TestAWSConfigBackend_PutConfigurationRecorder_MaxOneCustomerManaged.
+- GetDiscoveredResourceCounts.Limit/NextToken are inert: they page the real, required ResourceCounts per-type breakdown, which is not modeled (see the existing TotalDiscoveredResources-only gap above) -- there is nothing to paginate until that breakdown exists (gopherstack-xhu2t tier-1 sweep, 2026-09-12).
+- GetAggregateDiscoveredResourceCounts.Limit/NextToken are inert for the same reason: they page the real, optional GroupedResourceCounts breakdown, which is not modeled (see the existing gap above) (gopherstack-xhu2t tier-1 sweep, 2026-09-12).
+- ListDiscoveredResources.IncludeDeletedResources has no backend counterpart: DeleteResourceConfig removes a resource from b.resourceConfigs outright rather than tombstoning it, so there is no deleted-resource record this op could ever include. Would need new tombstone tracking in pkgs/store/resources.go, not a wire-key fix (gopherstack-xhu2t tier-1 sweep, 2026-09-12).
+- StartResourceEvaluation.EvaluationTimeout has no backend counterpart: StartResourceEvaluation completes synchronously and always lands on statusSucceeded, so there is no in-flight evaluation a timeout could ever interrupt. Real AWS proactive evaluation is asynchronous; modeling that would need an async evaluation pipeline, not a field read (gopherstack-xhu2t tier-1 sweep, 2026-09-12).
 
 ### Deferred
 

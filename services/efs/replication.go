@@ -47,6 +47,14 @@ func (b *InMemoryBackend) CreateReplicationConfiguration(
 		)
 	}
 
+	// CreateReplicationConfiguration declares FileSystemLimitExceeded (api-2.json
+	// operations.CreateReplicationConfiguration.errors, see limits.go) because it
+	// implicitly creates a destination file system, drawing on the same
+	// per-account/region quota CreateFileSystem enforces.
+	if len(b.fileSystemsByRegion.Get(region)) >= b.limits.fileSystemsPerAccount {
+		return nil, fileSystemLimitExceededErr(b.limits.fileSystemsPerAccount)
+	}
+
 	creationTime := time.Now().UTC()
 
 	dests := make([]ReplicationDestination, len(destinations))

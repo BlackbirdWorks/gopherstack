@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"sync"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -49,77 +49,56 @@ func ctxRegion(ctx context.Context, dflt string) string {
 // are likewise left raw for the same reason. tags (map[string]map[string]string)
 // is the one remaining grouping map with a non-*T value.
 type InMemoryBackend struct {
-	kbDocuments             *store.Table[KBDocumentDetail]
-	kbDocumentsByDataSource *store.Index[KBDocumentDetail]
-
-	agentsByName map[string]string
-
-	agents *store.Table[Agent]
-
-	agentVersions        *store.Table[AgentVersion]
-	agentVersionsByAgent *store.Index[AgentVersion]
-
-	actionGroups               *store.Table[AgentActionGroup]
-	actionGroupsByAgentVersion *store.Index[AgentActionGroup]
-
-	agentAliases        *store.Table[AgentAlias]
-	agentAliasesByAgent *store.Index[AgentAlias]
-
+	kbDocuments                      *store.Table[KBDocumentDetail]
+	kbDocumentsByDataSource          *store.Index[KBDocumentDetail]
+	agentsByName                     map[string]string
+	agents                           *store.Table[Agent]
+	agentVersions                    *store.Table[AgentVersion]
+	agentVersionsByAgent             *store.Index[AgentVersion]
+	actionGroups                     *store.Table[AgentActionGroup]
+	actionGroupsByAgentVersion       *store.Index[AgentActionGroup]
+	agentAliases                     *store.Table[AgentAlias]
+	agentAliasesByAgent              *store.Index[AgentAlias]
 	agentCollaborators               *store.Table[AgentCollaborator]
 	agentCollaboratorsByAgentVersion *store.Index[AgentCollaborator]
-
-	knowledgeBases *store.Table[KnowledgeBase]
-	kbsByName      map[string]string
-
-	agentKBAssocs               *store.Table[AgentKnowledgeBase]
-	agentKBAssocsByAgentVersion *store.Index[AgentKnowledgeBase]
-
-	dataSources     *store.Table[DataSource]
-	dataSourcesByKB *store.Index[DataSource]
-
-	ingestionJobs             *store.Table[IngestionJob]
-	ingestionJobsByDataSource *store.Index[IngestionJob]
-
-	flows       *store.Table[Flow]
-	flowsByName map[string]string
-
-	flowVersions       *store.Table[FlowVersion]
-	flowVersionsByFlow *store.Index[FlowVersion]
-
-	flowAliases       *store.Table[FlowAlias]
-	flowAliasesByFlow *store.Index[FlowAlias]
-
-	prompts *store.Table[Prompt]
-
-	promptVersions         *store.Table[PromptVersion]
-	promptVersionsByPrompt *store.Index[PromptVersion]
-	promptsByName          map[string]string
-	promptVersionCtrs      map[string]int
-
-	tags             map[string]map[string]string
-	flowVersionCtrs  map[string]int
-	agentVersionCtrs map[string]int
-
-	// resourcePolicies is keyed by the knowledge base's ResourceArn -- see
-	// resource_policy.go's package doc comment.
-	resourcePolicies *store.Table[ResourcePolicy]
-
-	registry *store.Registry
-
-	accountID             string
-	defaultRegion         string
-	dsCounter             int
-	collabCounter         int
-	kbCounter             int
-	flowCounter           int
-	aliasCounter          int
-	agentCounter          int
-	actionGroupCounter    int
-	flowAliasCounter      int
-	promptCounter         int
-	jobCounter            int
-	resourcePolicyCounter int
-	mu                    sync.RWMutex
+	knowledgeBases                   *store.Table[KnowledgeBase]
+	kbsByName                        map[string]string
+	agentKBAssocs                    *store.Table[AgentKnowledgeBase]
+	agentKBAssocsByAgentVersion      *store.Index[AgentKnowledgeBase]
+	dataSources                      *store.Table[DataSource]
+	dataSourcesByKB                  *store.Index[DataSource]
+	ingestionJobs                    *store.Table[IngestionJob]
+	ingestionJobsByDataSource        *store.Index[IngestionJob]
+	flows                            *store.Table[Flow]
+	flowsByName                      map[string]string
+	flowVersions                     *store.Table[FlowVersion]
+	flowVersionsByFlow               *store.Index[FlowVersion]
+	flowAliases                      *store.Table[FlowAlias]
+	flowAliasesByFlow                *store.Index[FlowAlias]
+	prompts                          *store.Table[Prompt]
+	promptVersions                   *store.Table[PromptVersion]
+	promptVersionsByPrompt           *store.Index[PromptVersion]
+	promptsByName                    map[string]string
+	promptVersionCtrs                map[string]int
+	tags                             map[string]map[string]string
+	flowVersionCtrs                  map[string]int
+	agentVersionCtrs                 map[string]int
+	resourcePolicies                 *store.Table[ResourcePolicy]
+	registry                         *store.Registry
+	mu                               *lockmetrics.RWMutex
+	accountID                        string
+	defaultRegion                    string
+	dsCounter                        int
+	collabCounter                    int
+	kbCounter                        int
+	flowCounter                      int
+	aliasCounter                     int
+	agentCounter                     int
+	actionGroupCounter               int
+	flowAliasCounter                 int
+	promptCounter                    int
+	jobCounter                       int
+	resourcePolicyCounter            int
 }
 
 var _ StorageBackend = (*InMemoryBackend)(nil)
@@ -138,6 +117,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 		promptVersionCtrs: make(map[string]int),
 		defaultRegion:     region,
 		accountID:         accountID,
+		mu:                lockmetrics.New("bedrockagent"),
 	}
 	registerAllTables(b)
 
@@ -146,7 +126,7 @@ func NewInMemoryBackend(region, accountID string) *InMemoryBackend {
 
 // Reset clears all backend state (used in tests).
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()

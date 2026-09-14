@@ -60,6 +60,26 @@ func validateReceiptActions(actions []ReceiptAction) error {
 	return nil
 }
 
+// validateReceiptRuleLimitsLocked enforces the two per-rule caps real AWS
+// SES declares LimitExceededException for on both CreateReceiptRule and
+// UpdateReceiptRule (quotas.html: "Maximum number of actions per receipt
+// rule" / "Maximum number of recipients per receipt rule"). The
+// rules-per-rule-set cap is checked separately by CreateReceiptRule only --
+// UpdateReceiptRule replaces an existing rule, it doesn't add one.
+//
+// The caller MUST hold b.mu for writing.
+func (b *InMemoryBackend) validateReceiptRuleLimitsLocked(rule ReceiptRule) error {
+	if len(rule.Actions) > b.limits.actionsPerRule {
+		return limitExceeded("actions per receipt rule")
+	}
+
+	if len(rule.Recipients) > b.limits.recipientsPerRule {
+		return limitExceeded("recipients per receipt rule")
+	}
+
+	return nil
+}
+
 // findRuleIndex returns the index of the rule with the given name, or -1 if not found.
 func findRuleIndex(rules []ReceiptRule, name string) int {
 	for i, r := range rules {
@@ -103,6 +123,14 @@ func (b *InMemoryBackend) CreateReceiptRule(ruleSetName string, rule ReceiptRule
 		}
 	}
 
+	if err := b.validateReceiptRuleLimitsLocked(rule); err != nil {
+		return err
+	}
+
+	if len(rs.Rules) >= b.limits.rulesPerRuleSet {
+		return limitExceeded("rules per receipt rule set")
+	}
+
 	if after == "" {
 		rs.Rules = append([]ReceiptRule{rule}, rs.Rules...)
 
@@ -139,6 +167,10 @@ func (b *InMemoryBackend) CreateReceiptFilter(filter ReceiptFilter) error {
 
 	if b.receiptFilters.Has(filter.Name) {
 		return fmt.Errorf("%w: receipt filter %s already exists", ErrReceiptFilterExists, filter.Name)
+	}
+
+	if b.receiptFilters.Len() >= b.limits.receiptFilters {
+		return limitExceeded("IP address filters per account")
 	}
 
 	f := filter
@@ -261,6 +293,10 @@ func (b *InMemoryBackend) UpdateReceiptRule(ruleSetName string, rule ReceiptRule
 	idx := findRuleIndex(rs.Rules, rule.Name)
 	if idx < 0 {
 		return fmt.Errorf("%w: %s", ErrReceiptRuleNotFound, rule.Name)
+	}
+
+	if err := b.validateReceiptRuleLimitsLocked(rule); err != nil {
+		return err
 	}
 
 	rs.Rules[idx] = rule

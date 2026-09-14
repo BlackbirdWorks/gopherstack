@@ -28,7 +28,11 @@ func (b *InMemoryBackend) ActivateEventSource(ctx context.Context, name string) 
 	return nil
 }
 
-// DeactivateEventSource deactivates a partner event source.
+// DeactivateEventSource deactivates a partner event source. Real AWS: "When
+// you deactivate a partner event source, the source goes into PENDING
+// state" (api_op_DeactivateEventSource.go doc comment) -- EventSourceState
+// has no "INACTIVE" value at all (only PENDING/ACTIVE/DELETED,
+// eventbridge@v1.53.0 types/enums.go).
 func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string) error {
 	if name == "" {
 		return fmt.Errorf("%w: Name is required", ErrInvalidParameter)
@@ -44,7 +48,7 @@ func (b *InMemoryBackend) DeactivateEventSource(ctx context.Context, name string
 		return fmt.Errorf("%w: event source %s not found", ErrNotFound, name)
 	}
 
-	src.State = "INACTIVE"
+	src.State = statePending
 
 	return nil
 }

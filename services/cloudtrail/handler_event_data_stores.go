@@ -16,6 +16,7 @@ const defaultEDSPageSize = 1000
 // --- CreateEventDataStore ---
 
 type createEventDataStoreBody struct {
+	StartIngestion         *bool                   `json:"StartIngestion"`
 	Name                   string                  `json:"Name"`
 	BillingMode            string                  `json:"BillingMode"`
 	KMSKeyID               string                  `json:"KmsKeyId"`
@@ -41,6 +42,11 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 		kv[tag.Key] = tag.Value
 	}
 
+	startIngestion := true
+	if in.StartIngestion != nil {
+		startIngestion = *in.StartIngestion
+	}
+
 	eds, err := h.Backend.CreateEventDataStore(
 		in.Name,
 		in.MultiRegionEnabled,
@@ -51,6 +57,7 @@ func (h *Handler) handleCreateEventDataStore(c *echo.Context, body []byte) error
 		in.BillingMode,
 		in.KMSKeyID,
 		kv,
+		startIngestion,
 	)
 	if err != nil {
 		return h.handleError(c, err)

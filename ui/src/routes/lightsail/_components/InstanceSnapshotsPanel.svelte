@@ -4,6 +4,7 @@
 	// natural place to trigger a restore from.
 	import {
 		GetInstanceSnapshotsCommand,
+		GetInstanceSnapshotCommand,
 		CreateInstanceSnapshotCommand,
 		DeleteInstanceSnapshotCommand,
 		CreateInstancesFromSnapshotCommand,
@@ -177,9 +178,16 @@
 	let detailModal = $state<Modal | null>(null);
 	let viewed = $state<InstanceSnapshot | null>(null);
 
-	function openDetail(s: InstanceSnapshot): void {
+	async function openDetail(s: InstanceSnapshot): Promise<void> {
 		viewed = s;
 		detailModal?.open();
+		if (!s.name) return;
+		try {
+			const resp = await client().send(new GetInstanceSnapshotCommand({ instanceSnapshotName: s.name }));
+			viewed = resp.instanceSnapshot ?? s;
+		} catch (e) {
+			toast.error(describeError(e));
+		}
 	}
 
 	async function addTag(key: string, value: string): Promise<void> {

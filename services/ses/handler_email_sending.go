@@ -1,6 +1,7 @@
 package ses
 
 import (
+	"encoding/base64"
 	"encoding/xml"
 	"fmt"
 	"net/mail"
@@ -38,6 +39,18 @@ func (h *Handler) handleSendEmail(vals url.Values, reqID string) (any, error) {
 
 func (h *Handler) handleSendRawEmail(vals url.Values, reqID string) (any, error) {
 	rawData := vals.Get("RawMessage.Data")
+	// RawMessage.Data is a Blob member; the real query-protocol serializer
+	// always base64-encodes it (ses@v1.37.4 serializers.go:
+	// awsAwsquery_serializeDocumentRawMessage -> objectKey.Base64EncodeBytes),
+	// so any real SDK client sends base64 here, not the literal MIME text.
+	// Decode when possible; fall back to the raw value for pre-existing
+	// hand-crafted test payloads that post literal (non-base64) MIME text
+	// directly, which never contains valid base64 (': '/'@'/space are not
+	// in the base64 alphabet).
+	if decoded, err := base64.StdEncoding.DecodeString(rawData); err == nil {
+		rawData = string(decoded)
+	}
+
 	source := vals.Get("Source")
 	returnPath := vals.Get("ReturnPath")
 	returnPathArn := vals.Get("ReturnPathArn")

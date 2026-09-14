@@ -206,11 +206,19 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 // --- ImageBuilder handlers ---
 
 type createImageBuilderInput struct {
-	Tags         map[string]string `json:"Tags"`
-	Name         string            `json:"Name"`
-	Description  string            `json:"Description"`
-	Platform     string            `json:"Platform"`
-	InstanceType string            `json:"InstanceType"`
+	Tags                        map[string]string    `json:"Tags"`
+	VpcConfig                   *vpcConfigJSON       `json:"VpcConfig"`
+	DomainJoinInfo              *domainJoinInfoJSON  `json:"DomainJoinInfo"`
+	RootVolumeConfig            *volumeConfigJSON    `json:"RootVolumeConfig"`
+	EnableDefaultInternetAccess *bool                `json:"EnableDefaultInternetAccess"`
+	DisableIMDSV1               *bool                `json:"DisableIMDSV1"`
+	Name                        string               `json:"Name"`
+	Description                 string               `json:"Description"`
+	Platform                    string               `json:"Platform"`
+	InstanceType                string               `json:"InstanceType"`
+	IamRoleArn                  string               `json:"IamRoleArn"`
+	AppstreamAgentVersion       string               `json:"AppstreamAgentVersion"`
+	AccessEndpoints             []accessEndpointJSON `json:"AccessEndpoints"`
 }
 
 func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, error) {
@@ -219,7 +227,19 @@ func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, err
 		return nil, awserr.New(errInvalidParameter, awserr.ErrInvalidParameter)
 	}
 
-	ib, err := h.Backend.CreateImageBuilder(req.Name, req.Description, req.Platform, req.InstanceType, req.Tags)
+	opts := CreateImageBuilderOptions{
+		Tags:                        req.Tags,
+		EnableDefaultInternetAccess: req.EnableDefaultInternetAccess,
+		DisableIMDSV1:               req.DisableIMDSV1,
+		RootVolumeConfig:            req.RootVolumeConfig.toModel(),
+		VpcConfig:                   req.VpcConfig.toModel(),
+		DomainJoinInfo:              req.DomainJoinInfo.toModel(),
+		AccessEndpoints:             toAccessEndpoints(req.AccessEndpoints),
+		IamRoleArn:                  req.IamRoleArn,
+		AppstreamAgentVersion:       req.AppstreamAgentVersion,
+	}
+
+	ib, err := h.Backend.CreateImageBuilder(req.Name, req.Description, req.Platform, req.InstanceType, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -518,7 +538,7 @@ func imageToResponse(img *Image) map[string]any {
 }
 
 func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
-	return map[string]any{
+	resp := map[string]any{
 		"Name":         ib.Name,
 		"Arn":          ib.Arn,
 		"Description":  ib.Description,
@@ -529,6 +549,40 @@ func imageBuilderToResponse(ib *ImageBuilder) map[string]any {
 		"CreatedTime":  awstime.Epoch(ib.CreatedTime),
 		keyTags:        ib.Tags,
 	}
+
+	if ib.EnableDefaultInternetAccess != nil {
+		resp["EnableDefaultInternetAccess"] = *ib.EnableDefaultInternetAccess
+	}
+
+	if ib.DisableIMDSV1 != nil {
+		resp["DisableIMDSV1"] = *ib.DisableIMDSV1
+	}
+
+	if len(ib.VpcConfig.SecurityGroupIDs) > 0 || len(ib.VpcConfig.SubnetIDs) > 0 {
+		resp["VpcConfig"] = vpcConfigToJSON(ib.VpcConfig)
+	}
+
+	if ib.DomainJoinInfo.DirectoryName != "" || ib.DomainJoinInfo.OrganizationalUnitDistinguishedName != "" {
+		resp["DomainJoinInfo"] = domainJoinInfoToJSON(ib.DomainJoinInfo)
+	}
+
+	if len(ib.AccessEndpoints) > 0 {
+		resp["AccessEndpoints"] = accessEndpointsToJSON(ib.AccessEndpoints)
+	}
+
+	if ib.RootVolumeConfig != nil {
+		resp["RootVolumeConfig"] = map[string]any{"VolumeSizeInGb": ib.RootVolumeConfig.VolumeSizeInGb}
+	}
+
+	if ib.IamRoleArn != "" {
+		resp["IamRoleArn"] = ib.IamRoleArn
+	}
+
+	if ib.AppstreamAgentVersion != "" {
+		resp["AppstreamAgentVersion"] = ib.AppstreamAgentVersion
+	}
+
+	return resp
 }
 
 // exportImageTaskToResponse builds the real ExportImageTask wire shape:

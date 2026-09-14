@@ -309,7 +309,7 @@ func (b *InMemoryBackend) SendCisSessionHealth(_ string) error {
 }
 
 // SendCisSessionTelemetry records CIS session telemetry (no-op in memory).
-func (b *InMemoryBackend) SendCisSessionTelemetry(_ string, _ map[string]any) error {
+func (b *InMemoryBackend) SendCisSessionTelemetry(_ string, _ []map[string]any) error {
 	return nil
 }
 
@@ -352,14 +352,22 @@ func (b *InMemoryBackend) GetCisScanReport(scanArn string) (map[string]any, erro
 	}, nil
 }
 
-// GetCisScanResultDetails returns the per-check results for a CIS scan. Results
-// reflect the scan generated for the configuration; an unknown scan ARN yields
-// an empty result set rather than an error (AWS behavior for absent scans).
-// The response wraps the list under "scanResultDetails" (inspector2@v1.54.1
-// deserializers.go's
+// GetCisScanResultDetails returns the per-check results for a CIS scan,
+// scoped to one account and target resource -- both real, required
+// GetCisScanResultDetailsInput members (api_op_GetCisScanResultDetails.go)
+// this handler previously never read at all, so every real client's
+// AccountId/TargetResourceId was silently dropped and every check result
+// for the whole scan was returned regardless of which resource was asked
+// about. Empty accountID/targetResourceID (this package's own unit tests,
+// which predate the real-client fix) fall back to the permissive
+// unfiltered behavior rather than returning nothing.
+// Results reflect the scan generated for the configuration; an unknown scan
+// ARN yields an empty result set rather than an error (AWS behavior for
+// absent scans). The response wraps the list under "scanResultDetails"
+// (inspector2@v1.54.1 deserializers.go's
 // awsRestjson1_deserializeOpDocumentGetCisScanResultDetailsOutput), not
 // "checkResults".
-func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]any, error) {
+func (b *InMemoryBackend) GetCisScanResultDetails(scanArn, accountID, targetResourceID string) (map[string]any, error) {
 	b.mu.RLock("GetCisScanResultDetails")
 	defer b.mu.RUnlock()
 
@@ -370,6 +378,12 @@ func (b *InMemoryBackend) GetCisScanResultDetails(scanArn string) (map[string]an
 
 	checkResults := make([]map[string]any, 0, len(scan.Results))
 	for _, r := range scan.Results {
+		if accountID != "" && r.AccountID != accountID {
+			continue
+		}
+		if targetResourceID != "" && r.TargetID != targetResourceID {
+			continue
+		}
 		entry := map[string]any{
 			keyScanArn:         scan.ScanArn,
 			"checkId":          r.CheckID,

@@ -477,7 +477,7 @@ func (h *Handler) dispatchRestoreTestingOps(
 		return true, h.handleDeleteRestoreTestingSelection(c, route.resource)
 	case opGetRestoreTestingInferredMetadata:
 
-		return true, c.JSON(http.StatusOK, map[string]any{"InferredMetadata": map[string]string{}})
+		return true, h.handleGetRestoreTestingInferredMetadata(c)
 	}
 
 	return false, nil

@@ -1,6 +1,8 @@
 package polly
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/config"
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -67,14 +69,26 @@ const (
 // lexicons and tasks are *store.Table[T]-backed (see store_setup.go and
 // pkgs/store's package doc). voices is the static built-in voice catalogue,
 // not a mutable resource collection.
+//
+// streamRequests/streamsInFlight are transient StartSpeechSynthesisStream
+// rate-limiter state (see throttle.go/limits.go) -- deliberately plain
+// backend fields, not a store.Table or backendSnapshot member, so they are
+// never persisted (pkgs/persistence's TestSnapshotVersionGuard only
+// inventories *Snapshot-suffixed structs and store.Register'd types; neither
+// applies here) and never survive a restart, matching real AWS throttle
+// state.
 type InMemoryBackend struct {
-	lexicons  *store.Table[Lexicon]
-	tasks     *store.Table[SpeechSynthesisTask]
-	registry  *store.Registry
-	mu        *lockmetrics.RWMutex
-	accountID string
-	region    string
-	voices    []Voice
+	lexicons        *store.Table[Lexicon]
+	tasks           *store.Table[SpeechSynthesisTask]
+	registry        *store.Registry
+	mu              *lockmetrics.RWMutex
+	nowFunc         func() time.Time
+	streamRequests  map[string][]time.Time
+	accountID       string
+	region          string
+	voices          []Voice
+	streamLimits    streamLimits
+	streamsInFlight int
 }
 
 // NewInMemoryBackend creates a Polly backend configured for default AWS identity.
@@ -85,11 +99,14 @@ func NewInMemoryBackend() *InMemoryBackend {
 // NewInMemoryBackendWithConfig creates a Polly backend configured for account and region.
 func NewInMemoryBackendWithConfig(accountID, region string) *InMemoryBackend {
 	b := &InMemoryBackend{
-		registry:  store.NewRegistry(),
-		voices:    builtInVoices(),
-		accountID: accountID,
-		region:    region,
-		mu:        lockmetrics.New("polly"),
+		registry:       store.NewRegistry(),
+		voices:         builtInVoices(),
+		accountID:      accountID,
+		region:         region,
+		mu:             lockmetrics.New("polly"),
+		nowFunc:        time.Now,
+		streamLimits:   defaultStreamLimits(),
+		streamRequests: make(map[string][]time.Time),
 	}
 	registerAllTables(b)
 
@@ -105,4 +122,6 @@ func (b *InMemoryBackend) Reset() {
 	defer b.mu.Unlock()
 
 	b.registry.ResetAll()
+	b.streamRequests = make(map[string][]time.Time)
+	b.streamsInFlight = 0
 }

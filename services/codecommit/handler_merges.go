@@ -245,6 +245,17 @@ func (h *Handler) handleCreateUnreferencedMergeCommit(body []byte) (any, error) 
 // GetMergeCommitInput has no such member (codecommit@v1.36.4
 // api_op_GetMergeCommit.go / awsAwsjson11_serializeOpDocumentGetMergeCommitInput
 // in serializers.go), so a real client never sends one.
+//
+// sourceCommitId/destinationCommitId are resolved to real commit IDs before
+// being echoed: real GetMergeCommitOutput documents both as "The commit ID
+// of the source/destination commit specifier that was used in the merge
+// evaluation" -- a client-supplied specifier can be a branch name (as this
+// package's own resolveCommitSpecifier accepts), so echoing the raw
+// specifier back previously handed a typed client a branch name where it
+// expected a commit ID whenever the caller passed one. baseCommitId is a
+// real, required GetMergeCommitOutput member this backend cannot honestly
+// compute (no real merge-base algorithm over tracked commits) and remains
+// absent rather than fabricated -- see PARITY.md.
 func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 	var req struct {
 		RepositoryName             string `json:"repositoryName"`
@@ -258,18 +269,24 @@ func (h *Handler) handleGetMergeCommit(body []byte) (any, error) {
 		return nil, fmt.Errorf("%w: repositoryName is required", errInvalidRequest)
 	}
 
-	commit, err := h.Backend.GetMergeCommit(
-		req.RepositoryName,
-		req.SourceCommitSpecifier,
-		req.DestinationCommitSpecifier,
-	)
+	sourceCommitID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.SourceCommitSpecifier)
+	if err != nil {
+		return nil, err
+	}
+
+	destCommitID, err := h.Backend.ResolveCommitSpecifier(req.RepositoryName, req.DestinationCommitSpecifier)
+	if err != nil {
+		return nil, err
+	}
+
+	commit, err := h.Backend.GetMergeCommit(req.RepositoryName, sourceCommitID, destCommitID)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{
-		keySourceCommitID: req.SourceCommitSpecifier,
-		keyDestCommitID:   req.DestinationCommitSpecifier,
+		keySourceCommitID: sourceCommitID,
+		keyDestCommitID:   destCommitID,
 		"mergedCommitId":  commit.CommitID,
 	}, nil
 }

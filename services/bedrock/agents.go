@@ -275,12 +275,17 @@ func (b *InMemoryBackend) CreateAgentVersion(agentID string) (*AgentVersion, err
 
 	b.agentVersionCounters[agentID]++
 	ver := strconv.Itoa(b.agentVersionCounters[agentID])
+	now := time.Now()
 
 	av := &AgentVersion{
-		CreatedAt:    time.Now(),
-		AgentID:      agentID,
-		AgentVersion: ver,
-		AgentStatus:  ag.AgentStatus,
+		CreatedAt:         now,
+		UpdatedAt:         now,
+		AgentID:           agentID,
+		AgentArn:          ag.AgentArn,
+		AgentName:         ag.AgentName,
+		AgentResourceRole: ag.RoleArn,
+		AgentVersion:      ver,
+		AgentStatus:       ag.AgentStatus,
 	}
 
 	b.agentVersionsStore(agentID).Put(av)

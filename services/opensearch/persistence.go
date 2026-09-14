@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -31,10 +32,42 @@ import (
 // about decoding an older snapshot became unsafe. Only bump this when a
 // registered/DTO table's value *shape* changes (as the 1->2 and 2->3 bumps
 // above did), not for pure table additions.
+// Also left at 4 despite moving vpcEndpoints from the "clean" group to the
+// "dirty" one (gopherstack-8mcb, see vpcEndpointSnapshot): the DTO keeps the
+// exact same table name and JSON tags the live type had, plus adds
+// statusUntil (previously json:"-", so absent from every existing
+// snapshot). A pre-existing entry still decodes -- statusUntil is simply
+// zero, matching the pre-fix behavior for data already written before this
+// change; only new snapshots carry the real deadline.
+// Also left at 4 despite gopherstack-ike6y's three field fixes:
+// dataSourceAttachmentSnapshot and packageSnapshot are new DTOs added the
+// same way vpcEndpointSnapshot was, moving dataSourceAttachments/packages to
+// the "dirty" group -- purely additive, same reasoning as above. Migration
+// took a different shape (see its doc comment in models.go and
+// store_setup.go's registerAllTables doc): CreatedAt/UpdatedAt changed from
+// json:"-" to a real tag in place, since Migration stays "clean" and is
+// never marshaled directly onto the wire. An older snapshot has no
+// createdAt/updatedAt keys at all (the tag excluded them before this
+// change), so it still decodes fine with both fields simply zero -- the same
+// non-regression as the other two, just expressed as a tag edit on the
+// existing registered type instead of a new twin struct.
+// Also left at 4 despite gopherstack-qtywh moving Auto-Tune settings onto
+// Domain itself (Domain.AutoTuneOptions *AutoTuneConfig, models.go/
+// advanced.go) and retiring the separate autoTunes "dirty" DTO table
+// (autoTuneSnapshot, formerly registered here) entirely: Domain is a "clean"
+// table snapshotted by direct JSON marshal of the live type (store_setup.go),
+// so the new field is purely additive -- an older snapshot simply has no
+// "autoTuneOptions" key and decodes with it nil, matching a domain that
+// never configured Auto-Tune. Any auto-tune data an older snapshot's now-gone
+// autoTunes table held is lost on restore into this version (RestoreAll
+// resets any registered/dirty table absent from the snapshot rather than
+// erroring, same as every other table-addition case above) -- an accepted,
+// one-time restore-time loss for this internal-only, deliberately-disclosed
+// data-plane feature, not a wire-shape regression for any real client.
 const opensearchSnapshotVersion = 4
 
-// dryRunSnapshot, autoTuneSnapshot, dataSourceSnapshot, and
-// domainIndexSnapshot are DTOs used ONLY for Snapshot/Restore. Each mirrors
+// dryRunSnapshot, dataSourceSnapshot, and domainIndexSnapshot are DTOs used
+// ONLY for Snapshot/Restore. Each mirrors
 // its live type field for field, except the identity field (DomainName) is
 // given a real JSON tag here instead of the live type's `json:"-"` (see
 // models.go / advanced.go) -- marshaling the live type directly
@@ -74,30 +107,6 @@ func fromDryRunSnapshot(v *dryRunSnapshot) *DryRunStatus {
 		UpdateDate:         v.UpdateDate,
 		DomainName:         v.DomainName,
 		ValidationFailures: v.ValidationFailures,
-	}
-}
-
-type autoTuneSnapshot struct {
-	DesiredState         string                        `json:"desiredState"`
-	DomainName           string                        `json:"domainName"`
-	MaintenanceSchedules []AutoTuneMaintenanceSchedule `json:"maintenanceSchedules,omitempty"`
-}
-
-func autoTuneSnapshotKey(v *autoTuneSnapshot) string { return autoTuneKey(v.DomainName) }
-
-func toAutoTuneSnapshot(v *AutoTuneConfig) *autoTuneSnapshot {
-	return &autoTuneSnapshot{
-		DesiredState:         v.DesiredState,
-		MaintenanceSchedules: v.MaintenanceSchedules,
-		DomainName:           v.DomainName,
-	}
-}
-
-func fromAutoTuneSnapshot(v *autoTuneSnapshot) *AutoTuneConfig {
-	return &AutoTuneConfig{
-		DesiredState:         v.DesiredState,
-		MaintenanceSchedules: v.MaintenanceSchedules,
-		DomainName:           v.DomainName,
 	}
 }
 
@@ -172,6 +181,156 @@ func fromDomainIndexSnapshot(v *domainIndexSnapshot) *DomainIndex {
 	}
 }
 
+// vpcEndpointSnapshot is VpcEndpoint's persisted twin (gopherstack-8mcb).
+// VpcEndpoint is marshaled directly onto the wire by three handlers
+// (Create/Update/DescribeVpcEndpoints), so its StatusUntil field carries
+// json:"-" to keep that internal DELETING-window deadline off the wire --
+// real types.VpcEndpoint (opensearch@v1.75.4 types/types.go:3442) has no
+// such member. That tag also suppressed the field from persistence, since
+// the "clean" table path (see store_setup.go's registerAllTables doc)
+// marshals the live type directly: a restarted process lost the deadline,
+// so any endpoint mid-DELETING at snapshot time came back stuck there
+// forever (statusWindowElapsed treats a zero deadline as never elapsed).
+// This DTO gives StatusUntil a real tag for persistence only, independent
+// of the wire-suppressing tag on the live type.
+type vpcEndpointSnapshot struct {
+	StatusUntil      time.Time      `json:"statusUntil,omitzero"`
+	VpcOptions       map[string]any `json:"VpcOptions"`
+	VpcEndpointID    string         `json:"VpcEndpointId"`
+	VpcEndpointOwner string         `json:"VpcEndpointOwner"`
+	DomainArn        string         `json:"DomainArn"`
+	Status           string         `json:"Status"`
+	Endpoint         string         `json:"Endpoint"`
+}
+
+func vpcEndpointSnapshotKey(v *vpcEndpointSnapshot) string { return v.VpcEndpointID }
+
+func toVpcEndpointSnapshot(v *VpcEndpoint) *vpcEndpointSnapshot {
+	return &vpcEndpointSnapshot{
+		StatusUntil:      v.StatusUntil,
+		VpcOptions:       v.VpcOptions,
+		VpcEndpointID:    v.VpcEndpointID,
+		VpcEndpointOwner: v.VpcEndpointOwner,
+		DomainArn:        v.DomainArn,
+		Status:           v.Status,
+		Endpoint:         v.Endpoint,
+	}
+}
+
+func fromVpcEndpointSnapshot(v *vpcEndpointSnapshot) *VpcEndpoint {
+	return &VpcEndpoint{
+		StatusUntil:      v.StatusUntil,
+		VpcOptions:       v.VpcOptions,
+		VpcEndpointID:    v.VpcEndpointID,
+		VpcEndpointOwner: v.VpcEndpointOwner,
+		DomainArn:        v.DomainArn,
+		Status:           v.Status,
+		Endpoint:         v.Endpoint,
+	}
+}
+
+// dataSourceAttachmentSnapshot is DataSourceAttachment's persisted twin
+// (gopherstack-ike6y, same shape as vpcEndpointSnapshot above).
+// DataSourceAttachment.CreatedAt carries json:"-" because real
+// types.DataSourceAttachmentSummary (opensearch@v1.75.4 types/types.go:943-959)
+// has no such member and dataSourceAttachmentJSON
+// (handler_data_source_attachments.go) is the actual wire converter for
+// every op that returns this type -- but dataSourceAttachments was
+// registered directly on b.registry, so SnapshotAll honoured that tag too
+// and dropped CreatedAt from every snapshot. resolveAttachmentStatus treats
+// a restored zero CreatedAt as already 24h stale, so any still-Pending
+// attachment flipped straight to FAILED on the first status check after a
+// restart.
+type dataSourceAttachmentSnapshot struct {
+	CreatedAt     time.Time `json:"createdAt,omitzero"`
+	AttachmentID  string    `json:"attachmentId"`
+	ApplicationID string    `json:"applicationId"`
+	DataSourceArn string    `json:"dataSourceArn"`
+	Status        string    `json:"status"`
+}
+
+func dataSourceAttachmentSnapshotKey(v *dataSourceAttachmentSnapshot) string {
+	return dataSourceAttachmentKey(v.ApplicationID, v.DataSourceArn)
+}
+
+func toDataSourceAttachmentSnapshot(v *DataSourceAttachment) *dataSourceAttachmentSnapshot {
+	return &dataSourceAttachmentSnapshot{
+		CreatedAt:     v.CreatedAt,
+		AttachmentID:  v.AttachmentID,
+		ApplicationID: v.ApplicationID,
+		DataSourceArn: v.DataSourceArn,
+		Status:        v.Status,
+	}
+}
+
+func fromDataSourceAttachmentSnapshot(v *dataSourceAttachmentSnapshot) *DataSourceAttachment {
+	return &DataSourceAttachment{
+		CreatedAt:     v.CreatedAt,
+		AttachmentID:  v.AttachmentID,
+		ApplicationID: v.ApplicationID,
+		DataSourceArn: v.DataSourceArn,
+		Status:        v.Status,
+	}
+}
+
+// packageSnapshot is Package's persisted twin (gopherstack-ike6y, same shape
+// as vpcEndpointSnapshot above). VersionHistory/PackageUserList carry
+// json:"-" because real types.PackageDetails
+// (opensearch@v1.75.4 types/types.go:2631-2681) has neither member and
+// Package is marshaled directly onto the wire by DescribePackages/
+// UpdatePackage (handler_packages.go) -- but packages was registered
+// directly on b.registry, so SnapshotAll honoured that tag too and dropped
+// both from every snapshot, silently discarding a package's version history
+// and user scope across a restart (self-flagged as a known quirk in an
+// earlier pass, store_setup.go, and never fixed until now).
+type packageSnapshot struct {
+	PackageSource            *PackageSource            `json:"PackageSource,omitempty"`
+	PackageEncryptionOptions *PackageEncryptionOptions `json:"PackageEncryptionOptions,omitempty"`
+	PackageID                string                    `json:"PackageID"`
+	PackageName              string                    `json:"PackageName"`
+	PackageType              string                    `json:"PackageType"`
+	PackageDescription       string                    `json:"PackageDescription"`
+	PackageStatus            string                    `json:"PackageStatus"`
+	AvailablePackageVersion  string                    `json:"AvailablePackageVersion,omitempty"`
+	VersionHistory           []*PackageVersionHistory  `json:"versionHistory,omitempty"`
+	PackageUserList          []string                  `json:"packageUserList,omitempty"`
+	CreatedAt                float64                   `json:"CreatedAt"`
+}
+
+func packageSnapshotKey(v *packageSnapshot) string { return v.PackageID }
+
+func toPackageSnapshot(v *Package) *packageSnapshot {
+	return &packageSnapshot{
+		PackageSource:            v.PackageSource,
+		PackageEncryptionOptions: v.PackageEncryptionOptions,
+		PackageID:                v.PackageID,
+		PackageName:              v.PackageName,
+		PackageType:              v.PackageType,
+		PackageDescription:       v.PackageDescription,
+		PackageStatus:            v.PackageStatus,
+		AvailablePackageVersion:  v.AvailablePackageVersion,
+		VersionHistory:           v.VersionHistory,
+		PackageUserList:          v.PackageUserList,
+		CreatedAt:                v.CreatedAt,
+	}
+}
+
+func fromPackageSnapshot(v *packageSnapshot) *Package {
+	return &Package{
+		PackageSource:            v.PackageSource,
+		PackageEncryptionOptions: v.PackageEncryptionOptions,
+		PackageID:                v.PackageID,
+		PackageName:              v.PackageName,
+		PackageType:              v.PackageType,
+		PackageDescription:       v.PackageDescription,
+		PackageStatus:            v.PackageStatus,
+		AvailablePackageVersion:  v.AvailablePackageVersion,
+		VersionHistory:           v.VersionHistory,
+		PackageUserList:          v.PackageUserList,
+		CreatedAt:                v.CreatedAt,
+	}
+}
+
 // dirtyTableNames lists the "dirty" table names shared by Snapshot and
 // Restore (see store_setup.go's registerAllTables doc). Both build an
 // ephemeral DTO [store.Registry] under these exact names, so a snapshot
@@ -180,12 +339,18 @@ func fromDomainIndexSnapshot(v *domainIndexSnapshot) *DomainIndex {
 //
 //nolint:gochecknoglobals // fixed lookup table, mirrors errCodeLookup-style tables elsewhere
 var dirtyTableNames = struct {
-	dryRuns, autoTunes, domainDataSources, domainIndexes string
+	dryRuns, domainDataSources, domainIndexes     string
+	vpcEndpoints, dataSourceAttachments, packages string
 }{
 	dryRuns:           "dryRuns",
-	autoTunes:         "autoTunes",
 	domainDataSources: "domainDataSources",
 	domainIndexes:     "domainIndexes",
+	// Same table names the "clean" registry previously used for these tables
+	// (store_setup.go), so an existing snapshot's entries still line up with
+	// the same keys under the DTO registry.
+	vpcEndpoints:          "vpcEndpoints",
+	dataSourceAttachments: "dataSourceAttachments",
+	packages:              "packages",
 }
 
 // backendSnapshot is the top-level on-disk shape for the OpenSearch backend.
@@ -235,17 +400,24 @@ type backendSnapshot struct {
 func newDirtyDTORegistry() (
 	*store.Registry,
 	*store.Table[dryRunSnapshot],
-	*store.Table[autoTuneSnapshot],
 	*store.Table[dataSourceSnapshot],
 	*store.Table[domainIndexSnapshot],
+	*store.Table[vpcEndpointSnapshot],
+	*store.Table[dataSourceAttachmentSnapshot],
+	*store.Table[packageSnapshot],
 ) {
 	dtoReg := store.NewRegistry()
 	dryRunDTOs := store.Register(dtoReg, dirtyTableNames.dryRuns, store.New(dryRunSnapshotKey))
-	autoTuneDTOs := store.Register(dtoReg, dirtyTableNames.autoTunes, store.New(autoTuneSnapshotKey))
 	dataSourceDTOs := store.Register(dtoReg, dirtyTableNames.domainDataSources, store.New(dataSourceSnapshotKey))
 	domainIndexDTOs := store.Register(dtoReg, dirtyTableNames.domainIndexes, store.New(domainIndexSnapshotKey))
+	vpcEndpointDTOs := store.Register(dtoReg, dirtyTableNames.vpcEndpoints, store.New(vpcEndpointSnapshotKey))
+	dataSourceAttachmentDTOs := store.Register(
+		dtoReg, dirtyTableNames.dataSourceAttachments, store.New(dataSourceAttachmentSnapshotKey),
+	)
+	packageDTOs := store.Register(dtoReg, dirtyTableNames.packages, store.New(packageSnapshotKey))
 
-	return dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs
+	return dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs
 }
 
 // Snapshot serialises the backend state to JSON.
@@ -265,14 +437,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		return nil
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	for _, v := range b.dryRuns.Snapshot() {
 		dryRunDTOs.Put(toDryRunSnapshot(v))
-	}
-
-	for _, v := range b.autoTunes.Snapshot() {
-		autoTuneDTOs.Put(toAutoTuneSnapshot(v))
 	}
 
 	for _, v := range b.domainDataSources.Snapshot() {
@@ -281,6 +450,18 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 
 	for _, v := range b.domainIndexes.Snapshot() {
 		domainIndexDTOs.Put(toDomainIndexSnapshot(v))
+	}
+
+	for _, v := range b.vpcEndpoints.Snapshot() {
+		vpcEndpointDTOs.Put(toVpcEndpointSnapshot(v))
+	}
+
+	for _, v := range b.dataSourceAttachments.Snapshot() {
+		dataSourceAttachmentDTOs.Put(toDataSourceAttachmentSnapshot(v))
+	}
+
+	for _, v := range b.packages.Snapshot() {
+		packageDTOs.Put(toPackageSnapshot(v))
 	}
 
 	dirtyTables, err := dtoReg.SnapshotAll()
@@ -347,9 +528,11 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 		b.registry.ResetAll()
 		b.dryRuns.Reset()
-		b.autoTunes.Reset()
 		b.domainDataSources.Reset()
 		b.domainIndexes.Reset()
+		b.vpcEndpoints.Reset()
+		b.dataSourceAttachments.Reset()
+		b.packages.Reset()
 		b.vpcAuthorizations = make(map[string][]AuthorizedPrincipal)
 		b.scheduledActions = make(map[string][]*ScheduledAction)
 		b.packageAssociations = make(map[string]map[string]bool)
@@ -365,13 +548,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		return fmt.Errorf("opensearch: restore snapshot tables: %w", err)
 	}
 
-	dtoReg, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs := newDirtyDTORegistry()
+	dtoReg, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs := newDirtyDTORegistry()
 
 	if err := dtoReg.RestoreAll(snap.Tables); err != nil {
 		return fmt.Errorf("opensearch: restore snapshot DTO tables: %w", err)
 	}
 
-	restoreDirtyTables(b, dryRunDTOs, autoTuneDTOs, dataSourceDTOs, domainIndexDTOs)
+	restoreDirtyTables(
+		b, dryRunDTOs, dataSourceDTOs, domainIndexDTOs, vpcEndpointDTOs,
+		dataSourceAttachmentDTOs, packageDTOs,
+	)
 
 	restoreRawMaps(b, &snap)
 
@@ -398,21 +585,17 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 func restoreDirtyTables(
 	b *InMemoryBackend,
 	dryRunDTOs *store.Table[dryRunSnapshot],
-	autoTuneDTOs *store.Table[autoTuneSnapshot],
 	dataSourceDTOs *store.Table[dataSourceSnapshot],
 	domainIndexDTOs *store.Table[domainIndexSnapshot],
+	vpcEndpointDTOs *store.Table[vpcEndpointSnapshot],
+	dataSourceAttachmentDTOs *store.Table[dataSourceAttachmentSnapshot],
+	packageDTOs *store.Table[packageSnapshot],
 ) {
 	dryRuns := make([]*DryRunStatus, 0, dryRunDTOs.Len())
 	for _, v := range dryRunDTOs.All() {
 		dryRuns = append(dryRuns, fromDryRunSnapshot(v))
 	}
 	b.dryRuns.Restore(dryRuns)
-
-	autoTunes := make([]*AutoTuneConfig, 0, autoTuneDTOs.Len())
-	for _, v := range autoTuneDTOs.All() {
-		autoTunes = append(autoTunes, fromAutoTuneSnapshot(v))
-	}
-	b.autoTunes.Restore(autoTunes)
 
 	dataSources := make([]*DataSource, 0, dataSourceDTOs.Len())
 	for _, v := range dataSourceDTOs.All() {
@@ -425,6 +608,24 @@ func restoreDirtyTables(
 		domainIndexes = append(domainIndexes, fromDomainIndexSnapshot(v))
 	}
 	b.domainIndexes.Restore(domainIndexes)
+
+	vpcEndpoints := make([]*VpcEndpoint, 0, vpcEndpointDTOs.Len())
+	for _, v := range vpcEndpointDTOs.All() {
+		vpcEndpoints = append(vpcEndpoints, fromVpcEndpointSnapshot(v))
+	}
+	b.vpcEndpoints.Restore(vpcEndpoints)
+
+	dataSourceAttachments := make([]*DataSourceAttachment, 0, dataSourceAttachmentDTOs.Len())
+	for _, v := range dataSourceAttachmentDTOs.All() {
+		dataSourceAttachments = append(dataSourceAttachments, fromDataSourceAttachmentSnapshot(v))
+	}
+	b.dataSourceAttachments.Restore(dataSourceAttachments)
+
+	packages := make([]*Package, 0, packageDTOs.Len())
+	for _, v := range packageDTOs.All() {
+		packages = append(packages, fromPackageSnapshot(v))
+	}
+	b.packages.Restore(packages)
 }
 
 // restoreRawMaps restores the plain-map fields left unconverted by the

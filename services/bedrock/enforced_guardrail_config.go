@@ -31,7 +31,12 @@ func (b *InMemoryBackend) newEnforcedGuardrailConfigID() string {
 // otherwise the existing configuration identified by configID is updated in place
 // (real AWS: PutEnforcedGuardrailConfiguration is an upsert keyed by the optional
 // ConfigId request field). guardrailIdentifier must resolve to an existing
-// guardrail (by ID or ARN) and inputTags must be HONOR or IGNORE.
+// guardrail (by ID or ARN). inputTags is optional and defaults to HONOR: the
+// real PutEnforcedGuardrailConfigurationInput (bedrock@v1.66.4 serializers.go's
+// awsRestjson1_serializeDocumentAccountEnforcedGuardrailInferenceInputConfiguration)
+// has no inputTags member at all -- it is a deprecated field that exists only
+// on the OUTPUT shape -- so requiring it here made every real client's call
+// fail with ValidationException, unconditionally.
 func (b *InMemoryBackend) PutEnforcedGuardrailConfiguration(
 	configID, guardrailIdentifier, guardrailVersion, inputTags string,
 	includedModels, excludedModels []string,
@@ -47,7 +52,9 @@ func (b *InMemoryBackend) PutEnforcedGuardrailConfiguration(
 		return nil, fmt.Errorf("%w: guardrailVersion is required", ErrValidation)
 	}
 
-	if inputTags != enforcedGuardrailInputTagsHonor && inputTags != enforcedGuardrailInputTagsIgnore {
+	if inputTags == "" {
+		inputTags = enforcedGuardrailInputTagsHonor
+	} else if inputTags != enforcedGuardrailInputTagsHonor && inputTags != enforcedGuardrailInputTagsIgnore {
 		return nil, fmt.Errorf("%w: inputTags must be HONOR or IGNORE", ErrValidation)
 	}
 

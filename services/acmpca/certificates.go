@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
@@ -20,12 +19,15 @@ const hexBase = 16
 // issueCertOptions holds the optional IssueCertificate fields beyond the
 // required caARN/csrPEM/validityDays (IdempotencyToken, TemplateArn,
 // APIPassthrough, ValidityNotBefore -- see aws-sdk-go-v2's IssueCertificateInput).
-// Zero value matches every pre-existing caller that omits opts entirely.
+// Zero value matches every pre-existing caller that omits opts entirely:
+// resolveIssueCertOptions resolves an empty templateArn to the
+// EndEntityCertificate/V1 profile, same as the real API's default.
 type issueCertOptions struct {
 	validityNotBefore time.Time
 	apiPassthrough    *APIPassthrough
 	idempotencyToken  string
 	templateArn       string
+	resolvedTemplate  resolvedTemplate
 }
 
 // IssueCertOption customizes IssueCertificate. See WithIssueCert* below.
@@ -38,18 +40,16 @@ func WithIssueCertIdempotencyToken(token string) IssueCertOption {
 	return func(o *issueCertOptions) { o.idempotencyToken = token }
 }
 
-// WithIssueCertTemplateArn selects a certificate template. Only its
-// APIPassthrough/APICSRPassthrough gating behavior is modeled (see
-// templateAllowsAPIPassthrough): a non-passthrough template's APIPassthrough
-// input is ignored, matching the real API's own documented behavior. Per-template
-// default X.509 extension profiles are not modeled -- see PARITY.md.
+// WithIssueCertTemplateArn selects a certificate template: its per-family
+// fixed X.509 extension profile (KeyUsage/ExtendedKeyUsage/BasicConstraints)
+// and APIPassthrough/CSRPassthrough gating -- see resolveTemplateArn.
 func WithIssueCertTemplateArn(templateArn string) IssueCertOption {
 	return func(o *issueCertOptions) { o.templateArn = templateArn }
 }
 
 // WithIssueCertAPIPassthrough applies custom subject/extension overrides,
 // honored only when the request's TemplateArn selects an APIPassthrough/
-// APICSRPassthrough template variant (see templateAllowsAPIPassthrough).
+// APICSRPassthrough template variant (see resolveTemplateArn).
 func WithIssueCertAPIPassthrough(ap *APIPassthrough) IssueCertOption {
 	return func(o *issueCertOptions) { o.apiPassthrough = ap }
 }
@@ -60,16 +60,6 @@ func WithIssueCertValidityNotBefore(notBefore time.Time) IssueCertOption {
 	return func(o *issueCertOptions) { o.validityNotBefore = notBefore }
 }
 
-// templateAllowsAPIPassthrough reports whether templateArn selects an
-// APIPassthrough or APICSRPassthrough template variant, per
-// IssueCertificateInput.APIPassthrough's doc comment: "An APIPassthrough or
-// APICSRPassthrough template variant must be selected, or else this parameter
-// is ignored." An empty templateArn defaults to EndEntityCertificate/V1, which
-// is not a passthrough variant.
-func templateAllowsAPIPassthrough(templateArn string) bool {
-	return strings.Contains(templateArn, "APIPassthrough") || strings.Contains(templateArn, "APICSRPassthrough")
-}
-
 // IssueCertificate issues a new certificate signed by the given CA.
 func (b *InMemoryBackend) IssueCertificate(
 	ctx context.Context, caARN, csrPEM string, validityDays int, opts ...IssueCertOption,
@@ -78,7 +68,10 @@ func (b *InMemoryBackend) IssueCertificate(
 		return nil, err
 	}
 
-	o := resolveIssueCertOptions(opts)
+	o, err := resolveIssueCertOptions(opts)
+	if err != nil {
+		return nil, err
+	}
 
 	region := getRegion(ctx, b.region)
 
@@ -111,20 +104,31 @@ func validateIssueCertificateInput(caARN, csrPEM string) error {
 	return validateRequiredParameter(csrPEM, "Csr", ErrMalformedCSR)
 }
 
-// resolveIssueCertOptions applies opts and enforces the real API's
-// documented APIPassthrough-gating rule: it is silently ignored unless the
-// template selected is an APIPassthrough/APICSRPassthrough variant.
-func resolveIssueCertOptions(opts []IssueCertOption) issueCertOptions {
+// resolveIssueCertOptions applies opts, resolves TemplateArn (rejecting an
+// unrecognized one with ErrInvalidArgs -- see resolveTemplateArn), and
+// enforces the real API's documented APIPassthrough-gating rule:
+// IssueCertificateInput.ApiPassthrough's doc comment says it "is ignored"
+// (not rejected) unless the template selected is an APIPassthrough/
+// APICSRPassthrough variant, so it is silently dropped here rather than
+// erroring.
+func resolveIssueCertOptions(opts []IssueCertOption) (issueCertOptions, error) {
 	var o issueCertOptions
 	for _, opt := range opts {
 		opt(&o)
 	}
 
-	if o.apiPassthrough != nil && !templateAllowsAPIPassthrough(o.templateArn) {
+	rt, err := resolveTemplateArn(o.templateArn)
+	if err != nil {
+		return o, err
+	}
+
+	o.resolvedTemplate = rt
+
+	if o.apiPassthrough != nil && !rt.allowAPIPassthrough {
 		o.apiPassthrough = nil
 	}
 
-	return o
+	return o, nil
 }
 
 // lookupIdempotentCert returns a copy of the certificate previously issued for
@@ -173,7 +177,7 @@ func (b *InMemoryBackend) signAndStoreCertificateLocked(
 		)
 	}
 
-	certPEM, serial, err := signCSR(ca, csrPEM, validityDays, o.validityNotBefore, o.apiPassthrough)
+	certPEM, serial, err := signCSR(ca, csrPEM, validityDays, o)
 	if err != nil {
 		return nil, fmt.Errorf("sign CSR: %w", err)
 	}

@@ -31,13 +31,13 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		err = b.DeregisterType("Acme::Multi::A", typeArn, "00000001")
 		require.NoError(t, err)
 
-		live, err := b.ListTypeVersions("Acme::Multi::A", "")
+		live, err := b.ListTypeVersions("Acme::Multi::A", "", 0, "")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"00000002"}, live)
+		assert.Equal(t, []string{"00000002"}, live.Data)
 
-		deprecated, err := b.ListTypeVersions("Acme::Multi::A", "DEPRECATED")
+		deprecated, err := b.ListTypeVersions("Acme::Multi::A", "DEPRECATED", 0, "")
 		require.NoError(t, err)
-		assert.Equal(t, []string{"00000001"}, deprecated)
+		assert.Equal(t, []string{"00000001"}, deprecated.Data)
 
 		details, err := b.DescribeType("Acme::Multi::A", "", "")
 		require.NoError(t, err)
@@ -62,9 +62,9 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "DEPRECATED", details.DeprecatedStatus)
 
-		types, err := b.ListTypes("")
+		types, err := b.ListTypes("", 0, "")
 		require.NoError(t, err)
-		for _, ty := range types {
+		for _, ty := range types.Data {
 			assert.NotEqual(t, "Acme::Solo::B", ty.TypeName, "deregistered type must not be listed")
 		}
 	})
@@ -82,9 +82,14 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		err = b.DeregisterType("Acme::Multi::C", typeArn, "00000002")
 		require.Error(t, err)
 
-		live, err := b.ListTypeVersions("Acme::Multi::C", "")
+		live, err := b.ListTypeVersions("Acme::Multi::C", "", 0, "")
 		require.NoError(t, err)
-		assert.ElementsMatch(t, []string{"00000001", "00000002"}, live, "no version should be deprecated on rejection")
+		assert.ElementsMatch(
+			t,
+			[]string{"00000001", "00000002"},
+			live.Data,
+			"no version should be deprecated on rejection",
+		)
 	})
 
 	t.Run("deregistering whole type also deprecates its versions", func(t *testing.T) {
@@ -99,9 +104,9 @@ func TestDeregisterType_VersionSemantics(t *testing.T) {
 		err = b.DeregisterType("Acme::Multi::F", typeArn, "")
 		require.NoError(t, err)
 
-		live, err := b.ListTypeVersions("Acme::Multi::F", "")
+		live, err := b.ListTypeVersions("Acme::Multi::F", "", 0, "")
 		require.NoError(t, err)
-		assert.Empty(t, live, "no version should remain live once the whole type is deregistered")
+		assert.Empty(t, live.Data, "no version should remain live once the whole type is deregistered")
 	})
 
 	t.Run("unknown version id is rejected", func(t *testing.T) {

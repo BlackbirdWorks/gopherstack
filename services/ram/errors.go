@@ -59,6 +59,16 @@ var (
 	ErrPermissionInUse = awserr.New("permission is associated with one or more resource shares", awserr.ErrConflict)
 	// ErrInvalidParameter is returned when a parameter value is out of the allowed range.
 	ErrInvalidParameter = awserr.New("InvalidParameterException", awserr.ErrInvalidParameter)
+	// ErrInvalidStateTransition is returned when an operation is requested against a
+	// resource share in a state that doesn't permit it -- e.g. Associate/Disassociate
+	// ResourceShare or DisassociateResourceSharePermission against a CREATED_FROM_POLICY
+	// share, or PromoteResourceShareCreatedFromPolicy against a share that isn't one.
+	// Each of those ops' own error model (ram@v1.39.4 deserializers.go) declares
+	// InvalidStateTransitionException.
+	ErrInvalidStateTransition = awserr.New(
+		"InvalidStateTransitionException",
+		awserr.ErrConflict,
+	)
 	// ErrMalformedArn is returned when a resourceArns entry isn't ARN-shaped.
 	// CreateResourceShare and AssociateResourceShare both model
 	// MalformedArnException for this (ram@v1.39.4 deserializers.go,

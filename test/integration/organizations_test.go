@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
@@ -47,8 +46,7 @@ func ensureOrg(t *testing.T, client *organizationsSDK.Client) {
 		return
 	}
 
-	var already *organizationsSDKtypes.AlreadyInOrganizationException
-	if !errors.As(err, &already) {
+	if _, ok := errors.AsType[*organizationsSDKtypes.AlreadyInOrganizationException](err); !ok {
 		require.NoError(t, err, "CreateOrganization should succeed or be AlreadyInOrganizationException")
 	}
 }

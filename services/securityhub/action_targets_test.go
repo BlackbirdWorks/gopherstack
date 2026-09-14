@@ -168,7 +168,7 @@ func TestBackend_UpdateActionTarget(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-			require.NoError(t, b.EnableHub(false, nil))
+			require.NoError(t, b.EnableHub(false, "", nil))
 
 			var targetArn string
 			if tc.wantErrMsg == "" {

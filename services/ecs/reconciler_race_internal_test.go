@@ -100,7 +100,7 @@ func TestReconciler_ConcurrentFailureAttribution_NoDataRace(t *testing.T) {
 			// (threshold=3), writing Deployments[idx].RolloutState under the
 			// write lock -- the same backing array snap.service.Deployments
 			// aliases.
-			if _, err := b.RunTask(RunTaskInput{
+			if _, _, err := b.RunTask(RunTaskInput{
 				Cluster:        "race",
 				TaskDefinition: tdArn,
 				Group:          "service:" + name,

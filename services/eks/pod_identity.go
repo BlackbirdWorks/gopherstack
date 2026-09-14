@@ -32,6 +32,12 @@ func (b *InMemoryBackend) CreatePodIdentityAssociation(
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, clusterName)
 	}
 
+	if n := len(b.podIdentityAssociationsByCluster.Get(clusterName)); n >= b.limits.podIdentityAssocsPerCluster {
+		return nil, resourceLimitExceededErr(
+			"EKS Pod Identity associations per cluster", b.limits.podIdentityAssocsPerCluster,
+		)
+	}
+
 	assocID := uuid.NewString()
 	assocARN := arn.Build("eks", b.region, b.accountID, "podidentityassociation/"+clusterName+"/"+assocID)
 

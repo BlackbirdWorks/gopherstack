@@ -511,38 +511,51 @@ func TestScan_ConsumedCapacity(t *testing.T) {
 func TestScan_SelectCount_OmitsItems(t *testing.T) {
 	t.Parallel()
 
-	db := dynamodb.NewInMemoryDB()
-	tableName := "ScanSelectCountTable"
-	_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
-		TableName: &tableName,
-		AttributeDefinitions: []types.AttributeDefinition{
-			{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
-		},
-		KeySchema: []types.KeySchemaElement{
-			{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
-		},
-		BillingMode: types.BillingModePayPerRequest,
-	})
-	require.NoError(t, err)
-
-	for i := range 4 {
-		_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
-			TableName: &tableName,
-			Item: map[string]types.AttributeValue{
-				"pk": &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
-			},
-		})
-		require.NoError(t, err)
+	tests := []struct {
+		name      string
+		itemCount int
+	}{
+		{name: "COUNT", itemCount: 4},
 	}
 
-	out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
-		TableName: &tableName,
-		Select:    types.SelectCount,
-	})
-	require.NoError(t, err)
-	assert.Equal(t, int32(4), out.Count)
-	assert.Equal(t, int32(4), out.ScannedCount)
-	assert.Empty(t, out.Items, "Select=COUNT must not return Items")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			db := dynamodb.NewInMemoryDB()
+			tableName := "ScanSelectCountTable"
+			_, err := db.CreateTable(t.Context(), &dynamodb_sdk.CreateTableInput{
+				TableName: &tableName,
+				AttributeDefinitions: []types.AttributeDefinition{
+					{AttributeName: aws.String("pk"), AttributeType: types.ScalarAttributeTypeS},
+				},
+				KeySchema: []types.KeySchemaElement{
+					{AttributeName: aws.String("pk"), KeyType: types.KeyTypeHash},
+				},
+				BillingMode: types.BillingModePayPerRequest,
+			})
+			require.NoError(t, err)
+
+			for i := range tc.itemCount {
+				_, err = db.PutItem(t.Context(), &dynamodb_sdk.PutItemInput{
+					TableName: &tableName,
+					Item: map[string]types.AttributeValue{
+						"pk": &types.AttributeValueMemberS{Value: "item-" + strconv.Itoa(i)},
+					},
+				})
+				require.NoError(t, err)
+			}
+
+			out, err := db.Scan(t.Context(), &dynamodb_sdk.ScanInput{
+				TableName: &tableName,
+				Select:    types.SelectCount,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, int32(tc.itemCount), out.Count)
+			assert.Equal(t, int32(tc.itemCount), out.ScannedCount)
+			assert.Empty(t, out.Items, "Select=COUNT must not return Items")
+		})
+	}
 }
 
 // TestScan_SelectConstraints_Rejected mirrors the equivalent Query coverage:

@@ -213,11 +213,14 @@ func TestQuickSight_DataSourceSummaryOmitsStatus(t *testing.T) {
 			wantKey: "DataSources",
 		},
 		{
-			name:    "search",
-			method:  http.MethodPost,
-			path:    accountPath("/search/data-sources"),
-			body:    map[string]any{"Filters": []any{}},
-			wantKey: "DataSources",
+			name:   "search",
+			method: http.MethodPost,
+			path:   accountPath("/search/data-sources"),
+			body:   map[string]any{"Filters": []any{}},
+			// SearchDataSourcesOutput wraps results under DataSourceSummaries,
+			// not ListDataSourcesOutput's DataSources (quicksight@v1.129.0
+			// api_op_SearchDataSources.go:53).
+			wantKey: "DataSourceSummaries",
 		},
 	}
 

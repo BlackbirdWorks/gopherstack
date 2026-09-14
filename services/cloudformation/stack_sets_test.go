@@ -214,6 +214,7 @@ func TestStackInstances_OperationId(t *testing.T) {
 			extraFields: url.Values{
 				"Accounts.member.1": {"111111111111"},
 				"Regions.member.1":  {"us-east-1"},
+				"RetainStacks":      {"false"},
 			},
 		},
 		{
@@ -390,7 +391,7 @@ func TestDeleteStackSet_ClearsOperationHistory(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	ops, err := b.ListStackSetOperations(name, "")
+	ops, err := b.ListStackSetOperations(name, 0, "")
 	require.NoError(t, err)
 	assert.Empty(t, ops.Data,
 		"recreated StackSet must not inherit the deleted StackSet's operation history")
@@ -399,7 +400,7 @@ func TestDeleteStackSet_ClearsOperationHistory(t *testing.T) {
 // TestDescribeStackSetOperation_Action verifies that
 // DescribeStackSetOperation returns the Action field in its response, matching
 // AWS CloudFormation behaviour. Previously only OperationId and Status were
-// returned; the Action (e.g. CREATE_INSTANCES, DETECT_DRIFT) was omitted.
+// returned; the Action (e.g. CREATE, DETECT_DRIFT) was omitted.
 func TestDescribeStackSetOperation_Action(t *testing.T) {
 	t.Parallel()
 
@@ -422,7 +423,11 @@ func TestDescribeStackSetOperation_Action(t *testing.T) {
 				"Accounts.member.1": {"111111111111"},
 				"Regions.member.1":  {"us-east-1"},
 			},
-			wantAction: "CREATE_INSTANCES",
+			// Real AWS: Create/DeleteStackInstances report the same CREATE/
+			// DELETE action as their StackSet-level counterparts (types.go's
+			// StackSetOperation.Action doc comment) -- not a distinct
+			// "CREATE_INSTANCES" enum value, which does not exist.
+			wantAction: "CREATE",
 		},
 	}
 
@@ -727,7 +732,7 @@ func TestStackSetOperations(t *testing.T) {
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// UpdateStackInstances — creates an UPDATE_INSTANCES operation
+	// UpdateStackInstances — creates an UPDATE operation
 	rec = postForm(t, h, url.Values{
 		"Action":            []string{"UpdateStackInstances"},
 		"StackSetName":      []string{"ops-test-set"},
@@ -736,12 +741,13 @@ func TestStackSetOperations(t *testing.T) {
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	// DeleteStackInstances — creates a DELETE_INSTANCES operation
+	// DeleteStackInstances — creates a DELETE operation
 	rec = postForm(t, h, url.Values{
 		"Action":            []string{"DeleteStackInstances"},
 		"StackSetName":      []string{"ops-test-set"},
 		"Accounts.member.1": []string{"111111111111"},
 		"Regions.member.1":  []string{"us-east-1"},
+		"RetainStacks":      []string{"false"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 }
@@ -790,9 +796,8 @@ func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
 
 	b := newBackend()
 
-	// ListStackSetOperations hardcodes cfnDefaultPageSize (100) as its page
-	// size -- it takes no maxResults param -- so total must exceed 100 to
-	// force a page boundary at all.
+	// ListStackSetOperations defaults to cfnDefaultPageSize (100) when
+	// maxResults is 0 -- total must exceed 100 to force a page boundary.
 	const total = 110
 
 	tied := time.Now()
@@ -818,7 +823,7 @@ func TestListStackSetOperations_TiedCreatedAtPageWalk(t *testing.T) {
 
 		token := ""
 		for range total/pageSize + 2 {
-			p, err := b.ListStackSetOperations("my-stack-set", token)
+			p, err := b.ListStackSetOperations("my-stack-set", 0, token)
 			require.NoError(t, err)
 
 			for _, op := range p.Data {

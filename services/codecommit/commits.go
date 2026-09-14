@@ -4,12 +4,29 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
+
+// pathMatchesFilter reports whether filePath matches an optional path
+// filter: an empty filter matches everything; otherwise filePath must equal
+// the filter exactly or lie under it as a directory prefix.
+func pathMatchesFilter(filePath, filter string) bool {
+	if filter == "" || filePath == filter {
+		return true
+	}
+
+	prefix := filter
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+
+	return strings.HasPrefix(filePath, prefix)
+}
 
 // recordFileHistory appends an entry to repoName/filePath's ordered
 // (oldest-first) history, initializing the per-repo map on first use. Caller
@@ -23,6 +40,81 @@ func (b *InMemoryBackend) recordFileHistory(repoName, filePath, commitID, blobID
 	)
 }
 
+// gitkeepFileName is the marker file real CodeCommit creates in a folder a
+// deletion would otherwise leave empty, when KeepEmptyFolders is requested
+// (e.g. api_op_CreateCommit.go: "If true, a .gitkeep file is created for
+// empty folders.").
+const gitkeepFileName = ".gitkeep"
+
+// parentFolder returns the directory portion of filePath, or "" if filePath
+// has no folder component (lives at the repository root).
+func parentFolder(filePath string) string {
+	idx := strings.LastIndexByte(filePath, '/')
+	if idx < 0 {
+		return ""
+	}
+
+	return filePath[:idx]
+}
+
+// folderHasFilesLocked reports whether any file in repoFiles still lives
+// under folder (as an exact match or a "/"-prefixed descendant). Caller must
+// hold at least the read lock.
+func folderHasFilesLocked(repoFiles []*File, folder string) bool {
+	for _, f := range repoFiles {
+		if pathMatchesFilter(f.FilePath, folder) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// keepEmptyFoldersLocked creates a .gitkeep marker under each folder left
+// empty by deleteFiles, when keepEmptyFolders is true -- matching real
+// CodeCommit's documented default (false: empty folders are deleted, i.e.
+// left with no marker and so absent from GetFolder) versus true (a .gitkeep
+// keeps the folder appearing). The marker is not reported back via
+// blobIDsAdded: real CreateCommitOutput.FilesAdded/DeleteFileOutput report
+// only the files the caller explicitly changed, not this internal
+// side effect. Caller must hold the write lock.
+func (b *InMemoryBackend) keepEmptyFoldersLocked(
+	repoName, commitID string, deleteFiles []string, keepEmptyFolders bool,
+) {
+	if !keepEmptyFolders {
+		return
+	}
+
+	repoFiles := b.filesByRepo.Get(repoName)
+
+	seen := make(map[string]bool, len(deleteFiles))
+
+	for _, fp := range deleteFiles {
+		folder := parentFolder(fp)
+		if folder == "" || seen[folder] {
+			continue
+		}
+
+		seen[folder] = true
+
+		if folderHasFilesLocked(repoFiles, folder) {
+			continue
+		}
+
+		keepPath := folder + "/" + gitkeepFileName
+		blobID := uuid.NewString()
+		b.files.Put(&File{
+			FilePath:        keepPath,
+			CommitSpecifier: commitID,
+			BlobID:          blobID,
+			FileMode:        fileModeDefault,
+			FileContent:     []byte{},
+			RepoName:        repoName,
+		})
+		b.recordFileHistory(repoName, keepPath, commitID, blobID)
+	}
+}
+
 // applyFileChanges applies put and delete file entries to the repository file store.
 // It returns the blob ID assigned to each put file (blobIDsAdded) and the blob
 // ID removed by each delete (blobIDsDeleted), both keyed by filePath, so
@@ -31,7 +123,7 @@ func (b *InMemoryBackend) recordFileHistory(repoName, filePath, commitID, blobID
 // recorded in fileHistory so ListFileCommitHistory reflects it. Caller must
 // hold the write lock.
 func (b *InMemoryBackend) applyFileChanges(
-	repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string,
+	repoName, commitID string, putFiles []PutFileEntry, deleteFiles []string, keepEmptyFolders bool,
 ) (map[string]string, map[string]string) {
 	blobIDsAdded := make(map[string]string, len(putFiles))
 	blobIDsDeleted := make(map[string]string, len(deleteFiles))
@@ -63,6 +155,8 @@ func (b *InMemoryBackend) applyFileChanges(
 		blobIDsDeleted[fp] = removedBlobID
 	}
 
+	b.keepEmptyFoldersLocked(repoName, commitID, deleteFiles, keepEmptyFolders)
+
 	return blobIDsAdded, blobIDsDeleted
 }
 
@@ -74,7 +168,7 @@ func (b *InMemoryBackend) applyFileChanges(
 // if it does not match the current tip.
 func (b *InMemoryBackend) CreateCommit(
 	repositoryName, branchName, authorName, authorEmail, message, parentCommitID string,
-	putFiles []PutFileEntry, deleteFiles []string,
+	putFiles []PutFileEntry, deleteFiles []string, keepEmptyFolders bool,
 ) (*Commit, map[string]string, map[string]string, error) {
 	b.mu.Lock("CreateCommit")
 	defer b.mu.Unlock()
@@ -140,7 +234,9 @@ func (b *InMemoryBackend) CreateCommit(
 	b.commits.Put(commit)
 
 	// Apply putFiles and deleteFiles to the file store.
-	blobIDsAdded, blobIDsDeleted := b.applyFileChanges(repositoryName, commitID, putFiles, deleteFiles)
+	blobIDsAdded, blobIDsDeleted := b.applyFileChanges(
+		repositoryName, commitID, putFiles, deleteFiles, keepEmptyFolders,
+	)
 
 	// Update the branch tip to the new commit.
 	if branchName != "" {
@@ -235,6 +331,7 @@ const getDifferencesDefaultMaxResults = 100
 // maxResults implement AWS's cursor-based pagination for this op.
 func (b *InMemoryBackend) GetDifferences(
 	repoName, afterCommitSpecifier, _ /* beforeCommitSpecifier */, nextToken string, maxResults int,
+	afterPath string,
 ) (page.Page[FileDifference], error) {
 	if err := page.ValidateToken(nextToken); err != nil {
 		return page.Page[FileDifference]{}, fmt.Errorf("%w: invalid NextToken", ErrInvalidContinuationToken)
@@ -250,20 +347,29 @@ func (b *InMemoryBackend) GetDifferences(
 	repoFiles := b.filesByRepo.Get(repoName)
 
 	// Simplified diff: collect files associated with afterCommitSpecifier.
-	// When before is empty, treat all files as ADDed.
+	// When before is empty, treat all files as ADDed. AfterPath ("Limits the
+	// results to this path. Can also be used to specify... a directory or
+	// folder" -- api_op_GetDifferences.go) narrows to that exact file, or any
+	// file under it as a directory prefix.
 	var diffs []FileDifference
 	for _, f := range repoFiles {
-		if afterCommitSpecifier == "" || f.CommitSpecifier == afterCommitSpecifier || afterCommitSpecifier == f.BlobID {
-			mode := f.FileMode
-			if mode == "" {
-				mode = "100644"
-			}
-			diffs = append(diffs, FileDifference{
-				AfterBlob:  &BlobInfo{BlobID: f.BlobID, Path: f.FilePath, Mode: mode},
-				BeforeBlob: nil,
-				ChangeType: "A",
-			})
+		if afterCommitSpecifier != "" && f.CommitSpecifier != afterCommitSpecifier && afterCommitSpecifier != f.BlobID {
+			continue
 		}
+
+		if !pathMatchesFilter(f.FilePath, afterPath) {
+			continue
+		}
+
+		mode := f.FileMode
+		if mode == "" {
+			mode = "100644"
+		}
+		diffs = append(diffs, FileDifference{
+			AfterBlob:  &BlobInfo{BlobID: f.BlobID, Path: f.FilePath, Mode: mode},
+			BeforeBlob: nil,
+			ChangeType: "A",
+		})
 	}
 
 	sort.Slice(diffs, func(i, j int) bool {

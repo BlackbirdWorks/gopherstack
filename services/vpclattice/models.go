@@ -6,34 +6,36 @@ import (
 
 // storedService holds a service with all fields.
 type storedService struct {
-	CreatedAt        time.Time         `json:"createdAt"`
-	LastUpdatedAt    time.Time         `json:"lastUpdatedAt"`
-	Tags             map[string]string `json:"tags"`
-	ARN              string            `json:"arn"`
-	ID               string            `json:"id"`
-	Name             string            `json:"name"`
-	AuthType         string            `json:"authType"`
-	CertificateArn   string            `json:"certificateArn"`
-	CustomDomainName string            `json:"customDomainName"`
-	DNSName          string            `json:"dnsName"`
-	HostedZoneID     string            `json:"hostedZoneId"`
-	Status           string            `json:"status"`
-	Region           string            `json:"region"`
+	CreatedAt          time.Time         `json:"createdAt"`
+	LastUpdatedAt      time.Time         `json:"lastUpdatedAt"`
+	Tags               map[string]string `json:"tags"`
+	ARN                string            `json:"arn"`
+	ID                 string            `json:"id"`
+	Name               string            `json:"name"`
+	AuthType           string            `json:"authType"`
+	CertificateArn     string            `json:"certificateArn"`
+	CustomDomainName   string            `json:"customDomainName"`
+	DNSName            string            `json:"dnsName"`
+	HostedZoneID       string            `json:"hostedZoneId"`
+	Status             string            `json:"status"`
+	Region             string            `json:"region"`
+	IdleTimeoutSeconds int32             `json:"idleTimeoutSeconds,omitempty"`
 }
 
 func (s *storedService) toService() *Service {
 	return &Service{
-		ARN:              s.ARN,
-		ID:               s.ID,
-		Name:             s.Name,
-		AuthType:         s.AuthType,
-		CertificateArn:   s.CertificateArn,
-		CustomDomainName: s.CustomDomainName,
-		DNSName:          s.DNSName,
-		HostedZoneID:     s.HostedZoneID,
-		Status:           s.Status,
-		CreatedAt:        s.CreatedAt,
-		LastUpdatedAt:    s.LastUpdatedAt,
+		ARN:                s.ARN,
+		ID:                 s.ID,
+		Name:               s.Name,
+		AuthType:           s.AuthType,
+		CertificateArn:     s.CertificateArn,
+		CustomDomainName:   s.CustomDomainName,
+		DNSName:            s.DNSName,
+		HostedZoneID:       s.HostedZoneID,
+		Status:             s.Status,
+		CreatedAt:          s.CreatedAt,
+		LastUpdatedAt:      s.LastUpdatedAt,
+		IdleTimeoutSeconds: s.IdleTimeoutSeconds,
 	}
 }
 

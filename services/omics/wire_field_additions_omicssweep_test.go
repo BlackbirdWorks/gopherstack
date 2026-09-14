@@ -6,6 +6,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	omicssdk "github.com/aws/aws-sdk-go-v2/service/omics"
 	"github.com/aws/aws-sdk-go-v2/service/omics/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/omics"
@@ -323,4 +324,107 @@ func TestOmics_WorkflowVersion_StorageCapacityStorageType_Echoed(t *testing.T) {
 	require.Equal(t, types.StorageTypeStatic, getOut2.StorageType)
 	require.NotNil(t, getOut2.StorageCapacity)
 	require.Equal(t, int32(1200), *getOut2.StorageCapacity)
+}
+
+// TestOmics_Uuid_RealClient proves gopherstack-fedo's uuid field: real
+// CreateWorkflowOutput/StartRunOutput/GetWorkflowOutput/GetRunOutput all
+// carry a "uuid" member (field-diffed against
+// awsRestjson1_deserializeOpDocumentCreateWorkflowOutput/
+// StartRunOutput/GetWorkflowOutput/GetRunOutput in the pinned SDK's
+// deserializers.go). Each case asserts the create/start response's uuid
+// is a real RFC 4122 UUID and is echoed unchanged by the matching Get call.
+func TestOmics_Uuid_RealClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		run  func(t *testing.T, client *omicssdk.Client) (created, fetched string)
+		name string
+	}{
+		{
+			name: "workflow",
+			run: func(t *testing.T, client *omicssdk.Client) (string, string) {
+				t.Helper()
+
+				createOut, err := client.CreateWorkflow(t.Context(), &omicssdk.CreateWorkflowInput{
+					Name:   aws.String("uuid-workflow"),
+					Engine: types.WorkflowEngineWdl,
+				})
+				require.NoError(t, err)
+				require.NotNil(t, createOut.Uuid)
+
+				getOut, err := client.GetWorkflow(t.Context(), &omicssdk.GetWorkflowInput{Id: createOut.Id})
+				require.NoError(t, err)
+				require.NotNil(t, getOut.Uuid)
+
+				return *createOut.Uuid, *getOut.Uuid
+			},
+		},
+		{
+			name: "run",
+			run: func(t *testing.T, client *omicssdk.Client) (string, string) {
+				t.Helper()
+
+				workflowID := registerTestWorkflow(t, client)
+
+				startOut, err := client.StartRun(t.Context(), &omicssdk.StartRunInput{
+					WorkflowId: aws.String(workflowID),
+					RoleArn:    aws.String("arn:aws:iam::000000000000:role/omics-role"),
+					Name:       aws.String("uuid-run"),
+					OutputUri:  aws.String("s3://bucket/output"),
+				})
+				require.NoError(t, err)
+				require.NotNil(t, startOut.Uuid)
+
+				getOut, err := client.GetRun(t.Context(), &omicssdk.GetRunInput{Id: startOut.Id})
+				require.NoError(t, err)
+				require.NotNil(t, getOut.Uuid)
+
+				return *startOut.Uuid, *getOut.Uuid
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+			h := omics.NewHandler(backend)
+			client := newTestOmicsClient(t, h)
+
+			created, fetched := tc.run(t, client)
+
+			_, err := uuid.Parse(created)
+			require.NoError(t, err, "uuid must be a real RFC 4122 UUID, got %q", created)
+			require.Equal(t, created, fetched, "Get must echo the same uuid Create/Start returned")
+		})
+	}
+}
+
+// TestOmics_StartRun_RunOutputUri_RealClient proves StartRunOutput.RunOutputUri
+// is sourced honestly from the request's own OutputUri (StartRunInput's
+// required field), not fabricated (gopherstack-fedo).
+func TestOmics_StartRun_RunOutputUri_RealClient(t *testing.T) {
+	t.Parallel()
+
+	backend := omics.NewInMemoryBackend("000000000000", wireTestRegion)
+	h := omics.NewHandler(backend)
+	client := newTestOmicsClient(t, h)
+
+	workflowID := registerTestWorkflow(t, client)
+
+	startOut, err := client.StartRun(t.Context(), &omicssdk.StartRunInput{
+		WorkflowId: aws.String(workflowID),
+		RoleArn:    aws.String("arn:aws:iam::000000000000:role/omics-role"),
+		Name:       aws.String("output-uri-run"),
+		OutputUri:  aws.String("s3://bucket/my-run-output"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, startOut.RunOutputUri)
+	require.Equal(t, "s3://bucket/my-run-output", *startOut.RunOutputUri)
+
+	getOut, err := client.GetRun(t.Context(), &omicssdk.GetRunInput{Id: startOut.Id})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.RunOutputUri)
+	require.Equal(t, "s3://bucket/my-run-output", *getOut.RunOutputUri)
 }

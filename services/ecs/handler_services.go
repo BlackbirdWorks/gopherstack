@@ -334,9 +334,12 @@ func (h *Handler) handleListServices(
 
 // ----- ListServicesByNamespace -----
 
+// listServicesByNamespaceInput has no Cluster member: the real
+// ListServicesByNamespaceInput doesn't have one either -- this op spans
+// every cluster in the namespace (api_op_ListServicesByNamespace.go doc
+// comment).
 type listServicesByNamespaceInput struct {
 	Namespace  string `json:"namespace,omitempty"`
-	Cluster    string `json:"cluster,omitempty"`
 	NextToken  string `json:"nextToken,omitempty"`
 	MaxResults int    `json:"maxResults,omitempty"`
 }
@@ -350,7 +353,7 @@ func (h *Handler) handleListServicesByNamespace(
 	_ context.Context,
 	in *listServicesByNamespaceInput,
 ) (*listServicesByNamespaceOutput, error) {
-	arns, err := h.Backend.ListServicesByNamespace(in.Cluster, in.Namespace)
+	arns, err := h.Backend.ListServicesByNamespace(in.Namespace)
 	if err != nil {
 		return nil, err
 	}

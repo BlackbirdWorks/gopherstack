@@ -470,6 +470,26 @@ func (b *InMemoryBackend) GetMetricStatistics(
 	statistics []string,
 	extendedStatistics []string,
 ) ([]Datapoint, error) {
+	return b.getMetricStatisticsForUnit(
+		namespace, metricName, dimensions, startTime, endTime, period,
+		statistics, extendedStatistics, "",
+	)
+}
+
+// getMetricStatisticsForUnit is GetMetricStatistics restricted to datapoints
+// published with the given unit; an empty unit matches all datapoints regardless
+// of unit. Used by the alarm evaluator: a MetricAlarm with a Unit set only
+// evaluates datapoints published with that exact StandardUnit (PutMetricAlarm
+// API doc, "Unit" parameter).
+func (b *InMemoryBackend) getMetricStatisticsForUnit(
+	namespace, metricName string,
+	dimensions []Dimension,
+	startTime, endTime time.Time,
+	period int32,
+	statistics []string,
+	extendedStatistics []string,
+	unit string,
+) ([]Datapoint, error) {
 	b.mu.RLock("GetMetricStatistics")
 	defer b.mu.RUnlock()
 
@@ -479,6 +499,16 @@ func (b *InMemoryBackend) GetMetricStatistics(
 		if rec, found := nsMap[key]; found {
 			all = rec.Points
 		}
+	}
+
+	if unit != "" {
+		filtered := make([]MetricDatum, 0, len(all))
+		for _, d := range all {
+			if d.Unit == unit {
+				filtered = append(filtered, d)
+			}
+		}
+		all = filtered
 	}
 
 	buckets := populateBuckets(all, startTime, endTime, period)

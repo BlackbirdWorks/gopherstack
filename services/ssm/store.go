@@ -223,9 +223,11 @@ const (
 // documentMatchesFilters, paramMatchesFilter) that all filter on the same
 // real API attribute name.
 const (
-	filterKeyInstanceID   = "InstanceId"
-	filterKeyName         = "Name"
-	filterKeyAgentVersion = "AgentVersion"
+	filterKeyInstanceID    = "InstanceId"
+	filterKeyName          = "Name"
+	filterKeyAgentVersion  = "AgentVersion"
+	filterKeyActivationIDs = "ActivationIds"
+	filterKeyPlatformTypes = "PlatformTypes"
 )
 
 // cleanupEmptyInnerMap removes the region key from a two-level map when the

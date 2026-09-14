@@ -166,7 +166,8 @@ func (h *Handler) handleCreateReportPlan(c *echo.Context, body []byte) error {
 }
 
 func (h *Handler) handleListReportPlans(c *echo.Context) error {
-	plans := h.Backend.ListReportPlans()
+	q := c.Request().URL.Query()
+	plans, nextToken := h.Backend.ListReportPlans(parseInt(q.Get("MaxResults")), q.Get("NextToken"))
 	items := make([]map[string]any, 0, len(plans))
 
 	for _, rp := range plans {
@@ -178,9 +179,12 @@ func (h *Handler) handleListReportPlans(c *echo.Context) error {
 		})
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{
-		"ReportPlans": items,
-	})
+	resp := map[string]any{"ReportPlans": items}
+	if nextToken != "" {
+		resp["NextToken"] = nextToken
+	}
+
+	return c.JSON(http.StatusOK, resp)
 }
 
 func (h *Handler) handleDescribeReportPlan(c *echo.Context, name string) error {

@@ -174,6 +174,25 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrAlreadyExists, name)
 	}
 
+	if n := b.countClusters(false); n >= b.limits.clustersPerAccount {
+		return nil, resourceLimitExceededErr("clusters", b.limits.clustersPerAccount)
+	}
+
+	if vpcConfig != nil {
+		if n := len(vpcConfig.SecurityGroupIDs); n > b.limits.securityGroupsPerCluster {
+			return nil, resourceLimitExceededErr(
+				"control plane security groups per cluster",
+				b.limits.securityGroupsPerCluster,
+			)
+		}
+
+		if n := len(vpcConfig.PublicAccessCIDRs); n > b.limits.publicAccessCIDRsPerCluster {
+			return nil, resourceLimitExceededErr(
+				"public endpoint access CIDR ranges per cluster", b.limits.publicAccessCIDRsPerCluster,
+			)
+		}
+	}
+
 	if version == "" {
 		version = defaultK8sVersion
 	}
@@ -343,6 +362,10 @@ func (b *InMemoryBackend) RegisterCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrAlreadyExists, name)
 	}
 
+	if n := b.countClusters(true); n >= b.limits.registeredClustersPerAccount {
+		return nil, resourceLimitExceededErr("registered clusters", b.limits.registeredClustersPerAccount)
+	}
+
 	clusterARN := arn.Build("eks", b.region, b.accountID, "cluster/"+name)
 	t := tags.New("eks.cluster." + name + ".tags")
 
@@ -366,7 +389,7 @@ func (b *InMemoryBackend) RegisterCluster(
 			RoleARN:          roleARN,
 			ActivationID:     stableID(name + "/activation-id"),
 			ActivationCode:   stableID(name + "/activation-code"),
-			ActivationExpiry: time.Now().Add(connectorActivationWindow).UTC().Format(time.RFC3339),
+			ActivationExpiry: activationExpiry(time.Now().Add(connectorActivationWindow).UTC()),
 		},
 	}
 	b.clusters.Put(c)
@@ -381,49 +404,91 @@ func (b *InMemoryBackend) DeregisterCluster(name string) (*Cluster, error) {
 	return b.DeleteCluster(name)
 }
 
-// supportDate parses a static "YYYY-MM-DD" date into the epoch-seconds
-// number awsjson1.1/restjson1 expects on the wire -- confirmed against
-// aws-sdk-go-v2/service/eks@v1.90.4's deserializers.go (case
-// "endOfStandardSupportDate"/"endOfExtendedSupportDate": json.Number via
-// smithytime.ParseEpochSeconds). Emitting the literal date string instead
-// failed DescribeClusterVersions outright for every real client.
-func supportDate(date string) float64 {
-	t, err := time.Parse(time.DateOnly, date)
-	if err != nil {
-		panic("eks: invalid static support date " + date)
+// clusterVersionSupport holds one row of this backend's static supported-
+// Kubernetes-version table, shared by DescribeClusterVersions' wire response
+// and the UPGRADE_READINESS insights derived from it (insights.go) --
+// gopherstack-wf8f item 2.
+type clusterVersionSupport struct {
+	EndOfStandardSupport time.Time
+	EndOfExtendedSupport time.Time
+	Version              string
+	Default              bool
+}
+
+// clusterVersionSupportTable is this backend's fixed table of supported
+// Kubernetes minor versions and their end-of-support dates. It is the same
+// table DescribeClusterVersions exposes on the wire, kept in one place so
+// insights.go's UPGRADE_READINESS derivation cannot drift from it.
+func clusterVersionSupportTable() []clusterVersionSupport {
+	mustParse := func(date string) time.Time {
+		t, err := time.Parse(time.DateOnly, date)
+		if err != nil {
+			panic("eks: invalid static support date " + date)
+		}
+
+		return t
 	}
 
-	return awstime.Epoch(t)
+	return []clusterVersionSupport{
+		{
+			Version: defaultK8sVersion, Default: true,
+			EndOfStandardSupport: mustParse("2027-04-01"), EndOfExtendedSupport: mustParse("2028-04-01"),
+		},
+		{
+			Version:              "1.31",
+			EndOfStandardSupport: mustParse("2026-11-01"), EndOfExtendedSupport: mustParse("2027-11-01"),
+		},
+		{
+			Version:              "1.30",
+			EndOfStandardSupport: mustParse("2026-07-01"), EndOfExtendedSupport: mustParse("2027-07-01"),
+		},
+		{
+			Version:              "1.29",
+			EndOfStandardSupport: mustParse("2026-03-01"), EndOfExtendedSupport: mustParse("2027-03-01"),
+		},
+	}
+}
+
+// latestSupportedClusterVersion returns the table's Default-flagged entry's
+// Version -- the newest Kubernetes minor version this backend offers.
+func latestSupportedClusterVersion() string {
+	for _, v := range clusterVersionSupportTable() {
+		if v.Default {
+			return v.Version
+		}
+	}
+
+	return defaultK8sVersion
+}
+
+// clusterVersionSupportFor looks up a cluster's Kubernetes version in the
+// static support table. ok is false for a version outside the table (this
+// backend has no support-date data for it).
+func clusterVersionSupportFor(version string) (clusterVersionSupport, bool) {
+	for _, v := range clusterVersionSupportTable() {
+		if v.Version == version {
+			return v, true
+		}
+	}
+
+	return clusterVersionSupport{}, false
 }
 
 // DescribeClusterVersions returns supported cluster versions.
 func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
-	return []map[string]any{
-		{
-			keyClusterVersion:           defaultK8sVersion,
-			keyDefaultVersion:           true,
-			keyEndOfStandardSupportDate: supportDate("2027-04-01"),
-			keyEndOfExtendedSupportDate: supportDate("2028-04-01"),
-		},
-		{
-			keyClusterVersion:           "1.31",
-			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: supportDate("2026-11-01"),
-			keyEndOfExtendedSupportDate: supportDate("2027-11-01"),
-		},
-		{
-			keyClusterVersion:           "1.30",
-			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: supportDate("2026-07-01"),
-			keyEndOfExtendedSupportDate: supportDate("2027-07-01"),
-		},
-		{
-			keyClusterVersion:           "1.29",
-			keyDefaultVersion:           false,
-			keyEndOfStandardSupportDate: supportDate("2026-03-01"),
-			keyEndOfExtendedSupportDate: supportDate("2027-03-01"),
-		},
+	table := clusterVersionSupportTable()
+	out := make([]map[string]any, len(table))
+
+	for i, v := range table {
+		out[i] = map[string]any{
+			keyClusterVersion:           v.Version,
+			keyDefaultVersion:           v.Default,
+			keyEndOfStandardSupportDate: awstime.Epoch(v.EndOfStandardSupport),
+			keyEndOfExtendedSupportDate: awstime.Epoch(v.EndOfExtendedSupport),
+		}
 	}
+
+	return out
 }
 
 // AddClusterInternal inserts a pre-built cluster directly into the backend.

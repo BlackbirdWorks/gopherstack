@@ -315,28 +315,29 @@ func (h *Handler) handleListJobs(c *echo.Context) error {
 	return writeXML(c, listJobsResponseXML{Jobs: page, NextToken: tok})
 }
 
-type updateJobPriorityRequestXML struct {
-	XMLName  xml.Name `xml:"UpdateJobPriorityRequest"`
-	Priority int32    `xml:"Priority"`
-}
-
 type updateJobPriorityResponseXML struct {
 	XMLName  xml.Name `xml:"UpdateJobPriorityResult"`
 	JobID    string   `xml:"JobId"`
 	Priority int32    `xml:"Priority"`
 }
 
+// handleUpdateJobPriority. Real UpdateJobPriorityInput binds priority as an
+// HTTPQuery param (?priority=N), not a body element -- confirmed against
+// awsRestxml_serializeOpHttpBindingsUpdateJobPriorityInput,
+// s3control@v1.73.4 serializers.go:8477. Reading it from an XML body (as
+// this handler did) always saw an empty request and silently left the job's
+// priority unchanged for every real client.
 func (h *Handler) handleUpdateJobPriority(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	path := c.Request().URL.Path
 	jobID := strings.TrimSuffix(strings.TrimPrefix(path, pathJobPrefix), "/priority")
 
-	var body updateJobPriorityRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
+	priority, err := strconv.ParseInt(c.Request().URL.Query().Get("priority"), 10, 32)
+	if err != nil {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "InvalidArgument", "priority is required")
 	}
 
-	job, err := h.Backend.UpdateJobPriority(accountID, jobID, body.Priority)
+	job, err := h.Backend.UpdateJobPriority(accountID, jobID, int32(priority))
 	if err != nil {
 		return handleBackendError(c, err)
 	}
@@ -347,12 +348,6 @@ func (h *Handler) handleUpdateJobPriority(c *echo.Context) error {
 	})
 }
 
-type updateJobStatusRequestXML struct {
-	XMLName            xml.Name `xml:"UpdateJobStatusRequest"`
-	RequestedJobStatus string   `xml:"RequestedJobStatus"`
-	StatusUpdateReason string   `xml:"StatusUpdateReason"`
-}
-
 type updateJobStatusResponseXML struct {
 	XMLName            xml.Name `xml:"UpdateJobStatusResult"`
 	JobID              string   `xml:"JobId"`
@@ -360,17 +355,22 @@ type updateJobStatusResponseXML struct {
 	StatusUpdateReason string   `xml:"StatusUpdateReason,omitempty"`
 }
 
+// handleUpdateJobStatus. Real UpdateJobStatusInput binds requestedJobStatus
+// and statusUpdateReason as HTTPQuery params, not body elements -- confirmed
+// against awsRestxml_serializeOpHttpBindingsUpdateJobStatusInput,
+// s3control@v1.73.4 serializers.go:8556-8561. Reading them from an XML body
+// (as this handler did) always saw an empty RequestedJobStatus, so every
+// real client's UpdateJobStatus call failed validation.
 func (h *Handler) handleUpdateJobStatus(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	path := c.Request().URL.Path
 	jobID := strings.TrimSuffix(strings.TrimPrefix(path, pathJobPrefix), "/status")
 
-	var body updateJobStatusRequestXML
-	if err := decodeXML(c, &body); err != nil {
-		return writeXMLErrorCode(c, http.StatusBadRequest, "MalformedXML", "invalid request body")
-	}
+	q := c.Request().URL.Query()
 
-	job, err := h.Backend.UpdateJobStatusValidated(accountID, jobID, body.RequestedJobStatus, body.StatusUpdateReason)
+	job, err := h.Backend.UpdateJobStatusValidated(
+		accountID, jobID, q.Get("requestedJobStatus"), q.Get("statusUpdateReason"),
+	)
 	if err != nil {
 		return handleBackendError(c, err)
 	}

@@ -273,7 +273,7 @@ func (b *InMemoryBackend) ListExecutors(sessionID, stateFilter string) ([]Execut
 		ExecutorID:    "executor-" + sessionID,
 		ExecutorType:  "GATEWAY",
 		ExecutorState: executorStateRegistered,
-		StartDateTime: s.Status.StartDateTime,
+		StartDateTime: int64(s.Status.StartDateTime),
 		ExecutorSize:  int64(s.EngineConfiguration.DefaultExecutorDpuSize),
 	}
 

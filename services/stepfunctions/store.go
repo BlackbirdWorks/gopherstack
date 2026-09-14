@@ -127,6 +127,11 @@ type InMemoryBackend struct {
 	// executionsByStateMachine groups executions by (immutable) StateMachineArn,
 	// replacing the former smExecutions []string index map.
 	executionsByStateMachine *store.Index[Execution]
+	// executionsByMapRun groups Distributed Map child executions by their
+	// (immutable once set) MapRunArn -- empty string for every non-child
+	// execution, so this index's "" bucket is simply never queried. Backs
+	// ListExecutions(mapRunArn=...) and DescribeMapRun's ExecutionCounts.
+	executionsByMapRun *store.Index[Execution]
 	// versions maps version ARN → version for PublishStateMachineVersion.
 	versions *store.Table[StateMachineVersion]
 	// versionsByStateMachine groups versions by (immutable) StateMachineArn,
@@ -163,6 +168,11 @@ type InMemoryBackend struct {
 	accountID       string
 	region          string
 	settings        Settings
+	// mapChildSeq counts Distributed Map child executions spawned so far,
+	// guarded by b.mu, so each gets a unique execution name without parsing
+	// arbitrary ASL state names (which, unlike execution names, are not
+	// restricted to namePattern) into one.
+	mapChildSeq int64
 	// historyMu protects each Execution's inline history slice and
 	// b.historyTruncated for concurrent cross-execution writes.
 	// Lock order: b.mu (read or write) must be acquired before historyMu.
@@ -567,4 +577,5 @@ func (b *InMemoryBackend) resetLocked() {
 	b.historyTruncated = make(map[string]bool)
 	b.historyMu = sync.RWMutex{}
 	b.smExecsByStatus = make(map[string]map[string][]string)
+	b.mapChildSeq = 0
 }

@@ -14,6 +14,12 @@ var ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter
 // errBucketNotFound is returned when an Outposts bucket is not found.
 var errBucketNotFound = awserr.New("NoSuchBucket", awserr.ErrNotFound)
 
+// errNoSuchTagSet is returned when an Outposts bucket has no tag set
+// associated with it (GetBucketTagging's documented special error --
+// api_op_GetBucketTagging.go: "Error code: NoSuchTagSetError -- There is no
+// tag set associated with the bucket").
+var errNoSuchTagSet = awserr.New("NoSuchTagSetError", awserr.ErrNotFound)
+
 // errJobNotFound is returned when a batch job is not found.
 var errJobNotFound = awserr.New("NoSuchJob", awserr.ErrNotFound)
 

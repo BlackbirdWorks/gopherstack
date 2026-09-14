@@ -86,7 +86,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 	ctx context.Context,
 	req *createParameterGroupRequest,
 ) (*ParameterGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateParameterGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) CreateParameterGroup(
 
 // DescribeParameterGroups returns parameter groups, optionally filtered by name.
 func (b *InMemoryBackend) DescribeParameterGroups(ctx context.Context, name string) ([]*ParameterGroup, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeParameterGroups")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -157,7 +157,7 @@ func (b *InMemoryBackend) DescribeParameterGroups(ctx context.Context, name stri
 
 // DeleteParameterGroup removes a parameter group.
 func (b *InMemoryBackend) DeleteParameterGroup(ctx context.Context, name string) (*ParameterGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("DeleteParameterGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -187,7 +187,7 @@ func (b *InMemoryBackend) UpdateParameterGroup(
 	ctx context.Context,
 	req *updateParameterGroupRequest,
 ) (*ParameterGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("UpdateParameterGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) DescribeParameters(
 	ctx context.Context,
 	parameterGroupName string,
 ) (map[string]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -283,7 +283,7 @@ func (b *InMemoryBackend) ResetParameterGroup(
 	parameterNames []string,
 	allParameters bool,
 ) (*ParameterGroup, error) {
-	b.mu.Lock()
+	b.mu.Lock("ResetParameterGroup")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.defaultRegion)
@@ -327,7 +327,7 @@ func cloneParameterGroup(pg *ParameterGroup) *ParameterGroup {
 
 // AddParameterGroupInternal inserts a parameter group directly into the backend for testing.
 func (b *InMemoryBackend) AddParameterGroupInternal(name, family string) *ParameterGroup {
-	b.mu.Lock()
+	b.mu.Lock("AddParameterGroupInternal")
 	defer b.mu.Unlock()
 
 	pgARN := arn.Build("memorydb", b.defaultRegion, b.accountID, "parametergroup/"+name)

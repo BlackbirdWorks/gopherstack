@@ -25,7 +25,7 @@ func (rc *ResourceCreator) createCloudTrailTrail(
 	cwLogsRoleARN := strProp(props, "CloudWatchLogsRoleArn", params, physicalIDs)
 	kmsKeyID := strProp(props, "KMSKeyId", params, physicalIDs)
 
-	var includeGlobal, multiRegion, logValidation bool
+	var includeGlobal, multiRegion, logValidation, isOrgTrail bool
 	if v, ok := props["IncludeGlobalServiceEvents"].(bool); ok {
 		includeGlobal = v
 	}
@@ -35,11 +35,15 @@ func (rc *ResourceCreator) createCloudTrailTrail(
 	if v, ok := props["EnableLogFileValidation"].(bool); ok {
 		logValidation = v
 	}
+	if v, ok := props["IsOrganizationTrail"].(bool); ok {
+		isOrgTrail = v
+	}
 
 	trail, err := rc.backends.CloudTrail.Backend.CreateTrail(
 		name, s3Bucket, s3KeyPrefix, snsTopicName,
 		cwLogsLogGroupARN, cwLogsRoleARN, kmsKeyID,
 		includeGlobal, multiRegion, logValidation, nil,
+		isOrgTrail,
 	)
 	if err != nil {
 		return "", fmt.Errorf("create CloudTrail trail %s: %w", name, err)

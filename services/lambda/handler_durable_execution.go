@@ -290,15 +290,22 @@ func (h *Handler) handleStopDurableExecution(c *echo.Context) error {
 
 	arn := extractDurableExecARN(c.Request().URL.Path)
 
-	var body struct {
-		Error *ErrorObject `json:"Error,omitempty"`
-	}
-
+	// StopDurableExecutionInput.Error is the request's top-level JSON body
+	// (not wrapped in an "Error" key — the real serializer writes
+	// ErrorObject's fields directly, confirmed against
+	// awsRestjson1_serializeDocumentErrorObject in serializers.go). A wrapper
+	// struct here silently dropped every real client's Error every time.
+	var parsedErr ErrorObject
 	if raw, err := httputils.ReadBody(c.Request()); err == nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, &body)
+		_ = json.Unmarshal(raw, &parsedErr)
 	}
 
-	out, err := store.stopOutput(arn, body.Error)
+	var errObj *ErrorObject
+	if !isEmptyErrorObject(&parsedErr) {
+		errObj = &parsedErr
+	}
+
+	out, err := store.stopOutput(arn, errObj)
 	if err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "durable execution not found: "+arn)
 	}
@@ -334,15 +341,20 @@ func (h *Handler) handleSendDurableExecutionCallbackFailure(c *echo.Context) err
 
 	callbackID := extractDurableExecCallbackID(c.Request().URL.Path)
 
-	var body struct {
-		Error *ErrorObject `json:"Error,omitempty"`
-	}
-
+	// Same unwrapped-body shape as StopDurableExecution's Error (see that
+	// handler's comment) — SendDurableExecutionCallbackFailureInput.Error is
+	// the request's top-level JSON body, not {"Error": {...}}.
+	var parsedErr ErrorObject
 	if raw, err := httputils.ReadBody(c.Request()); err == nil && len(raw) > 0 {
-		_ = json.Unmarshal(raw, &body)
+		_ = json.Unmarshal(raw, &parsedErr)
 	}
 
-	if err := store.sendCallback(callbackID, operationActionFail, body.Error, nil); err != nil {
+	var errObj *ErrorObject
+	if !isEmptyErrorObject(&parsedErr) {
+		errObj = &parsedErr
+	}
+
+	if err := store.sendCallback(callbackID, operationActionFail, errObj, nil); err != nil {
 		return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException", "callback not found: "+callbackID)
 	}
 

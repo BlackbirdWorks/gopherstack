@@ -1,6 +1,8 @@
 package appstream
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -46,20 +48,24 @@ type InMemoryBackend struct {
 	imagePermissions     *store.Table[storedImagePermissions]
 	stacks               *store.Table[storedStack]
 	mu                   *lockmetrics.RWMutex
-	entitlementApps      map[string]map[string]bool
-	imageBuilders        *store.Table[storedImageBuilder]
-	softwareAssoc        map[string]map[string]bool
-	exportTasks          *store.Table[storedExportImageTask]
-	images               *store.Table[storedImage]
-	users                *store.Table[storedUser]
-	userStackAssoc       map[string]map[string]bool
-	sessions             *store.Table[storedSession]
-	registry             *store.Registry
-	usageReport          *storedUsageReportSubscription
-	accountID            string
-	region               string
-	sessionSeq           int
-	exportTaskSeq        int
+	// clock returns the current time; overridden by SetClock for
+	// deterministic tests, mirroring elasticache/awsconfig's
+	// InMemoryBackend.clock.
+	clock           func() time.Time
+	entitlementApps map[string]map[string]bool
+	imageBuilders   *store.Table[storedImageBuilder]
+	softwareAssoc   map[string]map[string]bool
+	exportTasks     *store.Table[storedExportImageTask]
+	images          *store.Table[storedImage]
+	users           *store.Table[storedUser]
+	userStackAssoc  map[string]map[string]bool
+	sessions        *store.Table[storedSession]
+	registry        *store.Registry
+	usageReport     *storedUsageReportSubscription
+	accountID       string
+	region          string
+	sessionSeq      int
+	exportTaskSeq   int
 }
 
 // NewInMemoryBackend constructs a new InMemoryBackend.
@@ -81,6 +87,23 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 	registerAllTables(b)
 
 	return b
+}
+
+// now returns the backend's current time, honoring an injected clock.
+func (b *InMemoryBackend) now() time.Time {
+	if b.clock != nil {
+		return b.clock()
+	}
+
+	return time.Now().UTC()
+}
+
+// SetClock overrides the backend's clock. For deterministic tests only.
+func (b *InMemoryBackend) SetClock(clock func() time.Time) {
+	b.mu.Lock("SetClock")
+	defer b.mu.Unlock()
+
+	b.clock = clock
 }
 
 // AccountID returns the account ID.

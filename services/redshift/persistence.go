@@ -17,6 +17,13 @@ import (
 // than attempts to partially decode) any mismatch -- see Restore below. This
 // mirrors the services/ec2 conversion (commit 12e611a4) and the services/sqs
 // pilot (commit 0f09d77c).
+//
+// Left at 1 despite ServerlessScheduledAction.StartTime/EndTime moving from
+// json:"-" to real tags (gopherstack-n746d): those fields were never on disk
+// under any key before this change (json:"-" drops them from Marshal, the
+// same path store.Registry.SnapshotAll uses), so an old snapshot decoding
+// them as zero is identical to today's behavior -- purely additive, not a
+// rename of an existing on-disk key.
 const redshiftSnapshotVersion = 1
 
 // backendSnapshot is the top-level on-disk shape for the Redshift backend.

@@ -52,11 +52,12 @@ func (h *Handler) getResourcesAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+	wireResources := toWireResources(resources)
 	if position != "" {
-		return http.StatusOK, map[string]any{keyItem: resources, keyPosition: position}, nil
+		return http.StatusOK, map[string]any{keyItem: wireResources, keyPosition: position}, nil
 	}
 
-	return http.StatusOK, map[string]any{keyItem: resources}, nil
+	return http.StatusOK, map[string]any{keyItem: wireResources}, nil
 }
 
 func (h *Handler) getResourceAction(b []byte) (int, any, error) {
@@ -69,7 +70,7 @@ func (h *Handler) getResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, r, nil
+	return http.StatusOK, toWireResource(r), nil
 }
 
 func (h *Handler) createResourceAction(b []byte) (int, any, error) {
@@ -82,7 +83,7 @@ func (h *Handler) createResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusCreated, r, nil
+	return http.StatusCreated, toWireResource(r), nil
 }
 
 func (h *Handler) deleteResourceAction(b []byte) (int, any, error) {
@@ -107,5 +108,5 @@ func (h *Handler) updateResourceAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, res, nil
+	return http.StatusOK, toWireResource(res), nil
 }

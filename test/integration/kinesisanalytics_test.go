@@ -1,5 +1,4 @@
 //go:build integration
-// +build integration
 
 package integration_test
 
@@ -9,14 +8,14 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	kinesisanalyticssdk "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics" //nolint:staticcheck // Kinesis Analytics v1 SDK is deprecated but still in use
+	kinesisanalyticssdk "github.com/aws/aws-sdk-go-v2/service/kinesisanalytics"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // createKinesisAnalyticsClient returns a Kinesis Analytics client pointed at the shared test container.
 //
-//nolint:staticcheck // Kinesis Analytics v1 SDK is deprecated but still in use
+
 func createKinesisAnalyticsClient(t *testing.T) *kinesisanalyticssdk.Client {
 	t.Helper()
 
@@ -36,7 +35,7 @@ func createKinesisAnalyticsClient(t *testing.T) *kinesisanalyticssdk.Client {
 
 // TestIntegration_KinesisAnalytics_ApplicationLifecycle tests the full application CRUD lifecycle.
 //
-//nolint:staticcheck // Kinesis Analytics v1 SDK is deprecated but still in use
+
 func TestIntegration_KinesisAnalytics_ApplicationLifecycle(t *testing.T) {
 	t.Parallel()
 

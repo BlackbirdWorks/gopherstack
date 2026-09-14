@@ -5,6 +5,8 @@ import (
 	"sort"
 
 	"github.com/google/uuid"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 func (b *InMemoryBackend) ActivateType(typeName, typeArn string) (string, error) {
@@ -257,7 +259,10 @@ func (b *InMemoryBackend) BatchDescribeTypeConfigurations(
 	return details, errs, unprocessed
 }
 
-func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
+// ListTypes returns registered/activated types, paginated by
+// MaxResults/NextToken (real query-protocol form fields, ListTypes
+// serializers.go:9145-9153).
+func (b *InMemoryBackend) ListTypes(_ string, maxResults int, nextToken string) (page.Page[TypeSummary], error) {
 	b.mu.RLock("ListTypes")
 	defer b.mu.RUnlock()
 	result := make([]TypeSummary, 0, b.typeRegistry.Len())
@@ -283,17 +288,22 @@ func (b *InMemoryBackend) ListTypes(_ string) ([]TypeSummary, error) {
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].TypeName < result[j].TypeName })
 
-	return result, nil
+	return page.New(result, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
 // ListTypeVersions defaults to LIVE versions only, matching ListTypeVersionsInput's
 // DeprecatedStatus field ("The default is LIVE", cloudformation@v1.76.1
-// api_op_ListTypeVersions.go).
-func (b *InMemoryBackend) ListTypeVersions(typeName, deprecatedStatus string) ([]string, error) {
+// api_op_ListTypeVersions.go). Paginated by MaxResults/NextToken (real
+// query-protocol form fields, serializers.go's
+// awsAwsquery_serializeOpDocumentListTypeVersionsInput).
+func (b *InMemoryBackend) ListTypeVersions(
+	typeName, deprecatedStatus string, maxResults int, nextToken string,
+) (page.Page[string], error) {
 	b.mu.RLock("ListTypeVersions")
 	defer b.mu.RUnlock()
 	typeArn := "arn:aws:cloudformation:::type/resource/" + typeName
 	wantDeprecated := deprecatedStatus == typeStatusDeprecated
+
 	if versions, ok := b.typeVersions[typeArn]; ok && len(versions) > 0 {
 		ids := make([]string, 0, len(versions))
 		for _, v := range versions {
@@ -303,42 +313,54 @@ func (b *InMemoryBackend) ListTypeVersions(typeName, deprecatedStatus string) ([
 			ids = append(ids, v.VersionID)
 		}
 
-		return ids, nil
+		return page.New(ids, nextToken, maxResults, cfnDefaultPageSize), nil
 	}
 	// Fallback: if no version records but type exists, return its current version.
 	if t, ok := b.typeRegistry.Get(typeArn); ok {
 		if (t.Status == typeStatusDeprecated) != wantDeprecated {
-			return []string{}, nil
+			return page.New([]string{}, nextToken, maxResults, cfnDefaultPageSize), nil
 		}
 
-		return []string{t.VersionID}, nil
+		return page.New([]string{t.VersionID}, nextToken, maxResults, cfnDefaultPageSize), nil
 	}
 
-	return []string{}, nil
+	return page.New([]string{}, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) ListTypeRegistrations(typeName, _ string) ([]string, error) {
+// ListTypeRegistrations returns registration tokens, paginated by
+// MaxResults/NextToken (real query-protocol form fields,
+// serializers.go's awsAwsquery_serializeOpDocumentListTypeRegistrationsInput).
+// Snapshot (not All) for a deterministic, sortable-by-Token order --
+// required for stable pagination across calls.
+func (b *InMemoryBackend) ListTypeRegistrations(
+	typeName, _ string, maxResults int, nextToken string,
+) (page.Page[string], error) {
 	b.mu.RLock("ListTypeRegistrations")
 	defer b.mu.RUnlock()
-	var tokens []string
-	for _, rec := range b.typeRegistrations.All() {
+	tokens := make([]string, 0, b.typeRegistrations.Len())
+	for _, rec := range b.typeRegistrations.Snapshot() {
 		if typeName == "" || rec.TypeName == typeName {
 			tokens = append(tokens, rec.Token)
 		}
 	}
 
-	return tokens, nil
+	return page.New(tokens, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, error) {
+// DescribeTypeRegistration returns the registration's ProgressStatus and, per
+// the real DescribeTypeRegistrationOutput.TypeArn doc comment ("For
+// registration requests with a ProgressStatus of other than COMPLETE, this
+// will be null"), its TypeArn -- populated here since every registration this
+// mock creates is immediately COMPLETE.
+func (b *InMemoryBackend) DescribeTypeRegistration(registrationToken string) (string, string, error) {
 	b.mu.RLock("DescribeTypeRegistration")
 	defer b.mu.RUnlock()
 	rec, ok := b.typeRegistrations.Get(registrationToken)
 	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
+		return "", "", fmt.Errorf("%w: %s", ErrRegistrationTokenNotFound, registrationToken)
 	}
 
-	return rec.Status, nil
+	return rec.Status, rec.TypeArn, nil
 }
 
 func (b *InMemoryBackend) TestType(typeName, typeArn string) (string, error) {

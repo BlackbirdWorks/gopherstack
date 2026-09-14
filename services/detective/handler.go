@@ -9,12 +9,17 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awserr"
+	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/service"
 )
 
 const (
 	matchPriority = service.PriorityPathVersioned
+
+	// detectiveServiceName is the SigV4 signing name real Detective requests
+	// carry (aws-sdk-go-v2/service/detective/auth.go:135).
+	detectiveServiceName = "detective"
 
 	pathGraph                            = "/graph"
 	pathGraphRemoval                     = "/graph/removal"
@@ -191,6 +196,18 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return strings.HasPrefix(path[len(pathTagsPrefix):], "arn:aws:detective:")
 		}
 
+		// guardduty's ListInvitations sends GET /invitation (same exact path,
+		// unguarded prefix claim in services/guardduty/handler.go:301) --
+		// scope by SigV4 so a correctly-signed guardduty request isn't
+		// swallowed here (gopherstack-39710).
+		if path == pathInvitation {
+			if svc := httputils.ExtractServiceFromRequest(c.Request()); svc != "" && svc != detectiveServiceName {
+				return false
+			}
+
+			return true
+		}
+
 		switch path {
 		case pathGraph,
 			pathGraphRemoval,
@@ -199,7 +216,6 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			pathMembersRemoval,
 			pathMembersGet,
 			pathMembersList,
-			pathInvitation,
 			pathInvitationRemoval,
 			pathInvitationsList,
 			pathMembershipRemoval,

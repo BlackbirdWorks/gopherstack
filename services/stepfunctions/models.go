@@ -53,9 +53,15 @@ type CloudWatchLogsLogGroup struct {
 	LogGroupArn string `json:"logGroupArn,omitempty"`
 }
 
-// CloudWatchEventsExecutionDataDetails contains details about execution data.
+// CloudWatchEventsExecutionDataDetails contains details about
+// DescribeExecutionOutput's InputDetails/OutputDetails (sfn@v1.49.0
+// types.go:159-165). The member is Included, not Truncated -- "Indicates
+// whether input or output was included in the response. Always true for
+// API calls." -- distinct from HistoryEventExecutionDataDetails's Truncated
+// (types.go:557-565), which is the *history-event* detail type and stays
+// correctly named/valued as-is.
 type CloudWatchEventsExecutionDataDetails struct {
-	Truncated bool `json:"truncated"`
+	Included bool `json:"included"`
 }
 
 // Execution represents a state machine execution.
@@ -100,6 +106,13 @@ type Execution struct {
 	history              []*HistoryEvent `json:"-"`
 	StartDate            float64         `json:"startDate"`
 	RedriveCount         int             `json:"redriveCount,omitempty"`
+	// ItemCount is the number of Distributed Map items this execution
+	// processed (>1 only when ItemBatcher grouped several items into this
+	// child's input). Zero for a non-child execution. Not part of
+	// DescribeExecutionOutput's wire shape (json:"-") -- AWS documents
+	// itemCount only on ExecutionListItem, returned solely when
+	// ListExecutions is queried by mapRunArn (sfn@v1.49.0 types.go:308-313).
+	ItemCount int `json:"-"`
 }
 
 // HistoryEvent represents a single event in execution history.

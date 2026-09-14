@@ -288,6 +288,7 @@ type updateDistributionRequest struct {
 	DistributionName                string                     `json:"distributionName"`
 	ViewerMinimumTLSProtocolVersion string                     `json:"viewerMinimumTlsProtocolVersion,omitempty"`
 	CacheBehaviors                  []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
+	UseDefaultCertificate           bool                       `json:"useDefaultCertificate,omitempty"`
 }
 
 func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]byte, error) {
@@ -309,6 +310,7 @@ func (h *Handler) handleUpdateDistribution(_ context.Context, body []byte) ([]by
 		CacheBehaviorSettings: cacheSettingsFromWire(req.CacheBehaviorSettings),
 		CacheBehaviors:        cacheBehaviorsPerPathFromWire(req.CacheBehaviors),
 		ViewerMinTLSVersion:   req.ViewerMinimumTLSProtocolVersion,
+		UseDefaultCertificate: req.UseDefaultCertificate,
 	})
 	if updateErr != nil {
 		return nil, updateErr

@@ -45,7 +45,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 		return fmt.Errorf("%w: RuleName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateTopicRule")
 	defer b.mu.Unlock()
 
 	if b.rules.Has(input.RuleName) {
@@ -86,7 +86,7 @@ func (b *InMemoryBackend) CreateTopicRule(input *CreateTopicRuleInput) error {
 
 // GetTopicRule returns a deep copy of an existing Topic Rule.
 func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTopicRule")
 	defer b.mu.RUnlock()
 
 	r, ok := b.rules.Get(ruleName)
@@ -99,7 +99,7 @@ func (b *InMemoryBackend) GetTopicRule(ruleName string) (*TopicRule, error) {
 
 // ListTopicRules returns all Topic Rules sorted by name.
 func (b *InMemoryBackend) ListTopicRules() []*TopicRule {
-	b.mu.RLock()
+	b.mu.RLock("ListTopicRules")
 	defer b.mu.RUnlock()
 
 	items := b.rules.Snapshot()
@@ -114,7 +114,7 @@ func (b *InMemoryBackend) ListTopicRules() []*TopicRule {
 
 // DeleteTopicRule deletes a Topic Rule by name.
 func (b *InMemoryBackend) DeleteTopicRule(ruleName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTopicRule")
 	defer b.mu.Unlock()
 
 	r, ok := b.rules.Get(ruleName)
@@ -130,7 +130,7 @@ func (b *InMemoryBackend) DeleteTopicRule(ruleName string) error {
 
 // DisableTopicRule disables an existing topic rule.
 func (b *InMemoryBackend) DisableTopicRule(ruleName string) error {
-	b.mu.Lock()
+	b.mu.Lock("DisableTopicRule")
 	defer b.mu.Unlock()
 
 	r, ok := b.rules.Get(ruleName)
@@ -145,7 +145,7 @@ func (b *InMemoryBackend) DisableTopicRule(ruleName string) error {
 
 // EnableTopicRule enables an existing topic rule.
 func (b *InMemoryBackend) EnableTopicRule(ruleName string) error {
-	b.mu.Lock()
+	b.mu.Lock("EnableTopicRule")
 	defer b.mu.Unlock()
 
 	r, ok := b.rules.Get(ruleName)
@@ -164,7 +164,7 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 		return fmt.Errorf("%w: RuleName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ReplaceTopicRule")
 	defer b.mu.Unlock()
 
 	r, ok := b.rules.Get(input.RuleName)
@@ -198,7 +198,7 @@ func (b *InMemoryBackend) ReplaceTopicRule(input *ReplaceTopicRuleInput) error {
 
 // AddRuleInternal seeds a TopicRule directly into the backend for testing.
 func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
-	b.mu.Lock()
+	b.mu.Lock("AddRuleInternal")
 	defer b.mu.Unlock()
 
 	if r.ARN == "" {
@@ -216,7 +216,7 @@ func (b *InMemoryBackend) AddRuleInternal(r TopicRule) {
 func (b *InMemoryBackend) CreateTopicRuleDestination(
 	input *CreateTopicRuleDestinationInput,
 ) (*TopicRuleDestination, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateTopicRuleDestination")
 	defer b.mu.Unlock()
 
 	arn := arn.Build("iot", b.region, b.accountID,
@@ -245,7 +245,7 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 
 // GetTopicRuleDestination returns a topic rule destination by ARN.
 func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestination, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetTopicRuleDestination")
 	defer b.mu.RUnlock()
 
 	dest, ok := b.topicRuleDestinations.Get(arn)
@@ -260,7 +260,7 @@ func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestina
 
 // ListTopicRuleDestinations returns all topic rule destinations.
 func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
-	b.mu.RLock()
+	b.mu.RLock("ListTopicRuleDestinations")
 	defer b.mu.RUnlock()
 
 	items := b.topicRuleDestinations.Snapshot()
@@ -276,7 +276,7 @@ func (b *InMemoryBackend) ListTopicRuleDestinations() []*TopicRuleDestination {
 
 // UpdateTopicRuleDestination updates the status of a topic rule destination.
 func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDestinationInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateTopicRuleDestination")
 	defer b.mu.Unlock()
 
 	dest, ok := b.topicRuleDestinations.Get(input.ARN)
@@ -291,7 +291,7 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 
 // DeleteTopicRuleDestination deletes a topic rule destination by ARN.
 func (b *InMemoryBackend) DeleteTopicRuleDestination(arn string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteTopicRuleDestination")
 	defer b.mu.Unlock()
 
 	if !b.topicRuleDestinations.Has(arn) {
@@ -311,7 +311,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 		return fmt.Errorf("%w: confirmationToken is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("ConfirmTopicRuleDestination")
 	defer b.mu.Unlock()
 
 	for _, dest := range b.topicRuleDestinations.All() {

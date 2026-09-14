@@ -299,9 +299,14 @@ func (j *Janitor) processBucket(ctx context.Context, name string) {
 	}
 }
 
-// abortStaleMultipartUploads removes multipart uploads for the given bucket that
-// were initiated before abortBefore.
-func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time.Time) {
+// abortStaleMultipartUploads evicts bucket's multipart uploads for which an
+// enabled AbortIncompleteMultipartUpload rule in cfg matches the upload's key
+// (by prefix) and whose initiation + DaysAfterInitiation has passed as of now.
+// Uses matchAbortIncompleteRule -- the same rule matching
+// computeAbortIncompleteMultipartUpload uses for CreateMultipartUpload/
+// ListParts' x-amz-abort-date header -- so the two paths cannot drift on which
+// uploads are eligible for abort.
+func (j *Janitor) abortStaleMultipartUploads(bucketName string, cfg *lifecycleConfiguration, now time.Time) {
 	b := j.Backend
 
 	b.mu.Lock("S3Janitor.abortStaleMultipartUploads")
@@ -313,9 +318,12 @@ func (j *Janitor) abortStaleMultipartUploads(bucketName string, abortBefore time
 	stale := make([]string, 0, len(grouped))
 
 	for _, upload := range grouped {
-		if upload.Initiated.Before(abortBefore) {
-			stale = append(stale, upload.UploadID)
+		abortAt, _, ok := matchAbortIncompleteRule(cfg, upload.Key, upload.Initiated)
+		if !ok || now.Before(abortAt) {
+			continue
 		}
+
+		stale = append(stale, upload.UploadID)
 	}
 
 	for _, uploadID := range stale {

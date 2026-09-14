@@ -91,10 +91,16 @@ func TestListPagination_MaxResultsAndNextToken(t *testing.T) {
 
 		h := newTestEKSHandler(t)
 		doREST(t, h, http.MethodPost, "/clusters", map[string]any{"name": "cap-page-cluster"})
-		for _, name := range []string{"cap-a", "cap-b"} {
+		// Real EKS allows only one capability of each type per cluster
+		// (capabilities.html: "You cannot create multiple capability
+		// resources of the same type on the same cluster."), so pagination
+		// needs two distinct types, not two same-typed capabilities.
+		for _, tc := range []struct{ name, capType string }{
+			{"cap-a", "ARGOCD"}, {"cap-b", "ACK"},
+		} {
 			doREST(t, h, http.MethodPost, "/clusters/cap-page-cluster/capabilities", map[string]any{
-				"capabilityName":          name,
-				"type":                    "ARGOCD",
+				"capabilityName":          tc.name,
+				"type":                    tc.capType,
 				"roleArn":                 "arn:aws:iam::123456789012:role/capability-role",
 				"deletePropagationPolicy": "RETAIN",
 			})

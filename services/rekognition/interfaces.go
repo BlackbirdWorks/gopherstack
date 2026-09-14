@@ -26,8 +26,10 @@ type StorageBackend interface {
 	ListFaces(
 		collectionID string, faceIDs []string, userID string, maxResults int32, nextToken string,
 	) ([]*Face, string, error)
-	SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error)
-	SearchFacesByImage(collectionID string, maxFaces int32, imageKey string) ([]*FaceMatch, error)
+	SearchFaces(collectionID, faceID string, maxFaces int32, faceMatchThreshold float64) ([]*FaceMatch, error)
+	SearchFacesByImage(
+		collectionID string, maxFaces int32, imageKey string, faceMatchThreshold float64,
+	) ([]*FaceMatch, error)
 
 	CreateStreamProcessor(
 		name, roleARN string,
@@ -85,14 +87,17 @@ type StorageBackend interface {
 	AssociateFaces(
 		collectionID, userID string,
 		faceIDs []string,
+		userMatchThreshold float64,
 	) ([]*AssociatedFace, []*UnsuccessfulFaceAssociation, error)
 	DisassociateFaces(
 		collectionID, userID string,
 		faceIDs []string,
 	) ([]*DisassociatedFace, []*UnsuccessfulFaceDisassociation, error)
-	SearchUsers(collectionID, userID string, maxUsers int32) ([]*UserMatch, error)
+	SearchUsers(collectionID, userID string, maxUsers int32, userMatchThreshold float64) ([]*UserMatch, error)
 	SearchUsersByFace(collectionID, faceID string, maxUsers int32) ([]*UserMatch, error)
-	SearchUsersByImage(collectionID string, maxUsers int32, imageKey string) ([]*UserMatch, error)
+	SearchUsersByImage(
+		collectionID string, maxUsers int32, imageKey string, userMatchThreshold float64,
+	) ([]*UserMatch, error)
 
 	// Face Liveness
 	CreateFaceLivenessSession() (string, error)

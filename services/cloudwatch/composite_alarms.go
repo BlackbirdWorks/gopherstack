@@ -40,6 +40,11 @@ func (b *InMemoryBackend) PutCompositeAlarm(alarm *CompositeAlarm) error {
 	} else {
 		alarm.StateTransitionedTimestamp = time.Now().UTC()
 	}
+	// PutCompositeAlarm always re-evaluates the rule above, so -- unlike
+	// PutMetricAlarm, which doesn't evaluate metric state itself --
+	// StateUpdatedTimestamp genuinely is a state update on every call, not
+	// just on an actual value change.
+	alarm.StateUpdatedTimestamp = time.Now().UTC()
 	alarm.StateValue = newState
 	if alarm.StateReason == "" {
 		alarm.StateReason = "Rule evaluated to " + newState
@@ -156,6 +161,7 @@ func (b *InMemoryBackend) reevaluateCompositeAlarms() []compositeAlarmTransition
 		ca.StateValue = newState
 		ca.StateReason = reason
 		ca.StateTransitionedTimestamp = time.Now().UTC()
+		ca.StateUpdatedTimestamp = ca.StateTransitionedTimestamp
 		summary := fmt.Sprintf(
 			"Composite alarm %q changed from %s to %s",
 			ca.AlarmName,

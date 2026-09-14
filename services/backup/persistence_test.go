@@ -228,7 +228,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	// duplicate-create conflict above) round-tripped through the
 	// composite-key store.Table + secondary store.Index that replaced the
 	// old map[string]map[string]*RestoreTestingSelection.
-	rtSels, err := restored.ListRestoreTestingSelections("persist-rtp")
+	rtSels, _, err := restored.ListRestoreTestingSelections("persist-rtp", 0, "")
 	require.NoError(t, err)
 	require.Len(t, rtSels, 1)
 	assert.Equal(t, "persist-sel", rtSels[0].RestoreTestingSelectionName)
@@ -241,7 +241,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	// Verify the backup selection's own fields round-tripped through the
 	// composite-key store.Table + secondary store.Index that replaced the
 	// old map[string]map[string]*Selection.
-	sels, err := restored.ListBackupSelections(plan.BackupPlanID)
+	sels, _, err := restored.ListBackupSelections(plan.BackupPlanID, 0, "")
 	require.NoError(t, err)
 	require.Len(t, sels, 1)
 	assert.Equal(t, "selection-1", sels[0].SelectionName)

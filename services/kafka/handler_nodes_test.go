@@ -28,6 +28,37 @@ func TestListNodes(t *testing.T) {
 	assert.True(t, rec.Code >= 200 && rec.Code < 300)
 }
 
+// TestListNodes_RawBody_NestsBrokerId proves the wire body nests brokerId
+// under brokerNodeInfo (the only real member path,
+// awsRestjson1_deserializeDocumentBrokerNodeInfo) rather than emitting an
+// invented top-level brokerId no real deserializer reads
+// (gopherstack-mk3t item 3).
+func TestListNodes_RawBody_NestsBrokerId(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	clusterArn := createTestCluster(t, h, "nodes-raw-body-cluster")
+	encoded := url.PathEscape(clusterArn)
+
+	resp, code := doKafkaRequestJSON(t, h, http.MethodGet, "/v1/clusters/"+encoded+"/nodes", nil)
+	require.Equal(t, http.StatusOK, code)
+
+	nodeList, ok := resp["nodeInfoList"].([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, nodeList)
+
+	for _, raw := range nodeList {
+		node, nodeOK := raw.(map[string]any)
+		require.True(t, nodeOK)
+
+		assert.NotContains(t, node, "brokerId", "brokerId is not a real top-level NodeInfo member")
+
+		brokerNodeInfo, infoOK := node["brokerNodeInfo"].(map[string]any)
+		require.True(t, infoOK, "brokerNodeInfo is the only real path to a broker's id")
+		assert.Contains(t, brokerNodeInfo, "brokerId")
+	}
+}
+
 // TestKafkaCoverage2_RebootBroker covers RebootBroker handler.
 
 func TestListKafkaVersions_IncludesKRaft(t *testing.T) {

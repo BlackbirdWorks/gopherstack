@@ -61,53 +61,131 @@ func (b *InMemoryBackend) CreateTrustStore(
 	return &cp, nil
 }
 
-// DescribeTrustStores returns trust stores filtered by ARNs and/or names.
-func (b *InMemoryBackend) DescribeTrustStores(arns []string, names []string) ([]TrustStore, error) {
-	b.mu.RLock("DescribeTrustStores")
-	defer b.mu.RUnlock()
+// buildTrustStoreFilterSets builds the ARN/Name membership sets DescribeTrustStores
+// filters against; either return value is nil when the corresponding filter wasn't
+// requested. Split out of DescribeTrustStores to keep that function's cognitive
+// complexity under the gocognit limit.
+func buildTrustStoreFilterSets(arns, names []string) (map[string]struct{}, map[string]struct{}) {
+	var wantArn, wantName map[string]struct{}
 
-	filterArns := len(arns) > 0
-	filterNames := len(names) > 0
-
-	var wantArn map[string]struct{}
-	if filterArns {
+	if len(arns) > 0 {
 		wantArn = make(map[string]struct{}, len(arns))
 		for _, a := range arns {
 			wantArn[a] = struct{}{}
 		}
 	}
 
-	var wantName map[string]struct{}
-	if filterNames {
+	if len(names) > 0 {
 		wantName = make(map[string]struct{}, len(names))
 		for _, n := range names {
 			wantName[n] = struct{}{}
 		}
 	}
 
+	return wantArn, wantName
+}
+
+// matchesTrustStoreFilter reports whether ts passes the ARN/Name filter sets
+// built by buildTrustStoreFilterSets. A nil set means that filter wasn't
+// requested and always matches.
+func matchesTrustStoreFilter(ts *TrustStore, wantArn, wantName map[string]struct{}) bool {
+	if wantArn != nil {
+		if _, ok := wantArn[ts.TrustStoreArn]; !ok {
+			return false
+		}
+	}
+
+	if wantName != nil {
+		if _, ok := wantName[ts.Name]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// DescribeTrustStores returns trust stores filtered by ARNs and/or names.
+func (b *InMemoryBackend) DescribeTrustStores(arns []string, names []string) ([]TrustStore, error) {
+	b.mu.RLock("DescribeTrustStores")
+	defer b.mu.RUnlock()
+
+	wantArn, wantName := buildTrustStoreFilterSets(arns, names)
+
 	result := make([]TrustStore, 0, b.trustStores.Len())
 
 	for _, ts := range b.trustStores.All() {
-		if filterArns {
-			if _, ok := wantArn[ts.TrustStoreArn]; !ok {
-				continue
-			}
+		if matchesTrustStoreFilter(ts, wantArn, wantName) {
+			result = append(result, *ts)
 		}
-
-		if filterNames {
-			if _, ok := wantName[ts.Name]; !ok {
-				continue
-			}
-		}
-
-		result = append(result, *ts)
 	}
 
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Name < result[j].Name
 	})
 
+	// DescribeTrustStores declares TrustStoreNotFoundException
+	// (elasticloadbalancingv2@v1.58.5 deserializers.go's
+	// awsAwsquery_deserializeOpErrorDescribeTrustStores), so an explicitly
+	// requested ARN/Name that doesn't exist must hard-fail, matching
+	// DescribeTargetGroups' checkAllTGArnsFound/checkAllTGNamesFound
+	// precedent in this same package -- not silently filtered out.
+	if wantArn != nil {
+		if err := checkAllTrustStoreArnsFound(arns, result); err != nil {
+			return nil, err
+		}
+	}
+
+	if wantName != nil {
+		if err := checkAllTrustStoreNamesFound(names, result); err != nil {
+			return nil, err
+		}
+	}
+
 	return result, nil
+}
+
+// checkAllTrustStoreArnsFound returns ErrTrustStoreNotFound if any queried
+// ARN is absent from result.
+func checkAllTrustStoreArnsFound(arns []string, result []TrustStore) error {
+	for _, a := range arns {
+		found := false
+
+		for _, ts := range result {
+			if ts.TrustStoreArn == a {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("%w: %s", ErrTrustStoreNotFound, a)
+		}
+	}
+
+	return nil
+}
+
+// checkAllTrustStoreNamesFound returns ErrTrustStoreNotFound if any queried
+// name is absent from result.
+func checkAllTrustStoreNamesFound(names []string, result []TrustStore) error {
+	for _, n := range names {
+		found := false
+
+		for _, ts := range result {
+			if ts.Name == n {
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("%w: %s", ErrTrustStoreNotFound, n)
+		}
+	}
+
+	return nil
 }
 
 // DeleteTrustStore deletes a trust store by ARN.

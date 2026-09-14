@@ -49,6 +49,20 @@ func (h *Handler) handleCreateCompilationJob(ctx context.Context, body []byte) (
 		return nil, fmt.Errorf("%w: StoppingCondition is required", errInvalidRequest)
 	}
 
+	// api_op_CreateCompilationJob.go:105-110: "Provide either a
+	// ModelPackageVersionArn or an InputConfig object ... presence of both
+	// ... will return an exception" -- previously neither direction of this
+	// mutual-exclusion constraint was enforced.
+	if req.InputConfig == nil && req.ModelPackageVersionArn == "" {
+		return nil, fmt.Errorf("%w: either InputConfig or ModelPackageVersionArn is required", errInvalidRequest)
+	}
+
+	if req.InputConfig != nil && req.ModelPackageVersionArn != "" {
+		return nil, fmt.Errorf(
+			"%w: InputConfig and ModelPackageVersionArn are mutually exclusive", errInvalidRequest,
+		)
+	}
+
 	result, err := h.Backend.CreateCompilationJob(ctx, req.CompilationJobName, req.RoleArn, fromTagObjects(req.Tags))
 	if err != nil {
 		return nil, err

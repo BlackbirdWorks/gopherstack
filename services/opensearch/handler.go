@@ -101,11 +101,16 @@ const (
 	jsonKeyCreatedAt     = "createdAt"
 	jsonKeyLastUpdatedAt = "lastUpdatedAt"
 	// Index data-plane operation segments and document response keys.
-	indexOpDoc      = "_doc"
-	indexOpSearch   = "_search"
-	indexOpCount    = "_count"
-	jsonKeyDocIndex = "_index"
-	jsonKeyDocID    = "_id"
+	indexOpDoc         = "_doc"
+	indexOpSearch      = "_search"
+	indexOpCount       = "_count"
+	jsonKeyDocIndex    = "_index"
+	jsonKeyDocID       = "_id"
+	jsonKeyDocVersion  = "_version"
+	jsonKeyDocSeqNo    = "_seq_no"
+	jsonKeyDocPrimTerm = "_primary_term"
+	jsonKeyDocShards   = "_shards"
+	jsonKeyDocResult   = "result"
 )
 
 // Handler is the HTTP handler for OpenSearch operations.
@@ -152,6 +157,7 @@ var openSearchPathPrefixes = []string{
 	openSearchListApplicationsPath,
 	openSearchReservedOfferingsPath,
 	openSearchPurchaseReservedPath,
+	openSearchDefaultAppSettingPath,
 }
 
 // isOpenSearchPath returns true when the given path belongs to the OpenSearch service.
@@ -571,11 +577,16 @@ func (h *Handler) dispatchDomainGetStatusRoutes(
 
 	switch {
 	case strings.HasSuffix(trimmed, "/autoTunes"):
-		// DescribeDomainAutoTunes
+		// DescribeDomainAutoTunes. GetAutoTune returns ErrDomainNotFound for
+		// an unknown domain -- this must not silently succeed with a
+		// fabricated empty list (same missing-error class as the
+		// GetUpgradeHistory/GetUpgradeStatus fix, handler_advanced.go).
 		domainName, _ := strings.CutSuffix(trimmed, "/autoTunes")
 		autoTunes, err := h.Backend.GetAutoTune(domainName)
 		if err != nil {
-			autoTunes = []*AutoTune{}
+			h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", err.Error())
+
+			return true
 		}
 
 		h.writeJSON(r, w, map[string]any{"AutoTunes": autoTunes})
@@ -752,6 +763,8 @@ func (h *Handler) dispatchDomainPostRoutesExtended(
 	// opensearch@v1.75.4: only DomainName is URI-bound) -- gopherstack-l5ir.
 	case strings.HasSuffix(trimmed, "/index"):
 		return h.handleCreateIndexRealRoute(w, r, trimmed)
+	case strings.HasSuffix(trimmed, "/_bulk"):
+		return h.handleBulkRoute(w, r, trimmed)
 	case strings.Contains(trimmed, "/index/"):
 		return h.handleCreateIndexRoute(w, r, trimmed)
 	default:

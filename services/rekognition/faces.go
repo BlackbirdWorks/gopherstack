@@ -29,6 +29,10 @@ const (
 	// milliScale expresses scores to 3 decimal places (milli-percent precision)
 	// so deterministic hashing spreads values smoothly across the range.
 	milliScale = 1000.0
+
+	// defaultFaceMatchThreshold mirrors SearchFacesInput/SearchFacesByImageInput's
+	// documented default ("The default value is 80%.").
+	defaultFaceMatchThreshold = 80.0
 )
 
 // IndexFaces indexes faces into a collection (simulated — no real image processing).
@@ -150,7 +154,9 @@ func (b *InMemoryBackend) ListFaces(
 }
 
 // SearchFaces searches for faces that match a given face ID.
-func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int32) ([]*FaceMatch, error) {
+func (b *InMemoryBackend) SearchFaces(
+	collectionID, faceID string, maxFaces int32, faceMatchThreshold float64,
+) ([]*FaceMatch, error) {
 	b.mu.RLock("SearchFaces")
 	defer b.mu.RUnlock()
 
@@ -186,8 +192,13 @@ func (b *InMemoryBackend) SearchFaces(collectionID, faceID string, maxFaces int3
 
 		// Similarity is derived from the stored query/candidate identities,
 		// not a canned constant: same ExternalImageId scores 100.0.
+		similarity := faceSimilarity(query, f)
+		if similarity < faceMatchThreshold {
+			continue
+		}
+
 		matches = append(matches, &FaceMatch{
-			Similarity: faceSimilarity(query, f),
+			Similarity: similarity,
 			Face:       f.toFace(),
 		})
 
@@ -206,6 +217,7 @@ func (b *InMemoryBackend) SearchFacesByImage(
 	collectionID string,
 	maxFaces int32,
 	imageKey string,
+	faceMatchThreshold float64,
 ) ([]*FaceMatch, error) {
 	b.mu.RLock("SearchFacesByImage")
 	defer b.mu.RUnlock()
@@ -226,6 +238,10 @@ func (b *InMemoryBackend) SearchFacesByImage(
 	for i, f := range b.facesByCollection.Get(collectionID) {
 		// Vary similarity in [75.0, 99.0] using image seed and face index.
 		similarity := minSearchSimilarity + float64((seed+uint32(i)*seedStride)%searchSimilaritySpan)
+		if similarity < faceMatchThreshold {
+			continue
+		}
+
 		matches = append(matches, &FaceMatch{
 			Similarity: similarity,
 			Face:       f.toFace(),

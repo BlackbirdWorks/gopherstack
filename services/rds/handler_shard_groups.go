@@ -157,6 +157,15 @@ func (h *Handler) handleDeleteDBShardGroup(vals url.Values) (any, error) {
 	}, nil
 }
 
+// DescribeDBShardGroups' Filters is intentionally left unfiltered
+// (gopherstack-vl4m). Unlike this batch's other implemented ops, the pinned
+// SDK's own doc comment (rds@v1.124.1 api_op_DescribeDBShardGroups.go:39,
+// "A filter that specifies one or more DB shard groups to describe.") names
+// no actual filter values at all -- the same undocumented-name trap
+// DescribeIntegrations presented in batch one (handler_integrations.go).
+// Guessing names risks the wire-shape-mismatch bug class
+// parity-principles.md warns about, so this is left as a known gap pending a
+// verified filter-name list.
 func (h *Handler) handleDescribeDBShardGroups(vals url.Values) (any, error) {
 	id := vals.Get("DBShardGroupIdentifier")
 

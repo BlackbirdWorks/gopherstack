@@ -49,8 +49,14 @@ func (h *Handler) handleJWKS(c *echo.Context) error {
 	return c.JSONBlob(http.StatusOK, data)
 }
 
-// authResultFromTokenResult converts a TokenResult to an authResult.
+// authResultFromTokenResult converts a TokenResult to an authResult. nil in (an unknown
+// ChallengeName's empty AuthResult, routed through respondToChallengeRound's shared
+// tokens-or-challenge shaping same as every other case) yields nil out, not a panic.
 func authResultFromTokenResult(tokens *TokenResult) *authResult {
+	if tokens == nil {
+		return nil
+	}
+
 	return &authResult{
 		AccessToken:  tokens.AccessToken,
 		IDToken:      tokens.IDToken,
@@ -74,6 +80,7 @@ func authOutputFromResult(result *AuthResult) *authOutput {
 			ChallengeName:       &name,
 			Session:             &result.MFASession,
 			ChallengeParameters: params,
+			AvailableChallenges: result.AvailableChallenges,
 		}
 	}
 
@@ -117,8 +124,10 @@ func (h *Handler) handleAdminResetUserPassword(
 
 // mfaChallengeCodeKey returns the ChallengeResponses key holding the user-supplied code for
 // challengeName ("" for a challenge that isn't a code-based MFA challenge). Shared by
-// RespondToAuthChallenge and AdminRespondToAuthChallenge, which accept the same three
-// code-based challenge names.
+// RespondToAuthChallenge and AdminRespondToAuthChallenge, which accept the same two
+// code-based MFA challenge names (EMAIL_OTP/SMS_OTP as USER_AUTH first factors have their
+// own key lookup, firstFactorCodeKey in user_auth.go, since they route to a different
+// backend continuation).
 func mfaChallengeCodeKey(challengeName string) string {
 	switch challengeName {
 	case challengeSoftwareTokenMFA:
@@ -126,11 +135,61 @@ func mfaChallengeCodeKey(challengeName string) string {
 	case challengeSMSMFA:
 		// SMS MFA: accept any numeric code (simulation — no real SMS gateway).
 		return "SMS_MFA_CODE"
-	case challengeEmailOTP:
-		// EMAIL_OTP: accept any numeric code (simulation).
-		return "EMAIL_OTP_CODE"
 	default:
 		return ""
+	}
+}
+
+// respondToChallengeRound dispatches one RespondToAuthChallenge round to the backend by
+// ChallengeName and returns a uniform AuthResult (tokens, or a further challenge) --
+// shared by handleRespondToAuthChallengeAccurate and
+// handleAdminRespondToAuthChallengeAccurate, which behave identically given a session
+// token, exactly like RespondToMFAChallenge/RespondToNewPasswordRequired/
+// RespondToSRPChallenge already did before USER_AUTH was added (gopherstack-5f20).
+func (h *Handler) respondToChallengeRound(
+	clientID, session, challengeName string, challengeResponses map[string]string,
+) (*AuthResult, error) {
+	switch challengeName {
+	case challengeSoftwareTokenMFA, challengeSMSMFA:
+		code := challengeResponses[mfaChallengeCodeKey(challengeName)]
+
+		tokens, err := h.Backend.RespondToMFAChallenge(clientID, session, code)
+		if err != nil {
+			return nil, err
+		}
+
+		return &AuthResult{Tokens: tokens}, nil
+
+	case challengeMFASetup:
+		tokens, err := h.Backend.RespondToMFASetupChallenge(clientID, session)
+		if err != nil {
+			return nil, err
+		}
+
+		return &AuthResult{Tokens: tokens}, nil
+
+	case challengeNewPasswordRequired:
+		tokens, err := h.Backend.RespondToNewPasswordRequired(clientID, session, challengeResponses["NEW_PASSWORD"])
+		if err != nil {
+			return nil, err
+		}
+
+		return &AuthResult{Tokens: tokens}, nil
+
+	case challengePasswordVerifier:
+		return h.Backend.RespondToSRPChallenge(clientID, session, challengeResponses)
+
+	case challengeCustomChallenge:
+		return h.Backend.RespondToCustomAuthChallenge(clientID, session, challengeResponses["ANSWER"])
+
+	case challengeSelectChallenge:
+		return h.Backend.RespondToSelectChallenge(clientID, session, challengeResponses["ANSWER"])
+
+	case authFactorPassword, challengeEmailOTP, authFactorSMSOTP:
+		return h.Backend.RespondToFirstFactorChallenge(clientID, session, challengeResponses)
+
+	default:
+		return &AuthResult{}, nil
 	}
 }
 
@@ -138,62 +197,12 @@ func (h *Handler) handleRespondToAuthChallengeAccurate(
 	_ context.Context,
 	in *respondToAuthChallengeAccurateInput,
 ) (*respondToAuthChallengeAccurateOutput, error) {
-	switch in.ChallengeName {
-	case challengeSoftwareTokenMFA, challengeSMSMFA, challengeEmailOTP:
-		code := in.ChallengeResponses[mfaChallengeCodeKey(in.ChallengeName)]
-
-		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, code)
-		if err != nil {
-			return nil, err
-		}
-
-		return &respondToAuthChallengeAccurateOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengeMFASetup:
-		tokens, err := h.Backend.RespondToMFASetupChallenge(in.ClientID, in.Session)
-		if err != nil {
-			return nil, err
-		}
-
-		return &respondToAuthChallengeAccurateOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengeNewPasswordRequired:
-		newPassword := in.ChallengeResponses["NEW_PASSWORD"]
-
-		tokens, err := h.Backend.RespondToNewPasswordRequired(in.ClientID, in.Session, newPassword)
-		if err != nil {
-			return nil, err
-		}
-
-		return &respondToAuthChallengeAccurateOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengePasswordVerifier:
-		result, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session, in.ChallengeResponses)
-		if err != nil {
-			return nil, err
-		}
-
-		return respondToAuthChallengeOutputFromResult(result), nil
-
-	case challengeCustomChallenge:
-		answer := in.ChallengeResponses["ANSWER"]
-
-		result, err := h.Backend.RespondToCustomAuthChallenge(in.ClientID, in.Session, answer)
-		if err != nil {
-			return nil, err
-		}
-
-		return respondToAuthChallengeOutputFromResult(result), nil
-
-	default:
-		return &respondToAuthChallengeAccurateOutput{}, nil
+	result, err := h.respondToChallengeRound(in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses)
+	if err != nil {
+		return nil, err
 	}
+
+	return respondToAuthChallengeOutputFromResult(result), nil
 }
 
 // respondToAuthChallengeOutputFromResult converts an AuthResult from a CUSTOM_AUTH
@@ -225,62 +234,12 @@ func (h *Handler) handleAdminRespondToAuthChallengeAccurate(
 	_ context.Context,
 	in *adminRespondToAuthChallengeInput,
 ) (*adminRespondToAuthChallengeOutput, error) {
-	switch in.ChallengeName {
-	case challengeSoftwareTokenMFA, challengeSMSMFA, challengeEmailOTP:
-		code := in.ChallengeResponses[mfaChallengeCodeKey(in.ChallengeName)]
-
-		tokens, err := h.Backend.RespondToMFAChallenge(in.ClientID, in.Session, code)
-		if err != nil {
-			return nil, err
-		}
-
-		return &adminRespondToAuthChallengeOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengeNewPasswordRequired:
-		newPassword := in.ChallengeResponses["NEW_PASSWORD"]
-
-		tokens, err := h.Backend.RespondToNewPasswordRequired(in.ClientID, in.Session, newPassword)
-		if err != nil {
-			return nil, err
-		}
-
-		return &adminRespondToAuthChallengeOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengePasswordVerifier:
-		result, err := h.Backend.RespondToSRPChallenge(in.ClientID, in.Session, in.ChallengeResponses)
-		if err != nil {
-			return nil, err
-		}
-
-		return adminChallengeOutputFromResult(result), nil
-
-	case challengeMFASetup:
-		tokens, err := h.Backend.RespondToMFASetupChallenge(in.ClientID, in.Session)
-		if err != nil {
-			return nil, err
-		}
-
-		return &adminRespondToAuthChallengeOutput{
-			AuthenticationResult: authResultFromTokenResult(tokens),
-		}, nil
-
-	case challengeCustomChallenge:
-		answer := in.ChallengeResponses["ANSWER"]
-
-		result, err := h.Backend.RespondToCustomAuthChallenge(in.ClientID, in.Session, answer)
-		if err != nil {
-			return nil, err
-		}
-
-		return adminChallengeOutputFromResult(result), nil
-
-	default:
-		return &adminRespondToAuthChallengeOutput{}, nil
+	result, err := h.respondToChallengeRound(in.ClientID, in.Session, in.ChallengeName, in.ChallengeResponses)
+	if err != nil {
+		return nil, err
 	}
+
+	return adminChallengeOutputFromResult(result), nil
 }
 
 // adminChallengeOutputFromResult converts an AuthResult into an
@@ -386,6 +345,15 @@ func (h *Handler) handleInitiateAuthAccurate(
 		return authOutputFromResult(result), nil
 	}
 
+	if in.AuthFlow == authFlowUserAuth {
+		result, err := h.Backend.InitiateUserAuth(in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"])
+		if err != nil {
+			return nil, err
+		}
+
+		return authOutputFromResult(result), nil
+	}
+
 	password := in.AuthParameters["PASSWORD"]
 
 	result, err := h.Backend.InitiateAuth(in.ClientID, in.AuthFlow, username, password)
@@ -424,6 +392,17 @@ func (h *Handler) handleAdminInitiateAuthAccurate(
 	if in.AuthFlow == authFlowAdminUserSRP {
 		result, err := h.Backend.AdminInitiateAuthSRP(
 			in.UserPoolID, in.ClientID, in.AuthFlow, username, in.AuthParameters["SRP_A"],
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return authOutputFromResult(result), nil
+	}
+
+	if in.AuthFlow == authFlowUserAuth {
+		result, err := h.Backend.AdminInitiateUserAuth(
+			in.UserPoolID, in.ClientID, username, in.AuthParameters["PREFERRED_CHALLENGE"],
 		)
 		if err != nil {
 			return nil, err

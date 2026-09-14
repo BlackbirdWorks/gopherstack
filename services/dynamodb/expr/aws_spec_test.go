@@ -9,6 +9,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestContains_OperandsMustBeDistinct verifies the documented restriction:
+// "The path and the operand must be distinct. That is, contains (a, a)
+// returns an error."
+// https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
+func TestContains_OperandsMustBeDistinct(t *testing.T) {
+	t.Parallel()
+
+	l := expr.NewLexer("contains(email, email)")
+	p := expr.NewParser(l)
+	node, err := p.ParseCondition()
+	require.NoError(t, err)
+
+	eval := &expr.Evaluator{
+		Item: map[string]any{"email": map[string]any{"S": "a@example.com"}},
+	}
+	_, err = eval.Evaluate(node)
+	require.ErrorIs(t, err, expr.ErrContainsOperandsNotDistinct)
+}
+
 // TestAWSExpressions_Functions tests all AWS DynamoDB expression functions
 // Reference: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Expressions.OperatorsAndFunctions.html
 func TestAWSExpressions_Functions(t *testing.T) {

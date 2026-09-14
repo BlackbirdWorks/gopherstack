@@ -58,5 +58,70 @@ func TestCreateFleet_ReturnsFleetsId(t *testing.T) {
 	}
 }
 
+// TestModifyFleet_ConvergesCapacity covers gopherstack-a3qy: ModifyFleet must
+// launch or terminate instances to converge on the new TotalTargetCapacity,
+// honoring ExcessCapacityTerminationPolicy on the way down.
+func TestModifyFleet_ConvergesCapacity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		excessPolicy string
+		modifyPolicy string
+		createCap    int
+		modifyCap    int
+		wantCount    int
+	}{
+		{name: "scale up launches instances", createCap: 2, modifyCap: 5, wantCount: 5},
+		{name: "scale down terminates by default", createCap: 5, modifyCap: 2, wantCount: 2},
+		{
+			name:         "scale down honors no-termination policy",
+			createCap:    5,
+			excessPolicy: "no-termination",
+			modifyCap:    2,
+			wantCount:    5,
+		},
+		{
+			name:         "modify can raise the no-termination policy back to termination",
+			createCap:    5,
+			excessPolicy: "no-termination",
+			modifyCap:    2,
+			modifyPolicy: "termination",
+			wantCount:    2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
+
+			f, _, err := b.CreateFleet(ec2.FleetCreateInput{
+				Type:                            "maintain",
+				TotalTargetCapacity:             tt.createCap,
+				ExcessCapacityTerminationPolicy: tt.excessPolicy,
+				LaunchTemplateConfigs:           []ec2.FleetLaunchTemplateConfig{{LaunchTemplateID: "lt-doesnotexist"}},
+			})
+			require.NoError(t, err)
+
+			instances, err := b.DescribeFleetInstances(f.FleetID, nil)
+			require.NoError(t, err)
+			require.Len(t, instances, tt.createCap)
+
+			err = b.ModifyFleet(f.FleetID, tt.modifyCap, tt.modifyPolicy)
+			require.NoError(t, err)
+
+			instances, err = b.DescribeFleetInstances(f.FleetID, nil)
+			require.NoError(t, err)
+			assert.Len(t, instances, tt.wantCount)
+
+			fleets := b.DescribeFleets([]string{f.FleetID})
+			require.Len(t, fleets, 1)
+			assert.Equal(t, tt.modifyCap, fleets[0].TotalTargetCapacity)
+		})
+	}
+}
+
 // TestDeleteVpc_SecondaryIndexes verifies that DeleteVpc correctly removes subnet,
 // route table, and security group secondary index entries so they don't linger.

@@ -94,7 +94,9 @@ func (h *Handler) handleUpdateUser(ctx context.Context, c *echo.Context, body []
 		return h.writeBackendError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user, []string{})})
+	allACLs, _ := h.Backend.DescribeACLs(ctx, "")
+
+	return c.JSON(http.StatusOK, updateUserResponse{User: toUserObject(user, aclNamesForUser(allACLs, user.Name))})
 }
 
 // -- ParameterGroup handlers -----------------------------------------------------

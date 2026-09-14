@@ -19,10 +19,13 @@ func (b *InMemoryBackend) CreatePromptVersion(promptID string) (*PromptVersion, 
 
 	b.promptVersionCounters[promptID]++
 	ver := strconv.Itoa(b.promptVersionCounters[promptID])
+	now := time.Now()
 
 	pv := &PromptVersion{
-		CreatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 		PromptID:  promptID,
+		PromptArn: p.PromptArn,
 		Version:   ver,
 		Name:      p.Name,
 	}

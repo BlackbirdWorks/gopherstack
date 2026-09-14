@@ -6,13 +6,13 @@ import (
 	"maps"
 	"slices"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 	"github.com/blackbirdworks/gopherstack/pkgs/collections"
+	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -24,31 +24,23 @@ type RuleDispatcher interface {
 
 // InMemoryBackend is the in-memory implementation of StorageBackend.
 type InMemoryBackend struct {
-	dispatcher             RuleDispatcher
-	shadows                map[shadowKey]*ThingShadow // thing+name → shadow
-	resourceTags           map[string]map[string]string
-	certificateTransfers   map[string]string
-	thingBillingGroups     map[string]string
-	thingThingGroups       map[string][]string
-	packageVersionSboms    map[string]*SbomDocument
-	jobTargets             map[string][]string
-	securityProfileTargets map[string][]string
-	thingPrincipals        map[string][]string
-	thingPrincipalTypes    map[string]map[string]string // thingName -> principal -> thingPrincipalType
-	auditMitigationTasks   map[string]string
-	auditTasks             map[string]string
-	thingGroupMembers      map[string][]string
-	policyVersions         map[string][]*PolicyVersion
-	provTemplateVersions   map[string][]*ProvisioningTemplateVersion
-	policyTargets          map[string][]string
-
-	// registry lets Reset collapse every converted resource table's
-	// lifecycle to one call (registry.ResetAll()) instead of hand-rolled
-	// re-initialization. See store_setup.go's registerAllTables for the
-	// full list of tables and the (documented) fields left as raw maps
-	// above/below instead.
-	registry *store.Registry
-
+	dispatcher                 RuleDispatcher
+	resourceTags               map[string]map[string]string
+	certificateTransfers       map[string]string
+	thingBillingGroups         map[string]string
+	thingThingGroups           map[string][]string
+	packageVersionSboms        map[string]*SbomDocument
+	jobTargets                 map[string][]string
+	securityProfileTargets     map[string][]string
+	thingPrincipals            map[string][]string
+	thingPrincipalTypes        map[string]map[string]string
+	auditMitigationTasks       map[string]string
+	auditTasks                 map[string]string
+	thingGroupMembers          map[string][]string
+	policyVersions             map[string][]*PolicyVersion
+	provTemplateVersions       map[string][]*ProvisioningTemplateVersion
+	policyTargets              map[string][]string
+	registry                   *store.Registry
 	customMetrics              *store.Table[CustomMetric]
 	rules                      *store.Table[TopicRule]
 	fleetMetrics               *store.Table[FleetMetric]
@@ -84,7 +76,6 @@ type InMemoryBackend struct {
 	auditMitigationTaskObjects *store.Table[AuditMitigationTask]
 	detectMitigationTasks      *store.Table[DetectMitigationTask]
 	activeViolations           *store.Table[ActiveViolation]
-
 	auditConfiguration         *AccountAuditConfiguration
 	packageVersions2           map[string]map[string]*IoTPackageVersion
 	packageConfig              *PackageConfiguration
@@ -101,13 +92,13 @@ type InMemoryBackend struct {
 	metricValues               map[string][]*MetricDatapoint
 	thingConnectivity          map[string]*ThingConnectivityData
 	behaviorTrainingSummaries  map[string][]*BehaviorModelTrainingSummary
+	mu                         *lockmetrics.RWMutex
 	registrationCode           string
 	defaultAuthorizer          string
 	accountID                  string
 	region                     string
 	violationEvents            []*ViolationEvent
 	mqttPort                   int
-	mu                         sync.RWMutex
 }
 
 // Compile-time assertion that InMemoryBackend implements StorageBackend.
@@ -137,7 +128,6 @@ func NewInMemoryBackend() *InMemoryBackend {
 		provTemplateVersions:   make(map[string][]*ProvisioningTemplateVersion),
 		resourceTags:           make(map[string]map[string]string),
 		packageVersions2:       make(map[string]map[string]*IoTPackageVersion),
-		shadows:                make(map[shadowKey]*ThingShadow),
 		commandExecutions:      make(map[string]*IoTCommandExecution),
 
 		auditMitigationExecutions:  make(map[string][]*AuditMitigationActionExecution),
@@ -151,6 +141,7 @@ func NewInMemoryBackend() *InMemoryBackend {
 		accountID: "000000000000",
 		region:    "us-east-1",
 		mqttPort:  mqttDefaultPort,
+		mu:        lockmetrics.New("iot"),
 	}
 
 	registerAllTables(b)
@@ -179,14 +170,11 @@ func (b *InMemoryBackend) resetBatch3() {
 
 // Reset clears all backend state. Useful for test isolation.
 func (b *InMemoryBackend) Reset() {
-	b.mu.Lock()
+	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
 	// Clears every table registered in store_setup.go's registerAllTables.
-	// b.shadows is not part of the registry (no pure keyFn without changing
-	// ThingShadow's shape), so it needs its own clear here.
 	b.registry.ResetAll()
-	b.shadows = make(map[shadowKey]*ThingShadow)
 
 	b.certificateTransfers = make(map[string]string)
 	b.thingBillingGroups = make(map[string]string)
@@ -233,7 +221,7 @@ func (b *InMemoryBackend) resetDeviceDefender() {
 
 // SetRuleDispatcher wires the SQS/Lambda action dispatcher.
 func (b *InMemoryBackend) SetRuleDispatcher(d RuleDispatcher) {
-	b.mu.Lock()
+	b.mu.Lock("SetRuleDispatcher")
 	defer b.mu.Unlock()
 
 	b.dispatcher = d
@@ -241,7 +229,7 @@ func (b *InMemoryBackend) SetRuleDispatcher(d RuleDispatcher) {
 
 // GetDispatcher returns the current rule dispatcher (used by the broker hook).
 func (b *InMemoryBackend) GetDispatcher() RuleDispatcher {
-	b.mu.RLock()
+	b.mu.RLock("GetDispatcher")
 	defer b.mu.RUnlock()
 
 	return b.dispatcher
@@ -249,7 +237,7 @@ func (b *InMemoryBackend) GetDispatcher() RuleDispatcher {
 
 // GetRules returns a snapshot of all active rules (used by the broker hook).
 func (b *InMemoryBackend) GetRules() []*TopicRule {
-	b.mu.RLock()
+	b.mu.RLock("GetRules")
 	defer b.mu.RUnlock()
 
 	out := make([]*TopicRule, 0, b.rules.Len())
@@ -341,7 +329,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 		return nil, fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateThing")
 	defer b.mu.Unlock()
 
 	if b.things.Has(input.ThingName) {
@@ -381,7 +369,7 @@ func (b *InMemoryBackend) CreateThing(input *CreateThingInput) (*CreateThingOutp
 
 // DescribeThing returns a deep copy of an existing Thing.
 func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeThing")
 	defer b.mu.RUnlock()
 
 	t, ok := b.things.Get(thingName)
@@ -397,7 +385,7 @@ func (b *InMemoryBackend) DescribeThing(thingName string) (*Thing, error) {
 
 // ListThings returns all Things sorted by name.
 func (b *InMemoryBackend) ListThings() []*Thing {
-	b.mu.RLock()
+	b.mu.RLock("ListThings")
 	defer b.mu.RUnlock()
 
 	items := b.things.Snapshot()
@@ -416,7 +404,7 @@ func (b *InMemoryBackend) ListThings() []*Thing {
 // leaves a ghost JobExecution behind for DescribeJobExecution/
 // ListJobExecutionsForThing to keep returning.
 func (b *InMemoryBackend) DeleteThing(thingName string, expectedVersion int64) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteThing")
 	defer b.mu.Unlock()
 
 	t, ok := b.things.Get(thingName)
@@ -470,7 +458,7 @@ func (b *InMemoryBackend) DescribeEndpoint(_ string) (*DescribeEndpointOutput, e
 // ownership to the target account recorded by the earlier TransferCertificate
 // call and activating (or not) the certificate per SetAsActive.
 func (b *InMemoryBackend) AcceptCertificateTransfer(input *AcceptCertificateTransferInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AcceptCertificateTransfer")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(input.CertificateID)
@@ -519,7 +507,7 @@ func packageVersionKey(packageName, versionName string) string {
 
 // AttachThingPrincipal attaches a principal (certificate or Cognito identity) to a thing.
 func (b *InMemoryBackend) AttachThingPrincipal(input *AttachThingPrincipalInput) error {
-	b.mu.Lock()
+	b.mu.Lock("AttachThingPrincipal")
 	defer b.mu.Unlock()
 
 	b.thingPrincipals[input.ThingName] = appendUnique(b.thingPrincipals[input.ThingName], input.Principal)
@@ -542,7 +530,7 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 		return fmt.Errorf("%w: ThingName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateThing")
 	defer b.mu.Unlock()
 
 	t, ok := b.things.Get(input.ThingName)
@@ -572,7 +560,7 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 
 // ListThingPrincipals returns principals attached to the given thing.
 func (b *InMemoryBackend) ListThingPrincipals(thingName string) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListThingPrincipals")
 	defer b.mu.RUnlock()
 
 	if !b.things.Has(thingName) {
@@ -592,7 +580,7 @@ func (b *InMemoryBackend) ListThingPrincipals(thingName string) ([]string, error
 
 // AddThingInternal seeds a Thing directly into the backend for testing.
 func (b *InMemoryBackend) AddThingInternal(t Thing) {
-	b.mu.Lock()
+	b.mu.Lock("AddThingInternal")
 	defer b.mu.Unlock()
 
 	if t.ThingID == "" {
@@ -642,12 +630,8 @@ func (b *InMemoryBackend) AddThingInternal(t Thing) {
 // CertificateProvider operations
 // -----------------------------------------------------------
 
-// -----------------------------------------------------------
-// Device Shadow operations
-// -----------------------------------------------------------
-
 func (b *InMemoryBackend) DetachThingPrincipal(thingName, principal string) error {
-	b.mu.Lock()
+	b.mu.Lock("DetachThingPrincipal")
 	defer b.mu.Unlock()
 
 	principals := b.thingPrincipals[thingName]
@@ -677,7 +661,7 @@ func (b *InMemoryBackend) thingPrincipalTypeFor(thingName, principal string) str
 
 // ListThingPrincipalsV2 returns typed principal objects attached to a thing.
 func (b *InMemoryBackend) ListThingPrincipalsV2(thingName string) ([]*ThingPrincipalObject, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListThingPrincipalsV2")
 	defer b.mu.RUnlock()
 
 	if !b.things.Has(thingName) {
@@ -699,7 +683,7 @@ func (b *InMemoryBackend) ListThingPrincipalsV2(thingName string) ([]*ThingPrinc
 
 // ListPrincipalThingsV2 returns typed thing objects a principal is attached to.
 func (b *InMemoryBackend) ListPrincipalThingsV2(principal string) []*PrincipalThingObject {
-	b.mu.RLock()
+	b.mu.RLock("ListPrincipalThingsV2")
 	defer b.mu.RUnlock()
 
 	var out []*PrincipalThingObject
@@ -728,7 +712,7 @@ type ThingConnectivityData struct {
 // GetThingConnectivityData returns a thing's stored connectivity data,
 // defaulting to "not connected" when nothing has been recorded yet.
 func (b *InMemoryBackend) GetThingConnectivityData(thingName string) (*ThingConnectivityData, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetThingConnectivityData")
 	defer b.mu.RUnlock()
 
 	if !b.things.Has(thingName) {
@@ -748,7 +732,7 @@ func (b *InMemoryBackend) GetThingConnectivityData(thingName string) (*ThingConn
 // testing (real connectivity is derived from live MQTT session events, which
 // this in-memory backend does not yet wire into fleet indexing).
 func (b *InMemoryBackend) SetThingConnectivityInternal(thingName string, data ThingConnectivityData) {
-	b.mu.Lock()
+	b.mu.Lock("SetThingConnectivityInternal")
 	defer b.mu.Unlock()
 
 	cp := data

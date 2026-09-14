@@ -292,7 +292,7 @@ func (h *Handler) handleUploadReadSetPart(c *echo.Context, storeID, uploadID str
 	if err != nil {
 		return c.JSON(
 			http.StatusInternalServerError,
-			errResp("InternalFailureException", "failed to read request body"),
+			errResp("InternalServerException", "failed to read request body"),
 		)
 	}
 

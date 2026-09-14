@@ -160,7 +160,6 @@ func (h *Handler) iamPolicyAttachDispatchTable() map[string]iamActionFn {
 				ResponseMetadata:       ResponseMetadata{RequestID: reqID},
 			}, nil
 		},
-		opListInstanceProfilesForRole: h.handleListInstanceProfilesForRole,
 	}
 }
 

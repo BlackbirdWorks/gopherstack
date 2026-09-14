@@ -190,12 +190,12 @@ func TestListOrganizationAdminAccounts_BoundaryWalk(t *testing.T) {
 	want := make([]string, 0, 23)
 	for i := range 23 {
 		id := fmt.Sprintf("%012d", i)
-		require.NoError(t, b.EnableOrganizationAdminAccount(id))
+		require.NoError(t, b.EnableOrganizationAdminAccount(id, "SecurityHub"))
 		want = append(want, id)
 	}
 
 	got := walkStrings(t, func(token string) ([]string, string) {
-		page, next := b.ListOrganizationAdminAccounts(token, 5)
+		page, next := b.ListOrganizationAdminAccounts(token, 5, "SecurityHub")
 		ids := make([]string, len(page))
 		for i, a := range page {
 			ids[i] = a.AccountId
@@ -264,7 +264,7 @@ func TestDescribeActionTargets_BoundaryWalk(t *testing.T) {
 	t.Parallel()
 
 	b := securityhub.NewInMemoryBackend("000000000000", "us-east-1")
-	require.NoError(t, b.EnableHub(false, nil))
+	require.NoError(t, b.EnableHub(false, "", nil))
 
 	want := make([]string, 0, 23)
 	for i := range 23 {

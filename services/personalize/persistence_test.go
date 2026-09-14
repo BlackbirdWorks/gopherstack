@@ -228,7 +228,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 				t.Helper()
 				dsArn := pSeedDataset(t, b)
 				_, err := b.CreateDatasetImportJob("dij-1", dsArn,
-					"arn:aws:iam::111122223333:role/r", map[string]any{"dataLocation": "s3://bucket/key"}, nil)
+					"arn:aws:iam::111122223333:role/r", "", map[string]any{"dataLocation": "s3://bucket/key"}, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -244,7 +244,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 				t.Helper()
 				dsArn := pSeedDataset(t, b)
 				_, err := b.CreateDatasetExportJob("dej-1", dsArn,
-					"arn:aws:iam::111122223333:role/r", map[string]any{"s3DataDestination": "s3://bucket/out"}, nil)
+					"arn:aws:iam::111122223333:role/r", "", map[string]any{"s3DataDestination": "s3://bucket/out"}, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *personalize.InMemoryBackend) {
@@ -263,6 +263,7 @@ func Test_Persistence_SnapshotRestore_Tables(t *testing.T) {
 					"bij-1",
 					svArn,
 					"arn:aws:iam::111122223333:role/r",
+					"",
 					map[string]any{"in": "s3://in"},
 					map[string]any{"out": "s3://out"},
 					nil,

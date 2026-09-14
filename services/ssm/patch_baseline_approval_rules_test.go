@@ -430,8 +430,8 @@ func TestSendCommand_RunPatchBaseline_ApprovalRules_Compliance(t *testing.T) {
 		states[p.Title] = p.State
 	}
 
-	assert.Equal(t, "Installed", states["RULE-OLD-1"],
+	assert.Equal(t, "INSTALLED", states["RULE-OLD-1"],
 		"a patch released 400 days ago must be rule-approved and installed by a 30-day ApproveAfterDays rule")
-	assert.Equal(t, "Missing", states["RULE-NEW-1"],
+	assert.Equal(t, "MISSING", states["RULE-NEW-1"],
 		"a patch released yesterday must not yet be rule-approved by a 30-day ApproveAfterDays rule")
 }

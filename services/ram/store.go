@@ -42,6 +42,12 @@ const (
 	// permissionTypeCreatedFromPolicy is the type for permissions auto-created from
 	// resource policies, promotable to CUSTOMER_MANAGED via PromotePermissionCreatedFromPolicy.
 	permissionTypeCreatedFromPolicy = "CREATED_FROM_POLICY"
+	// featureSetCreatedFromPolicy is the ResourceShare.FeatureSet value RAM sets when it
+	// auto-creates a share from a resource-based policy (ram@v1.39.4 types/enums.go
+	// ResourceShareFeatureSet; api_op_PromoteResourceShareCreatedFromPolicy.go doc:
+	// "When you attach a resource-based policy to a resource, RAM automatically creates
+	// a resource share of featureSet = CREATED_FROM_POLICY..."). See PutPolicyBasedShare.
+	featureSetCreatedFromPolicy = "CREATED_FROM_POLICY"
 	// permissionTypeFilterAll is ListPermissionsInput.PermissionType's "both types" value
 	// (types.PermissionTypeFilterAll) -- distinct from any actual Permission.PermissionType,
 	// so it must be special-cased rather than compared for equality against stored values.

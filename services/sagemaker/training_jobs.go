@@ -222,6 +222,21 @@ type Channel struct {
 	InputMode         string            `json:"InputMode,omitempty"`
 }
 
+// modelArtifactsFromTrainingOutputDataConfig derives ModelArtifacts from a
+// training job's OutputDataConfig, matching the S3 layout
+// scheduleTrainingCompletion already produced on the InProgress->Completed
+// transition. DescribeTrainingJobOutput.ModelArtifacts is "This member is
+// required" (api_op_DescribeTrainingJob.go:56-61) even while a job is still
+// InProgress, so this must be computed synchronously at Create, not only on
+// completion.
+func modelArtifactsFromTrainingOutputDataConfig(oc OutputDataConfig, name string) *ModelArtifacts {
+	if oc.S3OutputPath == "" {
+		return &ModelArtifacts{S3ModelArtifacts: "s3://" + name + "-output/output/model.tar.gz"}
+	}
+
+	return &ModelArtifacts{S3ModelArtifacts: oc.S3OutputPath + "/output/model.tar.gz"}
+}
+
 // OutputDataConfig specifies where training output is stored.
 type OutputDataConfig struct {
 	S3OutputPath    string `json:"S3OutputPath"`
@@ -254,9 +269,14 @@ type StoppingCondition struct {
 }
 
 // VpcConfig specifies the VPC subnets and security groups.
+//
+// SecurityGroupIds/Subnets are "This member is required" whenever VpcConfig
+// itself is present (validateVpcConfig, validators.go, nil-checked only) --
+// a conformant client can send an empty-but-non-nil array for either, which
+// omitempty would have silently dropped.
 type VpcConfig struct {
-	SecurityGroupIDs []string `json:"SecurityGroupIds,omitempty"`
-	Subnets          []string `json:"Subnets,omitempty"`
+	SecurityGroupIDs []string `json:"SecurityGroupIds"`
+	Subnets          []string `json:"Subnets"`
 }
 
 // CheckpointConfig stores checkpoint location for managed spot.
@@ -315,6 +335,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 
 	jobARN := arn.Build("sagemaker", region, b.accountID, "training-job/"+opts.TrainingJobName)
 	now := time.Now()
+	modelArtifacts := modelArtifactsFromTrainingOutputDataConfig(opts.OutputDataConfig, opts.TrainingJobName)
 
 	tj := &TrainingJob{
 		TrainingJobName:                       opts.TrainingJobName,
@@ -322,6 +343,7 @@ func (b *InMemoryBackend) CreateTrainingJobFull(ctx context.Context, opts Traini
 		TrainingJobStatus:                     trainingJobStatusInProgress,
 		SecondaryStatus:                       secondaryStatusStarting,
 		RoleArn:                               opts.RoleArn,
+		ModelArtifacts:                        modelArtifacts,
 		AlgorithmSpecification:                opts.AlgorithmSpecification,
 		InputDataConfig:                       opts.InputDataConfig,
 		OutputDataConfig:                      opts.OutputDataConfig,
@@ -375,12 +397,7 @@ func (b *InMemoryBackend) scheduleTrainingCompletion(ctx context.Context, region
 		billable := max(int32(trainingInProgressToCompleted.Seconds()), 1)
 		tj.BillableTimeInSeconds = billable
 		tj.TrainingTimeInSeconds = billable
-		tj.ModelArtifacts = &ModelArtifacts{
-			S3ModelArtifacts: "s3://" + name + "-output/output/model.tar.gz",
-		}
-		if tj.OutputDataConfig.S3OutputPath != "" {
-			tj.ModelArtifacts.S3ModelArtifacts = tj.OutputDataConfig.S3OutputPath + "/output/model.tar.gz"
-		}
+		tj.ModelArtifacts = modelArtifactsFromTrainingOutputDataConfig(tj.OutputDataConfig, name)
 
 		tj.SecondaryStatusTransitions = append(
 			tj.SecondaryStatusTransitions,

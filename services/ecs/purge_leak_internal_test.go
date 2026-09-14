@@ -348,7 +348,7 @@ func TestDeleteResource_CleansGhostResourceTags(t *testing.T) {
 			t.Fatalf("CreateCluster: %v", err)
 		}
 
-		tasks, err := b.RunTask(RunTaskInput{
+		tasks, _, err := b.RunTask(RunTaskInput{
 			Cluster:        "tag-ghost-task-cluster",
 			TaskDefinition: tdArn,
 			Count:          1,

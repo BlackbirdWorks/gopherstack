@@ -148,10 +148,13 @@ func (h *Handler) handlePutResourceConfig(
 
 // GetResourceConfigHistory request/response types and handler.
 type getResourceConfigHistoryInput struct {
-	ResourceType string `json:"resourceType"`
-	ResourceID   string `json:"resourceId"`
-	NextToken    string `json:"nextToken,omitempty"`
-	Limit        int    `json:"limit,omitempty"`
+	ResourceType       string  `json:"resourceType"`
+	ResourceID         string  `json:"resourceId"`
+	NextToken          string  `json:"nextToken,omitempty"`
+	ChronologicalOrder string  `json:"chronologicalOrder,omitempty"`
+	Limit              int     `json:"limit,omitempty"`
+	EarlierTime        float64 `json:"earlierTime,omitempty"`
+	LaterTime          float64 `json:"laterTime,omitempty"`
 }
 type getResourceConfigHistoryOutput struct {
 	NextToken          string               `json:"nextToken,omitempty"`
@@ -165,7 +168,10 @@ func (h *Handler) handleGetResourceConfigHistory(
 		return nil, fmt.Errorf("%w: invalid nextToken", ErrValidation)
 	}
 
-	items, next := h.Backend.GetResourceConfigHistoryPage(in.ResourceType, in.ResourceID, in.Limit, in.NextToken)
+	items, next := h.Backend.GetResourceConfigHistoryPage(
+		in.ResourceType, in.ResourceID, in.Limit, in.NextToken,
+		in.ChronologicalOrder, in.EarlierTime, in.LaterTime,
+	)
 
 	return &getResourceConfigHistoryOutput{ConfigurationItems: items, NextToken: next}, nil
 }
@@ -181,7 +187,9 @@ func (h *Handler) handleGetResourceConfigHistory(
 // breakdown) member is not modeled: this backend's resourceConfigsByType
 // index has no method to enumerate its group keys with counts, so adding it
 // needs new pkgs/store surface, not a wire-key rename -- left as a disclosed
-// gap rather than fabricated.
+// gap rather than fabricated. Limit/NextToken (real, optional members) page
+// that same unmodeled ResourceCounts list, so they're inert for the same
+// reason (gopherstack-xhu2t tier-1 sweep, PARITY.md items_still_open).
 type getDiscoveredResourceCountsOutput struct {
 	TotalDiscoveredResources int64 `json:"totalDiscoveredResources"`
 }
@@ -204,7 +212,10 @@ func (h *Handler) handleGetDiscoveredResourceCounts(
 // unaffected by that gap and already correctly cased/emitted.
 // ConfigurationAggregatorName ("This member is required") is validated
 // against the store's aggregators (NoSuchConfigurationAggregatorException),
-// matching every other aggregate-* op.
+// matching every other aggregate-* op. Limit/NextToken (real, optional
+// members) page that same unmodeled GroupedResourceCounts list, so they're
+// inert for the same reason (gopherstack-xhu2t tier-1 sweep, PARITY.md
+// items_still_open).
 type getAggregateDiscoveredResourceCountsInput struct {
 	ConfigurationAggregatorName string `json:"ConfigurationAggregatorName"`
 	GroupByKey                  string `json:"GroupByKey,omitempty"`
@@ -263,19 +274,36 @@ func (h *Handler) handleGetAggregateResourceConfig(
 // ResourceName/ResourceDeletionTime (real, optional members) go unpopulated
 // because this backend never tracks a discovered resource's display name or
 // deletion time.
+// listDiscoveredResourcesInput's real IncludeDeletedResources member
+// (api_op_ListDiscoveredResources.go) has no backend counterpart:
+// DeleteResourceConfig removes the resource from b.resourceConfigs outright
+// rather than tombstoning it, so there is no deleted-resource record to
+// include -- disclosed as a gap (PARITY.md) rather than fabricated.
 type listDiscoveredResourcesInput struct {
 	ResourceType string `json:"resourceType"`
+	NextToken    string `json:"nextToken,omitempty"`
+	Limit        int32  `json:"limit,omitempty"`
 }
 type listDiscoveredResourcesOutput struct {
+	NextToken           string               `json:"nextToken,omitempty"`
 	ResourceIdentifiers []ResourceConfigItem `json:"resourceIdentifiers"`
 }
+
+// listDiscoveredResourcesPageDefault is the documented default page size
+// (api_op_ListDiscoveredResources.go: "The default is 100.").
+const listDiscoveredResourcesPageDefault = 100
 
 func (h *Handler) handleListDiscoveredResources(
 	_ context.Context, in *listDiscoveredResourcesInput,
 ) (*listDiscoveredResourcesOutput, error) {
-	return &listDiscoveredResourcesOutput{
-		ResourceIdentifiers: h.Backend.ListDiscoveredResources(in.ResourceType),
-	}, nil
+	all := h.Backend.ListDiscoveredResources(in.ResourceType)
+
+	p, err := paginate(all, in.NextToken, in.Limit, listDiscoveredResourcesPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listDiscoveredResourcesOutput{ResourceIdentifiers: p.Data, NextToken: p.Next}, nil
 }
 
 // ListAggregateDiscoveredResources request/response types and handler.
@@ -288,11 +316,20 @@ type listAggregateDiscoveredResourcesFiltersBody struct {
 type listAggregateDiscoveredResourcesInput struct {
 	Filters                     *listAggregateDiscoveredResourcesFiltersBody `json:"Filters,omitempty"`
 	ConfigurationAggregatorName string                                       `json:"ConfigurationAggregatorName"`
+	NextToken                   string                                       `json:"NextToken,omitempty"`
 	ResourceType                string                                       `json:"ResourceType"`
+	Limit                       int32                                        `json:"Limit,omitempty"`
 }
 type listAggregateDiscoveredResourcesOutput struct {
+	NextToken           string                        `json:"NextToken,omitempty"`
 	ResourceIdentifiers []AggregateResourceIdentifier `json:"ResourceIdentifiers"`
 }
+
+// listAggregateDiscoveredResourcesPageDefault: real docs cap Limit at 100 but
+// state no separate default; 100 doubles as both (api_op_
+// ListAggregateDiscoveredResources.go: "You cannot specify a number greater
+// than 100.").
+const listAggregateDiscoveredResourcesPageDefault = 100
 
 func (h *Handler) handleListAggregateDiscoveredResources(
 	_ context.Context, in *listAggregateDiscoveredResourcesInput,
@@ -311,7 +348,12 @@ func (h *Handler) handleListAggregateDiscoveredResources(
 		return nil, err
 	}
 
-	return &listAggregateDiscoveredResourcesOutput{ResourceIdentifiers: identifiers}, nil
+	p, err := paginate(identifiers, in.NextToken, in.Limit, listAggregateDiscoveredResourcesPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listAggregateDiscoveredResourcesOutput{ResourceIdentifiers: p.Data, NextToken: p.Next}, nil
 }
 
 // SelectResourceConfig request/response types and handler.
@@ -395,12 +437,22 @@ type resourceEvaluationSummary struct {
 	EvaluationMode           string  `json:"EvaluationMode"`
 	EvaluationStartTimestamp float64 `json:"EvaluationStartTimestamp"`
 }
+type listResourceEvaluationsInput struct {
+	NextToken string `json:"NextToken,omitempty"`
+	Limit     int32  `json:"Limit,omitempty"`
+}
 type listResourceEvaluationsOutput struct {
+	NextToken           string                      `json:"NextToken,omitempty"`
 	ResourceEvaluations []resourceEvaluationSummary `json:"ResourceEvaluations"`
 }
 
+// listResourceEvaluationsPageDefault is the documented default page size
+// (api_op_ListResourceEvaluations.go: "The default is 10. You cannot specify
+// a number greater than 100.").
+const listResourceEvaluationsPageDefault = 10
+
 func (h *Handler) handleListResourceEvaluations(
-	_ context.Context, _ *emptyInput,
+	_ context.Context, in *listResourceEvaluationsInput,
 ) (*listResourceEvaluationsOutput, error) {
 	evals := h.Backend.ListResourceEvaluationSummaries()
 
@@ -413,10 +465,20 @@ func (h *Handler) handleListResourceEvaluations(
 		})
 	}
 
-	return &listResourceEvaluationsOutput{ResourceEvaluations: out}, nil
+	p, err := paginate(out, in.NextToken, in.Limit, listResourceEvaluationsPageDefault)
+	if err != nil {
+		return nil, err
+	}
+
+	return &listResourceEvaluationsOutput{ResourceEvaluations: p.Data, NextToken: p.Next}, nil
 }
 
 // StartResourceEvaluation request/response types and handler.
+// EvaluationTimeout (real, optional member) has no backend counterpart:
+// StartResourceEvaluation completes synchronously and always lands on
+// statusSucceeded, so there is no in-flight evaluation a timeout could ever
+// interrupt -- disclosed as a gap (PARITY.md items_still_open) rather than a
+// field that decodes into nothing observable.
 type startResourceEvaluationDetails struct {
 	ResourceID            string `json:"ResourceId"`
 	ResourceType          string `json:"ResourceType"`

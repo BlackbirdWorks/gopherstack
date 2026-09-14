@@ -51,6 +51,10 @@ func (h *Handler) handleDescribeDBRecommendations(vals url.Values) (any, error) 
 	recID := vals.Get("RecommendationId")
 	status := vals.Get("Status")
 	recs := h.Backend.DescribeDBRecommendations(recID, status)
+	recs, err := applyDBRecommendationFilters(vals, recs)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlDBRecommendation, 0, len(recs))
 	for i := range recs {
 		members = append(members, toXMLRecommendation(&recs[i]))

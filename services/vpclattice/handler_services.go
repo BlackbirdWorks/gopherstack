@@ -18,9 +18,10 @@ func (h *Handler) handleCreateService(c *echo.Context, body map[string]any) erro
 	authType, _ := body["authType"].(string)
 	certArn, _ := body["certificateArn"].(string)
 	customDomain, _ := body["customDomainName"].(string)
+	idleTimeoutSeconds := bodyInt32(body, "idleTimeoutSeconds")
 	tags := extractTags(body)
 
-	svc, err := h.Backend.CreateService(ctx, name, authType, certArn, customDomain, tags)
+	svc, err := h.Backend.CreateService(ctx, name, authType, certArn, customDomain, idleTimeoutSeconds, tags)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -40,8 +41,9 @@ func (h *Handler) handleGetService(c *echo.Context, id string) error {
 func (h *Handler) handleUpdateService(c *echo.Context, id string, body map[string]any) error {
 	authType, _ := body["authType"].(string)
 	certArn, _ := body["certificateArn"].(string)
+	idleTimeoutSeconds := bodyInt32(body, "idleTimeoutSeconds")
 
-	svc, err := h.Backend.UpdateService(id, authType, certArn)
+	svc, err := h.Backend.UpdateService(id, authType, certArn, idleTimeoutSeconds)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -85,14 +87,15 @@ func (h *Handler) handleListServices(c *echo.Context) error {
 
 func serviceToJSON(s *Service) map[string]any {
 	m := map[string]any{
-		keyARN:           s.ARN,
-		"id":             s.ID,
-		keyName:          s.Name,
-		"authType":       s.AuthType,
-		keyStatus:        s.Status,
-		keyCreatedAt:     s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		keyLastUpdatedAt: s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
-		"dnsEntry":       dnsEntryToJSON(s.DNSName, s.HostedZoneID),
+		keyARN:               s.ARN,
+		"id":                 s.ID,
+		keyName:              s.Name,
+		"authType":           s.AuthType,
+		keyStatus:            s.Status,
+		keyCreatedAt:         s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt:     s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		"dnsEntry":           dnsEntryToJSON(s.DNSName, s.HostedZoneID),
+		"idleTimeoutSeconds": s.IdleTimeoutSeconds,
 	}
 
 	if s.CertificateArn != "" {

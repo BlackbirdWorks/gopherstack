@@ -467,12 +467,20 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 
 // ---- Access Grants Instance ----
 
+// getAccessGrantsInstanceResponseXML mirrors GetAccessGrantsInstanceOutput.
+// IdentityCenterInstanceArn (the current, non-deprecated field -- see
+// CreateAccessGrantsInstanceOutput's doc comment on IdentityCenterArn) was
+// missing here even though CreateAccessGrantsInstance's own response
+// already emits it and the backend tracks both fields identically -- a real
+// client calling AssociateAccessGrantsIdentityCenter then GetAccessGrantsInstance
+// always saw an empty IdentityCenterInstanceArn.
 type getAccessGrantsInstanceResponseXML struct {
-	XMLName                 xml.Name `xml:"GetAccessGrantsInstanceResult"`
-	AccessGrantsInstanceArn string   `xml:"AccessGrantsInstanceArn"`
-	AccessGrantsInstanceID  string   `xml:"AccessGrantsInstanceId"`
-	IdentityCenterArn       string   `xml:"IdentityCenterArn,omitempty"`
-	CreatedAt               string   `xml:"CreatedAt,omitempty"`
+	XMLName                   xml.Name `xml:"GetAccessGrantsInstanceResult"`
+	AccessGrantsInstanceArn   string   `xml:"AccessGrantsInstanceArn"`
+	AccessGrantsInstanceID    string   `xml:"AccessGrantsInstanceId"`
+	IdentityCenterArn         string   `xml:"IdentityCenterArn,omitempty"`
+	IdentityCenterInstanceArn string   `xml:"IdentityCenterInstanceArn,omitempty"`
+	CreatedAt                 string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrantsInstance(c *echo.Context) error {
@@ -484,10 +492,11 @@ func (h *Handler) handleGetAccessGrantsInstance(c *echo.Context) error {
 	}
 
 	return writeXML(c, getAccessGrantsInstanceResponseXML{
-		AccessGrantsInstanceArn: inst.AccessGrantsInstanceArn,
-		AccessGrantsInstanceID:  inst.AccessGrantsInstanceID,
-		IdentityCenterArn:       inst.IdentityCenterArn,
-		CreatedAt:               inst.CreatedAt,
+		AccessGrantsInstanceArn:   inst.AccessGrantsInstanceArn,
+		AccessGrantsInstanceID:    inst.AccessGrantsInstanceID,
+		IdentityCenterArn:         inst.IdentityCenterArn,
+		IdentityCenterInstanceArn: inst.IdentityCenterInstanceArn,
+		CreatedAt:                 inst.CreatedAt,
 	})
 }
 
@@ -835,8 +844,7 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 	target := c.Request().URL.Query().Get("target")
 	permission := c.Request().URL.Query().Get("permission")
 
-	url, err := h.Backend.GetDataAccess(accountID, target, permission)
-	if err != nil {
+	if _, err := h.Backend.GetDataAccess(accountID, target, permission); err != nil {
 		return handleBackendError(c, err)
 	}
 
@@ -846,6 +854,12 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 	// awsRestxml_deserializeOpDocumentGetDataAccessOutput. This backend
 	// issues no real STS credentials and resolves no matching grant, so
 	// those fields are omitted rather than invented.
+	//
+	// MatchedGrantTarget is the requested S3 URI target
+	// (api_op_GetDataAccess.go: "The S3 URI path of the data to which you
+	// are being granted temporary access credentials"), not the backend's
+	// internal mock presigned URL -- a real client previously decoded a
+	// bogus https:// URL here instead of an S3 URI.
 	return writeXML(c, struct {
 		XMLName     xml.Name `xml:"GetDataAccessResult"`
 		Credentials struct {
@@ -854,6 +868,6 @@ func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 		} `xml:"Credentials"`
 		MatchedGrantTarget string `xml:"MatchedGrantTarget"`
 	}{
-		MatchedGrantTarget: url,
+		MatchedGrantTarget: target,
 	})
 }

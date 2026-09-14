@@ -390,13 +390,27 @@ func TestHandler_ListNotebookSessions(t *testing.T) {
 				require.Equal(t, http.StatusOK, createRec.Code)
 				notebookID = jsonField(t, createRec.Body.Bytes(), "NotebookId")
 
+				// NotebookId travels inside EngineConfiguration.AdditionalConfigs
+				// on the real wire, not as a top-level StartSessionInput field --
+				// confirmed against athena@v1.60.4 serializers.go's
+				// awsAwsjson11_serializeOpDocumentStartSessionInput, which never
+				// emits a top-level "NotebookId" key.
 				startRec := doRequest(t, h, "StartSession",
-					`{"WorkGroup":"primary","NotebookVersion":"v1","NotebookId":"`+notebookID+`"}`)
+					`{"WorkGroup":"primary","NotebookVersion":"v1",`+
+						`"EngineConfiguration":{"AdditionalConfigs":{"NotebookId":"`+notebookID+`"}}}`)
 				require.Equal(t, http.StatusOK, startRec.Code)
 			}
 
 			rec := doRequest(t, h, "ListNotebookSessions", `{"NotebookId":"`+notebookID+`"}`)
 			assert.Equal(t, tt.wantStatus, rec.Code)
+
+			if tt.name == "success" {
+				var body struct {
+					NotebookSessionsList []map[string]any `json:"NotebookSessionsList"`
+				}
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+				assert.Len(t, body.NotebookSessionsList, 1, "expected the started session to be linked to its notebook")
+			}
 		})
 	}
 }

@@ -30,8 +30,14 @@ type encryptionConfigurationView struct {
 	KMSKey         string `json:"kmsKey,omitempty"`
 }
 
+// Filter has no omitempty: it's "This member is required" on the real wire
+// (ecr@v1.64.0 types/types.go:577), but it's *string there, so the
+// client-side required check only rejects nil, not an empty string.
+// FilterType stays omitempty -- it's a bare (non-pointer) enum, so the
+// client-side check len-checks it and a conformant client can never send
+// it empty.
 type imageTagMutabilityFilterView struct {
-	Filter     string `json:"filter,omitempty"`
+	Filter     string `json:"filter"`
 	FilterType string `json:"filterType,omitempty"`
 }
 

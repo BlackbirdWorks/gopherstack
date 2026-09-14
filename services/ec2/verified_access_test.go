@@ -59,7 +59,7 @@ func TestModifyVerifiedAccessTrustProvider(t *testing.T) {
 
 	b := newTestBackend()
 
-	tp, err := b.CreateVerifiedAccessTrustProvider("user", "orig")
+	tp, err := b.CreateVerifiedAccessTrustProvider("user", "orig", "policy-ref")
 	require.NoError(t, err)
 
 	updated, err := b.ModifyVerifiedAccessTrustProvider(tp.VerifiedAccessTrustProviderID, "updated")

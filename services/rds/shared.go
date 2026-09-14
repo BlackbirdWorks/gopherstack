@@ -1,7 +1,9 @@
 package rds
 
 import (
+	"fmt"
 	"maps"
+	"net/url"
 	"slices"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/strs"
@@ -35,6 +37,118 @@ const (
 	// narrowing a Describe* result set by snapshot type (manual/automated).
 	// Shared by DescribeDBSnapshots and DescribeDBClusterSnapshots.
 	filterNameSnapshotType = "snapshot-type"
+	// filterNameParameterName is the AWS Filters.Filter.N.Name value for
+	// narrowing a Describe* result set by parameter name. Shared by
+	// DescribeDBParameters and DescribeDBClusterParameters, whose own doc
+	// comments each say "The only supported filter is parameter-name".
+	filterNameParameterName = "parameter-name"
+	// filterNameDBClusterEndpointType is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterEndpoints by endpoint type (reader/writer/custom).
+	filterNameDBClusterEndpointType = "db-cluster-endpoint-type"
+	// filterNameDBClusterEndpointCustomType is the Filters.Filter.N.Name
+	// value for narrowing DescribeDBClusterEndpoints by a custom endpoint's
+	// sub-type (reader/any). Accepted but not modeled — see
+	// isKnownDBClusterEndpointFilterName.
+	filterNameDBClusterEndpointCustomType = "db-cluster-endpoint-custom-type"
+	// filterNameDBClusterEndpointID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterEndpoints by endpoint identifier.
+	filterNameDBClusterEndpointID = "db-cluster-endpoint-id"
+	// filterNameDBClusterEndpointStatus is the Filters.Filter.N.Name value
+	// for narrowing DescribeDBClusterEndpoints by endpoint status.
+	filterNameDBClusterEndpointStatus = "db-cluster-endpoint-status"
+	// filterNameDBParameterGroupFamily is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBEngineVersions by parameter group family. Accepted
+	// but not modeled — DBEngineVersion carries no family attribute.
+	filterNameDBParameterGroupFamily = "db-parameter-group-family"
+	// filterNameEngineMode is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBEngineVersions by engine mode. Accepted but not modeled —
+	// DBEngineVersion carries no engine-mode attribute.
+	filterNameEngineMode = "engine-mode"
+	// filterNameEngineVersion is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBEngineVersions by engine version.
+	filterNameEngineVersion = "engine-version"
+	// filterNameStatus is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBEngineVersions and DescribeExportTasks by status. Accepted
+	// but not modeled for DescribeDBEngineVersions — DBEngineVersion carries
+	// no status attribute.
+	filterNameStatus = "status"
+	// filterNameRegion is the Filters.Filter.N.Name value for narrowing
+	// DescribeGlobalClusters by member region. Accepted but not modeled — no
+	// gopherstack API path ever populates GlobalCluster.PrimaryRegion or
+	// GlobalClusterMembers (handler_global_clusters.go's own comment on
+	// AddGlobalClusterMemberInternal), so there is no real region data to
+	// match against.
+	filterNameRegion = "region"
+	// filterNameExportTaskIdentifier is the Filters.Filter.N.Name value for
+	// narrowing DescribeExportTasks by export task identifier.
+	filterNameExportTaskIdentifier = "export-task-identifier"
+	// filterNameS3Bucket is the Filters.Filter.N.Name value for narrowing
+	// DescribeExportTasks by destination S3 bucket.
+	filterNameS3Bucket = "s3-bucket"
+	// filterNameSourceArn is the Filters.Filter.N.Name value for narrowing
+	// DescribeExportTasks by the exported resource's ARN.
+	filterNameSourceArn = "source-arn"
+	// filterNameDBClusterResourceID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterAutomatedBackups by DB cluster resource ID.
+	// Its own doc comment (api_op_DescribeDBClusterAutomatedBackups.go:59-61)
+	// says it "Accepts DB resource identifiers and Amazon Resource Names
+	// (ARNs)", unlike DescribeDBClusters' plain-match "db-cluster-resource-id"
+	// (db_clusters.go).
+	filterNameDBClusterResourceID = "db-cluster-resource-id"
+	// filterNameDBClusterBacktrackID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBClusterBacktracks by backtrack identifier.
+	filterNameDBClusterBacktrackID = "db-cluster-backtrack-id"
+	// filterNameDBClusterBacktrackStatus is the Filters.Filter.N.Name value
+	// for narrowing DescribeDBClusterBacktracks by backtrack status.
+	filterNameDBClusterBacktrackStatus = "db-cluster-backtrack-status"
+	// filterNameRecommendationID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by recommendation identifier.
+	filterNameRecommendationID = "recommendation-id"
+	// filterNameSeverity is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by recommendation severity.
+	filterNameSeverity = "severity"
+	// filterNameTypeID is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by recommendation type identifier.
+	filterNameTypeID = "type-id"
+	// filterNameClusterResourceID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by cluster resource ID. Accepted
+	// but not modeled — DBRecommendation carries only a generic ResourceARN,
+	// not a cluster-resource-id-typed field.
+	filterNameClusterResourceID = "cluster-resource-id"
+	// filterNamePgArn is the Filters.Filter.N.Name value for narrowing
+	// DescribeDBRecommendations by parameter group ARN. Accepted but not
+	// modeled — see filterNameClusterResourceID.
+	filterNamePgArn = "pg-arn"
+	// filterNameClusterPgArn is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBRecommendations by cluster parameter group ARN.
+	// Accepted but not modeled — see filterNameClusterResourceID.
+	filterNameClusterPgArn = "cluster-pg-arn"
+	// filterNameBlueGreenDeploymentIdentifier is the Filters.Filter.N.Name
+	// value for narrowing DescribeBlueGreenDeployments by deployment
+	// identifier.
+	filterNameBlueGreenDeploymentIdentifier = "blue-green-deployment-identifier"
+	// filterNameBlueGreenDeploymentName is the Filters.Filter.N.Name value
+	// for narrowing DescribeBlueGreenDeployments by deployment name.
+	filterNameBlueGreenDeploymentName = "blue-green-deployment-name"
+	// filterNameSource is the Filters.Filter.N.Name value for narrowing
+	// DescribeBlueGreenDeployments by source database.
+	filterNameSource = "source"
+	// filterNameTarget is the Filters.Filter.N.Name value for narrowing
+	// DescribeBlueGreenDeployments by target database.
+	filterNameTarget = "target"
+	// filterNameTenantDBName is the Filters.Filter.N.Name value for
+	// narrowing DescribeTenantDatabases and DescribeDBSnapshotTenantDatabases
+	// by tenant database name.
+	filterNameTenantDBName = "tenant-db-name"
+	// filterNameTenantDatabaseResourceID is the Filters.Filter.N.Name value
+	// for narrowing DescribeTenantDatabases and
+	// DescribeDBSnapshotTenantDatabases by tenant database resource
+	// identifier. Accepted but not modeled — TenantDatabase and
+	// DBSnapshotTenantDatabase carry no such attribute.
+	filterNameTenantDatabaseResourceID = "tenant-database-resource-id"
+	// filterNameDBSnapshotID is the Filters.Filter.N.Name value for
+	// narrowing DescribeDBSnapshotTenantDatabases by DB snapshot identifier.
+	filterNameDBSnapshotID = "db-snapshot-id"
 	// snapshotTypeManual is the SnapshotType value AWS assigns to
 	// user-initiated (as opposed to automated) DB and DB cluster snapshots.
 	snapshotTypeManual = "manual"
@@ -120,6 +234,35 @@ func copyParameterGroupTo(src *DBParameterGroup, targetName, targetDescription s
 	maps.Copy(pg.Parameters, src.Parameters)
 
 	return pg
+}
+
+// applyDBParameterFilters narrows params per the Filters contract shared by
+// DescribeDBParameters (api_op_DescribeDBParameters.go:40-44) and
+// DescribeDBClusterParameters (api_op_DescribeDBClusterParameters.go:48-52):
+// each op's own doc comment says, verbatim, "The only supported filter is
+// parameter-name." An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBParameterFilters(vals url.Values, params []DBParameter) ([]DBParameter, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return params, nil
+	}
+
+	for name := range filters {
+		if name != filterNameParameterName {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	values := filters[filterNameParameterName]
+	filtered := make([]DBParameter, 0, len(params))
+	for _, p := range params {
+		if slices.Contains(values, p.ParameterName) {
+			filtered = append(filtered, p)
+		}
+	}
+
+	return filtered, nil
 }
 
 // applySnapshotAttributeChange modifies a list of snapshot attributes by adding and removing values.

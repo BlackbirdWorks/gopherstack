@@ -92,12 +92,12 @@ type describeDataProvidersOutput struct {
 func (h *Handler) handleDescribeDataProviders(
 	ctx context.Context, in *describeDataProvidersInput,
 ) (*describeDataProvidersOutput, error) {
-	identifier := ptrconv.String(in.DataProviderIdentifier)
-	if identifier == "" {
-		identifier = extractFilterValue(in.Filters, "data-provider-identifier")
+	df := newDescribeFilters(in.Filters)
+	if identifier := ptrconv.String(in.DataProviderIdentifier); identifier != "" {
+		df = NewIdentifierFilter("data-provider-identifier", identifier)
 	}
 
-	list, err := h.Backend.DescribeDataProviders(ctx, identifier)
+	list, err := h.Backend.DescribeDataProviders(ctx, df)
 	if err != nil {
 		return nil, err
 	}

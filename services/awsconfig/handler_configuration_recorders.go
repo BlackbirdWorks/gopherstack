@@ -112,7 +112,7 @@ type describeConfigurationRecordersInput struct {
 }
 
 type describeConfigurationRecordersOutput struct {
-	ConfigurationRecorders []ConfigurationRecorder `json:"ConfigurationRecorders"`
+	ConfigurationRecorders []wireConfigurationRecorder `json:"ConfigurationRecorders"`
 }
 
 func (h *Handler) handleDescribeConfigurationRecorders(
@@ -121,7 +121,7 @@ func (h *Handler) handleDescribeConfigurationRecorders(
 ) (*describeConfigurationRecordersOutput, error) {
 	recorders := h.Backend.DescribeConfigurationRecorders(in.ConfigurationRecorderNames)
 
-	return &describeConfigurationRecordersOutput{ConfigurationRecorders: recorders}, nil
+	return &describeConfigurationRecordersOutput{ConfigurationRecorders: toWireConfigurationRecorders(recorders)}, nil
 }
 
 type startConfigurationRecorderOutput struct{}
@@ -190,7 +190,7 @@ type associateResourceTypesInput struct {
 }
 
 type associateResourceTypesOutput struct {
-	ConfigurationRecorder *ConfigurationRecorder `json:"ConfigurationRecorder"`
+	ConfigurationRecorder *wireConfigurationRecorder `json:"ConfigurationRecorder"`
 }
 
 func (h *Handler) handleAssociateResourceTypes(
@@ -202,7 +202,9 @@ func (h *Handler) handleAssociateResourceTypes(
 		return nil, err
 	}
 
-	return &associateResourceTypesOutput{ConfigurationRecorder: recorder}, nil
+	return &associateResourceTypesOutput{
+		ConfigurationRecorder: &wireConfigurationRecorder{ConfigurationRecorder: recorder},
+	}, nil
 }
 
 // DisassociateResourceTypes request/response types and handler.

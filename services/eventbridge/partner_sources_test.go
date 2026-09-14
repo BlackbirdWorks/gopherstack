@@ -64,7 +64,11 @@ func TestPartnerEventSource_ActivateTransitionsToPending(t *testing.T) {
 	assert.Equal(t, "ACTIVE", src.State)
 }
 
-func TestPartnerEventSource_DeactivateTransitionsToInactive(t *testing.T) {
+// TestPartnerEventSource_DeactivateTransitionsToPending verifies real AWS
+// behavior: "When you deactivate a partner event source, the source goes
+// into PENDING state" (api_op_DeactivateEventSource.go doc comment) --
+// EventSourceState has no "INACTIVE" value at all.
+func TestPartnerEventSource_DeactivateTransitionsToPending(t *testing.T) {
 	t.Parallel()
 	b := newBackend()
 
@@ -76,7 +80,7 @@ func TestPartnerEventSource_DeactivateTransitionsToInactive(t *testing.T) {
 
 	src, err := b.DescribeEventSource(context.Background(), "aws.partner/saas.com/feed2")
 	require.NoError(t, err)
-	assert.Equal(t, "INACTIVE", src.State)
+	assert.Equal(t, "PENDING", src.State)
 }
 
 func TestPartnerEventSource_DeletePartnerSourceNotAffectEventSource(t *testing.T) {

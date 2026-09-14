@@ -46,17 +46,21 @@ func (h *Handler) handleCreateIntegration(
 
 // createIntegrationResourcePropertyInput holds input for CreateIntegrationResourceProperty.
 type createIntegrationResourcePropertyInput struct {
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
 }
 
-// createIntegrationResourcePropertyOutput holds the result for CreateIntegrationResourceProperty.
+// createIntegrationResourcePropertyOutput holds the result for
+// CreateIntegrationResourceProperty. SourceProcessingProperties/
+// TargetProcessingProperties (not the fictitious "SourceProperties"/
+// "TargetProperties") are the real member names -- glue@v1.157.0
+// api_op_CreateIntegrationResourceProperty.go:62-66.
 type createIntegrationResourcePropertyOutput struct {
-	ResourceArn      string            `json:"ResourceArn"`
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	CreateTime       string            `json:"CreateTime,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	CreateTime                 string         `json:"CreateTime,omitempty"`
 }
 
 func (h *Handler) handleCreateIntegrationResourceProperty(
@@ -65,18 +69,18 @@ func (h *Handler) handleCreateIntegrationResourceProperty(
 ) (*createIntegrationResourcePropertyOutput, error) {
 	prop, err := h.Backend.CreateIntegrationResourceProperty(
 		in.ResourceArn,
-		in.SourceProperties,
-		in.TargetProperties,
+		in.SourceProcessingProperties,
+		in.TargetProcessingProperties,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &createIntegrationResourcePropertyOutput{
-		ResourceArn:      prop.ResourceArn,
-		SourceProperties: prop.SourceProperties,
-		TargetProperties: prop.TargetProperties,
-		CreateTime:       prop.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ResourceArn:                prop.ResourceArn,
+		SourceProcessingProperties: prop.SourceProcessingProperties,
+		TargetProcessingProperties: prop.TargetProcessingProperties,
+		CreateTime:                 prop.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
 
@@ -367,9 +371,9 @@ type getIntegrationResourcePropertyInput struct {
 
 // getIntegrationResourcePropertyOutput holds the result for GetIntegrationResourceProperty.
 type getIntegrationResourcePropertyOutput struct {
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
 }
 
 func (h *Handler) handleGetIntegrationResourceProperty(
@@ -382,9 +386,9 @@ func (h *Handler) handleGetIntegrationResourceProperty(
 	}
 
 	return &getIntegrationResourcePropertyOutput{
-		ResourceArn:      prop.ResourceArn,
-		SourceProperties: prop.SourceProperties,
-		TargetProperties: prop.TargetProperties,
+		ResourceArn:                prop.ResourceArn,
+		SourceProcessingProperties: prop.SourceProcessingProperties,
+		TargetProcessingProperties: prop.TargetProcessingProperties,
 	}, nil
 }
 
@@ -433,9 +437,9 @@ type listIntegrationResourcePropertiesInput struct {
 // response list, matching the shape already used by
 // Create/GetIntegrationResourceProperty.
 type integrationResourcePropertyOut struct {
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
 }
 
 // listIntegrationResourcePropertiesOutput holds the result for ListIntegrationResourceProperties.
@@ -461,9 +465,9 @@ func (h *Handler) handleListIntegrationResourceProperties(
 
 	for _, p := range page {
 		list = append(list, integrationResourcePropertyOut{
-			ResourceArn:      p.ResourceArn,
-			SourceProperties: p.SourceProperties,
-			TargetProperties: p.TargetProperties,
+			ResourceArn:                p.ResourceArn,
+			SourceProcessingProperties: p.SourceProcessingProperties,
+			TargetProcessingProperties: p.TargetProcessingProperties,
 		})
 	}
 
@@ -506,31 +510,33 @@ func (h *Handler) handleModifyIntegration(
 
 // updateIntegrationResourcePropertyInput holds input for UpdateIntegrationResourceProperty.
 type updateIntegrationResourcePropertyInput struct {
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
 }
 
 // updateIntegrationResourcePropertyOutput holds the result for UpdateIntegrationResourceProperty.
 type updateIntegrationResourcePropertyOutput struct {
-	SourceProperties map[string]string `json:"SourceProperties,omitempty"`
-	TargetProperties map[string]string `json:"TargetProperties,omitempty"`
-	ResourceArn      string            `json:"ResourceArn"`
+	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
+	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
 }
 
 func (h *Handler) handleUpdateIntegrationResourceProperty(
 	_ context.Context,
 	in *updateIntegrationResourcePropertyInput,
 ) (*updateIntegrationResourcePropertyOutput, error) {
-	prop, err := h.Backend.UpdateIntegrationResourceProperty(in.ResourceArn, in.SourceProperties, in.TargetProperties)
+	prop, err := h.Backend.UpdateIntegrationResourceProperty(
+		in.ResourceArn, in.SourceProcessingProperties, in.TargetProcessingProperties,
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	return &updateIntegrationResourcePropertyOutput{
-		ResourceArn:      prop.ResourceArn,
-		SourceProperties: prop.SourceProperties,
-		TargetProperties: prop.TargetProperties,
+		ResourceArn:                prop.ResourceArn,
+		SourceProcessingProperties: prop.SourceProcessingProperties,
+		TargetProcessingProperties: prop.TargetProcessingProperties,
 	}, nil
 }
 

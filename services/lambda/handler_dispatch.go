@@ -25,6 +25,10 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodPut, hasSuffixCode, "UpdateFunctionCode"},
 	{http.MethodGet, hasSuffixConfiguration, "GetFunctionConfiguration"},
 	{http.MethodPut, hasSuffixConfiguration, "UpdateFunctionConfiguration"},
+	// "InvokeFunction" here is the real IAM action name for this path (used
+	// by IAMAction below), not the SDK operation name -- ExtractOperation
+	// special-cases this predicate before reaching this table so it reports
+	// the real op name "Invoke" instead (gopherstack-9coa).
 	{http.MethodPost, hasSuffixInvocations, "InvokeFunction"},
 	{http.MethodPost, hasSuffixURL, "CreateFunctionURLConfig"},
 	{http.MethodGet, hasSuffixURL, "GetFunctionURLConfig"},
@@ -46,8 +50,6 @@ var lambdaOpRoutes = []routeSpec{
 	{http.MethodGet, hasSuffixCodeSigningConfig, opGetFunctionCodeSigningConfig},
 	{http.MethodPut, hasSuffixCodeSigningConfig, opPutFunctionCodeSigningConfig},
 	{http.MethodDelete, hasSuffixCodeSigningConfig, opDeleteFunctionCodeSigningConfig},
-	// Invoke (real SDK op name) alias route -- same endpoint as InvokeFunction above.
-	{http.MethodPost, hasSuffixInvocations, opInvoke},
 	// InvokeAsync: POST /2014-11-13/functions/{name}/invoke-async/
 	{http.MethodPost, hasSuffixInvokeAsync, "InvokeAsync"},
 	// InvokeWithResponseStream: POST /2021-11-15/functions/{name}/response-streaming-invocations

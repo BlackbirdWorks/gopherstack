@@ -160,9 +160,19 @@ func TestHandler_DeleteAccessor(t *testing.T) {
 			rec := doRequest(t, h, http.MethodDelete, "/accessors/"+out.AccessorID, nil)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
-			// Verify deleted.
+			// Real AWS keeps a deleted accessor visible with status
+			// PENDING_DELETION rather than removing it (managedblockchain
+			// @v1.34.4 api_op_DeleteAccessor.go doc comment).
 			getRec := doRequest(t, h, http.MethodGet, "/accessors/"+out.AccessorID, nil)
-			assert.Equal(t, http.StatusNotFound, getRec.Code)
+			assert.Equal(t, http.StatusOK, getRec.Code)
+
+			var getOut struct {
+				Accessor struct {
+					Status string `json:"Status"`
+				} `json:"Accessor"`
+			}
+			require.NoError(t, json.NewDecoder(getRec.Body).Decode(&getOut))
+			assert.Equal(t, "PENDING_DELETION", getOut.Accessor.Status)
 		})
 	}
 }
@@ -265,7 +275,9 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 			delRec := doRequest(t, h, http.MethodDelete, "/accessors/"+createOut.AccessorID, nil)
 			assert.Equal(t, http.StatusNoContent, delRec.Code)
 
-			// Verify gone.
+			// Real AWS keeps a deleted accessor listed with status
+			// PENDING_DELETION rather than removing it (managedblockchain
+			// @v1.34.4 api_op_DeleteAccessor.go doc comment).
 			listRec2 := doRequest(t, h, http.MethodGet, "/accessors", nil)
 			require.Equal(t, http.StatusOK, listRec2.Code)
 
@@ -273,7 +285,8 @@ func TestHandler_AccessorRoundTrip(t *testing.T) {
 				Accessors []map[string]any `json:"Accessors"`
 			}
 			require.NoError(t, json.NewDecoder(listRec2.Body).Decode(&listOut2))
-			assert.Empty(t, listOut2.Accessors)
+			require.Len(t, listOut2.Accessors, 1)
+			assert.Equal(t, "PENDING_DELETION", listOut2.Accessors[0]["Status"])
 		})
 	}
 }
@@ -491,9 +504,16 @@ func TestHandler_AccessorLifecycleViaHTTP(t *testing.T) {
 			rec4 := doRequest(t, h, http.MethodDelete, "/accessors/"+accessorID, nil)
 			require.Equal(t, http.StatusNoContent, rec4.Code)
 
-			// Verify deleted
+			// Real AWS keeps a deleted accessor visible with status
+			// PENDING_DELETION rather than removing it (managedblockchain
+			// @v1.34.4 api_op_DeleteAccessor.go doc comment).
 			rec5 := doRequest(t, h, http.MethodGet, "/accessors/"+accessorID, nil)
-			assert.Equal(t, http.StatusNotFound, rec5.Code)
+			require.Equal(t, http.StatusOK, rec5.Code)
+
+			var getResp5 map[string]any
+			require.NoError(t, json.Unmarshal(rec5.Body.Bytes(), &getResp5))
+			accessor5 := getResp5["Accessor"].(map[string]any)
+			assert.Equal(t, "PENDING_DELETION", accessor5["Status"])
 		})
 	}
 }

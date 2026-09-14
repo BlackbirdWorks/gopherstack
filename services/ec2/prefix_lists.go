@@ -11,6 +11,7 @@ import (
 func (b *InMemoryBackend) CreateManagedPrefixList(
 	name, addressFamily string,
 	maxEntries int,
+	entries []PrefixListEntry,
 ) (*ManagedPrefixList, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: PrefixListName is required", ErrInvalidParameter)
@@ -32,6 +33,7 @@ func (b *InMemoryBackend) CreateManagedPrefixList(
 		MaxEntries:     maxEntries,
 		Version:        1,
 		OwnerID:        b.AccountID,
+		Entries:        entries,
 	}
 	b.managedPrefixLists.Put(pl)
 

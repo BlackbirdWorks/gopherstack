@@ -150,9 +150,9 @@ func (h *Handler) handleBatchUpdateMemberEc2DeepInspectionStatus(c *echo.Context
 	updates := make([]*MemberEc2DeepInspectionStatus, 0, len(req.AccountIDs))
 
 	for _, a := range req.AccountIDs {
-		status := statusDisabled
+		status := ec2DeepInspectionStatusDeactivated
 		if a.ActivateDeepInspection {
-			status = statusEnabled
+			status = ec2DeepInspectionStatusActivated
 		}
 
 		updates = append(updates, &MemberEc2DeepInspectionStatus{

@@ -305,7 +305,13 @@ func (h *Handler) handlePackageSubResourceRoutes(
 		if err != nil {
 			history = []*PackageVersionHistory{}
 		}
-		h.writeJSON(r, w, map[string]any{"PackageVersionHistoryList": history})
+		// PackageID is a real GetPackageVersionHistoryOutput member
+		// (deserializers.go:9816-9823, awsRestjson1_deserializeOpDocumentGetPackageVersionHistoryOutput)
+		// that was previously never echoed.
+		h.writeJSON(r, w, map[string]any{
+			"PackageID":                 pkgID,
+			"PackageVersionHistoryList": history,
+		})
 
 		return true
 	// GET /packages/{packageId}/domains → ListDomainsForPackage

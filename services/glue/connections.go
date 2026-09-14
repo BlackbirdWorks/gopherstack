@@ -1,6 +1,7 @@
 package glue
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -31,6 +32,7 @@ func cloneConnection(c *Connection) *Connection {
 type ConnectionOptions struct {
 	PhysicalConnectionRequirements *PhysicalConnectionRequirements
 	Description                    string
+	CatalogID                      string
 	MatchCriteria                  []string
 }
 
@@ -100,6 +102,13 @@ func (b *InMemoryBackend) CreateConnectionWithOptions(
 		return nil, ErrAlreadyExists
 	}
 
+	if b.connections.Len() >= b.limits.connections {
+		return nil, fmt.Errorf(
+			"%w: account is already at the %d connection limit",
+			ErrResourceNumberLimitExceeded, b.limits.connections,
+		)
+	}
+
 	now := float64(time.Now().Unix())
 	c := &Connection{
 		Name:                           name,
@@ -112,6 +121,7 @@ func (b *InMemoryBackend) CreateConnectionWithOptions(
 		Description:                    opts.Description,
 		MatchCriteria:                  append([]string(nil), opts.MatchCriteria...),
 		PhysicalConnectionRequirements: opts.PhysicalConnectionRequirements,
+		CatalogID:                      b.resolveCatalogID(opts.CatalogID),
 	}
 	b.connections.Put(c)
 

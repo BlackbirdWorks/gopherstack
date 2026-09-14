@@ -171,7 +171,13 @@ func (b *InMemoryBackend) GetAccessKeyLastUsed(accessKeyID string) (*AccessKeyLa
 		result.ServiceName = ak.LastUsedServiceName
 		result.Region = ak.LastUsedRegion
 	} else {
-		result.LastUsedDate = notApplicable
+		// LastUsedDate is Timestamp-typed on the real wire
+		// (types.AccessKeyLastUsed.LastUsedDate *time.Time,
+		// aws-sdk-go-v2/service/iam@v1.63.0 types/types.go:164) and must be
+		// absent, not the literal string "N/A" -- only Region/ServiceName
+		// (both *string) use "N/A" as a real sentinel value. A literal "N/A"
+		// here made every real client's decode fail outright since it is
+		// not a valid timestamp.
 		result.ServiceName = notApplicable
 		result.Region = notApplicable
 	}

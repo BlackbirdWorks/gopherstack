@@ -162,8 +162,20 @@ func (h *Handler) handleDescribeLaunchTemplates(vals url.Values, reqID string) (
 				templates = append(templates, t)
 			}
 		}
+
+		if err := requireAllIDsPresent(
+			ids, templates, func(t *LaunchTemplate) string { return t.ID }, ErrLaunchTemplateNotFound,
+		); err != nil {
+			return nil, err
+		}
 	default:
 		templates = h.Backend.DescribeLaunchTemplates(names)
+
+		if err := requireAllIDsPresent(
+			names, templates, func(t *LaunchTemplate) string { return t.Name }, ErrLaunchTemplateNameNotFound,
+		); err != nil {
+			return nil, err
+		}
 	}
 
 	items := make([]launchTemplateItem, 0, len(templates))

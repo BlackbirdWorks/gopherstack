@@ -221,9 +221,12 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 		LastModifiedTime string            `xml:"LastModifiedTime"`
 		IPCount          int32             `xml:"IpCount"`
 	}
+	// Marker is required on AnycastIpListCollection (cloudfront@v1.67.4 types/types.go:221-226):
+	// the echo of the request's Marker, present even when empty/not truncated.
 	type ailList struct {
 		XMLName     xml.Name     `xml:"AnycastIpLists"`
 		XMLNS       string       `xml:"xmlns,attr"`
+		Marker      string       `xml:"Marker"`
 		NextMarker  string       `xml:"NextMarker,omitempty"`
 		Items       []ailSummary `xml:"Items>AnycastIpListSummary"`
 		MaxItems    int          `xml:"MaxItems"`
@@ -249,7 +252,7 @@ func (h *Handler) handleListAnycastIPLists(c *echo.Context) error {
 		summaries = append(summaries, s)
 	}
 	list := ailList{
-		XMLNS: cfNS, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
+		XMLNS: cfNS, Marker: marker, MaxItems: pageSize, Quantity: len(summaries), Items: summaries,
 		IsTruncated: isTruncated, NextMarker: nextMarker,
 	}
 	out, xmlErr := xml.Marshal(list)

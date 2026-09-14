@@ -42,6 +42,15 @@ func (h *Handler) handleCreateInferenceExperiment(ctx context.Context, body []by
 		return nil, fmt.Errorf("%w: Name is required", errInvalidRequest)
 	}
 
+	// Type is "This member is required" on CreateInferenceExperimentInput
+	// (api_op_CreateInferenceExperiment.go:87-88) and on
+	// DescribeInferenceExperimentOutput -- previously unvalidated, so a
+	// request omitting it would have stored an experiment whose Describe
+	// response silently dropped the required member.
+	if req.Type == "" {
+		return nil, fmt.Errorf("%w: Type is required", errInvalidRequest)
+	}
+
 	result, err := h.Backend.CreateInferenceExperiment(ctx, CreateInferenceExperimentOptions{
 		Name:              req.Name,
 		Type:              req.Type,

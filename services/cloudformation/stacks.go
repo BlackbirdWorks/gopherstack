@@ -44,9 +44,10 @@ func (b *InMemoryBackend) CreateNestedStack(
 	ctx context.Context,
 	name, _ /* templateURL */, templateBody string,
 	params []Parameter,
+	parentID string,
 ) (string, error) {
 	// Lock already held by parent CreateStack — use the no-lock variant.
-	stack, err := b.createStackLocked(ctx, name, templateBody, params, StackOptions{}, "")
+	stack, err := b.createStackLocked(ctx, name, templateBody, params, StackOptions{}, parentID)
 	if err != nil {
 		return "", err
 	}
@@ -283,6 +284,19 @@ func (b *InMemoryBackend) createStackLocked(
 		ParentID:              parentID,
 	}
 
+	// RootId is the top of the parent chain, not the immediate parent: if the
+	// parent is itself nested, inherit its RootID; otherwise the parent IS
+	// the root.
+	if parentID != "" {
+		if parent, ok := b.resolveStack(parentID); ok {
+			if parent.RootID != "" {
+				stack.RootID = parent.RootID
+			} else {
+				stack.RootID = parent.StackID
+			}
+		}
+	}
+
 	b.stacks.Put(stack)
 	b.stackIDIndex[arn] = name
 	b.events[arn] = nil
@@ -446,6 +460,11 @@ func (b *InMemoryBackend) provisionResources(
 	// Inject stack metadata for custom resource event payloads.
 	physicalIDs["_StackId"] = arn
 	physicalIDs["_StackName"] = name
+
+	// Lets a nested AWS::CloudFormation::Stack resource created below learn
+	// its ParentId (gopherstack-pbv1) without widening ResourceCreator.Create's
+	// signature.
+	ctx = parentStackIDKey.Set(ctx, stack.StackID)
 
 	ordered := topoSortResources(tmpl.Resources)
 
@@ -884,6 +903,7 @@ func (b *InMemoryBackend) createUpdateResource(
 	resolvedParams, physicalIDs map[string]string,
 ) (string, error) {
 	b.addEvent(stack.StackID, stack.StackName, logicalID, "", res.Type, statusCreateInProgress, "")
+	ctx = parentStackIDKey.Set(ctx, stack.StackID)
 	physicalID, cerr := b.creator.Create(
 		ctx,
 		logicalID,

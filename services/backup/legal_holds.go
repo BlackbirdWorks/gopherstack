@@ -64,8 +64,10 @@ func (b *InMemoryBackend) GetLegalHold(legalHoldID string) (*LegalHold, error) {
 	return lh, nil
 }
 
-// ListLegalHolds returns all legal holds.
-func (b *InMemoryBackend) ListLegalHolds() []*LegalHold {
+// ListLegalHolds returns legal holds, paginated by MaxResults/NextToken
+// (real query params, ListLegalHolds serializers.go:6055-6061 -- lowercase
+// "maxResults"/"nextToken" on the wire).
+func (b *InMemoryBackend) ListLegalHolds(maxResults int, nextToken string) ([]*LegalHold, string) {
 	b.mu.RLock("ListLegalHolds")
 	defer b.mu.RUnlock()
 
@@ -77,5 +79,5 @@ func (b *InMemoryBackend) ListLegalHolds() []*LegalHold {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LegalHoldID < out[j].LegalHoldID })
 
-	return out
+	return paginateByID(out, func(lh *LegalHold) string { return lh.LegalHoldID }, maxResults, nextToken)
 }

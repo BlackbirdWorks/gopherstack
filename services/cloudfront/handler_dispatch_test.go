@@ -105,7 +105,7 @@ func TestNewDispatchRefactoring(t *testing.T) {
 			method: http.MethodGet,
 			setup: func(t *testing.T, h *cloudfront.Handler) string {
 				t.Helper()
-				p, err := h.Backend.CreateFieldLevelEncryptionProfile("route-fle-profile", "comment", nil)
+				p, err := h.Backend.CreateFieldLevelEncryptionProfile("", "route-fle-profile", "comment", nil)
 				require.NoError(t, err)
 
 				return "/2020-05-31/field-level-encryption-profile/" + p.ID

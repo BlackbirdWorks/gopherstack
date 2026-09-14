@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// SetNowFunc replaces the backend's time provider with fn, for deterministic
+// testing of FIFO throughput rate limiting without real sleeps.
+func SetNowFunc(b *InMemoryBackend, fn func() time.Time) {
+	b.nowFunc = fn
+}
+
 // DedupMapLen returns the number of entries currently in the deduplication map
 // for the named FIFO queue. Used only in tests.
 func (b *InMemoryBackend) DedupMapLen(queueName string) int {

@@ -1,6 +1,10 @@
 package rds
 
-import "fmt"
+import (
+	"fmt"
+	"net/url"
+	"slices"
+)
 
 // CreateDBClusterEndpoint creates a custom endpoint for the given cluster.
 func (b *InMemoryBackend) CreateDBClusterEndpoint(
@@ -69,8 +73,86 @@ func (b *InMemoryBackend) DescribeDBClusterEndpoints(clusterID, endpointID strin
 		}
 		result = append(result, *ep)
 	}
+	slices.SortFunc(result, func(a, b DBClusterEndpoint) int {
+		if a.DBClusterEndpointIdentifier < b.DBClusterEndpointIdentifier {
+			return -1
+		}
+		if a.DBClusterEndpointIdentifier > b.DBClusterEndpointIdentifier {
+			return 1
+		}
+
+		return 0
+	})
 
 	return result, nil
+}
+
+// isKnownDBClusterEndpointFilterName reports whether name is a
+// Filters.Filter.N.Name value AWS recognizes for DescribeDBClusterEndpoints
+// (rds@v1.124.1 api_op_DescribeDBClusterEndpoints.go:41-50).
+// "db-cluster-endpoint-custom-type" is accepted (to avoid rejecting an
+// otherwise-valid client request) but this backend doesn't model a custom
+// endpoint's reader/any sub-type separately from EndpointType, so it is not
+// implemented as a match predicate, matching the existing DescribeDBInstances
+// "domain" precedent (db_instances.go).
+func isKnownDBClusterEndpointFilterName(name string) bool {
+	switch name {
+	case filterNameDBClusterEndpointType, filterNameDBClusterEndpointCustomType,
+		filterNameDBClusterEndpointID, filterNameDBClusterEndpointStatus:
+		return true
+	default:
+		return false
+	}
+}
+
+// applyDBClusterEndpointFilters narrows endpoints per the AWS
+// DescribeDBClusterEndpoints Filters contract: each filter ANDs together,
+// and a filter's Values list is OR-matched against the corresponding
+// endpoint field. An unrecognized filter name returns InvalidParameterValue,
+// matching real AWS.
+func applyDBClusterEndpointFilters(vals url.Values, endpoints []DBClusterEndpoint) ([]DBClusterEndpoint, error) {
+	filters := parseDescribeFilters(vals)
+	if len(filters) == 0 {
+		return endpoints, nil
+	}
+
+	for name := range filters {
+		if !isKnownDBClusterEndpointFilterName(name) {
+			return nil, fmt.Errorf("%w: Unrecognized filter name: %s", ErrInvalidParameter, name)
+		}
+	}
+
+	filtered := make([]DBClusterEndpoint, 0, len(endpoints))
+	for _, ep := range endpoints {
+		if matchesAllDBClusterEndpointFilters(ep, filters) {
+			filtered = append(filtered, ep)
+		}
+	}
+
+	return filtered, nil
+}
+
+func matchesAllDBClusterEndpointFilters(ep DBClusterEndpoint, filters map[string][]string) bool {
+	for name, values := range filters {
+		switch name {
+		case filterNameDBClusterEndpointType:
+			if !slices.Contains(values, ep.EndpointType) {
+				return false
+			}
+		case filterNameDBClusterEndpointID:
+			if !slices.Contains(values, ep.DBClusterEndpointIdentifier) {
+				return false
+			}
+		case filterNameDBClusterEndpointStatus:
+			if !slices.Contains(values, ep.Status) {
+				return false
+			}
+		case filterNameDBClusterEndpointCustomType:
+			// Not modeled; accept unconditionally.
+		}
+	}
+
+	return true
 }
 
 // DeleteDBClusterEndpoint removes the given custom cluster endpoint.

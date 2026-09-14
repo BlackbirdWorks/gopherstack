@@ -207,10 +207,11 @@ func (b *InMemoryBackend) GetFolderFiles(repoName, _ /* commitSpecifier */, fold
 // entirely: the resulting commit always got a synthetic "Delete <path>"
 // message and no author/committer identity.
 type DeleteFileMetadata struct {
-	ParentCommitID string
-	AuthorName     string
-	AuthorEmail    string
-	CommitMessage  string
+	ParentCommitID   string
+	AuthorName       string
+	AuthorEmail      string
+	CommitMessage    string
+	KeepEmptyFolders bool
 }
 
 // DeleteFile removes a file and creates a delete commit. It returns the new
@@ -293,6 +294,7 @@ func (b *InMemoryBackend) DeleteFile(
 	}
 	b.commits.Put(commit)
 	b.recordFileHistory(repoName, filePath, commitID, blobID)
+	b.keepEmptyFoldersLocked(repoName, commitID, []string{filePath}, meta.KeepEmptyFolders)
 
 	// Update branch tip
 	if branchName != "" {

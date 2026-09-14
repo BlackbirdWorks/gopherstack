@@ -337,7 +337,20 @@ func validSuppressionTypes() map[string]bool {
 // that has no wire representation at all), so a real client ending a
 // suppression by omitting suppressionType was incorrectly marked as newly
 // suppressed instead.
-func applyAnomalySuppression(a *Anomaly, suppressionType string) {
+// applyAnomalySuppression mutates a per UpdateAnomaly's semantics. baseline
+// (api_op_UpdateAnomaly.go: "the behavior is then treated as baseline
+// behavior") takes State straight to Baseline regardless of suppressionType.
+func applyAnomalySuppression(a *Anomaly, suppressionType string, baseline bool) {
+	if baseline {
+		a.State = AnomalyStateBaseline
+		suppressed := false
+		a.Suppressed = &suppressed
+		a.SuppressedDate = 0
+		a.SuppressedUntil = 0
+
+		return
+	}
+
 	if suppressionType == "" {
 		a.State = AnomalyStateActive
 		suppressed := false
@@ -362,6 +375,7 @@ func applyAnomalySuppression(a *Anomaly, suppressionType string) {
 // parameters in the same operation." (api_op_UpdateAnomaly.go:12-19).
 func (b *InMemoryBackend) UpdateAnomaly(
 	anomalyID, anomalyDetectorArn, suppressionType, patternID string,
+	baseline bool,
 ) error {
 	if anomalyDetectorArn == "" {
 		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
@@ -394,7 +408,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 
 		for _, a := range b.anomalyByDetector.Get(anomalyDetectorArn) {
 			if a.PatternID == patternID {
-				applyAnomalySuppression(a, suppressionType)
+				applyAnomalySuppression(a, suppressionType, baseline)
 
 				matched = true
 			}
@@ -422,7 +436,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
-	applyAnomalySuppression(anomaly, suppressionType)
+	applyAnomalySuppression(anomaly, suppressionType, baseline)
 
 	return nil
 }

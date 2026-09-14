@@ -20,7 +20,7 @@ func TestDescribeReservedInstances_Tags_RealClient(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 	b.SeedReservedInstancesOffering(
-		"rio-g8k9-001", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", 94608000, 500.0, 0.0,
+		"rio-g8k9-001", "t3.medium", "us-east-1a", "Linux/UNIX", "All Upfront", "standard", 94608000, 500.0, 0.0,
 	)
 	h := ec2.NewHandler(b)
 	client := newTestEC2Client(t, h)

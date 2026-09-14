@@ -77,6 +77,14 @@ const (
 	crlTypePartitioned = "PARTITIONED"
 )
 
+// crlExpirationMinDays/crlExpirationMaxDays are CrlConfiguration.ExpirationInDays's
+// documented Valid Range (API_CrlConfiguration.html: "Minimum value of 1.
+// Maximum value of 5000.").
+const (
+	crlExpirationMinDays = 1
+	crlExpirationMaxDays = 5000
+)
+
 // S3ObjectACL values, mirroring types.S3ObjectAcl.
 const (
 	s3ObjectACLPublicRead  = "PUBLIC_READ"
@@ -136,19 +144,37 @@ type RevocationConfiguration struct {
 }
 
 // APIPassthroughSubject overrides the CSR-derived certificate subject with
-// explicit X.500 attributes, mirroring the commonly-used fields of
-// aws-sdk-go-v2 types.ASN1Subject. The exotic RDN types (DistinguishedNameQualifier,
-// GenerationQualifier, Initials, Pseudonym, Surname, Title, CustomAttributes) are
-// intentionally not modeled -- see decodeASN1Subject in handler_certificates.go,
-// which rejects them explicitly rather than silently dropping them.
+// explicit X.500 attributes, mirroring every field of aws-sdk-go-v2
+// types.ASN1Subject. The exotic RDN types (DistinguishedNameQualifier,
+// GenerationQualifier, GivenName, Initials, Pseudonym, Surname, Title,
+// CustomAttributes) are carried through pkix.Name.ExtraNames -- see
+// apiPassthroughSubjectToPKIX in crypto.go -- using the RFC 5280 Appendix
+// A.1 / RFC 4519 OIDs (pseudonym 2.5.4.65, generationQualifier 2.5.4.44,
+// dnQualifier 2.5.4.46, title 2.5.4.12, initials 2.5.4.43, givenName
+// 2.5.4.42, surname 2.5.4.4).
 type APIPassthroughSubject struct {
-	CommonName         string
-	Country            string
-	Organization       string
-	OrganizationalUnit string
-	State              string
-	Locality           string
-	SerialNumber       string
+	CommonName                 string
+	Country                    string
+	Organization               string
+	OrganizationalUnit         string
+	State                      string
+	Locality                   string
+	SerialNumber               string
+	DistinguishedNameQualifier string
+	GenerationQualifier        string
+	GivenName                  string
+	Initials                   string
+	Pseudonym                  string
+	Surname                    string
+	Title                      string
+	CustomAttributes           []APIPassthroughCustomAttribute
+}
+
+// APIPassthroughCustomAttribute mirrors aws-sdk-go-v2 types.CustomAttribute:
+// an arbitrary X.500 relative distinguished name identified by OID.
+type APIPassthroughCustomAttribute struct {
+	ObjectIdentifier string
+	Value            string
 }
 
 // APIPassthroughKeyUsage mirrors aws-sdk-go-v2 types.KeyUsage.
@@ -172,16 +198,46 @@ type APIPassthroughExtendedKeyUsage struct {
 	ObjectIdentifier string
 }
 
-// APIPassthroughSAN mirrors the DnsName/IpAddress/Rfc822Name variants of
-// aws-sdk-go-v2 types.GeneralName -- the three SubjectAlternativeNames variants
-// Terraform's aws_acmpca_certificate resource exposes. The remaining GeneralName
-// variants (OtherName, DirectoryName, EdiPartyName, UniformResourceIdentifier,
-// RegisteredId) are intentionally not modeled -- see decodeGeneralName in
-// handler_certificates.go, which rejects them explicitly.
+// APIPassthroughSAN mirrors aws-sdk-go-v2 types.GeneralName: exactly one
+// field is set per RFC 5280's GeneralName CHOICE (enforced by
+// decodeGeneralName in handler_certificates.go, which also enforces the
+// SDK's documented "Providing more than one option results in an
+// InvalidArgsException" rule). DnsName/IpAddress/Rfc822Name/
+// UniformResourceIdentifier map directly to x509.Certificate's standard SAN
+// fields when no exotic variant is present in the same request; OtherName,
+// DirectoryName, EdiPartyName, and RegisteredId require a hand-built
+// subjectAltName extension -- see applySubjectAlternativeNames in crypto.go.
 type APIPassthroughSAN struct {
-	DNSName      string
-	IPAddress    string
-	EmailAddress string
+	OtherName                 *APIPassthroughOtherName
+	DirectoryName             *APIPassthroughSubject
+	EdiPartyName              *APIPassthroughEdiPartyName
+	DNSName                   string
+	IPAddress                 string
+	EmailAddress              string
+	UniformResourceIdentifier string
+	RegisteredID              string
+}
+
+// APIPassthroughOtherName mirrors aws-sdk-go-v2 types.OtherName: an
+// arbitrary-OID GeneralName variant (OtherName ::= SEQUENCE { type-id OBJECT
+// IDENTIFIER, value [0] EXPLICIT ANY DEFINED BY type-id }, RFC 5280 §4.2.1.6).
+// Neither the SDK doc comment nor RFC 5280 fixes an ASN.1 type for the
+// type-id-defined value; gopherstack encodes it as a UTF8String -- a design
+// choice, not a verified SDK/RFC fact.
+type APIPassthroughOtherName struct {
+	TypeID string
+	Value  string
+}
+
+// APIPassthroughEdiPartyName mirrors aws-sdk-go-v2 types.EdiPartyName
+// (EDIPartyName ::= SEQUENCE { nameAssigner [0] DirectoryString OPTIONAL,
+// partyName [1] DirectoryString }, RFC 5280 §4.2.1.6). Both fields are
+// EXPLICITly tagged: DirectoryString is itself a CHOICE, and X.680 forbids
+// IMPLICIT tagging of a CHOICE type even under this module's default
+// IMPLICIT tagging environment.
+type APIPassthroughEdiPartyName struct {
+	PartyName    string
+	NameAssigner string
 }
 
 // APIPassthroughCustomExtension mirrors aws-sdk-go-v2 types.CustomExtension: an
@@ -194,14 +250,27 @@ type APIPassthroughCustomExtension struct {
 }
 
 // APIPassthroughExtensions mirrors aws-sdk-go-v2 types.Extensions.
-// CertificatePolicies is intentionally not modeled -- see decodeExtensions in
-// handler_certificates.go, which rejects it explicitly (OID/PolicyQualifier
-// ASN.1 encoding not implemented; PARITY.md tracks this as still-open).
 type APIPassthroughExtensions struct {
 	KeyUsage                *APIPassthroughKeyUsage
+	CertificatePolicies     []APIPassthroughPolicyInformation
 	ExtendedKeyUsage        []APIPassthroughExtendedKeyUsage
 	SubjectAlternativeNames []APIPassthroughSAN
 	CustomExtensions        []APIPassthroughCustomExtension
+}
+
+// APIPassthroughPolicyInformation mirrors aws-sdk-go-v2 types.PolicyInformation:
+// the X.509 certificatePolicies extension (RFC 5280 §4.2.1.4, OID 2.5.29.32).
+type APIPassthroughPolicyInformation struct {
+	CertPolicyID string
+	Qualifiers   []APIPassthroughPolicyQualifier
+}
+
+// APIPassthroughPolicyQualifier mirrors aws-sdk-go-v2 types.Qualifier. Amazon
+// Web Services Private CA supports only the certification practice statement
+// (CPS) qualifier -- types.PolicyQualifierId's only enum value is "CPS"
+// (verified via acmpca/types/enums.go).
+type APIPassthroughPolicyQualifier struct {
+	CPSURI string
 }
 
 // APIPassthrough mirrors aws-sdk-go-v2 types.APIPassthrough: the subject and

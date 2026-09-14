@@ -22,21 +22,43 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 
 	b := appstream.NewInMemoryBackend("000000000000", "us-east-1")
 
-	_, err := b.CreateStack("stack1", "Stack One", "a stack", map[string]string{"env": "test"})
+	_, err := b.CreateStack("stack1", appstream.CreateStackOptions{
+		DisplayName: "Stack One",
+		Description: "a stack",
+		Tags:        map[string]string{"env": "test"},
+		RedirectURL: "https://example.com/redirect",
+		UserSettings: []appstream.UserSetting{
+			{Action: "CLIPBOARD_COPY_TO_LOCAL_DEVICE", Permission: "ENABLED"},
+		},
+	})
 	require.NoError(t, err)
 
-	_, err = b.CreateFleet(
-		"fleet1", "Fleet One", "a fleet", "stream.standard.medium", "ON_DEMAND", "image1", "",
-		1, 0, 0, 0, nil, map[string]string{"k": "v"},
-	)
+	_, err = b.CreateFleet("fleet1", appstream.CreateFleetOptions{
+		DisplayName:      "Fleet One",
+		Description:      "a fleet",
+		InstanceType:     "stream.standard.medium",
+		FleetType:        "ON_DEMAND",
+		ImageName:        "image1",
+		VpcConfig:        appstream.VpcConfig{SubnetIDs: []string{"subnet-1"}},
+		DesiredInstances: 1,
+		Tags:             map[string]string{"k": "v"},
+	})
 	require.NoError(t, err)
 
 	require.NoError(t, b.AssociateFleet("fleet1", "stack1"))
 
-	_, err = b.CreateAppBlock("appblock1", "an app block", map[string]string{"a": "b"})
+	_, err = b.CreateAppBlock("appblock1", "an app block", appstream.CreateAppBlockOptions{
+		SourceS3Location: appstream.S3Location{S3Bucket: "appblock-bucket", S3Key: "appblock.zip"},
+		Tags:             map[string]string{"a": "b"},
+	})
 	require.NoError(t, err)
 
-	_, err = b.CreateAppBlockBuilder("builder1", "a builder", "WINDOWS", "stream.standard.medium", nil)
+	_, err = b.CreateAppBlockBuilder(
+		"builder1", "a builder", "WINDOWS", "stream.standard.medium",
+		appstream.VpcConfig{SecurityGroupIDs: []string{"sg-1"}, SubnetIDs: []string{"subnet-1", "subnet-2"}},
+		nil,
+		nil,
+	)
 	require.NoError(t, err)
 
 	_, err = b.AssociateAppBlockBuilderAppBlock("builder1", "appblock1")
@@ -45,7 +67,7 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 	_, err = b.CreateApplication(
 		"app1", "App One", "an app", "C:\\app.exe", "", []string{"WINDOWS"},
 		appstream.S3Location{S3Bucket: "icon-bucket", S3Key: "icons/app1.png"},
-		[]string{"GENERAL_PURPOSE"}, nil,
+		[]string{"GENERAL_PURPOSE"}, nil, "--verbose", "C:\\",
 	)
 	require.NoError(t, err)
 
@@ -68,7 +90,10 @@ func newPersistenceTestBackend(t *testing.T) *appstream.InMemoryBackend {
 
 	require.NoError(t, b.UpdateImagePermissions("image1", "111111111111", true, false))
 
-	_, err = b.CreateImageBuilder("imgbuilder1", "an image builder", "WINDOWS", "stream.standard.medium", nil)
+	_, err = b.CreateImageBuilder(
+		"imgbuilder1", "an image builder", "WINDOWS", "stream.standard.medium",
+		appstream.CreateImageBuilderOptions{VpcConfig: appstream.VpcConfig{SubnetIDs: []string{"subnet-1"}}},
+	)
 	require.NoError(t, err)
 
 	require.NoError(t, b.AssociateSoftwareToImageBuilder("imgbuilder1", []string{"sw1"}))
@@ -135,19 +160,29 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	require.NoError(t, err)
 	require.Len(t, stacks, 1)
 	assert.Equal(t, "test", stacks[0].Tags["env"])
+	assert.Equal(t, "https://example.com/redirect", stacks[0].RedirectURL,
+		"RedirectURL must survive Snapshot/Restore")
+	require.Len(t, stacks[0].UserSettings, 1)
+	assert.Equal(t, "CLIPBOARD_COPY_TO_LOCAL_DEVICE", stacks[0].UserSettings[0].Action)
 
 	fleets, err := fresh.DescribeFleets([]string{"fleet1"})
 	require.NoError(t, err)
 	require.Len(t, fleets, 1)
 	assert.Equal(t, "v", fleets[0].Tags["k"])
+	assert.Equal(t, []string{"subnet-1"}, fleets[0].VpcConfig.SubnetIDs,
+		"Fleet.VpcConfig must survive Snapshot/Restore")
 
 	appBlocks, err := fresh.DescribeAppBlocks([]string{"appblock1"})
 	require.NoError(t, err)
 	require.Len(t, appBlocks, 1)
+	assert.Equal(t, "appblock-bucket", appBlocks[0].SourceS3Location.S3Bucket,
+		"AppBlock.SourceS3Location must survive Snapshot/Restore")
 
 	builders, err := fresh.DescribeAppBlockBuilders([]string{"builder1"})
 	require.NoError(t, err)
 	require.Len(t, builders, 1)
+	assert.Equal(t, []string{"sg-1"}, builders[0].VpcConfig.SecurityGroupIDs)
+	assert.Equal(t, []string{"subnet-1", "subnet-2"}, builders[0].VpcConfig.SubnetIDs)
 
 	apps, err := fresh.DescribeApplications([]string{"app1"})
 	require.NoError(t, err)
@@ -155,6 +190,10 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	assert.Equal(t, "icon-bucket", apps[0].IconS3Location.S3Bucket)
 	assert.Equal(t, "icons/app1.png", apps[0].IconS3Location.S3Key)
 	assert.Equal(t, []string{"GENERAL_PURPOSE"}, apps[0].InstanceFamilies)
+	assert.Equal(t, "--verbose", apps[0].LaunchParameters,
+		"Application.LaunchParameters must survive Snapshot/Restore")
+	assert.Equal(t, "C:\\", apps[0].WorkingDirectory)
+	assert.True(t, apps[0].Enabled)
 
 	dirConfigs, err := fresh.DescribeDirectoryConfigs([]string{"dir1"})
 	require.NoError(t, err)
@@ -168,6 +207,8 @@ func assertRestoredCoreTables(t *testing.T, fresh *appstream.InMemoryBackend) {
 	imgBuilders, err := fresh.DescribeImageBuilders([]string{"imgbuilder1"})
 	require.NoError(t, err)
 	require.Len(t, imgBuilders, 1)
+	assert.Equal(t, []string{"subnet-1"}, imgBuilders[0].VpcConfig.SubnetIDs,
+		"ImageBuilder.VpcConfig must survive Snapshot/Restore")
 
 	users, err := fresh.DescribeUsers("USERPOOL")
 	require.NoError(t, err)
@@ -253,7 +294,7 @@ func assertRestoredCountersAndScalar(t *testing.T, fresh *appstream.InMemoryBack
 	require.Len(t, tasks, 1)
 	assert.Equal(t, "export-task-00001", tasks[0].TaskID)
 
-	sessions, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "")
+	sessions, _, err := fresh.DescribeSessions("stack1", "fleet1", "user1", "", 0, "")
 	require.NoError(t, err)
 	require.Len(t, sessions, 1)
 	assert.Equal(t, "session-0000000001", sessions[0].ID)

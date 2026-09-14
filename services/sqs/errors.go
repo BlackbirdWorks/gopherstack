@@ -54,6 +54,12 @@ var (
 	// ErrOverLimit is returned when an operation would exceed an AWS-imposed quota
 	// (e.g. too many in-flight messages, too many permissions, too many queues).
 	ErrOverLimit = errors.New("OverLimit")
+	// ErrRequestThrottled is returned when a FIFO queue's send rate exceeds the
+	// AWS-documented throughput quota for its FifoThroughputLimit setting
+	// (aws-sdk-go-v2/service/sqs@v1.51.0 types/errors.go:1141-1151:
+	// "The request was denied due to request throttling. Exceeds the permitted
+	// request rate for the queue... see Amazon SQS quotas").
+	ErrRequestThrottled = errors.New("RequestThrottled")
 	// ErrBatchRequestTooLong is returned when SendMessageBatch's combined payload
 	// (bodies + attribute names/types/values) exceeds the per-batch byte limit
 	// (matches the per-queue MaximumMessageSize, default 256 KiB).

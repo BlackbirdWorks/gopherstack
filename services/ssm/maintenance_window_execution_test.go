@@ -99,7 +99,7 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, win.WindowID, out.WindowID)
 			assert.Equal(t, execID, out.WindowExecutionID)
-			assert.Equal(t, "Success", out.Status)
+			assert.Equal(t, "SUCCESS", out.Status)
 			assert.NotEmpty(t, out.StatusDetails)
 			assert.NotZero(t, out.StartTime, "StartTime must be populated")
 			assert.NotZero(t, out.EndTime, "EndTime must be populated")
@@ -112,7 +112,7 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
-			assert.Equal(t, "Success", taskOut.Status)
+			assert.Equal(t, "SUCCESS", taskOut.Status)
 			assert.NotEmpty(t, taskOut.StatusDetails)
 			assert.NotZero(t, taskOut.StartTime)
 
@@ -125,7 +125,7 @@ func TestGetMaintenanceWindowExecution_FullOutput(t *testing.T) {
 				},
 			)
 			require.NoError(t, err)
-			assert.Equal(t, "Success", invOut.Status)
+			assert.Equal(t, "SUCCESS", invOut.Status)
 			assert.NotZero(t, invOut.StartTime)
 		})
 	}
@@ -218,7 +218,7 @@ func TestDescribeMaintenanceWindowExecutions(t *testing.T) {
 			for _, exec := range out.WindowExecutions {
 				assert.Equal(t, wid, exec.WindowID)
 				assert.NotEmpty(t, exec.WindowExecutionID)
-				assert.Equal(t, "Success", exec.Status)
+				assert.Equal(t, "SUCCESS", exec.Status)
 			}
 		})
 	}
@@ -290,7 +290,7 @@ func TestDescribeMaintenanceWindowExecutionTasks(t *testing.T) {
 				assert.Equal(t, execID, task.WindowExecutionID)
 				assert.NotEmpty(t, task.TaskExecutionID)
 				assert.NotEmpty(t, task.TaskARN)
-				assert.Equal(t, "Success", task.Status)
+				assert.Equal(t, "SUCCESS", task.Status)
 			}
 		})
 	}
@@ -344,7 +344,7 @@ func TestDescribeMaintenanceWindowExecutionTaskInvocations(t *testing.T) {
 				assert.Equal(t, tc.execID, inv.WindowExecutionID)
 				assert.Equal(t, tc.taskID, inv.TaskExecutionID)
 				assert.NotEmpty(t, inv.InvocationID)
-				assert.Equal(t, "Success", inv.Status)
+				assert.Equal(t, "SUCCESS", inv.Status)
 			}
 		})
 	}

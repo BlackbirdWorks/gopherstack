@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 
@@ -430,17 +431,90 @@ type filterEntry struct {
 	Values []string `json:"Values"`
 }
 
-// extractFilterValue searches filters for the first matching name and returns the first value.
-func extractFilterValue(filters []filterEntry, names ...string) string {
+// DescribeFilters is the parsed Filters value every dms Describe* backend
+// method matches candidates against: filter name -> the set of values a
+// matching resource may equal. types.Filter's doc (databasemigrationservice
+// @v1.66.4 types/types.go) says Values "can specify one or more values used
+// to narrow the returned results" -- so a single filter OR-matches any of
+// its values, while multiple filters (distinct names) AND together (spelled
+// out explicitly on api_op_DescribeTableStatistics.go:45-46: "A combination
+// of filters creates an AND condition where each record matches all
+// specified filters"). The zero value is unconstrained (matches everything),
+// exactly like a request with no Filters at all.
+//
+// DMS declares no InvalidParameterValueException-shaped fault anywhere in
+// its error set (databasemigrationservice@v1.66.4 types/errors.go lists
+// AccessDeniedFault, CollectorNotFoundFault, FailedDependencyFault,
+// InsufficientResourceCapacityFault, InvalidCertificateFault,
+// InvalidOperationFault, InvalidResourceStateFault, InvalidSubnet, the KMS*
+// faults, ResourceAlreadyExistsFault, ResourceNotFoundFault,
+// ResourceQuotaExceededFault, the S3*/SNS* faults, StorageQuotaExceededFault
+// and UpgradeDependencyFailureFault -- nothing shaped like a bad-parameter
+// error), and validateFilterList (validators.go) only checks the wire
+// shape (Name/Values non-empty), never the name against a known vocabulary.
+// So an undocumented filter name is accepted and silently ignored, matching
+// real AWS's behavior for services with no such validation error: callers
+// here only ever call Matches/MatchesAny with the names their own operation
+// documents, so a name outside that set simply never narrows anything.
+type DescribeFilters struct {
+	byName map[string][]string
+}
+
+// newDescribeFilters parses a Describe* request's raw wire Filters list.
+func newDescribeFilters(filters []filterEntry) DescribeFilters {
+	byName := make(map[string][]string, len(filters))
 	for _, f := range filters {
-		for _, name := range names {
-			if f.Name == name && len(f.Values) > 0 {
-				return f.Values[0]
-			}
+		if f.Name == "" {
+			continue
+		}
+
+		byName[f.Name] = append(byName[f.Name], f.Values...)
+	}
+
+	return DescribeFilters{byName: byName}
+}
+
+// NewIdentifierFilter builds a DescribeFilters constraining field to value,
+// or the unconstrained zero value when value is "" -- for internal
+// point-lookup call sites that previously threaded a single string straight
+// into a Describe* backend method's old single-value "identifier" parameter.
+func NewIdentifierFilter(field, value string) DescribeFilters {
+	if value == "" {
+		return DescribeFilters{}
+	}
+
+	return DescribeFilters{byName: map[string][]string{field: {value}}}
+}
+
+// Values returns the values supplied for filter name, or nil if the request
+// carried no filter with that name.
+func (f DescribeFilters) Values(name string) []string {
+	return f.byName[name]
+}
+
+// MatchesAny reports whether filter name is unconstrained (absent from the
+// request) or satisfied by any of the given candidate values -- used when a
+// single documented filter name constrains more than one resource field
+// (e.g. DescribeReplicationTasks' endpoint-arn matches either a task's
+// source or target endpoint).
+func (f DescribeFilters) MatchesAny(name string, candidates ...string) bool {
+	values, ok := f.byName[name]
+	if !ok {
+		return true
+	}
+
+	for _, c := range candidates {
+		if slices.Contains(values, c) {
+			return true
 		}
 	}
 
-	return ""
+	return false
+}
+
+// Matches reports whether filter name is unconstrained or satisfied by value.
+func (f DescribeFilters) Matches(name, value string) bool {
+	return f.MatchesAny(name, value)
 }
 
 func ptrInt32(p *int32) int32 {

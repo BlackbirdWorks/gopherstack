@@ -8,7 +8,7 @@ import (
 
 // AssociateAgentCollaborator associates a collaborator agent with an agent.
 func (b *InMemoryBackend) AssociateAgentCollaborator(
-	agentID, agentVersion, collaboratorArn, relayConversation string,
+	agentID, agentVersion, agentAliasArn, collaboratorName, collaborationInstruction, relayConversation string,
 ) (*AgentCollaborator, error) {
 	b.mu.Lock("AssociateAgentCollaborator")
 	defer b.mu.Unlock()
@@ -19,14 +19,18 @@ func (b *InMemoryBackend) AssociateAgentCollaborator(
 
 	b.agentCollabCounter++
 	collabID := fmt.Sprintf("collab-%08d", b.agentCollabCounter)
+	now := time.Now()
 
 	ac := &AgentCollaborator{
-		CreatedAt:         time.Now(),
-		CollaboratorID:    collabID,
-		AgentID:           agentID,
-		AgentVersion:      agentVersion,
-		CollaboratorArn:   collaboratorArn,
-		RelayConversation: relayConversation,
+		CreatedAt:                now,
+		LastUpdatedAt:            now,
+		CollaboratorID:           collabID,
+		AgentID:                  agentID,
+		AgentVersion:             agentVersion,
+		AgentAliasArn:            agentAliasArn,
+		CollaboratorName:         collaboratorName,
+		CollaborationInstruction: collaborationInstruction,
+		RelayConversation:        relayConversation,
 	}
 
 	b.agentCollaboratorsStore(agentID).Put(ac)
@@ -96,7 +100,7 @@ func (b *InMemoryBackend) ListAgentCollaborators(
 
 // UpdateAgentCollaborator updates an agent collaborator.
 func (b *InMemoryBackend) UpdateAgentCollaborator(
-	agentID, collaboratorID, relayConversation string,
+	agentID, collaboratorID, agentAliasArn, collaboratorName, collaborationInstruction, relayConversation string,
 ) (*AgentCollaborator, error) {
 	b.mu.Lock("UpdateAgentCollaborator")
 	defer b.mu.Unlock()
@@ -121,9 +125,23 @@ func (b *InMemoryBackend) UpdateAgentCollaborator(
 		)
 	}
 
+	if agentAliasArn != "" {
+		ac.AgentAliasArn = agentAliasArn
+	}
+
+	if collaboratorName != "" {
+		ac.CollaboratorName = collaboratorName
+	}
+
+	if collaborationInstruction != "" {
+		ac.CollaborationInstruction = collaborationInstruction
+	}
+
 	if relayConversation != "" {
 		ac.RelayConversation = relayConversation
 	}
+
+	ac.LastUpdatedAt = time.Now()
 
 	cp := *ac
 

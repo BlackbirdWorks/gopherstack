@@ -645,13 +645,19 @@ func (db *InMemoryDB) UpdateGlobalTableSettings(
 
 	name := *input.GlobalTableName
 
-	snap, exists := db.updateGlobalTableSettingsLocked(name, input)
+	snap, pending, exists := db.updateGlobalTableSettingsLocked(name, input)
 	if !exists {
 		return nil, &Error{
 			Type:    errGlobalTableNotFoundType,
 			Message: fmt.Sprintf("Global table with name %s not found", name),
 		}
 	}
+
+	// db.mu was already released by updateGlobalTableSettingsLocked's defer:
+	// this package never holds db.mu and a Table's own mu at the same time
+	// (replicaTableCapacityRLocked/getTable always fully release db.mu before
+	// acquiring table.mu), so the replica write-through happens here, after.
+	applyPendingReplicaCapacityWrites(pending)
 
 	effectiveBilling := types.BillingModePayPerRequest
 	if snap.billingMode != "" {
@@ -684,20 +690,24 @@ type globalTableSettingsSnapshot struct {
 // updateGlobalTableSettingsLocked applies the UpdateGlobalTableSettings
 // mutation and snapshots the resulting state, all under a single
 // defer-protected db.mu.Lock. Returns exists=false if the named global table
-// does not exist.
+// does not exist. The returned pending writes resolve each replica's real
+// Table pointer while db.mu is held (safe: db.tables is db.mu-guarded), but
+// callers must apply them (table.mu.Lock) only after this function returns
+// and db.mu is released -- never nest table.mu inside db.mu.
 func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 	name string,
 	input *dynamodb.UpdateGlobalTableSettingsInput,
-) (globalTableSettingsSnapshot, bool) {
+) (globalTableSettingsSnapshot, []pendingReplicaCapacityWrite, bool) {
 	db.mu.Lock("UpdateGlobalTableSettings")
 	defer db.mu.Unlock()
 
 	gt, exists := db.globalTables.Get(name)
 	if !exists {
-		return globalTableSettingsSnapshot{}, false
+		return globalTableSettingsSnapshot{}, nil, false
 	}
 
 	applyGlobalTableSettingsMutation(gt, input)
+	pending := db.collectReplicaCapacityWritesLocked(name, input.ReplicaSettingsUpdate)
 
 	replicationGroup := make([]string, len(gt.ReplicationGroup))
 	copy(replicationGroup, gt.ReplicationGroup)
@@ -709,7 +719,59 @@ func (db *InMemoryDB) updateGlobalTableSettingsLocked(
 		replicationGroup:            replicationGroup,
 		replicaSettings:             gt.ReplicaSettings,
 		gsiWriteCapacityAutoScaling: gt.GSIWriteCapacityAutoScaling,
-	}, true
+	}, pending, true
+}
+
+// pendingReplicaCapacityWrite pairs a resolved replica Table with the RCU
+// value UpdateGlobalTableSettings must write into its ProvisionedThroughput
+// once db.mu is released (see updateGlobalTableSettingsLocked).
+type pendingReplicaCapacityWrite struct {
+	table *Table
+	rcu   int64
+}
+
+// collectReplicaCapacityWritesLocked resolves each ReplicaSettingsUpdate
+// entry's ReplicaProvisionedReadCapacityUnits to its real replica Table.
+// Must be called with db.mu held (db.tables is db.mu-guarded); the returned
+// *Table pointers remain valid after db.mu is released (db.tables never
+// replaces a live Table, only mutates it under its own table.mu), so callers
+// may safely lock and write them afterward.
+func (db *InMemoryDB) collectReplicaCapacityWritesLocked(
+	tableName string, updates []types.ReplicaSettingsUpdate,
+) []pendingReplicaCapacityWrite {
+	pending := make([]pendingReplicaCapacityWrite, 0, len(updates))
+
+	for _, ru := range updates {
+		if ru.RegionName == nil || ru.ReplicaProvisionedReadCapacityUnits == nil {
+			continue
+		}
+
+		tbl, ok := db.tables.Get(tableKey(*ru.RegionName, tableName))
+		if !ok {
+			continue
+		}
+
+		pending = append(pending, pendingReplicaCapacityWrite{
+			table: tbl,
+			rcu:   *ru.ReplicaProvisionedReadCapacityUnits,
+		})
+	}
+
+	return pending
+}
+
+// applyPendingReplicaCapacityWrites writes each resolved RCU value into its
+// replica Table's ProvisionedThroughput, one table.mu.Lock at a time. Callers
+// must invoke this only after db.mu has been released -- this package never
+// holds db.mu and a Table's own mu simultaneously (see
+// replicaTableCapacityRLocked/getTable, which always fully release db.mu
+// before acquiring table.mu).
+func applyPendingReplicaCapacityWrites(pending []pendingReplicaCapacityWrite) {
+	for _, p := range pending {
+		p.table.mu.Lock("UpdateGlobalTableSettings.replicaCapacity")
+		p.table.ProvisionedThroughput.ReadCapacityUnits = int(p.rcu)
+		p.table.mu.Unlock()
+	}
 }
 
 // applyGlobalTableSettingsMutation mutates gt with billing mode, write capacity, and
@@ -884,7 +946,8 @@ func buildGlobalTableReplicaDesc(
 
 	if len(rs.GSISettings) > 0 {
 		gsiDescs := make([]types.ReplicaGlobalSecondaryIndexSettingsDescription, 0, len(rs.GSISettings))
-		for idxName, grs := range rs.GSISettings {
+		for _, idxName := range sortedGSISettingsNames(rs.GSISettings) {
+			grs := rs.GSISettings[idxName]
 			name := idxName
 			gdesc := types.ReplicaGlobalSecondaryIndexSettingsDescription{
 				IndexName:   &name,
@@ -912,6 +975,18 @@ func buildGlobalTableReplicaDesc(
 	}
 
 	return desc
+}
+
+// sortedGSISettingsNames returns m's keys in sorted order, so building a
+// slice from this map is deterministic.
+func sortedGSISettingsNames(m map[string]*StoredReplicaGSISettings) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	return names
 }
 
 func (db *InMemoryDB) replicaGSISettingsRLocked(

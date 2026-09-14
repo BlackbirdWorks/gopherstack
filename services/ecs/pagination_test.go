@@ -3,6 +3,7 @@ package ecs_test
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,22 +183,21 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			},
 		)
 		for _, service := range []string{"frontend-api", "frontend-web", "backend-jobs"} {
-			doECSRequest(
-				t,
-				h,
-				"CreateService",
-				map[string]any{
-					"cluster":        "ns-cluster",
-					"serviceName":    service,
-					"taskDefinition": "nsfam",
-				},
-			)
+			body := map[string]any{
+				"cluster":        "ns-cluster",
+				"serviceName":    service,
+				"taskDefinition": "nsfam",
+			}
+			if strings.HasPrefix(service, "frontend") {
+				body["serviceConnectConfiguration"] = map[string]any{"enabled": true, "namespace": "frontend"}
+			}
+			doECSRequest(t, h, "CreateService", body)
 		}
 		rec := doECSRequest(
 			t,
 			h,
 			"ListServicesByNamespace",
-			map[string]any{"cluster": "ns-cluster", "namespace": "frontend", "maxResults": 1},
+			map[string]any{"namespace": "frontend", "maxResults": 1},
 		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -224,9 +224,10 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 				h,
 				"CreateService",
 				map[string]any{
-					"cluster":        "ns-cluster",
-					"serviceName":    service,
-					"taskDefinition": "nsfam",
+					"cluster":                     "ns-cluster",
+					"serviceName":                 service,
+					"taskDefinition":              "nsfam",
+					"serviceConnectConfiguration": map[string]any{"enabled": true, "namespace": "frontend"},
 				},
 			)
 		}
@@ -234,7 +235,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			t,
 			h,
 			"ListServicesByNamespace",
-			map[string]any{"cluster": "ns-cluster", "namespace": "frontend", "maxResults": 2},
+			map[string]any{"namespace": "frontend", "maxResults": 2},
 		)
 		var b1 map[string]any
 		require.NoError(t, json.Unmarshal(first.Body.Bytes(), &b1))
@@ -243,7 +244,6 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			h,
 			"ListServicesByNamespace",
 			map[string]any{
-				"cluster":    "ns-cluster",
 				"namespace":  "frontend",
 				"maxResults": 2,
 				"nextToken":  b1["nextToken"].(string),
@@ -278,7 +278,8 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 					"serviceName": "frontend-svc-" + time.Now().
 						Add(time.Duration(i)*time.Nanosecond).
 						Format("150405.000000000"),
-					"taskDefinition": "nsfam",
+					"taskDefinition":              "nsfam",
+					"serviceConnectConfiguration": map[string]any{"enabled": true, "namespace": "frontend"},
 				},
 			)
 		}
@@ -286,7 +287,7 @@ func TestPaginationCoverage_ListServices(t *testing.T) {
 			t,
 			h,
 			"ListServicesByNamespace",
-			map[string]any{"cluster": "ns-cluster", "namespace": "frontend"},
+			map[string]any{"namespace": "frontend"},
 		)
 		var body map[string]any
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))

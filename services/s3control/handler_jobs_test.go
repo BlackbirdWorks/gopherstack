@@ -265,13 +265,19 @@ func TestHandler_ListJobs(t *testing.T) {
 	}
 }
 
+// Priority and RequestedJobStatus/StatusUpdateReason are HTTPQuery
+// parameters on the real UpdateJobPriorityInput/UpdateJobStatusInput
+// (awsRestxml_serializeOpHttpBindingsUpdateJobPriorityInput /
+// ...UpdateJobStatusInput, s3control@v1.73.4 serializers.go:8477,8556-8561),
+// not XML body elements -- these tests exercise the real query-string wire
+// shape, not a body.
 func TestHandler_UpdateJobPriority(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		setup      func(h *s3control.Handler) string
 		name       string
-		body       string
+		query      string
 		wantBody   string
 		wantStatus int
 	}{
@@ -279,7 +285,7 @@ func TestHandler_UpdateJobPriority(t *testing.T) {
 			name:       "update_priority_success",
 			wantStatus: http.StatusOK,
 			wantBody:   "UpdateJobPriorityResult",
-			body:       `<UpdateJobPriorityRequest><Priority>99</Priority></UpdateJobPriorityRequest>`,
+			query:      "?priority=99",
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
 
@@ -289,7 +295,7 @@ func TestHandler_UpdateJobPriority(t *testing.T) {
 		{
 			name:       "update_priority_missing_job",
 			wantStatus: http.StatusNotFound,
-			body:       `<UpdateJobPriorityRequest><Priority>99</Priority></UpdateJobPriorityRequest>`,
+			query:      "?priority=99",
 			setup:      func(_ *s3control.Handler) string { return "nonexistent" },
 		},
 	}
@@ -301,7 +307,7 @@ func TestHandler_UpdateJobPriority(t *testing.T) {
 			h := newTestS3ControlHandler(t)
 			jobID := tt.setup(h)
 
-			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/priority", tt.body)
+			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/priority"+tt.query, "")
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantBody != "" {
@@ -317,7 +323,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 	tests := []struct {
 		setup      func(h *s3control.Handler) string
 		name       string
-		body       string
+		query      string
 		wantBody   string
 		wantStatus int
 	}{
@@ -325,7 +331,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 			name:       "update_status_success_cancelled",
 			wantStatus: http.StatusOK,
 			wantBody:   "UpdateJobStatusResult",
-			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Cancelled</RequestedJobStatus></UpdateJobStatusRequest>`,
+			query:      "?requestedJobStatus=Cancelled",
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
 
@@ -336,7 +342,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 			name:       "update_status_success_ready",
 			wantStatus: http.StatusOK,
 			wantBody:   "UpdateJobStatusResult",
-			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Ready</RequestedJobStatus></UpdateJobStatusRequest>`,
+			query:      "?requestedJobStatus=Ready",
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
 
@@ -346,7 +352,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		{
 			name:       "update_status_invalid_rejects",
 			wantStatus: http.StatusBadRequest,
-			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
+			query:      "?requestedJobStatus=Complete",
 			setup: func(h *s3control.Handler) string {
 				job := h.Backend.AddBatchJobInternal("acct1", "arn:aws:iam::acct1:role/R", 5)
 
@@ -356,7 +362,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 		{
 			name:       "update_status_missing_job",
 			wantStatus: http.StatusBadRequest,
-			body:       `<UpdateJobStatusRequest><RequestedJobStatus>Complete</RequestedJobStatus></UpdateJobStatusRequest>`,
+			query:      "?requestedJobStatus=Complete",
 			setup:      func(_ *s3control.Handler) string { return "nonexistent" },
 		},
 	}
@@ -368,7 +374,7 @@ func TestHandler_UpdateJobStatus(t *testing.T) {
 			h := newTestS3ControlHandler(t)
 			jobID := tt.setup(h)
 
-			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/status", tt.body)
+			rec := doS3Request(t, h, http.MethodPost, "/v20180820/jobs/"+jobID+"/status"+tt.query, "")
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			if tt.wantBody != "" {

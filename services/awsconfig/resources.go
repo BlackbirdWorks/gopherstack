@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
@@ -167,7 +166,7 @@ func (b *InMemoryBackend) PutResourceConfig(resourceType, resourceID, configurat
 		ResourceType:                 resourceType,
 		ResourceID:                   resourceID,
 		Configuration:                configuration,
-		ConfigurationItemCaptureTime: float64(time.Now().Unix()),
+		ConfigurationItemCaptureTime: float64(b.now().Unix()),
 	}
 
 	b.resourceConfigs.Put(&item)
@@ -208,20 +207,56 @@ func (b *InMemoryBackend) GetResourceConfigHistory(resourceType, resourceID stri
 }
 
 // GetResourceConfigHistoryPage returns a page of a resource's configuration
-// history (most-recent first) along with an opaque continuation token.
+// history, most-recent first unless chronologicalOrder is "Forward"
+// (api_op_GetResourceConfigHistory.go's types.ChronologicalOrder), narrowed to
+// [earlierTime, laterTime] when either bound is non-zero (epoch seconds; 0
+// means unset, matching awstime.Epoch's convention), along with an opaque
+// continuation token.
 func (b *InMemoryBackend) GetResourceConfigHistoryPage(
 	resourceType, resourceID string,
 	limit int,
 	token string,
+	chronologicalOrder string,
+	earlierTime, laterTime float64,
 ) ([]ResourceConfigItem, string) {
 	b.mu.RLock("GetResourceConfigHistoryPage")
 	defer b.mu.RUnlock()
 
 	const defaultLimit = 100
 
-	p := page.New(b.resourceHistoryLocked(resourceType, resourceID), token, limit, defaultLimit)
+	hist := filterResourceHistoryByTime(b.resourceHistoryLocked(resourceType, resourceID), earlierTime, laterTime)
+	if chronologicalOrder == "Forward" {
+		slices.Reverse(hist)
+	}
+
+	p := page.New(hist, token, limit, defaultLimit)
 
 	return p.Data, p.Next
+}
+
+// filterResourceHistoryByTime keeps only items whose ConfigurationItemCaptureTime
+// falls within [earlierTime, laterTime]; a zero bound is unset (no filter on
+// that side), matching GetResourceConfigHistoryInput's documented behavior.
+func filterResourceHistoryByTime(hist []ResourceConfigItem, earlierTime, laterTime float64) []ResourceConfigItem {
+	if earlierTime == 0 && laterTime == 0 {
+		return hist
+	}
+
+	out := make([]ResourceConfigItem, 0, len(hist))
+
+	for _, item := range hist {
+		if earlierTime != 0 && item.ConfigurationItemCaptureTime < earlierTime {
+			continue
+		}
+
+		if laterTime != 0 && item.ConfigurationItemCaptureTime > laterTime {
+			continue
+		}
+
+		out = append(out, item)
+	}
+
+	return out
 }
 
 // ListDiscoveredResources returns all discovered resources of the given type.

@@ -181,7 +181,18 @@ func (b *InMemoryBackend) StackSetRegions(name string) []string {
 	return regions
 }
 
-func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[StackSetSummary], error) {
+// cfnListMaxPageSize caps StackSet list operations at 100, matching the
+// documented maximum of ListGeneratedTemplates/ListResourceScans. The pinned
+// SDK's ListStackSets/ListStackSetOperations/ListStackInstances doc comments
+// (cloudformation@v1.76.1 api_op_ListStackSets.go:66-69 etc.) state a
+// MaxResults field exists but give no numeric default or maximum, so this
+// repo's existing 100-item convention (cfnDefaultPageSize) is reused for
+// both rather than inventing an unverified number.
+const cfnListMaxPageSize = cfnDefaultPageSize
+
+func (b *InMemoryBackend) ListStackSets(
+	maxResults int, nextToken, status string,
+) (page.Page[StackSetSummary], error) {
 	b.mu.RLock("ListStackSets")
 	defer b.mu.RUnlock()
 	result := make([]StackSetSummary, 0, b.stackSets.Len())
@@ -202,7 +213,9 @@ func (b *InMemoryBackend) ListStackSets(nextToken, status string) (page.Page[Sta
 		func(i, j int) bool { return result[i].StackSetName < result[j].StackSetName },
 	)
 
-	return page.New(result, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnListMaxPageSize)
+
+	return page.New(result, nextToken, limit, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, error) {
@@ -226,6 +239,7 @@ func (b *InMemoryBackend) DetectStackSetDrift(stackSetName string) (string, erro
 // actual per-instance drift diff never ran). Caller must hold b.mu.Lock.
 func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
 	instances := b.stackInstances[stackSetName]
+	now := time.Now()
 	for i := range instances {
 		stackName, ok := b.stackIDIndex[instances[i].StackID]
 		if !ok {
@@ -248,10 +262,19 @@ func (b *InMemoryBackend) detectStackInstanceDrift(stackSetName string) {
 				break
 			}
 		}
+		instances[i].LastDriftCheckTimestamp = &now
 	}
 }
 
-// recordStackSetOperation creates a StackSetOperation record and returns its ID.
+// recordStackSetOperation creates a StackSetOperation record and returns its
+// ID. action must be one of the real StackSetOperationAction enum values
+// (CREATE/UPDATE/DELETE/DETECT_DRIFT, cloudformation@v1.76.1 types/enums.go)
+// -- StackSetOperation.Action's own doc comment: "Create and delete
+// operations affect only the specified stack instances ... Update operations
+// affect both the StackSet itself, in addition to all associated stack
+// instances", i.e. Create/Update/DeleteStackInstances report the same
+// CREATE/UPDATE/DELETE action as their StackSet-level counterparts, not a
+// distinct "_INSTANCES" suffix (there is no such enum value).
 // Caller must hold b.mu.Lock.
 func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) string {
 	opID := uuid.New().String()
@@ -262,8 +285,10 @@ func (b *InMemoryBackend) recordStackSetOperation(stackSetName, action string) s
 		OperationID:  opID,
 		StackSetName: stackSetName,
 		Action:       action,
-		Status:       "SUCCEEDED",
-		CreatedAt:    time.Now(),
+		// SUCCEEDED synchronously, deliberately: cloudformation has no
+		// clock/janitor lifecycle anywhere (see PARITY.md, gopherstack-b3pm).
+		Status:    "SUCCEEDED",
+		CreatedAt: time.Now(),
 	}
 	if b.stackSetOpResults[stackSetName] == nil {
 		b.stackSetOpResults[stackSetName] = make(map[string][]StackSetOperationResult)
@@ -299,7 +324,7 @@ func (b *InMemoryBackend) recordOpResults(
 const maxOpsPerStackSet = 1000
 
 func (b *InMemoryBackend) ListStackSetOperations(
-	stackSetName, nextToken string,
+	stackSetName string, maxResults int, nextToken string,
 ) (page.Page[StackSetOperationSummary], error) {
 	b.mu.RLock("ListStackSetOperations")
 	defer b.mu.RUnlock()
@@ -325,7 +350,9 @@ func (b *InMemoryBackend) ListStackSetOperations(
 		})
 	}
 
-	return page.New(summaries, nextToken, 0, cfnDefaultPageSize), nil
+	limit := min(maxResults, cfnListMaxPageSize)
+
+	return page.New(summaries, nextToken, limit, cfnDefaultPageSize), nil
 }
 
 // trimStackSetOperations evicts the oldest entries when a stack set exceeds maxOpsPerStackSet.
@@ -396,31 +423,39 @@ func (b *InMemoryBackend) StopStackSetOperation(stackSetName, operationID string
 	return nil
 }
 
+// ListStackSetOperationResults returns per-account/region operation
+// results, paginated by MaxResults/NextToken (real query-protocol form
+// fields, api_op_ListStackSetOperationResults.go).
 func (b *InMemoryBackend) ListStackSetOperationResults(
-	stackSetName, operationID, _ string,
-) ([]StackSetOperationResult, error) {
+	stackSetName, operationID string, maxResults int, nextToken string,
+) (page.Page[StackSetOperationResult], error) {
 	b.mu.RLock("ListStackSetOperationResults")
 	defer b.mu.RUnlock()
 	if !b.stackSets.Has(stackSetName) {
-		return nil, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
+		return page.Page[StackSetOperationResult]{}, fmt.Errorf("%w: %s", ErrStackSetNotFound, stackSetName)
 	}
 	if _, ok := b.stackSetOperations[stackSetName][operationID]; !ok {
-		return nil, fmt.Errorf("%w: %s in %s", ErrOperationNotFound, operationID, stackSetName)
+		return page.Page[StackSetOperationResult]{}, fmt.Errorf(
+			"%w: %s in %s", ErrOperationNotFound, operationID, stackSetName,
+		)
 	}
 	results := b.stackSetOpResults[stackSetName][operationID]
 	out := make([]StackSetOperationResult, len(results))
 	copy(out, results)
 
-	return out, nil
+	return page.New(out, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
+// ListStackSetAutoDeploymentTargets returns a StackSet's automatic
+// deployment targets, paginated by MaxResults/NextToken (real
+// query-protocol form fields, api_op_ListStackSetAutoDeploymentTargets.go).
 func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
-	stackSetName string,
-) ([]AutoDeploymentTarget, error) {
+	stackSetName string, maxResults int, nextToken string,
+) (page.Page[AutoDeploymentTarget], error) {
 	b.mu.RLock("ListStackSetAutoDeploymentTargets")
 	defer b.mu.RUnlock()
 	if !b.stackSets.Has(stackSetName) {
-		return nil, ErrStackSetNotFound
+		return page.Page[AutoDeploymentTarget]{}, ErrStackSetNotFound
 	}
 
 	byOU := make(map[string]int) // OU ID -> index in targets
@@ -447,7 +482,7 @@ func (b *InMemoryBackend) ListStackSetAutoDeploymentTargets(
 		})
 	}
 
-	return targets, nil
+	return page.New(targets, nextToken, maxResults, cfnDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) ImportStacksToStackSet(stackSetName string, stackIDs []string) (string, error) {

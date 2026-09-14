@@ -11,7 +11,7 @@ import (
 func (b *InMemoryBackend) GetRegistrationCode() string {
 	var code string
 	func() {
-		b.mu.RLock()
+		b.mu.RLock("GetRegistrationCode")
 		defer b.mu.RUnlock()
 		code = b.registrationCode
 	}()
@@ -20,7 +20,7 @@ func (b *InMemoryBackend) GetRegistrationCode() string {
 		return code
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("GetRegistrationCode")
 	defer b.mu.Unlock()
 
 	if b.registrationCode == "" {
@@ -31,7 +31,7 @@ func (b *InMemoryBackend) GetRegistrationCode() string {
 }
 
 func (b *InMemoryBackend) DeleteRegistrationCode() error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteRegistrationCode")
 	defer b.mu.Unlock()
 
 	b.registrationCode = ""
@@ -55,7 +55,7 @@ func (b *InMemoryBackend) RegisterThing(input *RegisterThingInput) (*RegisterThi
 		return nil, fmt.Errorf("%w: TemplateBody is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("RegisterThing")
 	defer b.mu.Unlock()
 
 	thingName := input.Parameters[registrationThingNameParam]
@@ -128,7 +128,7 @@ func (b *InMemoryBackend) StartThingRegistrationTask(
 		)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("StartThingRegistrationTask")
 	defer b.mu.Unlock()
 
 	now := float64(time.Now().Unix())
@@ -150,7 +150,7 @@ func (b *InMemoryBackend) StartThingRegistrationTask(
 
 // StopThingRegistrationTask cancels a bulk thing provisioning task.
 func (b *InMemoryBackend) StopThingRegistrationTask(taskID string) error {
-	b.mu.Lock()
+	b.mu.Lock("StopThingRegistrationTask")
 	defer b.mu.Unlock()
 
 	task, ok := b.registrationTasks.Get(taskID)
@@ -166,7 +166,7 @@ func (b *InMemoryBackend) StopThingRegistrationTask(taskID string) error {
 
 // DescribeThingRegistrationTask returns a bulk thing provisioning task by ID.
 func (b *InMemoryBackend) DescribeThingRegistrationTask(taskID string) (*ThingRegistrationTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeThingRegistrationTask")
 	defer b.mu.RUnlock()
 
 	task, ok := b.registrationTasks.Get(taskID)
@@ -180,7 +180,7 @@ func (b *InMemoryBackend) DescribeThingRegistrationTask(taskID string) (*ThingRe
 // ListThingRegistrationTasks lists bulk thing provisioning tasks, optionally
 // filtered by status.
 func (b *InMemoryBackend) ListThingRegistrationTasks(status string) []*ThingRegistrationTask {
-	b.mu.RLock()
+	b.mu.RLock("ListThingRegistrationTasks")
 	defer b.mu.RUnlock()
 
 	items := b.registrationTasks.Snapshot()
@@ -201,7 +201,7 @@ func (b *InMemoryBackend) ListThingRegistrationTasks(status string) []*ThingRegi
 // ListThingRegistrationTaskReports returns the resource-report links for a
 // bulk thing provisioning task.
 func (b *InMemoryBackend) ListThingRegistrationTaskReports(taskID, reportType string) ([]string, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListThingRegistrationTaskReports")
 	defer b.mu.RUnlock()
 
 	task, ok := b.registrationTasks.Get(taskID)
@@ -319,7 +319,7 @@ func cloneManagedJobTemplate(t *ManagedJobTemplate) *ManagedJobTemplate {
 func (b *InMemoryBackend) DescribeManagedJobTemplate(
 	templateName, templateVersion string,
 ) (*ManagedJobTemplate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeManagedJobTemplate")
 	defer b.mu.RUnlock()
 
 	for _, t := range b.managedJobTemplateCatalog() {
@@ -340,7 +340,7 @@ func (b *InMemoryBackend) DescribeManagedJobTemplate(
 // ListManagedJobTemplates lists the AWS-managed job templates, optionally
 // filtered by template name.
 func (b *InMemoryBackend) ListManagedJobTemplates(templateName string) []*ManagedJobTemplateSummary {
-	b.mu.RLock()
+	b.mu.RLock("ListManagedJobTemplates")
 	defer b.mu.RUnlock()
 
 	catalog := b.managedJobTemplateCatalog()

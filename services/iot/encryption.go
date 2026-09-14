@@ -50,7 +50,7 @@ type UpdateEncryptionConfigurationInput struct {
 // DescribeEncryptionConfiguration returns the account's encryption
 // configuration, defaulting to the AWS-owned key when never configured.
 func (b *InMemoryBackend) DescribeEncryptionConfiguration() *AccountEncryptionConfiguration {
-	b.mu.RLock()
+	b.mu.RLock("DescribeEncryptionConfiguration")
 	defer b.mu.RUnlock()
 
 	if b.accountEncryptionConfig == nil {
@@ -90,7 +90,7 @@ func (b *InMemoryBackend) UpdateEncryptionConfiguration(input *UpdateEncryptionC
 		return fmt.Errorf("%w: invalid encryptionType %q", ErrValidation, input.EncryptionType)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateEncryptionConfiguration")
 	defer b.mu.Unlock()
 
 	b.accountEncryptionConfig = &AccountEncryptionConfiguration{

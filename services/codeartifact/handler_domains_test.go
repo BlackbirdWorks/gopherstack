@@ -156,9 +156,12 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain", nil)
 			},
-			method:     http.MethodPut,
-			path:       "/v1/domain/permissions/policy?domain=perm-domain",
-			body:       map[string]any{"policyDocument": `{"Version":"2012-10-17","Statement":[]}`},
+			method: http.MethodPut,
+			path:   "/v1/domain/permissions/policy",
+			body: map[string]any{
+				"domain":         "perm-domain",
+				"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
+			},
 			wantStatus: http.StatusOK,
 			wantCheck: func(t *testing.T, b []byte) {
 				t.Helper()
@@ -174,7 +177,8 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 			name: "get_policy_after_put",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain2", nil)
-				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain2", map[string]any{
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+					"domain":         "perm-domain2",
 					"policyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`,
 				})
 			},
@@ -194,7 +198,8 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 			name: "delete_policy",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain3", nil)
-				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain3", map[string]any{
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+					"domain":         "perm-domain3",
 					"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
 				})
 			},
@@ -206,7 +211,8 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 			name: "get_after_delete_returns_404",
 			setup: func(h *codeartifact.Handler) {
 				doRequest(t, h, http.MethodPost, "/v1/domain?domain=perm-domain4", nil)
-				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=perm-domain4", map[string]any{
+				doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+					"domain":         "perm-domain4",
 					"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
 				})
 				doRequest(t, h, http.MethodDelete, "/v1/domain/permissions/policy?domain=perm-domain4", nil)
@@ -224,8 +230,8 @@ func TestHandler_DomainPermissionsPolicy(t *testing.T) {
 		{
 			name:       "put_on_nonexistent_domain_returns_404",
 			method:     http.MethodPut,
-			path:       "/v1/domain/permissions/policy?domain=no-such-domain",
-			body:       map[string]any{"policyDocument": `{}`},
+			path:       "/v1/domain/permissions/policy",
+			body:       map[string]any{"domain": "no-such-domain", "policyDocument": `{}`},
 			wantStatus: http.StatusNotFound,
 		},
 		{
@@ -267,7 +273,8 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 	h := newTestHandler(t)
 	doRequest(t, h, http.MethodPost, "/v1/domain?domain=lock-domain", nil)
 
-	putRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=lock-domain", map[string]any{
+	putRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+		"domain":         "lock-domain",
 		"policyDocument": `{"Version":"2012-10-17","Statement":[]}`,
 	})
 	require.Equal(t, http.StatusOK, putRec.Code)
@@ -279,7 +286,8 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 
 	// A Put carrying a stale/wrong revision is rejected, and the stored
 	// document is untouched.
-	staleRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=lock-domain", map[string]any{
+	staleRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+		"domain":         "lock-domain",
 		"policyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Deny"}]}`,
 		"policyRevision": "wrong-revision",
 	})
@@ -303,7 +311,8 @@ func TestHandler_DomainPermissionsPolicy_RevisionLocking(t *testing.T) {
 	assert.Equal(t, http.StatusOK, getRec2.Code)
 
 	// The matching revision succeeds on both Put and Delete.
-	matchPutRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy?domain=lock-domain", map[string]any{
+	matchPutRec := doRequest(t, h, http.MethodPut, "/v1/domain/permissions/policy", map[string]any{
+		"domain":         "lock-domain",
 		"policyDocument": `{"Version":"2012-10-17","Statement":[{"Effect":"Allow"}]}`,
 		"policyRevision": revision,
 	})

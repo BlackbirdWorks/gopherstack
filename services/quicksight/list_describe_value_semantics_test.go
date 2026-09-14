@@ -121,9 +121,11 @@ func TestListUsersIndexCapacity_PrefixFilter(t *testing.T) {
 	client := newTestQuickSightClient(t, h)
 	ctx := t.Context()
 
-	_, err := backend.RegisterUser(accountID, "default", "alice", "alice@example.com", "READER", "QUICKSIGHT", "", nil)
+	_, err := backend.RegisterUser(
+		accountID, "default", "alice", "alice@example.com", "READER", "QUICKSIGHT", "", "", nil,
+	)
 	require.NoError(t, err)
-	_, err = backend.RegisterUser(accountID, "default", "bob", "bob@example.com", "READER", "QUICKSIGHT", "", nil)
+	_, err = backend.RegisterUser(accountID, "default", "bob", "bob@example.com", "READER", "QUICKSIGHT", "", "", nil)
 	require.NoError(t, err)
 
 	all, err := client.ListUsersIndexCapacity(ctx, &quicksightsdk.ListUsersIndexCapacityInput{
@@ -163,7 +165,9 @@ func TestListUsersIndexCapacity_CapacityBytesFilter(t *testing.T) {
 	client := newTestQuickSightClient(t, h)
 	ctx := t.Context()
 
-	_, err := backend.RegisterUser(accountID, "default", "alice", "alice@example.com", "READER", "QUICKSIGHT", "", nil)
+	_, err := backend.RegisterUser(
+		accountID, "default", "alice", "alice@example.com", "READER", "QUICKSIGHT", "", "", nil,
+	)
 	require.NoError(t, err)
 
 	includesZero, err := client.ListUsersIndexCapacity(ctx, &quicksightsdk.ListUsersIndexCapacityInput{

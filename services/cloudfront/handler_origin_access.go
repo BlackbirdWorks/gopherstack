@@ -30,9 +30,13 @@ type oaiSummary struct {
 	Comment           string   `xml:"Comment"`
 }
 
+// Marker is required on CloudFrontOriginAccessIdentityList (cloudfront@v1.67.4
+// types/types.go:1043-1052): the echo of the request's Marker, present even when
+// empty/not truncated.
 type oaiList struct {
 	XMLName     xml.Name     `xml:"CloudFrontOriginAccessIdentityList"`
 	XMLNS       string       `xml:"xmlns,attr"`
+	Marker      string       `xml:"Marker"`
 	NextMarker  string       `xml:"NextMarker,omitempty"`
 	Items       []oaiSummary `xml:"Items>CloudFrontOriginAccessIdentitySummary"`
 	MaxItems    int          `xml:"MaxItems"`
@@ -133,6 +137,7 @@ func (h *Handler) handleListOAIs(c *echo.Context) error {
 
 	list := oaiList{
 		XMLNS:       cfNS,
+		Marker:      c.QueryParam("Marker"),
 		NextMarker:  nextMarker,
 		MaxItems:    pageSize,
 		Quantity:    len(summaries),
@@ -360,14 +365,17 @@ func (h *Handler) handleListOriginAccessControls(c *echo.Context) error {
 		nextMarkerXML = fmt.Sprintf(`<NextMarker>%s</NextMarker>`, nextMarker)
 	}
 
+	// Marker is required on OriginAccessControlList (cloudfront@v1.67.4 types/types.go:4388-4403):
+	// the echo of the request's Marker, present even when empty/not truncated.
 	resp := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<OriginAccessControlList xmlns="%s">`+
+		`<Marker>%s</Marker>`+
 		`<MaxItems>%d</MaxItems>`+
 		`<Quantity>%d</Quantity>`+
 		`<Items>%s</Items>`+
 		`<IsTruncated>%s</IsTruncated>%s`+
 		`</OriginAccessControlList>`,
-		cfNS, pageSize, len(page), sb.String(), isTruncatedXML, nextMarkerXML)
+		cfNS, xmlEscape(c.QueryParam("Marker")), pageSize, len(page), sb.String(), isTruncatedXML, nextMarkerXML)
 
 	return xmlResp(c, http.StatusOK, resp)
 }

@@ -61,7 +61,7 @@ func (b *InMemoryBackend) SendMessage(input *SendMessageInput) (*SendMessageOutp
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID, time.Now())
+	out, err := sendMessageLocked(q, input, md5Body, sha256Body, md5Attrs, md5SysAttrs, msgID, b.now())
 	if err != nil {
 		return nil, err
 	}
@@ -730,7 +730,7 @@ func (b *InMemoryBackend) SendMessageBatch(
 		return nil, ErrBatchRequestTooLong
 	}
 
-	now := time.Now()
+	now := b.now()
 
 	q.mu.Lock()
 	defer q.mu.Unlock()

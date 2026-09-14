@@ -102,6 +102,28 @@ func TestQuickSight_Analyses(t *testing.T) {
 			wantCode: http.StatusOK,
 		},
 		{
+			name:   "DeleteAnalysis accepts recovery window at int32 boundary",
+			method: http.MethodDelete,
+			path:   accountPath("/analyses/a4b") + "?recovery-window-in-days=2147483647",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/analyses/a4b"), map[string]any{"Name": "A4b"})
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:   "DeleteAnalysis rejects recovery window past int32 boundary",
+			method: http.MethodDelete,
+			path:   accountPath("/analyses/a4c") + "?recovery-window-in-days=2147483648",
+			setup: func(h *quicksight.Handler) {
+				doRequest(t, h, http.MethodPost, accountPath("/analyses/a4c"), map[string]any{"Name": "A4c"})
+			},
+			wantCode: http.StatusBadRequest,
+			check: func(t *testing.T, body map[string]any) {
+				t.Helper()
+				assert.Equal(t, "InvalidParameterValueException", body["Code"])
+			},
+		},
+		{
 			name:   "RestoreAnalysis resets status",
 			method: http.MethodPost,
 			path:   accountPath("/restore/analyses/a6"),

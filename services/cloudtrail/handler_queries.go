@@ -232,6 +232,20 @@ func (h *Handler) handleListQueries(c *echo.Context, body []byte) error {
 		}
 	}
 
+	// Real ListQueriesInput marks EventDataStore required (cloudtrail@
+	// v1.58.4 api_op_ListQueries.go:38-41); an unknown store returns
+	// EventDataStoreNotFoundException (that op's error switch,
+	// deserializers.go:4909-4910).
+	if in.EventDataStore == "" {
+		return c.JSON(
+			http.StatusBadRequest,
+			errResp("InvalidParameterCombinationException", "EventDataStore is required"),
+		)
+	}
+	if _, err := h.Backend.GetEventDataStore(in.EventDataStore); err != nil {
+		return h.handleError(c, err)
+	}
+
 	list := h.Backend.ListQueries()
 	filtered := make([]*Query, 0, len(list))
 

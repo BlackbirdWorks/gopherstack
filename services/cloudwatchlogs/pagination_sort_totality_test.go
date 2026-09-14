@@ -280,7 +280,7 @@ func TestListScheduledQueriesSortIsTotal(t *testing.T) {
 	}
 
 	walkAndVerify(t, want, func(token string) ([]string, string) {
-		page, next, err := b.ListScheduledQueries(1, token)
+		page, next, err := b.ListScheduledQueries(1, token, "", "")
 		require.NoError(t, err)
 		ids := make([]string, len(page))
 		for i, q := range page {

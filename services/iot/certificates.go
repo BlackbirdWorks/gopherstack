@@ -75,7 +75,7 @@ func randomHex(n int) string {
 // human-readable certificate ID (e.g. to assert on it in a URL path) use
 // this instead.
 func (b *InMemoryBackend) AddCertificateInternal(c Certificate) {
-	b.mu.Lock()
+	b.mu.Lock("AddCertificateInternal")
 	defer b.mu.Unlock()
 
 	if c.ARN == "" {
@@ -103,7 +103,7 @@ func (b *InMemoryBackend) AddCertificateInternal(c Certificate) {
 // AddCertificateInternal), letting tests set CreationDate/RegistrationConfig
 // explicitly without going through RegisterCACertificate's real-time clock.
 func (b *InMemoryBackend) AddCACertificateInternal(c CACertificate) {
-	b.mu.Lock()
+	b.mu.Lock("AddCACertificateInternal")
 	defer b.mu.Unlock()
 
 	if c.CertificateARN == "" {
@@ -146,7 +146,7 @@ func (b *InMemoryBackend) newCertificate(pem, status, mode string) *Certificate 
 
 // CreateCertificateFromCsr creates a new certificate from a CSR.
 func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromCsrInput) (*Certificate, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateCertificateFromCsr")
 	defer b.mu.Unlock()
 
 	status := certStatusInactive
@@ -162,7 +162,7 @@ func (b *InMemoryBackend) CreateCertificateFromCsr(input *CreateCertificateFromC
 
 // RegisterCertificate registers a certificate.
 func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (*Certificate, error) {
-	b.mu.Lock()
+	b.mu.Lock("RegisterCertificate")
 	defer b.mu.Unlock()
 
 	status := input.Status
@@ -185,7 +185,7 @@ func (b *InMemoryBackend) RegisterCertificate(input *RegisterCertificateInput) (
 // IoT, certificates registered this way are always in SNI_ONLY mode (they
 // have no issuer CA on file), unlike RegisterCertificate.
 func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificateInput) (*Certificate, error) {
-	b.mu.Lock()
+	b.mu.Lock("RegisterCertificateWithoutCA")
 	defer b.mu.Unlock()
 
 	status := input.Status
@@ -206,7 +206,7 @@ func (b *InMemoryBackend) RegisterCertificateWithoutCA(input *RegisterCertificat
 
 // DescribeCertificate returns a Certificate by ID.
 func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCertificate")
 	defer b.mu.RUnlock()
 
 	cert, ok := b.certificates.Get(certificateID)
@@ -221,7 +221,7 @@ func (b *InMemoryBackend) DescribeCertificate(certificateID string) (*Certificat
 
 // ListCertificates returns all certificates sorted by ID.
 func (b *InMemoryBackend) ListCertificates() []*Certificate {
-	b.mu.RLock()
+	b.mu.RLock("ListCertificates")
 	defer b.mu.RUnlock()
 
 	items := b.certificates.Snapshot()
@@ -257,7 +257,7 @@ func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error
 		return fmt.Errorf("%w: invalid certificate status %q", ErrValidation, input.NewStatus)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("UpdateCertificate")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(input.CertificateID)
@@ -274,7 +274,7 @@ func (b *InMemoryBackend) UpdateCertificate(input *UpdateCertificateInput) error
 
 // DeleteCertificate deletes a certificate by ID.
 func (b *InMemoryBackend) DeleteCertificate(certificateID string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCertificate")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(certificateID)
@@ -299,7 +299,7 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 		return nil, fmt.Errorf("%w: CertificateProviderName is required", ErrValidation)
 	}
 
-	b.mu.Lock()
+	b.mu.Lock("CreateCertificateProvider")
 	defer b.mu.Unlock()
 
 	if b.certificateProviders.Has(input.CertificateProviderName) {
@@ -330,7 +330,7 @@ func (b *InMemoryBackend) CreateCertificateProvider(
 
 // DescribeCertificateProvider returns a certificate provider by name.
 func (b *InMemoryBackend) DescribeCertificateProvider(name string) (*CertificateProvider, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCertificateProvider")
 	defer b.mu.RUnlock()
 
 	cp, ok := b.certificateProviders.Get(name)
@@ -347,7 +347,7 @@ func (b *InMemoryBackend) DescribeCertificateProvider(name string) (*Certificate
 
 // ListCertificateProviders returns all certificate providers sorted by name.
 func (b *InMemoryBackend) ListCertificateProviders() []*CertificateProvider {
-	b.mu.RLock()
+	b.mu.RLock("ListCertificateProviders")
 	defer b.mu.RUnlock()
 
 	items := b.certificateProviders.Snapshot()
@@ -365,7 +365,7 @@ func (b *InMemoryBackend) ListCertificateProviders() []*CertificateProvider {
 
 // UpdateCertificateProvider updates an existing certificate provider.
 func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProviderInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCertificateProvider")
 	defer b.mu.Unlock()
 
 	cp, ok := b.certificateProviders.Get(input.CertificateProviderName)
@@ -390,7 +390,7 @@ func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProv
 
 // DeleteCertificateProvider deletes a certificate provider by name.
 func (b *InMemoryBackend) DeleteCertificateProvider(name string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCertificateProvider")
 	defer b.mu.Unlock()
 
 	if !b.certificateProviders.Has(name) {
@@ -420,6 +420,7 @@ type CACertificate struct {
 	CertificatePem     string             `json:"certificatePem,omitempty"`
 	OwnedBy            string             `json:"ownedBy,omitempty"`
 	AutoRegistration   string             `json:"autoRegistrationStatus,omitempty"`
+	CertificateMode    string             `json:"certificateMode,omitempty"`
 	CreationDate       float64            `json:"creationDate,omitempty"`
 	LastModifiedDate   float64            `json:"lastModifiedDate,omitempty"`
 }
@@ -434,13 +435,38 @@ func (b *InMemoryBackend) caCertARN(id string) string {
 	return arn.Build("iot", b.region, b.accountID, fmt.Sprintf("cacert/%s", id))
 }
 
+// RegisterCACertificate registers a CA certificate. certificateMode/
+// verificationCertificate enforce the real documented rule (confirmed
+// against aws-sdk-go-v2/service/iot@v1.83.0's api_op_RegisterCACertificate.go:
+// "If certificateMode is SNI_ONLY, the verificationCertificate field must be
+// empty. If certificateMode is DEFAULT or not provided, the
+// verificationCertificate field must not be empty") -- this backend does not
+// model CA private-key possession, so it validates presence/absence per that
+// rule but does not cryptographically verify the certificate.
 func (b *InMemoryBackend) RegisterCACertificate(
-	pem, status string,
+	pem, status, certificateMode, verificationCertificate string,
 	tags map[string]string,
 	regConfig RegistrationConfig,
 ) (*CACertificate, error) {
-	b.mu.Lock()
+	b.mu.Lock("RegisterCACertificate")
 	defer b.mu.Unlock()
+
+	switch certificateMode {
+	case certModeSNIOnly:
+		if verificationCertificate != "" {
+			return nil, fmt.Errorf(
+				"%w: verificationCertificate must be empty when certificateMode is SNI_ONLY",
+				ErrValidation,
+			)
+		}
+	default:
+		if verificationCertificate == "" {
+			return nil, fmt.Errorf(
+				"%w: verificationCertificate is required when certificateMode is DEFAULT or not provided",
+				ErrValidation,
+			)
+		}
+	}
 
 	id := uuid.NewString()[:12]
 	now := float64(time.Now().Unix())
@@ -449,6 +475,7 @@ func (b *InMemoryBackend) RegisterCACertificate(
 		CertificateARN:     b.caCertARN(id),
 		Status:             status,
 		CertificatePem:     pem,
+		CertificateMode:    certificateMode,
 		CreationDate:       now,
 		LastModifiedDate:   now,
 		OwnedBy:            b.accountID,
@@ -458,6 +485,9 @@ func (b *InMemoryBackend) RegisterCACertificate(
 	if ca.Status == "" {
 		ca.Status = "ACTIVE"
 	}
+	if ca.CertificateMode == "" {
+		ca.CertificateMode = certModeDefault
+	}
 	b.caCertificates.Put(ca)
 	b.putResourceTagsLocked(ca.CertificateARN, tags)
 
@@ -465,7 +495,7 @@ func (b *InMemoryBackend) RegisterCACertificate(
 }
 
 func (b *InMemoryBackend) DescribeCACertificate(id string) (*CACertificate, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeCACertificate")
 	defer b.mu.RUnlock()
 
 	ca, ok := b.caCertificates.Get(id)
@@ -477,7 +507,7 @@ func (b *InMemoryBackend) DescribeCACertificate(id string) (*CACertificate, erro
 }
 
 func (b *InMemoryBackend) ListCACertificates() []*CACertificate {
-	b.mu.RLock()
+	b.mu.RLock("ListCACertificates")
 	defer b.mu.RUnlock()
 
 	out := make([]*CACertificate, 0, b.caCertificates.Len())
@@ -505,7 +535,7 @@ type UpdateCACertificateInput struct {
 }
 
 func (b *InMemoryBackend) UpdateCACertificate(id string, input *UpdateCACertificateInput) error {
-	b.mu.Lock()
+	b.mu.Lock("UpdateCACertificate")
 	defer b.mu.Unlock()
 
 	ca, ok := b.caCertificates.Get(id)
@@ -529,7 +559,7 @@ func (b *InMemoryBackend) UpdateCACertificate(id string, input *UpdateCACertific
 }
 
 func (b *InMemoryBackend) DeleteCACertificate(id string) error {
-	b.mu.Lock()
+	b.mu.Lock("DeleteCACertificate")
 	defer b.mu.Unlock()
 
 	if !b.caCertificates.Has(id) {
@@ -546,7 +576,7 @@ func (b *InMemoryBackend) DeleteCACertificate(id string) error {
 }
 
 func (b *InMemoryBackend) ListCertificatesByCA(caID string) []*Certificate {
-	b.mu.RLock()
+	b.mu.RLock("ListCertificatesByCA")
 	defer b.mu.RUnlock()
 
 	var out []*Certificate
@@ -562,7 +592,7 @@ func (b *InMemoryBackend) ListCertificatesByCA(caID string) []*Certificate {
 }
 
 func (b *InMemoryBackend) CancelCertificateTransfer(certID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelCertificateTransfer")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(certID)
@@ -587,7 +617,7 @@ func (b *InMemoryBackend) CancelCertificateTransfer(certID string) error {
 func (b *InMemoryBackend) CreateProvisioningClaim(
 	templateName string,
 ) (*Certificate, time.Time, string, string, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateProvisioningClaim")
 	defer b.mu.Unlock()
 
 	if _, ok := b.provTemplates.Get(templateName); !ok {
@@ -605,7 +635,7 @@ func (b *InMemoryBackend) CreateProvisioningClaim(
 
 // CreateKeysAndCertificate creates a new certificate with generated fake keys.
 func (b *InMemoryBackend) CreateKeysAndCertificate(setAsActive bool) (*Certificate, string, string, error) {
-	b.mu.Lock()
+	b.mu.Lock("CreateKeysAndCertificate")
 	defer b.mu.Unlock()
 
 	status := certStatusInactive
@@ -621,7 +651,7 @@ func (b *InMemoryBackend) CreateKeysAndCertificate(setAsActive bool) (*Certifica
 
 // TransferCertificate initiates a certificate transfer to another account.
 func (b *InMemoryBackend) TransferCertificate(certID, targetAccount, transferMessage string) error {
-	b.mu.Lock()
+	b.mu.Lock("TransferCertificate")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(certID)
@@ -643,7 +673,7 @@ func (b *InMemoryBackend) TransferCertificate(certID, targetAccount, transferMes
 // valid while the certificate is PENDING_TRANSFER; matches real AWS IoT's
 // InvalidRequestException for a certificate that isn't pending transfer.
 func (b *InMemoryBackend) RejectCertificateTransfer(certID, rejectReason string) error {
-	b.mu.Lock()
+	b.mu.Lock("RejectCertificateTransfer")
 	defer b.mu.Unlock()
 
 	cert, ok := b.certificates.Get(certID)
@@ -690,7 +720,7 @@ type OutgoingCertificate struct {
 // ListOutgoingCertificates lists certificates whose status is
 // PENDING_TRANSFER, derived from real, stored certificate state.
 func (b *InMemoryBackend) ListOutgoingCertificates() []*OutgoingCertificate {
-	b.mu.RLock()
+	b.mu.RLock("ListOutgoingCertificates")
 	defer b.mu.RUnlock()
 
 	out := make([]*OutgoingCertificate, 0)

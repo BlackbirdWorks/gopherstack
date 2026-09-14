@@ -95,6 +95,68 @@ func TestTGWMulticastHandler_DomainLifecycle(t *testing.T) {
 	assert.NotEqual(t, http.StatusOK, errRec.Code)
 }
 
+// TestTGWMulticastHandler_AssociationResourceFieldsOnWire proves
+// gopherstack-9sau: resourceId/resourceOwnerId/resourceType appear on the
+// wire for Associate, Get, and Disassociate responses (pinned SDK
+// deserializers.go:174923, case "resourceId" on
+// TransitGatewayMulticastDomainAssociation).
+func TestTGWMulticastHandler_AssociationResourceFieldsOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newHandler()
+
+	tgwRec := postForm(t, h, "Action=CreateTransitGateway&Version=2016-11-15")
+	tgwID := extractTag(t, tgwRec.Body.String(), "transitGatewayId")
+
+	vpcRec := postForm(t, h, "Action=CreateVpc&Version=2016-11-15&CidrBlock=10.0.0.0/16")
+	vpcID := extractTag(t, vpcRec.Body.String(), "vpcId")
+
+	attRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayVpcAttachment&Version=2016-11-15&TransitGatewayId=%s&VpcId=%s",
+		tgwID, vpcID,
+	))
+	require.Equal(t, http.StatusOK, attRec.Code)
+	attachmentID := extractTag(t, attRec.Body.String(), "transitGatewayAttachmentId")
+
+	domainRec := postForm(t, h, fmt.Sprintf(
+		"Action=CreateTransitGatewayMulticastDomain&Version=2016-11-15&TransitGatewayId=%s", tgwID,
+	))
+	domainID := extractTag(t, domainRec.Body.String(), "transitGatewayMulticastDomainId")
+
+	assocRec := postForm(t, h, fmt.Sprintf(
+		"Action=AssociateTransitGatewayMulticastDomain&Version=2016-11-15"+
+			"&TransitGatewayMulticastDomainId=%s&TransitGatewayAttachmentId=%s&SubnetIds.1=subnet-1",
+		domainID, attachmentID,
+	))
+	require.Equal(t, http.StatusOK, assocRec.Code)
+	assocBody := assocRec.Body.String()
+	assert.Contains(t, assocBody, "<resourceId>"+vpcID+"</resourceId>")
+	assert.Contains(t, assocBody, "<resourceOwnerId>000000000000</resourceOwnerId>")
+	assert.Contains(t, assocBody, "<resourceType>vpc</resourceType>")
+
+	getAssocRec := postForm(t, h, fmt.Sprintf(
+		"Action=GetTransitGatewayMulticastDomainAssociations&Version=2016-11-15"+
+			"&TransitGatewayMulticastDomainId=%s",
+		domainID,
+	))
+	require.Equal(t, http.StatusOK, getAssocRec.Code)
+	getBody := getAssocRec.Body.String()
+	assert.Contains(t, getBody, "<resourceId>"+vpcID+"</resourceId>")
+	assert.Contains(t, getBody, "<resourceOwnerId>000000000000</resourceOwnerId>")
+	assert.Contains(t, getBody, "<resourceType>vpc</resourceType>")
+
+	disassocRec := postForm(t, h, fmt.Sprintf(
+		"Action=DisassociateTransitGatewayMulticastDomain&Version=2016-11-15"+
+			"&TransitGatewayMulticastDomainId=%s&TransitGatewayAttachmentId=%s&SubnetIds.1=subnet-1",
+		domainID, attachmentID,
+	))
+	require.Equal(t, http.StatusOK, disassocRec.Code)
+	disassocBody := disassocRec.Body.String()
+	assert.Contains(t, disassocBody, "<resourceId>"+vpcID+"</resourceId>")
+	assert.Contains(t, disassocBody, "<resourceOwnerId>000000000000</resourceOwnerId>")
+	assert.Contains(t, disassocBody, "<resourceType>vpc</resourceType>")
+}
+
 func TestTGWMulticastHandler_GroupMembersAndSources(t *testing.T) {
 	t.Parallel()
 

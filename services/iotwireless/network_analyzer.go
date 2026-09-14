@@ -121,15 +121,48 @@ func (b *InMemoryBackend) DeleteNetworkAnalyzerConfig(accountID, region, name st
 	return nil
 }
 
+// addRemoveStrings applies add/remove set semantics to cur, matching real
+// UpdateNetworkAnalyzerConfigurationInput's *ToAdd/*ToRemove list pairs
+// (iotwireless@v1.59.4 serializers.go:8738) -- there is no wholesale-replace
+// field on the real wire shape.
+func addRemoveStrings(cur, toAdd, toRemove []string) []string {
+	set := make(map[string]bool, len(cur)+len(toAdd))
+	for _, v := range cur {
+		set[v] = true
+	}
+
+	for _, v := range toAdd {
+		set[v] = true
+	}
+
+	for _, v := range toRemove {
+		delete(set, v)
+	}
+
+	result := make([]string, 0, len(set))
+	for v := range set {
+		result = append(result, v)
+	}
+
+	slices.Sort(result)
+
+	return result
+}
+
 // UpdateNetworkAnalyzerConfig updates mutable fields on an existing network
-// analyzer configuration. traceContent, if non-nil, replaces the stored
-// TraceContent wholesale rather than merging field-by-field: unlike
-// LoRaWANUpdateDevice, types.TraceContent's fields (LogLevel/
-// MulticastFrameInfo/WirelessDeviceFrameInfo) aren't optional pointers, so
-// there is no way for a client to express "leave this one sub-field alone".
+// analyzer configuration. Real AWS's WirelessDevices/WirelessGateways/
+// MulticastGroups members are only ever mutated via *ToAdd/*ToRemove list
+// pairs -- there is no wholesale-replace field for any of the three.
+// traceContent, if non-nil, replaces the stored TraceContent wholesale
+// rather than merging field-by-field: unlike LoRaWANUpdateDevice,
+// types.TraceContent's fields (LogLevel/MulticastFrameInfo/
+// WirelessDeviceFrameInfo) aren't optional pointers, so there is no way for
+// a client to express "leave this one sub-field alone".
 func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
 	accountID, region, name, description string,
-	wirelessDevices, wirelessGateways []string,
+	wirelessDevicesToAdd, wirelessDevicesToRemove []string,
+	wirelessGatewaysToAdd, wirelessGatewaysToRemove []string,
+	multicastGroupsToAdd, multicastGroupsToRemove []string,
 	traceContent *TraceContent,
 ) error {
 	b.mu.Lock("UpdateNetworkAnalyzerConfig")
@@ -141,14 +174,9 @@ func (b *InMemoryBackend) UpdateNetworkAnalyzerConfig(
 	}
 
 	nc.Description = description
-
-	if wirelessDevices != nil {
-		nc.WirelessDevices = append([]string(nil), wirelessDevices...)
-	}
-
-	if wirelessGateways != nil {
-		nc.WirelessGateways = append([]string(nil), wirelessGateways...)
-	}
+	nc.WirelessDevices = addRemoveStrings(nc.WirelessDevices, wirelessDevicesToAdd, wirelessDevicesToRemove)
+	nc.WirelessGateways = addRemoveStrings(nc.WirelessGateways, wirelessGatewaysToAdd, wirelessGatewaysToRemove)
+	nc.MulticastGroups = addRemoveStrings(nc.MulticastGroups, multicastGroupsToAdd, multicastGroupsToRemove)
 
 	if traceContent != nil {
 		nc.TraceContent = traceContent

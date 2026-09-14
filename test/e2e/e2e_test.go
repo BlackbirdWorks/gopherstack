@@ -4,7 +4,7 @@ package e2e_test
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http/httptest"
 	"os"
 	"strings"
@@ -27,20 +27,24 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
 	// Install Playwright if not already present
 	_ = playwright.Install()
 
 	var err error
 	pw, err = playwright.Run()
 	if err != nil {
-		log.Fatalf("could not start playwright: %v", err)
+		logger.Error("could not start playwright", "error", err)
+		os.Exit(1)
 	}
 
 	browser, err = pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(true),
+		Headless: new(true),
 	})
 	if err != nil {
-		log.Fatalf("could not launch browser: %v", err)
+		logger.Error("could not launch browser", "error", err)
+		os.Exit(1)
 	}
 
 	code := m.Run()
@@ -303,7 +307,7 @@ func TestE2E_S3_DeleteBucket(t *testing.T) {
 
 	// Click the Delete button on the bucket card
 	err = page.Locator("button:has-text('Delete')").First().Click(
-		playwright.LocatorClickOptions{Force: playwright.Bool(true)},
+		playwright.LocatorClickOptions{Force: new(true)},
 	)
 	require.NoError(t, err)
 	confirmDialog := page.Locator("[role='alertdialog']")

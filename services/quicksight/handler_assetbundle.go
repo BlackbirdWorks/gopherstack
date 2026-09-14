@@ -28,6 +28,9 @@ const (
 	keySnapshotConfig = "SnapshotConfiguration"
 	keyResultField    = "Result"
 	keyS3URI          = "S3Uri"
+
+	keyAssetBundleImportSource = "AssetBundleImportSource"
+	keyBody                    = "Body"
 )
 
 func isAssetBundleOp(op string) bool {
@@ -223,6 +226,18 @@ func (h *Handler) handleStartAssetBundleImportJob(c *echo.Context) error {
 	body, err := readBody(c)
 	if err != nil {
 		return writeError(c, http.StatusBadRequest, errInvalidParam, errInvalidBody)
+	}
+
+	// AssetBundleImportSource (Body base64 zip / S3Uri, api_op_StartAssetBundleImportJob.go)
+	// is required. Actually importing its contents -- unzipping a QUICKSIGHT_JSON
+	// manifest and re-creating every dashboard/dataset/analysis/datasource/theme it
+	// describes -- is a whole missing subsystem this pass isn't building (see
+	// PARITY.md); this only stops silently accepting a request that omits the
+	// source entirely, matching AWS's required-member validation.
+	src, _ := body[keyAssetBundleImportSource].(map[string]any)
+	if src == nil || (strField(src, keyBody) == "" && strField(src, keyS3URI) == "") {
+		return writeError(c, http.StatusBadRequest, errInvalidParam,
+			"AssetBundleImportSource is required")
 	}
 
 	job, err := h.Backend.StartAssetBundleImportJob(

@@ -26,6 +26,7 @@ import (
 const (
 	keyPosition       = "position"
 	keyLimit          = "limit"
+	keyTagKeys        = "tagKeys"
 	litTrue           = "true"
 	headerContentType = "Content-Type"
 	// modeImport is the "mode" query parameter value that distinguishes
@@ -287,6 +288,12 @@ func (h *Handler) RouteMatcher() service.Matcher {
 			return true
 		}
 
+		// Stage invoke URLs (stageInvokeURL in store.go) land here; unclaimed, they fall
+		// through to S3's catch-all (S3 excludes /api/, /metrics/, /dashboard/, not /proxy/).
+		if strings.HasPrefix(path, "/proxy/") {
+			return true
+		}
+
 		// /tags/{arn} — only claim this path when the ARN is an API Gateway resource.
 		// API Gateway ARNs contain ":apigateway:" (e.g. arn:aws:apigateway:us-east-1::/restapis/xyz).
 		if after, ok := strings.CutPrefix(path, "/tags/"); ok {
@@ -538,10 +545,22 @@ func (h *Handler) handleRESTAPI(c *echo.Context) error {
 	}
 
 	// Merge query string parameters (e.g., limit, position) into the JSON body.
+	// tagKeys (UntagResource) is bound as a repeated query parameter
+	// (encoder.AddQuery in a loop, apigateway@v1.42.4 serializers.go:9284),
+	// not a single scalar -- keeping only v[0] and injecting it as a bare
+	// string previously broke every real client's UntagResource call
+	// outright (json.Unmarshal of a string into the handler's []string
+	// field), regardless of how many keys were requested.
 	for k, v := range c.Request().URL.Query() {
-		if len(v) > 0 {
-			body = injectJSONFieldAPIGW(body, k, v[0])
+		if len(v) == 0 {
+			continue
 		}
+		if k == keyTagKeys {
+			body = injectJSONArrayFieldAPIGW(body, k, v)
+
+			continue
+		}
+		body = injectJSONFieldAPIGW(body, k, v[0])
 	}
 
 	return h.dispatchAndRespond(ctx, c, action, body, contentTypeJSON)
@@ -658,6 +677,28 @@ func injectJSONFieldAPIGW(body []byte, key, value string) []byte {
 
 	quoted, _ := json.Marshal(value)
 	m[key] = json.RawMessage(quoted)
+
+	result, _ := json.Marshal(m)
+
+	return result
+}
+
+// injectJSONArrayFieldAPIGW merges a key/[]value pair into a JSON object body
+// as a JSON array, for query parameters real apigateway binds as repeated
+// (encoder.AddQuery in a loop) rather than a single scalar -- e.g. tagKeys
+// (UntagResource, serializers.go:9284).
+func injectJSONArrayFieldAPIGW(body []byte, key string, values []string) []byte {
+	var m map[string]json.RawMessage
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &m); err != nil {
+			m = make(map[string]json.RawMessage)
+		}
+	} else {
+		m = make(map[string]json.RawMessage)
+	}
+
+	encoded, _ := json.Marshal(values)
+	m[key] = encoded
 
 	result, _ := json.Marshal(m)
 

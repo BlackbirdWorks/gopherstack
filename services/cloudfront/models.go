@@ -347,10 +347,11 @@ type EncryptionEntity struct {
 
 // FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
 type FieldLevelEncryptionProfile struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Comment         string `json:"comment,omitempty"`
+	ETag            string `json:"eTag"`
+	CallerReference string `json:"callerReference,omitempty"`
 	// EncryptionEntities reference public keys. Each PublicKeyID must correspond to
 	// an existing public key (referential integrity enforced on create/update).
 	EncryptionEntities []EncryptionEntity `json:"encryptionEntities,omitempty"`
@@ -518,26 +519,32 @@ type DistributionTenantUpdate struct {
 	Domains           []string
 }
 
-// TrustStoreCertificateBundle models the CA certificate bundle backing a trust store, either
-// as a reference to an object in S3 or as an inline PEM-encoded certificate bundle.
-type TrustStoreCertificateBundle struct {
-	S3Bucket                string `json:"s3Bucket,omitempty"`
-	S3Key                   string `json:"s3Key,omitempty"`
-	InlineCertificateBundle string `json:"inlineCertificateBundle,omitempty"`
+// TrustStoreCACertificatesBundleSource models CaCertificatesBundleSource's sole real member,
+// CaCertificatesBundleS3Location (cloudfront@v1.67.4 types/types.go:301-317: Bucket/Key/Region,
+// all required). AWS has no inline-bundle option. This is tracked only so UpdateTrustStore can
+// replace it in place -- the real TrustStore response never echoes it back (types.go:6633).
+type TrustStoreCACertificatesBundleSource struct {
+	S3Bucket string `json:"s3Bucket,omitempty"`
+	S3Key    string `json:"s3Key,omitempty"`
+	S3Region string `json:"s3Region,omitempty"`
 }
 
 // TrustStore represents a CloudFront trust store: a named collection of CA certificates used
-// for mutual TLS (mTLS) authentication between viewers and CloudFront.
+// for mutual TLS (mTLS) authentication between viewers and CloudFront. Fields mirror
+// types.TrustStore (cloudfront@v1.67.4 types/types.go:6633); AWS has no Comment member and
+// never returns the CA bundle's content or location.
 type TrustStore struct {
-	Tags                                   map[string]string           `json:"tags,omitempty"`
-	ID                                     string                      `json:"id"`
-	ARN                                    string                      `json:"arn"`
-	Name                                   string                      `json:"name"`
-	Comment                                string                      `json:"comment,omitempty"`
-	Status                                 string                      `json:"status"`
-	ETag                                   string                      `json:"etag"`
-	LastModifiedTime                       string                      `json:"lastModifiedTime,omitempty"`
-	CertificateAuthorityCertificatesBundle TrustStoreCertificateBundle `json:"certificateAuthorityCertificatesBundle"`
+	Tags                             map[string]string                    `json:"tags,omitempty"`
+	ID                               string                               `json:"id"`
+	ARN                              string                               `json:"arn"`
+	Name                             string                               `json:"name"`
+	Status                           string                               `json:"status"`
+	Reason                           string                               `json:"reason,omitempty"`
+	ETag                             string                               `json:"etag"`
+	LastModifiedTime                 string                               `json:"lastModifiedTime,omitempty"`
+	CACertificatesBundleSource       TrustStoreCACertificatesBundleSource `json:"caCertificatesBundleSource"`
+	NumberOfCaCertificates           int32                                `json:"numberOfCaCertificates"`
+	UseClientCertificateOCSPEndpoint bool                                 `json:"useClientCertificateOCSPEndpoint"`
 }
 
 // StreamingDistributionS3Origin models the S3Origin element of a StreamingDistributionConfig.

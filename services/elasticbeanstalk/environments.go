@@ -48,6 +48,19 @@ func (b *InMemoryBackend) environmentCNAMETaken(region, cname string) bool {
 	return len(b.environmentsByCNAME.Get(regionKey(region, cname))) > 0
 }
 
+// environmentByID finds an environment by EnvironmentId. No dedicated index
+// exists for this lookup (only by name/ARN/CNAME), so it scans the region's
+// environments -- same precedent as configTemplateByARN's linear scan.
+func (b *InMemoryBackend) environmentByID(region, envID string) (*Environment, bool) {
+	for _, env := range b.environmentsInRegion(region) {
+		if env.EnvironmentID == envID {
+			return env, true
+		}
+	}
+
+	return nil, false
+}
+
 func (b *InMemoryBackend) nextEnvID(region string) string {
 	b.envCounters[region]++
 

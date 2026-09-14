@@ -212,7 +212,8 @@ func TestPersistenceExtended(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
 				t.Helper()
-				cgws := b.DescribeCustomerGateways(nil)
+				cgws, err := b.DescribeCustomerGateways(nil)
+				require.NoError(t, err)
 				assert.NotEmpty(t, cgws)
 			},
 		},
@@ -287,7 +288,7 @@ func TestPersistenceExtended(t *testing.T) {
 		{
 			name: "managed_prefix_list_persists",
 			setup: func(b *ec2.InMemoryBackend) {
-				_, err := b.CreateManagedPrefixList("persist-pl", "IPv4", 10)
+				_, err := b.CreateManagedPrefixList("persist-pl", "IPv4", 10, nil)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *ec2.InMemoryBackend) {
@@ -965,10 +966,12 @@ func TestPersistenceWithExtendedResources(t *testing.T) {
 	addrs := b2.DescribeAddresses(nil)
 	assert.NotEmpty(t, addrs)
 
-	igws := b2.DescribeInternetGateways(nil)
+	igws, err := b2.DescribeInternetGateways(nil)
+	require.NoError(t, err)
 	assert.NotEmpty(t, igws)
 
-	rts := b2.DescribeRouteTables([]string{rt.ID})
+	rts, err := b2.DescribeRouteTables([]string{rt.ID})
+	require.NoError(t, err)
 	assert.Len(t, rts, 1)
 
 	ngws := b2.DescribeNatGateways(nil)

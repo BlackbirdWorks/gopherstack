@@ -160,7 +160,14 @@ func matchLocationFilters(l *storedLocation, filters []LocationFilter) (bool, er
 }
 
 // UpdateLocationS3 updates an S3 location's subdirectory, storage class, and S3 config.
-func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config S3Config) error {
+// UpdateLocationS3 leaves S3Config untouched when s3Config is nil (the
+// caller didn't specify it -- matches real UpdateLocationS3Input.S3Config,
+// which is optional). Previously this always overwrote l.S3Config with
+// whatever zero-valued S3Config the handler built for an absent field,
+// silently wiping BucketAccessRoleArn (required whenever S3Config is
+// present on the wire, datasync@v1.61.4 types/types.go:915) on every
+// Subdirectory/StorageClass-only update.
+func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageClass string, s3Config *S3Config) error {
 	b.mu.Lock("UpdateLocationS3")
 	defer b.mu.Unlock()
 
@@ -177,7 +184,10 @@ func (b *InMemoryBackend) UpdateLocationS3(locationArn, subdirectory, s3StorageC
 	}
 
 	l.S3StorageClass = s3StorageClass
-	l.S3Config = &storedS3Config{BucketAccessRoleArn: s3Config.BucketAccessRoleArn}
+
+	if s3Config != nil {
+		l.S3Config = &storedS3Config{BucketAccessRoleArn: s3Config.BucketAccessRoleArn}
+	}
 
 	return nil
 }

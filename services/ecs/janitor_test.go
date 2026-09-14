@@ -34,7 +34,7 @@ func TestJanitor_SweepsStoppedTasksOlderThanTTL(t *testing.T) {
 	backend := setupJanitorBackend(t)
 
 	// Run a task then stop it.
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: "test-family",
 		Count:          1,
@@ -66,7 +66,7 @@ func TestJanitor_SweptTaskLosesResourceTags(t *testing.T) {
 
 	backend := setupJanitorBackend(t)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: "test-family",
 		Count:          1,
@@ -102,7 +102,7 @@ func TestJanitor_DoesNotSweepRunningTasks(t *testing.T) {
 
 	backend := setupJanitorBackend(t)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: "test-family",
 		Count:          1,
@@ -126,7 +126,7 @@ func TestJanitor_DoesNotSweepRecentlyStoppedTasks(t *testing.T) {
 
 	backend := setupJanitorBackend(t)
 
-	tasks, err := backend.RunTask(ecs.RunTaskInput{
+	tasks, _, err := backend.RunTask(ecs.RunTaskInput{
 		Cluster:        "test-cluster",
 		TaskDefinition: "test-family",
 		Count:          1,

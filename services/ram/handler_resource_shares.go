@@ -30,7 +30,7 @@ func toResourceShareObject(rs *ResourceShare) resourceShareObject {
 		OwningAccountID:         rs.OwningAccountID,
 		Status:                  rs.Status,
 		StatusMessage:           rs.StatusMessage,
-		FeatureSet:              permStandard,
+		FeatureSet:              featureSetOf(rs),
 		AllowExternalPrincipals: rs.AllowExternalPrincipals,
 		CreationTime:            epochSeconds(rs.CreationTime),
 		LastUpdatedTime:         epochSeconds(rs.LastUpdatedTime),
@@ -324,28 +324,30 @@ func (h *Handler) handleEnableSharingWithAwsOrganization() ([]byte, error) {
 	return json.Marshal(enableSharingWithAwsOrganizationResponse{ReturnValue: true})
 }
 
-type promoteResourceShareCreatedFromPolicyRequest struct {
-	ResourceShareArn string `json:"resourceShareArn"`
-}
-
 type promoteResourceShareCreatedFromPolicyResponse struct {
 	ReturnValue bool `json:"returnValue"`
 }
 
+// handlePromoteResourceShareCreatedFromPolicy reads resourceShareArn from the URL query
+// string, not the JSON body: the real operation has no httpPayload member and binds its
+// one input field via httpQuery (ram@v1.39.4 serializers.go
+// awsRestjson1_serializeOpHttpBindingsPromoteResourceShareCreatedFromPolicyInput:
+// "encoder.SetQuery(\"resourceShareArn\")"), matching DeleteResourceShare's identical
+// query-only binding (handleDeleteResourceShare above). A real client sends no request
+// body at all, so unmarshaling it as JSON would fail on every real call.
 func (h *Handler) handlePromoteResourceShareCreatedFromPolicy(
 	_ context.Context,
-	body []byte,
+	c *echo.Context,
 ) ([]byte, error) {
-	var req promoteResourceShareCreatedFromPolicyRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+	shareARN := c.Request().URL.Query().Get("resourceShareArn")
+	if shareARN == "" {
+		return nil, fmt.Errorf(
+			"%w: resourceShareArn query parameter is required",
+			errInvalidRequest,
+		)
 	}
 
-	if req.ResourceShareArn == "" {
-		return nil, fmt.Errorf("%w: resourceShareArn is required", errInvalidRequest)
-	}
-
-	if _, err := h.Backend.PromoteResourceShareCreatedFromPolicy(req.ResourceShareArn); err != nil {
+	if _, err := h.Backend.PromoteResourceShareCreatedFromPolicy(shareARN); err != nil {
 		return nil, err
 	}
 

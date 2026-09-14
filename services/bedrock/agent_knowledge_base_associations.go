@@ -3,13 +3,14 @@ package bedrock
 import (
 	"fmt"
 	"sort"
+	"time"
 )
 
 func agentKBKey(agentID, kbID string) string { return agentID + "/" + kbID }
 
 // AssociateAgentKnowledgeBase links a knowledge base to an agent.
 func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
-	agentID, kbID, description string,
+	agentID, kbID, description, state string,
 ) (*AgentKnowledgeBaseAssociation, error) {
 	b.mu.Lock("AssociateAgentKnowledgeBase")
 	defer b.mu.Unlock()
@@ -22,12 +23,20 @@ func (b *InMemoryBackend) AssociateAgentKnowledgeBase(
 		return nil, fmt.Errorf("%w: knowledge base %q not found", ErrNotFound, kbID)
 	}
 
+	if state == "" {
+		state = actionGroupEnabled
+	}
+
+	now := time.Now()
+
 	assoc := &AgentKnowledgeBaseAssociation{
+		CreatedAt:       now,
+		UpdatedAt:       now,
 		AgentID:         agentID,
 		AgentVersion:    agentStatusDraft,
 		KnowledgeBaseID: kbID,
 		Description:     description,
-		KBState:         actionGroupEnabled,
+		KBState:         state,
 	}
 	b.agentKBAssociations.Put(assoc)
 	cp := *assoc
@@ -74,6 +83,8 @@ func (b *InMemoryBackend) UpdateAgentKnowledgeBase(
 	if state != "" {
 		assoc.KBState = state
 	}
+
+	assoc.UpdatedAt = time.Now()
 
 	cp := *assoc
 

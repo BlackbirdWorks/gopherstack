@@ -247,11 +247,15 @@ func (h *Handler) handleUpdateDomainConfiguration(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/domainConfigurations/")
 	var req struct {
 		DomainConfigurationStatus string `json:"domainConfigurationStatus"`
+		ApplicationProtocol       string `json:"applicationProtocol"`
+		AuthenticationType        string `json:"authenticationType"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	dc, err := h.Backend.UpdateDomainConfiguration(name, req.DomainConfigurationStatus)
+	dc, err := h.Backend.UpdateDomainConfiguration(
+		name, req.DomainConfigurationStatus, req.ApplicationProtocol, req.AuthenticationType,
+	)
 	if err != nil {
 		return respondErr(c, err)
 	}
@@ -349,17 +353,21 @@ func (h *Handler) handleDeleteProvisioningTemplate(c *echo.Context) error {
 }
 
 func (h *Handler) handleCreateProvisioningTemplateVersion(c *echo.Context) error {
-	// POST /provisioning-templates/{templateName}/versions
+	// POST /provisioning-templates/{templateName}/versions?setAsDefault=<bool>
 	trimmed := strings.TrimPrefix(c.Request().URL.Path, "/provisioning-templates/")
 	name := strings.TrimSuffix(trimmed, "/versions")
 	var req struct {
 		TemplateBody string `json:"templateBody"`
-		SetAsDefault bool   `json:"setAsDefault,omitempty"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
-	v, err := h.Backend.CreateProvisioningTemplateVersion(name, req.TemplateBody, req.SetAsDefault)
+	// setAsDefault is bound to an HTTP query parameter, not the body
+	// (confirmed against aws-sdk-go-v2/service/iot@v1.83.0's schemas.go:
+	// CreateProvisioningTemplateVersionRequest_setAsDefault carries
+	// &smithytraits.HTTPQuery{}).
+	setAsDefault := c.QueryParam("setAsDefault") == keyBoolTrue
+	v, err := h.Backend.CreateProvisioningTemplateVersion(name, req.TemplateBody, setAsDefault)
 	if err != nil {
 		return respondErr(c, err)
 	}

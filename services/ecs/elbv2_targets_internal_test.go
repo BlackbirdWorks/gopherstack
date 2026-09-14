@@ -4,6 +4,9 @@ import (
 	"context"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // launchTypeEC2Test is the EC2 launch-type string, factored into a constant to
@@ -260,12 +263,12 @@ func TestInMemoryBackend_ELBv2Registrar_ServiceWithoutLoadBalancers_NoOp(t *test
 	}
 }
 
-// TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity documents
-// the known limitation: EC2-launch-type tasks in this backend have no ENI/
-// private-IP modeling (see privateIPFromAttachments), so there is no usable
-// ELBv2 target identity to register for them — registration is skipped
-// rather than fabricating an identity.
-func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity(t *testing.T) {
+// TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance
+// documents that an EC2-launch-type task cannot be placed at all when the
+// cluster has no registered container instance: RunTask reports a
+// placement failure (see createTaskEntriesLocked) instead of creating a
+// task with no usable ELBv2 target identity.
+func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoContainerInstance(t *testing.T) {
 	t.Parallel()
 
 	b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
@@ -296,11 +299,108 @@ func TestInMemoryBackend_ELBv2Registrar_EC2LaunchType_NoUsableIdentity(t *testin
 		t.Fatalf("CreateService: %v", svcErr)
 	}
 
-	if err := b.StartTaskForService("cl-ec2", "svc-ec2", td.TaskDefinitionArn); err != nil {
-		t.Fatalf("StartTaskForService: %v", err)
+	if err := b.StartTaskForService("cl-ec2", "svc-ec2", td.TaskDefinitionArn); err == nil {
+		t.Fatal("StartTaskForService: want a placement-failure error with no container instance registered, got nil")
 	}
 
 	if got := reg.registeredCount(); got != 0 {
-		t.Fatalf("registeredCount = %d, want 0 (EC2-launch-type tasks have no ENI private IP)", got)
+		t.Fatalf("registeredCount = %d, want 0 (task was never placed)", got)
+	}
+}
+
+func setupEC2BridgeService(t *testing.T, b *InMemoryBackend) (*ContainerInstance, *TaskDefinition) {
+	t.Helper()
+
+	_, err := b.CreateCluster(CreateClusterInput{ClusterName: "cl-bridge"})
+	require.NoError(t, err)
+
+	ci, err := b.RegisterContainerInstance("cl-bridge", "i-bridge0001")
+	require.NoError(t, err)
+
+	td, err := b.RegisterTaskDefinition(RegisterTaskDefinitionInput{
+		Family:      "svc-bridge",
+		NetworkMode: networkModeBridge,
+		ContainerDefinitions: []ContainerDefinition{
+			{Name: "app", Image: "nginx", PortMappings: []PortMapping{{ContainerPort: 8080}}},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = b.CreateService(CreateServiceInput{
+		Cluster:        "cl-bridge",
+		ServiceName:    "svc-bridge",
+		TaskDefinition: td.TaskDefinitionArn,
+		LaunchType:     launchTypeEC2Test,
+		LoadBalancers: []LoadBalancer{
+			{TargetGroupArn: testTGArn, ContainerName: "app", ContainerPort: 8080},
+		},
+	})
+	require.NoError(t, err)
+
+	return ci, td
+}
+
+func assertBridgeRegistration(t *testing.T, reg *fakeELBv2Registrar, instanceID string) int {
+	t.Helper()
+
+	require.Equal(t, 1, reg.registeredCount())
+	call := reg.registered[0]
+	assert.Equal(t, testTGArn, call.targetGroupARN)
+	require.Len(t, call.targets, 1)
+	assert.Equal(t, instanceID, call.targets[0].ID)
+
+	hostPort := call.targets[0].Port
+	assert.GreaterOrEqual(t, hostPort, ephemeralPortRangeMin)
+	assert.LessOrEqual(t, hostPort, ephemeralPortRangeMax)
+
+	return hostPort
+}
+
+func assertBridgeDeregistration(t *testing.T, reg *fakeELBv2Registrar, instanceID string, hostPort int) {
+	t.Helper()
+
+	require.Equal(t, 1, reg.deregisteredCount())
+	deregCall := reg.deregistered[0]
+	require.NotEmpty(t, deregCall.targets)
+	assert.Equal(t, instanceID, deregCall.targets[0].ID)
+	assert.Equal(t, hostPort, deregCall.targets[0].Port)
+}
+
+// TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort
+// is gopherstack-fpro's core fix: a bridge-mode EC2-launch-type task placed
+// on a registered container instance registers as an "instance" target-type
+// ELBv2 target {ec2InstanceId, allocated hostPort}, and deregisters the same
+// target on stop -- see resolveELBTargetLocked/host_ports.go.
+func TestInMemoryBackend_ELBv2Registrar_EC2BridgeMode_RegistersInstanceHostPort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+	}{
+		{name: "bridge mode registers and deregisters dynamic host port"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := NewInMemoryBackend("123456789012", "us-east-1", NewNoopRunner())
+			reg := &fakeELBv2Registrar{}
+			b.SetELBv2Registrar(reg)
+
+			ci, td := setupEC2BridgeService(t, b)
+
+			require.NoError(t, b.StartTaskForService("cl-bridge", "svc-bridge", td.TaskDefinitionArn))
+			hostPort := assertBridgeRegistration(t, reg, ci.EC2InstanceID)
+
+			tasks, _, err := b.DescribeTasks("cl-bridge", nil)
+			require.NoError(t, err)
+			require.Len(t, tasks, 1)
+
+			_, stopErr := b.StopTask("cl-bridge", tasks[0].TaskArn, "test stop")
+			require.NoError(t, stopErr)
+
+			assertBridgeDeregistration(t, reg, ci.EC2InstanceID, hostPort)
+		})
 	}
 }

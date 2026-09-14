@@ -388,7 +388,7 @@ func TestTaskLifecycle_PendingThenRunning(t *testing.T) {
 
 	tdArn := makeTaskDef(t, b, "lifecycle-td")
 
-	tasks, err := b.RunTask(ecs.RunTaskInput{
+	tasks, _, err := b.RunTask(ecs.RunTaskInput{
 		TaskDefinition: tdArn,
 		Count:          1,
 	})
@@ -405,7 +405,7 @@ func TestFargateENI_UniquePerTask(t *testing.T) {
 	b := ecs.NewInMemoryBackend(testAccountID, testRegion, ecs.NewNoopRunner())
 	tdArn := makeTaskDef(t, b, "eni-td")
 
-	tasks, err := b.RunTask(ecs.RunTaskInput{
+	tasks, _, err := b.RunTask(ecs.RunTaskInput{
 		TaskDefinition: tdArn,
 		LaunchType:     "FARGATE",
 		Count:          3,
@@ -447,7 +447,7 @@ func TestTaskRoleArn_Resolved(t *testing.T) {
 	t.Run("inherits task def role when no override", func(t *testing.T) {
 		t.Parallel()
 
-		tasks, runErr := b.RunTask(ecs.RunTaskInput{
+		tasks, _, runErr := b.RunTask(ecs.RunTaskInput{
 			TaskDefinition: tdOut.TaskDefinitionArn,
 			Count:          1,
 		})
@@ -460,7 +460,7 @@ func TestTaskRoleArn_Resolved(t *testing.T) {
 		t.Parallel()
 
 		overrideRole := "arn:aws:iam::123456789012:role/override-role"
-		tasks, runErr := b.RunTask(ecs.RunTaskInput{
+		tasks, _, runErr := b.RunTask(ecs.RunTaskInput{
 			TaskDefinition: tdOut.TaskDefinitionArn,
 			Count:          1,
 			Overrides: &ecs.TaskOverride{
@@ -483,7 +483,7 @@ func TestTaskRoleArn_Resolved(t *testing.T) {
 		})
 		require.NoError(t, regErr)
 
-		tasks, runErr := b.RunTask(ecs.RunTaskInput{
+		tasks, _, runErr := b.RunTask(ecs.RunTaskInput{
 			TaskDefinition: tdNoRole.TaskDefinitionArn,
 			Count:          1,
 		})

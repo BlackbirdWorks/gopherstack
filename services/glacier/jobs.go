@@ -64,7 +64,7 @@ func isValidTier(tier string) bool {
 
 // InitiateJob creates a new retrieval or inventory job.
 func (b *InMemoryBackend) InitiateJob(accountID, region, vaultName string, req *initiateJobRequest) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("InitiateJob")
 	defer b.mu.Unlock()
 
 	// Normalize the job type: the SDK sends kebab-case ("archive-retrieval",
@@ -253,7 +253,7 @@ func applyArchiveRetrievalFields(j *Job, v *Vault, archiveID string, ready bool)
 
 // DescribeJob returns metadata for a job.
 func (b *InMemoryBackend) DescribeJob(accountID, region, vaultName, jobID string) (*Job, error) {
-	b.mu.Lock()
+	b.mu.Lock("DescribeJob")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -299,7 +299,7 @@ func promoteJobIfReady(j *Job) {
 // ListJobs returns all jobs for the given vault.
 // Returns ErrVaultNotFound if the vault does not exist.
 func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job, error) {
-	b.mu.RLock()
+	b.mu.RLock("ListJobs")
 	defer b.mu.RUnlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -330,7 +330,7 @@ func (b *InMemoryBackend) ListJobs(accountID, region, vaultName string) ([]*Job,
 // SetJobInventorySize stores the computed inventory size on the job.
 // No-op if the job does not exist.
 func (b *InMemoryBackend) SetJobInventorySize(accountID, region, vaultName, jobID string, size int64) {
-	b.mu.Lock()
+	b.mu.Lock("SetJobInventorySize")
 	defer b.mu.Unlock()
 
 	vArn := vaultARN(accountID, region, vaultName)
@@ -344,7 +344,7 @@ func (b *InMemoryBackend) SetJobInventorySize(accountID, region, vaultName, jobI
 // always recomputed from the accountID/region/vaultName parameters -- see
 // the AddVaultInternal doc comment for why.
 func (b *InMemoryBackend) AddJobInternal(accountID, region, vaultName string, j *Job) {
-	b.mu.Lock()
+	b.mu.Lock("AddJobInternal")
 	defer b.mu.Unlock()
 
 	cp := *j

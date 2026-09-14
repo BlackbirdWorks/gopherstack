@@ -9,10 +9,17 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// capabilityTypeArgoCd is the only CapabilityType (verified against
+// aws-sdk-go-v2/service/eks/types.CapabilityType, enums.go) whose
+// Configuration this pinned SDK version models -- see CapabilityConfiguration's
+// doc comment in models.go.
+const capabilityTypeArgoCd = "ARGOCD"
+
 // CreateCapability creates a new EKS capability scoped to a cluster.
-// CapabilityName is unique per cluster, not globally.
+// CapabilityName is unique per cluster, not globally. config may be nil.
 func (b *InMemoryBackend) CreateCapability(
 	clusterName, capabilityName, capType, roleARN, deletePropagationPolicy string,
+	config *CapabilityConfiguration,
 	kv map[string]string,
 ) (*Capability, error) {
 	b.mu.Lock("CreateCapability")
@@ -30,6 +37,28 @@ func (b *InMemoryBackend) CreateCapability(
 		return nil, fmt.Errorf(
 			"%w: capability %s already exists in cluster %s", ErrAlreadyExists, capabilityName, clusterName,
 		)
+	}
+
+	if config != nil && config.ArgoCd != nil && capType != capabilityTypeArgoCd {
+		return nil, fmt.Errorf(
+			"%w: configuration.argoCd is only valid for type %s",
+			ErrValidation,
+			capabilityTypeArgoCd,
+		)
+	}
+
+	// https://docs.aws.amazon.com/eks/latest/userguide/capabilities.html
+	// (WebFetch'd 2026-09-11): "You can create one capability resource of
+	// each type ... for a given cluster. You cannot create multiple
+	// capability resources of the same type on the same cluster." A fixed
+	// structural rule (always 1), not an AWS-adjustable Service Quota, so it
+	// is not part of resourceLimits/limits.go.
+	for _, existing := range b.capabilitiesByCluster.Get(clusterName) {
+		if existing.Type == capType {
+			return nil, resourceLimitExceededErr(
+				"capability of type "+capType+" per cluster (one per cluster)", 1,
+			)
+		}
 	}
 
 	capaARN := arn.Build("eks", b.region, b.accountID, "capability/"+clusterName+"/"+capabilityName)
@@ -51,6 +80,7 @@ func (b *InMemoryBackend) CreateCapability(
 		ModifiedAt:              now,
 		Tags:                    t,
 		Health:                  &CapabilityHealth{Issues: []CapabilityIssue{}},
+		Configuration:           config,
 	}
 	b.capabilities.Put(capa)
 	cp := *capa
@@ -120,10 +150,12 @@ func (b *InMemoryBackend) ListCapabilities(clusterName string) []*Capability {
 	return list
 }
 
-// UpdateCapability updates an existing capability's role ARN and/or delete
-// propagation policy.
+// UpdateCapability updates an existing capability's role ARN, delete
+// propagation policy, and/or Configuration (merged per
+// applyUpdateCapabilityConfiguration -- configUpdate may be nil).
 func (b *InMemoryBackend) UpdateCapability(
 	clusterName, capabilityName, roleARN, deletePropagationPolicy string,
+	configUpdate *updateCapabilityConfigurationBody,
 ) (*Capability, error) {
 	b.mu.Lock("UpdateCapability")
 	defer b.mu.Unlock()
@@ -133,6 +165,18 @@ func (b *InMemoryBackend) UpdateCapability(
 	capa, ok := b.capabilities.Get(key)
 	if !ok {
 		return nil, fmt.Errorf("%w: capability %s not found in cluster %s", ErrNotFound, capabilityName, clusterName)
+	}
+
+	if configUpdate != nil && configUpdate.ArgoCd != nil && capa.Type != capabilityTypeArgoCd {
+		return nil, fmt.Errorf(
+			"%w: configuration.argoCd is only valid for type %s",
+			ErrValidation,
+			capabilityTypeArgoCd,
+		)
+	}
+
+	if configUpdate != nil {
+		capa.Configuration = applyUpdateCapabilityConfiguration(capa.Configuration, configUpdate)
 	}
 
 	if roleARN != "" {

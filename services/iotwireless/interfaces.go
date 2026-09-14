@@ -94,7 +94,9 @@ type StorageBackend interface {
 	DeleteNetworkAnalyzerConfig(accountID, region, name string) error
 	UpdateNetworkAnalyzerConfig(
 		accountID, region, name, description string,
-		wirelessDevices, wirelessGateways []string,
+		wirelessDevicesToAdd, wirelessDevicesToRemove []string,
+		wirelessGatewaysToAdd, wirelessGatewaysToRemove []string,
+		multicastGroupsToAdd, multicastGroupsToRemove []string,
 		traceContent *TraceContent,
 	) error
 

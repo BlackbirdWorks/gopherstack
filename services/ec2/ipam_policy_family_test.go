@@ -222,6 +222,11 @@ func TestIpamPolicy_HTTP(t *testing.T) {
 	ipamID := ipamBody[indexOf(ipamBody, "<ipamId>")+len("<ipamId>") : indexOf(ipamBody, "</ipamId>")]
 	require.NotEmpty(t, ipamID)
 
+	privateScopeID := ipamBody[indexOf(ipamBody, "<privateDefaultScopeId>")+len(
+		"<privateDefaultScopeId>",
+	) : indexOf(ipamBody, "</privateDefaultScopeId>")]
+	require.NotEmpty(t, privateScopeID)
+
 	// CreateIpamPolicy requires IpamId; verify it dispatches to the real handler (not a stub
 	// placeholder) and errors correctly when the ID is missing.
 	missingIDRec := postForm(t, h, "Action=CreateIpamPolicy&Version=2016-11-15")
@@ -319,7 +324,7 @@ func TestIpamPolicy_HTTP(t *testing.T) {
 
 	// ---- MoveByoipCidrToIpam ----
 	poolRec := postForm(t, h, fmt.Sprintf(
-		"Action=CreateIpamPool&Version=2016-11-15&IpamId=%s&AddressFamily=ipv4", ipamID,
+		"Action=CreateIpamPool&Version=2016-11-15&IpamScopeId=%s&AddressFamily=ipv4", privateScopeID,
 	))
 	require.Equal(t, http.StatusOK, poolRec.Code)
 

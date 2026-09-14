@@ -27,9 +27,31 @@ func (b *InMemoryBackend) findUserByAccessTokenLocked(accessToken string) (*User
 			continue
 		}
 
-		// Check per-user token revocation: reject tokens issued before GlobalSignOut.
-		if revokedBefore, ok2 := b.tokenRevokedBefore[pool.ID+":"+u.Username]; ok2 {
-			authTime, _ := claims["auth_time"].(float64)
+		// Check per-user token revocation: reject tokens minted at or before
+		// GlobalSignOut. Prefers authSeq (a monotonic per-mint counter) over
+		// auth_time: auth_time is JWT NumericDate, second-granularity by
+		// spec, so a sign-out followed immediately by a fresh login within
+		// the same wall-clock second mints two tokens with an identical
+		// auth_time -- no timestamp comparison, at any rounding, can
+		// correctly revoke the old one while sparing the new one. authSeq
+		// has no such ambiguity: it strictly increases on every mint. A
+		// zero revokedSeq means either no sign-out ever happened for this
+		// user, or (map key present with revokedSeq==0 is impossible here
+		// since tokenSeq starts at 0 and only ever increases before a
+		// GlobalSignOut can observe it, so any real sign-out records
+		// revokedSeq>=1) the backend was restored from a pre-authSeq (v2)
+		// snapshot, which never populated tokenRevokedBeforeSeq at all --
+		// fall back to the old wall-clock comparison against
+		// tokenRevokedBefore for that case, so a v2 snapshot's revocations
+		// survive restore instead of silently vanishing.
+		key := pool.ID + ":" + u.Username
+		if revokedSeq := b.tokenRevokedBeforeSeq[key]; revokedSeq > 0 {
+			authSeq, _ := claims[claimAuthSeq].(float64)
+			if int64(authSeq) <= revokedSeq {
+				continue
+			}
+		} else if revokedBefore, ok2 := b.tokenRevokedBefore[key]; ok2 {
+			authTime, _ := claims[claimAuthTime].(float64)
 			if time.Unix(int64(authTime), 0).Before(revokedBefore) {
 				continue
 			}
@@ -156,12 +178,15 @@ func (b *InMemoryBackend) issueTokensLocked(
 		return nil, postAuthErr
 	}
 
+	b.tokenSeq++
+
 	tokens, err := pool.issuer.Issue(TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,
 		UserSub:               user.Sub,
 		Groups:                groups,
 		AuthTime:              now.Unix(),
+		AuthSeq:               b.tokenSeq,
 		Scopes:                settings.scopes,
 		Attributes:            user.Attributes,
 		AccessTokenExpiry:     settings.accessTokenExpiry,
@@ -242,12 +267,15 @@ func (b *InMemoryBackend) InitiateAuthRefreshToken(clientID, refreshToken string
 		return nil, err
 	}
 
+	b.tokenSeq++
+
 	tokens, err := pool.issuer.Issue(TokenParams{
 		ClientID:              clientID,
 		Username:              user.Username,
 		UserSub:               user.Sub,
 		Groups:                groups,
 		AuthTime:              authTime,
+		AuthSeq:               b.tokenSeq,
 		Scopes:                settings.scopes,
 		AccessTokenExpiry:     settings.accessTokenExpiry,
 		IDTokenExpiry:         settings.idTokenExpiry,
@@ -315,7 +343,10 @@ func (b *InMemoryBackend) AdminUserGlobalSignOut(userPoolID, username string) er
 	}
 
 	b.deleteRefreshTokensForUserLocked(userPoolID, username)
-	b.tokenRevokedBefore[userPoolID+":"+username] = time.Now().UTC()
+
+	key := userPoolID + ":" + username
+	b.tokenRevokedBeforeSeq[key] = b.tokenSeq
+	b.tokenRevokedBefore[key] = time.Now().UTC()
 
 	return nil
 }
@@ -332,7 +363,10 @@ func (b *InMemoryBackend) GlobalSignOut(accessToken string) error {
 	}
 
 	b.deleteRefreshTokensForUserLocked(user.UserPoolID, user.Username)
-	b.tokenRevokedBefore[user.UserPoolID+":"+user.Username] = time.Now().UTC()
+
+	key := user.UserPoolID + ":" + user.Username
+	b.tokenRevokedBeforeSeq[key] = b.tokenSeq
+	b.tokenRevokedBefore[key] = time.Now().UTC()
 
 	return nil
 }

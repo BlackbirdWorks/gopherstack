@@ -148,7 +148,7 @@ func (b *InMemoryBackend) auditMitigationFindingIDs(target *AuditMitigationActio
 func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 	input *StartAuditMitigationActionsTaskInput,
 ) (*AuditMitigationTask, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartAuditMitigationActionsTask")
 	defer b.mu.Unlock()
 
 	if input.TaskID == "" {
@@ -219,7 +219,7 @@ func (b *InMemoryBackend) StartAuditMitigationActionsTask(
 // DescribeAuditMitigationActionsTask returns a previously started audit
 // mitigation actions task, or ErrResourceNotFound if taskID is unknown.
 func (b *InMemoryBackend) DescribeAuditMitigationActionsTask(taskID string) (*AuditMitigationTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeAuditMitigationActionsTask")
 	defer b.mu.RUnlock()
 
 	t, ok := b.auditMitigationTaskObjects.Get(taskID)
@@ -233,7 +233,7 @@ func (b *InMemoryBackend) DescribeAuditMitigationActionsTask(taskID string) (*Au
 // ListAuditMitigationActionsTasks returns stored audit mitigation actions tasks,
 // optionally filtered by the audit task they target and/or their current status.
 func (b *InMemoryBackend) ListAuditMitigationActionsTasks(auditTaskID, taskStatus string) []*AuditMitigationTask {
-	b.mu.RLock()
+	b.mu.RLock("ListAuditMitigationActionsTasks")
 	defer b.mu.RUnlock()
 
 	items := b.auditMitigationTaskObjects.Snapshot()
@@ -258,7 +258,7 @@ func (b *InMemoryBackend) ListAuditMitigationActionsTasks(auditTaskID, taskStatu
 func (b *InMemoryBackend) ListAuditMitigationActionsExecutions(
 	taskID, findingID, actionStatus string,
 ) []*AuditMitigationActionExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListAuditMitigationActionsExecutions")
 	defer b.mu.RUnlock()
 
 	taskIDs := []string{taskID}
@@ -378,7 +378,7 @@ func cloneDetectMitigationTask(t *DetectMitigationTask) *DetectMitigationTask {
 // longer has a corresponding MitigationAction (e.g. deleted after the task
 // that referenced it was started).
 func (b *InMemoryBackend) MitigationActionRefs(names []string) []MitigationActionRef {
-	b.mu.RLock()
+	b.mu.RLock("MitigationActionRefs")
 	defer b.mu.RUnlock()
 
 	refs := make([]MitigationActionRef, 0, len(names))
@@ -467,7 +467,7 @@ func (b *InMemoryBackend) detectMitigationViolationIDs(target *DetectMitigationA
 func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 	input *StartDetectMitigationActionsTaskInput,
 ) (*DetectMitigationTask, error) {
-	b.mu.Lock()
+	b.mu.Lock("StartDetectMitigationActionsTask")
 	defer b.mu.Unlock()
 
 	if input.TaskID == "" {
@@ -528,7 +528,7 @@ func (b *InMemoryBackend) StartDetectMitigationActionsTask(
 // DescribeDetectMitigationActionsTask returns a previously started detect
 // mitigation actions task, or ErrResourceNotFound if taskID is unknown.
 func (b *InMemoryBackend) DescribeDetectMitigationActionsTask(taskID string) (*DetectMitigationTask, error) {
-	b.mu.RLock()
+	b.mu.RLock("DescribeDetectMitigationActionsTask")
 	defer b.mu.RUnlock()
 
 	t, ok := b.detectMitigationTasks.Get(taskID)
@@ -543,7 +543,7 @@ func (b *InMemoryBackend) DescribeDetectMitigationActionsTask(taskID string) (*D
 // tasks, optionally filtered to those started within [startTime, endTime]
 // (epoch seconds; zero means unbounded).
 func (b *InMemoryBackend) ListDetectMitigationActionsTasks(startTime, endTime float64) []*DetectMitigationTask {
-	b.mu.RLock()
+	b.mu.RLock("ListDetectMitigationActionsTasks")
 	defer b.mu.RUnlock()
 
 	items := b.detectMitigationTasks.Snapshot()
@@ -566,7 +566,7 @@ func (b *InMemoryBackend) ListDetectMitigationActionsTasks(startTime, endTime fl
 // CancelDetectMitigationActionsTask transitions a detect mitigation actions task
 // to CANCELED, or returns ErrResourceNotFound if taskID is unknown.
 func (b *InMemoryBackend) CancelDetectMitigationActionsTask(taskID string) error {
-	b.mu.Lock()
+	b.mu.Lock("CancelDetectMitigationActionsTask")
 	defer b.mu.Unlock()
 
 	t, ok := b.detectMitigationTasks.Get(taskID)
@@ -584,7 +584,7 @@ func (b *InMemoryBackend) CancelDetectMitigationActionsTask(taskID string) error
 func (b *InMemoryBackend) ListDetectMitigationActionsExecutions(
 	taskID, violationID, thingName string,
 ) []*DetectMitigationActionExecution {
-	b.mu.RLock()
+	b.mu.RLock("ListDetectMitigationActionsExecutions")
 	defer b.mu.RUnlock()
 
 	taskIDs := []string{taskID}
@@ -718,7 +718,7 @@ type SeedActiveViolationInput struct {
 // ListViolationEvents, PutVerificationStateOnViolation, and detect
 // mitigation-action targeting instead of those always returning an empty set.
 func (b *InMemoryBackend) SeedActiveViolation(input *SeedActiveViolationInput) (*ActiveViolation, error) {
-	b.mu.Lock()
+	b.mu.Lock("SeedActiveViolation")
 	defer b.mu.Unlock()
 
 	if input.ThingName == "" || input.SecurityProfileName == "" {
@@ -842,7 +842,7 @@ func matchesWindow(t, startTime, endTime float64) bool {
 func (b *InMemoryBackend) ListActiveViolations(
 	thingName, securityProfileName, verificationState string, listSuppressedAlerts *bool, behaviorCriteriaType string,
 ) []*ActiveViolation {
-	b.mu.RLock()
+	b.mu.RLock("ListActiveViolations")
 	defer b.mu.RUnlock()
 
 	f := violationFilter{
@@ -881,7 +881,7 @@ func (b *InMemoryBackend) ListViolationEvents(
 	listSuppressedAlerts *bool,
 	behaviorCriteriaType string,
 ) []*ViolationEvent {
-	b.mu.RLock()
+	b.mu.RLock("ListViolationEvents")
 	defer b.mu.RUnlock()
 
 	f := violationFilter{
@@ -914,7 +914,7 @@ func (b *InMemoryBackend) ListViolationEvents(
 // description) of an active violation, or returns ErrResourceNotFound if
 // violationID is unknown.
 func (b *InMemoryBackend) PutVerificationStateOnViolation(violationID, verificationState, description string) error {
-	b.mu.Lock()
+	b.mu.Lock("PutVerificationStateOnViolation")
 	defer b.mu.Unlock()
 
 	v, ok := b.activeViolations.Get(violationID)
@@ -1028,7 +1028,7 @@ type BehaviorModelTrainingSummary struct {
 func (b *InMemoryBackend) GetBehaviorModelTrainingSummaries(
 	securityProfileName string, maxResults int32, nextToken string,
 ) ([]*BehaviorModelTrainingSummary, string, error) {
-	b.mu.RLock()
+	b.mu.RLock("GetBehaviorModelTrainingSummaries")
 	defer b.mu.RUnlock()
 
 	var all []*BehaviorModelTrainingSummary
@@ -1064,7 +1064,7 @@ func (b *InMemoryBackend) GetBehaviorModelTrainingSummaries(
 func (b *InMemoryBackend) AddBehaviorModelTrainingSummaryInternal(
 	securityProfileName string, s BehaviorModelTrainingSummary,
 ) {
-	b.mu.Lock()
+	b.mu.Lock("AddBehaviorModelTrainingSummaryInternal")
 	defer b.mu.Unlock()
 
 	cp := s

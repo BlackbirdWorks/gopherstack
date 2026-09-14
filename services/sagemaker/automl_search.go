@@ -52,6 +52,26 @@ type AutoMLCandidate struct {
 	CandidateSteps                []map[string]any       `json:"CandidateSteps"`
 }
 
+// MarshalJSON emits CreationTime/LastModifiedTime as AWS awsjson1.1
+// epoch-seconds numbers rather than Go's default RFC3339 strings
+// (sagemaker@v1.263.2 deserializers.go:
+// awsAwsjson11_deserializeDocumentAutoMLCandidate uses
+// smithytime.ParseEpochSeconds for both fields) -- a real client's
+// ListCandidatesForAutoMLJob decode failed outright before this fix.
+func (c *AutoMLCandidate) MarshalJSON() ([]byte, error) {
+	type alias AutoMLCandidate
+
+	return json.Marshal(struct {
+		*alias
+		CreationTime     float64 `json:"CreationTime"`
+		LastModifiedTime float64 `json:"LastModifiedTime"`
+	}{
+		alias:            (*alias)(c),
+		CreationTime:     epochSeconds(c.CreationTime),
+		LastModifiedTime: epochSeconds(c.LastModifiedTime),
+	})
+}
+
 // generateAutoMLCandidates deterministically derives a set of candidates for
 // an AutoML job from its stored state: while the job is in progress the
 // leading candidate is Completed and the others remain InProgress; once the
@@ -407,7 +427,10 @@ func matchesNestedFilter(flat map[string]any, nf SearchNestedFilter) bool {
 				itemFlat[rel] = v
 			}
 
-			if !matchesSearchFilter(itemFlat, SearchFilter{Name: rel, Operator: f.Operator, Value: f.Value}) {
+			if !matchesSearchFilter(
+				itemFlat,
+				SearchFilter{Name: rel, Operator: f.Operator, Value: f.Value},
+			) {
 				allMatch = false
 
 				break
@@ -528,7 +551,10 @@ func (b *InMemoryBackend) searchableResources(region, resource string) []searchR
 		items := make([]searchResourceItem, 0, b.trainingJobsStoreRO(region).Len())
 		for _, tj := range b.trainingJobsStoreRO(region).All() {
 			view := trainingJobSearchView(tj)
-			items = append(items, searchResourceItem{raw: view, flat: view, key: tj.TrainingJobName})
+			items = append(
+				items,
+				searchResourceItem{raw: view, flat: view, key: tj.TrainingJobName},
+			)
 		}
 
 		return items
@@ -592,7 +618,11 @@ func (b *InMemoryBackend) Search(
 	defer b.mu.RUnlock()
 
 	if !searchSupportedResourceTypes[params.Resource] {
-		return nil, 0, "", fmt.Errorf("%w: unsupported search Resource %q", ErrValidation, params.Resource)
+		return nil, 0, "", fmt.Errorf(
+			"%w: unsupported search Resource %q",
+			ErrValidation,
+			params.Resource,
+		)
 	}
 
 	if params.CrossAccountFilterOption == crossAccountFilterOptionCrossAccount {
@@ -646,8 +676,20 @@ func (b *InMemoryBackend) Search(
 //
 //nolint:gochecknoglobals // read-only lookup table initialized once at package load
 var searchablePropertiesByResource = map[string][]string{
-	resourceTrainingJob: {"TrainingJobName", "TrainingJobStatus", keyCreationTime, "LastModifiedTime", keyRoleArn},
-	resourcePipeline:    {keyPipelineNameProp, keyPipelineStatusProp, keyPipelineArn, keyCreationTime, keyRoleArn},
+	resourceTrainingJob: {
+		"TrainingJobName",
+		"TrainingJobStatus",
+		keyCreationTime,
+		"LastModifiedTime",
+		keyRoleArn,
+	},
+	resourcePipeline: {
+		keyPipelineNameProp,
+		keyPipelineStatusProp,
+		keyPipelineArn,
+		keyCreationTime,
+		keyRoleArn,
+	},
 	"Experiment":        {"ExperimentName", keyExperimentArn, keyCreationTime},
 	"ModelPackage":      {"ModelPackageName", keyModelApprovalStatus, keyModelPackageArn},
 	"ModelPackageGroup": {keyModelPackageGroupName, keyModelPackageGroupArn},
@@ -662,7 +704,9 @@ var searchablePropertiesByResource = map[string][]string{
 // GetSearchSuggestions returns candidate property names for resource whose
 // name starts with propertyNameHint (case-insensitive), mirroring the
 // suggestion behaviour of real AWS's Search property-name autocomplete.
-func (b *InMemoryBackend) GetSearchSuggestions(resource, propertyNameHint string) ([]string, error) {
+func (b *InMemoryBackend) GetSearchSuggestions(
+	resource, propertyNameHint string,
+) ([]string, error) {
 	if !searchSupportedResourceTypes[resource] {
 		return nil, fmt.Errorf("%w: unsupported search Resource %q", ErrValidation, resource)
 	}
@@ -827,7 +871,9 @@ func (b *InMemoryBackend) GetScalingConfigurationRecommendation(
 
 	if _, ok := b.inferenceRecommendationsJobsStoreRO(region).Get(jobName); !ok {
 		return nil, fmt.Errorf(
-			"%w: inference recommendations job %q not found", ErrInferenceRecommendationsJobNotFound, jobName,
+			"%w: inference recommendations job %q not found",
+			ErrInferenceRecommendationsJobNotFound,
+			jobName,
 		)
 	}
 

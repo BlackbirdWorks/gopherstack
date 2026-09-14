@@ -11,6 +11,10 @@ func (h *Handler) handleDescribeGlobalClusters(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	clusters, err = applyGlobalClusterFilters(vals, clusters)
+	if err != nil {
+		return nil, err
+	}
 	members := make([]xmlGlobalCluster, 0, len(clusters))
 	for _, gc := range clusters {
 		cp := gc

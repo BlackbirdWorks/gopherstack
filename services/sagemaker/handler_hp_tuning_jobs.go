@@ -293,9 +293,12 @@ func (h *Handler) handleDeleteHyperParameterTuningJob(ctx context.Context, body 
 }
 
 type hyperParameterTrainingJobSummary struct {
-	TrainingStartTime    *float64          `json:"TrainingStartTime,omitempty"`
-	TrainingEndTime      *float64          `json:"TrainingEndTime,omitempty"`
-	TunedHyperParameters map[string]string `json:"TunedHyperParameters,omitempty"`
+	TrainingStartTime *float64 `json:"TrainingStartTime,omitempty"`
+	TrainingEndTime   *float64 `json:"TrainingEndTime,omitempty"`
+	// TunedHyperParameters is "This member is required" on
+	// HyperParameterTrainingJobSummary -- omitempty would drop it for a
+	// training job with an empty (but tuned) hyperparameter map.
+	TunedHyperParameters map[string]string `json:"TunedHyperParameters"`
 	TrainingJobName      string            `json:"TrainingJobName"`
 	TrainingJobArn       string            `json:"TrainingJobArn"`
 	TuningJobName        string            `json:"TuningJobName,omitempty"`

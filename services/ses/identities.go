@@ -110,6 +110,29 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 	return result
 }
 
+// resolveVerifiedIdentityLocked returns the IdentityRecord considered
+// authoritative for from's send preconditions: an exact match if it is
+// verified, otherwise the verified domain identity (an existing-but-
+// unverified exact identity still falls back to its domain). ok reports
+// whether a verified match was found. Shared by isVerifiedLocked and
+// checkMailFromLocked so both apply the identical resolution order.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) resolveVerifiedIdentityLocked(from string) (*IdentityRecord, bool) {
+	if rec, ok := b.identities.Get(from); ok && rec.Verified {
+		return rec, true
+	}
+
+	// Domain-level check: strip the local-part and check the domain.
+	if at := strings.LastIndex(from, "@"); at >= 0 {
+		if rec, ok := b.identities.Get(from[at+1:]); ok && rec.Verified {
+			return rec, true
+		}
+	}
+
+	return nil, false
+}
+
 // isVerifiedLocked reports whether the sender address is authorised to send.
 // It performs an exact-identity match first, then falls back to domain-level
 // verification: if example.com is a verified identity, any address @example.com
@@ -117,19 +140,60 @@ func (b *InMemoryBackend) GetIdentityVerificationAttributes(identities []string)
 //
 // The caller MUST hold b.mu for reading or writing.
 func (b *InMemoryBackend) isVerifiedLocked(from string) bool {
-	if rec, ok := b.identities.Get(from); ok && rec.Verified {
-		return true
+	_, ok := b.resolveVerifiedIdentityLocked(from)
+
+	return ok
+}
+
+// checkMailFromLocked enforces MailFromDomainNotVerifiedException:
+// SendEmail/SendRawEmail/SendTemplatedEmail/SendBulkTemplatedEmail all
+// declare this exception (aws-sdk-go-v2/service/ses@v1.37.4/deserializers.go,
+// verified per-op via each awsAwsquery_deserializeOpError<Op> switch). Real
+// AWS raises it when the sending identity's MAIL FROM domain status is not
+// Success and BehaviorOnMXFailure is RejectMessage
+// (api_op_SetIdentityMailFromDomain.go doc comment). SetIdentityMailFromDomain
+// in this backend always sets MailFromStatus to Success immediately, matching
+// this service's instant-verification convention (VerifyEmailIdentity,
+// VerifyDomainIdentity, VerifyDomainDkim all skip the real Pending window
+// too -- see PARITY.md) -- so in normal operation this branch is dead code.
+// It only fires when a status other than Success is set directly on the
+// backend's identities table, which is exactly how
+// TestSendEmail_MailFromDomainNotVerified (mail_from_internal_test.go)
+// exercises it; there is no client-reachable path to a non-Success status.
+//
+// The caller MUST hold b.mu for reading or writing.
+func (b *InMemoryBackend) checkMailFromLocked(from string) error {
+	rec, ok := b.resolveVerifiedIdentityLocked(from)
+	if !ok || rec.MailFromDomain == "" {
+		return nil
 	}
 
-	// Domain-level check: strip the local-part and check the domain.
-	if at := strings.LastIndex(from, "@"); at >= 0 {
-		domain := from[at+1:]
-		rec, ok := b.identities.Get(domain)
-
-		return ok && rec.Verified
+	if rec.MailFromStatus != identityStatusSuccess && rec.BehaviorOnMXFail == behaviorOnMXFailureReject {
+		return fmt.Errorf(
+			"%w: the MAIL FROM domain %s is not verified",
+			ErrMailFromDomainNotVerified, rec.MailFromDomain,
+		)
 	}
 
-	return false
+	return nil
+}
+
+// identityDomain returns the domain portion of identity: identity itself if
+// it is already a domain, or the part after '@' if it is an email address.
+func identityDomain(identity string) string {
+	if at := strings.LastIndex(identity, "@"); at >= 0 {
+		return identity[at+1:]
+	}
+
+	return identity
+}
+
+// isStrictSubdomainOf reports whether child is a strict (non-equal)
+// subdomain of parent, case-insensitively.
+func isStrictSubdomainOf(child, parent string) bool {
+	child, parent = strings.ToLower(child), strings.ToLower(parent)
+
+	return len(child) > len(parent)+1 && strings.HasSuffix(child, "."+parent)
 }
 
 // PutIdentityPolicy stores a sending authorization policy for an identity.
@@ -283,6 +347,16 @@ func (b *InMemoryBackend) SetIdentityMailFromDomain(identity, mailFromDomain, be
 		return fmt.Errorf(
 			"%w: BehaviorOnMXFailure must be %s or %s",
 			ErrInvalidParameter, behaviorOnMXFailureUseDefault, behaviorOnMXFailureReject,
+		)
+	}
+
+	// "The MAIL FROM domain must 1) be a subdomain of the verified identity"
+	// (api_op_SetIdentityMailFromDomain.go doc comment, ses@v1.37.4) -- an
+	// empty mailFromDomain clears the setting and is exempt from this check.
+	if mailFromDomain != "" && !isStrictSubdomainOf(mailFromDomain, identityDomain(identity)) {
+		return fmt.Errorf(
+			"%w: MailFromDomain %s must be a subdomain of the verified identity %s",
+			ErrInvalidParameter, mailFromDomain, identity,
 		)
 	}
 

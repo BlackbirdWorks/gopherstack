@@ -35,6 +35,15 @@ func (h *Handler) handleEnableHub(c *echo.Context, body map[string]any) error {
 		enableDefault = v
 	}
 
+	controlFindingGenerator, _ := body["ControlFindingGenerator"].(string)
+	if controlFindingGenerator != "" && controlFindingGenerator != "SECURITY_CONTROL" &&
+		controlFindingGenerator != "STANDARD_CONTROL" {
+		return typedErrorResponse(
+			c, http.StatusBadRequest, "InvalidInputException",
+			"ControlFindingGenerator must be SECURITY_CONTROL or STANDARD_CONTROL",
+		)
+	}
+
 	var tags map[string]string
 
 	if t, ok := body["Tags"].(map[string]any); ok {
@@ -48,7 +57,7 @@ func (h *Handler) handleEnableHub(c *echo.Context, body map[string]any) error {
 	// EnableSecurityHub models ResourceConflictException for "already enabled"
 	// (securityhub@v1.75.4 deserializers.go, op EnableSecurityHub) -- the only
 	// conflict-shaped code in its error list, so no ambiguity.
-	if err := h.Backend.EnableHub(enableDefault, tags); err != nil {
+	if err := h.Backend.EnableHub(enableDefault, controlFindingGenerator, tags); err != nil {
 		if errors.Is(err, ErrHubAlreadyExists) {
 			return typedErrorResponse(
 				c,
