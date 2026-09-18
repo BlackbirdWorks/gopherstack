@@ -75,10 +75,11 @@ func (h *Handler) handleExecutePolicy(vals url.Values) (any, error) {
 // scalingPolicyIntFieldValues bundles every plain (top-level) optional int32
 // field of a PutScalingPolicy request.
 type scalingPolicyIntFieldValues struct {
-	scalingAdjustment      int32
-	minAdjustmentStep      int32
-	cooldown               int32
-	minAdjustmentMagnitude int32
+	scalingAdjustment       int32
+	minAdjustmentStep       int32
+	cooldown                int32
+	minAdjustmentMagnitude  int32
+	estimatedInstanceWarmup int32
 }
 
 // scalingPolicyIntFields parses every plain (top-level) optional int32 field of
@@ -94,6 +95,7 @@ func scalingPolicyIntFields(vals url.Values) (scalingPolicyIntFieldValues, error
 		{param: "MinAdjustmentStep", dest: &v.minAdjustmentStep},
 		{param: "Cooldown", dest: &v.cooldown},
 		{param: "MinAdjustmentMagnitude", dest: &v.minAdjustmentMagnitude},
+		{param: "EstimatedInstanceWarmup", dest: &v.estimatedInstanceWarmup},
 	}
 
 	for _, f := range fields {
@@ -109,26 +111,22 @@ func scalingPolicyIntFields(vals url.Values) (scalingPolicyIntFieldValues, error
 }
 
 // targetTrackingFields holds the parsed TargetTrackingConfiguration.* portion
-// of a PutScalingPolicy request.
+// of a PutScalingPolicy request. EstimatedInstanceWarmup is NOT one of
+// these: types.TargetTrackingConfiguration has no such member (verified
+// against autoscaling@v1.70.4 types/types.go) -- it's PutScalingPolicyInput's
+// own top-level field, valid for any policy type, parsed separately in
+// handlePutScalingPolicy.
 type targetTrackingFields struct {
 	customizedMetricSpec *CustomizedMetricSpecification
 	metricType           string
 	resourceLabel        string
 	targetValue          float64
-	estimatedWarmup      int32
 	disableScaleIn       bool
 }
 
 // parseTargetTrackingFields parses the TargetTrackingConfiguration.* form values.
 func parseTargetTrackingFields(vals url.Values) (targetTrackingFields, error) {
 	var f targetTrackingFields
-
-	estimatedWarmup, err := parseIntVal(vals.Get("TargetTrackingConfiguration.EstimatedInstanceWarmup"))
-	if err != nil {
-		return f, fmt.Errorf("%w: invalid EstimatedInstanceWarmup", ErrInvalidParameter)
-	}
-
-	f.estimatedWarmup = estimatedWarmup
 
 	if v := vals.Get("TargetTrackingConfiguration.TargetValue"); v != "" {
 		tv, parseErr := strconv.ParseFloat(v, 64)
@@ -557,6 +555,12 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		return nil, err
 	}
 
+	var enabled *bool
+	if s := vals.Get("Enabled"); s != "" {
+		v := s == formValueTrue
+		enabled = &v
+	}
+
 	input := ScalingPolicyInput{
 		AutoScalingGroupName:           vals.Get("AutoScalingGroupName"),
 		PolicyName:                     vals.Get("PolicyName"),
@@ -572,7 +576,8 @@ func (h *Handler) handlePutScalingPolicy(vals url.Values) (any, error) {
 		MetricType:                     ttc.metricType,
 		ResourceLabel:                  ttc.resourceLabel,
 		DisableScaleIn:                 ttc.disableScaleIn,
-		EstimatedWarmup:                ttc.estimatedWarmup,
+		EstimatedWarmup:                intFields.estimatedInstanceWarmup,
+		Enabled:                        enabled,
 		PredictiveScalingConfiguration: predictiveScaling,
 		CustomizedMetricSpecification:  ttc.customizedMetricSpec,
 	}
@@ -627,16 +632,18 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 	members := make([]xmlScalingPolicy, 0, len(pg.Data))
 	for _, p := range pg.Data {
 		xmlPolicy := xmlScalingPolicy{
-			PolicyName:             p.PolicyName,
-			PolicyARN:              p.PolicyARN,
-			AutoScalingGroupName:   p.AutoScalingGroupName,
-			PolicyType:             p.PolicyType,
-			AdjustmentType:         p.AdjustmentType,
-			MetricAggregationType:  p.MetricAggregationType,
-			ScalingAdjustment:      p.ScalingAdjustment,
-			MinAdjustmentStep:      p.MinAdjustmentStep,
-			MinAdjustmentMagnitude: p.MinAdjustmentMagnitude,
-			Cooldown:               p.Cooldown,
+			PolicyName:              p.PolicyName,
+			PolicyARN:               p.PolicyARN,
+			AutoScalingGroupName:    p.AutoScalingGroupName,
+			PolicyType:              p.PolicyType,
+			AdjustmentType:          p.AdjustmentType,
+			MetricAggregationType:   p.MetricAggregationType,
+			ScalingAdjustment:       p.ScalingAdjustment,
+			MinAdjustmentStep:       p.MinAdjustmentStep,
+			MinAdjustmentMagnitude:  p.MinAdjustmentMagnitude,
+			Cooldown:                p.Cooldown,
+			EstimatedInstanceWarmup: p.EstimatedWarmup,
+			Enabled:                 p.Enabled,
 		}
 
 		if len(p.StepAdjustments) > 0 {
@@ -650,9 +657,8 @@ func (h *Handler) handleDescribePolicies(vals url.Values) (any, error) {
 
 		if p.PolicyType == "TargetTrackingScaling" {
 			ttc := &xmlTargetTrackingConfiguration{
-				TargetValue:             p.TargetValue,
-				DisableScaleIn:          p.DisableScaleIn,
-				EstimatedInstanceWarmup: p.EstimatedWarmup,
+				TargetValue:    p.TargetValue,
+				DisableScaleIn: p.DisableScaleIn,
 			}
 
 			if p.MetricType != "" || p.ResourceLabel != "" {
@@ -733,12 +739,15 @@ type xmlPredefinedMetricSpecification struct {
 	ResourceLabel        string `xml:"ResourceLabel,omitempty"`
 }
 
+// xmlTargetTrackingConfiguration has no EstimatedInstanceWarmup member: real
+// types.TargetTrackingConfiguration doesn't carry one (verified against
+// autoscaling@v1.70.4 types/types.go) -- EstimatedInstanceWarmup is
+// xmlScalingPolicy's own top-level field.
 type xmlTargetTrackingConfiguration struct {
 	PredefinedMetricSpecification *xmlPredefinedMetricSpecification `xml:"PredefinedMetricSpecification,omitempty"`
 	CustomizedMetricSpecification *xmlCustomizedMetricSpecification `xml:"CustomizedMetricSpecification,omitempty"`
 	TargetValue                   float64                           `xml:"TargetValue"`
 	DisableScaleIn                bool                              `xml:"DisableScaleIn,omitempty"`
-	EstimatedInstanceWarmup       int32                             `xml:"EstimatedInstanceWarmup,omitempty"`
 }
 
 type xmlMetricDimension struct {
@@ -1008,6 +1017,8 @@ type xmlScalingPolicy struct {
 	MinAdjustmentStep              int32                              `xml:"MinAdjustmentStep,omitempty"`
 	MinAdjustmentMagnitude         int32                              `xml:"MinAdjustmentMagnitude,omitempty"`
 	Cooldown                       int32                              `xml:"Cooldown,omitempty"`
+	EstimatedInstanceWarmup        int32                              `xml:"EstimatedInstanceWarmup,omitempty"`
+	Enabled                        bool                               `xml:"Enabled"`
 }
 
 type xmlScalingPolicyList struct {

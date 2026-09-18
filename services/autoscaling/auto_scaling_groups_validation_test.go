@@ -462,7 +462,7 @@ func TestInMemoryBackend_ApplyDesiredCapacityChange(t *testing.T) {
 			b := autoscaling.NewInMemoryBackend()
 			groupName := tt.setup(b)
 
-			err := b.SetDesiredCapacity(groupName, tt.newDesired)
+			err := b.SetDesiredCapacity(groupName, tt.newDesired, false)
 			require.NoError(t, err)
 
 			groups, err := b.DescribeAutoScalingGroups([]string{groupName}, nil)

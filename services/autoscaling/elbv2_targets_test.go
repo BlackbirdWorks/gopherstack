@@ -125,7 +125,7 @@ func TestInMemoryBackend_ELBv2Registrar_NoRegistrar_NoEffect(t *testing.T) {
 	// i.e. not panic and not attempt any registration.
 	newTGGroup(t, b, "asg-no-registrar", 2)
 
-	require.NoError(t, b.SetDesiredCapacity("asg-no-registrar", 4))
+	require.NoError(t, b.SetDesiredCapacity("asg-no-registrar", 4, false))
 	_, err := b.TerminateInstanceInAutoScalingGroup(mustFirstInstanceID(t, b, "asg-no-registrar"), false)
 	require.NoError(t, err)
 }
@@ -167,7 +167,7 @@ func TestInMemoryBackend_ELBv2Registrar_ScaleOutRegistersNewInstances(t *testing
 	newTGGroup(t, b, "asg-scale-out", 1)
 	require.Len(t, reg.registeredIDsFor(testTGArn), 1)
 
-	require.NoError(t, b.SetDesiredCapacity("asg-scale-out", 3))
+	require.NoError(t, b.SetDesiredCapacity("asg-scale-out", 3, false))
 
 	assert.Len(t, reg.registeredIDsFor(testTGArn), 3)
 }
@@ -182,7 +182,7 @@ func TestInMemoryBackend_ELBv2Registrar_ScaleInDeregisters(t *testing.T) {
 	b.SetELBv2Registrar(reg)
 
 	newTGGroup(t, b, "asg-scale-in", 3)
-	require.NoError(t, b.SetDesiredCapacity("asg-scale-in", 1))
+	require.NoError(t, b.SetDesiredCapacity("asg-scale-in", 1, false))
 
 	assert.Len(t, reg.deregisteredIDsFor(testTGArn), 2)
 }

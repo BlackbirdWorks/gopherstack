@@ -87,6 +87,7 @@ func (h *Handler) handleCreateAutoScalingGroup(vals url.Values) (any, error) {
 
 	input := CreateAutoScalingGroupInput{
 		AutoScalingGroupName:             name,
+		ServiceLinkedRoleARN:             vals.Get("ServiceLinkedRoleARN"),
 		LaunchConfigurationName:          lcName,
 		LaunchTemplate:                   lt,
 		MixedInstancesPolicy:             mip,
@@ -141,6 +142,10 @@ const (
 func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) {
 	names := parseMembers(vals, "AutoScalingGroupNames.member")
 	filters := parseTagFilters(vals)
+	includeInstances := true
+	if s := vals.Get("IncludeInstances"); s != "" {
+		includeInstances = s == formValueTrue
+	}
 
 	groups, err := h.Backend.DescribeAutoScalingGroups(names, filters)
 	if err != nil {
@@ -182,7 +187,11 @@ func (h *Handler) handleDescribeAutoScalingGroups(vals url.Values) (any, error) 
 
 	members := make([]xmlAutoScalingGroup, 0, len(groups))
 	for i := range groups {
-		members = append(members, toXMLGroup(&groups[i]))
+		x := toXMLGroup(&groups[i])
+		if !includeInstances {
+			x.Instances = xmlInstanceList{}
+		}
+		members = append(members, x)
 	}
 
 	return &describeAutoScalingGroupsResponse{
@@ -337,7 +346,9 @@ func (h *Handler) handleSetDesiredCapacity(vals url.Values) (any, error) {
 		return nil, fmt.Errorf("%w: invalid DesiredCapacity", ErrInvalidParameter)
 	}
 
-	if err := h.Backend.SetDesiredCapacity(groupName, desired); err != nil {
+	honorCooldown := vals.Get("HonorCooldown") == formValueTrue
+
+	if err := h.Backend.SetDesiredCapacity(groupName, desired, honorCooldown); err != nil {
 		return nil, err
 	}
 
@@ -437,6 +448,20 @@ func buildXMLGroupLists(g *AutoScalingGroup) xmlGroupLists {
 	}
 }
 
+// serviceLinkedRoleARN returns the caller-supplied CreateAutoScalingGroup
+// ServiceLinkedRoleARN when set, otherwise the default AWSServiceRoleForAutoScaling
+// service-linked role AWS creates automatically.
+func serviceLinkedRoleARN(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+
+	return fmt.Sprintf(
+		"arn:aws:iam::%s:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
+		config.DefaultAccountID,
+	)
+}
+
 // toXMLGroup converts an AutoScalingGroup to the XML response type.
 func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 	lists := buildXMLGroupLists(g)
@@ -487,10 +512,7 @@ func toXMLGroup(g *AutoScalingGroup) xmlAutoScalingGroup {
 		CapacityReservationSpecification: toXMLCapacityReservationSpecification(g.CapacityReservationSpecification),
 		InstanceLifecyclePolicy:          toXMLInstanceLifecyclePolicy(g.InstanceLifecyclePolicy),
 		InstanceMaintenancePolicy:        toXMLInstanceMaintenancePolicy(g.InstanceMaintenancePolicy),
-		ServiceLinkedRoleARN: fmt.Sprintf(
-			"arn:aws:iam::%s:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling",
-			config.DefaultAccountID,
-		),
+		ServiceLinkedRoleARN:             serviceLinkedRoleARN(g.ServiceLinkedRoleARN),
 	}
 }
 

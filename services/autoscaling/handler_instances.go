@@ -250,6 +250,15 @@ func (h *Handler) handleLaunchInstances(vals url.Values) (any, error) {
 		count = requestedCapacity
 	}
 
+	// RetryStrategy is read for wire-declaration parity and validated against
+	// its two documented values, but this backend's synchronous launch never
+	// fails, so there is nothing for a "retry asynchronously on failure"
+	// strategy to observably affect -- same disclosed simplification as
+	// docdb/neptune/rds/elasticache's ApplyImmediately.
+	if rs := vals.Get("RetryStrategy"); rs != "" && rs != "none" && rs != "retry-with-group-configuration" {
+		return nil, fmt.Errorf("%w: invalid RetryStrategy %q", ErrInvalidParameter, rs)
+	}
+
 	instances, launchErr := h.Backend.LaunchInstances(groupName, count)
 	if launchErr != nil {
 		return nil, launchErr

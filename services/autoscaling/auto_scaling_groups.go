@@ -93,6 +93,7 @@ func buildNewAutoScalingGroup(input CreateAutoScalingGroupInput, azs []string, d
 			"arn:aws:autoscaling:%s:%s:autoScalingGroup:%s:autoScalingGroupName/%s",
 			config.DefaultRegion, config.DefaultAccountID, uuid.NewString(), input.AutoScalingGroupName,
 		),
+		ServiceLinkedRoleARN:             input.ServiceLinkedRoleARN,
 		LaunchConfigurationName:          input.LaunchConfigurationName,
 		LaunchTemplate:                   input.LaunchTemplate,
 		MixedInstancesPolicy:             input.MixedInstancesPolicy,
@@ -718,8 +719,11 @@ func (b *InMemoryBackend) applyScaleIn(g *AutoScalingGroup, targetCount int) {
 	b.deregisterELBInstances(removedIDs, g.LoadBalancerNames)
 }
 
-// SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately.
-func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity int32) error {
+// SetDesiredCapacity adjusts the DesiredCapacity of an Auto Scaling group immediately,
+// unless honorCooldown is set and the group's DefaultCooldown is still in progress
+// (SetDesiredCapacityInput.HonorCooldown doc comment: by default, manual scaling does
+// not honor the cooldown period).
+func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity int32, honorCooldown bool) error {
 	b.mu.Lock("SetDesiredCapacity")
 	defer b.mu.Unlock()
 
@@ -736,6 +740,13 @@ func (b *InMemoryBackend) SetDesiredCapacity(groupName string, desiredCapacity i
 
 	if g.MaxSize > 0 && desired > g.MaxSize {
 		return fmt.Errorf("%w: DesiredCapacity %d exceeds MaxSize %d", ErrInvalidParameter, desired, g.MaxSize)
+	}
+
+	if honorCooldown && g.DefaultCooldown > 0 && !g.LastScalingActivity.IsZero() {
+		cooldownDur := time.Duration(g.DefaultCooldown) * time.Second
+		if time.Since(g.LastScalingActivity) < cooldownDur {
+			return fmt.Errorf("%w: scaling activity in progress (cooldown)", ErrScalingActivityInProgress)
+		}
 	}
 
 	b.applyDesiredCapacityChange(g, desired)

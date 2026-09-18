@@ -266,7 +266,7 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 				tt.setup(b)
 			}
 
-			err := b.SetDesiredCapacity(tt.group, tt.desired)
+			err := b.SetDesiredCapacity(tt.group, tt.desired, false)
 			if tt.wantErr {
 				require.Error(t, err)
 

@@ -19,8 +19,12 @@ const (
 
 func (h *Handler) handleCancelInstanceRefresh(vals url.Values) (any, error) {
 	groupName := vals.Get("AutoScalingGroupName")
+	waitForTransitioningInstances := true
+	if s := vals.Get("WaitForTransitioningInstances"); s != "" {
+		waitForTransitioningInstances = s == formValueTrue
+	}
 
-	refreshID, err := h.Backend.CancelInstanceRefresh(groupName)
+	refreshID, err := h.Backend.CancelInstanceRefresh(groupName, waitForTransitioningInstances)
 	if err != nil {
 		return nil, err
 	}

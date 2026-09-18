@@ -124,6 +124,13 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		arn = existing.PolicyARN
 	}
 
+	// Enabled defaults to true when the caller omits it (PutScalingPolicyInput.Enabled
+	// doc comment: "The default is enabled").
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+
 	policy := &ScalingPolicy{
 		PolicyName:                     input.PolicyName,
 		PolicyARN:                      arn,
@@ -141,6 +148,7 @@ func (b *InMemoryBackend) PutScalingPolicy(input ScalingPolicyInput) (*ScalingPo
 		ResourceLabel:                  input.ResourceLabel,
 		DisableScaleIn:                 input.DisableScaleIn,
 		EstimatedWarmup:                input.EstimatedWarmup,
+		Enabled:                        enabled,
 		StepAdjustments:                input.StepAdjustments,
 		PredictiveScalingConfiguration: input.PredictiveScalingConfiguration,
 	}

@@ -24,6 +24,9 @@ func (h *Handler) handlePutWarmPool(vals url.Values) (any, error) {
 		PoolState:                vals.Get("PoolState"),
 		MinSize:                  minSize,
 		MaxGroupPreparedCapacity: maxGroupPreparedCapacity,
+		InstanceReusePolicy: InstanceReusePolicy{
+			ReuseOnScaleIn: vals.Get("InstanceReusePolicy.ReuseOnScaleIn") == formValueTrue,
+		},
 	}
 
 	if putErr := h.Backend.PutWarmPool(input); putErr != nil {
