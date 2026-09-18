@@ -99,6 +99,7 @@ const (
 	keyDescription         = "description"
 	keyCreatedAt           = "createdAt"
 	keyLastUpdatedAt       = "lastUpdatedAt"
+	keyVersionID           = "versionId"
 	keyDomainConfigName    = "domainConfigurationName"
 	keyDomainConfigARN     = "domainConfigurationArn"
 	keyTemplateName        = "templateName"

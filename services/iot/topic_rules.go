@@ -222,8 +222,11 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	arn := arn.Build("iot", b.region, b.accountID,
 		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
 
+	now := time.Now()
 	dest := &TopicRuleDestination{
-		ARN: arn,
+		ARN:           arn,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
 	}
 
 	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
@@ -285,6 +288,7 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 	}
 
 	dest.Status = input.Status
+	dest.LastUpdatedAt = time.Now()
 
 	return nil
 }
@@ -318,6 +322,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 		if dest.ConfirmationToken != "" && dest.ConfirmationToken == token {
 			dest.Status = statusEnabled
 			dest.ConfirmationToken = ""
+			dest.LastUpdatedAt = time.Now()
 
 			return nil
 		}

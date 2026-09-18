@@ -14368,7 +14368,9 @@
       "TopicRule.SQL string `json:\"sql\"`",
       "TopicRuleDestination.ARN string `json:\"arn\"`",
       "TopicRuleDestination.ConfirmationToken string `json:\"-\"`",
+      "TopicRuleDestination.CreatedAt time.Time `json:\"-\"`",
       "TopicRuleDestination.HTTPURLProperties *HTTPURLDestinationProperties `json:\"httpUrlProperties,omitempty\"`",
+      "TopicRuleDestination.LastUpdatedAt time.Time `json:\"-\"`",
       "TopicRuleDestination.Status string `json:\"status\"`",
       "V2LoggingLevel.LogLevel string `json:\"logLevel\"`",
       "V2LoggingLevel.Target map[string]any `json:\"logTarget\"`",
@@ -14449,7 +14451,9 @@
       "thingResourceSnapshot.ThingGroupMembers map[string][]string",
       "topicRuleDestSnap.ARN string `json:\"arn\"`",
       "topicRuleDestSnap.ConfirmationToken string `json:\"confirmationToken,omitempty\"`",
+      "topicRuleDestSnap.CreatedAt time.Time `json:\"createdAt,omitzero\"`",
       "topicRuleDestSnap.HTTPURLProperties *HTTPURLDestinationProperties `json:\"httpUrlProperties,omitempty\"`",
+      "topicRuleDestSnap.LastUpdatedAt time.Time `json:\"lastUpdatedAt,omitzero\"`",
       "topicRuleDestSnap.Status string `json:\"status\"`"
     ],
     "version": 3

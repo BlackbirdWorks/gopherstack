@@ -320,6 +320,8 @@ type PolicyVersion struct {
 
 // TopicRuleDestination represents an AWS IoT Topic Rule Destination.
 type TopicRuleDestination struct {
+	CreatedAt         time.Time                     `json:"-"`
+	LastUpdatedAt     time.Time                     `json:"-"`
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`

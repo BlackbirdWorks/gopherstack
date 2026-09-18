@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -389,6 +390,8 @@ func (h *Handler) Restore(ctx context.Context, data []byte) error {
 // carries it through Snapshot/Restore so a pending HTTP destination
 // confirmation survives a restart instead of being silently dropped.
 type topicRuleDestSnap struct {
+	CreatedAt         time.Time                     `json:"createdAt,omitzero"`
+	LastUpdatedAt     time.Time                     `json:"lastUpdatedAt,omitzero"`
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`
@@ -411,6 +414,8 @@ func toTopicRuleDestSnap(d *TopicRuleDestination) *topicRuleDestSnap {
 		ARN:               d.ARN,
 		Status:            d.Status,
 		ConfirmationToken: d.ConfirmationToken,
+		CreatedAt:         d.CreatedAt,
+		LastUpdatedAt:     d.LastUpdatedAt,
 	}
 }
 
@@ -426,6 +431,8 @@ func fromTopicRuleDestSnap(s *topicRuleDestSnap) *TopicRuleDestination {
 		ARN:               s.ARN,
 		Status:            s.Status,
 		ConfirmationToken: s.ConfirmationToken,
+		CreatedAt:         s.CreatedAt,
+		LastUpdatedAt:     s.LastUpdatedAt,
 	}
 }
 
