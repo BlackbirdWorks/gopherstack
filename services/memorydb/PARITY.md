@@ -1,8 +1,8 @@
 ---
 service: memorydb
 sdk_module: aws-sdk-go-v2/service/memorydb@v1.36.4
-last_audit_commit: dbf9633c9                      # this pass (2026-08-23, request-side sweep) fixed UpdateCluster; commit hash not yet known at edit time
-last_audit_date: 2026-08-23
+last_audit_commit: d4dc4a723
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-15 (gopherstack-6flj): wrapper-key/nested-shape sweep of all 18 L+D+G ops
                        # (scripted key extraction against deserializers.go/serializers.go for all 18
                        # ops + every reachable nested type). Top-level wrapper keys were mostly clean,
@@ -160,6 +160,12 @@ leaks: {status: clean, note: "no goroutines, timers, or janitor loops added this
 ---
 
 ## Notes
+
+**2026-09-18** (acceptguard invented-field census): UpdateCluster's request struct read
+`NetworkType` and `AutoMinorVersionUpgrade` -- both real, but only on `CreateClusterInput`;
+`UpdateClusterInput` (memorydb@v1.36.4) declares neither. Removed both from
+`updateClusterRequest` and their apply branches; no real client could ever reach them via
+UpdateCluster. See `TestUpdateCluster_NoNetworkTypeOrAutoMinorVersionUpgradeMember`.
 
 **Protocol**: awsjson1.1 (`X-Amz-Target: AmazonMemoryDB.<Op>`), single POST endpoint.
 Confirmed against `aws-sdk-go-v2/service/memorydb@v1.33.12`'s `deserializers.go`/`serializers.go`.

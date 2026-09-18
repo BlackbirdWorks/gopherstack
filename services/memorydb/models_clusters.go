@@ -94,26 +94,28 @@ type deleteClusterRequest struct {
 	FinalSnapshotName string `json:"FinalSnapshotName,omitempty"`
 }
 
+// updateClusterRequest has no NetworkType or AutoMinorVersionUpgrade member:
+// the real UpdateClusterInput (memorydb@v1.36.4 api_op_UpdateCluster.go)
+// declares neither -- only IpDiscovery, and no minor-version-upgrade toggle
+// at all. Both are CreateClusterInput-only members; see createClusterRequest.
 type updateClusterRequest struct {
-	SnapshotRetentionLimit  *int32                       `json:"SnapshotRetentionLimit,omitempty"`
-	ShardConfiguration      *shardConfigurationRequest   `json:"ShardConfiguration,omitempty"`
-	ReplicaConfiguration    *replicaConfigurationRequest `json:"ReplicaConfiguration,omitempty"`
-	AutoMinorVersionUpgrade *bool                        `json:"AutoMinorVersionUpgrade,omitempty"`
-	MaintenanceWindow       string                       `json:"MaintenanceWindow,omitempty"`
-	NodeType                string                       `json:"NodeType,omitempty"`
-	EngineVersion           string                       `json:"EngineVersion,omitempty"`
-	SnapshotWindow          string                       `json:"SnapshotWindow,omitempty"`
-	SnsTopicArn             string                       `json:"SnsTopicArn,omitempty"`
-	SnsTopicStatus          string                       `json:"SnsTopicStatus,omitempty"`
-	ACLName                 string                       `json:"ACLName,omitempty"`
-	Description             string                       `json:"Description,omitempty"`
-	ClusterName             string                       `json:"ClusterName"`
-	NetworkType             string                       `json:"NetworkType,omitempty"`
-	IPDiscovery             string                       `json:"IpDiscovery,omitempty"`
-	Engine                  string                       `json:"Engine,omitempty"`
-	ParameterGroupName      string                       `json:"ParameterGroupName,omitempty"`
-	SecurityGroupIDs        []string                     `json:"SecurityGroupIds,omitempty"`
-	Tags                    []tagEntry                   `json:"Tags,omitempty"`
+	SnapshotRetentionLimit *int32                       `json:"SnapshotRetentionLimit,omitempty"`
+	ShardConfiguration     *shardConfigurationRequest   `json:"ShardConfiguration,omitempty"`
+	ReplicaConfiguration   *replicaConfigurationRequest `json:"ReplicaConfiguration,omitempty"`
+	MaintenanceWindow      string                       `json:"MaintenanceWindow,omitempty"`
+	NodeType               string                       `json:"NodeType,omitempty"`
+	EngineVersion          string                       `json:"EngineVersion,omitempty"`
+	SnapshotWindow         string                       `json:"SnapshotWindow,omitempty"`
+	SnsTopicArn            string                       `json:"SnsTopicArn,omitempty"`
+	SnsTopicStatus         string                       `json:"SnsTopicStatus,omitempty"`
+	ACLName                string                       `json:"ACLName,omitempty"`
+	Description            string                       `json:"Description,omitempty"`
+	ClusterName            string                       `json:"ClusterName"`
+	IPDiscovery            string                       `json:"IpDiscovery,omitempty"`
+	Engine                 string                       `json:"Engine,omitempty"`
+	ParameterGroupName     string                       `json:"ParameterGroupName,omitempty"`
+	SecurityGroupIDs       []string                     `json:"SecurityGroupIds,omitempty"`
+	Tags                   []tagEntry                   `json:"Tags,omitempty"`
 }
 
 type replicaConfigurationRequest struct {

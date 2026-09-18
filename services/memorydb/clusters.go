@@ -496,10 +496,6 @@ func applyClusterStringUpdates(c *Cluster, req *updateClusterRequest) {
 		c.SnsTopicArn = req.SnsTopicArn
 	}
 
-	if req.NetworkType != "" {
-		c.NetworkType = req.NetworkType
-	}
-
 	if req.IPDiscovery != "" {
 		c.IPDiscovery = req.IPDiscovery
 	}
@@ -577,10 +573,6 @@ func applyClusterUpdates(c *Cluster, req *updateClusterRequest) {
 
 	if req.ShardConfiguration != nil && req.ShardConfiguration.ShardCount != nil {
 		c.NumShards = *req.ShardConfiguration.ShardCount
-	}
-
-	if req.AutoMinorVersionUpgrade != nil {
-		c.AutoMinorVersionUpgrade = *req.AutoMinorVersionUpgrade
 	}
 
 	if req.SecurityGroupIDs != nil {

@@ -1,7 +1,7 @@
 service: mq
 sdk_module: aws-sdk-go-v2/service/mq@v1.39.4   # audited against; go.mod pins this version
-last_audit_commit: 92bc04738b4b8e24fcc4a0800b2ff62be0eed47a
-last_audit_date: 2026-08-29
+last_audit_commit: d4dc4a723
+last_audit_date: 2026-09-18
 overall: A                # genuine fixes found (reboot-gated staging, persistence data loss, missing pagination/fields, wrapper-key/nested-shape sweep this pass)
 
 # 2026-09-12 (gopherstack-n3zi): drove the 13 typed-coverage-blind
@@ -185,3 +185,11 @@ clean; `go test -race -count=1 -p 2 ./services/mq/...` `ok`; `golangci-lint
 run --concurrency 2 --new-from-rev=HEAD ./services/mq/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
 no version bump.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+CreateConfiguration's handler read a "description" field CreateConfigurationInput
+(mq@v1.39.4) does not declare -- Description is only settable via UpdateConfiguration
+(a new revision). Removed the read; the server now always synthesizes a
+non-empty description at creation instead of trusting client input no real
+client can send. See `TestCreateConfiguration_NoDescriptionMember`.

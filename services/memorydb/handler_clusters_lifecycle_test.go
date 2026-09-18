@@ -856,12 +856,16 @@ func TestHandler_AutoMinorVersionUpgrade(t *testing.T) {
 	}
 }
 
-func TestHandler_UpdateCluster_AutoMinorVersionUpgrade(t *testing.T) {
+// TestHandler_UpdateCluster_AutoMinorVersionUpgradeNotSettable covers an
+// invented-field bug (acceptguard): UpdateClusterInput (memorydb@v1.36.4
+// api_op_UpdateCluster.go) has no AutoMinorVersionUpgrade member at all --
+// it is CreateClusterInput-only -- so no real client can ever change it
+// after creation. This proves UpdateCluster now leaves it untouched.
+func TestHandler_UpdateCluster_AutoMinorVersionUpgradeNotSettable(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 
-	// Create cluster with AMV=true.
 	createClusterObj(t, h, map[string]any{
 		"ClusterName":             "test-cluster",
 		"NodeType":                "db.r6g.large",
@@ -869,7 +873,6 @@ func TestHandler_UpdateCluster_AutoMinorVersionUpgrade(t *testing.T) {
 		"AutoMinorVersionUpgrade": true,
 	})
 
-	// Update to AMV=false.
 	rec := doRequest(t, h, "UpdateCluster", map[string]any{
 		"ClusterName":             "test-cluster",
 		"AutoMinorVersionUpgrade": false,
@@ -879,7 +882,7 @@ func TestHandler_UpdateCluster_AutoMinorVersionUpgrade(t *testing.T) {
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	cl := resp["Cluster"].(map[string]any)
-	assert.Equal(t, false, cl["AutoMinorVersionUpgrade"])
+	assert.Equal(t, true, cl["AutoMinorVersionUpgrade"], "no real client can change this via UpdateCluster")
 }
 
 // -- Cluster lifecycle ----------------------------------------------------------

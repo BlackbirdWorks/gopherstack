@@ -49,7 +49,7 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # v1.48.4; the "unchanged since 2026-08-01" note was stale. Diffed v1.48.3 vs v1.48.4:
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
-last_audit_commit: da97fccdb
+last_audit_commit: d4dc4a723
 last_audit_date: 2026-09-18
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
@@ -1775,3 +1775,13 @@ clean. `go test -race -count=1 ./services/mgn/...` and
 version bump). `golangci-lint run ./services/mgn/...` 0 issues (new and
 full-run). `go run ./cmd/parityfmtcheck -dir services` clean.
 `git diff --stat go.mod go.sum` empty.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+`UpdateConnectorInput` (mgn@v1.48.4 api_op_UpdateConnector.go) has no
+`SsmInstanceID` member -- it's `CreateConnectorInput`-only, and on
+`UpdateConnectorOutput` it's server-reported, never client-set. Removed the
+read from `updateConnectorRequest`/`UpdateConnectorInput`/`handleUpdateConnector`;
+no real client could ever set it via UpdateConnector. Proven in
+`TestRoundTrip_Connectors`: the value set at creation now provably survives
+an otherwise-unrelated update.

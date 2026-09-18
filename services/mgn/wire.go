@@ -743,10 +743,12 @@ type createConnectorRequest struct {
 	SsmInstanceID    string                         `json:"ssmInstanceID"`
 }
 
+// updateConnectorRequest has no SsmInstanceID member (mgn@v1.48.4
+// api_op_UpdateConnector.go): CreateConnectorInput-only / Output-only, never
+// client-settable on update.
 type updateConnectorRequest struct {
 	SsmCommandConfig *connectorSsmCommandConfigWire `json:"ssmCommandConfig,omitempty"`
 	Name             *string                        `json:"name,omitempty"`
-	SsmInstanceID    *string                        `json:"ssmInstanceID,omitempty"`
 	ConnectorID      string                         `json:"connectorID"`
 }
 

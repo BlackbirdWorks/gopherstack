@@ -498,6 +498,12 @@ func TestWorkGroup_Lifecycle(t *testing.T) {
 	}
 }
 
+// TestWorkGroup_StateValidation covers UpdateWorkGroup's State validation
+// only: CreateWorkGroupInput (athena@v1.60.4 api_op_CreateWorkGroup.go) has
+// no State member at all -- every real CreateWorkGroup call creates an
+// ENABLED workgroup, and State is only ever settable via UpdateWorkGroup.
+// See TestCreateWorkGroup_AlwaysEnabled_NoStateMember for the create-side
+// proof.
 func TestWorkGroup_StateValidation(t *testing.T) {
 	t.Parallel()
 
@@ -507,30 +513,6 @@ func TestWorkGroup_StateValidation(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{
-			name:       "create_enabled_state_accepted",
-			action:     "CreateWorkGroup",
-			body:       `{"Name":"wg-a","State":"ENABLED"}`,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "create_disabled_state_accepted",
-			action:     "CreateWorkGroup",
-			body:       `{"Name":"wg-b","State":"DISABLED"}`,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "create_empty_state_defaults_to_enabled",
-			action:     "CreateWorkGroup",
-			body:       `{"Name":"wg-c","State":""}`,
-			wantStatus: http.StatusOK,
-		},
-		{
-			name:       "create_invalid_state_returns_400",
-			action:     "CreateWorkGroup",
-			body:       `{"Name":"wg-d","State":"ACTIVE"}`,
-			wantStatus: http.StatusBadRequest,
-		},
 		{
 			name:       "update_invalid_state_returns_400",
 			action:     "UpdateWorkGroup",
@@ -561,6 +543,30 @@ func TestWorkGroup_StateValidation(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCreateWorkGroup_AlwaysEnabled_NoStateMember covers an invented-field
+// bug (acceptguard): the handler read a "State" field CreateWorkGroupInput
+// (athena@v1.60.4 api_op_CreateWorkGroup.go) does not declare -- no real
+// client can request a DISABLED workgroup at creation. Every real
+// CreateWorkGroup call creates an ENABLED workgroup; State is only ever
+// changed afterward via UpdateWorkGroup.
+func TestCreateWorkGroup_AlwaysEnabled_NoStateMember(t *testing.T) {
+	t.Parallel()
+
+	h := athena.NewHandler(athena.NewInMemoryBackend("", ""))
+
+	rec := doRequest(t, h, "CreateWorkGroup", `{"Name":"wg-always-enabled"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	rec = doRequest(t, h, "GetWorkGroup", `{"WorkGroup":"wg-always-enabled"}`)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	wg, ok := resp["WorkGroup"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "ENABLED", wg["State"], "CreateWorkGroupInput has no State member; must always be ENABLED")
 }
 
 // TestListWorkGroups_Pagination verifies ListWorkGroups MaxResults/NextToken.

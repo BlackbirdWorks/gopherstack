@@ -849,3 +849,45 @@ func TestDescribeQueries_QueryLanguageAndDuration(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, none.Queries, "QueryLanguage must actually filter; this backend never runs PPL queries")
 }
+
+// TestDescribeAccountPolicies_DefaultPagination covers an invented-field bug
+// (acceptguard): the handler read a "maxResults" field that does not exist
+// on the real DescribeAccountPoliciesInput (cloudwatchlogs@v1.86.0
+// api_op_DescribeAccountPolicies.go) -- only NextToken exists, no page-size
+// member at all. Since no real client could ever reach that field, removing
+// it changes nothing observable; this proves the server's own default page
+// size (50) still paginates correctly through NextToken alone.
+func TestDescribeAccountPolicies_DefaultPagination(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	const total = 51
+	const defaultPageSize = 50
+
+	for i := range total {
+		_, err := client.PutAccountPolicy(ctx, &cwlsdk.PutAccountPolicyInput{
+			PolicyName:     aws.String(fmt.Sprintf("policy-%03d", i)),
+			PolicyType:     types.PolicyTypeDataProtectionPolicy,
+			PolicyDocument: aws.String("{}"),
+		})
+		require.NoError(t, err)
+	}
+
+	first, err := client.DescribeAccountPolicies(ctx, &cwlsdk.DescribeAccountPoliciesInput{
+		PolicyType: types.PolicyTypeDataProtectionPolicy,
+	})
+	require.NoError(t, err)
+	require.Len(t, first.AccountPolicies, defaultPageSize)
+	require.NotEmpty(t, aws.ToString(first.NextToken))
+
+	second, err := client.DescribeAccountPolicies(ctx, &cwlsdk.DescribeAccountPoliciesInput{
+		PolicyType: types.PolicyTypeDataProtectionPolicy,
+		NextToken:  first.NextToken,
+	})
+	require.NoError(t, err)
+	assert.Len(t, second.AccountPolicies, total-defaultPageSize)
+	assert.Empty(t, aws.ToString(second.NextToken))
+}

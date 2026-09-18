@@ -209,6 +209,25 @@ func TestSDKRoundTrip_DeleteImageBuilder_ImageBuilderWireKey(t *testing.T) {
 	assert.Equal(t, "stream.standard.medium", aws.ToString(out.ImageBuilder.InstanceType))
 }
 
+// TestCreateImageBuilder_NoPlatformMember covers an invented-field bug
+// (acceptguard): the handler read a "Platform" field CreateImageBuilderInput
+// (appstream@v1.64.5 api_op_CreateImageBuilder.go) does not declare --
+// Platform is CreateFleet/CreateAppBlockBuilder-only. No real client can
+// influence it via CreateImageBuilder; this proves it always defaults.
+func TestCreateImageBuilder_NoPlatformMember(t *testing.T) {
+	t.Parallel()
+
+	h := appstream.NewHandler(appstream.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestAppStreamClient(t, h)
+
+	created, err := client.CreateImageBuilder(t.Context(), &appstreamsdk.CreateImageBuilderInput{
+		Name:         aws.String("platform-builder"),
+		InstanceType: aws.String("stream.standard.medium"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.PlatformTypeWindowsServer2019, created.ImageBuilder.Platform)
+}
+
 // TestSDKRoundTrip_AssociateApplicationFleet_AssociationWireKey proves
 // AssociateApplicationFleet returns the created association rather than an
 // empty envelope. Real AWS's AssociateApplicationFleetOutput carries the

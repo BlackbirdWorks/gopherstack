@@ -4,7 +4,7 @@ items_still_open:
   - "GetMessageInsightsOutput.EmailTags (api_op_GetMessageInsights.go: []types.MessageTag{Name, Value}) is unmodeled end to end -- SendEmailInput/SendBulkEmailInput's own EmailTags member isn't read either, so there is nothing stored to echo back. Found 2026-09-18 (per-item field sweep, gopherstack-21my); fixing it means threading EmailTags through SendEmail/SendBulkEmail's Email model first, not just GetMessageInsights's response, so left disclosed rather than half-wired."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
-last_audit_commit: 641a863d1                      # HEAD after the 2026-09-18 per-item field sweep (gopherstack-21my)
+last_audit_commit: d4dc4a723                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
 last_audit_date: 2026-09-18
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -851,3 +851,12 @@ bump). Gates: `go build ./...`, `go vet ./services/sesv2/`, `go test -race
 ./pkgs/persistence/` (passes for sesv2; an unrelated `transfer:` failure is
 another pass's concurrent work), `golangci-lint run --new-from-rev=HEAD
 ./services/sesv2/` (0 issues). tier-1 (`cmd/reqfielddiff -dir sesv2`): 4 -> 0.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+`updateReputationEntityCustomerManagedStatusInput`/`updateReputationEntityPolicyInput`
+each carried a dead fallback alias field (`CustomerManagedStatus`, `Policy`)
+that no real client can send -- the real Inputs (sesv2@v1.66.4) name these
+members `SendingStatus`/`ReputationEntityPolicy` only. Removed both aliases
+per the no-dead-paths rule; existing `SendingStatus`/`ReputationEntityPolicy`
+coverage (deliverability_test.go, persistence_test.go) is unaffected.

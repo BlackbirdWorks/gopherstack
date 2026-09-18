@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockruntime
 sdk_module: aws-sdk-go-v2/service/bedrockruntime@v1.57.1   # unchanged this pass; re-verified against go.mod pin
-last_audit_commit: c9523cebb
+last_audit_commit: d4dc4a723
 last_audit_date: 2026-09-18
 overall: A            # 2026-09-04: fixed two real bugs. (1) ListAsyncInvokes silently ignored
                       # submitTimeAfter/submitTimeBefore/sortOrder (ListAsyncInvokesInput fields,
@@ -442,3 +442,11 @@ Gates: `go build ./...`, `go vet ./services/bedrockruntime/...`,
 `./pkgs/persistence/...`, `golangci-lint run --new-from-rev=HEAD
 ./services/bedrockruntime/...` (0 issues). `go run ./cmd/paritylint` stays
 at 0 FAIL. No persisted-struct/snapshot changes.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+StartAsyncInvoke's request struct carried a dead "inferenceProfileIdentifier"
+fallback field no real client can send -- the real StartAsyncInvokeInput
+(bedrockruntime@v1.57.1) has only ModelId; an inference profile ARN is
+passed as ModelId's value. Removed the alias per the no-dead-paths rule; see
+`TestStartAsyncInvoke_ModelIDAsInferenceProfileARN`.

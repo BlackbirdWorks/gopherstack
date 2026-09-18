@@ -7,10 +7,12 @@ type listWorkGroupsInput struct {
 	MaxResults int    `json:"MaxResults"`
 }
 
+// createWorkGroupInput has no State member: the real CreateWorkGroupInput
+// (athena@v1.60.4 api_op_CreateWorkGroup.go) declares none -- every
+// workgroup is created ENABLED; State is only settable via UpdateWorkGroup.
 type createWorkGroupInput struct {
 	Name          string                 `json:"Name"`
 	Description   string                 `json:"Description"`
-	State         string                 `json:"State"`
 	Tags          []Tag                  `json:"Tags"`
 	Configuration WorkGroupConfiguration `json:"Configuration"`
 }
@@ -42,7 +44,7 @@ func (h *Handler) workGroupOps() map[string]athenaActionFn {
 			return struct{}{}, h.Backend.CreateWorkGroup(
 				input.Name,
 				input.Description,
-				input.State,
+				"",
 				input.Configuration,
 				tagsFromSlice(input.Tags),
 			)

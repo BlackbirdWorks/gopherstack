@@ -297,11 +297,16 @@ func TestRoundTrip_Connectors(t *testing.T) {
 	require.NoError(t, err)
 	id := aws.ToString(created.ConnectorID)
 
+	// UpdateConnectorInput (mgn@v1.48.4 api_op_UpdateConnector.go) has no
+	// SsmInstanceID member -- it's CreateConnectorInput-only -- so the real
+	// SDK type structurally cannot request a change to it here; this proves
+	// the value set at creation survives an otherwise-unrelated update.
 	updated, err := client.UpdateConnector(ctx, &mgnsdk.UpdateConnectorInput{
 		ConnectorID: aws.String(id), Name: aws.String("renamed"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "renamed", aws.ToString(updated.Name))
+	require.Equal(t, "mi-1234567890abcdef0", aws.ToString(updated.SsmInstanceID))
 
 	listed, err := client.ListConnectors(ctx, &mgnsdk.ListConnectorsInput{})
 	require.NoError(t, err)

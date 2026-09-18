@@ -1,7 +1,7 @@
 ---
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
-last_audit_commit: c9523cebb
+last_audit_commit: d4dc4a723
 last_audit_date: 2026-09-18
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
@@ -549,3 +549,13 @@ Gates: `go build ./...` (whole module, clean). `go vet ./services/athena/...`
 the updated `TestHandler_ListNotebookSessions`). `golangci-lint run
 --new-from-rev=HEAD ./services/athena/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+CreateWorkGroup's handler read a "State" field CreateWorkGroupInput
+(athena@v1.60.4) does not declare -- every real workgroup is created
+ENABLED; State is only settable via UpdateWorkGroup. Removed the read;
+rewrote `TestWorkGroup_StateValidation`'s create-side cases (which assumed
+State was accepted/validated at creation) and added
+`TestCreateWorkGroup_AlwaysEnabled_NoStateMember` proving the create path
+now always yields ENABLED regardless of client input.

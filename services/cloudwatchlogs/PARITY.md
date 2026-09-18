@@ -1,7 +1,7 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
-last_audit_commit: 294943128
+last_audit_commit: d4dc4a723
 last_audit_date: 2026-09-18
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
@@ -1027,3 +1027,11 @@ always oldest-first). Recorded: `ListAggregateLogGroupSummaries.
 IncludeLinkedAccounts`/`.Limit`. Tier-1: 13 -> 12. Gates green (build/vet/
 race-test/persistence/lint 0-new); FilterLogEvents decomposed to hold
 gocognit at 10 (peaked 26 with the fix inline).
+
+## 2026-09-18 invented-field census (acceptguard)
+
+DescribeAccountPolicies read a "maxResults" field its real Input
+(cloudwatchlogs@v1.86.0) does not declare -- only NextToken exists, no
+page-size member at all. Removed the field; pagination now always uses the
+existing default page size (50). See
+`TestDescribeAccountPolicies_DefaultPagination`.

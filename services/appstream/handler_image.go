@@ -205,6 +205,10 @@ func (h *Handler) opDescribeImagePermissions(_ context.Context, body []byte) (an
 
 // --- ImageBuilder handlers ---
 
+// createImageBuilderInput has no Platform member: the real
+// CreateImageBuilderInput (appstream@v1.64.5 api_op_CreateImageBuilder.go)
+// declares none -- Platform is CreateFleet/CreateAppBlockBuilder-only; an
+// image builder's platform is implied by its source image.
 type createImageBuilderInput struct {
 	Tags                        map[string]string    `json:"Tags"`
 	VpcConfig                   *vpcConfigJSON       `json:"VpcConfig"`
@@ -214,7 +218,6 @@ type createImageBuilderInput struct {
 	DisableIMDSV1               *bool                `json:"DisableIMDSV1"`
 	Name                        string               `json:"Name"`
 	Description                 string               `json:"Description"`
-	Platform                    string               `json:"Platform"`
 	InstanceType                string               `json:"InstanceType"`
 	IamRoleArn                  string               `json:"IamRoleArn"`
 	AppstreamAgentVersion       string               `json:"AppstreamAgentVersion"`
@@ -239,7 +242,7 @@ func (h *Handler) opCreateImageBuilder(_ context.Context, body []byte) (any, err
 		AppstreamAgentVersion:       req.AppstreamAgentVersion,
 	}
 
-	ib, err := h.Backend.CreateImageBuilder(req.Name, req.Description, req.Platform, req.InstanceType, opts)
+	ib, err := h.Backend.CreateImageBuilder(req.Name, req.Description, "", req.InstanceType, opts)
 	if err != nil {
 		return nil, err
 	}
