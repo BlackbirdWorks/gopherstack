@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -293,7 +294,11 @@ func TestBackend_UpdateRoute_RenameClearsOldRouteThrottleBucket(t *testing.T) {
 	require.NoError(t, b.EnforceRouteThrottle(api.APIID, "prod", "GET /items"))
 	require.ErrorIs(t, b.EnforceRouteThrottle(api.APIID, "prod", "GET /items"), apigatewayv2.ErrThrottled)
 
-	_, err = b.UpdateRoute(api.APIID, route.RouteID, apigatewayv2.UpdateRouteInput{RouteKey: "GET /renamed"})
+	_, err = b.UpdateRoute(
+		api.APIID,
+		route.RouteID,
+		apigatewayv2.UpdateRouteInput{RouteKey: aws.String("GET /renamed")},
+	)
 	require.NoError(t, err)
 
 	_, err = b.CreateRoute(api.APIID, apigatewayv2.CreateRouteInput{RouteKey: "GET /items"})

@@ -82,8 +82,8 @@ func (b *InMemoryBackend) UpdateVpcLink(vpcLinkID string, input UpdateVpcLinkInp
 	if !ok {
 		return nil, ErrVpcLinkNotFound
 	}
-	if input.Name != "" {
-		vpcLink.Name = input.Name
+	if input.Name != nil {
+		vpcLink.Name = *input.Name
 	}
 
 	cp := *vpcLink

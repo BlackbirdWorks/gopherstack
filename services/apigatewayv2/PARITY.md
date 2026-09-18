@@ -1,8 +1,8 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: ca3a1e21f
-last_audit_date: 2026-09-08
+last_audit_commit: f66686eee
+last_audit_date: 2026-09-18
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
                        # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
                        # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
@@ -387,6 +387,14 @@ deferred:
   - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) -- deliberately not fixed alongside v2's; v1's resource-tree/routingTrie data plane and lack of an autoDeploy model make it a distinctly larger effort, not a copy of this fix
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## Notes (2026-09-18 pass — zeroguard omitted-vs-zero sweep)
+
+`cmd/zeroguard` flagged 48 rows across 10 Update ops. 44 were real bugs: 30
+fields pointer-ified (Model/Deployment/IntegrationResponse/RouteResponse/
+VpcLink/Portal/PortalProduct/Route/Integration/Stage), each proven in
+`update_omitted_members_preserve_state_test.go` (typed real client). 4 false
+positives: TimeoutInMillis (min 50ms, 0 never legitimate), PutRoutingRule.Priority (full-replace PUT).
 
 ## Notes
 

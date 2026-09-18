@@ -240,8 +240,8 @@ func applyRouteAuthUpdate(r *Route, input UpdateRouteInput) {
 		}
 	}
 
-	if input.AuthorizerID != "" {
-		r.AuthorizerID = input.AuthorizerID
+	if input.AuthorizerID != nil {
+		r.AuthorizerID = *input.AuthorizerID
 	}
 }
 
@@ -272,22 +272,22 @@ func validateManagedRouteKeyUpdate(
 // applyRouteUpdate mutates r with input's fields. Callers must validate
 // first (validateManagedRouteKeyUpdate, validateRouteAuthUpdate).
 func applyRouteUpdate(r *Route, input UpdateRouteInput) {
-	if input.RouteKey != "" {
-		r.RouteKey = input.RouteKey
+	if input.RouteKey != nil {
+		r.RouteKey = *input.RouteKey
 	}
 
-	if input.Target != "" {
-		r.Target = input.Target
+	if input.Target != nil {
+		r.Target = *input.Target
 	}
 
 	applyRouteAuthUpdate(r, input)
 
-	if input.OperationName != "" {
-		r.OperationName = input.OperationName
+	if input.OperationName != nil {
+		r.OperationName = *input.OperationName
 	}
 
-	if input.ModelSelectionExpression != "" {
-		r.ModelSelectionExpression = input.ModelSelectionExpression
+	if input.ModelSelectionExpression != nil {
+		r.ModelSelectionExpression = *input.ModelSelectionExpression
 	}
 
 	if input.RequestModels != nil {
@@ -327,8 +327,13 @@ func (b *InMemoryBackend) UpdateRoute(
 		return nil, ErrRouteNotFound
 	}
 
+	newRouteKey := ""
+	if input.RouteKey != nil {
+		newRouteKey = *input.RouteKey
+	}
+
 	if err := validateManagedRouteKeyUpdate(
-		r, b.routesByAPI.Get(apiID), routeID, input.RouteKey, api.ProtocolType,
+		r, b.routesByAPI.Get(apiID), routeID, newRouteKey, api.ProtocolType,
 	); err != nil {
 		return nil, err
 	}

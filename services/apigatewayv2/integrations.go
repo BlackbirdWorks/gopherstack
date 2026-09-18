@@ -257,32 +257,32 @@ func applyIntegrationIdentityUpdate(i *Integration, input UpdateIntegrationInput
 		i.IntegrationType = input.IntegrationType
 	}
 
-	if input.IntegrationSubtype != "" {
-		i.IntegrationSubtype = input.IntegrationSubtype
+	if input.IntegrationSubtype != nil {
+		i.IntegrationSubtype = *input.IntegrationSubtype
 	}
 
-	if input.IntegrationMethod != "" {
-		i.IntegrationMethod = input.IntegrationMethod
+	if input.IntegrationMethod != nil {
+		i.IntegrationMethod = *input.IntegrationMethod
 	}
 
-	if input.IntegrationURI != "" {
-		i.IntegrationURI = input.IntegrationURI
+	if input.IntegrationURI != nil {
+		i.IntegrationURI = *input.IntegrationURI
 	}
 
-	if input.Description != "" {
-		i.Description = input.Description
+	if input.Description != nil {
+		i.Description = *input.Description
 	}
 
 	if input.ConnectionType != "" {
 		i.ConnectionType = input.ConnectionType
 	}
 
-	if input.ConnectionID != "" {
-		i.ConnectionID = input.ConnectionID
+	if input.ConnectionID != nil {
+		i.ConnectionID = *input.ConnectionID
 	}
 
-	if input.CredentialsArn != "" {
-		i.CredentialsArn = input.CredentialsArn
+	if input.CredentialsArn != nil {
+		i.CredentialsArn = *input.CredentialsArn
 	}
 }
 
@@ -290,8 +290,8 @@ func applyIntegrationIdentityUpdate(i *Integration, input UpdateIntegrationInput
 // (payload version, timeout, templates, passthrough, TLS) from input onto
 // the integration.
 func applyIntegrationBehaviorUpdate(i *Integration, input UpdateIntegrationInput) {
-	if input.PayloadFormatVersion != "" {
-		i.PayloadFormatVersion = input.PayloadFormatVersion
+	if input.PayloadFormatVersion != nil {
+		i.PayloadFormatVersion = *input.PayloadFormatVersion
 	}
 
 	if input.TimeoutInMillis != 0 {
@@ -306,8 +306,8 @@ func applyIntegrationBehaviorUpdate(i *Integration, input UpdateIntegrationInput
 		i.RequestTemplates = input.RequestTemplates
 	}
 
-	if input.TemplateSelectionExpression != "" {
-		i.TemplateSelectionExpression = input.TemplateSelectionExpression
+	if input.TemplateSelectionExpression != nil {
+		i.TemplateSelectionExpression = *input.TemplateSelectionExpression
 	}
 
 	if input.PassthroughBehavior != "" {
@@ -355,11 +355,11 @@ func (b *InMemoryBackend) UpdateIntegration(
 	}
 
 	effectiveConnectionID := i.ConnectionID
-	if input.ConnectionID != "" {
-		effectiveConnectionID = input.ConnectionID
+	if input.ConnectionID != nil {
+		effectiveConnectionID = *input.ConnectionID
 	}
 
-	if input.ConnectionType != "" || input.ConnectionID != "" {
+	if input.ConnectionType != "" || input.ConnectionID != nil {
 		if err := validateConnectionType(effectiveConnectionType, effectiveConnectionID); err != nil {
 			return nil, err
 		}

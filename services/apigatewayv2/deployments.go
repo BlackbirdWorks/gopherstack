@@ -195,8 +195,8 @@ func (b *InMemoryBackend) UpdateDeployment(
 		return nil, ErrDeploymentNotFound
 	}
 
-	if input.Description != "" {
-		dep.Description = input.Description
+	if input.Description != nil {
+		dep.Description = *input.Description
 	}
 
 	cp := *dep
