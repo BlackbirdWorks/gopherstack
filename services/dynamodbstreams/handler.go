@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodbstreams"
+	streamstypes "github.com/aws/aws-sdk-go-v2/service/dynamodbstreams/types"
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
@@ -173,29 +174,77 @@ func (h *Handler) dispatch(ctx context.Context, operation string, body []byte) (
 	case "DescribeStream":
 		return dispatchDescribeStream(ctx, body, h.Streams.DescribeStream)
 	case "GetShardIterator":
-		return dispatchStreamsOp(ctx, body, h.Streams.GetShardIterator)
+		return dispatchGetShardIterator(ctx, body, h.Streams.GetShardIterator)
 	case "GetRecords":
 		return dispatchGetRecords(ctx, body, h.Streams.GetRecords)
 	case "ListStreams":
-		return dispatchStreamsOp(ctx, body, h.Streams.ListStreams)
+		return dispatchListStreams(ctx, body, h.Streams.ListStreams)
 	default:
 		return nil, fmt.Errorf("%w:%s", errUnknownOperation, operation)
 	}
 }
 
-func dispatchStreamsOp[In any, Out any](
+// wireGetShardIteratorOutput mirrors dynamodbstreams.GetShardIteratorOutput
+// on the wire, minus its unexported-field ResultMetadata: marshaling that
+// SDK struct directly (as the old generic dispatch did) leaked a spurious
+// "ResultMetadata":{} key no real response ever carries (gopherstack-21my).
+type wireGetShardIteratorOutput struct {
+	ShardIterator *string `json:"ShardIterator,omitempty"`
+}
+
+func dispatchGetShardIterator(
 	ctx context.Context,
 	body []byte,
-	op func(context.Context, *In) (*Out, error),
+	op func(context.Context, *dynamodbstreams.GetShardIteratorInput) (*dynamodbstreams.GetShardIteratorOutput, error),
 ) (any, error) {
-	var input In
+	var input dynamodbstreams.GetShardIteratorInput
 	if len(body) > 0 {
 		if err := json.Unmarshal(body, &input); err != nil {
 			return nil, err
 		}
 	}
 
-	return op(ctx, &input)
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	return &wireGetShardIteratorOutput{ShardIterator: out.ShardIterator}, nil
+}
+
+// wireListStreamsOutput mirrors dynamodbstreams.ListStreamsOutput on the
+// wire, minus ResultMetadata (same leak as wireGetShardIteratorOutput).
+type wireListStreamsOutput struct {
+	LastEvaluatedStreamArn *string               `json:"LastEvaluatedStreamArn,omitempty"`
+	Streams                []streamstypes.Stream `json:"Streams"`
+}
+
+func dispatchListStreams(
+	ctx context.Context,
+	body []byte,
+	op func(context.Context, *dynamodbstreams.ListStreamsInput) (*dynamodbstreams.ListStreamsOutput, error),
+) (any, error) {
+	var input dynamodbstreams.ListStreamsInput
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &input); err != nil {
+			return nil, err
+		}
+	}
+
+	out, err := op(ctx, &input)
+	if err != nil {
+		return nil, err
+	}
+
+	streams := out.Streams
+	if streams == nil {
+		streams = []streamstypes.Stream{}
+	}
+
+	return &wireListStreamsOutput{
+		LastEvaluatedStreamArn: out.LastEvaluatedStreamArn,
+		Streams:                streams,
+	}, nil
 }
 
 func dispatchGetRecords(

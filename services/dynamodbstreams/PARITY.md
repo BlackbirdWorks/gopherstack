@@ -6,15 +6,15 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dynamodbstreams
 sdk_module: aws-sdk-go-v2/service/dynamodbstreams@v1.40.0   # version audited against
-last_audit_commit: 8ba0d8ad2                                  # HEAD when this manifest was written
-last_audit_date: 2026-07-24
+last_audit_commit: 9bcb4b792                                  # HEAD when this manifest was written
+last_audit_date: 2026-09-18
 overall: A            # gaps closed upstream in services/dynamodb by 8ba0d8ad2; verified in this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  ListStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to ddbbackend.StreamsBackend; region-scoped, ExclusiveStartStreamArn/Limit pagination verified"}
+  ListStreams: {wire: ok, errors: ok, state: ok, persist: ok, note: "delegates to ddbbackend.StreamsBackend; region-scoped, ExclusiveStartStreamArn/Limit pagination verified; fixed this pass: raw SDK-struct marshal leaked a fabricated ResultMetadata:{} member, now built via a dedicated wireListStreamsOutput"}
   DescribeStream: {wire: ok, errors: ok, state: ok, persist: ok, note: "ShardFilter CHILD_SHARDS now applied by the backend (services/dynamodb/streams_ops.go:184 calls parseShardFilter(input.ShardFilter) and filters shards to the parent's children); fixed in 8ba0d8ad2, verified in this pass"}
-  GetShardIterator: {wire: ok, errors: ok, state: ok, persist: ok, note: "iterators are opaque server-side tokens (ddbbackend.iteratorStore); genuinely ephemeral per real AWS 15-min TTL, correctly NOT persisted (see leaks/persist note)"}
+  GetShardIterator: {wire: ok, errors: ok, state: ok, persist: ok, note: "iterators are opaque server-side tokens (ddbbackend.iteratorStore); genuinely ephemeral per real AWS 15-min TTL, correctly NOT persisted (see leaks/persist note); fixed this pass: same fabricated ResultMetadata:{} leak as ListStreams, now built via wireGetShardIteratorOutput"}
   GetRecords: {wire: ok, errors: ok, state: ok, persist: ok, note: "NextShardIterator always present unless shard closed+drained; verified against real records written by dynamodb PutItem/UpdateItem/DeleteItem via GetRecentEvents-backed ring buffer"}
 # Families audited as a group (when per-op is impractical):
 families:
@@ -156,3 +156,36 @@ Both gaps were genuine when filed and are genuinely fixed now by prior commit
 `8ba0d8ad2` (not by this pass — this pass only verified and updated the manifest).
 `overall` raised from `B` to `A`: no gaps remain in this package or in the
 cross-service surface it depends on.
+
+## 2026-09-18 (gopherstack-21my)
+
+Per-item field sweep of all 4 ops against
+`aws-sdk-go-v2/service/dynamodbstreams@v1.40.0` via `cmd/structfielddiff`,
+re-verifying every nested type (`Shard`, `SequenceNumberRange`,
+`StreamDescription`, `Record`, `StreamRecord`, `Identity`,
+`KeySchemaElement`) field-by-field against `deserializers.go`'s `case`
+labels -- confirms the prior passes' field names/casing (including the
+mixed PascalCase-vs-lowerCamelCase split between `Stream`/`StreamDescription`
+and `Record`/`Identity`) are still correct.
+
+One real bug found and fixed: `ListStreams` and `GetShardIterator` built
+their response by `encoding/json`-marshaling the raw SDK output struct
+directly. Both structs carry an exported `ResultMetadata middleware.Metadata`
+field with no `json` tag and no exported fields of its own, so the plain
+marshal emitted a fabricated `"ResultMetadata":{}` member (and JSON `null`
+for absent optional fields) that no real AWS response ever sends --
+harmless to the real SDK's lenient unknown-key deserializer, but a genuine
+wire-shape leak. `DescribeStream`/`GetRecords` were never affected: they
+already went through dedicated `ddbbackend.ToWire*` conversions. Fixed by
+adding `wireGetShardIteratorOutput`/`wireListStreamsOutput` (handler.go) and
+routing both ops through them instead of the generic `dispatchStreamsOp`
+(now removed, its only two callers). Proved with
+`TestHandler_WireFormat_NoResultMetadataLeak` (raw-body assertion, fails
+pre-fix) and `TestRealClient_ListStreamsAndGetShardIterator` (real
+aws-sdk-go-v2 client round-trips `Stream.StreamArn`/`TableName` and
+`ShardIterator`).
+
+Gates: `gofmt -l`, `go build ./...`, `go vet ./services/dynamodbstreams/...`,
+`go test -race -count=1 ./services/dynamodbstreams/...` and
+`./pkgs/persistence/...` all green. No persisted-struct/snapshot changes
+(Handler owns no state -- see persistence family above).
