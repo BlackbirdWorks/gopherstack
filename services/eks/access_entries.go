@@ -228,12 +228,15 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 		b.accessPolicies[clusterName] = make(map[string][]*AccessPolicyAssociation)
 	}
 
+	now := time.Now().UTC()
+
 	assoc := &AccessPolicyAssociation{
 		PolicyARN:    policyARN,
 		ClusterName:  clusterName,
 		PrincipalARN: principalARN,
 		AccessScope:  accessScope,
-		AssociatedAt: time.Now().UTC(),
+		AssociatedAt: now,
+		ModifiedAt:   now,
 	}
 
 	existing := b.accessPolicies[clusterName][principalARN]
@@ -241,6 +244,7 @@ func (b *InMemoryBackend) AssociateAccessPolicy(
 
 	for i, a := range existing {
 		if a.PolicyARN == policyARN {
+			assoc.AssociatedAt = a.AssociatedAt
 			existing[i] = assoc
 			replaced = true
 

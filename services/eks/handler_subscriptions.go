@@ -61,6 +61,11 @@ func parseSubscriptionEKSPath(method, path string) (eksRoute, bool) {
 	return eksRoute{}, false
 }
 
+// subscriptionToJSON mirrors types.EksAnywhereSubscription (eks@v1.98.0
+// deserializers.go's awsRestjson1_deserializeDocumentEksAnywhereSubscription).
+// licenseArns/licenses are omitted rather than fabricated: this backend has
+// no per-license record model (License.Id/Token) behind LicenseQuantity --
+// see PARITY.md items_still_open.
 func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
 	m := map[string]any{
 		"id":              sub.ID,
@@ -73,6 +78,12 @@ func subscriptionToJSON(sub *AnywhereSubscription) map[string]any {
 		"autoRenew":       sub.AutoRenew,
 		"effectiveDate":   sub.EffectiveDate.Unix(),
 		"expirationDate":  sub.ExpirationDate.Unix(),
+	}
+
+	if sub.Tags != nil {
+		m[keyTags] = sub.Tags.Clone()
+	} else {
+		m[keyTags] = map[string]string{}
 	}
 
 	if sub.Term != nil {

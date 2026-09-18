@@ -85,6 +85,7 @@ func nodegroupToJSON(ng *Nodegroup) map[string]any {
 		"nodegroupArn":  ng.ARN,
 		keyStatusField:  ng.Status,
 		keyCreatedAt:    ng.CreatedAt.Unix(),
+		keyModifiedAt:   ng.ModifiedAt.Unix(),
 		"scalingConfig": map[string]any{
 			"desiredSize": ng.DesiredSize,
 			"minSize":     ng.MinSize,
@@ -149,6 +150,10 @@ func appendNodegroupOptionalFields(ng *Nodegroup, m map[string]any) {
 
 		if ng.UpdateConfig.MaxUnavailablePercentage != nil {
 			uc["maxUnavailablePercentage"] = *ng.UpdateConfig.MaxUnavailablePercentage
+		}
+
+		if ng.UpdateConfig.UpdateStrategy != "" {
+			uc["updateStrategy"] = ng.UpdateConfig.UpdateStrategy
 		}
 
 		m["updateConfig"] = uc
@@ -222,6 +227,7 @@ type launchTemplateJSON struct {
 type nodegroupUpdateConfigJSON struct {
 	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
 	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+	UpdateStrategy           string `json:"updateStrategy,omitempty"`
 }
 
 type createNodegroupBody struct {
@@ -294,6 +300,7 @@ func (h *Handler) handleCreateNodegroup(c *echo.Context, clusterName string, bod
 		ngUpdateCfg = &NodegroupUpdateConfig{
 			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
 			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+			UpdateStrategy:           in.UpdateConfig.UpdateStrategy,
 		}
 	}
 
@@ -375,6 +382,7 @@ type updateNodegroupTaintsPayload struct {
 type updateNodegroupUpdateConfigJSON struct {
 	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
 	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+	UpdateStrategy           string `json:"updateStrategy,omitempty"`
 }
 
 type updateNodegroupConfigInput struct {
@@ -423,6 +431,7 @@ func (h *Handler) handleUpdateNodegroupConfig(
 		upd.UpdateConfig = &NodegroupUpdateConfig{
 			MaxUnavailable:           in.UpdateConfig.MaxUnavailable,
 			MaxUnavailablePercentage: in.UpdateConfig.MaxUnavailablePercentage,
+			UpdateStrategy:           in.UpdateConfig.UpdateStrategy,
 		}
 	}
 

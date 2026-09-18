@@ -248,6 +248,7 @@ type NodegroupResources struct {
 type NodegroupUpdateConfig struct {
 	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
 	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+	UpdateStrategy           string `json:"updateStrategy,omitempty"`
 }
 
 // Nodegroup represents an EKS managed node group.
@@ -256,6 +257,7 @@ type NodegroupUpdateConfig struct {
 // read-only; mutate tags only via TagResource / CreateNodegroup.
 type Nodegroup struct {
 	CreatedAt      time.Time              `json:"createdAt"`
+	ModifiedAt     time.Time              `json:"modifiedAt"`
 	Tags           *tags.Tags             `json:"tags,omitempty"`
 	Labels         map[string]string      `json:"labels,omitempty"`
 	RemoteAccess   *RemoteAccess          `json:"remoteAccess,omitempty"`
@@ -298,6 +300,7 @@ type AccessEntry struct {
 // AccessPolicyAssociation represents an access policy associated with an access entry.
 type AccessPolicyAssociation struct {
 	AssociatedAt time.Time      `json:"associatedAt"`
+	ModifiedAt   time.Time      `json:"modifiedAt"`
 	AccessScope  map[string]any `json:"accessScope,omitempty"`
 	PolicyARN    string         `json:"policyArn"`
 	ClusterName  string         `json:"clusterName"`

@@ -83,6 +83,8 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		updateCfg = &uc
 	}
 
+	now := time.Now().UTC()
+
 	return &Nodegroup{
 		NodegroupName:  nodegroupName,
 		ClusterName:    clusterName,
@@ -107,10 +109,11 @@ func (b *InMemoryBackend) newNodegroupLocked(
 		Resources: &NodegroupResources{
 			AutoScalingGroups: []AutoScalingGroup{{Name: asgName}},
 		},
-		AccountID: b.accountID,
-		Region:    b.region,
-		CreatedAt: time.Now().UTC(),
-		Tags:      t,
+		AccountID:  b.accountID,
+		Region:     b.region,
+		CreatedAt:  now,
+		ModifiedAt: now,
+		Tags:       t,
 	}
 }
 
@@ -308,6 +311,8 @@ func (b *InMemoryBackend) UpdateNodegroupConfig(
 		ng.UpdateConfig = &uc
 	}
 
+	ng.ModifiedAt = time.Now().UTC()
+
 	return deepCopyNodegroup(ng), nil
 }
 
@@ -380,6 +385,8 @@ func (b *InMemoryBackend) UpdateNodegroupVersion(
 	if version != "" {
 		ng.Version = version
 	}
+
+	ng.ModifiedAt = time.Now().UTC()
 
 	params := []UpdateParam{{Type: "Version", Value: version}}
 

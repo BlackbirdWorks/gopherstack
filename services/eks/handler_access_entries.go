@@ -267,6 +267,7 @@ func (h *Handler) handleAssociateAccessPolicy(c *echo.Context, clusterName, prin
 			keyPrincipalArn: assoc.PrincipalARN,
 			keyPolicyArn:    assoc.PolicyARN,
 			"associatedAt":  assoc.AssociatedAt.Unix(),
+			"modifiedAt":    assoc.ModifiedAt.Unix(),
 			"accessScope":   assoc.AccessScope,
 		},
 	})
@@ -293,6 +294,7 @@ func (h *Handler) handleListAssociatedAccessPolicies(c *echo.Context, clusterNam
 			keyPolicyArn:   p.PolicyARN,
 			"accessScope":  p.AccessScope,
 			"associatedAt": p.AssociatedAt.Unix(),
+			"modifiedAt":   p.ModifiedAt.Unix(),
 		}
 	}
 
