@@ -377,7 +377,7 @@ type schemasCreateRegistryBodyREST struct {
 }
 
 type schemasUpdateRegistryBodyREST struct {
-	Description string `json:"Description,omitempty"`
+	Description *string `json:"Description,omitempty"`
 }
 
 type schemasCreateSchemaBodyREST struct {
@@ -388,10 +388,10 @@ type schemasCreateSchemaBodyREST struct {
 }
 
 type schemasUpdateSchemaBodyREST struct {
-	ClientTokenID string `json:"ClientTokenId,omitempty"`
-	Content       string `json:"Content,omitempty"`
-	Description   string `json:"Description,omitempty"`
-	Type          string `json:"Type,omitempty"`
+	ClientTokenID string  `json:"ClientTokenId,omitempty"`
+	Content       *string `json:"Content,omitempty"`
+	Description   *string `json:"Description,omitempty"`
+	Type          string  `json:"Type,omitempty"`
 }
 
 type schemasGetDiscoveredBodyREST struct {

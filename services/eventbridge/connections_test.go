@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -309,7 +310,7 @@ func TestConnectionCRUD(t *testing.T) {
 
 		updated, err := b.UpdateConnection(context.Background(), eventbridge.UpdateConnectionInput{
 			Name:        "my-conn",
-			Description: "updated desc",
+			Description: aws.String("updated desc"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "updated desc", updated.Description)

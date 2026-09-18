@@ -331,16 +331,16 @@ func (b *InMemoryBackend) UpdateSchema(
 	newVersionNum := strconv.Itoa(len(currentVersions) + 1)
 
 	// Apply updates.
-	if input.Content != "" {
-		schema.Content = input.Content
+	if input.Content != nil {
+		schema.Content = *input.Content
 	}
 
 	if input.Type != "" {
 		schema.Type = input.Type
 	}
 
-	if input.Description != "" {
-		schema.Description = input.Description
+	if input.Description != nil {
+		schema.Description = *input.Description
 	}
 
 	schema.SchemaVersion = newVersionNum

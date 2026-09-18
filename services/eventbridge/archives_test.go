@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -126,7 +127,7 @@ func TestArchive_CRUD(t *testing.T) {
 
 	updated, err := b.UpdateArchive(context.Background(), eventbridge.UpdateArchiveInput{
 		ArchiveName:   "my-archive",
-		Description:   "important events",
+		Description:   aws.String("important events"),
 		RetentionDays: 14,
 	})
 	require.NoError(t, err)
@@ -249,7 +250,7 @@ func TestUpdateArchive(t *testing.T) {
 					State:          "ENABLED",
 				})
 			},
-			input:    eventbridge.UpdateArchiveInput{ArchiveName: "a1", Description: "new desc"},
+			input:    eventbridge.UpdateArchiveInput{ArchiveName: "a1", Description: aws.String("new desc")},
 			wantDesc: "new desc",
 		},
 	}

@@ -144,17 +144,17 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 		return nil, fmt.Errorf("%w: archive %s not found", ErrNotFound, input.ArchiveName)
 	}
 
-	if input.Description != "" {
-		archive.Description = input.Description
+	if input.Description != nil {
+		archive.Description = *input.Description
 	}
-	if input.EventPattern != "" {
-		archive.EventPattern = input.EventPattern
+	if input.EventPattern != nil {
+		archive.EventPattern = *input.EventPattern
 	}
 	if input.RetentionDays >= 0 {
 		archive.RetentionDays = input.RetentionDays
 	}
-	if input.KmsKeyIdentifier != "" {
-		archive.KmsKeyIdentifier = input.KmsKeyIdentifier
+	if input.KmsKeyIdentifier != nil {
+		archive.KmsKeyIdentifier = *input.KmsKeyIdentifier
 	}
 
 	cp := *archive

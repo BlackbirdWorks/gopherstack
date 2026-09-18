@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -45,7 +46,7 @@ func TestEndpoint_CRUD(t *testing.T) {
 
 	updated, err := b.UpdateEndpoint(context.Background(), eventbridge.UpdateEndpointInput{
 		Name:        "my-endpoint",
-		Description: "updated endpoint",
+		Description: aws.String("updated endpoint"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated endpoint", updated.Description)
@@ -94,7 +95,7 @@ func TestEndpointCRUD(t *testing.T) {
 
 		updated, err := b.UpdateEndpoint(context.Background(), eventbridge.UpdateEndpointInput{
 			Name:        "my-ep",
-			Description: "updated",
+			Description: aws.String("updated"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "updated", updated.Description)

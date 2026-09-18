@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -221,7 +222,7 @@ func TestEventBus_UpdateDescription(t *testing.T) {
 
 	updated, err := b.UpdateEventBus(context.Background(), eventbridge.UpdateEventBusInput{
 		Name:        "update-me",
-		Description: "new description",
+		Description: aws.String("new description"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "new description", updated.Description)
@@ -390,7 +391,7 @@ func TestUpdateEventBus(t *testing.T) {
 		},
 		{
 			name:     "updates description on default bus",
-			input:    eventbridge.UpdateEventBusInput{Name: "", Description: "new"},
+			input:    eventbridge.UpdateEventBusInput{Name: "", Description: aws.String("new")},
 			wantDesc: "new",
 		},
 	}

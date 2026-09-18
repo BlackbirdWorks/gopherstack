@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -38,7 +39,7 @@ func TestSchema_CRUD(t *testing.T) {
 	updated, err := b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "schema-reg",
 		SchemaName:   "MySchema",
-		Content:      `{"openapi":"3.0.0","info":{"title":"MySchema","version":"2.0"},"paths":{}}`,
+		Content:      aws.String(`{"openapi":"3.0.0","info":{"title":"MySchema","version":"2.0"},"paths":{}}`),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2", updated.SchemaVersion)
@@ -142,14 +143,14 @@ func TestSchemaVersions_ListAndDescribe(t *testing.T) {
 	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "ver-reg",
 		SchemaName:   "VersionedSchema",
-		Content:      `{"v":2}`,
+		Content:      aws.String(`{"v":2}`),
 	})
 	require.NoError(t, err)
 
 	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "ver-reg",
 		SchemaName:   "VersionedSchema",
-		Content:      `{"v":3}`,
+		Content:      aws.String(`{"v":3}`),
 	})
 	require.NoError(t, err)
 
@@ -183,7 +184,7 @@ func TestSchemaVersions_DeleteSpecificVersion(t *testing.T) {
 	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "delver-reg",
 		SchemaName:   "DelSchema",
-		Content:      `{"v":2}`,
+		Content:      aws.String(`{"v":2}`),
 	})
 	require.NoError(t, err)
 
@@ -214,7 +215,7 @@ func TestSchemaVersions_DescribeWithVersion(t *testing.T) {
 	_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 		RegistryName: "descver-reg",
 		SchemaName:   "S",
-		Content:      `{"v":2}`,
+		Content:      aws.String(`{"v":2}`),
 	})
 	require.NoError(t, err)
 
