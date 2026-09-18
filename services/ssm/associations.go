@@ -717,6 +717,14 @@ func (b *InMemoryBackend) UpdateAssociation(
 	ctx context.Context,
 	input *UpdateAssociationInput,
 ) (*UpdateAssociationOutput, error) {
+	if err := validateMaxConcurrency(input.MaxConcurrency); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(input.MaxErrors); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociation")
 	defer b.mu.Unlock()

@@ -736,6 +736,108 @@ func TestBackendOps_PutComplianceItems(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, out)
 }
+func TestPutComplianceItems_UploadTypeScoping(t *testing.T) {
+	t.Parallel()
+
+	t.Run("complete replaces only its own compliancetype", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+
+		_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-scope-test",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Patch",
+			ExecutionSummary: testExecutionSummary(),
+			Items:            []ssm.ComplianceItem{{ID: "patch-1", Status: "COMPLIANT", Severity: "UNSPECIFIED"}},
+		})
+		require.NoError(t, err)
+
+		_, err = b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-scope-test",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Association",
+			ExecutionSummary: testExecutionSummary(),
+			Items:            []ssm.ComplianceItem{{ID: "assoc-1", Status: "COMPLIANT", Severity: "UNSPECIFIED"}},
+		})
+		require.NoError(t, err)
+
+		out, err := b.ListComplianceItems(context.TODO(), &ssm.ListComplianceItemsInput{
+			ResourceIDs: []string{"i-scope-test"},
+		})
+		require.NoError(t, err)
+		assert.Len(t, out.ComplianceItems, 2)
+
+		_, err = b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-scope-test",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Patch",
+			ExecutionSummary: testExecutionSummary(),
+			Items:            []ssm.ComplianceItem{{ID: "patch-2", Status: "NON_COMPLIANT", Severity: "HIGH"}},
+		})
+		require.NoError(t, err)
+
+		out, err = b.ListComplianceItems(context.TODO(), &ssm.ListComplianceItemsInput{
+			ResourceIDs: []string{"i-scope-test"},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ComplianceItems, 2)
+
+		ids := make([]string, 0, len(out.ComplianceItems))
+		for _, item := range out.ComplianceItems {
+			ids = append(ids, item.ID)
+		}
+		assert.ElementsMatch(t, []string{"patch-2", "assoc-1"}, ids)
+	})
+
+	t.Run("partial merges into existing items by id", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+
+		_, err := b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-partial-test",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Association",
+			ExecutionSummary: testExecutionSummary(),
+			Items: []ssm.ComplianceItem{
+				{ID: "assoc-1", Status: "COMPLIANT", Severity: "UNSPECIFIED"},
+				{ID: "assoc-2", Status: "COMPLIANT", Severity: "UNSPECIFIED"},
+			},
+		})
+		require.NoError(t, err)
+
+		_, err = b.PutComplianceItems(context.TODO(), &ssm.PutComplianceItemsInput{
+			ResourceID:       "i-partial-test",
+			ResourceType:     "ManagedInstance",
+			ComplianceType:   "Association",
+			UploadType:       "PARTIAL",
+			ExecutionSummary: testExecutionSummary(),
+			Items: []ssm.ComplianceItem{
+				{ID: "assoc-2", Status: "NON_COMPLIANT", Severity: "HIGH"},
+				{ID: "assoc-3", Status: "COMPLIANT", Severity: "UNSPECIFIED"},
+			},
+		})
+		require.NoError(t, err)
+
+		out, err := b.ListComplianceItems(context.TODO(), &ssm.ListComplianceItemsInput{
+			ResourceIDs: []string{"i-partial-test"},
+		})
+		require.NoError(t, err)
+		require.Len(t, out.ComplianceItems, 3)
+
+		statuses := make(map[string]string, len(out.ComplianceItems))
+		for _, item := range out.ComplianceItems {
+			statuses[item.ID] = item.Status
+		}
+		assert.Equal(t, map[string]string{
+			"assoc-1": "COMPLIANT",
+			"assoc-2": "NON_COMPLIANT",
+			"assoc-3": "COMPLIANT",
+		}, statuses)
+	})
+}
+
 func TestBackendOps_ListComplianceItems(t *testing.T) {
 	t.Parallel()
 

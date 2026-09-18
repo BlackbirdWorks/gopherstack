@@ -604,12 +604,34 @@ func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if input.Safe {
+		tasks := b.maintenanceWindowTasksStore(region).All()
+		if maintenanceWindowTargetReferencedByTask(tasks, input.WindowTargetID) {
+			return nil, ErrMaintenanceWindowTargetInUse
+		}
+	}
+
 	targets.Delete(input.WindowTargetID)
 
 	return &DeregisterTargetFromMaintenanceWindowOutput{
 		WindowID:       input.WindowID,
 		WindowTargetID: input.WindowTargetID,
 	}, nil
+}
+
+// maintenanceWindowTargetReferencedByTask reports whether any task's Targets
+// list references targetID via the "WindowTargetIds" key convention
+// RegisterTaskWithMaintenanceWindow already uses.
+func maintenanceWindowTargetReferencedByTask(tasks []*MaintenanceWindowTask, targetID string) bool {
+	for _, task := range tasks {
+		for _, t := range task.Targets {
+			if t.Key == "WindowTargetIds" && slices.Contains(t.Values, targetID) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // DeregisterTaskFromMaintenanceWindow removes a task from a maintenance window.
@@ -880,6 +902,14 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 	ctx context.Context,
 	input *RegisterTaskWithMaintenanceWindowInput,
 ) (*RegisterTaskWithMaintenanceWindowOutput, error) {
+	if err := validateMaxConcurrency(input.MaxConcurrency); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(input.MaxErrors); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
 	defer b.mu.Unlock()
@@ -1192,6 +1222,14 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 	ctx context.Context,
 	input *UpdateMaintenanceWindowTaskInput,
 ) (*UpdateMaintenanceWindowTaskOutput, error) {
+	if err := validateMaxConcurrency(input.MaxConcurrency); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(input.MaxErrors); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateMaintenanceWindowTask")
 	defer b.mu.Unlock()

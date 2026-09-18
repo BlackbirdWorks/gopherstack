@@ -892,3 +892,50 @@ func TestCreateAssociation_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateAssociation_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		maxConcurrency string
+		maxErrors      string
+		wantErr        bool
+	}{
+		{name: "absolute counts", maxConcurrency: "10", maxErrors: "0"},
+		{name: "percentages", maxConcurrency: "50%", maxErrors: "10%"},
+		{name: "unset is allowed"},
+		{name: "maxConcurrency zero", maxConcurrency: "0", wantErr: true},
+		{name: "maxConcurrency leading zero", maxConcurrency: "05", wantErr: true},
+		{name: "maxConcurrency over 100 percent", maxConcurrency: "150%", wantErr: true},
+		{name: "maxErrors non-numeric", maxErrors: "abc", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			created, err := b.CreateAssociation(context.Background(), &ssm.CreateAssociationInput{
+				Name:       "AWS-RunShellScript",
+				InstanceID: "i-001",
+			})
+			require.NoError(t, err)
+
+			_, err = b.UpdateAssociation(context.Background(), &ssm.UpdateAssociationInput{
+				AssociationID:  created.AssociationDescription.AssociationID,
+				MaxConcurrency: tc.maxConcurrency,
+				MaxErrors:      tc.maxErrors,
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, ssm.ErrValidationException)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}

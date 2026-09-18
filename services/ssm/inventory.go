@@ -411,15 +411,14 @@ func validatePutComplianceItemsInput(input *PutComplianceItemsInput) error {
 	return nil
 }
 
-// PutComplianceItems stores compliance items for a resource.
-//
-// UploadType (COMPLETE/PARTIAL) is accepted but not evaluated: real AWS's
-// PARTIAL mode only overwrites the items for one association (requiring
-// SyncCompliance=MANUAL) while leaving other associations' compliance data
-// for the same resource untouched. This backend always applies COMPLETE
-// semantics (replaces every item for ResourceId), a real behavioral gap
-// disclosed in PARITY.md rather than rushed -- it needs compliance storage
-// reshaped to key by association, not just ResourceId.
+// PutComplianceItems stores compliance items for a resource. Both COMPLETE
+// (default) and PARTIAL UploadType scope the write to ComplianceType, per the
+// SDK doc comment ("this call overwrites existing compliance information on
+// the resource" for COMPLETE; PARTIAL "overwrites compliance information for
+// a specific association" -- api_op_PutComplianceItems.go): a resource's
+// items for a different ComplianceType (e.g. Patch vs Association) are never
+// touched by either mode. PARTIAL additionally merges into the existing
+// items of that ComplianceType by Id instead of replacing them outright.
 func (b *InMemoryBackend) PutComplianceItems(
 	ctx context.Context,
 	input *PutComplianceItemsInput,
@@ -451,9 +450,48 @@ func (b *InMemoryBackend) PutComplianceItems(
 	if b.compliance[region] == nil {
 		b.compliance[region] = make(map[string][]ComplianceItem)
 	}
-	b.complianceStore(region)[input.ResourceID] = newItems
+
+	existing := b.complianceStore(region)[input.ResourceID]
+
+	var kept []ComplianceItem
+
+	for _, item := range existing {
+		if item.ComplianceType != input.ComplianceType {
+			kept = append(kept, item)
+		}
+	}
+
+	if input.UploadType == "PARTIAL" {
+		kept = mergeComplianceItemsByID(kept, existing, input.ComplianceType, newItems)
+	}
+
+	b.complianceStore(region)[input.ResourceID] = append(kept, newItems...)
 
 	return &PutComplianceItemsOutput{}, nil
+}
+
+// mergeComplianceItemsByID appends the same-ComplianceType items from
+// existing whose Id doesn't appear in newItems, so a PARTIAL upload adds to
+// (rather than replaces) prior compliance data for that ComplianceType.
+func mergeComplianceItemsByID(
+	kept, existing []ComplianceItem,
+	complianceType string,
+	newItems []ComplianceItem,
+) []ComplianceItem {
+	newIDs := make(map[string]bool, len(newItems))
+	for _, item := range newItems {
+		if item.ID != "" {
+			newIDs[item.ID] = true
+		}
+	}
+
+	for _, item := range existing {
+		if item.ComplianceType == complianceType && !newIDs[item.ID] {
+			kept = append(kept, item)
+		}
+	}
+
+	return kept
 }
 
 // ListComplianceItems returns stored compliance items, optionally filtered by ResourceId/ResourceType.

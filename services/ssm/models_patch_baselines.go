@@ -27,8 +27,11 @@ type PatchFilter struct {
 type Patch struct {
 	Name           string  `json:"Name"`
 	Product        string  `json:"Product"`
+	ProductFamily  string  `json:"ProductFamily,omitempty"`
 	Classification string  `json:"Classification"`
+	MsrcSeverity   string  `json:"MsrcSeverity,omitempty"`
 	Severity       string  `json:"Severity"`
+	PatchSet       string  `json:"PatchSet,omitempty"`
 	ReleaseDate    float64 `json:"ReleaseDate,omitempty"`
 }
 

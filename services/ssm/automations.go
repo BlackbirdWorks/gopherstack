@@ -348,6 +348,14 @@ func (b *InMemoryBackend) StartChangeRequestExecution(
 		if rb.DocumentName == "" {
 			return nil, fmt.Errorf("%w: Runbooks[%d].DocumentName is required", ErrValidationException, i)
 		}
+
+		if err := validateMaxConcurrency(rb.MaxConcurrency); err != nil {
+			return nil, err
+		}
+
+		if err := validateMaxErrors(rb.MaxErrors); err != nil {
+			return nil, err
+		}
 	}
 
 	region := getRegion(ctx)

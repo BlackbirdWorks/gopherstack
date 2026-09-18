@@ -21,6 +21,7 @@ type DeleteMaintenanceWindowInput struct {
 type DeregisterTargetFromMaintenanceWindowInput struct {
 	WindowID       string `json:"WindowId"`
 	WindowTargetID string `json:"WindowTargetId"`
+	Safe           bool   `json:"Safe,omitempty"`
 }
 
 // DeregisterTaskFromMaintenanceWindowInput is the request for DeregisterTaskFromMaintenanceWindow.

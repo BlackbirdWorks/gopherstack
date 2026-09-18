@@ -245,6 +245,12 @@ func patchMatchesFilters(p Patch, filters []PatchFilter) bool {
 			fieldValue = p.Severity
 		case "CLASSIFICATION":
 			fieldValue = p.Classification
+		case "PRODUCT_FAMILY":
+			fieldValue = p.ProductFamily
+		case "MSRC_SEVERITY":
+			fieldValue = p.MsrcSeverity
+		case "PATCH_SET":
+			fieldValue = p.PatchSet
 		default:
 			continue
 		}

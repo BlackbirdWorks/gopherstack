@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
@@ -346,31 +347,42 @@ func (b *InMemoryBackend) GetDocument(
 	return nil, ErrInvalidDocumentVersion
 }
 
+// tagFilterKeyPrefix is the DocumentKeyValuesFilter.Key prefix
+// (api_op_ListDocuments.go: "valid keys include ... tag:tagName") selecting a
+// document's tag value for a given tag name.
+const tagFilterKeyPrefix = "tag:"
+
 // documentMatchesFilters returns true when doc satisfies all provided DocumentFilters
 // (types.DocumentKeyValuesFilter, api_op_ListDocuments.go: "valid keys include Owner,
 // Name, PlatformTypes, DocumentType, and TargetType"). Owner ("Self" vs. other
-// accounts) and tag:tagName keys aren't modeled -- there's no document-ownership or
-// tag-key data to filter on -- and fall through to unfiltered, matching this backend's
-// established unknown-key convention (matchesActivationFilter).
-func documentMatchesFilters(doc Document, filters []DocumentFilter) bool {
+// accounts) isn't modeled -- there's no document-ownership/caller-identity data to
+// filter on -- and falls through to unfiltered, matching this backend's established
+// unknown-key convention (matchesActivationFilter). tags is doc's own misc-tag map
+// (miscResourceTagsStore), used for the tag:tagName key form.
+func documentMatchesFilters(doc Document, tags map[string]string, filters []DocumentFilter) bool {
 	for _, f := range filters {
-		switch f.Key {
-		case "DocumentType":
+		switch {
+		case f.Key == "DocumentType":
 			if !slices.Contains(f.Values, doc.DocumentType) {
 				return false
 			}
-		case filterKeyName:
+		case f.Key == filterKeyName:
 			if !slices.Contains(f.Values, doc.Name) {
 				return false
 			}
-		case "TargetType":
+		case f.Key == "TargetType":
 			if !slices.Contains(f.Values, doc.TargetType) {
 				return false
 			}
-		case filterKeyPlatformTypes:
+		case f.Key == filterKeyPlatformTypes:
 			if !slices.ContainsFunc(doc.PlatformTypes, func(p string) bool {
 				return slices.Contains(f.Values, p)
 			}) {
+				return false
+			}
+		case strings.HasPrefix(f.Key, tagFilterKeyPrefix):
+			tagName := strings.TrimPrefix(f.Key, tagFilterKeyPrefix)
+			if !slices.Contains(f.Values, tags[tagName]) {
 				return false
 			}
 		default:
@@ -446,7 +458,7 @@ func (b *InMemoryBackend) ListDocuments(
 	all := make([]DocumentIdentifier, 0, docsTable.Len())
 	for _, docPtr := range docsTable.All() {
 		doc := *docPtr
-		if !documentMatchesFilters(doc, allFilters) {
+		if !documentMatchesFilters(doc, b.miscResourceTagsStore(region)[doc.Name], allFilters) {
 			continue
 		}
 
