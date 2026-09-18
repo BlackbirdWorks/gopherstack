@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
@@ -57,7 +58,7 @@ type domainJSON struct {
 	LogPublishingOptions        map[string]*logPublishingOptionJSON `json:"LogPublishingOptions,omitempty"`
 	DomainName                  string                              `json:"DomainName"`
 	EngineVersion               string                              `json:"EngineVersion"`
-	AccessPolicies              string                              `json:"AccessPolicies,omitempty"`
+	AccessPolicies              *string                             `json:"AccessPolicies,omitempty"`
 	DryRunMode                  string                              `json:"DryRunMode,omitempty"`
 	Tags                        []svcTags.KV                        `json:"TagList,omitempty"`
 	DryRun                      bool                                `json:"DryRun,omitempty"`
@@ -145,7 +146,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	input := CreateDomainInput{
 		Name:                        req.DomainName,
 		EngineVersion:               upd.EngineVersion,
-		AccessPolicies:              upd.AccessPolicies,
+		AccessPolicies:              ptrconv.String(upd.AccessPolicies),
 		Tags:                        svcTags.MapFromKV(req.Tags),
 		ClusterConfig:               parseClusterConfigFromReq(req.ClusterConfig),
 		AutoTuneOptions:             autoTuneCreateInputFromReq(req.AutoTuneOptions),

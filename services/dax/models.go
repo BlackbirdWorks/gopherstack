@@ -253,11 +253,11 @@ type CreateClusterInput struct {
 // Description uses a pointer so callers can explicitly clear it (empty string vs absent).
 type UpdateClusterInput struct {
 	Description                *string
+	PreferredMaintenanceWindow *string
+	ParameterGroupName         *string
+	NotificationTopicArn       *string
+	NotificationTopicStatus    *string
 	ClusterName                string
-	PreferredMaintenanceWindow string
-	ParameterGroupName         string
-	NotificationTopicArn       string
-	NotificationTopicStatus    string
 	SecurityGroupIDs           []string
 }
 
@@ -284,7 +284,7 @@ type UpdateParameterGroupInput struct {
 
 // UpdateSubnetGroupInput holds parameters for updating a subnet group.
 type UpdateSubnetGroupInput struct {
+	Description     *string
 	SubnetGroupName string
-	Description     string
 	SubnetIDs       []string
 }

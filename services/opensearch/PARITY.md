@@ -2,7 +2,7 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: 2dfc55a39
+last_audit_commit: 302aa4e3c  # zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
 last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
@@ -429,6 +429,13 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
+
+AccessPolicies was plain string guarded by `!= ""`, so an omitted call and
+an explicit empty string (which clears the policy) were indistinguishable.
+Changed to `*string` end to end (domainJSON, UpdateDomainConfigInput); Create
+still takes a plain string since it's a fresh resource. Zeroguard rows 2 -> 0.
 
 ### 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 request-field sweep
 

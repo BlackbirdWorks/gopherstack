@@ -1,7 +1,7 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: 150f99c5a
+last_audit_commit: 302aa4e3c  # zeroguard: UpdateCustomKeyStore.NewCustomKeyStoreName omitted-member fix
 last_audit_date: 2026-09-18
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
@@ -96,6 +96,16 @@ leaks: {status: fixed, note: "Handler.tags (a side map of *tags.Tags keyed by Ke
 ---
 
 ## Notes
+
+- **2026-09-18 zeroguard: UpdateCustomKeyStore.NewCustomKeyStoreName**:
+  was a plain string guarded by `!= ""`, so an explicit empty rename was
+  silently ignored instead of rejected (the field has no legitimate empty
+  form). Changed to `*string`; explicit empty now returns ValidationException.
+  9 other census rows (UpdateAlias, PutKeyPolicy, UpdateCustomKeyStore.Id,
+  UpdateKeyDescription, UpdatePrimaryRegion) are false positives: required
+  lookup identifiers, required data fields always resent in full (PutKeyPolicy
+  is a full-replace Put), or PolicyName's documented single-valid-value
+  default. Rows 11 -> 10.
 
 - **2026-09-18 (gap adjudication pass)**: adjudicated all 19
   `items_still_open` + 2 `deferred` entries. 17 stale (16 dated-RESOLVED

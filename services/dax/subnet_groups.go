@@ -91,8 +91,8 @@ func (b *InMemoryBackend) UpdateSubnetGroup(input UpdateSubnetGroupInput) (*Subn
 		return nil, fmt.Errorf("%w: %s", ErrSubnetGroupNotFound, input.SubnetGroupName)
 	}
 
-	if input.Description != "" {
-		sg.Description = input.Description
+	if input.Description != nil {
+		sg.Description = *input.Description
 	}
 
 	if len(input.SubnetIDs) > 0 {

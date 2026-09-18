@@ -651,7 +651,7 @@ type UpdateDomainConfigInput struct {
 	EnableSoftwareUpdateOptions *EnableSoftwareUpdateOptions
 	LogPublishingOptions        map[string]*LogPublishingOption
 	ClusterConfig               *ClusterConfig
-	AccessPolicies              string
+	AccessPolicies              *string
 	EngineVersion               string
 }
 

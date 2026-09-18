@@ -167,9 +167,9 @@ type UpdatePipeInput struct {
 	EnrichmentParameters *EnrichmentParameters
 	Description          *string
 	KmsKeyIdentifier     *string
+	Target               *string
+	Enrichment           *string
 	RoleARN              string
-	Target               string
-	Enrichment           string
 	DesiredState         string
 }
 
