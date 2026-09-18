@@ -1,8 +1,8 @@
 ---
 service: efs
 sdk_module: aws-sdk-go-v2/service/efs@v1.48.0   # version audited against
-last_audit_commit: 2516ed984b0172a43275ab37c70f0cac8f6bc807
-last_audit_date: 2026-08-30
+last_audit_commit: d79e0612c
+last_audit_date: 2026-09-18
 overall: A            # gopherstack-wks5 (2026-08-30): field-identity request-parameter sweep found and
                       # fixed 1 real bug (DescribeMountTargets/DescribeAccessPoints missing a
                       # FileSystemId existence check) and disclosed 1 (PutFileSystemPolicy's
@@ -690,3 +690,15 @@ nested request shape was corrected to the real flat shape, not weakened.
 Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`,
 `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
 struct fields changed; no version bump.
+
+## 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1)
+
+`reqfielddiff`'s 5 tier-1 findings all already handled, no code change: 2
+tool false positives (`DescribeAccessPoints.MaxResults`,
+`DescribeReplicationConfigurations.MaxResults` -- both read via the generic
+`describeListResponse`/`queryInt` query-string helpers, which a decode-struct
+scan can't see) and 3 already-disclosed deliberate gaps this file already
+records (`DeleteReplicationConfiguration.DeletionMode` inert single-region
+model; `DescribeAccountPreferences.MaxResults` structurally non-paginated;
+`ListTagsForResource.MaxResults` bounded 50-tag cap). Tier-1: 5 -> 5 (0
+fixed, 0 recorded as new, 5 already covered).

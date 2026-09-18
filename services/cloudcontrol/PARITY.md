@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudcontrol
 sdk_module: aws-sdk-go-v2/service/cloudcontrol@v1.32.4
-last_audit_commit: 569c029d
-last_audit_date: 2026-08-20
+last_audit_commit: d79e0612c
+last_audit_date: 2026-09-18
 overall: A            # wrapper-key/nested-shape sweep (2026-08-20): zero bugs found, real-SDK round-trip test added
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -28,6 +28,7 @@ gaps: []
 items_still_open:
   - "cloudcontrol keeps its own generic resource store; it does NOT delegate to the real per-service backend (e.g. AWS::S3::Bucket via CreateResource does not create a row visible to services/s3's ListBuckets, and vice versa). This is explicitly allowed by the task brief (either design is parity-correct) but is a real cross-service gap for any test that mixes CloudControl and native-service calls against the same logical resource. No bd issue filed yet -- flagging for triage."
   - "TypeNotFoundException (extension not registered in the CFN registry) is unreachable: this backend has no type registry, so any well-formed TypeName (ns::svc::type) is implicitly accepted. GENUINELY IMPOSSIBLE without fabrication (re-triaged gopherstack-c9yf, not fixed): real CloudFormation/CloudControl's registry spans thousands of AWS-published + arbitrarily many privately-registered third-party extension types, and whether a given TypeName is 'registered' is fundamentally an account-specific, mutable fact (types get (de)activated per account/region via RegisterType/DeactivateType, which cloudcontrol's own SDK surface doesn't even expose -- that's CloudFormation's API). Any registry gopherstack could build here would be one of: (a) an arbitrary hardcoded allowlist of 'known' AWS types, which would be incomplete by construction and would make ListResources/CreateResource start REJECTING valid TypeNames this emulator previously accepted -- a regression, not a fix, and itself a fabricated 'known types' dataset; or (b) accept-everything, which is exactly today's (correct, honest) behavior. There is no third option that adds real signal without inventing data. Not fixed."
+  - "CreateResource/GetResource/UpdateResource/DeleteResource/ListResources.TypeVersionId (private-resource-type version selector, 'If you do not specify a resource version, CloudFormation uses the default version' -- api_op_CreateResource.go) is accepted-and-ignored (see 'Traps for the next auditor' below): same registry-less design as TypeNotFoundException above -- this backend has no private-type-version registry, so there is no second version to select between and 'default version' is the only behavior it could ever produce regardless of the field's value. Missing feature, not a dropped-parameter bug; would need the same fabricated registry TypeNotFoundException already rejected building. Not fixed (gopherstack-xhu2t reqfielddiff tier-1 triage, 2026-09-18)."
 chaos_coverage:           # errors reachable via pkgs/chaos fault injection rather than backend logic — verified, not a gap
   - "The remaining 12 documented-but-unreachable exceptions from gopherstack-c9yf (ThrottlingException, ServiceLimitExceededException, HandlerFailureException, NotStabilizedException, NotUpdatableException, ResourceConflictException, PrivateTypeException, GeneralServiceException, NetworkFailureException, InvalidCredentialsException, HandlerInternalFailureException, ConcurrentOperationException) are ALREADY COVERED by pkgs/chaos, not a gap needing backend code. Verified concretely: Handler implements service.ChaosProvider (ChaosServiceName()==\"cloudcontrol\", ChaosOperations()==GetSupportedOperations(), ChaosRegions()), so it is enumerated by GET /_gopherstack/chaos/targets. The chaos middleware (pkgs/chaos/middleware.go) runs as global Echo middleware registered via registry.Use(chaos.Middleware(...)) (cli.go:5754) OUTSIDE/BEFORE any service's own routing, and extracts service+operation from the same SigV4 Authorization header + X-Amz-Target header this service's own RouteMatcher/ExtractOperation already rely on (cloudcontrol is awsjson1.0 with X-Amz-Target: CloudApiService.<Op>, so extractOperationFromRequest's X-Amz-Target-after-the-dot parsing resolves the exact operation name, e.g. \"CreateResource\") -- so a fault rule {service: \"cloudcontrol\", operation: \"CreateResource\", error: {code: \"ThrottlingException\", statusCode: 400}} deterministically short-circuits that op with an arbitrary injected Code+StatusCode (FaultError carries both, pkgs/chaos/fault_response.go) before this handler ever runs. Synthesizing these from backend state instead (e.g. fabricating a request-rate counter under a single coarse lock with no real concurrency contention) would be exactly the kind of invented signal this project's honesty rules forbid; fault injection is the correct, non-fabricated mechanism for exceptions AWS only returns under real infrastructure conditions this emulator doesn't have."
 deferred: []              # consciously not audited this pass (scope) — next pass targets; none this pass
@@ -35,6 +36,16 @@ leaks: {status: clean, note: "no goroutines/timers/janitors; InMemoryBackend is 
 ---
 
 ## Notes
+
+**2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1)**:
+
+All 5 tier-1 findings are the same field, `TypeVersionId`, across
+Create/Get/Update/Delete/ListResources -- classified missing feature (no
+private-type-version registry backs this generic store) and added to
+`items_still_open` above rather than fixed; `RoleArn` (tier5, same 5 ops)
+was already disclosed accepted-and-ignored in "Traps for the next auditor"
+and needed no new entry. No code change. Tier-1: 5 -> 5 (0 fixed, 1 new
+open-list entry covering all 5, 0 false-positives).
 
 **Fixed this pass (2026-09-07, bd issue gopherstack-v5eb)**:
 
