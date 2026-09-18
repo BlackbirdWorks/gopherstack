@@ -26822,6 +26822,7 @@
       "CallAnalyticsJob.Media Media `json:\"media\"`",
       "CallAnalyticsJob.MediaFormat string `json:\"mediaFormat,omitempty\"`",
       "CallAnalyticsJob.MediaSampleRateHertz int32 `json:\"mediaSampleRateHertz,omitempty\"`",
+      "CallAnalyticsJob.OutputLocation string `json:\"outputLocation,omitempty\"`",
       "CallAnalyticsJob.Settings *CallAnalyticsSettings `json:\"settings,omitempty\"`",
       "CallAnalyticsJob.StartTime time.Time `json:\"startTime\"`",
       "CallAnalyticsJob.Tags map[string]string `json:\"tags,omitempty\"`",
