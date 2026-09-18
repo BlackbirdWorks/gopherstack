@@ -93,3 +93,67 @@ func TestPublishPackageVersion_ClientRequiresAssetSHA256(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "AssetSHA256")
 }
+
+// TestPublishPackageVersion_UnfinishedStatus proves PublishPackageVersionInput.
+// Unfinished (undeclared before this fix -- see cmd/reqfielddiff) is read and
+// applied: publishing with unfinished=true reports Status=Unfinished, a
+// follow-up publish that omits the flag finalizes it to Published, and once
+// Published a version can never revert to Unfinished (its own doc comment,
+// api_op_PublishPackageVersion.go:15-19).
+func TestPublishPackageVersion_UnfinishedStatus(t *testing.T) {
+	t.Parallel()
+
+	h := codeartifact.NewHandler(codeartifact.NewInMemoryBackend("123456789012", "us-east-1"))
+	client := newTestCodeArtifactClient(t, h)
+
+	_, err := client.CreateDomain(t.Context(), &casdk.CreateDomainInput{Domain: aws.String("unfinished-domain")})
+	require.NoError(t, err)
+
+	_, err = client.CreateRepository(t.Context(), &casdk.CreateRepositoryInput{
+		Domain:     aws.String("unfinished-domain"),
+		Repository: aws.String("unfinished-repo"),
+	})
+	require.NoError(t, err)
+
+	firstOut, err := client.PublishPackageVersion(t.Context(), &casdk.PublishPackageVersionInput{
+		Domain:         aws.String("unfinished-domain"),
+		Repository:     aws.String("unfinished-repo"),
+		Format:         types.PackageFormatGeneric,
+		Package:        aws.String("mylib"),
+		PackageVersion: aws.String("1.0.0"),
+		AssetName:      aws.String("part1.bin"),
+		AssetSHA256:    aws.String(sha256Hex("part1")),
+		AssetContent:   strings.NewReader("part1"),
+		Unfinished:     aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.PackageVersionStatusUnfinished, firstOut.Status)
+
+	secondOut, err := client.PublishPackageVersion(t.Context(), &casdk.PublishPackageVersionInput{
+		Domain:         aws.String("unfinished-domain"),
+		Repository:     aws.String("unfinished-repo"),
+		Format:         types.PackageFormatGeneric,
+		Package:        aws.String("mylib"),
+		PackageVersion: aws.String("1.0.0"),
+		AssetName:      aws.String("part2.bin"),
+		AssetSHA256:    aws.String(sha256Hex("part2")),
+		AssetContent:   strings.NewReader("part2"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.PackageVersionStatusPublished, secondOut.Status)
+
+	thirdOut, err := client.PublishPackageVersion(t.Context(), &casdk.PublishPackageVersionInput{
+		Domain:         aws.String("unfinished-domain"),
+		Repository:     aws.String("unfinished-repo"),
+		Format:         types.PackageFormatGeneric,
+		Package:        aws.String("mylib"),
+		PackageVersion: aws.String("1.0.0"),
+		AssetName:      aws.String("part3.bin"),
+		AssetSHA256:    aws.String(sha256Hex("part3")),
+		AssetContent:   strings.NewReader("part3"),
+		Unfinished:     aws.Bool(true),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.PackageVersionStatusPublished, thirdOut.Status,
+		"a Published version must never revert to Unfinished")
+}

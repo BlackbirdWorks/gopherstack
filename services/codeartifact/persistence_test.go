@@ -118,6 +118,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 			SHA256:  "abcd",
 			Content: []byte("data"),
 		},
+		false,
 	)
 	require.NoError(t, err)
 
