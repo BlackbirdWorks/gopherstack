@@ -444,13 +444,14 @@ func (b *InMemoryBackend) ListFlowAliases(
 	for _, id := range ids {
 		al, _ := b.flowAliases.Get(flowAliasKey(flowID, id))
 		out = append(out, &FlowAliasSummary{
-			AliasID:     al.AliasID,
-			AliasARN:    al.AliasARN,
-			FlowID:      al.FlowID,
-			Name:        al.Name,
-			Description: al.Description,
-			CreatedAt:   al.CreatedAt,
-			UpdatedAt:   al.UpdatedAt,
+			AliasID:              al.AliasID,
+			AliasARN:             al.AliasARN,
+			FlowID:               al.FlowID,
+			Name:                 al.Name,
+			Description:          al.Description,
+			CreatedAt:            al.CreatedAt,
+			UpdatedAt:            al.UpdatedAt,
+			RoutingConfiguration: slices.Clone(al.RoutingConfiguration),
 		})
 	}
 

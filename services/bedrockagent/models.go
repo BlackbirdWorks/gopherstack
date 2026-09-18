@@ -1,6 +1,9 @@
 package bedrockagent
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // defaultIdleSessionTTLSeconds is the default agent idle session TTL (10 minutes),
 // matching the AWS Bedrock Agent default.
@@ -218,12 +221,20 @@ type Agent struct {
 }
 
 // AgentSummary is the condensed agent representation used in list responses.
+//
+// GuardrailConfiguration and LatestAgentVersion were previously absent --
+// types.AgentSummary carries both (deserializers.go), but LatestAgentVersion
+// has no counterpart on the singular types.Agent (GetAgent's "agentVersion"
+// is the version being described, e.g. DRAFT, not the highest numbered
+// version), so it cannot be derived from the Agent struct's own fields.
 type AgentSummary struct {
-	UpdatedAt   time.Time `json:"updatedAt"`
-	AgentID     string    `json:"agentId"`
-	AgentName   string    `json:"agentName"`
-	AgentStatus string    `json:"agentStatus"`
-	Description string    `json:"description,omitempty"`
+	UpdatedAt              time.Time      `json:"updatedAt"`
+	GuardrailConfiguration map[string]any `json:"guardrailConfiguration,omitempty"`
+	AgentID                string         `json:"agentId"`
+	AgentName              string         `json:"agentName"`
+	AgentStatus            string         `json:"agentStatus"`
+	Description            string         `json:"description,omitempty"`
+	LatestAgentVersion     string         `json:"latestAgentVersion,omitempty"`
 }
 
 // AgentVersion holds a snapshot version of an agent.
@@ -234,19 +245,29 @@ type AgentSummary struct {
 // real types.AgentVersion's required "agentResourceRoleArn" despite
 // CreateAgentInput.AgentResourceRoleArn being optional -- previously tagged
 // omitempty, same class as Agent's own fix above (gopherstack-r80d batch 7).
+//
+// Collaboration, Guardrail, Memory and PromptOverrideConfiguration are real
+// types.AgentVersion's "agentCollaboration"/"guardrailConfiguration"/
+// "memoryConfiguration"/"promptOverrideConfiguration" (deserializers.go) --
+// previously absent, so a numbered version never carried forward the
+// parent agent's config it was snapshotted from (newAgentVersionLocked).
 type AgentVersion struct {
-	CreatedAt               time.Time `json:"createdAt"`
-	UpdatedAt               time.Time `json:"updatedAt"`
-	AgentID                 string    `json:"agentId"`
-	AgentARN                string    `json:"agentArn"`
-	AgentName               string    `json:"agentName"`
-	AgentStatus             string    `json:"agentStatus"`
-	AgentVersion            string    `json:"agentVersion"`
-	Description             string    `json:"description,omitempty"`
-	FoundationModel         string    `json:"foundationModel,omitempty"`
-	Instruction             string    `json:"instruction,omitempty"`
-	RoleARN                 string    `json:"agentResourceRoleArn"`
-	IdleSessionTTLInSeconds int       `json:"idleSessionTTLInSeconds"`
+	CreatedAt                   time.Time      `json:"createdAt"`
+	UpdatedAt                   time.Time      `json:"updatedAt"`
+	Guardrail                   map[string]any `json:"guardrailConfiguration,omitempty"`
+	Memory                      map[string]any `json:"memoryConfiguration,omitempty"`
+	PromptOverrideConfiguration map[string]any `json:"promptOverrideConfiguration"`
+	AgentID                     string         `json:"agentId"`
+	AgentARN                    string         `json:"agentArn"`
+	AgentName                   string         `json:"agentName"`
+	AgentStatus                 string         `json:"agentStatus"`
+	AgentVersion                string         `json:"agentVersion"`
+	Collaboration               string         `json:"agentCollaboration"`
+	Description                 string         `json:"description,omitempty"`
+	FoundationModel             string         `json:"foundationModel,omitempty"`
+	Instruction                 string         `json:"instruction,omitempty"`
+	RoleARN                     string         `json:"agentResourceRoleArn"`
+	IdleSessionTTLInSeconds     int            `json:"idleSessionTTLInSeconds"`
 }
 
 // AgentVersionSummary is used in list-agent-versions responses.
@@ -255,12 +276,13 @@ type AgentVersion struct {
 // (deserializers.go) -- previously not a field on this struct at all
 // (gopherstack-r80d batch 7).
 type AgentVersionSummary struct {
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
-	AgentName    string    `json:"agentName"`
-	AgentStatus  string    `json:"agentStatus"`
-	AgentVersion string    `json:"agentVersion"`
-	Description  string    `json:"description,omitempty"`
+	CreatedAt              time.Time      `json:"createdAt"`
+	UpdatedAt              time.Time      `json:"updatedAt"`
+	GuardrailConfiguration map[string]any `json:"guardrailConfiguration,omitempty"`
+	AgentName              string         `json:"agentName"`
+	AgentStatus            string         `json:"agentStatus"`
+	AgentVersion           string         `json:"agentVersion"`
+	Description            string         `json:"description,omitempty"`
 }
 
 // AgentActionGroup is an action group attached to an agent version.
@@ -316,13 +338,18 @@ type AgentAlias struct {
 // CreatedAt and UpdatedAt are real types.AgentAliasSummary's required
 // "createdAt"/"updatedAt" (deserializers.go) -- previously not fields on
 // this struct at all (gopherstack-r80d batch 7).
+//
+// RoutingConfiguration is real types.AgentAliasSummary's required
+// "routingConfiguration" (deserializers.go) -- previously dropped entirely
+// from the list item despite the singular AgentAlias carrying it.
 type AgentAliasSummary struct {
-	CreatedAt        time.Time `json:"createdAt"`
-	UpdatedAt        time.Time `json:"updatedAt"`
-	AgentAliasID     string    `json:"agentAliasId"`
-	AgentAliasName   string    `json:"agentAliasName"`
-	AgentAliasStatus string    `json:"agentAliasStatus"`
-	Description      string    `json:"description,omitempty"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
+	AgentAliasID         string         `json:"agentAliasId"`
+	AgentAliasName       string         `json:"agentAliasName"`
+	AgentAliasStatus     string         `json:"agentAliasStatus"`
+	Description          string         `json:"description,omitempty"`
+	RoutingConfiguration []AliasRouting `json:"routingConfiguration"`
 }
 
 // AgentCollaborator links two agents for multi-agent collaboration.
@@ -401,19 +428,47 @@ type DataSource struct {
 	DataSourceID            string         `json:"dataSourceId"`
 	KnowledgeBaseID         string         `json:"knowledgeBaseId"`
 	Name                    string         `json:"name"`
-	DataSourceStatus        string         `json:"dataSourceStatus"`
-	Description             string         `json:"description,omitempty"`
-	DataDeletionPolicy      string         `json:"dataDeletionPolicy,omitempty"`
+	// DataSourceStatus's wire key is "status", not "dataSourceStatus" --
+	// confirmed against awsRestjson1_deserializeDocumentDataSource
+	// (deserializers.go); the Go field name is DataSourceStatus, but the
+	// case switch it reads only matches "status".
+	DataSourceStatus   string `json:"status"`
+	Description        string `json:"description,omitempty"`
+	DataDeletionPolicy string `json:"dataDeletionPolicy,omitempty"`
+}
+
+// UnmarshalJSON reads the legacy "dataSourceStatus" key (the wire tag before
+// gopherstack-21my's retag to the real "status") when "status" is absent, so
+// a persisted Version-3 snapshot's DataSource rows keep their Status on
+// restore instead of silently decoding empty.
+func (d *DataSource) UnmarshalJSON(data []byte) error {
+	type dataSourceAlias DataSource
+
+	aux := struct {
+		LegacyStatus *string `json:"dataSourceStatus"`
+		*dataSourceAlias
+	}{dataSourceAlias: (*dataSourceAlias)(d)}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if d.DataSourceStatus == "" && aux.LegacyStatus != nil {
+		d.DataSourceStatus = *aux.LegacyStatus
+	}
+
+	return nil
 }
 
 // DataSourceSummary is used in list responses.
 type DataSourceSummary struct {
-	UpdatedAt        time.Time `json:"updatedAt"`
-	DataSourceID     string    `json:"dataSourceId"`
-	KnowledgeBaseID  string    `json:"knowledgeBaseId"`
-	Name             string    `json:"name"`
-	DataSourceStatus string    `json:"dataSourceStatus"`
-	Description      string    `json:"description,omitempty"`
+	UpdatedAt       time.Time `json:"updatedAt"`
+	DataSourceID    string    `json:"dataSourceId"`
+	KnowledgeBaseID string    `json:"knowledgeBaseId"`
+	Name            string    `json:"name"`
+	// same "status" wire key as DataSource, see its comment above.
+	DataSourceStatus string `json:"status"`
+	Description      string `json:"description,omitempty"`
 }
 
 // IngestionJob is a knowledge base data ingestion job.
@@ -525,14 +580,19 @@ type FlowAlias struct {
 }
 
 // FlowAliasSummary is used in list responses.
+//
+// RoutingConfiguration is real types.FlowAliasSummary's required
+// "routingConfiguration" (deserializers.go) -- previously dropped entirely
+// from the list item despite the singular FlowAlias carrying it.
 type FlowAliasSummary struct {
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
-	AliasID     string    `json:"id"`
-	AliasARN    string    `json:"arn"`
-	FlowID      string    `json:"flowId"`
-	Name        string    `json:"name"`
-	Description string    `json:"description,omitempty"`
+	CreatedAt            time.Time          `json:"createdAt"`
+	UpdatedAt            time.Time          `json:"updatedAt"`
+	AliasID              string             `json:"id"`
+	AliasARN             string             `json:"arn"`
+	FlowID               string             `json:"flowId"`
+	Name                 string             `json:"name"`
+	Description          string             `json:"description,omitempty"`
+	RoutingConfiguration []FlowAliasRouting `json:"routingConfiguration"`
 }
 
 // FlowValidationError is a flow definition validation error.
@@ -588,7 +648,10 @@ type PromptVersion struct {
 // KBDocumentDetail is the status of a knowledge base document operation.
 // Real AWS (types.KnowledgeBaseDocumentDetail) nests the document identity
 // under "identifier" -- there is no flat "documentId" member on the wire.
+// StatusReason is left unmodeled: it describes why a document is FAILED,
+// a status this backend's ingest path never produces (always INDEXED).
 type KBDocumentDetail struct {
+	UpdatedAt       *time.Time           `json:"updatedAt,omitempty"`
 	Identifier      KBDocumentIdentifier `json:"identifier"`
 	KnowledgeBaseID string               `json:"knowledgeBaseId"`
 	DataSourceID    string               `json:"dataSourceId"`

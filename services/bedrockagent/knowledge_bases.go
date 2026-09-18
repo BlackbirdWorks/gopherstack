@@ -198,6 +198,7 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 	}
 
 	out := make([]KBDocumentDetail, 0, len(docs))
+	now := time.Now().UTC()
 
 	for _, doc := range docs {
 		if _, err := kbDocumentIdentifierKey(doc.Identifier); err != nil {
@@ -209,6 +210,7 @@ func (b *InMemoryBackend) IngestKnowledgeBaseDocuments(
 			KnowledgeBaseID: kbID,
 			DataSourceID:    dsID,
 			Status:          docStatusIndexed,
+			UpdatedAt:       &now,
 		}
 		b.kbDocuments.Put(detail)
 		out = append(out, *detail)

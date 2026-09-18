@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"time"
 )
 
@@ -233,12 +234,20 @@ func (b *InMemoryBackend) ListAgents(
 
 	for _, id := range ids {
 		a, _ := b.agents.Get(id)
+
+		var latestVersion string
+		if n := b.agentVersionCtrs[id]; n > 0 {
+			latestVersion = strconv.Itoa(n)
+		}
+
 		out = append(out, &AgentSummary{
-			AgentID:     a.AgentID,
-			AgentName:   a.AgentName,
-			AgentStatus: a.AgentStatus,
-			Description: a.Description,
-			UpdatedAt:   a.UpdatedAt,
+			AgentID:                a.AgentID,
+			AgentName:              a.AgentName,
+			AgentStatus:            a.AgentStatus,
+			Description:            a.Description,
+			UpdatedAt:              a.UpdatedAt,
+			GuardrailConfiguration: a.Guardrail,
+			LatestAgentVersion:     latestVersion,
 		})
 	}
 

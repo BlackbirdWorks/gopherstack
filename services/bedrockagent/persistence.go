@@ -37,6 +37,11 @@ import (
 // "updatedAt" to the real deserializer's "lastUpdatedAt". A Version-2
 // snapshot's "updatedAt" data is unrecognized by the new tag and would
 // silently decode as the zero time instead of the real value.
+//
+// NOT bumped for gopherstack-21my's DataSource.DataSourceStatus retag
+// ("dataSourceStatus" -> "status"): the legacy key is aliased in
+// DataSource.UnmarshalJSON instead, so a Version-3 snapshot stays readable
+// without discarding every user's agents/knowledge bases on upgrade.
 const bedrockagentSnapshotVersion = 3
 
 // backendSnapshot is the top-level on-disk shape for the BedrockAgent

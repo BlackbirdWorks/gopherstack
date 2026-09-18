@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.4   # version audited against
-last_audit_commit: d79e0612c
+last_audit_commit: e33627d17
 last_audit_date: 2026-09-18
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
                       # bug that caused the prior A->B downgrade is fixed and proven.
@@ -81,7 +81,7 @@ ops:
     alias check. Proven by TestDeleteAgent_BlockedWhileAliasExists and
     TestDeleteAgent_ConflictIsTypedOverSDKClient (typed client decodes a real
     types.ConflictException)."}
-  ListAgents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): maxResults/nextToken are body-bound per the real SDK (ListAgentsInput's own httpBindings serializer has no query bindings at all, POST /agents/), but the handler read them from the URL query string via the shared pageParams helper -- a real client's pagination was always ignored. Same body-vs-query mismatch fixed across ListAgentVersions/ActionGroups/Aliases/Collaborators/KnowledgeBases/ListKnowledgeBases/ListDataSources/ListKnowledgeBaseDocuments below (ListFlows/ListFlowAliases/ListFlowVersions/ListPrompts were already correct: those really are query-bound, confirmed per-op)."}
+  ListAgents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): maxResults/nextToken are body-bound per the real SDK (ListAgentsInput's own httpBindings serializer has no query bindings at all, POST /agents/), but the handler read them from the URL query string via the shared pageParams helper -- a real client's pagination was always ignored. Same body-vs-query mismatch fixed across ListAgentVersions/ActionGroups/Aliases/Collaborators/KnowledgeBases/ListKnowledgeBases/ListDataSources/ListKnowledgeBaseDocuments below (ListFlows/ListFlowAliases/ListFlowVersions/ListPrompts were already correct: those really are query-bound, confirmed per-op). FIXED (gopherstack-21my, 2026-09-18, per-item sweep): AgentSummary dropped GuardrailConfiguration and LatestAgentVersion entirely (both real types.AgentSummary members, deserializers.go) -- added, the latter derived from agentVersionCtrs (the highest numbered version created, matching real AWS semantics). Proven by TestListSummaryFields/agent_summary_carries_guardrail_and_latest_version."}
   PrepareAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was unreachable: POST to the collection path (real wire method for
@@ -90,7 +90,12 @@ ops:
     batch 7): types.AgentVersionSummary requires 'createdAt' (deserializers.go)
     -- AgentVersionSummary had no field for it at all. Added, populated from
     the persisted AgentVersion record. Proven via
-    Test_SDKRoundTrip_AgentVersion_IdleSessionTTL (wire_output_required_r80d_test.go)."}
+    Test_SDKRoundTrip_AgentVersion_IdleSessionTTL (wire_output_required_r80d_test.go).
+    FIXED (gopherstack-21my, 2026-09-18, per-item sweep): AgentVersionSummary
+    also dropped GuardrailConfiguration (real types.AgentVersionSummary
+    member). Snapshotted from the parent Agent's Guardrail at
+    newAgentVersionLocked time, same as the sibling fields below. Proven by
+    TestListSummaryFields/agent_version_summary_carries_guardrail."}
   GetAgentVersion: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): types.AgentVersion
     requires 'idleSessionTTLInSeconds' and 'agentResourceRoleArn'
@@ -104,7 +109,14 @@ ops:
     both now threaded through at snapshot time, no fabrication. Proven via
     Test_SDKRoundTrip_AgentVersion_IdleSessionTTL
     (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
-    restored, md5sum-verified byte-identical."}
+    restored, md5sum-verified byte-identical.
+    FIXED (gopherstack-21my, 2026-09-18, per-item sweep): AgentVersion also
+    had no fields at all for Collaboration/GuardrailConfiguration/
+    MemoryConfiguration/PromptOverrideConfiguration (all real
+    types.AgentVersion members) despite the parent Agent carrying them --
+    newAgentVersionLocked now snapshots all four from the live Agent at
+    version-creation time, matching real AWS's numbered-version-is-a-
+    snapshot semantics."}
   DeleteAgentVersion: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "(this sweep, gopherstack-rvyd) newly reachable ghost-row gap:
     once numbered versions carry their own action-group/collaborator/KB-assoc
@@ -179,7 +191,12 @@ ops:
     (wire_output_required_r80d_test.go), hand-reverted/confirmed-failing/
     restored, md5sum-verified byte-identical. SEPARATELY (constraint sweep):
     maxResults/nextToken query-vs-body binding bug fixed, see ListAgents'
-    note."}
+    note. FIXED (gopherstack-21my, 2026-09-18, per-item sweep):
+    AgentAliasSummary also dropped RoutingConfiguration, a REQUIRED real
+    types.AgentAliasSummary member, despite the singular AgentAlias always
+    carrying it. Added, populated from the stored alias. AliasInvocationState
+    (optional) remains unmodeled -- see items_still_open. Proven by
+    TestListSummaryFields/agent_alias_summary_carries_routing_configuration."}
   AssociateAgentCollaborator: {wire: fixed, errors: fixed, state: ok, persist: ok,
     note: "same DRAFT-only {agentVersion} path constraint as
     CreateAgentActionGroup, confirmed via the API reference — fixed.
@@ -243,7 +260,19 @@ ops:
     maxResults/nextToken query-vs-body binding bug fixed, see ListAgents'
     note."}
   CreateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetDataSource: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (gopherstack-21my, 2026-09-18, per-item sweep):
+    DataSource.Status's wire key was the invented 'dataSourceStatus' --
+    confirmed against awsRestjson1_deserializeDocumentDataSource
+    (deserializers.go), which only reads 'status'; a real client always
+    decoded an empty Status. Retagged to 'status'; bedrockagentSnapshotVersion
+    stayed at 3 (a bump would discard every persisted agent/KB on upgrade
+    just for one string field) -- DataSource.UnmarshalJSON instead aliases
+    the legacy 'dataSourceStatus' key when 'status' is absent, so a
+    Version-3 snapshot keeps decoding. Proven by
+    TestListSummaryFields/data_source_status_wire_key (wire fix) and
+    TestInMemoryBackend_RestoreV3DataSourceLegacyStatusKey (legacy-key
+    restore), both hand-reverted/confirmed-failing/restored."}
   UpdateDataSource: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDataSource: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "cascade-delete gap: did not clean up ingestionJobs or kbDocuments
@@ -251,7 +280,8 @@ ops:
   ListDataSources: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was misrouted: POST (real wire method) hit Create instead of List — fixed.
     SEPARATELY (constraint sweep): maxResults/nextToken query-vs-body
-    binding bug fixed, see ListAgents' note."}
+    binding bug fixed, see ListAgents' note. Shares DataSourceSummary.Status's
+    wire-key fix with GetDataSource above (same class, see its note)."}
   StartIngestionJob: {wire: fixed, errors: ok, state: fixed, persist: ok,
     note: "IngestionJob/IngestionJobSummary never modeled the real
     'statistics' field (numberOfDocumentsScanned/NewDocumentsIndexed/
@@ -353,7 +383,14 @@ ops:
   DeleteFlowAlias: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "now also deletes the alias's b.tags[AliasArn] entry — see Notes:
     cascade-delete."}
-  ListFlowAliases: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListFlowAliases: {wire: fixed, errors: ok, state: ok, persist: ok,
+    note: "FIXED (gopherstack-21my, 2026-09-18, per-item sweep):
+    FlowAliasSummary dropped RoutingConfiguration, a REQUIRED real
+    types.FlowAliasSummary member, despite the singular FlowAlias always
+    carrying it. Added, populated from the stored alias.
+    ConcurrencyConfiguration (optional) remains unmodeled -- see
+    items_still_open. Proven by
+    TestListSummaryFields/flow_alias_summary_carries_routing_configuration."}
   CreatePrompt: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "invented 'tags' wire field removed — see Notes:
     invented-tags-field. b.tags[PromptArn] seed was already correct."}
@@ -441,7 +478,13 @@ ops:
     ValidationException (declared in awsRestjson1_deserializeOpErrorGetKnowledgeBaseDocuments).
     See TestHandlerGetKBDocuments_RealWireIdentifier and
     TestHandlerKBDocuments_MissingIdentifierIsValidationException
-    (handler_knowledge_bases_test.go)."}
+    (handler_knowledge_bases_test.go). FIXED (gopherstack-21my, 2026-09-18,
+    per-item sweep): KBDocumentDetail never carried UpdatedAt (real optional
+    types.KnowledgeBaseDocumentDetail member) -- IngestKnowledgeBaseDocuments
+    now stamps it. StatusReason remains unmodeled: it describes a FAILED
+    document and this backend's ingest path always produces INDEXED (see
+    items_still_open). Proven by
+    TestListSummaryFields/knowledge_base_document_detail_carries_updated_at."}
   DeleteKnowledgeBaseDocuments: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED (gopherstack-wzwn, 2026-08-13): same bug and fix as
     GetKnowledgeBaseDocuments above, worse impact -- Delete reported success
@@ -596,6 +639,23 @@ items_still_open:
     rejects with ValidationException. Fixed by adding the same
     agentVersion != defaultAgentVersion check used by Create/Associate to
     all six methods. See Notes: version-snapshot-propagation."
+  - "gopherstack-21my (2026-09-18, per-item sweep), unmodeled optional
+    response members -- confirmed as honest gaps, not fabricated:
+    FailureReasons ([]string, real types.Agent/AgentVersion/AgentAlias/
+    DataSource/IngestionJob member describing a FAILED-ish state) is never
+    populated because none of those resources' state machines in this
+    backend ever produce a failure status (Agent: NOT_PREPARED/PREPARING/
+    PREPARED only; DataSource/IngestionJob/AgentAlias: no FAILED path
+    either). StatusReason (KnowledgeBaseDocumentDetail) is the same class,
+    see GetKnowledgeBaseDocuments' note. AliasInvocationState
+    (AgentAlias/AgentAliasSummary) and ConcurrencyConfiguration
+    (FlowAlias/FlowAliasSummary) are real optional members with no
+    backing feature in this backend (accept/reject invocation control,
+    per-alias concurrency limits) -- would require a new subsystem, not a
+    wire-shape fix. ParentActionGroupSignature/
+    ParentActionGroupSignatureParams (AgentActionGroup) are exclusive to
+    AWS's built-in action groups (AMAZON.CodeInterpreter/UserInput/
+    UserConfirmation), a feature this backend does not model at all."
 deferred:
   - "KBDocument/DataSource nested configuration blobs (dataSourceConfiguration,
     vectorIngestionConfiguration, knowledgeBaseConfiguration,
@@ -673,6 +733,35 @@ leaks: {status: clean, note: "InMemoryBackend has no background goroutines,
 ---
 
 ## Notes
+
+**2026-09-18 (gopherstack-21my): per-item response field sweep.** The
+wrapper-key sweep only checked top-level List/Get response keys; this pass
+diffed every List/Get/Create-echo/Update-echo item's OWN fields against the
+pinned SDK (`cmd/structfielddiff`) across all 71 ops. Bugs fixed: dropped
+fields (AgentSummary missing GuardrailConfiguration/LatestAgentVersion;
+AgentVersionSummary and AgentVersion missing GuardrailConfiguration, plus
+AgentVersion missing Collaboration/MemoryConfiguration/
+PromptOverrideConfiguration entirely -- version snapshots now carry all
+four from the parent Agent; KBDocumentDetail missing UpdatedAt), dropped
+REQUIRED fields (AgentAliasSummary and FlowAliasSummary both silently
+omitted their real-required RoutingConfiguration despite the singular
+Get shape carrying it), and a wrong wire key (DataSource/DataSourceSummary
+tagged `dataSourceStatus`, real deserializer only reads `status` --
+retagged without bumping `bedrockagentSnapshotVersion`: DataSource is
+persisted, so a version bump would discard every user's snapshot on
+upgrade just to rescue one field; DataSource.UnmarshalJSON instead aliases
+the legacy key for Version-3 snapshots).
+`cmd/overwidecandidates` flagged all 13 bedrockagent List ops by name
+pattern; each was checked against its real Summary type by hand --
+ListAgentCollaborators reusing the full AgentCollaborator struct is a
+false positive (its fields are identical to AgentCollaboratorSummary's).
+Unmodeled optional members recorded as gaps rather than fabricated: see
+items_still_open. New tests: TestListSummaryFields
+(list_summary_fields_test.go), typed-client round trips for every fix
+above; TestInMemoryBackend_RestoreV3DataSourceLegacyStatusKey
+(persistence_test.go), a hand-written Version-3 snapshot fragment holding
+the legacy `dataSourceStatus` key, proving it still restores correctly.
+Each hand-confirmed failing pre-fix.
 
 **2026-08-21 (gopherstack-r80d batch 7): required-response-member sweep.**
 Read all 66 ops with >=1 required output field end to end (154 required

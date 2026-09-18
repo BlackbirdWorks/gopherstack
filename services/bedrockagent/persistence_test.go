@@ -419,8 +419,8 @@ func TestInMemoryBackend_RestoreInvalidData(t *testing.T) {
 // TestInMemoryBackend_RestoreV2SnapshotDiscarded proves gopherstack-hjdd's
 // fix: a v2 snapshot holding AgentCollaborator.UpdatedAt under the wrong key
 // "updatedAt" (retagged to the real "lastUpdatedAt" by 732c2bafa) must be
-// discarded wholesale now that bedrockagentSnapshotVersion is 3, not silently
-// decoded with UpdatedAt zero-valued.
+// discarded wholesale now that bedrockagentSnapshotVersion has moved past 2,
+// not silently decoded with UpdatedAt zero-valued.
 func TestInMemoryBackend_RestoreV2SnapshotDiscarded(t *testing.T) {
 	t.Parallel()
 
@@ -448,6 +448,41 @@ func TestInMemoryBackend_RestoreV2SnapshotDiscarded(t *testing.T) {
 	_, err := b.GetAgentCollaborator(ctx, "agent-1", "DRAFT", "collab-1")
 	require.ErrorIs(t, err, bedrockagent.ErrNotFound,
 		"a v2-shaped AgentCollaborator must never surface with UpdatedAt silently zero-valued")
+}
+
+// TestInMemoryBackend_RestoreV3DataSourceLegacyStatusKey proves
+// gopherstack-21my's DataSource.Status wire-key fix ("dataSourceStatus" ->
+// "status") did NOT bump bedrockagentSnapshotVersion: a genuine Version-3
+// snapshot, holding a DataSource row under the old "dataSourceStatus" key,
+// must still restore with Status populated (via DataSource.UnmarshalJSON's
+// legacy-key fallback) rather than being discarded or silently zero-valued.
+func TestInMemoryBackend_RestoreV3DataSourceLegacyStatusKey(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	b := bedrockagent.NewTestBackend("us-east-1", "000000000000")
+
+	v3Snapshot := `{
+		"version": 3,
+		"accountID": "000000000000",
+		"defaultRegion": "us-east-1",
+		"tables": {
+			"dataSources": [{
+				"dataSourceId": "ds-1",
+				"knowledgeBaseId": "kb-1",
+				"name": "legacy-ds",
+				"dataSourceStatus": "AVAILABLE",
+				"createdAt": "2024-01-01T00:00:00Z",
+				"updatedAt": "2024-06-01T00:00:00Z"
+			}]
+		}
+	}`
+
+	require.NoError(t, b.Restore(ctx, []byte(v3Snapshot)))
+
+	ds, err := b.GetDataSource(ctx, "kb-1", "ds-1")
+	require.NoError(t, err)
+	assert.Equal(t, "AVAILABLE", ds.DataSourceStatus)
 }
 
 // TestHandler_SnapshotRestoreDelegate verifies Handler.Snapshot/Restore
