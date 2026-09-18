@@ -142,7 +142,34 @@ func (b *InMemoryBackend) reconcileLocked(now time.Time) {
 		}
 	}
 
+	b.reconcileSessionsLocked(now)
+
 	b.pruneOrphanJobRunTimersLocked()
+}
+
+// reconcileSessionsLocked applies session lifecycle transitions:
+// PROVISIONING→READY, STOPPING→STOPPED. Split out of reconcileLocked to keep
+// its cognitive complexity down. Must be called with b.mu held.
+func (b *InMemoryBackend) reconcileSessionsLocked(now time.Time) {
+	for id, readyAt := range b.sessionReadyAt {
+		if now.After(readyAt) {
+			if s, ok := b.sessions.Get(id); ok && s.Status == "PROVISIONING" {
+				s.Status = stateReady
+			}
+
+			delete(b.sessionReadyAt, id)
+		}
+	}
+
+	for id, stopAt := range b.sessionStopAt {
+		if now.After(stopAt) {
+			if s, ok := b.sessions.Get(id); ok && s.Status == stateStopping {
+				s.Status = stateStopped
+			}
+
+			delete(b.sessionStopAt, id)
+		}
+	}
 }
 
 // pruneOrphanJobRunTimersLocked removes job-run timing entries whose job or run no
@@ -207,7 +234,9 @@ func (b *InMemoryBackend) pendingDueLocked(now time.Time) bool {
 		nestedTimerDue(b.jobRunTimeoutAt, now) ||
 		nestedTimerDue(b.jobRunStopAt, now) ||
 		flatTimerDue(b.crawlerReadyAt, now) ||
-		flatTimerDue(b.integrationReadyAt, now)
+		flatTimerDue(b.integrationReadyAt, now) ||
+		flatTimerDue(b.sessionReadyAt, now) ||
+		flatTimerDue(b.sessionStopAt, now)
 }
 
 // nestedTimerDue reports whether any timer in a jobName→runID→time map is due at now.

@@ -535,9 +535,7 @@ func TestHandlerDataQuality_StartDataQualityRulesetEvaluationRun(t *testing.T) {
 				"Ruleset": "Rules = [ RowCount > 100 ]",
 			})
 
-			rec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-				"RulesetNames": tt.rulesetNames,
-			})
+			rec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields(tt.rulesetNames))
 
 			assert.Equal(t, tt.wantCode, rec.Code)
 			if !tt.wantErr {
@@ -582,9 +580,9 @@ func TestHandlerDataQuality_GetDataQualityRulesetEvaluationRun(t *testing.T) {
 
 			runID := tt.runID
 			if runID == "" {
-				startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-					"RulesetNames": []string{"my-ruleset"},
-				})
+				startRec := doGlueRequest(
+					t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"my-ruleset"}),
+				)
 				require.Equal(t, http.StatusOK, startRec.Code)
 				var out map[string]string
 				require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &out))
@@ -615,9 +613,9 @@ func TestHandlerDataQuality_BatchGetDataQualityRulesetEvaluationRun(t *testing.T
 		"Ruleset": "Rules = [ RowCount > 100 ]",
 	})
 
-	startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-		"RulesetNames": []string{"my-ruleset"},
-	})
+	startRec := doGlueRequest(
+		t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"my-ruleset"}),
+	)
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]string
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))
@@ -668,9 +666,9 @@ func TestHandlerDataQuality_CancelDataQualityRulesetEvaluationRun(t *testing.T) 
 				"Ruleset": "Rules = [ RowCount > 100 ]",
 			})
 
-			startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-				"RulesetNames": []string{"my-ruleset"},
-			})
+			startRec := doGlueRequest(
+				t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"my-ruleset"}),
+			)
 			require.Equal(t, http.StatusOK, startRec.Code)
 			var startOut map[string]string
 			require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))

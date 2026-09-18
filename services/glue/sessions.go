@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// sessionTransitionDelay is how long a session stays in PROVISIONING/STOPPING
+// before the reconciler advances it, on the same scale as crawlerTransitionDelay.
+const sessionTransitionDelay = 200 * time.Millisecond
+
 func cloneSession(s *Session) *Session {
 	cp := *s
 	if s.DefaultArguments != nil {
@@ -28,6 +32,8 @@ func (b *InMemoryBackend) CreateSession(
 	cmd SessionCommand,
 	opts Session,
 ) (*Session, error) {
+	now := time.Now()
+
 	b.mu.Lock("CreateSession")
 	defer b.mu.Unlock()
 
@@ -39,7 +45,7 @@ func (b *InMemoryBackend) CreateSession(
 		Role:             role,
 		Command:          cmd,
 		Status:           "PROVISIONING",
-		CreatedOn:        float64(time.Now().Unix()),
+		CreatedOn:        float64(now.Unix()),
 		Timeout:          opts.Timeout,
 		IdleTimeout:      opts.IdleTimeout,
 		MaxCapacity:      opts.MaxCapacity,
@@ -48,11 +54,14 @@ func (b *InMemoryBackend) CreateSession(
 	}
 	b.sessions.Put(s)
 	b.sessionStatements[id] = nil
+	b.sessionReadyAt[id] = now.Add(sessionTransitionDelay)
 
 	return cloneSession(s), nil
 }
 
 func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetSession")
 	defer b.mu.RUnlock()
 
@@ -65,6 +74,8 @@ func (b *InMemoryBackend) GetSession(id string) (*Session, error) {
 }
 
 func (b *InMemoryBackend) ListSessions() []*Session {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("ListSessions")
 	defer b.mu.RUnlock()
 
@@ -82,6 +93,8 @@ func (b *InMemoryBackend) ListSessions() []*Session {
 // has no EntityNotFoundException case, unlike GetSession's, so an unknown Id
 // surfaces as InvalidInputException.
 func (b *InMemoryBackend) DeleteSession(id string) error {
+	b.advanceStates(time.Now())
+
 	b.mu.Lock("DeleteSession")
 	defer b.mu.Unlock()
 
@@ -90,6 +103,8 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 	}
 	b.sessions.Delete(id)
 	delete(b.sessionStatements, id)
+	delete(b.sessionReadyAt, id)
+	delete(b.sessionStopAt, id)
 
 	return nil
 }
@@ -97,6 +112,10 @@ func (b *InMemoryBackend) DeleteSession(id string) error {
 // StopSession stops a session. Its error switch also has no
 // EntityNotFoundException case.
 func (b *InMemoryBackend) StopSession(id string) error {
+	now := time.Now()
+
+	b.advanceStates(now)
+
 	b.mu.Lock("StopSession")
 	defer b.mu.Unlock()
 
@@ -105,6 +124,8 @@ func (b *InMemoryBackend) StopSession(id string) error {
 		return fmt.Errorf("session %q not found: %w", id, ErrValidation)
 	}
 	s.Status = stateStopping
+	delete(b.sessionReadyAt, id)
+	b.sessionStopAt[id] = now.Add(sessionTransitionDelay)
 
 	return nil
 }

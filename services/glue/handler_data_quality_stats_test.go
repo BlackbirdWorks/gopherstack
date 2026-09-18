@@ -59,10 +59,9 @@ func TestDataQuality_EvaluationRun(t *testing.T) {
 		{
 			name: "start-evaluation-run",
 			fn: func() (string, int) {
-				rec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-					"RulesetNames": []string{"eval-rs"},
-					"DataSource":   map[string]any{},
-				})
+				rec := doGlueRequest(
+					t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"eval-rs"}),
+				)
 
 				return rec.Body.String(), rec.Code
 			},
@@ -100,10 +99,9 @@ func TestDataQuality_EvaluationRun_GetAndCancel(t *testing.T) {
 		"Ruleset": "Rules = [ RowCount > 0 ]",
 	})
 
-	startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-		"RulesetNames": []string{"rs-eval"},
-		"DataSource":   map[string]any{},
-	})
+	startRec := doGlueRequest(
+		t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"rs-eval"}),
+	)
 	require.Equal(t, http.StatusOK, startRec.Code)
 	var startOut map[string]any
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))

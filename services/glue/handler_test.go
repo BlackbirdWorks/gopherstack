@@ -29,6 +29,17 @@ func newTestHandler(t *testing.T) *glue.Handler {
 	return glue.NewHandler(backend)
 }
 
+// dqEvalRunRequiredFields returns the Role/DataSource StartDataQualityRulesetEvaluationRun
+// now requires (both real, required StartDataQualityRulesetEvaluationRunInput members),
+// merged with rulesetNames into one request body by callers.
+func dqEvalRunRequiredFields(rulesetNames []string) map[string]any {
+	return map[string]any{
+		"RulesetNames": rulesetNames,
+		"Role":         "arn:aws:iam::" + testAccountID + ":role/glue",
+		"DataSource":   map[string]any{"GlueTable": map[string]any{"DatabaseName": "db", "TableName": "tbl"}},
+	}
+}
+
 func doGlueRequest(t *testing.T, h *glue.Handler, action string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 

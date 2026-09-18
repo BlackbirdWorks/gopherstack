@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
@@ -24,6 +26,17 @@ const integrationTransitionDelay = 150 * time.Millisecond
 // blueprintARN, connectionARN, etc.).
 func (b *InMemoryBackend) integrationARN(name string) string {
 	return arn.Build("glue", b.region, b.accountID, "integration/"+name)
+}
+
+// integrationResourcePropertyARN mints the ARN CreateIntegrationResourceProperty
+// returns for the property itself (distinct from ResourceArn, the connection/
+// database it decorates). Real Glue's format has no region or account segment
+// (aws-sdk-go-v2/service/glue@v1.157.0 api_op_CreateIntegrationResourceProperty.go:
+// "arn:aws:glue:::integrationresourceproperty/*").
+func (b *InMemoryBackend) integrationResourcePropertyARN() string {
+	return fmt.Sprintf(
+		"arn:%s:glue:::integrationresourceproperty/%s", arn.PartitionForRegion(b.region), uuid.NewString(),
+	)
 }
 
 // resolveIntegrationName resolves an IntegrationIdentifier to the
@@ -171,6 +184,7 @@ func (b *InMemoryBackend) CreateIntegrationResourceProperty(
 	prop := &IntegrationResourceProperty{
 		CreatedAt:                  time.Now(),
 		ResourceArn:                resourceArn,
+		ResourcePropertyArn:        b.integrationResourcePropertyARN(),
 		SourceProcessingProperties: sourceProps,
 		TargetProcessingProperties: targetProps,
 	}
