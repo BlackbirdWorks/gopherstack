@@ -1,10 +1,8 @@
 ---
 service: appconfig
 sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
-last_audit_commit: f86ef17b                            # this pass (2026-08-13, gopherstack-xs7l) fixed the
-                                                        # seven List-op Get-field leaks below; commit hash not
-                                                        # yet known at edit time
-last_audit_date: 2026-09-08   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
+last_audit_commit: 366fb4907  # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (0 code changes -- all 4 findings confirmed already handled, see Notes)
+last_audit_date: 2026-09-18   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
                                # (bd gopherstack-kpvs) below. That pass concluded DeletionProtectionCheck
                                # enforcement was structurally blocked because "no cross-service backend-lookup
                                # pattern exists anywhere in this repo" -- that premise was wrong. The lazy
@@ -429,3 +427,42 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 --new-from-rev=HEAD` (0 issues). `cmd/paritylint` stays at 0
 missing-items-still-open FAIL. No persisted-struct fields changed; no
 version bump.
+
+## 2026-09-18: reqfielddiff tier-1 sweep -- all 4 findings confirmed already handled (0 code changes)
+
+`reqfielddiff` flagged 4 tier-1 fields: `DeleteConfigurationProfile.DeletionProtectionCheck`,
+`DeleteEnvironment.DeletionProtectionCheck`, `DeleteExtension.VersionNumber`,
+`ListDeployments.NextToken` (appconfig@v1.48.4). This restjson1 service
+binds all 4 real fields off a header or the query string rather than a JSON
+body field, which is exactly the tool-blind-spot this campaign flagged in
+advance -- verified each at HEAD before touching any code, per the
+"documented default"/false-positive protocol.
+
+- `DeleteConfigurationProfile.DeletionProtectionCheck` /
+  `DeleteEnvironment.DeletionProtectionCheck`: both real members bind to the
+  `X-Amzn-Deletion-Protection-Check` request header (serializers.go:1121,
+  :1268 -- see `deletionProtectionCheckHeader`, `handler.go:1029`). Already
+  read and enum-validated by `rejectInvalidDeletionProtectionCheck`
+  (`handler.go:1051`), called from `handleDeleteConfigurationProfile`
+  (`handler_configuration_profiles.go:148`) and `handleDeleteEnvironment`
+  (`handler_environments.go:117`). No code change.
+- `DeleteExtension.VersionNumber`: binds to the `version` query param
+  (serializers.go:1436-1438). Already read via
+  `parseAppConfigQueryVersion(c, "version")` (`handler_extensions.go:123`)
+  and applied by `Backend.DeleteExtension` (`extensions.go:229`, deletes a
+  specific version when given, else the highest). No code change.
+- `ListDeployments.NextToken`: binds to the `next_token` query param
+  (serializers.go's `awsRestjson1_serializeOpHttpBindingsListDeploymentsInput`).
+  Already read via the shared `appConfigPaginationParams` helper
+  (`handler.go:1093-1106`, reads both `next_token`/`max_results`) and applied
+  by `handleListDeployments` (`handler_deployments.go:75-101`). No code
+  change.
+
+No code, test, or PARITY.md ops-row changes needed beyond this Notes entry;
+`items_still_open` already had no conflicting entries for any of the 4.
+Gates: `go build ./...`, `go vet ./services/appconfig/`, `go test -race
+-count=1 ./services/appconfig/` (all pass, unchanged), `golangci-lint run
+--new-from-rev=HEAD ./services/appconfig/` (0 issues, no diff to lint).
+tier-1 (`cmd/reqfielddiff -dir appconfig`): 4 -> 4 (all 4 confirmed
+already-handled false positives; the tool cannot see header/query-string
+reads for this protocol style).
