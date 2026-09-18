@@ -272,9 +272,9 @@ type UpdateFunctionConfigurationInput struct {
 	EphemeralStorage  *EphemeralStorageConfig `json:"EphemeralStorage,omitempty"`
 	SnapStart         *SnapStart              `json:"SnapStart,omitempty"`
 	Runtime           string                  `json:"Runtime,omitempty"`
-	Description       string                  `json:"Description,omitempty"`
-	Handler           string                  `json:"Handler,omitempty"`
-	Role              string                  `json:"Role,omitempty"`
+	Description       *string                 `json:"Description,omitempty"`
+	Handler           *string                 `json:"Handler,omitempty"`
+	Role              *string                 `json:"Role,omitempty"`
 	RevisionID        string                  `json:"RevisionId,omitempty"`
 	FileSystemConfigs []*FileSystemConfig     `json:"FileSystemConfigs,omitempty"`
 	Layers            []string                `json:"Layers,omitempty"`
@@ -429,8 +429,8 @@ type CreateAliasInput struct {
 // UpdateAliasInput holds the request body for UpdateAlias.
 type UpdateAliasInput struct {
 	RoutingConfig   *AliasRoutingConfig `json:"RoutingConfig,omitempty"`
-	Description     string              `json:"Description,omitempty"`
-	FunctionVersion string              `json:"FunctionVersion,omitempty"`
+	Description     *string             `json:"Description,omitempty"`
+	FunctionVersion *string             `json:"FunctionVersion,omitempty"`
 	// RevisionID, when set, must match the alias's current RevisionId or the
 	// update is rejected with PreconditionFailedException (optimistic concurrency).
 	RevisionID string `json:"RevisionId,omitempty"`
@@ -708,7 +708,7 @@ type CreateCodeSigningConfigOutput struct {
 type UpdateCodeSigningConfigInput struct {
 	AllowedPublishers   *AllowedPublishers   `json:"AllowedPublishers,omitempty"`
 	CodeSigningPolicies *CodeSigningPolicies `json:"CodeSigningPolicies,omitempty"`
-	Description         string               `json:"Description,omitempty"`
+	Description         *string              `json:"Description,omitempty"`
 }
 
 // UpdateCodeSigningConfigOutput is the response for UpdateCodeSigningConfig.
