@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticsearch
 sdk_module: aws-sdk-go-v2/service/elasticsearchservice@v1.45.4
-last_audit_commit: 8dc21e834
-last_audit_date: 2026-08-15
+last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (reserved-instance pagination)
+last_audit_date: 2026-09-18
 overall: A            # gopherstack-6flj pass (2026-08-15): the outbound cross-cluster-search-connection
                        # family -- adjacent territory none of the 6 prior audits' notes mention -- had 3 real
                        # bugs: CreateOutboundCrossClusterSearchConnection's request/response used
@@ -44,8 +44,8 @@ ops:
   UpgradeElasticsearchDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   GetUpgradeHistory: {wire: ok, errors: ok, state: ok, persist: n/a, note: "no upgrade-history state tracked; always returns empty list"}
   GetUpgradeStatus: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always reports SUCCEEDED; no async upgrade state. Disclosed gap (gopherstack-6flj): real UpgradeName (*string, optional, api_op_GetUpgradeStatus.go) is never emitted -- this backend has no upgrade-name/upgrade-history state at all (GetUpgradeHistory always returns empty), so there is no honest value to source it from; a fabricated 'Upgrade to X' string would be invented state. Not fixed -- see gaps"}
-  DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled"}
-  DescribeDomainChangeProgress: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-12, gopherstack-n3zi) -- response used a fabricated \"Status\" key (types.ChangeProgressStatusDetails has no such member; real key is ConfigChangeStatus) and the wrong enum casing (\"COMPLETED\" vs real \"Completed\"). Always ConfigChangeStatus=Completed; changes apply synchronously."}
+  DescribeDomainAutoTunes: {wire: ok, errors: ok, state: ok, persist: n/a, note: "always empty; no auto-tune state modeled. MaxResults (reqfielddiff tier-1, 2026-09-18) has nothing to page over for the same reason -- see items_still_open."}
+  DescribeDomainChangeProgress: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "FIXED (2026-09-12, gopherstack-n3zi) -- response used a fabricated \"Status\" key (types.ChangeProgressStatusDetails has no such member; real key is ConfigChangeStatus) and the wrong enum casing (\"COMPLETED\" vs real \"Completed\"). Always ConfigChangeStatus=Completed; changes apply synchronously. ChangeId (reqfielddiff tier-1, 2026-09-18) has no change-history to select from -- see items_still_open."}
   GetCompatibleElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListElasticsearchVersions: {wire: ok, errors: ok, state: ok, persist: n/a}
   ListElasticsearchInstanceTypes: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -75,8 +75,8 @@ ops:
   RejectInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteInboundCrossClusterSearchConnection: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeInboundCrossClusterSearchConnections: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DescribeReservedElasticsearchInstanceOfferings: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DescribeReservedElasticsearchInstances: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeReservedElasticsearchInstanceOfferings: {wire: fixed, errors: ok, state: fixed, persist: n/a, note: "FIXED 2026-09-18 (reqfielddiff tier-1): MaxResults/NextToken were parsed nowhere -- always returned the entire (currently single-entry) catalog unbounded. Now paginated via pkgs/page, default 100 per the SDK doc."}
+  DescribeReservedElasticsearchInstances: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): MaxResults/NextToken were parsed nowhere -- always returned every purchased reservation unbounded. Now paginated via pkgs/page, default 100 per the SDK doc."}
   PurchaseReservedElasticsearchInstanceOffering: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "FIXED (2026-09-04 pass) -- never validated ReservedElasticsearchInstanceOfferingId against the known offering; an unknown offering ID silently created a reservation with zero-value InstanceType/FixedPrice/UsagePrice/Duration and 200 OK instead of the modelled ResourceNotFoundException. See Notes."}
 gaps: []
 items_still_open:
@@ -117,6 +117,20 @@ items_still_open:
      member of the Create-only types.AutoTuneOptionsInput) is not modeled. Not filed as a bd \
      issue this pass: this backend has no rollback state machine to act on it, and it is a \
      narrower field than the two this pass targeted (SAMLOptions/MaintenanceSchedules)."
+  - "DescribeDomainAutoTunes.MaxResults (reqfielddiff tier-1, 2026-09-18): real, documented \
+     pagination member, but AutoTunes is unconditionally empty (no auto-tune scaling-action \
+     history is tracked anywhere in this backend) -- there is nothing to page over, so MaxResults \
+     has no observable effect to fix or test. Same class as GetUpgradeStatus.UpgradeName above: a \
+     structural modeling gap (no auto-tune-history subsystem), not a dropped-but-actionable \
+     parameter."
+  - "DescribeDomainChangeProgress.ChangeId (reqfielddiff tier-1, 2026-09-18): real, optional \
+     filter for a specific historical config change ('If omitted, the service returns \
+     information about the most recent configuration change') -- this backend tracks no \
+     change-history at all, applying every config change synchronously and always answering with \
+     one static ChangeProgressStatus (ConfigChangeStatus=Completed, see the op's own note). With \
+     no history to select from, an unknown or well-formed ChangeId is indistinguishable from no \
+     ChangeId at all; there is no honest way to make the parameter change the answer without \
+     inventing a change-ID history subsystem this backend doesn't have."
 deferred: []              # this pass's target deferred item (DescribeElasticsearchDomainConfig per-field OptionStatus) is now implemented; remaining edges tracked under gaps above
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore close domain Tags before replacing state (verified in persistence.go). This pass also fixed domainCopy (store.go) to deep-clone AdvancedOptions/VPCOptions/CognitoOptions/AdvancedSecurityOptions/AutoTuneOptions/LogPublishingOptions -- previously AdvancedOptions (and now the five new option fields) were shallow-copied, so a caller mutating the map/slice on a DescribeDomain result would have silently mutated the backend's stored state. Not a resource leak, but a real aliasing bug fixed alongside the new fields it would otherwise have applied to as well. 2026-08-10: extended the same deep-clone treatment to AdvancedSecurityOptions.SAMLOptions (and its Idp pointer) and AutoTuneOptions.MaintenanceSchedules (and each element's Duration pointer), which would otherwise have reintroduced the identical aliasing bug for the newly-added nested pointers/slices."}
 ---
@@ -852,3 +866,41 @@ clean. `go test -race -count=1 ./services/elasticsearch/...` and
 no version bump, `pkgs/persistence/testdata/snapshot_inventory.json`
 unaffected for this service. `cmd/paritylint` re-verified 0
 missing-items-still-open FAIL.
+
+## 2026-09-18: reserved-instance pagination fixed; AutoTunes/ChangeProgress disclosed (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields: `DescribeDomainAutoTunes.MaxResults`,
+`DescribeDomainChangeProgress.ChangeId`,
+`DescribeReservedElasticsearchInstanceOfferings.MaxResults`,
+`DescribeReservedElasticsearchInstances.MaxResults` (elasticsearchservice@
+v1.45.4, all real httpQuery-bound request members the tool's static scan
+still catches for this restjson1 service since these particular ones read
+via `r.URL.Query()` directly rather than a struct field it might miss).
+
+Fixed: both reserved-instance Describe ops never read `maxResults`/
+`nextToken` off the query string at all, always returning the entire
+unbounded list. Now paginated via `pkgs/page`, default 100 per the SDK doc
+("If not specified, defaults to 100."). Proven with
+`TestDescribeReservedElasticsearchInstances_Pagination_RealClient` (typed
+`aws-sdk-go-v2` client, `reserved_instances_pagination_test.go`): purchases
+3 reservations, asserts a `MaxResults: 2` page returns exactly 2 with a
+`NextToken`, and the second page returns the remaining 1 with no overlap.
+`DescribeReservedElasticsearchInstanceOfferings`'s catalog is a single
+hardcoded static entry (`offer-t3-small-1y`), so its identical fix has no
+distinguishable multi-page behavior to test today -- proven via its sibling
+instead, since both share the same `page.New` call shape.
+
+Disclosed, not fixed: `DescribeDomainAutoTunes.MaxResults` and
+`DescribeDomainChangeProgress.ChangeId` both have no backing state to act
+on -- `AutoTunes` is unconditionally empty (no auto-tune-history subsystem)
+and `ChangeProgressStatus` is one static synchronous answer (no
+change-history subsystem), so neither parameter can have an observable
+effect without inventing state this backend doesn't track. See
+`items_still_open`.
+
+No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
+`go vet ./services/elasticsearch/`, `go test -race -count=1
+./services/elasticsearch/` (all pass), `golangci-lint run
+--new-from-rev=HEAD ./services/elasticsearch/` (0 issues). tier-1
+(`cmd/reqfielddiff -dir elasticsearch`): 4 -> 2 (the 2 remaining are the
+disclosed structural gaps above).
