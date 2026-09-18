@@ -224,19 +224,24 @@ func distributionToWire(d *Distribution) distributionWire {
 	}
 }
 
+// inputOriginWire mirrors types.InputOrigin.
+type inputOriginWire struct {
+	Name           string `json:"name"`
+	RegionName     string `json:"regionName,omitempty"`
+	ProtocolPolicy string `json:"protocolPolicy,omitempty"`
+}
+
 type createDistributionRequest struct {
-	CacheBehaviorSettings           *cacheSettingsWire `json:"cacheBehaviorSettings,omitempty"`
-	BundleID                        string             `json:"bundleId"`
-	CertificateName                 string             `json:"certificateName,omitempty"`
-	DistributionName                string             `json:"distributionName"`
-	IPAddressType                   string             `json:"ipAddressType,omitempty"`
-	ViewerMinimumTLSProtocolVersion string             `json:"viewerMinimumTlsProtocolVersion,omitempty"`
-	Origin                          struct {
-		Name string `json:"name"`
-	} `json:"origin"`
-	DefaultCacheBehavior cacheBehaviorWire          `json:"defaultCacheBehavior"`
-	CacheBehaviors       []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
-	Tags                 []tagWire                  `json:"tags,omitempty"`
+	CacheBehaviorSettings           *cacheSettingsWire         `json:"cacheBehaviorSettings,omitempty"`
+	BundleID                        string                     `json:"bundleId"`
+	CertificateName                 string                     `json:"certificateName,omitempty"`
+	DistributionName                string                     `json:"distributionName"`
+	IPAddressType                   string                     `json:"ipAddressType,omitempty"`
+	ViewerMinimumTLSProtocolVersion string                     `json:"viewerMinimumTlsProtocolVersion,omitempty"`
+	Origin                          inputOriginWire            `json:"origin"`
+	DefaultCacheBehavior            cacheBehaviorWire          `json:"defaultCacheBehavior"`
+	CacheBehaviors                  []cacheBehaviorPerPathWire `json:"cacheBehaviors,omitempty"`
+	Tags                            []tagWire                  `json:"tags,omitempty"`
 }
 
 type distributionAndOpsResponse struct {
@@ -254,6 +259,8 @@ func (h *Handler) handleCreateDistribution(_ context.Context, body []byte) ([]by
 		Name:                  req.DistributionName,
 		BundleID:              req.BundleID,
 		OriginName:            req.Origin.Name,
+		OriginRegionName:      req.Origin.RegionName,
+		OriginProtocolPolicy:  req.Origin.ProtocolPolicy,
 		IPAddressType:         req.IPAddressType,
 		CertificateName:       req.CertificateName,
 		DefaultCacheBehavior:  CacheBehavior{Behavior: req.DefaultCacheBehavior.Behavior},

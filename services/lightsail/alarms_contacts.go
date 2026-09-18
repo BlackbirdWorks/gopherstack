@@ -26,6 +26,28 @@ const (
 	opTypeSendContactMethodVerification = "SendContactMethodVerification"
 )
 
+// resourceArnByKind resolves name's real Arn given its already-known
+// ResourceType kind (b.activeNames) -- real Alarm.MonitoredResourceInfo.Arn
+// is the monitored resource's own ARN, not its resource-type string.
+func (b *InMemoryBackend) resourceArnByKind(kind, name string) string {
+	switch kind {
+	case ResourceTypeInstance:
+		if i, ok := b.instances.Get(name); ok {
+			return i.Arn
+		}
+	case ResourceTypeLoadBalancer:
+		if l, ok := b.loadBalancers.Get(name); ok {
+			return l.Arn
+		}
+	case ResourceTypeRelationalDatabase:
+		if d, ok := b.databases.Get(name); ok {
+			return d.Arn
+		}
+	}
+
+	return ""
+}
+
 // PutAlarm creates or updates the named alarm against monitoredResourceName.
 func (b *InMemoryBackend) PutAlarm(
 	name, comparisonOperator, metricName, monitoredResourceName, statistic, unit, treatMissingData string,
@@ -39,6 +61,8 @@ func (b *InMemoryBackend) PutAlarm(
 	if !ok {
 		return nil, notFoundError("monitored resource", monitoredResourceName)
 	}
+
+	monitoredArn := b.resourceArnByKind(kind, monitoredResourceName)
 
 	existing, alreadyExists := b.alarms.Get(name)
 
@@ -74,7 +98,8 @@ func (b *InMemoryBackend) PutAlarm(
 	a.ComparisonOperator = comparisonOperator
 	a.MetricName = metricName
 	a.MonitoredResourceName = monitoredResourceName
-	a.MonitoredResourceArn = kind
+	a.MonitoredResourceArn = monitoredArn
+	a.MonitoredResourceType = kind
 	a.Statistic = statistic
 	a.Unit = unit
 	a.TreatMissingData = missingData

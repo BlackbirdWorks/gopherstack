@@ -400,6 +400,7 @@ type LoadBalancer struct {
 	CreatedAt               time.Time
 	Tags                    *tags.Tags
 	InstanceHealth          map[string]instanceHealth
+	ConfigurationOptions    map[string]string
 	Location                ResourceLocation
 	State                   string
 	Arn                     string
@@ -429,6 +430,8 @@ func (l *LoadBalancer) clone() *LoadBalancer {
 	cp.PublicPorts = append([]int32(nil), l.PublicPorts...)
 	cp.InstanceHealth = make(map[string]instanceHealth, len(l.InstanceHealth))
 	maps.Copy(cp.InstanceHealth, l.InstanceHealth)
+	cp.ConfigurationOptions = make(map[string]string, len(l.ConfigurationOptions))
+	maps.Copy(cp.ConfigurationOptions, l.ConfigurationOptions)
 
 	return &cp
 }
@@ -567,26 +570,28 @@ func (s *RelationalDatabaseSnapshot) clone() *RelationalDatabaseSnapshot {
 // containers.go's doc comment for the explicit real-vs-bookkeeping-only
 // decision) without actually running images via pkgs/container.
 type ContainerService struct {
-	CreatedAt          time.Time
-	Tags               *tags.Tags
-	NextImageVersion   map[string]int
-	NextDeployment     *ContainerServiceDeployment
-	CurrentDeployment  *ContainerServiceDeployment
-	PublicDomainNames  map[string][]string
-	Location           ResourceLocation
-	StateDetailCode    string
-	URL                string
-	PrincipalArn       string
-	PrivateDomainName  string
-	StateDetailMessage string
-	Name               string
-	State              string
-	PowerID            string
-	Power              string
-	Arn                string
-	Images             []ContainerImage
-	Scale              int32
-	IsDisabled         bool
+	CreatedAt                      time.Time
+	Tags                           *tags.Tags
+	NextImageVersion               map[string]int
+	NextDeployment                 *ContainerServiceDeployment
+	CurrentDeployment              *ContainerServiceDeployment
+	PublicDomainNames              map[string][]string
+	Location                       ResourceLocation
+	PrivateDomainName              string
+	PowerID                        string
+	PrincipalArn                   string
+	StateDetailCode                string
+	StateDetailMessage             string
+	Name                           string
+	State                          string
+	URL                            string
+	Power                          string
+	Arn                            string
+	ECRImagePullerRolePrincipalArn string
+	Images                         []ContainerImage
+	Scale                          int32
+	IsDisabled                     bool
+	ECRImagePullerRoleActive       bool
 }
 
 // ContainerServiceDeployment mirrors types.ContainerServiceDeployment.
@@ -674,20 +679,31 @@ func (c *ContainerService) clone() *ContainerService {
 // genuinely a *string, not the typed ResourceType enum most other resources
 // use -- a confirmed wire-shape asymmetry preserved faithfully.
 type Bucket struct {
-	CreatedAt              time.Time
-	Tags                   *tags.Tags
-	Location               ResourceLocation
-	BundleID               string
-	State                  string
-	StateMessage           string
-	ObjectVersioning       string
-	URL                    string
-	Name                   string
-	SupportCode            string
-	Arn                    string
-	ReadonlyAccessAccounts []string
-	AccessKeys             []AccessKey
-	AbleToUpdateBundle     bool
+	CreatedAt                time.Time
+	Tags                     *tags.Tags
+	Location                 ResourceLocation
+	BundleID                 string
+	State                    string
+	StateMessage             string
+	ObjectVersioning         string
+	URL                      string
+	Name                     string
+	SupportCode              string
+	Arn                      string
+	ReadonlyAccessAccounts   []string
+	AccessKeys               []AccessKey
+	ResourcesReceivingAccess []ResourceReceivingAccess
+	AbleToUpdateBundle       bool
+}
+
+// ResourceReceivingAccess mirrors types.ResourceReceivingAccess -- an
+// Instance or ContainerService granted access to a bucket via
+// SetResourceAccessForBucket (types.Bucket.ResourcesReceivingAccess's own
+// doc comment names that op, not ReadonlyAccessAccounts, which is a
+// separate, unrelated AWS-account-ID field).
+type ResourceReceivingAccess struct {
+	Name         string
+	ResourceType string
 }
 
 // AccessKey mirrors types.AccessKey. SecretAccessKey is returned in full
@@ -704,6 +720,7 @@ func (b *Bucket) clone() *Bucket {
 	cp := *b
 	cp.ReadonlyAccessAccounts = cloneStrings(b.ReadonlyAccessAccounts)
 	cp.AccessKeys = append([]AccessKey(nil), b.AccessKeys...)
+	cp.ResourcesReceivingAccess = append([]ResourceReceivingAccess(nil), b.ResourcesReceivingAccess...)
 
 	return &cp
 }
@@ -901,6 +918,7 @@ type Alarm struct {
 	SupportCode           string
 	MonitoredResourceName string
 	MonitoredResourceArn  string
+	MonitoredResourceType string
 	Statistic             string
 	Unit                  string
 	State                 string

@@ -51,8 +51,10 @@ func alarmToWire(a *Alarm) alarmWire {
 		CreatedAt: epochPtr(a.CreatedAt), DatapointsToAlarm: a.DatapointsToAlarm,
 		EvaluationPeriods: a.EvaluationPeriods,
 		Location:          locationToWire(a.Location), MetricName: a.MetricName,
-		MonitoredResourceInfo: &monitoredResourceInfoWire{Arn: a.MonitoredResourceArn, Name: a.MonitoredResourceName},
-		Name:                  a.Name, NotificationEnabled: a.NotificationEnabled,
+		MonitoredResourceInfo: &monitoredResourceInfoWire{
+			Arn: a.MonitoredResourceArn, Name: a.MonitoredResourceName, ResourceType: a.MonitoredResourceType,
+		},
+		Name: a.Name, NotificationEnabled: a.NotificationEnabled,
 		NotificationTriggers: a.NotificationTriggers,
 		ResourceType:         ResourceTypeAlarm, State: a.State, Statistic: a.Statistic, SupportCode: a.SupportCode,
 		Threshold: a.Threshold, TreatMissingData: a.TreatMissingData, Unit: a.Unit,

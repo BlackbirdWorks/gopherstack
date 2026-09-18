@@ -7,6 +7,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	lightsailsdk "github.com/aws/aws-sdk-go-v2/service/lightsail"
 	lightsailtypes "github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,6 +35,17 @@ func TestAlarmAndContactMethodRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, getOut.Alarms, 1)
 	require.Equal(t, lightsailtypes.AlarmStateInsufficientData, getOut.Alarms[0].State)
+
+	instOut, err := client.GetInstance(ctx, &lightsailsdk.GetInstanceInput{InstanceName: aws.String("alarm-target")})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.Alarms[0].MonitoredResourceInfo)
+	assert.Equal(
+		t,
+		aws.ToString(instOut.Instance.Arn),
+		aws.ToString(getOut.Alarms[0].MonitoredResourceInfo.Arn),
+		"MonitoredResourceInfo.Arn must be the monitored resource's real ARN, not its resource-type string",
+	)
+	assert.Equal(t, lightsailtypes.ResourceTypeInstance, getOut.Alarms[0].MonitoredResourceInfo.ResourceType)
 
 	_, err = client.TestAlarm(
 		ctx,

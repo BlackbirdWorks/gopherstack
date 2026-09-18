@@ -16,11 +16,12 @@ sdk_module: aws-sdk-go-v2/service/lightsail@v1.58.4   # gopherstack-u8my: was re
 # byte-identical; only client middleware plumbing differs. No wire-shape claim in this file rested
 # on the wrong pin. Originally resolved via `go get .../lightsail@latest` in a throwaway scratch
 # module, and the version sdk_completeness_test.go's real *lightsailsdk.Client{} type-checks against.
-last_audit_commit: c397a0243   # the commit that actually implemented all 161 ops, registered the
+last_audit_commit: da97fccdb   # gopherstack-21my per-item field sweep (2026-09-18), see dated Notes
+# entry below. Prior value c397a0243 was the commit that actually implemented all 161 ops, registered the
 # handler, and wired cli.go. A follow-up pass on top of that HEAD (same day) closed the
 # CreateCloudFormationStack wiring gap below; see "cli.go wiring" section for the cli.go diff, which
 # is the only .go-file change this follow-up pass made (plus errors.go's disclosure comment).
-last_audit_date: 2026-08-01
+last_audit_date: 2026-09-18
 overall: A   # raised from A- by a follow-up pass that closed the one load-bearing gap the re-audit
 # above found: cli.go now calls wireLightsailCloudFormation(byName["Lightsail"], cfnSvc) from
 # registerCloudFormationAndDashboard (not from wireStorageAndSecretsIntegrations -- CloudFormation
@@ -140,6 +141,9 @@ items_still_open:
   - "2026-09-12 (reqfielddiff slice 4): GetBucketsInput.IncludeCors is decoded nowhere -- Bucket (models.go) has no CORS-configuration field at all, and neither does UpdateBucket's own request struct (its own AccessRules/Cors/Versioning are the same class of gap, tier-5 in the same sweep). No bucket op in this backend models CORS in either direction; adding a read-only IncludeCors toggle with nothing behind it to include would be fabrication."
   - "2026-09-12 (reqfielddiff slice 4): GetRelationalDatabaseLogEventsInput.StartFromHead is decoded nowhere. Structurally unobservable, not merely undisclosed: GetRelationalDatabaseLogEvents (databases.go) deliberately always returns an EMPTY log-event page (documented at its own doc comment -- no real MySQL server runs here to produce genuine log lines, and fabricating plausible-looking log text would violate parity-principles.md exactly like the metric-data ops). An ordering flag has no effect on an empty list, so honoring it costs nothing (an empty page is the same reversed), but does not represent a fix over the existing intentional design."
   - "2026-09-12 (reqfielddiff slice 4): UpdateRelationalDatabaseInput.ApplyImmediately is decoded nowhere. Real AWS defers some modifications to the next preferred maintenance window when false; this backend has no pending-modifications queue or maintenance-window scheduler -- every UpdateRelationalDatabase change (databases.go) already applies synchronously and immediately regardless of this flag. Modeling the true deferred-apply semantics would require building an entire maintenance-window state machine this backend does not have; not fabricated."
+  - "2026-09-18 (gopherstack-21my per-item field sweep): RelationalDatabase's response never carries PendingMaintenanceActions/PendingModifiedValues -- same root cause as the existing ApplyImmediately gap above (no pending-modification/maintenance-window queue exists in this backend at all), so both would always be empty/nil even if wired; not fabricated."
+  - "2026-09-18 (gopherstack-21my per-item field sweep): Domain's response never carries RegisteredDomainDelegationInfo -- this backend has no domain-registrar-transfer feature and no RegisterDomain-family op exists in the 161-op surface, so there is no delegation state to report."
+  - "2026-09-18 (gopherstack-21my per-item field sweep): CertificateDetail is missing DomainValidationRecords/RenewalSummary/SerialNumber/IssuerCA/KeyAlgorithm/EligibleToRenew/InUseResourceCount/RequestFailureReason/RevocationReason/RevokedAt -- this backend's Certificate model has no real ACM-style DNS-validation or renewal state machine, consistent with its own non-fabrication stance elsewhere in this file."
 deferred:
   - "A full per-op {wire, errors, state, persist} grid (161 rows) was not written into this frontmatter, in favor of per-family status plus explicit per-op call-outs within each family's note above -- with 28 families already enumerating all 161 ops individually in the body's section 3 tables (left unmodified as ground truth), a second 161-row restatement here would duplicate rather than add information. Any future audit needing finer grain than family-level should start from the body's existing per-op tables plus this frontmatter's per-family notes, not re-derive from scratch."
   - "Whether real EC2/ELB/RDS state should eventually back Instance/LoadBalancer/RelationalDatabase (PARITY.md 5.2's architectural question) remains unresolved -- this implementation chose independent modeling (matching the original audit's own recommendation), not revisited by this pass."
@@ -1498,3 +1502,74 @@ field changed, so no `snapshot_inventory.json` row and no version bump.
 `services/quicksight` (`GetDashboardEmbedURL` arity mismatch) -- confirmed
 via `git status` as a concurrent sibling agent's uncommitted in-progress
 edit (16 modified quicksight files), not touched by this pass.
+
+## 2026-09-18 (gopherstack-21my per-item field sweep)
+
+First per-item sweep of this service (previously marked "wrapper-clean,
+per-item unswept"). Ran `cmd/structfielddiff` against every List/Get op's
+response shape and diffed field-by-field against each handler's `*Wire`
+struct; `cmd/overwidecandidates` reported 0 hits for lightsail. 5 real bugs
+found and fixed, all silent-drop or wrong-field wire-shape bugs:
+
+- `ContainerService.PrivateRegistryAccess`: Create/UpdateContainerService
+  never decoded it and the response never echoed it -- entirely unwired.
+  Added `ECRImagePullerRoleActive`/`ECRImagePullerRolePrincipalArn` to the
+  domain model, threaded through both ops, wired the response.
+- `LoadBalancer.UpdateLoadBalancerAttribute`: wrong-cased attribute names
+  (`HTTPSRedirectionEnabled`/`TLSPolicyName` instead of the real
+  `HttpsRedirectionEnabled`/`TlsPolicyName`, types/enums.go) meant a real
+  client's attribute update silently no-op'd on those two. Also
+  `ConfigurationOptions` (real per-attribute echo map) didn't exist on the
+  model at all, contradicting this file's own stale doc comment claiming
+  unmodeled attributes were "retained and echoed back". Fixed both.
+- `CreateDistribution`'s `Origin.RegionName`/`ProtocolPolicy` were decoded
+  nowhere (request struct only had `Name`) -- every distribution's Origin
+  silently reported the backend's own region and a hardcoded "http-only"
+  regardless of what the client requested.
+- `SetResourceAccessForBucket` wrote to `Bucket.ReadonlyAccessAccounts` (a
+  separate AWS-account-ID field) instead of `ResourcesReceivingAccess`
+  (types.Bucket's own doc comment names this op against that field) --
+  `ResourcesReceivingAccess` didn't exist on the model or wire at all. Added
+  it; an existing test had locked in the wrong-field behavior and was
+  corrected, not just extended.
+- `Alarm.MonitoredResourceArn` stored the monitored resource's TYPE string
+  ("Instance") instead of its real ARN, and `MonitoredResourceInfo.ResourceType`
+  was never populated at all. Added a `resourceArnByKind` resolver and a new
+  `MonitoredResourceType` field.
+
+Every fix proven via a real `aws-sdk-go-v2/service/lightsail` client test
+asserting the decoded field value (`sdk_roundtrip_resource_coverage_test.go`,
+`sdk_roundtrip_misc_test.go`), each hand-verified to fail pre-fix and pass
+post-fix by a targeted revert-rebuild-restore cycle (never via git
+stash/checkout -- another agent shares this working tree).
+
+Gates: `gofmt -l` clean; `go build ./...` (whole module) clean; `go vet
+./services/lightsail/...` clean; `go test -race -count=1
+./services/lightsail/...` ok; `go test -count=1 ./pkgs/persistence/` ok
+(one unrelated `bedrockagent` version-bump violation observed transiently
+during this session belongs to a different concurrently-editing agent, not
+this pass -- confirmed via `git status services/bedrockagent/` showing its
+own uncommitted changes); `golangci-lint run --new-from-rev=HEAD
+./services/lightsail/...` and full-package run both 0 issues (one
+`fieldalignment` hit on `ContainerService` from the new fields, fixed via
+`fieldalignment -fix`); `go run ./cmd/parityfmtcheck -dir services` clean;
+`git diff --stat go.mod go.sum` empty. Persisted fields added (additive
+only, no version bump needed per `pkgs/persistence`'s own guard):
+`ContainerService.ECRImagePullerRoleActive`,
+`ContainerService.ECRImagePullerRolePrincipalArn`,
+`LoadBalancer.ConfigurationOptions`, `Bucket.ResourcesReceivingAccess`,
+`ResourceReceivingAccess.{Name,ResourceType}`, `Alarm.MonitoredResourceType`
+-- `pkgs/persistence/testdata/snapshot_inventory.json` updated for exactly
+these 6 lines via `-update`, verified against a pre-session snapshot that no
+other service's rows were touched.
+
+Not fixed, recorded as gaps (no backing state to wire, not fabricated):
+`RelationalDatabase.PendingMaintenanceActions`/`PendingModifiedValues` (no
+maintenance-window/pending-modification queue exists in this backend at
+all -- same root cause as the already-disclosed `ApplyImmediately` gap);
+`Domain.RegisteredDomainDelegationInfo` (no domain-registrar-transfer
+feature modeled, no `RegisterDomain`-family op exists in this 161-op
+surface); `Certificate`'s `DomainValidationRecords`/`RenewalSummary`/
+`SerialNumber`/etc. (no real ACM-style validation/renewal state machine
+modeled, consistent with this service's already-disclosed
+non-fabrication stance on telemetry-shaped gaps).

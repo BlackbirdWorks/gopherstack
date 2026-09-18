@@ -262,11 +262,34 @@ func testLoadBalancersRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	_, err = client.UpdateLoadBalancerAttribute(ctx, &lightsailsdk.UpdateLoadBalancerAttributeInput{
+		LoadBalancerName: aws.String("slice33-lb"),
+		AttributeName:    lightsailtypes.LoadBalancerAttributeNameHttpsRedirectionEnabled,
+		AttributeValue:   aws.String("true"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateLoadBalancerAttribute(ctx, &lightsailsdk.UpdateLoadBalancerAttributeInput{
+		LoadBalancerName: aws.String("slice33-lb"),
+		AttributeName:    lightsailtypes.LoadBalancerAttributeNameTlsPolicyName,
+		AttributeValue:   aws.String("TLS-1-2-2019-08"),
+	})
+	require.NoError(t, err)
+
 	getOut, err := client.GetLoadBalancer(ctx, &lightsailsdk.GetLoadBalancerInput{
 		LoadBalancerName: aws.String("slice33-lb"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "/healthz", aws.ToString(getOut.LoadBalancer.HealthCheckPath))
+	assert.True(t, aws.ToBool(getOut.LoadBalancer.HttpsRedirectionEnabled),
+		"HttpsRedirectionEnabled attribute name must match the real enum casing")
+	assert.Equal(t, "TLS-1-2-2019-08", aws.ToString(getOut.LoadBalancer.TlsPolicyName),
+		"TlsPolicyName attribute name must match the real enum casing")
+	assert.Equal(t, map[string]string{
+		"HealthCheckPath":         "/healthz",
+		"HttpsRedirectionEnabled": "true",
+		"TlsPolicyName":           "TLS-1-2-2019-08",
+	}, getOut.LoadBalancer.ConfigurationOptions)
 
 	now := time.Now()
 
@@ -320,7 +343,14 @@ func testBucketsRealClient(t *testing.T) {
 	getOut, err := client.GetBuckets(ctx, &lightsailsdk.GetBucketsInput{BucketName: aws.String("slice33-bucket")})
 	require.NoError(t, err)
 	require.Len(t, getOut.Buckets, 1)
-	assert.Contains(t, getOut.Buckets[0].ReadonlyAccessAccounts, "slice33-bucket-instance")
+	// SetResourceAccessForBucket grants a Lightsail resource access, reflected
+	// in ResourcesReceivingAccess (types.Bucket's own doc comment names this
+	// op against that field) -- ReadonlyAccessAccounts is an unrelated
+	// AWS-account-ID field this op does not touch.
+	require.Len(t, getOut.Buckets[0].ResourcesReceivingAccess, 1)
+	assert.Equal(t, "slice33-bucket-instance", aws.ToString(getOut.Buckets[0].ResourcesReceivingAccess[0].Name))
+	assert.Equal(t, "Instance", aws.ToString(getOut.Buckets[0].ResourcesReceivingAccess[0].ResourceType))
+	assert.Empty(t, getOut.Buckets[0].ReadonlyAccessAccounts)
 
 	now := time.Now()
 
@@ -402,21 +432,32 @@ func testDatabasesRealClient(t *testing.T) {
 }
 
 // testContainersRealClient covers UpdateContainerService,
-// GetContainerServiceMetricData, GetContainerLog.
+// GetContainerServiceMetricData, GetContainerLog, and the
+// PrivateRegistryAccess.EcrImagePullerRole round trip on both ops.
 func testContainersRealClient(t *testing.T) {
 	t.Helper()
 
 	client := newTestClient(t)
 	ctx := t.Context()
 
-	_, err := client.CreateContainerService(ctx, &lightsailsdk.CreateContainerServiceInput{
+	createOut, err := client.CreateContainerService(ctx, &lightsailsdk.CreateContainerServiceInput{
 		ServiceName: aws.String(
 			"slice33-svc",
 		),
 		Power: lightsailtypes.ContainerServicePowerNameNano,
 		Scale: aws.Int32(1),
+		PrivateRegistryAccess: &lightsailtypes.PrivateRegistryAccessRequest{
+			EcrImagePullerRole: &lightsailtypes.ContainerServiceECRImagePullerRoleRequest{
+				IsActive: aws.Bool(true),
+			},
+		},
 	})
 	require.NoError(t, err)
+	require.NotNil(t, createOut.ContainerService)
+	require.NotNil(t, createOut.ContainerService.PrivateRegistryAccess)
+	require.NotNil(t, createOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole)
+	assert.True(t, aws.ToBool(createOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole.IsActive))
+	assert.NotEmpty(t, aws.ToString(createOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole.PrincipalArn))
 
 	updOut, err := client.UpdateContainerService(ctx, &lightsailsdk.UpdateContainerServiceInput{
 		ServiceName: aws.String("slice33-svc"), Scale: aws.Int32(2),
@@ -424,6 +465,23 @@ func testContainersRealClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, updOut.ContainerService)
 	assert.Equal(t, int32(2), aws.ToInt32(updOut.ContainerService.Scale))
+	require.NotNil(t, updOut.ContainerService.PrivateRegistryAccess)
+	require.NotNil(t, updOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole)
+	assert.True(t, aws.ToBool(updOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole.IsActive),
+		"PrivateRegistryAccess must survive an unrelated update")
+
+	deactivateOut, err := client.UpdateContainerService(ctx, &lightsailsdk.UpdateContainerServiceInput{
+		ServiceName: aws.String("slice33-svc"),
+		PrivateRegistryAccess: &lightsailtypes.PrivateRegistryAccessRequest{
+			EcrImagePullerRole: &lightsailtypes.ContainerServiceECRImagePullerRoleRequest{
+				IsActive: aws.Bool(false),
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, deactivateOut.ContainerService.PrivateRegistryAccess)
+	require.NotNil(t, deactivateOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole)
+	assert.False(t, aws.ToBool(deactivateOut.ContainerService.PrivateRegistryAccess.EcrImagePullerRole.IsActive))
 
 	now := time.Now()
 
@@ -461,7 +519,11 @@ func testDistributionsRealClient(t *testing.T) {
 
 	_, err = client.CreateDistribution(ctx, &lightsailsdk.CreateDistributionInput{
 		DistributionName: aws.String("slice33-dist"), BundleId: aws.String("small_1_0"),
-		Origin:               &lightsailtypes.InputOrigin{Name: aws.String("slice33-dist-origin")},
+		Origin: &lightsailtypes.InputOrigin{
+			Name:           aws.String("slice33-dist-origin"),
+			RegionName:     lightsailtypes.RegionNameEuWest1,
+			ProtocolPolicy: lightsailtypes.OriginProtocolPolicyEnumHTTPSOnly,
+		},
 		DefaultCacheBehavior: &lightsailtypes.CacheBehavior{Behavior: lightsailtypes.BehaviorEnum("cache")},
 	})
 	require.NoError(t, err)
@@ -476,6 +538,11 @@ func testDistributionsRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, getOut.Distributions, 1)
+	require.NotNil(t, getOut.Distributions[0].Origin)
+	assert.Equal(t, lightsailtypes.RegionNameEuWest1, getOut.Distributions[0].Origin.RegionName,
+		"Origin.RegionName from the request must round-trip, not the backend's own region")
+	assert.Equal(t, lightsailtypes.OriginProtocolPolicyEnumHTTPSOnly, getOut.Distributions[0].Origin.ProtocolPolicy,
+		"Origin.ProtocolPolicy from the request must round-trip, not the hardcoded default")
 
 	now := time.Now()
 
