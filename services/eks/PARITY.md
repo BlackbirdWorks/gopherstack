@@ -2,7 +2,7 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
-last_audit_commit: 2dfc55a3  # gopherstack-21my (2026-09-18) fixed after this hash was recorded; hash not yet known at edit time
+last_audit_commit: b09a30f43  # 2026-09-18 enumcheck census (no code changes; all 38 findings false positive)
 last_audit_date: 2026-09-18  # gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass) -- see Notes below
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
@@ -117,6 +117,19 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 ---
 
 ## Notes
+
+### 2026-09-18: enumcheck census
+
+38 findings, 0 real, 38 false positives. All are the tool's ambiguous
+same-wire-key ("status"/"type") ammunition across Addon/Cluster/Nodegroup/
+FargateProfile/Capability/Update/UpdateParam/Cancellation/InsightsRefresh —
+every emitted value is a verified member of the field's real governing
+enum (e.g. `statusInProgress = "InProgress"` on `Update.Status` matches
+`types.UpdateStatusInProgress`). Two notable false-positive shapes:
+`AnywhereSubscription.Status = "ACTIVE"` matches `EksAnywhereSubscriptionStatus`
+(types/enums.go:628), an enum the tool's candidate list omitted entirely;
+`DescribeAddonConfiguration`'s `"type": "object"` is a JSON-schema literal
+string, not an EKS enum at all.
 
 ### gopherstack-21my (2026-09-18): per-item field sweep
 

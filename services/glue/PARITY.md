@@ -1,7 +1,7 @@
 ---
 service: glue
 sdk_module: aws-sdk-go-v2/service/glue@v1.157.0
-last_audit_commit: 150f99c5a
+last_audit_commit: b09a30f43
 last_audit_date: 2026-09-18
 # 2026-08-30 wrapper-key/sort-totality sweep (Class F: a sort that exists but is
 # not total). Swept every sort.Slice/sort.Strings/slices.Sort* call site across
@@ -195,6 +195,23 @@ leaks: {status: clean, note: "backend_reconciler.go's managed goroutine (StartRe
 ---
 
 ## Notes
+
+### 2026-09-18: enumcheck census
+
+33 findings, all false positive, 0 code changes. Every value is a verified
+member of its field's true governing enum among the tool's ambiguous
+same-wire-key candidate list (BlueprintStatus/BlueprintRunState/
+ColumnStatisticsState/CrawlerState/ScheduleState/CrawlerHistoryState/
+DataQualityModelStatus/TaskStatusType/TransformStatusType/IntegrationStatus/
+MaterializedViewRefreshState/WorkflowRunStatus/RegistryStatus/SchemaStatus/
+SchemaVersionStatus/SessionStatus/StatementState/NodeType/ExportStatus),
+each confirmed against the field's real struct in types.go. Two are plain
+`*string` fields with no real enum at all (`ItemError.Code`,
+`DevEndpoint.Status`) — wrong candidates matched by generic key name.
+`IdentityCenterConfig.Status` (identity_center.go:31/47) is dead internal
+state: none of Create/Get/Update GlueIdentityCenterConfiguration's real
+outputs have a Status field at all, but the dedicated wire-response structs
+already omit it, so nothing leaks.
 
 ### 2026-09-18: ledger burn-down (staleclaims + gopherstack-j1b7 adjudication)
 
