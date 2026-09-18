@@ -238,12 +238,12 @@ func (h *Handler) handleDeleteUser(_ context.Context, in *describeUserInput) (*s
 
 type updateUserInput struct {
 	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	HomeDir               *string                      `json:"HomeDirectory,omitempty"`
+	Role                  *string                      `json:"Role,omitempty"`
+	Policy                *string                      `json:"Policy,omitempty"`
 	ServerID              string                       `json:"ServerId"`
 	UserName              string                       `json:"UserName"`
-	HomeDir               string                       `json:"HomeDirectory"`
-	Role                  string                       `json:"Role"`
 	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
-	Policy                string                       `json:"Policy,omitempty"`
 	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 }
 
@@ -273,7 +273,6 @@ func (h *Handler) handleUpdateUser(
 		HomeDirectoryType:        in.HomeDirectoryType,
 		SetHomeDirectoryType:     in.HomeDirectoryType != "",
 		Policy:                   in.Policy,
-		SetPolicy:                in.Policy != "",
 		PosixProfile:             toPosixProfile(in.PosixProfile),
 		SetPosixProfile:          in.PosixProfile != nil,
 		HomeDirectoryMappings:    toHomeDirectoryMappings(in.HomeDirectoryMappings),

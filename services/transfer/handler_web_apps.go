@@ -222,8 +222,8 @@ type updateWebAppInput struct {
 	IdentityProviderDetails *updateWebAppIdentityProviderDetailsInput `json:"IdentityProviderDetails,omitempty"`
 	EndpointDetails         *updateWebAppEndpointDetailsInput         `json:"EndpointDetails,omitempty"`
 	WebAppUnits             *webAppUnitsInput                         `json:"WebAppUnits,omitempty"`
+	AccessEndpoint          *string                                   `json:"AccessEndpoint,omitempty"`
 	WebAppID                string                                    `json:"WebAppId"`
-	AccessEndpoint          string                                    `json:"AccessEndpoint,omitempty"`
 }
 
 type updateWebAppOutput struct {

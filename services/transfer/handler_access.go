@@ -179,12 +179,12 @@ func (h *Handler) handleListAccesses(
 
 type updateAccessInput struct {
 	PosixProfile          *posixProfileInput           `json:"PosixProfile,omitempty"`
+	Role                  *string                      `json:"Role,omitempty"`
+	HomeDir               *string                      `json:"HomeDirectory,omitempty"`
+	Policy                *string                      `json:"Policy,omitempty"`
 	ServerID              string                       `json:"ServerId"`
 	ExternalID            string                       `json:"ExternalId"`
-	Role                  string                       `json:"Role"`
-	HomeDir               string                       `json:"HomeDirectory"`
 	HomeDirectoryType     string                       `json:"HomeDirectoryType,omitempty"`
-	Policy                string                       `json:"Policy,omitempty"`
 	HomeDirectoryMappings []homeDirectoryMapEntryInput `json:"HomeDirectoryMappings,omitempty"`
 }
 
@@ -214,7 +214,6 @@ func (h *Handler) handleUpdateAccess(
 		HomeDirectoryType:        in.HomeDirectoryType,
 		SetHomeDirectoryType:     in.HomeDirectoryType != "",
 		Policy:                   in.Policy,
-		SetPolicy:                in.Policy != "",
 		PosixProfile:             toPosixProfile(in.PosixProfile),
 		SetPosixProfile:          in.PosixProfile != nil,
 		HomeDirectoryMappings:    toHomeDirectoryMappings(in.HomeDirectoryMappings),

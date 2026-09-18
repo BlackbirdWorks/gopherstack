@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
-last_audit_commit: 2dfc55a39
+last_audit_commit: f66686eee
 last_audit_date: 2026-09-18                          # reqfielddiff tier-1 request-field audit: 5 tier-1
                                                        # findings, all real (CreateAgreement/UpdateAgreement x
                                                        # EnforceMessageSigning+PreserveFilename,
@@ -69,6 +69,19 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard census: omitted-member blanking on 6 ops (12 fields)
+
+UpdateAccess/UpdateUser (Role, HomeDirectory, Policy -- Policy was hidden
+behind a `SetPolicy` flag itself derived from `!= ""`, same bug one layer
+up), UpdateCertificate (Description), UpdateConnector (Url, AccessRole,
+LoggingRole, SecurityPolicyName), UpdateServer (Certificate, HostKey,
+LoggingRole, PreAuthenticationLoginBanner, PostAuthenticationLoginBanner,
+SecurityPolicyName) and UpdateWebApp (AccessEndpoint) decoded these as
+plain strings, so an update omitting the field blanked stored state. Fixed
+by decoding as `*string` and applying only when non-nil. zeroguard rows
+25 -> 9; the rest are required lookup identifiers (ServerId/ExternalId/
+CertificateId/ConnectorId/ProfileId/UserName/WebAppId).
 
 ### 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 request-field sweep
 

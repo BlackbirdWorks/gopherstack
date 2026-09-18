@@ -358,25 +358,20 @@ type UpdateServerInput struct {
 	ProtocolDetails               *ProtocolDetails
 	WorkflowDetails               *WorkflowDetails
 	S3StorageOptions              *S3StorageOptions
-	SecurityPolicyName            string
+	SecurityPolicyName            *string
+	Certificate                   *string
+	HostKey                       *string
+	LoggingRole                   *string
+	PreAuthenticationLoginBanner  *string
+	PostAuthenticationLoginBanner *string
 	ServerID                      string
-	Certificate                   string
 	EndpointType                  string
-	HostKey                       string
-	LoggingRole                   string
-	PreAuthenticationLoginBanner  string
-	PostAuthenticationLoginBanner string
 	IPAddressType                 string
 	IdentityProviderType          string
 	StructuredLogDestinations     []string
 	Protocols                     []string
-	SetLoggingRole                bool
 	SetIdentityProviderDetails    bool
 	SetIdentityProviderType       bool
-	SetCertificate                bool
-	SetPreAuthBanner              bool
-	SetPostAuthBanner             bool
-	SetSecurityPolicyName         bool
 	SetIPAddressType              bool
 	SetEndpointType               bool
 	SetEndpointDetails            bool
@@ -384,7 +379,6 @@ type UpdateServerInput struct {
 	SetWorkflowDetails            bool
 	SetS3StorageOptions           bool
 	SetStructuredLogDestinations  bool
-	SetHostKey                    bool
 }
 
 // UpdateServer updates mutable fields on an existing server.
@@ -401,28 +395,28 @@ func applyServerStringFields(s *Server, in *UpdateServerInput) {
 		s.Protocols = in.Protocols
 	}
 
-	if in.SetCertificate {
-		s.Certificate = in.Certificate
+	if in.Certificate != nil {
+		s.Certificate = *in.Certificate
 	}
 
 	if in.SetEndpointType && in.EndpointType != "" {
 		s.EndpointType = in.EndpointType
 	}
 
-	if in.SetLoggingRole {
-		s.LoggingRole = in.LoggingRole
+	if in.LoggingRole != nil {
+		s.LoggingRole = *in.LoggingRole
 	}
 
-	if in.SetPreAuthBanner {
-		s.PreAuthenticationLoginBanner = in.PreAuthenticationLoginBanner
+	if in.PreAuthenticationLoginBanner != nil {
+		s.PreAuthenticationLoginBanner = *in.PreAuthenticationLoginBanner
 	}
 
-	if in.SetPostAuthBanner {
-		s.PostAuthenticationLoginBanner = in.PostAuthenticationLoginBanner
+	if in.PostAuthenticationLoginBanner != nil {
+		s.PostAuthenticationLoginBanner = *in.PostAuthenticationLoginBanner
 	}
 
-	if in.SetSecurityPolicyName {
-		s.SecurityPolicyName = in.SecurityPolicyName
+	if in.SecurityPolicyName != nil {
+		s.SecurityPolicyName = *in.SecurityPolicyName
 	}
 
 	if in.SetIPAddressType {
@@ -433,8 +427,8 @@ func applyServerStringFields(s *Server, in *UpdateServerInput) {
 		s.IdentityProviderType = in.IdentityProviderType
 	}
 
-	if in.SetHostKey {
-		s.HostKey = in.HostKey
+	if in.HostKey != nil {
+		s.HostKey = *in.HostKey
 	}
 }
 

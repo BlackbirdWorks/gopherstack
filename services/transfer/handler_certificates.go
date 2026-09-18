@@ -226,10 +226,10 @@ func (h *Handler) handleListCertificates(
 }
 
 type updateCertificateInput struct {
-	CertificateID string `json:"CertificateId"`
-	Description   string `json:"Description"`
-	ActiveDate    string `json:"ActiveDate,omitempty"`   // RFC3339
-	InactiveDate  string `json:"InactiveDate,omitempty"` // RFC3339
+	CertificateID string  `json:"CertificateId"`
+	Description   *string `json:"Description,omitempty"`
+	ActiveDate    string  `json:"ActiveDate,omitempty"`   // RFC3339
+	InactiveDate  string  `json:"InactiveDate,omitempty"` // RFC3339
 }
 
 type updateCertificateOutput struct {
