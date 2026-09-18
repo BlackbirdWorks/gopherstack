@@ -1,8 +1,8 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 064cc837d
-last_audit_date: 2026-09-17
+last_audit_commit: 302aa4e3c  # zeroguard: ModifyInstancePlacement omitted-member fix
+last_audit_date: 2026-09-18
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
@@ -499,6 +499,19 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard: ModifyInstancePlacement omitted-member fix
+
+GroupId/HostId/HostResourceGroupArn were plain strings guarded by `!= ""`;
+EC2 is awsquery/form-encoded, so "omitted" means the form key absent, not
+that `vals.Get` returns "". Changed to `*string` via the package's existing
+`parseOptionalString` (already used for GroupName) and `vals.Has`-based
+presence in the backend. InstanceId stays plain string: required lookup
+identifier. Also found and fixed while proving this: DescribeInstances'
+`instancePlacementItem` never surfaced GroupId/HostId/HostResourceGroupArn/
+PartitionNumber at all (only Tenancy/AvailabilityZone/GroupName/Affinity),
+even though the backend stored them -- no real client could ever observe a
+ModifyInstancePlacement result via DescribeInstances. Rows 7 -> 1.
 
 ### 2026-09-12 (gopherstack-ggu4a describe-by-id sweep + gopherstack-n3zi)
 

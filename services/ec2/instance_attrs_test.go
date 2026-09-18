@@ -198,7 +198,7 @@ func TestBackend_ModifyInstancePlacement_UnknownHostFails(t *testing.T) {
 	stoppedID := newStoppedInstance(t, b)
 
 	_, err := b.ModifyInstancePlacement(ec2.ModifyInstancePlacementInput{
-		InstanceID: stoppedID, HostID: "h-doesnotexist",
+		InstanceID: stoppedID, HostID: aws.String("h-doesnotexist"),
 	})
 	require.ErrorIs(t, err, ec2.ErrHostNotFound)
 }

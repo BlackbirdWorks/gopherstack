@@ -298,10 +298,10 @@ func (h *Handler) handleModifyInstancePlacement(vals url.Values, reqID string) (
 	ok, err := h.Backend.ModifyInstancePlacement(ModifyInstancePlacementInput{
 		InstanceID:           vals.Get("InstanceId"),
 		Affinity:             vals.Get("Affinity"),
-		GroupID:              vals.Get("GroupId"),
+		GroupID:              parseOptionalString(vals, "GroupId"),
 		GroupName:            parseOptionalString(vals, "GroupName"),
-		HostID:               vals.Get("HostId"),
-		HostResourceGroupArn: vals.Get("HostResourceGroupArn"),
+		HostID:               parseOptionalString(vals, "HostId"),
+		HostResourceGroupArn: parseOptionalString(vals, "HostResourceGroupArn"),
 		Tenancy:              vals.Get("Tenancy"),
 		PartitionNumber:      parseOptionalInt32(vals, "PartitionNumber"),
 	})

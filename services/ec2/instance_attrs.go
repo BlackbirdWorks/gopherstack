@@ -371,11 +371,11 @@ func (b *InMemoryBackend) ModifyInstanceNetworkPerformanceOptions(
 type ModifyInstancePlacementInput struct {
 	PartitionNumber      *int32
 	GroupName            *string
+	GroupID              *string
+	HostID               *string
+	HostResourceGroupArn *string
 	InstanceID           string
 	Affinity             string
-	GroupID              string
-	HostID               string
-	HostResourceGroupArn string
 	Tenancy              string
 }
 
@@ -400,9 +400,9 @@ func (b *InMemoryBackend) ModifyInstancePlacement(in ModifyInstancePlacementInpu
 		)
 	}
 
-	if in.HostID != "" {
-		if _, found := b.dedicatedHosts.Get(in.HostID); !found {
-			return false, fmt.Errorf("%w: %s", ErrHostNotFound, in.HostID)
+	if in.HostID != nil {
+		if _, found := b.dedicatedHosts.Get(*in.HostID); !found {
+			return false, fmt.Errorf("%w: %s", ErrHostNotFound, *in.HostID)
 		}
 	}
 
@@ -418,20 +418,20 @@ func applyInstancePlacement(inst *Instance, in ModifyInstancePlacementInput) {
 		inst.Placement.Affinity = in.Affinity
 	}
 
-	if in.GroupID != "" {
-		inst.Placement.GroupID = in.GroupID
+	if in.GroupID != nil {
+		inst.Placement.GroupID = *in.GroupID
 	}
 
 	if in.GroupName != nil {
 		inst.Placement.GroupName = *in.GroupName
 	}
 
-	if in.HostID != "" {
-		inst.Placement.HostID = in.HostID
+	if in.HostID != nil {
+		inst.Placement.HostID = *in.HostID
 	}
 
-	if in.HostResourceGroupArn != "" {
-		inst.Placement.HostResourceGroupArn = in.HostResourceGroupArn
+	if in.HostResourceGroupArn != nil {
+		inst.Placement.HostResourceGroupArn = *in.HostResourceGroupArn
 	}
 
 	if in.Tenancy != "" {

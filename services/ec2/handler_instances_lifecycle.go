@@ -558,10 +558,14 @@ func toInstanceItem(
 		TagSet:                instanceTagItemSet{Items: tagItems},
 		IamInstanceProfile:    iamProfile,
 		Placement: instancePlacementItem{
-			Tenancy:          inst.Placement.Tenancy,
-			AvailabilityZone: inst.Placement.AvailabilityZone,
-			GroupName:        inst.Placement.GroupName,
-			Affinity:         inst.Placement.Affinity,
+			Tenancy:              inst.Placement.Tenancy,
+			AvailabilityZone:     inst.Placement.AvailabilityZone,
+			GroupName:            inst.Placement.GroupName,
+			GroupID:              inst.Placement.GroupID,
+			Affinity:             inst.Placement.Affinity,
+			HostID:               inst.Placement.HostID,
+			HostResourceGroupArn: inst.Placement.HostResourceGroupArn,
+			PartitionNumber:      inst.Placement.PartitionNumber,
 		},
 	}
 
@@ -615,10 +619,14 @@ type instanceGroupSet struct {
 }
 
 type instancePlacementItem struct {
-	Tenancy          string `xml:"tenancy,omitempty"`
-	AvailabilityZone string `xml:"availabilityZone,omitempty"`
-	GroupName        string `xml:"groupName,omitempty"`
-	Affinity         string `xml:"affinity,omitempty"`
+	Tenancy              string `xml:"tenancy,omitempty"`
+	AvailabilityZone     string `xml:"availabilityZone,omitempty"`
+	GroupName            string `xml:"groupName,omitempty"`
+	GroupID              string `xml:"groupId,omitempty"`
+	Affinity             string `xml:"affinity,omitempty"`
+	HostID               string `xml:"hostId,omitempty"`
+	HostResourceGroupArn string `xml:"hostResourceGroupArn,omitempty"`
+	PartitionNumber      int32  `xml:"partitionNumber,omitempty"`
 }
 
 // stateReasonItem is the <stateReason> element carrying the structured
