@@ -1,8 +1,8 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
-last_audit_commit: b989093b4
-last_audit_date: 2026-08-21
+last_audit_commit: ab7ac08a7
+last_audit_date: 2026-09-18
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -110,6 +110,20 @@ ops:
       Fixed by adding "severity": "ERROR" (ValidateStateMachineDefinitionSeverity
       declares exactly ERROR/WARNING, enums.go:464-470; this handler only
       ever emits the FAIL/blocking case, never WARNING).
+      FIXED 2026-09-18 (reqfielddiff, gopherstack-xhu2t): severity, type, and
+      maxResults (all real ValidateStateMachineDefinitionInput members) were
+      entirely undeclared -- the decode struct had only definition. Now
+      declared; severity/type are enum-validated (ERROR/WARNING,
+      STANDARD/EXPRESS) and rejected with ValidationException otherwise;
+      maxResults (default/cap 100 per the doc) is applied to the
+      diagnostics list with a real Truncated output field (previously
+      absent from the wire entirely). Neither severity's WARNING/ERROR
+      split nor maxResults truncation has an observable effect today
+      beyond the enum check itself: asl.Parse can only ever produce zero or
+      one ERROR diagnostic, so there is never more than one item to filter
+      or truncate -- disclosed, not fabricated. Proven via
+      TestValidateStateMachineDefinition_Options (real aws-sdk-go-v2
+      client).
   StartExecution:
     wire: fixed
     errors: ok
@@ -209,7 +223,7 @@ ops:
       listing (ListExecutions(stateMachineArn=...)) even though they share
       the parent's StateMachineArn, matching AWS: they surface only via the
       mapRunArn query. See asl_map family note for how children are spawned.
-  GetExecutionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the resource/region/parameters portion of gopherstack-996, open since 2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go: 1311-1339, both required) were never set at all -- RecordTaskScheduled only ever populated Resource/ResourceType. TaskSucceededEventDetails. Resource/ResourceType (types.go:1431-1450, required) and TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307, required) were also never set. All four are reachable on every normal Task-state execution, not an edge case. Fixed by threading state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/ executor.go's HistoryRecorder interface gained a resource param on both) and the resolved post-Parameters-template task input through RecordTaskScheduled for Parameters, with Region derived via the existing regionFromARN(resource, backend.region) helper (same one used for activity ARNs elsewhere in this package). gopherstack-996's remaining scope (TaskSubmitted/TaskStarted events for .sync/ waitForTaskToken integration patterns) is a structural gap, not a dropped-field bug -- this emulator never models those event kinds at all, so no HistoryEvent ever claims to be one; left open, see gaps. FIXED 2026-09-11 (bd: gopherstack-996), closing the timeout/heartbeat portion: TaskScheduledEventDetails.TimeoutInSeconds/HeartbeatInSeconds (types.go:1311-1339, both optional *int64) are now set from the Task state's own TimeoutSeconds/HeartbeatSeconds, nil (not a fabricated 0) when unset. Also fixed: Resource on TaskScheduled/TaskSucceeded/TaskFailed was the raw Task Resource ARN; the real field is \"the action of the resource called by a task state\" (types.go), so a States service-integration ARN (arn:aws:states:::lambda:invoke) is now split to just its action (\"invoke\"), matching AWS; direct-service/activity ARNs are unchanged."}
+  GetExecutionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (bd gopherstack-r80d, batch 10; closes the resource/region/parameters portion of gopherstack-996, open since 2026-07-05): TaskScheduledEventDetails.Region/Parameters (types.go: 1311-1339, both required) were never set at all -- RecordTaskScheduled only ever populated Resource/ResourceType. TaskSucceededEventDetails. Resource/ResourceType (types.go:1431-1450, required) and TaskFailedEventDetails.Resource/ResourceType (types.go:1289-1307, required) were also never set. All four are reachable on every normal Task-state execution, not an edge case. Fixed by threading state.Resource through RecordTaskSucceeded/RecordTaskFailed (asl/ executor.go's HistoryRecorder interface gained a resource param on both) and the resolved post-Parameters-template task input through RecordTaskScheduled for Parameters, with Region derived via the existing regionFromARN(resource, backend.region) helper (same one used for activity ARNs elsewhere in this package). gopherstack-996's remaining scope (TaskSubmitted/TaskStarted events for .sync/ waitForTaskToken integration patterns) is a structural gap, not a dropped-field bug -- this emulator never models those event kinds at all, so no HistoryEvent ever claims to be one; left open, see gaps. FIXED 2026-09-11 (bd: gopherstack-996), closing the timeout/heartbeat portion: TaskScheduledEventDetails.TimeoutInSeconds/HeartbeatInSeconds (types.go:1311-1339, both optional *int64) are now set from the Task state's own TimeoutSeconds/HeartbeatSeconds, nil (not a fabricated 0) when unset. Also fixed: Resource on TaskScheduled/TaskSucceeded/TaskFailed was the raw Task Resource ARN; the real field is \"the action of the resource called by a task state\" (types.go), so a States service-integration ARN (arn:aws:states:::lambda:invoke) is now split to just its action (\"invoke\"), matching AWS; direct-service/activity ARNs are unchanged. FIXED 2026-09-18 (reqfielddiff, gopherstack-xhu2t): includeExecutionData (real, documented default true) was entirely undeclared -- a caller asking to omit event input/output with includeExecutionData=false always got it back anyway. Now declared; an explicit false strips StateEnteredEventDetails.Input/StateExitedEventDetails.Output/TaskSubmittedEventDetails.Output/TaskSucceededEventDetails.Output from a copy of each returned event (the stored history itself is never mutated). Proven via TestGetExecutionHistory_IncludeExecutionData (real aws-sdk-go-v2 client)."}
   CreateActivity:
     wire: fixed
     errors: ok
@@ -285,7 +299,7 @@ ops:
       executions were ever filed under its MapRunArn to tally.
   ListMapRuns: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full MapRun struct per item, leaking status/itemCounts/toleratedFailurePercentage/maxConcurrency/toleratedFailureCount/redriveCount/redriveDate -- real MapRunListItem (types.go, sfn@v1.45.4) declares only executionArn/mapRunArn/startDate/stateMachineArn/stopDate. Now marshals a new mapRunListItem view. ERRORS FIXED (error-path sweep, 2026-08-29): ListMapRuns models ExecutionDoesNotExist but the backend never checked executionArn existence -- an unknown ARN silently returned an empty page. Now raises ExecutionDoesNotExist for an unknown executionArn, with an OR-check against the mapRunsByExecution index so StartSyncExecution's EXPRESS executions -- never inserted into b.executions by design -- still list correctly."}
   UpdateMapRun: {wire: ok, errors: fixed, state: ok, persist: ok, note: "ToleratedFailureCount/Percentage on the MapRun *resource* API were already real; the ASL-definition-level Map state fields were fixed in a prior pass. ERRORS FIXED (error-path sweep, 2026-08-29): raised a fabricated MapRunDoesNotExist for a missing map run -- names no type anywhere in this SDK; now emits the modelled ResourceNotFound."}
-  TestState: {wire: ok, errors: ok, state: ok, persist: n/a}
+  TestState: {wire: ok, errors: ok, state: ok, persist: n/a, note: "DISCLOSED, not fixed (2026-09-18, reqfielddiff, gopherstack-xhu2t): InspectionLevel and RevealSecrets are entirely undeclared. Both are real, but their only observable effect on real AWS is populating InspectionData (afterInputPath/afterParameters/afterResultSelector/afterResultPath/request/response for DEBUG/TRACE) and unredacting HTTP-connection secrets within it -- this backend's asl.Executor never tracks per-stage processing snapshots or performs real HTTP Task calls at all (testStateOutput only ever carries the final status/output/error/cause/nextState), so there is no InspectionData subsystem for either field to affect. Accepting and silently ignoring them, as today, is the honest behavior at INFO (the documented default); implementing INFO-only enum acceptance without ever being able to produce DEBUG/TRACE content would misrepresent support -- see items_still_open."}
 families:
   asl_task:
     status: fixed
@@ -446,6 +460,7 @@ items_still_open:
   - "STALE, corrected 2026-08-23 (manifest-harvest pass): re-read models.go/executions.go directly instead of trusting this note -- RedriveStatus, TraceHeader, InputDetails, and OutputDetails were already declared on Execution AND already assigned real values at every relevant transition (initializeExecutionRecord/finalizeExecutionRecordLocked/StopExecution/resetExecutionForRedrive); this line's claim that gopherstack-f5dc left them missing was wrong. RedriveStatusReason (real, AWS: 'When redriveStatus is NOT_REDRIVABLE, redriveStatusReason specifies the reason', api_op_DescribeExecution.go) WAS a genuine gap -- declared but never assigned, so real clients always decoded an empty string -- FIXED this pass: populated with AWS's exact documented reason strings ('Execution is RUNNING and cannot be redriven.' / 'Execution is SUCCEEDED and cannot be redriven.') at every NOT_REDRIVABLE transition and cleared at every REDRIVABLE one. MapRunArn was, at the time of this 2026-08-23 pass, genuinely absent -- FIXED since, this pass (bd: gopherstack-zov6): Execution.MapRunArn is now assigned for every real Distributed Map child execution; see the gopherstack-zov6 gap entry above and the asl_map family note. Proven via a real aws-sdk-go-v2/service/sfn client round trip (wire_redrivestatusreason_test.go), which also incidentally caught and fixed a second, unrelated real bug it exposed: a bare {\"Type\":\"Fail\"} state (Error/Cause both optional per the ASL spec) was silently recorded as SUCCEEDED, not FAILED, because asl.ExecutionResult had no way to distinguish 'failed with an empty error code' from 'succeeded' other than checking Error != \"\" -- fixed by adding ExecutionResult.Failed and switching every consumer (asl/executor.go's Parallel-branch and Map-iteration paths, executions.go's async and sync finalizers, handler_util.go's TestState) off the Error != \"\" check. FIXED 2026-09-11 (bd: gopherstack-f5dc), closing the remainder: InputDetails/OutputDetails (CloudWatchEventsExecutionDataDetails) were wire-tagged/valued as Truncated=false, a member the real type doesn't have -- now Included=true, matching sfn@v1.49.0 types.go:159-166. TraceHeader, though already assigned on StartExecution, was never carried through Snapshot/Restore -- now persisted."
   - "Non-standard intrinsic functions (StringConcat, ArraySlice, MathSubtract, etc.) are accepted by this emulator but do not exist in real AWS Step Functions -- permissive superset, not a correctness bug against valid AWS definitions, but a definition that only works here would fail on real AWS (no bd filed; informational)"
   - "STALE, corrected this pass (bd: gopherstack-zov6): this line previously read 'ListExecutions' new executionListItem view (gopherstack-dv4s) omits itemCount/mapRunArn, which real ExecutionListItem declares (types.go, sfn@v1.45.4) -- the domain Execution struct never tracked either field, a missing-field gap distinct from the over-wide leak this pass fixed (bd: unfiled)'. FIXED: Execution now tracks both, and ListExecutions accepts a mapRunArn query mode that populates them on the results -- see the ListExecutions ops note."
+  - "2026-09-18 (reqfielddiff, gopherstack-xhu2t): TestState.InspectionLevel/RevealSecrets are unmodeled -- both need an InspectionData subsystem (per-stage input/parameters/resultSelector/resultPath snapshots, plus real HTTP Task request/response capture for RevealSecrets to un-redact) that asl.Executor does not have; TestState today only produces a final status/output/error/cause/nextState. See the TestState ops entry."
 deferred: []
 leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execution's context via b.cancelFns; Wait/waitForRetry/execSem/semaphore all select on ctx.Done(); Map/Parallel goroutines (wg.Go) all respect ctx cancellation. FIXED this pass: DeleteActivity leaked a permanent h.tags tombstone entry per deleted activity (see ops.DeleteActivity). No new goroutines introduced this pass (resolveExecutionTarget/S3Reader wiring are synchronous, no new goroutines)."}
 ---
@@ -1173,3 +1188,14 @@ instantly, making a RUNNING-status snapshot immediately after
 the real error/cause. Gates: `go build ./...` (whole module), `go vet`,
 `go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
 all clean. No persisted struct fields changed; no version bump.
+
+## 2026-09-18 (reqfielddiff, gopherstack-xhu2t, tier-1 re-pass)
+
+6 tier-1 fields: 4 fixed, 2 recorded. Fixed:
+`GetExecutionHistory.IncludeExecutionData` (strips per-event input/output on
+an explicit false) and `ValidateStateMachineDefinition.severity`/`.type`/
+`.maxResults` (enum-validated, maxResults capping + Truncated wired, though
+diagnostics never exceed one item today). Recorded: `TestState.
+InspectionLevel`/`.RevealSecrets` (no InspectionData subsystem to back
+either). Tier-1: 6 -> 2. Gates green (build/vet/race-test/persistence/lint
+0-new).
