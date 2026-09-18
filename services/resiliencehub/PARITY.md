@@ -12,8 +12,8 @@
 # audit body (Sections 1-4 below) is kept as reference material.
 service: resiliencehub
 sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
-last_audit_commit: 59c11330a
-last_audit_date: 2026-08-06
+last_audit_commit: a2084957b
+last_audit_date: 2026-09-18
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed
 # SDK-driven integration suite (test/integration/resiliencehub_test.go, 9
 # TestIntegration_ResilienceHub_* funcs / 27 subtests) proves wire
@@ -1023,3 +1023,18 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes (every op exercised
 reads existing persisted state or is response-only). No version bump.
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings (ListAppAssessments/ListApps/
+ListRecommendationTemplates .ReverseOrder), all 3 false positives -- each
+already parsed (`q.Get("reverseOrder")`, handler_apps.go:86,
+handler_assessments.go:55, handler_templates.go:42) and applied to sort
+order (apps.go:236-241, assessments.go:265-273, templates.go:158-168),
+verified against serializers.go's `SetQuery("reverseOrder")` binding on
+all three ops. The tool only matches struct-declared request fields, not
+raw query-string reads, so it cannot see this. No code change. Tier-1
+count unchanged at 3 (same tool blind spot, not a real gap). Gates: `go
+build ./...`, `go vet`, `go test -race -count=1
+./services/resiliencehub/...`, `golangci-lint run --new-from-rev=HEAD` (0
+issues) all clean. No persisted fields changed; no version bump.
