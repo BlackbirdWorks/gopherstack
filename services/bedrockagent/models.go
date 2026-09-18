@@ -59,6 +59,7 @@ type AgentConfig struct {
 	FoundationModel         string
 	Instruction             string
 	RoleARN                 string
+	OrchestrationType       string
 	IdleSessionTTLInSeconds int
 }
 
@@ -212,6 +213,7 @@ type Agent struct {
 	// required field a real client decodes as missing (gopherstack-r80d
 	// batch 7).
 	RoleARN                 string `json:"agentResourceRoleArn"`
+	OrchestrationType       string `json:"orchestrationType"`
 	IdleSessionTTLInSeconds int    `json:"idleSessionTTLInSeconds"`
 }
 

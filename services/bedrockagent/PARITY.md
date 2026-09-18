@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: bedrockagent
 sdk_module: aws-sdk-go-v2/service/bedrockagent@v1.58.4   # version audited against
-last_audit_commit: d2851f3db666dbb499891c5ede8af1534c00ddf0
-last_audit_date: 2026-08-07
+last_audit_commit: d79e0612c
+last_audit_date: 2026-09-18
 overall: A            # RESTORED B->A (parity-5, 2026-07-31, follow-up pass): the routing
                       # bug that caused the prior A->B downgrade is fixed and proven.
                       # dispatchKBDocuments (handler.go) now assigns PUT on the base
@@ -58,14 +58,29 @@ ops:
     actually trigger the empty-value path. Removed omitempty anyway as a
     harmless hardening (present-but-empty beats silently-dropped-key if this
     ever becomes reachable another way), but NOT counted as one of this
-    batch's proven bugs -- see PARITY's Notes section for the full accounting."}
+    batch's proven bugs -- see PARITY's Notes section for the full accounting.
+    FIXED (gopherstack-xhu2t, 2026-09-18): OrchestrationType ('This is set to
+    DEFAULT orchestration type, by default' — api_op_CreateAgent.go) was
+    dropped end to end -- accepted on the wire, never stored, GetAgent always
+    echoed the Go zero value instead of DEFAULT/CUSTOM_ORCHESTRATION. Added
+    to AgentConfig/Agent, defaulted to DEFAULT when omitted. Proven by
+    TestAgent_OrchestrationType (typed-client round trip)."}
   GetAgent: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateAgent: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateAgent: {wire: ok, errors: ok, state: ok, persist: ok,
+    note: "FIXED (gopherstack-xhu2t, 2026-09-18): OrchestrationType shares
+    CreateAgent's dropped-field fix, see that entry."}
   DeleteAgent: {wire: ok, errors: ok, state: fixed, persist: ok,
     note: "cascade-delete gap: only agentVersions and the version counter were
     cleaned up; actionGroups/agentAliases/agentCollaborators/agentKBAssocs and
     the agent's + every alias's tags map entry were left as permanent ghost
-    rows. Fixed — see Notes: cascade-delete."}
+    rows. Fixed — see Notes: cascade-delete. FIXED (gopherstack-xhu2t,
+    2026-09-18): SkipResourceInUseCheck was dropped entirely -- DeleteAgent
+    always cascaded regardless of live aliases. An agent is 'in use' when it
+    has any alias (an alias always routes to a numbered snapshot of the
+    agent, per CreateAgentAlias), mirroring DeleteAgentVersion's per-version
+    alias check. Proven by TestDeleteAgent_BlockedWhileAliasExists and
+    TestDeleteAgent_ConflictIsTypedOverSDKClient (typed client decodes a real
+    types.ConflictException)."}
   ListAgents: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (constraint sweep): maxResults/nextToken are body-bound per the real SDK (ListAgentsInput's own httpBindings serializer has no query bindings at all, POST /agents/), but the handler read them from the URL query string via the shared pageParams helper -- a real client's pagination was always ignored. Same body-vs-query mismatch fixed across ListAgentVersions/ActionGroups/Aliases/Collaborators/KnowledgeBases/ListKnowledgeBases/ListDataSources/ListKnowledgeBaseDocuments below (ListFlows/ListFlowAliases/ListFlowVersions/ListPrompts were already correct: those really are query-bound, confirmed per-op)."}
   PrepareAgent: {wire: ok, errors: ok, state: ok, persist: ok}
   ListAgentVersions: {wire: fixed, errors: ok, state: ok, persist: ok,
@@ -116,7 +131,15 @@ ops:
     version-snapshot-propagation."}
   DeleteAgentActionGroup: {wire: ok, errors: fixed, state: ok, persist: ok,
     note: "(gopherstack-rvyd follow-up, 2026-08-08) same DRAFT-only fix as
-    UpdateAgentActionGroup."}
+    UpdateAgentActionGroup. SkipResourceInUseCheck NOT fixed (gopherstack-xhu2t
+    triage, 2026-09-18): unlike DeleteAgent/DeleteAgentVersion/DeleteFlow/
+    DeleteFlowVersion, an action group has no wire-visible relationship to
+    check it against -- it is always DRAFT-scoped (Create/Delete both reject
+    any other {agentVersion}), and an alias only ever routes to a NUMBERED
+    version, which gets its own independent deep copy of the action group at
+    snapshot time (snapshotSubResourcesLocked). Deleting a DRAFT action group
+    can never strand a live alias reference. Missing feature, not a dropped
+    parameter -- see items_still_open."}
   ListAgentActionGroups: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "was unreachable: POST (real wire method) was misrouted to Create — fixed.
     FIXED 2026-08-21 (gopherstack-r80d batch 7): types.ActionGroupSummary
@@ -276,7 +299,11 @@ ops:
     FIXED this pass: response fabricated a 'status': 'Deleting' field; real
     DeleteFlowOutput (bedrockagent@v1.58.4 deserializers.go's
     awsRestjson1_deserializeOpDocumentDeleteFlowOutput) declares only 'id'.
-    See wire_field_fixes_test.go."}
+    See wire_field_fixes_test.go. FIXED (gopherstack-xhu2t, 2026-09-18):
+    SkipResourceInUseCheck was dropped entirely, same bug as DeleteAgent --
+    a flow is 'in use' when it has any alias. Proven by
+    TestDeleteFlow_BlockedWhileAliasExists and
+    TestDeleteFlow_ConflictIsTypedOverSDKClient."}
   ListFlows: {wire: fixed, errors: ok, state: ok, persist: ok,
     note: "FIXED 2026-08-21 (gopherstack-r80d batch 7): types.FlowSummary
     requires 'arn' and 'createdAt' (deserializers.go) -- FlowSummary had no
@@ -484,6 +511,15 @@ families:
     ServiceQuotaExceededException, ThrottlingException, ValidationException)."}
 gaps: []
 items_still_open:
+  - "DeleteAgentActionGroup.SkipResourceInUseCheck (gopherstack-xhu2t, 2026-09-18):
+    accepted-and-ignored. No fix possible without fabrication -- an action
+    group is always DRAFT-scoped (Create/Delete both reject any other
+    {agentVersion}), and an alias only ever routes to a NUMBERED agent
+    version, which holds its own independent copy of the action group made
+    at snapshot time (snapshotSubResourcesLocked); deleting the DRAFT copy
+    can never strand a live alias reference the way DeleteAgent/
+    DeleteAgentVersion/DeleteFlow/DeleteFlowVersion's alias-routing check
+    can. See the DeleteAgentActionGroup ops entry above."
   - "FIXED (gopherstack-wzwn, 2026-08-13): GetKnowledgeBaseDocuments and
     DeleteKnowledgeBaseDocuments decoded their request body against a struct
     tagged json:\"documentIds\" holding []string. Real clients send
@@ -1079,3 +1115,29 @@ mismatch conflict on both put and delete, re-put with the correct
 base `resourceArn` rejection. Zero bugs -- confirms the `ops:` table's
 existing `wire: ok` verdicts above, which had never actually been proven
 against a real client despite the detailed shape documentation.
+
+## 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1)
+
+2 real dropped parameters fixed, 1 genuinely disclosed as a missing feature
+(no code fix possible). `OrchestrationType` (`CreateAgent`/`UpdateAgent`)
+was accepted-and-dropped end to end -- added to `AgentConfig`/`Agent`,
+defaulted to `DEFAULT`, proven via `orchestration_type_test.go`.
+`SkipResourceInUseCheck` (`DeleteAgent`/`DeleteFlow`) was never wired at
+all, unlike the sibling `DeleteAgentVersion`/`DeleteFlowVersion` ops that
+already implement it -- both now block deletion while any alias exists
+(mirroring the version-level alias-routing check), proven via new
+table-driven backend tests plus typed-client tests asserting a real
+`types.ConflictException` decodes (`delete_version_in_use_test.go`).
+`DeleteAgentActionGroup.SkipResourceInUseCheck` is NOT fixed: action groups
+are always DRAFT-scoped and numbered versions hold independent deep copies
+made at snapshot time, so there is no wire-visible "in use" relationship to
+check against without fabricating one -- added to `items_still_open`.
+Tier-1: 5 -> 5 (2 fixed, 1 open-list entry, 2 that share the OrchestrationType
+fix). Gates: `go build ./...`, `go vet ./services/bedrockagent/...`,
+`go test -race -count=1 ./services/bedrockagent/...`,
+`go test -count=1 ./pkgs/persistence/...` (bedrockagent clean; the only
+reported violation was `transfer`, owned by a concurrent pass) all clean.
+`Agent.OrchestrationType` is a pure additive field (old snapshots decode it
+as the zero value, same as never having set it) -- no `bedrockagentSnapshotVersion`
+bump, `pkgs/persistence/testdata/snapshot_inventory.json`'s bedrockagent row
+updated with the one new field.

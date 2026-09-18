@@ -99,13 +99,27 @@ func applyFlowConfig(f *Flow, cfg FlowConfig) {
 }
 
 // DeleteFlow deletes a flow.
-func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string) error {
+//
+// Real AWS (api_op_DeleteFlow.go): "By default, this value is false and
+// deletion is stopped if the resource is in use. If you set it to true, the
+// resource will be deleted even if the resource is in use." A flow is "in
+// use" when it has any alias at all -- mirrors DeleteAgent's equivalent
+// check, and DeleteFlowVersion's per-version alias check below.
+func (b *InMemoryBackend) DeleteFlow(_ context.Context, flowID string, skipResourceInUseCheck bool) error {
 	b.mu.Lock("DeleteFlow")
 	defer b.mu.Unlock()
 
 	f, ok := b.flows.Get(flowID)
 	if !ok {
 		return fmt.Errorf("%w: flow %q not found", ErrNotFound, flowID)
+	}
+
+	if !skipResourceInUseCheck {
+		if aliases := b.flowAliasesByFlow.Get(flowID); len(aliases) > 0 {
+			return fmt.Errorf(
+				"%w: flow %q has %d alias(es)", ErrResourceInUse, flowID, len(aliases),
+			)
+		}
 	}
 
 	delete(b.flowsByName, f.Name)

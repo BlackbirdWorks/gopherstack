@@ -35,19 +35,25 @@ func (b *InMemoryBackend) CreateAgent(ctx context.Context, cfg AgentConfig) (*Ag
 		collab = "DISABLED"
 	}
 
+	orchestrationType := cfg.OrchestrationType
+	if orchestrationType == "" {
+		orchestrationType = "DEFAULT"
+	}
+
 	a := &Agent{
-		AgentID:         id,
-		AgentARN:        b.buildAgentARN(region, id),
-		AgentName:       cfg.AgentName,
-		AgentVersion:    defaultAgentVersion,
-		AgentStatus:     agentStatusNotPrepared,
-		Collaboration:   collab,
-		Description:     cfg.Description,
-		FoundationModel: cfg.FoundationModel,
-		Instruction:     cfg.Instruction,
-		RoleARN:         cfg.RoleARN,
-		Guardrail:       cfg.Guardrail,
-		Memory:          cfg.Memory,
+		AgentID:           id,
+		AgentARN:          b.buildAgentARN(region, id),
+		AgentName:         cfg.AgentName,
+		AgentVersion:      defaultAgentVersion,
+		AgentStatus:       agentStatusNotPrepared,
+		Collaboration:     collab,
+		Description:       cfg.Description,
+		FoundationModel:   cfg.FoundationModel,
+		Instruction:       cfg.Instruction,
+		RoleARN:           cfg.RoleARN,
+		OrchestrationType: orchestrationType,
+		Guardrail:         cfg.Guardrail,
+		Memory:            cfg.Memory,
 		PromptOverrideConfiguration: map[string]any{
 			"promptConfigurations": []any{},
 		},
@@ -131,6 +137,10 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 		a.RoleARN = cfg.RoleARN
 	}
 
+	if cfg.OrchestrationType != "" {
+		a.OrchestrationType = cfg.OrchestrationType
+	}
+
 	if cfg.Guardrail != nil {
 		a.Guardrail = cfg.Guardrail
 	}
@@ -158,13 +168,30 @@ func applyAgentConfig(a *Agent, cfg AgentConfig) {
 // "agentID/agentVersion" scope, so cascading them requires walking DRAFT
 // plus every numbered AgentVersion row and clearing each scope; agentAliases
 // carries a plain byAgent index so no version walk is needed there.
-func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string) error {
+//
+// Real AWS (api_op_DeleteAgent.go): "By default, this value is false and
+// deletion is stopped if the resource is in use. If you set it to true, the
+// resource will be deleted even if the resource is in use." An agent is "in
+// use" when it has any alias at all -- an alias always routes to a numbered
+// snapshot of this agent (CreateAgentAlias), so any alias existing means a
+// caller-visible reference into this agent would otherwise be cascade-deleted
+// out from under them. Same wire-visible-relationship reasoning as
+// DeleteAgentVersion's per-version alias check.
+func (b *InMemoryBackend) DeleteAgent(_ context.Context, agentID string, skipResourceInUseCheck bool) error {
 	b.mu.Lock("DeleteAgent")
 	defer b.mu.Unlock()
 
 	a, ok := b.agents.Get(agentID)
 	if !ok {
 		return fmt.Errorf("%w: agent %q not found", ErrNotFound, agentID)
+	}
+
+	if !skipResourceInUseCheck {
+		if aliases := b.agentAliasesByAgent.Get(agentID); len(aliases) > 0 {
+			return fmt.Errorf(
+				"%w: agent %q has %d alias(es)", ErrResourceInUse, agentID, len(aliases),
+			)
+		}
 	}
 
 	delete(b.agentsByName, a.AgentName)

@@ -23,7 +23,10 @@ func TestDeleteAgentCascades(t *testing.T) {
 	agent, alias := setupCascadeAgentFixture(ctx, t, b)
 	assertCascadeAgentFixtureBeforeDelete(ctx, t, b, agent, alias)
 
-	if delErr := b.DeleteAgent(ctx, agent.AgentID); delErr != nil {
+	// skip=true: this fixture deliberately has an alias, and this test's
+	// point is proving the CASCADE cleans it up, not the separate
+	// in-use-block behavior covered by TestDeleteAgent_BlockedWhileAliasExists.
+	if delErr := b.DeleteAgent(ctx, agent.AgentID, true); delErr != nil {
 		t.Fatalf("delete agent: %v", delErr)
 	}
 
@@ -332,7 +335,10 @@ func TestDeleteFlowCascades(t *testing.T) {
 		t.Fatalf("create flow alias: %v", err)
 	}
 
-	if delErr := b.DeleteFlow(ctx, flow.FlowID); delErr != nil {
+	// skip=true: same reasoning as TestDeleteAgentCascades above -- this
+	// fixture's alias is the thing under test for cascade cleanup, covered
+	// separately for the in-use block by TestDeleteFlow_BlockedWhileAliasExists.
+	if delErr := b.DeleteFlow(ctx, flow.FlowID, true); delErr != nil {
 		t.Fatalf("delete flow: %v", delErr)
 	}
 

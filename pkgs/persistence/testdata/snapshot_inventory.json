@@ -3682,6 +3682,7 @@
       "Agent.IdleSessionTTLInSeconds int `json:\"idleSessionTTLInSeconds\"`",
       "Agent.Instruction string `json:\"instruction,omitempty\"`",
       "Agent.Memory map[string]any `json:\"memoryConfiguration,omitempty\"`",
+      "Agent.OrchestrationType string `json:\"orchestrationType\"`",
       "Agent.PreparedAt *time.Time `json:\"preparedAt,omitempty\"`",
       "Agent.PromptOverrideConfiguration map[string]any `json:\"promptOverrideConfiguration\"`",
       "Agent.RoleARN string `json:\"agentResourceRoleArn\"`",
