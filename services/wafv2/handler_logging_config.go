@@ -24,9 +24,39 @@ var validLoggingDestinationPrefixes = []string{ //nolint:gochecknoglobals // pac
 	"arn:aws:logs:",
 }
 
+// validLogScopes lists LogScope's documented enum values (wafv2@v1.77.3 types/enums.go).
+var validLogScopes = map[string]bool{ //nolint:gochecknoglobals // package-level lookup table
+	"CUSTOMER":                          true,
+	"SECURITY_LAKE":                     true,
+	"CLOUDWATCH_TELEMETRY_RULE_MANAGED": true,
+}
+
+// validateLogScope rejects a LogScope value outside the documented enum. Empty means
+// the caller omitted it (defaults to CUSTOMER).
+func validateLogScope(logScope string) error {
+	if logScope == "" || validLogScopes[logScope] {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid LogScope %q", errInvalidRequest, logScope)
+}
+
+// validateLogType rejects a LogType value outside the documented enum (currently a
+// single value, WAF_LOGS -- wafv2@v1.77.3 types/enums.go). Empty means the caller
+// omitted it (defaults to WAF_LOGS).
+func validateLogType(logType string) error {
+	if logType == "" || logType == "WAF_LOGS" {
+		return nil
+	}
+
+	return fmt.Errorf("%w: invalid LogType %q", errInvalidRequest, logType)
+}
+
 // deleteLoggingConfigurationRequest is the request body for DeleteLoggingConfiguration.
 type deleteLoggingConfigurationRequest struct {
 	ResourceArn string `json:"ResourceArn"`
+	LogScope    string `json:"LogScope"`
+	LogType     string `json:"LogType"`
 }
 
 func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
@@ -39,7 +69,15 @@ func (h *Handler) handleDeleteLoggingConfiguration(ctx context.Context, body []b
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	if err := h.Backend.DeleteLoggingConfiguration(ctx, req.ResourceArn); err != nil {
+	if err := validateLogScope(req.LogScope); err != nil {
+		return nil, err
+	}
+
+	if err := validateLogType(req.LogType); err != nil {
+		return nil, err
+	}
+
+	if err := h.Backend.DeleteLoggingConfiguration(ctx, req.ResourceArn, req.LogScope); err != nil {
 		return nil, err
 	}
 
@@ -122,6 +160,8 @@ func validateLoggingDestination(dest string) error {
 // getLoggingConfigurationRequest is the request body for GetLoggingConfiguration.
 type getLoggingConfigurationRequest struct {
 	ResourceArn string `json:"ResourceArn"`
+	LogScope    string `json:"LogScope"`
+	LogType     string `json:"LogType"`
 }
 
 func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte) ([]byte, error) {
@@ -134,7 +174,15 @@ func (h *Handler) handleGetLoggingConfiguration(ctx context.Context, body []byte
 		return nil, fmt.Errorf("%w: ResourceArn is required", errInvalidRequest)
 	}
 
-	cfgJSON, err := h.Backend.GetLoggingConfiguration(ctx, req.ResourceArn)
+	if err := validateLogScope(req.LogScope); err != nil {
+		return nil, err
+	}
+
+	if err := validateLogType(req.LogType); err != nil {
+		return nil, err
+	}
+
+	cfgJSON, err := h.Backend.GetLoggingConfiguration(ctx, req.ResourceArn, req.LogScope)
 	if err != nil {
 		return nil, err
 	}

@@ -96,7 +96,7 @@ func TestBackend_SnapshotRestore_FullStateRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"example.com"}, gotAPIKey.TokenDomains)
 
-	gotLogCfg, err := restored.GetLoggingConfiguration(ctx, webACL.ARN)
+	gotLogCfg, err := restored.GetLoggingConfiguration(ctx, webACL.ARN, "")
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"LogDestinationConfigs":["a"]}`, string(gotLogCfg))
 
