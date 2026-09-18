@@ -31,6 +31,9 @@ const (
 	keyInvalidPath             = "invalid path"
 	keyCommandArn              = "commandArn"
 	keyTarget                  = "target"
+	keyIndexName               = "indexName"
+	keyQueryString             = "queryString"
+	keyQueryVersion            = "queryVersion"
 
 	// URL path prefix constants.
 	pathPolicies         = "/policies"

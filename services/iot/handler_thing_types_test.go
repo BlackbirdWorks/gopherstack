@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +57,7 @@ func TestBackend_UpdateThingType(t *testing.T) {
 
 	err = b.UpdateThingType(&iot.UpdateThingTypeInput{
 		ThingTypeName:        "Sensor",
-		Description:          "updated",
+		Description:          aws.String("updated"),
 		SearchableAttributes: []string{"model", "firmware"},
 	})
 	require.NoError(t, err)
@@ -71,7 +72,7 @@ func TestBackend_UpdateThingType_NotFound(t *testing.T) {
 	t.Parallel()
 
 	b := iot.NewInMemoryBackend()
-	err := b.UpdateThingType(&iot.UpdateThingTypeInput{ThingTypeName: "missing", Description: "x"})
+	err := b.UpdateThingType(&iot.UpdateThingTypeInput{ThingTypeName: "missing", Description: aws.String("x")})
 	require.ErrorIs(t, err, iot.ErrThingTypeNotFound)
 }
 
@@ -531,7 +532,7 @@ func TestUpdateThing_ChangeThingType(t *testing.T) {
 
 	err = b.UpdateThing(&iot.UpdateThingInput{
 		ThingName:     "changetype-thing",
-		ThingTypeName: "TypeB",
+		ThingTypeName: aws.String("TypeB"),
 	})
 	require.NoError(t, err)
 

@@ -202,7 +202,7 @@ func (h *Handler) handleUpdateThingType(c *echo.Context) error {
 
 	var body struct {
 		ThingTypeProperties *struct {
-			ThingTypeDescription string   `json:"thingTypeDescription"`
+			ThingTypeDescription *string  `json:"thingTypeDescription,omitempty"`
 			SearchableAttributes []string `json:"searchableAttributes"`
 		} `json:"thingTypeProperties"`
 	}
@@ -210,7 +210,7 @@ func (h *Handler) handleUpdateThingType(c *echo.Context) error {
 		return err
 	}
 
-	var desc string
+	var desc *string
 
 	var searchable []string
 

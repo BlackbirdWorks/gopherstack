@@ -539,7 +539,7 @@ type UpdateJobInput struct {
 	TimeoutConfig              *TimeoutConfig
 	JobExecutionsRetryConfig   *JobExecutionsRetryConfig
 	PresignedURLConfig         *PresignedURLConfig
-	Description                string
+	Description                *string
 }
 
 func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
@@ -550,8 +550,8 @@ func (b *InMemoryBackend) UpdateJob(jobID string, input *UpdateJobInput) error {
 	if !ok {
 		return fmt.Errorf("job %q not found: %w", jobID, ErrResourceNotFound)
 	}
-	if input.Description != "" {
-		j.Description = input.Description
+	if input.Description != nil {
+		j.Description = *input.Description
 	}
 	if input.AbortConfig != nil {
 		j.AbortConfig = input.AbortConfig

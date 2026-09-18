@@ -428,7 +428,7 @@ func (h *Handler) handleUpdateCertificateProvider(c *echo.Context) error {
 	name := strings.TrimPrefix(c.Request().URL.Path, "/certificate-providers/")
 
 	var body struct {
-		LambdaFunctionARN           string   `json:"lambdaFunctionArn"`
+		LambdaFunctionARN           *string  `json:"lambdaFunctionArn,omitempty"`
 		AccountDefaultForOperations []string `json:"accountDefaultForOperations"`
 	}
 

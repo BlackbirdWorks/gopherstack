@@ -127,8 +127,8 @@ func (b *InMemoryBackend) UpdateThingType(input *UpdateThingTypeInput) error {
 		return fmt.Errorf("%w: %s", ErrThingTypeNotFound, input.ThingTypeName)
 	}
 
-	if input.Description != "" {
-		tt.Description = input.Description
+	if input.Description != nil {
+		tt.Description = *input.Description
 	}
 
 	for _, attr := range input.SearchableAttributes {

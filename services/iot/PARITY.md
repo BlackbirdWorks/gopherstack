@@ -2,7 +2,7 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: 5783fa294  # gopherstack-21my per-item field sweep
+last_audit_commit: f66686eee  # gopherstack-21my per-item field sweep
 last_audit_date: 2026-09-18
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
@@ -302,6 +302,27 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard census: omitted-member blanking on 8 ops
+
+UpdateJob.Description, UpdateFleetMetric (QueryString/IndexName/QueryVersion/
+Description/AggregationField), UpdateCertificateProvider.LambdaFunctionArn,
+UpdateThing.ThingTypeName, UpdateThingType.Description and
+UpdateThingGroup/UpdateDynamicThingGroup (Description/QueryString/IndexName/
+QueryVersion -- the latter three not in the census list itself since these
+two ops share one internal Go struct and the tool only checks it against
+UpdateThingGroup's own SDK shape, but same bug, found while fixing the
+listed rows) decoded these as plain strings, so an update omitting the
+field blanked stored state. Fixed by decoding as `*string` and applying
+only when non-nil. Also fixed a real gap found while proving the
+ThingGroup case: DescribeThingGroup never echoed queryString/indexName/
+queryVersion at all, so no real client could ever observe these fields
+post-update. zeroguard rows 22 -> 14; the rest are required lookup
+identifiers, ExpectedVersion (compare-only, never applied), Period (SDK
+disallows 0 so no explicit-zero case exists), and
+UpdateEncryptionConfiguration's Kms* fields (both required together
+whenever CUSTOMER_MANAGED_KMS_KEY is chosen -- full-replace, not partial
+preserve).
 
 ### 2026-09-18 (gopherstack-21my: per-item field sweep)
 
