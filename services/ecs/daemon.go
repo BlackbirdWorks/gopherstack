@@ -88,6 +88,7 @@ type Daemon struct {
 	Tags                     []Tag                          `json:"tags,omitempty"`
 	EnableECSManagedTags     bool                           `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand     bool                           `json:"enableExecuteCommand,omitempty"`
+	Critical                 bool                           `json:"critical"`
 }
 
 // DaemonContainerDefinition is a container definition within a daemon task definition.
@@ -168,11 +169,13 @@ type DaemonRevision struct {
 	PropagateTags           string    `json:"propagateTags,omitempty"`
 	EnableECSManagedTags    bool      `json:"enableECSManagedTags"`
 	EnableExecuteCommand    bool      `json:"enableExecuteCommand"`
+	Critical                bool      `json:"critical"`
 }
 
 // CreateDaemonInput holds input for CreateDaemon.
 type CreateDaemonInput struct {
 	DeploymentConfiguration *DaemonDeploymentConfiguration
+	Critical                *bool
 	DaemonName              string
 	ClusterArn              string
 	DaemonTaskDefinitionArn string
@@ -186,6 +189,7 @@ type CreateDaemonInput struct {
 // UpdateDaemonInput holds input for UpdateDaemon.
 type UpdateDaemonInput struct {
 	DeploymentConfiguration *DaemonDeploymentConfiguration
+	Critical                *bool
 	DaemonArn               string
 	DaemonTaskDefinitionArn string
 	PropagateTags           string
@@ -281,6 +285,7 @@ func (b *InMemoryBackend) createDaemonRevisionLocked(clusterName string, d *Daem
 		PropagateTags:           d.PropagateTags,
 		EnableECSManagedTags:    d.EnableECSManagedTags,
 		EnableExecuteCommand:    d.EnableExecuteCommand,
+		Critical:                d.Critical,
 	}
 
 	b.daemonRevisions.Put(rev)
@@ -312,6 +317,17 @@ func (b *InMemoryBackend) createDaemonDeploymentLocked(
 	b.daemonDeployments.Put(dep)
 
 	return dep
+}
+
+// resolveDaemonCritical applies the documented default (true) for CreateDaemon
+// and UpdateDaemon's Critical parameter (ecs@v1.96.0 api_op_CreateDaemon.go:86,
+// api_op_UpdateDaemon.go:79: "The default value is true.").
+func resolveDaemonCritical(critical *bool) bool {
+	if critical == nil {
+		return true
+	}
+
+	return *critical
 }
 
 // CreateDaemon creates a new daemon and its initial deployment.
@@ -358,6 +374,7 @@ func (b *InMemoryBackend) CreateDaemon(input CreateDaemonInput) (*Daemon, error)
 		EnableECSManagedTags:    input.EnableECSManagedTags,
 		EnableExecuteCommand:    input.EnableExecuteCommand,
 		Tags:                    copyTags(input.Tags),
+		Critical:                resolveDaemonCritical(input.Critical),
 	}
 
 	rev := b.createDaemonRevisionLocked(clusterName, d)
@@ -466,6 +483,7 @@ func (b *InMemoryBackend) UpdateDaemon(input UpdateDaemonInput) (*Daemon, error)
 	d.PropagateTags = input.PropagateTags
 	d.EnableECSManagedTags = input.EnableECSManagedTags
 	d.EnableExecuteCommand = input.EnableExecuteCommand
+	d.Critical = resolveDaemonCritical(input.Critical)
 	d.UpdatedAt = time.Now()
 
 	clusterName := clusterKey(b.resolveCluster(d.ClusterArn))
