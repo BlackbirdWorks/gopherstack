@@ -33,7 +33,7 @@ func TestUpdateSecret_Description(t *testing.T) {
 
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:    "upd-desc",
-		Description: "new description",
+		Description: aws.String("new description"),
 	})
 	require.NoError(t, err)
 
@@ -101,7 +101,7 @@ func TestUpdateSecret_DeletedFails(t *testing.T) {
 
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:    "upd-del",
-		Description: "new desc",
+		Description: aws.String("new desc"),
 	})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretDeleted)
 }
@@ -112,7 +112,7 @@ func TestUpdateSecret_NotFound(t *testing.T) {
 	b := secretsmanager.NewInMemoryBackend()
 	_, err := b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:    "missing",
-		Description: "d",
+		Description: aws.String("d"),
 	})
 	require.ErrorIs(t, err, secretsmanager.ErrSecretNotFound)
 }
@@ -133,7 +133,7 @@ func TestUpdateSecret_ValueAndMeta(t *testing.T) {
 			name: "update_description_only",
 			updateInput: secretsmanager.UpdateSecretInput{
 				SecretID:    "update-test",
-				Description: "updated description",
+				Description: aws.String("updated description"),
 			},
 			checkFn: func(t *testing.T, desc *secretsmanager.DescribeSecretOutput, val *secretsmanager.GetSecretValueOutput) {
 				t.Helper()
@@ -282,7 +282,7 @@ func TestUpdateSecret_BackendScenarios(t *testing.T) {
 
 		out, err := backend.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 			SecretID:    "updatable",
-			Description: "new description",
+			Description: aws.String("new description"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "updatable", out.Name)
@@ -345,7 +345,7 @@ func TestUpdateSecret_FailedValueUpdate_LeavesDescriptionAndKmsKeyIDUnchanged(t 
 
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID:     "atomic-update",
-		Description:  "should not apply",
+		Description:  aws.String("should not apply"),
 		KmsKeyID:     aws.String("alias/new-key"),
 		SecretString: "v2",
 	})

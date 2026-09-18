@@ -1,14 +1,10 @@
 ---
 service: secretsmanager
 sdk_module: aws-sdk-go-v2/service/secretsmanager@v1.48.0
-last_audit_commit: 1a7ddc64b  # STALE/WRONG -- this hash resolves to an unrelated build/CI commit, not
-                              # a secretsmanager audit; not an ancestor of HEAD on this branch either.
-                              # Left uncorrected (this pass made no commit); a future audit should
-                              # replace it with the real commit once this pass's fix lands.
-last_audit_date: 2026-08-30   # this pass (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch); prior
-                               # header value (2026-08-10) was itself stale -- gopherstack-3tpf's
-                               # mechanical struct-field diff (see gaps below) actually ran 2026-08-14
-                               # and was never reflected up into this header field.
+last_audit_commit: 302aa4e3c  # 2026-09-18 zeroguard omitted-vs-zero sweep; corrects the prior
+                              # STALE/WRONG value (1a7ddc64b resolved to an unrelated build/CI
+                              # commit, not a secretsmanager audit).
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-30 pass: two real filter bugs found and fixed, both in the shared
                        # anyMatchPrefix/secretMatchesFilter path ListSecrets and BatchGetSecretValue
                        # both use. (1) types.Filter.Values' documented "!"-negation prefix ("You can
@@ -111,6 +107,14 @@ leaks: {status: fixed, note: "Found a real data race: ListSecrets/ListSecretVers
 ---
 
 ## Notes
+
+- **2026-09-18 (zeroguard omitted-vs-zero sweep)**: `cmd/zeroguard` flagged 18 rows across 4
+  Update/Put ops. 2 fields were real bugs, pointer-ified: UpdateSecret.Description and
+  UpdateSecret.Type — proven in `update_omitted_members_preserve_state_test.go`. 16 false
+  positives: identifiers used only for lookup (SecretId, VersionStage, MoveToVersionId,
+  RemoveFromVersionId), idempotency tokens (ClientRequestToken, RotationToken — unused), and
+  PutSecretValue/PutResourcePolicy's required-value fields (empty and omitted already reject
+  identically per `TestPutSecretValue_EmptyValueRejected`).
 
 - **2026-08-30 (wrapper-key-sweep-rds-cloudwatch-sqs-sns branch)**: audit-recency check first --
   `last_audit_date` header said 2026-08-10, but this file's own `gaps:` list already documented a later

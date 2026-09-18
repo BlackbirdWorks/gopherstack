@@ -288,10 +288,10 @@ type DescribeSecretOutput struct {
 type UpdateSecretInput struct {
 	KmsKeyID           *string `json:"KmsKeyId,omitempty"`
 	SecretID           string  `json:"SecretId"`
-	Description        string  `json:"Description,omitempty"`
+	Description        *string `json:"Description,omitempty"`
 	SecretString       string  `json:"SecretString,omitempty"`
 	ClientRequestToken string  `json:"ClientRequestToken,omitempty"`
-	Type               string  `json:"Type,omitempty"`
+	Type               *string `json:"Type,omitempty"`
 	SecretBinary       []byte  `json:"SecretBinary,omitempty"`
 }
 
