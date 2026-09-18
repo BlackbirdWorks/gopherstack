@@ -21,7 +21,9 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			name: "put_describe_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				p, err := b.PutIndexPolicy("/aws/lambda/fn", `{"fields":["@message"]}`)
+				_, err := b.CreateLogGroup(t.Context(), "/aws/lambda/fn", "", "")
+				require.NoError(t, err)
+				p, err := b.PutIndexPolicy(t.Context(), "/aws/lambda/fn", `{"fields":["@message"]}`)
 				require.NoError(t, err)
 				assert.Equal(t, "/aws/lambda/fn", p.LogGroupIdentifier)
 			},
@@ -42,9 +44,11 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			name: "put_updates_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIndexPolicy("/grp", `{"old":"policy"}`)
+				_, err := b.CreateLogGroup(t.Context(), "/grp", "", "")
 				require.NoError(t, err)
-				_, err = b.PutIndexPolicy("/grp", `{"new":"policy"}`)
+				_, err = b.PutIndexPolicy(t.Context(), "/grp", `{"old":"policy"}`)
+				require.NoError(t, err)
+				_, err = b.PutIndexPolicy(t.Context(), "/grp", `{"new":"policy"}`)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -58,9 +62,13 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			name: "describe_sorted_by_identifier",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIndexPolicy("/z-grp", `{}`)
+				_, err := b.CreateLogGroup(t.Context(), "/z-grp", "", "")
 				require.NoError(t, err)
-				_, err = b.PutIndexPolicy("/a-grp", `{}`)
+				_, err = b.CreateLogGroup(t.Context(), "/a-grp", "", "")
+				require.NoError(t, err)
+				_, err = b.PutIndexPolicy(t.Context(), "/z-grp", `{}`)
+				require.NoError(t, err)
+				_, err = b.PutIndexPolicy(t.Context(), "/a-grp", `{}`)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -83,8 +91,16 @@ func TestIndexPolicy_CRUD(t *testing.T) {
 			name: "put_empty_identifier_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIndexPolicy("", `{}`)
+				_, err := b.PutIndexPolicy(t.Context(), "", `{}`)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			name: "put_nonexistent_log_group_errors",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutIndexPolicy(t.Context(), "/no/such/group", `{}`)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrLogGroupNotFound)
 			},
 		},
 	}

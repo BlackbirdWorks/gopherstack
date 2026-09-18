@@ -16,7 +16,7 @@ type putIndexPolicyOutput struct {
 }
 
 func (h *Handler) handlePutIndexPolicy(
-	ctx context.Context, //nolint:revive // existing issue.
+	ctx context.Context,
 	body []byte,
 ) (any, error) {
 	var in putIndexPolicyInput
@@ -25,7 +25,7 @@ func (h *Handler) handlePutIndexPolicy(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		p, err := b.PutIndexPolicy(in.LogGroupIdentifier, in.PolicyDocument)
+		p, err := b.PutIndexPolicy(ctx, in.LogGroupIdentifier, in.PolicyDocument)
 		if err != nil {
 			return nil, err
 		}

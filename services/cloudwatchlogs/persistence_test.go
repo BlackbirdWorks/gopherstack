@@ -513,7 +513,9 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "index_policy_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				_, err := b.PutIndexPolicy("/aws/lambda/fn", `{"fields":["@message"]}`)
+				_, err := b.CreateLogGroup(t.Context(), "/aws/lambda/fn", "", "")
+				require.NoError(t, err)
+				_, err = b.PutIndexPolicy(t.Context(), "/aws/lambda/fn", `{"fields":["@message"]}`)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -527,7 +529,9 @@ func TestInMemoryBackend_SnapshotRestore_CompletenessMapsSurvive(t *testing.T) {
 			name: "transformer_survives",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				err := b.PutTransformer("/aws/lambda/fn", []map[string]any{{"parseJSON": map[string]any{}}})
+				_, err := b.CreateLogGroup(t.Context(), "/aws/lambda/fn", "", "")
+				require.NoError(t, err)
+				err = b.PutTransformer(t.Context(), "/aws/lambda/fn", []map[string]any{{"parseJSON": map[string]any{}}})
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -871,7 +875,11 @@ func TestInMemoryBackend_CreationFieldsSurviveRestore(t *testing.T) {
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) any {
 				t.Helper()
 
-				require.NoError(t, b.PutTransformer("my-group", []map[string]any{{"addKeys": map[string]any{}}}))
+				_, err := b.CreateLogGroup(t.Context(), "my-group", "", "")
+				require.NoError(t, err)
+				require.NoError(
+					t, b.PutTransformer(t.Context(), "my-group", []map[string]any{{"addKeys": map[string]any{}}}),
+				)
 
 				tr, err := b.GetTransformer("my-group")
 				require.NoError(t, err)

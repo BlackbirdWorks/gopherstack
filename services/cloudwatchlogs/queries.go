@@ -10,9 +10,9 @@ import (
 // storedQuery holds the execution state of a single Logs Insights query.
 type storedQuery struct {
 	createdAt time.Time
-	info      QueryInfo
 	results   [][]ResultField
 	logGroups []string
+	info      QueryInfo
 	stats     QueryStatistics
 }
 
@@ -178,6 +178,8 @@ func (b *InMemoryBackend) StartQuery(
 	logGroupNames []string,
 	startTime, endTime int64,
 ) (*QueryInfo, error) {
+	started := time.Now()
+
 	q, parseErr := b.getParsedInsightsQuery(queryString)
 	if parseErr != nil {
 		return nil, fmt.Errorf("invalid query: %w", parseErr)
@@ -217,11 +219,14 @@ func (b *InMemoryBackend) StartQuery(
 	}
 
 	info := QueryInfo{
-		QueryID:      queryID,
-		QueryString:  queryString,
-		Status:       QueryStatusRunning,
-		CreateTime:   time.Now().UnixMilli(),
-		LogGroupName: logGroupName,
+		QueryID:       queryID,
+		QueryString:   queryString,
+		Status:        QueryStatusRunning,
+		CreateTime:    time.Now().UnixMilli(),
+		LogGroupName:  logGroupName,
+		QueryLanguage: queryLanguageCWLI,
+		BytesScanned:  bytesScanned,
+		QueryDuration: time.Since(started).Milliseconds(),
 	}
 
 	sq := &storedQuery{
@@ -304,9 +309,13 @@ func (b *InMemoryBackend) StopQuery(queryID string) error {
 	return nil
 }
 
-// DescribeQueries returns metadata about stored queries with optional filtering and pagination.
+// DescribeQueries returns metadata about stored queries with optional
+// filtering and pagination. queryLanguageFilter is a real, previously
+// unmodeled DescribeQueriesInput member; every query this backend runs is
+// QueryLanguage CWLI, so this is a real (if usually trivial) filter, not a
+// no-op flag.
 func (b *InMemoryBackend) DescribeQueries(
-	logGroupName, statusFilter, nextToken string, maxResults int,
+	logGroupName, statusFilter, queryLanguageFilter, nextToken string, maxResults int,
 ) ([]QueryInfo, string, error) {
 	b.mu.RLock("DescribeQueries")
 	defer b.mu.RUnlock()
@@ -324,6 +333,9 @@ func (b *InMemoryBackend) DescribeQueries(
 			}
 		}
 		if statusFilter != "" && string(sq.info.Status) != statusFilter {
+			continue
+		}
+		if queryLanguageFilter != "" && sq.info.QueryLanguage != queryLanguageFilter {
 			continue
 		}
 		all = append(all, sq.info)

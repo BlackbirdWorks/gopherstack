@@ -262,13 +262,23 @@ type QueryStatistics struct {
 	RecordsScanned float64 `json:"recordsScanned"`
 }
 
-// QueryInfo contains metadata about a Logs Insights query.
+// QueryInfo contains metadata about a Logs Insights query. QueryLanguage is
+// always CWLI: this backend's query engine (insights_*.go) only implements
+// the classic Logs Insights QL, matching queryLanguageCWLI's convention
+// elsewhere in this package. QueryDuration is the real measured wall-clock
+// time StartQuery took to collect and execute the query (this backend runs
+// queries synchronously, so it is a genuine, not fabricated, value -- just
+// usually small). UserIdentity is not modeled: it needs a caller-identity
+// model this backend does not have (same blocker as gopherstack-cu4g).
 type QueryInfo struct {
-	QueryID      string      `json:"queryId"`
-	QueryString  string      `json:"queryString"`
-	LogGroupName string      `json:"logGroupName,omitempty"`
-	Status       QueryStatus `json:"status"`
-	CreateTime   int64       `json:"createTime"`
+	QueryID       string      `json:"queryId"`
+	QueryString   string      `json:"queryString"`
+	LogGroupName  string      `json:"logGroupName,omitempty"`
+	QueryLanguage string      `json:"queryLanguage,omitempty"`
+	Status        QueryStatus `json:"status"`
+	CreateTime    int64       `json:"createTime"`
+	QueryDuration int64       `json:"queryDuration,omitempty"`
+	BytesScanned  float64     `json:"bytesScanned,omitempty"`
 }
 
 // ExportTask represents a CloudWatch Logs export task.
@@ -617,7 +627,12 @@ type IndexPolicy struct {
 	LogGroupIdentifier string `json:"logGroupIdentifier"`
 	PolicyDocument     string `json:"policyDocument"`
 	Source             string `json:"source,omitempty"`
-	LastUpdateTime     int64  `json:"lastUpdateTime,omitempty"`
+	// PolicyName is only set for an ACCOUNT-sourced entry (an account-wide
+	// FIELD_INDEX_POLICY fallback): "Responses about log group-level field
+	// index policies don't have this field, because those policies don't
+	// have names" (types.IndexPolicy doc comment).
+	PolicyName     string `json:"policyName,omitempty"`
+	LastUpdateTime int64  `json:"lastUpdateTime,omitempty"`
 }
 
 // Transformer represents a CloudWatch Logs log transformer.
@@ -766,12 +781,17 @@ const (
 	policyScopeResource = "RESOURCE"
 )
 
-// indexSourceLogGroup matches types.IndexSourceLogGroup: PutIndexPolicy/
-// DescribeIndexPolicies only ever manage log-group-scoped index policies in
-// this backend, so every IndexPolicy they return has this Source. An
-// account-wide FIELD_INDEX_POLICY (PutAccountPolicy) does not fall back
-// into DescribeIndexPolicies here -- disclosed, not fixed, see PARITY.md.
-const indexSourceLogGroup = "LOG_GROUP"
+// indexSourceLogGroup/indexSourceAccount match types.IndexSource's two
+// members. PutIndexPolicy always produces LOG_GROUP; DescribeIndexPolicies
+// falls back to an ACCOUNT-sourced entry (an ALL-scope account-wide
+// FIELD_INDEX_POLICY from PutAccountPolicy) for a requested log group with
+// no policy of its own, per its own doc comment. SELECTION_CRITERIA-scoped
+// account policies are not evaluated for this fallback -- this backend has
+// no selection-criteria expression evaluator -- disclosed, see PARITY.md.
+const (
+	indexSourceLogGroup = "LOG_GROUP"
+	indexSourceAccount  = "ACCOUNT"
+)
 
 // StorageTierPolicy represents the account-level CloudWatch Logs storage
 // tier policy. Field-diffed against aws-sdk-go-v2

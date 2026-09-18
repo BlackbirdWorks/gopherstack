@@ -84,7 +84,7 @@ type StorageBackend interface {
 	GetQueryResults(queryID string) ([][]ResultField, QueryStatistics, QueryStatus, error)
 	StopQuery(queryID string) error
 	DescribeQueries(
-		logGroupName, statusFilter, nextToken string,
+		logGroupName, statusFilter, queryLanguageFilter, nextToken string,
 		maxResults int,
 	) ([]QueryInfo, string, error)
 
@@ -158,8 +158,8 @@ type StorageBackend interface {
 	DeleteScheduledQuery(scheduledQueryArn string) error
 	// ListScheduledQueries lists all scheduled queries with pagination.
 	ListScheduledQueries(limit int, nextToken, scheduleType, state string) ([]ScheduledQuery, string, error)
-	// UpdateScheduledQuery updates the state of a scheduled query.
-	UpdateScheduledQuery(scheduledQueryArn, state string) error
+	// UpdateScheduledQuery fully replaces a scheduled query's configuration (PUT semantics).
+	UpdateScheduledQuery(p ScheduledQueryUpdateParams) (*ScheduledQuery, error)
 	// PutAccountPolicy creates or updates an account-level policy.
 	PutAccountPolicy(
 		policyName, policyType, policyDocument, scope, selectionCriteria string,
@@ -224,10 +224,13 @@ type StorageBackend interface {
 		scheduledQueryArn string,
 		nextToken string,
 		maxResults int,
+		startTime, endTime int64,
+		executionStatuses []string,
 	) ([]ScheduledQueryRunSummary, string, error)
 	// UpdateAnomaly updates anomaly suppression settings, by anomalyID or,
 	// when anomalyID is empty, every anomaly sharing patternID.
-	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string, baseline bool) error
+	UpdateAnomaly(anomalyID, anomalyDetectorArn, suppressionType, patternID string, baseline bool,
+		suppressionPeriodValue int32, suppressionPeriodUnit string) error
 	// ListLogGroups is the newer paginated list operation. Unlike
 	// DescribeLogGroups, its name filter (namePattern) is a regular
 	// expression, not a literal prefix, and its real response shape is the

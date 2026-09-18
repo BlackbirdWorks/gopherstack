@@ -25,7 +25,9 @@ func TestTransformer_CRUD(t *testing.T) {
 			name: "put_get_delete",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				err := b.PutTransformer("/aws/lambda/fn", baseProcessors)
+				_, err := b.CreateLogGroup(t.Context(), "/aws/lambda/fn", "", "")
+				require.NoError(t, err)
+				err = b.PutTransformer(t.Context(), "/aws/lambda/fn", baseProcessors)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -46,10 +48,12 @@ func TestTransformer_CRUD(t *testing.T) {
 			name: "put_updates_existing",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				err := b.PutTransformer("/grp", baseProcessors)
+				_, err := b.CreateLogGroup(t.Context(), "/grp", "", "")
+				require.NoError(t, err)
+				err = b.PutTransformer(t.Context(), "/grp", baseProcessors)
 				require.NoError(t, err)
 				two := []map[string]any{{"parseJSON": map[string]any{}}, {"addField": map[string]any{"key": "v"}}}
-				err = b.PutTransformer("/grp", two)
+				err = b.PutTransformer(t.Context(), "/grp", two)
 				require.NoError(t, err)
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
@@ -79,8 +83,16 @@ func TestTransformer_CRUD(t *testing.T) {
 			name: "put_empty_identifier_errors",
 			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				err := b.PutTransformer("", baseProcessors)
+				err := b.PutTransformer(t.Context(), "", baseProcessors)
 				require.ErrorIs(t, err, cloudwatchlogs.ErrValidation)
+			},
+		},
+		{
+			name: "put_nonexistent_log_group_errors",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				err := b.PutTransformer(t.Context(), "/no/such/group", baseProcessors)
+				require.ErrorIs(t, err, cloudwatchlogs.ErrLogGroupNotFound)
 			},
 		},
 	}

@@ -489,6 +489,11 @@ func TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers(t *testing.T) {
 	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
 	ctx := t.Context()
 
+	for _, name := range []string{"/aws/lambda/wanted", "/aws/lambda/other"} {
+		_, err := client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{LogGroupName: aws.String(name)})
+		require.NoError(t, err)
+	}
+
 	_, err := client.PutIndexPolicy(ctx, &cwlsdk.PutIndexPolicyInput{
 		LogGroupIdentifier: aws.String("/aws/lambda/wanted"),
 		PolicyDocument:     aws.String(`{"Fields":["@message"]}`),
@@ -511,6 +516,60 @@ func TestDescribeIndexPolicies_FiltersByLogGroupIdentifiers(t *testing.T) {
 
 	_, err = client.DescribeIndexPolicies(ctx, &cwlsdk.DescribeIndexPoliciesInput{})
 	require.Error(t, err, "LogGroupIdentifiers is required and must not be silently accepted as absent")
+}
+
+// TestDescribeIndexPolicies_AccountWideFallback covers the doc comment "If a
+// specified log group doesn't have a log-group level index policy, but an
+// account-wide index policy applies to it, that account-wide policy is
+// returned" -- a previous revision never consulted the account-policies
+// store at all, so a log group with only an account-wide FIELD_INDEX_POLICY
+// (PutAccountPolicy, scope ALL) always came back empty.
+func TestDescribeIndexPolicies_AccountWideFallback(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.PutAccountPolicy(ctx, &cwlsdk.PutAccountPolicyInput{
+		PolicyName:     aws.String("acct-field-index"),
+		PolicyType:     types.PolicyTypeFieldIndexPolicy,
+		PolicyDocument: aws.String(`{"Fields":["@message"]}`),
+		Scope:          types.ScopeAll,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("/aws/lambda/own-policy"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutIndexPolicy(ctx, &cwlsdk.PutIndexPolicyInput{
+		LogGroupIdentifier: aws.String("/aws/lambda/own-policy"),
+		PolicyDocument:     aws.String(`{"Fields":["@timestamp"]}`),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeIndexPolicies(ctx, &cwlsdk.DescribeIndexPoliciesInput{
+		LogGroupIdentifiers: []string{"/aws/lambda/own-policy", "/aws/lambda/no-own-policy"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.IndexPolicies, 2)
+
+	byGroup := make(map[string]types.IndexPolicy, len(out.IndexPolicies))
+	for _, p := range out.IndexPolicies {
+		byGroup[aws.ToString(p.LogGroupIdentifier)] = p
+	}
+
+	own := byGroup["/aws/lambda/own-policy"]
+	assert.Equal(t, types.IndexSourceLogGroup, own.Source)
+	assert.Empty(t, aws.ToString(own.PolicyName), "log-group-level policies carry no PolicyName")
+
+	fallback := byGroup["/aws/lambda/no-own-policy"]
+	assert.Equal(t, types.IndexSourceAccount, fallback.Source,
+		"a log group with no policy of its own must fall back to the account-wide FIELD_INDEX_POLICY")
+	assert.Equal(t, "acct-field-index", aws.ToString(fallback.PolicyName))
+	assert.JSONEq(t, `{"Fields":["@message"]}`, aws.ToString(fallback.PolicyDocument))
 }
 
 // TestGetScheduledQueryHistory_RealShape covers gopherstack-glxp1:
@@ -553,7 +612,10 @@ func TestGetScheduledQueryHistory_RealShape(t *testing.T) {
 	out, err := client.GetScheduledQueryHistory(ctx, &cwlsdk.GetScheduledQueryHistoryInput{
 		Identifier: aws.String(arn),
 		StartTime:  aws.Int64(0),
-		EndTime:    aws.Int64(9999999999),
+		// A far-future bound (epoch milliseconds, this API family's
+		// established convention throughout this backend) so it comfortably
+		// covers CreateScheduledQuery's real wall-clock-seeded run too.
+		EndTime: aws.Int64(4102444800000),
 	})
 	require.NoError(t, err)
 	require.Len(t, out.TriggerHistory, 2,
@@ -630,4 +692,160 @@ func TestGetScheduledQueryHistory_RealShape(t *testing.T) {
 	assert.True(t, hasReal, "wrapper key must be triggerHistory")
 	_, hasFabricated := raw["scheduledQueryRunSummaries"]
 	assert.False(t, hasFabricated, "fabricated scheduledQueryRunSummaries key must not appear on the wire")
+}
+
+// TestUpdateScheduledQuery_FullReplace covers UpdateScheduledQueryInput's PUT
+// semantics ("Updates an existing scheduled query with new configuration...
+// allowing modification of query parameters, schedule, and destinations").
+// A previous revision only decoded Identifier/State, silently dropping
+// ExecutionRoleArn/QueryLanguage/QueryString/ScheduleExpression/Description/
+// Timezone/LogGroupIdentifiers -- all real, and four of them required
+// (validateOpUpdateScheduledQueryInput) -- so a real client's full-replace
+// request never actually replaced anything but the state.
+func TestUpdateScheduledQuery_FullReplace(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateScheduledQuery(ctx, &cwlsdk.CreateScheduledQueryInput{
+		Name:               aws.String("sq-full-replace"),
+		QueryString:        aws.String("fields @message"),
+		QueryLanguage:      types.QueryLanguageCwli,
+		ScheduleExpression: aws.String("cron(0 * * * ? *)"),
+		ExecutionRoleArn:   aws.String("arn:aws:iam::123456789012:role/original"),
+	})
+	require.NoError(t, err)
+	arn := aws.ToString(created.ScheduledQueryArn)
+
+	_, err = client.UpdateScheduledQuery(ctx, &cwlsdk.UpdateScheduledQueryInput{
+		Identifier:         aws.String(arn),
+		ExecutionRoleArn:   aws.String("arn:aws:iam::123456789012:role/updated"),
+		QueryLanguage:      types.QueryLanguagePpl,
+		QueryString:        aws.String("source logs | limit 50"),
+		ScheduleExpression: aws.String("cron(0 12 * * ? *)"),
+		Description:        aws.String("updated description"),
+		Timezone:           aws.String("America/Los_Angeles"),
+		LogGroupIdentifiers: []string{
+			"arn:aws:logs:us-east-1:000000000000:log-group:updated-group",
+		},
+	})
+	require.NoError(t, err)
+
+	got, err := client.GetScheduledQuery(ctx, &cwlsdk.GetScheduledQueryInput{Identifier: aws.String(arn)})
+	require.NoError(t, err)
+
+	assert.Equal(t, "arn:aws:iam::123456789012:role/updated", aws.ToString(got.ExecutionRoleArn))
+	assert.Equal(t, types.QueryLanguagePpl, got.QueryLanguage)
+	assert.Equal(t, "source logs | limit 50", aws.ToString(got.QueryString))
+	assert.Equal(t, "cron(0 12 * * ? *)", aws.ToString(got.ScheduleExpression))
+	assert.Equal(t, "updated description", aws.ToString(got.Description))
+	assert.Equal(t, "America/Los_Angeles", aws.ToString(got.Timezone))
+	assert.Equal(t, []string{"arn:aws:logs:us-east-1:000000000000:log-group:updated-group"}, got.LogGroupIdentifiers)
+	// State was omitted on Update: this backend keeps it unchanged rather
+	// than clearing it, since the real input's own doc comment gives State
+	// no documented default.
+	assert.Equal(t, types.ScheduledQueryStateEnabled, got.State)
+}
+
+// TestUpdateScheduledQuery_RequiredFields asserts the real required members
+// (ExecutionRoleArn/QueryLanguage/QueryString/ScheduleExpression) are
+// enforced -- a previous revision accepted an update carrying none of them.
+func TestUpdateScheduledQuery_RequiredFields(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	created, err := client.CreateScheduledQuery(ctx, &cwlsdk.CreateScheduledQueryInput{
+		Name:               aws.String("sq-required-fields"),
+		QueryString:        aws.String("fields @message"),
+		QueryLanguage:      types.QueryLanguageCwli,
+		ScheduleExpression: aws.String("cron(0 * * * ? *)"),
+		ExecutionRoleArn:   aws.String("arn:aws:iam::123456789012:role/r"),
+	})
+	require.NoError(t, err)
+	arn := aws.ToString(created.ScheduledQueryArn)
+
+	rec := doLogsRequest(
+		t, cloudwatchlogs.NewHandler(backend), echo.New(), "UpdateScheduledQuery",
+		fmt.Sprintf(`{"identifier":%q}`, arn),
+	)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Contains(t, rec.Body.String(), "ValidationException")
+}
+
+// TestListIntegrations_Filters covers ListIntegrationsInput's real
+// IntegrationNamePrefix/IntegrationStatus/IntegrationType filter members
+// (api_op_ListIntegrations.go) -- a previous revision discarded the whole
+// request body, so a real client's filter was always silently ignored.
+func TestListIntegrations_Filters(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	days := int32(30)
+	cfg := &cloudwatchlogs.OpenSearchResourceConfig{
+		DataSourceRoleArn:         "arn:aws:iam::123456789012:role/cwl-opensearch",
+		DashboardViewerPrincipals: []string{"arn:aws:iam::123456789012:user/viewer"},
+		RetentionDays:             &days,
+	}
+
+	_, err := backend.PutIntegration("prod-search", "OPENSEARCH", cfg)
+	require.NoError(t, err)
+	_, err = backend.PutIntegration("dev-search", "OPENSEARCH", cfg)
+	require.NoError(t, err)
+
+	out, err := client.ListIntegrations(ctx, &cwlsdk.ListIntegrationsInput{
+		IntegrationNamePrefix: aws.String("prod-"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.IntegrationSummaries, 1,
+		"IntegrationNamePrefix must actually filter; pre-fix the whole request body was discarded")
+	assert.Equal(t, "prod-search", aws.ToString(out.IntegrationSummaries[0].IntegrationName))
+}
+
+// TestDescribeQueries_QueryLanguageAndDuration covers three real
+// QueryInfo members (types.QueryInfo, api_op_DescribeQueries.go) a previous
+// revision never populated: QueryLanguage, QueryDuration, and BytesScanned.
+// This backend only ever runs the classic Logs Insights QL, so
+// QueryLanguage is always CWLI -- a real, not fabricated, filterable value
+// via DescribeQueriesInput.QueryLanguage (also previously unmodeled).
+func TestDescribeQueries_QueryLanguageAndDuration(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+	ctx := t.Context()
+
+	_, err := client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("/insights/duration"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.StartQuery(ctx, &cwlsdk.StartQueryInput{
+		LogGroupName: aws.String("/insights/duration"),
+		QueryString:  aws.String("fields @message"),
+		StartTime:    aws.Int64(0),
+		EndTime:      aws.Int64(9999999999),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeQueries(ctx, &cwlsdk.DescribeQueriesInput{
+		QueryLanguage: types.QueryLanguageCwli,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Queries, 1)
+	assert.Equal(t, types.QueryLanguageCwli, out.Queries[0].QueryLanguage)
+	assert.GreaterOrEqual(t, aws.ToInt64(out.Queries[0].QueryDuration), int64(0))
+
+	none, err := client.DescribeQueries(ctx, &cwlsdk.DescribeQueriesInput{
+		QueryLanguage: types.QueryLanguagePpl,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, none.Queries, "QueryLanguage must actually filter; this backend never runs PPL queries")
 }

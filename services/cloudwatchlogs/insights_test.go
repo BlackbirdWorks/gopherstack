@@ -227,19 +227,19 @@ func TestInsightsQuery_DescribeQueries_Pagination(t *testing.T) {
 	}
 
 	// First page.
-	page1, nextToken, err := b.DescribeQueries("", "", "", 2)
+	page1, nextToken, err := b.DescribeQueries("", "", "", "", 2)
 	require.NoError(t, err)
 	assert.Len(t, page1, 2)
 	assert.NotEmpty(t, nextToken)
 
 	// Second page.
-	page2, nextToken2, err := b.DescribeQueries("", "", nextToken, 2)
+	page2, nextToken2, err := b.DescribeQueries("", "", "", nextToken, 2)
 	require.NoError(t, err)
 	assert.Len(t, page2, 2)
 	assert.NotEmpty(t, nextToken2)
 
 	// Third page.
-	page3, nextToken3, err := b.DescribeQueries("", "", nextToken2, 2)
+	page3, nextToken3, err := b.DescribeQueries("", "", "", nextToken2, 2)
 	require.NoError(t, err)
 	assert.Len(t, page3, 1)
 	assert.Empty(t, nextToken3)
@@ -385,16 +385,16 @@ func TestInsightsQuery_DescribeQueries_MultiGroup(t *testing.T) {
 	require.NoError(t, err)
 
 	// DescribeQueries filtered by each group should both find the query.
-	page1, _, err := b.DescribeQueries("/grp1", "", "", 10)
+	page1, _, err := b.DescribeQueries("/grp1", "", "", "", 10)
 	require.NoError(t, err)
 	assert.Len(t, page1, 1)
 
-	page2, _, err := b.DescribeQueries("/grp2", "", "", 10)
+	page2, _, err := b.DescribeQueries("/grp2", "", "", "", 10)
 	require.NoError(t, err)
 	assert.Len(t, page2, 1)
 
 	// A non-matching group returns nothing.
-	page3, _, err := b.DescribeQueries("/grp3", "", "", 10)
+	page3, _, err := b.DescribeQueries("/grp3", "", "", "", 10)
 	require.NoError(t, err)
 	assert.Empty(t, page3)
 }

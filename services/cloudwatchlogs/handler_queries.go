@@ -48,10 +48,11 @@ type stopQueryOutput struct {
 }
 
 type describeQueriesInput struct {
-	LogGroupName string `json:"logGroupName"`
-	Status       string `json:"status"`
-	NextToken    string `json:"nextToken"`
-	MaxResults   int    `json:"maxResults"`
+	LogGroupName  string `json:"logGroupName"`
+	Status        string `json:"status"`
+	QueryLanguage string `json:"queryLanguage"`
+	NextToken     string `json:"nextToken"`
+	MaxResults    int    `json:"maxResults"`
 }
 
 type describeQueriesOutput struct {
@@ -155,7 +156,7 @@ func (h *Handler) handleDescribeQueries(ctx context.Context, b []byte) (any, err
 		return nil, err
 	}
 	queries, next, err := h.Backend.DescribeQueries(
-		input.LogGroupName, input.Status, input.NextToken, input.MaxResults,
+		input.LogGroupName, input.Status, input.QueryLanguage, input.NextToken, input.MaxResults,
 	)
 	if err != nil {
 		return nil, err

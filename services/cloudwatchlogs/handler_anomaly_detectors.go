@@ -90,11 +90,17 @@ type listAnomaliesOutput struct {
 
 // --- UpdateAnomaly ---.
 type updateAnomalyInput struct {
-	AnomalyDetectorArn string `json:"anomalyDetectorArn"`
-	AnomalyID          string `json:"anomalyId"`
-	PatternID          string `json:"patternId"`
-	SuppressionType    string `json:"suppressionType"`
-	Baseline           bool   `json:"baseline,omitempty"`
+	SuppressionPeriod  *updateAnomalySuppressionPeriod `json:"suppressionPeriod"`
+	AnomalyDetectorArn string                          `json:"anomalyDetectorArn"`
+	AnomalyID          string                          `json:"anomalyId"`
+	PatternID          string                          `json:"patternId"`
+	SuppressionType    string                          `json:"suppressionType"`
+	Baseline           bool                            `json:"baseline,omitempty"`
+}
+
+type updateAnomalySuppressionPeriod struct {
+	SuppressionUnit string `json:"suppressionUnit"`
+	Value           int32  `json:"value"`
 }
 
 type updateAnomalyOutput struct{}
@@ -223,8 +229,18 @@ func (h *Handler) handleUpdateAnomaly(ctx context.Context, b []byte) (any, error
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
+
+	var periodValue int32
+
+	var periodUnit string
+	if input.SuppressionPeriod != nil {
+		periodValue = input.SuppressionPeriod.Value
+		periodUnit = input.SuppressionPeriod.SuppressionUnit
+	}
+
 	if err := h.Backend.UpdateAnomaly(
 		input.AnomalyID, input.AnomalyDetectorArn, input.SuppressionType, input.PatternID, input.Baseline,
+		periodValue, periodUnit,
 	); err != nil {
 		return nil, err
 	}
