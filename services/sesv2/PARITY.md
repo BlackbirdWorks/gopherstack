@@ -3,8 +3,8 @@ items_still_open:
   - "Contact.AttributesData (CreateContactInput/UpdateContactInput's AttributesData, api_op_CreateContact.go/api_op_UpdateContact.go) is completely unmodeled: no field on the Contact struct, not decoded by createContactInput/updateContactInput, not echoed by any Get/List response. Found 2026-09-12 (gopherstack-n3zi typed slice 11) while fixing the adjacent UnsubscribeAll accept-and-drop bug on the same two ops. Not fixed this pass: unlike UnsubscribeAll (an existing field just never wired through), this requires adding a new field to the Contact model, its JSON wire tag, and both Get/List echo paths -- a small but real feature addition, not a one-line wiring fix, so left disclosed rather than rushed."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
-last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
-last_audit_date: 2026-08-13
+last_audit_commit: 366fb4907                      # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (SuppressedDestination family TenantName)
+last_audit_date: 2026-09-18
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -58,10 +58,10 @@ ops:
   GetDedicatedIps: {wire: fixed, errors: ok, state: ok, persist: ok, note: "This pass (2026-08-29): handleGetDedicatedIps took no arguments at all -- PoolName filter, NextToken, and PageSize (all real query params) were completely ignored, always returning every tracked IP on one page. Fixed: backend now filters by pool and paginates."}
   PutDedicatedIpInPool: {wire: ok, errors: ok, state: ok, persist: ok}
   PutDedicatedIpWarmupAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutSuppressedDestination: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "top-level path was fabricated as '/v2/email/suppressed-destination'; real path family is '/v2/email/suppression/addresses[/{EmailAddress}]'. All 4 ops in this family were completely unroutable before fix."}
-  GetSuppressedDestination: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "also needed a {SuppressedDestination: {...}} wrapper and PascalCase fields"}
-  DeleteSuppressedDestination: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed}
-  ListSuppressedDestinations: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, filter: partial, note: "This pass (2026-08-29): Reasons/StartDate/EndDate/PageSize (all real query params) were parsed only for NextToken; the rest were dropped -- fixed Reasons/StartDate/EndDate/PageSize. TenantName left: SuppressedDestination has no per-tenant tracking or separate per-tenant store."}
+  PutSuppressedDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, note: "top-level path was fabricated as '/v2/email/suppressed-destination'; real path family is '/v2/email/suppression/addresses[/{EmailAddress}]'. All 4 ops in this family were completely unroutable before fix. FIXED 2026-09-18 (reqfielddiff tier-1): TenantName was parsed nowhere -- see ListSuppressedDestinations note below for the shared fix."}
+  GetSuppressedDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, note: "also needed a {SuppressedDestination: {...}} wrapper and PascalCase fields. FIXED 2026-09-18 (reqfielddiff tier-1): TenantName query param was parsed nowhere -- see ListSuppressedDestinations note below."}
+  DeleteSuppressedDestination: {wire: ok, errors: ok, state: fixed, persist: ok, route: fixed, note: "FIXED 2026-09-18 (reqfielddiff tier-1): TenantName query param was parsed nowhere -- see ListSuppressedDestinations note below."}
+  ListSuppressedDestinations: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, filter: ok, note: "This pass (2026-08-29): Reasons/StartDate/EndDate/PageSize (all real query params) were parsed only for NextToken; the rest were dropped -- fixed Reasons/StartDate/EndDate/PageSize. FIXED 2026-09-18 (reqfielddiff tier-1, all 4 SuppressedDestination ops): TenantName was parsed nowhere on any of Put/Get/Delete/List, so account-level and tenant-scoped suppression entries for the same email address collided in one shared store -- a tenant-scoped Put could be read back (or deleted) through the account-level Get/Delete and vice versa. SuppressedDestination gained a TenantName field (\"\" = account-level); the store's key function now composites TenantName+EmailAddress (suppressedDestinationKey) so each tenant (and the account level) has its own independent list, matching the SDK doc: 'To target a tenant's suppression list, specify TenantName. If you omit TenantName, the operation targets the account-level suppression list.'"}
   CreateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomVerificationEmailTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added customVerificationEmailTemplateOutput (PascalCase)"}
   ListCustomVerificationEmailTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "metadata items (no TemplateContent) now use customVerificationEmailTemplateMetadataOutput"}
@@ -789,3 +789,41 @@ dirty before this session touched anything); `go vet ./services/sesv2/...`
 clean; `go test -race -count=1 ./services/sesv2/...` all pass; `go test
 -race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
 --new-from-rev=HEAD services/sesv2/...` 0 issues.
+
+## 2026-09-18: SuppressedDestination family TenantName dropped (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields, all `TenantName`, on
+`PutSuppressedDestination`, `GetSuppressedDestination`,
+`DeleteSuppressedDestination`, and `ListSuppressedDestinations`
+(sesv2@v1.66.4). `ListSuppressedDestinations` had already disclosed this as
+"no per-tenant tracking or separate per-tenant store" (2026-08-29 pass), but
+it was never in `items_still_open` and the other 3 ops in the family shared
+the identical drop, unrecorded.
+
+Fixed: `SuppressedDestination` gained a `TenantName` field ("" =
+account-level). The backing `store.Table`'s key function
+(`suppressedDestinationKeyFn`, `store_setup.go`) now composites
+`TenantName`+`EmailAddress` via the new `suppressedDestinationKey` helper,
+so the account-level list and each tenant's list are genuinely independent
+stores sharing one table, matching the SDK doc ("the same address" can be
+suppressed "for your account or for a specific tenant" independently).
+`Get`/`Delete` read `TenantName` off the query string (httpQuery-bound per
+serializers.go's `awsRestjson1_serializeOpHttpBindingsGetSuppressedDestinationInput`
+et al.); `Put` reads it from the JSON body (document-bound). No response
+shape changed -- confirmed neither `types.SuppressedDestination` nor
+`SuppressedDestinationSummary` echoes `TenantName` back.
+
+Proven with `TestSuppressedDestination_TenantNameScopesIndependentLists`
+(typed `aws-sdk-go-v2` client, `suppressed_destination_tenant_scope_test.go`):
+puts the same email at both the account level and `tenant-a`, then asserts
+Get/List honor the scope independently and a Delete under an unrelated
+tenant (`tenant-b`) 404s without disturbing either real entry.
+
+Persisted field added: `SuppressedDestination.TenantName` (additive,
+`pkgs/persistence/testdata/snapshot_inventory.json` sesv2 entry updated,
+`TestSnapshotVersionGuard` classified it as bookkeeping-only, no version
+bump). Gates: `go build ./...`, `go vet ./services/sesv2/`, `go test -race
+-count=1 ./services/sesv2/` (all pass), `go test -count=1
+./pkgs/persistence/` (passes for sesv2; an unrelated `transfer:` failure is
+another pass's concurrent work), `golangci-lint run --new-from-rev=HEAD
+./services/sesv2/` (0 issues). tier-1 (`cmd/reqfielddiff -dir sesv2`): 4 -> 0.

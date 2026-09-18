@@ -109,7 +109,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	_, err = original.CreateImportJob(sesv2.ImportDestination{SuppressionListImportAction: "PUT"})
 	require.NoError(t, err)
 
-	require.NoError(t, original.PutSuppressedDestination("suppressed@example.com", "BOUNCE"))
+	require.NoError(t, original.PutSuppressedDestination("suppressed@example.com", "BOUNCE", ""))
 
 	require.NoError(t, original.CreateEmailIdentityPolicy("verified@example.com", "policy1", `{"a":1}`))
 
@@ -192,7 +192,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	importJobs := fresh.ListImportJobs("", "", 0)
 	require.Len(t, importJobs.Data, 1)
 
-	suppressed, err := fresh.GetSuppressedDestination("suppressed@example.com")
+	suppressed, err := fresh.GetSuppressedDestination("suppressed@example.com", "")
 	require.NoError(t, err)
 	assert.Equal(t, "BOUNCE", suppressed.Reason)
 

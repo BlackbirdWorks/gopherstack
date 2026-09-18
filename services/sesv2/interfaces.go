@@ -172,13 +172,13 @@ type StorageBackend interface {
 	ListImportJobs(importDestinationType, nextToken string, pageSize int) page.Page[*ImportJob]
 
 	// Suppressed destination ops
-	PutSuppressedDestination(email, reason string) error
-	GetSuppressedDestination(email string) (*SuppressedDestination, error)
-	DeleteSuppressedDestination(email string) error
+	PutSuppressedDestination(email, reason, tenantName string) error
+	GetSuppressedDestination(email, tenantName string) (*SuppressedDestination, error)
+	DeleteSuppressedDestination(email, tenantName string) error
 	ListSuppressedDestinations(
 		reasons []string,
 		startDate, endDate *time.Time,
-		nextToken string,
+		tenantName, nextToken string,
 		pageSize int,
 	) page.Page[*SuppressedDestination]
 

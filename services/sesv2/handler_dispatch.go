@@ -113,9 +113,9 @@ func (h *Handler) dispatchAccountAndSuppressionOps(c *echo.Context, op, resource
 	case opPutSuppressedDestination:
 		return h.handlePutSuppressedDestination(c)
 	case opGetSuppressedDestination:
-		return h.handleGetSuppressedDestination(resource)
+		return h.handleGetSuppressedDestination(c, resource)
 	case opDeleteSuppressedDestination:
-		return h.handleDeleteSuppressedDestination(resource)
+		return h.handleDeleteSuppressedDestination(c, resource)
 	case opListSuppressedDestinations:
 		return h.handleListSuppressedDestinations(c)
 	}

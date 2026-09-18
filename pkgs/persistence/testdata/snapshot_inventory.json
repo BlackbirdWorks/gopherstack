@@ -25659,6 +25659,7 @@
       "SuppressedDestination.EmailAddress string `json:\"emailAddress\"`",
       "SuppressedDestination.LastUpdateTime time.Time `json:\"lastUpdateTime\"`",
       "SuppressedDestination.Reason string `json:\"reason\"`",
+      "SuppressedDestination.TenantName string `json:\"tenantName,omitempty\"`",
       "TopicPreference.SubscriptionStatus string `json:\"subscriptionStatus\"`",
       "TopicPreference.TopicName string `json:\"topicName\"`",
       "VdmOptions.DashboardOptions map[string]any `json:\"dashboardOptions,omitempty\"`",
