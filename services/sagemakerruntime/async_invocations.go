@@ -7,9 +7,13 @@ import (
 )
 
 // RecordAsyncInvocation stores accepted asynchronous inference work.
-// If outputLocation is empty a fake S3 location is synthesised.
+// If outputLocation is empty a fake S3 location is synthesised, using
+// filename as its final path segment when the caller supplied one --
+// matching InvokeEndpointAsyncInput.Filename's documented behaviour
+// ("If not specified, Amazon SageMaker AI generates a filename based on
+// the inference ID").
 func (b *InMemoryBackend) RecordAsyncInvocation(
-	endpointName, requestedID, input, outputLocation string,
+	endpointName, requestedID, input, outputLocation, filename string,
 ) *AsyncInvocation {
 	b.mu.Lock("RecordAsyncInvocation")
 	defer b.mu.Unlock()
@@ -21,8 +25,17 @@ func (b *InMemoryBackend) RecordAsyncInvocation(
 	}
 
 	loc := outputLocation
+
+	var failureLoc string
 	if loc == "" {
-		loc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/output", endpointName, inferenceID)
+		if filename == "" {
+			filename = "output"
+		}
+
+		loc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/%s", endpointName, inferenceID, filename)
+		failureLoc = fmt.Sprintf("s3://sagemaker-runtime-mock/%s/%s/failure", endpointName, inferenceID)
+	} else {
+		failureLoc = deriveFailureLocation(loc)
 	}
 
 	invocation := &AsyncInvocation{
@@ -30,7 +43,7 @@ func (b *InMemoryBackend) RecordAsyncInvocation(
 		EndpointName:    endpointName,
 		Input:           input,
 		OutputLocation:  loc,
-		FailureLocation: deriveFailureLocation(loc),
+		FailureLocation: failureLoc,
 		CreatedAt:       time.Now().UTC(),
 	}
 	b.asyncInvocations.Put(invocation)
