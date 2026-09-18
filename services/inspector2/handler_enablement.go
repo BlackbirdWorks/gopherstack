@@ -13,6 +13,10 @@ const (
 	opListAccountPermissions = "ListAccountPermissions"
 
 	pathAccountPermissionsList = "/accountpermissions/list"
+
+	// inheritanceModeInheritFromAdmin is UpdateConfigurationInheritance's
+	// one InheritanceMode enum value (types/enums.go).
+	inheritanceModeInheritFromAdmin = "INHERIT_FROM_ADMIN"
 )
 
 // handleToggle handles POST /enable and POST /disable.
@@ -112,7 +116,25 @@ func buildResourceStatus(status *AccountStatusResponse) map[string]any {
 
 // handleGetConfiguration handles POST /configuration/get.
 func (h *Handler) handleGetConfiguration(c *echo.Context) error {
-	cfg := h.Backend.GetConfiguration()
+	body, err := httputils.ReadBody(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid body"))
+	}
+
+	var req struct {
+		AccountID string `json:"accountId"`
+	}
+
+	if len(body) > 0 {
+		if jsonErr := json.Unmarshal(body, &req); jsonErr != nil {
+			return c.JSON(http.StatusBadRequest, errorResponse("ValidationException", "invalid JSON"))
+		}
+	}
+
+	cfg, getErr := h.Backend.GetConfiguration(req.AccountID)
+	if getErr != nil {
+		return h.mapError(c, getErr)
+	}
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"ec2Configuration": map[string]any{
@@ -145,6 +167,11 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 		EcrConfiguration *struct {
 			RescanDuration string `json:"rescanDuration"`
 		} `json:"ecrConfiguration"`
+		UpdateConfigurationInheritance *struct {
+			Ec2Configuration string `json:"ec2Configuration"`
+			EcrConfiguration string `json:"ecrConfiguration"`
+		} `json:"updateConfigurationInheritance"`
+		AccountID string `json:"accountId"`
 	}
 
 	if len(body) > 0 {
@@ -166,7 +193,17 @@ func (h *Handler) handleUpdateConfiguration(c *echo.Context) error {
 		ecrRescanDuration = req.EcrConfiguration.RescanDuration
 	}
 
-	if updateErr := h.Backend.UpdateConfiguration(ec2ScanMode, ecrRescanDuration); updateErr != nil {
+	var resetEc2ToInherit, resetEcrToInherit bool
+
+	if inh := req.UpdateConfigurationInheritance; inh != nil {
+		resetEc2ToInherit = inh.Ec2Configuration == inheritanceModeInheritFromAdmin
+		resetEcrToInherit = inh.EcrConfiguration == inheritanceModeInheritFromAdmin
+	}
+
+	updateErr := h.Backend.UpdateConfiguration(
+		req.AccountID, ec2ScanMode, ecrRescanDuration, resetEc2ToInherit, resetEcrToInherit,
+	)
+	if updateErr != nil {
 		return h.mapError(c, updateErr)
 	}
 

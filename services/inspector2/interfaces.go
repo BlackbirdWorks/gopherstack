@@ -25,8 +25,11 @@ type StorageBackend interface {
 	FindingSeverityCounts() map[string]int64
 	AddFinding(findingType, severityLabel, status, title, description string, resources []FindingResource) string
 
-	GetConfiguration() *Configuration
-	UpdateConfiguration(ec2ScanMode, ecrRescanDuration string) error
+	GetConfiguration(accountID string) (*Configuration, error)
+	UpdateConfiguration(
+		accountID, ec2ScanMode, ecrRescanDuration string,
+		resetEc2ToInherit, resetEcrToInherit bool,
+	) error
 
 	TagResource(resourceARN string, tags map[string]string) error
 	UntagResource(resourceARN string, tagKeys []string) error

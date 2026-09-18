@@ -72,6 +72,8 @@ func findingsReportKeyFn(v *FindingsReport) string { return v.ReportID }
 
 func memberEc2StatusKeyFn(v *MemberEc2DeepInspectionStatus) string { return v.AccountID }
 
+func memberConfigKeyFn(v *MemberConfiguration) string { return v.AccountID }
+
 func delegatedAdminKeyFn(v *DelegatedAdminAccount) string { return v.AccountID }
 
 func codeSecurityScanConfigKeyFn(v *CodeSecurityScanConfiguration) string { return v.Arn }
@@ -140,6 +142,8 @@ func registerAllTables(b *InMemoryBackend) {
 	b.findingsReports = store.Register(b.registry, "findingsReports", store.New(findingsReportKeyFn))
 
 	b.memberEc2Status = store.Register(b.registry, "memberEc2Status", store.New(memberEc2StatusKeyFn))
+
+	b.memberConfigs = store.Register(b.registry, "memberConfigs", store.New(memberConfigKeyFn))
 
 	b.delegatedAdmins = store.Register(b.registry, "delegatedAdmins", store.New(delegatedAdminKeyFn))
 
