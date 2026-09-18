@@ -733,7 +733,7 @@ func TestCopyDistributionCreatesAsDeployed(t *testing.T) {
 			src, err := b.CreateDistribution("ref-src", "source", true, nil)
 			require.NoError(t, err)
 
-			cp, err := b.CopyDistribution(src.ID, "ref-copy")
+			cp, err := b.CopyDistribution(src.ID, "ref-copy", nil)
 			require.NoError(t, err)
 			assert.Equal(t, "Deployed", cp.Status, tc.name)
 			assert.NotEmpty(t, cp.LastModifiedTime)

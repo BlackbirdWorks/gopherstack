@@ -380,6 +380,7 @@ type associateDistributionWebACLRequestXML struct {
 }
 
 type copyDistributionRequestXML struct {
+	Enabled         *bool    `xml:"Enabled"`
 	XMLName         xml.Name `xml:"CopyDistributionRequest"`
 	CallerReference string   `xml:"CallerReference"`
 }
@@ -454,7 +455,7 @@ func (h *Handler) handleCopyDistribution(c *echo.Context, primaryDistID string) 
 		}
 	}
 
-	d, copyErr := h.Backend.CopyDistribution(primaryDistID, req.CallerReference)
+	d, copyErr := h.Backend.CopyDistribution(primaryDistID, req.CallerReference, req.Enabled)
 	if copyErr != nil {
 		return h.handleError(c, copyErr)
 	}

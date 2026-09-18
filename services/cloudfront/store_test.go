@@ -226,7 +226,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 			name: "copy_distribution_not_found",
 			run: func(t *testing.T, b *cloudfront.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CopyDistribution("NOTEXIST", "ref")
+				_, err := b.CopyDistribution("NOTEXIST", "ref", nil)
 				require.Error(t, err)
 			},
 		},
@@ -236,7 +236,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 				t.Helper()
 				d, err := b.CreateDistribution("ref-cp-001", "cp-dist", true, nil)
 				require.NoError(t, err)
-				_, err = b.CopyDistribution(d.ID, "")
+				_, err = b.CopyDistribution(d.ID, "", nil)
 				require.Error(t, err)
 			},
 		},
@@ -338,7 +338,7 @@ func TestInMemoryBackend_NewOperations(t *testing.T) {
 					minimalDistConfig("ref-cpy-001", "src-dist", true))
 				require.NoError(t, err)
 
-				cp, err := b.CopyDistribution(src.ID, "copy-ref-001")
+				cp, err := b.CopyDistribution(src.ID, "copy-ref-001", nil)
 				require.NoError(t, err)
 				assert.NotEqual(t, src.ID, cp.ID)
 				assert.Equal(t, src.Comment, cp.Comment)
