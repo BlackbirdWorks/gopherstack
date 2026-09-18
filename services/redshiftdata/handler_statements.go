@@ -81,6 +81,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		Parameters              []SQLParameter `json:"Parameters"`
 		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
 		WithEvent               bool           `json:"WithEvent"`
+		ExecutionMode           string         `json:"ExecutionMode"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -100,7 +101,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat, req.Parameters,
-		req.SessionID,
+		req.SessionID, req.ExecutionMode,
 	)
 	if err != nil {
 		return nil, err
@@ -459,6 +460,10 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 
 	if stmt.Error != "" {
 		resp["Error"] = stmt.Error
+	}
+
+	if stmt.ExecutionMode != "" {
+		resp["ExecutionMode"] = stmt.ExecutionMode
 	}
 
 	if len(stmt.Parameters) > 0 {

@@ -22535,6 +22535,7 @@
       "Statement.Database string `json:\"database\"`",
       "Statement.DurationMs int64 `json:\"durationMs\"`",
       "Statement.Error string `json:\"error\"`",
+      "Statement.ExecutionMode string `json:\"executionMode,omitempty\"`",
       "Statement.HasResultSet bool `json:\"hasResultSet\"`",
       "Statement.ID string `json:\"id\"`",
       "Statement.IsBatchStatement bool `json:\"isBatchStatement\"`",

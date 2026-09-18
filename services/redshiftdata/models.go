@@ -20,6 +20,11 @@ const (
 	resultFormatCSV = "CSV"
 	// resultFormatJSON is the default result format returned by GetStatementResult.
 	resultFormatJSON = "JSON"
+	// executionModeTransaction is BatchExecuteStatement's default ExecutionMode:
+	// all SQL statements run as a single transaction.
+	executionModeTransaction = "TRANSACTION"
+	// executionModeAutoCommit commits each SQL statement in the batch individually.
+	executionModeAutoCommit = "AUTO_COMMIT"
 	// maxListStatementsResults is the maximum number of statements AWS allows per ListStatements page.
 	maxListStatementsResults = 100
 	// defaultListStatementsResults is the default page size for ListStatements when MaxResults is 0.
@@ -196,6 +201,10 @@ type Statement struct {
 	IsBatchStatement bool  `json:"isBatchStatement"`
 	// WithEvent indicates whether an EventBridge event is generated on completion.
 	WithEvent bool `json:"withEvent"`
+	// ExecutionMode is BatchExecuteStatementInput.ExecutionMode, echoed back on
+	// DescribeStatement (TRANSACTION | AUTO_COMMIT). Empty for ExecuteStatement,
+	// which has no such input member.
+	ExecutionMode string `json:"executionMode,omitempty"`
 }
 
 // ListStatementsFilter controls statement filtering and pagination.

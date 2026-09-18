@@ -21,7 +21,7 @@ type StorageBackend interface {
 		sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 		withEvent bool, resultFormat string,
 		parameters []SQLParameter,
-		sessionID string,
+		sessionID, executionMode string,
 	) (*Statement, error)
 
 	// Statement inspection
