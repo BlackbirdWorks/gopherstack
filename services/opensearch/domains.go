@@ -54,6 +54,7 @@ func (b *InMemoryBackend) CreateDomain(input CreateDomainInput) (*Domain, error)
 		Status:                      "Active",
 		ClusterConfig:               input.ClusterConfig,
 		Tags:                        tags.New("opensearch." + input.Name + ".tags"),
+		AdvancedOptions:             input.AdvancedOptions,
 		EBSOptions:                  input.EBSOptions,
 		SnapshotOptions:             input.SnapshotOptions,
 		EncryptionAtRestOptions:     input.EncryptionAtRestOptions,

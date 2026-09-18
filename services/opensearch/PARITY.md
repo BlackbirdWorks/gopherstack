@@ -2,10 +2,16 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: acb2e23f9  # gopherstack-uult (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-08-14  # gopherstack-7185: response shapes of Create/Delete/Modify ops
-                              # swept. 1 bug found and fixed (DeleteIndex response envelope --
-                              # see the `indices` family and items_still_open notes).
+last_audit_commit: 2dfc55a39
+last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit.
+                              # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
+                              # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
+                              # UpdateDirectQueryDataSource.DataSourceAccessPolicy); 1 already
+                              # handled (UpdateDomainConfig.SnapshotOptions was already applied
+                              # via applyReqToUpdateInput -- tool false positive, still shown
+                              # post-fix since its heuristic can't associate the shared
+                              # domainJSON struct with handleConfigPostRoute by name).
+                              # See 2026-09-18 Notes entry.
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): audited every op's
 # deserializeOpError<Op> switch (opensearch@v1.75.4 deserializers.go, 96 ops
 # extracted N-of-N) against this Handler's writeError call sites. 7 bugs found
@@ -58,13 +64,13 @@ overall: A            # RAISED from A- (parity-5, this pass). The two gaps that 
                       # This is exactly the "PARITY manifests bury fix status" class (gopherstack-anjf):
                       # a newer dated section sorted below this stale one. No open gap remains here.
 ops:
-  CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes). FIXED gopherstack-5wj0: SoftwareUpdateOptions was read/written under the wrong wire key EnableSoftwareUpdateOptions (confirmed against serializers.go:1319-1321 and deserializers.go:21789-21790, aws-sdk-go-v2/service/opensearch@v1.75.4 -- both directions use object.Key(\"SoftwareUpdateOptions\")), so a real client's request value was silently discarded and any response value the backend did set was unparseable by a real SDK client's typed struct"}
+  CreateDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed DomainId (required field, was missing) and IdentityCenterOptions wire key (see Notes). FIXED gopherstack-5wj0: SoftwareUpdateOptions was read/written under the wrong wire key EnableSoftwareUpdateOptions (confirmed against serializers.go:1319-1321 and deserializers.go:21789-21790, aws-sdk-go-v2/service/opensearch@v1.75.4 -- both directions use object.Key(\"SoftwareUpdateOptions\")), so a real client's request value was silently discarded and any response value the backend did set was unparseable by a real SDK client's typed struct. FIXED 2026-09-18 (reqfielddiff tier-1): AdvancedOptions (map[string]string) was parsed nowhere; now applied and echoed."}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomains: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteDomain: {wire: ok, errors: ok, state: ok, persist: ok, note: "this pass added cascade-cleanup of inbound/outbound connections owned by the domain (see cross_cluster_connections)"}
   ListDomainNames: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed wire key EngineVersion->EngineType and value shape (full version string -> engine family); engineType filter param/logic was already correct"}
-  UpdateDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key; added DryRun=true support (previously always mutated even when DryRun requested). FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (see above), since both share domainJSON for request decoding. NOT fixed (see gaps): EngineMode (a real, distinct optional UpdateDomainConfigRequest field) is entirely absent -- no established backend concept to hook it into."}
-  DescribeDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key. FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (domainConfigFields shares the response shape)"}
+  UpdateDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key; added DryRun=true support (previously always mutated even when DryRun requested). FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (see above), since both share domainJSON for request decoding. NOT fixed (see gaps): EngineMode (a real, distinct optional UpdateDomainConfigRequest field) is entirely absent -- no established backend concept to hook it into. FIXED 2026-09-18 (reqfielddiff tier-1): AdvancedOptions was parsed nowhere; SnapshotOptions was already correctly applied via applyReqToUpdateInput (reqfielddiff false positive -- its heuristic doesn't associate domainJSON with this op's handleConfigPostRoute handler by name). Proven end-to-end via TestDomain_AdvancedOptions_RealClient (CreateDomain+UpdateDomainConfig+DescribeDomainConfig round trip)."}
+  DescribeDomainConfig: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed IdentityCenterOptions wire key. FIXED gopherstack-5wj0: same EnableSoftwareUpdateOptions/SoftwareUpdateOptions wire-key bug as CreateDomain (domainConfigFields shares the response shape). FIXED 2026-09-18: AdvancedOptions previously hardcoded to an empty map regardless of domain state; now echoes the real persisted value."}
   ListTags: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /2021-01-01/tags?arn=; not-found ARN returns empty TagList (no ResourceNotFoundException in SDK op docs) -- verified intentional, not a bug"}
   AddTags: {wire: ok, errors: ok, state: ok, persist: ok}
   RemoveTags: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -199,7 +205,9 @@ families:
       that were previously missing entirely, and removed a Status field UpdateApplicationOutput
       does not have on the real API. CreateApplicationInput's legacy lowercase
       iamIdentityCenterOptions shape (confirmed different from Domain's IdentityCenterOptions,
-      per prior pass's note) was left untouched -- still correct.
+      per prior pass's note) was left untouched -- still correct. FIXED 2026-09-18
+      (reqfielddiff tier-1): CreateApplicationInput.KmsKeyArn was parsed nowhere; now applied
+      and echoed on CreateApplication/GetApplication.
   reserved_instances:
     status: ok
     note: >
@@ -253,11 +261,13 @@ families:
       the required DataSourceType or optional Status fields; (4) UpdateDirectQueryDataSource never
       accepted DataSourceType, which real AWS requires on every update call; (5) DataSource had no
       Status field at all (real DataSourceStatus: ACTIVE/DISABLED) -- added, defaults to ACTIVE.
-      NOT fixed (gopherstack-5wj0): UpdateDirectQueryDataSource also accepts no
-      DataSourceAccessPolicy field (a real, optional PolicyDocument-shaped
-      UpdateDirectQueryDataSourceRequest member) -- DirectQueryDataSource has no reserved field to
-      store it in, so wiring it through would mean modeling a new resource attribute end to end,
-      out of this pass's scope.
+      FIXED 2026-09-18 (reqfielddiff tier-1, closes gopherstack-5wj0 item): Add/
+      UpdateDirectQueryDataSource's DataSourceAccessPolicy (optional PolicyDocument-shaped
+      member) was parsed nowhere; added DirectQueryDataSource.DataSourceAccessPolicy, applied on
+      both Add and Update (Update leaves it unchanged when omitted, matching the real "If not
+      specified, the existing access policy if present remains unchanged" contract), and echoed
+      on GetDirectQueryDataSource only (GetDirectQueryDataSourceOutput has this member;
+      ListDirectQueryDataSources' plain types.DirectQueryDataSource does not).
   serverless:
     status: deferred
     note: >
@@ -419,6 +429,24 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 ---
 
 ## Notes
+
+### 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 request-field sweep
+
+Fixed 4 real gaps: CreateApplication.KmsKeyArn (applied+echoed on Create/GetApplication),
+CreateDomain/UpdateDomainConfig.AdvancedOptions (map[string]string, previously parsed
+nowhere -- DescribeDomainConfig hardcoded an empty map), and
+Add/UpdateDirectQueryDataSource.DataSourceAccessPolicy (closes the gap recorded under
+`data_sources_direct_query`/gopherstack-5wj0). 1 tool false positive:
+UpdateDomainConfig.SnapshotOptions was already applied via `applyReqToUpdateInput`.
+Proven by `TestCreateApplication_KmsKeyArn_RealClient`, `TestDomain_AdvancedOptions_RealClient`,
+`TestDirectQueryDataSource_DataSourceAccessPolicy_RealClient`
+(wire_request_fields_test.go). Tier-1: 5 -> 2 (`go run ./cmd/reqfielddiff -dir opensearch`);
+the 2 remaining are UpdateDomainConfig.AdvancedOptions/SnapshotOptions, both fixed/already-
+correct -- the tool's heuristic can't associate the shared `domainJSON` decode struct with
+`handleConfigPostRoute`, which isn't named after the op it serves (see UpdateDomainConfig
+row). Added 3 additive persisted fields (Application.KmsKeyArn,
+DirectQueryDataSource.DataSourceAccessPolicy, Domain.AdvancedOptions) to the snapshot
+inventory golden, no version bump. `opensearchserverless` (gopherstack-rbmx) untouched.
 
 ### Required OUTPUT member sweep (2026-08-14, gopherstack-r80d)
 

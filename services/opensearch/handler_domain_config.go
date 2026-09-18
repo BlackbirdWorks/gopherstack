@@ -61,6 +61,10 @@ func toDomainConfigJSON(d *Domain) domainConfigFields {
 		cfg.EBSOptions = opensearchConfigValue{Options: st.EBSOptions, Status: active}
 	}
 
+	if st.AdvancedOptions != nil {
+		cfg.AdvancedOptions = opensearchConfigValue{Options: st.AdvancedOptions, Status: active}
+	}
+
 	if st.SnapshotOptions != nil {
 		cfg.SnapshotOptions = opensearchConfigValue{Options: st.SnapshotOptions, Status: active}
 	}

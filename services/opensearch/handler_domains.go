@@ -40,6 +40,7 @@ func validateDomainName(name string) error {
 
 // domainJSON is the JSON request body for CreateDomain.
 type domainJSON struct {
+	AdvancedOptions             map[string]string                   `json:"AdvancedOptions,omitempty"`
 	AutoTuneOptions             *autoTuneOptionsRequestJSON         `json:"AutoTuneOptions,omitempty"`
 	CognitoOptions              *cognitoOptionsJSON                 `json:"CognitoOptions,omitempty"`
 	IdentityCenterOptions       *identityCenterOptionsJSON          `json:"IdentityCenterOptions"`
@@ -64,6 +65,7 @@ type domainJSON struct {
 
 // domainStatusJSON is the JSON response for domain operations.
 type domainStatusJSON struct {
+	AdvancedOptions             map[string]string                   `json:"AdvancedOptions,omitempty"`
 	AutoTuneOptions             *autoTuneOptionsOutputJSON          `json:"AutoTuneOptions,omitempty"`
 	EBSOptions                  *ebsOptionsJSON                     `json:"EBSOptions,omitempty"`
 	SnapshotOptions             *snapshotOptionsJSON                `json:"SnapshotOptions,omitempty"`
@@ -159,6 +161,7 @@ func (h *Handler) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		IdentityCenterOptions:       upd.IdentityCenterOptions,
 		EnableSoftwareUpdateOptions: upd.EnableSoftwareUpdateOptions,
 		LogPublishingOptions:        upd.LogPublishingOptions,
+		AdvancedOptions:             upd.AdvancedOptions,
 	}
 
 	domain, err := h.Backend.CreateDomain(input)
@@ -271,10 +274,11 @@ func toDomainStatusJSON(d *Domain) domainStatusJSON {
 		DomainProcessingStatus: dps,
 		// A domain object always represents an initiated creation; Deleted is set
 		// once a delete has been requested.
-		Created:        true,
-		Deleted:        d.Deleted,
-		AccessPolicies: d.AccessPolicies,
-		ClusterConfig:  toClusterConfigJSON(d.ClusterConfig),
+		Created:         true,
+		Deleted:         d.Deleted,
+		AccessPolicies:  d.AccessPolicies,
+		ClusterConfig:   toClusterConfigJSON(d.ClusterConfig),
+		AdvancedOptions: d.AdvancedOptions,
 		// Always emit these fields so providers see a consistent response shape.
 		EBSOptions:                  emptyEBSOptions,
 		EncryptionAtRestOptions:     emptyEncryptAtRestOptions,

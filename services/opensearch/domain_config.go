@@ -105,6 +105,10 @@ func applyOperationalConfig(d *Domain, input UpdateDomainConfigInput) {
 	if input.AccessPolicies != "" {
 		d.AccessPolicies = input.AccessPolicies
 	}
+
+	if input.AdvancedOptions != nil {
+		d.AdvancedOptions = input.AdvancedOptions
+	}
 }
 
 // applyAutoTuneConfig applies UpdateDomainConfig's AutoTuneOptions, if any.

@@ -208,11 +208,12 @@ type DirectQueryDataSource struct {
 	// DataSourceType is stored as raw JSON for the same reason as
 	// DataSource.DataSourceType above -- types.DirectQueryDataSourceType is
 	// also a tagged union (CloudWatchLog / SecurityLake members).
-	DataSourceType json.RawMessage `json:"dataSourceType,omitempty"`
-	Name           string          `json:"name"`
-	Description    string          `json:"description"`
-	DataSourceArn  string          `json:"dataSourceArn"`
-	OpenSearchArns []string        `json:"openSearchArns"`
+	DataSourceType         json.RawMessage `json:"dataSourceType,omitempty"`
+	Name                   string          `json:"name"`
+	Description            string          `json:"description"`
+	DataSourceArn          string          `json:"dataSourceArn"`
+	DataSourceAccessPolicy string          `json:"dataSourceAccessPolicy,omitempty"`
+	OpenSearchArns         []string        `json:"openSearchArns"`
 }
 
 // DomainPackageDetails holds details about a package associated with a domain.
@@ -249,6 +250,7 @@ type Application struct {
 	ID            string          `json:"id"`
 	Name          string          `json:"name"`
 	ARN           string          `json:"arn"`
+	KmsKeyArn     string          `json:"kmsKeyArn,omitempty"`
 	AppConfigs    []AppConfig     `json:"appConfigs"`
 	DataSources   []AppDataSource `json:"dataSources"`
 	CreatedAt     float64         `json:"createdAt"`
@@ -577,6 +579,7 @@ type LogPublishingOption struct {
 type Domain struct {
 	ProcessingUntil             time.Time                       `json:"processingUntil,omitzero"`
 	Tags                        *tags.Tags                      `json:"tags,omitempty"`
+	AdvancedOptions             map[string]string               `json:"advancedOptions,omitempty"`
 	AutoTuneOptions             *AutoTuneConfig                 `json:"autoTuneOptions,omitempty"`
 	SnapshotOptions             *SnapshotOptions                `json:"snapshotOptions,omitempty"`
 	NodeToNodeEncryptionOptions *NodeToNodeEncryptionOptions    `json:"nodeToNodeEncryptionOptions,omitempty"`
@@ -610,6 +613,7 @@ type Domain struct {
 
 // CreateDomainInput holds all options for creating a new OpenSearch domain.
 type CreateDomainInput struct {
+	AdvancedOptions             map[string]string
 	AutoTuneOptions             *AutoTuneOptionsInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
@@ -632,6 +636,7 @@ type CreateDomainInput struct {
 
 // UpdateDomainConfigInput holds mutable fields for UpdateDomainConfig.
 type UpdateDomainConfigInput struct {
+	AdvancedOptions             map[string]string
 	AutoTuneOptions             *AutoTuneUpdateInput
 	EBSOptions                  *EBSOptions
 	SnapshotOptions             *SnapshotOptions
