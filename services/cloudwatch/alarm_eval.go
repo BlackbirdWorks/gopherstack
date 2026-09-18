@@ -108,7 +108,7 @@ func (b *InMemoryBackend) fetchSingleMetricBuckets(
 		extStats = []string{alarm.ExtendedStatistic}
 	}
 
-	datapoints, err := b.getMetricStatisticsForUnit(
+	datapoints, err := b.GetMetricStatisticsForUnit(
 		alarm.Namespace, alarm.MetricName, alarm.Dimensions,
 		startTime, now, alarm.Period, stats, extStats, alarm.Unit,
 	)

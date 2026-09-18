@@ -147,7 +147,7 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 	statistics := cborStrList(input, "Statistics")
 	extendedStatistics := cborStrList(input, "ExtendedStatistics")
 
-	dps, err := h.Backend.GetMetricStatistics(
+	dps, err := h.Backend.GetMetricStatisticsForUnit(
 		namespace,
 		metricName,
 		dimensions,
@@ -156,6 +156,7 @@ func (h *Handler) cborGetMetricStatistics(input cbor.Map, c *echo.Context) error
 		period,
 		statistics,
 		extendedStatistics,
+		cborStr(input, "Unit"),
 	)
 	if err != nil {
 		return h.cborError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

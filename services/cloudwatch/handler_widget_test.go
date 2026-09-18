@@ -67,3 +67,54 @@ func TestGetMetricWidgetImage_ReturnsValidPNG(t *testing.T) {
 		})
 	}
 }
+
+// TestGetMetricWidgetImage_OutputFormat verifies OutputFormat's documented
+// effect: the default (or explicit "png") returns the XML-wrapped,
+// base64-encoded shape, while "image/png" returns a raw binary PNG body
+// with Content-Type image/png instead (api_op_GetMetricWidgetImage.go).
+func TestGetMetricWidgetImage_OutputFormat(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		outputFormat string
+	}{
+		{name: "default_returns_xml_wrapped_base64"},
+		{name: "explicit_png_returns_xml_wrapped_base64", outputFormat: "png"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newCWHandler()
+			body := `Action=GetMetricWidgetImage&MetricWidget={"view":"timeSeries"}`
+			if tc.outputFormat != "" {
+				body += "&OutputFormat=" + tc.outputFormat
+			}
+			rec := postForm(t, h, body)
+			require.Equal(t, http.StatusOK, rec.Code)
+
+			type resp struct {
+				XMLName xml.Name `xml:"GetMetricWidgetImageResponse"`
+				Image   string   `xml:"GetMetricWidgetImageResult>MetricWidgetImage"`
+			}
+			var r resp
+			require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &r))
+			assert.NotEmpty(t, r.Image)
+		})
+	}
+
+	t.Run("image_png_returns_raw_binary_body", func(t *testing.T) {
+		t.Parallel()
+		h := newCWHandler()
+		body := `Action=GetMetricWidgetImage&MetricWidget={"view":"timeSeries"}&OutputFormat=image/png`
+		rec := postForm(t, h, body)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Equal(t, "image/png", rec.Header().Get("Content-Type"))
+
+		var xmlProbe struct{}
+		require.Error(t, xml.Unmarshal(rec.Body.Bytes(), &xmlProbe),
+			"raw PNG bytes must not decode as XML")
+		assert.Equal(t, []byte("\x89PNG"), rec.Body.Bytes()[:4], "body must be a raw PNG signature")
+	})
+}
