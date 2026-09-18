@@ -408,6 +408,14 @@ func applyDBClusterStringOpts(cluster *DBCluster, paramGroupName string, opts DB
 	if len(opts.EnabledCloudwatchLogsExports) > 0 {
 		cluster.EnabledCloudwatchLogsExports = opts.EnabledCloudwatchLogsExports
 	}
+
+	applyDBClusterEngineOpts(cluster, opts)
+}
+
+// applyDBClusterEngineOpts applies the remaining engine/option-group/perf-insights
+// string and numeric fields, split out of applyDBClusterStringOpts to stay under
+// the cyclomatic-complexity limit.
+func applyDBClusterEngineOpts(cluster *DBCluster, opts DBClusterOptions) {
 	if opts.StorageType != "" {
 		cluster.StorageType = opts.StorageType
 	}

@@ -68,20 +68,20 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 // wire but not behaviorally significant, and why ClientToken is.
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		ClusterIdentifier       string         `json:"ClusterIdentifier"`
 		ResultFormat            string         `json:"ResultFormat"`
-		WorkgroupName           string         `json:"WorkgroupName"`
 		Database                string         `json:"Database"`
 		DBUser                  string         `json:"DbUser"`
 		SecretArn               string         `json:"SecretArn"`
 		StatementName           string         `json:"StatementName"`
-		ClusterIdentifier       string         `json:"ClusterIdentifier"`
-		SessionID               string         `json:"SessionId"`
 		ClientToken             string         `json:"ClientToken"`
-		Sqls                    []string       `json:"Sqls"`
+		ExecutionMode           string         `json:"ExecutionMode"`
+		WorkgroupName           string         `json:"WorkgroupName"`
+		SessionID               string         `json:"SessionId"`
 		Parameters              []SQLParameter `json:"Parameters"`
+		Sqls                    []string       `json:"Sqls"`
 		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
 		WithEvent               bool           `json:"WithEvent"`
-		ExecutionMode           string         `json:"ExecutionMode"`
 	}
 
 	if err := json.Unmarshal(body, &req); err != nil {

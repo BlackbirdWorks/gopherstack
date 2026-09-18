@@ -650,8 +650,8 @@ func TestUpdateMaintenanceWindow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		update  ssm.UpdateMaintenanceWindowInput
+		name    string
 		wantErr bool
 	}{
 		{

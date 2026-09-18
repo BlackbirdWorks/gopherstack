@@ -727,8 +727,8 @@ type CreateRegistryInput struct {
 
 // UpdateRegistryInput is the input for UpdateRegistry.
 type UpdateRegistryInput struct {
-	RegistryName string  `json:"RegistryName"`
 	Description  *string `json:"Description,omitempty"`
+	RegistryName string  `json:"RegistryName"`
 }
 
 // CreateSchemaInput is the input for CreateSchema.

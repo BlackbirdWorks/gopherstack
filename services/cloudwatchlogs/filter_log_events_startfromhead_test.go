@@ -29,10 +29,9 @@ func TestFilterLogEvents_StartFromHead(t *testing.T) {
 	ctx := t.Context()
 
 	const logGroup = "/filter/startfromhead"
-	const logStream = "stream-1"
 	const total = 5
 
-	seedPtrLeakEvents(t, client, logGroup, logStream, total)
+	seedPtrLeakEvents(t, client, logGroup, total)
 
 	recentStart := aws.Int64(filterLogEventsMinStartFromHeadFalseMs)
 

@@ -244,13 +244,13 @@ type UpdateMaintenanceWindowInput struct {
 	ScheduleOffset           *int32  `json:"ScheduleOffset,omitempty"`
 	Duration                 *int32  `json:"Duration,omitempty"`
 	Cutoff                   *int32  `json:"Cutoff,omitempty"`
-	WindowID                 string  `json:"WindowId"`
 	Name                     *string `json:"Name,omitempty"`
 	Description              *string `json:"Description,omitempty"`
 	Schedule                 *string `json:"Schedule,omitempty"`
 	ScheduleTimezone         *string `json:"ScheduleTimezone,omitempty"`
 	StartDate                *string `json:"StartDate,omitempty"`
 	EndDate                  *string `json:"EndDate,omitempty"`
+	WindowID                 string  `json:"WindowId"`
 }
 
 // UpdateMaintenanceWindowOutput is the response payload for UpdateMaintenanceWindow.

@@ -36,6 +36,7 @@ const (
 	filterKeySecondaryNetID   = "secondary-network-id"
 	filterKeyResourceType     = "resource-type"
 	filterKeyAttachInstanceID = "attachment.instance-id"
+	filterKeyImageID          = "image-id"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -565,7 +566,7 @@ amiLoop:
 
 func imageMatchesFilter(a *AMIStub, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "image-id":
+	case filterKeyImageID:
 		return anyEqual(a.ImageID, values)
 	case "name":
 		return anyEqual(a.Name, values)
@@ -860,7 +861,7 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, b
 	switch filterName {
 	case "instance-state-name":
 		return anyEqual(inst.State.Name, values)
-	case "image-id":
+	case filterKeyImageID:
 		return anyEqual(inst.ImageID, values)
 	case filterKeyVPCID:
 		return anyEqual(inst.VPCID, values)
@@ -2200,7 +2201,7 @@ itemLoop:
 
 func launchTemplateVersionMatchesFilter(item launchTemplateVersionItem, filterName string, values []string) bool {
 	switch filterName {
-	case "image-id":
+	case filterKeyImageID:
 		return anyEqual(item.LaunchTemplateData.ImageID, values)
 	case filterKeyInstanceType:
 		return anyEqual(item.LaunchTemplateData.InstanceType, values)

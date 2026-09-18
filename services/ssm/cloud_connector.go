@@ -155,10 +155,10 @@ type ListCloudConnectorsOutput struct {
 
 // UpdateCloudConnectorInput is the request payload for UpdateCloudConnector.
 type UpdateCloudConnectorInput struct {
-	CloudConnectorID string                       `json:"CloudConnectorId"`
 	Configuration    *CloudConnectorConfiguration `json:"Configuration,omitempty"`
 	Description      *string                      `json:"Description,omitempty"`
 	DisplayName      *string                      `json:"DisplayName,omitempty"`
+	CloudConnectorID string                       `json:"CloudConnectorId"`
 }
 
 // UpdateCloudConnectorOutput is the response payload for UpdateCloudConnector.

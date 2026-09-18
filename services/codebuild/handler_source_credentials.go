@@ -29,11 +29,11 @@ func (h *Handler) handleDeleteSourceCredentials(
 }
 
 type importSourceCredentialsInput struct {
+	ShouldOverwrite *bool  `json:"shouldOverwrite,omitempty"`
 	AuthType        string `json:"authType"`
 	ServerType      string `json:"serverType"`
 	Token           string `json:"token"`
 	Username        string `json:"username"`
-	ShouldOverwrite *bool  `json:"shouldOverwrite,omitempty"`
 }
 
 type importSourceCredentialsOutput struct {

@@ -302,18 +302,18 @@ type networkInterfaceAttachment struct {
 type networkInterfaceItem struct {
 	Attachment             *networkInterfaceAttachment  `xml:"attachment,omitempty"`
 	PublicIPDNSNameOptions *publicIPDNSNameOptionsItem  `xml:"publicIpDnsNameOptions,omitempty"`
-	NetworkInterfaceID     string                       `xml:"networkInterfaceId"`
+	Description            string                       `xml:"description"`
 	SubnetID               string                       `xml:"subnetId"`
 	VPCID                  string                       `xml:"vpcId"`
 	PrivateIPAddress       string                       `xml:"privateIpAddress"`
-	Description            string                       `xml:"description"`
+	NetworkInterfaceID     string                       `xml:"networkInterfaceId"`
 	Status                 string                       `xml:"status"`
 	OwnerID                string                       `xml:"ownerId,omitempty"`
+	InterfaceType          string                       `xml:"interfaceType,omitempty"`
 	PrivateIPAddressesSet  networkInterfacePrivateIPSet `xml:"privateIpAddressesSet"`
 	TagSet                 []simpleTagItem              `xml:"tagSet>item"`
 	GroupSet               instanceGroupSet             `xml:"groupSet"`
 	SourceDestCheck        bool                         `xml:"sourceDestCheck"`
-	InterfaceType          string                       `xml:"interfaceType,omitempty"`
 }
 
 type publicIPDNSNameOptionsItem struct {

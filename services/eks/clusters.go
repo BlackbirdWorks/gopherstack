@@ -18,13 +18,13 @@ type ClusterOptionalConfig struct {
 	AccessConfig  *AccessConfig
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
-	// LogEntries is CreateClusterInput.Logging.ClusterLogging -- the same
-	// shape UpdateClusterConfig already applies via ClusterConfigUpdate.
-	LogEntries []ClusterLogEntry
 	// UpgradePolicySupportType is CreateClusterInput.UpgradePolicy.SupportType
 	// ("STANDARD" or "EXTENDED"); empty means "not specified", resolved to
 	// the real default of EXTENDED by resolveClusterOptionalConfig.
 	UpgradePolicySupportType string
+	// LogEntries is CreateClusterInput.Logging.ClusterLogging -- the same
+	// shape UpdateClusterConfig already applies via ClusterConfigUpdate.
+	LogEntries []ClusterLogEntry
 	// DeletionProtection is CreateClusterInput.DeletionProtection; enforced
 	// by DeleteCluster.
 	DeletionProtection bool

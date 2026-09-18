@@ -125,7 +125,7 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			statusDeleteInProgress,
 			"",
 		)
-		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
 			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
 				failedLogicalIDs = append(failedLogicalIDs, fmt.Sprintf("%s: %v", logicalID, delErr))
 				b.addEvent(
@@ -616,7 +616,8 @@ func (b *InMemoryBackend) rollbackCreateResources(
 			"",
 		)
 
-		retained := (res.DeletionPolicy == "Retain" || res.DeletionPolicy == "Snapshot") && !retainExceptOnCreate
+		keepsPolicy := res.DeletionPolicy == deletionPolicyRetain || res.DeletionPolicy == deletionPolicySnapshot
+		retained := keepsPolicy && !retainExceptOnCreate
 		if !retained {
 			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
 				ok = false
@@ -1135,7 +1136,7 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 			statusDeleteInProgress,
 			"",
 		)
-		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
 			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
 				ok = false
 				b.addEvent(

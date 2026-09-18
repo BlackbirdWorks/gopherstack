@@ -405,21 +405,21 @@ type vpcEndpointRouteTableIDSet struct {
 }
 
 type vpcEndpointItem struct {
-	ID                     string                         `xml:"vpcEndpointId"`
-	VPCID                  string                         `xml:"vpcId"`
+	CreateTime             string                         `xml:"creationTimestamp"`
+	PolicyDocument         string                         `xml:"policyDocument,omitempty"`
 	ServiceName            string                         `xml:"serviceName"`
 	State                  string                         `xml:"state"`
 	VpcEndpointType        string                         `xml:"vpcEndpointType"`
 	OwnerID                string                         `xml:"ownerId,omitempty"`
-	CreateTime             string                         `xml:"creationTimestamp"`
-	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
-	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
-	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
-	TagSet                 []simpleTagItem                `xml:"tagSet>item"`
-	PolicyDocument         string                         `xml:"policyDocument,omitempty"`
+	VPCID                  string                         `xml:"vpcId"`
 	ServiceRegion          string                         `xml:"serviceRegion,omitempty"`
-	PrivateDNSEnabled      bool                           `xml:"privateDnsEnabled,omitempty"`
+	ID                     string                         `xml:"vpcEndpointId"`
+	TagSet                 []simpleTagItem                `xml:"tagSet>item"`
+	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
+	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
+	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
 	GroupSet               instanceGroupSet               `xml:"groupSet"`
+	PrivateDNSEnabled      bool                           `xml:"privateDnsEnabled,omitempty"`
 }
 
 type vpcEndpointSet struct {

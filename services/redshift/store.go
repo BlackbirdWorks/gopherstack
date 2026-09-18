@@ -237,6 +237,73 @@ type CreateClusterOptions struct {
 	ExtraComputeForAutomaticOptimization bool
 }
 
+// validateClusterID checks ClusterIdentifier against the real API's format
+// rules (must start with a letter, contain only lowercase letters/digits/
+// hyphens, not end with a hyphen, not contain consecutive hyphens).
+func validateClusterID(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	if !clusterIDRegex.MatchString(id) || strings.HasSuffix(id, "-") || strings.Contains(id, "--") {
+		return fmt.Errorf(
+			"%w: ClusterIdentifier %q is invalid (must start with a letter, "+
+				"contain only lowercase letters/digits/hyphens, not end with a hyphen, "+
+				"not contain consecutive hyphens, max 63 chars)",
+			ErrInvalidParameter, id,
+		)
+	}
+
+	return nil
+}
+
+// resolveClusterRetentionPeriods validates and resolves CreateCluster's
+// snapshot-retention options, defaulting any left unset.
+func resolveClusterRetentionPeriods(opts CreateClusterOptions) (int, int, error) {
+	automated := defaultAutomatedSnapshotRetentionPeriod
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		automated = *opts.AutomatedSnapshotRetentionPeriod
+		if automated < minAutomatedSnapshotRetentionPeriod || automated > maxAutomatedSnapshotRetentionPeriod {
+			return 0, 0, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	manual := defaultManualSnapshotRetentionPeriod
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		manual = *opts.ManualSnapshotRetentionPeriod
+		if manual != indefiniteManualSnapshotRetentionPeriod &&
+			(manual < minManualSnapshotRetentionPeriod || manual > maxManualSnapshotRetentionPeriod) {
+			return 0, 0, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	return automated, manual, nil
+}
+
+// resolveClusterCreateDefaults fills in CreateCluster's defaulted fields.
+func resolveClusterCreateDefaults(nodeType, dbName, masterUser string, port int) (string, string, string, int) {
+	if nodeType == "" {
+		nodeType = defaultNodeType
+	}
+	if dbName == "" {
+		dbName = defaultDBName
+	}
+	if masterUser == "" {
+		masterUser = defaultMasterUsername
+	}
+	if port == 0 {
+		port = defaultPort
+	}
+
+	return nodeType, dbName, masterUser, port
+}
+
 // CreateCluster creates a new Redshift cluster. clusterSecurityGroups and
 // clusterParameterGroupName associate the cluster with existing
 // ClusterSecurityGroup/ClusterParameterGroup resources (real
@@ -250,41 +317,13 @@ func (b *InMemoryBackend) CreateCluster(
 	clusterParameterGroupName string,
 	opts CreateClusterOptions,
 ) (*Cluster, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	if err := validateClusterID(id); err != nil {
+		return nil, err
 	}
 
-	if !clusterIDRegex.MatchString(id) || strings.HasSuffix(id, "-") || strings.Contains(id, "--") {
-		return nil, fmt.Errorf(
-			"%w: ClusterIdentifier %q is invalid (must start with a letter, "+
-				"contain only lowercase letters/digits/hyphens, not end with a hyphen, "+
-				"not contain consecutive hyphens, max 63 chars)",
-			ErrInvalidParameter, id,
-		)
-	}
-
-	automatedRetention := defaultAutomatedSnapshotRetentionPeriod
-	if opts.AutomatedSnapshotRetentionPeriod != nil {
-		automatedRetention = *opts.AutomatedSnapshotRetentionPeriod
-		if automatedRetention < minAutomatedSnapshotRetentionPeriod ||
-			automatedRetention > maxAutomatedSnapshotRetentionPeriod {
-			return nil, fmt.Errorf(
-				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
-				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
-			)
-		}
-	}
-
-	manualRetention := defaultManualSnapshotRetentionPeriod
-	if opts.ManualSnapshotRetentionPeriod != nil {
-		manualRetention = *opts.ManualSnapshotRetentionPeriod
-		if manualRetention != indefiniteManualSnapshotRetentionPeriod &&
-			(manualRetention < minManualSnapshotRetentionPeriod || manualRetention > maxManualSnapshotRetentionPeriod) {
-			return nil, fmt.Errorf(
-				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
-				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
-			)
-		}
+	automatedRetention, manualRetention, err := resolveClusterRetentionPeriods(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	allowVersionUpgrade := true
@@ -299,24 +338,11 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 
-	if err := b.validateClusterAssociationsLocked(clusterSecurityGroups, clusterParameterGroupName); err != nil {
+	if err = b.validateClusterAssociationsLocked(clusterSecurityGroups, clusterParameterGroupName); err != nil {
 		return nil, err
 	}
 
-	if nodeType == "" {
-		nodeType = defaultNodeType
-	}
-	if dbName == "" {
-		dbName = defaultDBName
-	}
-	if masterUser == "" {
-		masterUser = defaultMasterUsername
-	}
-
-	port := opts.Port
-	if port == 0 {
-		port = defaultPort
-	}
+	nodeType, dbName, masterUser, port := resolveClusterCreateDefaults(nodeType, dbName, masterUser, opts.Port)
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 

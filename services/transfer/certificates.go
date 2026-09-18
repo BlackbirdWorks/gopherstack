@@ -201,8 +201,8 @@ func (b *InMemoryBackend) ListCertificates() []*Certificate {
 type UpdateCertificateInput struct {
 	ActiveDate    time.Time
 	InactiveDate  time.Time
-	CertificateID string
 	Description   *string
+	CertificateID string
 }
 
 // UpdateCertificate updates mutable fields on a certificate.

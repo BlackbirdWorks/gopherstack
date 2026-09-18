@@ -439,6 +439,16 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		GlobalWriteForwardingRequested:     c.EnableGlobalWriteForwarding,
 	}
 
+	applyXMLClusterOptionalScalars(&x, c)
+	applyXMLClusterOptionalLists(&x, c, roles)
+
+	return x
+}
+
+// applyXMLClusterOptionalScalars sets the xmlDBCluster fields that come from a
+// single optional DBCluster value (as opposed to a slice converted to an XML
+// member list; see applyXMLClusterOptionalLists).
+func applyXMLClusterOptionalScalars(x *xmlDBCluster, c *DBCluster) {
 	if c.EnableLocalWriteForwarding {
 		x.LocalWriteForwardingStatus = "enabled"
 	}
@@ -458,6 +468,14 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		}
 	}
 
+	if len(c.AvailabilityZones) > 0 {
+		x.AvailabilityZones = &xmlAvailabilityZoneList{Members: c.AvailabilityZones}
+	}
+}
+
+// applyXMLClusterOptionalLists converts the DBCluster slice fields (plus the
+// caller-supplied associated roles) into their XML member-list wire shapes.
+func applyXMLClusterOptionalLists(x *xmlDBCluster, c *DBCluster, roles []DBClusterRole) {
 	if len(c.DBClusterMembers) > 0 {
 		members := make([]xmlDBClusterMember, 0, len(c.DBClusterMembers))
 		for _, m := range c.DBClusterMembers {
@@ -481,10 +499,6 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 		x.EnabledCloudwatchLogsExports = &xmlLogTypeList{Members: members}
 	}
 
-	if len(c.AvailabilityZones) > 0 {
-		x.AvailabilityZones = &xmlAvailabilityZoneList{Members: c.AvailabilityZones}
-	}
-
 	if len(roles) > 0 {
 		members := make([]xmlDBClusterRole, 0, len(roles))
 		for _, r := range roles {
@@ -506,8 +520,6 @@ func toXMLCluster(c *DBCluster, roles []DBClusterRole) xmlDBCluster {
 
 		x.ReadReplicaIdentifiers = &xmlClusterReplicaIdentifierList{Members: members}
 	}
-
-	return x
 }
 
 // parseServerlessV2ScalingConfig parses ServerlessV2ScalingConfiguration from request form values.

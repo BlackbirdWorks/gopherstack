@@ -261,8 +261,19 @@ func TestProxyEndpoint_HTTP(t *testing.T) {
 func TestModifyDBProxyCopied(t *testing.T) {
 	t.Parallel()
 	b := newTestBackend(t)
-	_, err := b.CreateDBProxy("my-proxy", "POSTGRESQL", "arn:aws:iam::123456789012:role/proxy-role",
-		[]rds.UserAuthConfig{{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"}}, nil, nil, "", "", "")
+	_, err := b.CreateDBProxy(
+		"my-proxy",
+		"POSTGRESQL",
+		"arn:aws:iam::123456789012:role/proxy-role",
+		[]rds.UserAuthConfig{
+			{SecretARN: "arn:aws:secretsmanager:us-east-1:123456789012:secret:s1"},
+		},
+		nil,
+		nil,
+		"",
+		"",
+		"",
+	)
 	require.NoError(t, err)
 	requireTLS := true
 	proxy1, err := b.ModifyDBProxy("my-proxy", &requireTLS, nil, nil, "")

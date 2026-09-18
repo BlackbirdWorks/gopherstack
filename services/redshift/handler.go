@@ -646,49 +646,57 @@ func parseCreateClusterOptions(vals url.Values) (CreateClusterOptions, error) {
 	return opts, nil
 }
 
+// takeFinalClusterSnapshot enforces AWS's DeleteCluster snapshot semantics
+// for SkipFinalClusterSnapshot=false: a final snapshot identifier is
+// required, the snapshot is created, and an optional retention period is
+// applied to it.
+func (h *Handler) takeFinalClusterSnapshot(vals url.Values, id, finalSnapshotID string) error {
+	if finalSnapshotID == "" {
+		return fmt.Errorf(
+			"%w: FinalClusterSnapshotIdentifier is required when SkipFinalClusterSnapshot is false",
+			ErrInvalidParameter,
+		)
+	}
+
+	if _, err := h.Backend.CreateClusterSnapshot(finalSnapshotID, id); err != nil {
+		return err
+	}
+
+	v := vals.Get("FinalClusterSnapshotRetentionPeriod")
+	if v == "" {
+		return nil
+	}
+
+	// FinalClusterSnapshotRetentionPeriod (real DeleteClusterInput docs:
+	// "-1 or an integer between 1 and 3,653 ... default value is -1")
+	// previously had no effect: CreateClusterSnapshot always hardcodes
+	// -1 (indefinite), so a caller asking for a bounded retention on
+	// their final snapshot was silently ignored.
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("%w: FinalClusterSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
+	}
+
+	if n != indefiniteManualSnapshotRetentionPeriod &&
+		(n < minManualSnapshotRetentionPeriod || n > maxManualSnapshotRetentionPeriod) {
+		return fmt.Errorf(
+			"%w: FinalClusterSnapshotRetentionPeriod must be -1 or between %d and %d",
+			ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+		)
+	}
+
+	_, modErr := h.Backend.ModifyClusterSnapshot(finalSnapshotID, &n, false)
+
+	return modErr
+}
+
 func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	skipFinalStr := vals.Get("SkipFinalClusterSnapshot")
 	finalSnapshotID := vals.Get("FinalClusterSnapshotIdentifier")
 
-	// When SkipFinalClusterSnapshot is explicitly "false", enforce AWS snapshot semantics.
-	if skipFinalStr == "false" {
-		if finalSnapshotID == "" {
-			return nil, fmt.Errorf(
-				"%w: FinalClusterSnapshotIdentifier is required when SkipFinalClusterSnapshot is false",
-				ErrInvalidParameter,
-			)
-		}
-
-		if _, err := h.Backend.CreateClusterSnapshot(finalSnapshotID, id); err != nil {
+	if vals.Get("SkipFinalClusterSnapshot") == "false" {
+		if err := h.takeFinalClusterSnapshot(vals, id, finalSnapshotID); err != nil {
 			return nil, err
-		}
-
-		// FinalClusterSnapshotRetentionPeriod (real DeleteClusterInput docs:
-		// "-1 or an integer between 1 and 3,653 ... default value is -1")
-		// previously had no effect: CreateClusterSnapshot always hardcodes
-		// -1 (indefinite), so a caller asking for a bounded retention on
-		// their final snapshot was silently ignored.
-		if v := vals.Get("FinalClusterSnapshotRetentionPeriod"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"%w: FinalClusterSnapshotRetentionPeriod must be an integer",
-					ErrInvalidParameter,
-				)
-			}
-
-			if n != indefiniteManualSnapshotRetentionPeriod &&
-				(n < minManualSnapshotRetentionPeriod || n > maxManualSnapshotRetentionPeriod) {
-				return nil, fmt.Errorf(
-					"%w: FinalClusterSnapshotRetentionPeriod must be -1 or between %d and %d",
-					ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
-				)
-			}
-
-			if _, modErr := h.Backend.ModifyClusterSnapshot(finalSnapshotID, &n, false); modErr != nil {
-				return nil, modErr
-			}
 		}
 	}
 

@@ -24,20 +24,24 @@ const (
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID                    string   `json:"id,omitempty"`
-	SubnetID              string   `json:"subnetID,omitempty"`
-	VPCID                 string   `json:"vpcID,omitempty"`
-	PrivateIP             string   `json:"privateIP,omitempty"`
-	Description           string   `json:"description,omitempty"`
-	InstanceID            string   `json:"instanceID,omitempty"`
-	AttachmentID          string   `json:"attachmentID,omitempty"`
-	Status                string   `json:"status,omitempty"`
-	OwnerID               string   `json:"ownerID,omitempty"`
-	PublicDNSHostnameType string   `json:"publicDnsHostnameType,omitempty"`
-	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
-	DeviceIndex           int      `json:"deviceIndex,omitempty"`
-	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
-	SecurityGroupIDs      []string `json:"securityGroupIDs,omitempty"`
+	OwnerID               string `json:"ownerID,omitempty"`
+	PublicDNSHostnameType string `json:"publicDnsHostnameType,omitempty"`
+	VPCID                 string `json:"vpcID,omitempty"`
+	PrivateIP             string `json:"privateIP,omitempty"`
+	Description           string `json:"description,omitempty"`
+	InstanceID            string `json:"instanceID,omitempty"`
+	SubnetID              string `json:"subnetID,omitempty"`
+	AttachmentID          string `json:"attachmentID,omitempty"`
+	ID                    string `json:"id,omitempty"`
+	Status                string `json:"status,omitempty"`
+	// InterfaceType is CreateNetworkInterface's declare+echo-only type
+	// (default "interface"); this backend has no EFA/trunk network-card
+	// simulation to apply it against.
+	InterfaceType       string   `json:"interfaceType,omitempty"`
+	SecurityGroupIDs    []string `json:"securityGroupIDs,omitempty"`
+	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
+	DeviceIndex         int      `json:"deviceIndex,omitempty"`
+	SourceDestCheck     bool     `json:"sourceDestCheck,omitempty"`
 	// DeleteOnTermination mirrors real AWS's per-attachment default: true for
 	// the primary interface auto-created at instance launch, false for any
 	// interface created separately (CreateNetworkInterface) and later attached
@@ -45,10 +49,6 @@ type NetworkInterface struct {
 	// this to true - only the launch path and ModifyNetworkInterfaceAttribute's
 	// Attachment.DeleteOnTermination can.
 	DeleteOnTermination bool `json:"deleteOnTermination,omitempty"`
-	// InterfaceType is CreateNetworkInterface's declare+echo-only type
-	// (default "interface"); this backend has no EFA/trunk network-card
-	// simulation to apply it against.
-	InterfaceType string `json:"interfaceType,omitempty"`
 }
 
 // DescribeNetworkInterfaces returns network interfaces, optionally filtered by IDs.

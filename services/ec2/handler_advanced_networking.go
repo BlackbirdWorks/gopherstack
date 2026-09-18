@@ -511,25 +511,25 @@ type ipamOperatingRegionItem struct {
 }
 
 type ipamItem struct {
-	Tier                                  string `xml:"tier,omitempty"`
-	DefaultResourceDiscoveryAssociationID string `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
-	IpamARN                               string `xml:"ipamArn"`
-	IpamRegion                            string `xml:"ipamRegion,omitempty"`
-	PublicDefaultScopeID                  string `xml:"publicDefaultScopeId,omitempty"`
-	PrivateDefaultScopeID                 string `xml:"privateDefaultScopeId,omitempty"`
-	DefaultResourceDiscoveryID            string `xml:"defaultResourceDiscoveryId,omitempty"`
-	OwnerID                               string `xml:"ownerId,omitempty"`
-	State                                 string `xml:"state"`
-	IpamID                                string `xml:"ipamId"`
-	Description                           string `xml:"description,omitempty"`
+	State                                 string          `xml:"state"`
+	IpamID                                string          `xml:"ipamId"`
+	IpamARN                               string          `xml:"ipamArn"`
+	IpamRegion                            string          `xml:"ipamRegion,omitempty"`
+	PublicDefaultScopeID                  string          `xml:"publicDefaultScopeId,omitempty"`
+	PrivateDefaultScopeID                 string          `xml:"privateDefaultScopeId,omitempty"`
+	DefaultResourceDiscoveryID            string          `xml:"defaultResourceDiscoveryId,omitempty"`
+	OwnerID                               string          `xml:"ownerId,omitempty"`
+	DefaultResourceDiscoveryAssociationID string          `xml:"defaultResourceDiscoveryAssociationId,omitempty"`
+	Description                           string          `xml:"description,omitempty"`
+	Tier                                  string          `xml:"tier,omitempty"`
+	MeteredAccount                        string          `xml:"meteredAccount,omitempty"`
+	TagSet                                []simpleTagItem `xml:"tagSet>item"`
 	OperatingRegionSet                    struct {
 		Items []ipamOperatingRegionItem `xml:"item"`
 	} `xml:"operatingRegionSet"`
-	TagSet                            []simpleTagItem `xml:"tagSet>item"`
-	ScopeCount                        int32           `xml:"scopeCount,omitempty"`
-	ResourceDiscoveryAssociationCount int32           `xml:"resourceDiscoveryAssociationCount,omitempty"`
-	MeteredAccount                    string          `xml:"meteredAccount,omitempty"`
-	EnablePrivateGua                  bool            `xml:"enablePrivateGua,omitempty"`
+	ScopeCount                        int32 `xml:"scopeCount,omitempty"`
+	ResourceDiscoveryAssociationCount int32 `xml:"resourceDiscoveryAssociationCount,omitempty"`
+	EnablePrivateGua                  bool  `xml:"enablePrivateGua,omitempty"`
 }
 
 func (h *Handler) toIpamItem(ipam *Ipam) ipamItem {
@@ -646,21 +646,21 @@ type deleteIpamScopeResponse struct {
 }
 
 type ipamPoolItem struct {
-	AddressFamily                  string          `xml:"addressFamily"`
-	Description                    string          `xml:"description,omitempty"`
+	IpamPoolID                     string          `xml:"ipamPoolId"`
+	IpamPoolARN                    string          `xml:"ipamPoolArn"`
 	IpamID                         string          `xml:"ipamId"`
 	IpamScopeID                    string          `xml:"ipamScopeId,omitempty"`
 	State                          string          `xml:"state"`
 	Locale                         string          `xml:"locale,omitempty"`
-	IpamPoolID                     string          `xml:"ipamPoolId"`
-	IpamPoolARN                    string          `xml:"ipamPoolArn"`
+	Description                    string          `xml:"description,omitempty"`
+	PublicIPSource                 string          `xml:"publicIpSource,omitempty"`
+	AddressFamily                  string          `xml:"addressFamily"`
 	TagSet                         []simpleTagItem `xml:"tagSet>item"`
 	AllocationDefaultNetmaskLength int32           `xml:"allocationDefaultNetmaskLength,omitempty"`
-	AllocationMinNetmaskLength     int32           `xml:"allocationMinNetmaskLength,omitempty"`
 	AllocationMaxNetmaskLength     int32           `xml:"allocationMaxNetmaskLength,omitempty"`
+	AllocationMinNetmaskLength     int32           `xml:"allocationMinNetmaskLength,omitempty"`
 	PubliclyAdvertisable           bool            `xml:"publiclyAdvertisable,omitempty"`
 	AutoImport                     bool            `xml:"autoImport,omitempty"`
-	PublicIPSource                 string          `xml:"publicIpSource,omitempty"`
 }
 
 func (h *Handler) toIpamPoolItem(pool *IpamPool) ipamPoolItem {

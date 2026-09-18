@@ -23,19 +23,19 @@ func proxyRandSuffix() string {
 type DBProxy struct {
 	CreatedDate                 time.Time            `json:"createdDate"`
 	UpdatedDate                 time.Time            `json:"updatedDate"`
+	DefaultAuthScheme           string               `json:"defaultAuthScheme,omitempty"`
 	RoleARN                     string               `json:"roleArn"`
-	Status                      string               `json:"status"`
 	Endpoint                    string               `json:"endpoint"`
 	EngineFamily                string               `json:"engineFamily"`
 	DBProxyARN                  string               `json:"dbProxyArn"`
 	DBProxyName                 string               `json:"dbProxyName"`
-	VpcSecurityGroupIDs         []string             `json:"vpcSecurityGroupIds"`
-	Auth                        []UserAuthConfig     `json:"auth"`
-	VpcSubnetIDs                []string             `json:"vpcSubnetIds"`
-	ConnectionPoolConfig        ConnectionPoolConfig `json:"connectionPoolConfig"`
-	DefaultAuthScheme           string               `json:"defaultAuthScheme,omitempty"`
-	EndpointNetworkType         string               `json:"endpointNetworkType,omitempty"`
 	TargetConnectionNetworkType string               `json:"targetConnectionNetworkType,omitempty"`
+	EndpointNetworkType         string               `json:"endpointNetworkType,omitempty"`
+	Status                      string               `json:"status"`
+	VpcSubnetIDs                []string             `json:"vpcSubnetIds"`
+	Auth                        []UserAuthConfig     `json:"auth"`
+	VpcSecurityGroupIDs         []string             `json:"vpcSecurityGroupIds"`
+	ConnectionPoolConfig        ConnectionPoolConfig `json:"connectionPoolConfig"`
 	IdleClientTimeout           int                  `json:"idleClientTimeout"`
 	DebugLogging                bool                 `json:"debugLogging"`
 	RequireTLS                  bool                 `json:"requireTls"`
@@ -93,9 +93,9 @@ type DBProxyEndpoint struct {
 	VpcID               string    `json:"vpcId"`
 	Endpoint            string    `json:"endpoint"`
 	TargetRole          string    `json:"targetRole"`
+	EndpointNetworkType string    `json:"endpointNetworkType,omitempty"`
 	VpcSecurityGroupIDs []string  `json:"vpcSecurityGroupIds"`
 	VpcSubnetIDs        []string  `json:"vpcSubnetIds"`
-	EndpointNetworkType string    `json:"endpointNetworkType,omitempty"`
 	IsDefault           bool      `json:"isDefault"`
 }
 

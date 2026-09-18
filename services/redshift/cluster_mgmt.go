@@ -62,11 +62,34 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 		)
 	}
 
+	if err := validateModifyClusterOpts(b, opts); err != nil {
+		return nil, err
+	}
+
+	applyModifyClusterUnconditional(cluster, opts)
+
+	if !opts.ApplyImmediately {
+		cluster.PendingModifiedValues = pendingModifiedValuesFrom(opts)
+		cp := cloneCluster(cluster)
+
+		return &cp, nil
+	}
+
+	applyModifyClusterImmediate(cluster, opts)
+	cluster.PendingModifiedValues = nil
+	cp := cloneCluster(cluster)
+
+	return &cp, nil
+}
+
+// validateModifyClusterOpts checks the ModifyCluster fields that can be
+// rejected outright, before anything is applied to the cluster.
+func validateModifyClusterOpts(b *InMemoryBackend, opts ModifyClusterOptions) error {
 	if opts.ManualSnapshotRetentionPeriod != nil {
 		v := *opts.ManualSnapshotRetentionPeriod
 		if v != indefiniteManualSnapshotRetentionPeriod &&
 			(v < minManualSnapshotRetentionPeriod || v > maxManualSnapshotRetentionPeriod) {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
 				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
 			)
@@ -76,7 +99,7 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 	if opts.AutomatedSnapshotRetentionPeriod != nil {
 		v := *opts.AutomatedSnapshotRetentionPeriod
 		if v < minAutomatedSnapshotRetentionPeriod || v > maxAutomatedSnapshotRetentionPeriod {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
 				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
 			)
@@ -85,11 +108,21 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 
 	if opts.ClusterParameterGroupName != "" {
 		if _, pgExists := b.parameterGroups.Get(opts.ClusterParameterGroupName); !pgExists {
-			return nil, fmt.Errorf(
+			return fmt.Errorf(
 				"%w: parameter group %s not found", ErrParameterGroupNotFound, opts.ClusterParameterGroupName,
 			)
 		}
+	}
 
+	return nil
+}
+
+// applyModifyClusterUnconditional applies the ModifyCluster fields that are
+// never gated by ApplyImmediately -- real ModifyClusterInput documents
+// VpcSecurityGroupIds as "asynchronously applied as soon as possible" and
+// Port has no entry in PendingModifiedValues at all.
+func applyModifyClusterUnconditional(cluster *Cluster, opts ModifyClusterOptions) {
+	if opts.ClusterParameterGroupName != "" {
 		cluster.ClusterParameterGroupName = opts.ClusterParameterGroupName
 	}
 
@@ -112,19 +145,6 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 	if opts.ManualSnapshotRetentionPeriod != nil {
 		cluster.ManualSnapshotRetentionPeriod = *opts.ManualSnapshotRetentionPeriod
 	}
-
-	if !opts.ApplyImmediately {
-		cluster.PendingModifiedValues = pendingModifiedValuesFrom(opts)
-		cp := cloneCluster(cluster)
-
-		return &cp, nil
-	}
-
-	applyModifyClusterImmediate(cluster, opts)
-	cluster.PendingModifiedValues = nil
-	cp := cloneCluster(cluster)
-
-	return &cp, nil
 }
 
 // pendingModifiedValuesFrom builds the PendingModifiedValues ModifyCluster

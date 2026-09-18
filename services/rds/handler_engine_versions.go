@@ -128,6 +128,8 @@ type xmlCustomDBEngineVersionAMI struct {
 }
 
 type createCustomDBEngineVersionResponse struct {
+	Image *xmlCustomDBEngineVersionAMI `xml:"CreateCustomDBEngineVersionResult>Image,omitempty"`
+
 	XMLName                    xml.Name `xml:"CreateCustomDBEngineVersionResponse"`
 	Xmlns                      string   `xml:"xmlns,attr"`
 	Engine                     string   `xml:"CreateCustomDBEngineVersionResult>Engine"`
@@ -135,8 +137,6 @@ type createCustomDBEngineVersionResponse struct {
 	DBEngineVersionArn         string   `xml:"CreateCustomDBEngineVersionResult>DBEngineVersionArn,omitempty"`
 	Status                     string   `xml:"CreateCustomDBEngineVersionResult>Status,omitempty"`
 	DBEngineVersionDescription string   `xml:"CreateCustomDBEngineVersionResult>DBEngineVersionDescription,omitempty"`
-
-	Image *xmlCustomDBEngineVersionAMI `xml:"CreateCustomDBEngineVersionResult>Image,omitempty"`
 }
 
 type deleteCustomDBEngineVersionResponse struct {

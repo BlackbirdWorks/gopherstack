@@ -247,28 +247,28 @@ type ClientVpnTargetNetwork struct {
 
 // ClientVpnEndpoint represents an EC2 Client VPN endpoint.
 type ClientVpnEndpoint struct {
-	ServerCertificateArn       string                    `json:"serverCertificateArn,omitempty"`
-	DNSName                    string                    `json:"dnsName,omitempty"`
+	CreationTime               string                    `json:"creationTime,omitempty"`
+	VPCID                      string                    `json:"vpcId,omitempty"`
 	Status                     string                    `json:"status,omitempty"`
 	Description                string                    `json:"description,omitempty"`
 	ClientCidrBlock            string                    `json:"clientCidrBlock,omitempty"`
 	ClientVpnEndpointID        string                    `json:"clientVpnEndpointId,omitempty"`
 	VpnProtocol                string                    `json:"vpnProtocol,omitempty"`
-	TransportProtocol          string                    `json:"transportProtocol,omitempty"`
-	VPCID                      string                    `json:"vpcId,omitempty"`
-	CertificateRevocationList  string                    `json:"certificateRevocationList,omitempty"`
-	CreationTime               string                    `json:"creationTime,omitempty"`
+	TrafficIPAddressType       string                    `json:"trafficIpAddressType,omitempty"`
 	SelfServicePortalURL       string                    `json:"selfServicePortalUrl,omitempty"`
-	DNSServers                 []string                  `json:"dnsServers,omitempty"`
-	SecurityGroupIDs           []string                  `json:"securityGroupIds,omitempty"`
+	CertificateRevocationList  string                    `json:"certificateRevocationList,omitempty"`
+	DNSName                    string                    `json:"dnsName,omitempty"`
+	ServerCertificateArn       string                    `json:"serverCertificateArn,omitempty"`
+	TransportProtocol          string                    `json:"transportProtocol,omitempty"`
+	EndpointIPAddressType      string                    `json:"endpointIpAddressType,omitempty"`
 	TargetNetworks             []*ClientVpnTargetNetwork `json:"targetNetworks,omitempty"`
 	Routes                     []ClientVpnRoute          `json:"routes,omitempty"`
 	AuthRules                  []ClientVpnAuthRule       `json:"authRules,omitempty"`
+	SecurityGroupIDs           []string                  `json:"securityGroupIds,omitempty"`
+	DNSServers                 []string                  `json:"dnsServers,omitempty"`
 	SessionTimeoutHours        int32                     `json:"sessionTimeoutHours,omitempty"`
 	VpnPort                    int32                     `json:"vpnPort,omitempty"`
 	SplitTunnel                bool                      `json:"splitTunnel,omitempty"`
-	EndpointIPAddressType      string                    `json:"endpointIpAddressType,omitempty"`
-	TrafficIPAddressType       string                    `json:"trafficIpAddressType,omitempty"`
 	DisconnectOnSessionTimeout bool                      `json:"disconnectOnSessionTimeout,omitempty"`
 }
 

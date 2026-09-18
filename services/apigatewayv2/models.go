@@ -342,20 +342,20 @@ type CreateIntegrationInput struct {
 
 // UpdateIntegrationInput is the input for UpdateIntegration (PATCH).
 type UpdateIntegrationInput struct {
-	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	TemplateSelectionExpression *string               `json:"templateSelectionExpression,omitempty"`
 	RequestParameters           map[string]string     `json:"requestParameters,omitempty"`
 	RequestTemplates            map[string]string     `json:"requestTemplates,omitempty"`
-	IntegrationType             string                `json:"integrationType,omitempty"`
+	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
 	IntegrationSubtype          *string               `json:"integrationSubtype,omitempty"`
 	IntegrationMethod           *string               `json:"integrationMethod,omitempty"`
 	IntegrationURI              *string               `json:"integrationUri,omitempty"`
 	Description                 *string               `json:"description,omitempty"`
 	PayloadFormatVersion        *string               `json:"payloadFormatVersion,omitempty"`
-	ConnectionType              string                `json:"connectionType,omitempty"`
-	ConnectionID                *string               `json:"connectionId,omitempty"`
-	TemplateSelectionExpression *string               `json:"templateSelectionExpression,omitempty"`
-	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
 	CredentialsArn              *string               `json:"credentialsArn,omitempty"`
+	ConnectionID                *string               `json:"connectionId,omitempty"`
+	IntegrationType             string                `json:"integrationType,omitempty"`
+	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
+	ConnectionType              string                `json:"connectionType,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
@@ -416,8 +416,8 @@ type UpdateIntegrationResponseInput struct {
 	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
 	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
 	IntegrationResponseKey      *string           `json:"integrationResponseKey,omitempty"`
-	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
 	TemplateSelectionExpression *string           `json:"templateSelectionExpression,omitempty"`
+	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
 }
 
 // UpdateModelInput is the input for UpdateModel (PATCH).

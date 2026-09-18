@@ -235,14 +235,14 @@ type UpdateExpressGatewayServiceInput struct {
 	NetworkConfiguration  *ExpressGatewayServiceNetworkConfiguration
 	PrimaryContainer      *ExpressGatewayContainer
 	ScalingTarget         *ExpressGatewayScalingTarget
-	ServiceArn            string
 	CPU                   *string
 	Memory                *string
 	HealthCheckPath       *string
 	ExecutionRoleArn      *string
-	InfrastructureRoleArn string
 	TaskDefinitionArn     *string
 	TaskRoleArn           *string
+	ServiceArn            string
+	InfrastructureRoleArn string
 }
 
 // ---- Fargate/inference resource models ----

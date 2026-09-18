@@ -219,21 +219,21 @@ type VpcEndpointServiceConfig struct {
 
 // Ipam represents an AWS IPAM instance.
 type Ipam struct {
-	PrivateDefaultScopeID                 string   `json:"privateDefaultScopeId,omitempty"`
-	DefaultResourceDiscoveryAssociationID string   `json:"defaultResourceDiscoveryAssociationId,omitempty"`
+	IpamARN                               string   `json:"ipamArn,omitempty"`
+	IpamID                                string   `json:"ipamId,omitempty"`
 	State                                 string   `json:"state,omitempty"`
 	Region                                string   `json:"region,omitempty"`
 	OwnerID                               string   `json:"ownerId,omitempty"`
 	Description                           string   `json:"description,omitempty"`
+	DefaultResourceDiscoveryAssociationID string   `json:"defaultResourceDiscoveryAssociationId,omitempty"`
 	PublicDefaultScopeID                  string   `json:"publicDefaultScopeId,omitempty"`
+	PrivateDefaultScopeID                 string   `json:"privateDefaultScopeId,omitempty"`
 	Tier                                  string   `json:"tier,omitempty"`
-	IpamARN                               string   `json:"ipamArn,omitempty"`
-	IpamID                                string   `json:"ipamId,omitempty"`
 	DefaultResourceDiscoveryID            string   `json:"defaultResourceDiscoveryId,omitempty"`
+	MeteredAccount                        string   `json:"meteredAccount,omitempty"`
 	OperatingRegions                      []string `json:"operatingRegions,omitempty"`
 	ScopeCount                            int32    `json:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount     int32    `json:"resourceDiscoveryAssociationCount,omitempty"`
-	MeteredAccount                        string   `json:"meteredAccount,omitempty"`
 	EnablePrivateGua                      bool     `json:"enablePrivateGua,omitempty"`
 }
 
@@ -260,22 +260,22 @@ type IpamScope struct {
 
 // IpamPool represents an IPAM pool.
 type IpamPool struct {
-	IpamPoolID                     string `json:"ipamPoolId,omitempty"`
-	IpamPoolARN                    string `json:"ipamPoolArn,omitempty"`
+	Cidr                           string `json:"cidr,omitempty"`
+	Description                    string `json:"description,omitempty"`
 	IpamID                         string `json:"ipamId,omitempty"`
 	IpamScopeID                    string `json:"ipamScopeId,omitempty"`
 	SourceIpamPoolID               string `json:"sourceIpamPoolId,omitempty"`
 	State                          string `json:"state,omitempty"`
+	IpamPoolARN                    string `json:"ipamPoolArn,omitempty"`
 	Locale                         string `json:"locale,omitempty"`
+	IpamPoolID                     string `json:"ipamPoolId,omitempty"`
 	AddressFamily                  string `json:"addressFamily,omitempty"`
-	Cidr                           string `json:"cidr,omitempty"`
-	Description                    string `json:"description,omitempty"`
-	AutoImport                     bool   `json:"autoImport,omitempty"`
-	PubliclyAdvertisable           bool   `json:"publiclyAdvertisable,omitempty"`
+	PublicIPSource                 string `json:"publicIpSource,omitempty"`
 	AllocationMinNetmaskLength     int32  `json:"allocationMinNetmaskLength,omitempty"`
 	AllocationMaxNetmaskLength     int32  `json:"allocationMaxNetmaskLength,omitempty"`
 	AllocationDefaultNetmaskLength int32  `json:"allocationDefaultNetmaskLength,omitempty"`
-	PublicIPSource                 string `json:"publicIpSource,omitempty"`
+	PubliclyAdvertisable           bool   `json:"publiclyAdvertisable,omitempty"`
+	AutoImport                     bool   `json:"autoImport,omitempty"`
 }
 
 // IpamPoolOptions holds optional parameters accepted by CreateIpamPool and ModifyIpamPool.
@@ -283,11 +283,11 @@ type IpamPoolOptions struct {
 	IpamScopeID                         string
 	Description                         string
 	PublicIPSource                      string
-	AutoImport                          bool
-	PubliclyAdvertisable                bool
 	AllocationMinNetmaskLength          int32
 	AllocationMaxNetmaskLength          int32
 	AllocationDefaultNetmaskLength      int32
+	AutoImport                          bool
+	PubliclyAdvertisable                bool
 	ClearAllocationDefaultNetmaskLength bool
 }
 

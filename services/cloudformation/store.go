@@ -232,6 +232,8 @@ const (
 	statusRollbackComplete         = "ROLLBACK_COMPLETE"
 	statusRollbackFailed           = "ROLLBACK_FAILED"
 	reasonUserInitiated            = "User Initiated"
+	deletionPolicyRetain           = "Retain"
+	deletionPolicySnapshot         = "Snapshot"
 )
 
 // NewInMemoryBackend creates a new empty CloudFormation backend.

@@ -41,6 +41,43 @@ type DescribeReservedInstancesOfferingsParams struct {
 	MinDuration, MaxDuration                           int64
 }
 
+// reservedInstancesOfferingMatches reports whether o satisfies every
+// non-empty/non-zero field of params.
+func reservedInstancesOfferingMatches(
+	o *ReservedInstancesOffering,
+	params DescribeReservedInstancesOfferingsParams,
+) bool {
+	if params.InstanceType != "" && o.InstanceType != params.InstanceType {
+		return false
+	}
+
+	if params.AvailabilityZone != "" && o.AvailabilityZone != params.AvailabilityZone {
+		return false
+	}
+
+	if params.ProductDescription != "" && o.ProductDescription != params.ProductDescription {
+		return false
+	}
+
+	if params.OfferingClass != "" && o.OfferingClass != params.OfferingClass {
+		return false
+	}
+
+	if params.InstanceTenancy != "" && o.Tenancy != params.InstanceTenancy {
+		return false
+	}
+
+	if params.MinDuration > 0 && o.Duration < params.MinDuration {
+		return false
+	}
+
+	if params.MaxDuration > 0 && o.Duration > params.MaxDuration {
+		return false
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
 	params DescribeReservedInstancesOfferingsParams,
 ) []*ReservedInstancesOffering {
@@ -50,31 +87,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
 	var result []*ReservedInstancesOffering
 
 	for _, o := range b.reservedInstancesOfferings.All() {
-		if params.InstanceType != "" && o.InstanceType != params.InstanceType {
-			continue
-		}
-
-		if params.AvailabilityZone != "" && o.AvailabilityZone != params.AvailabilityZone {
-			continue
-		}
-
-		if params.ProductDescription != "" && o.ProductDescription != params.ProductDescription {
-			continue
-		}
-
-		if params.OfferingClass != "" && o.OfferingClass != params.OfferingClass {
-			continue
-		}
-
-		if params.InstanceTenancy != "" && o.Tenancy != params.InstanceTenancy {
-			continue
-		}
-
-		if params.MinDuration > 0 && o.Duration < params.MinDuration {
-			continue
-		}
-
-		if params.MaxDuration > 0 && o.Duration > params.MaxDuration {
+		if !reservedInstancesOfferingMatches(o, params) {
 			continue
 		}
 

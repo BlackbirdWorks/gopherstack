@@ -113,8 +113,9 @@ type CustomDBEngineVersion struct {
 // DBInstance represents an RDS database instance.
 type DBInstance struct {
 	InstanceCreateTime                 time.Time                    `json:"instanceCreateTime"`
-	DBInstanceArn                      string                       `json:"dbInstanceArn,omitempty"`
-	EnhancedMonitoringResourceArn      string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	PendingModifiedValues              *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
+	EngineLifecycleSupport             string                       `json:"engineLifecycleSupport,omitempty"`
+	DBSubnetGroupName                  string                       `json:"dbSubnetGroupName"`
 	PreferredBackupWindow              string                       `json:"preferredBackupWindow,omitempty"`
 	KmsKeyID                           string                       `json:"kmsKeyID,omitempty"`
 	DBClusterIdentifier                string                       `json:"dbClusterIdentifier,omitempty"`
@@ -125,7 +126,7 @@ type DBInstance struct {
 	DBName                             string                       `json:"dbName"`
 	Endpoint                           string                       `json:"endpoint"`
 	VpcID                              string                       `json:"vpcID"`
-	DBSubnetGroupName                  string                       `json:"dbSubnetGroupName"`
+	ReplicaMode                        string                       `json:"replicaMode,omitempty"`
 	DBParameterGroupName               string                       `json:"dbParameterGroupName"`
 	OptionGroupName                    string                       `json:"optionGroupName,omitempty"`
 	ReplicaSourceDBInstanceIdentifier  string                       `json:"replicaSourceDBInstanceIdentifier"`
@@ -137,35 +138,34 @@ type DBInstance struct {
 	DbiResourceID                      string                       `json:"dbiResourceID"`
 	PreferredMaintenanceWindow         string                       `json:"preferredMaintenanceWindow,omitempty"`
 	DBInstanceClass                    string                       `json:"dbInstanceClass"`
-	EngineLifecycleSupport             string                       `json:"engineLifecycleSupport,omitempty"`
-	EnabledCloudwatchLogsExports       []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
+	EnhancedMonitoringResourceArn      string                       `json:"enhancedMonitoringResourceArn,omitempty"`
+	BackupTarget                       string                       `json:"backupTarget,omitempty"`
+	DBInstanceArn                      string                       `json:"dbInstanceArn,omitempty"`
+	PerformanceInsightsKMSKeyID        string                       `json:"performanceInsightsKmsKeyId,omitempty"`
 	VpcSecurityGroups                  []VpcSecurityGroupMembership `json:"vpcSecurityGroups,omitempty"`
 	DBSecurityGroups                   []DBSecurityGroupMembership  `json:"dbSecurityGroups,omitempty"`
-	PendingModifiedValues              *PendingModifiedValues       `json:"pendingModifiedValues,omitempty"`
 	ReadReplicaIdentifiers             []string                     `json:"readReplicaIdentifiers,omitempty"`
+	EnabledCloudwatchLogsExports       []string                     `json:"enabledCloudwatchLogsExports,omitempty"`
+	PerformanceInsightsRetentionPeriod int                          `json:"performanceInsightsRetentionPeriod,omitempty"`
 	Port                               int                          `json:"port"`
 	AllocatedStorage                   int                          `json:"allocatedStorage"`
 	Iops                               int                          `json:"iops,omitempty"`
 	StorageThroughput                  int                          `json:"storageThroughput,omitempty"`
 	BackupRetentionPeriod              int                          `json:"backupRetentionPeriod"`
 	MonitoringInterval                 int                          `json:"monitoringInterval,omitempty"`
+	PromotionTier                      int                          `json:"promotionTier,omitempty"`
+	OptimizedWrites                    bool                         `json:"optimizedWrites,omitempty"`
 	MultiAZ                            bool                         `json:"multiAZ"`
-	StorageEncrypted                   bool                         `json:"storageEncrypted"`
-	IAMDatabaseAuthenticationEnabled   bool                         `json:"iamDatabaseAuthenticationEnabled"`
 	DeletionProtection                 bool                         `json:"deletionProtection"`
 	CopyTagsToSnapshot                 bool                         `json:"copyTagsToSnapshot,omitempty"`
 	PubliclyAccessible                 bool                         `json:"publiclyAccessible,omitempty"`
 	PerformanceInsightsEnabled         bool                         `json:"performanceInsightsEnabled,omitempty"`
 	StorageOptimized                   bool                         `json:"storageOptimized,omitempty"`
-	OptimizedWrites                    bool                         `json:"optimizedWrites,omitempty"`
+	IAMDatabaseAuthenticationEnabled   bool                         `json:"iamDatabaseAuthenticationEnabled"`
+	StorageEncrypted                   bool                         `json:"storageEncrypted"`
 	AutoMinorVersionUpgrade            bool                         `json:"autoMinorVersionUpgrade,omitempty"`
 	MultiTenant                        bool                         `json:"multiTenant,omitempty"`
 	UseDefaultProcessorFeatures        bool                         `json:"useDefaultProcessorFeatures,omitempty"`
-	PromotionTier                      int                          `json:"promotionTier,omitempty"`
-	BackupTarget                       string                       `json:"backupTarget,omitempty"`
-	ReplicaMode                        string                       `json:"replicaMode,omitempty"`
-	PerformanceInsightsKMSKeyID        string                       `json:"performanceInsightsKmsKeyId,omitempty"`
-	PerformanceInsightsRetentionPeriod int                          `json:"performanceInsightsRetentionPeriod,omitempty"`
 }
 
 // PendingModifiedValues holds deferred instance changes (ApplyImmediately=false).
@@ -670,8 +670,8 @@ type DBInstanceAutomatedBackup struct {
 
 // DBInstanceOptions holds optional fields for CreateDBInstance and ModifyDBInstance.
 type DBInstanceOptions struct {
-	EngineVersion                      string
-	StorageType                        string
+	EngineLifecycleSupport             string
+	ReplicaMode                        string
 	AvailabilityZone                   string
 	DBParameterGroupName               string
 	OptionGroupName                    string
@@ -681,23 +681,23 @@ type DBInstanceOptions struct {
 	PreferredMaintenanceWindow         string
 	PreferredBackupWindow              string
 	KmsKeyID                           string
-	DBClusterIdentifier                string
-	EngineLifecycleSupport             string
+	BackupTarget                       string
+	StorageType                        string
 	DBSubnetGroupName                  string
-	VpcSecurityGroupIDs                []string
-	DBSecurityGroupNames               []string
+	DBClusterIdentifier                string
+	PerformanceInsightsKMSKeyID        string
+	EngineVersion                      string
 	EnabledCloudwatchLogsExports       []string
+	DBSecurityGroupNames               []string
+	VpcSecurityGroupIDs                []string
 	BackupRetentionPeriod              int
 	Iops                               int
 	StorageThroughput                  int
 	MonitoringInterval                 int
-	MultiAZ                            bool
+	PerformanceInsightsRetentionPeriod int
+	PromotionTier                      int
+	DBPortNumber                       int
 	MultiAZSet                         bool
-	StorageEncrypted                   bool
-	IAMDatabaseAuthenticationEnabled   bool
-	IAMDatabaseAuthSet                 bool
-	DeletionProtection                 bool
-	DeletionProtectionSet              bool
 	CopyTagsToSnapshot                 bool
 	AllowMajorVersionUpgrade           bool
 	ApplyImmediately                   bool
@@ -708,12 +708,12 @@ type DBInstanceOptions struct {
 	AutoMinorVersionUpgrade            bool
 	MultiTenant                        bool
 	UseDefaultProcessorFeatures        bool
-	PromotionTier                      int
-	DBPortNumber                       int
-	BackupTarget                       string
-	ReplicaMode                        string
-	PerformanceInsightsKMSKeyID        string
-	PerformanceInsightsRetentionPeriod int
+	DeletionProtectionSet              bool
+	DeletionProtection                 bool
+	IAMDatabaseAuthSet                 bool
+	IAMDatabaseAuthenticationEnabled   bool
+	StorageEncrypted                   bool
+	MultiAZ                            bool
 }
 
 // CopyDBSnapshotOptions holds optional fields for CopyDBSnapshot.

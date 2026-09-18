@@ -437,20 +437,20 @@ type xmlStringMemberList struct {
 }
 
 type xmlDBProxy struct {
-	DBProxyName                 string                `xml:"DBProxyName"`
-	DBProxyARN                  string                `xml:"DBProxyArn"`
+	EndpointNetworkType         string                `xml:"EndpointNetworkType,omitempty"`
+	TargetConnectionNetworkType string                `xml:"TargetConnectionNetworkType,omitempty"`
 	Status                      string                `xml:"Status"`
 	Endpoint                    string                `xml:"Endpoint,omitempty"`
 	EngineFamily                string                `xml:"EngineFamily,omitempty"`
 	RoleARN                     string                `xml:"RoleArn,omitempty"`
 	CreatedDate                 string                `xml:"CreatedDate,omitempty"`
 	UpdatedDate                 string                `xml:"UpdatedDate,omitempty"`
+	DBProxyARN                  string                `xml:"DBProxyArn"`
+	DBProxyName                 string                `xml:"DBProxyName"`
+	DefaultAuthScheme           string                `xml:"DefaultAuthScheme,omitempty"`
 	Auth                        xmlUserAuthConfigList `xml:"Auth"`
 	VpcSecurityGroupIDs         xmlStringMemberList   `xml:"VpcSecurityGroupIds"`
 	VpcSubnetIDs                xmlStringMemberList   `xml:"VpcSubnetIds"`
-	DefaultAuthScheme           string                `xml:"DefaultAuthScheme,omitempty"`
-	EndpointNetworkType         string                `xml:"EndpointNetworkType,omitempty"`
-	TargetConnectionNetworkType string                `xml:"TargetConnectionNetworkType,omitempty"`
 	IdleClientTimeout           int                   `xml:"IdleClientTimeout,omitempty"`
 	RequireTLS                  bool                  `xml:"RequireTLS,omitempty"`
 	DebugLogging                bool                  `xml:"DebugLogging,omitempty"`
@@ -563,9 +563,9 @@ type xmlDBProxyEndpoint struct {
 	Endpoint            string              `xml:"Endpoint,omitempty"`
 	TargetRole          string              `xml:"TargetRole,omitempty"`
 	CreatedDate         string              `xml:"CreatedDate,omitempty"`
+	EndpointNetworkType string              `xml:"EndpointNetworkType,omitempty"`
 	VpcSecurityGroupIDs xmlStringMemberList `xml:"VpcSecurityGroupIds"`
 	VpcSubnetIDs        xmlStringMemberList `xml:"VpcSubnetIds"`
-	EndpointNetworkType string              `xml:"EndpointNetworkType,omitempty"`
 	IsDefault           bool                `xml:"IsDefault,omitempty"`
 }
 
