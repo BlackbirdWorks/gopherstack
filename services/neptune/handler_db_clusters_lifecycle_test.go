@@ -520,6 +520,7 @@ func TestRestoreDBClusterToPointInTime_HasReaderEndpoint(t *testing.T) {
 		"Version":                   {"2014-10-31"},
 		"SourceDBClusterIdentifier": {"pitr-src-cluster"},
 		"DBClusterIdentifier":       {"pitr-tgt-cluster"},
+		"UseLatestRestorableTime":   {"true"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "<ReaderEndpoint>")
@@ -615,28 +616,50 @@ func TestRestoreDBClusterToPointInTime(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		srcClusterID string
-		targetID     string
-		wantContains string
-		wantStatus   int
-		setupSrc     bool
+		name                    string
+		srcClusterID            string
+		targetID                string
+		restoreToTime           string
+		wantContains            string
+		wantStatus              int
+		setupSrc                bool
+		useLatestRestorableTime bool
 	}{
 		{
-			name:         "success",
-			srcClusterID: "src-pitr",
-			targetID:     "pitr-restored",
-			setupSrc:     true,
-			wantStatus:   http.StatusOK,
-			wantContains: "pitr-restored",
+			name:                    "success",
+			srcClusterID:            "src-pitr",
+			targetID:                "pitr-restored",
+			setupSrc:                true,
+			useLatestRestorableTime: true,
+			wantStatus:              http.StatusOK,
+			wantContains:            "pitr-restored",
 		},
 		{
-			name:         "source_not_found",
-			srcClusterID: "no-such-cluster",
-			targetID:     "pitr-new",
-			setupSrc:     false,
+			name:                    "source_not_found",
+			srcClusterID:            "no-such-cluster",
+			targetID:                "pitr-new",
+			setupSrc:                false,
+			useLatestRestorableTime: true,
+			wantStatus:              http.StatusBadRequest,
+			wantContains:            "DBClusterNotFoundFault",
+		},
+		{
+			name:         "neither_time_field_given",
+			srcClusterID: "src-pitr-neither",
+			targetID:     "pitr-neither",
+			setupSrc:     true,
 			wantStatus:   http.StatusBadRequest,
-			wantContains: "DBClusterNotFoundFault",
+			wantContains: "RestoreToTime must be specified",
+		},
+		{
+			name:                    "both_time_fields_given",
+			srcClusterID:            "src-pitr-both",
+			targetID:                "pitr-both",
+			setupSrc:                true,
+			useLatestRestorableTime: true,
+			restoreToTime:           "2024-01-01T00:00:00Z",
+			wantStatus:              http.StatusBadRequest,
+			wantContains:            "cannot be specified when UseLatestRestorableTime",
 		},
 	}
 
@@ -647,12 +670,19 @@ func TestRestoreDBClusterToPointInTime(t *testing.T) {
 			if tt.setupSrc {
 				createCluster(t, h, tt.srcClusterID)
 			}
-			rr := doRequest(t, h, url.Values{
+			vals := url.Values{
 				"Action":                    {"RestoreDBClusterToPointInTime"},
 				"Version":                   {"2014-10-31"},
 				"SourceDBClusterIdentifier": {tt.srcClusterID},
 				"DBClusterIdentifier":       {tt.targetID},
-			})
+			}
+			if tt.useLatestRestorableTime {
+				vals.Set("UseLatestRestorableTime", "true")
+			}
+			if tt.restoreToTime != "" {
+				vals.Set("RestoreToTime", tt.restoreToTime)
+			}
+			rr := doRequest(t, h, vals)
 			assert.Equal(t, tt.wantStatus, rr.Code, rr.Body.String())
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
 		})

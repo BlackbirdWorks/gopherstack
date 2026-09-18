@@ -117,11 +117,13 @@ func (h *Handler) handleDescribeDBClusterParameters(
 	for _, p := range params {
 		members = append(members, toXMLParameter(p))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeDBClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBClusterParametersResult{
 			Parameters: xmlParameterList{Members: members},
+			Marker:     nextMarker,
 		},
 	}, nil
 }
@@ -157,6 +159,7 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(
 	for _, p := range catalog {
 		members = append(members, toXMLParameter(p))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeEngineDefaultClusterParametersResponse{
 		Xmlns: neptuneXMLNS,
@@ -164,6 +167,7 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(
 			EngineDefaults: xmlEngineDefaults{
 				DBParameterGroupFamily: family,
 				Parameters:             xmlParameterList{Members: members},
+				Marker:                 nextMarker,
 			},
 		},
 	}, nil

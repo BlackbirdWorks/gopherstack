@@ -772,6 +772,31 @@ func TestDescribeOrderableDBInstanceOptions_AllClasses(t *testing.T) {
 	assert.Contains(t, body, "db.t3.medium")
 }
 
+// TestDescribeOrderableDBInstanceOptions_MaxRecordsPaginates verifies
+// DescribeOrderableDBInstanceOptions.MaxRecords (bd gopherstack-xhu2t tier-1
+// finding) is wired.
+func TestDescribeOrderableDBInstanceOptions_MaxRecordsPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	full := doRequest(t, h, url.Values{
+		"Action":  {"DescribeOrderableDBInstanceOptions"},
+		"Version": {"2014-10-31"},
+	})
+	require.Equal(t, http.StatusOK, full.Code)
+	fullCount := strings.Count(full.Body.String(), "<OrderableDBInstanceOption>")
+	require.Greater(t, fullCount, 1)
+
+	paged := doRequest(t, h, url.Values{
+		"Action":     {"DescribeOrderableDBInstanceOptions"},
+		"Version":    {"2014-10-31"},
+		"MaxRecords": {"1"},
+	})
+	require.Equal(t, http.StatusOK, paged.Code)
+	assert.Equal(t, 1, strings.Count(paged.Body.String(), "<OrderableDBInstanceOption>"))
+	assert.Contains(t, paged.Body.String(), "<Marker>")
+}
+
 func TestBackend_ModifyDBInstance_IamNotSet_NoChange(t *testing.T) {
 	t.Parallel()
 

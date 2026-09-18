@@ -32,28 +32,55 @@ func (b *InMemoryBackend) instanceARN(region, id string) string {
 	return arn.Build("neptune", region, b.accountID, "db:"+id)
 }
 
-// instanceClusterInherited resolves EngineVersion, DBSubnetGroupName, and
-// NetworkType for a new instance. An explicit DBSubnetGroupName wins;
+// clusterInheritedInstanceFields holds the DB cluster-derived values a new
+// instance inherits at create time.
+type clusterInheritedInstanceFields struct {
+	EngineVersion         string
+	DBSubnetGroupName     string
+	NetworkType           string
+	VpcSecurityGroupIDs   []string
+	BackupRetentionPeriod int
+}
+
+// instanceClusterInherited resolves EngineVersion, DBSubnetGroupName,
+// NetworkType, BackupRetentionPeriod, and VpcSecurityGroupIDs for a new
+// instance from its parent cluster. An explicit DBSubnetGroupName wins;
 // omitted defaults to the cluster's (api_op_CreateDBInstance.go's
 // DBSubnetGroupName doc does not spell this default out, but every Neptune
 // instance belongs to a cluster, so this mirrors the pre-existing inherit
-// behavior for the omitted case).
+// behavior for the omitted case). BackupRetentionPeriod/VpcSecurityGroupIDs
+// mirror NetworkType's inheritance: CreateDBInstanceInput's own members of
+// these names are documented "Not applicable...managed by the DB cluster".
 func (b *InMemoryBackend) instanceClusterInherited(
 	region, clusterID, explicitSubnetGroup string,
-) (string, string, string) {
+) clusterInheritedInstanceFields {
 	dbSubnetGroupName := explicitSubnetGroup
 	if clusterID == "" {
-		return defaultEngineVersion, dbSubnetGroupName, ""
+		return clusterInheritedInstanceFields{
+			EngineVersion:     defaultEngineVersion,
+			DBSubnetGroupName: dbSubnetGroupName,
+		}
 	}
 	cl, ok := b.clusterGet(region, clusterID)
 	if !ok {
-		return defaultEngineVersion, dbSubnetGroupName, ""
+		return clusterInheritedInstanceFields{
+			EngineVersion:     defaultEngineVersion,
+			DBSubnetGroupName: dbSubnetGroupName,
+		}
 	}
 	if dbSubnetGroupName == "" {
 		dbSubnetGroupName = cl.DBSubnetGroupName
 	}
+	vpcSGs := make([]string, len(cl.VpcSecurityGroupIDs))
+	copy(vpcSGs, cl.VpcSecurityGroupIDs)
 
-	return cl.EngineVersion, dbSubnetGroupName, cl.NetworkType
+	return clusterInheritedInstanceFields{
+		EngineVersion:         cl.EngineVersion,
+		DBSubnetGroupName:     dbSubnetGroupName,
+		NetworkType:           cl.NetworkType,
+		BackupRetentionPeriod: cl.BackupRetentionPeriod,
+		VpcSecurityGroupIDs:   vpcSGs,
+	}
 }
 
 // CreateDBInstance creates a new Neptune DB instance.
@@ -70,6 +97,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 			"%w: PromotionTier %d is not valid; must be between 0 and %d",
 			ErrInvalidParameter, opts.PromotionTier, maxPromotionTier,
 		)
+	}
+	if err := validateMonitoringInterval(opts.MonitoringInterval); err != nil {
+		return nil, err
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("CreateDBInstance")
@@ -96,9 +126,9 @@ func (b *InMemoryBackend) CreateDBInstance(
 		maintenanceWindow = opts.PreferredMaintenanceWindow
 	}
 	endpoint := fmt.Sprintf("%s.neptune.%s.amazonaws.com", id, region)
-	engineVersion, dbSubnetGroupName, networkType := b.instanceClusterInherited(
-		region, clusterID, opts.DBSubnetGroupName,
-	)
+	inherited := b.instanceClusterInherited(region, clusterID, opts.DBSubnetGroupName)
+	dbSecurityGroups := make([]string, len(opts.DBSecurityGroups))
+	copy(dbSecurityGroups, opts.DBSecurityGroups)
 	inst := &DBInstance{
 		region:                          region,
 		DBInstanceIdentifier:            id,
@@ -106,7 +136,7 @@ func (b *InMemoryBackend) CreateDBInstance(
 		DBClusterIdentifier:             clusterID,
 		DBInstanceClass:                 instanceClass,
 		Engine:                          neptuneEngine,
-		EngineVersion:                   engineVersion,
+		EngineVersion:                   inherited.EngineVersion,
 		DBInstanceStatus:                clusterStatusAvailable,
 		InstanceCreateTime:              nowISO8601(),
 		Endpoint:                        endpoint,
@@ -114,8 +144,14 @@ func (b *InMemoryBackend) CreateDBInstance(
 		AutoMinorVersionUpgrade:         true,
 		PreferredMaintenanceWindow:      maintenanceWindow,
 		DBParameterGroupName:            opts.DBParameterGroupName,
-		DBSubnetGroupName:               dbSubnetGroupName,
-		NetworkType:                     networkType,
+		DBSubnetGroupName:               inherited.DBSubnetGroupName,
+		NetworkType:                     inherited.NetworkType,
+		BackupRetentionPeriod:           inherited.BackupRetentionPeriod,
+		VpcSecurityGroupIDs:             inherited.VpcSecurityGroupIDs,
+		DBSecurityGroups:                dbSecurityGroups,
+		MonitoringInterval:              opts.MonitoringInterval,
+		MonitoringRoleArn:               opts.MonitoringRoleArn,
+		Iops:                            opts.Iops,
 		PreferredBackupWindow:           opts.PreferredBackupWindow,
 		AvailabilityZone:                opts.AvailabilityZone,
 		CopyTagsToSnapshot:              opts.CopyTagsToSnapshot,
@@ -178,7 +214,23 @@ func (b *InMemoryBackend) DescribeDBInstances(
 }
 
 // DeleteDBInstance deletes a Neptune DB instance.
-func (b *InMemoryBackend) DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error) {
+//
+// Neptune has no DB-instance-level snapshot resource at all (verified: no
+// CreateDBSnapshot/DBSnapshot type exists anywhere in the pinned SDK, unlike
+// DeleteDBCluster's real cluster-snapshot feature), so unlike DeleteDBCluster
+// this does not enforce "FinalDBSnapshotIdentifier required when
+// SkipFinalSnapshot is false" -- there is no snapshot resource to create.
+// The one real, structurally-checkable rule (specifying both is a request
+// error) is enforced.
+func (b *InMemoryBackend) DeleteDBInstance(
+	ctx context.Context, id string, opts DBInstanceDeleteOptions,
+) (*DBInstance, error) {
+	if opts.SkipFinalSnapshot && opts.FinalDBSnapshotIdentifier != "" {
+		return nil, fmt.Errorf(
+			"%w: FinalDBSnapshotIdentifier cannot be specified when SkipFinalSnapshot is true",
+			ErrSnapshotRequired,
+		)
+	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("DeleteDBInstance")
 	defer b.mu.Unlock()
@@ -225,6 +277,9 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	id, instanceClass string,
 	opts DBInstanceModifyOptions,
 ) (*DBInstance, error) {
+	if err := validateModifyDBInstanceOptions(opts); err != nil {
+		return nil, err
+	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("ModifyDBInstance")
 	defer b.mu.Unlock()
@@ -232,6 +287,33 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if !exists {
 		return nil, fmt.Errorf("%w: instance %s not found", ErrInstanceNotFound, id)
 	}
+	applyDBInstanceModifications(inst, instanceClass, opts)
+	cp := *inst
+
+	return &cp, nil
+}
+
+// validateModifyDBInstanceOptions validates the request-shape rules for
+// ModifyDBInstance's optional fields.
+func validateModifyDBInstanceOptions(opts DBInstanceModifyOptions) error {
+	if opts.MonitoringIntervalSet {
+		if err := validateMonitoringInterval(opts.MonitoringInterval); err != nil {
+			return err
+		}
+	}
+	if opts.PortSet && (opts.Port < minNeptunePort || opts.Port > maxNeptunePort) {
+		return fmt.Errorf(
+			"%w: DBPortNumber %d is not valid; must be between %d and %d",
+			ErrInvalidParameter, opts.Port, minNeptunePort, maxNeptunePort,
+		)
+	}
+
+	return nil
+}
+
+// applyDBInstanceModifications applies opts' fields onto inst. Callers must
+// hold the write lock and have already validated opts.
+func applyDBInstanceModifications(inst *DBInstance, instanceClass string, opts DBInstanceModifyOptions) {
 	if instanceClass != "" {
 		inst.DBInstanceClass = instanceClass
 	}
@@ -259,9 +341,29 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	if opts.DeletionProtectionSet {
 		inst.DeletionProtection = opts.DeletionProtection
 	}
-	cp := *inst
+	applyDBInstanceMonitoringAndNetwork(inst, opts)
+}
 
-	return &cp, nil
+// applyDBInstanceMonitoringAndNetwork applies the Enhanced Monitoring,
+// Iops, port, and DBSecurityGroups fields of opts onto inst.
+func applyDBInstanceMonitoringAndNetwork(inst *DBInstance, opts DBInstanceModifyOptions) {
+	if opts.MonitoringIntervalSet {
+		inst.MonitoringInterval = opts.MonitoringInterval
+	}
+	if opts.MonitoringRoleArn != "" {
+		inst.MonitoringRoleArn = opts.MonitoringRoleArn
+	}
+	if opts.IopsSet {
+		inst.Iops = opts.Iops
+	}
+	if opts.PortSet {
+		inst.Port = opts.Port
+	}
+	if len(opts.DBSecurityGroups) > 0 {
+		dbSecurityGroups := make([]string, len(opts.DBSecurityGroups))
+		copy(dbSecurityGroups, opts.DBSecurityGroups)
+		inst.DBSecurityGroups = dbSecurityGroups
+	}
 }
 
 // RebootDBInstance reboots a Neptune DB instance.

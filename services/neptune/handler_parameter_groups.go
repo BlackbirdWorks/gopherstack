@@ -89,11 +89,13 @@ func (h *Handler) handleDescribeDBParameters(ctx context.Context, vals url.Value
 	for _, p := range params {
 		members = append(members, toXMLParameter(p))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeDBParametersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeDBParametersResult{
 			Parameters: xmlParameterList{Members: members},
+			Marker:     nextMarker,
 		},
 	}, nil
 }
@@ -140,6 +142,7 @@ func (h *Handler) handleDescribeEngineDefaultParameters(
 	for _, p := range catalog {
 		members = append(members, toXMLParameter(p))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeEngineDefaultParametersResponse{
 		Xmlns: neptuneXMLNS,
@@ -147,6 +150,7 @@ func (h *Handler) handleDescribeEngineDefaultParameters(
 			EngineDefaults: xmlEngineDefaults{
 				DBParameterGroupFamily: family,
 				Parameters:             xmlParameterList{Members: members},
+				Marker:                 nextMarker,
 			},
 		},
 	}, nil
@@ -270,6 +274,7 @@ type describeDBParametersResponse struct {
 
 type xmlEngineDefaults struct {
 	DBParameterGroupFamily string           `xml:"DBParameterGroupFamily"`
+	Marker                 string           `xml:"Marker,omitempty"`
 	Parameters             xmlParameterList `xml:"Parameters"`
 }
 

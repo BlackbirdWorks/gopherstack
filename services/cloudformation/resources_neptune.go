@@ -92,7 +92,8 @@ func (rc *ResourceCreator) deleteNeptuneInstance(ctx context.Context, arn string
 	// Neptune refuses to delete a cluster's only instance. During stack teardown
 	// the cluster is deleted next and cascades to its instances, so treat that
 	// rejection as satisfied rather than failing the stack.
-	if _, err := rc.backends.Neptune.Backend.DeleteDBInstance(ctx, id); err != nil &&
+	deleteOpts := neptune.DBInstanceDeleteOptions{SkipFinalSnapshot: true}
+	if _, err := rc.backends.Neptune.Backend.DeleteDBInstance(ctx, id, deleteOpts); err != nil &&
 		!errors.Is(err, neptune.ErrInvalidDBInstanceStateFault) {
 		return err
 	}

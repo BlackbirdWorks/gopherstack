@@ -364,6 +364,7 @@ func TestDBClusterSnapshot_RestoreToPointInTime(t *testing.T) {
 		"Version":                   {"2014-10-31"},
 		"SourceDBClusterIdentifier": {"pitr-src"},
 		"DBClusterIdentifier":       {"pitr-dst"},
+		"UseLatestRestorableTime":   {"true"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	body := rr.Body.String()

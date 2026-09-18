@@ -40,21 +40,36 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 		}
 		promotionTier = v
 	}
+	monitoringInterval, err := parseIntOrZero(vals, "MonitoringInterval")
+	if err != nil {
+		return nil, err
+	}
+	iops, err := parseIntOrZero(vals, "Iops")
+	if err != nil {
+		return nil, err
+	}
 	opts := DBInstanceCreateOptions{
-		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
-		DBSubnetGroupName:               vals.Get("DBSubnetGroupName"),
-		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
-		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
-		AvailabilityZone:                vals.Get("AvailabilityZone"),
+		DBParameterGroupName:       vals.Get("DBParameterGroupName"),
+		DBSubnetGroupName:          vals.Get("DBSubnetGroupName"),
+		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
+		AvailabilityZone:           vals.Get("AvailabilityZone"),
+		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
+		// Real wire key: "DBSecurityGroups.DBSecurityGroupName.N"
+		// (awsAwsquery_serializeDocumentDBSecurityGroupNameList, neptune@v1.48.4
+		// serializers.go:4961).
+		DBSecurityGroups:                parseMemberList(vals, "DBSecurityGroups.DBSecurityGroupName"),
 		AutoMinorVersionUpgrade:         vals.Get("AutoMinorVersionUpgrade") == formTrue,
 		CopyTagsToSnapshot:              vals.Get("CopyTagsToSnapshot") == formTrue,
 		EnableIAMDatabaseAuthentication: vals.Get("EnableIAMDatabaseAuthentication") == formTrue,
 		StorageEncrypted:                vals.Get("StorageEncrypted") == formTrue,
 		DeletionProtection:              vals.Get("DeletionProtection") == formTrue,
 		PromotionTier:                   promotionTier,
+		MonitoringInterval:              monitoringInterval,
+		Iops:                            iops,
 	}
 	tags := parseTagEntries(vals)
-	if err := validateTagEntries(tags); err != nil {
+	if err = validateTagEntries(tags); err != nil {
 		return nil, err
 	}
 	inst, err := h.Backend.CreateDBInstance(ctx, id, clusterID, instanceClass, opts)
@@ -97,7 +112,11 @@ func (h *Handler) handleDescribeDBInstances(ctx context.Context, vals url.Values
 
 func (h *Handler) handleDeleteDBInstance(ctx context.Context, vals url.Values) (any, error) {
 	id := vals.Get("DBInstanceIdentifier")
-	inst, err := h.Backend.DeleteDBInstance(ctx, id)
+	opts := DBInstanceDeleteOptions{
+		FinalDBSnapshotIdentifier: vals.Get("FinalDBSnapshotIdentifier"),
+		SkipFinalSnapshot:         vals.Get("SkipFinalSnapshot") == formTrue,
+	}
+	inst, err := h.Backend.DeleteDBInstance(ctx, id, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -129,10 +148,28 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 		promotionTier = v
 		promotionTierSet = true
 	}
+	rawMonitoring := vals.Get("MonitoringInterval")
+	monitoringInterval, err := parseIntOrZero(vals, "MonitoringInterval")
+	if err != nil {
+		return nil, err
+	}
+	rawIops := vals.Get("Iops")
+	iops, err := parseIntOrZero(vals, "Iops")
+	if err != nil {
+		return nil, err
+	}
+	rawPort := vals.Get("DBPortNumber")
+	port, err := parseIntOrZero(vals, "DBPortNumber")
+	if err != nil {
+		return nil, err
+	}
 	opts := DBInstanceModifyOptions{
-		DBParameterGroupName:            vals.Get("DBParameterGroupName"),
-		PreferredMaintenanceWindow:      vals.Get("PreferredMaintenanceWindow"),
-		PreferredBackupWindow:           vals.Get("PreferredBackupWindow"),
+		DBParameterGroupName:       vals.Get("DBParameterGroupName"),
+		PreferredMaintenanceWindow: vals.Get("PreferredMaintenanceWindow"),
+		PreferredBackupWindow:      vals.Get("PreferredBackupWindow"),
+		MonitoringRoleArn:          vals.Get("MonitoringRoleArn"),
+		// See handleCreateDBInstance for the wire-key citation.
+		DBSecurityGroups:                parseMemberList(vals, "DBSecurityGroups.DBSecurityGroupName"),
 		AutoMinorVersionUpgrade:         rawAuto == formTrue,
 		AutoMinorVersionUpgradeSet:      rawAuto != "",
 		CopyTagsToSnapshot:              rawCopy == formTrue,
@@ -143,6 +180,15 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 		PromotionTierSet:                promotionTierSet,
 		DeletionProtection:              rawDel == formTrue,
 		DeletionProtectionSet:           rawDel != "",
+		MonitoringInterval:              monitoringInterval,
+		MonitoringIntervalSet:           rawMonitoring != "",
+		Iops:                            iops,
+		IopsSet:                         rawIops != "",
+		Port:                            port,
+		PortSet:                         rawPort != "",
+		// ApplyImmediately is read for wire-declaration parity but this
+		// backend always applies modifications immediately.
+		ApplyImmediately: vals.Get("ApplyImmediately") == formTrue,
 	}
 	inst, err := h.Backend.ModifyDBInstance(ctx, id, instanceClass, opts)
 	if err != nil {
@@ -168,7 +214,13 @@ func (h *Handler) handleRebootDBInstance(ctx context.Context, vals url.Values) (
 	}, nil
 }
 
-func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values) (any, error) {
+// handleDescribeDBEngineVersions returns the static engine-version catalog.
+// DefaultOnly narrows it to defaultEngineVersion -- the one version this
+// backend's static catalog and every unspecified-EngineVersion create path
+// (e.g. instanceClusterInherited) already treat as "the" Neptune default;
+// AWS's own per-major-version default concept is not modeled beyond that
+// single global default (see PARITY.md).
+func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, vals url.Values) (any, error) {
 	members := []xmlDBEngineVersion{
 		{
 			Engine:                 neptuneEngine,
@@ -219,9 +271,20 @@ func (h *Handler) handleDescribeDBEngineVersions(_ context.Context, _ url.Values
 			DBParameterGroupFamily: pgFamilyNeptune14,
 		},
 	}
+	if vals.Get("DefaultOnly") == formTrue {
+		filtered := make([]xmlDBEngineVersion, 0, 1)
+		for _, m := range members {
+			if m.EngineVersion == defaultEngineVersion {
+				filtered = append(filtered, m)
+			}
+		}
+		members = filtered
+	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeDBEngineVersionsResponse{
 		Xmlns:            neptuneXMLNS,
+		Marker:           nextMarker,
 		DBEngineVersions: xmlDBEngineVersionList{Members: members},
 	}, nil
 }
@@ -259,11 +322,13 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(
 			})
 		}
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeOrderableDBInstanceOptionsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeOrderableDBInstanceOptionsResult{
 			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
+			Marker:                     nextMarker,
 		},
 	}, nil
 }
@@ -302,11 +367,13 @@ func (h *Handler) handleDescribePendingMaintenanceActions(
 		cp := r
 		members = append(members, toXMLResourcePendingMaintenanceActions(&cp))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describePendingMaintenanceActionsResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describePendingMaintenanceActionsResult{
 			PendingMaintenanceActions: xmlResourcePendingMaintenanceActionsList{Members: members},
+			Marker:                    nextMarker,
 		},
 	}, nil
 }
@@ -358,6 +425,15 @@ func (h *Handler) handleDescribeValidDBInstanceModifications(
 // looks up the real subnet group so the emitted <DBSubnetGroup> element is
 // nested rather than a bare name (gopherstack-qdqg).
 func (h *Handler) toXMLInstance(ctx context.Context, inst *DBInstance) xmlDBInstance {
+	vpcSGs := make([]xmlVpcSecurityGroupMembership, 0, len(inst.VpcSecurityGroupIDs))
+	for _, sgID := range inst.VpcSecurityGroupIDs {
+		vpcSGs = append(vpcSGs, xmlVpcSecurityGroupMembership{VpcSecurityGroupID: sgID})
+	}
+	dbSGs := make([]xmlDBSecurityGroupMembership, 0, len(inst.DBSecurityGroups))
+	for _, name := range inst.DBSecurityGroups {
+		dbSGs = append(dbSGs, xmlDBSecurityGroupMembership{DBSecurityGroupName: name, Status: subscriptionStatusActive})
+	}
+
 	return xmlDBInstance{
 		DBInstanceIdentifier:            inst.DBInstanceIdentifier,
 		DBInstanceArn:                   inst.DBInstanceArn,
@@ -384,6 +460,12 @@ func (h *Handler) toXMLInstance(ctx context.Context, inst *DBInstance) xmlDBInst
 		EnableIAMDatabaseAuthentication: inst.EnableIAMDatabaseAuthentication,
 		PromotionTier:                   inst.PromotionTier,
 		DeletionProtection:              inst.DeletionProtection,
+		BackupRetentionPeriod:           inst.BackupRetentionPeriod,
+		VpcSecurityGroups:               xmlVpcSecurityGroupMembershipList{Members: vpcSGs},
+		DBSecurityGroups:                xmlDBSecurityGroupMembershipList{Members: dbSGs},
+		MonitoringInterval:              inst.MonitoringInterval,
+		MonitoringRoleArn:               inst.MonitoringRoleArn,
+		Iops:                            inst.Iops,
 	}
 }
 
@@ -406,31 +488,51 @@ func (h *Handler) xmlInstanceSubnetGroup(ctx context.Context, name string) *xmlD
 }
 
 type xmlDBInstance struct {
-	DBSubnetGroup                   *xmlDBSubnetGroup `xml:"DBSubnetGroup,omitempty"`
-	DBInstanceIdentifier            string            `xml:"DBInstanceIdentifier"`
-	DBInstanceArn                   string            `xml:"DBInstanceArn,omitempty"`
-	DBClusterIdentifier             string            `xml:"DBClusterIdentifier,omitempty"`
-	DBInstanceClass                 string            `xml:"DBInstanceClass"`
-	Engine                          string            `xml:"Engine"`
-	EngineVersion                   string            `xml:"EngineVersion,omitempty"`
-	DBInstanceStatus                string            `xml:"DBInstanceStatus"`
-	InstanceCreateTime              string            `xml:"InstanceCreateTime,omitempty"`
-	Endpoint                        string            `xml:"Endpoint>Address,omitempty"`
-	NetworkType                     string            `xml:"NetworkType,omitempty"`
-	DBParameterGroupName            string            `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"` //nolint:lll // nested query-protocol tag path, cannot be shortened
-	PreferredMaintenanceWindow      string            `xml:"PreferredMaintenanceWindow,omitempty"`
-	PreferredBackupWindow           string            `xml:"PreferredBackupWindow,omitempty"`
-	AvailabilityZone                string            `xml:"AvailabilityZone,omitempty"`
-	Port                            int               `xml:"Endpoint>Port"`
-	DBInstancePort                  int               `xml:"DbInstancePort"`
-	PromotionTier                   int               `xml:"PromotionTier,omitempty"`
-	StorageEncrypted                bool              `xml:"StorageEncrypted"`
-	AutoMinorVersionUpgrade         bool              `xml:"AutoMinorVersionUpgrade"`
-	CopyTagsToSnapshot              bool              `xml:"CopyTagsToSnapshot"`
-	EnableIAMDatabaseAuthentication bool              `xml:"IAMDatabaseAuthenticationEnabled"`
-	MultiAZ                         bool              `xml:"MultiAZ"`
-	PubliclyAccessible              bool              `xml:"PubliclyAccessible"`
-	DeletionProtection              bool              `xml:"DeletionProtection"`
+	DBSubnetGroup                   *xmlDBSubnetGroup                 `xml:"DBSubnetGroup,omitempty"`
+	AvailabilityZone                string                            `xml:"AvailabilityZone,omitempty"`
+	NetworkType                     string                            `xml:"NetworkType,omitempty"`
+	DBClusterIdentifier             string                            `xml:"DBClusterIdentifier,omitempty"`
+	DBInstanceClass                 string                            `xml:"DBInstanceClass"`
+	Engine                          string                            `xml:"Engine"`
+	EngineVersion                   string                            `xml:"EngineVersion,omitempty"`
+	DBInstanceStatus                string                            `xml:"DBInstanceStatus"`
+	InstanceCreateTime              string                            `xml:"InstanceCreateTime,omitempty"`
+	Endpoint                        string                            `xml:"Endpoint>Address,omitempty"`
+	MonitoringRoleArn               string                            `xml:"MonitoringRoleArn,omitempty"`
+	DBParameterGroupName            string                            `xml:"DBParameterGroups>DBParameterGroup>DBParameterGroupName,omitempty"` //nolint:lll // nested query-protocol tag path, cannot be shortened
+	PreferredMaintenanceWindow      string                            `xml:"PreferredMaintenanceWindow,omitempty"`
+	PreferredBackupWindow           string                            `xml:"PreferredBackupWindow,omitempty"`
+	DBInstanceIdentifier            string                            `xml:"DBInstanceIdentifier"`
+	DBInstanceArn                   string                            `xml:"DBInstanceArn,omitempty"`
+	VpcSecurityGroups               xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups,omitempty"`
+	DBSecurityGroups                xmlDBSecurityGroupMembershipList  `xml:"DBSecurityGroups,omitempty"`
+	PromotionTier                   int                               `xml:"PromotionTier,omitempty"`
+	DBInstancePort                  int                               `xml:"DbInstancePort"`
+	Port                            int                               `xml:"Endpoint>Port"`
+	BackupRetentionPeriod           int                               `xml:"BackupRetentionPeriod,omitempty"`
+	MonitoringInterval              int                               `xml:"MonitoringInterval,omitempty"`
+	Iops                            int                               `xml:"Iops,omitempty"`
+	AutoMinorVersionUpgrade         bool                              `xml:"AutoMinorVersionUpgrade"`
+	CopyTagsToSnapshot              bool                              `xml:"CopyTagsToSnapshot"`
+	MultiAZ                         bool                              `xml:"MultiAZ"`
+	DeletionProtection              bool                              `xml:"DeletionProtection"`
+	StorageEncrypted                bool                              `xml:"StorageEncrypted"`
+	PubliclyAccessible              bool                              `xml:"PubliclyAccessible"`
+	EnableIAMDatabaseAuthentication bool                              `xml:"IAMDatabaseAuthenticationEnabled"`
+}
+
+// xmlDBSecurityGroupMembership mirrors types.DBSecurityGroupMembership
+// (DBSecurityGroupName + Status, neptune@v1.48.4 deserializers.go:16162);
+// the list wraps each entry in "DBSecurityGroup"
+// (awsAwsquery_deserializeDocumentDBSecurityGroupMembershipList,
+// deserializers.go:16224).
+type xmlDBSecurityGroupMembership struct {
+	DBSecurityGroupName string `xml:"DBSecurityGroupName"`
+	Status              string `xml:"Status,omitempty"`
+}
+
+type xmlDBSecurityGroupMembershipList struct {
+	Members []xmlDBSecurityGroupMembership `xml:"DBSecurityGroup"`
 }
 
 type xmlDBInstanceList struct {
@@ -486,6 +588,7 @@ type xmlDBEngineVersionList struct {
 type describeDBEngineVersionsResponse struct {
 	XMLName          xml.Name               `xml:"DescribeDBEngineVersionsResponse"`
 	Xmlns            string                 `xml:"xmlns,attr"`
+	Marker           string                 `xml:"DescribeDBEngineVersionsResult>Marker,omitempty"`
 	DBEngineVersions xmlDBEngineVersionList `xml:"DescribeDBEngineVersionsResult>DBEngineVersions"`
 }
 
@@ -507,6 +610,7 @@ type xmlOrderableDBInstanceOptionList struct {
 }
 
 type describeOrderableDBInstanceOptionsResult struct {
+	Marker                     string                           `xml:"Marker,omitempty"`
 	OrderableDBInstanceOptions xmlOrderableDBInstanceOptionList `xml:"OrderableDBInstanceOptions"`
 }
 
@@ -557,6 +661,7 @@ type xmlResourcePendingMaintenanceActionsList struct {
 }
 
 type describePendingMaintenanceActionsResult struct {
+	Marker                    string                                   `xml:"Marker,omitempty"`
 	PendingMaintenanceActions xmlResourcePendingMaintenanceActionsList `xml:"PendingMaintenanceActions"`
 }
 
