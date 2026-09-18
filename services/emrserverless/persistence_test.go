@@ -64,7 +64,7 @@ func Test_Persistence_RoundTrip_FullState(t *testing.T) {
 	assert.Equal(t, emrserverless.ApplicationStateStarted, gotApp.State)
 	assert.Equal(t, "yes", gotApp.Tags["app"])
 
-	gotJobRun, err := restored.GetJobRun(appID, jobRunID)
+	gotJobRun, err := restored.GetJobRun(appID, jobRunID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "full-state-run", gotJobRun.Name)
 	assert.Equal(t, "yes", gotJobRun.Tags["run"])
