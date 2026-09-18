@@ -429,6 +429,7 @@ func TestDescribePullThroughCacheRules_Pagination(t *testing.T) {
 					"",
 					"",
 					"",
+					"",
 				)
 				require.NoError(t, err)
 			}

@@ -96,11 +96,13 @@ type Backend interface {
 	// CreatePullThroughCacheRule creates a pull-through cache rule.
 	CreatePullThroughCacheRule(
 		ctx context.Context,
-		prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix string,
+		prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix, registryID string,
 	) (*PullThroughCacheRule, error)
 
 	// DescribePullThroughCacheRules lists pull-through cache rules.
-	DescribePullThroughCacheRules(ctx context.Context, prefixes []string) ([]PullThroughCacheRule, error)
+	DescribePullThroughCacheRules(
+		ctx context.Context, prefixes []string, registryID string,
+	) ([]PullThroughCacheRule, error)
 
 	// CreateRepositoryCreationTemplate creates a repository creation template.
 	CreateRepositoryCreationTemplate(

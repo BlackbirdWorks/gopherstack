@@ -8,12 +8,19 @@ import (
 )
 
 // CreatePullThroughCacheRule creates a new pull-through cache rule.
+// registryID (CreatePullThroughCacheRuleInput.RegistryId) defaults to the
+// backend's own account when empty, matching real AWS's documented default
+// ("If you do not specify a registry, the default registry is assumed").
 func (b *InMemoryBackend) CreatePullThroughCacheRule(
 	ctx context.Context, //nolint:revive // existing issue.
-	prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix string,
+	prefix, upstreamURL, credentialArn, upstreamRegistry, customRoleArn, upstreamRepositoryPrefix, registryID string,
 ) (*PullThroughCacheRule, error) {
 	if prefix == "" {
 		return nil, fmt.Errorf("%w: ecrRepositoryPrefix is required", ErrInvalidRepositoryName)
+	}
+
+	if registryID == "" {
+		registryID = b.accountID
 	}
 
 	b.mu.Lock("CreatePullThroughCacheRule")
@@ -31,7 +38,7 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 		CustomRoleArn:            customRoleArn,
 		UpstreamRegistry:         upstreamRegistry,
 		UpstreamRepositoryPrefix: upstreamRepositoryPrefix,
-		RegistryID:               b.accountID,
+		RegistryID:               registryID,
 		CreatedAt:                now,
 		UpdatedAt:                now,
 	}
@@ -42,10 +49,13 @@ func (b *InMemoryBackend) CreatePullThroughCacheRule(
 	return &cp, nil
 }
 
-// DescribePullThroughCacheRules lists pull-through cache rules.
+// DescribePullThroughCacheRules lists pull-through cache rules. registryID
+// (DescribePullThroughCacheRulesInput.RegistryId), when non-empty, narrows
+// the result to rules created under that registry.
 func (b *InMemoryBackend) DescribePullThroughCacheRules(
 	ctx context.Context, //nolint:revive // existing issue.
 	prefixes []string,
+	registryID string,
 ) ([]PullThroughCacheRule, error) {
 	b.mu.RLock("DescribePullThroughCacheRules")
 	defer b.mu.RUnlock()
@@ -53,12 +63,16 @@ func (b *InMemoryBackend) DescribePullThroughCacheRules(
 	out := make([]PullThroughCacheRule, 0, b.pullThroughCacheRules.Len())
 	if len(prefixes) == 0 {
 		for _, rule := range b.pullThroughCacheRules.All() {
+			if registryID != "" && rule.RegistryID != registryID {
+				continue
+			}
+
 			out = append(out, *rule)
 		}
 	} else {
 		for _, prefix := range prefixes {
 			rule, ok := b.pullThroughCacheRules.Get(prefix)
-			if !ok {
+			if !ok || (registryID != "" && rule.RegistryID != registryID) {
 				return nil, fmt.Errorf("%w: %s", ErrPullThroughCacheRuleNotFound, prefix)
 			}
 

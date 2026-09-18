@@ -1,8 +1,8 @@
 ---
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.64.0
-last_audit_commit: fba3c784              # this pass's changes are uncommitted working-tree edits; see Notes
-last_audit_date: 2026-08-15
+last_audit_commit: a2084957b
+last_audit_date: 2026-09-18
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -20,8 +20,8 @@ ops:
   CompleteLayerUpload: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED — was missing RepositoryNotFoundException FK check (unlike every other op) and never rejected re-completing an already-registered layer digest (LayerAlreadyExistsException). FIXED (round 3) — the 'direct digest' fallback path (accepting any uploadId+digest with no live session) is removed: CompleteLayerUpload now requires a live InitiateLayerUpload session scoped to the given repository (UploadNotFoundException otherwise), that session to have received at least one UploadLayerPart call (EmptyUploadException otherwise), and every part but the last to be at least 5MiB (LayerPartTooSmallException otherwise, enforced via new per-part-size bookkeeping on the upload session). The ~9 test call sites that relied on the old direct-digest shortcut as a seeding convenience were rewritten to perform a real Initiate→UploadPart→Complete flow via new mustUploadLayer/mustUploadLayerHTTP helpers."}
   GetDownloadUrlForLayer: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (round 3) — now stamps lastRecordedPullTime (see DescribeImages note) on every image in the repository whose manifest references the requested layer digest; takes the write lock accordingly."}
   GetAuthorizationToken: {wire: ok, errors: ok, state: ok, persist: n/a, note: "base64(AWS:dummy-password), 12h TTL, proxyEndpoint derived from first request Host"}
-  CreatePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribePullThroughCacheRules: {wire: ok, errors: ok, state: ok, persist: ok}
+  CreatePullThroughCacheRule: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-18, gopherstack-xhu2t) -- RegistryId (api_op_CreatePullThroughCacheRule.go) was entirely absent from the wire struct, unlike the ~23 sibling ops the 2026-08-30 gopherstack-wks5 RegistryId sweep already covers (this op and DescribePullThroughCacheRules were missed by that sweep). Real AWS: 'If you do not specify a registry, the default registry is assumed' -- now defaults to the backend's own account when omitted, and an explicit value becomes the rule's own RegistryId (echoed in the response, matching CreatePullThroughCacheRuleOutput.RegistryId), rather than always hardcoding the backend's account regardless of what was requested."}
+  DescribePullThroughCacheRules: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-18, gopherstack-xhu2t) -- RegistryId (api_op_DescribePullThroughCacheRules.go) was entirely absent from the wire struct (same gopherstack-wks5 sweep miss as CreatePullThroughCacheRule). Now narrows results to rules created under the given registry; a named EcrRepositoryPrefix under the wrong RegistryId resolves as not-found, matching the existing per-prefix not-found behavior."}
   UpdatePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: ok}
   ValidatePullThroughCacheRule: {wire: ok, errors: ok, state: ok, persist: n/a}
@@ -80,7 +80,7 @@ gaps: []
 items_still_open:
   - "ListImageReferrers (round 4, disclosed): PutImage never records an OCI-referrer edge from a pushed artifact manifest's 'subject' field back to the subject image, so this op is structurally always empty. Real AWS returns actual referrer artifacts here; gopherstack has no backing model for the relationship at all. Filter/MaxResults/NextToken deliberately left off the wire structs since there is nothing for them to affect."
   - "SetRepositoryPolicy Force (gopherstack-wks5, 2026-08-30): see the ops entry above -- disclosed, not fixed, crosses into IAM policy simulation."
-  - "RegistryId (gopherstack-wks5, 2026-08-30, structural, not a per-op bug): a type-identity field scan (go/types, matching decode-target struct fields by object identity rather than name, covering every op registered via service.WrapOp -- the generic JSON-protocol dispatcher whose reflection-based decode is invisible to a literal Bind()/Unmarshal() grep) found the optional registryId request field parsed but never consulted in ~23 input structs across nearly every op (BatchCheckLayerAvailability, BatchDeleteImage, BatchGetImage, CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule, DeleteRepository, DescribeImageScanFindings, GetDownloadUrlForLayer, GetLifecyclePolicy, GetLifecyclePolicyPreview, ListImageReferrers, ListImages, PutImage, PutImageScanningConfiguration, PutImageTagMutability, PutLifecyclePolicy, GetRepositoryPolicy/SetRepositoryPolicy/DeleteRepositoryPolicy, UpdateImageStorageClass, UpdatePullThroughCacheRule, UploadLayerPart, ValidatePullThroughCacheRule). This is consistent across the entire service, not an isolated miss: gopherstack models exactly one account per backend instance and no op anywhere validates registryId against it, so accepting-and-ignoring a caller-supplied registryId that matches the caller's own account (the overwhelmingly common case -- registryId exists for rare cross-account resource-policy scenarios) is a no-op by construction, same reasoning as this file's own DeleteReplicationConfiguration-style single-account gaps in sibling services. The one behavioral edge this leaves open: a caller passing a registryId for a DIFFERENT (non-existent, in this single-account model) account currently still operates on the local account's resource instead of returning RepositoryNotFoundException/ImageNotFoundException, a narrow divergence from real cross-account semantics. Not fixed this pass -- would need a uniform per-op mismatch check across all ~23 sites, a design decision bigger than a wire-identity fix."
+  - "RegistryId (gopherstack-wks5, 2026-08-30, structural, not a per-op bug): a type-identity field scan (go/types, matching decode-target struct fields by object identity rather than name, covering every op registered via service.WrapOp -- the generic JSON-protocol dispatcher whose reflection-based decode is invisible to a literal Bind()/Unmarshal() grep) found the optional registryId request field parsed but never consulted in ~23 input structs across nearly every op (BatchCheckLayerAvailability, BatchDeleteImage, BatchGetImage, CompleteLayerUpload, DeleteLifecyclePolicy, DeletePullThroughCacheRule, DeleteRepository, DescribeImageScanFindings, GetDownloadUrlForLayer, GetLifecyclePolicy, GetLifecyclePolicyPreview, ListImageReferrers, ListImages, PutImage, PutImageScanningConfiguration, PutImageTagMutability, PutLifecyclePolicy, GetRepositoryPolicy/SetRepositoryPolicy/DeleteRepositoryPolicy, UpdateImageStorageClass, UpdatePullThroughCacheRule, UploadLayerPart, ValidatePullThroughCacheRule). This is consistent across the entire service, not an isolated miss: gopherstack models exactly one account per backend instance and no op anywhere validates registryId against it, so accepting-and-ignoring a caller-supplied registryId that matches the caller's own account (the overwhelmingly common case -- registryId exists for rare cross-account resource-policy scenarios) is a no-op by construction, same reasoning as this file's own DeleteReplicationConfiguration-style single-account gaps in sibling services. The one behavioral edge this leaves open: a caller passing a registryId for a DIFFERENT (non-existent, in this single-account model) account currently still operates on the local account's resource instead of returning RepositoryNotFoundException/ImageNotFoundException, a narrow divergence from real cross-account semantics. Not fixed this pass -- would need a uniform per-op mismatch check across all ~23 sites, a design decision bigger than a wire-identity fix. UPDATE (2026-09-18, gopherstack-xhu2t): CreatePullThroughCacheRule and DescribePullThroughCacheRules were missed by this sweep entirely (RegistryId absent from their wire structs, not merely unconsulted) -- both fixed this pass, see their own ops-table rows; unlike the ~23 ops above, RegistryId's *effect* was buildable for these two without a design decision, since CreatePullThroughCacheRule assigns RegistryId to a new record (rather than looking one up by pre-existing identity) and DescribePullThroughCacheRules' RegistryId is a genuine list filter, not an identity-match gate."
 deferred:
   - "docker registry v2 proxy internals (pkgs distribution/v3 wiring) — treated as a vendored subsystem, not re-audited this pass"
   - "chaos/fault-injection interaction with ECR ops — not exercised this pass"
@@ -903,3 +903,23 @@ correct. Gates: `go build ./...` (whole module), `go vet`, `go test -race
 -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean.
 `go run ./cmd/paritylint` stays at 0 FAIL. No persisted struct fields
 changed; no version bump.
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings. 2 fixed: CreatePullThroughCacheRule and
+DescribePullThroughCacheRules were both missed entirely by the 2026-08-30
+gopherstack-wks5 RegistryId sweep (RegistryId absent from their wire
+structs, not merely unconsulted like the ~23 sibling ops that sweep did
+cover). Create now defaults RegistryId to the backend's own account and
+echoes an explicit value; Describe now filters by it. 1 already disclosed,
+not fixed: ListImageReferrers.MaxResults is part of the pre-existing
+structural gap (this op is always empty since PutImage never records
+referrer edges, so Filter/MaxResults/NextToken were deliberately left off
+the wire -- see its own ops-table row). New test
+(pull_through_cache_rule_registry_id_test.go) proves an explicit RegistryId
+on create is echoed (not the backend's default account) and narrows
+Describe's results. Tier-1 count 3 -> 1 (the disclosed gap). Gates: `go
+build ./...` (whole module), `go vet`, `go test -race -count=1
+./services/ecr/...`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all
+clean. No persisted struct fields changed (PullThroughCacheRule.RegistryID
+already existed); no version bump.
