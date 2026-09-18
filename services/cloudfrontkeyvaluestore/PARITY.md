@@ -1,18 +1,10 @@
 ---
 service: cloudfrontkeyvaluestore
 sdk_module: aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4
-last_audit_commit: 9bcb4b792
+last_audit_commit: de1f49c7c
 last_audit_date: 2026-09-18
-# Still B: see the dated 2026-09-18 Notes entry. Three of the four
-# items_still_open gaps closed this pass (quota enforcement is now real,
-# the AccessDeniedException claim was stale and is corrected, and the
-# UpdateKeys "non-transactional" claim was verified to be a non-issue); the
-# byte-accounting approximation is reclassified to structural_gaps. The one
-# remaining blocker -- no Docker-backed SDK-driven suite under
-# test/integration/ -- is out of this pass's directed scope (services/
-# cloudfrontkeyvaluestore/ only) and is the honest reason the grade did not
-# move to A.
-overall: B
+overall: A            # A: SDK-driven test/integration suite TestIntegration_CloudFrontKeyValueStore_KeyLifecycle
+                       # (test/integration/cloudfrontkeyvaluestore_test.go) + every buildable gap closed.
 ops:
   DescribeKeyValueStore: {wire: ok, errors: ok, state: ok, persist: ok, note: "ItemCount/TotalSizeInBytes computed from real per-store data; see structural_gaps for the byte-accounting approximation"}
   GetKey: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -21,8 +13,7 @@ ops:
   ListKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken pagination via pkgs/page; per-item Key/Value fields verified against ListKeysResponseListItem (gopherstack-21my)"}
   UpdateKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "checkUpdateKeysBatch/checkStoreSizeQuotaBatch enforce the 50-key/3MB batch and 5MB store quotas before any mutation runs -> ServiceQuotaExceededException"}
 gaps: []
-items_still_open:
-  - "No test/integration/cloudfrontkeyvaluestore_test.go: this package's wire-shape proof lives entirely in services/cloudfrontkeyvaluestore/*_test.go (SDK client against an in-process httptest server, e.g. TestSDKClient_KeyLifecycle, TestSDKClient_QuotaExceeded, TestSDKClient_StoreSizeQuotaExceeded), not the Docker-backed test/integration/ suite parity-principles rule 3 treats as real parity proof. Adding one is buildable but was out of this pass's directed scope (services/cloudfrontkeyvaluestore/ and services/resiliencehub/ only). (bd: gopherstack-4ara)"
+items_still_open: []
 structural_gaps:
   - "TotalSizeInBytes is len(key)+len(value) summed per item. AWS's real byte accounting includes undocumented per-item storage overhead (confirmed absent from validators.go/deserializers.go -- no length constraint is modeled in the SDK at all, so the exact formula isn't derivable from any source this emulator can read); the number is real and deterministic (derived from actual stored data, not fabricated) but will not byte-for-byte match a real account. (bd: gopherstack-4ara)"
   - "Per-account key-value-store count quota (200, AWS Developer Guide's 'Quotas on key value stores' table) is enforced, if at all, by services/cloudfront's CreateKeyValueStore -- a different package's op, out of this manifest's scope."
@@ -31,6 +22,15 @@ leaks: {status: clean, note: "Handler owns no goroutines, janitors, or independe
 ---
 
 ## Notes
+
+**2026-09-18**: added `test/integration/cloudfrontkeyvaluestore_test.go`
+(`TestIntegration_CloudFrontKeyValueStore_KeyLifecycle`), the Docker-backed
+SDK-driven suite the prior B grade's sole `items_still_open` entry named --
+store created via the real `cloudfront` client, then
+Describe/Put/Get/List/UpdateKeys/Delete against the data plane, plus a stale
+`IfMatch` -> typed `ConflictException` and an oversized key ->
+`ServiceQuotaExceededException`. All subtests pass against the real
+container. Grade moves B -> A.
 
 **Why this package exists** (gopherstack-4ara): AWS splits CloudFront's
 KeyValueStore surface across two SDK clients/protocols. `cloudfront.Client`
