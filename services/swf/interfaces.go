@@ -51,7 +51,12 @@ type StorageBackend interface {
 
 	// Task polling and responses
 	PollForActivityTask(domain, taskList string) *ActivityTask
-	PollForDecisionTask(domain, taskList string, maxPageSize int, nextPageToken string) *DecisionTask
+	PollForDecisionTask(
+		domain, taskList string,
+		maxPageSize int,
+		nextPageToken string,
+		startAtPreviousStartedEvent bool,
+	) *DecisionTask
 	RecordActivityTaskHeartbeat(taskToken string) (bool, error)
 	RespondActivityTaskCanceled(taskToken, details string) error
 	RespondActivityTaskCompleted(taskToken, result string) error

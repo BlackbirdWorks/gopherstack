@@ -267,7 +267,7 @@ func TestRealClient_WorkflowAndActivity(t *testing.T) {
 				// StartWorkflowExecution already auto-schedules the workflow's first
 				// decision task (createExecutionLocked) -- no separate
 				// EnqueueDecisionTaskInternal seed call is needed (or correct) here.
-				decisionTask := b.PollForDecisionTask("dom-at", "default", 0, "")
+				decisionTask := b.PollForDecisionTask("dom-at", "default", 0, "", false)
 				require.NotNil(t, decisionTask)
 
 				countDecisions, err := client.CountPendingDecisionTasks(ctx, &swfsdk.CountPendingDecisionTasksInput{
@@ -358,7 +358,7 @@ func TestRealClient_WorkflowAndActivity(t *testing.T) {
 				require.NoError(t, err)
 				// StartWorkflowExecution already auto-schedules the first decision
 				// task -- no separate EnqueueDecisionTaskInternal seed call needed.
-				decisionTask := b.PollForDecisionTask("dom-atf", "default", 0, "")
+				decisionTask := b.PollForDecisionTask("dom-atf", "default", 0, "", false)
 				require.NotNil(t, decisionTask)
 				require.NoError(t, b.RespondDecisionTaskCompleted(decisionTask.TaskToken, "", []swf.Decision{{
 					DecisionType: "ScheduleActivityTask",
@@ -401,7 +401,7 @@ func TestRealClient_WorkflowAndActivity(t *testing.T) {
 				// above already auto-enqueued a fresh decision task for the failure
 				// (enqueueDecisionTaskLocked) -- no separate EnqueueDecisionTaskInternal
 				// call is needed (or correct) here.
-				decisionTask2 := b.PollForDecisionTask("dom-atf", "default", 0, "")
+				decisionTask2 := b.PollForDecisionTask("dom-atf", "default", 0, "", false)
 				require.NotNil(t, decisionTask2)
 				require.NoError(t, b.RespondDecisionTaskCompleted(decisionTask2.TaskToken, "", []swf.Decision{{
 					DecisionType: "ScheduleActivityTask",

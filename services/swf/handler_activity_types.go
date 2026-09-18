@@ -68,6 +68,7 @@ type handleListActivityTypesInput struct {
 	RegistrationStatus string `json:"registrationStatus,omitempty"`
 	NextPageToken      string `json:"nextPageToken,omitempty"`
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
+	ReverseOrder       bool   `json:"reverseOrder,omitempty"`
 }
 
 //nolint:dupl // ActivityType list mirrors WorkflowType list structure
@@ -90,6 +91,10 @@ func (h *Handler) handleListActivityTypes(
 		}
 	}
 	sort.Slice(infos, func(i, j int) bool {
+		if in.ReverseOrder {
+			return infos[i].ActivityType.Name > infos[j].ActivityType.Name
+		}
+
 		return infos[i].ActivityType.Name < infos[j].ActivityType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)
