@@ -9,13 +9,17 @@
 | --- | --- |
 | PARITY entries audited | 9 (9 ok) |
 | Feature families | 33 (32 ok, 1 partial) |
-| Known gaps | 1 |
+| Known gaps | 5 |
 | Deferred items | 0 |
 | Resource leaks | clean |
 
 ### Known gaps
 
 - 2026-09-12 (typed slice 5, gopherstack-n3zi): GetReservedNodeExchangeConfigurationOptions (fixed this pass from a disguised stub -- see the dated section below) accepts ClusterIdentifier/SnapshotIdentifier/ActionType but does not scope its ReservedNodeConfigurationOptionList by them: this backend does not track which specific cluster/snapshot a reservation applies to, so it returns one configuration option per account-wide reserved node against the static offering catalog, unfiltered. Documented rather than fabricating a cluster/snapshot-to-reservation link that does not exist.
+- 2026-09-13 (gopherstack-xhu2t tier-1 sweep): RestoreTableFromClusterSnapshot.EnableCaseSensitiveIdentifier remains unread -- this backend never executes queries against a restored table (no SQL engine), so there is no identifier case-sensitivity behavior to gate; left honestly unimplemented rather than accepted-then-discarded with a fabricated effect. SourceSchemaName/TargetSchemaName (same op) were genuinely dropped and are now fixed -- see 2026-09-13 Notes section.
+- 2026-09-13 (gopherstack-xhu2t tier-1 sweep): GetClusterCredentials.DbGroups remains unread -- the real field adds the temporary user to existing database groups for the session; this backend has no real database/session/group-membership model to add to (GetClusterCredentials only mints a pseudo-password/Expiration pair), so there is nothing observable a test could assert. DurationSeconds (same op, and GetClusterCredentialsWithIAM's) was genuinely dropped and is now fixed -- see 2026-09-13 Notes section.
+- 2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): Workgroup.CrossAccountVpcs/PatchVersion/PendingTrackName/WorkgroupVersion and Endpoint.VpcEndpoints (aws-sdk-go-v2/service/redshiftserverless@v1.38.5 types.Workgroup/types.Endpoint) are unmodeled -- they'd need a maintenance-track-upgrade scheduler, a patch-version catalog and real VPC/ENI allocation this backend has nowhere else either (the same judgment call already made for ServerlessEndpointAccess's own VpcEndpoint, see serverless.go). Confirmed absent via structfielddiff; all are optional members, not required-and-zero, so every other Workgroup field name/case was confirmed to match exactly.
+- 2026-09-18 (per-item field sweep, gopherstack-21my, Redshift Serverless family): ScheduledActionResponse.NextInvocations is unmodeled for serverless scheduled actions -- classic Redshift's own ScheduledAction.NextInvocations IS computed (schedule.go's nextInvocations, parsing cron(...)/at(...) function-call syntax), but Redshift Serverless's Schedule is a different raw-JSON tagged union ({"cron":"..."} bare string, or {"at":<epoch-seconds>}), so that evaluator doesn't apply as-is; a correct implementation needs its own parser, not a one-line reuse. Optional member, not required-and-zero -- every other ScheduledActionResponse field confirmed correct, including the already-fixed slScheduledActionAssociationWire List-item narrowing (NamespaceName/ScheduledActionName only, no other fields).
 
 ## More
 
