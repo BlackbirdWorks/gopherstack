@@ -87,19 +87,16 @@ func TestUpdateStateMachineAlias_InvalidRoutingConfig_RealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// CreateStateMachineAliasInput has no stateMachineArn field on the real
-	// wire, so this backend's CreateStateMachineAlias 404s through the real
-	// client today (pre-existing, unrelated gap -- see
-	// Test_SDKRoundTrip_StateMachineAlias_UpdateDate's comment). Set the
-	// alias up directly against the backend so this test can isolate the
-	// UpdateStateMachineAlias error-code bug this issue is about.
-	alias, err := backend.CreateStateMachineAlias(smArn, "live", "", []stepfunctions.AliasRoutingConfig{
-		{StateMachineVersionArn: *pub.StateMachineVersionArn, Weight: 100},
+	alias, err := client.CreateStateMachineAlias(ctx, &sfnsdk.CreateStateMachineAliasInput{
+		Name: aws.String("live"),
+		RoutingConfiguration: []sfntypes.RoutingConfigurationListItem{
+			{StateMachineVersionArn: pub.StateMachineVersionArn, Weight: 100},
+		},
 	})
 	require.NoError(t, err)
 
 	_, err = client.UpdateStateMachineAlias(ctx, &sfnsdk.UpdateStateMachineAliasInput{
-		StateMachineAliasArn: aws.String(alias.StateMachineAliasArn),
+		StateMachineAliasArn: alias.StateMachineAliasArn,
 		RoutingConfiguration: []sfntypes.RoutingConfigurationListItem{
 			{StateMachineVersionArn: pub.StateMachineVersionArn, Weight: 50},
 		},

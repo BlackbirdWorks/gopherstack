@@ -4,9 +4,12 @@ import (
 	"encoding/json"
 )
 
+// createStateMachineAliasInput has no StateMachineArn member: the real
+// CreateStateMachineAliasInput (sfn@v1.49.0 api_op_CreateStateMachineAlias.go)
+// declares only Name, Description, and RoutingConfiguration -- the target
+// state machine is derived from the routed versions.
 type createStateMachineAliasInput struct {
 	Name                 string               `json:"name"`
-	StateMachineArn      string               `json:"stateMachineArn"`
 	Description          string               `json:"description"`
 	RoutingConfiguration []AliasRoutingConfig `json:"routingConfiguration"`
 }
@@ -97,7 +100,7 @@ func (h *Handler) handleCreateStateMachineAlias(b []byte) (any, error) {
 	}
 
 	a, err := h.Backend.CreateStateMachineAlias(
-		input.StateMachineArn, input.Name, input.Description, input.RoutingConfiguration,
+		input.Name, input.Description, input.RoutingConfiguration,
 	)
 	if err != nil {
 		return nil, err

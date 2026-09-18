@@ -278,14 +278,10 @@ func Test_TagResource_TooManyTags_WireType(t *testing.T) {
 }
 
 // CreateStateMachineAliasInput carries no stateMachineArn field on the real
-// wire (AWS derives the target from routingConfiguration), so this backend's
-// CreateStateMachineAlias -- which requires stateMachineArn explicitly -- is
-// unreachable through the real typed client (see
-// Test_SDKRoundTrip_StateMachineAlias_UpdateDate's comment for the same
-// pre-existing gap). These cases exercise the wire error type directly over
-// the JSON body instead of via errors.As, since driving them through
-// client.CreateStateMachineAlias itself always resolves an empty
-// stateMachineArn.
+// wire -- AWS derives the target from routingConfiguration, and so does this
+// backend (gopherstack-1ai8 acceptguard fix, 2026-09-18). These cases
+// exercise the wire error type directly over the JSON body rather than via
+// errors.As, matching this file's other error-path-sweep tests.
 func Test_CreateStateMachineAlias_ErrorCodes(t *testing.T) {
 	t.Parallel()
 
@@ -295,12 +291,11 @@ func Test_CreateStateMachineAlias_ErrorCodes(t *testing.T) {
 		wantType string
 	}{
 		{
-			name:     "unknown state machine is ResourceNotFound",
+			name:     "unknown routed version is ResourceNotFound",
 			wantType: "ResourceNotFound",
 			body: func(*stepfunctions.Handler, *echo.Echo) string {
 				return `{
 					"name": "a",
-					"stateMachineArn": "arn:aws:states:us-east-1:123456789012:stateMachine:nonexistent",
 					"routingConfiguration": [
 						{"stateMachineVersionArn": "arn:aws:states:us-east-1:123456789012:stateMachine:x:1", "weight": 100}
 					]
@@ -324,9 +319,8 @@ func Test_CreateStateMachineAlias_ErrorCodes(t *testing.T) {
 
 				createBody := fmt.Sprintf(`{
 					"name": "dup",
-					"stateMachineArn": %q,
 					"routingConfiguration": [{"stateMachineVersionArn": %q, "weight": 100}]
-				}`, smARN, versionARN)
+				}`, versionARN)
 
 				createRec := sfnPost(t.Context(), t, h, e, "CreateStateMachineAlias", createBody)
 				require.Equal(t, 200, createRec.Code)

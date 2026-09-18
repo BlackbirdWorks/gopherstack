@@ -1,7 +1,7 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
-last_audit_commit: ab7ac08a7
+last_audit_commit: d4dc4a723
 last_audit_date: 2026-09-18
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
@@ -80,7 +80,7 @@ ops:
   PublishStateMachineVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteStateMachineVersion: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineVersionDoesNotExist (names no type anywhere in this SDK) for a missing version; DeleteStateMachineVersion's own deserializeOpError models only ConflictException/InvalidArn/ValidationException, so it is now idempotent on a missing version."}
   ListStateMachineVersions: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED (gopherstack-dv4s): response marshaled the full StateMachineVersion struct per item, leaking stateMachineArn/name/definition/roleArn/type/status/description/revisionId -- real StateMachineVersionListItem (types.go, sfn@v1.45.4) declares only creationDate/stateMachineVersionArn. Now marshals a new stateMachineVersionListItem view. ERRORS FIXED (error-path sweep, 2026-08-29): unlike its ListExecutions/ListStateMachineAliases siblings, this op's own deserializeOpError models no StateMachineDoesNotExist -- it now returns an empty page for an unknown stateMachineArn instead of raising."}
-  CreateStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "routingConfiguration weighted versions validated. ERRORS FIXED (error-path sweep, 2026-08-29): raised fabricated StateMachineDoesNotExist/StateMachineAliasAlreadyExists codes naming no type in this SDK; now emits the modelled ResourceNotFound/ConflictException. NOTE: CreateStateMachineAliasInput has no stateMachineArn field on the real wire (AWS derives the target state machine from routingConfiguration's version ARNs) -- this backend still requires stateMachineArn explicitly, so a real typed client can never populate it and this op 404s through any conformant SDK client today. Pre-existing, unrelated to the error-code fix, left for a future pass (see Test_SDKRoundTrip_StateMachineAlias_UpdateDate's comment)."}
+  CreateStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "routingConfiguration weighted versions validated. ERRORS FIXED (error-path sweep, 2026-08-29): raised fabricated StateMachineDoesNotExist/StateMachineAliasAlreadyExists codes naming no type in this SDK; now emits the modelled ResourceNotFound/ConflictException. FIXED (2026-09-18, acceptguard, gopherstack-1ai8): CreateStateMachineAliasInput has no stateMachineArn field on the real wire -- AWS derives the target state machine from routingConfiguration's version ARNs -- but this backend required stateMachineArn explicitly, so it always 404'd through any conformant SDK client. Now resolved from routing[0].StateMachineVersionArn (validating any second entry belongs to the same state machine); proven via Test_SDKRoundTrip_StateMachineAlias_UpdateDate driving Create through the real client."}
   UpdateStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
   DeleteStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
   DescribeStateMachineAlias: {wire: ok, errors: fixed, state: ok, persist: ok, note: "FIXED (error-path sweep, 2026-08-29): raised a fabricated StateMachineAliasDoesNotExist for a missing alias; now emits the modelled ResourceNotFound."}
@@ -1199,3 +1199,20 @@ diagnostics never exceed one item today). Recorded: `TestState.
 InspectionLevel`/`.RevealSecrets` (no InspectionData subsystem to back
 either). Tier-1: 6 -> 2. Gates green (build/vet/race-test/persistence/lint
 0-new).
+
+## 2026-09-18 invented-field census (acceptguard, gopherstack-1ai8)
+
+CreateStateMachineAlias's handler read a "stateMachineArn" field
+CreateStateMachineAliasInput (sfn@v1.49.0) does not declare -- the real API
+derives the target state machine from RoutingConfiguration's
+StateMachineVersionArn entries instead. Since no real client could ever send
+it, every real CreateStateMachineAlias call previously 404'd
+(ErrStateMachineAliasDoesNotExist against an always-empty ARN) -- this was a
+genuine, previously-undiscovered bug, not a dead path. Fixed: the backend
+now resolves the owning state machine from `routing[0].StateMachineVersionArn`
+and validates any second entry belongs to the same state machine (matching
+the real API's documented constraint). Proven end-to-end through the real
+SDK client: `Test_SDKRoundTrip_StateMachineAlias_UpdateDate` and
+`TestUpdateStateMachineAlias_InvalidRoutingConfig_RealClient` now call
+`client.CreateStateMachineAlias` directly instead of the previous
+backend-only workaround documented in both tests' prior comments.
