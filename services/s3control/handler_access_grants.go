@@ -372,6 +372,7 @@ type createAccessGrantResponseXML struct {
 	Permission             string                      `xml:"Permission"`
 	Grantee                createAccessGrantGranteeXML `xml:"Grantee,omitempty"`
 	ApplicationArn         string                      `xml:"ApplicationArn,omitempty"`
+	CreatedAt              string                      `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
@@ -414,6 +415,7 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 			GranteeIdentifier: grant.GranteeIdentifier,
 		},
 		ApplicationArn: grant.ApplicationArn,
+		CreatedAt:      grant.CreatedAt,
 	})
 }
 
@@ -432,6 +434,7 @@ type createAccessGrantsLocationResponseXML struct {
 	AccessGrantsLocationID  string   `xml:"AccessGrantsLocationId"`
 	LocationScope           string   `xml:"LocationScope"`
 	IAMRoleArn              string   `xml:"IAMRoleArn"`
+	CreatedAt               string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
@@ -462,6 +465,7 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationID:  loc.AccessGrantsLocationID,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 
@@ -742,6 +746,7 @@ type getAccessGrantsLocationResponseXML struct {
 	AccessGrantsLocationArn string   `xml:"AccessGrantsLocationArn"`
 	LocationScope           string   `xml:"LocationScope"`
 	IAMRoleArn              string   `xml:"IAMRoleArn"`
+	CreatedAt               string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrantsLocation(c *echo.Context) error {
@@ -758,6 +763,7 @@ func (h *Handler) handleGetAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 
@@ -796,6 +802,7 @@ func (h *Handler) handleUpdateAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 

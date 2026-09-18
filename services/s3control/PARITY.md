@@ -1,7 +1,7 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-07
+last_audit_commit: da97fccdb
+last_audit_date: 2026-09-18
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
                        # pagination_sweep entry below still holds: every List* backend method
                        # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
@@ -1122,3 +1122,31 @@ Gates: `go build ./...` (whole module) clean; `go vet
 --new-from-rev=HEAD ./services/s3control/...` 0 issues; `go run
 ./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
 no version bump.
+
+## 2026-09-18 (gopherstack-21my remaining-ops sweep)
+
+Checked ops not covered by prior 21my passes (CreateJob/DescribeJob/ListJobs,
+ListAccessPoints, MRAP, ListAccessGrants family, Storage Lens lists) via
+`structfielddiff` against s3control@v1.73.4: the three singular access-grants
+Gets (GetAccessGrant/GetAccessGrantsInstance/GetAccessGrantsLocation) and
+their Create/Update siblings. Found the sibling-trap class this campaign
+targets: `CreateAccessGrant`, `CreateAccessGrantsLocation`,
+`GetAccessGrantsLocation` and `UpdateAccessGrantsLocation` all dropped the
+required `CreatedAt` field their own domain records already carry (the List
+siblings and `GetAccessGrant`/`GetAccessGrantsInstance`/
+`CreateAccessGrantsInstance` were already correct -- inconsistent across
+handlers, not a service-wide gap). Fixed all 4 in
+`handler_access_grants.go`. `overwidecandidates` showed no new candidates
+beyond ones already fixed in prior passes.
+
+Test: `TestRealClient_AccessPointsAndJobs/access_grants`
+(sdk_roundtrip_access_points_and_jobs_test.go) extended with `CreatedAt`
+assertions on all 4 call sites; hand-verified failing pre-fix (3 nil-value
+failures), restored byte-identical after.
+
+Gates: `go build ./...` clean; `go vet ./services/s3control/...` clean;
+`go test -race -count=1 ./services/s3control/...` ok; `go test -count=1
+./pkgs/persistence/` ok; `golangci-lint run --new-from-rev=HEAD
+./services/s3control/...` 0 issues; `go run ./cmd/parityfmtcheck -dir
+services` clean; `git diff --stat go.mod go.sum` empty. No persisted-field
+change, no version bump.

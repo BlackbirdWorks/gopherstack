@@ -854,6 +854,7 @@ func TestRealClient_AccessPointsAndJobs(t *testing.T) {
 				})
 				require.NoError(t, err)
 				locationID := aws.ToString(locOut.AccessGrantsLocationId)
+				assert.NotNil(t, locOut.CreatedAt, "CreateAccessGrantsLocation must echo CreatedAt")
 
 				getLocOut, err := client.GetAccessGrantsLocation(t.Context(), &s3csdk.GetAccessGrantsLocationInput{
 					AccountId:              aws.String(createTagsTestAccountID),
@@ -861,13 +862,18 @@ func TestRealClient_AccessPointsAndJobs(t *testing.T) {
 				})
 				require.NoError(t, err)
 				assert.Equal(t, "s3://s7-bucket/", aws.ToString(getLocOut.LocationScope))
+				assert.NotNil(t, getLocOut.CreatedAt, "GetAccessGrantsLocation must echo CreatedAt")
 
-				_, err = client.UpdateAccessGrantsLocation(t.Context(), &s3csdk.UpdateAccessGrantsLocationInput{
-					AccountId:              aws.String(createTagsTestAccountID),
-					AccessGrantsLocationId: aws.String(locationID),
-					IAMRoleArn:             aws.String("arn:aws:iam::123456789012:role/access-grants-v2"),
-				})
+				updateLocOut, err := client.UpdateAccessGrantsLocation(
+					t.Context(),
+					&s3csdk.UpdateAccessGrantsLocationInput{
+						AccountId:              aws.String(createTagsTestAccountID),
+						AccessGrantsLocationId: aws.String(locationID),
+						IAMRoleArn:             aws.String("arn:aws:iam::123456789012:role/access-grants-v2"),
+					},
+				)
 				require.NoError(t, err)
+				assert.NotNil(t, updateLocOut.CreatedAt, "UpdateAccessGrantsLocation must echo CreatedAt")
 
 				getLocOut, err = client.GetAccessGrantsLocation(t.Context(), &s3csdk.GetAccessGrantsLocationInput{
 					AccountId:              aws.String(createTagsTestAccountID),
@@ -875,6 +881,7 @@ func TestRealClient_AccessPointsAndJobs(t *testing.T) {
 				})
 				require.NoError(t, err)
 				assert.Equal(t, "arn:aws:iam::123456789012:role/access-grants-v2", aws.ToString(getLocOut.IAMRoleArn))
+				assert.NotNil(t, getLocOut.CreatedAt, "GetAccessGrantsLocation must echo CreatedAt after update")
 
 				listLocOut, err := client.ListAccessGrantsLocations(t.Context(), &s3csdk.ListAccessGrantsLocationsInput{
 					AccountId: aws.String(createTagsTestAccountID),
@@ -893,6 +900,7 @@ func TestRealClient_AccessPointsAndJobs(t *testing.T) {
 				})
 				require.NoError(t, err)
 				grantID := aws.ToString(grantOut.AccessGrantId)
+				assert.NotNil(t, grantOut.CreatedAt, "CreateAccessGrant must echo CreatedAt")
 
 				getGrantOut, err := client.GetAccessGrant(t.Context(), &s3csdk.GetAccessGrantInput{
 					AccountId:     aws.String(createTagsTestAccountID),
