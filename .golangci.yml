@@ -583,6 +583,11 @@ linters:
       # tier-1 campaign (gopherstack-xhu2t).
       - path: 'opsworks/sdk_roundtrip_stack_field_fixes_test.go'
         linters: [ staticcheck ]
+      # Same reasoning as opsworks/sdk_roundtrip_test.go above -- the
+      # Docker-backed test/integration/ suite (services/opsworks/PARITY.md's
+      # A-bar requirement) drives the same deprecated SDK client end to end.
+      - path: 'test/integration/opsworks_test.go'
+        linters: [ staticcheck ]
       # mediapackage's RotateChannelCredentials is deprecated (superseded by
       # RotateIngestEndpointCredentials), but is still a real, listed op this
       # file must drive through a real client for typed coverage

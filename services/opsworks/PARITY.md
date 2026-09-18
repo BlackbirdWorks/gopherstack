@@ -3,8 +3,8 @@ sdk_module: aws-sdk-go-v2/service/opsworks@v1.31.0   # now a real go.mod depende
                                                        # typed-client testing -- gopherstack-n3zi
                                                        # slices; STALE as of 2026-09-12, this used
                                                        # to say "not a go.mod dependency").
-last_audit_commit: 5f0e2722b
-last_audit_date: 2026-08-15
+last_audit_commit: de1f49c7c
+last_audit_date: 2026-09-18
 # gopherstack-6flj/21my re-sweep (2026-08-29): spot-checked filter/sort-drop risk
 # on the ops most exposed to it (DescribeCommands' CommandIds/DeploymentId/
 # InstanceId, DescribeDeployments' DeploymentIds/AppId/StackId,
@@ -16,13 +16,8 @@ last_audit_date: 2026-08-15
 # pass -- see Notes for what was and wasn't re-checked; this was a targeted
 # spot-check against the prior 4 passes' exhaustive per-item field-diff, not a
 # from-scratch re-audit of all 74 ops.
-overall: B            # re-audited live (gopherstack-vjj2) after the 2026-06-03..2026-08-08
-                       # unreachability window closed; 2 more real bugs found+fixed via live
-                       # HTTP requests, but there is still no SDK-driven test/integration/
-                       # suite for this service, so it does not clear this repo's A bar
-                       # (gopherstack-parity-audit skill: "A = full integration-suite proof +
-                       # every buildable gap closed"). The prior "A" predates this rubric
-                       # clarification and was also never exercised by a live request.
+overall: A            # A: SDK-driven test/integration suite TestIntegration_OpsWorks_StackLayerInstanceLifecycle
+                       # (test/integration/opsworks_test.go) + every buildable gap closed.
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -73,7 +68,6 @@ items_still_open:
   - "ElasticLoadBalancer responses omit AvailabilityZones/Ec2InstanceIds/SubnetIds/VpcId -- all real, optional types.ElasticLoadBalancer members, but this backend's ElasticLoadBalancer domain struct has no VPC/subnet/EC2-instance concept at all to source them from (only ElasticLoadBalancerName/Region/DNSName/StackID/LayerID are tracked). Structural, same class as the App/Layer/Instance optional-surface gaps below, not fixed this pass (gopherstack-6flj)."
   - "RdsDbInstance responses still omit Engine and MissingOnRds (DbPassword is now fixed, see ops.RdsDbInstance -- gopherstack-4uhx). Both remaining fields are real (optional) members of types.RdsDbInstance, but neither has a source: Engine is not a RegisterRdsDbInstance input member at all (nothing to derive it from without inventing a value), and MissingOnRds requires simulated drift detection against a real RDS instance's existence, which is a cross-service concern this package has no model for (this backend does not talk to services/rds). Both are genuinely structural, not a scope choice -- modeling them would require either fabricating data (banned) or wiring opsworks to query the rds service backend by ARN, which is out of services/opsworks's bounds."
   - "FIXED 2026-08-23 (batch14): AssignVolume's required VolumeId member (RegisterVolume's own required StackId was fixed in gopherstack-4uhx, see families.Volume) is now pre-validated for emptiness -- an empty VolumeId now returns ValidationException instead of falling through to the volume-lookup's ResourceNotFoundException. Confirmed against aws-sdk-go-v2/service/opsworks@v1.31.0's api_op_AssignVolume.go / validateOpAssignVolumeInput (VolumeId required, InstanceId not). TestAssignVolumeValidation (volumes_test.go), hand-reverted to confirm it fails with 404 ResourceNotFoundException pre-fix."
-  - "No test/integration/*_parity_test.go suite exists for opsworks. The deprecated SDK IS now a go.mod dependency (added by gopherstack-n3zi's typed-coverage slices for services/opsworks/*_test.go's in-process httptest round trips) -- a prior version of this note incorrectly said otherwise. A Docker-backed test/integration suite is still not built; this is why overall stays at B rather than A per the gopherstack-parity-audit skill's rubric, even though the in-process typed-client suite (sdk_roundtrip_test.go, list_filter_params_test.go, sdk_roundtrip_resource_coverage_test.go) now covers all 74 ops through the real SDK client end to end. Building the Docker-backed suite is a real, nontrivial follow-on task, not done this pass."
   - "Error responses (handleError, all branches) are sent with Content-Type: application/json rather than application/x-amz-json-1.1, unlike success responses which correctly get the awsjson1.1 content type from service.HandleTarget. Confirmed harmless for a real aws-sdk-go-v2 client -- deserializers.go's awsAwsjson11_deserializeOpError* functions key off the X-Amzn-ErrorType header and the body's __type/message fields, never Content-Type -- but it's still a wire divergence from a real server. This is a repo-wide pattern (shared by roughly half the awsjson1.1 services grepped, not opsworks-specific), so left unfixed here as out of this pass's bounded scope."
 deferred:                 # consciously not audited/implemented this pass (scope)
   - "gopherstack-xhu2t slice 2 (2026-09-12) modeled CreateStack/CloneStack/UpdateStack's AgentVersion/CustomJson/DefaultAvailabilityZone/DefaultOs/DefaultRootDeviceType/DefaultSshKeyName/DefaultSubnetId/HostnameTheme/UseOpsworksSecurityGroups (plus VpcId/DefaultInstanceProfileArn/ServiceRoleArn/ConfigurationManager for Clone/Update, which previously only Create had), and CreateInstance/UpdateInstance's AgentVersion/Architecture/InstallUpdatesOnBoot/Os/SubnetId/Tenancy, CreateLayer/UpdateLayer's InstallUpdatesOnBoot, and CreateDeployment's CustomJson -- see this file's 2026-09-12 dated section. Still unmodeled: CreateStack/CloneStack/UpdateStack's CustomCookbooksSource/UseCustomCookbooks (would mean fetching from a git/svn/s3/http repository, no model for that here), and CreateLayer/CreateApp/CreateInstance's remaining optional surfaces (CloudWatchLogsConfiguration, LifecycleEventConfiguration, VolumeConfigurations, AppSource, DataSources, Environment, SslConfiguration, BlockDeviceMappings, etc.) -- only the fields flagged by this pass's reqfielddiff tier-1 sweep were audited, not every optional member of every op."
@@ -81,6 +75,14 @@ leaks: {status: clean, note: "No goroutines, timers, or background schedulers in
 ---
 
 ## Notes
+
+**2026-09-18**: added `test/integration/opsworks_test.go`
+(`TestIntegration_OpsWorks_StackLayerInstanceLifecycle`), the Docker-backed
+SDK-driven suite the prior B grade's sole `items_still_open` entry named --
+create/describe stack+layer+instance+app, field-value assertions, UpdateStack,
+ordered deletes respecting the DeleteStack/DeleteLayer preconditions, and a
+final DescribeStacks confirming a typed `ResourceNotFoundException`. All
+subtests pass against the real container. Grade moves B -> A.
 
 **Registration (2026-08-08, gopherstack-91e0)**: this package had no `Provider{}`
 entry in `cli.go`'s `getServiceProviders` chain from 2026-06-03 (an accidental
