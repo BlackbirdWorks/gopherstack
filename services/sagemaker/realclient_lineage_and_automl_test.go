@@ -197,7 +197,13 @@ func testAutoMLExtrasRealClient(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	assert.NotNil(t, candOut.Candidates)
+	require.NotEmpty(t, candOut.Candidates)
+	require.NotNil(t, candOut.Candidates[0].FinalAutoMLJobObjectiveMetric)
+	assert.Equal(
+		t,
+		smtypes.AutoMLMetricEnumAccuracy,
+		candOut.Candidates[0].FinalAutoMLJobObjectiveMetric.MetricName,
+	)
 
 	_, err = client.StopAutoMLJob(t.Context(), &sagemakersdk.StopAutoMLJobInput{
 		AutoMLJobName: aws.String("slice20-automl"),

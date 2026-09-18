@@ -518,6 +518,28 @@ func testPipelinesExtraRealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, pipelineDef, aws.ToString(defDesc.PipelineDefinition))
 
+	// A callback step is told apart from other step types by Metadata.Callback
+	// being populated (types.PipelineExecutionStep has no StepType field at
+	// all, types/types.go:17387, sagemaker@v1.263.2) -- never by a StepType
+	// string, which is why the wire response never emitted one.
+	_, err = client.SendPipelineExecutionStepSuccess(
+		t.Context(), &sagemakersdk.SendPipelineExecutionStepSuccessInput{
+			CallbackToken: exec.PipelineExecutionArn,
+		})
+	require.NoError(t, err)
+
+	stepsOut, err := client.ListPipelineExecutionSteps(
+		t.Context(), &sagemakersdk.ListPipelineExecutionStepsInput{
+			PipelineExecutionArn: exec.PipelineExecutionArn,
+		})
+	require.NoError(t, err)
+	require.NotEmpty(t, stepsOut.PipelineExecutionSteps)
+
+	step := stepsOut.PipelineExecutionSteps[0]
+	require.NotNil(t, step.Metadata)
+	require.NotNil(t, step.Metadata.Callback)
+	assert.Equal(t, aws.ToString(exec.PipelineExecutionArn), aws.ToString(step.Metadata.Callback.CallbackToken))
+
 	_, err = client.UpdatePipelineExecution(t.Context(), &sagemakersdk.UpdatePipelineExecutionInput{
 		PipelineExecutionArn:         exec.PipelineExecutionArn,
 		PipelineExecutionDescription: aws.String("updated desc"),

@@ -167,10 +167,13 @@ type pipelineStepMetadata struct {
 	Callback *pipelineStepCallbackMetadata `json:"Callback,omitempty"`
 }
 
+// pipelineExecStepSummary mirrors types.PipelineExecutionStep
+// (types/types.go:17387, sagemaker@v1.263.2), which has no StepType field:
+// a real client tells steps apart by which Metadata member is populated
+// (Metadata.Callback, .TrainingJob, ...), never by a StepType string.
 type pipelineExecStepSummary struct {
 	Metadata      *pipelineStepMetadata `json:"Metadata,omitempty"`
 	StepName      string                `json:"StepName"`
-	StepType      string                `json:"StepType,omitempty"`
 	StepStatus    string                `json:"StepStatus"`
 	FailureReason string                `json:"FailureReason,omitempty"`
 	StartTime     float64               `json:"StartTime,omitempty"`
@@ -210,7 +213,6 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 	for _, s := range steps {
 		sum := pipelineExecStepSummary{
 			StepName:      s.StepName,
-			StepType:      s.StepType,
 			StepStatus:    s.StepStatus,
 			FailureReason: s.FailureReason,
 			StartTime:     epochSeconds(s.StartTime),

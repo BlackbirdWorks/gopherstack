@@ -1,6 +1,6 @@
 service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
-last_audit_commit: 06ee81c40                            # HEAD when this manifest was written
+last_audit_commit: b09a30f43                            # HEAD when this manifest was written
 last_audit_date: 2026-09-18
                        # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, EC2/SageMaker
                        # output-side batch): EC2 (ec2query) fully scanned per-op (flat + nested
@@ -324,6 +324,18 @@ leaks: {status: clean, note: "Re-verified this pass: grepped every 'go func()'/r
 ---
 
 ## Notes
+
+**2026-09-18 (enumcheck census):** 33 findings, 33 -> 32. Fixed: AutoML
+candidate's fabricated `MetricName: "validation:accuracy"` -> `"Accuracy"`
+(types.AutoMLMetricEnum); PipelineExecutionStep.StepType, a phantom wire
+field, dropped from the JSON response (Metadata.Callback already carried
+the real signal) — the internal struct keeps the field, so its 2
+enumcheck rows still fire correctly. Both typed-client-proven. 30 false
+positives: each value a verified member of the field's true governing
+enum among the tool's same-wire-key multi-enum candidate list (per-op
+detail in git history); one (`"NodeLogicalIdNotFound"`) isn't in
+BatchDeleteClusterNodesErrorCode's Values() but matches its own doc
+comment (types.go:3233) verbatim.
 
 **2026-09-18 (parity gap burn-down, staleclaims-driven):** adjudicated all 24
 items_still_open + 5 deferred entries. Stale-removed (2): pipeline-start FIXED note and

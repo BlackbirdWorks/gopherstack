@@ -106,7 +106,7 @@ func generateAutoMLCandidates(job *AutoMLJob) []*AutoMLCandidate {
 		if status == algorithmStatusCompleted {
 			c.ObjectiveStatus = "Succeeded"
 			c.FinalAutoMLJobObjectiveMetric = &AutoMLObjectiveMetric{
-				MetricName: "validation:accuracy",
+				MetricName: "Accuracy",
 				Value:      autoMLBaseObjectiveMetric - float64(i)*autoMLObjectiveMetricStep,
 			}
 		}
