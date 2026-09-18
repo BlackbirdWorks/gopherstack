@@ -32,6 +32,9 @@ const (
 	// openZFSRootVolumeName is the fixed name AWS assigns to the
 	// auto-created root volume of every FSx for OpenZFS file system.
 	openZFSRootVolumeName = "fsx"
+	// defaultNetworkType is CreateFileSystemInput.NetworkType's documented
+	// omission default: "The default is IPV4." (api_op_CreateFileSystem.go).
+	defaultNetworkType = "IPV4"
 
 	// Minimum StorageCapacity (GiB) enforced by real AWS FSx per file system type.
 	minStorageCapacityLustre  = 1200

@@ -25,8 +25,8 @@ import (
 type storedFileSystem struct {
 	CreationTime                  time.Time         `json:"creationTime"`
 	Tags                          map[string]string `json:"tags"`
-	FileSystemID                  string            `json:"fileSystemId"`
-	FileSystemType                string            `json:"fileSystemType"`
+	PreferredSubnetID             string            `json:"preferredSubnetId,omitempty"`
+	DeploymentType                string            `json:"deploymentType,omitempty"`
 	FileSystemTypeVersion         string            `json:"fileSystemTypeVersion,omitempty"`
 	Lifecycle                     string            `json:"lifecycle"`
 	ResourceARN                   string            `json:"resourceArn"`
@@ -34,19 +34,20 @@ type storedFileSystem struct {
 	StorageType                   string            `json:"storageType,omitempty"`
 	VpcID                         string            `json:"vpcId,omitempty"`
 	OwnerID                       string            `json:"ownerId,omitempty"`
-	DeploymentType                string            `json:"deploymentType,omitempty"`
+	DailyAutomaticBackupStartTime string            `json:"dailyAutomaticBackupStartTime,omitempty"`
 	MountName                     string            `json:"mountName,omitempty"`
 	ActiveDirectoryID             string            `json:"activeDirectoryId,omitempty"`
-	PreferredSubnetID             string            `json:"preferredSubnetId,omitempty"`
-	DailyAutomaticBackupStartTime string            `json:"dailyAutomaticBackupStartTime,omitempty"`
-	WeeklyMaintenanceStartTime    string            `json:"weeklyMaintenanceStartTime,omitempty"`
+	FileSystemType                string            `json:"fileSystemType"`
+	FileSystemID                  string            `json:"fileSystemId"`
+	NetworkType                   string            `json:"networkType,omitempty"`
 	RootVolumeID                  string            `json:"rootVolumeId,omitempty"`
-	SubnetIDs                     []string          `json:"subnetIds,omitempty"`
+	WeeklyMaintenanceStartTime    string            `json:"weeklyMaintenanceStartTime,omitempty"`
 	NetworkInterfaceIDs           []string          `json:"networkInterfaceIds,omitempty"`
-	StorageCapacityGiB            int32             `json:"storageCapacity,omitempty"`
+	SubnetIDs                     []string          `json:"subnetIds,omitempty"`
+	AutomaticBackupRetentionDays  int32             `json:"automaticBackupRetentionDays,omitempty"`
 	ThroughputCapacity            int32             `json:"throughputCapacity,omitempty"`
 	ThroughputCapacityPerHAPair   int32             `json:"throughputCapacityPerHAPair,omitempty"`
-	AutomaticBackupRetentionDays  int32             `json:"automaticBackupRetentionDays,omitempty"`
+	StorageCapacityGiB            int32             `json:"storageCapacity,omitempty"`
 	HAPairs                       int32             `json:"haPairs,omitempty"`
 	CopyTagsToBackups             bool              `json:"copyTagsToBackups,omitempty"`
 	CopyTagsToVolumes             bool              `json:"copyTagsToVolumes,omitempty"`
@@ -68,6 +69,7 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 		OwnersID:              s.OwnerID,
 		SubnetIDs:             s.SubnetIDs,
 		NetworkInterfaceIDs:   s.NetworkInterfaceIDs,
+		NetworkType:           s.NetworkType,
 	}
 
 	switch s.FileSystemType {
@@ -151,6 +153,7 @@ type createFileSystemInput struct {
 	FileSystemType       string                      `json:"FileSystemType"`
 	StorageType          string                      `json:"StorageType,omitempty"`
 	VpcID                string                      `json:"VpcId,omitempty"`
+	NetworkType          string                      `json:"NetworkType,omitempty"`
 	ClientRequestToken   string                      `json:"ClientRequestToken,omitempty"`
 	Tags                 []Tag                       `json:"Tags,omitempty"`
 	SubnetIDs            []string                    `json:"SubnetIds,omitempty"`
@@ -512,6 +515,11 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 
 	tags := tagsSliceToMap(input.Tags)
 
+	networkType := input.NetworkType
+	if networkType == "" {
+		networkType = defaultNetworkType
+	}
+
 	fs := &storedFileSystem{
 		CreationTime:        now,
 		Tags:                tags,
@@ -526,6 +534,7 @@ func (b *InMemoryBackend) CreateFileSystem(input *createFileSystemInput) (*FileS
 		OwnerID:             b.accountID,
 		SubnetIDs:           input.SubnetIDs,
 		NetworkInterfaceIDs: networkInterfaceIDsForSubnets(input.SubnetIDs),
+		NetworkType:         networkType,
 	}
 
 	if err := applyFileSystemTypeConfig(fs, input); err != nil {
