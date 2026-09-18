@@ -236,14 +236,18 @@ func TestModifyAndResetCacheParameterGroup(t *testing.T) {
 
 			require.NoError(t, modErr)
 
-			// Verify via DescribeCacheParameters
+			// Verify via DescribeCacheParameters: it returns the full family
+			// catalog (engine defaults merged with overrides), so find the
+			// overridden parameter by name rather than asserting a length of 1.
 			paramsOut, err := client.DescribeCacheParameters(t.Context(), &elasticachesdk.DescribeCacheParametersInput{
 				CacheParameterGroupName: aws.String(tt.pgName),
 			})
 			require.NoError(t, err)
-			require.Len(t, paramsOut.Parameters, 1)
-			assert.Equal(t, "maxmemory-policy", aws.ToString(paramsOut.Parameters[0].ParameterName))
-			assert.Equal(t, "allkeys-lru", aws.ToString(paramsOut.Parameters[0].ParameterValue))
+			require.Greater(t, len(paramsOut.Parameters), 1)
+			modified := findParameter(paramsOut.Parameters, "maxmemory-policy")
+			require.NotNil(t, modified)
+			assert.Equal(t, "allkeys-lru", aws.ToString(modified.ParameterValue))
+			assert.Equal(t, "user", aws.ToString(modified.Source))
 
 			// Reset all parameters
 			_, resetErr := client.ResetCacheParameterGroup(t.Context(), &elasticachesdk.ResetCacheParameterGroupInput{
@@ -252,12 +256,16 @@ func TestModifyAndResetCacheParameterGroup(t *testing.T) {
 			})
 			require.NoError(t, resetErr)
 
-			// Should be empty again
+			// The catalog is still fully returned, but maxmemory-policy is
+			// back to its engine-default value and source.
 			paramsOut2, err := client.DescribeCacheParameters(t.Context(), &elasticachesdk.DescribeCacheParametersInput{
 				CacheParameterGroupName: aws.String(tt.pgName),
 			})
 			require.NoError(t, err)
-			assert.Empty(t, paramsOut2.Parameters)
+			reset := findParameter(paramsOut2.Parameters, "maxmemory-policy")
+			require.NotNil(t, reset)
+			assert.Equal(t, "noeviction", aws.ToString(reset.ParameterValue))
+			assert.Equal(t, "engine-default", aws.ToString(reset.Source))
 		})
 	}
 }
@@ -487,4 +495,15 @@ func TestDescribeEngineDefaultParameters(t *testing.T) {
 			assert.NotNil(t, out.EngineDefaults)
 		})
 	}
+}
+
+// findParameter returns the Parameter named name, or nil if absent.
+func findParameter(params []elasticachetypes.Parameter, name string) *elasticachetypes.Parameter {
+	for i := range params {
+		if aws.ToString(params[i].ParameterName) == name {
+			return &params[i]
+		}
+	}
+
+	return nil
 }

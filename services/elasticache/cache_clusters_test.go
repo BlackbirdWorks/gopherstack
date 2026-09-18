@@ -263,6 +263,7 @@ func TestModifyCluster_ScalesAndEngineVersion(t *testing.T) {
 				"",
 				"",
 				tt.numCacheNodes,
+				nil,
 			)
 			require.NoError(t, err)
 
@@ -479,7 +480,7 @@ func TestBackend_ModifyCluster_EngineVersion(t *testing.T) {
 	_, err := b.CreateClusterWithOptions(context.Background(), "mod-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	cl, err := b.ModifyCluster(context.Background(), "mod-cl", "", "", "7.1.0", "", "", 0)
+	cl, err := b.ModifyCluster(context.Background(), "mod-cl", "", "", "7.1.0", "", "", 0, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "7.1.0", cl.EngineVersion)
 }
@@ -492,7 +493,7 @@ func TestBackend_ModifyCluster_NodeType(t *testing.T) {
 	_, err := b.CreateClusterWithOptions(context.Background(), "node-cl", "redis", "cache.t3.micro", "", "", "", 1, 0)
 	require.NoError(t, err)
 
-	cl, err := b.ModifyCluster(context.Background(), "node-cl", "cache.r6g.large", "", "", "", "", 0)
+	cl, err := b.ModifyCluster(context.Background(), "node-cl", "cache.r6g.large", "", "", "", "", 0, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "cache.r6g.large", cl.NodeType)
 }

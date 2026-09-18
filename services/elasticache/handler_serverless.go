@@ -10,8 +10,6 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-
-	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
 type serverlessCacheEndpointXML struct {
@@ -406,6 +404,8 @@ func (h *Handler) copyServerlessCacheSnapshot(ctx context.Context, c *echo.Conte
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}
 
+	h.applyCreateTimeTags(ctx, form, snap.ARN)
+
 	type result struct {
 		XMLName                 xml.Name                   `xml:"CopyServerlessCacheSnapshotResponse"`
 		Xmlns                   string                     `xml:"xmlns,attr"`
@@ -426,7 +426,7 @@ func (h *Handler) copyServerlessCacheSnapshot(ctx context.Context, c *echo.Conte
 type describeServerlessCachesResultXML struct {
 	XMLName          xml.Name `xml:"DescribeServerlessCachesResponse"`
 	Xmlns            string   `xml:"xmlns,attr"`
-	Marker           string   `xml:"DescribeServerlessCachesResult>Marker,omitempty"`
+	NextToken        string   `xml:"DescribeServerlessCachesResult>NextToken,omitempty"`
 	ServerlessCaches struct {
 		Member []serverlessCacheXML `xml:"member"`
 	} `xml:"DescribeServerlessCachesResult>ServerlessCaches"`
@@ -434,14 +434,23 @@ type describeServerlessCachesResultXML struct {
 
 func (h *Handler) deleteServerlessCache(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
+	finalSnapshotName := form.Get("FinalSnapshotName")
 
-	sc, err := h.Backend.DeleteServerlessCache(ctx, name)
+	sc, err := h.Backend.DeleteServerlessCache(ctx, name, finalSnapshotName)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheNotFound) {
 			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
 		}
 		if errors.Is(err, ErrServerlessCacheNotAvailable) {
 			return xmlError(c, http.StatusBadRequest, "InvalidServerlessCacheStateFault", err.Error())
+		}
+		if errors.Is(err, ErrServerlessCacheSnapshotExists) {
+			return xmlError(
+				c,
+				http.StatusBadRequest,
+				"ServerlessCacheSnapshotAlreadyExistsFault",
+				"Serverless cache snapshot already exists",
+			)
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
@@ -491,18 +500,23 @@ func (h *Handler) deleteServerlessCacheSnapshot(ctx context.Context, c *echo.Con
 func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("ServerlessCacheName")
 
-	p, err := describeListChecked(c, form,
-		func(marker string, maxRecords int) (page.Page[ServerlessCache], error) {
-			return h.Backend.DescribeServerlessCaches(ctx, name, marker, maxRecords)
-		},
-		ErrServerlessCacheNotFound, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
+	nextToken, maxResults, err := parseMaxResultsPaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
+	p, err := h.Backend.DescribeServerlessCaches(ctx, name, nextToken, maxResults)
+	if err != nil {
+		if errors.Is(err, ErrServerlessCacheNotFound) {
+			return xmlError(c, http.StatusNotFound, "ServerlessCacheNotFoundFault", "Serverless cache not found")
+		}
+
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
+	}
+
 	var res describeServerlessCachesResultXML
 	res.Xmlns = elasticacheNS
-	res.Marker = p.Next
+	res.NextToken = p.Next
 
 	for i := range p.Data {
 		res.ServerlessCaches.Member = append(res.ServerlessCaches.Member, serverlessCacheToXML(&p.Data[i]))
@@ -514,12 +528,12 @@ func (h *Handler) describeServerlessCaches(ctx context.Context, c *echo.Context,
 func (h *Handler) describeServerlessCacheSnapshots(ctx context.Context, c *echo.Context, form url.Values) error {
 	serverlessCacheName := form.Get("ServerlessCacheName")
 	snapshotName := form.Get("ServerlessCacheSnapshotName")
-	marker, maxRecords, err := parsePaginationChecked(c, form)
+	nextToken, maxResults, err := parseMaxResultsPaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
-	p, err := h.Backend.DescribeServerlessCacheSnapshots(ctx, serverlessCacheName, snapshotName, marker, maxRecords)
+	p, err := h.Backend.DescribeServerlessCacheSnapshots(ctx, serverlessCacheName, snapshotName, nextToken, maxResults)
 	if err != nil {
 		if errors.Is(err, ErrServerlessCacheSnapshotNotFound) {
 			return xmlError(
@@ -545,13 +559,13 @@ func (h *Handler) describeServerlessCacheSnapshots(ctx context.Context, c *echo.
 	type result struct {
 		XMLName                  xml.Name   `xml:"DescribeServerlessCacheSnapshotsResponse"`
 		Xmlns                    string     `xml:"xmlns,attr"`
-		Marker                   string     `xml:"DescribeServerlessCacheSnapshotsResult>Marker,omitempty"`
+		NextToken                string     `xml:"DescribeServerlessCacheSnapshotsResult>NextToken,omitempty"`
 		ServerlessCacheSnapshots scsListXML `xml:"DescribeServerlessCacheSnapshotsResult>ServerlessCacheSnapshots"`
 	}
 
 	return xmlResp(c, http.StatusOK, result{
 		Xmlns:                    elasticacheNS,
-		Marker:                   p.Next,
+		NextToken:                p.Next,
 		ServerlessCacheSnapshots: scsListXML{ServerlessCacheSnapshot: items},
 	})
 }
