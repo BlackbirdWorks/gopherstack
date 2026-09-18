@@ -95,7 +95,7 @@ func (b *InMemoryBackend) runPipelineActions(region string, p *Pipeline, exec *P
 
 				return
 			default:
-				// statusFailed: a wired CodeBuild/Lambda action reported
+				// statusFailed: a wired CodeBuild/Lambda/CodeDeploy action reported
 				// failure. The stage is broken and processing does not
 				// continue past it, matching real AWS's stage-scoped
 				// failure semantics (see the doc comment above).
@@ -163,10 +163,11 @@ func resolvedActionStatus(byKey map[string]*ActionExecution, stageName, actionNa
 
 // runOneAction records and executes a single action: Approval-category
 // actions gate the run (InProgress + a fresh token); a built-in Build/
-// CodeBuild or Invoke/Lambda action calls its wired backend and fails the
-// action if that call does (runCodeBuildAction/runLambdaAction); every other
-// action, and either of those two when unwired, completes immediately
-// (Succeeded). Callers must hold b.mu.Lock.
+// CodeBuild, Invoke/Lambda, or Deploy/CodeDeploy action calls its wired
+// backend and fails the action if that call does (runCodeBuildAction/
+// runLambdaAction/runCodeDeployAction); every other action, and any of
+// those three when unwired, completes immediately (Succeeded). Callers
+// must hold b.mu.Lock.
 func (b *InMemoryBackend) runOneAction(
 	region, pipelineName, executionID, stageName string,
 	action Action,
@@ -191,6 +192,8 @@ func (b *InMemoryBackend) runOneAction(
 		ae.Status = b.runCodeBuildAction(action)
 	case isBuiltinAction(action, actionProviderLambda) && b.lambdaBackend != nil:
 		ae.Status = b.runLambdaAction(action)
+	case isBuiltinAction(action, actionProviderCodeDeploy) && b.codeDeployBackend != nil:
+		ae.Status = b.runCodeDeployAction(action)
 	}
 
 	store := b.actionExecutionsStore(region)
@@ -242,6 +245,29 @@ func (b *InMemoryBackend) runLambdaAction(action Action) string {
 		context.Background(), functionName, "RequestResponse", []byte("{}"),
 	)
 	if err != nil {
+		return statusFailed
+	}
+
+	return statusSucceeded
+}
+
+// runCodeDeployAction starts a deployment for a Deploy/CodeDeploy action's
+// configured ApplicationName/DeploymentGroupName. Either missing is left to
+// succeed (nothing to call); an application or deployment group CreateDeployment
+// can't find fails the action, matching real AWS's CreateDeployment
+// ApplicationDoesNotExistException/DeploymentGroupDoesNotExistException. The
+// emulator's CodeDeploy backend marks every accepted deployment Succeeded
+// synchronously (no janitor phase to wait on, unlike CodeBuild), so
+// acceptance and completion are the same event here.
+func (b *InMemoryBackend) runCodeDeployAction(action Action) string {
+	appName := action.Configuration[configKeyApplicationName]
+	dgName := action.Configuration[configKeyDeploymentGroupName]
+
+	if appName == "" || dgName == "" {
+		return statusSucceeded
+	}
+
+	if err := b.codeDeployBackend.CreateDeployment(appName, dgName); err != nil {
 		return statusFailed
 	}
 
