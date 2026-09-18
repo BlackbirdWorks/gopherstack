@@ -246,6 +246,23 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	return dest, nil
 }
 
+// SetTopicRuleDestinationTimestampsInternal backdates a destination's
+// CreatedAt/LastUpdatedAt for testing (mirrors AddRuleInternal/
+// AddCommandInternal), letting tests control Update's LastUpdatedAt delta
+// without depending on real-clock second-resolution timing.
+func (b *InMemoryBackend) SetTopicRuleDestinationTimestampsInternal(arn string, createdAt, lastUpdatedAt time.Time) {
+	b.mu.Lock("SetTopicRuleDestinationTimestampsInternal")
+	defer b.mu.Unlock()
+
+	dest, ok := b.topicRuleDestinations.Get(arn)
+	if !ok {
+		return
+	}
+
+	dest.CreatedAt = createdAt
+	dest.LastUpdatedAt = lastUpdatedAt
+}
+
 // GetTopicRuleDestination returns a topic rule destination by ARN.
 func (b *InMemoryBackend) GetTopicRuleDestination(arn string) (*TopicRuleDestination, error) {
 	b.mu.RLock("GetTopicRuleDestination")

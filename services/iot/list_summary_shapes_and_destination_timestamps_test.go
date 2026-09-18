@@ -3,6 +3,7 @@ package iot_test
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	iotsdk "github.com/aws/aws-sdk-go-v2/service/iot"
@@ -84,10 +85,21 @@ func TestListProvisioningTemplateVersions_NoTemplateBodyLeak(t *testing.T) {
 // matter how long a destination had existed. Proven via CreateTopicRuleDestination,
 // ListTopicRuleDestinations and GetTopicRuleDestination, plus that a status
 // change bumps LastUpdatedAt.
+//
+// The Update-bumps-LastUpdatedAt assertion needs Create and Update to land
+// in different whole seconds: the wire only carries epoch-seconds
+// (awstime.Epoch), and this test drives a real httptest.Server/SDK client
+// round trip, so it can't be moved into a synctest bubble (bubble can't
+// durably block on real network I/O -- see wire_field_fixes_test.go in
+// iotanalytics and the gopherstack-tests skill). There is also no injectable
+// clock on this backend. So the test backdates the stored timestamps via
+// SetTopicRuleDestinationTimestampsInternal (mirrors AddRuleInternal/
+// AddCommandInternal) rather than sleeping, real or fake.
 func TestTopicRuleDestination_Timestamps(t *testing.T) {
 	t.Parallel()
 
-	h := iot.NewHandler(iot.NewInMemoryBackend(), nil)
+	backend := iot.NewInMemoryBackend()
+	h := iot.NewHandler(backend, nil)
 	client := newTestIoTClient(t, h)
 	ctx := t.Context()
 
@@ -115,6 +127,14 @@ func TestTopicRuleDestination_Timestamps(t *testing.T) {
 	assert.False(t, aws.ToTime(listed.DestinationSummaries[0].CreatedAt).IsZero())
 	assert.False(t, aws.ToTime(listed.DestinationSummaries[0].LastUpdatedAt).IsZero())
 
+	backdated := time.Now().Add(-1 * time.Hour)
+	backend.SetTopicRuleDestinationTimestampsInternal(arn, backdated, backdated)
+
+	beforeUpdate, err := client.GetTopicRuleDestination(ctx, &iotsdk.GetTopicRuleDestinationInput{
+		Arn: aws.String(arn),
+	})
+	require.NoError(t, err)
+
 	_, err = client.UpdateTopicRuleDestination(ctx, &iotsdk.UpdateTopicRuleDestinationInput{
 		Arn:    aws.String(arn),
 		Status: iottypes.TopicRuleDestinationStatusDisabled,
@@ -126,10 +146,10 @@ func TestTopicRuleDestination_Timestamps(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, aws.ToTime(got.TopicRuleDestination.LastUpdatedAt).After(
-		aws.ToTime(created.TopicRuleDestination.LastUpdatedAt)),
+		aws.ToTime(beforeUpdate.TopicRuleDestination.LastUpdatedAt)),
 		"UpdateTopicRuleDestination must bump LastUpdatedAt")
 	assert.Equal(t,
-		aws.ToTime(created.TopicRuleDestination.CreatedAt),
+		aws.ToTime(beforeUpdate.TopicRuleDestination.CreatedAt),
 		aws.ToTime(got.TopicRuleDestination.CreatedAt),
 		"CreatedAt must not change on update")
 }

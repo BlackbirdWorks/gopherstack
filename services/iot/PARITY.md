@@ -2,7 +2,7 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: f66686eee  # gopherstack-21my per-item field sweep
+last_audit_commit: 302aa4e3c  # topic rule destination timestamp test flake fix
 last_audit_date: 2026-09-18
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
@@ -302,6 +302,14 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-09-18 flaky TestTopicRuleDestination_Timestamps fix
+
+Create+Update both truncate to whole-second epoch on the wire, and ran
+within the same wall-clock second often enough to fail `LastUpdatedAt.After`.
+Added `SetTopicRuleDestinationTimestampsInternal` (mirrors
+`AddRuleInternal`/`AddCommandInternal`) so the test backdates stored state
+instead of sleeping. No behavior change.
 
 ### 2026-09-18 zeroguard census: omitted-member blanking on 8 ops
 
