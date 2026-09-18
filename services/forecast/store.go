@@ -113,7 +113,7 @@ func (b *InMemoryBackend) create(
 	resource := &Resource{
 		CreatedAt: now,
 		UpdatedAt: now,
-		Data:      cloneMap(data),
+		Data:      stripEchoOnlyFields(kind, data),
 		ARN:       arn.Build("forecast", b.region, b.accountID, string(kind)+"/"+name),
 		Name:      name,
 		Status:    status,
@@ -313,6 +313,29 @@ func cloneMap(data map[string]any) map[string]any {
 
 func cloneValue(value any) any {
 	return cloneMap(map[string]any{"value": value})["value"]
+}
+
+// stripEchoOnlyFields clones data and removes Create*Input fields that have
+// no same-named member on the real Describe*/List*Output for kind --
+// resourceOutput/summaryOutput clone this map verbatim, so an unstripped
+// key here would leak a fabricated member.
+//
+// Tags is universal: no Describe*/List*Summary type in this SDK declares a
+// Tags member (tags are only readable via ListTagsForResource).
+// ExplainPredictor/ReferencePredictorArn are CreateAutoPredictorInput-only:
+// DescribeAutoPredictorOutput's counterparts are ExplainabilityInfo and
+// ReferencePredictorSummary (different name/shape, already-documented gaps,
+// forecast@v1.44.4 api_op_DescribeAutoPredictor.go), never these raw names.
+func stripEchoOnlyFields(kind resourceKind, data map[string]any) map[string]any {
+	stored := cloneMap(data)
+	delete(stored, "Tags")
+
+	if kind == kindPredictor {
+		delete(stored, "ExplainPredictor")
+		delete(stored, "ReferencePredictorArn")
+	}
+
+	return stored
 }
 
 func stringValue(value any) string {
