@@ -421,7 +421,9 @@ func (h *Handler) testDNSAnswer(c *echo.Context) error {
 	// (or the EDNS0 client-subnet IP when supplied). Build the query context
 	// from those signals so routing-policy records resolve correctly.
 	clientIP := q.Get("edns0clientsubnetip")
-	if clientIP == "" {
+	if clientIP != "" {
+		clientIP = edns0SubnetNetworkIP(clientIP, q.Get("edns0clientsubnetmask"))
+	} else {
 		clientIP = q.Get("resolverip")
 	}
 

@@ -1,8 +1,8 @@
 ---
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
-last_audit_commit: ee7d2bae
-last_audit_date: 2026-07-23
+last_audit_commit: a2084957b
+last_audit_date: 2026-09-18
 overall: A          # this pass: closed BOTH tracked gaps (AssociateVPCWithHostedZone
                     # duplicate-VPC idempotency, CreateReusableDelegationSet HostedZoneId
                     # mode) and 3 of the 4 deferred items — CreateKeySigningKey InvalidKMSArn
@@ -37,7 +37,7 @@ ops:
   ListHealthChecks: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListReusableDelegationSets. Prior wire: ok was false — see 2026-08-14 pass"}
   GetHealthCheckCount: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: HealthCheckVersion was entirely missing from the wire (CreateHealthCheck/GetHealthCheck/ListHealthChecks/UpdateHealthCheck responses never emitted it, even though it's a required field in the real HealthCheck shape). Now every health check carries a Version starting at 1, incremented on each successful update; UpdateHealthCheck's optional request-side HealthCheckVersion is checked for optimistic concurrency and returns HealthCheckVersionMismatch (409) on a stale value"}
+  UpdateHealthCheck: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: HealthCheckVersion was entirely missing from the wire (CreateHealthCheck/GetHealthCheck/ListHealthChecks/UpdateHealthCheck responses never emitted it, even though it's a required field in the real HealthCheck shape). Now every health check carries a Version starting at 1, incremented on each successful update; UpdateHealthCheck's optional request-side HealthCheckVersion is checked for optimistic concurrency and returns HealthCheckVersionMismatch (409) on a stale value. FIXED (2026-09-18, gopherstack-xhu2t) — ResetElements (api_op_UpdateHealthCheck.go) was parsed off the wire nowhere; there was no way for a client to clear FullyQualifiedDomainName/ResourcePath/ChildHealthChecks or reset Regions to its default, since the merge semantics for those fields already treat an empty wire value as \"leave unchanged\". Now applyHealthCheckResets clears the named field(s) after the per-field merge, matching the SDK doc's per-element reset targets."}
   GetHealthCheckStatus: {wire: ok, errors: ok, state: ok, persist: ok}
   GetHealthCheckLastFailureReason: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: no longer silently returns empty tags for a nonexistent hosted zone/health check — now validates existence and returns NoSuchHostedZone/NoSuchHealthCheck (404)"}
@@ -73,7 +73,7 @@ ops:
   DeleteReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: now returns DelegationSetInUse (400) if any hosted zone is still linked to the set, instead of deleting it out from under live zones"}
   ListReusableDelegationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-r80d) — same missing required Marker echo as ListHostedZones/ListHealthChecks; handler didn't even read the marker query param. Prior wire: ok was false — see 2026-08-14 pass. FIXED (2026-08-30 gopherstack-kwzs) — Marker was echoed but never actually applied, and MaxItems was hardcoded to the literal string \"100\": every call returned every reusable delegation set regardless of MaxItems, and NextMarker/IsTruncated never appeared at all. Now paginates via pkgs/page.New (sorted by ID, unique, so the b.reusableDelegationSets.All() map walk admits no tie). See TestListReusableDelegationSets_Pagination."}
   CountZonesByReusableDelegationSet: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed this pass: previously always returned 0 (hosted zones were never linked to delegation sets at all); now counts real linked zones"}
-  TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: classifyRouting never recognised GeoProximityLocation or CidrRoutingConfig at all (only Weight/Region/GeoLocation/Failover/MultiValueAnswer), so geoproximity- and CIDR-routed record sets silently fell through to routingSimple and TestDNSAnswer answered from whichever candidate sorted first by SetIdentifier instead of running real proximity/CIDR selection — a genuine wrong-answer bug, not just an unverified-but-correct algorithm. Implemented selectGeoProximity (great-circle distance from awsRegionCoords/parsed lat-lon, scaled by (1 - Bias/100) per AWS's documented bias direction — exact geometry is AWS-undocumented, so this is a faithful approximation, not a re-derivation of a public spec) and selectCIDR (longest-prefix-match against the CIDR collection's location blocks, reserved \"*\" location as the catch-all default, matching AWS's documented CIDR-routing specificity rule). Weighted/latency/failover/geolocation/multivalue selection re-read against AWS's routing-policy documentation this pass and found already correct; not fully re-derived against non-public AWS source, see deferred"}
+  TestDNSAnswer: {wire: ok, errors: ok, state: ok, persist: n/a, note: "fixed this pass: classifyRouting never recognised GeoProximityLocation or CidrRoutingConfig at all (only Weight/Region/GeoLocation/Failover/MultiValueAnswer), so geoproximity- and CIDR-routed record sets silently fell through to routingSimple and TestDNSAnswer answered from whichever candidate sorted first by SetIdentifier instead of running real proximity/CIDR selection — a genuine wrong-answer bug, not just an unverified-but-correct algorithm. Implemented selectGeoProximity (great-circle distance from awsRegionCoords/parsed lat-lon, scaled by (1 - Bias/100) per AWS's documented bias direction — exact geometry is AWS-undocumented, so this is a faithful approximation, not a re-derivation of a public spec) and selectCIDR (longest-prefix-match against the CIDR collection's location blocks, reserved \"*\" location as the catch-all default, matching AWS's documented CIDR-routing specificity rule). Weighted/latency/failover/geolocation/multivalue selection re-read against AWS's routing-policy documentation this pass and found already correct; not fully re-derived against non-public AWS source, see deferred. FIXED (2026-09-18, gopherstack-xhu2t) — EDNS0ClientSubnetMask (api_op_TestDNSAnswer.go, documented default 24 bits IPv4 / 64 bits IPv6) was read nowhere; edns0clientsubnetip was used as-is regardless of mask, so a client simulating a /16 subnet got geolocation/CIDR routing for the exact /32 address instead. edns0SubnetNetworkIP (routing.go) now masks to the network address per the SDK doc's own example (\"192.0.2.44\" + mask 24 -> simulate from 192.0.2.0/24) before geo-IP lookup and CIDR/geoproximity selection. ResolverIP (api_op_TestDNSAnswer.go) was already read (q.Get(\"resolverip\"), handler_record_sets.go) before this pass -- reqfielddiff's tier1 flag for it is a tool false positive: it matches only struct-declared fields, not the raw query-string reads TestDNSAnswer uses for all its params, so it also still flags the now-fixed EDNS0ClientSubnetMask after the fix."}
   CreateTrafficPolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "status fix: TrafficPolicyAlreadyExists 400 -> 409"}
   CreateTrafficPolicyVersion: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateTrafficPolicyInstance: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: allowed unlimited duplicate instances for the same (hostedZoneID, name); now returns TrafficPolicyInstanceAlreadyExists (409)"}
@@ -798,3 +798,14 @@ all decoded correctly through the real client. Gates: `go build ./...`
 (whole module), `go vet`, `go test -race -count=1`, `golangci-lint run
 --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
 changed; no version bump.
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings, 1 false positive (ResolverIP — already
+read, tool doesn't see raw query-string reads), 2 fixed (TestDNSAnswer
+EDNS0ClientSubnetMask now masks to the simulated subnet before geo/CIDR
+routing; UpdateHealthCheck ResetElements now clears the named field(s)).
+Tool tier-1 count 3 -> 2 post-fix (both remaining are the same query-read
+blind spot, not real gaps — see ops table notes). Gates: `go build ./...`,
+`go vet`, `go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD`
+(0 issues) all clean. No persisted struct fields changed; no version bump.
