@@ -11,6 +11,10 @@ var (
 	ErrSessionAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrAllowListAlreadyExists is returned when an allow list already exists.
 	ErrAllowListAlreadyExists = awserr.New(errConflictException, awserr.ErrConflict)
+	// ErrAllowListInUse is returned when a DeleteAllowList request targets an
+	// allow list that a non-terminal classification job still references,
+	// and the request didn't set IgnoreJobChecks.
+	ErrAllowListInUse = awserr.New(errConflictException, awserr.ErrConflict)
 	// ErrCustomDataIDNotFound is returned when a custom data identifier does not exist.
 	ErrCustomDataIDNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 	// ErrFindingsFilterNotFound is returned when a findings filter does not exist.

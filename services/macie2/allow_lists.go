@@ -3,6 +3,7 @@ package macie2
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 	"time"
 
@@ -102,14 +103,49 @@ func (b *InMemoryBackend) UpdateAllowList(
 	}, nil
 }
 
-// DeleteAllowList deletes an allow list.
-func (b *InMemoryBackend) DeleteAllowList(id string) error {
+// nonTerminalJobStatuses are the ClassificationJob statuses DeleteAllowList's
+// IgnoreJobChecks guards against (macie2@api_op_DeleteAllowList.go: "Amazon
+// Macie checks for classification jobs that use the list and have a status
+// other than COMPLETE or CANCELLED").
+var nonTerminalJobStatuses = map[string]bool{ //nolint:gochecknoglobals // static lookup table
+	jobStatusRunning:    true,
+	statusPaused:        true,
+	jobStatusIdle:       true,
+	jobStatusUserPaused: true,
+}
+
+// jobUsesAllowListLocked reports whether any classification job with a
+// non-terminal status references allowListID. Caller must hold the lock.
+func (b *InMemoryBackend) jobUsesAllowListLocked(allowListID string) bool {
+	for _, job := range b.classificationJobs.All() {
+		if !nonTerminalJobStatuses[job.JobStatus] {
+			continue
+		}
+
+		if slices.Contains(job.AllowListIDs, allowListID) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// DeleteAllowList deletes an allow list. Unless ignoreJobChecks is set, the
+// delete is rejected if a classification job with a non-terminal status
+// still references the list.
+func (b *InMemoryBackend) DeleteAllowList(id string, ignoreJobChecks bool) error {
 	b.mu.Lock("DeleteAllowList")
 	defer b.mu.Unlock()
 
-	if !b.allowLists.Delete(id) {
+	if !b.allowLists.Has(id) {
 		return ErrAllowListNotFound
 	}
+
+	if !ignoreJobChecks && b.jobUsesAllowListLocked(id) {
+		return fmt.Errorf("%w: allow list %s is in use by a classification job", ErrAllowListInUse, id)
+	}
+
+	b.allowLists.Delete(id)
 	delete(b.tags, b.allowListARN(id))
 
 	return nil
