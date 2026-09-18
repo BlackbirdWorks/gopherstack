@@ -4,8 +4,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
-last_audit_commit: 3b475e203
-last_audit_date: 2026-09-04
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
                       # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
                       # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
@@ -158,6 +158,11 @@ items_still_open:
     call, e.g. every test backend) stays a silent no-op -- delivery still proceeds
     normally. See TestLambdaTransformError_DeliversCloudWatchLogEvent and
     TestLambdaTransformError_UnwiredCloudWatchLogsStaysPermissive (flush_test.go).
+  - "DeleteDeliveryStream.AllowForceDelete (reqfieldiff tier-1, 2026-09-18) is not read: it
+    only overrides a KMS-grant-retirement failure that would otherwise block deletion, and
+    this backend has no KMS-grant-retirement failure mode to bypass -- delete always
+    succeeds unconditionally today, so the flag has no observable effect to implement
+    without fabricating a KMS failure subsystem. (bd: unfiled)"
 deferred:
   - Redshift RedshiftDataExecutor cli.go wiring (mechanics implemented 2026-08-07, see gaps)
   - Iceberg/Snowflake real catalog-commit / Snowpipe-Streaming ingest mechanics (see gaps)
@@ -183,6 +188,11 @@ leaks: {status: "fixed this pass", note: "FIXED 2026-09-04 (gopherstack-rop): Ki
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): DeleteDeliveryStream.AllowForceDelete -- missing feature
+
+Real semantics only matter when KMS grant retirement fails during delete, a failure
+mode this backend doesn't model (delete always succeeds). See items_still_open.
 
 ### 2026-09-07 (gopherstack-t2wb -- errtargetaudit class A findings, first triage of this block)
 

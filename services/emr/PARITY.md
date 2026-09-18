@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: emr
 sdk_module: aws-sdk-go-v2/service/emr@v1.64.4   # bumped from v1.64.0 pin; no new ops, field-diffed Cluster/MonitoringConfiguration/ListInstancesInput this pass
-last_audit_commit: 8c56f4eb9                    # NOT updated this pass -- git commands are off-limits (gopherstack-r80d batch 26). HEAD when the 2026-08-07 pass (gopherstack-dqd8) below was written
-last_audit_date: 2026-09-04
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A                # 2026-09-04 (gopherstack-s1m six-bug-pattern sweep): checked all nine named delete/
                            # cancel/remove ops (TerminateJobFlows, RemoveTags, RemoveAutoScalingPolicy,
                            # RemoveManagedScalingPolicy, DeleteSecurityConfiguration, DeleteStudio,
@@ -218,6 +218,11 @@ items_still_open:
   - "ListInstances synthesized fleet instances leave InstanceType blank: InstanceFleet (unlike InstanceGroup) only tracks aggregate TargetOnDemandCapacity/TargetSpotCapacity/Provisioned* counts, not a per-instance-type breakdown -- AddInstanceFleet's real wire input accepts InstanceTypeConfigs (a weighted list of candidate instance types) but gopherstack's InstanceFleetSpec never captured it at all, a pre-existing gap larger than this pass's ListInstances-synthesis scope. This IS buildable (thread InstanceTypeConfigs through AddInstanceFleet/RunJobFlow's inline fleet spec, pick a type per synthesized instance) but was left out of this pass to stay in scope; leaving InstanceType blank rather than inventing a plausible-looking type avoids fabricating data the backend doesn't have. (bd: gopherstack-dqd8)"
   - "AutoTerminationPolicy.IdleTimeout (real, emr@v1.64.4 types/types.go:114-122: \"Specifies the amount of idle time in seconds after which the cluster automatically terminates. You can specify a minimum of 60 seconds and a maximum of 604800 seconds (seven days).\") is accepted, bounds-validated, persisted, and echoed back verbatim (PutAutoTerminationPolicy/RunJobFlow), but the janitor never evaluates it to trigger termination (gopherstack-cxp3, 2026-09-06). Unlike KeepJobFlowAliveWhenNoSteps (fixed this pass, see below), IdleTimeout is not fixable from state this backend already tracks: the SDK doc comment defines only the timeout duration, never what 'idle' means (no active steps? no active YARN application? no active interactive session -- Session, sessions.go?), and this backend has no last-activity timestamp of any kind on a cluster -- effectiveStepStatus's PENDING->COMPLETED promotion is a pure function of a step's own CreationDateTime, not a cluster-level 'went idle at T' event. Wiring termination against an invented idle definition (e.g. reusing the ALL_STEPS_COMPLETED signal below, but on a timer) would mean guessing AWS's real activity model rather than reading it off the pinned SDK, which is the exact failure mode this campaign avoids elsewhere (see PutAutoScalingPolicy/PutManagedScalingPolicy precedent). Left NOT-WIRED as a verified negative; would need either a documented idle definition or a deliberate, disclosed approximation before implementing."
 structural_gaps:
+  - "CancelSteps.StepCancellationOption (reqfieldiff tier-1, 2026-09-18) is not read: it
+    chooses SEND_INTERRUPT vs TERMINATE_PROCESS semantics for cancelling a RUNNING step, but
+    this backend's Step state machine has only PENDING/COMPLETED/CANCELLED -- steps never
+    reach RUNNING (models.go), so cancelStep only ever accepts a still-PENDING step. There
+    is no RUNNING-step cancellation path for the option to distinguish. (bd: unfiled)"
   - "Cluster.OutpostArn stays omitted (nil): the real value is derived from which Outpost the launch subnet belongs to, a subnet-to-Outpost topology fact that lives in EC2/Outposts, not in anything RunJobFlowInput passes to EMR directly. Gopherstack's EMR has no cross-service lookup into services/outposts' subnet/Outpost state, and most clusters are not Outpost-launched anyway (nil is the correct value for the common case); wiring a real cross-service resolution is a distinct, larger feature than an EMR-local field fix. (bd: gopherstack-dqd8)"
   - "Cluster.MasterPublicDnsName stays omitted (nil): a real DNS name comes from the EC2 instance actually launched for the master node. Gopherstack's EMR never creates a corresponding EC2 instance (ListInstances synthesizes lightweight ClusterInstance records, not real ec2.Instance resources with their own IP/DNS allocation), so there is no real DNS name to report; inventing one would be exactly the fabrication this campaign removes elsewhere. (bd: gopherstack-dqd8)"
   - "Cluster.ExtendedSupport stays omitted (nil/false): real AWS derives this from a release-label EOL/extended-support enrollment table that AWS updates over time (not encoded anywhere in the SDK types or wire shapes -- the SDK doc literally marks the field 'Reserved'). There is no verifiable source of truth to compute it from, only AWS's changing operational policy data, which does not belong hardcoded into an emulator. (bd: gopherstack-dqd8)"
@@ -230,6 +235,12 @@ session-termination-cascade: {status: ok, note: "2026-07-25: terminateSingle (cl
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): CancelSteps.StepCancellationOption -- missing feature
+
+Steps have no RUNNING state in this emulator (PENDING/COMPLETED/CANCELLED only, see
+models.go), so the SEND_INTERRUPT/TERMINATE_PROCESS distinction for cancelling a
+running step doesn't apply structurally. See structural_gaps.
 
 **Timestamp wire format (root cause of most fixes this pass).** EMR is
 awsjson1.1: every `Timestamp` shape (`CreationDateTime`, `ReadyDateTime`,

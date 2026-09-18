@@ -1,8 +1,8 @@
 ---
 service: dlm
 sdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # version audited against (go.mod pin)
-last_audit_commit: 9b57a61dd
-last_audit_date: 2026-08-10
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A            # gopherstack-x009: DefaultPolicy echo + LimitExceededException quota added; StatusMessage confirmed honest
 ops:
   CreateLifecyclePolicy: {wire: ok, errors: ok, state: ok, persist: ok, note: "rejects missing Description/ExecutionRoleArn with InvalidRequestException (both are required members of the real CreateLifecyclePolicyInput). PolicyDetails is stored as an opaque map[string]any and round-tripped verbatim, so every nested member documented in the real types.PolicyDetails (Actions, CopyTags, CreateInterval, CrossRegionCopyTargets, EventSource, Exclusions, ExtendDeletion, Parameters, PolicyLanguage, PolicyType, ResourceLocations, ResourceType, ResourceTypes, RetainInterval, Schedules[].{CreateRule,RetainRule,FastRestoreRule,ArchiveRule,CrossRegionCopyRules,DeprecateRule,ShareRules,TagsToAdd,VariableTags}, TargetTags) survives Create->Get unmodified; ResourceTypes/TargetTags/Schedules[].TagsToAdd are additionally decoded for GetLifecyclePolicies filtering (see models.go). FIXED 2026-08-08 (gopherstack-ks2s.12): the top-level [Default policies only] request members (CopyTags, CreateInterval, CrossRegionCopyTargets, DefaultPolicy, Exclusions, ExtendDeletion, RetainInterval -- aws-sdk-go-v2/service/dlm@v1.39.4/api_op_CreateLifecyclePolicy.go:65-138) were entirely absent from the handler's request struct and silently dropped. Now accepted and folded into the stored PolicyDetails document under the identical member names types.PolicyDetails documents for them (types/types.go:512-648), with DefaultPolicy (VOLUME/INSTANCE) mapped to PolicyDetails.ResourceType (types/types.go:614-622, same enum) plus PolicyLanguage=SIMPLIFIED -- see defaultPolicyFields in models.go. FIXED 2026-08-10 (gopherstack-x009): now enforces LimitExceededException once the backend already holds maxPoliciesPerRegion (100) policies -- AWS's documented default \"Policies per Region\" quota (adjustable; quota code L-5407D8DA, docs.aws.amazon.com/general/latest/gr/dlm.html), matching the modeled error catalog (types/errors.go:70, LimitExceededException.ErrorFault==FaultClient)."}
@@ -22,6 +22,11 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): GetLifecyclePolicies.DefaultPolicyType -- false positive
+
+Already read: handler.go:281 decodes the `defaultPolicyType` query param and
+lifecycle_policies.go:113 filters on it via matchesDefaultPolicyType.
 
 - Protocol: restjson1. Base paths: `POST /policies` (Create), `GET /policies`
   (list summaries), `GET /policies/{policyId}` (get one), `PATCH

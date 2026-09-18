@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
-last_audit_commit: d3b4494d3
-last_audit_date: 2026-08-21
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
                             # 80 ops, from the pinned SDK Output structs directly, not by grep) for the
@@ -505,6 +505,11 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): CreateAssociationBatch.AssociationDispatchAssumeRole -- false positive
+
+Already read: associations.go:169 assigns `entry.AssociationDispatchAssumeRole` per batch
+entry (CreateAssociation's singular sibling does the same at line 96). Tool false positive.
 
 ### 2026-09-07 (gopherstack-jpfk: is ValidationException-sentinel reuse a defect class?)
 

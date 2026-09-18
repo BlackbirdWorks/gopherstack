@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: pinpoint
 sdk_module: aws-sdk-go-v2/service/pinpoint@v1.42.4
-last_audit_commit: 31283c0f
-last_audit_date: 2026-08-13
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A            # genuine field-diff bugs found and fixed this pass across the template family
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -95,6 +95,12 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service; purg
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): UpdateApplicationSettings.WriteApplicationSettingsRequest -- false positive
+
+Tool flags the httpPayload wrapper type name itself. handler_applications_settings.go's
+`incoming` struct already reads every real member (CampaignHook/Limits/QuietTime/
+JourneyLimits/CloudWatchMetricsEnabled/EventTaggingEnabled) -- types.go:6962-7002.
 
 Protocol: **restjson1**, `/v1/...` paths, service alias `mobiletargeting` (checked via
 `httputils.ExtractServiceFromRequest`). Tags on every taggable resource use a **lowercase**
