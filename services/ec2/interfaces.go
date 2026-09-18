@@ -454,7 +454,9 @@ type Backend interface {
 	AdvertiseByoipCidr(cidr string) (*ByoipCidr, error)
 
 	// AllocateHosts allocates one or more Dedicated Hosts.
-	AllocateHosts(availabilityZone, instanceType string, hostCount int) ([]*Host, error)
+	AllocateHosts(
+		availabilityZone, instanceType string, hostCount int, autoPlacement, hostRecovery string,
+	) ([]*Host, error)
 
 	// ---- describe operations for new resource types ----
 
@@ -529,7 +531,8 @@ type Backend interface {
 	// CreateFlowLogs creates flow log records for the given resources.
 	CreateFlowLogs(
 		resourceIDs []string,
-		trafficType, logDestinationType, logDestination string,
+		trafficType, logDestinationType, logDestination, logFormat string,
+		maxAggregationInterval int32,
 		tags map[string]string,
 	) ([]*FlowLog, error)
 

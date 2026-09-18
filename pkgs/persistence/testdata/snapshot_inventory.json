@@ -8570,6 +8570,8 @@
       "FlowLog.FlowLogStatus string `json:\"flowLogStatus,omitempty\"`",
       "FlowLog.LogDestination string `json:\"logDestination,omitempty\"`",
       "FlowLog.LogDestinationType string `json:\"logDestinationType,omitempty\"`",
+      "FlowLog.LogFormat string `json:\"logFormat,omitempty\"`",
+      "FlowLog.MaxAggregationInterval int32 `json:\"maxAggregationInterval,omitempty\"`",
       "FlowLog.ResourceID string `json:\"resourceId,omitempty\"`",
       "FlowLog.TrafficType string `json:\"trafficType,omitempty\"`",
       "FpgaImage.CreateTime time.Time `json:\"createTime,omitzero\"`",

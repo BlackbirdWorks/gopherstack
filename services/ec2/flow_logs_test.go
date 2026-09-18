@@ -25,7 +25,7 @@ func TestGetFlowLogsIntegrationTemplate(t *testing.T) {
 
 		b := newTestBackend()
 
-		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", nil)
+		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", "", 0, nil)
 		require.NoError(t, err)
 		require.Len(t, fls, 1)
 
@@ -62,7 +62,7 @@ func TestGetFlowLogsIntegrationTemplate(t *testing.T) {
 
 		b := newTestBackend()
 
-		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", nil)
+		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", "", 0, nil)
 		require.NoError(t, err)
 
 		_, err = b.GetFlowLogsIntegrationTemplate(fls[0].FlowLogID, "", "arn:aws:s3:::y", "hourly")
@@ -74,7 +74,7 @@ func TestGetFlowLogsIntegrationTemplate(t *testing.T) {
 
 		b := newTestBackend()
 
-		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", nil)
+		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", "", 0, nil)
 		require.NoError(t, err)
 
 		_, err = b.GetFlowLogsIntegrationTemplate(fls[0].FlowLogID, "arn:aws:s3:::x", "", "hourly")
@@ -86,7 +86,7 @@ func TestGetFlowLogsIntegrationTemplate(t *testing.T) {
 
 		b := newTestBackend()
 
-		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", nil)
+		fls, err := b.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest-bucket", "", 0, nil)
 		require.NoError(t, err)
 
 		_, err = b.GetFlowLogsIntegrationTemplate(fls[0].FlowLogID, "arn:aws:s3:::x", "arn:aws:s3:::y", "")

@@ -65,7 +65,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", nil)
+	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -82,7 +82,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	assert.Empty(t, bk.DescribeFlowLogs(nil))
 
 	// Error cases.
-	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "", nil)
+	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "", "", 0, nil)
 	require.Error(t, err2)
 
 	err3 := bk.DeleteFlowLogs(nil)

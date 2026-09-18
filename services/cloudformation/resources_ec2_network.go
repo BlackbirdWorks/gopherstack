@@ -498,6 +498,8 @@ func (rc *ResourceCreator) createEC2FlowLog(
 		strProp(props, "TrafficType", params, physicalIDs),
 		strProp(props, "LogDestinationType", params, physicalIDs),
 		strProp(props, "LogDestination", params, physicalIDs),
+		strProp(props, "LogFormat", params, physicalIDs),
+		int32(intProp(props, "MaxAggregationInterval")), // #nosec G115 -- seconds, bounded by the ec2 validation
 		nil,
 	)
 	if err != nil {

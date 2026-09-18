@@ -1,8 +1,8 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit:                                # unknown: pass was instructed not to commit and had no git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-30
+last_audit_commit: 064cc837d
+last_audit_date: 2026-09-17
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
              # grepped both dispatch-table registration forms (`ops["OpName"] = h.handleOpName`
@@ -443,6 +443,37 @@ items_still_open:
     2026-09-12 (gopherstack-n3zi); exercised via TestRealClient_TransitGatewayAndLegacyTasks/
     legacy_bundle_conversion_export_import, asserting the correct wire-level IncorrectState
     error rather than weakening the test to force a fabricated success."
+  - "reqfielddiff tier-1 sweep (2026-09-17, gopherstack-xhu2t): promoting five findings from
+    the 2026-08-31 dated Notes sections (never previously added to this authoritative list,
+    per gopherstack-anjf) plus one newly-examined this pass. CopyImage.Encrypted/KmsKeyId --
+    AMIStub tracks no block-device-mapping or per-image encryption state at all, and
+    DescribeImages has no encryption surface to render either; honouring these would mean
+    inventing a response concept this backend's image model doesn't have. DeregisterImage.
+    DeleteAssociatedSnapshots -- same AMIStub gap: no block-device-mapping/snapshot linkage
+    to report DeleteSnapshotResults against (see handler_images.go's handleDeregisterImage
+    doc comment). StopInstances.Force/Hibernate/SkipOsShutdown, TerminateInstances.
+    SkipOsShutdown -- confirmed against the pinned SDK that none of the three is echoed by
+    StopInstancesOutput/TerminateInstancesOutput (both return only a StateChange list), and
+    this backend models no distinct code path (forced-vs-graceful shutdown, hibernation,
+    OS shutdown scripts) any of the three could route through; no legal input changes the
+    observable outcome. CreateMacSystemIntegrityProtectionModificationTask.MacCredentials --
+    unlike CreateDelegateMacVolumeOwnershipTask (where the real SDK client-side validator
+    requires it), the pinned SDK does NOT require MacCredentials here, and it never appears
+    in any output type across the whole module (confirmed by grep) -- a genuinely
+    write-only, unobservable field for this op; this backend simulates no guest-OS
+    credential check for either Mac task type. Newly examined this pass: CreateNatGateway.
+    AvailabilityZoneAddresses -- 'Regional NAT gateways for automatic multi-AZ expansion',
+    a whole unmodeled subsystem (this backend's NatGateway is tied to a single subnet/AZ).
+    CreateFleet.ValidFrom/ValidUntil -- fleet activation/expiration scheduling is not
+    modeled (CreateFleet processes synchronously at creation with no maintain-mode
+    time-window loop), and neither field is tracked on the Fleet type. CreateDefaultSubnet.
+    Ipv6Native -- IPv6-only default subnets are a Wavelength Zone feature; this backend's
+    Subnet has no Ipv6Native/IPv6-only concept anywhere (confirmed by grep). ModifyInstance
+    Attribute.BlockDeviceMappings -- Instance has no per-device-name block-device-mapping
+    list (DeleteOnTermination is tracked only per-ENI, not per-EBS-volume-mapping), and
+    DescribeInstances never renders a blockDeviceMapping set at all; a real fix needs a new
+    per-instance block-device-mapping model threaded through RunInstances/DescribeInstances/
+    ModifyInstanceAttribute together, out of scope for a single-field fix."
 structural_gaps:
   - "DescribeApplicationStatus's ApplicationStatus.StatusSince and ApplicationStatusDetail
     (the real per-check status-transition timestamp and breakdown list) are always
@@ -5758,3 +5789,16 @@ from `.PublicIpSource` in place, wire tag unchanged),
 `VpnConnectionOptions.LocalIPv6NetworkCIDR string \`json:"localIpv6NetworkCidr,omitempty"\``,
 `VpnConnectionOptions.RemoteIPv6NetworkCIDR string \`json:"remoteIpv6NetworkCidr,omitempty"\``,
 `VpnConnectionOptions.TunnelBandwidth string \`json:"tunnelBandwidth,omitempty"\``.
+
+### 2026-09-17 -- reqfielddiff tier-1 sweep, third pass (gopherstack-xhu2t)
+
+49 tier-1 findings at start; tier-1 49 -> 42 at end. Fixed 7 fields/4 ops
+(AllocateHosts.AutoPlacement/HostRecovery, CreateFlowLogs.LogFormat/
+MaxAggregationInterval, DescribeSpotFleetRequestHistory.EventType,
+RunInstances.CreditSpecification/PrivateDnsNameOptions). 7 false positives
+(query-form fields already read under a differently-named wire key). 23
+already covered by prior `items_still_open` entries. 12 fields/6 ops newly
+recorded to `items_still_open` (5 promoted from 2026-08-31 dated-Notes-only
+reasoning per gopherstack-anjf, 6 genuinely new). Gates all clean; 0
+`golangci-lint --new-from-rev=HEAD` issues; `snapshot_inventory.json` gained
+2 `FlowLog` rows by hand.

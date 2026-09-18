@@ -674,7 +674,7 @@ func runCapacityManager(t *testing.T, _ *ec2.InMemoryBackend, client *ec2sdk.Cli
 func runMacHosts(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.Client) {
 	t.Helper()
 
-	hosts, err := backend.AllocateHosts("us-east-1a", "mac2.metal", 1)
+	hosts, err := backend.AllocateHosts("us-east-1a", "mac2.metal", 1, "", "")
 	require.NoError(t, err)
 	require.Len(t, hosts, 1)
 	hostID := hosts[0].HostID
@@ -1101,7 +1101,7 @@ func runReservedInstancesAndHosts(t *testing.T, backend *ec2.InMemoryBackend, cl
 		aws.ToString(deleteQueuedOut.FailedQueuedPurchaseDeletions[0].ReservedInstancesId),
 	)
 
-	hosts, err := backend.AllocateHosts("us-east-1a", "m5.large", 1)
+	hosts, err := backend.AllocateHosts("us-east-1a", "m5.large", 1, "", "")
 	require.NoError(t, err)
 
 	previewOut, err := client.GetHostReservationPurchasePreview(

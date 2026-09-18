@@ -1440,6 +1440,8 @@ func runSingletonsA(t *testing.T, backend *ec2.InMemoryBackend, client *ec2sdk.C
 		"ALL",
 		"s3",
 		"arn:aws:s3:::flow-log-bucket",
+		"",
+		0,
 		nil,
 	)
 	require.NoError(t, err)

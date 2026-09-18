@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -601,6 +604,58 @@ func TestHandler_AllocateHosts(t *testing.T) {
 			assert.Contains(t, rec.Body.String(), tt.wantBody)
 		})
 	}
+}
+
+// TestAllocateHosts_AutoPlacementAndHostRecovery_RealClient covers
+// gopherstack-xhu2t: AllocateHosts never read AutoPlacement/HostRecovery,
+// always allocating hosts with both hardcoded to "off" regardless of the
+// request (ec2@v1.329.0 serializers.go declares both as flat scalar keys).
+func TestAllocateHosts_AutoPlacementAndHostRecovery_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	out, err := client.AllocateHosts(t.Context(), &ec2sdk.AllocateHostsInput{
+		AvailabilityZone: aws.String("us-east-1a"),
+		InstanceType:     aws.String("m5.large"),
+		Quantity:         aws.Int32(1),
+		AutoPlacement:    types.AutoPlacementOn,
+		HostRecovery:     types.HostRecoveryOn,
+	})
+	require.NoError(t, err)
+	require.Len(t, out.HostIds, 1)
+
+	desc, err := client.DescribeHosts(t.Context(), &ec2sdk.DescribeHostsInput{HostIds: out.HostIds})
+	require.NoError(t, err)
+	require.Len(t, desc.Hosts, 1)
+	assert.Equal(t, types.AutoPlacementOn, desc.Hosts[0].AutoPlacement,
+		"AutoPlacement dropped - AllocateHosts never read it")
+	assert.Equal(t, types.HostRecoveryOn, desc.Hosts[0].HostRecovery,
+		"HostRecovery dropped - AllocateHosts never read it")
+}
+
+// TestAllocateHosts_AutoPlacementAndHostRecovery_OmittedDefaultsToOff pins the
+// documented default (both fields default to "off" when omitted).
+func TestAllocateHosts_AutoPlacementAndHostRecovery_OmittedDefaultsToOff(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	out, err := client.AllocateHosts(t.Context(), &ec2sdk.AllocateHostsInput{
+		AvailabilityZone: aws.String("us-east-1a"),
+		InstanceType:     aws.String("m5.large"),
+		Quantity:         aws.Int32(1),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.HostIds, 1)
+
+	desc, err := client.DescribeHosts(t.Context(), &ec2sdk.DescribeHostsInput{HostIds: out.HostIds})
+	require.NoError(t, err)
+	require.Len(t, desc.Hosts, 1)
+	assert.Equal(t, types.AutoPlacementOff, desc.Hosts[0].AutoPlacement)
+	assert.Equal(t, types.HostRecoveryOff, desc.Hosts[0].HostRecovery)
 }
 
 // TestHandler_NewAcceptOps_GetSupportedOperations verifies new operations are listed.

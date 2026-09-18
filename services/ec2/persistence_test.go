@@ -914,7 +914,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	b.AddByoipCidrInternal(&ec2.ByoipCidr{Cidr: "10.0.0.0/8", State: "advertised"})
 	b.AddVpcPeeringConnectionInternal(&ec2.VpcPeeringConnection{VpcPeeringConnectionID: "pcx-1"})
 
-	_, err := b.AllocateHosts("us-east-1a", "t3.micro", 1)
+	_, err := b.AllocateHosts("us-east-1a", "t3.micro", 1, "", "")
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())

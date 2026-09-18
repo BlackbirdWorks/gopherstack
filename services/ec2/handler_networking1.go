@@ -75,14 +75,16 @@ type deleteTransitGatewayVpcAttachmentResponse struct {
 }
 
 type flowLogItem struct {
-	FlowLogID          string          `xml:"flowLogId"`
-	ResourceID         string          `xml:"resourceId"`
-	TrafficType        string          `xml:"trafficType"`
-	LogDestinationType string          `xml:"logDestinationType"`
-	LogDestination     string          `xml:"logDestination"`
-	FlowLogStatus      string          `xml:"flowLogStatus"`
-	CreationTime       string          `xml:"creationTime"`
-	TagSet             []simpleTagItem `xml:"tagSet>item"`
+	FlowLogID              string          `xml:"flowLogId"`
+	ResourceID             string          `xml:"resourceId"`
+	TrafficType            string          `xml:"trafficType"`
+	LogDestinationType     string          `xml:"logDestinationType"`
+	LogDestination         string          `xml:"logDestination"`
+	LogFormat              string          `xml:"logFormat,omitempty"`
+	FlowLogStatus          string          `xml:"flowLogStatus"`
+	CreationTime           string          `xml:"creationTime"`
+	TagSet                 []simpleTagItem `xml:"tagSet>item"`
+	MaxAggregationInterval int32           `xml:"maxAggregationInterval,omitempty"`
 }
 
 type createFlowLogsResponse struct {
@@ -296,25 +298,37 @@ func (h *Handler) handleDeleteTransitGatewayVpcAttachment(
 
 func flowLogToItem(fl *FlowLog, tags map[string]string) flowLogItem {
 	return flowLogItem{
-		FlowLogID:          fl.FlowLogID,
-		ResourceID:         fl.ResourceID,
-		TrafficType:        fl.TrafficType,
-		LogDestinationType: fl.LogDestinationType,
-		LogDestination:     fl.LogDestination,
-		FlowLogStatus:      fl.FlowLogStatus,
-		CreationTime:       fl.CreationTime.Format(time.RFC3339),
-		TagSet:             tagItemsFromMap(tags),
+		FlowLogID:              fl.FlowLogID,
+		ResourceID:             fl.ResourceID,
+		TrafficType:            fl.TrafficType,
+		LogDestinationType:     fl.LogDestinationType,
+		LogDestination:         fl.LogDestination,
+		LogFormat:              fl.LogFormat,
+		FlowLogStatus:          fl.FlowLogStatus,
+		CreationTime:           fl.CreationTime.Format(time.RFC3339),
+		MaxAggregationInterval: fl.MaxAggregationInterval,
+		TagSet:                 tagItemsFromMap(tags),
 	}
 }
 
 func (h *Handler) handleCreateFlowLogs(vals url.Values, reqID string) (any, error) {
 	resourceIDs := parseMemberList(vals, "ResourceId")
 	tags := parseTagSpecification(vals, "vpc-flow-log")
+
+	var maxAggregationInterval int32
+	if v := vals.Get("MaxAggregationInterval"); v != "" {
+		if n, convErr := strconv.ParseInt(v, 10, 32); convErr == nil {
+			maxAggregationInterval = int32(n)
+		}
+	}
+
 	logs, err := h.Backend.CreateFlowLogs(
 		resourceIDs,
 		vals.Get("TrafficType"),
 		vals.Get("LogDestinationType"),
 		vals.Get("LogDestination"),
+		vals.Get("LogFormat"),
+		maxAggregationInterval,
 		tags,
 	)
 	if err != nil {

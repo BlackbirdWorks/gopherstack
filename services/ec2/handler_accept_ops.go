@@ -430,7 +430,17 @@ func (h *Handler) handleAllocateHosts(vals url.Values, reqID string) (any, error
 		}
 	}
 
-	hosts, err := h.Backend.AllocateHosts(az, instanceType, count)
+	autoPlacement := vals.Get("AutoPlacement")
+	if autoPlacement == "" {
+		autoPlacement = hostSettingOff
+	}
+
+	hostRecovery := vals.Get("HostRecovery")
+	if hostRecovery == "" {
+		hostRecovery = hostSettingOff
+	}
+
+	hosts, err := h.Backend.AllocateHosts(az, instanceType, count, autoPlacement, hostRecovery)
 	if err != nil {
 		return nil, err
 	}

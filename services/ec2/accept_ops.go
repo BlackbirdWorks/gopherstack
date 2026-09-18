@@ -682,6 +682,7 @@ func (b *InMemoryBackend) DescribeByoipCidrs(state string) []*ByoipCidr {
 func (b *InMemoryBackend) AllocateHosts(
 	availabilityZone, instanceType string,
 	hostCount int,
+	autoPlacement, hostRecovery string,
 ) ([]*Host, error) {
 	if availabilityZone == "" {
 		return nil, fmt.Errorf("%w: AvailabilityZone is required", ErrInvalidParameter)
@@ -693,6 +694,14 @@ func (b *InMemoryBackend) AllocateHosts(
 
 	if hostCount < 1 {
 		hostCount = 1
+	}
+
+	if autoPlacement == "" {
+		autoPlacement = hostSettingOff
+	}
+
+	if hostRecovery == "" {
+		hostRecovery = hostSettingOff
 	}
 
 	b.mu.Lock("AllocateHosts")
@@ -709,8 +718,8 @@ func (b *InMemoryBackend) AllocateHosts(
 			State:            stateAvailable,
 			AllocationTime:   time.Now(),
 			OwnedBy:          b.AccountID,
-			AutoPlacement:    hostSettingOff,
-			HostRecovery:     hostSettingOff,
+			AutoPlacement:    autoPlacement,
+			HostRecovery:     hostRecovery,
 			HostMaintenance:  hostSettingOn,
 		}
 		b.dedicatedHosts.Put(host)
