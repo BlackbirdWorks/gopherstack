@@ -10,16 +10,17 @@ import (
 )
 
 type applicationView struct {
-	ApplicationArn         string  `json:"ApplicationArn"`
-	ApplicationProviderArn string  `json:"ApplicationProviderArn"`
-	Name                   string  `json:"Name"`
-	Description            string  `json:"Description,omitempty"`
-	InstanceArn            string  `json:"InstanceArn"`
-	Status                 string  `json:"Status"`
-	ApplicationAccount     string  `json:"ApplicationAccount,omitempty"`
-	CreatedFrom            string  `json:"CreatedFrom,omitempty"`
-	IdentityStoreArn       string  `json:"IdentityStoreArn,omitempty"`
-	CreatedDate            float64 `json:"CreatedDate,omitempty"`
+	PortalOptions          *PortalOptions `json:"PortalOptions,omitempty"`
+	ApplicationArn         string         `json:"ApplicationArn"`
+	ApplicationProviderArn string         `json:"ApplicationProviderArn"`
+	Name                   string         `json:"Name"`
+	Description            string         `json:"Description,omitempty"`
+	InstanceArn            string         `json:"InstanceArn"`
+	Status                 string         `json:"Status"`
+	ApplicationAccount     string         `json:"ApplicationAccount,omitempty"`
+	CreatedFrom            string         `json:"CreatedFrom,omitempty"`
+	IdentityStoreArn       string         `json:"IdentityStoreArn,omitempty"`
+	CreatedDate            float64        `json:"CreatedDate,omitempty"`
 }
 
 func (h *Handler) handleCreateApplication(c *echo.Context, body []byte) error {
@@ -226,6 +227,7 @@ func (h *Handler) handleListApplications(c *echo.Context, body []byte) error {
 			CreatedFrom:            app.CreatedFrom,
 			IdentityStoreArn:       app.IdentityStoreArn,
 			CreatedDate:            float64(app.CreatedDate.Unix()),
+			PortalOptions:          app.PortalOptions,
 		})
 	}
 
