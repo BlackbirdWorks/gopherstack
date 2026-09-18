@@ -152,7 +152,7 @@ func TestPersistenceRoundTrip(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = original.CreateLogicallyAirGappedBackupVault("persist-air", "", 1, 30, nil)
+	_, err = original.CreateLogicallyAirGappedBackupVault("persist-air", "", "", 1, 30, nil)
 	require.NoError(t, err)
 
 	err = original.AssociateBackupVaultMpaApprovalTeam("persist-vault", "arn:aws:mpa::123456789012:team/t")

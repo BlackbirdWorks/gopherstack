@@ -20,6 +20,7 @@ func TestStopBackupJob(t *testing.T) {
 		"arn:aws:ec2:us-east-1:000000000000:volume/vol-1",
 		"arn:aws:iam::000000000000:role/r",
 		"EBS",
+		nil, 0,
 	)
 	require.NoError(t, err)
 

@@ -2739,6 +2739,7 @@
       "FrameworkControl.ControlScope *ControlScope `json:\"controlScope,omitempty\"`",
       "Job.AccountID string `json:\"accountId\"`",
       "Job.BackupJobID string `json:\"backupJobId\"`",
+      "Job.BackupOptions map[string]string `json:\"backupOptions,omitempty\"`",
       "Job.BackupSizeInBytes int64 `json:\"backupSizeInBytes,omitempty\"`",
       "Job.BackupVaultArn string `json:\"backupVaultArn\"`",
       "Job.BackupVaultName string `json:\"backupVaultName\"`",

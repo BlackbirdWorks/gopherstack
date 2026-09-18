@@ -153,27 +153,28 @@ type Plan struct {
 
 // Job represents an AWS Backup job.
 type Job struct {
-	CreationTime              time.Time  `json:"creationTime"`
-	CompletionTime            *time.Time `json:"completionTime,omitempty"`
-	ExpectedCompletionDate    *time.Time `json:"expectedCompletionDate,omitempty"`
-	StartBy                   *time.Time `json:"startBy,omitempty"`
-	ResourceArn               string     `json:"resourceArn,omitempty"`
-	BackupJobID               string     `json:"backupJobId"`
-	BackupVaultName           string     `json:"backupVaultName"`
-	BackupVaultArn            string     `json:"backupVaultArn"`
-	ResourceType              string     `json:"resourceType,omitempty"`
-	IAMRoleArn                string     `json:"iamRoleArn,omitempty"`
-	State                     string     `json:"state"`
-	AccountID                 string     `json:"accountId"`
-	Region                    string     `json:"region"`
-	RecoveryPointArn          string     `json:"recoveryPointArn,omitempty"`
-	PercentDone               string     `json:"percentDone,omitempty"`
-	MessageCategory           string     `json:"messageCategory,omitempty"`
-	ParentJobID               string     `json:"parentJobId,omitempty"`
-	CompositeMemberIdentifier string     `json:"compositeMemberIdentifier,omitempty"`
-	BytesTransferred          int64      `json:"bytesTransferred,omitempty"`
-	BackupSizeInBytes         int64      `json:"backupSizeInBytes,omitempty"`
-	IsParent                  bool       `json:"isParent,omitempty"`
+	CreationTime              time.Time         `json:"creationTime"`
+	CompletionTime            *time.Time        `json:"completionTime,omitempty"`
+	ExpectedCompletionDate    *time.Time        `json:"expectedCompletionDate,omitempty"`
+	StartBy                   *time.Time        `json:"startBy,omitempty"`
+	BackupOptions             map[string]string `json:"backupOptions,omitempty"`
+	ResourceArn               string            `json:"resourceArn,omitempty"`
+	BackupJobID               string            `json:"backupJobId"`
+	BackupVaultName           string            `json:"backupVaultName"`
+	BackupVaultArn            string            `json:"backupVaultArn"`
+	ResourceType              string            `json:"resourceType,omitempty"`
+	IAMRoleArn                string            `json:"iamRoleArn,omitempty"`
+	State                     string            `json:"state"`
+	AccountID                 string            `json:"accountId"`
+	Region                    string            `json:"region"`
+	RecoveryPointArn          string            `json:"recoveryPointArn,omitempty"`
+	PercentDone               string            `json:"percentDone,omitempty"`
+	MessageCategory           string            `json:"messageCategory,omitempty"`
+	ParentJobID               string            `json:"parentJobId,omitempty"`
+	CompositeMemberIdentifier string            `json:"compositeMemberIdentifier,omitempty"`
+	BytesTransferred          int64             `json:"bytesTransferred,omitempty"`
+	BackupSizeInBytes         int64             `json:"backupSizeInBytes,omitempty"`
+	IsParent                  bool              `json:"isParent,omitempty"`
 }
 
 // Selection represents an AWS Backup selection (resources assigned to a plan).

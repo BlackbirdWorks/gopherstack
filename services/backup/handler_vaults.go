@@ -194,6 +194,7 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 type createLogicallyAirGappedBody struct {
 	BackupVaultTags  map[string]string `json:"BackupVaultTags,omitempty"`
 	CreatorRequestID string            `json:"CreatorRequestId,omitempty"`
+	EncryptionKeyArn string            `json:"EncryptionKeyArn,omitempty"`
 	MaxRetentionDays int64             `json:"MaxRetentionDays"`
 	MinRetentionDays int64             `json:"MinRetentionDays"`
 }
@@ -221,7 +222,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 	}
 
 	v, err := h.Backend.CreateLogicallyAirGappedBackupVault(
-		name, in.CreatorRequestID, in.MinRetentionDays, in.MaxRetentionDays, in.BackupVaultTags,
+		name, in.EncryptionKeyArn, in.CreatorRequestID, in.MinRetentionDays, in.MaxRetentionDays, in.BackupVaultTags,
 	)
 	if err != nil {
 		return h.handleError(c, err)

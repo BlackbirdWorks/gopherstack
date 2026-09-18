@@ -53,7 +53,7 @@ func mustJob(
 	vaultName, resourceArn, resourceType string,
 ) *backup.Job {
 	t.Helper()
-	j, err := b.StartBackupJob(vaultName, resourceArn, "arn:aws:iam::123:role/r", resourceType)
+	j, err := b.StartBackupJob(vaultName, resourceArn, "arn:aws:iam::123:role/r", resourceType, nil, 0)
 	if err != nil {
 		t.Fatalf("StartBackupJob: %v", err)
 	}

@@ -87,6 +87,7 @@ func TestBackupJanitor_SweepCompletedJobs(t *testing.T) {
 				"arn:aws:ec2:us-east-1:123456789012:instance/i-1234",
 				"arn:aws:iam::123456789012:role/backup-role",
 				"EC2",
+				nil, 0,
 			)
 			require.NoError(t, err)
 

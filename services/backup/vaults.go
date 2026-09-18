@@ -189,7 +189,7 @@ func (b *InMemoryBackend) GetVaultMpaApprovalTeamArn(vaultName string) (string, 
 
 // CreateLogicallyAirGappedBackupVault creates a logically air-gapped backup vault.
 func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
-	name, creatorRequestID string,
+	name, encryptionKeyArn, creatorRequestID string,
 	minRetentionDays, maxRetentionDays int64,
 	kv map[string]string,
 ) (*Vault, error) {
@@ -223,6 +223,7 @@ func (b *InMemoryBackend) CreateLogicallyAirGappedBackupVault(
 	v := &Vault{
 		BackupVaultName:  name,
 		BackupVaultArn:   vaultARN,
+		EncryptionKeyArn: encryptionKeyArn,
 		CreatorRequestID: creatorRequestID,
 		VaultType:        VaultTypeAirGapped,
 		AccountID:        b.accountID,
