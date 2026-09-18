@@ -45,6 +45,17 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		return nil, err
 	}
 
+	deploymentConfigName := dg.DeploymentConfigName
+	if opts.DeploymentConfigName != "" {
+		if !b.deploymentConfigs.Has(opts.DeploymentConfigName) {
+			return nil, fmt.Errorf(
+				"%w: deployment config %s not found", ErrDeploymentConfigNotFound, opts.DeploymentConfigName,
+			)
+		}
+
+		deploymentConfigName = opts.DeploymentConfigName
+	}
+
 	if opts.Creator == "" {
 		opts.Creator = defaultDeploymentCreator
 	}
@@ -57,7 +68,7 @@ func (b *InMemoryBackend) CreateDeployment(appName, dgName string, opts Deployme
 		DeploymentID:                  deployID,
 		ApplicationName:               appName,
 		DeploymentGroupName:           dgName,
-		DeploymentConfigName:          dg.DeploymentConfigName,
+		DeploymentConfigName:          deploymentConfigName,
 		Status:                        statusSucceeded,
 		Creator:                       opts.Creator,
 		Description:                   opts.Description,

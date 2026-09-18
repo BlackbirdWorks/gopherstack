@@ -112,6 +112,7 @@ type createDeploymentInput struct {
 	DeploymentGroupName           string                 `json:"deploymentGroupName"`
 	Description                   string                 `json:"description"`
 	FileExistsBehavior            string                 `json:"fileExistsBehavior"`
+	DeploymentConfigName          string                 `json:"deploymentConfigName"`
 	UpdateOutdatedInstancesOnly   bool                   `json:"updateOutdatedInstancesOnly"`
 	IgnoreApplicationStopFailures bool                   `json:"ignoreApplicationStopFailures"`
 }
@@ -135,6 +136,7 @@ func (h *Handler) handleCreateDeployment(
 	opts := DeploymentOptions{
 		Description:                   in.Description,
 		FileExistsBehavior:            in.FileExistsBehavior,
+		DeploymentConfigName:          in.DeploymentConfigName,
 		UpdateOutdatedInstancesOnly:   in.UpdateOutdatedInstancesOnly,
 		IgnoreApplicationStopFailures: in.IgnoreApplicationStopFailures,
 		Revision:                      revisionFromWire(in.Revision),
