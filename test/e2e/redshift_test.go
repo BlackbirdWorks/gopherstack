@@ -9,6 +9,8 @@ import (
 	"github.com/mxschmitt/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/redshift"
 )
 
 // TestRedshiftDashboard verifies the Redshift dashboard UI renders clusters.
@@ -16,7 +18,7 @@ func TestRedshiftDashboard(t *testing.T) {
 	stack := newStack(t)
 
 	_, err := stack.RedshiftHandler.Backend.CreateCluster(
-		"test-cluster", "dc2.large", "mydb", "admin", nil, "",
+		"test-cluster", "dc2.large", "mydb", "admin", nil, "", redshift.CreateClusterOptions{},
 	)
 	require.NoError(t, err)
 
