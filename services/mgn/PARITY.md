@@ -49,7 +49,7 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # v1.48.4; the "unchanged since 2026-08-01" note was stale. Diffed v1.48.3 vs v1.48.4:
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
-last_audit_commit: d4dc4a723
+last_audit_commit: 302aa4e3c  # zeroguard: PutSourceServerAction/PutTemplateAction census, all false positive
 last_audit_date: 2026-09-18
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
@@ -1775,6 +1775,18 @@ clean. `go test -race -count=1 ./services/mgn/...` and
 version bump). `golangci-lint run ./services/mgn/...` 0 issues (new and
 full-run). `go run ./cmd/parityfmtcheck -dir services` clean.
 `git diff --stat go.mod go.sum` empty.
+
+## 2026-09-18 zeroguard census: PutSourceServerAction/PutTemplateAction (21 rows, all false positive)
+
+All 21 rows are `Put*` full-replace ops (`api_op_Put{SourceServer,Template}Action.go`
+docs: "creates or replaces"): ActionID/ActionName/DocumentIdentifier/Order/
+SourceServerID(or LaunchConfigurationTemplateID) are SDK-required, omission
+is impossible; the rest (Active/Description/DocumentVersion/
+MustSucceedForCutover/OperatingSystem/TimeoutSeconds) are correctly
+full-replaced every call, matching Put semantics (same class as
+PutKeyPolicy). Locked in by `TestPutTemplateAction_FullReplaceSemantics`
+(actions_full_replace_test.go): a second Put omitting an optional field
+resets it rather than preserving it.
 
 ## 2026-09-18 invented-field census (acceptguard)
 
