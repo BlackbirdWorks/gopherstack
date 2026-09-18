@@ -315,10 +315,12 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 
 	// Update protected resource record.
 	b.protectedResources.Put(&ProtectedResource{
-		ResourceArn:     job.ResourceArn,
-		ResourceType:    job.ResourceType,
-		BackupVaultName: job.BackupVaultName,
-		LastBackupTime:  now,
+		ResourceArn:          job.ResourceArn,
+		ResourceType:         job.ResourceType,
+		BackupVaultName:      job.BackupVaultName,
+		LastBackupTime:       now,
+		LastBackupVaultArn:   vault.BackupVaultArn,
+		LastRecoveryPointArn: rpArn,
 	})
 
 	return nil

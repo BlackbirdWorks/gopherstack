@@ -128,12 +128,29 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 			keyVaultState:            vaultStateFor(v),
 			keyVaultType:             vt,
 		}
+		setOptionalStr(item, "EncryptionKeyArn", v.EncryptionKeyArn)
+		setOptionalStr(item, "CreatorRequestId", v.CreatorRequestID)
+		// EncryptionKeyType mirrors handleDescribeBackupVault's derivation:
+		// no dedicated backend field, fully determined by whether an
+		// EncryptionKeyArn was supplied.
 		if v.EncryptionKeyArn != "" {
-			item["EncryptionKeyArn"] = v.EncryptionKeyArn
+			item["EncryptionKeyType"] = "CUSTOMER_MANAGED_KMS_KEY"
+		} else {
+			item["EncryptionKeyType"] = "AWS_OWNED_KMS_KEY"
 		}
-		if v.MinRetentionDays > 0 {
-			item["MinRetentionDays"] = v.MinRetentionDays
-			item["MaxRetentionDays"] = v.MaxRetentionDays
+
+		// Locked/LockDate/retention bounds mirror handleDescribeBackupVault's
+		// lock-config lookup -- BackupVaultListMember carries the same
+		// members as DescribeBackupVaultOutput here.
+		if cfg, cfgErr := h.Backend.GetBackupVaultLockConfig(v.BackupVaultName); cfgErr == nil {
+			item["Locked"] = true
+			item["MinRetentionDays"] = cfg.MinRetentionDays
+			item["MaxRetentionDays"] = cfg.MaxRetentionDays
+			if cfg.LockDate != nil {
+				item["LockDate"] = epochSeconds(*cfg.LockDate)
+			}
+		} else {
+			item["Locked"] = false
 		}
 		items = append(items, item)
 	}

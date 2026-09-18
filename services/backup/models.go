@@ -587,11 +587,13 @@ type TieringConfiguration struct {
 
 // ProtectedResource represents a resource protected by AWS Backup.
 type ProtectedResource struct {
-	LastBackupTime  time.Time `json:"lastBackupTime"`
-	ResourceArn     string    `json:"resourceArn"`
-	ResourceName    string    `json:"resourceName,omitempty"`
-	ResourceType    string    `json:"resourceType"`
-	BackupVaultName string    `json:"backupVaultName,omitempty"`
+	LastBackupTime       time.Time `json:"lastBackupTime"`
+	ResourceArn          string    `json:"resourceArn"`
+	ResourceName         string    `json:"resourceName,omitempty"`
+	ResourceType         string    `json:"resourceType"`
+	BackupVaultName      string    `json:"backupVaultName,omitempty"`
+	LastBackupVaultArn   string    `json:"lastBackupVaultArn,omitempty"`
+	LastRecoveryPointArn string    `json:"lastRecoveryPointArn,omitempty"`
 }
 
 // RegionSettings holds per-region backup preferences.

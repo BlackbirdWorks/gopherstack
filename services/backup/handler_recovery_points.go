@@ -45,6 +45,12 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 
 	items := make([]map[string]any, 0, len(pts))
 	for _, rp := range pts {
+		// StorageClass is a real DescribeRecoveryPointOutput member (see
+		// handleDescribeRecoveryPoint below) but NOT a member of
+		// RecoveryPointByBackupVault, this op's own item type
+		// (backup@v1.64.0 deserializers.go has no "StorageClass" case in
+		// awsRestjson1_deserializeDocumentRecoveryPointByBackupVault) --
+		// omitted here rather than leaked.
 		item := map[string]any{
 			keyRecoveryPointArn: rp.RecoveryPointArn,
 			keyBackupVaultName:  rp.BackupVaultName,
@@ -55,7 +61,6 @@ func (h *Handler) handleListRecoveryPointsByBackupVault(c *echo.Context, vaultNa
 		setOptionalStr(item, "ResourceArn", rp.ResourceArn)
 		setOptionalStr(item, "ResourceType", rp.ResourceType)
 		setOptionalStr(item, "IamRoleArn", rp.IAMRoleArn)
-		setOptionalStr(item, "StorageClass", rp.StorageClass)
 		setOptionalStr(item, "ParentRecoveryPointArn", rp.ParentRecoveryPointArn)
 		if rp.BackupSizeInBytes > 0 {
 			item["BackupSizeInBytes"] = rp.BackupSizeInBytes

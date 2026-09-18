@@ -2784,6 +2784,8 @@
       "Plan.VersionID string `json:\"versionId\"`",
       "ProtectedResource.BackupVaultName string `json:\"backupVaultName,omitempty\"`",
       "ProtectedResource.LastBackupTime time.Time `json:\"lastBackupTime\"`",
+      "ProtectedResource.LastBackupVaultArn string `json:\"lastBackupVaultArn,omitempty\"`",
+      "ProtectedResource.LastRecoveryPointArn string `json:\"lastRecoveryPointArn,omitempty\"`",
       "ProtectedResource.ResourceArn string `json:\"resourceArn\"`",
       "ProtectedResource.ResourceName string `json:\"resourceName,omitempty\"`",
       "ProtectedResource.ResourceType string `json:\"resourceType\"`",

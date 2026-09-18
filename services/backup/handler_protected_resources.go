@@ -6,6 +6,24 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// protectedResourceToJSON mirrors types.ProtectedResource (backup@v1.64.0
+// types.go): ResourceArn, ResourceName, ResourceType, LastBackupTime,
+// LastBackupVaultArn, LastRecoveryPointArn. Shared by DescribeProtectedResource
+// and both List ops, which previously each built their own narrower,
+// inconsistent map.
+func protectedResourceToJSON(pr *ProtectedResource) map[string]any {
+	m := map[string]any{
+		keyResourceArn:   pr.ResourceArn,
+		keyResourceType:  pr.ResourceType,
+		"LastBackupTime": epochSeconds(pr.LastBackupTime),
+	}
+	setOptionalStr(m, "ResourceName", pr.ResourceName)
+	setOptionalStr(m, "LastBackupVaultArn", pr.LastBackupVaultArn)
+	setOptionalStr(m, "LastRecoveryPointArn", pr.LastRecoveryPointArn)
+
+	return m
+}
+
 // dispatchProtectedResourceOps handles protected-resource describe/list operations.
 func (h *Handler) dispatchProtectedResourceOps(
 	c *echo.Context,
@@ -21,20 +39,13 @@ func (h *Handler) dispatchProtectedResourceOps(
 			)
 		}
 
-		return true, c.JSON(http.StatusOK, map[string]any{
-			keyResourceArn:   pr.ResourceArn,
-			keyResourceType:  pr.ResourceType,
-			"LastBackupTime": epochSeconds(pr.LastBackupTime),
-		})
+		return true, c.JSON(http.StatusOK, protectedResourceToJSON(pr))
 	case opListProtectedResources:
 		q := c.Request().URL.Query()
 		prs, nextToken := h.Backend.ListProtectedResources(parseInt(q.Get("maxResults")), q.Get("nextToken"))
 		items := make([]map[string]any, 0, len(prs))
 		for _, pr := range prs {
-			items = append(items, map[string]any{
-				keyResourceArn:  pr.ResourceArn,
-				keyResourceType: pr.ResourceType,
-			})
+			items = append(items, protectedResourceToJSON(pr))
 		}
 
 		resp := map[string]any{"Results": items}
@@ -50,10 +61,7 @@ func (h *Handler) dispatchProtectedResourceOps(
 		)
 		items := make([]map[string]any, 0, len(prs))
 		for _, pr := range prs {
-			items = append(items, map[string]any{
-				keyResourceArn:  pr.ResourceArn,
-				keyResourceType: pr.ResourceType,
-			})
+			items = append(items, protectedResourceToJSON(pr))
 		}
 
 		resp := map[string]any{"Results": items}
