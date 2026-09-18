@@ -27,6 +27,11 @@ const headerSSEAlgorithm = "X-Amz-Server-Side-Encryption"
 // headerSSEKMSKeyID is the request header for the KMS master key ID.
 const headerSSEKMSKeyID = "X-Amz-Server-Side-Encryption-Aws-Kms-Key-Id"
 
+// headerSSEKMSEncryptionContext is the request/response header carrying the
+// base64-encoded JSON KMS encryption context (s3@v1.111.0 serializers.go:557,
+// deserializers.go:675: same locationName both directions).
+const headerSSEKMSEncryptionContext = "X-Amz-Server-Side-Encryption-Context"
+
 // headerSSECAlgorithm is the request header for SSE-C customer algorithm.
 const headerSSECAlgorithm = "X-Amz-Server-Side-Encryption-Customer-Algorithm"
 
@@ -85,17 +90,22 @@ type sseInfo struct {
 	// can encrypt the body on PUT and the GET handler can decrypt when the
 	// caller re-supplies it.
 	SSECKeyB64 string `json:"-"`
+	// EncryptionContext is the base64-encoded JSON KMS encryption context
+	// (SSEKMSEncryptionContext), round-tripped verbatim — this emulator
+	// doesn't call KMS, so it's opaque AAD here, not decoded/validated.
+	EncryptionContext string
 }
 
 // extractSSEInfo reads SSE-* request headers and validates SSE-C when present.
 // Returns an error when the SSE-C key MD5 does not match the supplied key.
 func extractSSEInfo(r *http.Request) (sseInfo, error) {
 	info := sseInfo{
-		Algorithm:     r.Header.Get(headerSSEAlgorithm),
-		KMSKeyID:      r.Header.Get(headerSSEKMSKeyID),
-		SSECAlgorithm: r.Header.Get(headerSSECAlgorithm),
-		SSECKeyMD5:    r.Header.Get(headerSSECKeyMD5),
-		SSECKeyB64:    r.Header.Get(headerSSECKey),
+		Algorithm:         r.Header.Get(headerSSEAlgorithm),
+		KMSKeyID:          r.Header.Get(headerSSEKMSKeyID),
+		SSECAlgorithm:     r.Header.Get(headerSSECAlgorithm),
+		SSECKeyMD5:        r.Header.Get(headerSSECKeyMD5),
+		SSECKeyB64:        r.Header.Get(headerSSECKey),
+		EncryptionContext: r.Header.Get(headerSSEKMSEncryptionContext),
 	}
 
 	rawKey := r.Header.Get(headerSSECKey)
@@ -147,6 +157,10 @@ func setSSEResponseHeaders(w http.ResponseWriter, info sseInfo) {
 
 	if info.SSECKeyMD5 != "" {
 		w.Header().Set(headerSSECKeyMD5, info.SSECKeyMD5)
+	}
+
+	if info.EncryptionContext != "" {
+		w.Header().Set(headerSSEKMSEncryptionContext, info.EncryptionContext)
 	}
 }
 

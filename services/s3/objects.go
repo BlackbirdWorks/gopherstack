@@ -448,6 +448,7 @@ func buildStoredObjectVersion(
 		EncryptionDEK:      dek,
 		EncryptionNonce:    nonce,
 		IsLatest:           true,
+		ACL:                string(input.ACL),
 	}
 }
 

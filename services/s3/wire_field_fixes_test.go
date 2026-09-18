@@ -1,6 +1,7 @@
 package s3_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -248,4 +249,325 @@ func TestDeleteObject_BypassGovernanceRetention(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestObjectCreationACL_AppliedAtCreation is a regression test for
+// gopherstack-xhu2t: PutObject/CopyObject/CreateMultipartUpload's ACL request
+// field (s3@v1.111.0 serializers.go's X-Amz-Acl header, present on all three
+// per-op *Input structs) was declared on none of them -- a client uploading
+// with X-Amz-Acl: public-read got a private object indistinguishable from one
+// created with no ACL at all. The separate PutObjectAcl operation already
+// applied X-Amz-Acl correctly; only the create-time header was dropped.
+func TestObjectCreationACL_AppliedAtCreation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		create func(t *testing.T, client *sdk_s3.Client, bucket, key string)
+		name   string
+	}{
+		{
+			name: "putobject",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) {
+				t.Helper()
+
+				_, err := client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(key),
+					Body:   strings.NewReader("body"),
+					ACL:    types.ObjectCannedACLPublicRead,
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "copyobject",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) {
+				t.Helper()
+
+				srcKey := key + "-src"
+				_, err := client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(srcKey),
+					Body:   strings.NewReader("body"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.CopyObject(t.Context(), &sdk_s3.CopyObjectInput{
+					Bucket:     aws.String(bucket),
+					Key:        aws.String(key),
+					CopySource: aws.String(bucket + "/" + srcKey),
+					ACL:        types.ObjectCannedACLPublicRead,
+				})
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "createmultipartupload",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) {
+				t.Helper()
+
+				created, err := client.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(key),
+					ACL:    types.ObjectCannedACLPublicRead,
+				})
+				require.NoError(t, err)
+
+				partOut, err := client.UploadPart(t.Context(), &sdk_s3.UploadPartInput{
+					Bucket:     aws.String(bucket),
+					Key:        aws.String(key),
+					UploadId:   created.UploadId,
+					PartNumber: aws.Int32(1),
+					Body:       strings.NewReader("body"),
+				})
+				require.NoError(t, err)
+
+				_, err = client.CompleteMultipartUpload(t.Context(), &sdk_s3.CompleteMultipartUploadInput{
+					Bucket:   aws.String(bucket),
+					Key:      aws.String(key),
+					UploadId: created.UploadId,
+					MultipartUpload: &types.CompletedMultipartUpload{
+						Parts: []types.CompletedPart{{ETag: partOut.ETag, PartNumber: aws.Int32(1)}},
+					},
+				})
+				require.NoError(t, err)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := "acl-create-" + tt.name
+			key := "obj"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			tt.create(t, client, bucket, key)
+
+			out, err := client.GetObjectAcl(t.Context(), &sdk_s3.GetObjectAclInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(key),
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Grants, 2)
+			assert.Equal(t, types.PermissionRead, out.Grants[1].Permission)
+			require.NotNil(t, out.Grants[1].Grantee)
+			assert.Equal(t, "http://acs.amazonaws.com/groups/global/AllUsers", aws.ToString(out.Grants[1].Grantee.URI))
+		})
+	}
+}
+
+// TestObjectCreationSSEKMSEncryptionContext_Echoed is a regression test for
+// gopherstack-xhu2t: SSEKMSEncryptionContext (s3@v1.111.0 serializers.go:557 /
+// deserializers.go:675,1177 -- request header X-Amz-Server-Side-Encryption-Context,
+// echoed back verbatim on the same header) was declared on none of
+// PutObject/CopyObject/CreateMultipartUpload's *Input structs, so a caller's KMS
+// encryption context was silently dropped and never echoed on the create
+// response -- unlike SSEKMSKeyId/ServerSideEncryption, which were already read
+// and applied (only their sibling EncryptionContext field was missing).
+func TestObjectCreationSSEKMSEncryptionContext_Echoed(t *testing.T) {
+	t.Parallel()
+
+	const wantContext = `{"aws:s3:arn":"arn:aws:s3:::example"}`
+
+	tests := []struct {
+		create func(t *testing.T, client *sdk_s3.Client, bucket, key string) string
+		name   string
+	}{
+		{
+			name: "putobject",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) string {
+				t.Helper()
+
+				out, err := client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+					Bucket:                  aws.String(bucket),
+					Key:                     aws.String(key),
+					Body:                    strings.NewReader("body"),
+					ServerSideEncryption:    types.ServerSideEncryptionAwsKms,
+					SSEKMSKeyId:             aws.String("test-key"),
+					SSEKMSEncryptionContext: aws.String(wantContext),
+				})
+				require.NoError(t, err)
+
+				return aws.ToString(out.SSEKMSEncryptionContext)
+			},
+		},
+		{
+			name: "copyobject",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) string {
+				t.Helper()
+
+				srcKey := key + "-src"
+				_, err := client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+					Bucket: aws.String(bucket),
+					Key:    aws.String(srcKey),
+					Body:   strings.NewReader("body"),
+				})
+				require.NoError(t, err)
+
+				out, err := client.CopyObject(t.Context(), &sdk_s3.CopyObjectInput{
+					Bucket:                  aws.String(bucket),
+					Key:                     aws.String(key),
+					CopySource:              aws.String(bucket + "/" + srcKey),
+					ServerSideEncryption:    types.ServerSideEncryptionAwsKms,
+					SSEKMSKeyId:             aws.String("test-key"),
+					SSEKMSEncryptionContext: aws.String(wantContext),
+				})
+				require.NoError(t, err)
+
+				return aws.ToString(out.SSEKMSEncryptionContext)
+			},
+		},
+		{
+			name: "createmultipartupload",
+			create: func(t *testing.T, client *sdk_s3.Client, bucket, key string) string {
+				t.Helper()
+
+				out, err := client.CreateMultipartUpload(t.Context(), &sdk_s3.CreateMultipartUploadInput{
+					Bucket:                  aws.String(bucket),
+					Key:                     aws.String(key),
+					ServerSideEncryption:    types.ServerSideEncryptionAwsKms,
+					SSEKMSKeyId:             aws.String("test-key"),
+					SSEKMSEncryptionContext: aws.String(wantContext),
+				})
+				require.NoError(t, err)
+
+				_, err = client.AbortMultipartUpload(t.Context(), &sdk_s3.AbortMultipartUploadInput{
+					Bucket:   aws.String(bucket),
+					Key:      aws.String(key),
+					UploadId: out.UploadId,
+				})
+				require.NoError(t, err)
+
+				return aws.ToString(out.SSEKMSEncryptionContext)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := "sse-context-" + tt.name
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			got := tt.create(t, client, bucket, "obj")
+			assert.JSONEq(t, wantContext, got)
+		})
+	}
+}
+
+// TestCopyObject_AnnotationDirective is a regression test for gopherstack-xhu2t:
+// AnnotationDirective (s3@v1.111.0 serializers.go:370, header
+// X-Amz-Object-Annotation-Directive) was declared nowhere in CopyObject's
+// handling, so annotations were never copied to the destination regardless of
+// the request -- silently diverging from the documented default (COPY copies
+// source annotations; only explicit EXCLUDE should drop them).
+func TestCopyObject_AnnotationDirective(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		directive  types.AnnotationDirective
+		name       string
+		bucket     string
+		wantCopied bool
+	}{
+		{name: "default_copies_annotations", bucket: "copy-annotations-default", directive: "", wantCopied: true},
+		{
+			name:       "explicit_copy_copies_annotations",
+			bucket:     "copy-annotations-explicit-copy",
+			directive:  types.AnnotationDirectiveCopy,
+			wantCopied: true,
+		},
+		{
+			name:       "exclude_drops_annotations",
+			bucket:     "copy-annotations-exclude",
+			directive:  types.AnnotationDirectiveExclude,
+			wantCopied: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			client := newRealS3ClientTest(t)
+			bucket := tt.bucket
+			srcKey, destKey := "src", "dest"
+
+			_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{Bucket: aws.String(bucket)})
+			require.NoError(t, err)
+
+			_, err = client.PutObject(t.Context(), &sdk_s3.PutObjectInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(srcKey),
+				Body:   strings.NewReader("body"),
+			})
+			require.NoError(t, err)
+
+			_, err = client.PutObjectAnnotation(t.Context(), &sdk_s3.PutObjectAnnotationInput{
+				Bucket:            aws.String(bucket),
+				Key:               aws.String(srcKey),
+				AnnotationName:    aws.String("my-annotation"),
+				AnnotationPayload: strings.NewReader("annotation payload"),
+			})
+			require.NoError(t, err)
+
+			_, err = client.CopyObject(t.Context(), &sdk_s3.CopyObjectInput{
+				Bucket:              aws.String(bucket),
+				Key:                 aws.String(destKey),
+				CopySource:          aws.String(bucket + "/" + srcKey),
+				AnnotationDirective: tt.directive,
+			})
+			require.NoError(t, err)
+
+			listOut, err := client.ListObjectAnnotations(t.Context(), &sdk_s3.ListObjectAnnotationsInput{
+				Bucket: aws.String(bucket),
+				Key:    aws.String(destKey),
+			})
+			require.NoError(t, err)
+
+			if tt.wantCopied {
+				require.Len(t, listOut.Annotations, 1)
+				assert.Equal(t, "my-annotation", aws.ToString(listOut.Annotations[0].AnnotationName))
+			} else {
+				assert.Empty(t, listOut.Annotations)
+			}
+		})
+	}
+}
+
+// TestCreateBucket_ObjectOwnershipApplied is a regression test for
+// gopherstack-xhu2t: CreateBucketInput.ObjectOwnership (s3@v1.111.0
+// serializers.go:712-714, header X-Amz-Object-Ownership) was declared nowhere,
+// so a bucket created with e.g. BucketOwnerEnforced had no OwnershipControls
+// stored at all -- GetBucketOwnershipControls returned NotFound instead of
+// reflecting the caller's requested value, exactly as if PutBucketOwnershipControls
+// had never been called.
+func TestCreateBucket_ObjectOwnershipApplied(t *testing.T) {
+	t.Parallel()
+
+	client := newRealS3ClientTest(t)
+	bucket := "ownership-at-create"
+
+	_, err := client.CreateBucket(t.Context(), &sdk_s3.CreateBucketInput{
+		Bucket:          aws.String(bucket),
+		ObjectOwnership: types.ObjectOwnershipBucketOwnerEnforced,
+	})
+	require.NoError(t, err)
+
+	out, err := client.GetBucketOwnershipControls(t.Context(), &sdk_s3.GetBucketOwnershipControlsInput{
+		Bucket: aws.String(bucket),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, out.OwnershipControls)
+	require.Len(t, out.OwnershipControls.Rules, 1)
+	assert.Equal(t, types.ObjectOwnershipBucketOwnerEnforced, out.OwnershipControls.Rules[0].ObjectOwnership)
 }
