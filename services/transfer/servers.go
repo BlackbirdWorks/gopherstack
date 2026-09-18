@@ -367,10 +367,12 @@ type UpdateServerInput struct {
 	PreAuthenticationLoginBanner  string
 	PostAuthenticationLoginBanner string
 	IPAddressType                 string
+	IdentityProviderType          string
 	StructuredLogDestinations     []string
 	Protocols                     []string
 	SetLoggingRole                bool
 	SetIdentityProviderDetails    bool
+	SetIdentityProviderType       bool
 	SetCertificate                bool
 	SetPreAuthBanner              bool
 	SetPostAuthBanner             bool
@@ -427,6 +429,10 @@ func applyServerStringFields(s *Server, in *UpdateServerInput) {
 		s.IPAddressType = in.IPAddressType
 	}
 
+	if in.SetIdentityProviderType {
+		s.IdentityProviderType = in.IdentityProviderType
+	}
+
 	if in.SetHostKey {
 		s.HostKey = in.HostKey
 	}
@@ -467,6 +473,15 @@ func (b *InMemoryBackend) UpdateServerFull(in *UpdateServerInput) (*Server, erro
 	s, ok := b.servers.Get(in.ServerID)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", ErrServerNotFound, in.ServerID)
+	}
+
+	if in.SetIdentityProviderType {
+		identityProviderType, err := validateAndDefaultIdentityProviderType(in.IdentityProviderType)
+		if err != nil {
+			return nil, err
+		}
+
+		in.IdentityProviderType = identityProviderType
 	}
 
 	applyServerStringFields(s, in)

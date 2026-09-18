@@ -361,6 +361,7 @@ type updateServerInput struct {
 	PostAuthenticationLoginBanner string                        `json:"PostAuthenticationLoginBanner,omitempty"`
 	SecurityPolicyName            string                        `json:"SecurityPolicyName,omitempty"`
 	IPAddressType                 string                        `json:"IpAddressType,omitempty"`
+	IdentityProviderType          string                        `json:"IdentityProviderType,omitempty"`
 	StructuredLogDestinations     []string                      `json:"StructuredLogDestinations,omitempty"`
 	Protocols                     []string                      `json:"Protocols,omitempty"`
 }
@@ -396,6 +397,8 @@ func (h *Handler) handleUpdateServer(
 		SetSecurityPolicyName:         in.SecurityPolicyName != "",
 		IPAddressType:                 in.IPAddressType,
 		SetIPAddressType:              in.IPAddressType != "",
+		IdentityProviderType:          in.IdentityProviderType,
+		SetIdentityProviderType:       in.IdentityProviderType != "",
 		IdentityProviderDetails:       toIdentityProviderDetails(in.IdentityProviderDetails),
 		SetIdentityProviderDetails:    in.IdentityProviderDetails != nil,
 		EndpointDetails:               toEndpointDetails(in.EndpointDetails),

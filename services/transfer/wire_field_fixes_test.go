@@ -297,3 +297,106 @@ func TestListCertificates_Usage_RealClient(t *testing.T) {
 	assert.Equal(t, transfertypes.CertificateUsageTypeEncryption, got[aws.ToString(other.CertificateId)],
 		"ListCertificates: Usage must round-trip from ImportCertificate, not decode empty")
 }
+
+// TestAgreement_EnforceMessageSigningAndPreserveFilename_RealClient covers a
+// reqfielddiff tier-1 finding: CreateAgreementInput/UpdateAgreementInput's
+// EnforceMessageSigning/PreserveFilename (both real,
+// transfer@v1.75.4 api_op_CreateAgreement.go / api_op_UpdateAgreement.go)
+// were parsed nowhere -- every agreement silently got the AWS-documented
+// DISABLED default regardless of what a real client requested, and no
+// UpdateAgreement call could ever change it. DescribedAgreement
+// (types.go:531,559) echoes both back.
+func TestAgreement_EnforceMessageSigningAndPreserveFilename_RealClient(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
+
+	srv, err := client.CreateServer(ctx, &transfersdk.CreateServerInput{})
+	require.NoError(t, err)
+
+	local, err := client.CreateProfile(ctx, &transfersdk.CreateProfileInput{
+		As2Id:       aws.String("LOCALAS2"),
+		ProfileType: transfertypes.ProfileTypeLocal,
+	})
+	require.NoError(t, err)
+
+	partner, err := client.CreateProfile(ctx, &transfersdk.CreateProfileInput{
+		As2Id:       aws.String("PARTNERAS2"),
+		ProfileType: transfertypes.ProfileTypePartner,
+	})
+	require.NoError(t, err)
+
+	created, err := client.CreateAgreement(ctx, &transfersdk.CreateAgreementInput{
+		ServerId:              srv.ServerId,
+		LocalProfileId:        local.ProfileId,
+		PartnerProfileId:      partner.ProfileId,
+		AccessRole:            aws.String("arn:aws:iam::123456789012:role/access"),
+		EnforceMessageSigning: transfertypes.EnforceMessageSigningTypeEnabled,
+		PreserveFilename:      transfertypes.PreserveFilenameTypeEnabled,
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeAgreement(ctx, &transfersdk.DescribeAgreementInput{
+		ServerId:    srv.ServerId,
+		AgreementId: created.AgreementId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transfertypes.EnforceMessageSigningTypeEnabled, desc.Agreement.EnforceMessageSigning,
+		"CreateAgreement must apply EnforceMessageSigning, not silently default to DISABLED")
+	assert.Equal(t, transfertypes.PreserveFilenameTypeEnabled, desc.Agreement.PreserveFilename,
+		"CreateAgreement must apply PreserveFilename, not silently default to DISABLED")
+
+	_, err = client.UpdateAgreement(ctx, &transfersdk.UpdateAgreementInput{
+		ServerId:              srv.ServerId,
+		AgreementId:           created.AgreementId,
+		EnforceMessageSigning: transfertypes.EnforceMessageSigningTypeDisabled,
+		PreserveFilename:      transfertypes.PreserveFilenameTypeDisabled,
+	})
+	require.NoError(t, err)
+
+	desc, err = client.DescribeAgreement(ctx, &transfersdk.DescribeAgreementInput{
+		ServerId:    srv.ServerId,
+		AgreementId: created.AgreementId,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, transfertypes.EnforceMessageSigningTypeDisabled, desc.Agreement.EnforceMessageSigning,
+		"UpdateAgreement must apply EnforceMessageSigning")
+	assert.Equal(t, transfertypes.PreserveFilenameTypeDisabled, desc.Agreement.PreserveFilename,
+		"UpdateAgreement must apply PreserveFilename")
+}
+
+// TestUpdateServer_IdentityProviderType_RealClient covers a reqfielddiff
+// tier-1 finding: UpdateServerInput.IdentityProviderType (real,
+// transfer@v1.75.4 api_op_UpdateServer.go) was parsed nowhere -- a real
+// client could never change a server's identity provider type after
+// creation. DescribedServer.IdentityProviderType already round-tripped
+// correctly for CreateServer; only UpdateServer silently dropped it.
+func TestUpdateServer_IdentityProviderType_RealClient(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	backend := transfer.NewInMemoryBackend(ctx, "123456789012", "us-east-1")
+	client := newTestTransferClient(t, transfer.NewHandler(backend))
+
+	srv, err := client.CreateServer(ctx, &transfersdk.CreateServerInput{
+		IdentityProviderType: transfertypes.IdentityProviderTypeServiceManaged,
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateServer(ctx, &transfersdk.UpdateServerInput{
+		ServerId:             srv.ServerId,
+		IdentityProviderType: transfertypes.IdentityProviderTypeApiGateway,
+		IdentityProviderDetails: &transfertypes.IdentityProviderDetails{
+			Url:            aws.String("https://example.com/idp"),
+			InvocationRole: aws.String("arn:aws:iam::123456789012:role/invoke"),
+		},
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeServer(ctx, &transfersdk.DescribeServerInput{ServerId: srv.ServerId})
+	require.NoError(t, err)
+	assert.Equal(t, transfertypes.IdentityProviderTypeApiGateway, desc.Server.IdentityProviderType,
+		"UpdateServer must apply IdentityProviderType, not silently drop it")
+}

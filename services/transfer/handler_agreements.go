@@ -8,14 +8,16 @@ import (
 )
 
 type createAgreementInput struct {
-	ServerID         string              `json:"ServerId"`
-	Description      string              `json:"Description"`
-	LocalProfileID   string              `json:"LocalProfileId"`
-	PartnerProfileID string              `json:"PartnerProfileId"`
-	BaseDirectory    string              `json:"BaseDirectory"`
-	AccessRole       string              `json:"AccessRole"`
-	Status           string              `json:"Status,omitempty"`
-	Tags             []map[string]string `json:"Tags"`
+	ServerID              string              `json:"ServerId"`
+	Description           string              `json:"Description"`
+	LocalProfileID        string              `json:"LocalProfileId"`
+	PartnerProfileID      string              `json:"PartnerProfileId"`
+	BaseDirectory         string              `json:"BaseDirectory"`
+	AccessRole            string              `json:"AccessRole"`
+	Status                string              `json:"Status,omitempty"`
+	EnforceMessageSigning string              `json:"EnforceMessageSigning,omitempty"`
+	PreserveFilename      string              `json:"PreserveFilename,omitempty"`
+	Tags                  []map[string]string `json:"Tags"`
 }
 
 type createAgreementOutput struct {
@@ -46,6 +48,10 @@ func (h *Handler) handleCreateAgreement(
 		in.AccessRole,
 		in.Status,
 		tags,
+		AgreementCreateExtras{
+			EnforceMessageSigning: in.EnforceMessageSigning,
+			PreserveFilename:      in.PreserveFilename,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -106,16 +112,18 @@ func (h *Handler) handleDescribeAgreement(
 
 	return &describeAgreementOutput{
 		Agreement: map[string]any{
-			"AgreementId":       ag.AgreementID,
-			keyServerID:         ag.ServerID,
-			keyDescription:      ag.Description,
-			keyStatus:           ag.Status,
-			keyLocalProfileID:   ag.LocalProfileID,
-			keyPartnerProfileID: ag.PartnerProfileID,
-			"BaseDirectory":     ag.BaseDirectory,
-			"AccessRole":        ag.AccessRole,
-			keyArn:              agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
-			keyTags:             tagsToList(ag.Tags),
+			"AgreementId":           ag.AgreementID,
+			keyServerID:             ag.ServerID,
+			keyDescription:          ag.Description,
+			keyStatus:               ag.Status,
+			keyLocalProfileID:       ag.LocalProfileID,
+			keyPartnerProfileID:     ag.PartnerProfileID,
+			"BaseDirectory":         ag.BaseDirectory,
+			"AccessRole":            ag.AccessRole,
+			keyArn:                  agreementARN(ag.AccountID, ag.Region, ag.ServerID, ag.AgreementID),
+			keyTags:                 tagsToList(ag.Tags),
+			"EnforceMessageSigning": ag.EnforceMessageSigning,
+			"PreserveFilename":      ag.PreserveFilename,
 		},
 	}, nil
 }
@@ -163,10 +171,12 @@ func (h *Handler) handleListAgreements(
 }
 
 type updateAgreementInput struct {
-	ServerID    string `json:"ServerId"`
-	AgreementID string `json:"AgreementId"`
-	Description string `json:"Description"`
-	Status      string `json:"Status"`
+	ServerID              string `json:"ServerId"`
+	AgreementID           string `json:"AgreementId"`
+	Description           string `json:"Description"`
+	Status                string `json:"Status"`
+	EnforceMessageSigning string `json:"EnforceMessageSigning,omitempty"`
+	PreserveFilename      string `json:"PreserveFilename,omitempty"`
 }
 
 type updateAgreementOutput struct {
@@ -185,7 +195,13 @@ func (h *Handler) handleUpdateAgreement(
 		return nil, fmt.Errorf("%w: AgreementId is required", errInvalidRequest)
 	}
 
-	ag, err := h.Backend.UpdateAgreement(in.ServerID, in.AgreementID, in.Description, in.Status)
+	ag, err := h.Backend.UpdateAgreement(
+		in.ServerID, in.AgreementID, in.Description, in.Status,
+		AgreementUpdateExtras{
+			EnforceMessageSigning: in.EnforceMessageSigning,
+			PreserveFilename:      in.PreserveFilename,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

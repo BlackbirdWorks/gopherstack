@@ -51,13 +51,17 @@ const (
 
 // Agreement status constants.
 const (
-	agreementStatusActive   = "ACTIVE"
-	agreementStatusInactive = "INACTIVE"
-	defaultHostKeyType      = "ssh-rsa"
-	sshKeyTypeEd25519       = "ssh-ed25519"
-	sshKeyTypeECDSAP256     = "ecdsa-sha2-nistp256"
-	sshKeyTypeECDSAP384     = "ecdsa-sha2-nistp384"
-	sshKeyTypeECDSAP521     = "ecdsa-sha2-nistp521"
+	agreementStatusActive             = "ACTIVE"
+	agreementStatusInactive           = "INACTIVE"
+	agreementSigningEnabled           = "ENABLED"
+	agreementSigningDisabled          = "DISABLED"
+	agreementPreserveFilenameEnabled  = "ENABLED"
+	agreementPreserveFilenameDisabled = "DISABLED"
+	defaultHostKeyType                = "ssh-rsa"
+	sshKeyTypeEd25519                 = "ssh-ed25519"
+	sshKeyTypeECDSAP256               = "ecdsa-sha2-nistp256"
+	sshKeyTypeECDSAP384               = "ecdsa-sha2-nistp384"
+	sshKeyTypeECDSAP521               = "ecdsa-sha2-nistp521"
 )
 
 // SendWorkflowStepState's Status is types.CustomStepStatus
@@ -317,18 +321,20 @@ func cloneAccess(a *Access) *Access {
 
 // Agreement represents an AWS Transfer AS2 agreement.
 type Agreement struct {
-	CreatedAt        time.Time         `json:"created_at"`
-	Tags             map[string]string `json:"tags"`
-	AgreementID      string            `json:"agreement_id"`
-	ServerID         string            `json:"server_id"`
-	Description      string            `json:"description"`
-	LocalProfileID   string            `json:"local_profile_id"`
-	PartnerProfileID string            `json:"partner_profile_id"`
-	BaseDirectory    string            `json:"base_directory"`
-	AccessRole       string            `json:"access_role"`
-	AccountID        string            `json:"account_id"`
-	Region           string            `json:"region"`
-	Status           string            `json:"status"`
+	CreatedAt             time.Time         `json:"created_at"`
+	Tags                  map[string]string `json:"tags"`
+	AgreementID           string            `json:"agreement_id"`
+	ServerID              string            `json:"server_id"`
+	Description           string            `json:"description"`
+	LocalProfileID        string            `json:"local_profile_id"`
+	PartnerProfileID      string            `json:"partner_profile_id"`
+	BaseDirectory         string            `json:"base_directory"`
+	AccessRole            string            `json:"access_role"`
+	AccountID             string            `json:"account_id"`
+	Region                string            `json:"region"`
+	Status                string            `json:"status"`
+	EnforceMessageSigning string            `json:"enforce_message_signing,omitempty"`
+	PreserveFilename      string            `json:"preserve_filename,omitempty"`
 }
 
 // cloneAgreement returns a deep copy of an Agreement.
