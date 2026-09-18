@@ -96,9 +96,12 @@ func (h *Handler) handleDescribeDBClusterParameters(ctx context.Context, vals ur
 		members = append(members, toXMLDBClusterParameter(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeDBClusterParametersResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeDBClusterParametersResult{
+			Marker:     nextMarker,
 			Parameters: xmlDBClusterParameterList{Members: members},
 		},
 	}, nil
@@ -113,11 +116,14 @@ func (h *Handler) handleDescribeEngineDefaultClusterParameters(ctx context.Conte
 		members = append(members, toXMLDBClusterParameter(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeEngineDefaultClusterParametersResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeEngineDefaultClusterParametersResult{
 			EngineDefaults: xmlEngineDefaults{
 				DBParameterGroupFamily: family,
+				Marker:                 nextMarker,
 				Parameters:             xmlDBClusterParameterList{Members: members},
 			},
 		},
@@ -209,6 +215,7 @@ type xmlDBClusterParameterList struct {
 }
 
 type describeDBClusterParametersResult struct {
+	Marker     string                    `xml:"Marker,omitempty"`
 	Parameters xmlDBClusterParameterList `xml:"Parameters"`
 }
 
@@ -220,6 +227,7 @@ type describeDBClusterParametersResponse struct {
 
 type xmlEngineDefaults struct {
 	DBParameterGroupFamily string                    `xml:"DBParameterGroupFamily"`
+	Marker                 string                    `xml:"Marker,omitempty"`
 	Parameters             xmlDBClusterParameterList `xml:"Parameters"`
 }
 

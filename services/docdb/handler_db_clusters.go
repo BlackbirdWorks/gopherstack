@@ -34,6 +34,7 @@ func (h *Handler) handleCreateDBCluster(ctx context.Context, vals url.Values) (a
 	tags := parseTags(vals)
 	opts := &CreateDBClusterOptions{
 		KmsKeyID:                     vals.Get("KmsKeyId"),
+		StorageType:                  vals.Get("StorageType"),
 		VpcSecurityGroupIDs:          parseVpcSecurityGroupIDs(vals),
 		EnabledCloudwatchLogsExports: parseEnableLogTypes(vals),
 	}
@@ -131,10 +132,12 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 		EngineVersion:          vals.Get("EngineVersion"),
 		MasterUserPassword:     vals.Get("MasterUserPassword"),
 		NewDBClusterIdentifier: vals.Get("NewDBClusterIdentifier"),
+		StorageType:            vals.Get("StorageType"),
 		VpcSecurityGroupIDs:    parseVpcSecurityGroupIDs(vals),
 		EnableLogsTypes:        parseCloudwatchEnableLogTypes(vals),
 		DisableLogsTypes:       parseCloudwatchDisableLogTypes(vals),
 		Port:                   port,
+		ApplyImmediately:       vals.Get("ApplyImmediately") == stringTrue,
 	}
 
 	cluster, err := h.Backend.ModifyDBCluster(
@@ -196,7 +199,10 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(ctx context.Context, vals u
 	snapshotID := vals.Get("SnapshotIdentifier")
 	clusterID := vals.Get("DBClusterIdentifier")
 	engine := vals.Get("Engine")
-	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID, engine)
+	opts := &RestoreDBClusterOptions{
+		StorageType: vals.Get("StorageType"),
+	}
+	cluster, err := h.Backend.RestoreDBClusterFromSnapshot(ctx, snapshotID, clusterID, engine, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +216,12 @@ func (h *Handler) handleRestoreDBClusterFromSnapshot(ctx context.Context, vals u
 func (h *Handler) handleRestoreDBClusterToPointInTime(ctx context.Context, vals url.Values) (any, error) {
 	sourceClusterID := vals.Get("SourceDBClusterIdentifier")
 	targetClusterID := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, sourceClusterID, targetClusterID)
+	opts := &RestoreDBClusterOptions{
+		StorageType:             vals.Get("StorageType"),
+		RestoreToTime:           vals.Get("RestoreToTime"),
+		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == stringTrue,
+	}
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, sourceClusterID, targetClusterID, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -234,10 +245,19 @@ func toXMLCluster(c *DBCluster) xmlDBCluster {
 	azMembers := make([]string, len(c.AvailabilityZones))
 	copy(azMembers, c.AvailabilityZones)
 
+	// StorageType is only echoed when it's the non-default "iopt1" value --
+	// docdb@v1.51.4's own CreateDBClusterOutput doc comment: "The storage
+	// type isn't returned when you set it to standard."
+	storageType := c.StorageType
+	if storageType == storageTypeStandard {
+		storageType = ""
+	}
+
 	return xmlDBCluster{
 		DBClusterIdentifier:          c.DBClusterIdentifier,
 		Engine:                       c.Engine,
 		Status:                       c.Status,
+		StorageType:                  storageType,
 		MasterUsername:               c.MasterUsername,
 		DBClusterParameterGroupName:  c.DBClusterParameterGroupName,
 		Endpoint:                     c.Endpoint,
@@ -314,6 +334,7 @@ type xmlDBCluster struct {
 	ClusterCreateTime            string                            `xml:"ClusterCreateTime,omitempty"`
 	HostedZoneID                 string                            `xml:"HostedZoneId,omitempty"`
 	KmsKeyID                     string                            `xml:"KmsKeyId,omitempty"`
+	StorageType                  string                            `xml:"StorageType,omitempty"`
 	ReplicationSourceIdentifier  string                            `xml:"ReplicationSourceIdentifier,omitempty"`
 	VpcSecurityGroups            xmlVpcSecurityGroupMembershipList `xml:"VpcSecurityGroups"`
 	EnabledCloudwatchLogsExports xmlLogTypeList                    `xml:"EnabledCloudwatchLogsExports"`
