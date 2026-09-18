@@ -1,7 +1,7 @@
 ---
 service: dlm
 sdk_module: aws-sdk-go-v2/service/dlm@v1.39.4   # version audited against (go.mod pin)
-last_audit_commit: c9523cebb
+last_audit_commit: e33627d17
 last_audit_date: 2026-09-18
 overall: A            # gopherstack-x009: DefaultPolicy echo + LimitExceededException quota added; StatusMessage confirmed honest
 ops:
@@ -22,6 +22,21 @@ leaks: {status: clean, note: "no goroutines/janitors; store.Table + lockmetrics.
 ---
 
 ## Notes
+
+### 2026-09-18 (gopherstack-21my): per-item response field sweep -- clean
+
+Diffed all 8 dlm ops' response item fields against the pinned
+`dlm@v1.39.4` SDK (`cmd/structfielddiff`, cross-checked wire key casing
+against `deserializers.go`'s `case "..."` switches directly). `PolicySummary`
+(GetLifecyclePolicies' item) carries exactly the 6 real
+`types.LifecyclePolicySummary` members (DefaultPolicy, Description,
+PolicyId, PolicyType, State, Tags) under the exact same PascalCase wire
+keys; `Policy` (GetLifecyclePolicy) carries exactly the 11 real
+`types.LifecyclePolicy` members. No fabricated members, no dropped
+members, no case/name mismatches -- the prior sweeps (x009, ks2s.12)
+already closed this service's per-item gaps as a side effect of their
+top-level field work. `cmd/overwidecandidates` reports no candidates for
+dlm. No bugs found this pass; no code changes.
 
 ### 2026-09-18 (reqfielddiff tier-1): GetLifecyclePolicies.DefaultPolicyType -- false positive
 
