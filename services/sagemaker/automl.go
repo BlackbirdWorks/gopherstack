@@ -20,6 +20,12 @@ var (
 	ErrAutoMLJobNotStoppable = awserr.New("ValidationException", awserr.ErrInvalidParameter)
 )
 
+// autoMLJobStoppingDelay mirrors the InProgress->Stopping->Stopped shape
+// every other async-transition family in this service uses (e.g.
+// transformJobStoppingDelay); AutoMLJobStatus declares Stopping as a real
+// intermediate value (types/enums.go:1190-1198).
+const autoMLJobStoppingDelay = 150 * time.Millisecond
+
 // ---------------------------------------------------------------------------
 // AutoMLJob
 // ---------------------------------------------------------------------------
@@ -235,7 +241,10 @@ func (b *InMemoryBackend) DescribeAutoMLJob(ctx context.Context, name string) (*
 	return cloneAutoMLJob(j), nil
 }
 
-// StopAutoMLJob sets an AutoML job status to "Stopped".
+// StopAutoMLJob transitions an AutoML job InProgress->Stopping->Stopped,
+// matching the real AutoMLJobStatus enum (types/enums.go:1190-1198) and this
+// backend's own TransformJob/ProcessingJob/EdgePackagingJob FSMs, instead of
+// jumping straight to the terminal state.
 func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error {
 	b.mu.Lock("StopAutoMLJob")
 	defer b.mu.Unlock()
@@ -248,14 +257,27 @@ func (b *InMemoryBackend) StopAutoMLJob(ctx context.Context, name string) error 
 	}
 
 	// AWS rejects stopping a job that is already in a terminal state.
-	if j.AutoMLJobStatus == algorithmStatusCompleted || j.AutoMLJobStatus == pipelineStatusStopped {
+	if j.AutoMLJobStatus == algorithmStatusCompleted || j.AutoMLJobStatus == pipelineStatusStopped ||
+		j.AutoMLJobStatus == pipelineStatusStopping {
 		return fmt.Errorf("%w: AutoML job %q cannot be stopped (status: %s)",
 			ErrAutoMLJobNotStoppable, name, j.AutoMLJobStatus)
 	}
 
-	j.AutoMLJobStatus = pipelineStatusStopped
-	j.AutoMLJobSecondaryStatus = pipelineStatusStopped
+	j.AutoMLJobStatus = pipelineStatusStopping
+	j.AutoMLJobSecondaryStatus = pipelineStatusStopping
 	j.LastModifiedTime = time.Now()
+
+	b.runDelayed(b.lifecycleCtx, autoMLJobStoppingDelay, func() {
+		b.mu.Lock("StopAutoMLJob.goroutine")
+		defer b.mu.Unlock()
+
+		if j2, found := b.autoMLJobsStore(region).Get(name); found &&
+			j2.AutoMLJobStatus == pipelineStatusStopping {
+			j2.AutoMLJobStatus = pipelineStatusStopped
+			j2.AutoMLJobSecondaryStatus = pipelineStatusStopped
+			j2.LastModifiedTime = time.Now()
+		}
+	})
 
 	return nil
 }

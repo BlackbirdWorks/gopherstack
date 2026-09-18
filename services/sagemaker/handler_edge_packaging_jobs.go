@@ -133,8 +133,8 @@ func (h *Handler) handleDescribeEdgePackagingJob(ctx context.Context, body []byt
 		resp["ResourceKey"] = j.ResourceKey
 	}
 
-	if j.FailureReason != "" {
-		resp["FailureReason"] = j.FailureReason
+	if j.ModelArtifact != "" {
+		resp["ModelArtifact"] = j.ModelArtifact
 	}
 
 	return json.Marshal(resp)

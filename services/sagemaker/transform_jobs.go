@@ -69,25 +69,61 @@ type TransformResources struct {
 	InstanceCount  int32  `json:"InstanceCount"`
 }
 
+// TransformDataCaptureConfig mirrors types.BatchDataCaptureConfig
+// (CreateTransformJobInput.DataCaptureConfig).
+type TransformDataCaptureConfig struct {
+	DestinationS3URI    string `json:"DestinationS3Uri"`
+	KmsKeyID            string `json:"KmsKeyId,omitempty"`
+	GenerateInferenceID bool   `json:"GenerateInferenceId,omitempty"`
+}
+
+// TransformDataProcessing mirrors types.DataProcessing
+// (CreateTransformJobInput.DataProcessing).
+type TransformDataProcessing struct {
+	InputFilter  string `json:"InputFilter,omitempty"`
+	OutputFilter string `json:"OutputFilter,omitempty"`
+	JoinSource   string `json:"JoinSource,omitempty"`
+}
+
+// TransformExperimentConfig mirrors types.ExperimentConfig
+// (CreateTransformJobInput.ExperimentConfig).
+type TransformExperimentConfig struct {
+	ExperimentName            string `json:"ExperimentName,omitempty"`
+	RunName                   string `json:"RunName,omitempty"`
+	TrialComponentDisplayName string `json:"TrialComponentDisplayName,omitempty"`
+	TrialName                 string `json:"TrialName,omitempty"`
+}
+
+// TransformModelClientConfig mirrors types.ModelClientConfig
+// (CreateTransformJobInput.ModelClientConfig).
+type TransformModelClientConfig struct {
+	InvocationsMaxRetries       int32 `json:"InvocationsMaxRetries,omitempty"`
+	InvocationsTimeoutInSeconds int32 `json:"InvocationsTimeoutInSeconds,omitempty"`
+}
+
 // TransformJob represents a SageMaker batch transform job.
 type TransformJob struct {
-	CreationTime            time.Time          `json:"CreationTime"`
-	LastModifiedTime        time.Time          `json:"LastModifiedTime"`
-	TransformStartTime      *time.Time         `json:"TransformStartTime,omitempty"`
-	TransformEndTime        *time.Time         `json:"TransformEndTime,omitempty"`
-	Tags                    map[string]string  `json:"Tags,omitempty"`
-	Environment             map[string]string  `json:"Environment,omitempty"`
-	TransformInput          TransformInput     `json:"TransformInput"`
-	TransformOutput         TransformOutput    `json:"TransformOutput"`
-	ModelName               string             `json:"ModelName,omitempty"`
-	TransformJobName        string             `json:"TransformJobName"`
-	TransformJobArn         string             `json:"TransformJobArn"`
-	TransformJobStatus      string             `json:"TransformJobStatus"`
-	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
-	FailureReason           string             `json:"FailureReason,omitempty"`
-	TransformResources      TransformResources `json:"TransformResources"`
-	MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
-	MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
+	CreationTime            time.Time                   `json:"CreationTime"`
+	LastModifiedTime        time.Time                   `json:"LastModifiedTime"`
+	TransformStartTime      *time.Time                  `json:"TransformStartTime,omitempty"`
+	TransformEndTime        *time.Time                  `json:"TransformEndTime,omitempty"`
+	Tags                    map[string]string           `json:"Tags,omitempty"`
+	Environment             map[string]string           `json:"Environment,omitempty"`
+	TransformInput          TransformInput              `json:"TransformInput"`
+	TransformOutput         TransformOutput             `json:"TransformOutput"`
+	DataCaptureConfig       *TransformDataCaptureConfig `json:"DataCaptureConfig,omitempty"`
+	DataProcessing          *TransformDataProcessing    `json:"DataProcessing,omitempty"`
+	ExperimentConfig        *TransformExperimentConfig  `json:"ExperimentConfig,omitempty"`
+	ModelClientConfig       *TransformModelClientConfig `json:"ModelClientConfig,omitempty"`
+	ModelName               string                      `json:"ModelName,omitempty"`
+	TransformJobName        string                      `json:"TransformJobName"`
+	TransformJobArn         string                      `json:"TransformJobArn"`
+	TransformJobStatus      string                      `json:"TransformJobStatus"`
+	BatchStrategy           string                      `json:"BatchStrategy,omitempty"`
+	FailureReason           string                      `json:"FailureReason,omitempty"`
+	TransformResources      TransformResources          `json:"TransformResources"`
+	MaxConcurrentTransforms int32                       `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB          int32                       `json:"MaxPayloadInMB,omitempty"`
 }
 
 // cloneTransformJob returns a deep copy of tj.
@@ -105,6 +141,10 @@ type TransformJobOptions struct {
 	Environment             map[string]string
 	TransformInput          TransformInput
 	TransformOutput         TransformOutput
+	DataCaptureConfig       *TransformDataCaptureConfig
+	DataProcessing          *TransformDataProcessing
+	ExperimentConfig        *TransformExperimentConfig
+	ModelClientConfig       *TransformModelClientConfig
 	TransformJobName        string
 	ModelName               string
 	BatchStrategy           string
@@ -157,6 +197,10 @@ func (b *InMemoryBackend) CreateTransformJob(ctx context.Context, opts Transform
 		MaxPayloadInMB:          opts.MaxPayloadInMB,
 		TransformInput:          opts.TransformInput,
 		TransformOutput:         opts.TransformOutput,
+		DataCaptureConfig:       opts.DataCaptureConfig,
+		DataProcessing:          opts.DataProcessing,
+		ExperimentConfig:        opts.ExperimentConfig,
+		ModelClientConfig:       opts.ModelClientConfig,
 		TransformResources:      opts.TransformResources,
 		Tags:                    mergeTags(nil, opts.Tags),
 		Environment:             maps.Clone(opts.Environment),
