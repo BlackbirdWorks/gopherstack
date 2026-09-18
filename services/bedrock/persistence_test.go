@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,30 +12,24 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
 
-// Compile-time assertions that both service.Registerable values backed by
-// InMemoryBackend satisfy persistence.Persistable -- this is what makes
-// cli.go's setupPersistence auto-register them (see persistence.go).
-var (
-	_ persistence.Persistable = (*bedrock.Handler)(nil)
-	_ persistence.Persistable = (*bedrock.AgentsHandler)(nil)
-)
+// Compile-time assertion that Handler satisfies persistence.Persistable --
+// this is what makes cli.go's setupPersistence auto-register it (see
+// persistence.go).
+var _ persistence.Persistable = (*bedrock.Handler)(nil)
 
 const (
 	testAccountID = "123456789012"
 	testRegion    = "us-east-1"
 )
 
-// fixtureIDs carries every identifier (and the two unexported-field
-// timestamps captured via export_test.go's *ForTest bridges) that
-// newPersistenceFixture creates, so the round-trip assertions in
+// fixtureIDs carries every identifier (and the unexported-field timestamp
+// captured via export_test.go's *ForTest bridge) that newPersistenceFixture
+// creates, so the round-trip assertions in
 // TestInMemoryBackend_SnapshotRestore_FullState can look each resource back
 // up after Restore without re-deriving names/IDs.
 type fixtureIDs struct {
-	preparationDueAt          time.Time
-	completionDueAt           time.Time
 	inferenceProfileARN       string
 	promptRouterARN           string
-	promptVersion             string
 	pmtARN                    string
 	evalJobARN                string
 	arpARN                    string
@@ -51,21 +44,7 @@ type fixtureIDs struct {
 	guardrailID               string
 	marketplaceEndpointARN    string
 	guardrailVersion          string
-	agentID                   string
 	invocationJobARN          string
-	agentArn                  string
-	agentVersion              string
-	actionGroupID             string
-	aliasID                   string
-	collaboratorID            string
-	kbID                      string
-	dataSourceID              string
-	ingestionJobID            string
-	docID                     string
-	flowID                    string
-	flowVersion               string
-	flowAliasID               string
-	promptID                  string
 	enforcedGuardrailConfigID string
 	advancedPromptOptJobARN   string
 	resourcePolicyTargetARN   string
@@ -73,12 +52,10 @@ type fixtureIDs struct {
 }
 
 // newPersistenceFixture builds a backend with one populated entry in every
-// store.Table registered on b.registry (all 30 flat tables plus the 4
-// lazily-registered per-parent kinds -- see store_setup.go), every raw
-// map/counter left un-converted, and every unexported scheduling/counter
-// field persistence.go carries out-of-band (Guardrail.versionCounter,
-// Agent.preparationDueAt, IngestionJob.completionDueAt), so a Snapshot from
-// it exercises the entire persisted surface of the backend.
+// store.Table registered on b.registry, every raw map/counter left
+// un-converted, and Guardrail.versionCounter (the unexported field
+// persistence.go carries out-of-band), so a Snapshot from it exercises the
+// entire persisted surface of the backend.
 func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) {
 	t.Helper()
 
@@ -87,9 +64,6 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 
 	ids := seedGuardrailAndModelResources(t, b, tags)
 	seedJobResources(t, b, tags, ids.customModelARN, &ids)
-	seedAgentResources(t, b, &ids)
-	seedKBResources(t, b, ids.agentID, &ids)
-	seedFlowPromptResources(t, b, &ids)
 
 	// Misc raw state not tied to a single resource above.
 	b.PutModelInvocationLoggingConfiguration(&bedrock.ModelInvocationLoggingConfiguration{
@@ -100,7 +74,6 @@ func newPersistenceFixture(t *testing.T) (*bedrock.InMemoryBackend, fixtureIDs) 
 		ids.arpARN, ids.arpWorkflowID, []any{map[string]any{"seed": true}}, "seed-hash",
 	)
 	require.NoError(t, err)
-	require.NoError(t, b.TagAgentResource(ids.agentArn, map[string]string{"team": "platform"}))
 
 	seedParity4Resources(t, b, &ids)
 
@@ -295,131 +268,6 @@ func seedJobResources(
 	ids.promptRouterARN = pr.PromptRouterArn
 }
 
-// seedAgentResources seeds the agent-family tables (agents,
-// agentActionGroups, agentAliases), calls PrepareAgent to give
-// Agent.preparationDueAt a non-zero value (captured into
-// ids.preparationDueAt before the caller snapshots), and writes the
-// resulting IDs into ids in place. agentVersions/agentCollaborators are
-// seeded later in seedFlowPromptResources, once ids.agentID is set, since
-// CreateAgentVersion/AssociateAgentCollaborator both require an existing
-// agent.
-func seedAgentResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureIDs) {
-	t.Helper()
-
-	agent, err := b.CreateAgent(
-		"test-agent",
-		"anthropic.claude-v2",
-		"be helpful",
-		"arn:aws:iam::123456789012:role/BedrockRole",
-		map[string]string{"env": "test"},
-	)
-	require.NoError(t, err)
-
-	_, err = b.PrepareAgent(agent.AgentID)
-	require.NoError(t, err)
-
-	ag, err := b.CreateAgentActionGroup(agent.AgentID, "test-action-group", "desc", map[string]any{
-		"lambda": "arn:aws:lambda:us-east-1:123456789012:function:test",
-	})
-	require.NoError(t, err)
-
-	alias, err := b.CreateAgentAlias(agent.AgentID, "test-alias", "DRAFT")
-	require.NoError(t, err)
-
-	ids.agentID = agent.AgentID
-	ids.agentArn = agent.AgentArn
-	ids.actionGroupID = ag.ActionGroupID
-	ids.aliasID = alias.AgentAliasID
-	ids.preparationDueAt = b.AgentPreparationDueAtForTest(agent.AgentID)
-}
-
-// seedKBResources seeds the knowledge-base-family tables (knowledgeBases,
-// agentKBAssociations, dataSources, ingestionJobs, kbDocuments), starts an
-// ingestion job to give IngestionJob.completionDueAt a non-zero value
-// (captured into ids.completionDueAt before the caller snapshots), and
-// writes the resulting IDs into ids in place.
-func seedKBResources(t *testing.T, b *bedrock.InMemoryBackend, agentID string, ids *fixtureIDs) {
-	t.Helper()
-
-	kb, err := b.CreateKnowledgeBase(
-		"test-kb", "desc", "arn:aws:iam::123456789012:role/BedrockRole", nil, nil,
-		map[string]string{"env": "test"},
-	)
-	require.NoError(t, err)
-
-	_, err = b.AssociateAgentKnowledgeBase(agentID, kb.KnowledgeBaseID, "assoc desc", "")
-	require.NoError(t, err)
-
-	ds, err := b.CreateDataSource(kb.KnowledgeBaseID, "test-ds", "desc", nil)
-	require.NoError(t, err)
-
-	job, err := b.StartIngestionJob(kb.KnowledgeBaseID, ds.DataSourceID, "test job")
-	require.NoError(t, err)
-
-	docs, err := b.IngestKnowledgeBaseDocuments(
-		kb.KnowledgeBaseID, ds.DataSourceID,
-		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: "doc-1"}},
-	)
-	require.NoError(t, err)
-	require.Len(t, docs, 1)
-
-	ids.kbID = kb.KnowledgeBaseID
-	ids.dataSourceID = ds.DataSourceID
-	ids.ingestionJobID = job.IngestionJobID
-	ids.docID = docs[0].DocumentID
-	ids.completionDueAt = b.IngestionJobCompletionDueAtForTest(
-		kb.KnowledgeBaseID,
-		ds.DataSourceID,
-		job.IngestionJobID,
-	)
-}
-
-// seedFlowPromptResources seeds the flow/prompt-family tables (flows,
-// flowAliases, flowVersions, prompts, promptVersions) and the two remaining
-// per-agent lazily-registered kinds (agentVersions, agentCollaborators, both
-// requiring ids.agentID from seedAgentResources), writing the resulting IDs
-// into ids in place.
-func seedFlowPromptResources(t *testing.T, b *bedrock.InMemoryBackend, ids *fixtureIDs) {
-	t.Helper()
-
-	flow, err := b.CreateFlow(
-		"test-flow",
-		"desc",
-		"arn:aws:iam::000000000000:role/flow-role",
-		map[string]string{"env": "test"},
-	)
-	require.NoError(t, err)
-
-	fv, err := b.CreateFlowVersion(flow.FlowID)
-	require.NoError(t, err)
-
-	falias, err := b.CreateFlowAlias(flow.FlowID, "test-flow-alias", "desc", nil)
-	require.NoError(t, err)
-
-	prompt, err := b.CreatePrompt("test-prompt", "desc", map[string]string{"env": "test"})
-	require.NoError(t, err)
-
-	pv, err := b.CreatePromptVersion(prompt.PromptID)
-	require.NoError(t, err)
-
-	av, err := b.CreateAgentVersion(ids.agentID)
-	require.NoError(t, err)
-
-	collab, err := b.AssociateAgentCollaborator(
-		ids.agentID, "DRAFT", "arn:aws:bedrock:us-east-1:123456789012:agent/collaborator-id",
-		"collab-name", "collaborate", "DISABLED",
-	)
-	require.NoError(t, err)
-
-	ids.flowID = flow.FlowID
-	ids.flowVersion = fv.Version
-	ids.flowAliasID = falias.FlowAliasID
-	ids.promptID = prompt.PromptID
-	ids.promptVersion = pv.Version
-	ids.agentVersion = av.AgentVersion
-	ids.collaboratorID = collab.CollaboratorID
-}
-
 // TestInMemoryBackend_SnapshotRestore_FullState round-trips every
 // store.Table registered on b.registry, every raw map/counter left
 // un-converted, and every unexported field persistence.go carries
@@ -454,9 +302,6 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 
 	assertGuardrailAndModelState(t, fresh, ids)
 	assertJobState(t, fresh, ids)
-	assertAgentState(t, fresh, ids)
-	assertKBState(t, fresh, ids)
-	assertFlowPromptState(t, fresh, ids)
 	assertMiscRawState(t, fresh, ids)
 	assertParity4State(t, fresh, ids)
 }
@@ -620,119 +465,10 @@ func assertJobState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs
 	assert.Equal(t, "test-prompt-router", pr.PromptRouterName)
 }
 
-// assertAgentState verifies the agent-family tables round-tripped, including
-// Agent.preparationDueAt (unexported, carried out-of-band -- see
-// persistence.go).
-func assertAgentState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
-	t.Helper()
-
-	agent, err := fresh.GetAgent(ids.agentID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-agent", agent.AgentName)
-	assert.Equal(t, ids.agentArn, agent.AgentArn)
-
-	// agentsByName raw map: a duplicate CreateAgent by the same name must
-	// still conflict after restore.
-	_, err = fresh.CreateAgent("test-agent", "anthropic.claude-v2", "x", "role-arn", nil)
-	require.ErrorIs(t, err, bedrock.ErrAlreadyExists)
-
-	assert.True(t, ids.preparationDueAt.Equal(fresh.AgentPreparationDueAtForTest(ids.agentID)))
-
-	ag, err := fresh.GetAgentActionGroup(ids.agentID, ids.actionGroupID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-action-group", ag.ActionGroupName)
-
-	alias, err := fresh.GetAgentAlias(ids.agentID, ids.aliasID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-alias", alias.AgentAliasName)
-}
-
-// assertKBState verifies the knowledge-base-family tables round-tripped,
-// including IngestionJob.completionDueAt (unexported, carried out-of-band --
-// see persistence.go).
-func assertKBState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
-	t.Helper()
-
-	kb, err := fresh.GetKnowledgeBase(ids.kbID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-kb", kb.Name)
-
-	// kbByName raw map.
-	_, err = fresh.CreateKnowledgeBase("test-kb", "d", "role-arn", nil, nil, nil)
-	require.ErrorIs(t, err, bedrock.ErrAlreadyExists)
-
-	assoc, err := fresh.GetAgentKnowledgeBase(ids.agentID, ids.kbID)
-	require.NoError(t, err)
-	assert.Equal(t, ids.kbID, assoc.KnowledgeBaseID)
-
-	ds, err := fresh.GetDataSource(ids.kbID, ids.dataSourceID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-ds", ds.Name)
-
-	job, err := fresh.GetIngestionJob(ids.kbID, ids.dataSourceID, ids.ingestionJobID)
-	require.NoError(t, err)
-	assert.Equal(t, ids.ingestionJobID, job.IngestionJobID)
-
-	assert.True(t, ids.completionDueAt.Equal(
-		fresh.IngestionJobCompletionDueAtForTest(ids.kbID, ids.dataSourceID, ids.ingestionJobID),
-	))
-
-	docs, err := fresh.GetKnowledgeBaseDocuments(
-		ids.kbID, ids.dataSourceID,
-		[]bedrock.KBDocumentIdentifier{{DataSourceType: "S3", S3URI: ids.docID}},
-	)
-	require.NoError(t, err)
-	require.Len(t, docs, 1)
-	assert.Equal(t, ids.docID, docs[0].DocumentID)
-}
-
-// assertFlowPromptState verifies the flow/prompt-family tables and the two
-// remaining lazily-registered per-agent kinds (agentVersions,
-// agentCollaborators) round-tripped.
-func assertFlowPromptState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
-	t.Helper()
-
-	flow, err := fresh.GetFlow(ids.flowID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-flow", flow.Name)
-
-	// flowsByName raw map.
-	_, err = fresh.CreateFlow("test-flow", "d", "arn:aws:iam::000000000000:role/flow-role", nil)
-	require.ErrorIs(t, err, bedrock.ErrAlreadyExists)
-
-	fv, err := fresh.GetFlowVersion(ids.flowID, ids.flowVersion)
-	require.NoError(t, err)
-	assert.Equal(t, ids.flowVersion, fv.Version)
-
-	falias, err := fresh.GetFlowAlias(ids.flowID, ids.flowAliasID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-flow-alias", falias.Name)
-
-	prompt, err := fresh.GetPrompt(ids.promptID)
-	require.NoError(t, err)
-	assert.Equal(t, "test-prompt", prompt.Name)
-
-	// promptsByName raw map.
-	_, err = fresh.CreatePrompt("test-prompt", "d", nil)
-	require.ErrorIs(t, err, bedrock.ErrAlreadyExists)
-
-	pv, err := fresh.GetPromptVersion(ids.promptID, ids.promptVersion)
-	require.NoError(t, err)
-	assert.Equal(t, ids.promptVersion, pv.Version)
-
-	av, err := fresh.GetAgentVersion(ids.agentID, ids.agentVersion)
-	require.NoError(t, err)
-	assert.Equal(t, ids.agentVersion, av.AgentVersion)
-
-	collab, err := fresh.GetAgentCollaborator(ids.agentID, ids.collaboratorID)
-	require.NoError(t, err)
-	assert.Equal(t, ids.collaboratorID, collab.CollaboratorID)
-}
-
 // assertMiscRawState verifies the remaining raw (non-store.Table) state:
-// loggingConfig, useCaseFormData, arpAnnotations, agentTags,
-// and that the ID counters continue from where they left off instead of
-// colliding with pre-snapshot IDs.
+// loggingConfig, useCaseFormData, arpAnnotations, and that the ID counters
+// continue from where they left off instead of colliding with pre-snapshot
+// IDs.
 func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtureIDs) {
 	t.Helper()
 
@@ -746,9 +482,6 @@ func assertMiscRawState(t *testing.T, fresh *bedrock.InMemoryBackend, ids fixtur
 	anns, err := fresh.GetAutomatedReasoningPolicyAnnotations(ids.arpARN, ids.arpWorkflowID)
 	require.NoError(t, err)
 	assert.NotNil(t, anns["annotations"])
-
-	agentTags := fresh.ListAgentResourceTags(ids.agentArn)
-	assert.Equal(t, "platform", agentTags["team"])
 
 	// ID counters: a newly created guardrail after restore must not collide
 	// with the guardrail created before the snapshot.
@@ -774,12 +507,6 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	_, err = b.GetGuardrail(ids.guardrailID)
 	require.ErrorIs(t, err, bedrock.ErrNotFound)
 
-	_, err = b.GetAgent(ids.agentID)
-	require.ErrorIs(t, err, bedrock.ErrNotFound)
-
-	_, err = b.GetFlow(ids.flowID)
-	require.ErrorIs(t, err, bedrock.ErrNotFound)
-
 	uc := b.GetUseCaseForModelAccess()
 	assert.Empty(t, uc)
 
@@ -790,52 +517,6 @@ func TestInMemoryBackend_RestoreVersionMismatch(t *testing.T) {
 	g, err := b.CreateGuardrail("post-reset-guardrail", "d", "in", "out", nil)
 	require.NoError(t, err)
 	assert.Equal(t, "bedrock-guardrail-0000001", g.GuardrailID)
-}
-
-// TestInMemoryBackend_RestoreV1FlowIDDiscarded proves gopherstack-hjdd's fix:
-// a v1 snapshot holding Flow.FlowID/FlowArn under the pre-f16063cd2 keys
-// "flowId"/"flowArn" must be discarded cleanly now that
-// bedrockSnapshotVersion is 2, rather than silently decoding FlowID as empty
-// (which would collide every restored flow onto the same "" key, since
-// flowsKeyFn keys the table on FlowID).
-func TestInMemoryBackend_RestoreV1FlowIDDiscarded(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend(testAccountID, testRegion)
-
-	v1Snapshot := `{
-		"version": 1,
-		"accountID": "` + testAccountID + `",
-		"region": "` + testRegion + `",
-		"tables": {
-			"flows": [{
-				"flowId": "flow-1",
-				"flowArn": "arn:aws:bedrock:us-east-1:000000000000:flow/flow-1",
-				"name": "old-flow",
-				"status": "Prepared"
-			}]
-		}
-	}`
-
-	require.NoError(t, b.Restore(t.Context(), []byte(v1Snapshot)),
-		"a v1 snapshot must be discarded via the version guard, not partially decoded")
-
-	_, err := b.GetFlow("flow-1")
-	require.ErrorIs(t, err, bedrock.ErrNotFound,
-		"incompatible-version snapshot must reset to empty, not silently decode FlowID as empty")
-
-	// ListFlows does not depend on flowsKeyFn's (potentially corrupted) key,
-	// so this is the assertion that actually distinguishes a clean discard
-	// from the silent-corruption bug: under the bug, GetFlow("flow-1") also
-	// fails (the flow is misfiled under key "", not "flow-1"), but the flow
-	// still exists and would show up here with FlowID/FlowArn silently
-	// zeroed while Name (whose key was never renamed) restores correctly.
-	flows, _ := b.ListFlows(10, "")
-	assert.Empty(
-		t,
-		flows,
-		"incompatible-version snapshot must reset to empty, not restore a flow with a corrupted id",
-	)
 }
 
 // TestInMemoryBackend_RestoreInvalidData verifies malformed JSON surfaces as
@@ -869,30 +550,7 @@ func TestHandler_SnapshotRestoreDelegate(t *testing.T) {
 	h2 := bedrock.NewHandler(bedrock.NewInMemoryBackend(testAccountID, testRegion))
 	require.NoError(t, h2.Restore(ctx, snap))
 
-	agent, err := h2.Backend.GetAgent(ids.agentID)
+	g, err := h2.Backend.GetGuardrail(ids.guardrailID)
 	require.NoError(t, err)
-	assert.Equal(t, ids.agentID, agent.AgentID)
-}
-
-// TestAgentsHandler_SnapshotRestoreDelegate verifies AgentsHandler.Snapshot/
-// Restore delegate to its own InMemoryBackend -- a SEPARATE instance from
-// Handler's (see provider.go's Provider vs AgentsProvider, each constructing
-// its own NewInMemoryBackend), so it needs independent coverage from
-// TestHandler_SnapshotRestoreDelegate above.
-func TestAgentsHandler_SnapshotRestoreDelegate(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	backend, ids := newPersistenceFixture(t)
-	h := bedrock.NewAgentsHandler(backend)
-
-	snap := h.Snapshot(ctx)
-	require.NotNil(t, snap)
-
-	h2 := bedrock.NewAgentsHandler(bedrock.NewInMemoryBackend(testAccountID, testRegion))
-	require.NoError(t, h2.Restore(ctx, snap))
-
-	flow, err := h2.Backend.GetFlow(ids.flowID)
-	require.NoError(t, err)
-	assert.Equal(t, ids.flowID, flow.FlowID)
+	assert.Equal(t, ids.guardrailID, g.GuardrailID)
 }

@@ -46,106 +46,6 @@ func walkAndVerify(t *testing.T, want map[string]bool, listPage func(token strin
 	}
 }
 
-func TestListAgentActionGroupsSortIsTotal(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	agent, err := b.CreateAgent("agent1", "anthropic.claude-v2", "instr", "arn:aws:iam::111111111111:role/x", nil)
-	require.NoError(t, err)
-
-	want := make(map[string]bool, 3)
-	for i := range 3 {
-		ag, createErr := b.CreateAgentActionGroup(agent.AgentID, "dup-name", fmt.Sprintf("desc-%d", i), nil)
-		require.NoError(t, createErr)
-		want[ag.ActionGroupID] = true
-	}
-
-	walkAndVerify(t, want, func(token string) ([]string, string) {
-		page, next := b.ListAgentActionGroups(agent.AgentID, 1, token)
-		ids := make([]string, len(page))
-		for i, ag := range page {
-			ids[i] = ag.ActionGroupID
-		}
-
-		return ids, next
-	})
-}
-
-func TestListDataSourcesSortIsTotal(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	kb, err := b.CreateKnowledgeBase("kb1", "", "arn:aws:iam::111111111111:role/x", nil, nil, nil)
-	require.NoError(t, err)
-
-	want := make(map[string]bool, 3)
-	for i := range 3 {
-		ds, createErr := b.CreateDataSource(kb.KnowledgeBaseID, "dup-name", fmt.Sprintf("desc-%d", i), nil)
-		require.NoError(t, createErr)
-		want[ds.DataSourceID] = true
-	}
-
-	walkAndVerify(t, want, func(token string) ([]string, string) {
-		page, next := b.ListDataSources(kb.KnowledgeBaseID, 1, token)
-		ids := make([]string, len(page))
-		for i, ds := range page {
-			ids[i] = ds.DataSourceID
-		}
-
-		return ids, next
-	})
-}
-
-func TestListFlowAliasesSortIsTotal(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	flow, err := b.CreateFlow("flow1", "", "arn:aws:iam::111111111111:role/flow-role", nil)
-	require.NoError(t, err)
-
-	want := make(map[string]bool, 3)
-	for i := range 3 {
-		fa, createErr := b.CreateFlowAlias(flow.FlowID, "dup-name", fmt.Sprintf("desc-%d", i), nil)
-		require.NoError(t, createErr)
-		want[fa.FlowAliasID] = true
-	}
-
-	walkAndVerify(t, want, func(token string) ([]string, string) {
-		page, next := b.ListFlowAliases(flow.FlowID, 1, token)
-		ids := make([]string, len(page))
-		for i, fa := range page {
-			ids[i] = fa.FlowAliasID
-		}
-
-		return ids, next
-	})
-}
-
-func TestListAgentAliasesSortIsTotal(t *testing.T) {
-	t.Parallel()
-
-	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	agent, err := b.CreateAgent("agent1", "anthropic.claude-v2", "instr", "arn:aws:iam::111111111111:role/x", nil)
-	require.NoError(t, err)
-
-	want := make(map[string]bool, 3)
-	for range 3 {
-		alias, createErr := b.CreateAgentAlias(agent.AgentID, "dup-name", "DRAFT")
-		require.NoError(t, createErr)
-		want[alias.AgentAliasID] = true
-	}
-
-	walkAndVerify(t, want, func(token string) ([]string, string) {
-		page, next := b.ListAgentAliases(agent.AgentID, 1, token)
-		ids := make([]string, len(page))
-		for i, alias := range page {
-			ids[i] = alias.AgentAliasID
-		}
-
-		return ids, next
-	})
-}
-
 func TestListCustomModelsSortIsTotal(t *testing.T) {
 	t.Parallel()
 
@@ -460,22 +360,21 @@ func TestListAdvancedPromptOptimizationJobsSortIsTotal(t *testing.T) {
 }
 
 // TestPaginateRejectsNegativeToken proves the shared bedrock paginate()
-// helper (used by ~20 List operations, including ListAgentActionGroups,
-// ListDataSources, ListFlowAliases, and ListAgentAliases above) no longer
-// panics on a forged/stale negative-offset NextToken. Before the fix,
-// strconv.Atoi("-1") parsed cleanly and paginate never clamped it, so
-// list[startIdx:end] paniced with a negative low index.
+// helper (used by ~20 List operations, including ListCustomModelDeployments
+// above) no longer panics on a forged/stale negative-offset NextToken.
+// Before the fix, strconv.Atoi("-1") parsed cleanly and paginate never
+// clamped it, so list[startIdx:end] paniced with a negative low index.
 func TestPaginateRejectsNegativeToken(t *testing.T) {
 	t.Parallel()
 
 	b := bedrock.NewInMemoryBackend("111111111111", "us-east-1")
-	agent, err := b.CreateAgent("agent1", "anthropic.claude-v2", "instr", "arn:aws:iam::111111111111:role/x", nil)
+	cm, err := b.CreateCustomModel("model1", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateAgentActionGroup(agent.AgentID, "ag1", "", nil)
+	_, err = b.CreateCustomModelDeployment(cm.ModelArn, "deploy1", nil)
 	require.NoError(t, err)
 
 	require.NotPanics(t, func() {
-		b.ListAgentActionGroups(agent.AgentID, 1, "-1")
+		b.ListCustomModelDeployments(&bedrock.ListCustomModelDeploymentsInput{MaxResults: 1, NextToken: "-1"})
 	})
 }

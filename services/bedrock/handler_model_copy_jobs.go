@@ -158,6 +158,10 @@ func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {
 	return c.JSON(http.StatusOK, modelCopyJobToOutput(job))
 }
 
+// arnFieldCount is the number of colon-separated fields in a well-formed
+// AWS ARN: "arn:partition:service:region:account:resource".
+const arnFieldCount = 6
+
 // accountIDFromARN extracts the account segment (index 4 of arnFieldCount)
 // from a well-formed ARN this backend built itself via pkgs/arn.Build --
 // not a fabricated value, just re-deriving what's already embedded.

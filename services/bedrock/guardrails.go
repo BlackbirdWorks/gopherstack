@@ -52,7 +52,7 @@ func (b *InMemoryBackend) CreateGuardrail(
 		Name:                    name,
 		Description:             description,
 		Status:                  "READY",
-		Version:                 agentStatusDraft,
+		Version:                 draftVersion,
 		BlockedInputMessaging:   blockedInput,
 		BlockedOutputsMessaging: blockedOutput,
 		Tags:                    tagsCopy,
@@ -185,7 +185,7 @@ func (b *InMemoryBackend) DeleteGuardrail(idOrARN, version string) error {
 		return fmt.Errorf("%w: guardrail %s not found", ErrNotFound, idOrARN)
 	}
 
-	if version != "" && version != agentStatusDraft {
+	if version != "" && version != draftVersion {
 		if !b.guardrailVersions.Delete(g.GuardrailID + ":" + version) {
 			return fmt.Errorf("%w: guardrail %s version %s not found", ErrNotFound, idOrARN, version)
 		}
@@ -326,7 +326,7 @@ func (b *InMemoryBackend) CreateGuardrailVersion(
 // "DRAFT" version returns the current (mutable) draft. A numbered version returns the
 // immutable snapshot captured when that version was published via CreateGuardrailVersion.
 func (b *InMemoryBackend) GetGuardrailVersion(idOrARN, version string) (*Guardrail, error) {
-	if version == "" || version == agentStatusDraft {
+	if version == "" || version == draftVersion {
 		return b.GetGuardrail(idOrARN)
 	}
 

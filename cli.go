@@ -342,7 +342,6 @@ type CLI struct {
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
-	bedrockAgentsHandler          service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
 	cloudcontrolHandler           service.Registerable
@@ -1648,11 +1647,6 @@ func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
 
-// GetBedrockAgentsHandler returns the Bedrock Agents handler.
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetBedrockAgentsHandler() service.Registerable { return c.bedrockAgentsHandler }
-
 // GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2752,7 +2746,6 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
 	cli.bedrockHandler = byName["Bedrock"]
-	cli.bedrockAgentsHandler = byName["BedrockAgents"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -3996,7 +3989,6 @@ func getRemainingServiceProviders() []service.Provider {
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
-		&bedrockbackend.AgentsProvider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
 		&cloudcontrolbackend.Provider{},
