@@ -285,6 +285,112 @@ func (h *Handler) storeStats(kvsID string) (int32, int64) {
 	return computeStats(items)
 }
 
+// checkKeyValueSize enforces the per-item key/value length quotas (512
+// bytes / 1 KB, see errors.go) that PutKey and UpdateKeys share on the wire
+// (ServiceQuotaExceededException is in both ops' deserializer error sets).
+func checkKeyValueSize(key, value string) error {
+	if len(key) > maxKVSKeyBytes {
+		return errKeyTooLarge
+	}
+
+	if len(value) > maxKVSValueBytes {
+		return errValueTooLarge
+	}
+
+	return nil
+}
+
+// checkUpdateKeysBatch enforces UpdateKeysInput's documented batch quotas
+// (50 keys total, 3 MB total payload) and each item's own key/value size
+// quota, before any backend mutation runs.
+func checkUpdateKeysBatch(puts []keyValuePairJSON, deletes []deleteKeyItemJSON) error {
+	if len(puts)+len(deletes) > maxUpdateKeysBatchCount {
+		return errUpdateKeysTooManyOps
+	}
+
+	var payloadBytes int64
+	for _, p := range puts {
+		if sizeErr := checkKeyValueSize(p.Key, p.Value); sizeErr != nil {
+			return sizeErr
+		}
+
+		payloadBytes += int64(len(p.Key)) + int64(len(p.Value))
+	}
+
+	for _, d := range deletes {
+		payloadBytes += int64(len(d.Key))
+	}
+
+	if payloadBytes > maxUpdateKeysBatchBytes {
+		return errUpdateKeysTooLarge
+	}
+
+	return nil
+}
+
+// checkStoreSizeQuota rejects a PutKey that would push the store's total
+// byte accounting (see computeStats) past the 5 MB per-store quota,
+// verified before PutKVSValue mutates any state.
+func (h *Handler) checkStoreSizeQuota(kvsID, key, value string) error {
+	items, _, err := h.Backend.ListKVSValues(kvsID)
+	if err != nil {
+		return err
+	}
+
+	var total int64
+
+	for _, item := range items {
+		if item.Key == key {
+			continue // replaced below by the new value's size
+		}
+
+		total += int64(len(item.Key)) + int64(len(item.Value))
+	}
+
+	total += int64(len(key)) + int64(len(value))
+
+	if total > maxKVSStoreBytes {
+		return errStoreSizeExceeded
+	}
+
+	return nil
+}
+
+// checkStoreSizeQuotaBatch is checkStoreSizeQuota's UpdateKeys counterpart:
+// it applies every put/delete to a copy of the current key set before
+// summing, so a batch that only shrinks the store (e.g. all deletes) is
+// never rejected even if the pre-batch store already exceeds the quota.
+func (h *Handler) checkStoreSizeQuotaBatch(kvsID string, puts []*cloudfrontbackend.KVSItem, deletes []string) error {
+	items, _, err := h.Backend.ListKVSValues(kvsID)
+	if err != nil {
+		return err
+	}
+
+	prospective := make(map[string]string, len(items))
+	for _, item := range items {
+		prospective[item.Key] = item.Value
+	}
+
+	for _, key := range deletes {
+		delete(prospective, key)
+	}
+
+	for _, p := range puts {
+		prospective[p.Key] = p.Value
+	}
+
+	var total int64
+	for k, v := range prospective {
+		total += int64(len(k)) + int64(len(v))
+	}
+
+	if total > maxKVSStoreBytes {
+		return errStoreSizeExceeded
+	}
+
+	return nil
+}
+
 func (h *Handler) handleDescribeKeyValueStore(c *echo.Context, kvs *cloudfrontbackend.KeyValueStore) error {
 	// The real DescribeKeyValueStore's ETag is the *data-plane* ETag used for
 	// If-Match on Put/Delete/UpdateKeys (PutKeyInput's IfMatch doc comment says
@@ -345,6 +451,18 @@ func (h *Handler) handlePutKey(c *echo.Context, kvs *cloudfrontbackend.KeyValueS
 	ifMatch := c.Request().Header.Get(ifMatchHeader)
 	if ok, ifMatchErr := requireIfMatch(c, ifMatch); !ok {
 		return ifMatchErr
+	}
+
+	if quotaErr := checkKeyValueSize(key, req.Value); quotaErr != nil {
+		status, exType := classifyError(quotaErr)
+
+		return writeAWSError(c, status, exType, quotaErr.Error())
+	}
+
+	if quotaErr := h.checkStoreSizeQuota(kvs.ID, key, req.Value); quotaErr != nil {
+		status, exType := classifyError(quotaErr)
+
+		return writeAWSError(c, status, exType, quotaErr.Error())
 	}
 
 	newETag, putErr := h.Backend.PutKVSValue(kvs.ID, key, req.Value, ifMatch)
@@ -432,6 +550,18 @@ func (h *Handler) handleUpdateKeys(c *echo.Context, kvs *cloudfrontbackend.KeyVa
 	ifMatch := c.Request().Header.Get(ifMatchHeader)
 	if ok, ifMatchErr := requireIfMatch(c, ifMatch); !ok {
 		return ifMatchErr
+	}
+
+	if quotaErr := checkUpdateKeysBatch(req.Puts, req.Deletes); quotaErr != nil {
+		status, exType := classifyError(quotaErr)
+
+		return writeAWSError(c, status, exType, quotaErr.Error())
+	}
+
+	if quotaErr := h.checkStoreSizeQuotaBatch(kvs.ID, puts, deletes); quotaErr != nil {
+		status, exType := classifyError(quotaErr)
+
+		return writeAWSError(c, status, exType, quotaErr.Error())
 	}
 
 	newETag, updateErr := h.Backend.UpdateKVSValues(kvs.ID, ifMatch, puts, deletes)
