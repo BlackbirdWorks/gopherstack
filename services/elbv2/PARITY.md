@@ -1,7 +1,7 @@
 ---
 service: elbv2
 sdk_module: aws-sdk-go-v2/service/elasticloadbalancingv2@v1.58.5   # bumped from v1.54.8 this pass (go.mod already pinned v1.58.5; PARITY.md was stale)
-last_audit_commit: 2dfc55a39
+last_audit_commit: 302aa4e3c  # zeroguard: ModifyListener/ModifyTargetGroup omitted-member fix
 last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit. All
                               # 5 tier-1 findings real, all fixed (CreateLoadBalancer/SetSubnets
                               # .EnablePrefixForIpv6SourceNat, CreateTargetGroup.IpAddressType,
@@ -103,6 +103,19 @@ leaks: {status: clean, note: "runHealthReconciler's ticker-based goroutine is un
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard: ModifyListener/ModifyTargetGroup omitted-member fix
+
+Form-encoded (awsquery): "omitted" means the form key is absent, not that
+`vals.Get` returns "". ModifyListener.SslPolicy/.Port and ModifyTargetGroup's
+HealthCheckPort/HealthCheckPath/HealthCheckIntervalSeconds/
+HealthCheckTimeoutSeconds/HealthyThresholdCount/UnhealthyThresholdCount all
+read via `vals.Get`/`parseOptionalInt32` (0-or-""-for-missing), so an
+omitted field and an explicit empty/zero were indistinguishable. Fixed via
+`vals.Has` (new `formStringPtr`/`bindOptionalInt32Field` helpers, mirroring
+autoscaling's `formStringOrNil`) threaded through as `*string`/`*int32`.
+ListenerArn/TargetGroupArn stay plain strings: required lookup identifiers,
+never written back to state. Rows 11 -> 2.
 
 ### 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 request-field sweep
 

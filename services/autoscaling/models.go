@@ -763,11 +763,11 @@ type UpdateAutoScalingGroupInput struct {
 	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	MinSize                          *int32
 	PlacementGroup                   *string
-	LaunchConfigurationName          string
-	VPCZoneIdentifier                string
-	Context                          string
-	DesiredCapacityType              string
-	HealthCheckType                  string
+	LaunchConfigurationName          *string
+	VPCZoneIdentifier                *string
+	Context                          *string
+	DesiredCapacityType              *string
+	HealthCheckType                  *string
 	AutoScalingGroupName             string
 	DeletionProtection               string
 	AvailabilityZones                []string

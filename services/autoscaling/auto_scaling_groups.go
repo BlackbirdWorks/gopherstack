@@ -398,8 +398,8 @@ func (b *InMemoryBackend) applyUpdateCapacityLocked(g *AutoScalingGroup, input U
 // applyUpdateLaunchSourceFields applies the mutually-exclusive launch-configuration/
 // launch-template/mixed-instances-policy portion of an UpdateAutoScalingGroup request.
 func applyUpdateLaunchSourceFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) {
-	if input.LaunchConfigurationName != "" {
-		g.LaunchConfigurationName = input.LaunchConfigurationName
+	if input.LaunchConfigurationName != nil {
+		g.LaunchConfigurationName = *input.LaunchConfigurationName
 		g.LaunchTemplate = nil
 	}
 
@@ -420,20 +420,20 @@ func applyUpdatePlacementFields(g *AutoScalingGroup, input UpdateAutoScalingGrou
 		g.AvailabilityZones = input.AvailabilityZones
 	}
 
-	if input.VPCZoneIdentifier != "" {
-		g.VPCZoneIdentifier = input.VPCZoneIdentifier
+	if input.VPCZoneIdentifier != nil {
+		g.VPCZoneIdentifier = *input.VPCZoneIdentifier
 	}
 
 	if input.PlacementGroup != nil {
 		g.PlacementGroup = *input.PlacementGroup
 	}
 
-	if input.Context != "" {
-		g.Context = input.Context
+	if input.Context != nil {
+		g.Context = *input.Context
 	}
 
-	if input.DesiredCapacityType != "" {
-		g.DesiredCapacityType = input.DesiredCapacityType
+	if input.DesiredCapacityType != nil {
+		g.DesiredCapacityType = *input.DesiredCapacityType
 	}
 }
 
@@ -468,12 +468,12 @@ func applyUpdateTimingFields(g *AutoScalingGroup, input UpdateAutoScalingGroupIn
 // applyUpdateValidatedFields applies the two UpdateAutoScalingGroup fields that
 // require validation before being written (HealthCheckType, TerminationPolicies).
 func applyUpdateValidatedFields(g *AutoScalingGroup, input UpdateAutoScalingGroupInput) error {
-	if input.HealthCheckType != "" {
-		if err := validateHealthCheckType(input.HealthCheckType); err != nil {
+	if input.HealthCheckType != nil {
+		if err := validateHealthCheckType(*input.HealthCheckType); err != nil {
 			return err
 		}
 
-		g.HealthCheckType = input.HealthCheckType
+		g.HealthCheckType = *input.HealthCheckType
 	}
 
 	if len(input.TerminationPolicies) > 0 {

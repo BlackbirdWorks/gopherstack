@@ -1,8 +1,8 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
-last_audit_commit: cf62578e4
-last_audit_date: 2026-09-17
+last_audit_commit: 302aa4e3c  # zeroguard: UpdateAutoScalingGroup form-field omitted-member fix
+last_audit_date: 2026-09-18
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
 # 66/67 ops N-of-N). Handler.autoscalingErrorCode is one global sentinel
@@ -149,6 +149,16 @@ leaks: {status: clean, note: "go test -race passes (verified this pass). The pen
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
 in `aws-sdk-go-v2/service/autoscaling@v1.64.2`.
+
+### 2026-09-18 zeroguard: UpdateAutoScalingGroup form-field omitted-member fix
+
+LaunchConfigurationName, VPCZoneIdentifier, Context, DesiredCapacityType and
+HealthCheckType read via `vals.Get` alone, so an omitted form key and one
+sent empty were indistinguishable (form-encoded: "omitted" means the key is
+absent, not that `Get` returns ""). Changed to `*string` via the existing
+`formStringOrNil` helper (already used for PlacementGroup), matching that
+precedent. AutoScalingGroupName stays plain string: required lookup
+identifier, never written back. Rows 11 -> 1.
 
 ### 2026-09-17 (bd gopherstack-xhu2t): reqfielddiff cleanup
 

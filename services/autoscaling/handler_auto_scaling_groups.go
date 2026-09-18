@@ -209,12 +209,12 @@ func (h *Handler) handleUpdateAutoScalingGroup(vals url.Values) (any, error) {
 
 	input := UpdateAutoScalingGroupInput{
 		AutoScalingGroupName:             name,
-		LaunchConfigurationName:          vals.Get("LaunchConfigurationName"),
-		HealthCheckType:                  vals.Get("HealthCheckType"),
-		VPCZoneIdentifier:                vals.Get("VPCZoneIdentifier"),
+		LaunchConfigurationName:          formStringOrNil(vals, "LaunchConfigurationName"),
+		HealthCheckType:                  formStringOrNil(vals, "HealthCheckType"),
+		VPCZoneIdentifier:                formStringOrNil(vals, "VPCZoneIdentifier"),
 		PlacementGroup:                   formStringOrNil(vals, "PlacementGroup"),
-		Context:                          vals.Get("Context"),
-		DesiredCapacityType:              vals.Get("DesiredCapacityType"),
+		Context:                          formStringOrNil(vals, "Context"),
+		DesiredCapacityType:              formStringOrNil(vals, "DesiredCapacityType"),
 		DeletionProtection:               vals.Get("DeletionProtection"),
 		AvailabilityZones:                parseMembers(vals, "AvailabilityZones.member"),
 		TerminationPolicies:              parseMembers(vals, "TerminationPolicies.member"),

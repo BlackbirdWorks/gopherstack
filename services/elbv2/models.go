@@ -342,15 +342,15 @@ type CreateTargetGroupInput struct {
 // HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
 type ModifyTargetGroupInput struct {
 	HealthCheckEnabled         *bool
+	HealthCheckPort            *string
+	HealthCheckPath            *string
+	HealthCheckIntervalSeconds *int32
+	HealthCheckTimeoutSeconds  *int32
+	HealthyThresholdCount      *int32
+	UnhealthyThresholdCount    *int32
 	Matcher                    Matcher
 	TargetGroupArn             string
 	HealthCheckProtocol        string
-	HealthCheckPort            string
-	HealthCheckPath            string
-	HealthCheckIntervalSeconds int32
-	HealthCheckTimeoutSeconds  int32
-	HealthyThresholdCount      int32
-	UnhealthyThresholdCount    int32
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
@@ -369,13 +369,13 @@ type CreateListenerInput struct {
 // ModifyListenerInput holds the parameters for modifying a listener.
 type ModifyListenerInput struct {
 	MutualAuthentication *MutualAuthentication
+	SSLPolicy            *string
+	Port                 *int32
 	ListenerArn          string
 	Protocol             string
-	SSLPolicy            string
 	AlpnPolicy           []string
 	DefaultActions       []Action
 	Certificates         []Certificate
-	Port                 int32
 }
 
 // CreateRuleInput holds the parameters for creating a listener rule.

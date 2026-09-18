@@ -566,16 +566,16 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.HealthCheckProtocol = input.HealthCheckProtocol
 	}
 
-	if input.HealthCheckPort != "" {
-		tg.HealthCheckPort = input.HealthCheckPort
+	if input.HealthCheckPort != nil {
+		tg.HealthCheckPort = *input.HealthCheckPort
 	}
 
-	if input.HealthCheckPath != "" {
-		if err := validateHealthCheckPath(input.HealthCheckPath); err != nil {
+	if input.HealthCheckPath != nil {
+		if err := validateHealthCheckPath(*input.HealthCheckPath); err != nil {
 			return nil, err
 		}
 
-		tg.HealthCheckPath = input.HealthCheckPath
+		tg.HealthCheckPath = *input.HealthCheckPath
 	}
 
 	if input.Matcher.HTTPCode != "" || input.Matcher.GrpcCode != "" {
@@ -586,20 +586,20 @@ func (b *InMemoryBackend) ModifyTargetGroup(input ModifyTargetGroupInput) (*Targ
 		tg.HealthCheckEnabled = *input.HealthCheckEnabled
 	}
 
-	if input.HealthCheckIntervalSeconds != 0 {
-		tg.HealthCheckIntervalSeconds = input.HealthCheckIntervalSeconds
+	if input.HealthCheckIntervalSeconds != nil {
+		tg.HealthCheckIntervalSeconds = *input.HealthCheckIntervalSeconds
 	}
 
-	if input.HealthCheckTimeoutSeconds != 0 {
-		tg.HealthCheckTimeoutSeconds = input.HealthCheckTimeoutSeconds
+	if input.HealthCheckTimeoutSeconds != nil {
+		tg.HealthCheckTimeoutSeconds = *input.HealthCheckTimeoutSeconds
 	}
 
-	if input.HealthyThresholdCount != 0 {
-		tg.HealthyThresholdCount = input.HealthyThresholdCount
+	if input.HealthyThresholdCount != nil {
+		tg.HealthyThresholdCount = *input.HealthyThresholdCount
 	}
 
-	if input.UnhealthyThresholdCount != 0 {
-		tg.UnhealthyThresholdCount = input.UnhealthyThresholdCount
+	if input.UnhealthyThresholdCount != nil {
+		tg.UnhealthyThresholdCount = *input.UnhealthyThresholdCount
 	}
 
 	cp := *tg
