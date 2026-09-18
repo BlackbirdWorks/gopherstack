@@ -117,3 +117,55 @@ func TestSuppressedDestination_TenantNameScopesIndependentLists(t *testing.T) {
 		require.NoError(t, getErr, "tenant-a's entry must survive a delete under an unrelated tenant scope")
 	})
 }
+
+// TestGetSuppressedDestination_EchoesTenantName proves GetSuppressedDestination's
+// item shape (types.SuppressedDestination) echoes TenantName back -- it is a
+// real member of the singular Get shape (deserializers.go's
+// awsRestjson1_deserializeDocumentSuppressedDestination "TenantName" case)
+// even though the List item shape (SuppressedDestinationSummary) has no such
+// member at all. The backend already stored TenantName (see
+// TestSuppressedDestination_TenantNameScopesIndependentLists above), but the
+// wire converter shared by Get and List never surfaced it on Get.
+func TestGetSuppressedDestination_EchoesTenantName(t *testing.T) {
+	t.Parallel()
+
+	backend := sesv2.NewInMemoryBackend()
+	client := newSESv2SDKClient(t, sesv2.NewHandler(backend))
+	ctx := t.Context()
+
+	const email = "tenant-scoped@example.com"
+
+	_, err := client.PutSuppressedDestination(ctx, &sesv2sdk.PutSuppressedDestinationInput{
+		EmailAddress: aws.String(email),
+		Reason:       sesv2types.SuppressionListReasonBounce,
+		TenantName:   aws.String("tenant-echo"),
+	})
+	require.NoError(t, err)
+
+	t.Run("tenant-scoped get echoes tenantname", func(t *testing.T) {
+		t.Parallel()
+
+		getOut, getErr := client.GetSuppressedDestination(ctx, &sesv2sdk.GetSuppressedDestinationInput{
+			EmailAddress: aws.String(email),
+			TenantName:   aws.String("tenant-echo"),
+		})
+		require.NoError(t, getErr)
+		assert.Equal(t, "tenant-echo", aws.ToString(getOut.SuppressedDestination.TenantName))
+	})
+
+	t.Run("account-level get omits tenantname", func(t *testing.T) {
+		t.Parallel()
+
+		_, putErr := client.PutSuppressedDestination(ctx, &sesv2sdk.PutSuppressedDestinationInput{
+			EmailAddress: aws.String("account-level@example.com"),
+			Reason:       sesv2types.SuppressionListReasonComplaint,
+		})
+		require.NoError(t, putErr)
+
+		getOut, getErr := client.GetSuppressedDestination(ctx, &sesv2sdk.GetSuppressedDestinationInput{
+			EmailAddress: aws.String("account-level@example.com"),
+		})
+		require.NoError(t, getErr)
+		assert.Nil(t, getOut.SuppressedDestination.TenantName)
+	})
+}

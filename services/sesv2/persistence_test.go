@@ -74,14 +74,14 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NoError(t, original.PutConfigurationSetSendingOptions("cs1", false))
 
 	_, err = original.CreateConfigurationSetEventDestination(
-		"cs1", "dest1", true, []string{"SEND", "BOUNCE"},
+		"cs1", "dest1", sesv2.EventDestinationConfig{Enabled: true, MatchingEventTypes: []string{"SEND", "BOUNCE"}},
 	)
 	require.NoError(t, err)
 
-	_, err = original.CreateContactList("list1", "desc1", nil)
+	_, err = original.CreateContactList("list1", "desc1", nil, nil)
 	require.NoError(t, err)
 
-	_, err = original.CreateContact("list1", "contact@example.com", []sesv2.TopicPreference{
+	_, err = original.CreateContact("list1", "contact@example.com", "", []sesv2.TopicPreference{
 		{TopicName: "news", SubscriptionStatus: "OPT_IN"},
 	}, false)
 	require.NoError(t, err)
@@ -235,9 +235,9 @@ func TestInMemoryBackend_DeleteConfigurationSet_CascadesEventDestinations(t *tes
 	_, err := b.CreateConfigurationSet("cs1", nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateConfigurationSetEventDestination("cs1", "d1", true, nil)
+	_, err = b.CreateConfigurationSetEventDestination("cs1", "d1", sesv2.EventDestinationConfig{Enabled: true})
 	require.NoError(t, err)
-	_, err = b.CreateConfigurationSetEventDestination("cs1", "d2", true, nil)
+	_, err = b.CreateConfigurationSetEventDestination("cs1", "d2", sesv2.EventDestinationConfig{Enabled: true})
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteConfigurationSet("cs1"))
@@ -257,17 +257,17 @@ func TestInMemoryBackend_DeleteContactList_CascadesContacts(t *testing.T) {
 
 	b := sesv2.NewInMemoryBackend()
 
-	_, err := b.CreateContactList("list1", "", nil)
+	_, err := b.CreateContactList("list1", "", nil, nil)
 	require.NoError(t, err)
 
-	_, err = b.CreateContact("list1", "a@example.com", nil, false)
+	_, err = b.CreateContact("list1", "a@example.com", "", nil, false)
 	require.NoError(t, err)
-	_, err = b.CreateContact("list1", "b@example.com", nil, false)
+	_, err = b.CreateContact("list1", "b@example.com", "", nil, false)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteContactList("list1"))
 
-	_, err = b.CreateContactList("list1", "", nil)
+	_, err = b.CreateContactList("list1", "", nil, nil)
 	require.NoError(t, err)
 
 	page, err := b.ListContacts("list1", "", 0)

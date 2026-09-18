@@ -279,7 +279,7 @@ func TestDeleteOps_ResourceTagsCleanedUp(t *testing.T) {
 		{
 			name: "contact_list",
 			create: func(b *InMemoryBackend) string {
-				_, err := b.CreateContactList("cl", "", map[string]string{"Env": wantCreationTimeTagValue})
+				_, err := b.CreateContactList("cl", "", map[string]string{"Env": wantCreationTimeTagValue}, nil)
 				require.NoError(t, err)
 
 				return b.contactListARN("cl")

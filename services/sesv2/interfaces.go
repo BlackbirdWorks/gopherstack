@@ -42,7 +42,7 @@ type StorageBackend interface {
 	PutConfigurationSetDeliveryOptions(name, tlsPolicy, sendingPoolName string) error
 	PutConfigurationSetReputationOptions(name string, metricsEnabled bool) error
 	PutConfigurationSetSendingOptions(name string, sendingEnabled bool) error
-	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string) error
+	PutConfigurationSetSuppressionOptions(name string, suppressedReasons []string, suppressionScope string) error
 	PutConfigurationSetTrackingOptions(name, customRedirectDomain, httpsPolicy string) error
 	PutConfigurationSetVdmOptions(
 		name string,
@@ -52,15 +52,13 @@ type StorageBackend interface {
 	// Event destination ops
 	CreateConfigurationSetEventDestination(
 		configSetName, destName string,
-		enabled bool,
-		matchingEventTypes []string,
+		cfg EventDestinationConfig,
 	) (*EventDestination, error)
 	GetConfigurationSetEventDestinations(configSetName string) ([]*EventDestination, error)
 	DeleteConfigurationSetEventDestination(configSetName, destName string) error
 	UpdateConfigurationSetEventDestination(
 		configSetName, destName string,
-		enabled bool,
-		matchingEventTypes []string,
+		cfg EventDestinationConfig,
 	) error
 
 	// Email sending ops
@@ -79,22 +77,22 @@ type StorageBackend interface {
 	ListEmails() []Email
 
 	// Contact list ops
-	CreateContactList(name, description string, tags map[string]string) (*ContactList, error)
+	CreateContactList(name, description string, tags map[string]string, topics []Topic) (*ContactList, error)
 	GetContactList(name string) (*ContactList, error)
 	DeleteContactList(name string) error
-	UpdateContactList(name, description string) error
+	UpdateContactList(name, description string, topics []Topic) error
 	ListContactLists(nextToken string, pageSize int) page.Page[*ContactList]
 
 	// Contact ops
 	CreateContact(
-		contactListName, emailAddress string,
+		contactListName, emailAddress, attributesData string,
 		topicPreferences []TopicPreference,
 		unsubscribeAll bool,
 	) (*Contact, error)
 	GetContact(contactListName, emailAddress string) (*Contact, error)
 	DeleteContact(contactListName, emailAddress string) error
 	UpdateContact(
-		contactListName, emailAddress string,
+		contactListName, emailAddress, attributesData string,
 		topicPreferences []TopicPreference,
 		unsubscribeAll bool,
 	) error

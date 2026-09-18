@@ -7,10 +7,32 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// topicInput mirrors types.Topic.
+type topicInput struct {
+	TopicName                 string `json:"TopicName"`
+	DisplayName               string `json:"DisplayName"`
+	DefaultSubscriptionStatus string `json:"DefaultSubscriptionStatus"`
+	Description               string `json:"Description"`
+}
+
+func topicsFromInput(in []topicInput) []Topic {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]Topic, len(in))
+	for i, t := range in {
+		out[i] = Topic(t)
+	}
+
+	return out
+}
+
 type createContactListInput struct {
-	ContactListName string     `json:"ContactListName"`
-	Description     string     `json:"Description"`
-	Tags            []tagEntry `json:"Tags"`
+	ContactListName string       `json:"ContactListName"`
+	Description     string       `json:"Description"`
+	Tags            []tagEntry   `json:"Tags"`
+	Topics          []topicInput `json:"Topics"`
 }
 
 func (h *Handler) handleCreateContactList(c *echo.Context) (any, error) {
@@ -20,7 +42,9 @@ func (h *Handler) handleCreateContactList(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if _, err := h.Backend.CreateContactList(in.ContactListName, in.Description, tagsFromEntries(in.Tags)); err != nil {
+	if _, err := h.Backend.CreateContactList(
+		in.ContactListName, in.Description, tagsFromEntries(in.Tags), topicsFromInput(in.Topics),
+	); err != nil {
 		return nil, err
 	}
 
@@ -47,7 +71,8 @@ func (h *Handler) handleDeleteContactList(name string) (any, error) {
 }
 
 type updateContactListInput struct {
-	Description string `json:"Description"`
+	Description string       `json:"Description"`
+	Topics      []topicInput `json:"Topics"`
 }
 
 func (h *Handler) handleUpdateContactList(c *echo.Context, name string) (any, error) {
@@ -57,7 +82,7 @@ func (h *Handler) handleUpdateContactList(c *echo.Context, name string) (any, er
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if err := h.Backend.UpdateContactList(name, in.Description); err != nil {
+	if err := h.Backend.UpdateContactList(name, in.Description, topicsFromInput(in.Topics)); err != nil {
 		return nil, err
 	}
 

@@ -11,6 +11,7 @@ import (
 
 type createContactInput struct {
 	EmailAddress     string            `json:"EmailAddress"`
+	AttributesData   string            `json:"AttributesData"`
 	TopicPreferences []TopicPreference `json:"TopicPreferences"`
 	UnsubscribeAll   bool              `json:"UnsubscribeAll"`
 }
@@ -23,7 +24,7 @@ func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (
 	}
 
 	if _, err := h.Backend.CreateContact(
-		contactListName, in.EmailAddress, in.TopicPreferences, in.UnsubscribeAll,
+		contactListName, in.EmailAddress, in.AttributesData, in.TopicPreferences, in.UnsubscribeAll,
 	); err != nil {
 		return nil, err
 	}
@@ -32,6 +33,19 @@ func (h *Handler) handleCreateContact(c *echo.Context, contactListName string) (
 }
 
 // contact handlers
+
+// contactListTopics returns the named contact list's Topics, or nil if the
+// list can't be read -- GetContact/ListContacts already validate the list
+// exists via their own backend call, so a lookup error here just means no
+// TopicDefaultPreferences to report, not a request failure.
+func (h *Handler) contactListTopics(contactListName string) []Topic {
+	cl, err := h.Backend.GetContactList(contactListName)
+	if err != nil {
+		return nil
+	}
+
+	return cl.Topics
+}
 
 func (h *Handler) handleGetContact(c *echo.Context, contactListName string) (any, error) {
 	segments := strings.Split(strings.TrimPrefix(c.Request().URL.Path, sesv2PathPrefix), "/")
@@ -50,7 +64,7 @@ func (h *Handler) handleGetContact(c *echo.Context, contactListName string) (any
 		return nil, err
 	}
 
-	return toContactOutput(c2), nil
+	return toContactOutput(c2, h.contactListTopics(contactListName)), nil
 }
 
 func (h *Handler) handleDeleteContact(c *echo.Context, contactListName string) (any, error) {
@@ -73,6 +87,7 @@ func (h *Handler) handleDeleteContact(c *echo.Context, contactListName string) (
 }
 
 type updateContactInput struct {
+	AttributesData   string            `json:"AttributesData"`
 	TopicPreferences []TopicPreference `json:"TopicPreferences"`
 	UnsubscribeAll   bool              `json:"UnsubscribeAll"`
 }
@@ -96,7 +111,7 @@ func (h *Handler) handleUpdateContact(c *echo.Context, contactListName string) (
 	}
 
 	if err := h.Backend.UpdateContact(
-		contactListName, emailAddress, in.TopicPreferences, in.UnsubscribeAll,
+		contactListName, emailAddress, in.AttributesData, in.TopicPreferences, in.UnsubscribeAll,
 	); err != nil {
 		return nil, err
 	}
@@ -112,10 +127,9 @@ type listContactsInput struct {
 // handleListContacts serves POST .../contacts/list. Real SES v2 carries
 // NextToken/Filter/PageSize in the JSON body (not the query string) since
 // ListContacts is a POST operation. Filter (FilteredStatus/TopicFilter) is
-// not applied: TopicFilter.UseDefaultIfPreferenceUnavailable needs each
-// topic's default subscription status, which ContactList (contact_lists.go)
-// doesn't model, and the AWS doc for FilteredStatus alone (without a
-// TopicFilter) doesn't say what it filters against.
+// not applied: the AWS doc for FilteredStatus alone (without a TopicFilter)
+// doesn't say what it filters against, and TopicFilter itself is a
+// secondary refinement on top of that undocumented base behavior.
 func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (any, error) {
 	var in listContactsInput
 
@@ -126,9 +140,11 @@ func (h *Handler) handleListContacts(c *echo.Context, contactListName string) (a
 		return nil, err
 	}
 
+	topics := h.contactListTopics(contactListName)
+
 	items := make([]contactSummaryOutput, 0, len(pg.Data))
 	for _, c2 := range pg.Data {
-		items = append(items, toContactSummaryOutput(c2))
+		items = append(items, toContactSummaryOutput(c2, topics))
 	}
 
 	return map[string]any{

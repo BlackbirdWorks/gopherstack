@@ -37,7 +37,7 @@ func (h *Handler) handleGetSuppressedDestination(c *echo.Context, email string) 
 		return nil, err
 	}
 
-	return map[string]any{"SuppressedDestination": toSuppressedDestinationOutput(dest)}, nil
+	return map[string]any{"SuppressedDestination": toGetSuppressedDestinationOutput(dest)}, nil
 }
 
 func (h *Handler) handleDeleteSuppressedDestination(c *echo.Context, email string) (any, error) {
