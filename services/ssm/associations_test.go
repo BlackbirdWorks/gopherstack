@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -571,8 +572,8 @@ func TestUpdateAssociation(t *testing.T) {
 		{
 			name: "update_name_and_version",
 			update: ssm.UpdateAssociationInput{
-				AssociationName: "updated-name",
-				DocumentVersion: "$LATEST",
+				AssociationName: aws.String("updated-name"),
+				DocumentVersion: aws.String("$LATEST"),
 			},
 			wantErr: false,
 		},
@@ -596,20 +597,20 @@ func TestUpdateAssociation(t *testing.T) {
 			name: "update_extended_fields",
 			update: ssm.UpdateAssociationInput{
 				ApplyOnlyAtCronInterval:       true,
-				AssociationDispatchAssumeRole: "arn:aws:iam::123456789012:role/dispatch",
-				AutomationTargetParameterName: "InstanceId",
+				AssociationDispatchAssumeRole: aws.String("arn:aws:iam::123456789012:role/dispatch"),
+				AutomationTargetParameterName: aws.String("InstanceId"),
 				CalendarNames:                 []string{"cal-1", "cal-2"},
 				ComplianceSeverity:            "CRITICAL",
 				Duration:                      &durationHours,
-				MaxConcurrency:                "10%",
-				MaxErrors:                     "5%",
+				MaxConcurrency:                aws.String("10%"),
+				MaxErrors:                     aws.String("5%"),
 				OutputLocation: &ssm.InstanceAssociationOutputLocation{
 					S3Location: &ssm.S3OutputLocation{
 						OutputS3BucketName: "my-bucket",
 						OutputS3KeyPrefix:  "assoc-output",
 					},
 				},
-				ScheduleExpression: "cron(0 2 ? * SUN *)",
+				ScheduleExpression: aws.String("cron(0 2 ? * SUN *)"),
 				SyncCompliance:     "MANUAL",
 			},
 			wantErr: false,
@@ -923,11 +924,16 @@ func TestUpdateAssociation_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = b.UpdateAssociation(context.Background(), &ssm.UpdateAssociationInput{
-				AssociationID:  created.AssociationDescription.AssociationID,
-				MaxConcurrency: tc.maxConcurrency,
-				MaxErrors:      tc.maxErrors,
-			})
+			update := &ssm.UpdateAssociationInput{AssociationID: created.AssociationDescription.AssociationID}
+			if tc.maxConcurrency != "" {
+				update.MaxConcurrency = aws.String(tc.maxConcurrency)
+			}
+
+			if tc.maxErrors != "" {
+				update.MaxErrors = aws.String(tc.maxErrors)
+			}
+
+			_, err = b.UpdateAssociation(context.Background(), update)
 
 			if tc.wantErr {
 				require.ErrorIs(t, err, ssm.ErrValidationException)

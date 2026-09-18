@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -593,11 +594,15 @@ func TestUpdateDocument_Version(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
-				Name:            "UpdDoc",
-				Content:         `{"schemaVersion":"2.2","v":"2"}`,
-				DocumentVersion: tt.documentVersion,
-			})
+			update := &ssm.UpdateDocumentInput{
+				Name:    "UpdDoc",
+				Content: `{"schemaVersion":"2.2","v":"2"}`,
+			}
+			if tt.documentVersion != "" {
+				update.DocumentVersion = aws.String(tt.documentVersion)
+			}
+
+			_, err = b.UpdateDocument(context.TODO(), update)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, ssm.ErrInvalidDocumentVersion)
@@ -625,7 +630,7 @@ func TestDocumentVersions_IsDefaultVersion(t *testing.T) {
 	_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 		Name:            "MyDoc",
 		Content:         `{"schemaVersion":"2.2","updated":true}`,
-		DocumentVersion: "$LATEST",
+		DocumentVersion: aws.String("$LATEST"),
 	})
 	require.NoError(t, err)
 
@@ -709,7 +714,7 @@ func TestDocumentVersions_TableDriven(t *testing.T) {
 				_, err = b.UpdateDocument(context.TODO(), &ssm.UpdateDocumentInput{
 					Name:            "td-doc-" + tt.name,
 					Content:         `{"schemaVersion":"2.2","v":true}`,
-					DocumentVersion: "$LATEST",
+					DocumentVersion: aws.String("$LATEST"),
 				})
 				require.NoError(t, err)
 			}

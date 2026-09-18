@@ -115,8 +115,8 @@ type UpdatePatchBaselineInput struct {
 	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
 	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 	BaselineID                               string            `json:"BaselineId"`
-	Name                                     string            `json:"Name,omitempty"`
-	Description                              string            `json:"Description,omitempty"`
+	Name                                     *string           `json:"Name,omitempty"`
+	Description                              *string           `json:"Description,omitempty"`
 	ApprovedPatchesComplianceLevel           string            `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	AvailableSecurityUpdatesComplianceStatus string            `json:"AvailableSecurityUpdatesComplianceStatus,omitempty"`
 	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`

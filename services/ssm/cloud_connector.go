@@ -157,8 +157,8 @@ type ListCloudConnectorsOutput struct {
 type UpdateCloudConnectorInput struct {
 	CloudConnectorID string                       `json:"CloudConnectorId"`
 	Configuration    *CloudConnectorConfiguration `json:"Configuration,omitempty"`
-	Description      string                       `json:"Description,omitempty"`
-	DisplayName      string                       `json:"DisplayName,omitempty"`
+	Description      *string                      `json:"Description,omitempty"`
+	DisplayName      *string                      `json:"DisplayName,omitempty"`
 }
 
 // UpdateCloudConnectorOutput is the response payload for UpdateCloudConnector.
@@ -495,12 +495,12 @@ func (b *InMemoryBackend) UpdateCloudConnector(
 		updated.Configuration = *input.Configuration
 	}
 
-	if input.Description != "" {
-		updated.Description = input.Description
+	if input.Description != nil {
+		updated.Description = *input.Description
 	}
 
-	if input.DisplayName != "" {
-		updated.DisplayName = input.DisplayName
+	if input.DisplayName != nil {
+		updated.DisplayName = *input.DisplayName
 	}
 
 	updated.UpdatedAt = UnixTimeFloat(time.Now())

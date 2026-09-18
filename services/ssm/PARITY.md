@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
-last_audit_commit: 9aecee05f
+last_audit_commit: 6cce41004
 last_audit_date: 2026-09-18
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
@@ -511,6 +511,15 @@ leaks: {status: clean, note: "Janitor (janitor.go) is the only background gorout
 ---
 
 ## Notes
+
+### 2026-09-18 (zeroguard census: omitted-optional-member value semantics, gopherstack-uox6)
+
+91 rows -> 42 (all remaining are identifiers/required-content/replace-
+everything Put fields, false positives). Fixed optional string/int32 fields
+to pointers with nil-checked apply across UpdateAssociation, UpdateCloud-
+Connector, UpdateDocument, UpdateMaintenanceWindow(/Target/Task), UpdateOps-
+Item, UpdatePatchBaseline -- plus UpdateMaintenanceWindowTarget.OwnerInfo, a
+second bug zeroguard missed. Proven via 8 typed aws-sdk-go-v2 client tests.
 
 ### 2026-09-18 (gap burn-down: adjudicated all 33 items_still_open entries)
 

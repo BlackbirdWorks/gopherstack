@@ -192,12 +192,12 @@ type UpdateOpsItemInput struct {
 	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
 	Priority         *int32                      `json:"Priority,omitempty"`
 	OpsItemID        string                      `json:"OpsItemId"`
-	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
-	Title            string                      `json:"Title,omitempty"`
-	Description      string                      `json:"Description,omitempty"`
+	OpsItemArn       *string                     `json:"OpsItemArn,omitempty"`
+	Title            *string                     `json:"Title,omitempty"`
+	Description      *string                     `json:"Description,omitempty"`
 	Status           string                      `json:"Status,omitempty"`
-	Severity         string                      `json:"Severity,omitempty"`
-	Category         string                      `json:"Category,omitempty"`
+	Severity         *string                     `json:"Severity,omitempty"`
+	Category         *string                     `json:"Category,omitempty"`
 	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
 	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
 	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`

@@ -524,8 +524,8 @@ func (b *InMemoryBackend) UpdateDocument(
 	doc := *docPtr
 
 	// Validate DocumentVersion if provided.
-	if input.DocumentVersion != "" {
-		switch input.DocumentVersion {
+	if input.DocumentVersion != nil {
+		switch *input.DocumentVersion {
 		case "$LATEST", "$DEFAULT", doc.LatestVersion:
 			// accepted versions
 		default:
@@ -551,12 +551,12 @@ func (b *InMemoryBackend) UpdateDocument(
 	doc.HashType = documentHashTypeSha256
 	doc.Sha1 = sha1Hex
 
-	if input.DisplayName != "" {
-		doc.DisplayName = input.DisplayName
+	if input.DisplayName != nil {
+		doc.DisplayName = *input.DisplayName
 	}
 
-	if input.TargetType != "" {
-		doc.TargetType = input.TargetType
+	if input.TargetType != nil {
+		doc.TargetType = *input.TargetType
 	}
 
 	if input.Attachments != nil {
@@ -869,8 +869,8 @@ func (b *InMemoryBackend) ListDocumentVersions(
 }
 
 // UpdateDocumentDefaultVersion sets the DefaultVersion field on an existing document.
-// It fails if the document or the requested version does not exist.
-// Returns a no-op success when Name or DocumentVersion is empty (legacy stub compat).
+// It fails if the document or the requested version does not exist, or if
+// Name/DocumentVersion (both required on the real op) are omitted.
 func (b *InMemoryBackend) UpdateDocumentDefaultVersion(
 	ctx context.Context,
 	input *UpdateDocumentDefaultVersionInput,

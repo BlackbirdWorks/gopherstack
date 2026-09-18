@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -284,7 +285,7 @@ func TestBackendOps_UpdateMaintenanceWindow(t *testing.T) {
 
 	out, err := b.UpdateMaintenanceWindow(context.TODO(), &ssm.UpdateMaintenanceWindowInput{
 		WindowID: wid,
-		Name:     "updated-window",
+		Name:     aws.String("updated-window"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-window", out.Name)
@@ -499,7 +500,7 @@ func TestBackendOps_UpdateMaintenanceWindowTarget(t *testing.T) {
 	out, err := b.UpdateMaintenanceWindowTarget(context.TODO(), &ssm.UpdateMaintenanceWindowTargetInput{
 		WindowID:       wid,
 		WindowTargetID: targetOut.WindowTargetID,
-		Name:           "updated-target",
+		Name:           aws.String("updated-target"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-target", out.Name)
@@ -521,7 +522,7 @@ func TestBackendOps_UpdateMaintenanceWindowTask(t *testing.T) {
 	out, err := b.UpdateMaintenanceWindowTask(context.TODO(), &ssm.UpdateMaintenanceWindowTaskInput{
 		WindowID:     wid,
 		WindowTaskID: taskOut.WindowTaskID,
-		Name:         "updated-task",
+		Name:         aws.String("updated-task"),
 		Priority:     &priority,
 	})
 	require.NoError(t, err)
@@ -600,12 +601,19 @@ func TestUpdateMaintenanceWindowTask_MaxConcurrencyMaxErrorsValidation(t *testin
 			taskOut, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), registerInput)
 			require.NoError(t, err)
 
-			_, err = b.UpdateMaintenanceWindowTask(context.TODO(), &ssm.UpdateMaintenanceWindowTaskInput{
-				WindowID:       wid,
-				WindowTaskID:   taskOut.WindowTaskID,
-				MaxConcurrency: tc.maxConcurrency,
-				MaxErrors:      tc.maxErrors,
-			})
+			taskUpdate := &ssm.UpdateMaintenanceWindowTaskInput{
+				WindowID:     wid,
+				WindowTaskID: taskOut.WindowTaskID,
+			}
+			if tc.maxConcurrency != "" {
+				taskUpdate.MaxConcurrency = aws.String(tc.maxConcurrency)
+			}
+
+			if tc.maxErrors != "" {
+				taskUpdate.MaxErrors = aws.String(tc.maxErrors)
+			}
+
+			_, err = b.UpdateMaintenanceWindowTask(context.TODO(), taskUpdate)
 
 			if tc.wantErr {
 				require.ErrorIs(t, err, ssm.ErrValidationException)

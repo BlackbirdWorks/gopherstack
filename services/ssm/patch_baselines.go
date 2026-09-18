@@ -587,12 +587,12 @@ func (b *InMemoryBackend) UpdatePatchBaseline(
 
 	bl := *blPtr
 
-	if input.Name != "" {
-		bl.Name = input.Name
+	if input.Name != nil {
+		bl.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		bl.Description = input.Description
+	if input.Description != nil {
+		bl.Description = *input.Description
 	}
 
 	if len(input.ApprovedPatches) > 0 {

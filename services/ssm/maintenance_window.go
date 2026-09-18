@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -956,24 +957,24 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 
 	mw := *mwPtr
 
-	if input.Name != "" {
-		mw.Name = input.Name
+	if input.Name != nil {
+		mw.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		mw.Description = input.Description
+	if input.Description != nil {
+		mw.Description = *input.Description
 	}
 
-	if input.Schedule != "" {
-		mw.Schedule = input.Schedule
+	if input.Schedule != nil {
+		mw.Schedule = *input.Schedule
 	}
 
-	if input.Duration != 0 {
-		mw.Duration = input.Duration
+	if input.Duration != nil {
+		mw.Duration = *input.Duration
 	}
 
-	if input.Cutoff != 0 {
-		mw.Cutoff = input.Cutoff
+	if input.Cutoff != nil {
+		mw.Cutoff = *input.Cutoff
 	}
 
 	if input.Enabled != nil {
@@ -988,16 +989,16 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 		mw.ScheduleOffset = *input.ScheduleOffset
 	}
 
-	if input.ScheduleTimezone != "" {
-		mw.ScheduleTimezone = input.ScheduleTimezone
+	if input.ScheduleTimezone != nil {
+		mw.ScheduleTimezone = *input.ScheduleTimezone
 	}
 
-	if input.StartDate != "" {
-		mw.StartDate = input.StartDate
+	if input.StartDate != nil {
+		mw.StartDate = *input.StartDate
 	}
 
-	if input.EndDate != "" {
-		mw.EndDate = input.EndDate
+	if input.EndDate != nil {
+		mw.EndDate = *input.EndDate
 	}
 
 	mw.ModifiedDate = UnixTimeFloat(timeNow())
@@ -1188,16 +1189,16 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 
 	target := *targetPtr
 
-	if input.OwnerInfo != "" {
-		target.OwnerInfo = input.OwnerInfo
+	if input.OwnerInfo != nil {
+		target.OwnerInfo = *input.OwnerInfo
 	}
 
-	if input.Name != "" {
-		target.Name = input.Name
+	if input.Name != nil {
+		target.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		target.Description = input.Description
+	if input.Description != nil {
+		target.Description = *input.Description
 	}
 
 	if len(input.Targets) > 0 {
@@ -1222,11 +1223,11 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 	ctx context.Context,
 	input *UpdateMaintenanceWindowTaskInput,
 ) (*UpdateMaintenanceWindowTaskOutput, error) {
-	if err := validateMaxConcurrency(input.MaxConcurrency); err != nil {
+	if err := validateMaxConcurrency(ptrconv.String(input.MaxConcurrency)); err != nil {
 		return nil, err
 	}
 
-	if err := validateMaxErrors(input.MaxErrors); err != nil {
+	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
 		return nil, err
 	}
 
@@ -1245,32 +1246,32 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 
 	task := *taskPtr
 
-	if input.TaskArn != "" {
-		task.TaskArn = input.TaskArn
+	if input.TaskArn != nil {
+		task.TaskArn = *input.TaskArn
 	}
 
-	if input.Name != "" {
-		task.Name = input.Name
+	if input.Name != nil {
+		task.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		task.Description = input.Description
+	if input.Description != nil {
+		task.Description = *input.Description
 	}
 
 	if input.Priority != nil {
 		task.Priority = *input.Priority
 	}
 
-	if input.ServiceRoleArn != "" {
-		task.ServiceRoleArn = input.ServiceRoleArn
+	if input.ServiceRoleArn != nil {
+		task.ServiceRoleArn = *input.ServiceRoleArn
 	}
 
-	if input.MaxConcurrency != "" {
-		task.MaxConcurrency = input.MaxConcurrency
+	if input.MaxConcurrency != nil {
+		task.MaxConcurrency = *input.MaxConcurrency
 	}
 
-	if input.MaxErrors != "" {
-		task.MaxErrors = input.MaxErrors
+	if input.MaxErrors != nil {
+		task.MaxErrors = *input.MaxErrors
 	}
 
 	if input.CutoffBehavior != "" {
