@@ -23,15 +23,26 @@ type getMetricConfigurationResponse struct {
 	SummaryMetric summaryMetricConfigurationResponse `json:"SummaryMetric"`
 }
 
+// metricQueryValueResponse mirrors types.MetricQueryValue -- Values is a list
+// of these aggregation objects, never a bare list of numbers.
+type metricQueryValueResponse struct {
+	Avg *float64 `json:"Avg,omitempty"`
+	Max *float64 `json:"Max,omitempty"`
+	Min *float64 `json:"Min,omitempty"`
+	P90 *float64 `json:"P90,omitempty"`
+	Std *float64 `json:"Std,omitempty"`
+	Sum *float64 `json:"Sum,omitempty"`
+}
+
 // summaryMetricQueryResultResponse mirrors one entry of GetMetrics's
 // SummaryMetricQueryResults: a per-query echo of the QueryId with a status,
 // since this emulator does not ingest telemetry to aggregate real metric
 // values.
 type summaryMetricQueryResultResponse struct {
-	QueryID     string    `json:"QueryId,omitempty"`
-	QueryStatus string    `json:"QueryStatus,omitempty"`
-	MetricName  string    `json:"MetricName,omitempty"`
-	Values      []float64 `json:"Values,omitempty"`
+	QueryID     string                     `json:"QueryId,omitempty"`
+	QueryStatus string                     `json:"QueryStatus,omitempty"`
+	MetricName  string                     `json:"MetricName,omitempty"`
+	Values      []metricQueryValueResponse `json:"Values,omitempty"`
 }
 
 type getMetricsResponse struct {
@@ -114,7 +125,7 @@ func (h *Handler) getMetrics(c *echo.Context) error {
 			QueryID:     q.QueryID,
 			QueryStatus: "Succeeded",
 			MetricName:  q.MetricName,
-			Values:      []float64{},
+			Values:      []metricQueryValueResponse{},
 		})
 	}
 

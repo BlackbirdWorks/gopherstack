@@ -172,14 +172,27 @@ type NetworkAnalyzerConfig struct {
 	MulticastGroups  []string          `json:"multicastGroups,omitempty"`
 }
 
+// WirelessDeviceImportSidewalk mirrors the fields this backend stores from
+// types.SidewalkStartImportInfo (create) / types.SidewalkUpdateImportInfo
+// (update), echoed back on Get/List via types.SidewalkGetStartImportInfo.
+type WirelessDeviceImportSidewalk struct {
+	DeviceCreationFile     string
+	Role                   string
+	PositioningDestination string
+}
+
 // WirelessDeviceImportTask represents an IoT Wireless device bulk-import task.
 type WirelessDeviceImportTask struct {
 	CreatedAt                      time.Time `json:"createdAt"`
+	StatusReason                   string    `json:"statusReason,omitempty"`
 	ID                             string    `json:"id"`
 	ARN                            string    `json:"arn"`
 	DestinationName                string    `json:"destinationName"`
 	Status                         string    `json:"status"`
-	StatusReason                   string    `json:"statusReason,omitempty"`
+	Positioning                    string    `json:"positioning,omitempty"`
+	SidewalkRole                   string    `json:"sidewalkRole,omitempty"`
+	SidewalkPositioningDestination string    `json:"sidewalkPositioningDestination,omitempty"`
+	SidewalkDeviceCreationFiles    []string  `json:"sidewalkDeviceCreationFiles,omitempty"`
 	InitializedImportedDeviceCount int64     `json:"initializedImportedDeviceCount"`
 	PendingImportedDeviceCount     int64     `json:"pendingImportedDeviceCount"`
 	OnboardedImportedDeviceCount   int64     `json:"onboardedImportedDeviceCount"`

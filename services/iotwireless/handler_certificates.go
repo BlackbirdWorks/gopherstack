@@ -21,20 +21,72 @@ type associateWirelessGatewayWithCertificateResponse struct {
 }
 
 type getWirelessDeviceImportTaskResponse struct {
-	Arn             string `json:"Arn"`
-	ID              string `json:"Id"`
-	DestinationName string `json:"DestinationName"`
-	Status          string `json:"Status"`
-	StatusReason    string `json:"StatusReason"`
+	Sidewalk        *sidewalkGetStartImportInfoResponse `json:"Sidewalk,omitempty"`
+	Arn             string                              `json:"Arn"`
+	ID              string                              `json:"Id"`
+	DestinationName string                              `json:"DestinationName"`
+	Status          string                              `json:"Status"`
+	StatusReason    string                              `json:"StatusReason"`
 	// CreationTime is an ISODateTimeString, not an epoch-seconds number --
 	// confirmed against awsRestjson1_deserializeOpDocumentGetWirelessDeviceImportTaskOutput,
 	// which parses it with smithytime.ParseDateTime (a string), unlike the
 	// epoch-seconds CreatedAt fields on FuotaTask/MulticastGroup.
 	CreationTime                   string `json:"CreationTime,omitempty"`
+	Positioning                    string `json:"Positioning,omitempty"`
 	InitializedImportedDeviceCount int64  `json:"InitializedImportedDeviceCount"`
 	PendingImportedDeviceCount     int64  `json:"PendingImportedDeviceCount"`
 	OnboardedImportedDeviceCount   int64  `json:"OnboardedImportedDeviceCount"`
 	FailedImportedDeviceCount      int64  `json:"FailedImportedDeviceCount"`
+}
+
+// sidewalkGetStartImportInfoResponse mirrors types.SidewalkGetStartImportInfo.
+type sidewalkGetStartImportInfoResponse struct {
+	Positioning            *sidewalkPositioningResponse `json:"Positioning,omitempty"`
+	Role                   string                       `json:"Role,omitempty"`
+	DeviceCreationFileList []string                     `json:"DeviceCreationFileList,omitempty"`
+}
+
+// sidewalkPositioningResponse mirrors types.SidewalkPositioning.
+type sidewalkPositioningResponse struct {
+	DestinationName string `json:"DestinationName,omitempty"`
+}
+
+// sidewalkStartImportInfoRequest mirrors types.SidewalkStartImportInfo
+// (StartWirelessDeviceImportTaskInput).
+type sidewalkStartImportInfoRequest struct {
+	Positioning *struct {
+		DestinationName string `json:"DestinationName"`
+	} `json:"Positioning"`
+	DeviceCreationFile string `json:"DeviceCreationFile"`
+	Role               string `json:"Role"`
+}
+
+func (s *sidewalkStartImportInfoRequest) toModel() WirelessDeviceImportSidewalk {
+	if s == nil {
+		return WirelessDeviceImportSidewalk{}
+	}
+
+	m := WirelessDeviceImportSidewalk{DeviceCreationFile: s.DeviceCreationFile, Role: s.Role}
+	if s.Positioning != nil {
+		m.PositioningDestination = s.Positioning.DestinationName
+	}
+
+	return m
+}
+
+// sidewalkUpdateImportInfoRequest mirrors types.SidewalkUpdateImportInfo
+// (UpdateWirelessDeviceImportTaskInput) -- the only member is
+// DeviceCreationFile; there is no Role or Positioning on the update shape.
+type sidewalkUpdateImportInfoRequest struct {
+	DeviceCreationFile string `json:"DeviceCreationFile"`
+}
+
+func (s *sidewalkUpdateImportInfoRequest) toModel() WirelessDeviceImportSidewalk {
+	if s == nil {
+		return WirelessDeviceImportSidewalk{}
+	}
+
+	return WirelessDeviceImportSidewalk{DeviceCreationFile: s.DeviceCreationFile}
 }
 
 type getWirelessGatewayCertificateResponse struct {
@@ -107,13 +159,17 @@ func (h *Handler) getWirelessGatewayCertificate(c *echo.Context, id string) erro
 
 func (h *Handler) startWirelessDeviceImportTask(c *echo.Context) error {
 	var req struct {
-		DestinationName string `json:"DestinationName"`
+		Sidewalk        *sidewalkStartImportInfoRequest `json:"Sidewalk"`
+		DestinationName string                          `json:"DestinationName"`
+		Positioning     string                          `json:"Positioning"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	task, err := h.Backend.StartWirelessDeviceImportTask(h.AccountID, h.DefaultRegion, req.DestinationName)
+	task, err := h.Backend.StartWirelessDeviceImportTask(
+		h.AccountID, h.DefaultRegion, req.DestinationName, req.Positioning, req.Sidewalk.toModel(),
+	)
 	if err != nil {
 		return writeError(c, http.StatusInternalServerError, err.Error())
 	}
@@ -154,6 +210,7 @@ func importTaskEntryFrom(task *WirelessDeviceImportTask) getWirelessDeviceImport
 		DestinationName:                task.DestinationName,
 		Status:                         task.Status,
 		StatusReason:                   task.StatusReason,
+		Positioning:                    task.Positioning,
 		InitializedImportedDeviceCount: task.InitializedImportedDeviceCount,
 		PendingImportedDeviceCount:     task.PendingImportedDeviceCount,
 		OnboardedImportedDeviceCount:   task.OnboardedImportedDeviceCount,
@@ -161,6 +218,21 @@ func importTaskEntryFrom(task *WirelessDeviceImportTask) getWirelessDeviceImport
 	}
 	if !task.CreatedAt.IsZero() {
 		entry.CreationTime = task.CreatedAt.UTC().Format(time.RFC3339)
+	}
+
+	hasSidewalk := task.SidewalkRole != "" ||
+		task.SidewalkPositioningDestination != "" ||
+		len(task.SidewalkDeviceCreationFiles) > 0
+	if hasSidewalk {
+		sidewalk := &sidewalkGetStartImportInfoResponse{
+			DeviceCreationFileList: task.SidewalkDeviceCreationFiles,
+			Role:                   task.SidewalkRole,
+		}
+		if task.SidewalkPositioningDestination != "" {
+			sidewalk.Positioning = &sidewalkPositioningResponse{DestinationName: task.SidewalkPositioningDestination}
+		}
+
+		entry.Sidewalk = sidewalk
 	}
 
 	return entry
@@ -187,13 +259,13 @@ func (h *Handler) deleteWirelessDeviceImportTask(c *echo.Context, id string) err
 
 func (h *Handler) updateWirelessDeviceImportTask(c *echo.Context, id string) error {
 	var req struct {
-		DestinationName string `json:"DestinationName"`
+		Sidewalk *sidewalkUpdateImportInfoRequest `json:"Sidewalk"`
 	}
 
 	body := readStubBody(c)
 	_ = json.Unmarshal(body, &req)
 
-	if err := h.Backend.UpdateWirelessDeviceImportTask(id, req.DestinationName); err != nil {
+	if err := h.Backend.UpdateWirelessDeviceImportTask(id, req.Sidewalk.toModel()); err != nil {
 		return handleError(c, err)
 	}
 

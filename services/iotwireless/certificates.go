@@ -94,7 +94,8 @@ func copySingleImportTask(t *SingleWirelessDeviceImportTask) *SingleWirelessDevi
 
 // StartWirelessDeviceImportTask creates a bulk wireless device import task.
 func (b *InMemoryBackend) StartWirelessDeviceImportTask(
-	accountID, region, destinationName string,
+	accountID, region, destinationName, positioning string,
+	sidewalk WirelessDeviceImportSidewalk,
 ) (*WirelessDeviceImportTask, error) {
 	b.mu.Lock("StartWirelessDeviceImportTask")
 	defer b.mu.Unlock()
@@ -103,11 +104,17 @@ func (b *InMemoryBackend) StartWirelessDeviceImportTask(
 	arn := wirelessDeviceImportTaskARN(region, accountID, id)
 
 	task := &WirelessDeviceImportTask{
-		ID:              id,
-		ARN:             arn,
-		DestinationName: destinationName,
-		Status:          "Initialized",
-		CreatedAt:       time.Now(),
+		ID:                             id,
+		ARN:                            arn,
+		DestinationName:                destinationName,
+		Status:                         "Initialized",
+		CreatedAt:                      time.Now(),
+		Positioning:                    positioning,
+		SidewalkRole:                   sidewalk.Role,
+		SidewalkPositioningDestination: sidewalk.PositioningDestination,
+	}
+	if sidewalk.DeviceCreationFile != "" {
+		task.SidewalkDeviceCreationFiles = []string{sidewalk.DeviceCreationFile}
 	}
 
 	b.importTasks.Put(task)
@@ -165,8 +172,11 @@ func (b *InMemoryBackend) DeleteWirelessDeviceImportTask(id string) error {
 	return nil
 }
 
-// UpdateWirelessDeviceImportTask updates the destination name of a wireless device import task.
-func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName string) error {
+// UpdateWirelessDeviceImportTask appends a device-creation file to a wireless
+// device import task's Sidewalk list. The real UpdateWirelessDeviceImportTaskInput
+// (iotwireless@v1.59.4) carries only Id and a required Sidewalk.DeviceCreationFile --
+// it has no DestinationName member, which is otherwise immutable after creation.
+func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id string, sidewalk WirelessDeviceImportSidewalk) error {
 	b.mu.Lock("UpdateWirelessDeviceImportTask")
 	defer b.mu.Unlock()
 
@@ -175,8 +185,8 @@ func (b *InMemoryBackend) UpdateWirelessDeviceImportTask(id, destinationName str
 		return ErrImportTaskNotFound
 	}
 
-	if destinationName != "" {
-		task.DestinationName = destinationName
+	if sidewalk.DeviceCreationFile != "" {
+		task.SidewalkDeviceCreationFiles = append(task.SidewalkDeviceCreationFiles, sidewalk.DeviceCreationFile)
 	}
 
 	return nil
