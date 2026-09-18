@@ -107,9 +107,10 @@ func (h *Handler) handleGetGroup(_ context.Context, body []byte) ([]byte, error)
 	})
 }
 
+// GetGroupsInput (xray@v1.39.4 api_op_GetGroups.go) has no page-size member,
+// only NextToken -- the server picks the page size.
 type getGroupsInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken string `json:"NextToken"`
 }
 
 func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error) {
@@ -127,7 +128,7 @@ func (h *Handler) handleGetGroups(_ context.Context, body []byte) ([]byte, error
 		views = append(views, toGroupView(&groups[i]))
 	}
 
-	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultGroupsPageSize)
+	pg := page.New(views, in.NextToken, 0, defaultGroupsPageSize)
 	resp := map[string]any{
 		"Groups":     pg.Data,
 		keyNextToken: pg.Next,

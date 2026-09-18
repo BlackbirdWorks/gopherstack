@@ -475,3 +475,38 @@ func TestGetInsightSummaries_GroupAndTimeFiltering(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, out.InsightSummaries, "a non-overlapping time window must exclude the insight")
 }
+
+// TestGetGroups_DefaultPagination_RealClient covers an invented-field bug
+// (acceptguard): the handler read a "MaxResults" field that does not exist
+// on the real GetGroupsInput (xray@v1.39.4 api_op_GetGroups.go declares only
+// NextToken -- the real Client type structurally cannot send a page-size
+// request, since the server alone picks it). Since no real client could ever
+// reach that field, removing it changes nothing observable; this proves the
+// server's own default page size still paginates correctly through NextToken
+// alone.
+func TestGetGroups_DefaultPagination_RealClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestXRayClient(t)
+	ctx := t.Context()
+
+	const total = 30
+	const defaultPageSize = 25
+
+	for i := range total {
+		_, err := client.CreateGroup(ctx, &xraysdk.CreateGroupInput{
+			GroupName: aws.String(fmt.Sprintf("group-%02d", i)),
+		})
+		require.NoError(t, err)
+	}
+
+	first, err := client.GetGroups(ctx, &xraysdk.GetGroupsInput{})
+	require.NoError(t, err)
+	require.Len(t, first.Groups, defaultPageSize)
+	require.NotEmpty(t, aws.ToString(first.NextToken), "a real client must get a NextToken when more groups remain")
+
+	second, err := client.GetGroups(ctx, &xraysdk.GetGroupsInput{NextToken: first.NextToken})
+	require.NoError(t, err)
+	assert.Len(t, second.Groups, total-defaultPageSize)
+	assert.Empty(t, aws.ToString(second.NextToken))
+}

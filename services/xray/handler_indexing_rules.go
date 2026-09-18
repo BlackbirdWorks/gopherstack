@@ -81,9 +81,10 @@ func toIndexingRuleView(r *IndexingRule) indexingRuleView {
 	return v
 }
 
+// GetIndexingRulesInput (xray@v1.39.4 api_op_GetIndexingRules.go) has no
+// page-size member, only NextToken -- the server picks the page size.
 type getIndexingRulesInput struct {
-	NextToken  string `json:"NextToken"`
-	MaxResults int32  `json:"MaxResults"`
+	NextToken string `json:"NextToken"`
 }
 
 func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte, error) {
@@ -101,7 +102,7 @@ func (h *Handler) handleGetIndexingRules(_ context.Context, body []byte) ([]byte
 		views = append(views, toIndexingRuleView(r))
 	}
 
-	pg := page.New(views, in.NextToken, int(in.MaxResults), defaultIndexingRulesPageSize)
+	pg := page.New(views, in.NextToken, 0, defaultIndexingRulesPageSize)
 
 	return json.Marshal(map[string]any{
 		"IndexingRules": pg.Data,

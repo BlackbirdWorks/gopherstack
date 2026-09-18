@@ -9,13 +9,14 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// GetTraceSummariesInput (xray@v1.39.4 api_op_GetTraceSummaries.go) has no
+// page-size member, only NextToken -- the server picks the page size.
 type getTraceSummariesInput struct {
 	FilterExpression string  `json:"FilterExpression"`
 	TimeRangeType    string  `json:"TimeRangeType"`
 	NextToken        string  `json:"NextToken"`
 	StartTime        float64 `json:"StartTime"`
 	EndTime          float64 `json:"EndTime"`
-	MaxResults       int32   `json:"MaxResults"`
 	Sampling         bool    `json:"Sampling"`
 }
 
@@ -238,7 +239,7 @@ func (h *Handler) handleGetTraceSummaries(_ context.Context, body []byte) ([]byt
 		summaries = append(summaries, buildTraceSummaryView(traces[i].TraceID, sd, traces[i].StartTime))
 	}
 
-	pg := page.New(summaries, in.NextToken, int(in.MaxResults), defaultTraceSummariesPageSize)
+	pg := page.New(summaries, in.NextToken, 0, defaultTraceSummariesPageSize)
 
 	return json.Marshal(map[string]any{
 		"TraceSummaries":       pg.Data,
