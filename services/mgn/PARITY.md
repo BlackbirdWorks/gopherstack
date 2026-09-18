@@ -49,8 +49,8 @@ sdk_module: aws-sdk-go-v2/service/mgn@v1.48.4   # gopherstack-u8my: go.mod had a
 # v1.48.4; the "unchanged since 2026-08-01" note was stale. Diffed v1.48.3 vs v1.48.4:
 # types/{types,enums,errors}.go, serializers.go, deserializers.go, validators.go byte-identical --
 # only client middleware plumbing differs, so no wire-shape claim in this file was affected.
-last_audit_commit: ee8d5788f
-last_audit_date: 2026-08-21
+last_audit_commit: da97fccdb
+last_audit_date: 2026-09-18
 # 2026-08-30: cursor-population sweep (does every List/Describe response struct that DECLARES a
 # NextToken actually SET one before the collection can exceed a page?). Enumerated all 29 SDK ops
 # whose Input/Output declare NextToken. 22 already correct via the shared pkgs/page.New chokepoint
@@ -119,7 +119,7 @@ overall: A   # raised from A- (gopherstack-xd34): the SDK-driven integration sui
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   # source_server_lifecycle (16)
-  DescribeSourceServers: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeSourceServers: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-18 per-item field sweep): DataReplicationInfo.ReplicatorID's wire tag was \"replicatorID\", real key is \"replicatorId\" (mgn@v1.48.4 deserializers.go:19004) -- dormant (this backend's replication simulation never sets a value) but wrong regardless; fixed and proven via a seeded SourceServer (PutSourceServerForTest, export_test.go)."}
   UpdateSourceServer: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-06: FqdnForActionFramework/UserProvidedID were parsed off the wire request but never applied -- ConnectorAction was the only field the backend actually wired, and it was applied unconditionally (silently clearing ConnectorAction on any update that didn't re-send it). Fixed: SourceServerUpdate (sourceservers.go) applies each field only when the caller's JSON body includes it, matching AWS's own partial-update semantics. Platform is accepted off the wire and dropped -- the real SDK's own SourceServer/SourceProperties output has no Platform field to read it back from either."}
   UpdateSourceServerReplicationType: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteSourceServer: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -137,7 +137,7 @@ ops:
   TerminateTargetInstances: {wire: ok, errors: ok, state: fixed, persist: ok, note: "clears LaunchedInstance for real (jobs.go:226-228); does not mint a synthetic id, unlike StartTest/StartCutover. FIXED (2026-09-04 delete/update precondition sweep): api_op_TerminateTargetInstances.go:13-14 (\"This command will not work for any Source Server with a lifecycle.state of TESTING, CUTTING_OVER, or CUTOVER.\") was never enforced -- requireLifecyclePrecondition had no case for InitiatedByTerminate at all. Now returns ConflictException (modelled on this op) when LifeCycleState is TESTING/CUTTING_OVER/CUTOVER."}
   # jobs (3)
   DescribeJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (value-semantics sweep, gopherstack-uox6): Filters.FromDate/ToDate were decoded off the wire but never applied -- a source comment claimed this was deliberate ('not exercised by round-trip tests'), but Job.CreationDateTime (nowRFC3339, fixed-width UTC) is real, comparable, backing data. Now both-inclusive lexicographic bounds against CreationDateTime; JobIDs filtering was already correct."}
-  DescribeJobLogItems: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeJobLogItems: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-18 per-item field sweep): JobLogEventData had no AttemptCount/MaxAttemptsCount members at all (real fields, mgn@v1.48.4 deserializers.go:20957/20978) -- added as *int32, permanently unset since no retry mechanism exists in this backend to produce a value (same never-fabricate stance as DataReplicationInfo.LagDuration)."}
   DeleteJob: {wire: ok, errors: ok, state: ok, persist: ok}
   # launch_configuration (6)
   GetLaunchConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape backed by an internal LaunchConfiguration type this package invented -- no named SDK struct exists for it (models.go)"}
@@ -147,12 +147,12 @@ ops:
   DescribeLaunchConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateLaunchConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED (gopherstack-101r): same Ec2LaunchTemplateID removal as CreateLaunchConfigurationTemplate (api_op_UpdateLaunchConfigurationTemplate.go:106 is Output-only too)."}
   # replication_configuration (6)
-  GetReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "flattened per-server shape, same invented-internal-type pattern as GetLaunchConfiguration"}
-  UpdateReplicationConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetReplicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "flattened per-server shape, same invented-internal-type pattern as GetLaunchConfiguration. FIXED (2026-09-18 per-item field sweep): StagingAreaSubnetID's wire tag was \"stagingAreaSubnetID\", real key is \"stagingAreaSubnetId\" (mgn@v1.48.4 serializers.go/deserializers.go, 5 sites) -- this field is always populated (required on create), so a real client's StagingAreaSubnetId always decoded empty on every read of this op family. Proven via TestRoundTrip_PerServerConfiguration."}
+  UpdateReplicationConfiguration: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same stagingAreaSubnetId case fix as GetReplicationConfiguration; proven via TestRoundTrip_PerServerConfiguration."}
+  CreateReplicationConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same stagingAreaSubnetId case fix; proven via TestRoundTrip_ConfigTemplates."}
   DeleteReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
-  DescribeReplicationConfigurationTemplates: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateReplicationConfigurationTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
+  DescribeReplicationConfigurationTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same stagingAreaSubnetId case fix as GetReplicationConfiguration; proven via TestRoundTrip_ConfigTemplates."}
+  UpdateReplicationConfigurationTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "same stagingAreaSubnetId case fix as GetReplicationConfiguration."}
   # applications (8)
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateApplication: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -249,6 +249,7 @@ families:
 gaps: []
 items_still_open:
   - "StartImport's CSV schema (2026-09-11, see StartImport's ops: entry) now implements the SourceServer/Application/Wave-scoped subset of AWS's documented parameters (import-parameters.html). mgn:launch:*/mgn:replication:* (per-row LaunchConfiguration/ReplicationConfiguration overrides) remain out of scope: acting on them would require adding roughly two dozen fields (instance profile, per-NIC subnet/security-group/private-IP, placement, licensing, volume type, staging area routing/encryption/storage-type) this backend's LaunchConfiguration/ReplicationConfiguration types don't have at all -- a materially larger feature than a column-schema fix. mgn:account-id (delegated member-account import) and mgn:region (single-region backend, nothing to select) are also unimplemented -- neither has a cross-account/multi-region concept anywhere else in this backend to hook into. Left as an explicit, proportionate scope decision (s3import.go's doc comment), the same class of remaining gap other A-grade services in this repo carry (e.g. services/grafana/PARITY.md's DisassociateLicense limitation). (bd: gopherstack-i6oz)"
+  - "Job.ParticipatingServers[].PostLaunchActionsStatus (real member, mgn@v1.48.4 deserializers.go:24403) is not modeled: no SSM command-execution engine exists in this backend to produce real post-launch-action run results (actions.go's PutSourceServerAction/ListSourceServerActions family is real state-only bookkeeping of the documents to run, not their execution -- matching real AWS's own API scope, whose actual SSM document execution happens outside this API). Left genuinely absent rather than fabricated. (2026-09-18 per-item field sweep, bd gopherstack-21my)"
   - "mgn:server:hostname/mgn:server:fqdn/mgn:server:aws-instance-id/mgn:server:vmware-uuid/mgn:server:vmpath (server identification columns, pre-dating this pass) are NOT in AWS's published Inventory Import parameters table (confirmed by this pass's own fetch of import-parameters.html: the table's only server identification columns are mgn:server:fqdn-for-action-framework, mgn:server:id, and mgn:server:user-provided-id) -- they remain this package's own best-effort extension of the mgn:server:* naming convention onto the SDK's real IdentificationHints fields, already disclosed as such in s3import.go's doc comment. Left unchanged this pass: ~20 existing test call sites (seedSourceServerViaImport and its callers, across sdk_roundtrip_test.go/sdk_roundtrip_nested_test.go/sourceserver_lifecycle_precondition_test.go/list_filter_params_test.go/and others) depend on this exact schema, and correcting it was out of this pass's scope (mgn:app:*/mgn:wave:* creation). A follow-up narrowing this schema to only the real published columns, updating every dependent test, would need its own pass."
 structural_gaps:
   - "No CreateSourceServer op exists anywhere in this SDK's 95 operations. In real AWS, a SourceServer record is created only by the MGN Replication Agent (installed on the actual on-prem/cloud source machine) calling an internal, non-public control-plane API to register itself -- that registration call is NOT part of this public SDK surface at all. StartImport's bulk CSV import is the ONLY public-API path that creates SourceServer records in this implementation (createSourceServerLocked, sourceservers.go), and is now wire-reachable with a real, doc-derived CSV schema (2026-08-06) -- there is no further public-API creation path to add."
@@ -1736,3 +1737,41 @@ snapshot-inventory diff -- neither fix touched a persisted struct's shape).
 `golangci-lint run --new-from-rev=HEAD ./services/mgn/...` 0 issues. `go
 run ./cmd/paritylint` 0 FAIL, before and after this file's edits. No
 version bump.
+
+## 2026-09-18 per-item field sweep (gopherstack-21my)
+
+Mechanically diffed every List/Describe/Get/Create/Update item shape
+against the pinned SDK (`cmd/structfielddiff` + hand-verified deserializer
+casing) rather than trusting prior per-field claims. Two real, previously
+unswept bugs found and fixed:
+
+1. `DataReplicationInfo.ReplicatorID`'s wire tag was `replicatorID`; the
+   real key is `replicatorId` (deserializers.go:19004). Dormant (no op
+   ever sets a value) but wrong; fixed and proven via a directly-seeded
+   `SourceServer` (`PutSourceServerForTest`, `export_test.go`) round-tripped
+   through a real client (`TestDescribeSourceServers_ReplicatorIDWireKey`).
+2. `StagingAreaSubnetID`'s wire tag was `stagingAreaSubnetID` across all 5
+   sites (`GetReplicationConfiguration`, `UpdateReplicationConfiguration`,
+   `CreateReplicationConfigurationTemplate`,
+   `DescribeReplicationConfigurationTemplates`,
+   `UpdateReplicationConfigurationTemplate`); real key is
+   `stagingAreaSubnetId` (serializers.go/deserializers.go). This field is
+   always populated (required on create) -- a real client's read of any of
+   these 5 ops always decoded it empty. Fixed; proven failable and fixed in
+   `TestRoundTrip_ConfigTemplates`/`TestRoundTrip_PerServerConfiguration`.
+
+Also added `JobLogEventData.AttemptCount`/`MaxAttemptsCount` (real members,
+deserializers.go:20957/20978, wholly absent from the wire struct before this
+pass) -- permanently unset, no retry mechanism exists to produce a value.
+Recorded one new gap: `ParticipatingServer.PostLaunchActionsStatus` is not
+modeled (no SSM execution engine; see `items_still_open`). Ran
+`cmd/overwidecandidates`: its one mgn flag (`ListNetworkMigrationDefinitions`)
+is a false positive -- already correctly narrowed to
+`NetworkMigrationDefinitionSummary` in a prior pass.
+
+Gates: `gofmt -l` clean. `go build ./...` clean. `go vet ./services/mgn/...`
+clean. `go test -race -count=1 ./services/mgn/...` and
+`./pkgs/persistence/...` clean (additive snapshot-inventory diff only, no
+version bump). `golangci-lint run ./services/mgn/...` 0 issues (new and
+full-run). `go run ./cmd/parityfmtcheck -dir services` clean.
+`git diff --stat go.mod go.sum` empty.

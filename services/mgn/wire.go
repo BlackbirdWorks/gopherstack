@@ -143,7 +143,7 @@ type dataReplicationInfoWire struct {
 	EtaDateTime               string                         `json:"etaDateTime,omitempty"`
 	LagDuration               string                         `json:"lagDuration,omitempty"`
 	LastSnapshotDateTime      string                         `json:"lastSnapshotDateTime,omitempty"`
-	ReplicatorID              string                         `json:"replicatorID,omitempty"`
+	ReplicatorID              string                         `json:"replicatorId,omitempty"`
 	ReplicatedDisks           []replicatedDiskInfoWire       `json:"replicatedDisks,omitempty"`
 }
 
@@ -329,7 +329,12 @@ type describeJobLogItemsRequest struct {
 	MaxResults int32  `json:"maxResults,omitempty"`
 }
 
+// jobLogEventDataWire mirrors types.JobLogEventData. AttemptCount/MaxAttemptsCount
+// stay permanently unset -- no retry mechanism exists in this backend to produce
+// a real value (same never-fabricate stance as DataReplicationInfo.LagDuration).
 type jobLogEventDataWire struct {
+	AttemptCount       *int32 `json:"attemptCount,omitempty"`
+	MaxAttemptsCount   *int32 `json:"maxAttemptsCount,omitempty"`
 	ConversionServerID string `json:"conversionServerID,omitempty"`
 	RawError           string `json:"rawError,omitempty"`
 	SourceServerID     string `json:"sourceServerID,omitempty"`
@@ -464,7 +469,7 @@ type replicationConfigurationWire struct {
 	StagingAreaTags                     map[string]string         `json:"stagingAreaTags,omitempty"`
 	SourceServerID                      string                    `json:"sourceServerID,omitempty"`
 	ReplicationServerInstanceType       string                    `json:"replicationServerInstanceType,omitempty"`
-	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetID,omitempty"`
+	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetId,omitempty"`
 	DataPlaneRouting                    string                    `json:"dataPlaneRouting,omitempty"`
 	DefaultLargeStagingDiskType         string                    `json:"defaultLargeStagingDiskType,omitempty"`
 	EbsEncryption                       string                    `json:"ebsEncryption,omitempty"`
@@ -500,7 +505,7 @@ type updateReplicationConfigurationRequest struct {
 	StoreSnapshotOnLocalZone            *bool                     `json:"storeSnapshotOnLocalZone,omitempty"`
 	CreatePublicIP                      *bool                     `json:"createPublicIP,omitempty"`
 	StorageConfiguration                *storageConfigurationWire `json:"storageConfiguration,omitempty"`
-	StagingAreaSubnetID                 *string                   `json:"stagingAreaSubnetID,omitempty"`
+	StagingAreaSubnetID                 *string                   `json:"stagingAreaSubnetId,omitempty"`
 	BandwidthThrottling                 *int64                    `json:"bandwidthThrottling,omitempty"`
 	AssociateDefaultSecurityGroup       *bool                     `json:"associateDefaultSecurityGroup,omitempty"`
 	SourceServerID                      string                    `json:"sourceServerID"`
@@ -518,7 +523,7 @@ type replicationConfigurationTemplateWire struct {
 	Arn                                 string                    `json:"arn,omitempty"`
 	DataPlaneRouting                    string                    `json:"dataPlaneRouting,omitempty"`
 	DefaultLargeStagingDiskType         string                    `json:"defaultLargeStagingDiskType,omitempty"`
-	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetID,omitempty"`
+	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetId,omitempty"`
 	EbsEncryptionKeyArn                 string                    `json:"ebsEncryptionKeyArn,omitempty"`
 	ReplicationConfigurationTemplateID  string                    `json:"replicationConfigurationTemplateID"`
 	ReplicationServerInstanceType       string                    `json:"replicationServerInstanceType,omitempty"`
@@ -536,7 +541,7 @@ type createReplicationConfigurationTemplateRequest struct {
 	StagingAreaTags                     map[string]string         `json:"stagingAreaTags"`
 	Tags                                map[string]string         `json:"tags,omitempty"`
 	InternetProtocol                    string                    `json:"internetProtocol,omitempty"`
-	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetID"`
+	StagingAreaSubnetID                 string                    `json:"stagingAreaSubnetId"`
 	DefaultLargeStagingDiskType         string                    `json:"defaultLargeStagingDiskType"`
 	EbsEncryption                       string                    `json:"ebsEncryption"`
 	EbsEncryptionKeyArn                 string                    `json:"ebsEncryptionKeyArn,omitempty"`
@@ -580,7 +585,7 @@ type updateReplicationConfigurationTemplateRequest struct {
 	StorageConfiguration                *storageConfigurationWire `json:"storageConfiguration,omitempty"`
 	BandwidthThrottling                 *int64                    `json:"bandwidthThrottling,omitempty"`
 	AssociateDefaultSecurityGroup       *bool                     `json:"associateDefaultSecurityGroup,omitempty"`
-	StagingAreaSubnetID                 *string                   `json:"stagingAreaSubnetID,omitempty"`
+	StagingAreaSubnetID                 *string                   `json:"stagingAreaSubnetId,omitempty"`
 	StoreSnapshotOnLocalZone            *bool                     `json:"storeSnapshotOnLocalZone,omitempty"`
 	ReplicationConfigurationTemplateID  string                    `json:"replicationConfigurationTemplateID"`
 	ReplicationServersSecurityGroupsIDs []string                  `json:"replicationServersSecurityGroupsIDs,omitempty"`

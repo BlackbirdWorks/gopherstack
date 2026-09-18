@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	mgnsdk "github.com/aws/aws-sdk-go-v2/service/mgn"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/require"
 
@@ -85,4 +87,33 @@ func TestCreateLaunchConfigurationTemplate_Ec2LaunchTemplateIDNotAccepted(t *tes
 		"ec2LaunchTemplateID":           "lt-attacker-supplied-2",
 	})
 	require.Empty(t, updated["ec2LaunchTemplateID"], "Update must not accept ec2LaunchTemplateID from the request")
+}
+
+// TestDescribeSourceServers_ReplicatorIDWireKey proves DataReplicationInfo's
+// wire key is "replicatorId" (mgn@v1.48.4 deserializers.go:19004), not
+// "replicatorID" -- this backend's own replication simulation never sets
+// ReplicatorID (sourceservers.go's scheduleReplication), so the field is
+// seeded directly via PutSourceServerForTest (export_test.go) to prove the
+// real aws-sdk-go-v2 client decodes it correctly when it is ever populated.
+func TestDescribeSourceServers_ReplicatorIDWireKey(t *testing.T) {
+	t.Parallel()
+
+	backend := mgn.NewInMemoryBackend(t.Context(), rtTestAccountID, rtTestRegion)
+	t.Cleanup(backend.Close)
+	backend.InitializeService()
+
+	backend.PutSourceServerForTest(&mgn.SourceServer{
+		SourceServerID: "s-replicator-1",
+		DataReplicationInfo: &mgn.DataReplicationInfo{
+			ReplicatorID: "r-abc123",
+		},
+	})
+
+	h := mgn.NewHandler(backend)
+	client := newRoundTripClient(t, h)
+
+	out, err := client.DescribeSourceServers(t.Context(), &mgnsdk.DescribeSourceServersInput{})
+	require.NoError(t, err)
+	require.Len(t, out.Items, 1)
+	require.Equal(t, "r-abc123", aws.ToString(out.Items[0].DataReplicationInfo.ReplicatorId))
 }
