@@ -3,6 +3,7 @@ package redshift
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 )
 
@@ -56,4 +57,38 @@ func paginateByMarker[V any](sorted []V, marker string, maxRecords int, nameOf f
 	}
 
 	return sorted, nextMarker
+}
+
+// describePaginated runs the shared Describe shape (list from the backend, map
+// to XML, sort by key, apply Marker/MaxRecords, wrap in the result struct) used
+// by DescribeEventSubscriptions, DescribeClusterParameterGroups and
+// DescribeReservedNodes.
+func describePaginated[T, X any](
+	vals url.Values,
+	list func() ([]T, error),
+	toXML func(*T) X,
+	keyOf func(X) string,
+	wrap func(items []X, marker string) any,
+) (any, error) {
+	items, err := list()
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	members := make([]X, 0, len(items))
+	for _, it := range items {
+		itp := it
+		members = append(members, toXML(&itp))
+	}
+
+	sort.Slice(members, func(i, j int) bool { return keyOf(members[i]) < keyOf(members[j]) })
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords, keyOf)
+
+	return wrap(members, nextMarker), nil
 }

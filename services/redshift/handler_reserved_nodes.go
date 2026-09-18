@@ -65,32 +65,18 @@ type describeReservedNodesResponse struct {
 func (h *Handler) handleDescribeReservedNodes(vals url.Values) (any, error) {
 	nodeID := vals.Get("ReservedNodeId")
 
-	nodes, err := h.Backend.DescribeReservedNodes(nodeID)
-	if err != nil {
-		return nil, err
-	}
-
-	maxRecords, err := parseRedshiftMaxRecords(vals)
-	if err != nil {
-		return nil, err
-	}
-
-	members := make([]xmlReservedNode, 0, len(nodes))
-	for _, n := range nodes {
-		np := n
-		members = append(members, reservedNodeToXML(&np))
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].ReservedNodeID < members[j].ReservedNodeID })
-
-	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
-		func(n xmlReservedNode) string { return n.ReservedNodeID })
-
-	return &describeReservedNodesResponse{
-		Xmlns:         redshiftXMLNS,
-		Marker:        nextMarker,
-		ReservedNodes: xmlReservedNodeList{Members: members},
-	}, nil
+	return describePaginated(vals,
+		func() ([]ReservedNode, error) { return h.Backend.DescribeReservedNodes(nodeID) },
+		reservedNodeToXML,
+		func(n xmlReservedNode) string { return n.ReservedNodeID },
+		func(members []xmlReservedNode, marker string) any {
+			return &describeReservedNodesResponse{
+				Xmlns:         redshiftXMLNS,
+				Marker:        marker,
+				ReservedNodes: xmlReservedNodeList{Members: members},
+			}
+		},
+	)
 }
 
 func reservedNodeToXML(n *ReservedNode) xmlReservedNode {

@@ -95,32 +95,18 @@ type describeClusterParameterGroupsResponse struct {
 func (h *Handler) handleDescribeClusterParameterGroups(vals url.Values) (any, error) {
 	name := vals.Get("ParameterGroupName")
 
-	groups, err := h.Backend.DescribeClusterParameterGroups(name)
-	if err != nil {
-		return nil, err
-	}
-
-	maxRecords, err := parseRedshiftMaxRecords(vals)
-	if err != nil {
-		return nil, err
-	}
-
-	members := make([]xmlClusterParameterGroup, 0, len(groups))
-	for _, g := range groups {
-		gp := g
-		members = append(members, paramGroupToXML(&gp))
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].ParameterGroupName < members[j].ParameterGroupName })
-
-	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
-		func(g xmlClusterParameterGroup) string { return g.ParameterGroupName })
-
-	return &describeClusterParameterGroupsResponse{
-		Xmlns:           redshiftXMLNS,
-		Marker:          nextMarker,
-		ParameterGroups: xmlClusterParameterGroupList{Members: members},
-	}, nil
+	return describePaginated(vals,
+		func() ([]ClusterParameterGroup, error) { return h.Backend.DescribeClusterParameterGroups(name) },
+		paramGroupToXML,
+		func(g xmlClusterParameterGroup) string { return g.ParameterGroupName },
+		func(members []xmlClusterParameterGroup, marker string) any {
+			return &describeClusterParameterGroupsResponse{
+				Xmlns:           redshiftXMLNS,
+				Marker:          marker,
+				ParameterGroups: xmlClusterParameterGroupList{Members: members},
+			}
+		},
+	)
 }
 
 // ---- DescribeClusterParameters ----

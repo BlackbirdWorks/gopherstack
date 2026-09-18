@@ -400,32 +400,18 @@ type describeEventSubscriptionsResponse struct {
 func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error) {
 	subscriptionName := vals.Get("SubscriptionName")
 
-	subs, err := h.Backend.DescribeEventSubscriptions(subscriptionName)
-	if err != nil {
-		return nil, err
-	}
-
-	maxRecords, err := parseRedshiftMaxRecords(vals)
-	if err != nil {
-		return nil, err
-	}
-
-	members := make([]xmlEventSubscription, 0, len(subs))
-	for _, s := range subs {
-		sp := s
-		members = append(members, eventSubscriptionToXML(&sp))
-	}
-
-	sort.Slice(members, func(i, j int) bool { return members[i].CustSubscriptionID < members[j].CustSubscriptionID })
-
-	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
-		func(s xmlEventSubscription) string { return s.CustSubscriptionID })
-
-	return &describeEventSubscriptionsResponse{
-		Xmlns:              redshiftXMLNS,
-		Marker:             nextMarker,
-		EventSubscriptions: xmlEventSubscriptionList{Members: members},
-	}, nil
+	return describePaginated(vals,
+		func() ([]EventSubscription, error) { return h.Backend.DescribeEventSubscriptions(subscriptionName) },
+		eventSubscriptionToXML,
+		func(s xmlEventSubscription) string { return s.CustSubscriptionID },
+		func(members []xmlEventSubscription, marker string) any {
+			return &describeEventSubscriptionsResponse{
+				Xmlns:              redshiftXMLNS,
+				Marker:             marker,
+				EventSubscriptions: xmlEventSubscriptionList{Members: members},
+			}
+		},
+	)
 }
 
 // ---- ModifyEventSubscription ----
