@@ -236,13 +236,13 @@ type UpdateExpressGatewayServiceInput struct {
 	PrimaryContainer      *ExpressGatewayContainer
 	ScalingTarget         *ExpressGatewayScalingTarget
 	ServiceArn            string
-	CPU                   string
-	Memory                string
-	HealthCheckPath       string
-	ExecutionRoleArn      string
+	CPU                   *string
+	Memory                *string
+	HealthCheckPath       *string
+	ExecutionRoleArn      *string
 	InfrastructureRoleArn string
-	TaskDefinitionArn     string
-	TaskRoleArn           string
+	TaskDefinitionArn     *string
+	TaskRoleArn           *string
 }
 
 // ---- Fargate/inference resource models ----
@@ -885,7 +885,7 @@ type UpdateServiceInput struct {
 	Monitoring                    *MonitoringConfiguration       `json:"monitoring,omitempty"`
 	Cluster                       string                         `json:"cluster,omitempty"`
 	Service                       string                         `json:"service"`
-	TaskDefinition                string                         `json:"taskDefinition,omitempty"`
+	TaskDefinition                *string                        `json:"taskDefinition,omitempty"`
 	PropagateTags                 string                         `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                         `json:"availabilityZoneRebalancing,omitempty"`
 	LoadBalancers                 []LoadBalancer                 `json:"loadBalancers,omitempty"`

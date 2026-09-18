@@ -241,13 +241,13 @@ type updateExpressGatewayServiceInput struct {
 	PrimaryContainer      *expressGatewayContainerInput            `json:"primaryContainer,omitempty"`
 	ScalingTarget         *expressGatewayScalingTargetInput        `json:"scalingTarget,omitempty"`
 	ServiceArn            string                                   `json:"serviceArn"`
-	CPU                   string                                   `json:"cpu,omitempty"`
-	Memory                string                                   `json:"memory,omitempty"`
-	HealthCheckPath       string                                   `json:"healthCheckPath,omitempty"`
-	ExecutionRoleArn      string                                   `json:"executionRoleArn,omitempty"`
+	CPU                   *string                                  `json:"cpu,omitempty"`
+	Memory                *string                                  `json:"memory,omitempty"`
+	HealthCheckPath       *string                                  `json:"healthCheckPath,omitempty"`
+	ExecutionRoleArn      *string                                  `json:"executionRoleArn,omitempty"`
 	InfrastructureRoleArn string                                   `json:"infrastructureRoleArn,omitempty"`
-	TaskDefinitionArn     string                                   `json:"taskDefinitionArn,omitempty"`
-	TaskRoleArn           string                                   `json:"taskRoleArn,omitempty"`
+	TaskDefinitionArn     *string                                  `json:"taskDefinitionArn,omitempty"`
+	TaskRoleArn           *string                                  `json:"taskRoleArn,omitempty"`
 }
 
 // updatedExpressGatewayServiceView mirrors types.UpdatedExpressGatewayService,

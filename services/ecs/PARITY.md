@@ -1,7 +1,7 @@
 ---
 service: ecs
 sdk_module: aws-sdk-go-v2/service/ecs@v1.96.0
-last_audit_commit: b1905140e                      # gopherstack-xhu2t reqfielddiff tier-1 sweep
+last_audit_commit: 302aa4e3c                      # 2026-09-18 zeroguard omitted-vs-zero sweep
 last_audit_date: 2026-09-18
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 ops:
@@ -91,6 +91,21 @@ leaks: {status: clean, note: "Prior 'found' status was stale documentation -- th
 ---
 
 ## Notes
+
+### 2026-09-18 (zeroguard omitted-vs-zero sweep)
+
+`cmd/zeroguard` flagged 15 rows across 6 Update ops. 2 fields were real bugs,
+pointer-ified: UpdateService.TaskDefinition, and
+UpdateExpressGatewayService's CPU/Memory/HealthCheckPath/ExecutionRoleArn/
+TaskRoleArn/TaskDefinitionArn (grouped: same op, same fix). The Express
+Gateway one was worse than a simple zero-guard: an omitted field reset
+CPU/Memory/HealthCheckPath to Create-time defaults, and ExecutionRoleArn/
+TaskRoleArn/TaskDefinitionArn had no fallback at all (blanked to "" on every
+omit) — fixed by merging onto the current revision's values, proven in
+`update_omitted_members_preserve_state_test.go`. 13 false positives, all
+identifiers used only for lookup (Cluster, Service, Name, DaemonArn,
+ServiceArn) or required-every-call replace fields
+(UpdateDaemon.DaemonTaskDefinitionArn).
 
 ### 2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep)
 

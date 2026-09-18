@@ -468,7 +468,7 @@ func TestECS_Backend_UpdateService_TaskDefinition(t *testing.T) {
 	updated, err := backend.UpdateService(ecs.UpdateServiceInput{
 		Cluster:        "td-update-cluster",
 		Service:        "td-update-svc",
-		TaskDefinition: td2.TaskDefinitionArn,
+		TaskDefinition: aws.String(td2.TaskDefinitionArn),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, td2.TaskDefinitionArn, updated.TaskDefinition)
