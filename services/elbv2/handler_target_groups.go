@@ -59,6 +59,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		Port:                port,
 		VpcID:               vals.Get("VpcId"),
 		TargetType:          vals.Get("TargetType"),
+		IPAddressType:       vals.Get("IpAddressType"),
 		Tags:                tagKVs,
 		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
@@ -312,6 +313,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		Port:                       tg.Port,
 		VpcID:                      tg.VpcID,
 		TargetType:                 tg.TargetType,
+		IPAddressType:              tg.IPAddressType,
 		HealthCheckProtocol:        tg.HealthCheckProtocol,
 		HealthCheckPort:            tg.HealthCheckPort,
 		HealthCheckPath:            tg.HealthCheckPath,
@@ -353,6 +355,7 @@ type xmlTargetGroup struct {
 	ProtocolVersion            string         `xml:"ProtocolVersion,omitempty"`
 	VpcID                      string         `xml:"VpcId,omitempty"`
 	TargetType                 string         `xml:"TargetType"`
+	IPAddressType              string         `xml:"IpAddressType,omitempty"`
 	HealthCheckProtocol        string         `xml:"HealthCheckProtocol"`
 	HealthCheckPort            string         `xml:"HealthCheckPort"`
 	HealthCheckPath            string         `xml:"HealthCheckPath,omitempty"`

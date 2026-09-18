@@ -10,8 +10,10 @@ type StorageBackend interface {
 	DescribeLoadBalancers(arns []string, names []string) ([]LoadBalancer, error)
 	DeleteLoadBalancer(lbArn string) error
 	ModifyLoadBalancerAttributes(lbArn string, attrs map[string]string) (*LoadBalancer, error)
-	SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error)
-	SetSubnets(lbArn string, mappings []SubnetMapping) (*LoadBalancer, error)
+	SetSecurityGroups(
+		lbArn string, sgs []string, enforceInboundRulesOnPrivateLink string,
+	) (*LoadBalancer, error)
+	SetSubnets(lbArn string, mappings []SubnetMapping, enablePrefixForIpv6SourceNat string) (*LoadBalancer, error)
 	SetIPAddressType(lbArn string, ipType string) (*LoadBalancer, error)
 	CreateTargetGroup(input CreateTargetGroupInput) (*TargetGroup, error)
 	DescribeTargetGroups(arns []string, names []string, lbArn string) ([]TargetGroup, error)

@@ -26,6 +26,8 @@ const (
 	attrValueFalse = "false"
 	attrValueTrue  = "true"
 	unknownOp      = "Unknown"
+	onOffValueOn   = "on"
+	onOffValueOff  = "off"
 )
 
 // Handler is the Echo HTTP handler for ELBv2 operations.

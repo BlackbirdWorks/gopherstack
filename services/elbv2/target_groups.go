@@ -31,6 +31,49 @@ func isValidTGProtocol(proto string) bool {
 	return false
 }
 
+// resolveTargetTypeAndProtocol validates and defaults CreateTargetGroupInput's
+// TargetType/Protocol pair: TargetType defaults to "instance"; Protocol is
+// forced empty for lambda target groups (which have no protocol or port) and
+// otherwise defaults to HTTP.
+func resolveTargetTypeAndProtocol(targetType, protocol string) (string, string, error) {
+	if targetType == "" {
+		targetType = "instance"
+	}
+
+	if !isValidTargetType(targetType) {
+		return "", "", fmt.Errorf(
+			"%w: invalid TargetType %q; must be instance, ip, lambda, or alb", ErrInvalidParameter, targetType,
+		)
+	}
+
+	if targetType == targetTypeLambda {
+		return targetType, "", nil
+	}
+
+	if protocol == "" {
+		protocol = protoHTTP
+	}
+
+	if !isValidTGProtocol(protocol) {
+		return "", "", fmt.Errorf("%w: invalid Protocol %q for target group", ErrInvalidParameter, protocol)
+	}
+
+	return targetType, protocol, nil
+}
+
+// validateTargetGroupIPAddressType validates CreateTargetGroupInput.IpAddressType,
+// defaulting to ipv4 when omitted.
+func validateTargetGroupIPAddressType(v string) (string, error) {
+	switch v {
+	case "":
+		return ipAddressTypeIPv4, nil
+	case ipAddressTypeIPv4, "ipv6":
+		return v, nil
+	default:
+		return "", fmt.Errorf("%w: invalid IpAddressType %q; must be ipv4 or ipv6", ErrInvalidParameter, v)
+	}
+}
+
 func (b *InMemoryBackend) tgARN(name string) string {
 	return arn.Build(
 		"elasticloadbalancing",
@@ -101,33 +144,14 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 
 	tgArn := b.tgARN(input.Name)
 
-	targetType := input.TargetType
-	if targetType == "" {
-		targetType = "instance"
+	targetType, proto, err := resolveTargetTypeAndProtocol(input.TargetType, input.Protocol)
+	if err != nil {
+		return nil, err
 	}
 
-	if !isValidTargetType(targetType) {
-		return nil, fmt.Errorf(
-			"%w: invalid TargetType %q; must be instance, ip, lambda, or alb",
-			ErrInvalidParameter, targetType,
-		)
-	}
-
-	proto := input.Protocol
-	if targetType == targetTypeLambda {
-		// Lambda target groups have no protocol or port.
-		proto = ""
-	} else {
-		if proto == "" {
-			proto = protoHTTP
-		}
-
-		if !isValidTGProtocol(proto) {
-			return nil, fmt.Errorf(
-				"%w: invalid Protocol %q for target group",
-				ErrInvalidParameter, proto,
-			)
-		}
+	ipAddrType, err := validateTargetGroupIPAddressType(input.IPAddressType)
+	if err != nil {
+		return nil, err
 	}
 
 	t := tags.New("elbv2.tg." + input.Name + ".tags")
@@ -138,8 +162,8 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 	// Apply health-check defaults.
 	input = applyTGHealthCheckDefaults(proto, input)
 
-	if err := validateHealthCheckPath(input.HealthCheckPath); err != nil {
-		return nil, err
+	if pathErr := validateHealthCheckPath(input.HealthCheckPath); pathErr != nil {
+		return nil, pathErr
 	}
 
 	matcher := defaultTGMatcher(input.HealthCheckProtocol, input.Matcher)
@@ -152,6 +176,7 @@ func (b *InMemoryBackend) CreateTargetGroup(input CreateTargetGroupInput) (*Targ
 		Port:                       input.Port,
 		VpcID:                      input.VpcID,
 		TargetType:                 targetType,
+		IPAddressType:              ipAddrType,
 		HealthCheckProtocol:        input.HealthCheckProtocol,
 		HealthCheckPort:            input.HealthCheckPort,
 		HealthCheckPath:            input.HealthCheckPath,
