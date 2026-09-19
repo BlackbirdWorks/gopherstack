@@ -555,7 +555,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Athena](services/athena/README.md) | A | 25 | 4 gaps; 1 deferred |
 | [Clean Rooms](services/cleanrooms/README.md) | A | — | 17 families; 8 gaps; 2 deferred |
 | [EMR](services/emr/README.md) | A | 65 | 2 gaps; 7 structural gaps |
-| [EMR Serverless](services/emrserverless/README.md) | A | 22 | 1 gap |
+| [EMR Serverless](services/emrserverless/README.md) | A | 22 | 2 gaps |
 | [Elasticsearch](services/elasticsearch/README.md) | A | 51 | 7 gaps |
 | [Glue](services/glue/README.md) | A | 59 | 9 gaps; 6 deferred |
 | [Glue DataBrew](services/databrew/README.md) | A | 44 | 6 gaps |

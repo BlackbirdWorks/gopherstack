@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: grafana
 sdk_module: aws-sdk-go-v2/service/grafana@v1.38.4
-last_audit_commit: e75a8cecd   # HEAD at this audit pass; diff from here forward
-last_audit_date: 2026-08-20
+last_audit_commit: 44bff591b   # 2026-09-19 over-wide-response sweep (this pass); prior: e75a8cecd   # HEAD at this audit pass; diff from here forward
+last_audit_date: 2026-09-19  # prior: 2026-08-20 -- 2026-09-19 over-wide-response sweep (gopherstack) re-verified ListPermissions/ListWorkspaceServiceAccountTokens/ListWorkspaceServiceAccounts/ListWorkspaces member-by-member against grafana@v1.38.4
 # Grade A: this pass added the integration suite that is the only accepted parity proof
 # (.claude/memories/parity-principles.md rule 3 -- test/integration/grafana_test.go, driving
 # every operation through a real aws-sdk-go-v2 client against a live container) and closed
@@ -44,7 +44,7 @@ ops:
   DescribeWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}"}
   UpdateWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "PUT /workspaces/{workspaceId}; same cross-service validation as CreateWorkspace, merges onto existing state, requires ACTIVE/DEGRADED, UPDATING -> ACTIVE or a chaos-injected UPDATE_FAILED/DEGRADED"}
   DeleteWorkspace: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}; cascades apiKeys/serviceAccounts/tokens/permissions synchronously (workspace_update.go); a chaos-injected fault reports DELETION_FAILED without deleting instead"}
-  ListWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces, paginated via pkgs/page"}
+  ListWorkspaces: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces, paginated via pkgs/page. Re-verified 2026-09-19 (over-wide-response sweep, gopherstack) against types.WorkspaceSummary: workspaceSummaryWire (wire.go:112-126) carries exactly the 13 real members (7 required + Description/GrafanaToken/LicenseType/Name/NotificationDestinations/Tags) -- no leaks, no gaps."}
   DescribeWorkspaceAuthentication: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/authentication"}
   UpdateWorkspaceAuthentication: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/authentication; validates IdpMetadata url-xor-xml and SAML-requires-samlConfiguration"}
   DescribeWorkspaceConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/configuration; opaque JSON blob stored/returned verbatim"}
@@ -52,16 +52,16 @@ ops:
   AssociateLicense: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/licenses/{licenseType}; GrafanaToken read from Grafana-Token HEADER, not body -- see handler_license.go; UPGRADING -> ACTIVE or a chaos-injected UPGRADE_FAILED/DEGRADED"}
   DisassociateLicense: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}/licenses/{licenseType}; idempotent no-op when nothing to remove (no ConflictException on this op's wire)"}
   ListVersions: {wire: ok, errors: ok, state: ok, persist: n/a, note: "GET /versions; workspaceId query param is \"workspace-id\" (hyphenated), confirmed via serializers.go -- not \"workspaceId\""}
-  ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/permissions, paginated, filterable by groupId/userId/userType"}
+  ListPermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/permissions, paginated, filterable by groupId/userId/userType. Re-verified 2026-09-19 (over-wide-response sweep, gopherstack) against types.PermissionEntry/User: permissionEntryWire/userWire (wire.go:184-193) match exactly -- no leaks, no gaps."}
   UpdatePermissions: {wire: ok, errors: ok, state: ok, persist: ok, note: "PATCH /workspaces/{workspaceId}/permissions; real partial-failure batch -- a malformed instruction (empty users) or an ADD referencing an SSO_USER/SSO_GROUP ID absent from the account's IAM Identity Center identity store (cross_service.go) lands in Errors, valid instructions in the same batch still apply"}
   CreateWorkspaceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/apikeys; SecondsToLive validated 1..2592000 (30 days)"}
   DeleteWorkspaceApiKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}/apikeys/{keyName}"}
   CreateWorkspaceServiceAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /workspaces/{workspaceId}/serviceaccounts; IsDisabled wire-typed as *string (\"true\"/\"false\"), not *bool -- preserved as-is, confirmed via types.go. gopherstack-1n1: enforces the doc-comment precondition 'You can only create service accounts for workspaces that are compatible with Grafana version 9 and above' (api_op_CreateWorkspaceServiceAccount.go), rejecting sub-9 workspaces (grafanaVersions includes 8.4) with ConflictException (versions.go's supportsServiceAccounts, recognized in this op's own deserializeOpErrorCreateWorkspaceServiceAccount) -- previously unenforced, no test exercised an explicit sub-9 GrafanaVersion. CreateWorkspaceServiceAccountToken states the identical precondition but needs no separate check: a token's ServiceAccountId can only resolve to an account created after this gate, and GrafanaVersion is upgrade-only (no downgrade path), so the condition is unreachable there."}
   DeleteWorkspaceServiceAccount: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /workspaces/{workspaceId}/serviceaccounts/{serviceAccountId}; cascades its tokens"}
-  ListWorkspaceServiceAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/serviceaccounts, paginated"}
+  ListWorkspaceServiceAccounts: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /workspaces/{workspaceId}/serviceaccounts, paginated. Re-verified 2026-09-19 (over-wide-response sweep, gopherstack) against types.ServiceAccountSummary: serviceAccountSummaryWire (wire.go:219-224) matches its 4 members exactly -- no leaks, no gaps."}
   CreateWorkspaceServiceAccountToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST .../serviceaccounts/{id}/tokens; returns the plaintext key exactly once (ServiceAccountTokenSummaryWithKey), never re-exposed by List"}
   DeleteWorkspaceServiceAccountToken: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE .../serviceaccounts/{id}/tokens/{tokenId}"}
-  ListWorkspaceServiceAccountTokens: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET .../serviceaccounts/{id}/tokens, paginated; summary shape has no Key field"}
+  ListWorkspaceServiceAccountTokens: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET .../serviceaccounts/{id}/tokens, paginated; summary shape has no Key field. Re-verified 2026-09-19 (over-wide-response sweep, gopherstack) against types.ServiceAccountTokenSummary: serviceAccountTokenSummaryWire (wire.go:228-234) matches its 5 members exactly -- no leaks, no gaps."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "POST /tags/{resourceArn}; full percent-encoded ARN as one path segment, handled via rawPathSegments (s3tables-style RawPath + per-segment url.PathUnescape)"}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "DELETE /tags/{resourceArn}; TagKeys as repeated ?tagKeys= query param"}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "GET /tags/{resourceArn}"}
@@ -399,3 +399,10 @@ KeyRole, SecondsToLive, WorkspaceId}`. Read the source
 segment. Confirmed genuine -- not a bug.
 
 Verdict: zero real bugs, safe direction only.
+
+## 2026-09-19 over-wide-response sweep (gopherstack)
+
+All four flagged List ops (ListPermissions/ListWorkspaceServiceAccountTokens/
+ListWorkspaceServiceAccounts/ListWorkspaces) already emit exactly their real
+Summary/Entry shape, verified via cmd/structfielddiff against
+grafana@v1.38.4. No leaks, no gaps, no code change.
