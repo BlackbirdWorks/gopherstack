@@ -128,12 +128,14 @@ func cachePolicyConfigXMLBlock(p *CachePolicy) string {
 	)
 }
 
-// cachePolicyResponseXML builds the full CachePolicy XML response.
+// cachePolicyResponseXML builds the full CachePolicy XML response. LastModifiedTime
+// is required on types.CachePolicy (cloudfront@v1.67.4 types.go).
 func cachePolicyResponseXML(p *CachePolicy) string {
 	return fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
-			`<CachePolicy xmlns="%s"><Id>%s</Id><CachePolicyConfig>%s</CachePolicyConfig></CachePolicy>`,
-		cfNS, p.ID, cachePolicyConfigXMLBlock(p),
+			`<CachePolicy xmlns="%s"><Id>%s</Id><LastModifiedTime>%s</LastModifiedTime>`+
+			`<CachePolicyConfig>%s</CachePolicyConfig></CachePolicy>`,
+		cfNS, p.ID, p.LastModifiedTime, cachePolicyConfigXMLBlock(p),
 	)
 }
 
@@ -256,8 +258,9 @@ func (h *Handler) handleListCachePolicies(c *echo.Context) error {
 	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<CachePolicySummary><Type>%s</Type><CachePolicy><Id>%s</Id>`+
+				`<LastModifiedTime>%s</LastModifiedTime>`+
 				`<CachePolicyConfig>%s</CachePolicyConfig></CachePolicy></CachePolicySummary>`,
-			policyTypeString(p.Managed), p.ID, cachePolicyConfigXMLBlock(p))
+			policyTypeString(p.Managed), p.ID, p.LastModifiedTime, cachePolicyConfigXMLBlock(p))
 	}
 
 	nextMarkerXML := ""

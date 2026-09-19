@@ -58,12 +58,14 @@ func fleConfigInnerXML(fle *FieldLevelEncryption) string {
 		fle.ForwardWhenQueryArgProfileIsUnknown, len(fle.QueryArgProfiles), items.String())
 }
 
+// fleResponseXML builds the full FieldLevelEncryption XML response.
+// LastModifiedTime is required on types.FieldLevelEncryption (cloudfront@v1.67.4 types.go).
 func fleResponseXML(fle *FieldLevelEncryption) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryption xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryption xmlns="%s"><Id>%s</Id><LastModifiedTime>%s</LastModifiedTime>`+
 		`<FieldLevelEncryptionConfig>%s</FieldLevelEncryptionConfig>`+
 		`</FieldLevelEncryption>`,
-		cfNS, fle.ID, fleConfigInnerXML(fle))
+		cfNS, fle.ID, fle.LastModifiedTime, fleConfigInnerXML(fle))
 }
 
 // fleConfigResponseXML renders the config-only response (root =
@@ -149,6 +151,7 @@ func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
 	type fleSummaryXML struct {
 		XMLName               xml.Name                 `xml:"FieldLevelEncryptionSummary"`
 		ID                    string                   `xml:"Id"`
+		LastModifiedTime      string                   `xml:"LastModifiedTime"`
 		Comment               string                   `xml:"Comment"`
 		QueryArgProfileConfig queryArgProfileConfigXML `xml:"QueryArgProfileConfig"`
 	}
@@ -169,8 +172,9 @@ func (h *Handler) handleListFieldLevelEncryptions(c *echo.Context) error {
 			items = append(items, queryArgProfileXML(p))
 		}
 		summaries = append(summaries, fleSummaryXML{
-			ID:      fle.ID,
-			Comment: fle.Comment,
+			ID:               fle.ID,
+			LastModifiedTime: fle.LastModifiedTime,
+			Comment:          fle.Comment,
 			QueryArgProfileConfig: queryArgProfileConfigXML{
 				ForwardWhenUnknown: fle.ForwardWhenQueryArgProfileIsUnknown,
 				Items:              items,
@@ -324,12 +328,14 @@ func fleProfileConfigInnerXML(p *FieldLevelEncryptionProfile) string {
 		len(p.EncryptionEntities), entities.String())
 }
 
+// fleProfileResponseXML builds the full FieldLevelEncryptionProfile XML response.
+// LastModifiedTime is required on types.FieldLevelEncryptionProfile (cloudfront@v1.67.4 types.go).
 func fleProfileResponseXML(p *FieldLevelEncryptionProfile) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
-		`<FieldLevelEncryptionProfile xmlns="%s"><Id>%s</Id>`+
+		`<FieldLevelEncryptionProfile xmlns="%s"><Id>%s</Id><LastModifiedTime>%s</LastModifiedTime>`+
 		`<FieldLevelEncryptionProfileConfig>%s</FieldLevelEncryptionProfileConfig>`+
 		`</FieldLevelEncryptionProfile>`,
-		cfNS, p.ID, fleProfileConfigInnerXML(p))
+		cfNS, p.ID, p.LastModifiedTime, fleProfileConfigInnerXML(p))
 }
 
 // fleProfileConfigResponseXML renders the config-only response (root =
@@ -421,6 +427,7 @@ func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error 
 	type flePSummaryXML struct {
 		XMLName            xml.Name              `xml:"FieldLevelEncryptionProfileSummary"`
 		ID                 string                `xml:"Id"`
+		LastModifiedTime   string                `xml:"LastModifiedTime"`
 		Name               string                `xml:"Name"`
 		Comment            string                `xml:"Comment"`
 		EncryptionEntities encryptionEntitiesXML `xml:"EncryptionEntities"`
@@ -450,6 +457,7 @@ func (h *Handler) handleListFieldLevelEncryptionProfiles(c *echo.Context) error 
 		}
 		summaries = append(summaries, flePSummaryXML{
 			ID:                 p.ID,
+			LastModifiedTime:   p.LastModifiedTime,
 			Name:               p.Name,
 			Comment:            p.Comment,
 			EncryptionEntities: encryptionEntitiesXML{Items: entities, Quantity: len(entities)},

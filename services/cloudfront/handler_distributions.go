@@ -32,25 +32,36 @@ type distributionConfigMinimal struct {
 	Enabled         bool   `xml:"Enabled"`
 }
 
+// Fallback blobs used when RawConfig has no such child element at all (e.g.
+// the minimal test-only DistributionConfig bodies that omit Origins/
+// DefaultCacheBehavior/CacheBehaviors/CustomErrorResponses entirely) -- these
+// keep the wire element present with an honest zero-quantity/empty shape
+// rather than dropping it, since all four are required on DistributionSummary
+// (cloudfront@v1.67.4 types.go).
+const (
+	emptyOriginsXML              = "<Origins><Quantity>0</Quantity><Items></Items></Origins>"
+	emptyDefaultCacheBehaviorXML = "<DefaultCacheBehavior></DefaultCacheBehavior>"
+	emptyCacheBehaviorsXML       = "<CacheBehaviors><Quantity>0</Quantity></CacheBehaviors>"
+	emptyCustomErrorResponsesXML = "<CustomErrorResponses><Quantity>0</Quantity></CustomErrorResponses>"
+)
+
 type distributionSummaryXML struct {
-	XMLName xml.Name `xml:"DistributionSummary"`
-	Origins struct {
-		Inner    string `xml:",innerxml"`
-		Quantity int    `xml:"Quantity"`
-	} `xml:"Origins"`
-	DefaultCacheBehavior struct {
-		Inner string `xml:",innerxml"`
-	} `xml:"DefaultCacheBehavior"`
-	Status           string `xml:"Status"`
-	LastModifiedTime string `xml:"LastModifiedTime"`
-	DomainName       string `xml:"DomainName"`
-	Comment          string `xml:"Comment"`
-	ARN              string `xml:"ARN"`
-	ID               string `xml:"Id"`
-	PriceClass       string `xml:"PriceClass"`
-	HTTPVersion      string `xml:"HttpVersion"`
-	ETag             string `xml:"ETag,omitempty"`
-	Restrictions     struct {
+	XMLName                 xml.Name `xml:"DistributionSummary"`
+	Status                  string   `xml:"Status"`
+	LastModifiedTime        string   `xml:"LastModifiedTime"`
+	DomainName              string   `xml:"DomainName"`
+	Comment                 string   `xml:"Comment"`
+	ARN                     string   `xml:"ARN"`
+	ID                      string   `xml:"Id"`
+	PriceClass              string   `xml:"PriceClass"`
+	HTTPVersion             string   `xml:"HttpVersion"`
+	ETag                    string   `xml:"ETag,omitempty"`
+	WebACLID                string   `xml:"WebACLId"`
+	OriginsXML              string   `xml:",innerxml"`
+	DefaultCacheBehaviorXML string   `xml:",innerxml"`
+	CacheBehaviorsXML       string   `xml:",innerxml"`
+	CustomErrorResponsesXML string   `xml:",innerxml"`
+	Restrictions            struct {
 		GeoRestriction struct {
 			RestrictionType string `xml:"RestrictionType"`
 			Quantity        int    `xml:"Quantity"`
@@ -65,6 +76,7 @@ type distributionSummaryXML struct {
 		CloudFrontDefaultCertificate bool `xml:"CloudFrontDefaultCertificate"`
 	} `xml:"ViewerCertificate"`
 	IsIPV6Enabled bool `xml:"IsIPV6Enabled"`
+	Staging       bool `xml:"Staging"`
 }
 
 // toDistributionSummaryXML builds the DistributionSummary item shape shared by
@@ -75,18 +87,41 @@ type distributionSummaryXML struct {
 // variants' own minimal item shape even though both are backed by real state
 // (d.ETag; h.Backend.ListAliases) -- the ByX list ops disagreed with this
 // service's own ListDistributions about the same DistributionSummary shape.
+//
+// Origins/DefaultCacheBehavior/CacheBehaviors/CustomErrorResponses/WebACLId/
+// Staging were FIXED (gopherstack over-wide-response census, 2026-09-18):
+// Origins and DefaultCacheBehavior were declared on this struct but never
+// populated (always emitted empty regardless of the distribution's real
+// config), and CacheBehaviors/CustomErrorResponses/WebACLId/Staging -- all
+// required except WebACLId -- were missing as struct members entirely. Now
+// projected verbatim from RawConfig (the same byte-passthrough convention
+// GetDistributionConfig already uses for the whole document) via
+// rawConfigChildElementXML, and from the backend's own WebACL association
+// index / Staging flag for the two fields RawConfig doesn't carry.
 func (h *Handler) toDistributionSummaryXML(d *Distribution) distributionSummaryXML {
 	aliases := h.Backend.ListAliases(d.ID)
+	defaultCacheBehaviorXML := rawConfigChildOrDefault(
+		d.RawConfig, "DefaultCacheBehavior", emptyDefaultCacheBehaviorXML,
+	)
+	customErrorResponsesXML := rawConfigChildOrDefault(
+		d.RawConfig, "CustomErrorResponses", emptyCustomErrorResponsesXML,
+	)
 	s := distributionSummaryXML{
-		ID:               d.ID,
-		ARN:              d.ARN,
-		Status:           d.Status,
-		DomainName:       d.DomainName,
-		Comment:          d.Comment,
-		ETag:             d.ETag,
-		Enabled:          d.Enabled,
-		IsIPV6Enabled:    distributionSummaryIsIPV6(d),
-		LastModifiedTime: d.LastModifiedTime,
+		ID:                      d.ID,
+		ARN:                     d.ARN,
+		Status:                  d.Status,
+		DomainName:              d.DomainName,
+		Comment:                 d.Comment,
+		ETag:                    d.ETag,
+		Enabled:                 d.Enabled,
+		IsIPV6Enabled:           distributionSummaryIsIPV6(d),
+		LastModifiedTime:        d.LastModifiedTime,
+		WebACLID:                h.Backend.DistributionWebACLID(d.ID),
+		Staging:                 d.Staging,
+		OriginsXML:              rawConfigChildOrDefault(d.RawConfig, "Origins", emptyOriginsXML),
+		DefaultCacheBehaviorXML: defaultCacheBehaviorXML,
+		CacheBehaviorsXML:       rawConfigChildOrDefault(d.RawConfig, "CacheBehaviors", emptyCacheBehaviorsXML),
+		CustomErrorResponsesXML: customErrorResponsesXML,
 	}
 	s.Aliases.Items = aliases
 	s.Aliases.Quantity = len(aliases)
@@ -96,6 +131,17 @@ func (h *Handler) toDistributionSummaryXML(d *Distribution) distributionSummaryX
 	s.HTTPVersion = distributionSummaryHTTPVersion(d)
 
 	return s
+}
+
+// rawConfigChildOrDefault extracts a named child element from RawConfig,
+// falling back to def when RawConfig has no such element (see
+// rawConfigChildElementXML).
+func rawConfigChildOrDefault(raw []byte, name, def string) string {
+	if v := rawConfigChildElementXML(raw, name); v != "" {
+		return v
+	}
+
+	return def
 }
 
 // distributionResponseXML builds the full Distribution XML response.

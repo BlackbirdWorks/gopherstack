@@ -9,10 +9,13 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// publicKeyResponseXML builds the full PublicKey XML response. CreatedTime is
+// required on types.PublicKey (cloudfront@v1.67.4 types.go).
 func publicKeyResponseXML(pk *PublicKey) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<PublicKey xmlns="%s">`+
 		`<Id>%s</Id>`+
+		`<CreatedTime>%s</CreatedTime>`+
 		`<PublicKeyConfig>`+
 		`<CallerReference>%s</CallerReference>`+
 		`<Name>%s</Name>`+
@@ -20,7 +23,7 @@ func publicKeyResponseXML(pk *PublicKey) string {
 		`<EncodedKey>%s</EncodedKey>`+
 		`</PublicKeyConfig>`+
 		`</PublicKey>`,
-		cfNS, pk.ID, pk.CallerReference, pk.Name, pk.Comment, pk.EncodedKey)
+		cfNS, pk.ID, pk.CreatedTime, pk.CallerReference, pk.Name, pk.Comment, pk.EncodedKey)
 }
 
 type publicKeyConfigXML struct {
@@ -83,11 +86,12 @@ func (h *Handler) handleListPublicKeys(c *echo.Context) error {
 	page, pageSize, _, nextMarker := paginateByMarkerID(c, items, func(pk *PublicKey) string { return pk.ID })
 
 	type pkSummaryXML struct {
-		XMLName    xml.Name `xml:"PublicKeySummary"`
-		ID         string   `xml:"Id"`
-		Name       string   `xml:"Name"`
-		Comment    string   `xml:"Comment"`
-		EncodedKey string   `xml:"EncodedKey"`
+		XMLName     xml.Name `xml:"PublicKeySummary"`
+		ID          string   `xml:"Id"`
+		Name        string   `xml:"Name"`
+		CreatedTime string   `xml:"CreatedTime"`
+		Comment     string   `xml:"Comment"`
+		EncodedKey  string   `xml:"EncodedKey"`
 	}
 
 	type pkListXML struct {
@@ -103,7 +107,10 @@ func (h *Handler) handleListPublicKeys(c *echo.Context) error {
 	for _, pk := range page {
 		summaries = append(
 			summaries,
-			pkSummaryXML{ID: pk.ID, Name: pk.Name, Comment: pk.Comment, EncodedKey: pk.EncodedKey},
+			pkSummaryXML{
+				ID: pk.ID, Name: pk.Name, CreatedTime: pk.CreatedTime,
+				Comment: pk.Comment, EncodedKey: pk.EncodedKey,
+			},
 		)
 	}
 
@@ -186,13 +193,14 @@ func keyGroupResponseXML(kg *KeyGroup) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<KeyGroup xmlns="%s">`+
 		`<Id>%s</Id>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`<KeyGroupConfig>`+
 		`<Name>%s</Name>`+
 		`<Comment>%s</Comment>`+
 		`<Items>%s</Items>`+
 		`</KeyGroupConfig>`+
 		`</KeyGroup>`,
-		cfNS, kg.ID, kg.Name, kg.Comment, itemsXML)
+		cfNS, kg.ID, kg.LastModifiedTime, kg.Name, kg.Comment, itemsXML)
 }
 
 type keyGroupConfigXML struct {
@@ -253,9 +261,11 @@ type kgConfigXML struct {
 }
 
 // kgXML is types.KeyGroup on the wire (awsRestxml_deserializeDocumentKeyGroup).
+// LastModifiedTime is required.
 type kgXML struct {
-	ID     string      `xml:"Id"`
-	Config kgConfigXML `xml:"KeyGroupConfig"`
+	ID               string      `xml:"Id"`
+	LastModifiedTime string      `xml:"LastModifiedTime"`
+	Config           kgConfigXML `xml:"KeyGroupConfig"`
 }
 
 // kgSummaryXML is types.KeyGroupSummary: a KeyGroupSummary element wraps a single nested
@@ -289,8 +299,9 @@ func (h *Handler) handleListKeyGroups(c *echo.Context) error {
 	for _, kg := range page {
 		summaries = append(summaries, kgSummaryXML{
 			KeyGroup: kgXML{
-				ID:     kg.ID,
-				Config: kgConfigXML{Name: kg.Name, Comment: kg.Comment, Items: kg.Items},
+				ID:               kg.ID,
+				LastModifiedTime: kg.LastModifiedTime,
+				Config:           kgConfigXML{Name: kg.Name, Comment: kg.Comment, Items: kg.Items},
 			},
 		})
 	}

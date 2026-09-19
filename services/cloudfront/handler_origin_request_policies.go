@@ -144,9 +144,10 @@ func (h *Handler) handleListOriginRequestPolicies(c *echo.Context) error {
 	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<OriginRequestPolicySummary><Type>%s</Type><OriginRequestPolicy><Id>%s</Id>`+
+				`<LastModifiedTime>%s</LastModifiedTime>`+
 				`<OriginRequestPolicyConfig>%s</OriginRequestPolicyConfig>`+
 				`</OriginRequestPolicy></OriginRequestPolicySummary>`,
-			policyTypeString(p.Managed), p.ID, orpConfigXMLBlock(p))
+			policyTypeString(p.Managed), p.ID, p.LastModifiedTime, orpConfigXMLBlock(p))
 	}
 
 	nextMarkerXML := ""
@@ -276,12 +277,14 @@ func orpConfigXMLBlock(p *OriginRequestPolicy) string {
 	return sb.String()
 }
 
+// orpResponseXML builds the full OriginRequestPolicy XML response.
+// LastModifiedTime is required on types.OriginRequestPolicy (cloudfront@v1.67.4 types.go).
 func orpResponseXML(p *OriginRequestPolicy) string {
 	return fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
-			`<OriginRequestPolicy xmlns="%s"><Id>%s</Id>`+
+			`<OriginRequestPolicy xmlns="%s"><Id>%s</Id><LastModifiedTime>%s</LastModifiedTime>`+
 			`<OriginRequestPolicyConfig>%s</OriginRequestPolicyConfig></OriginRequestPolicy>`,
-		cfNS, p.ID, orpConfigXMLBlock(p),
+		cfNS, p.ID, p.LastModifiedTime, orpConfigXMLBlock(p),
 	)
 }
 

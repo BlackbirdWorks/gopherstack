@@ -16,11 +16,16 @@ import (
 // VpcOriginEndpointConfig.Arn (types.go:6989-6992) is the ARN of the VPC
 // interface endpoint or load balancer this origin routes to -- distinct from
 // the top-level Arn, which is the VPC origin resource's own ARN.
+// vpcOriginResponseXML builds the full VpcOrigin XML response. CreatedTime/
+// LastModifiedTime/Status are all required on types.VpcOrigin (cloudfront@v1.67.4 types.go).
 func vpcOriginResponseXML(origin *VpcOrigin) string {
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>`+
 		`<VpcOrigin xmlns="%s">`+
 		`<Id>%s</Id>`+
 		`<Arn>%s</Arn>`+
+		`<Status>%s</Status>`+
+		`<CreatedTime>%s</CreatedTime>`+
+		`<LastModifiedTime>%s</LastModifiedTime>`+
 		`<VpcOriginEndpointConfig>`+
 		`<Name>%s</Name>`+
 		`<Arn>%s</Arn>`+
@@ -29,7 +34,7 @@ func vpcOriginResponseXML(origin *VpcOrigin) string {
 		`<OriginProtocolPolicy>%s</OriginProtocolPolicy>`+
 		`</VpcOriginEndpointConfig>`+
 		`</VpcOrigin>`,
-		cfNS, origin.ID, origin.ARN,
+		cfNS, origin.ID, origin.ARN, origin.Status, origin.CreatedTime, origin.LastModifiedTime,
 		origin.Name, origin.EndpointArn, origin.HTTPPort, origin.HTTPSPort, origin.OriginProtocolPolicy)
 }
 
@@ -138,6 +143,9 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 		ID                string   `xml:"Id"`
 		ARN               string   `xml:"Arn"`
 		Name              string   `xml:"Name"`
+		Status            string   `xml:"Status"`
+		CreatedTime       string   `xml:"CreatedTime"`
+		LastModifiedTime  string   `xml:"LastModifiedTime"`
 		OriginEndpointARN string   `xml:"OriginEndpointArn"`
 		AccountID         string   `xml:"AccountId"`
 	}
@@ -161,6 +169,9 @@ func (h *Handler) handleListVpcOrigins(c *echo.Context) error {
 			ID:                origin.ID,
 			ARN:               origin.ARN,
 			Name:              origin.Name,
+			Status:            origin.Status,
+			CreatedTime:       origin.CreatedTime,
+			LastModifiedTime:  origin.LastModifiedTime,
 			OriginEndpointARN: origin.EndpointArn,
 			AccountID:         h.Backend.AccountID(),
 		})

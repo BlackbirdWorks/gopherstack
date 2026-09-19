@@ -3,6 +3,7 @@ package cloudfront
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -49,10 +50,11 @@ func (b *InMemoryBackend) CreateOriginRequestPolicy(
 
 	id := generateID()
 	p := &OriginRequestPolicy{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		ETag:    uuid.NewString(),
+		ID:               id,
+		Name:             name,
+		Comment:          comment,
+		ETag:             uuid.NewString(),
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 	}
 
 	if len(opts) > 0 && opts[0] != nil {
@@ -161,6 +163,7 @@ func (b *InMemoryBackend) UpdateOriginRequestPolicy(
 	p.Name = name
 	p.Comment = comment
 	p.ETag = uuid.NewString()
+	p.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	if len(opts) > 0 && opts[0] != nil {
 		cfg := opts[0]
 		p.HeadersConfig = cfg.HeadersConfig

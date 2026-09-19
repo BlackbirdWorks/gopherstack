@@ -64,6 +64,45 @@ func overrideRawConfigEnabled(raw []byte, enabled bool) []byte {
 	}
 }
 
+// rawConfigChildElementXML extracts the complete raw XML blob (opening tag
+// through its matching closing tag, verbatim bytes) of the direct child
+// element of RawConfig's root with the given local name, or "" if absent or
+// malformed. Used to project a DistributionConfig sub-element (Origins,
+// DefaultCacheBehavior, CacheBehaviors, CustomErrorResponses) into
+// DistributionSummary verbatim -- the same byte-passthrough convention
+// GetDistributionConfig already uses for the whole config, extended to a
+// single named child instead of the whole document.
+func rawConfigChildElementXML(raw []byte, name string) string {
+	dec := xml.NewDecoder(strings.NewReader(string(raw)))
+
+	depth := 0
+	start := int64(-1)
+
+	for {
+		preOffset := dec.InputOffset()
+
+		tok, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+
+			if start < 0 && depth == 2 && t.Name.Local == name {
+				start = preOffset
+			}
+		case xml.EndElement:
+			if start >= 0 && depth == 2 {
+				return string(raw[start:dec.InputOffset()])
+			}
+
+			depth--
+		}
+	}
+}
+
 // distributionARN builds an ARN for a CloudFront distribution.
 // CloudFront ARNs have no region component.
 func (b *InMemoryBackend) distributionARN(id string) string {
@@ -293,6 +332,16 @@ func (b *InMemoryBackend) AssociateDistributionWebACL(distributionID, webACLID s
 	return nil
 }
 
+// DistributionWebACLID returns the WAF web ACL currently associated with a
+// distribution, or "" if none. Backs DistributionSummary.WebACLId
+// (cloudfront@v1.67.4 types.go, required-but-may-be-empty).
+func (b *InMemoryBackend) DistributionWebACLID(distributionID string) string {
+	b.mu.RLock("DistributionWebACLID")
+	defer b.mu.RUnlock()
+
+	return b.distributionWebACLs[distributionID]
+}
+
 // CopyDistribution creates a copy of an existing distribution.
 func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string, enabled *bool) (*Distribution, error) {
 	b.mu.Lock("CopyDistribution")
@@ -342,6 +391,7 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string, enab
 		RawConfig:        rawCopy,
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 		Tags:             make(map[string]string),
+		Staging:          true,
 	}
 
 	b.distributions.Put(d)

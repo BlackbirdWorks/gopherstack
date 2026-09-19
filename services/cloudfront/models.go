@@ -20,6 +20,11 @@ type Distribution struct {
 	RawConfig        []byte            `json:"rawConfig,omitempty"`
 	IsIPV6Enabled    bool              `json:"isIPV6Enabled"`
 	Enabled          bool              `json:"enabled"`
+	// Staging is true only for a distribution created by CopyDistribution,
+	// whose real, documented purpose is producing a staging distribution for
+	// continuous deployment (api_op_CopyDistribution.go) -- never set by
+	// CreateDistribution.
+	Staging bool `json:"staging,omitempty"`
 }
 
 // OriginAccessIdentity represents a CloudFront Origin Access Identity.
@@ -106,14 +111,15 @@ type CachePolicyParams struct {
 
 // CachePolicy represents a CloudFront cache policy.
 type CachePolicy struct {
-	Params     *CachePolicyParams `json:"params,omitempty"`
-	ID         string             `json:"id"`
-	ETag       string             `json:"etag"`
-	Name       string             `json:"name"`
-	Comment    string             `json:"comment,omitempty"`
-	DefaultTTL int64              `json:"defaultTtl"`
-	MaxTTL     int64              `json:"maxTtl"`
-	MinTTL     int64              `json:"minTtl"`
+	Params           *CachePolicyParams `json:"params,omitempty"`
+	ID               string             `json:"id"`
+	ETag             string             `json:"etag"`
+	Name             string             `json:"name"`
+	Comment          string             `json:"comment,omitempty"`
+	LastModifiedTime string             `json:"lastModifiedTime,omitempty"`
+	DefaultTTL       int64              `json:"defaultTtl"`
+	MaxTTL           int64              `json:"maxTtl"`
+	MinTTL           int64              `json:"minTtl"`
 	// Managed is true for the AWS-provided policies seeded at backend construction
 	// (e.g. "Managed-CachingOptimized"). Managed policies are read-only: Update/Delete
 	// return IllegalUpdate/IllegalDelete, matching real AWS. Corresponds to the real
@@ -258,14 +264,15 @@ type ResponseHeadersPolicyConfig struct {
 
 // ResponseHeadersPolicy represents a CloudFront Response Headers Policy.
 type ResponseHeadersPolicy struct {
-	CorsConfig      *RHPCorsConfig      `json:"corsConfig,omitempty"`
-	SecurityHeaders *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
-	ID              string              `json:"id"`
-	Name            string              `json:"name"`
-	Comment         string              `json:"comment,omitempty"`
-	ETag            string              `json:"eTag"`
-	CustomHeaders   []RHPCustomHeader   `json:"customHeaders,omitempty"`
-	RemoveHeaders   []string            `json:"removeHeaders,omitempty"`
+	CorsConfig       *RHPCorsConfig      `json:"corsConfig,omitempty"`
+	SecurityHeaders  *RHPSecurityHeaders `json:"securityHeaders,omitempty"`
+	ID               string              `json:"id"`
+	Name             string              `json:"name"`
+	Comment          string              `json:"comment,omitempty"`
+	ETag             string              `json:"eTag"`
+	LastModifiedTime string              `json:"lastModifiedTime,omitempty"`
+	CustomHeaders    []RHPCustomHeader   `json:"customHeaders,omitempty"`
+	RemoveHeaders    []string            `json:"removeHeaders,omitempty"`
 	// Managed is true for the AWS-provided policies seeded at backend construction
 	// (e.g. "Managed-SimpleCORS"). See CachePolicy.Managed for details.
 	Managed bool `json:"managed,omitempty"`
@@ -312,6 +319,7 @@ type OriginRequestPolicy struct {
 	Name               string                 `json:"name"`
 	Comment            string                 `json:"comment,omitempty"`
 	ETag               string                 `json:"eTag"`
+	LastModifiedTime   string                 `json:"lastModifiedTime,omitempty"`
 	// Managed is true for the AWS-provided policies seeded at backend construction
 	// (e.g. "Managed-AllViewer"). See CachePolicy.Managed for details.
 	Managed bool `json:"managed,omitempty"`
@@ -326,10 +334,11 @@ type FLEQueryArgProfile struct {
 
 // FieldLevelEncryption represents a CloudFront Field Level Encryption config.
 type FieldLevelEncryption struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Comment string `json:"comment,omitempty"`
-	ETag    string `json:"eTag"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Comment          string `json:"comment,omitempty"`
+	ETag             string `json:"eTag"`
+	LastModifiedTime string `json:"lastModifiedTime,omitempty"`
 	// QueryArgProfiles are the query-arg → profile associations. Each referenced
 	// ProfileID must correspond to an existing FLE profile (referential integrity).
 	QueryArgProfiles []FLEQueryArgProfile `json:"queryArgProfiles,omitempty"`
@@ -347,11 +356,12 @@ type EncryptionEntity struct {
 
 // FieldLevelEncryptionProfile represents a CloudFront Field Level Encryption Profile.
 type FieldLevelEncryptionProfile struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Comment         string `json:"comment,omitempty"`
-	ETag            string `json:"eTag"`
-	CallerReference string `json:"callerReference,omitempty"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Comment          string `json:"comment,omitempty"`
+	ETag             string `json:"eTag"`
+	CallerReference  string `json:"callerReference,omitempty"`
+	LastModifiedTime string `json:"lastModifiedTime,omitempty"`
 	// EncryptionEntities reference public keys. Each PublicKeyID must correspond to
 	// an existing public key (referential integrity enforced on create/update).
 	EncryptionEntities []EncryptionEntity `json:"encryptionEntities,omitempty"`
@@ -365,15 +375,17 @@ type PublicKey struct {
 	EncodedKey      string `json:"encodedKey"`
 	CallerReference string `json:"callerReference"`
 	ETag            string `json:"eTag"`
+	CreatedTime     string `json:"createdTime,omitempty"`
 }
 
 // KeyGroup represents a CloudFront Key Group.
 type KeyGroup struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Comment string   `json:"comment,omitempty"`
-	ETag    string   `json:"eTag"`
-	Items   []string `json:"items"`
+	ID               string   `json:"id"`
+	Name             string   `json:"name"`
+	Comment          string   `json:"comment,omitempty"`
+	ETag             string   `json:"eTag"`
+	LastModifiedTime string   `json:"lastModifiedTime,omitempty"`
+	Items            []string `json:"items"`
 }
 
 // RealtimeLogEndPoint is the Kinesis destination logs are delivered to
@@ -439,6 +451,9 @@ type VpcOrigin struct {
 	ETag                 string            `json:"eTag"`
 	EndpointArn          string            `json:"endpointArn"`
 	OriginProtocolPolicy string            `json:"originProtocolPolicy"`
+	Status               string            `json:"status,omitempty"`
+	CreatedTime          string            `json:"createdTime,omitempty"`
+	LastModifiedTime     string            `json:"lastModifiedTime,omitempty"`
 	HTTPPort             int32             `json:"httpPort"`
 	HTTPSPort            int32             `json:"httpsPort"`
 }

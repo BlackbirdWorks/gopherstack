@@ -1,6 +1,10 @@
 package cloudfront
 
-import "github.com/google/uuid"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // Behavior-enum and header-name literals shared by the seed tables below. Named
 // here (rather than repeated inline) purely to keep this file's string literals
@@ -262,11 +266,14 @@ var managedResponseHeadersPolicySeeds = []managedResponseHeadersPolicySeed{
 // exclusive-owned: either during NewInMemoryBackend construction (no
 // concurrent access is possible yet) or with b.mu already held (Reset).
 func (b *InMemoryBackend) seedManagedPoliciesLocked() {
+	seedTime := time.Now().UTC().Format(time.RFC3339)
+
 	for _, s := range managedCachePolicySeeds {
 		p := &CachePolicy{
 			ID: s.id, Name: s.name, ETag: uuid.NewString(),
 			DefaultTTL: s.defaultTTL, MaxTTL: s.maxTTL, MinTTL: s.minTTL,
-			Managed: true,
+			LastModifiedTime: seedTime,
+			Managed:          true,
 			Params: &CachePolicyParams{
 				EnableAcceptEncodingGzip:   s.gzip,
 				EnableAcceptEncodingBrotli: s.brotli,
@@ -287,6 +294,7 @@ func (b *InMemoryBackend) seedManagedPoliciesLocked() {
 	for _, s := range managedOriginRequestPolicySeeds {
 		p := &OriginRequestPolicy{
 			ID: s.id, Name: s.name, ETag: uuid.NewString(), Managed: true,
+			LastModifiedTime:   seedTime,
 			HeadersConfig:      &ORPHeadersConfig{HeaderBehavior: s.headerBehavior, Headers: s.headers},
 			CookiesConfig:      &ORPCookiesConfig{CookieBehavior: s.cookieBehavior},
 			QueryStringsConfig: &ORPQueryStringsConfig{QueryStringBehavior: s.queryStringBehavior},
@@ -298,7 +306,8 @@ func (b *InMemoryBackend) seedManagedPoliciesLocked() {
 	for _, s := range managedResponseHeadersPolicySeeds {
 		p := &ResponseHeadersPolicy{
 			ID: s.id, Name: s.name, ETag: uuid.NewString(), Managed: true,
-			CorsConfig: s.cors,
+			LastModifiedTime: seedTime,
+			CorsConfig:       s.cors,
 		}
 		if s.security {
 			p.SecurityHeaders = managedSecurityHeaders()
