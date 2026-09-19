@@ -4,6 +4,11 @@ import (
 	"errors"
 )
 
+// slErrorCodeNotFound is the AOSS Batch*'s per-item ErrorCode/ErrorMessage
+// convention for a miss (VpcEndpointErrorDetail, LifecyclePolicyErrorDetail,
+// CollectionGroupErrorDetail all use "NOT_FOUND" as ErrorCode).
+const slErrorCodeNotFound = "NOT_FOUND"
+
 // Errors returned by the OpenSearch backend.
 var (
 	ErrDomainNotFound           = errors.New("ResourceNotFoundException")
@@ -44,4 +49,11 @@ var (
 	// error item shape ({"type":..., "reason":...}), not AWS's
 	// {Message} envelope.
 	ErrDocumentVersionConflict = errors.New("version_conflict_engine_exception")
+	// ErrServerlessPolicyVersionConflict is returned by
+	// UpdateServerlessLifecyclePolicy when the caller's PolicyVersion doesn't
+	// match the stored one -- real optimistic-concurrency enforcement (AOSS
+	// UpdateLifecyclePolicy requires the current PolicyVersion; a stale one
+	// is a ConflictException, deserializers.go
+	// awsAwsjson10_deserializeOpErrorUpdateLifecyclePolicy).
+	ErrServerlessPolicyVersionConflict = errors.New("ConflictException")
 )

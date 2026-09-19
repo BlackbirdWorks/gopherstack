@@ -29,28 +29,43 @@ func TestSDKCompleteness(t *testing.T) {
 	// each half against the SDK client that actually owns it. See
 	// serverlessOperations() in handler_operations.go for the full list.
 	serverlessOps := map[string]bool{
-		"BatchGetCollection":   true,
-		"CreateAccessPolicy":   true,
-		"CreateCollection":     true,
-		"CreateSecurityConfig": true,
-		"CreateSecurityPolicy": true,
-		"DeleteAccessPolicy":   true,
-		"DeleteCollection":     true,
-		"DeleteSecurityConfig": true,
-		"DeleteSecurityPolicy": true,
-		"GetAccessPolicy":      true,
-		"GetSecurityConfig":    true,
-		"GetSecurityPolicy":    true,
-		"ListAccessPolicies":   true,
-		"ListCollections":      true,
-		"ListSecurityConfigs":  true,
-		"ListSecurityPolicies": true,
-		"ListTagsForResource":  true,
-		"TagResource":          true,
-		"UntagResource":        true,
-		"UpdateAccessPolicy":   true,
-		"UpdateSecurityConfig": true,
-		"UpdateSecurityPolicy": true,
+		"BatchGetCollection":               true,
+		"CreateAccessPolicy":               true,
+		"CreateCollection":                 true,
+		"CreateSecurityConfig":             true,
+		"CreateSecurityPolicy":             true,
+		"DeleteAccessPolicy":               true,
+		"DeleteCollection":                 true,
+		"DeleteSecurityConfig":             true,
+		"DeleteSecurityPolicy":             true,
+		"GetAccessPolicy":                  true,
+		"GetSecurityConfig":                true,
+		"GetSecurityPolicy":                true,
+		"ListAccessPolicies":               true,
+		"ListCollections":                  true,
+		"ListSecurityConfigs":              true,
+		"ListSecurityPolicies":             true,
+		"ListTagsForResource":              true,
+		"TagResource":                      true,
+		"UntagResource":                    true,
+		"UpdateAccessPolicy":               true,
+		"UpdateSecurityConfig":             true,
+		"UpdateSecurityPolicy":             true,
+		"CreateLifecyclePolicy":            true,
+		"UpdateLifecyclePolicy":            true,
+		"DeleteLifecyclePolicy":            true,
+		"ListLifecyclePolicies":            true,
+		"BatchGetLifecyclePolicy":          true,
+		"BatchGetEffectiveLifecyclePolicy": true,
+		"CreateCollectionGroup":            true,
+		"UpdateCollectionGroup":            true,
+		"DeleteCollectionGroup":            true,
+		"ListCollectionGroups":             true,
+		"BatchGetCollectionGroup":          true,
+		"BatchGetVpcEndpoint":              true,
+		"GetAccountSettings":               true,
+		"UpdateAccountSettings":            true,
+		"GetPoliciesStats":                 true,
 	}
 
 	var domainOps, slOps []string
@@ -63,34 +78,24 @@ func TestSDKCompleteness(t *testing.T) {
 	}
 
 	sdkcheck.CheckCompleteness(t, &opensearchsdk.Client{}, domainOps, []string{})
-	// This Handler only implements the collection/access-policy/security-
-	// config/security-policy/tagging slice of AOSS. The rest of
-	// opensearchserverless.Client (collection groups, indices, lifecycle
-	// policies, VPC endpoints, account settings) is not implemented.
+	// This Handler implements the collection/access-policy/security-config/
+	// security-policy/tagging slice of AOSS plus (gopherstack parity sweep
+	// 2026-09-19) lifecycle policies, collection groups, GetAccountSettings/
+	// UpdateAccountSettings, GetPoliciesStats, and BatchGetVpcEndpoint (a
+	// read against the classic-domain VPC endpoint store this package
+	// already maintains, vpc_endpoints.go). The document-plane Index family
+	// (Create/Get/Update/DeleteIndex) and the full VPC-endpoint write/list
+	// surface (Create/List/Update/DeleteVpcEndpoint) and UpdateCollection
+	// (moving a collection into a collection group) remain unimplemented.
 	sdkcheck.CheckCompleteness(t, &opensearchserverlesssdk.Client{}, slOps, []string{
-		"BatchGetCollectionGroup",
-		"BatchGetEffectiveLifecyclePolicy",
-		"BatchGetLifecyclePolicy",
-		"BatchGetVpcEndpoint",
-		"CreateCollectionGroup",
 		"CreateIndex",
-		"CreateLifecyclePolicy",
 		"CreateVpcEndpoint",
-		"DeleteCollectionGroup",
 		"DeleteIndex",
-		"DeleteLifecyclePolicy",
 		"DeleteVpcEndpoint",
-		"GetAccountSettings",
 		"GetIndex",
-		"GetPoliciesStats",
-		"ListCollectionGroups",
-		"ListLifecyclePolicies",
 		"ListVpcEndpoints",
-		"UpdateAccountSettings",
 		"UpdateCollection",
-		"UpdateCollectionGroup",
 		"UpdateIndex",
-		"UpdateLifecyclePolicy",
 		"UpdateVpcEndpoint",
 	})
 }

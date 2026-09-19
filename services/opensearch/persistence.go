@@ -373,6 +373,7 @@ var dirtyTableNames = struct {
 // mechanical conversion -- see the per-map persistence audit in the Phase 3.3
 // conversion notes.
 type backendSnapshot struct {
+	AccountCapacityLimits ServerlessCapacityLimits         `json:"accountCapacityLimits"`
 	Tables                map[string]json.RawMessage       `json:"tables"`
 	VpcAuthorizations     map[string][]AuthorizedPrincipal `json:"vpcAuthorizations"`
 	ScheduledActions      map[string][]*ScheduledAction    `json:"scheduledActions"`
@@ -390,6 +391,7 @@ type backendSnapshot struct {
 	ReservedCounter       int                              `json:"reservedCounter"`
 	SlCollCounter         int                              `json:"slCollCounter"`
 	SlSecConfigCounter    int                              `json:"slSecConfigCounter"`
+	SlCollGroupCounter    int                              `json:"slCollGroupCounter"`
 	WorkspaceCounter      int                              `json:"workspaceCounter"`
 	Version               int                              `json:"version"`
 }
@@ -484,6 +486,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		AccountID:             b.accountID,
 		Region:                b.region,
 		DefaultApplicationArn: b.defaultApplicationArn,
+		AccountCapacityLimits: b.accountCapacityLimits,
 		AppIDCounter:          b.appIDCounter,
 		ConnCounter:           b.connCounter,
 		VpcEndpointCounter:    b.vpcEndpointCounter,
@@ -492,6 +495,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ReservedCounter:       b.reservedCounter,
 		SlCollCounter:         b.slCollCounter,
 		SlSecConfigCounter:    b.slSecConfigCounter,
+		SlCollGroupCounter:    b.slCollGroupCounter,
 		WorkspaceCounter:      b.workspaceCounter,
 	}
 
@@ -540,6 +544,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		b.upgradeHistory = make(map[string][]*UpgradeHistory)
 		b.domainPackages = make(map[string]map[string]bool)
 		b.defaultApplicationArn = ""
+		b.accountCapacityLimits = ServerlessCapacityLimits{}
 
 		return nil
 	}
@@ -564,6 +569,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 
 	b.accountID = snap.AccountID
 	b.region = snap.Region
+	b.accountCapacityLimits = snap.AccountCapacityLimits
 	b.appIDCounter = snap.AppIDCounter
 	b.connCounter = snap.ConnCounter
 	b.vpcEndpointCounter = snap.VpcEndpointCounter
@@ -572,6 +578,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.reservedCounter = snap.ReservedCounter
 	b.slCollCounter = snap.SlCollCounter
 	b.slSecConfigCounter = snap.SlSecConfigCounter
+	b.slCollGroupCounter = snap.SlCollGroupCounter
 	b.workspaceCounter = snap.WorkspaceCounter
 
 	fixNilDomainTags(b)

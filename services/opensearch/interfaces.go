@@ -263,6 +263,44 @@ type StorageBackend interface {
 	ListServerlessNetworkPolicies(policyType string) []*ServerlessNetworkPolicy
 	DeleteServerlessNetworkPolicy(policyType, name string) error
 
+	// Serverless lifecycle (retention) policy operations
+	CreateServerlessLifecyclePolicy(policyType, name, description, policy string) (*ServerlessLifecyclePolicy, error)
+	UpdateServerlessLifecyclePolicy(
+		policyType, name, description, policy, policyVersion string,
+	) (*ServerlessLifecyclePolicy, error)
+	DeleteServerlessLifecyclePolicy(policyType, name string) error
+	ListServerlessLifecyclePolicies(policyType string, resources []string) []*ServerlessLifecyclePolicy
+	BatchGetServerlessLifecyclePolicies(
+		identifiers []serverlessLifecyclePolicyIdentifier,
+	) ([]*ServerlessLifecyclePolicy, []serverlessLifecyclePolicyError)
+	BatchGetServerlessEffectiveLifecyclePolicies(
+		identifiers []serverlessLifecyclePolicyIdentifier,
+	) ([]serverlessEffectiveLifecyclePolicyResult, []serverlessEffectiveLifecyclePolicyErr)
+
+	// Serverless collection group operations
+	CreateServerlessCollectionGroup(
+		name, standbyReplicas, description, generation string,
+		capacityLimits *CollectionGroupCapacityLimits,
+		tagMap map[string]string,
+	) (*ServerlessCollectionGroup, error)
+	UpdateServerlessCollectionGroup(
+		id, description string, capacityLimits *CollectionGroupCapacityLimits,
+	) (*ServerlessCollectionGroup, error)
+	DeleteServerlessCollectionGroup(id string) error
+	ListServerlessCollectionGroups() []*ServerlessCollectionGroup
+	BatchGetServerlessCollectionGroups(
+		ids, names []string,
+	) ([]*ServerlessCollectionGroup, []serverlessCollectionGroupError)
+
+	// Serverless VPC endpoint batch-read (resolved against the classic-domain
+	// VPC endpoint store, vpc_endpoints.go)
+	BatchGetServerlessVpcEndpoints(ids []string) ([]*VpcEndpoint, []serverlessVpcEndpointError)
+
+	// Serverless account settings and policy stats
+	GetServerlessAccountSettings() ServerlessCapacityLimits
+	UpdateServerlessAccountSettings(capacityLimits ServerlessCapacityLimits) (ServerlessCapacityLimits, error)
+	GetServerlessPoliciesStats() ServerlessPoliciesStats
+
 	// Lifecycle
 	Reset()
 	Region() string

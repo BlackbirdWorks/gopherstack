@@ -87,6 +87,14 @@ func slNetworkPolicyKeyFn(v *ServerlessNetworkPolicy) string {
 	return serverlessNetworkPolicyKey(v.Type, v.Name)
 }
 
+func slLifecyclePolicyKeyFn(v *ServerlessLifecyclePolicy) string {
+	return serverlessLifecyclePolicyKey(v.Type, v.Name)
+}
+
+func slCollectionGroupKeyFn(v *ServerlessCollectionGroup) string {
+	return serverlessCollectionGroupKey(v.ID)
+}
+
 // dataSourceAttachmentKeyFn, capabilityKeyFn, migrationKeyFn, and
 // workspaceKeyFn are defined alongside their families
 // (data_source_attachments.go, capabilities.go, migrations.go,
@@ -197,6 +205,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slNetworkPolicies = store.Register(b.registry, "slNetworkPolicies", store.New(slNetworkPolicyKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slLifecyclePolicies = store.Register(b.registry, "slLifecyclePolicies", store.New(slLifecyclePolicyKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slCollectionGroups = store.Register(b.registry, "slCollectionGroups", store.New(slCollectionGroupKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.capabilities = store.Register(b.registry, "capabilities", store.New(capabilityKeyFn))

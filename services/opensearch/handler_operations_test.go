@@ -26,8 +26,11 @@ func TestHandlerOpsLen(t *testing.T) {
 
 	h := opensearch.NewHandler(opensearch.NewInMemoryBackend(testAccountID, testRegion))
 	// See the matching comment on TestOpenSearchHandler_GetSupportedOperations'
-	// assert.Len below: 8 fabricated AOSS policy op names replaced by 5 real ones.
-	assert.Equal(t, 118, opensearch.HandlerOpsLen(h))
+	// assert.Len below: 8 fabricated AOSS policy op names replaced by 5 real
+	// ones, plus 15 real AOSS ops added by the 2026-09-19 parity sweep
+	// (lifecycle policies, collection groups, account settings, policy
+	// stats, BatchGetVpcEndpoint).
+	assert.Equal(t, 133, opensearch.HandlerOpsLen(h))
 }
 
 func TestExtractOperation_NewRoutes(t *testing.T) {
@@ -274,8 +277,14 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	// doc comment) replaced by the real CreateSecurityPolicy/
 	// DeleteSecurityPolicy/GetSecurityPolicy/ListSecurityPolicies/
 	// UpdateSecurityPolicy (5 ops, since AOSS discriminates encryption vs.
-	// network by a "type" field rather than by operation name).
-	assert.Len(t, ops, 118)
+	// network by a "type" field rather than by operation name), plus 15 real
+	// AOSS ops added by the 2026-09-19 parity sweep: CreateLifecyclePolicy,
+	// UpdateLifecyclePolicy, DeleteLifecyclePolicy, ListLifecyclePolicies,
+	// BatchGetLifecyclePolicy, BatchGetEffectiveLifecyclePolicy,
+	// CreateCollectionGroup, UpdateCollectionGroup, DeleteCollectionGroup,
+	// ListCollectionGroups, BatchGetCollectionGroup, BatchGetVpcEndpoint,
+	// GetAccountSettings, UpdateAccountSettings, GetPoliciesStats.
+	assert.Len(t, ops, 133)
 }
 
 func TestOpenSearchHandler_ExtractOperation(t *testing.T) {

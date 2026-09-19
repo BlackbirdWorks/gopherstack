@@ -172,6 +172,28 @@ func serverlessOperations() []string {
 		"UpdateAccessPolicy",
 		"UpdateSecurityConfig",
 		"UpdateSecurityPolicy",
+		// Lifecycle (retention) policies, collection groups, account
+		// settings, policy stats, and VPC-endpoint batch-read -- added on
+		// top of the pre-existing collection/policy/tagging slice above
+		// (gopherstack parity sweep 2026-09-19). CreateVpcEndpoint/
+		// ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint and the
+		// Index/UpdateCollection family stay unimplemented; see
+		// sdk_completeness_test.go's notImplemented list.
+		"CreateLifecyclePolicy",
+		"UpdateLifecyclePolicy",
+		"DeleteLifecyclePolicy",
+		"ListLifecyclePolicies",
+		"BatchGetLifecyclePolicy",
+		"BatchGetEffectiveLifecyclePolicy",
+		"CreateCollectionGroup",
+		"UpdateCollectionGroup",
+		"DeleteCollectionGroup",
+		"ListCollectionGroups",
+		"BatchGetCollectionGroup",
+		"BatchGetVpcEndpoint",
+		"GetAccountSettings",
+		"UpdateAccountSettings",
+		"GetPoliciesStats",
 	}
 }
 

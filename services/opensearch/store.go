@@ -15,9 +15,9 @@ import (
 // and the reasoning behind the handful of fields left as plain maps.
 type InMemoryBackend struct {
 	dnsRegistrar               DNSRegistrar
-	dryRuns                    *store.Table[DryRunStatus]
-	reservedInstances          *store.Table[ReservedInstance]
-	inboundConnections         *store.Table[InboundConnection]
+	accountCapacityLimits      ServerlessCapacityLimits
+	slLifecyclePolicies        *store.Table[ServerlessLifecyclePolicy]
+	upgradeHistory             map[string][]*UpgradeHistory
 	outboundConnections        *store.Table[OutboundConnection]
 	domainDataSources          *store.Table[DataSource]
 	domainDataSourcesByDomain  *store.Index[DataSource]
@@ -35,14 +35,16 @@ type InMemoryBackend struct {
 	domainMaintenances         map[string][]*DomainMaintenance
 	domainIndexes              *store.Table[DomainIndex]
 	domainIndexesByDomain      *store.Index[DomainIndex]
-	upgradeHistory             map[string][]*UpgradeHistory
+	reservedInstances          *store.Table[ReservedInstance]
 	domainPackages             map[string]map[string]bool
 	slNetworkPolicies          *store.Table[ServerlessNetworkPolicy]
 	slCollections              *store.Table[ServerlessCollection]
 	slAccessPolicies           *store.Table[ServerlessAccessPolicy]
 	slSecurityConfigs          *store.Table[ServerlessSecurityConfig]
 	slEncryptionPolicies       *store.Table[ServerlessEncryptionPolicy]
+	inboundConnections         *store.Table[InboundConnection]
 	dataSourceAttachments      *store.Table[DataSourceAttachment]
+	slCollectionGroups         *store.Table[ServerlessCollectionGroup]
 	dataSourceAttachmentsByApp *store.Index[DataSourceAttachment]
 	capabilities               *store.Table[Capability]
 	migrations                 *store.Table[Migration]
@@ -52,18 +54,20 @@ type InMemoryBackend struct {
 	registry                   *store.Registry
 	mu                         *lockmetrics.RWMutex
 	now                        func() time.Time
-	accountID                  string
+	dryRuns                    *store.Table[DryRunStatus]
 	region                     string
 	defaultApplicationArn      string
+	accountID                  string
 	processingDelay            time.Duration
 	appIDCounter               int
 	connCounter                int
-	vpcEndpointCounter         int
+	reservedCounter            int
 	packageCounter             int
 	maintenanceCounter         int
-	reservedCounter            int
+	vpcEndpointCounter         int
 	slCollCounter              int
 	slSecConfigCounter         int
+	slCollGroupCounter         int
 	docCounter                 int
 	dsAttachCounter            int
 	migrationCounter           int
@@ -125,6 +129,7 @@ func (b *InMemoryBackend) Reset() {
 	b.domainMaintenances = make(map[string][]*DomainMaintenance)
 	b.upgradeHistory = make(map[string][]*UpgradeHistory)
 	b.defaultApplicationArn = ""
+	b.accountCapacityLimits = ServerlessCapacityLimits{}
 
 	b.appIDCounter = 0
 	b.connCounter = 0
@@ -134,6 +139,7 @@ func (b *InMemoryBackend) Reset() {
 	b.reservedCounter = 0
 	b.slCollCounter = 0
 	b.slSecConfigCounter = 0
+	b.slCollGroupCounter = 0
 	b.docCounter = 0
 	b.dsAttachCounter = 0
 	b.migrationCounter = 0

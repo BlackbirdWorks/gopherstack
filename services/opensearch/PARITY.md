@@ -2,7 +2,7 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: a5efc2c05  # zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
+last_audit_commit: d57fe462e  # parity sweep: opensearchserverless lifecycle policies/collection groups/account settings
 last_audit_date: 2026-09-19  # gopherstack-dv4s: over-wide-response List census.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
@@ -276,6 +276,26 @@ families:
   serverless:
     status: deferred
     note: >
+      UPDATE (2026-09-19, parity sweep gopherstack-92ft-adjacent): implemented and
+      SDK-field-diffed 5 previously-unadvertised op families -- lifecycle (retention)
+      policies (Create/Update/Delete/List/BatchGet/BatchGetEffective, real
+      optimistic-concurrency PolicyVersion conflict on Update, deterministic
+      most-specific-pattern-wins effective-policy resolution), collection groups
+      (Create/Update/Delete/List/BatchGet), GetAccountSettings/UpdateAccountSettings
+      (documented 10-OCU default, 2-1700 OCU range validation), GetPoliciesStats
+      (real per-family counts), and BatchGetVpcEndpoint (resolved against the existing
+      classic-domain VpcEndpoint store rather than a fabricated one -- gopherstack
+      models one VPC-endpoint resource, not two). 15 ops moved off
+      sdk_completeness_test.go's notImplemented list (see handler_serverless_lifecycle.go,
+      handler_serverless_collection_groups.go, handler_serverless_account.go,
+      handler_serverless_new_ops_test.go's real-SDK-client round-trip tests). Still
+      unimplemented: the Index family (Create/Get/Update/DeleteIndex -- OpenSearch
+      document-plane, not control-plane CRUD like the rest of this surface),
+      Create/List/Update/DeleteVpcEndpoint, and UpdateCollection (moving a collection
+      into a collection group -- no collection can join a group yet, so
+      NumberOfCollections is honestly always 0). Full field-level audit of the
+      pre-existing Collection/AccessPolicy/SecurityConfig/SecurityPolicy families
+      (predating this pass) is still not done -- see the un-updated notes below.
       UPDATE (2026-08-23, manifest-harvest pass): started the field-level audit. One real bug
       found and fixed (DeleteCollection not-found mapped to 500 InternalServerException instead
       of the real 404 ResourceNotFoundException -- serverlessErrorTable was missing the
@@ -435,6 +455,14 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; coarse loc
 ---
 
 ## Notes
+
+### 2026-09-19: opensearchserverless lifecycle policies, collection groups, account settings
+
+Implemented 15 real AOSS ops off notImplemented (lifecycle policies,
+collection groups, account settings, policy stats, BatchGetVpcEndpoint),
+field-diffed against opensearchserverless@v1.34.4, proven via real-SDK-client
+tests. enumcheck's 3 rows (data_sources.go:47, outbound_connections.go:48/59)
+are tool misses: real enum members reached via a converter it can't follow.
 
 ### 2026-09-18 zeroguard: UpdateDomainConfig.AccessPolicies omitted-member fix
 
