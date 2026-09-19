@@ -5,9 +5,6 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awserr"
 // ErrNotFound is returned when public access block config is not found.
 var ErrNotFound = awserr.New("NoSuchPublicAccessBlockConfiguration", awserr.ErrNotFound)
 
-// ErrAlreadyExists is returned when a resource already exists.
-var ErrAlreadyExists = awserr.New("BucketAlreadyExists", awserr.ErrAlreadyExists)
-
 // ErrValidation is returned when a required parameter is missing or invalid.
 var ErrValidation = awserr.New("BadRequestException", awserr.ErrInvalidParameter)
 
