@@ -82,6 +82,55 @@ type RestAPI struct {
 	DisableExecuteAPIEndpoint bool                   `json:"disableExecuteApiEndpoint,omitempty"`
 }
 
+// wireRestAPI re-escapes Policy to match real API Gateway's wire behavior.
+// Confirmed against terraform-provider-aws's flattenAPIPolicy (rest_api.go):
+// real AWS's "policy" field value is the policy JSON's escaped CONTENT with
+// its wrapping quotes stripped -- e.g. plain text `{"Version":"..."}` is
+// carried as `{\"Version\":\"...\"}` -- which the provider re-wraps in a
+// literal `"..."` and unquotes to recover the plain text. gopherstack's
+// internal store keeps RestAPI.Policy plain (that's also what a PATCH
+// request's value already is); only the outbound wire representation is
+// re-escaped this way. Without it, terraform-provider-aws's own decode
+// fails with "invalid character ... after top-level value".
+type wireRestAPI struct {
+	*RestAPI
+	Policy *string `json:"policy,omitempty"`
+}
+
+// wirePolicyString re-escapes a plain JSON policy string into the quote-less
+// escaped form real API Gateway sends on the wire (see wireRestAPI's doc).
+func wirePolicyString(plain string) *string {
+	if plain == "" {
+		return nil
+	}
+
+	quoted, err := json.Marshal(plain)
+	if err != nil || len(quoted) < 2 {
+		return nil
+	}
+
+	s := string(quoted[1 : len(quoted)-1])
+
+	return &s
+}
+
+func toWireRestAPI(api *RestAPI) *wireRestAPI {
+	if api == nil {
+		return nil
+	}
+
+	return &wireRestAPI{RestAPI: api, Policy: wirePolicyString(api.Policy)}
+}
+
+func toWireRestAPIs(apis []RestAPI) []wireRestAPI {
+	out := make([]wireRestAPI, len(apis))
+	for i := range apis {
+		out[i] = wireRestAPI{RestAPI: &apis[i], Policy: wirePolicyString(apis[i].Policy)}
+	}
+
+	return out
+}
+
 // CorsConfiguration holds CORS settings for a resource.
 type CorsConfiguration struct {
 	AllowHeaders  []string `json:"allowHeaders,omitempty"`

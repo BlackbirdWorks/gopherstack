@@ -1,7 +1,7 @@
 ---
 service: lambda
 sdk_module: aws-sdk-go-v2/service/lambda@v1.107.0
-last_audit_commit: 75c14a90f
+last_audit_commit: 51ea2ace0
 last_audit_date: 2026-09-19
 overall: A   # durable_execution wire-shape rewrite closed the last open gap; all gates green
 protocol: REST-JSON
@@ -52,6 +52,19 @@ items_still_open:
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-09-19 pass — terraform mega-batch-13 fixture)
+
+Added real-provider fixture coverage for alias/code_signing_config/
+function_event_invoke_config/function_recursion_config/function_url/
+layer_version+permission/runtime_management_config (test/terraform/fixtures/
+mega-batch-13.tf, shares the file with apigateway coverage). All applied/
+read/destroyed cleanly with no emulator change needed. aws_lambda_invocation
+(the 9th census item) was left out: it requires a real container invoke
+(services/lambda/containers.go's b.docker), which needs Docker-in-Docker
+access the terraform test harness's gopherstack container doesn't have
+(ErrLambdaUnavailable when b.docker is nil) -- a test-harness gap, not an
+emulator bug.
 
 ## Notes (2026-09-19 pass — required-output-member census)
 

@@ -45,7 +45,7 @@ func (h *Handler) createRestAPIAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusCreated, api, nil
+	return http.StatusCreated, toWireRestAPI(api), nil
 }
 
 func (h *Handler) deleteRestAPIAction(b []byte) (int, any, error) {
@@ -75,7 +75,7 @@ func (h *Handler) getRestAPIAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, api, nil
+	return http.StatusOK, toWireRestAPI(api), nil
 }
 
 func (h *Handler) getRestAPIsAction(b []byte) (int, any, error) {
@@ -87,11 +87,13 @@ func (h *Handler) getRestAPIsAction(b []byte) (int, any, error) {
 	if err != nil {
 		return 0, nil, err
 	}
+
+	wireAPIs := toWireRestAPIs(apis)
 	if position != "" {
-		return http.StatusOK, map[string]any{keyItem: apis, keyPosition: position}, nil
+		return http.StatusOK, map[string]any{keyItem: wireAPIs, keyPosition: position}, nil
 	}
 
-	return http.StatusOK, map[string]any{keyItem: apis}, nil
+	return http.StatusOK, map[string]any{keyItem: wireAPIs}, nil
 }
 
 func (h *Handler) updateRestAPIAction(b []byte) (int, any, error) {
@@ -104,5 +106,5 @@ func (h *Handler) updateRestAPIAction(b []byte) (int, any, error) {
 		return 0, nil, err
 	}
 
-	return http.StatusOK, api, nil
+	return http.StatusOK, toWireRestAPI(api), nil
 }
