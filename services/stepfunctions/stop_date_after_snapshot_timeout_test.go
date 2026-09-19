@@ -208,6 +208,83 @@ func Test_SDKRoundTrip_DescribeMapRun_ExecutionCounts(t *testing.T) {
 	require.NotNil(t, descOut.ItemCounts)
 }
 
+// Test_SDKRoundTrip_StopExecution_StopDate_AfterSnapshotTimeout proves
+// StopExecutionOutput.StopDate (required, no omitempty) decodes as non-nil
+// through the real SDK client even for an execution a persistence
+// Snapshot/Restore round trip promoted from RUNNING to TIMED_OUT.
+//
+// PARITY.md's "Reviewed, not a bug" note for StopDate claimed every place
+// exec.Status transitions off RUNNING (finalizeExecutionRecordLocked,
+// StopExecution itself) sets StopDate in the same statement, so
+// StopExecution's already-terminal no-op branch could never observe a nil
+// StopDate. That trace missed a third transition: Snapshot (persistence.go)
+// promotes any execution still RUNNING at snapshot time to TIMED_OUT (so
+// Restore never has to resurrect a non-terminal execution with no running
+// goroutine) but, before this fix, left StopDate untouched -- nil, since the
+// execution never actually stopped. A client calling StopExecution on such
+// an execution after restore hit the no-op branch and got a required field
+// back as JSON null.
+func Test_SDKRoundTrip_StopExecution_StopDate_AfterSnapshotTimeout(t *testing.T) {
+	t.Parallel()
+
+	backend := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	h := stepfunctions.NewHandler(backend)
+	client := newSFNSDKClient(t, h)
+	ctx := t.Context()
+
+	createOut, err := client.CreateStateMachine(ctx, &sfnsdk.CreateStateMachineInput{
+		Name: aws.String("r80d-snapshot-timeout-sm"),
+		Definition: aws.String(
+			`{"StartAt":"W","States":{"W":{"Type":"Wait","Seconds":3600,"End":true}}}`,
+		),
+		RoleArn: aws.String("arn:aws:iam::000000000000:role/sfn-role"),
+		Type:    sfntypes.StateMachineTypeStandard,
+	})
+	require.NoError(t, err)
+
+	startOut, err := client.StartExecution(ctx, &sfnsdk.StartExecutionInput{
+		StateMachineArn: createOut.StateMachineArn,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		desc, descErr := client.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{
+			ExecutionArn: startOut.ExecutionArn,
+		})
+
+		return descErr == nil && desc.Status == sfntypes.ExecutionStatusRunning
+	}, 5*time.Second, 50*time.Millisecond)
+
+	// Round-trip through Snapshot/Restore while the execution is still
+	// RUNNING -- this is what promotes it to TIMED_OUT.
+	snap := backend.Snapshot(ctx)
+	require.NotNil(t, snap)
+
+	// The original backend's Wait-state goroutine is still blocked sleeping
+	// (3600s); stop it now that the snapshot has been taken so it doesn't
+	// leak past the end of the test.
+	t.Cleanup(func() { _ = backend.StopExecution(*startOut.ExecutionArn, "", "") })
+
+	restored := stepfunctions.NewInMemoryBackendWithConfig("000000000000", "us-east-1")
+	require.NoError(t, restored.Restore(ctx, snap))
+
+	restoredHandler := stepfunctions.NewHandler(restored)
+	restoredClient := newSFNSDKClient(t, restoredHandler)
+
+	desc, err := restoredClient.DescribeExecution(ctx, &sfnsdk.DescribeExecutionInput{
+		ExecutionArn: startOut.ExecutionArn,
+	})
+	require.NoError(t, err)
+	require.Equal(t, sfntypes.ExecutionStatusTimedOut, desc.Status)
+
+	stopOut, err := restoredClient.StopExecution(ctx, &sfnsdk.StopExecutionInput{
+		ExecutionArn: startOut.ExecutionArn,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, stopOut.StopDate, "StopDate must decode as present, not a dropped required field")
+	assert.False(t, stopOut.StopDate.IsZero())
+}
+
 // Test_SDKRoundTrip_ValidateStateMachineDefinition_Severity proves a FAIL
 // diagnostic carries the required severity field
 // (types.go:1559-1586, "This member is required.") through the real SDK

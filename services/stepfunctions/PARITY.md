@@ -1,7 +1,7 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
-last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_commit: 4a7682d1e  # 2026-09-19 required-output-members re-check (gopherstack-r80d); prior: 6ea4f5153
 last_audit_date: 2026-09-19
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
@@ -168,7 +168,7 @@ ops:
     note: >
       FIXED this pass: same qualified-ARN resolution gap as StartExecution,
       fixed via the same resolveExecutionTarget() helper.
-  StopExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "cancels the execution's context via cancelFns; goroutine exits promptly"}
+  StopExecution: {wire: fixed, errors: ok, state: ok, persist: fixed, note: "cancels the execution's context via cancelFns; goroutine exits promptly. 2026-09-19 (gopherstack-r80d required-output-members re-check): required StopDate could decode as JSON null -- Snapshot's RUNNING->TIMED_OUT promotion (persistence.go, for surviving process restart) never set StopDate, so StopExecution's already-terminal no-op branch returned a nil StopDate for any execution that outlived a restart. This is the exact gap PARITY.md's own prior 'Reviewed, not a bug' note for StopDate missed -- it traced finalizeExecutionRecordLocked/StopExecution but not this third transition. Fixed: Snapshot now backfills StopDate to the snapshot time when promoting to TIMED_OUT. Proven via Test_SDKRoundTrip_StopExecution_StopDate_AfterSnapshotTimeout (wire_output_required_r80d_test.go), hand-confirmed failing pre-fix. Also fixed same pass: DescribeMapRun's required MaxConcurrency/ToleratedFailureCount/ToleratedFailurePercentage were tagged omitempty despite 0 being a common real value -- harmless for these non-pointer scalar SDK fields (decodes the same either way) but corrected for wire-shape hygiene; see families.MapRun / models.go."}
   RedriveExecution: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeExecution:
     wire: fixed
@@ -467,6 +467,22 @@ leaks: {status: clean, note: "StopExecution/DeleteStateMachine cancel the execut
 
 ## Notes
 
+### 2026-09-19 (required-output-members re-check, gopherstack-r80d)
+
+Re-checked all 23 ops the census flags with >=1 required output member (54
+fields), on top of the prior batch-10 nested-member pass
+(wire_output_required_r80d_test.go). Found and fixed one real bug this
+service's own prior "not reachable, not a bug" note for `StopExecutionOutput.
+StopDate` had missed: `Snapshot`'s RUNNING->TIMED_OUT promotion (for
+surviving a persistence restart) never set `StopDate`, so `StopExecution`
+called on such an execution post-restore returned a nil required field.
+Fixed in persistence.go; proven via a real aws-sdk-go-v2/service/sfn client
+round trip that fails pre-fix (see ops.StopExecution). Also normalized
+`MapRun.MaxConcurrency`/`ToleratedFailureCount`/`ToleratedFailurePercentage`
+off `omitempty` (required scalars; harmless in practice since the SDK's own
+fields are non-pointer, but corrected for wire-shape hygiene). Everything
+else in the flat 23-op/54-field surface was already always-populated.
+
 **2026-08-15 (gopherstack-3gbe):** investigated whether Step Functions
 shares Omics' (gopherstack-keee) client-side host-prefix-rewrite
 reachability gap. It does: **2 ops, one literal prefix, `sync-`** (TestState
@@ -730,13 +746,16 @@ both were re-derived field-by-field and both were wrong (see below).
   (aliases.go) unconditionally sets `alias.UpdatedDate = time.Now().Unix()`
   before returning -- the zero-value/omitted case is not reachable from any
   code path, so left as-is rather than "fixed but not proven."
-- **`StopExecutionOutput.StopDate`** (`*float64`, no `omitempty`) is only
-  ever nil in principle if `StopExecution`'s no-op branch (already-terminal
-  execution) runs before `StopDate` was set -- traced every place
-  `exec.Status` transitions off `RUNNING`
-  (`finalizeExecutionRecordLocked`/`StopExecution` itself) and confirmed
-  each one sets `StopDate` in the same statement, so the no-op branch is
-  never reached with a nil `StopDate`. Not reachable, not a bug.
+- **`StopExecutionOutput.StopDate`** (`*float64`, no `omitempty`) -- STALE,
+  CORRECTED 2026-09-19 (gopherstack-r80d): this note previously claimed every
+  place `exec.Status` transitions off `RUNNING`
+  (`finalizeExecutionRecordLocked`/`StopExecution` itself) sets `StopDate` in
+  the same statement, so the no-op branch could never observe nil. That trace
+  missed a third transition: `Snapshot` (persistence.go) promotes any
+  execution still `RUNNING` at snapshot time to `TIMED_OUT` without setting
+  `StopDate`. `StopExecution` called on such an execution after a restore hit
+  the no-op branch with a genuinely nil `StopDate`. Fixed -- see
+  `ops.StopExecution` above.
 - **`RoutingConfigurationListItem`** (`StateMachineVersionArn`/`Weight`,
   both required) matches `AliasRoutingConfig` exactly, both fields already
   non-`omitempty`. Clean.

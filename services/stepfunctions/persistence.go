@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/logger"
 	"github.com/blackbirdworks/gopherstack/pkgs/persistence"
@@ -124,6 +125,11 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		cp := *exec
 		if cp.Status == statusRunning {
 			cp.Status = "TIMED_OUT"
+
+			if cp.StopDate == nil {
+				now := float64(time.Now().Unix())
+				cp.StopDate = &now
+			}
 		}
 
 		execDTOs.Put(&executionSnapshot{
