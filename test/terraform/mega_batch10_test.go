@@ -62,12 +62,19 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				require.NoError(t, err, "GetGroupPolicy should succeed")
 				assert.NotEmpty(t, aws.ToString(groupPolicyOut.PolicyDocument))
 
-				attachedGroupPoliciesOut, err := iamClient.ListAttachedGroupPolicies(ctx, &iamsvc.ListAttachedGroupPoliciesInput{
-					GroupName: aws.String("mega-batch-10-group"),
-				})
+				attachedGroupPoliciesOut, err := iamClient.ListAttachedGroupPolicies(
+					ctx,
+					&iamsvc.ListAttachedGroupPoliciesInput{
+						GroupName: aws.String("mega-batch-10-group"),
+					},
+				)
 				require.NoError(t, err, "ListAttachedGroupPolicies should succeed")
 				require.Len(t, attachedGroupPoliciesOut.AttachedPolicies, 1)
-				assert.Equal(t, "mega-batch-10-policy", aws.ToString(attachedGroupPoliciesOut.AttachedPolicies[0].PolicyName))
+				assert.Equal(
+					t,
+					"mega-batch-10-policy",
+					aws.ToString(attachedGroupPoliciesOut.AttachedPolicies[0].PolicyName),
+				)
 
 				userPolicyOut, err := iamClient.GetUserPolicy(ctx, &iamsvc.GetUserPolicyInput{
 					UserName:   aws.String("mega-batch-10-user"),
@@ -76,12 +83,19 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				require.NoError(t, err, "GetUserPolicy should succeed")
 				assert.NotEmpty(t, aws.ToString(userPolicyOut.PolicyDocument))
 
-				attachedUserPoliciesOut, err := iamClient.ListAttachedUserPolicies(ctx, &iamsvc.ListAttachedUserPoliciesInput{
-					UserName: aws.String("mega-batch-10-user"),
-				})
+				attachedUserPoliciesOut, err := iamClient.ListAttachedUserPolicies(
+					ctx,
+					&iamsvc.ListAttachedUserPoliciesInput{
+						UserName: aws.String("mega-batch-10-user"),
+					},
+				)
 				require.NoError(t, err, "ListAttachedUserPolicies should succeed")
 				require.Len(t, attachedUserPoliciesOut.AttachedPolicies, 1)
-				assert.Equal(t, "mega-batch-10-policy", aws.ToString(attachedUserPoliciesOut.AttachedPolicies[0].PolicyName))
+				assert.Equal(
+					t,
+					"mega-batch-10-policy",
+					aws.ToString(attachedUserPoliciesOut.AttachedPolicies[0].PolicyName),
+				)
 
 				accessKeysOut, err := iamClient.ListAccessKeys(ctx, &iamsvc.ListAccessKeysInput{
 					UserName: aws.String("mega-batch-10-user"),
@@ -100,10 +114,13 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				require.NoError(t, err, "ListSSHPublicKeys should succeed")
 				require.Len(t, sshKeysOut.SSHPublicKeys, 1)
 
-				credsOut, err := iamClient.ListServiceSpecificCredentials(ctx, &iamsvc.ListServiceSpecificCredentialsInput{
-					UserName:    aws.String("mega-batch-10-user"),
-					ServiceName: aws.String("cassandra.amazonaws.com"),
-				})
+				credsOut, err := iamClient.ListServiceSpecificCredentials(
+					ctx,
+					&iamsvc.ListServiceSpecificCredentialsInput{
+						UserName:    aws.String("mega-batch-10-user"),
+						ServiceName: aws.String("cassandra.amazonaws.com"),
+					},
+				)
 				require.NoError(t, err, "ListServiceSpecificCredentials should succeed")
 				require.Len(t, credsOut.ServiceSpecificCredentials, 1)
 
@@ -170,19 +187,25 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 
 				const bucket = "mega-batch-10-bucket"
 
-				accelOut, err := s3Client.GetBucketAccelerateConfiguration(ctx, &s3svc.GetBucketAccelerateConfigurationInput{
-					Bucket: aws.String(bucket),
-				})
+				accelOut, err := s3Client.GetBucketAccelerateConfiguration(
+					ctx,
+					&s3svc.GetBucketAccelerateConfigurationInput{
+						Bucket: aws.String(bucket),
+					},
+				)
 				require.NoError(t, err, "GetBucketAccelerateConfiguration should succeed")
 				assert.Equal(t, "Enabled", string(accelOut.Status))
 
 				_, err = s3Client.GetBucketAcl(ctx, &s3svc.GetBucketAclInput{Bucket: aws.String(bucket)})
 				require.NoError(t, err, "GetBucketAcl should succeed")
 
-				analyticsOut, err := s3Client.GetBucketAnalyticsConfiguration(ctx, &s3svc.GetBucketAnalyticsConfigurationInput{
-					Bucket: aws.String(bucket),
-					Id:     aws.String("mega-batch-10-analytics"),
-				})
+				analyticsOut, err := s3Client.GetBucketAnalyticsConfiguration(
+					ctx,
+					&s3svc.GetBucketAnalyticsConfigurationInput{
+						Bucket: aws.String(bucket),
+						Id:     aws.String("mega-batch-10-analytics"),
+					},
+				)
 				require.NoError(t, err, "GetBucketAnalyticsConfiguration should succeed")
 				require.NotNil(t, analyticsOut.AnalyticsConfiguration)
 
@@ -201,16 +224,22 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				require.NoError(t, err, "GetBucketIntelligentTieringConfiguration should succeed")
 				require.NotNil(t, tieringOut.IntelligentTieringConfiguration)
 
-				invOut, err := s3Client.GetBucketInventoryConfiguration(ctx, &s3svc.GetBucketInventoryConfigurationInput{
-					Bucket: aws.String(bucket),
-					Id:     aws.String("mega-batch-10-inventory"),
-				})
+				invOut, err := s3Client.GetBucketInventoryConfiguration(
+					ctx,
+					&s3svc.GetBucketInventoryConfigurationInput{
+						Bucket: aws.String(bucket),
+						Id:     aws.String("mega-batch-10-inventory"),
+					},
+				)
 				require.NoError(t, err, "GetBucketInventoryConfiguration should succeed")
 				require.NotNil(t, invOut.InventoryConfiguration)
 
-				lifecycleOut, err := s3Client.GetBucketLifecycleConfiguration(ctx, &s3svc.GetBucketLifecycleConfigurationInput{
-					Bucket: aws.String(bucket),
-				})
+				lifecycleOut, err := s3Client.GetBucketLifecycleConfiguration(
+					ctx,
+					&s3svc.GetBucketLifecycleConfigurationInput{
+						Bucket: aws.String(bucket),
+					},
+				)
 				require.NoError(t, err, "GetBucketLifecycleConfiguration should succeed")
 				require.Len(t, lifecycleOut.Rules, 1)
 				assert.Equal(t, "expire", aws.ToString(lifecycleOut.Rules[0].ID))
@@ -223,7 +252,7 @@ func TestTerraform_MegaBatch10(t *testing.T) {
 				require.NotNil(t, metricOut.MetricsConfiguration)
 
 				objOut, err := s3Client.GetObject(ctx, &s3svc.GetObjectInput{
-					Bucket: aws.String("mega-batch-10-objects-bucket"),
+					Bucket: aws.String(bucket),
 					Key:    aws.String("mega-batch-10.txt"),
 				})
 				require.NoError(t, err, "GetObject should succeed")

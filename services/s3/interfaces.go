@@ -227,6 +227,7 @@ type StorageBackend interface {
 	GetBucketAccelerateConfiguration(ctx context.Context, bucket string) (string, error)
 	PutBucketRequestPayment(ctx context.Context, bucket, payer string) error
 	GetBucketRequestPayment(ctx context.Context, bucket string) (string, error)
+	GetBucketOwnerAccount(ctx context.Context, bucket string) (string, error)
 
 	// ABAC Configuration (S3 Tables / Express)
 	PutBucketAbac(ctx context.Context, bucket, configXML string) error

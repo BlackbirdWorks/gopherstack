@@ -243,18 +243,12 @@ resource "aws_s3_bucket_metric" "example" {
   name   = "mega-batch-10-metric"
 }
 
-# aws_s3_bucket_object has no request_payer argument, and the primary bucket
-# above sets request_payment_configuration to "Requester" (gopherstack is
-# single-tenant, so it enforces the x-amz-request-payer header on every
-# object request there — see services/s3/requester_pays.go). Use a second,
-# plain bucket for the object so its Put/Head round trip isn't affected.
-resource "aws_s3_bucket" "objects" {
-  bucket        = "mega-batch-10-objects-bucket"
-  force_destroy = true
-}
-
+# aws_s3_bucket_object has no request_payer argument, but the terraform
+# provider's credentials resolve to the same account that created the bucket
+# below, so it's exempt from the x-amz-request-payer header requirement as
+# the bucket owner (see services/s3/requester_pays.go's owner exemption).
 resource "aws_s3_bucket_object" "example" {
-  bucket  = aws_s3_bucket.objects.id
+  bucket  = aws_s3_bucket.example.id
   key     = "mega-batch-10.txt"
   content = "mega batch ten"
 }

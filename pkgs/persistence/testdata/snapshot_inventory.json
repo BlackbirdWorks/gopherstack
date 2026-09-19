@@ -23534,6 +23534,7 @@
       "StoredBucket.ObjectLockConfig string `json:\"objectLockConfig,omitempty\"`",
       "StoredBucket.ObjectLockEnabled bool `json:\"objectLockEnabled,omitempty\"`",
       "StoredBucket.Objects map[string]*StoredObject `json:\"objects,omitempty\"`",
+      "StoredBucket.OwnerAccountID string `json:\"ownerAccountID,omitempty\"`",
       "StoredBucket.OwnershipControlsConfig string `json:\"ownershipControlsConfig,omitempty\"`",
       "StoredBucket.Policy string `json:\"policy,omitempty\"`",
       "StoredBucket.PublicAccessBlockConfig string `json:\"publicAccessBlockConfig,omitempty\"`",

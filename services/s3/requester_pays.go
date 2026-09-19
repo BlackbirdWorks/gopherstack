@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/awsmeta"
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
 )
 
@@ -24,11 +25,12 @@ const requestPaymentBucketOwner = "BucketOwner"
 const requestPaymentRequester = "Requester"
 
 // enforceRequesterPays implements AWS Requester-Pays semantics: when a bucket's
-// request-payment configuration is "Requester", every object request must carry
-// `x-amz-request-payer: requester` or be rejected with 403 AccessDenied. Returns
-// true when the request may proceed; on failure it writes the AWS-accurate error
-// response and returns false. Owner-vs-requester isn't modeled (single-tenant),
-// so header presence alone is the gate, matching the observable SDK contract.
+// request-payment configuration is "Requester", every non-owner object request
+// must carry `x-amz-request-payer: requester` or be rejected with 403
+// AccessDenied. The bucket owner account is exempt (S3 docs, "Requester Pays
+// buckets": bucket owners are never charged and never need the header).
+// Returns true when the request may proceed; on failure it writes the
+// AWS-accurate error response and returns false.
 func (h *S3Handler) enforceRequesterPays(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -53,6 +55,10 @@ func (h *S3Handler) enforceRequesterPays(
 		return true
 	}
 
+	if h.isBucketOwnerCaller(ctx, r, bucketName) {
+		return true
+	}
+
 	httputils.WriteS3ErrorResponse(ctx, w, r, ErrorResponse{
 		Code: errAccessDenied,
 		Message: "Access Denied. This bucket is configured with Requester Pays; " +
@@ -60,6 +66,45 @@ func (h *S3Handler) enforceRequesterPays(
 	}, http.StatusForbidden)
 
 	return false
+}
+
+// isBucketOwnerCaller reports whether r's resolved caller is the bucket's
+// owner account. Anonymous requests are never the owner, matching the
+// caller model used for bucket-policy/ACL enforcement (see authz.go's
+// callerIdentity) -- only a signed request whose account matches the bucket's
+// creator qualifies for the Requester-Pays owner exemption.
+func (h *S3Handler) isBucketOwnerCaller(ctx context.Context, r *http.Request, bucketName string) bool {
+	if callerIdentity(r).anonymous {
+		return false
+	}
+
+	ownerAccount, err := h.Backend.GetBucketOwnerAccount(ctx, bucketName)
+	if err != nil {
+		return false
+	}
+
+	return awsmeta.Account(ctx) == ownerAccount
+}
+
+// GetBucketOwnerAccount returns the account ID that created bucketName.
+// Buckets persisted before this field existed default to awsmeta.DefaultAccount.
+func (b *InMemoryBackend) GetBucketOwnerAccount(_ context.Context, bucketName string) (string, error) {
+	b.mu.RLock("GetBucketOwnerAccount")
+	bucket, err := b.getBucket(bucketName)
+	b.mu.RUnlock()
+
+	if err != nil {
+		return "", err
+	}
+
+	bucket.mu.RLock("GetBucketOwnerAccount")
+	defer bucket.mu.RUnlock()
+
+	if bucket.OwnerAccountID == "" {
+		return awsmeta.DefaultAccount, nil
+	}
+
+	return bucket.OwnerAccountID, nil
 }
 
 // PutBucketRequestPayment stores the request-payment payer ("BucketOwner" or "Requester").
