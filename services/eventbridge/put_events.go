@@ -178,6 +178,7 @@ func (b *InMemoryBackend) putEventsLocked(
 		}
 		// Capture event into matching archives.
 		b.captureEventInArchives(region, entry, busName)
+		b.discoverSchemaLocked(region, busName, entry)
 		accepted = append(accepted, entry)
 		results = append(results, EventResultEntry{EventID: eventID})
 	}

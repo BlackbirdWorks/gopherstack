@@ -486,6 +486,17 @@ func (b *InMemoryBackend) schemaVersionKey(registryName, schemaName string) stri
 	return registryName + "/" + schemaName
 }
 
+// discoverersTable returns the backend's single, global *store.Table[Discoverer],
+// lazily registered on the same never-snapshotted auxRegistry as
+// registries/schemas (see store_setup.go's package doc).
+func (b *InMemoryBackend) discoverersTable() *store.Table[Discoverer] {
+	return getOrCreateGlobalTable(b.auxRegistry, &b.tableMu, &b.discoverers, "discoverers", discovererKeyFn)
+}
+
+func (b *InMemoryBackend) discovererARN(id string) string {
+	return arn.Build("schemas", b.region, b.accountID, "discoverer/"+id)
+}
+
 func (b *InMemoryBackend) codeBindingKey(registryName, schemaName, language, schemaVersion string) string {
 	return registryName + "/" + schemaName + "/" + language + "/" + schemaVersion
 }

@@ -254,6 +254,17 @@ func (h *Handler) GetSupportedOperations() []string {
 		// dispatch table below, but no real AWS SDK client can invoke it
 		// under this name, so it must not be advertised as supported here.
 		opGetCodeBindingSource,
+		opExportSchema,
+		opCreateDiscoverer,
+		opDescribeDiscoverer,
+		opListDiscoverers,
+		opUpdateDiscoverer,
+		opDeleteDiscoverer,
+		opStartDiscoverer,
+		opStopDiscoverer,
+		opGetResourcePolicy,
+		opPutResourcePolicy,
+		opDeleteResourcePolicy,
 	}
 }
 

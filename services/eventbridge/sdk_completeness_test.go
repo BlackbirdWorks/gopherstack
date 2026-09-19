@@ -51,6 +51,17 @@ func TestSDKCompleteness(t *testing.T) {
 		"SearchSchemas":        true,
 		"UpdateRegistry":       true,
 		"UpdateSchema":         true,
+		"CreateDiscoverer":     true,
+		"DescribeDiscoverer":   true,
+		"ListDiscoverers":      true,
+		"UpdateDiscoverer":     true,
+		"DeleteDiscoverer":     true,
+		"StartDiscoverer":      true,
+		"StopDiscoverer":       true,
+		"ExportSchema":         true,
+		"GetResourcePolicy":    true,
+		"PutResourcePolicy":    true,
+		"DeleteResourcePolicy": true,
 	}
 
 	var mainOps, sOps []string
@@ -63,23 +74,11 @@ func TestSDKCompleteness(t *testing.T) {
 	}
 
 	sdkcheck.CheckCompleteness(t, &eventbridgesdk.Client{}, mainOps, []string{})
-	// This Handler only implements schemas.Client's registry/schema/
-	// code-binding surface; schema discoverers and resource policies are not
-	// implemented.
+	// This Handler implements schemas.Client's registry/schema/code-binding/
+	// discoverer/resource-policy surface; tagging is not implemented.
 	sdkcheck.CheckCompleteness(t, &schemassdk.Client{}, sOps, []string{
-		"CreateDiscoverer",
-		"DeleteDiscoverer",
-		"DeleteResourcePolicy",
-		"DescribeDiscoverer",
-		"ExportSchema",
-		"GetResourcePolicy",
-		"ListDiscoverers",
 		"ListTagsForResource",
-		"PutResourcePolicy",
-		"StartDiscoverer",
-		"StopDiscoverer",
 		"TagResource",
 		"UntagResource",
-		"UpdateDiscoverer",
 	})
 }

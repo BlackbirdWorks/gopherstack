@@ -785,3 +785,60 @@ type GetDiscoveredSchemaInput struct {
 	Type   string   `json:"Type"`
 	Events []string `json:"Events"`
 }
+
+// Discoverer watches an event bus and registers discovered schemas.
+type Discoverer struct {
+	Tags          map[string]string `json:"Tags,omitempty"`
+	DiscovererArn string            `json:"DiscovererArn"`
+	DiscovererID  string            `json:"DiscovererId"`
+	SourceArn     string            `json:"SourceArn"`
+	Description   string            `json:"Description,omitempty"`
+	State         string            `json:"State"`
+	CrossAccount  bool              `json:"CrossAccount"`
+}
+
+// CreateDiscovererInput is the input for CreateDiscoverer.
+type CreateDiscovererInput struct {
+	Tags         map[string]string `json:"Tags,omitempty"`
+	CrossAccount *bool             `json:"CrossAccount,omitempty"`
+	SourceArn    string            `json:"SourceArn"`
+	Description  string            `json:"Description,omitempty"`
+}
+
+// UpdateDiscovererInput is the input for UpdateDiscoverer.
+type UpdateDiscovererInput struct {
+	Description  *string `json:"Description,omitempty"`
+	CrossAccount *bool   `json:"CrossAccount,omitempty"`
+	DiscovererID string  `json:"DiscovererId"`
+}
+
+// ExportSchemaInput is the input for ExportSchema.
+type ExportSchemaInput struct {
+	RegistryName  string `json:"RegistryName"`
+	SchemaName    string `json:"SchemaName"`
+	Type          string `json:"Type"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+}
+
+// ExportedSchema is ExportSchema's result.
+type ExportedSchema struct {
+	Content       string `json:"Content"`
+	SchemaArn     string `json:"SchemaArn"`
+	SchemaName    string `json:"SchemaName"`
+	SchemaVersion string `json:"SchemaVersion"`
+	Type          string `json:"Type"`
+}
+
+// ResourcePolicy is a registry-level resource-based policy with optimistic
+// concurrency via RevisionID.
+type ResourcePolicy struct {
+	Policy     string `json:"Policy"`
+	RevisionID string `json:"RevisionId"`
+}
+
+// PutResourcePolicyInput is the input for PutResourcePolicy.
+type PutResourcePolicyInput struct {
+	RegistryName string `json:"RegistryName,omitempty"`
+	Policy       string `json:"Policy"`
+	RevisionID   string `json:"RevisionId,omitempty"`
+}

@@ -58,6 +58,19 @@ const (
 	opPutCodeBinding       = "PutCodeBinding"
 	opDescribeCodeBinding  = "DescribeCodeBinding"
 	opGetCodeBindingSource = "GetCodeBindingSource"
+
+	opCreateDiscoverer   = "CreateDiscoverer"
+	opDescribeDiscoverer = "DescribeDiscoverer"
+	opListDiscoverers    = "ListDiscoverers"
+	opUpdateDiscoverer   = "UpdateDiscoverer"
+	opDeleteDiscoverer   = "DeleteDiscoverer"
+	opStartDiscoverer    = "StartDiscoverer"
+	opStopDiscoverer     = "StopDiscoverer"
+
+	opExportSchema         = "ExportSchema"
+	opGetResourcePolicy    = "GetResourcePolicy"
+	opPutResourcePolicy    = "PutResourcePolicy"
+	opDeleteResourcePolicy = "DeleteResourcePolicy"
 )
 
 // schemasRouteKind identifies which of the real Schemas REST path templates
@@ -77,6 +90,12 @@ const (
 	schemasRouteCodeBinding
 	schemasRouteCodeBindingSrc
 	schemasRouteDiscover
+	schemasRouteDiscoverers
+	schemasRouteDiscoverer
+	schemasRouteDiscovererStart
+	schemasRouteDiscovererStop
+	schemasRoutePolicy
+	schemasRouteSchemaExport
 )
 
 // schemasPathMatch is the result of matching a request path against the real
@@ -87,6 +106,7 @@ type schemasPathMatch struct {
 	schemaName    string
 	schemaVersion string
 	language      string
+	discovererID  string
 	kind          schemasRouteKind
 }
 
@@ -111,10 +131,18 @@ const (
 	segCountSchemaVersionsList         = 8
 	segCountSchemaVersionOrCodeBinding = 9
 	segCountCodeBindingSource          = 10
+
+	// Discoverer/policy/export path segment counts.
+	// "/v1/discoverers/id/{DiscovererId}" -> 4 segments.
+	segCountDiscoverer = 4
+	// "/v1/discoverers/id/{DiscovererId}/start" (or "/stop") -> 5 segments.
+	segCountDiscovererAction = 5
+	// "/v1/registries/name/{RegistryName}/schemas/name/{SchemaName}/export" -> 8 segments.
+	segCountSchemaExport = 8
 )
 
 // parseSchemasPath matches path against the real schemas@v1.37.4 REST path
-// templates for the 17 ops this file routes (see sdkRouteCases in
+// templates for the 28 ops this file routes (see sdkRouteCases in
 // handler_schemas_rest_route_table_test.go for the full template list cited
 // against serializers.go). It does not itself consider HTTP method --
 // schemasOpForRoute combines the returned kind with the method.
@@ -124,16 +152,57 @@ func parseSchemasPath(path string) (schemasPathMatch, bool) {
 		return schemasPathMatch{}, false
 	}
 
+	if len(segs) == segCountRegistriesOrDiscover {
+		return parseSchemasTwoSegPath(segs[1])
+	}
+
 	switch {
-	case len(segs) == segCountRegistriesOrDiscover && segs[1] == "registries":
-		return schemasPathMatch{kind: schemasRouteRegistries}, true
-	case len(segs) == segCountRegistriesOrDiscover && segs[1] == "discover":
-		return schemasPathMatch{kind: schemasRouteDiscover}, true
+	case len(segs) >= segCountDiscoverer && segs[1] == "discoverers" && segs[2] == "id":
+		return parseSchemasDiscovererPath(segs)
 	case len(segs) >= segCountRegistry && segs[1] == "registries" && segs[2] == "name":
 		return parseSchemasRegistryPath(segs)
 	default:
 		return schemasPathMatch{}, false
 	}
+}
+
+// parseSchemasTwoSegPath matches the four real Schemas REST templates that
+// are exactly "/v1/<segment>" with no further path segments.
+func parseSchemasTwoSegPath(segment string) (schemasPathMatch, bool) {
+	switch segment {
+	case "registries":
+		return schemasPathMatch{kind: schemasRouteRegistries}, true
+	case "discover":
+		return schemasPathMatch{kind: schemasRouteDiscover}, true
+	case "discoverers":
+		return schemasPathMatch{kind: schemasRouteDiscoverers}, true
+	case "policy":
+		return schemasPathMatch{kind: schemasRoutePolicy}, true
+	default:
+		return schemasPathMatch{}, false
+	}
+}
+
+// parseSchemasDiscovererPath matches "/v1/discoverers/id/{DiscovererId}"
+// and its "/start"/"stop" action sub-paths (schemas@v1.37.4 serializers.go's
+// StartDiscoverer/StopDiscoverer URI templates).
+func parseSchemasDiscovererPath(segs []string) (schemasPathMatch, bool) {
+	discovererID := segs[3]
+
+	if len(segs) == segCountDiscoverer {
+		return schemasPathMatch{kind: schemasRouteDiscoverer, discovererID: discovererID}, true
+	}
+
+	if len(segs) == segCountDiscovererAction {
+		switch segs[4] {
+		case "start":
+			return schemasPathMatch{kind: schemasRouteDiscovererStart, discovererID: discovererID}, true
+		case "stop":
+			return schemasPathMatch{kind: schemasRouteDiscovererStop, discovererID: discovererID}, true
+		}
+	}
+
+	return schemasPathMatch{}, false
 }
 
 func parseSchemasRegistryPath(segs []string) (schemasPathMatch, bool) {
@@ -194,6 +263,12 @@ func parseSchemasSchemaPath(
 		return parseSchemasCodeBindingPath(segs, registryName, schemaName, segs[8])
 	}
 
+	if len(segs) == segCountSchemaExport && segs[7] == "export" {
+		return schemasPathMatch{
+			kind: schemasRouteSchemaExport, registryName: registryName, schemaName: schemaName,
+		}, true
+	}
+
 	return schemasPathMatch{}, false
 }
 
@@ -225,33 +300,37 @@ func parseSchemasCodeBindingPath(
 // schemasOpForRoute resolves a (kind, method) pair to the real Schemas
 // operation name, per schemas@v1.37.4 serializers.go's request.Method for
 // each op sharing that kind's path template.
+// schemasOpForRouteFuncs maps each schemasRouteKind to the function that
+// resolves it (plus an HTTP method) to a real Schemas operation name.
+//
+//nolint:gochecknoglobals // dispatch table, analogous to errCodeLookup-style lookup tables elsewhere
+var schemasOpForRouteFuncs = map[schemasRouteKind]func(string) string{
+	schemasRouteNone:            func(string) string { return "" },
+	schemasRouteRegistries:      schemasOpForRegistriesList,
+	schemasRouteRegistry:        schemasOpForRegistry,
+	schemasRouteSchemas:         schemasOpForSchemasList,
+	schemasRouteSchemasSearch:   schemasOpForSchemasSearch,
+	schemasRouteSchema:          schemasOpForSchema,
+	schemasRouteSchemaVersions:  schemasOpForSchemaVersionsList,
+	schemasRouteSchemaVersion:   schemasOpForSchemaVersion,
+	schemasRouteCodeBinding:     schemasOpForCodeBinding,
+	schemasRouteCodeBindingSrc:  schemasOpForCodeBindingSource,
+	schemasRouteDiscover:        schemasOpForDiscover,
+	schemasRouteDiscoverers:     schemasOpForDiscoverers,
+	schemasRouteDiscoverer:      schemasOpForDiscoverer,
+	schemasRouteDiscovererStart: schemasOpForDiscovererStart,
+	schemasRouteDiscovererStop:  schemasOpForDiscovererStop,
+	schemasRoutePolicy:          schemasOpForPolicy,
+	schemasRouteSchemaExport:    schemasOpForSchemaExport,
+}
+
 func schemasOpForRoute(kind schemasRouteKind, method string) string {
-	switch kind {
-	case schemasRouteRegistries:
-		return schemasOpForRegistriesList(method)
-	case schemasRouteRegistry:
-		return schemasOpForRegistry(method)
-	case schemasRouteSchemas:
-		return schemasOpForSchemasList(method)
-	case schemasRouteSchemasSearch:
-		return schemasOpForSchemasSearch(method)
-	case schemasRouteSchema:
-		return schemasOpForSchema(method)
-	case schemasRouteSchemaVersions:
-		return schemasOpForSchemaVersionsList(method)
-	case schemasRouteSchemaVersion:
-		return schemasOpForSchemaVersion(method)
-	case schemasRouteCodeBinding:
-		return schemasOpForCodeBinding(method)
-	case schemasRouteCodeBindingSrc:
-		return schemasOpForCodeBindingSource(method)
-	case schemasRouteDiscover:
-		return schemasOpForDiscover(method)
-	case schemasRouteNone:
-		return ""
-	default:
+	fn, ok := schemasOpForRouteFuncs[kind]
+	if !ok {
 		return ""
 	}
+
+	return fn(method)
 }
 
 func schemasOpForRegistriesList(method string) string {
@@ -351,8 +430,69 @@ func schemasOpForDiscover(method string) string {
 	return ""
 }
 
+func schemasOpForDiscoverers(method string) string {
+	switch method {
+	case http.MethodPost:
+		return opCreateDiscoverer
+	case http.MethodGet:
+		return opListDiscoverers
+	default:
+		return ""
+	}
+}
+
+func schemasOpForDiscoverer(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opDescribeDiscoverer
+	case http.MethodPut:
+		return opUpdateDiscoverer
+	case http.MethodDelete:
+		return opDeleteDiscoverer
+	default:
+		return ""
+	}
+}
+
+func schemasOpForDiscovererStart(method string) string {
+	if method == http.MethodPost {
+		return opStartDiscoverer
+	}
+
+	return ""
+}
+
+func schemasOpForDiscovererStop(method string) string {
+	if method == http.MethodPost {
+		return opStopDiscoverer
+	}
+
+	return ""
+}
+
+func schemasOpForPolicy(method string) string {
+	switch method {
+	case http.MethodGet:
+		return opGetResourcePolicy
+	case http.MethodPut:
+		return opPutResourcePolicy
+	case http.MethodDelete:
+		return opDeleteResourcePolicy
+	default:
+		return ""
+	}
+}
+
+func schemasOpForSchemaExport(method string) string {
+	if method == http.MethodGet {
+		return opExportSchema
+	}
+
+	return ""
+}
+
 // schemasRESTOpForRequest returns the real Schemas operation name for a
-// request's method+path, or "" if it matches none of the 17 REST templates
+// request's method+path, or "" if it matches none of the 28 REST templates
 // this file routes. Used by RouteMatcher, ExtractOperation, and Handler().
 func schemasRESTOpForRequest(r *http.Request) string {
 	m, ok := parseSchemasPath(r.URL.Path)
@@ -397,6 +537,23 @@ type schemasUpdateSchemaBodyREST struct {
 type schemasGetDiscoveredBodyREST struct {
 	Type   string   `json:"Type"`
 	Events []string `json:"Events"`
+}
+
+type schemasCreateDiscovererBodyREST struct {
+	Tags         map[string]string `json:"tags,omitempty"`
+	CrossAccount *bool             `json:"CrossAccount,omitempty"`
+	SourceArn    string            `json:"SourceArn"`
+	Description  string            `json:"Description,omitempty"`
+}
+
+type schemasUpdateDiscovererBodyREST struct {
+	Description  *string `json:"Description,omitempty"`
+	CrossAccount *bool   `json:"CrossAccount,omitempty"`
+}
+
+type schemasPutResourcePolicyBodyREST struct {
+	Policy     string `json:"Policy"`
+	RevisionID string `json:"RevisionId,omitempty"`
 }
 
 // --- REST wire-shape responses ---
@@ -540,6 +697,59 @@ func schemaToRESTNoContent(s *Schema) schemaRESTOutputNoContent {
 	}
 }
 
+// discovererRESTOutput is Create/Describe/Update/Discoverer's response shape
+// (CreateDiscovererOutput/DescribeDiscovererOutput/UpdateDiscovererOutput,
+// per deserializers.go's awsRestjson1_deserializeDocumentDiscovererSummary --
+// all three ops, plus ListDiscoverers' per-item DiscovererSummary, share this
+// exact field set).
+type discovererRESTOutput struct {
+	Tags          map[string]string `json:"tags,omitempty"`
+	Description   string            `json:"Description,omitempty"`
+	DiscovererArn string            `json:"DiscovererArn"`
+	DiscovererID  string            `json:"DiscovererId"`
+	SourceArn     string            `json:"SourceArn"`
+	State         string            `json:"State"`
+	CrossAccount  bool              `json:"CrossAccount"`
+}
+
+// discovererActionRESTOutput is Start/StopDiscoverer's response shape:
+// unlike discovererRESTOutput, it carries only DiscovererId and State.
+type discovererActionRESTOutput struct {
+	DiscovererID string `json:"DiscovererId"`
+	State        string `json:"State"`
+}
+
+// exportSchemaRESTOutput is ExportSchema's response shape (ExportSchemaOutput).
+type exportSchemaRESTOutput struct {
+	Content       string `json:"Content,omitempty"`
+	SchemaArn     string `json:"SchemaArn,omitempty"`
+	SchemaName    string `json:"SchemaName,omitempty"`
+	SchemaVersion string `json:"SchemaVersion,omitempty"`
+	Type          string `json:"Type,omitempty"`
+}
+
+// resourcePolicyRESTOutput is Get/PutResourcePolicy's shared response shape.
+type resourcePolicyRESTOutput struct {
+	Policy     string `json:"Policy,omitempty"`
+	RevisionID string `json:"RevisionId,omitempty"`
+}
+
+func discovererToREST(d *Discoverer) discovererRESTOutput {
+	return discovererRESTOutput{
+		CrossAccount:  d.CrossAccount,
+		Description:   d.Description,
+		DiscovererArn: d.DiscovererArn,
+		DiscovererID:  d.DiscovererID,
+		SourceArn:     d.SourceArn,
+		State:         d.State,
+		Tags:          d.Tags,
+	}
+}
+
+func resourcePolicyToREST(p *ResourcePolicy) resourcePolicyRESTOutput {
+	return resourcePolicyRESTOutput{Policy: p.Policy, RevisionID: p.RevisionID}
+}
+
 func codeBindingToREST(b *CodeBinding) codeBindingRESTOutput {
 	return codeBindingRESTOutput{
 		CreationDate:  b.CreationDate,
@@ -551,7 +761,7 @@ func codeBindingToREST(b *CodeBinding) codeBindingRESTOutput {
 
 // --- Dispatch ---
 
-// handleSchemasREST serves one of the 17 real Schemas REST requests this
+// handleSchemasREST serves one of the 28 real Schemas REST requests this
 // file routes (see gopherstack-92ft). It reuses the SAME backend calls the
 // fabricated JSON-RPC path (schemaActions/registryActions/
 // schemaVersionActions/codeBindingActions in handler_schemas.go/
@@ -599,6 +809,17 @@ func (h *Handler) schemasRESTOps() map[string]schemasRESTOpFunc {
 		opGetDiscoveredSchema: func(c *echo.Context, _ schemasPathMatch) error {
 			return h.schemasRESTGetDiscoveredSchema(c)
 		},
+		opExportSchema:         h.schemasRESTExportSchema,
+		opCreateDiscoverer:     h.schemasRESTCreateDiscoverer,
+		opListDiscoverers:      h.schemasRESTListDiscoverers,
+		opDescribeDiscoverer:   h.schemasRESTDescribeDiscoverer,
+		opUpdateDiscoverer:     h.schemasRESTUpdateDiscoverer,
+		opDeleteDiscoverer:     h.schemasRESTDeleteDiscoverer,
+		opStartDiscoverer:      h.schemasRESTStartDiscoverer,
+		opStopDiscoverer:       h.schemasRESTStopDiscoverer,
+		opGetResourcePolicy:    h.schemasRESTGetResourcePolicy,
+		opPutResourcePolicy:    h.schemasRESTPutResourcePolicy,
+		opDeleteResourcePolicy: h.schemasRESTDeleteResourcePolicy,
 	}
 }
 
@@ -633,6 +854,8 @@ func (h *Handler) writeSchemasRESTError(c *echo.Context, err error) error {
 		code, status = "BadRequestException", http.StatusBadRequest
 	case errors.Is(err, ErrForbiddenOperation):
 		code, status = "ForbiddenException", http.StatusForbidden
+	case errors.Is(err, ErrPreconditionFailed):
+		code, status = "PreconditionFailedException", http.StatusPreconditionFailed
 	}
 
 	c.Response().Header().Set("Content-Type", schemasRESTContentType)
@@ -1025,4 +1248,165 @@ func (h *Handler) schemasRESTGetCodeBindingSource(c *echo.Context, m schemasPath
 	}
 
 	return c.Blob(http.StatusOK, "application/octet-stream", []byte(src))
+}
+
+// --- Export schema ---
+
+func (h *Handler) schemasRESTExportSchema(c *echo.Context, m schemasPathMatch) error {
+	q := c.Request().URL.Query()
+
+	exported, err := h.Backend.ExportSchema(c.Request().Context(), ExportSchemaInput{
+		RegistryName:  m.registryName,
+		SchemaName:    m.schemaName,
+		Type:          q.Get("type"),
+		SchemaVersion: q.Get("schemaVersion"),
+	})
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, exportSchemaRESTOutput{
+		Content:       exported.Content,
+		SchemaArn:     exported.SchemaArn,
+		SchemaName:    exported.SchemaName,
+		SchemaVersion: exported.SchemaVersion,
+		Type:          exported.Type,
+	})
+}
+
+// --- Discoverer ops ---
+
+func (h *Handler) schemasRESTCreateDiscoverer(c *echo.Context, _ schemasPathMatch) error {
+	var in schemasCreateDiscovererBodyREST
+	if err := schemasRESTDecodeBody(c.Request(), &in); err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	d, err := h.Backend.CreateDiscoverer(c.Request().Context(), CreateDiscovererInput(in))
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, discovererToREST(d))
+}
+
+func (h *Handler) schemasRESTListDiscoverers(c *echo.Context, _ schemasPathMatch) error {
+	q := c.Request().URL.Query()
+
+	discoverers, next, err := h.Backend.ListDiscoverers(
+		c.Request().Context(),
+		q.Get("discovererIdPrefix"),
+		q.Get("sourceArnPrefix"),
+		q.Get("nextToken"),
+		schemasRESTLimit(q),
+	)
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	summaries := make([]discovererRESTOutput, 0, len(discoverers))
+	for i := range discoverers {
+		summaries = append(summaries, discovererToREST(&discoverers[i]))
+	}
+
+	return h.writeSchemasREST(c, struct {
+		NextToken   string                 `json:"NextToken,omitempty"`
+		Discoverers []discovererRESTOutput `json:"Discoverers"`
+	}{Discoverers: summaries, NextToken: next})
+}
+
+func (h *Handler) schemasRESTDescribeDiscoverer(c *echo.Context, m schemasPathMatch) error {
+	d, err := h.Backend.DescribeDiscoverer(c.Request().Context(), m.discovererID)
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, discovererToREST(d))
+}
+
+func (h *Handler) schemasRESTUpdateDiscoverer(c *echo.Context, m schemasPathMatch) error {
+	var in schemasUpdateDiscovererBodyREST
+	if err := schemasRESTDecodeBody(c.Request(), &in); err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	d, err := h.Backend.UpdateDiscoverer(c.Request().Context(), UpdateDiscovererInput{
+		DiscovererID: m.discovererID,
+		Description:  in.Description,
+		CrossAccount: in.CrossAccount,
+	})
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, discovererToREST(d))
+}
+
+func (h *Handler) schemasRESTDeleteDiscoverer(c *echo.Context, m schemasPathMatch) error {
+	if err := h.Backend.DeleteDiscoverer(c.Request().Context(), m.discovererID); err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, map[string]any{})
+}
+
+func (h *Handler) schemasRESTStartDiscoverer(c *echo.Context, m schemasPathMatch) error {
+	d, err := h.Backend.StartDiscoverer(c.Request().Context(), m.discovererID)
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, discovererActionRESTOutput{DiscovererID: d.DiscovererID, State: d.State})
+}
+
+func (h *Handler) schemasRESTStopDiscoverer(c *echo.Context, m schemasPathMatch) error {
+	d, err := h.Backend.StopDiscoverer(c.Request().Context(), m.discovererID)
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, discovererActionRESTOutput{DiscovererID: d.DiscovererID, State: d.State})
+}
+
+// --- Resource policy ops ---
+
+func (h *Handler) schemasRESTGetResourcePolicy(c *echo.Context, _ schemasPathMatch) error {
+	registryName := c.Request().URL.Query().Get("registryName")
+
+	p, err := h.Backend.GetResourcePolicy(c.Request().Context(), registryName)
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, resourcePolicyToREST(p))
+}
+
+func (h *Handler) schemasRESTPutResourcePolicy(c *echo.Context, _ schemasPathMatch) error {
+	var in schemasPutResourcePolicyBodyREST
+	if err := schemasRESTDecodeBody(c.Request(), &in); err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	registryName := c.Request().URL.Query().Get("registryName")
+
+	p, err := h.Backend.PutResourcePolicy(c.Request().Context(), PutResourcePolicyInput{
+		RegistryName: registryName,
+		Policy:       in.Policy,
+		RevisionID:   in.RevisionID,
+	})
+	if err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, resourcePolicyToREST(p))
+}
+
+func (h *Handler) schemasRESTDeleteResourcePolicy(c *echo.Context, _ schemasPathMatch) error {
+	registryName := c.Request().URL.Query().Get("registryName")
+
+	if err := h.Backend.DeleteResourcePolicy(c.Request().Context(), registryName); err != nil {
+		return h.writeSchemasRESTError(c, err)
+	}
+
+	return h.writeSchemasREST(c, map[string]any{})
 }

@@ -84,6 +84,7 @@ func endpointKeyFn(v *Endpoint) string                     { return v.Name }
 func partnerEventSourceKeyFn(v *PartnerEventSource) string { return v.Name }
 func schemaRegistryKeyFn(v *SchemaRegistry) string         { return v.RegistryName }
 func schemaKeyFn(v *Schema) string                         { return v.SchemaName }
+func discovererKeyFn(v *Discoverer) string                 { return v.DiscovererID }
 
 // getOrCreateTable returns the *store.Table[V] for key from m (a backend's
 // key->Table field for one resource type), creating and registering it on reg
