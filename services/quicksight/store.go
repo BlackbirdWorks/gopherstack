@@ -159,6 +159,7 @@ type InMemoryBackend struct {
 	approvalPolicies *store.Table[storedApprovalPolicy]
 	dlpSettings      *store.Table[storedDlpSetting]
 	limitsProfiles   *store.Table[storedLimitsProfile]
+	apps             *store.Table[storedApp]
 
 	accountID string
 	region    string

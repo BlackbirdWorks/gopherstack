@@ -18,19 +18,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := quicksight.NewInMemoryBackend("000000000000", "us-east-1")
 	h := quicksight.NewHandler(backend)
 
-	notImplemented := []string{
-		// Added by the quicksight SDK bump v1.123.1 -> v1.129.0; unimplemented.
-		// ApprovalPolicy, DlpSetting, and LimitsProfile op families are now
-		// implemented (see governance.go/handler_governance.go). The App
-		// family and BatchDescribeUserLimits remain unimplemented.
-		"BatchDescribeUserLimits",
-		"DeleteApp",
-		"DescribeApp",
-		"DescribeAppPermissions",
-		"ListApps",
-		"SearchApps",
-		"UpdateAppPermissions",
-	}
+	notImplemented := []string{}
 
 	sdkcheck.CheckCompleteness(t, &quicksightsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }

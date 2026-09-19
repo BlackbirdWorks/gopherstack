@@ -67,7 +67,8 @@ func isLimitsProfileOp(op string) bool {
 }
 
 func isGovernanceOp(op string) bool {
-	return isApprovalPolicyOp(op) || isDlpSettingOp(op) || isLimitsProfileOp(op)
+	return isApprovalPolicyOp(op) || isDlpSettingOp(op) || isLimitsProfileOp(op) ||
+		op == opBatchDescribeUserLimits
 }
 
 // ---- path classification ----
@@ -126,18 +127,32 @@ func classifyApprovalPolicyPaths(method string, segs []string, n int) (string, s
 }
 
 // classifyLimitsProfilePaths routes
-// /governance/limits/accounts/{accountId}/profiles[/{profileId}].
+// /governance/limits/accounts/{accountId}/profiles[/{profileId}] and
+// /governance/limits/accounts/{accountId}/user-limits (BatchDescribeUserLimits
+// -- same nProfilesRoot segment count, distinguished by segs[4]).
 func classifyLimitsProfilePaths(method string, segs []string, n int) (string, string) {
 	const (
 		nProfilesRoot = 5
 		nProfilesID   = 6
 	)
 
-	if n < nProfilesRoot || segs[2] != pathSegAccounts || segs[4] != pathSegProfiles {
+	if n < nProfilesRoot || segs[2] != pathSegAccounts {
 		return opUnknown, ""
 	}
 
 	accountID := seg(segs, segLimitsAccountID)
+
+	if segs[4] == pathSegUserLimits {
+		if n == nProfilesRoot && method == http.MethodPost {
+			return opBatchDescribeUserLimits, accountID
+		}
+
+		return opUnknown, ""
+	}
+
+	if segs[4] != pathSegProfiles {
+		return opUnknown, ""
+	}
 
 	switch n {
 	case nProfilesRoot:
@@ -207,6 +222,8 @@ func (h *Handler) dispatchGovernance(c *echo.Context, op string) error {
 		return h.dispatchDlpSetting(c, op)
 	case isLimitsProfileOp(op):
 		return h.dispatchLimitsProfile(c, op)
+	case op == opBatchDescribeUserLimits:
+		return h.handleBatchDescribeUserLimits(c)
 	}
 
 	return writeError(c, http.StatusNotImplemented, "UnsupportedOperationException", "operation not implemented: "+op)

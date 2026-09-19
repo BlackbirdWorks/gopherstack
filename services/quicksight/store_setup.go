@@ -272,4 +272,9 @@ var tableRegistrations = []func(*InMemoryBackend){
 			}),
 		)
 	},
+	func(b *InMemoryBackend) {
+		b.apps = store.Register(b.registry, "apps", store.New(func(v *storedApp) string {
+			return appKey(b.accountID, v.AppID)
+		}))
+	},
 }

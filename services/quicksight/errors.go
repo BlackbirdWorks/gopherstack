@@ -215,4 +215,8 @@ var (
 	ErrDlpSettingAlreadyExists = awserr.New(errResourceExists, awserr.ErrAlreadyExists)
 	// ErrLimitsProfileNotFound is returned when a limits profile does not exist.
 	ErrLimitsProfileNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
+	// ErrAppNotFound is returned when a Q App does not exist. Real AWS has no
+	// CreateApp operation (apps are created only via the console), so this
+	// backend never mints one itself -- see AddAppInternal (app.go).
+	ErrAppNotFound = awserr.New(errResourceNotFound, awserr.ErrNotFound)
 )
