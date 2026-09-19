@@ -672,6 +672,24 @@ type GetPolicyOutput struct {
 	RevisionID *string `json:"RevisionId,omitempty"`
 }
 
+// ResourcePolicyOverride is the raw resource-based policy document set via
+// PutResourcePolicy, replacing any statement-based (AddPermission) policy for
+// the same function/qualifier target -- see PutResourcePolicy's own SDK doc:
+// this operation replaces any existing policy, and a previously-added
+// AddPermission statement is overwritten entirely.
+type ResourcePolicyOverride struct {
+	Policy     string `json:"Policy"`
+	RevisionID string `json:"RevisionId"`
+}
+
+// ResourcePolicyOutput is the shared response shape for GetResourcePolicy and
+// PutResourcePolicy (both return Policy + RevisionId; DeleteResourcePolicy
+// returns neither).
+type ResourcePolicyOutput struct {
+	Policy     string `json:"Policy,omitempty"`
+	RevisionID string `json:"RevisionId,omitempty"`
+}
+
 // AllowedPublishers holds the signing profile version ARNs allowed for code signing.
 type AllowedPublishers struct {
 	SigningProfileVersionArns []string `json:"SigningProfileVersionArns"`

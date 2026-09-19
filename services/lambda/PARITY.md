@@ -1,12 +1,13 @@
 ---
 service: lambda
 sdk_module: aws-sdk-go-v2/service/lambda@v1.107.0
-last_audit_commit: 614f6b44b
+last_audit_commit: a8b26ceaa
 last_audit_date: 2026-09-19
 overall: A   # durable_execution wire-shape rewrite closed the last open gap; all gates green
 protocol: REST-JSON
 families:
   resource_policy: {status: ok, note: "PROVEN — RemovePermission StatementId from URI path, Qualifier scoping, EventSourceToken/PrincipalOrgID. This sweep closed the AddPermission deferred item: FunctionUrlAuthType/InvokedViaFunctionUrl are now accepted and rendered as IAM Condition entries (StringEquals lambda:FunctionUrlAuthType, Bool lambda:InvokedViaFunctionUrl — verified against real AWS docs/terraform-provider-aws issue #44829), and RevisionId optimistic concurrency is enforced on AddPermission/RemovePermission/GetPolicy (was hardcoded RevisionId:\"1\" — now a real content-hash of the statement-ID set, changing on every mutation, stable otherwise). Same RevisionId + duplicate-StatementId (ResourceConflictException) treatment extended to AddLayerVersionPermission/RemoveLayerVersionPermission/GetLayerVersionPolicy (layers.go), which had the identical hardcoded-\"1\" bug and silently overwrote a duplicate StatementId instead of rejecting it."}
+  resource_based_policy_family: {status: ok, note: "NEW this sweep: Get/Put/DeleteResourcePolicy implemented (were notImplemented), REST-JSON1 at /2026-07-09/resource-policy/{ResourceArn} (a distinct control-plane root, not under /functions), verified against lambda@v1.107.0 api_op_{Get,Put,Delete}ResourcePolicy.go/serializers.go/deserializers.go. These read/write the SAME underlying policy document AddPermission/GetPolicy/RemovePermission already manage (PutResourcePolicy's own doc: replaces any existing policy, overwriting AddPermission-created statements) -- unified via effectivePolicyLocked (resource_policy.go), which GetPolicy now also calls instead of duplicating statement-rendering logic. PutResourcePolicy/DeleteResourcePolicy enforce RevisionId optimistic concurrency (PreconditionFailedException on mismatch, uuid-based revision on each Put, matching the declared error set); qualifier existence is checked on Put. Persisted additively via a new backendSnapshot.ResourcePolicyOverrides field (no version bump). Proven via TestResourcePolicy_RealSDKClient/TestResourcePolicy_ReplacesAddPermissionStatements (resource_policy_real_client_test.go) plus resource_policy_test.go and 3 new sdkRouteCases entries in handler_paths_sdk_diff_test.go."}
   event_source_mappings: {status: ok, note: unchanged since c3b5d46a; ARN parsing, pollers PROVEN — backoff, FilterCriteria, BisectBatchOnFunctionError, ReportBatchItemFailures, MaxRecordAge. Storage backing (b.eventSourceMappings) converted map->store.Table (ce30166a); re-verified — CreateEventSourceMapping/Get/List/Delete/Update and janitor.sweepESMs all correctly ported}
   datalayer_refactor: {status: ok, note: "ce30166a converted functions/functionURLConfigs/eventSourceMappings/aliases/permissions/codeSigningConfigs/capacityProviders/provisionedConcurrencies from raw maps to pkgs/store Table/Index (store_setup.go, new file). Re-verified every call site in backend.go, janitor.go, async_destinations.go, export_test.go: key derivation (functionURLConfigsKeyFn/aliasKeyFn/permissionKeyFn/provisionedConcurrencyKeyFn all pure + stable), index-returned-slice aliasing (ListAliases/GetPolicy copy into a fresh slice before returning, never leak the Index-owned backing slice), delete cascades (deleteAliasesForFunctionLocked/deletePermissionsForFunctionLocked/deleteProvisionedConcurrenciesForFunctionLocked). No behavior change found — mechanical, correct conversion. codeSigningConfigs/capacityProviders/provisionedConcurrencies correctly kept on b.ephemeralRegistry (not b.registry) preserving their pre-refactor not-persisted status; permissions correctly kept off both registries with a DTO round-trip (permissionSnapshot) since FunctionName/Qualifier are json:\"-\" on the live struct"}
   persistence:      {status: ok, note: "ce30166a added lambdaSnapshotVersion=1 gate (mirrors sqs/ec2 pilot) — an incompatible/absent Version discards to empty rather than partially decoding. Same known systemic trait as sqs/ec2: on a version-mismatch Restore, only b.registry + b.permissions are reset; raw non-Table fields (versions/layers/eventInvokeConfigs/layerPolicies/functionConcurrencies/accountID/region) are left as-is. Not a lambda-specific regression — identical to services/sqs and services/ec2's Restore; Restore only ever runs once against a freshly-constructed backend in practice. Not flagging as a new bug; tracked here for awareness only. Note: PublishVersion's new RevisionId precondition check deliberately reuses fn.RevisionID (already persisted as part of FunctionConfiguration) rather than adding new persisted state, so this is unaffected."}
@@ -62,6 +63,13 @@ Role,Handler}, UpdateAlias.{FunctionVersion,Description} — each proven in
 positives: identifiers used only for lookup (UUID, RevisionId precondition
 fields), or Put/replace-required fields (UpdateFunctionCode's
 ImageUri/S3Bucket/S3Key, PutRuntimeManagementConfig.RuntimeVersionArn).
+
+## Notes (2026-09-19 pass — Get/Put/DeleteResourcePolicy implemented)
+
+Implemented the 3 previously-notImplemented ops at /2026-07-09/resource-policy/{ResourceArn}
+(distinct root, not under /functions). They share AddPermission/GetPolicy's
+policy document via effectivePolicyLocked; PutResourcePolicy fully replaces
+AddPermission statements per its own SDK doc. Persisted additively.
 
 ## Notes (2026-09-19 pass — zeroguard int/int32 kind widening)
 

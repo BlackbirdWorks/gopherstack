@@ -156,6 +156,14 @@ func isDurableExecRootPath(path string) bool {
 	return path == lambdaDurableExecPathPrefix || path == lambdaDurableExecPathPrefix+"/"
 }
 
+// lambdaResourcePolicyPathPrefix is the path prefix for the resource-based
+// policy family (Get/Put/DeleteResourcePolicy). Real date is 2026-07-09,
+// path shape "/2026-07-09/resource-policy/{ResourceArn}" (api_op_
+// GetResourcePolicy.go/PutResourcePolicy.go/DeleteResourcePolicy.go,
+// lambda@v1.107.0 serializers.go) -- a distinct control-plane root, not
+// nested under "/functions" like every other family in this file.
+const lambdaResourcePolicyPathPrefix = "/2026-07-09/resource-policy"
+
 // lambdaAccountSettingsPath is the exact path for the GetAccountSettings endpoint.
 const lambdaAccountSettingsPath = "/2016-08-19/account-settings"
 
@@ -265,6 +273,7 @@ var lambdaPathPrefixes = []string{
 	lambdaDurableExecPathPrefix,
 	lambdaDurableExecCallbacksPathPrefix,
 	lambdaDurableExecByFunctionPathPrefix,
+	lambdaResourcePolicyPathPrefix,
 }
 
 // isLambdaPath returns true when the given path belongs to the Lambda service.
