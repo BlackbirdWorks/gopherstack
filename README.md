@@ -468,9 +468,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
 | [Batch](services/batch/README.md) | A | 45 | 7 gaps |
-| [EC2](services/ec2/README.md) | A | — | 21 families; 9 gaps; 1 structural gap; 8 deferred |
+| [EC2](services/ec2/README.md) | A | — | 22 families; 9 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
-| [Lambda](services/lambda/README.md) | A | — | 9 families; 2 gaps |
+| [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps |
 
 ### Containers
 
@@ -484,7 +484,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [Backup](services/backup/README.md) | A | 60 | 11 gaps |
+| [Backup](services/backup/README.md) | A | 66 | 11 gaps |
 | [Data Lifecycle Manager](services/dlm/README.md) | A | 8 | clean |
 | [EFS](services/efs/README.md) | A | 31 | 4 gaps; 2 deferred |
 | [FSx](services/fsx/README.md) | A | — | 13 families; 12 gaps |
@@ -536,7 +536,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Amazon MQ](services/mq/README.md) | A | 25 | 3 gaps; 1 deferred |
 | [AppSync](services/appsync/README.md) | A | 74 | 8 gaps; 2 deferred |
-| [EventBridge](services/eventbridge/README.md) | A | 62 | 2 gaps; 2 deferred |
+| [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
 | [Pinpoint](services/pinpoint/README.md) | A | 50 | 2 gaps; 3 deferred |
@@ -566,14 +566,14 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Lake Formation](services/lakeformation/README.md) | A | 61 | 9 gaps |
 | [Managed Streaming for Kafka](services/kafka/README.md) | A | 64 | 3 gaps |
 | [Managed Workflows for Apache Airflow](services/mwaa/README.md) | A | 12 | 3 gaps; 1 deferred |
-| [OpenSearch](services/opensearch/README.md) | A | 14 | 1 deferred |
-| [QuickSight](services/quicksight/README.md) | A | 74 | 9 gaps |
+| [OpenSearch](services/opensearch/README.md) | A | 19 | 2 gaps |
+| [QuickSight](services/quicksight/README.md) | A | 81 | 10 gaps |
 
 ### Security
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [ACM](services/acm/README.md) | A | 38 | 7 gaps; 3 deferred |
+| [ACM](services/acm/README.md) | A | 39 | 7 gaps; 3 deferred |
 | [ACM PCA](services/acmpca/README.md) | A | 23 | 7 gaps |
 | [Detective](services/detective/README.md) | A | 29 | 5 gaps; 2 deferred |
 | [GuardDuty](services/guardduty/README.md) | A | 66 | 5 gaps |
@@ -594,7 +594,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
 | [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
-| [IAM](services/iam/README.md) | A | 33 | 6 gaps |
+| [IAM](services/iam/README.md) | A | 37 | 7 gaps |
 | [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 5 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 5 gaps |
@@ -648,7 +648,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Bedrock Runtime](services/bedrockruntime/README.md) | A | 11 | 8 gaps |
 | [Comprehend](services/comprehend/README.md) | A | 28 | 4 gaps; 1 deferred |
 | [Forecast](services/forecast/README.md) | A | 21 | 3 gaps |
-| [Personalize](services/personalize/README.md) | A | 73 | clean |
+| [Personalize](services/personalize/README.md) | A | 74 | clean |
 | [Polly](services/polly/README.md) | A | 10 | 1 gap |
 | [Rekognition](services/rekognition/README.md) | A | 50 | 6 gaps; 4 deferred |
 | [SageMaker](services/sagemaker/README.md) | A | 69 | 24 gaps |
