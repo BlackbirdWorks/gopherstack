@@ -73,10 +73,11 @@ func batchInferenceJobToMap(job *BatchInferenceJob) map[string]any {
 
 // batchInferenceJobSummaryToMap builds the types.BatchInferenceJobSummary
 // shape (types.go:223) -- no roleArn, jobInput, or jobOutput.
-// batchInferenceJobMode and failureReason are real Summary members, but the
-// backend's BatchInferenceJob model has no source for either (this backend
-// has no theme-generation mode and never fails a job asynchronously), so
-// both stay absent rather than being fabricated.
+// batchInferenceJobMode IS sourced (CreateBatchInferenceJob validates and
+// defaults it to BATCH_INFERENCE, batch_jobs.go), so it's always real, never
+// empty. failureReason is a real Summary member the backend's
+// BatchInferenceJob model has no source for (never fails a job
+// asynchronously), so it stays absent rather than being fabricated.
 func batchInferenceJobSummaryToMap(job *BatchInferenceJob) map[string]any {
 	return map[string]any{
 		keyBatchInferenceJobArn: job.BatchInferenceJobArn,

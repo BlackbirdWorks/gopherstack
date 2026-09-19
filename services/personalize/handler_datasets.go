@@ -222,13 +222,16 @@ func datasetSummaryToMap(ds *Dataset) map[string]any {
 
 // datasetImportJobSummaryToMap builds the types.DatasetImportJobSummary
 // shape (types.go:952) -- no datasetArn, roleArn, or dataSource. importMode
-// and failureReason are real Summary members, but the backend's
-// DatasetImportJob model has no source for either, so both stay absent
+// IS sourced (CreateDatasetImportJob validates and defaults it to FULL,
+// datasets.go), so it's always real, never empty -- previously omitted
+// despite being tracked. failureReason is a real Summary member the
+// backend's DatasetImportJob model has no source for, so it stays absent
 // rather than being fabricated.
 func datasetImportJobSummaryToMap(job *DatasetImportJob) map[string]any {
 	return map[string]any{
 		keyDatasetImportJobArn: job.DatasetImportJobArn,
 		keyJobName:             job.JobName,
+		"importMode":           job.ImportMode,
 		keyStatus:              job.Status,
 		keyCreationDateTime:    awstime.Epoch(job.CreationDateTime),
 		keyLastUpdatedDateTime: awstime.Epoch(job.LastUpdatedDateTime),

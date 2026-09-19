@@ -18,8 +18,8 @@
 service: personalize
 sdk_module: aws-sdk-go-v2/service/personalize@v1.50.4  # go.mod pins v1.50.4; prior audit passes cited v1.47.11 in this file -- this pass verified every field/citation below against the actually-pinned v1.50.4 module in the Go module cache
 sibling_sdk_modules: [aws-sdk-go-v2/service/personalizeruntime@v1.36.2]  # GetRecommendations/GetPersonalizedRanking; see the Runtime family below
-last_audit_commit: 12cf224d  # this pass (2026-08-13, gopherstack-sm02) fixed all 16 List-op Get-field leaks; commit hash not yet known at edit time
-last_audit_date: 2026-08-13
+last_audit_commit: 3fd671fd6
+last_audit_date: 2026-09-18
 overall: A
 ops:
   CreateDatasetGroup: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'added domain enum validation (ECOMMERCE/VIDEO_ON_DEMAND, or empty for a Custom group) -- an unrecognized value previously succeeded silently'}
@@ -73,7 +73,7 @@ ops:
   ListMetricAttributionMetrics: {wire: fixed, errors: ok, state: fixed, persist: ok, note: 'was a hardcoded fabricated 2-entry list ignoring the actual attribution; now returns the attribution''s real, paginated Metrics'}
   CreateDatasetImportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetImportJob: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members)'}
+  ListDatasetImportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetImportJobSummary via datasetImportJobSummaryToMap -- dropped datasetArn/roleArn/dataSource (3 leaked members). FIXED 2026-09-18 (gopherstack-dv4s): importMode (real Summary member, sourced since gopherstack-xhu2t added CreateDatasetImportJob.ImportMode validation but only wired it through to Describe) was still missing from the List summary -- added.'}
   CreateDatasetExportJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: added FK validation on datasetArn}
   DescribeDatasetExportJob: {wire: ok, errors: ok, state: ok, persist: ok}
   ListDatasetExportJobs: {wire: fixed, errors: ok, state: ok, persist: ok, note: 'gopherstack-sm02: now emits types.DatasetExportJobSummary via datasetExportJobSummaryToMap -- dropped datasetArn/roleArn/jobOutput (3 leaked members)'}
@@ -111,6 +111,20 @@ leaks: {status: clean, note: no goroutines/janitors in this backend; all state i
 ---
 
 ## Notes
+
+- **2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s)**: all 16
+  census-flagged List ops re-verified member by member against the pinned
+  SDK. 15 were already exactly correct (gopherstack-sm02's 2026-08-13 pass
+  had fixed every leak). One real gap found: `ListDatasetImportJobs`'
+  summary was missing `importMode`, a real, always-populated
+  `DatasetImportJobSummary` member (`CreateDatasetImportJob` validates and
+  defaults it to `FULL` -- gopherstack-xhu2t's 2026-09-12 pass wired it
+  through to Describe and did the same for `ListBatchInferenceJobs`'
+  `batchInferenceJobMode`, but missed this List sibling). Fixed; also
+  corrected a stale comment on `batchInferenceJobSummaryToMap` that claimed
+  `batchInferenceJobMode` had "no source" when the code already emitted it
+  correctly. No persistence-schema change. `go build/vet/test -race`,
+  `golangci-lint run ./services/personalize/...` all clean.
 
 - **2026-09-12 (reqfielddiff, gopherstack-xhu2t)**: worked all 13
   tier-1 findings. **4 real fixes**: `CreateBatchInferenceJob.BatchInferenceJobMode`
