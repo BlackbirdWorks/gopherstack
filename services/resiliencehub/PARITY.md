@@ -12,7 +12,7 @@
 # audit body (Sections 1-4 below) is kept as reference material.
 service: resiliencehub
 sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
-last_audit_commit: fa93861fb
+last_audit_commit: 576e42c5c
 last_audit_date: 2026-09-19
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed
 # SDK-driven integration suite (test/integration/resiliencehub_test.go, 9
@@ -651,6 +651,10 @@ confirmed absent, not silently skipped.
 required a `Region` FailurePolicy entry; hashicorp/aws's provider marks `policy.region`
 Optional. Fixed (`requiredDisruptionTypes` = Software/Hardware/AZ only); apply+destroy
 verified against real provider v5.100.0.
+
+**2026-09-19**: `test/integration/resiliencehub_test.go`'s `PolicyValidation`
+table still asserted the pre-3c9c66540 "Region required" behavior. Removed
+that case; Region is genuinely optional (see 2026-09-19 note above).
 
 ## Notes for the implementer
 

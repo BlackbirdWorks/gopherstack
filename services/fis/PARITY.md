@@ -1,7 +1,7 @@
 ---
 service: fis
 sdk_module: aws-sdk-go-v2/service/fis@v1.40.4   # version audited against
-last_audit_commit: 5330e30da
+last_audit_commit: 576e42c5c
 last_audit_date: 2026-09-19
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
@@ -47,6 +47,11 @@ deferred:                 # consciously not audited this pass (scope) — next p
   - Built-in action catalog completeness vs the full real AWS FIS action list (gopherstack ships a curated subset across EC2/RDS/ECS/EKS/DynamoDB/Lambda/SSM/network/CloudWatch/Kinesis + the aws:fis:inject-api-*/wait built-ins; real AWS has more actions per service and evolves this list independently of the API shape)
 leaks: {status: clean, note: 'Restore() cancels in-flight experiment goroutines before replacing state; Shutdown() (service.Shutdowner) cancels all running experiments; janitor sweeps terminal experiments (completed/stopped/failed/cancelled) past TTL under the coarse lock with a pre-snapshotted slice so Delete-while-iterating is safe. No new goroutines/tickers were introduced for report generation — it is computed synchronously inside the same locked critical section that already finalizes the experiment''s terminal status (cleanupActions / markExperimentFailed), so there is nothing new to leak or drain on Shutdown.'}
 ---
+
+## Notes (2026-09-19 — integration flake fix)
+
+`TestIntegration_FIS_KinesisThroughputException`'s Kinesis stream name used
+`t.Name()`, identical across `-count=3` reps; switched to a `uuid.NewString()[:8]` suffix.
 
 ## Notes (2026-09-19 — gopherstack-0y8bi)
 

@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	kinesissdk "github.com/aws/aws-sdk-go-v2/service/kinesis"
 	kinesistypes "github.com/aws/aws-sdk-go-v2/service/kinesis/types"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -496,7 +497,7 @@ func TestIntegration_FIS_KinesisThroughputException(t *testing.T) {
 
 	ctx := t.Context()
 	kinesisClient := createKinesisClient(t)
-	streamName := "fis-test-stream-" + t.Name()
+	streamName := "fis-test-stream-" + uuid.NewString()[:8]
 
 	// Create a Kinesis stream for use as a target.
 	_, err := kinesisClient.CreateStream(ctx, &kinesissdk.CreateStreamInput{
