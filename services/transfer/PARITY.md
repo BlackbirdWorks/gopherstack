@@ -6,8 +6,11 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
-last_audit_commit: f66686eee
-last_audit_date: 2026-09-18                          # reqfielddiff tier-1 request-field audit: 5 tier-1
+last_audit_commit: 6c5c49416
+last_audit_date: 2026-09-19                          # requiredoutputfields census: all 69 required output
+                                                       # members across 51 ops checked, all always populated
+                                                       # on the success path; see 2026-09-19 Notes entry.
+                                                       # 2026-09-18: reqfielddiff tier-1 request-field audit: 5 tier-1
                                                        # findings, all real (CreateAgreement/UpdateAgreement x
                                                        # EnforceMessageSigning+PreserveFilename,
                                                        # UpdateServer.IdentityProviderType), all fixed and
@@ -69,6 +72,16 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-r80d): requiredoutputfields census, 0 findings
+
+Read the success-path wire construction for all 51 ops with >=1 required output
+member (69 members total, per `cmd/requiredoutputfields`): Access/Agreement/
+Connector/Profile/Server/User/WebApp/Workflow/Certificate/HostKey/SSHKey/
+SecurityPolicy families plus Start*/TestIdentityProvider/ListFileTransferResults.
+Every required member is always present on success (identifiers echoed from
+created/looked-up state, list members always non-nil slices, error paths return
+before the response is built). No fixes needed.
 
 ### 2026-09-18 zeroguard census: omitted-member blanking on 6 ops (12 fields)
 
