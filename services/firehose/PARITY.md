@@ -4,8 +4,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: firehose
 sdk_module: aws-sdk-go-v2/service/firehose@v1.46.4
-last_audit_commit: f51fca6ec
-last_audit_date: 2026-09-18
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # all 10 real SDK destination-configuration types now implemented; remaining gaps are documented data-movement-mechanics simplifications, not wire-shape bugs.
                       # 2026-09-06 pass (bd gopherstack-pe7x): fixed the CloudWatchLoggingOptions
                       # gap disclosed by the 2026-09-04 pass below -- delivery failures now actually
@@ -705,3 +705,11 @@ first correctly-shaped request, consistent with this service's prior
 Gates: `go build ./...` (whole module), `go vet`, `go test -race -count=1`,
 `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean. No persisted
 struct fields changed; no version bump.
+
+## 2026-09-19: goroutine-leak fix, Kinesis source poller (gopherstack parity-sweep)
+
+`kinesis_source_test.go`'s shared `newFirehoseBackend` helper never stopped
+the per-shard Kinesis source poller goroutines (`pollKinesisStream`/
+`pollKinesisShard`), leaking them across the package's test run. Added
+`t.Cleanup(b.Reset)` (Reset already cancels all pollers); added
+`leak_main_test.go` (goleak TestMain), now clean.

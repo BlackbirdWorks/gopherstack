@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
-last_audit_commit: b1905140e                      # gopherstack-xhu2t reqfielddiff tier-1 sweep
-last_audit_date: 2026-09-18
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -653,3 +653,11 @@ the new typed-client tests), `golangci-lint run --new-from-rev=HEAD
 ./services/lakeformation/...` (0 issues). `cmd/paritylint` stays at 0
 FAIL (missing-items-still-open). Typed-client census: lakeformation 27/61 ->
 61/61 (100%).
+
+## 2026-09-19: goroutine-leak fix, provider_test.go (gopherstack parity-sweep)
+
+`provider_test.go` called `Provider.Init` with `&service.AppContext{}` (nil
+`JanitorCtx`), so `StartJanitor`'s fallback to `context.Background()` never
+cancelled — two tests each leaked a 5-minute-tick janitor goroutine for the
+rest of the process. Fixed by passing `t.Context()`; added
+`leak_main_test.go` (goleak TestMain), now clean.

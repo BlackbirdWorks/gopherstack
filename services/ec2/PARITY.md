@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: b53536e7a  # IPAM internet-registry/routing-policy de-stub (17 SDK-bump ops)
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -5844,3 +5844,7 @@ recorded to `items_still_open` (5 promoted from 2026-08-31 dated-Notes-only
 reasoning per gopherstack-anjf, 6 genuinely new). Gates all clean; 0
 `golangci-lint --new-from-rev=HEAD` issues; `snapshot_inventory.json` gained
 2 `FlowLog` rows by hand.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found under `-race`.

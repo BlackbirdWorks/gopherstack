@@ -7,8 +7,8 @@
 service: redshift
 sdk_module: aws-sdk-go-v2/service/redshift@v1.65.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/redshiftserverless@v1.38.5]  # pinned in go.mod 2026-08-13, bd gopherstack-0w2p; see "Redshift Serverless" family row
-last_audit_commit: 0fe7aaf4d
-last_audit_date: 2026-08-08
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # RESTORED FROM A- (2026-07-25 follow-up pass, bd gopherstack-0eyk): the
                        # Create/ModifyRedshiftIdcApplicationResult missing-inner-<RedshiftIdcApplication>
                        # -wrapper bug that caused the prior A- downgrade is now fixed (see
@@ -2287,3 +2287,7 @@ Gates: `go build ./...` clean, `go vet ./services/redshift/...` clean, `go
 test -race -count=1 ./services/redshift/...` and `./pkgs/persistence/...`
 pass, `golangci-lint run --new-from-rev=HEAD ./services/redshift/...` 0
 issues, `go run ./cmd/paritylint` 0 FAIL.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.

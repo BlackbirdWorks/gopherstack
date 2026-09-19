@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.49.0   # version audited against
-last_audit_commit: a5efc2c05
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-08-29 pass (gopherstack-6flj/21my dropped-filter/wrapper-key class,
@@ -1074,3 +1074,8 @@ ListCertificateDomainValidations entirely unimplemented and implemented it
 against existing DomainValidationOptions data. See ops notes and
 list_summary_shapes_test.go. Gates: `go build`/`go vet`/`go test -race`
 clean, `golangci-lint run` 0 issues, `go test ./pkgs/persistence/...` clean.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). Auto-validation `time.AfterFunc`
+timers are all tracked and no leak was found under `-race`.

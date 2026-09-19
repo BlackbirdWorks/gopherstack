@@ -1,7 +1,7 @@
 ---
 service: kinesis
 sdk_module: aws-sdk-go-v2/service/kinesis@v1.53.0
-last_audit_commit: 4790cca58
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A            # this pass (gopherstack-nbg8): the 2026-07-23 audit's "wire: ok" claim was false for DescribeAccountSettings/UpdateAccountSettings/UpdateMaxRecordSize/UpdateStreamWarmThroughput -- all four decoded wholly fabricated request/response shapes with no basis in the real SDK. Rebuilt all four around their real Input/Output shapes (MinimumThroughputBillingCommitmentInput/Output; MaxRecordSizeInKiB, not Bytes; WarmThroughputMiBps + the previously-unmodeled WarmThroughput Output object). Also found and fixed, while reading the whole operation rather than just the flagged field: DescribeLimits was silently dropping two of its four *required* output members (OnDemandStreamCount/OnDemandStreamCountLimit) -- also marked "wire: ok" -- and UpdateMaxRecordSize's Input had a StreamName field with no basis in the real shape (only StreamARN exists). This is the second and third time this service's manifest has positively claimed verification that was false (see gopherstack-3jqz for the first). Only remaining gap is KMSAccessDeniedException, honestly undeliverable without an IAM policy engine. gopherstack-r80d (required-OUTPUT-member sweep): re-extracted every "This member is required." field from every *Output struct across all 39 ops in the pinned SDK (17 required fields across 11 ops) and cross-checked each against the handler's success path. DescribeLimits (above) was the only miss, already fixed; the other 10 ops (DescribeStream, DescribeStreamConsumer, DescribeStreamSummary, GetRecords, GetResourcePolicy, ListStreams, ListTagsForStream, PutRecord, PutRecords, RegisterStreamConsumer) all populate their required members correctly. Service is settled for this bug class.
 ops:
@@ -1014,7 +1014,7 @@ alone would have hidden. No `time.Sleep` anywhere in the new/changed tests;
 `go test -race -count=10 -run 'SubscribeToShard' ./services/kinesis/...`
 passed clean.
 
-Tests added/changed: `retention_iterator_test.go` (new -- 
+Tests added/changed: `retention_iterator_test.go` (new --
 `TestGetShardIterator_HonoursRetentionWindow` table-driven over
 TRIM_HORIZON/AT_TIMESTAMP, `TestGetShardIterator_
 RetentionDecreaseAppliesBeforeJanitorSweep`, `TestSubscribeToShard_
@@ -1054,3 +1054,9 @@ issues, 0 new nolints -- one `gocognit` finding on
 `handleSubscribeToShardHTTP` resolved by decomposition, one `mnd` finding
 resolved with a named constant, all formatting findings resolved by
 gofmt/goimports/golines) all green.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). `runChannelFlusher` and the
+SubscribeToShard poll ticker already correctly stop on ctx cancellation
+(wired to the janitor lifecycle context); no leak found.

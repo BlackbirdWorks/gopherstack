@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: textract
 sdk_module: aws-sdk-go-v2/service/textract@v1.43.4   # bumped from v1.41.0 pin; AdaptersConfig/HumanLoopConfig field-diffed this pass
-last_audit_commit: a8a59e4273e                        # HEAD as of the 2026-08-20 pass; see provenance note below
-last_audit_date: 2026-08-20
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-20: wrapper-key/nested-shape sweep. Two real pattern-(a) fixes
                       # (AnalyzeIDDetections.Geometry fabricated field removed; Extraction.IdentityDocument
                       # missing field added), both latent/never-emitted in current mock data -- see the
@@ -457,3 +457,7 @@ default 200ms delay would otherwise leave a freshly started job
 IN_PROGRESS at Get time, a setup mistake in this pass, not a product bug).
 Zero bugs -- confirms the `ops:` table's existing verdicts, all previously
 backed by raw-body/unit tests but never a full typed-client round trip.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.

@@ -2,7 +2,7 @@
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
-last_audit_commit: a8b26ceaa
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
@@ -1031,3 +1031,9 @@ weakened. Gates: `go build ./...` (whole module), `go vet`, `go test -race
 -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all clean.
 `go run ./cmd/paritylint` stays at 0 FAIL. No persisted struct fields
 changed (a string field's value, not its shape); no version bump.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). Scheduler/archive-janitor
+goroutines are derived from a cancellable `workerCtx` stored for `Shutdown`;
+no leak found.

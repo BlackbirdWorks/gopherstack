@@ -1,8 +1,8 @@
 ---
 service: kinesisanalytics
 sdk_module: aws-sdk-go-v2/service/kinesisanalytics@v1.33.4
-last_audit_commit: 17458c2f
-last_audit_date: 2026-08-20
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A            # real fixes found: deleted three gopherstack-invented surfaces
                        # (ServiceExecutionRole/RuntimeEnvironment fields, five non-real
                        # ApplicationStatus constants, InputUpdate.InputStartingPositionConfiguration),
@@ -485,3 +485,7 @@ next `CurrentApplicationVersionId`, plus a standalone DiscoverInputSchema
 subtest using the existing `fakeKinesisReader` test double. Zero bugs --
 confirms the `ops:`/`families:` entries above, which already carried
 detailed per-field wire verification from prior sweeps.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.

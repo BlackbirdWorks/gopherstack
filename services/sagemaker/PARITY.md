@@ -1,7 +1,7 @@
 service: sagemaker
 sdk_module: aws-sdk-go-v2/service/sagemaker@v1.263.2   # version audited against (parity-5)
-last_audit_commit: 841743e85                            # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_commit: 49cff86c4  # HEAD when this manifest was written
+last_audit_date: 2026-09-19
                        # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, EC2/SageMaker
                        # output-side batch): EC2 (ec2query) fully scanned per-op (flat + nested
                        # required-member candidates against api_op_*.go/types.go,
@@ -6842,3 +6842,7 @@ No code changes this pass (all four real fields already correct or already
 consciously out of scope). Gates unaffected: `go build ./...` clean; `go
 vet ./services/sagemaker/...` clean; `go test -race -count=1 -p 2
 ./services/sagemaker/...` `ok`; `go run ./cmd/paritylint` 0 FAIL.
+
+## 2026-09-19: goroutine-leak audit (gopherstack parity-sweep)
+
+Added `leak_main_test.go` (goleak TestMain). No leak found.
