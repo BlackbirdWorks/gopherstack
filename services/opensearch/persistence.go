@@ -64,6 +64,13 @@ import (
 // erroring, same as every other table-addition case above) -- an accepted,
 // one-time restore-time loss for this internal-only, deliberately-disclosed
 // data-plane feature, not a wire-shape regression for any real client.
+// Also left at 4 despite this pass (2026-09-19) registering two new "clean"
+// tables (slIndexes, slVpcEndpoints -- the AOSS Index and native VPC-endpoint
+// families) and adding one new scalar counter (SlVpcEndpointCounter): purely
+// additive by the same reasoning as the tier-1 pass above -- an older
+// snapshot simply has no entry for either table (RestoreAll resets them
+// empty) or the new counter key (decodes as its zero value, matching a
+// backend that never created one).
 const opensearchSnapshotVersion = 4
 
 // dryRunSnapshot, dataSourceSnapshot, and domainIndexSnapshot are DTOs used
@@ -392,6 +399,7 @@ type backendSnapshot struct {
 	SlCollCounter         int                              `json:"slCollCounter"`
 	SlSecConfigCounter    int                              `json:"slSecConfigCounter"`
 	SlCollGroupCounter    int                              `json:"slCollGroupCounter"`
+	SlVpcEndpointCounter  int                              `json:"slVpcEndpointCounter"`
 	WorkspaceCounter      int                              `json:"workspaceCounter"`
 	Version               int                              `json:"version"`
 }
@@ -496,6 +504,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		SlCollCounter:         b.slCollCounter,
 		SlSecConfigCounter:    b.slSecConfigCounter,
 		SlCollGroupCounter:    b.slCollGroupCounter,
+		SlVpcEndpointCounter:  b.slVpcEndpointCounter,
 		WorkspaceCounter:      b.workspaceCounter,
 	}
 
@@ -579,6 +588,7 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.slCollCounter = snap.SlCollCounter
 	b.slSecConfigCounter = snap.SlSecConfigCounter
 	b.slCollGroupCounter = snap.SlCollGroupCounter
+	b.slVpcEndpointCounter = snap.SlVpcEndpointCounter
 	b.workspaceCounter = snap.WorkspaceCounter
 
 	fixNilDomainTags(b)

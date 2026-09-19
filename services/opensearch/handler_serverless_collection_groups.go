@@ -30,16 +30,18 @@ func float64PtrJR(raw any) *float64 {
 
 // collectionGroupSummaryJR mirrors types.CollectionGroupSummary
 // (types.go:295-320): arn, capacityLimits, createdDate, generation, id, name,
-// numberOfCollections.
-func collectionGroupSummaryJR(cg *ServerlessCollectionGroup) map[string]any {
+// numberOfCollections. numberOfCollections is the real, live count of
+// collections whose CollectionGroupName matches this group (see
+// CountServerlessCollectionsInGroup), not a fabricated constant.
+func collectionGroupSummaryJR(cg *ServerlessCollectionGroup, numberOfCollections int) map[string]any {
 	return map[string]any{
-		"arn":                   cg.Arn,
+		jsonKeyAppArn:           cg.Arn,
 		"id":                    cg.ID,
 		jsonKeyAppName:          cg.Name,
 		jsonKeyCreatedDateJR:    cg.CreatedDate,
 		"generation":            cg.Generation,
 		jsonKeyCapacityLimitsJR: cg.CapacityLimits,
-		"numberOfCollections":   serverlessCollectionGroupMemberCount,
+		"numberOfCollections":   numberOfCollections,
 	}
 }
 
@@ -47,8 +49,8 @@ func collectionGroupSummaryJR(cg *ServerlessCollectionGroup) map[string]any {
 // (types.go:234-273): everything collectionGroupSummaryJR has, plus
 // description, standbyReplicas and tags. currentCapacity is omitted -- no
 // live autoscaling loop exists to report one.
-func collectionGroupDetailJR(cg *ServerlessCollectionGroup) map[string]any {
-	m := collectionGroupSummaryJR(cg)
+func collectionGroupDetailJR(cg *ServerlessCollectionGroup, numberOfCollections int) map[string]any {
+	m := collectionGroupSummaryJR(cg, numberOfCollections)
 	m["standbyReplicas"] = cg.StandbyReplicas
 
 	if cg.Description != "" {
@@ -66,7 +68,7 @@ func collectionGroupDetailJR(cg *ServerlessCollectionGroup) map[string]any {
 // (types.go:395-425): same fields as collectionGroupDetailJR minus
 // numberOfCollections (a group has none the instant it's created).
 func createCollectionGroupDetailJR(cg *ServerlessCollectionGroup) map[string]any {
-	m := collectionGroupDetailJR(cg)
+	m := collectionGroupDetailJR(cg, 0)
 	delete(m, "numberOfCollections")
 
 	return m
@@ -78,7 +80,7 @@ func createCollectionGroupDetailJR(cg *ServerlessCollectionGroup) map[string]any
 // numberOfCollections.
 func updateCollectionGroupDetailJR(cg *ServerlessCollectionGroup) map[string]any {
 	m := map[string]any{
-		"arn":                     cg.Arn,
+		jsonKeyAppArn:             cg.Arn,
 		"id":                      cg.ID,
 		jsonKeyAppName:            cg.Name,
 		jsonKeyCreatedDateJR:      cg.CreatedDate,
@@ -138,7 +140,8 @@ func (h *Handler) jrListCollectionGroups(_ map[string]any) (map[string]any, erro
 	summaries := make([]map[string]any, 0, len(groups))
 
 	for _, cg := range groups {
-		summaries = append(summaries, collectionGroupSummaryJR(cg))
+		count := h.Backend.CountServerlessCollectionsInGroup(cg.Name)
+		summaries = append(summaries, collectionGroupSummaryJR(cg, count))
 	}
 
 	return map[string]any{"collectionGroupSummaries": summaries}, nil
@@ -152,7 +155,8 @@ func (h *Handler) jrBatchGetCollectionGroup(input map[string]any) (map[string]an
 
 	details := make([]map[string]any, 0, len(found))
 	for _, cg := range found {
-		details = append(details, collectionGroupDetailJR(cg))
+		count := h.Backend.CountServerlessCollectionsInGroup(cg.Name)
+		details = append(details, collectionGroupDetailJR(cg, count))
 	}
 
 	errDetails := make([]map[string]any, 0, len(errs))

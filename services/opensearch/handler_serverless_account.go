@@ -70,12 +70,12 @@ func (h *Handler) jrGetPoliciesStats(_ map[string]any) (map[string]any, error) {
 	}, nil
 }
 
-// vpcEndpointDetailJR mirrors types.VpcEndpointDetail (types.go:1038-1070),
-// resolved from the classic-domain VpcEndpoint store (vpc_endpoints.go).
-// name/createdDate/failureCode/failureMessage aren't tracked on the classic
-// VpcEndpoint model and are simply omitted -- all four are optional on the
-// real type.
-func vpcEndpointDetailJR(ep *VpcEndpoint) map[string]any {
+// classicVpcEndpointDetailJR mirrors types.VpcEndpointDetail
+// (types.go:1038-1070), resolved from the classic-domain VpcEndpoint store
+// (vpc_endpoints.go). name/createdDate/failureCode/failureMessage aren't
+// tracked on the classic VpcEndpoint model and are simply omitted -- all
+// four are optional on the real type.
+func classicVpcEndpointDetailJR(ep *VpcEndpoint) map[string]any {
 	m := map[string]any{
 		"id":               ep.VpcEndpointID,
 		jsonKeyStatusLower: ep.Status,
@@ -96,6 +96,50 @@ func vpcEndpointDetailJR(ep *VpcEndpoint) map[string]any {
 	return m
 }
 
+// nativeVpcEndpointDetailJR mirrors types.VpcEndpointDetail resolved from
+// the AOSS-native store (serverless_vpc_endpoints.go), which -- unlike the
+// classic store -- tracks name and createdDate.
+func nativeVpcEndpointDetailJR(ep *ServerlessVpcEndpoint) map[string]any {
+	m := map[string]any{
+		"id":                 ep.ID,
+		jsonKeyAppName:       ep.Name,
+		jsonKeyStatusLower:   ep.Status,
+		jsonKeyCreatedDateJR: ep.CreatedDate,
+	}
+
+	if len(ep.SubnetIDs) > 0 {
+		m["subnetIds"] = ep.SubnetIDs
+	}
+
+	if len(ep.SecurityGroupIDs) > 0 {
+		m["securityGroupIds"] = ep.SecurityGroupIDs
+	}
+
+	if ep.VpcID != "" {
+		m["vpcId"] = ep.VpcID
+	}
+
+	if ep.FailureCode != "" {
+		m["failureCode"] = ep.FailureCode
+	}
+
+	if ep.FailureMessage != "" {
+		m["failureMessage"] = ep.FailureMessage
+	}
+
+	return m
+}
+
+// mergedVpcEndpointDetailJR dispatches to whichever store resolved the ID
+// (see serverlessVpcEndpointResult's doc comment).
+func mergedVpcEndpointDetailJR(r serverlessVpcEndpointResult) map[string]any {
+	if r.Native != nil {
+		return nativeVpcEndpointDetailJR(r.Native)
+	}
+
+	return classicVpcEndpointDetailJR(r.Classic)
+}
+
 func (h *Handler) jrBatchGetVpcEndpoint(input map[string]any) (map[string]any, error) {
 	ids := strSliceJR(input, "ids")
 	if len(ids) == 0 {
@@ -105,8 +149,8 @@ func (h *Handler) jrBatchGetVpcEndpoint(input map[string]any) (map[string]any, e
 	found, errs := h.Backend.BatchGetServerlessVpcEndpoints(ids)
 
 	details := make([]map[string]any, 0, len(found))
-	for _, ep := range found {
-		details = append(details, vpcEndpointDetailJR(ep))
+	for _, r := range found {
+		details = append(details, mergedVpcEndpointDetailJR(r))
 	}
 
 	errDetails := make([]map[string]any, 0, len(errs))

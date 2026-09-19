@@ -21,19 +21,20 @@ const (
 
 // ServerlessCollection represents an OpenSearch Serverless collection.
 type ServerlessCollection struct {
-	StatusUntil        time.Time         `json:"statusUntil,omitzero"`
-	Tags               map[string]string `json:"tags,omitempty"`
-	KmsKeyArn          string            `json:"kmsKeyArn,omitempty"`
-	DashboardEndpoint  string            `json:"dashboardEndpoint,omitempty"`
-	Description        string            `json:"description,omitempty"`
-	ID                 string            `json:"id"`
-	CollectionEndpoint string            `json:"collectionEndpoint,omitempty"`
-	Name               string            `json:"name"`
-	Status             string            `json:"status"`
-	Type               string            `json:"type"`
-	Arn                string            `json:"arn"`
-	CreatedDate        float64           `json:"createdDate"`
-	LastModifiedDate   float64           `json:"lastModifiedDate"`
+	StatusUntil         time.Time         `json:"statusUntil,omitzero"`
+	Tags                map[string]string `json:"tags,omitempty"`
+	KmsKeyArn           string            `json:"kmsKeyArn,omitempty"`
+	DashboardEndpoint   string            `json:"dashboardEndpoint,omitempty"`
+	Description         string            `json:"description,omitempty"`
+	ID                  string            `json:"id"`
+	CollectionEndpoint  string            `json:"collectionEndpoint,omitempty"`
+	Name                string            `json:"name"`
+	Status              string            `json:"status"`
+	Type                string            `json:"type"`
+	Arn                 string            `json:"arn"`
+	CollectionGroupName string            `json:"collectionGroupName,omitempty"`
+	CreatedDate         float64           `json:"createdDate"`
+	LastModifiedDate    float64           `json:"lastModifiedDate"`
 }
 
 // wireServerlessCollection is ServerlessCollection's wire twin for every AOSS
@@ -144,8 +145,12 @@ func serverlessNetworkPolicyKey(policyType, name string) string {
 }
 
 // CreateServerlessCollection creates a new OpenSearch Serverless collection.
+// collectionGroupName is CreateCollectionInput's own field (api_op_CreateCollection.go)
+// -- UpdateCollectionInput has no such member in the pinned SDK, so group
+// membership is assigned once, here, and is immutable via UpdateCollection
+// (see UpdateServerlessCollection).
 func (b *InMemoryBackend) CreateServerlessCollection(
-	name, collectionType, description, kmsKeyArn string,
+	name, collectionType, description, kmsKeyArn, collectionGroupName string,
 	tagMap map[string]string,
 ) (*ServerlessCollection, error) {
 	if name == "" {
@@ -154,6 +159,20 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 
 	b.mu.Lock("CreateServerlessCollection")
 	defer b.mu.Unlock()
+
+	if collectionGroupName != "" {
+		if _, ok := b.serverlessCollectionGroupByNameLocked(collectionGroupName); !ok {
+			// CreateCollection's declared exceptions (deserializers.go
+			// awsAwsjson10_deserializeOpErrorCreateCollection) are
+			// ConflictException/InternalServerException/OcuLimitExceededException/
+			// ServiceQuotaExceededException/ValidationException -- no
+			// ResourceNotFoundException -- so an unresolvable group name surfaces
+			// as ValidationException.
+			return nil, fmt.Errorf(
+				"%w: collection group %s not found", ErrInvalidParameter, collectionGroupName,
+			)
+		}
+	}
 
 	b.slCollCounter++
 	id := fmt.Sprintf("sl-%d", b.slCollCounter)
@@ -170,18 +189,19 @@ func (b *InMemoryBackend) CreateServerlessCollection(
 	}
 
 	coll := &ServerlessCollection{
-		ID:                 id,
-		Name:               name,
-		Arn:                collARN,
-		Status:             slCollectionStatusActive,
-		Type:               collectionType,
-		Description:        description,
-		KmsKeyArn:          kmsKeyArn,
-		CollectionEndpoint: collEndpoint,
-		DashboardEndpoint:  dashEndpoint,
-		CreatedDate:        now,
-		LastModifiedDate:   now,
-		Tags:               tagMap,
+		ID:                  id,
+		Name:                name,
+		Arn:                 collARN,
+		Status:              slCollectionStatusActive,
+		Type:                collectionType,
+		Description:         description,
+		KmsKeyArn:           kmsKeyArn,
+		CollectionGroupName: collectionGroupName,
+		CollectionEndpoint:  collEndpoint,
+		DashboardEndpoint:   dashEndpoint,
+		CreatedDate:         now,
+		LastModifiedDate:    now,
+		Tags:                tagMap,
 	}
 
 	// Real CREATING → ACTIVE transition. With no configured delay this settles
@@ -300,6 +320,57 @@ func (b *InMemoryBackend) DeleteServerlessCollection(id string) (*ServerlessColl
 	}
 
 	return nil, fmt.Errorf("%w: serverless collection %s not found", ErrDomainNotFound, id)
+}
+
+// serverlessCollectionByIDLocked finds a collection by ID (collections are
+// keyed by name in slCollections, so this is a scan). Caller must hold at
+// least a read lock.
+func (b *InMemoryBackend) serverlessCollectionByIDLocked(id string) (*ServerlessCollection, bool) {
+	for _, c := range b.slCollections.All() {
+		if c.ID == id {
+			return c, true
+		}
+	}
+
+	return nil, false
+}
+
+// UpdateServerlessCollection updates a collection's description. Real
+// UpdateCollectionInput (api_op_UpdateCollection.go) also carries
+// DeletionProtection and VectorOptions -- neither is modeled elsewhere on
+// ServerlessCollection (CreateCollection doesn't accept them either), so
+// they're accepted-and-ignored the same way ClientToken already is on every
+// other serverless mutation, rather than half-modeled here alone.
+func (b *InMemoryBackend) UpdateServerlessCollection(id, description string) (*ServerlessCollection, error) {
+	if id == "" {
+		return nil, fmt.Errorf("%w: Id is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("UpdateServerlessCollection")
+	defer b.mu.Unlock()
+
+	b.purgeExpiredCollectionsLocked()
+
+	c, ok := b.serverlessCollectionByIDLocked(id)
+	if !ok {
+		// UpdateCollection's declared exceptions (deserializers.go
+		// awsAwsjson10_deserializeOpErrorUpdateCollection) are ConflictException/
+		// InternalServerException/ValidationException only -- no
+		// ResourceNotFoundException -- so an unknown Id surfaces as
+		// ValidationException, not a 404.
+		return nil, fmt.Errorf("%w: collection %s not found", ErrInvalidParameter, id)
+	}
+
+	if description != "" {
+		c.Description = description
+	}
+
+	c.LastModifiedDate = float64(time.Now().Unix())
+
+	cp := *c
+	resolveCollectionStatus(&cp, b.clock())
+
+	return &cp, nil
 }
 
 // CreateServerlessAccessPolicy creates a new access policy.

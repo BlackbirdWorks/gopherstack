@@ -2,7 +2,7 @@
 service: opensearch
 sdk_module: aws-sdk-go-v2/service/opensearch@v1.75.4
 sibling_sdk_modules: [aws-sdk-go-v2/service/opensearchserverless@v1.34.4]  # AOSS ops this Handler also implements (serverlessOperations()); see families.serverless
-last_audit_commit: d57fe462e  # parity sweep: opensearchserverless lifecycle policies/collection groups/account settings
+last_audit_commit: 0fea9ecf1  # parity sweep: opensearchserverless Index/VpcEndpoint/UpdateCollection -- notImplemented now empty
 last_audit_date: 2026-09-19  # gopherstack-dv4s: over-wide-response List census.
                               # 5 tier-1 findings: 4 real gaps fixed (CreateApplication.KmsKeyArn,
                               # CreateDomain.AdvancedOptions, UpdateDomainConfig.AdvancedOptions,
@@ -274,8 +274,42 @@ families:
       on GetDirectQueryDataSource only (GetDirectQueryDataSourceOutput has this member;
       ListDirectQueryDataSources' plain types.DirectQueryDataSource does not).
   serverless:
-    status: deferred
+    status: ok
     note: >
+      UPDATE (2026-09-19, finish-the-surface pass): implemented the 9 ops left on
+      sdk_completeness_test.go's notImplemented list by the prior same-day pass --
+      it is now empty; no opensearchserverless.Client operation remains unimplemented.
+      CreateIndex/GetIndex/UpdateIndex/DeleteIndex (collection-scoped document-plane
+      index CRUD: id+indexName+indexSchema, schema validated as a JSON object and
+      stored verbatim, own ServerlessIndex store -- a distinct resource from the
+      classic-domain DomainIndex family, which already existed and is unaffected).
+      CreateVpcEndpoint/ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint: AOSS
+      got its own ServerlessVpcEndpoint store (serverless_vpc_endpoints.go) rather
+      than overloading the classic-domain VpcEndpoint store, which lacks the
+      Name/CreatedDate fields the real VpcEndpointDetail requires; BatchGetVpcEndpoint
+      now reads the AOSS-native store first, falling back to the classic-domain one
+      for backward compatibility. UpdateCollection updates a collection's real fields
+      (Description; DeletionProtection/VectorOptions are accepted-but-unmodeled, same
+      posture as ClientToken elsewhere). Collection-group membership is assigned via
+      CreateCollectionInput.CollectionGroupName (verified against the pinned SDK --
+      UpdateCollectionInput has NO such member, correcting the prior pass's
+      speculation that it would; membership is immutable once set) and validated
+      against a real existing group (ValidationException otherwise, since
+      CreateCollection's declared exception set has no ResourceNotFoundException);
+      CollectionGroupSummary/Detail's numberOfCollections is now a live count
+      (CountServerlessCollectionsInGroup) instead of the previous pass's honest-but-
+      static 0. CreateIndex/CreateCollection/CreateVpcEndpoint conflicts and
+      not-founds are mapped per each op's own declared exception set from
+      deserializers.go (UpdateVpcEndpoint/UpdateCollection notably declare no
+      ResourceNotFoundException at all -- an unknown Id surfaces as ValidationException
+      on both, not a 404). Eight of the nine ops (everything except UpdateCollection)
+      share their exact name with a real, already-implemented classic opensearch.Client
+      operation; see sdk_completeness_test.go's dualSurfaceOps for how both clients'
+      completeness checks account for the same advertised name. Proven via
+      handler_serverless_finish_test.go's real-SDK-client round-trip tests. Full
+      field-level audit of the pre-existing Collection/AccessPolicy/SecurityConfig/
+      SecurityPolicy families (predating this pass) is still not done -- see the
+      un-updated notes below.
       UPDATE (2026-09-19, parity sweep gopherstack-92ft-adjacent): implemented and
       SDK-field-diffed 5 previously-unadvertised op families -- lifecycle (retention)
       policies (Create/Update/Delete/List/BatchGet/BatchGetEffective, real
@@ -288,14 +322,10 @@ families:
       models one VPC-endpoint resource, not two). 15 ops moved off
       sdk_completeness_test.go's notImplemented list (see handler_serverless_lifecycle.go,
       handler_serverless_collection_groups.go, handler_serverless_account.go,
-      handler_serverless_new_ops_test.go's real-SDK-client round-trip tests). Still
-      unimplemented: the Index family (Create/Get/Update/DeleteIndex -- OpenSearch
-      document-plane, not control-plane CRUD like the rest of this surface),
-      Create/List/Update/DeleteVpcEndpoint, and UpdateCollection (moving a collection
-      into a collection group -- no collection can join a group yet, so
-      NumberOfCollections is honestly always 0). Full field-level audit of the
-      pre-existing Collection/AccessPolicy/SecurityConfig/SecurityPolicy families
-      (predating this pass) is still not done -- see the un-updated notes below.
+      handler_serverless_new_ops_test.go's real-SDK-client round-trip tests). Full
+      field-level audit of the pre-existing Collection/AccessPolicy/SecurityConfig/
+      SecurityPolicy families (predating this pass) is still not done -- see the
+      un-updated notes below.
       UPDATE (2026-08-23, manifest-harvest pass): started the field-level audit. One real bug
       found and fixed (DeleteCollection not-found mapped to 500 InternalServerException instead
       of the real 404 ResourceNotFoundException -- serverlessErrorTable was missing the
@@ -449,12 +479,19 @@ families:
 gaps: []
 items_still_open:
   - "ListMigrations' MigrationSummary.Error member (real, deserializers.go) is never emitted: this backend's migration state machine (migrations.go) only ever transitions PENDING->IN_PROGRESS->SUCCEEDED, so there is no failure state to source Error from. Correct-by-absence, not fabricated; would need a real migration-failure trigger to wire up (gopherstack-dv4s, 2026-09-19)."
-deferred:
-  - serverless
+  - "UpdateCollectionInput's DeletionProtection and VectorOptions (real fields, api_op_UpdateCollection.go) are accepted but unmodeled -- ServerlessCollection tracks neither (CreateCollection doesn't set them either), so UpdateCollection only applies Description. Would need both fields added to ServerlessCollection and CreateCollection's parsing extended first (2026-09-19)."
+deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; coarse lockmetrics.RWMutex per backend, no per-map locks introduced. This pass's DeleteDomain connection-cascade iterates Table.All() (a fresh snapshot slice per the existing convention) while deleting, same safe pattern as the pre-existing package/index/data-source cascades. New this pass: DeleteApplication now cascades data source attachments, capabilities, and migration jobs using the identical clone-then-delete pattern (Table.All()/Index.Get results are fresh/cloned slices, safe to range over while deleting)."}
 ---
 
 ## Notes
+
+### 2026-09-19: opensearchserverless Index/VpcEndpoint/UpdateCollection -- notImplemented empty
+
+Finished the last 9 ops: Index CRUD (own ServerlessIndex store), native
+VpcEndpoint CRUD (own ServerlessVpcEndpoint store, BatchGetVpcEndpoint prefers
+it over classic), UpdateCollection + live collection-group member counts.
+sdk_completeness_test.go's notImplemented is now empty for opensearchserverless.
 
 ### 2026-09-19: opensearchserverless lifecycle policies, collection groups, account settings
 

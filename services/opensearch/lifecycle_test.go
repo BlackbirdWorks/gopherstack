@@ -233,7 +233,7 @@ func TestServerlessCollectionCreatingWindow(t *testing.T) {
 		t.Parallel()
 
 		b := newLifecycleBackend(t)
-		coll, err := b.CreateServerlessCollection("c1", "SEARCH", "", "", nil)
+		coll, err := b.CreateServerlessCollection("c1", "SEARCH", "", "", "", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "CREATING", coll.Status)
 
@@ -251,7 +251,7 @@ func TestServerlessCollectionCreatingWindow(t *testing.T) {
 		t.Parallel()
 
 		b := opensearch.NewInMemoryBackend(testAccountID, testRegion)
-		coll, err := b.CreateServerlessCollection("c2", "SEARCH", "", "", nil)
+		coll, err := b.CreateServerlessCollection("c2", "SEARCH", "", "", "", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "ACTIVE", coll.Status)
 	})
@@ -260,7 +260,7 @@ func TestServerlessCollectionCreatingWindow(t *testing.T) {
 		t.Parallel()
 
 		b := newLifecycleBackend(t)
-		coll, err := b.CreateServerlessCollection("c3", "SEARCH", "", "", nil)
+		coll, err := b.CreateServerlessCollection("c3", "SEARCH", "", "", "", nil)
 		require.NoError(t, err)
 
 		del, err := b.DeleteServerlessCollection(coll.ID)

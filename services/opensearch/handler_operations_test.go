@@ -29,8 +29,9 @@ func TestHandlerOpsLen(t *testing.T) {
 	// assert.Len below: 8 fabricated AOSS policy op names replaced by 5 real
 	// ones, plus 15 real AOSS ops added by the 2026-09-19 parity sweep
 	// (lifecycle policies, collection groups, account settings, policy
-	// stats, BatchGetVpcEndpoint).
-	assert.Equal(t, 133, opensearch.HandlerOpsLen(h))
+	// stats, BatchGetVpcEndpoint), plus 1 more (UpdateCollection) from the
+	// same-day finish-the-surface pass.
+	assert.Equal(t, 134, opensearch.HandlerOpsLen(h))
 }
 
 func TestExtractOperation_NewRoutes(t *testing.T) {
@@ -283,8 +284,14 @@ func TestOpenSearchHandler_GetSupportedOperations(t *testing.T) {
 	// BatchGetLifecyclePolicy, BatchGetEffectiveLifecyclePolicy,
 	// CreateCollectionGroup, UpdateCollectionGroup, DeleteCollectionGroup,
 	// ListCollectionGroups, BatchGetCollectionGroup, BatchGetVpcEndpoint,
-	// GetAccountSettings, UpdateAccountSettings, GetPoliciesStats.
-	assert.Len(t, ops, 133)
+	// GetAccountSettings, UpdateAccountSettings, GetPoliciesStats. Plus 1 more
+	// real AOSS op added by the 2026-09-19 finish-the-surface pass,
+	// UpdateCollection (genuinely AOSS-only, unlike that pass's other 8
+	// completed ops -- CreateIndex/GetIndex/UpdateIndex/DeleteIndex and
+	// CreateVpcEndpoint/ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint
+	// -- which share their name with an already-counted classic op, so they
+	// add no new entries here; see sdk_completeness_test.go's dualSurfaceOps).
+	assert.Len(t, ops, 134)
 }
 
 func TestOpenSearchHandler_ExtractOperation(t *testing.T) {

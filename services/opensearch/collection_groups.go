@@ -44,13 +44,43 @@ type ServerlessCollectionGroup struct {
 
 func serverlessCollectionGroupKey(id string) string { return "sl-cg:" + id }
 
-// NumberOfCollectionsForServerlessCollectionGroup always reports 0: this
-// pass adds collection GROUPS themselves, not the CollectionGroupName field
-// on CreateCollection/UpdateCollection that would let a collection actually
-// join one (UpdateCollection stays in sdk_completeness_test.go's
-// notImplemented list) -- so no collection group can genuinely have any
-// members yet. Returning 0 reflects real state, not a stubbed count.
-const serverlessCollectionGroupMemberCount = 0
+// serverlessCollectionGroupByNameLocked finds a collection group by name
+// (groups are keyed by ID in slCollectionGroups). Caller must hold at least
+// a read lock.
+func (b *InMemoryBackend) serverlessCollectionGroupByNameLocked(name string) (*ServerlessCollectionGroup, bool) {
+	for _, cg := range b.slCollectionGroups.All() {
+		if cg.Name == name {
+			return cg, true
+		}
+	}
+
+	return nil, false
+}
+
+// countServerlessCollectionsInGroupLocked counts collections whose
+// CollectionGroupName (set at creation, see CreateServerlessCollection)
+// matches groupName. Caller must hold at least a read lock.
+func (b *InMemoryBackend) countServerlessCollectionsInGroupLocked(groupName string) int {
+	n := 0
+
+	for _, c := range b.slCollections.All() {
+		if c.CollectionGroupName == groupName {
+			n++
+		}
+	}
+
+	return n
+}
+
+// CountServerlessCollectionsInGroup returns the real number of collections
+// currently associated with the named collection group (NumberOfCollections
+// on CollectionGroupSummary/CollectionGroupDetail).
+func (b *InMemoryBackend) CountServerlessCollectionsInGroup(groupName string) int {
+	b.mu.RLock("CountServerlessCollectionsInGroup")
+	defer b.mu.RUnlock()
+
+	return b.countServerlessCollectionsInGroupLocked(groupName)
+}
 
 // CreateServerlessCollectionGroup creates a new collection group.
 func (b *InMemoryBackend) CreateServerlessCollectionGroup(

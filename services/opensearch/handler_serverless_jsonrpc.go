@@ -196,6 +196,15 @@ func (h *Handler) serverlessJSONRPCOps() map[string]serverlessJSONRPCOpFunc {
 		"GetAccountSettings":               h.jrGetAccountSettings,
 		"UpdateAccountSettings":            h.jrUpdateAccountSettings,
 		"GetPoliciesStats":                 h.jrGetPoliciesStats,
+		"UpdateCollection":                 h.jrUpdateCollection,
+		opCreateIndex:                      h.jrCreateIndex,
+		opGetIndex:                         h.jrGetIndex,
+		opUpdateIndex:                      h.jrUpdateIndex,
+		opDeleteIndex:                      h.jrDeleteIndex,
+		opCreateVpcEndpoint:                h.jrCreateVpcEndpoint,
+		opListVpcEndpoints:                 h.jrListVpcEndpoints,
+		opUpdateVpcEndpoint:                h.jrUpdateVpcEndpoint,
+		opDeleteVpcEndpoint:                h.jrDeleteVpcEndpoint,
 	}
 }
 
@@ -217,6 +226,7 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 	name, _ := input["name"].(string)
 	typ, _ := input[jsonKeyPolicyTypeJR].(string)
 	desc, _ := input["description"].(string)
+	collectionGroupName, _ := input["collectionGroupName"].(string)
 	tags := tagListToMapJR(input["tags"])
 
 	var kmsKeyArn string
@@ -224,12 +234,48 @@ func (h *Handler) jrCreateCollection(input map[string]any) (map[string]any, erro
 		kmsKeyArn, _ = enc["kmsKeyArn"].(string)
 	}
 
-	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, tags)
+	coll, err := h.Backend.CreateServerlessCollection(name, typ, desc, kmsKeyArn, collectionGroupName, tags)
 	if err != nil {
 		return nil, err
 	}
 
 	return map[string]any{"createCollectionDetail": toWireServerlessCollection(coll)}, nil
+}
+
+// updateCollectionDetailJR mirrors types.UpdateCollectionDetail
+// (types.go:921-955): arn, createdDate, deletionProtection, description, id,
+// lastModifiedDate, name, status, type, vectorOptions. deletionProtection
+// and vectorOptions are omitted -- neither is modeled on ServerlessCollection
+// (see UpdateServerlessCollection's doc comment); the real deserializer
+// tolerates a missing key for either, leaving the SDK struct's zero value.
+func updateCollectionDetailJR(c *ServerlessCollection) map[string]any {
+	m := map[string]any{
+		jsonKeyAppArn:             c.Arn,
+		"id":                      c.ID,
+		jsonKeyAppName:            c.Name,
+		jsonKeyStatusLower:        c.Status,
+		jsonKeyPolicyTypeJR:       c.Type,
+		jsonKeyCreatedDateJR:      c.CreatedDate,
+		jsonKeyLastModifiedDateJR: c.LastModifiedDate,
+	}
+
+	if c.Description != "" {
+		m["description"] = c.Description
+	}
+
+	return m
+}
+
+func (h *Handler) jrUpdateCollection(input map[string]any) (map[string]any, error) {
+	id, _ := input["id"].(string)
+	desc, _ := input["description"].(string)
+
+	c, err := h.Backend.UpdateServerlessCollection(id, desc)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{"updateCollectionDetail": updateCollectionDetailJR(c)}, nil
 }
 
 func (h *Handler) jrDeleteCollection(input map[string]any) (map[string]any, error) {

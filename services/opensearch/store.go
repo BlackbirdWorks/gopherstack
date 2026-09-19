@@ -45,6 +45,8 @@ type InMemoryBackend struct {
 	inboundConnections         *store.Table[InboundConnection]
 	dataSourceAttachments      *store.Table[DataSourceAttachment]
 	slCollectionGroups         *store.Table[ServerlessCollectionGroup]
+	slIndexes                  *store.Table[ServerlessIndex]
+	slVpcEndpoints             *store.Table[ServerlessVpcEndpoint]
 	dataSourceAttachmentsByApp *store.Index[DataSourceAttachment]
 	capabilities               *store.Table[Capability]
 	migrations                 *store.Table[Migration]
@@ -68,6 +70,7 @@ type InMemoryBackend struct {
 	slCollCounter              int
 	slSecConfigCounter         int
 	slCollGroupCounter         int
+	slVpcEndpointCounter       int
 	docCounter                 int
 	dsAttachCounter            int
 	migrationCounter           int
@@ -140,6 +143,7 @@ func (b *InMemoryBackend) Reset() {
 	b.slCollCounter = 0
 	b.slSecConfigCounter = 0
 	b.slCollGroupCounter = 0
+	b.slVpcEndpointCounter = 0
 	b.docCounter = 0
 	b.dsAttachCounter = 0
 	b.migrationCounter = 0

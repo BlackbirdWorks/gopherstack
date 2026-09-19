@@ -95,6 +95,10 @@ func slCollectionGroupKeyFn(v *ServerlessCollectionGroup) string {
 	return serverlessCollectionGroupKey(v.ID)
 }
 
+// slIndexKeyFn/slVpcEndpointKeyFn are defined alongside their families
+// (serverless_indices.go, serverless_vpc_endpoints.go), matching
+// slCollectionGroupKeyFn's neighbors above -- see this file's doc comment.
+
 // dataSourceAttachmentKeyFn, capabilityKeyFn, migrationKeyFn, and
 // workspaceKeyFn are defined alongside their families
 // (data_source_attachments.go, capabilities.go, migrations.go,
@@ -211,6 +215,12 @@ var tableRegistrations = []func(*InMemoryBackend){
 	},
 	func(b *InMemoryBackend) {
 		b.slCollectionGroups = store.Register(b.registry, "slCollectionGroups", store.New(slCollectionGroupKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slIndexes = store.Register(b.registry, "slIndexes", store.New(slIndexKeyFn))
+	},
+	func(b *InMemoryBackend) {
+		b.slVpcEndpoints = store.Register(b.registry, "slVpcEndpoints", store.New(slVpcEndpointKeyFn))
 	},
 	func(b *InMemoryBackend) {
 		b.capabilities = store.Register(b.registry, "capabilities", store.New(capabilityKeyFn))

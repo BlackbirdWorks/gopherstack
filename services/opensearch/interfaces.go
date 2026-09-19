@@ -215,11 +215,12 @@ type StorageBackend interface {
 
 	// Serverless collection operations
 	CreateServerlessCollection(
-		name, collectionType, description, kmsKeyArn string,
+		name, collectionType, description, kmsKeyArn, collectionGroupName string,
 		tags map[string]string,
 	) (*ServerlessCollection, error)
 	BatchGetServerlessCollections(ids, names []string) []*ServerlessCollection
 	DeleteServerlessCollection(id string) (*ServerlessCollection, error)
+	UpdateServerlessCollection(id, description string) (*ServerlessCollection, error)
 
 	// Serverless resource tagging (collections only; see serverless.go's
 	// findServerlessCollectionByARNLocked)
@@ -292,9 +293,29 @@ type StorageBackend interface {
 		ids, names []string,
 	) ([]*ServerlessCollectionGroup, []serverlessCollectionGroupError)
 
-	// Serverless VPC endpoint batch-read (resolved against the classic-domain
-	// VPC endpoint store, vpc_endpoints.go)
-	BatchGetServerlessVpcEndpoints(ids []string) ([]*VpcEndpoint, []serverlessVpcEndpointError)
+	// Serverless VPC endpoint batch-read (resolved against the AOSS-native
+	// store first, then the classic-domain one, vpc_endpoints.go)
+	BatchGetServerlessVpcEndpoints(ids []string) ([]serverlessVpcEndpointResult, []serverlessVpcEndpointError)
+
+	// Serverless VPC endpoint operations (AOSS-native)
+	CreateServerlessVpcEndpoint(
+		name, vpcID string, subnetIDs, securityGroupIDs []string,
+	) (*ServerlessVpcEndpoint, error)
+	UpdateServerlessVpcEndpoint(
+		id string,
+		addSubnetIDs, removeSubnetIDs, addSecurityGroupIDs, removeSecurityGroupIDs []string,
+	) (*ServerlessVpcEndpoint, error)
+	DeleteServerlessVpcEndpoint(id string) (*ServerlessVpcEndpoint, error)
+	ListServerlessVpcEndpoints(statusFilter string) []*ServerlessVpcEndpoint
+
+	// Serverless index operations (a collection's document-plane index CRUD)
+	CreateServerlessIndex(collectionID, indexName string, indexSchema map[string]any) (*ServerlessIndex, error)
+	GetServerlessIndex(collectionID, indexName string) (*ServerlessIndex, error)
+	UpdateServerlessIndex(collectionID, indexName string, indexSchema map[string]any) (*ServerlessIndex, error)
+	DeleteServerlessIndex(collectionID, indexName string) error
+
+	// Serverless collection-group membership count
+	CountServerlessCollectionsInGroup(groupName string) int
 
 	// Serverless account settings and policy stats
 	GetServerlessAccountSettings() ServerlessCapacityLimits

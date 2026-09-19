@@ -66,36 +66,54 @@ func TestSDKCompleteness(t *testing.T) {
 		"GetAccountSettings":               true,
 		"UpdateAccountSettings":            true,
 		"GetPoliciesStats":                 true,
+		"UpdateCollection":                 true,
+	}
+
+	// dualSurfaceOps lists operation names that are real, independently
+	// implemented operations on BOTH the classic opensearch.Client and the
+	// opensearchserverless.Client (gopherstack parity sweep 2026-09-19:
+	// CreateIndex/GetIndex/UpdateIndex/DeleteIndex and CreateVpcEndpoint/
+	// ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint each name a real,
+	// distinct op on both SDK clients -- verified by listing api_op_*.go in
+	// both service directories). GetSupportedOperations() reports each such
+	// name once (it's already there from domainOperations()/
+	// connectionAndTagOperations()/infraAndAppOperations()); dispatch
+	// distinguishes the two real wire protocols via the X-Amz-Target header
+	// (ExtractOperation, handler_operations.go), not by name. Both
+	// CheckCompleteness calls below need to see the name accounted for, so
+	// each dual-surface op is added to both derived lists without needing a
+	// second, duplicate entry in GetSupportedOperations() itself (which
+	// would fail CheckCompleteness's own no-duplicates assertion).
+	dualSurfaceOps := map[string]bool{
+		"CreateIndex":       true,
+		"GetIndex":          true,
+		"UpdateIndex":       true,
+		"DeleteIndex":       true,
+		"CreateVpcEndpoint": true,
+		"ListVpcEndpoints":  true,
+		"UpdateVpcEndpoint": true,
+		"DeleteVpcEndpoint": true,
 	}
 
 	var domainOps, slOps []string
 	for _, op := range h.GetSupportedOperations() {
-		if serverlessOps[op] {
+		if serverlessOps[op] || dualSurfaceOps[op] {
 			slOps = append(slOps, op)
-		} else {
+		}
+
+		if !serverlessOps[op] || dualSurfaceOps[op] {
 			domainOps = append(domainOps, op)
 		}
 	}
 
 	sdkcheck.CheckCompleteness(t, &opensearchsdk.Client{}, domainOps, []string{})
-	// This Handler implements the collection/access-policy/security-config/
-	// security-policy/tagging slice of AOSS plus (gopherstack parity sweep
-	// 2026-09-19) lifecycle policies, collection groups, GetAccountSettings/
-	// UpdateAccountSettings, GetPoliciesStats, and BatchGetVpcEndpoint (a
-	// read against the classic-domain VPC endpoint store this package
-	// already maintains, vpc_endpoints.go). The document-plane Index family
-	// (Create/Get/Update/DeleteIndex) and the full VPC-endpoint write/list
-	// surface (Create/List/Update/DeleteVpcEndpoint) and UpdateCollection
-	// (moving a collection into a collection group) remain unimplemented.
-	sdkcheck.CheckCompleteness(t, &opensearchserverlesssdk.Client{}, slOps, []string{
-		"CreateIndex",
-		"CreateVpcEndpoint",
-		"DeleteIndex",
-		"DeleteVpcEndpoint",
-		"GetIndex",
-		"ListVpcEndpoints",
-		"UpdateCollection",
-		"UpdateIndex",
-		"UpdateVpcEndpoint",
-	})
+	// This Handler implements the full AOSS surface it advertises: the
+	// collection/access-policy/security-config/security-policy/tagging slice,
+	// lifecycle policies, collection groups, GetAccountSettings/
+	// UpdateAccountSettings, GetPoliciesStats, BatchGetVpcEndpoint (reads the
+	// AOSS-native VPC endpoint store first, falling back to the classic-domain
+	// one), the Index family, the native VPC-endpoint write/list family, and
+	// UpdateCollection (gopherstack parity sweep 2026-09-19) -- no
+	// opensearchserverless.Client operation remains unimplemented.
+	sdkcheck.CheckCompleteness(t, &opensearchserverlesssdk.Client{}, slOps, []string{})
 }

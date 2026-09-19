@@ -7,14 +7,34 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// opCreateIndex/opGetIndex/.../opUpdateVpcEndpoint name the eight
+// dual-surface operations (gopherstack parity sweep 2026-09-19): each is a
+// real, independently implemented operation on BOTH the classic
+// opensearch.Client and the opensearchserverless.Client, dispatched here via
+// path (classic) or the AOSS X-Amz-Target header
+// (handler_serverless_jsonrpc.go's serverlessJSONRPCOps). Named constants
+// (rather than repeating each literal in the operations list below, its
+// extract*Op function, and the AOSS dispatch table) keep goconst happy and
+// guarantee the three sites can't drift.
+const (
+	opCreateIndex       = "CreateIndex"
+	opGetIndex          = "GetIndex"
+	opUpdateIndex       = "UpdateIndex"
+	opDeleteIndex       = "DeleteIndex"
+	opCreateVpcEndpoint = "CreateVpcEndpoint"
+	opDeleteVpcEndpoint = "DeleteVpcEndpoint"
+	opListVpcEndpoints  = "ListVpcEndpoints"
+	opUpdateVpcEndpoint = "UpdateVpcEndpoint"
+)
+
 func domainOperations() []string {
 	return []string{
 		"CancelDomainConfigChange",
 		"CancelServiceSoftwareUpdate",
 		"CreateDomain",
-		"CreateIndex",
+		opCreateIndex,
 		"DeleteDomain",
-		"DeleteIndex",
+		opDeleteIndex,
 		"DescribeDomain",
 		"DescribeDomainAutoTunes",
 		"DescribeDomainChangeProgress",
@@ -24,7 +44,7 @@ func domainOperations() []string {
 		"DescribeDomains",
 		"DescribeDryRunProgress",
 		"GetDomainMaintenanceStatus",
-		"GetIndex",
+		opGetIndex,
 		"GetUpgradeHistory",
 		"GetUpgradeStatus",
 		"ListDomainMaintenances",
@@ -32,7 +52,7 @@ func domainOperations() []string {
 		"StartDomainMaintenance",
 		"StartServiceSoftwareUpdate",
 		"UpdateDomainConfig",
-		"UpdateIndex",
+		opUpdateIndex,
 		"UpgradeDomain",
 	}
 }
@@ -43,16 +63,16 @@ func connectionAndTagOperations() []string {
 		"AddTags",
 		"AuthorizeVpcEndpointAccess",
 		"CreateOutboundConnection",
-		"CreateVpcEndpoint",
+		opCreateVpcEndpoint,
 		"DeleteInboundConnection",
 		"DeleteOutboundConnection",
-		"DeleteVpcEndpoint",
+		opDeleteVpcEndpoint,
 		"DescribeInboundConnections",
 		"DescribeOutboundConnections",
 		"DescribeVpcEndpoints",
 		"ListTags",
 		"ListVpcEndpointAccess",
-		"ListVpcEndpoints",
+		opListVpcEndpoints,
 		"ListVpcEndpointsForDomain",
 		"RejectInboundConnection",
 		"RemoveTags",
@@ -105,7 +125,7 @@ func infraAndAppOperations() []string {
 		"PutDefaultApplicationSetting",
 		"UpdateApplication",
 		"UpdateScheduledAction",
-		"UpdateVpcEndpoint",
+		opUpdateVpcEndpoint,
 	}
 }
 
@@ -175,10 +195,7 @@ func serverlessOperations() []string {
 		// Lifecycle (retention) policies, collection groups, account
 		// settings, policy stats, and VPC-endpoint batch-read -- added on
 		// top of the pre-existing collection/policy/tagging slice above
-		// (gopherstack parity sweep 2026-09-19). CreateVpcEndpoint/
-		// ListVpcEndpoints/UpdateVpcEndpoint/DeleteVpcEndpoint and the
-		// Index/UpdateCollection family stay unimplemented; see
-		// sdk_completeness_test.go's notImplemented list.
+		// (gopherstack parity sweep 2026-09-19).
 		"CreateLifecyclePolicy",
 		"UpdateLifecyclePolicy",
 		"DeleteLifecyclePolicy",
@@ -194,6 +211,20 @@ func serverlessOperations() []string {
 		"GetAccountSettings",
 		"UpdateAccountSettings",
 		"GetPoliciesStats",
+		// UpdateCollection (gopherstack parity sweep 2026-09-19): genuinely
+		// AOSS-only, unlike the CreateIndex/GetIndex/UpdateIndex/DeleteIndex
+		// and CreateVpcEndpoint/ListVpcEndpoints/UpdateVpcEndpoint/
+		// DeleteVpcEndpoint families implemented the same pass -- those eight
+		// share their exact op name with a real, already-implemented classic
+		// opensearch.Client operation (see domainOperations()/
+		// connectionAndTagOperations()/infraAndAppOperations() above), so
+		// they are NOT re-added here: GetSupportedOperations() already
+		// reports each name once, dispatch distinguishes the two real wire
+		// protocols via the X-Amz-Target header (ExtractOperation, above),
+		// and sdk_completeness_test.go's dualSurfaceOps handles the
+		// resulting two-client accounting without needing a duplicate string
+		// in this slice.
+		"UpdateCollection",
 	}
 }
 
@@ -565,13 +596,13 @@ func extractVpcEndpointsOp(path, method string) string {
 	case rest == pathSuffixDescribe && method == http.MethodPost:
 		return "DescribeVpcEndpoints"
 	case rest == pathSuffixUpdate && method == http.MethodPost:
-		return "UpdateVpcEndpoint"
+		return opUpdateVpcEndpoint
 	case (rest == "" || rest == "/") && method == http.MethodPost:
-		return "CreateVpcEndpoint"
+		return opCreateVpcEndpoint
 	case (rest == "" || rest == "/") && method == http.MethodGet:
-		return "ListVpcEndpoints"
+		return opListVpcEndpoints
 	case strings.HasPrefix(rest, "/") && method == http.MethodDelete:
-		return "DeleteVpcEndpoint"
+		return opDeleteVpcEndpoint
 	}
 
 	return ""
@@ -752,7 +783,7 @@ func extractDomainGetResourceOp(trimmed string) string {
 	case strings.HasSuffix(trimmed, "/domainMaintenance"):
 		return "GetDomainMaintenanceStatus"
 	case strings.Contains(trimmed, "/index/"):
-		return "GetIndex"
+		return opGetIndex
 	case strings.HasSuffix(trimmed, "/dataSource"):
 		return "ListDataSources"
 	case strings.HasSuffix(trimmed, "/domainMaintenances"):
@@ -772,7 +803,7 @@ func extractDomainDeleteOp(rest string) string {
 	case strings.Contains(trimmed, "/dataSource/"):
 		return "DeleteDataSource"
 	case strings.Contains(trimmed, "/index/"):
-		return "DeleteIndex"
+		return opDeleteIndex
 	case !strings.Contains(trimmed, "/"):
 		return "DeleteDomain"
 	}
@@ -798,7 +829,7 @@ func extractDomainPostOp(rest string) string {
 	case strings.HasSuffix(trimmed, "/revokeVpcEndpointAccess"):
 		return "RevokeVpcEndpointAccess"
 	case strings.HasSuffix(trimmed, "/index"):
-		return "CreateIndex"
+		return opCreateIndex
 	}
 
 	return opUnknown
@@ -810,7 +841,7 @@ func extractDomainPutOp(rest string) string {
 
 	switch {
 	case strings.Contains(trimmed, "/index/"):
-		return "UpdateIndex"
+		return opUpdateIndex
 	case strings.HasSuffix(trimmed, "/scheduledAction/update"):
 		return "UpdateScheduledAction"
 	case strings.Contains(trimmed, "/dataSource/"):
