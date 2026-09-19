@@ -8,6 +8,11 @@ import (
 type getModelInput struct {
 	RestAPIID string `json:"restApiId"`
 	ModelName string `json:"modelName"`
+	// Flatten is bound as a string, not bool: query parameters are merged into
+	// the JSON body as quoted strings (injectJSONFieldAPIGW), so a Go bool
+	// field here would fail json.Unmarshal on every real client request
+	// (same class of bug already fixed for GetApiKeys' includeValues).
+	Flatten string `json:"flatten"`
 }
 
 type getModelsInput struct {
@@ -59,7 +64,7 @@ func (h *Handler) getModelAction(b []byte) (int, any, error) {
 	if err := json.Unmarshal(b, &input); err != nil {
 		return 0, nil, err
 	}
-	m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName)
+	m, err := h.Backend.GetModel(input.RestAPIID, input.ModelName, input.Flatten == litTrue)
 	if err != nil {
 		return 0, nil, err
 	}

@@ -423,3 +423,135 @@ func TestPutRestAPI(t *testing.T) {
 		})
 	}
 }
+
+const failOnWarningsCleanDoc = `{
+  "swagger": "2.0",
+  "info": {"title": "CleanAPI"},
+  "paths": {
+    "/items": {
+      "get": {
+        "operationId": "listItems",
+        "responses": {"200": {"description": "ok"}},
+        "x-amazon-apigateway-integration": {"type": "MOCK"}
+      }
+    }
+  }
+}`
+
+// failOnWarningsDirtyDoc carries three real, deterministic import-warning
+// conditions: a document-level vendor extension this importer doesn't
+// interpret (x-amazon-apigateway-policy), an operation-level one
+// (x-amazon-apigateway-auth), and an operation with no operationId.
+const failOnWarningsDirtyDoc = `{
+  "swagger": "2.0",
+  "info": {"title": "DirtyAPI"},
+  "x-amazon-apigateway-policy": {"Version": "2012-10-17"},
+  "paths": {
+    "/items": {
+      "get": {
+        "responses": {"200": {"description": "ok"}},
+        "x-amazon-apigateway-integration": {"type": "MOCK"},
+        "x-amazon-apigateway-auth": {"type": "NONE"}
+      }
+    }
+  }
+}`
+
+// TestImportRestAPI_FailOnWarnings covers ImportRestApi's FailOnWarnings
+// httpQuery param (api_op_ImportRestApi.go: "indicate whether to rollback
+// the API creation ... when a warning is encountered").
+func TestImportRestAPI_FailOnWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		doc            string
+		failOnWarnings bool
+		wantErr        bool
+	}{
+		{
+			name: "clean_doc_passes_with_failonwarnings", doc: failOnWarningsCleanDoc,
+			failOnWarnings: true, wantErr: false,
+		},
+		{
+			name: "dirty_doc_fails_with_failonwarnings", doc: failOnWarningsDirtyDoc,
+			failOnWarnings: true, wantErr: true,
+		},
+		{
+			name: "dirty_doc_ignored_without_failonwarnings", doc: failOnWarningsDirtyDoc,
+			failOnWarnings: false, wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, err := b.ImportRestAPI(apigateway.ImportRestAPIInput{
+				Body:           []byte(tt.doc),
+				FailOnWarnings: tt.failOnWarnings,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, apigateway.ErrInvalidParameter)
+				assert.Nil(t, api)
+
+				apis, _, listErr := b.GetRestAPIs(0, "")
+				require.NoError(t, listErr)
+				assert.Empty(t, apis, "a rejected import must not create the API")
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, api)
+		})
+	}
+}
+
+// TestPutRestAPI_FailOnWarnings covers PutRestApi's FailOnWarnings httpQuery
+// param, including that a rejected update leaves the existing API untouched
+// ("rollback the API update").
+func TestPutRestAPI_FailOnWarnings(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		failOnWarnings bool
+		wantErr        bool
+	}{
+		{name: "dirty_doc_fails_and_leaves_api_unchanged", failOnWarnings: true, wantErr: true},
+		{name: "dirty_doc_ignored_without_failonwarnings", failOnWarnings: false, wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := apigateway.NewInMemoryBackend()
+			api, err := b.ImportRestAPI(apigateway.ImportRestAPIInput{Body: []byte(failOnWarningsCleanDoc)})
+			require.NoError(t, err)
+
+			updated, perr := b.PutRestAPI(apigateway.PutRestAPIInput{
+				RestAPIID:      api.ID,
+				Body:           []byte(failOnWarningsDirtyDoc),
+				FailOnWarnings: tt.failOnWarnings,
+			})
+
+			if tt.wantErr {
+				require.ErrorIs(t, perr, apigateway.ErrInvalidParameter)
+				assert.Nil(t, updated)
+
+				current, getErr := b.GetRestAPI(api.ID)
+				require.NoError(t, getErr)
+				assert.Equal(t, "CleanAPI", current.Name, "a rejected update must not change the API")
+
+				return
+			}
+
+			require.NoError(t, perr)
+			assert.Equal(t, "DirtyAPI", updated.Name)
+		})
+	}
+}
