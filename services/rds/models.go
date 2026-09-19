@@ -2,6 +2,7 @@ package rds
 
 import (
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
@@ -807,9 +808,12 @@ type InMemoryBackend struct {
 	piMetrics                 map[string]map[string][]PIDataPoint
 	instanceLogFiles          map[string][]DBLogFile
 	instanceLogContent        map[string]map[string]string
+	stopCh                    chan struct{}
 	accountID                 string
 	region                    string
 	defaultCACertificateID    string
 	events                    []Event
+	reconcilerWG              sync.WaitGroup
 	reconcilerRunning         bool
+	closed                    bool
 }

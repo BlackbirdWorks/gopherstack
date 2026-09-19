@@ -5,8 +5,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: rds
 sdk_module: aws-sdk-go-v2/service/rds@v1.124.1
-last_audit_commit:                                # unknown: pass ran without git access at write time (git use was out of scope), never backfilled -- gopherstack-33in
-last_audit_date: 2026-07-25
+last_audit_commit: 49cff86c4
+last_audit_date: 2026-09-19
 overall: A              # RESTORED A->A (gopherstack-vhw2 strict-phantom-check pass, 2026-08-05):
                        # both defects behind the 2026-07-31 A->A- downgrade (recorded verbatim
                        # below) are resolved, and nothing new was found in their place.
@@ -1772,3 +1772,12 @@ an additive change -- `pkgs/persistence/testdata/snapshot_inventory.json`
 hand-updated with 27 new rds field rows (sorted, matching the file's
 existing convention), no version bump. `go run ./cmd/reqfielddiff -dir rds`:
 125 -> 25 tier-1, all 25 disclosed in `items_still_open`.
+
+## 2026-09-19: goroutine-leak fix, Close() was a no-op (gopherstack parity-sweep)
+
+`InMemoryBackend.Close()` had been reduced to a no-op comment ("reconciler
+is now ephemeral") but the reconciler ticker does not self-terminate within
+a test's lifetime, so tests leaked it. Close() now closes a `stopCh` and
+joins the reconciler goroutine via a WaitGroup. `~100 test call sites still
+construct backends without calling Close`, so a package-wide goleak
+TestMain is not yet safe to add — queued.

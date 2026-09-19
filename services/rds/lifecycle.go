@@ -32,6 +32,7 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		region:                    region,
 		defaultCACertificateID:    defaultCACertificateID,
 		mu:                        lockmetrics.New("rds"),
+		stopCh:                    make(chan struct{}),
 	}
 	registerAllTables(b)
 
@@ -41,24 +42,41 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 // Close stops the background reconciler goroutine and waits for any in-flight
 // delayed lifecycle transitions to finish. Close is safe to call more than once.
 func (b *InMemoryBackend) Close() {
-	// Reconciler is now ephemeral and stops on its own.
+	b.mu.Lock("Close")
+	if b.closed {
+		b.mu.Unlock()
+
+		return
+	}
+	b.closed = true
+	close(b.stopCh)
+	b.mu.Unlock()
+
+	b.reconcilerWG.Wait()
 }
 
 func (b *InMemoryBackend) scheduleReconcilerLocked() {
-	if b.reconcilerRunning {
+	if b.reconcilerRunning || b.closed {
 		return
 	}
 	b.reconcilerRunning = true
+	b.reconcilerWG.Add(1)
+	stopCh := b.stopCh
 	go func() {
 		defer func() {
 			b.mu.Lock("reconcilerExit")
 			b.reconcilerRunning = false
 			b.mu.Unlock()
+			b.reconcilerWG.Done()
 		}()
 		ticker := time.NewTicker(instanceTransitionDelay / reconcilerDivisor)
 		defer ticker.Stop()
 		for {
-			<-ticker.C
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+			}
 			b.mu.Lock("runReconciler")
 			b.reconcileInstancesLocked()
 			if len(b.instanceReadyAt) == 0 && len(b.clusterReadyAt) == 0 {
