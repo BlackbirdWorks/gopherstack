@@ -1,5 +1,7 @@
 package dax
 
+import "time"
+
 // PaginateClustersForTest exposes the unexported InMemoryBackend.paginateClusters
 // pagination helper so its arithmetic can be verified directly, independent
 // of DescribeClusters' locking/sorting/filtering.
@@ -33,10 +35,14 @@ func EmitEventForTest(b *InMemoryBackend, sourceName, sourceType, message string
 	b.emitEventLocked(sourceName, sourceType, message)
 }
 
+// SetClusterAvailableForTest forces name straight to "available", clearing
+// any pending transition deadline, so tests whose subject is unrelated to
+// cluster lifecycle timing don't have to wait out clusterTransitionDelay.
 func SetClusterAvailableForTest(b *InMemoryBackend, name string) {
 	b.mu.Lock("SetClusterAvailableForTest")
 	defer b.mu.Unlock()
 	if c, ok := b.clusters.Get(name); ok {
 		c.Status = StatusAvailable
+		c.TransitionDeadline = time.Time{}
 	}
 }

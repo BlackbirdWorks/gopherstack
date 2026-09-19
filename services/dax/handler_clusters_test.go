@@ -30,7 +30,7 @@ func TestHandlerCreateCluster(t *testing.T) {
 				t.Helper()
 				cluster := resp["Cluster"].(map[string]any)
 				assert.Equal(t, "test-cluster", cluster["ClusterName"])
-				assert.Equal(t, "available", cluster["Status"])
+				assert.Equal(t, dax.StatusCreating, cluster["Status"])
 				assert.Equal(t, dax.EncryptionTypeNone, cluster["ClusterEndpointEncryptionType"])
 			},
 		},
@@ -303,6 +303,7 @@ func TestHandlerReplicationFactor(t *testing.T) {
 			setup: func(t *testing.T, h *dax.Handler) {
 				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("grow"))
+				dax.SetClusterAvailableForTest(h.Backend.(*dax.InMemoryBackend), "grow")
 			},
 			body:       map[string]any{"ClusterName": "grow", "NewReplicationFactor": 3},
 			wantStatus: http.StatusOK,
@@ -320,6 +321,7 @@ func TestHandlerReplicationFactor(t *testing.T) {
 				body := validClusterBody("shrink")
 				body["ReplicationFactor"] = 3
 				daxRequest(t, h, "CreateCluster", body)
+				dax.SetClusterAvailableForTest(h.Backend.(*dax.InMemoryBackend), "shrink")
 			},
 			body:       map[string]any{"ClusterName": "shrink", "NewReplicationFactor": 1},
 			wantStatus: http.StatusOK,
@@ -373,6 +375,7 @@ func TestHandlerRebootNode(t *testing.T) {
 			setup: func(t *testing.T, h *dax.Handler) {
 				t.Helper()
 				daxRequest(t, h, "CreateCluster", validClusterBody("reboot-cluster"))
+				dax.SetClusterAvailableForTest(h.Backend.(*dax.InMemoryBackend), "reboot-cluster")
 			},
 			body:       map[string]any{"ClusterName": "reboot-cluster", "NodeId": "reboot-cluster-0000"},
 			wantStatus: http.StatusOK,

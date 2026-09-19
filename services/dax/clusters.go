@@ -5,7 +5,6 @@ import (
 	"maps"
 	"math/rand/v2"
 	"net"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +43,11 @@ const (
 
 	// maxClusterNameLength is the maximum allowed length for a DAX cluster name.
 	maxClusterNameLength = 20
+
+	// clusterTransitionDelay is how long a cluster or node stays in a
+	// transient status (creating/modifying/deleting/rebooting) before
+	// sweepClusterTransitionsLocked promotes it to its terminal state.
+	clusterTransitionDelay = time.Second
 )
 
 // maintenanceWindowDays maps random seeds to day abbreviations for the maintenance window.
@@ -272,6 +276,45 @@ func (b *InMemoryBackend) buildClusterNodes(input CreateClusterInput, now time.T
 	return nodes
 }
 
+// sweepClusterTransitionsLocked advances clusters and nodes past their
+// modeled transition deadline to their terminal state. This backend has no
+// background goroutine for cluster/node lifecycle (see PARITY.md's leaks
+// note), so the transition is lazily evaluated here at the top of every op
+// that reads or gates on cluster/node status -- the same pattern
+// services/fsx/data_repository_tasks.go's sweepDataRepositoryTasksLocked
+// uses. A creating/modifying cluster past its deadline settles at
+// available; a deleting cluster past its deadline is actually removed; a
+// rebooting node past its deadline settles at available. Caller must hold
+// the write lock.
+func (b *InMemoryBackend) sweepClusterTransitionsLocked(now time.Time) {
+	for _, c := range b.clusters.All() {
+		switch {
+		case c.Status == StatusDeleting && !c.TransitionDeadline.IsZero() && !now.Before(c.TransitionDeadline):
+			b.clusters.Delete(c.ClusterName)
+			delete(b.tags, c.ClusterArn)
+			b.emitEventLocked(c.ClusterName, EventSourceTypeCluster,
+				fmt.Sprintf("Cluster %s has been deleted.", c.ClusterName))
+
+			continue
+		case (c.Status == StatusCreating || c.Status == StatusModifying) &&
+			!c.TransitionDeadline.IsZero() && !now.Before(c.TransitionDeadline):
+			c.Status = StatusAvailable
+			c.TransitionDeadline = time.Time{}
+			c.NodeIDsToRemove = nil
+		}
+
+		for i := range c.Nodes {
+			n := &c.Nodes[i]
+			if n.NodeStatus == StatusRebooting && !n.RebootDeadline.IsZero() && !now.Before(n.RebootDeadline) {
+				n.NodeStatus = StatusAvailable
+				n.RebootDeadline = time.Time{}
+				b.emitEventLocked(c.ClusterName, EventSourceTypeCluster,
+					fmt.Sprintf("Node %s reboot complete.", n.NodeID))
+			}
+		}
+	}
+}
+
 // CreateCluster creates a new DAX cluster.
 func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, error) {
 	if err := validateCreateCluster(&input); err != nil {
@@ -282,6 +325,8 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 
 	b.mu.Lock("CreateCluster")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	if b.clusters.Has(input.ClusterName) {
 		return nil, fmt.Errorf("%w: %s", ErrClusterAlreadyExists, input.ClusterName)
@@ -333,18 +378,7 @@ func (b *InMemoryBackend) CreateCluster(input CreateClusterInput) (*Cluster, err
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Cluster %s has been created.", input.ClusterName))
 
-	if os.Getenv("DAX_TEST_SYNC") == "1" {
-		cluster.Status = StatusAvailable
-	} else {
-		go func(cName string) {
-			time.Sleep(time.Second)
-			b.mu.Lock("CreateCluster:async")
-			defer b.mu.Unlock()
-			if c, ok := b.clusters.Get(cName); ok && c.Status == StatusCreating {
-				c.Status = StatusAvailable
-			}
-		}(input.ClusterName)
-	}
+	cluster.TransitionDeadline = now.Add(clusterTransitionDelay)
 
 	cp := b.clusterCopy(cluster)
 
@@ -466,8 +500,10 @@ func (b *InMemoryBackend) DescribeClusters(
 	maxResults int,
 	nextToken string,
 ) ([]*Cluster, string, error) {
-	b.mu.RLock("DescribeClusters")
-	defer b.mu.RUnlock()
+	b.mu.Lock("DescribeClusters")
+	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	if maxResults <= 0 {
 		maxResults = maxClustersDefault
@@ -495,6 +531,8 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 
 	b.mu.Lock("UpdateCluster")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
@@ -557,6 +595,8 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 	b.mu.Lock("DeleteCluster")
 	defer b.mu.Unlock()
 
+	b.sweepClusterTransitionsLocked(time.Now())
+
 	cluster, ok := b.clusters.Get(clusterName)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrClusterNotFound, clusterName)
@@ -566,31 +606,13 @@ func (b *InMemoryBackend) DeleteCluster(clusterName string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s is already being deleted", ErrInvalidClusterState, clusterName)
 	}
 
-	cp := b.clusterCopy(cluster)
 	cluster.Status = StatusDeleting
-	cp.Status = StatusDeleting
+	cluster.TransitionDeadline = time.Now().Add(clusterTransitionDelay)
 
 	b.emitEventLocked(clusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Cluster %s is being deleted.", clusterName))
 
-	if os.Getenv("DAX_TEST_SYNC") == "1" {
-		b.clusters.Delete(clusterName)
-		delete(b.tags, cluster.ClusterArn)
-	} else {
-		go func(cName string, cArn string) {
-			time.Sleep(time.Second)
-			b.mu.Lock("DeleteCluster:async")
-			defer b.mu.Unlock()
-			if c, exists := b.clusters.Get(cName); exists && c.Status == StatusDeleting {
-				b.clusters.Delete(cName)
-				delete(b.tags, cArn)
-				b.emitEventLocked(cName, EventSourceTypeCluster,
-					fmt.Sprintf("Cluster %s has been deleted.", cName))
-			}
-		}(clusterName, cluster.ClusterArn)
-	}
-
-	return cp, nil
+	return b.clusterCopy(cluster), nil
 }
 
 // IncreaseReplicationFactor adds nodes to a cluster.
@@ -610,6 +632,8 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 
 	b.mu.Lock("IncreaseReplicationFactor")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
@@ -666,18 +690,10 @@ func (b *InMemoryBackend) IncreaseReplicationFactor(input IncreaseReplicationFac
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
 	cluster.Status = StatusModifying
+	cluster.TransitionDeadline = now.Add(clusterTransitionDelay)
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor increased to %d.", input.NewReplicationFactor))
-
-	go func(cName string) {
-		time.Sleep(time.Second)
-		b.mu.Lock("IncreaseReplicationFactor:async")
-		defer b.mu.Unlock()
-		if c, exists := b.clusters.Get(cName); exists && c.Status == StatusModifying {
-			c.Status = StatusAvailable
-		}
-	}(input.ClusterName)
 
 	return b.clusterCopy(cluster), nil
 }
@@ -699,6 +715,8 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 
 	b.mu.Lock("DecreaseReplicationFactor")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	cluster, ok := b.clusters.Get(input.ClusterName)
 	if !ok {
@@ -754,23 +772,14 @@ func (b *InMemoryBackend) DecreaseReplicationFactor(input DecreaseReplicationFac
 	cluster.TotalNodes = input.NewReplicationFactor
 	cluster.ActiveNodes = input.NewReplicationFactor
 	cluster.Status = StatusModifying
+	cluster.TransitionDeadline = time.Now().Add(clusterTransitionDelay)
 	// NodeIDsToRemove (types.Cluster.NodeIdsToRemove) surfaces on the wire only
-	// while the decrease is in flight; cleared once the async transition below
+	// while the decrease is in flight; cleared once sweepClusterTransitionsLocked
 	// brings the cluster back to "available".
 	cluster.NodeIDsToRemove = removedIDs
 
 	b.emitEventLocked(input.ClusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Replication factor decreased to %d.", input.NewReplicationFactor))
-
-	go func(cName string) {
-		time.Sleep(time.Second)
-		b.mu.Lock("DecreaseReplicationFactor:async")
-		defer b.mu.Unlock()
-		if c, exists := b.clusters.Get(cName); exists && c.Status == StatusModifying {
-			c.Status = StatusAvailable
-			c.NodeIDsToRemove = nil
-		}
-	}(input.ClusterName)
 
 	return b.clusterCopy(cluster), nil
 }
@@ -787,6 +796,8 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 
 	b.mu.Lock("RebootNode")
 	defer b.mu.Unlock()
+
+	b.sweepClusterTransitionsLocked(time.Now())
 
 	cluster, ok := b.clusters.Get(clusterName)
 	if !ok {
@@ -807,6 +818,7 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 	for i := range cluster.Nodes {
 		if cluster.Nodes[i].NodeID == nodeID {
 			cluster.Nodes[i].NodeStatus = StatusRebooting
+			cluster.Nodes[i].RebootDeadline = time.Now().Add(clusterTransitionDelay)
 			found = true
 
 			break
@@ -819,25 +831,6 @@ func (b *InMemoryBackend) RebootNode(clusterName, nodeID string) (*Cluster, erro
 
 	b.emitEventLocked(clusterName, EventSourceTypeCluster,
 		fmt.Sprintf("Node %s reboot initiated.", nodeID))
-
-	go func() {
-		time.Sleep(time.Second)
-		b.mu.Lock("RebootNode:recovery")
-		defer b.mu.Unlock()
-		c, exists := b.clusters.Get(clusterName)
-		if !exists {
-			return
-		}
-		for i := range c.Nodes {
-			if c.Nodes[i].NodeID == nodeID {
-				c.Nodes[i].NodeStatus = StatusAvailable
-
-				break
-			}
-		}
-		b.emitEventLocked(clusterName, EventSourceTypeCluster,
-			fmt.Sprintf("Node %s reboot complete.", nodeID))
-	}()
 
 	return b.clusterCopy(cluster), nil
 }

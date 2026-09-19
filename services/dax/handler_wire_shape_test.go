@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/blackbirdworks/gopherstack/services/dax"
 )
 
 // TestHandlerClusterStatusWireKey verifies the cluster status is emitted
@@ -26,7 +28,7 @@ func TestHandlerClusterStatusWireKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 
 	cluster := resp["Cluster"].(map[string]any)
-	assert.Equal(t, "available", cluster["Status"], "wire key must be Status")
+	assert.Equal(t, "creating", cluster["Status"], "wire key must be Status")
 	_, hasLegacyKey := cluster["ClusterStatus"]
 	assert.False(t, hasLegacyKey, "ClusterStatus is not a real DAX wire key")
 }
@@ -200,6 +202,7 @@ func TestHandlerDecreaseReplicationFactorNodeIdsToRemoveWireKey(t *testing.T) {
 	body := validClusterBody("decrease-wire")
 	body["ReplicationFactor"] = 3
 	daxRequest(t, h, "CreateCluster", body)
+	dax.SetClusterAvailableForTest(h.Backend.(*dax.InMemoryBackend), "decrease-wire")
 
 	rec := daxRequest(t, h, "DecreaseReplicationFactor", map[string]any{
 		"ClusterName":          "decrease-wire",

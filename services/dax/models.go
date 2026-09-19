@@ -101,7 +101,11 @@ type Endpoint struct {
 
 // Node represents a single DAX node in a cluster.
 type Node struct {
-	CreateTime           time.Time `json:"createTime"`
+	CreateTime time.Time `json:"createTime"`
+	// RebootDeadline is when a NodeStatus of "rebooting" resolves back to
+	// "available", lazily applied by sweepClusterTransitionsLocked. Zero
+	// when NodeStatus is not "rebooting".
+	RebootDeadline       time.Time `json:"rebootDeadline"`
 	Endpoint             *Endpoint `json:"endpoint,omitempty"`
 	NodeID               string    `json:"nodeId"`
 	NodeStatus           string    `json:"nodeStatus"`
@@ -196,7 +200,12 @@ type Event struct {
 
 // Cluster represents an Amazon DAX cluster.
 type Cluster struct {
-	CreateTime                    time.Time                  `json:"createTime"`
+	CreateTime time.Time `json:"createTime"`
+	// TransitionDeadline is when the current transient Status
+	// (creating/modifying/deleting) resolves to its terminal state, lazily
+	// applied by sweepClusterTransitionsLocked. Zero when Status is already
+	// terminal ("available").
+	TransitionDeadline            time.Time                  `json:"transitionDeadline"`
 	Tags                          map[string]string          `json:"tags"`
 	Endpoint                      *Endpoint                  `json:"endpoint,omitempty"`
 	NotificationConfiguration     *NotificationConfiguration `json:"notificationConfiguration,omitempty"`
