@@ -78,7 +78,10 @@ func TestDeletePullRequestApprovalRule_UnknownRuleIsIdempotentSDKRoundTrip(t *te
 		err,
 		"DeletePullRequestApprovalRule on an unknown rule must succeed (its own doc: 200 OK without content)",
 	)
-	require.Nil(t, out.ApprovalRuleId)
+	// ApprovalRuleId is a required DeletePullRequestApprovalRuleOutput member
+	// -- present (empty), not omitted, even on the idempotent no-op path.
+	require.NotNil(t, out.ApprovalRuleId)
+	require.Empty(t, aws.ToString(out.ApprovalRuleId))
 }
 
 func TestDeleteApprovalRuleTemplate_UnknownNameIsIdempotentSDKRoundTrip(t *testing.T) {
@@ -98,7 +101,10 @@ func TestDeleteApprovalRuleTemplate_UnknownNameIsIdempotentSDKRoundTrip(t *testi
 		err,
 		"DeleteApprovalRuleTemplate on an unknown name must succeed (its own doc: 200 OK without content)",
 	)
-	require.Nil(t, out.ApprovalRuleTemplateId)
+	// ApprovalRuleTemplateId is a required DeleteApprovalRuleTemplateOutput
+	// member -- present (empty), not omitted, even on the idempotent no-op path.
+	require.NotNil(t, out.ApprovalRuleTemplateId)
+	require.Empty(t, aws.ToString(out.ApprovalRuleTemplateId))
 }
 
 func TestDeleteBranch_UnknownNameIsIdempotentSDKRoundTrip(t *testing.T) {

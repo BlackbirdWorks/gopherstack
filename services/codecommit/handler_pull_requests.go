@@ -407,10 +407,10 @@ func (h *Handler) handleDeletePullRequestApprovalRule(body []byte) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	if ruleID == "" {
-		return map[string]any{}, nil
-	}
 
+	// approvalRuleId is a required DeletePullRequestApprovalRuleOutput member
+	// -- always present, even when the rule was already deleted (real AWS:
+	// idempotent, 200 OK) and ruleID is "".
 	return map[string]any{
 		keyApprovalRuleID: ruleID,
 	}, nil

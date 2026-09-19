@@ -171,10 +171,10 @@ func (h *Handler) handleDeleteApprovalRuleTemplate(body []byte) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if templateID == "" {
-		return map[string]any{}, nil
-	}
 
+	// approvalRuleTemplateId is a required DeleteApprovalRuleTemplateOutput
+	// member -- always present, even when the template was already deleted
+	// (real AWS: idempotent, 200 OK) and templateID is "".
 	return map[string]any{
 		"approvalRuleTemplateId": templateID,
 	}, nil
