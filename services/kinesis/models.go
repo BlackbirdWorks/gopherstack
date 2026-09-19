@@ -665,13 +665,15 @@ type DescribeAccountSettingsOutput struct {
 
 // UpdateStreamModeInput is the input for UpdateStreamMode.
 type UpdateStreamModeInput struct {
-	StreamARN         string
-	StreamModeDetails StreamModeDetails
 	// WarmThroughputMiBps mirrors UpdateStreamModeInput's own field
-	// (kinesis@v1.46.4 api_op_UpdateStreamMode.go, "only valid when the
-	// stream mode is being updated to on-demand"). Zero means "not
-	// specified".
-	WarmThroughputMiBps int
+	// (kinesis@v1.53.0 api_op_UpdateStreamMode.go, "only valid when the
+	// stream mode is being updated to on-demand"). Optional on the real
+	// SDK (*int32, no "This member is required." doc) -- nil means
+	// "not specified" (preserve the stored value); a non-nil value,
+	// including 0, is applied.
+	WarmThroughputMiBps *int
+	StreamARN           string
+	StreamModeDetails   StreamModeDetails
 }
 
 // StreamModeDetails describes the mode of a Kinesis stream.

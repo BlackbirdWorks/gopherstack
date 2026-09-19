@@ -229,6 +229,62 @@ func setupSDKIntegration(t *testing.T) (*apigwsdk.Client, string, string) {
 	return client, apiID, rootID
 }
 
+// TestSDK_PutIntegration_TimeoutInMillisDefault proves the zeroguard-widening
+// fix (cmd/zeroguard): PutIntegrationInput.TimeoutInMillis is optional
+// (*int32, apigateway@v1.42.4 api_op_PutIntegration.go, "The default value is
+// 29,000 milliseconds"). PutIntegration is a Put/replace op, not a PATCH, so
+// unlike an Update op's omitted member (which preserves the prior stored
+// value) an omitted TimeoutInMillis here must fall back to the documented
+// default -- and a second PutIntegration on the same method that again omits
+// it must reset to that default rather than keep an earlier explicit value.
+func TestSDK_PutIntegration_TimeoutInMillisDefault(t *testing.T) {
+	t.Parallel()
+
+	client, apiID, rootID := setupSDKMethod(t, nil)
+
+	out, err := client.PutIntegration(t.Context(), &apigwsdk.PutIntegrationInput{
+		RestApiId: aws.String(apiID), ResourceId: aws.String(rootID), HttpMethod: aws.String("GET"),
+		Type:                  apigwtypes.IntegrationTypeHttp,
+		Uri:                   aws.String("https://example.com/default-timeout"),
+		IntegrationHttpMethod: aws.String("GET"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(29000), out.TimeoutInMillis,
+		"omitted TimeoutInMillis must fall back to the documented 29,000ms default")
+
+	got, err := client.GetIntegration(t.Context(), &apigwsdk.GetIntegrationInput{
+		RestApiId: aws.String(apiID), ResourceId: aws.String(rootID), HttpMethod: aws.String("GET"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(29000), got.TimeoutInMillis)
+
+	withValue, err := client.PutIntegration(t.Context(), &apigwsdk.PutIntegrationInput{
+		RestApiId: aws.String(apiID), ResourceId: aws.String(rootID), HttpMethod: aws.String("GET"),
+		Type:                  apigwtypes.IntegrationTypeHttp,
+		Uri:                   aws.String("https://example.com/custom-timeout"),
+		IntegrationHttpMethod: aws.String("GET"),
+		TimeoutInMillis:       aws.Int32(15000),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int32(15000), withValue.TimeoutInMillis)
+
+	// A subsequent Put that again omits it replaces (does not preserve) --
+	// this op is Put/replace semantics, not Update/PATCH.
+	replaced, err := client.PutIntegration(t.Context(), &apigwsdk.PutIntegrationInput{
+		RestApiId: aws.String(apiID), ResourceId: aws.String(rootID), HttpMethod: aws.String("GET"),
+		Type:                  apigwtypes.IntegrationTypeHttp,
+		Uri:                   aws.String("https://example.com/back-to-default"),
+		IntegrationHttpMethod: aws.String("GET"),
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		int32(29000),
+		replaced.TimeoutInMillis,
+		"a later PutIntegration that omits TimeoutInMillis must reset to the default, not keep the prior explicit value",
+	)
+}
+
 // TestSDK_UpdateIntegration_PatchOperations drives UpdateIntegration through
 // the real SDK client. Before the fix, "/cacheKeyParameters" (a single-segment
 // list-membership path whose Value is a JSON string) unmarshaled into

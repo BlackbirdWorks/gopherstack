@@ -32,8 +32,8 @@ type jsonUpdateStreamWarmThroughputResp struct {
 func (h *Handler) handleUpdateStreamMode(ctx context.Context, _ *http.Request, body []byte) (any, error) {
 	var req struct {
 		StreamModeDetails   *jsonStreamModeDetails `json:"StreamModeDetails"`
+		WarmThroughputMiBps *int                   `json:"WarmThroughputMiBps"`
 		StreamARN           string                 `json:"StreamARN"`
-		WarmThroughputMiBps int                    `json:"WarmThroughputMiBps,omitempty"`
 	}
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, ErrInvalidArgument

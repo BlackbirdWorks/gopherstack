@@ -554,8 +554,13 @@ type UpdateArchiveInput struct {
 	Description      *string `json:"Description,omitempty"`
 	EventPattern     *string `json:"EventPattern,omitempty"`
 	KmsKeyIdentifier *string `json:"KmsKeyIdentifier,omitempty"`
-	ArchiveName      string  `json:"ArchiveName"`
-	RetentionDays    int     `json:"RetentionDays,omitempty"`
+	// RetentionDays is optional on the real SDK (*int32, no "This member is
+	// required." doc, eventbridge@v1.53.0 api_op_UpdateArchive.go): nil means
+	// "not specified" (preserve the stored value). Explicit 0 has a
+	// documented meaning -- "events are retained indefinitely"
+	// (api_op_CreateArchive.go) -- and must be applied, not treated as omitted.
+	RetentionDays *int   `json:"RetentionDays,omitempty"`
+	ArchiveName   string `json:"ArchiveName"`
 }
 
 // UpdateConnectionInput is the input for UpdateConnection.

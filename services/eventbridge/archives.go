@@ -150,8 +150,14 @@ func (b *InMemoryBackend) UpdateArchive(ctx context.Context, input UpdateArchive
 	if input.EventPattern != nil {
 		archive.EventPattern = *input.EventPattern
 	}
-	if input.RetentionDays >= 0 {
-		archive.RetentionDays = input.RetentionDays
+	if input.RetentionDays != nil {
+		if *input.RetentionDays < 0 {
+			return nil, fmt.Errorf(
+				"%w: RetentionDays must be 0 (indefinite) or a positive integer",
+				ErrInvalidParameter,
+			)
+		}
+		archive.RetentionDays = *input.RetentionDays
 	}
 	if input.KmsKeyIdentifier != nil {
 		archive.KmsKeyIdentifier = *input.KmsKeyIdentifier

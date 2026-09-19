@@ -444,6 +444,75 @@ func TestUpdateStreamMode_WarmThroughputMiBps(t *testing.T) {
 		"WarmThroughputMiBps given at UpdateStreamMode time must be applied")
 }
 
+// TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted proves the
+// zeroguard-widening fix (cmd/zeroguard): UpdateStreamModeInput's
+// WarmThroughputMiBps is optional (*int32, no "This member is required."
+// doc, kinesis@v1.53.0 api_op_UpdateStreamMode.go). Before the fix it
+// decoded as a plain int guarded by `> 0`, so an omitted value and an
+// explicit 0 were indistinguishable and neither could tell "not specified"
+// from "leave it alone".
+func TestUpdateStreamMode_WarmThroughputMiBps_PreservesOmitted(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "update-stream-mode-warm-preserve"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+
+	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
+		StreamARN: desc.StreamDescription.StreamARN,
+		StreamModeDetails: &types.StreamModeDetails{
+			StreamMode: types.StreamModeOnDemand,
+		},
+		WarmThroughputMiBps: aws.Int32(9),
+	})
+	require.NoError(t, err)
+
+	// Omits WarmThroughputMiBps -- the stored value must survive.
+	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
+		StreamARN: desc.StreamDescription.StreamARN,
+		StreamModeDetails: &types.StreamModeDetails{
+			StreamMode: types.StreamModeOnDemand,
+		},
+	})
+	require.NoError(t, err)
+
+	preserved, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, preserved.StreamDescriptionSummary.WarmThroughput)
+	assert.Equal(t, int32(9), aws.ToInt32(preserved.StreamDescriptionSummary.WarmThroughput.CurrentMiBps),
+		"WarmThroughputMiBps omitted from UpdateStreamMode must preserve the stored value")
+
+	// An explicit 0 is a real value, distinct from omitted, and must be applied.
+	_, err = client.UpdateStreamMode(t.Context(), &kinesissdk.UpdateStreamModeInput{
+		StreamARN: desc.StreamDescription.StreamARN,
+		StreamModeDetails: &types.StreamModeDetails{
+			StreamMode: types.StreamModeOnDemand,
+		},
+		WarmThroughputMiBps: aws.Int32(0),
+	})
+	require.NoError(t, err)
+
+	zeroed, err := client.DescribeStreamSummary(t.Context(), &kinesissdk.DescribeStreamSummaryInput{
+		StreamName: aws.String(streamName),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, zeroed.StreamDescriptionSummary.WarmThroughput)
+	assert.Equal(t, int32(0), aws.ToInt32(zeroed.StreamDescriptionSummary.WarmThroughput.CurrentMiBps),
+		"explicit WarmThroughputMiBps=0 must be applied, not ignored as omitted")
+}
+
 // TestGetRecords_EncryptionType drives types.Record's EncryptionType member
 // (kinesis@v1.46.4 deserializers.go:5363, awsAwsjson11_deserializeDocumentRecord)
 // on both GetRecords and SubscribeToShard. Before this fix, jsonRecord had no

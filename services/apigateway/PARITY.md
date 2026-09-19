@@ -1,8 +1,8 @@
 ---
 service: apigateway
 sdk_module: aws-sdk-go-v2/service/apigateway@v1.42.4
-last_audit_commit: b99c264b2
-last_audit_date: 2026-09-18
+last_audit_commit: 4790cca58
+last_audit_date: 2026-09-19
 overall: A            # closed all 5 documented gaps + 3 deferred items from the 2026-07-11 sweep: RestApi.{ApiStatus,ApiStatusMessage,DisableExecuteApiEndpoint,EndpointAccessMode}, Stage.DocumentationVersion, ApiKey.StageKeys (Create + PATCH /stages), UsagePlan per-route throttle PATCH, Stage canarySettings.stageVariableOverrides PATCH, MethodSetting.{CacheDataEncrypted,UnauthorizedCacheControlHeaderStrategy} + their PATCH paths, and 2 concrete instances of the top-level-scalar-PATCH-remove gap (RestApi./description, Authorizer./identitySource). Found+fixed 2 new bugs while doing so (see Notes): a multi-op-per-request PATCH clobbering bug in the 3 resolvers this sweep touches, and UpdateUsagePlan returning an unprotected pointer into backend state. Found+documented (not fixed, out of assigned scope) a pre-existing UpdateDomainName PATCH gap.
 # 2026-08-08 follow-up (bd: gopherstack-vvsy): fixed the multi-op-per-request clobbering bug in the remaining 6 resolvers; added applyDomainNamePatchOp so UpdateDomainName's nested "/endpointConfiguration/*" and "/mutualTlsAuthentication/*" PATCH paths no longer silently no-op; pointer-ified DomainName's certificateArn/regionalCertificateArn (a 3rd concrete PATCH-remove-on-scalar fix); re-verified UsagePlan throttle PATCH path shape against a fresh patch-operations.html fetch (already correct, no change needed). See gaps below for what's still open.
 # 2026-08-09 follow-up (bd: gopherstack-npq5): added the DomainName/UsagePlan fields left missing by the prior follow-up — DomainName.{CertificateName,RegionalCertificateName,OwnershipVerificationCertificateARN} (*string on UpdateDomainNameInput, remove-supported per patch-operations.html) and .{ManagementPolicy,Policy,RoutingMode,EndpointAccessMode} (plain string, replace-only); UsagePlan.ProductCode (*string on UpdateUsagePlanInput, remove-supported). All seven flow through the existing single-segment PATCH machinery (applyTopLevelPatchOp + removableTopLevelScalar) with no new resolver code needed. Corrected the ticket: endpointConfiguration/vpcEndpointIds, which the ticket listed under DomainName, is documented only under UpdateRestApi's table, not UpdateDomainName's — left unmodeled here as a RestApi-scoped gap, out of this fix's scope. Verified against a live fetch of patch-operations.html plus aws-sdk-go-v2/service/apigateway@v1.42.4's deserializers.go (wire field names match exactly). Proven via both a pre-fix-failing unit suite and two real aws-sdk-go-v2-client integration tests (test/integration/apigateway_audit_test.go) that fail against the pre-fix binary (200 OK, field silently empty) and pass post-fix.
@@ -285,6 +285,12 @@ before mutation); kept 4, tightened to one line each (`/authType`,
 `/securityPolicy`, non-Lambda AWS-integration targets, CreateDeployment
 snapshot, `AuthorizationScopes`). Ledger: 14+2 -> 3+1. staleclaims rows: 2 -> 1
 (the remaining 1 is a pre-existing false positive against dated history).
+
+## Notes (2026-09-19 pass — zeroguard int-widening follow-up, no code change)
+
+PutIntegration.TimeoutInMillis: false positive, same Put-full-replace class
+as 2026-09-18. Already defaults omitted/zero to 29000 via an aliased local
+var the tool's direct-field check missed; added a typed test to lock it in.
 
 ## Notes (2026-09-18 pass — zeroguard omitted-vs-zero audit, no code change)
 
