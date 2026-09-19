@@ -432,22 +432,22 @@ func populateScanSortEntry(
 	pkDef, skDef models.KeySchemaElement,
 	pkType, skType string,
 ) scanSortEntry {
+	// ParseNumeric/ToString already unwrap internally; unwrapping here too
+	// doubled the cost of every sort (profiled hot path for large scans).
 	entry := scanSortEntry{item: item}
 	if pkVal, ok := item[pkDef.AttributeName]; ok {
-		unwrapped := dynamoattr.UnwrapAttributeValue(pkVal)
 		if pkType == "N" {
-			entry.pkNum, _ = dynamoattr.ParseNumeric(unwrapped)
+			entry.pkNum, _ = dynamoattr.ParseNumeric(pkVal)
 		} else {
-			entry.pkStr = dynamoattr.ToString(unwrapped)
+			entry.pkStr = dynamoattr.ToString(pkVal)
 		}
 	}
 	if skDef.AttributeName != "" {
 		if skVal, ok := item[skDef.AttributeName]; ok {
-			unwrapped := dynamoattr.UnwrapAttributeValue(skVal)
 			if skType == "N" {
-				entry.skNum, _ = dynamoattr.ParseNumeric(unwrapped)
+				entry.skNum, _ = dynamoattr.ParseNumeric(skVal)
 			} else {
-				entry.skStr = dynamoattr.ToString(unwrapped)
+				entry.skStr = dynamoattr.ToString(skVal)
 			}
 		}
 	}

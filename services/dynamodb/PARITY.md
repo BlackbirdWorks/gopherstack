@@ -1,7 +1,7 @@
 ---
 service: dynamodb
 sdk_module: aws-sdk-go-v2/service/dynamodb@v1.67.0   # version audited against (go.mod pin)
-last_audit_commit: 44bff591b  # 2026-09-19 over-wide-response sweep (this pass, ListBackups/ListContributorInsights/ListExports/ListImports); prior: 97805509b
+last_audit_commit: 176ddc764  # 2026-09-19 perf sweep (Query/Scan/TransactWriteItems, pgoload-guided); prior: 44bff591b
 last_audit_date: 2026-09-19  # prior: 2026-08-23 -- manifest-harvest pass: fixed UpdateGlobalTableSettings autoscaling
   # accept-and-drop gap and DisableKinesisStreamingDestination's never-echoed
   # EnableKinesisStreamingConfiguration -- see global_table_settings_autoscaling/
@@ -243,6 +243,11 @@ leaks: {status: clean, note: TTL sweeper + stream trimming verified, ctx-cancel 
 ---
 
 ## Notes
+
+### 2026-09-19 perf sweep (gopherstack, pgoload-guided)
+
+Removed a redundant double-unwrap in Scan/Query's sort-key extraction (behavior identical, golden-tested).
+A secondary-index copy-on-write for TransactWriteItems/Query was prototyped, then reverted: it regresses under pgoload's low-cardinality GSI (`gsiBucketCount=6`); the full deep copy in `snapshotTables` stays.
 
 ### 2026-09-19 over-wide-response sweep (gopherstack)
 
