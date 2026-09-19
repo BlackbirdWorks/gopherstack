@@ -83,6 +83,8 @@ func (h *Handler) handleListSNRAs(c *echo.Context) error {
 			keyServiceNetworkID:         s.ServiceNetworkID,
 			keyServiceNetworkName:       s.ServiceNetworkName,
 			keyStatus:                   s.Status,
+			keyCreatedBy:                s.CreatedBy,
+			keyPrivateDNSEnabled:        s.PrivateDNSEnabled,
 			keyCreatedAt:                s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
 	}

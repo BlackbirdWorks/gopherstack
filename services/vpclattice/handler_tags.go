@@ -14,7 +14,7 @@ func (h *Handler) handleTagResource(
 	body map[string]any,
 ) error {
 	tags := make(map[string]string)
-	if t, ok := body["tags"].(map[string]any); ok {
+	if t, ok := body[keyTags].(map[string]any); ok {
 		for k, v := range t {
 			if s, ok2 := v.(string); ok2 {
 				tags[k] = s
@@ -45,5 +45,5 @@ func (h *Handler) handleListTagsForResource(c *echo.Context, resourceArn string)
 		return h.handleError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"tags": tags})
+	return c.JSON(http.StatusOK, map[string]any{keyTags: tags})
 }

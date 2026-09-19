@@ -104,6 +104,7 @@ func serviceNetworkSummaryToJSON(s *ServiceNetworkSummary) map[string]any {
 		"numberOfAssociatedServices": s.NumberOfAssociatedServices,
 		"numberOfAssociatedVPCs":     s.NumberOfAssociatedVPCs,
 		"numberOfAssociatedResourceConfigurations": s.NumberOfAssociatedResourceConfigurations,
-		keyCreatedAt: s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyCreatedAt:     s.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyLastUpdatedAt: s.LastUpdatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
 	}
 }

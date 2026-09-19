@@ -66,12 +66,18 @@ func (h *Handler) handleListDomainVerifications(c *echo.Context) error {
 }
 
 func domainVerificationToJSON(dv *DomainVerification) map[string]any {
+	tags := dv.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
 	m := map[string]any{
 		keyARN:        dv.ARN,
 		"id":          dv.ID,
 		keyDomainName: dv.DomainName,
 		keyStatus:     dv.Status,
 		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyTags:       tags,
 	}
 
 	if dv.LastVerifiedTime != nil {
@@ -81,13 +87,24 @@ func domainVerificationToJSON(dv *DomainVerification) map[string]any {
 	return m
 }
 
+// domainVerificationSummaryToJSON mirrors DomainVerificationSummary
+// (vpclattice@v1.25.5): arn, createdAt, domainName, id, status,
+// lastVerifiedTime, tags, txtMethodConfig. txtMethodConfig is omitted --
+// see storedDomainVerification's doc comment for why this backend cannot
+// synthesize a real DNS TXT verification token.
 func domainVerificationSummaryToJSON(dv *DomainVerificationSummary) map[string]any {
+	tags := dv.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
 	m := map[string]any{
 		keyARN:        dv.ARN,
 		"id":          dv.ID,
 		keyDomainName: dv.DomainName,
 		keyStatus:     dv.Status,
 		keyCreatedAt:  dv.CreatedAt.UTC().Format("2006-01-02T15:04:05.000Z"),
+		keyTags:       tags,
 	}
 
 	if dv.LastVerifiedTime != nil {
