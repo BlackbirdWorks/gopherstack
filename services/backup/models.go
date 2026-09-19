@@ -467,6 +467,9 @@ type InMemoryBackend struct {
 	scanJobs                       *store.Table[ScanJob]
 	tieringConfigs                 *store.Table[TieringConfiguration]
 	protectedResources             *store.Table[ProtectedResource]
+	backupAccessPoints             *store.Table[AccessPoint]
+	backupAccessPointsByRecovery   *store.Index[AccessPoint] // grouped by RecoveryPointArn
+	backupAccessPointsByResource   *store.Index[AccessPoint] // grouped by ResourceArn
 	globalSettings                 map[string]string
 	recoveryPointIndexStatus       map[string]string // vaultName:rpArn → index status
 	globalSettingsLastUpdate       time.Time
@@ -594,6 +597,29 @@ type ProtectedResource struct {
 	BackupVaultName      string    `json:"backupVaultName,omitempty"`
 	LastBackupVaultArn   string    `json:"lastBackupVaultArn,omitempty"`
 	LastRecoveryPointArn string    `json:"lastRecoveryPointArn,omitempty"`
+}
+
+// AccessPoint models an AWS Backup access point (backup@v1.64.0
+// api_op_{Create,Describe,List}BackupAccessPoint*.go / types.ListAccessPointsMember):
+// on-demand, read-only access to one existing S3 recovery point through an
+// Amazon S3 access point, without initiating a restore. Keyed by AccessPointArn.
+// Named AccessPoint, not BackupAccessPoint, to avoid the package-name stutter
+// (backup.BackupAccessPoint) revive flags -- CreateBackupAccessPoint et al
+// keep the AWS operation name unchanged; only this Go type is shortened.
+type AccessPoint struct {
+	CreationTime        time.Time         `json:"creationTime"`
+	Tags                *tags.Tags        `json:"tags,omitempty"`
+	AccessPointMetadata map[string]string `json:"accessPointMetadata,omitempty"`
+	AccessPointArn      string            `json:"accessPointArn"`
+	Name                string            `json:"name"`
+	AccessPointPolicy   string            `json:"accessPointPolicy,omitempty"`
+	BackupVaultName     string            `json:"backupVaultName"`
+	BackupVaultArn      string            `json:"backupVaultArn,omitempty"`
+	RecoveryPointArn    string            `json:"recoveryPointArn"`
+	ResourceArn         string            `json:"resourceArn"`
+	ResourceType        string            `json:"resourceType"`
+	Status              string            `json:"status"`
+	StatusMessage       string            `json:"statusMessage,omitempty"`
 }
 
 // RegionSettings holds per-region backup preferences.

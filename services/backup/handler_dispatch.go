@@ -66,6 +66,7 @@ func (h *Handler) GetSupportedOperations() []string {
 		supportedOpsFrameworks(),
 		supportedOpsReportPlans(),
 		supportedOpsExtended(),
+		supportedOpsBackupAccessPoints(),
 	}
 
 	total := 0
@@ -318,7 +319,39 @@ func (h *Handler) dispatchExtendedOpsContinued(c *echo.Context, route backupRout
 		return true, result
 	}
 
+	if ok, result := h.dispatchBackupAccessPointOps(c, route, body); ok {
+		return true, result
+	}
+
 	return h.dispatchTieringOps(c, route, body)
+}
+
+// dispatchBackupAccessPointOps dispatches the backup access point family.
+func (h *Handler) dispatchBackupAccessPointOps(
+	c *echo.Context, route backupRoute, body []byte,
+) (bool, error) {
+	switch route.operation {
+	case opCreateBackupAccessPoint:
+
+		return true, h.handleCreateBackupAccessPoint(c, body)
+	case opDescribeBackupAccessPoint:
+
+		return true, h.handleDescribeBackupAccessPoint(c, route.resource)
+	case opDeleteBackupAccessPoint:
+
+		return true, h.handleDeleteBackupAccessPoint(c, route.resource)
+	case opListBackupAccessPoints:
+
+		return true, h.handleListBackupAccessPoints(c)
+	case opListBackupAccessPointsByRecoveryPoint:
+
+		return true, h.handleListBackupAccessPointsByRecoveryPoint(c, route.resource)
+	case opListBackupAccessPointsByResource:
+
+		return true, h.handleListBackupAccessPointsByResource(c, route.resource)
+	}
+
+	return false, nil
 }
 
 func (h *Handler) dispatchCreateOps(c *echo.Context, route backupRoute, body []byte) (bool, error) {

@@ -106,6 +106,8 @@ func tieringConfigKeyFn(v *TieringConfiguration) string { return v.TieringConfig
 
 func protectedResourceKeyFn(v *ProtectedResource) string { return v.ResourceArn }
 
+func backupAccessPointKeyFn(v *AccessPoint) string { return v.AccessPointArn }
+
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must be called
 // during construction only, never on every Reset(): store.Register panics on
@@ -155,5 +157,15 @@ func registerAllTables(b *InMemoryBackend) {
 	b.tieringConfigs = store.Register(b.registry, "tieringConfigs", store.New(tieringConfigKeyFn))
 	b.protectedResources = store.Register(
 		b.registry, "protectedResources", store.New(protectedResourceKeyFn),
+	)
+
+	b.backupAccessPoints = store.Register(
+		b.registry, "backupAccessPoints", store.New(backupAccessPointKeyFn),
+	)
+	b.backupAccessPointsByRecovery = b.backupAccessPoints.AddIndex(
+		"byRecoveryPoint", func(v *AccessPoint) string { return v.RecoveryPointArn },
+	)
+	b.backupAccessPointsByResource = b.backupAccessPoints.AddIndex(
+		"byResource", func(v *AccessPoint) string { return v.ResourceArn },
 	)
 }

@@ -143,6 +143,14 @@ const (
 	opUpdateRecoveryPointLifecycle           = "UpdateRecoveryPointLifecycle"
 	opUpdateRegionSettings                   = "UpdateRegionSettings"
 	opUpdateTieringConfiguration             = "UpdateTieringConfiguration"
+
+	// Backup access point operations.
+	opCreateBackupAccessPoint               = "CreateBackupAccessPoint"
+	opDeleteBackupAccessPoint               = "DeleteBackupAccessPoint"
+	opDescribeBackupAccessPoint             = "DescribeBackupAccessPoint"
+	opListBackupAccessPoints                = "ListBackupAccessPoints"
+	opListBackupAccessPointsByRecoveryPoint = "ListBackupAccessPointsByRecoveryPoint"
+	opListBackupAccessPointsByResource      = "ListBackupAccessPointsByResource"
 )
 
 const (
@@ -180,6 +188,7 @@ const (
 	pathIndexedRecovery            = "/indexes/recovery-point"
 	pathRestoreTestingInferredMeta = "/restore-testing/inferred-metadata"
 	pathPITRMalwareScanResults     = "/scan/pitr-malware-scan-results"
+	pathBackupAccessPoint          = "/backup-access-point"
 
 	// splitTwo is the N argument for [strings.SplitN] to split into at most 2 parts.
 	splitTwo = 2
@@ -210,6 +219,7 @@ const (
 	keyScanJobID                   = "ScanJobId"
 	keyIamRoleArn                  = "IamRoleArn"
 	keyTieringConfigurations       = "TieringConfigurations"
+	keyAccessPointArn              = "AccessPointArn"
 
 	// Status value constants.
 	statusCompleted = "COMPLETED"
@@ -374,5 +384,16 @@ func supportedOpsExtended() []string {
 		opUpdateRecoveryPointLifecycle,
 		opUpdateRegionSettings,
 		opUpdateTieringConfiguration,
+	}
+}
+
+func supportedOpsBackupAccessPoints() []string {
+	return []string{
+		opCreateBackupAccessPoint,
+		opDeleteBackupAccessPoint,
+		opDescribeBackupAccessPoint,
+		opListBackupAccessPoints,
+		opListBackupAccessPointsByRecoveryPoint,
+		opListBackupAccessPointsByResource,
 	}
 }

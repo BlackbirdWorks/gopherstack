@@ -80,6 +80,12 @@ func (b *InMemoryBackend) Reset() {
 		}
 	}
 
+	for _, bap := range b.backupAccessPoints.All() {
+		if bap.Tags != nil {
+			bap.Tags.Close()
+		}
+	}
+
 	// Resets every table (and index) registered in store_setup.go.
 	b.registry.ResetAll()
 

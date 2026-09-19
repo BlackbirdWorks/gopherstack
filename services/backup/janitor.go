@@ -17,6 +17,7 @@ const (
 	jobSweeperComponent                = "CompletedJobSweeper"
 	jobAdvanceComponent                = "CreatedJobAdvancer"
 	restoreAccessVaultAdvanceComponent = "RestoreAccessVaultAdvancer"
+	backupAccessPointAdvanceComponent  = "BackupAccessPointAdvancer"
 )
 
 // isTerminalJob reports whether the given backup job state is terminal.
@@ -69,6 +70,7 @@ func (j *Janitor) Run(ctx context.Context) {
 func (j *Janitor) SweepOnce(ctx context.Context) {
 	j.advanceCreatedJobs(ctx)
 	j.advanceRestoreAccessVaults(ctx)
+	j.advanceBackupAccessPoints(ctx)
 	j.sweepCompletedJobs(ctx)
 }
 
@@ -142,6 +144,55 @@ func (j *Janitor) advanceRestoreAccessVaults(ctx context.Context) {
 
 	logger.Load(ctx).InfoContext(
 		ctx, "Backup janitor: restore access vaults became available", "count", len(toAdvance),
+	)
+}
+
+// advanceBackupAccessPoints completes backup access points still in the
+// CREATING state, moving them to AVAILABLE and populating the
+// S3AccessPointArn/S3AccessPointAlias keys real AWS documents appearing in
+// AccessPointMetadata once available (see s3AccessPointArnFor). Same
+// synchronous-create-then-janitor-advances shape as advanceRestoreAccessVaults.
+func (j *Janitor) advanceBackupAccessPoints(ctx context.Context) {
+	var toAdvance []string
+
+	j.Backend.mu.RLock("BackupJanitorAdvanceBackupAccessPointsLock")
+	for _, bap := range j.Backend.backupAccessPoints.All() {
+		if bap.Status == statusCreating {
+			toAdvance = append(toAdvance, bap.AccessPointArn)
+		}
+	}
+	j.Backend.mu.RUnlock()
+
+	if len(toAdvance) == 0 {
+		return
+	}
+
+	j.Backend.mu.Lock("BackupJanitorAdvanceBackupAccessPointsLock")
+	for _, accessPointArn := range toAdvance {
+		bap, ok := j.Backend.backupAccessPoints.Get(accessPointArn)
+		if !ok || bap.Status != statusCreating {
+			continue
+		}
+
+		bap.Status = statusAvailable
+		if bap.AccessPointMetadata == nil {
+			bap.AccessPointMetadata = map[string]string{}
+		}
+
+		bap.AccessPointMetadata["S3AccessPointArn"] = s3AccessPointArnFor(
+			j.Backend.region, j.Backend.accountID, bap.Name,
+		)
+		bap.AccessPointMetadata["S3AccessPointAlias"] = s3AccessPointAliasFor(
+			j.Backend.accountID, bap.Name,
+		)
+	}
+	j.Backend.mu.Unlock()
+
+	telemetry.RecordWorkerTask(backupWorkerServiceName, backupAccessPointAdvanceComponent, "success")
+	telemetry.RecordWorkerItems(backupWorkerServiceName, backupAccessPointAdvanceComponent, len(toAdvance))
+
+	logger.Load(ctx).InfoContext(
+		ctx, "Backup janitor: backup access points became available", "count", len(toAdvance),
 	)
 }
 
