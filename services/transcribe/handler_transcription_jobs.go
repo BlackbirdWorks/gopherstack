@@ -210,6 +210,7 @@ type transcriptionJobSummary struct {
 }
 
 type listTranscriptionJobsOutput struct {
+	Status                    string                    `json:"Status,omitempty"`
 	NextToken                 string                    `json:"NextToken,omitempty"`
 	TranscriptionJobSummaries []transcriptionJobSummary `json:"TranscriptionJobSummaries"`
 }
@@ -265,6 +266,7 @@ func (h *Handler) handleListTranscriptionJobs(
 	return &listTranscriptionJobsOutput{
 		TranscriptionJobSummaries: summaries,
 		NextToken:                 nextToken,
+		Status:                    in.Status,
 	}, nil
 }
 

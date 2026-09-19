@@ -188,6 +188,7 @@ func buildMedicalScribeJobSummary(job *MedicalScribeJob) medicalScribeJobSummary
 }
 
 type listMedicalScribeJobsOutput struct {
+	Status                    string                    `json:"Status,omitempty"`
 	NextToken                 string                    `json:"NextToken,omitempty"`
 	MedicalScribeJobSummaries []medicalScribeJobSummary `json:"MedicalScribeJobSummaries"`
 }
@@ -206,6 +207,7 @@ func (h *Handler) handleListMedicalScribeJobs(
 	return &listMedicalScribeJobsOutput{
 		MedicalScribeJobSummaries: summaries,
 		NextToken:                 nextToken,
+		Status:                    in.Status,
 	}, nil
 }
 

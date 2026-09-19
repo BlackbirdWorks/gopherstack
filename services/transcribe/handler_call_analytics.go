@@ -246,6 +246,7 @@ type callAnalyticsJobSummary struct {
 }
 
 type listCallAnalyticsJobsOutput struct {
+	Status                    string                    `json:"Status,omitempty"`
 	NextToken                 string                    `json:"NextToken,omitempty"`
 	CallAnalyticsJobSummaries []callAnalyticsJobSummary `json:"CallAnalyticsJobSummaries"`
 }
@@ -282,6 +283,7 @@ func (h *Handler) handleListCallAnalyticsJobs(
 	return &listCallAnalyticsJobsOutput{
 		CallAnalyticsJobSummaries: summaries,
 		NextToken:                 nextToken,
+		Status:                    in.Status,
 	}, nil
 }
 
