@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
-last_audit_commit: da8db2cd3
-last_audit_date: 2026-09-18
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_date: 2026-09-19
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
                             # 80 ops, from the pinned SDK Output structs directly, not by grep) for the
@@ -1595,3 +1595,8 @@ clean, `go test -race -count=1 ./services/ssm/...` and
 `pkgs/persistence/testdata/snapshot_inventory.json` version bump: the one
 persisted-shape change (`MaintenanceWindowTask.CutoffBehavior`) is
 additive-only.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. Janitor StartWorker test call sites already
+cancel their ctx via `context.WithCancel(t.Context())`. `go test -race -count=2` clean.

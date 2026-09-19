@@ -1,7 +1,7 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: 49cff86c4
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
 last_audit_date: 2026-09-19
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
@@ -959,3 +959,8 @@ field from the wire struct and the backend constructor; call sites that
 asserted on it now verify the disabled state via a follow-up DescribeKey
 instead. Proof: `TestHandlerCancelKeyDeletionReturnsBody` asserts `KeyState`
 is absent from the raw response.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. StartWorker is never called outside its own
+definition; no test exercises the janitor goroutine. `go test -race -count=2` clean.

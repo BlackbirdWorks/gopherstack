@@ -1,8 +1,8 @@
 ---
 service: sts
 sdk_module: aws-sdk-go-v2/service/sts@v1.49.0   # version audited against (pinned in go.mod)
-last_audit_commit: bfc0729e6                    # HEAD before this pass's changes
-last_audit_date: 2026-08-20
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_date: 2026-09-19
 overall: A                # 2026-08-29: errcodeaudit ERROR-path sweep. 2 confident findings
                            # (handler.go:335,337 "Sender"/"Receiver"), both verified clean false
                            # positives. These are the Query-protocol XML error envelope's <Type>
@@ -577,3 +577,8 @@ gap (`ErrIDPRejectedClaim` coalesced into `AccessDenied` in
 `mapNamedExceptionToCode`, `handler.go:310`) remains dead code -- still
 never constructed anywhere in `services/sts/*.go` (grep-confirmed), so
 there is no live wire response for it to be a bug in yet. No changes made.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. Janitor StartWorker call sites already cancel
+their ctx via `context.WithCancel(t.Context())`. `go test -race -count=2` clean.

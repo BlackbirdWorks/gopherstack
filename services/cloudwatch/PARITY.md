@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.71.0
-last_audit_commit: ee2e6b5b4
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
 last_audit_date: 2026-09-19
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
                       # matched PutMetricData records to their configured Firehose delivery stream
@@ -1319,3 +1319,9 @@ Added `metricRecord.LastDatapoint` (additive, no version bump). `SweepExpiredMet
 now evicts a whole series once idle past the documented 2-week `ListMetrics`
 window (`api_op_ListMetrics.go`); `ListMetrics` honours that window unconditionally,
 even before a sweep runs. Alarms on an evicted series read INSUFFICIENT_DATA.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. StartWorker's janitor goroutine is only started
+by explicit test/production calls, all already ctx-cancelled; `go test
+-race -count=2` clean, no leak found, no production change needed.

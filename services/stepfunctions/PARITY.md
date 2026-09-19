@@ -1,8 +1,8 @@
 ---
 service: stepfunctions
 sdk_module: aws-sdk-go-v2/service/sfn@v1.49.0
-last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_date: 2026-09-19
 overall: A            # Re-audit against `43aa6d65` baseline (2026-07-11 zero-drift pass). This
                        # pass found real drift/gaps despite the "zero drift" label: two commits
                        # ("Parity 4" efc42cbc, "Go refactoring 2" 9d7e36e0) landed on
@@ -1216,3 +1216,8 @@ SDK client: `Test_SDKRoundTrip_StateMachineAlias_UpdateDate` and
 `TestUpdateStateMachineAlias_InvalidRoutingConfig_RealClient` now call
 `client.CreateStateMachineAlias` directly instead of the previous
 backend-only workaround documented in both tests' prior comments.
+
+## 2026-09-19 goleak TestMain re-verification (gopherstack-1x2u0)
+
+`leak_main_test.go` and `Destroy()` (cancels execution goroutines) already
+existed from a prior pass; re-ran `go test -race -count=2`, still clean.

@@ -1,8 +1,8 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
-last_audit_commit: d4dc4a723
-last_audit_date: 2026-09-18
+last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
                        # so it was silently unused rather than required (validateOpGetLogFieldsInput
@@ -1035,3 +1035,8 @@ DescribeAccountPolicies read a "maxResults" field its real Input
 page-size member at all. Removed the field; pagination now always uses the
 existing default page size (50). See
 `TestDescribeAccountPolicies_DefaultPagination`.
+
+## 2026-09-19 goleak TestMain (gopherstack-1x2u0 leak-audit sweep)
+
+Added `leak_main_test.go`. Backend already had `Close()`; janitor StartWorker
+call sites already cancel their ctx. `go test -race -count=2` clean.
