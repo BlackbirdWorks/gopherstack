@@ -80,8 +80,12 @@ func TestDescribeEnvironmentHealth_HealthStatusEnum(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	// AttributeNames: All -- the real documented default (no AttributeNames
+	// at all) returns only EnvironmentName, see
+	// TestDescribeEnvironmentHealth_AttributeNamesFilter below.
 	byName, err := client.DescribeEnvironmentHealth(t.Context(), &ebsdk.DescribeEnvironmentHealthInput{
 		EnvironmentName: aws.String("eb-health-env"),
+		AttributeNames:  []types.EnvironmentHealthAttribute{types.EnvironmentHealthAttributeAll},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, string(types.EnvironmentHealthStatusOk), aws.ToString(byName.HealthStatus))
@@ -91,6 +95,55 @@ func TestDescribeEnvironmentHealth_HealthStatusEnum(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "eb-health-env", aws.ToString(byID.EnvironmentName))
+}
+
+// TestDescribeEnvironmentHealth_AttributeNamesFilter asserts the real,
+// documented AttributeNames filter is honored: "If no attribute names are
+// specified, returns the name of the environment" (api_op_DescribeEnvironmentHealth.go).
+// Before this fix, the handler always populated HealthStatus/Status/Color/
+// RefreshedAt regardless of the request, so a default (no AttributeNames)
+// call over-emitted fields real AWS would leave absent.
+func TestDescribeEnvironmentHealth_AttributeNamesFilter(t *testing.T) {
+	t.Parallel()
+
+	client := newWireFixClient(t)
+	createTaggedApp(t, client, "eb-health-attrs-app")
+
+	_, err := client.CreateEnvironment(t.Context(), &ebsdk.CreateEnvironmentInput{
+		ApplicationName:   aws.String("eb-health-attrs-app"),
+		EnvironmentName:   aws.String("eb-health-attrs-env"),
+		SolutionStackName: aws.String("64bit Amazon Linux 2023 v4.0.0 running Python 3.11"),
+	})
+	require.NoError(t, err)
+
+	def, err := client.DescribeEnvironmentHealth(t.Context(), &ebsdk.DescribeEnvironmentHealthInput{
+		EnvironmentName: aws.String("eb-health-attrs-env"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "eb-health-attrs-env", aws.ToString(def.EnvironmentName))
+	assert.Empty(t, aws.ToString(def.HealthStatus))
+	assert.Empty(t, def.Status)
+	assert.Empty(t, aws.ToString(def.Color))
+	assert.Nil(t, def.RefreshedAt)
+
+	colorOnly, err := client.DescribeEnvironmentHealth(t.Context(), &ebsdk.DescribeEnvironmentHealthInput{
+		EnvironmentName: aws.String("eb-health-attrs-env"),
+		AttributeNames:  []types.EnvironmentHealthAttribute{types.EnvironmentHealthAttributeColor},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(colorOnly.Color))
+	assert.Empty(t, aws.ToString(colorOnly.HealthStatus))
+	assert.Empty(t, colorOnly.Status)
+
+	all, err := client.DescribeEnvironmentHealth(t.Context(), &ebsdk.DescribeEnvironmentHealthInput{
+		EnvironmentName: aws.String("eb-health-attrs-env"),
+		AttributeNames:  []types.EnvironmentHealthAttribute{types.EnvironmentHealthAttributeAll},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(all.HealthStatus))
+	assert.NotEmpty(t, all.Status)
+	assert.NotEmpty(t, aws.ToString(all.Color))
+	assert.NotNil(t, all.RefreshedAt)
 }
 
 // TestDescribeEnvironments_VersionLabelFilter asserts the real
@@ -396,4 +449,70 @@ func TestListPlatformBranches_FilterMultipleValues_OrMatch(t *testing.T) {
 	assert.Contains(t, names, "Ruby")
 	assert.NotContains(t, names, "Node.js",
 		"filter must exclude non-matching platforms while OR-matching every listed value")
+}
+
+// TestCreateApplication_ResourceLifecycleConfig_VersionLifecycleRules proves
+// CreateApplicationInput.ResourceLifecycleConfig.VersionLifecycleConfig
+// (api_op_CreateApplication.go's ResourceLifecycleConfig member, real
+// MaxAgeRule/MaxCountRule sub-shapes) round-trips through
+// DescribeApplications -- previously accepted nowhere in handleCreateApplication
+// (see PARITY.md items_still_open); only UpdateApplicationResourceLifecycle's
+// own ServiceRole was read anywhere.
+func TestCreateApplication_ResourceLifecycleConfig_VersionLifecycleRules(t *testing.T) {
+	t.Parallel()
+
+	client := newWireFixClient(t)
+
+	_, err := client.CreateApplication(t.Context(), &ebsdk.CreateApplicationInput{
+		ApplicationName: aws.String("eb-lifecycle-app"),
+		ResourceLifecycleConfig: &types.ApplicationResourceLifecycleConfig{
+			ServiceRole: aws.String("arn:aws:iam::123456789012:role/eb-lifecycle"),
+			VersionLifecycleConfig: &types.ApplicationVersionLifecycleConfig{
+				MaxCountRule: &types.MaxCountRule{
+					Enabled:  aws.Bool(true),
+					MaxCount: aws.Int32(10),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeApplications(t.Context(), &ebsdk.DescribeApplicationsInput{
+		ApplicationNames: []string{"eb-lifecycle-app"},
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Applications, 1)
+
+	cfg := out.Applications[0].ResourceLifecycleConfig
+	require.NotNil(t, cfg, "ResourceLifecycleConfig must round-trip once set at creation")
+	assert.Equal(t, "arn:aws:iam::123456789012:role/eb-lifecycle", aws.ToString(cfg.ServiceRole))
+	require.NotNil(t, cfg.VersionLifecycleConfig)
+	require.NotNil(t, cfg.VersionLifecycleConfig.MaxCountRule)
+	assert.True(t, aws.ToBool(cfg.VersionLifecycleConfig.MaxCountRule.Enabled))
+	assert.Equal(t, int32(10), aws.ToInt32(cfg.VersionLifecycleConfig.MaxCountRule.MaxCount))
+	assert.Nil(t, cfg.VersionLifecycleConfig.MaxAgeRule)
+
+	// UpdateApplicationResourceLifecycle can independently set MaxAgeRule
+	// while leaving the already-stored ServiceRole/MaxCountRule untouched
+	// (ServiceRole's own doc: "you don't need to specify it again").
+	upd, err := client.UpdateApplicationResourceLifecycle(t.Context(), &ebsdk.UpdateApplicationResourceLifecycleInput{
+		ApplicationName: aws.String("eb-lifecycle-app"),
+		ResourceLifecycleConfig: &types.ApplicationResourceLifecycleConfig{
+			VersionLifecycleConfig: &types.ApplicationVersionLifecycleConfig{
+				MaxAgeRule: &types.MaxAgeRule{
+					Enabled:      aws.Bool(true),
+					MaxAgeInDays: aws.Int32(30),
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t, "arn:aws:iam::123456789012:role/eb-lifecycle", aws.ToString(upd.ResourceLifecycleConfig.ServiceRole),
+	)
+	require.NotNil(t, upd.ResourceLifecycleConfig.VersionLifecycleConfig.MaxAgeRule)
+	assert.Equal(t, int32(30), aws.ToInt32(upd.ResourceLifecycleConfig.VersionLifecycleConfig.MaxAgeRule.MaxAgeInDays))
+	require.NotNil(t, upd.ResourceLifecycleConfig.VersionLifecycleConfig.MaxCountRule,
+		"a prior MaxCountRule must survive an update that only sets MaxAgeRule")
+	assert.Equal(t, int32(10), aws.ToInt32(upd.ResourceLifecycleConfig.VersionLifecycleConfig.MaxCountRule.MaxCount))
 }

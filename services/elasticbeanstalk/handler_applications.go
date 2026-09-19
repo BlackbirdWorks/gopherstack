@@ -49,15 +49,11 @@ func toApplicationDesc(app *Application, configTemplateNames, versionLabels []st
 	}
 
 	// ResourceLifecycleConfig is only rendered once a lifecycle service role
-	// has been set via UpdateApplicationResourceLifecycle: the backend stores
-	// it on the Application, but until this field existed it was never
-	// surfaced back through CreateApplication/DescribeApplications/
-	// UpdateApplication, making the stored value permanently unreadable.
-	var lifecycleConfig *applicationResourceLifecycleConfig
-	if app.ResourceLifecycleServiceRole != "" {
-		lifecycleConfig = &applicationResourceLifecycleConfig{ServiceRole: app.ResourceLifecycleServiceRole}
-	}
-
+	// or version lifecycle rule has been set (via CreateApplication or
+	// UpdateApplicationResourceLifecycle): the backend stores it on the
+	// Application, but until this field existed it was never surfaced back
+	// through CreateApplication/DescribeApplications/UpdateApplication,
+	// making the stored value permanently unreadable.
 	return applicationDescType{
 		ApplicationName:         app.ApplicationName,
 		ApplicationArn:          app.ApplicationARN,
@@ -66,7 +62,7 @@ func toApplicationDesc(app *Application, configTemplateNames, versionLabels []st
 		DateUpdated:             app.DateUpdated,
 		ConfigurationTemplates:  templates,
 		Versions:                versions,
-		ResourceLifecycleConfig: lifecycleConfig,
+		ResourceLifecycleConfig: toApplicationResourceLifecycleConfig(app),
 	}
 }
 
@@ -116,8 +112,9 @@ func (h *Handler) handleCreateApplication(ctx context.Context, vals url.Values) 
 	description := vals.Get("Description")
 
 	tags := parseTagList(vals, "Tags.member")
+	lifecycle := parseResourceLifecycleParams(vals, "ResourceLifecycleConfig")
 
-	app, err := h.Backend.CreateApplication(ctx, name, description, tags)
+	app, err := h.Backend.CreateApplicationWithParams(ctx, name, description, tags, lifecycle)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +223,114 @@ func (h *Handler) handleDeleteApplication(ctx context.Context, vals url.Values) 
 
 // updateApplicationResourceLifecycleResponse is the XML response for UpdateApplicationResourceLifecycle.
 type applicationResourceLifecycleConfig struct {
-	ServiceRole string `xml:"ServiceRole,omitempty"`
+	VersionLifecycleConfig *applicationVersionLifecycleConfig `xml:"VersionLifecycleConfig,omitempty"`
+	ServiceRole            string                             `xml:"ServiceRole,omitempty"`
+}
+
+// applicationVersionLifecycleConfig mirrors types.ApplicationVersionLifecycleConfig.
+type applicationVersionLifecycleConfig struct {
+	MaxAgeRule   *maxAgeRuleXML   `xml:"MaxAgeRule,omitempty"`
+	MaxCountRule *maxCountRuleXML `xml:"MaxCountRule,omitempty"`
+}
+
+// maxAgeRuleXML mirrors types.MaxAgeRule.
+type maxAgeRuleXML struct {
+	Enabled            bool  `xml:"Enabled"`
+	DeleteSourceFromS3 bool  `xml:"DeleteSourceFromS3,omitempty"`
+	MaxAgeInDays       int32 `xml:"MaxAgeInDays,omitempty"`
+}
+
+// maxCountRuleXML mirrors types.MaxCountRule.
+type maxCountRuleXML struct {
+	Enabled            bool  `xml:"Enabled"`
+	DeleteSourceFromS3 bool  `xml:"DeleteSourceFromS3,omitempty"`
+	MaxCount           int32 `xml:"MaxCount,omitempty"`
+}
+
+// toApplicationResourceLifecycleConfig builds the wire ResourceLifecycleConfig
+// from app's stored lifecycle fields, or nil if none is set at all.
+func toApplicationResourceLifecycleConfig(app *Application) *applicationResourceLifecycleConfig {
+	if app.ResourceLifecycleServiceRole == "" &&
+		app.VersionLifecycleMaxAgeRule == nil &&
+		app.VersionLifecycleMaxCountRule == nil {
+		return nil
+	}
+
+	cfg := &applicationResourceLifecycleConfig{ServiceRole: app.ResourceLifecycleServiceRole}
+
+	var versionConfig *applicationVersionLifecycleConfig
+
+	if r := app.VersionLifecycleMaxAgeRule; r != nil {
+		versionConfig = &applicationVersionLifecycleConfig{}
+		versionConfig.MaxAgeRule = &maxAgeRuleXML{
+			Enabled:            r.Enabled,
+			DeleteSourceFromS3: r.DeleteSourceFromS3,
+			MaxAgeInDays:       r.MaxAgeInDays,
+		}
+	}
+
+	if r := app.VersionLifecycleMaxCountRule; r != nil {
+		if versionConfig == nil {
+			versionConfig = &applicationVersionLifecycleConfig{}
+		}
+
+		versionConfig.MaxCountRule = &maxCountRuleXML{
+			Enabled:            r.Enabled,
+			DeleteSourceFromS3: r.DeleteSourceFromS3,
+			MaxCount:           r.MaxCount,
+		}
+	}
+
+	cfg.VersionLifecycleConfig = versionConfig
+
+	return cfg
+}
+
+// parseResourceLifecycleParams parses ResourceLifecycleConfig's fields
+// (ServiceRole/VersionLifecycleConfig.MaxAgeRule/MaxCountRule) off the wire
+// under the given prefix (e.g. "ResourceLifecycleConfig" -- both
+// CreateApplication and UpdateApplicationResourceLifecycle share this exact
+// shape, api_op_CreateApplication.go/api_op_UpdateApplicationResourceLifecycle.go).
+// Returns nil if the request carried nothing at all under prefix.
+func parseResourceLifecycleParams(vals url.Values, prefix string) *ApplicationResourceLifecycleParams {
+	serviceRole := vals.Get(prefix + ".ServiceRole")
+
+	maxAgePrefix := prefix + ".VersionLifecycleConfig.MaxAgeRule."
+	maxCountPrefix := prefix + ".VersionLifecycleConfig.MaxCountRule."
+
+	var maxAgeRule *MaxAgeRule
+	if vals.Has(maxAgePrefix + "Enabled") {
+		enabled, _ := strconv.ParseBool(vals.Get(maxAgePrefix + "Enabled"))
+		deleteFromS3, _ := strconv.ParseBool(vals.Get(maxAgePrefix + "DeleteSourceFromS3"))
+		maxAgeInDays, _ := strconv.ParseInt(vals.Get(maxAgePrefix+"MaxAgeInDays"), 10, 32)
+		maxAgeRule = &MaxAgeRule{
+			Enabled:            enabled,
+			DeleteSourceFromS3: deleteFromS3,
+			MaxAgeInDays:       int32(maxAgeInDays),
+		}
+	}
+
+	var maxCountRule *MaxCountRule
+	if vals.Has(maxCountPrefix + "Enabled") {
+		enabled, _ := strconv.ParseBool(vals.Get(maxCountPrefix + "Enabled"))
+		deleteFromS3, _ := strconv.ParseBool(vals.Get(maxCountPrefix + "DeleteSourceFromS3"))
+		maxCount, _ := strconv.ParseInt(vals.Get(maxCountPrefix+"MaxCount"), 10, 32)
+		maxCountRule = &MaxCountRule{
+			Enabled:            enabled,
+			DeleteSourceFromS3: deleteFromS3,
+			MaxCount:           int32(maxCount),
+		}
+	}
+
+	if serviceRole == "" && maxAgeRule == nil && maxCountRule == nil {
+		return nil
+	}
+
+	return &ApplicationResourceLifecycleParams{
+		ServiceRole:  serviceRole,
+		MaxAgeRule:   maxAgeRule,
+		MaxCountRule: maxCountRule,
+	}
 }
 
 type updateApplicationResourceLifecycleResult struct {
@@ -247,20 +351,26 @@ func (h *Handler) handleUpdateApplicationResourceLifecycle(ctx context.Context, 
 		return nil, fmt.Errorf("%w: ApplicationName is required", ErrInvalidParameter)
 	}
 
-	serviceRole := vals.Get("ResourceLifecycleConfig.ServiceRole")
+	lifecycle := parseResourceLifecycleParams(vals, "ResourceLifecycleConfig")
+	if lifecycle == nil {
+		lifecycle = &ApplicationResourceLifecycleParams{}
+	}
 
-	// Store lifecycle service role in the application (improvement #7)
-	if _, err := h.Backend.UpdateApplicationResourceLifecycle(ctx, appName, serviceRole); err != nil {
+	app, err := h.Backend.UpdateApplicationResourceLifecycleWithParams(ctx, appName, *lifecycle)
+	if err != nil {
 		return nil, err
+	}
+
+	cfg := toApplicationResourceLifecycleConfig(app)
+	if cfg == nil {
+		cfg = &applicationResourceLifecycleConfig{}
 	}
 
 	return &updateApplicationResourceLifecycleResponse{
 		Xmlns: ebXMLNS,
 		UpdateApplicationResourceLifecycleResult: updateApplicationResourceLifecycleResult{
-			ApplicationName: appName,
-			ResourceLifecycleConfig: applicationResourceLifecycleConfig{
-				ServiceRole: serviceRole,
-			},
+			ApplicationName:         appName,
+			ResourceLifecycleConfig: *cfg,
 		},
 		ResponseMetadata: responseMetadata{RequestID: "eb-update-app-lifecycle"},
 	}, nil

@@ -6,8 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
-last_audit_commit: c9523cebb                      # backfilled 2026-09-18 (reqfielddiff tier-1 pass); prior blank was
-  # from a pass that ran without git access -- gopherstack-33in
+last_audit_commit: 16aa469b2                      # HEAD at close of the 2026-09-18 ledger burn-down pass
 last_audit_date: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
                        #
@@ -21,14 +20,21 @@ overall: A            # A = genuine fixes found; B = already-accurate, proven op
                        # re-checked against the live API doc / pinned SDK and remain genuinely
                        # unconfirmable / structurally out of scope respectively -- left disclosed,
                        # not guessed at (see gaps).
+                       # 2026-09-18 ledger burn-down: fixed DescribeEnvironmentHealth's AttributeNames
+                       # filter (real documented default was being ignored) and CreateApplication/
+                       # UpdateApplicationResourceLifecycle's VersionLifecycleConfig accept-and-drop
+                       # bug; removed those 2 items_still_open entries. Adjudicated the remaining 12
+                       # (+2 deferred, now folded in) -- all confirmed genuinely structural on
+                       # re-reading the code, tightened to one line each. staleclaims found no hits
+                       # for this service worth acting on (see Notes).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
-  CreateApplication: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now auto-provisions a 'Default' ConfigurationTemplate (real AWS: 'Creates an application that has one configuration template named default') and the ApplicationDescription.Versions field is now populated (was always omitted)"}
+  CreateApplication: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "now auto-provisions a 'Default' ConfigurationTemplate (real AWS: 'Creates an application that has one configuration template named default') and the ApplicationDescription.Versions field is now populated (was always omitted). FIXED 2026-09-18: ResourceLifecycleConfig (ServiceRole + VersionLifecycleConfig.MaxAgeRule/MaxCountRule, api_op_CreateApplication.go) was accepted nowhere -- only UpdateApplicationResourceLifecycle's own ServiceRole was ever read, and MaxAgeRule/MaxCountRule were unread by BOTH ops. Now parsed/stored/round-tripped through DescribeApplications on both ops -- see TestCreateApplication_ResourceLifecycleConfig_VersionLifecycleRules."}
   DescribeApplications: {wire: fixed, errors: ok, state: ok, persist: ok, note: "applicationDescType now includes Versions in addition to the earlier ResourceLifecycleConfig fix"}
   UpdateApplication: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "response now includes ConfigurationTemplates/Versions like Create/DescribeApplications (previously always rendered empty)"}
   DeleteApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "cascade-delete now also removes the auto-created Default ConfigurationTemplate -- verified no ghost row survives (TestHandler_DeleteApplication_CascadesDefaultTemplate)"}
-  UpdateApplicationResourceLifecycle: {wire: ok, errors: ok, state: ok, persist: ok, note: "stored value now reachable via Describe/Create/UpdateApplication, see applicationDescType fix"}
+  UpdateApplicationResourceLifecycle: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "stored value now reachable via Describe/Create/UpdateApplication, see applicationDescType fix. FIXED 2026-09-18: VersionLifecycleConfig.MaxAgeRule/MaxCountRule (real members, api_op_UpdateApplicationResourceLifecycle.go) were unread -- now parsed/merged onto the application (a rule provided in this call replaces the stored one; an omitted rule or ServiceRole leaves the existing stored value untouched, matching ServiceRole's own documented leniency), see CreateApplication's entry."}
   CreateApplicationVersion: {wire: ok, errors: fixed, state: fixed, persist: ok, note: "was not validating parent Application exists when AutoCreateApplication=false (AWS-documented InvalidParameterValue case); now validated. Auto-created Application now gets DateCreated/DateUpdated AND the same auto-provisioned Default ConfigurationTemplate as CreateApplication (same underlying app-creation transition)"}
   DescribeApplicationVersions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: MaxRecords/NextToken (real request/response members) were parsed nowhere -- every call returned the full unpaginated list regardless of MaxRecords, and NextToken was never emitted. Now paginated via pkgs/page. appVersionDescType.BuildArn (real ApplicationVersionDescription member, CodeBuild-deployed versions only) remains unmodeled -- see gaps."}
   UpdateApplicationVersion: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was not bumping DateUpdated; fixed"}
@@ -55,7 +61,7 @@ ops:
   ListPlatformBranches: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "static catalog with Filters.member support; acceptable emulation of a largely-static AWS list. gopherstack-6flj: MaxRecords/NextToken pagination added via pkgs/page (previously discarded, always returned the full list). BranchOrder/SupportedTierList (real PlatformBranchSummary members) remain unmodeled -- see gaps. FIXED 2026-08-30 (gopherstack-6flj wrapper-key sweep): same Values.member-truncated-to-first-value bug as ListPlatformVersions (both share the identical Filters.member.N.Values.member.M wire shape) -- fixed identically."}
   ListAvailableSolutionStacks: {wire: ok, errors: ok, state: ok, persist: n/a, note: "static catalog; acceptable"}
   DescribeAccountAttributes: {wire: ok, errors: ok, state: ok, persist: n/a}
-  DescribeEnvironmentHealth: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-6flj: HealthStatus was populated from this backend's internal color label (envHealthGreen, 'Green') -- 'Green' is not a member of the real EnvironmentHealthStatus enum at all (that's the separate EnvironmentHealth/Color enum); fixed to always emit 'Ok' (envHealthStatusOk), matching this backend's invariant Green/Ready state. EnvironmentId (real input, alternate to EnvironmentName) was also parsed nowhere -- fixed."}
+  DescribeEnvironmentHealth: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "gopherstack-6flj: HealthStatus was populated from this backend's internal color label (envHealthGreen, 'Green') -- 'Green' is not a member of the real EnvironmentHealthStatus enum at all (that's the separate EnvironmentHealth/Color enum); fixed to always emit 'Ok' (envHealthStatusOk), matching this backend's invariant Green/Ready state. EnvironmentId (real input, alternate to EnvironmentName) was also parsed nowhere -- fixed. FIXED 2026-09-18: AttributeNames request filter was ignored entirely -- real AWS's documented default ('If no attribute names are specified, returns the name of the environment') means HealthStatus/Status/Color/RefreshedAt should be ABSENT by default, not always emitted. Now honored (default: EnvironmentName only; 'All' or named attributes populate the corresponding fields this backend tracks) -- see TestDescribeEnvironmentHealth_AttributeNamesFilter. ApplicationMetrics/Causes/InstancesHealth remain unmodeled, see items_still_open."}
   DescribeInstancesHealth: {wire: fixed, errors: ok, state: n/a, persist: n/a, note: "always returns empty list -- correct since the backend never models EC2 instances; not a disguised stub. gopherstack-6flj: RefreshedAt (real *time.Time member) was never emitted at all -- omitting it decodes as a nil pointer on a typed client, unlike the always-empty (but non-nil) InstanceHealthList a real client already expects to handle as zero-length. Fixed using the same placeholder DescribeEnvironmentHealth uses."}
   DescribeEnvironmentManagedActions: {wire: ok, errors: ok, state: n/a, persist: n/a, note: "always empty -- correct, backend never schedules future actions"}
   DescribeEnvironmentManagedActionHistory: {wire: fixed, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: EnvironmentId (real input, alternate to EnvironmentName) was parsed nowhere -- fixed. ExecutedTime (real ManagedActionHistoryItem member) was never emitted -- fixed as equal to FinishedTime (this backend applies managed actions synchronously, so there is no observable gap between start and finish). MaxItems/NextToken pagination added via pkgs/page. FailureDescription/FailureType remain unmodeled -- see gaps (Status is always 'Succeeded', no failure path exists to describe)."}
@@ -82,27 +88,95 @@ families:
   Create/UpdateConfigurationTemplate response shape: {status: fixed, note: "real CreateConfigurationTemplateOutput and UpdateConfigurationTemplateOutput are NOT a bespoke small type -- they are the exact same ConfigurationSettingsDescription shape DescribeConfigurationSettings returns (ApplicationName/TemplateName/Description/DateCreated/DateUpdated/DeploymentStatus/OptionSettings/PlatformArn/SolutionStackName; confirmed by reading api_op_CreateConfigurationTemplate.go/api_op_UpdateConfigurationTemplate.go in the SDK module). The previous 4-field configurationTemplateDescType silently dropped DateCreated/DateUpdated/OptionSettings/PlatformArn from both responses. Unified onto configurationSettingsDescType via toConfigurationSettingsDesc, shared with DescribeConfigurationSettings' template branch."}
 gaps: []
 items_still_open:
-  - "DescribeConfigurationOptions applies one fixed, curated ~48-option catalog across 16 namespaces regardless of the resolved SolutionStackName/PlatformArn; real AWS returns hundreds of platform-specific options with per-platform default values that vary by solution stack. This pass replaced the previous request-blind 3-option stub with a real, filterable, multi-field catalog (see ops table), which is a substantial improvement, but a genuine per-platform option catalog remains out of scope (large effort: would need a per-solution-stack option table). Not reclassified to ok."
-  - "CreateApplication behavior on a duplicate ApplicationName (idempotent-return-existing vs InvalidParameterValue error) still could not be confirmed with high confidence. Re-checked this pass via the official CreateApplication API doc and AWS CLI reference: the only documented error is TooManyApplications; the ApplicationName parameter's own documentation does not state duplicate-name behavior explicitly (unlike CreateApplicationVersion's VersionLabel, which does document 'If an application version already exists ... returns an InvalidParameterValue error'). Left unchanged (still errors via ErrAlreadyExists) to avoid an unverified behavior change; worth confirming against real AWS before altering. Re-verified 2026-09-11 (gopherstack-hoky): fetched the live CreateApplication API reference and the pinned SDK's error deserializer (aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4 deserializers.go) again -- same conclusion, only TooManyApplicationsException is modeled/documented, nothing for a duplicate name either way. Current behavior (errors, doesn't silently overwrite) confirmed to already be the safer of the two undocumented options; left unchanged."
-  - "(gopherstack-6flj) ApplicationVersionDescription.BuildArn (CodeBuild-deployed version's build ARN) is not modeled -- this backend has no CodeBuild integration anywhere; SourceBuildInformation is stored-but-unvalidated the same way, so there is no real ARN to source."
-  - "(gopherstack-6flj) EnvironmentDescription.Resources (nested LoadBalancerDescription: Domain/Listeners/LoadBalancerName) and EnvironmentLinks are not modeled on environmentDescType -- DescribeEnvironmentResources already fabricates a name-only LoadBalancer entry for a *different*, wider response shape (EnvironmentResourceDescription), but extending that same name-only convention to every environmentDescType-returning op (Create/Describe/Update/Terminate/ComposeEnvironments) was judged too speculative to add without a real Domain/Listener data source; left disclosed rather than fabricated. No environment-group linking is modeled at all, so EnvironmentLinks is always genuinely empty."
-  - "(gopherstack-6flj) ManagedActionHistoryItem.FailureDescription/FailureType are not modeled -- every managed action this backend applies synchronously succeeds (Status is always 'Succeeded'), so there is no failure state to describe."
-  - "(gopherstack-6flj) DescribePlatformVersion's PlatformDescription is missing CustomAmiList/DateCreated/DateUpdated/Description/Frameworks/Maintainer/OperatingSystemName/OperatingSystemVersion/PlatformBranchLifecycleState/PlatformBranchName/PlatformCategory/PlatformLifecycleState/ProgrammingLanguages/SolutionStackName/SupportedAddonList/SupportedTierList -- same root cause as CreatePlatformVersion's existing disclosed gap (no S3 platform-definition-bundle parsing anywhere in this backend, so there is no real platform metadata beyond the four fields PlatformVersion (the domain model) tracks)."
-  - "(gopherstack-6flj) PlatformBranchSummary.BranchOrder/SupportedTierList are not modeled -- allPlatformBranches is a static, unordered curated list with no tier-compatibility concept."
-  - "(gopherstack-6flj) EventDescription.RequestId is not modeled -- this handler has no per-call unique request-ID generation anywhere at all (every op's ResponseMetadata.RequestID is a fixed literal like \"eb-create-app\"), not something specific to events to invent now."
-  - "(gopherstack-6flj) DescribeEnvironmentHealth's AttributeNames request filter (restricts which of ApplicationMetrics/Causes/Color/HealthStatus/InstancesHealth/RefreshedAt/Status are populated) is not honored -- this backend always returns its small fixed field set regardless. ApplicationMetrics/Causes/InstancesHealth (real DescribeEnvironmentHealthOutput members) are not modeled at all -- no request-metrics or per-instance health data exists in this backend (same root cause as DescribeInstancesHealth's always-empty list)."
-  - "(gopherstack-6flj) DescribeEnvironments' IncludeDeleted/IncludedDeletedBackTo filter is not modeled -- TerminateEnvironment removes the environment record outright (environmentDeleteKey), so there is no deleted-environment history to include."
-  - "(2026-09-12, gopherstack-n3zi) ListAvailableSolutionStacksOutput.SolutionStackDetails ([]types.SolutionStackDescription, each carrying PermittedFileTypes -- confirmed real via elasticbeanstalk@v1.37.4 api_op_ListAvailableSolutionStacks.go:37) is not modeled at all; listAvailableSolutionStacksResponse only emits the parallel SolutionStacks string list. PermittedFileTypes has no honest source in this backend (no per-solution-stack file-type table exists) -- disclosed rather than fabricated."
-  - "(2026-09-12, gopherstack-n3zi) CreateApplicationInput.ResourceLifecycleConfig (confirmed real via api_op_CreateApplication.go:42) is accepted nowhere in handleCreateApplication -- only UpdateApplicationResourceLifecycle's own ServiceRole is read. ApplicationResourceLifecycleConfig.VersionLifecycleConfig (MaxAgeRule/MaxCountRule, each with Enabled/DeleteSourceFromS3/MaxAgeInDays-or-MaxCount) is unread by BOTH ops -- a real client setting either rule via Create or Update always gets it silently dropped, and a real client reading it back via DescribeApplications always sees nil regardless of what it set. Not fixed this pass (scope: adding two new sub-shapes plus their storage); this pass's own round-trip test only exercises the already-correct ServiceRole field, deliberately not asserting on VersionLifecycleConfig so as not to mask the gap as tested."
-  - "(2026-09-12, gopherstack-n3zi) ComposeEnvironmentsInput.VersionLabels (the source-bundle version labels naming env.yaml manifests that this op is documented to create NEW environments from) is parsed nowhere -- InMemoryBackend.ComposeEnvironments(ctx, appName) simply returns the application's existing environments. A real client's ComposeEnvironments does not create environments in this backend at all, unlike real AWS. Full manifest-driven environment creation is a structural gap (no env.yaml parsing anywhere in this backend), not something this pass's typed-coverage scope could honestly add; this pass's own test exercises only the current (simplified) list-existing-environments behavior."
-  - "(reqfielddiff tier-1, 2026-09-18) TerminateEnvironment.TerminateResources is not read: it controls whether underlying resources (EC2/ASG/ELB) are also torn down vs retained, but this backend deletes the environment record unconditionally and models no separate underlying-resource lifecycle (DescribeEnvironmentResources reads off the same environment, which is already gone either way) -- there is no distinct state for retain-vs-terminate to gate. (bd: unfiled)"
-deferred:                 # consciously not audited this pass (scope) — next pass targets
-  - DescribeConfigurationOptions full per-platform option catalog
-  - CreateApplication idempotency-on-duplicate-name confirmation
+  - "(2026-09-18) DescribeConfigurationOptions applies one fixed, curated ~48-option catalog across 16 namespaces regardless of the resolved SolutionStackName/PlatformArn; real AWS returns hundreds of platform-specific options that vary by solution stack. Large effort (a per-solution-stack option table); not reclassified to ok."
+  - "(2026-09-18) CreateApplication behavior on a duplicate ApplicationName (idempotent-return-existing vs error) is genuinely unconfirmable: re-checked against the live API doc and the pinned SDK's error deserializer again this pass -- only TooManyApplicationsException is modeled/documented either way. Current behavior (errors via ErrAlreadyExists, never silently overwrites) is the safer of the two undocumented options; left unchanged."
+  - "(gopherstack-6flj) ApplicationVersionDescription.BuildArn is not modeled -- no CodeBuild integration anywhere in this backend, so there is no real build ARN to source."
+  - "(gopherstack-6flj) EnvironmentDescription.Resources (LoadBalancerDescription) and EnvironmentLinks are not modeled -- no real Domain/Listener/environment-group-linking data source exists in this backend to derive them from without fabricating."
+  - "(gopherstack-6flj) ManagedActionHistoryItem.FailureDescription/FailureType are not modeled -- every managed action this backend applies synchronously succeeds, so there is no failure state to describe."
+  - "(gopherstack-6flj) DescribePlatformVersion's PlatformDescription is missing most real fields (Frameworks/Maintainer/OperatingSystem*/ProgrammingLanguages/etc.) -- no S3 platform-definition-bundle parsing anywhere in this backend, so there is no real platform metadata beyond the four fields PlatformVersion tracks."
+  - "(gopherstack-6flj) PlatformBranchSummary.BranchOrder/SupportedTierList are not modeled -- allPlatformBranches is a static curated list; assigning real-looking order numbers or tier lists without a verified per-branch source would be fabrication, not disclosure."
+  - "(gopherstack-6flj) EventDescription.RequestId is not modeled -- no per-call unique request-ID generation exists anywhere in this handler (every op's ResponseMetadata.RequestID is a fixed literal), not something specific to events to invent in isolation."
+  - "(gopherstack-6flj) DescribeEnvironmentHealthOutput.ApplicationMetrics/Causes/InstancesHealth are not modeled at all -- no request-metrics or per-instance health data exists in this backend (same root cause as DescribeInstancesHealth's always-empty list). AttributeNames filtering of the fields this backend DOES track was fixed 2026-09-18, see ops table."
+  - "(gopherstack-6flj) DescribeEnvironments' IncludeDeleted/IncludedDeletedBackTo filter is not modeled -- TerminateEnvironment removes the environment record outright, so there is no deleted-environment history to include; retrofitting a tombstone would touch environment identity/uniqueness and cascade-delete invariants across the whole service, out of scope for this pass."
+  - "(2026-09-12, gopherstack-n3zi) ListAvailableSolutionStacksOutput.SolutionStackDetails (PermittedFileTypes per solution stack) is not modeled -- no per-solution-stack file-type table exists in this backend; disclosed rather than fabricated."
+  - "(2026-09-12, gopherstack-n3zi) ComposeEnvironmentsInput.VersionLabels (env.yaml-manifest-driven new-environment creation) is parsed nowhere -- ComposeEnvironments here just lists the application's existing environments. Full manifest parsing is a structural gap (no env.yaml support anywhere in this backend)."
+  - "(reqfielddiff tier-1, 2026-09-18) TerminateEnvironment.TerminateResources is not read -- this backend deletes the environment record unconditionally and models no separate underlying-resource (EC2/ASG/ELB) lifecycle for retain-vs-terminate to gate. (bd: unfiled)"
+deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; store.Table/Index-backed maps, coarse lockmetrics.RWMutex per backend -- consistent with pkgs-catalog.md guidance. createDefaultConfigurationTemplate is a private, non-locking helper always called with b.mu already held by its caller (CreateApplication/CreateApplicationVersionWithParams) -- verified no double-lock/deadlock. No new leak surface introduced this pass."}
 ---
 
 ## Notes
+
+### 2026-09-18: ledger burn-down -- 2 real fixes, 12 items confirmed structural
+
+Adjudicated every `items_still_open`/`deferred` entry (16 total) one at a time
+against the code at HEAD and the pinned SDK, not just the manifest prose.
+
+**Fixed (real behaviour, class b):**
+- `DescribeEnvironmentHealth`'s `AttributeNames` request filter was ignored
+  entirely -- the handler always populated `HealthStatus`/`Status`/`Color`/
+  `RefreshedAt` regardless of the request. Real AWS's documented default ("If
+  no attribute names are specified, returns the name of the environment")
+  means those fields should be ABSENT by default, not always emitted --
+  confirmed against `api_op_DescribeEnvironmentHealth.go`. Now honored: no
+  `AttributeNames` returns only `EnvironmentName`; `All` or named attributes
+  populate the corresponding fields this backend tracks (`ApplicationMetrics`/
+  `Causes`/`InstancesHealth` remain unmodeled, see items_still_open). Proven
+  with `TestDescribeEnvironmentHealth_AttributeNamesFilter`, a real
+  `aws-sdk-go-v2` client test; the pre-existing
+  `TestDescribeEnvironmentHealth_HealthStatusEnum` was updated to pass
+  `AttributeNames: All` since it was relying on the buggy always-emit default.
+- `CreateApplicationInput.ResourceLifecycleConfig` and
+  `UpdateApplicationResourceLifecycleInput.ResourceLifecycleConfig` both
+  accepted `ServiceRole` but silently dropped
+  `VersionLifecycleConfig.MaxAgeRule`/`MaxCountRule` (real sub-shapes,
+  `api_op_CreateApplication.go`/`api_op_UpdateApplicationResourceLifecycle.go`)
+  -- a real client setting either rule got it silently discarded, and reading
+  it back via `DescribeApplications` always saw nil. `CreateApplication` also
+  never read `ResourceLifecycleConfig` at all (only `UpdateApplicationResourceLifecycle`
+  did, and only its `ServiceRole`). Fixed: `Application` gained
+  `VersionLifecycleMaxAgeRule`/`VersionLifecycleMaxCountRule`;
+  `CreateApplicationWithParams`/`UpdateApplicationResourceLifecycleWithParams`
+  merge a parsed `ApplicationResourceLifecycleParams` onto the application (a
+  rule provided in the call replaces the stored one; an omitted rule or
+  `ServiceRole` leaves the existing stored value untouched, matching
+  `ServiceRole`'s own documented leniency); `toApplicationResourceLifecycleConfig`
+  renders the full shape back through `CreateApplication`/`DescribeApplications`/
+  `UpdateApplication`/`UpdateApplicationResourceLifecycle`. Proven with
+  `TestCreateApplication_ResourceLifecycleConfig_VersionLifecycleRules`, a real
+  SDK client test covering both ops and the "update sets MaxAgeRule without
+  clobbering a prior MaxCountRule" merge case. Both fixes confirmed failing
+  pre-fix by swapping in the pre-fix `applications.go`/`models.go`/
+  `handler_applications.go`/`handler_environments.go` (copy-aside, not
+  stashed -- this session shares its working tree with other agents),
+  re-running, and restoring. `Application.VersionLifecycleMaxAgeRule`/
+  `VersionLifecycleMaxCountRule` and the new `MaxAgeRule`/`MaxCountRule`
+  types are additive-only on `backendSnapshot`; `pkgs/persistence`'s
+  `TestSnapshotVersionGuard` classified it as bookkeeping (no version bump)
+  and `testdata/snapshot_inventory.json`'s elasticbeanstalk entry was
+  refreshed accordingly (text-spliced, not regenerated -- see gates below).
+
+**Kept, tightened (class c, structural):** the remaining 12 entries (2 former
+`deferred` items folded in as duplicates of already-listed ones) all describe
+either genuinely unmodeled subsystems this backend has no honest data source
+for (CodeBuild build ARNs, EC2/ELB resources, S3 platform-definition bundles,
+env.yaml manifests, per-call request IDs, per-solution-stack option/file-type
+catalogs) or a product decision that re-verified as still unconfirmable
+(CreateApplication duplicate-name behavior). None were fixable without
+fabricating data this backend has no real source for, or without a
+materially larger architectural change (e.g. `IncludeDeleted` would need a
+tombstone lifecycle touching environment identity/uniqueness across the
+service) -- see items_still_open for the one-line reason on each.
+
+`cmd/staleclaims` was run first and produced zero candidates worth acting on
+for this service -- reading the code directly (not the tool) is what found
+both real fixes above.
+
+Gates: `gofmt -l services/elasticbeanstalk` clean. `go build ./services/elasticbeanstalk/`
+and `go vet ./services/elasticbeanstalk/` clean (`go build ./...` also clean
+whole-module). `go test -race -count=1 ./services/elasticbeanstalk/...` and
+`go test -count=1 ./pkgs/persistence/` pass. `golangci-lint run
+./services/elasticbeanstalk/` 0 issues. No `go.mod`/`go.sum` change.
 
 ### 2026-09-18 (reqfielddiff tier-1): TerminateEnvironment.TerminateResources -- missing feature
 
