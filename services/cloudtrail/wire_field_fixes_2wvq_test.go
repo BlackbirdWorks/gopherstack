@@ -103,3 +103,50 @@ func TestDescribeQuery_AliasOptionalQueryID(t *testing.T) {
 		require.Error(t, err)
 	})
 }
+
+// TestStartQuery_EventDataStoreOwnerAccountIdPersists covers the second half
+// of gopherstack-2wvq's StartQuery accept-and-drop finding: an explicit
+// EventDataStoreOwnerAccountId was echoed back in StartQuery's own response
+// but never stored on the created Query, so a later DescribeQuery on that
+// query reported no owner even though one was supplied at creation
+// (cloudtrail@v1.58.4 api_op_DescribeQuery.go:34-36 declares
+// DescribeQueryOutput.EventDataStoreOwnerAccountId).
+func TestStartQuery_EventDataStoreOwnerAccountIdPersists(t *testing.T) {
+	t.Parallel()
+
+	backend := cloudtrail.NewInMemoryBackend("123456789012", "us-east-1")
+	client := newTestCloudTrailClient(t, cloudtrail.NewHandler(backend))
+
+	t.Run("explicit owner id survives to describequery", func(t *testing.T) {
+		t.Parallel()
+
+		start, err := client.StartQuery(t.Context(), &cloudtrailsdk.StartQueryInput{
+			QueryStatement:               aws.String("SELECT 1 -- 2wvq-owner-explicit"),
+			EventDataStoreOwnerAccountId: aws.String("999999999999"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "999999999999", aws.ToString(start.EventDataStoreOwnerAccountId))
+
+		desc, err := client.DescribeQuery(t.Context(), &cloudtrailsdk.DescribeQueryInput{
+			QueryId: start.QueryId,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "999999999999", aws.ToString(desc.EventDataStoreOwnerAccountId))
+	})
+
+	t.Run("omitted owner id defaults to the backend account on both ops", func(t *testing.T) {
+		t.Parallel()
+
+		start, err := client.StartQuery(t.Context(), &cloudtrailsdk.StartQueryInput{
+			QueryStatement: aws.String("SELECT 1 -- 2wvq-owner-default"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "123456789012", aws.ToString(start.EventDataStoreOwnerAccountId))
+
+		desc, err := client.DescribeQuery(t.Context(), &cloudtrailsdk.DescribeQueryInput{
+			QueryId: start.QueryId,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "123456789012", aws.ToString(desc.EventDataStoreOwnerAccountId))
+	})
+}

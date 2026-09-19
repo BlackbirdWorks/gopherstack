@@ -4877,6 +4877,7 @@
       "EventDataStore.FederationRoleArn string `json:\"federationRoleArn,omitempty\"`",
       "EventDataStore.FederationStatus string `json:\"federationStatus,omitempty\"`",
       "EventDataStore.InsightSelectors []InsightSelector `json:\"insightSelectors,omitempty\"`",
+      "EventDataStore.InsightsDestination string `json:\"insightsDestination,omitempty\"`",
       "EventDataStore.KMSKeyID string `json:\"kmsKeyId,omitempty\"`",
       "EventDataStore.MultiRegionEnabled bool `json:\"multiRegionEnabled\"`",
       "EventDataStore.Name string `json:\"name\"`",

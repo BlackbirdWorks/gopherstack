@@ -93,25 +93,27 @@ func (b *InMemoryBackend) GetInsightSelectors(trailNameOrARN string) (string, []
 	return t.TrailARN, cp, nil
 }
 
-// GetEDSInsightSelectors returns insight selectors for an event data store.
+// GetEDSInsightSelectors returns insight selectors for an event data store,
+// along with the destination event data store ARN (InsightsDestination) that
+// was set alongside them by PutEDSInsightSelectors.
 // AWS returns InsightNotEnabledException when no insight selectors are configured.
-func (b *InMemoryBackend) GetEDSInsightSelectors(edsIDOrARN string) (string, []InsightSelector, error) {
+func (b *InMemoryBackend) GetEDSInsightSelectors(edsIDOrARN string) (string, string, []InsightSelector, error) {
 	b.mu.RLock("GetEDSInsightSelectors")
 	defer b.mu.RUnlock()
 
 	eds := b.findEventDataStoreLocked(edsIDOrARN)
 	if eds == nil {
-		return "", nil, fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
+		return "", "", nil, fmt.Errorf("%w: event data store %s not found", ErrNotFound, edsIDOrARN)
 	}
 	if len(eds.InsightSelectors) == 0 {
-		return "", nil, fmt.Errorf(
+		return "", "", nil, fmt.Errorf(
 			"%w: event data store %s does not have Insights enabled", ErrInsightNotEnabled, edsIDOrARN,
 		)
 	}
 	cp := make([]InsightSelector, len(eds.InsightSelectors))
 	copy(cp, eds.InsightSelectors)
 
-	return eds.EventDataStoreARN, cp, nil
+	return eds.EventDataStoreARN, eds.InsightsDestination, cp, nil
 }
 
 // GetEventConfiguration returns the event configuration for a trail or event
@@ -162,9 +164,13 @@ func (b *InMemoryBackend) ListInsightsMetricData() []float64 {
 	return []float64{}
 }
 
-// PutEDSInsightSelectors sets insight selectors for an event data store.
+// PutEDSInsightSelectors sets insight selectors for an event data store, and
+// the destination event data store ARN (InsightsDestination) that logs the
+// resulting Insights events -- PutInsightSelectorsInput.InsightsDestination,
+// required alongside EventDataStore to enable Insights on an event data
+// store (cloudtrail@v1.58.4 api_op_PutInsightSelectors.go:90-95).
 func (b *InMemoryBackend) PutEDSInsightSelectors(
-	edsIDOrARN string,
+	edsIDOrARN, insightsDestination string,
 	selectors []InsightSelector,
 ) (*EventDataStore, error) {
 	b.mu.Lock("PutEDSInsightSelectors")
@@ -176,6 +182,7 @@ func (b *InMemoryBackend) PutEDSInsightSelectors(
 	}
 	eds.InsightSelectors = make([]InsightSelector, len(selectors))
 	copy(eds.InsightSelectors, selectors)
+	eds.InsightsDestination = insightsDestination
 	eds.UpdatedTimestamp = time.Now().UTC()
 	cp := *eds
 	cp.AdvancedEventSelectors = copyAdvancedEventSelectors(eds.AdvancedEventSelectors)

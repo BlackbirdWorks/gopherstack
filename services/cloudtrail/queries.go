@@ -11,7 +11,9 @@ import (
 // optional (StartQuery accepts QueryStatement alone); when set it is stored
 // so a later DescribeQuery can resolve "the last query run for the alias" --
 // see DescribeQueryByAlias.
-func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI, queryAlias string) (*Query, error) {
+func (b *InMemoryBackend) StartQuery(
+	queryString, edsARN, deliveryS3URI, queryAlias, ownerAccountID string,
+) (*Query, error) {
 	b.mu.Lock("StartQuery")
 	defer b.mu.Unlock()
 
@@ -22,13 +24,14 @@ func (b *InMemoryBackend) StartQuery(queryString, edsARN, deliveryS3URI, queryAl
 	b.queryCounter++
 	qid := fmt.Sprintf("query-%06d", b.queryCounter)
 	q := &Query{
-		QueryID:           qid,
-		EventDataStoreARN: edsARN,
-		QueryString:       queryString,
-		QueryStatus:       "QUEUED",
-		DeliveryS3URI:     deliveryS3URI,
-		QueryAlias:        queryAlias,
-		CreationTime:      time.Now().UTC(),
+		QueryID:               qid,
+		EventDataStoreARN:     edsARN,
+		QueryString:           queryString,
+		QueryStatus:           "QUEUED",
+		DeliveryS3URI:         deliveryS3URI,
+		QueryAlias:            queryAlias,
+		EventDataStoreOwnerID: ownerAccountID,
+		CreationTime:          time.Now().UTC(),
 	}
 	b.queries.Put(q)
 

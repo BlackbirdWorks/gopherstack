@@ -31,7 +31,7 @@ func TestQueryExecution_SelectStarNoFilter(t *testing.T) {
 		EventTime:   time.Date(2024, 1, 1, 1, 0, 0, 0, time.UTC),
 	})
 
-	q, err := b.StartQuery("SELECT * FROM eds-000001", "eds-000001", "", "")
+	q, err := b.StartQuery("SELECT * FROM eds-000001", "eds-000001", "", "", "")
 	require.NoError(t, err)
 	require.Equal(t, "QUEUED", q.QueryStatus, "StartQuery must leave the query cancellable, not pre-executed")
 
@@ -55,7 +55,7 @@ func TestQueryExecution_SelectColumnsWithWhereAndLimit(t *testing.T) {
 
 	q, err := b.StartQuery(
 		"SELECT eventName, eventSource FROM eds-000001 WHERE eventSource = 's3.amazonaws.com' LIMIT 1",
-		"eds-000001", "", "",
+		"eds-000001", "", "", "",
 	)
 	require.NoError(t, err)
 
@@ -94,7 +94,7 @@ func TestQueryExecution_UnsupportedGrammarReachesFailed(t *testing.T) {
 
 	q, err := b.StartQuery(
 		"SELECT edsA.eventName FROM eds-000001 AS edsA LEFT JOIN eds-000002 AS edsB ON edsA.eventId = edsB.eventId",
-		"eds-000001", "", "",
+		"eds-000001", "", "", "",
 	)
 	require.NoError(t, err, "StartQuery must accept syntactically valid CloudTrail Lake SQL synchronously")
 	require.Equal(t, "QUEUED", q.QueryStatus)
@@ -119,7 +119,7 @@ func TestQueryExecution_CancelBeforeReadStaysQueued(t *testing.T) {
 
 	b := cloudtrail.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	q, err := b.StartQuery("SELECT * FROM eds-000001", "eds-000001", "", "")
+	q, err := b.StartQuery("SELECT * FROM eds-000001", "eds-000001", "", "", "")
 	require.NoError(t, err)
 
 	cancelled, err := b.CancelQuery(q.QueryID)
