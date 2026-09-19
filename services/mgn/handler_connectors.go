@@ -35,7 +35,6 @@ func (h *Handler) handleUpdateConnector(_ context.Context, _ *http.Request, body
 	in := UpdateConnectorInput{
 		SsmCommandConfig: fromConnectorSsmCommandConfigWire(req.SsmCommandConfig),
 		Name:             req.Name,
-		SsmInstanceID:    req.SsmInstanceID,
 	}
 
 	c, err := h.Backend.UpdateConnector(req.ConnectorID, in)

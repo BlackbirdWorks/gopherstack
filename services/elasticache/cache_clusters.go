@@ -330,6 +330,33 @@ func (b *InMemoryBackend) SetClusterSubnetGroupName(ctx context.Context, id, sub
 	return nil
 }
 
+// SetClusterAvailabilityZones records the caller's requested AZ placement on
+// a just-created cluster. az is the single-node PreferredAvailabilityZone
+// (Redis OSS/Valkey); azs is PreferredAvailabilityZones, one entry per node,
+// Memcached-only per CreateCacheClusterInput's doc comment.
+func (b *InMemoryBackend) SetClusterAvailabilityZones(ctx context.Context, id, az string, azs []string) error {
+	if az == "" && len(azs) == 0 {
+		return nil
+	}
+
+	region := getRegion(ctx, b.region)
+
+	b.mu.Lock("SetClusterAvailabilityZones")
+	defer b.mu.Unlock()
+
+	c, exists := b.clustersStore(region).Get(id)
+	if !exists {
+		return ErrClusterNotFound
+	}
+
+	c.PreferredAvailabilityZone = az
+	if len(azs) > 0 {
+		c.PreferredAvailabilityZones = append([]string(nil), azs...)
+	}
+
+	return nil
+}
+
 // SetClusterSnapshotRetentionLimit records how many days of automatic
 // snapshots a cluster retains. limit is a pointer so a caller that never sent
 // SnapshotRetentionLimit (nil) can be distinguished from one that explicitly
@@ -439,11 +466,25 @@ func (b *InMemoryBackend) ListAll() []Cluster {
 	return out
 }
 
+// ModifyClusterOptions holds ModifyCacheCluster's less-central optional
+// parameters, kept out of ModifyCluster's already-long positional signature.
+type ModifyClusterOptions struct {
+	AuthToken               string
+	AuthTokenUpdateStrategy string
+	CacheSecurityGroupNames []string
+	// ApplyImmediately is read for wire-declaration parity but this backend
+	// applies every ModifyCacheCluster change immediately regardless of its
+	// value -- same disclosed simplification as docdb/neptune/rds's
+	// ModifyDBCluster.ApplyImmediately.
+	ApplyImmediately bool
+}
+
 // ModifyCluster modifies an existing cache cluster.
 func (b *InMemoryBackend) ModifyCluster(
 	ctx context.Context,
 	id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
 	numCacheNodes int,
+	opts *ModifyClusterOptions,
 ) (*Cluster, error) {
 	b.mu.Lock("ModifyCluster")
 	defer b.mu.Unlock()
@@ -484,10 +525,46 @@ func (b *InMemoryBackend) ModifyCluster(
 		c.SnapshotWindow = snapshotWindow
 	}
 
+	if opts != nil {
+		if len(opts.CacheSecurityGroupNames) > 0 {
+			sgStore := b.cacheSecurityGroupsStoreRO(region)
+			for _, sgName := range opts.CacheSecurityGroupNames {
+				if _, ok := sgStore.Get(sgName); !ok {
+					return nil, ErrCacheSecurityGroupNotFound
+				}
+			}
+			c.CacheSecurityGroupNames = append([]string(nil), opts.CacheSecurityGroupNames...)
+		}
+		applyClusterAuthTokenModify(c, opts.AuthToken, opts.AuthTokenUpdateStrategy)
+	}
+
 	b.markTransitionLocked(&c.PendingStatus, &c.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "cache-cluster", "cluster modified")
 
 	return b.clusterView(c), nil
+}
+
+// applyClusterAuthTokenModify mirrors applyAuthTokenModify (replication_groups.go)
+// for a standalone Cluster -- see ModifyCacheClusterInput's AuthToken/
+// AuthTokenUpdateStrategy doc comments (elasticache@v1.56.4).
+func applyClusterAuthTokenModify(c *Cluster, token, strategy string) {
+	if token == "" && strategy == "" {
+		return
+	}
+
+	switch strategy {
+	case authTokenUpdateStrategyDelete:
+		c.AuthToken = ""
+		c.AuthTokenEnabled = false
+	case authTokenUpdateStrategySet:
+		if token == "" {
+			token = generateAuthToken()
+		}
+		c.AuthToken = token
+		c.AuthTokenEnabled = true
+	case authTokenUpdateStrategyRotate:
+		c.AuthToken = generateAuthToken()
+	}
 }
 
 // RebootCacheCluster reboots a cache cluster.

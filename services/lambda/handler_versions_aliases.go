@@ -9,6 +9,7 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/httputils"
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 )
 
 type publishVersionInput struct {
@@ -234,7 +235,7 @@ func (h *Handler) handleUpdateAlias(c *echo.Context, name, aliasName string) err
 
 		if errors.Is(updateErr, ErrVersionNotFound) {
 			return h.writeError(c, http.StatusNotFound, "ResourceNotFoundException",
-				"Version not found: "+input.FunctionVersion)
+				"Version not found: "+ptrconv.String(input.FunctionVersion))
 		}
 
 		if errors.Is(updateErr, ErrPreconditionFailed) {

@@ -41,17 +41,52 @@ type ProcessingS3Input struct {
 	S3CompressionType      string `json:"S3CompressionType,omitempty"`
 }
 
+// AthenaDatasetDefinition mirrors types.AthenaDatasetDefinition
+// (DatasetDefinition.AthenaDatasetDefinition).
+type AthenaDatasetDefinition struct {
+	Catalog           string `json:"Catalog"`
+	Database          string `json:"Database"`
+	OutputFormat      string `json:"OutputFormat"`
+	OutputS3URI       string `json:"OutputS3Uri"`
+	QueryString       string `json:"QueryString"`
+	KmsKeyID          string `json:"KmsKeyId,omitempty"`
+	OutputCompression string `json:"OutputCompression,omitempty"`
+}
+
+// RedshiftDatasetDefinition mirrors types.RedshiftDatasetDefinition
+// (DatasetDefinition.RedshiftDatasetDefinition).
+type RedshiftDatasetDefinition struct {
+	ClusterID         string `json:"ClusterId"`
+	ClusterRoleArn    string `json:"ClusterRoleArn"`
+	Database          string `json:"Database"`
+	DBUser            string `json:"DbUser"`
+	OutputFormat      string `json:"OutputFormat"`
+	OutputS3URI       string `json:"OutputS3Uri"`
+	QueryString       string `json:"QueryString"`
+	KmsKeyID          string `json:"KmsKeyId,omitempty"`
+	OutputCompression string `json:"OutputCompression,omitempty"`
+}
+
 // DatasetDefinition is an alternative to S3Input for Athena/Redshift.
 type DatasetDefinition struct {
-	DataDistributionType string `json:"DataDistributionType,omitempty"`
-	InputMode            string `json:"InputMode,omitempty"`
+	AthenaDatasetDefinition   *AthenaDatasetDefinition   `json:"AthenaDatasetDefinition,omitempty"`
+	RedshiftDatasetDefinition *RedshiftDatasetDefinition `json:"RedshiftDatasetDefinition,omitempty"`
+	DataDistributionType      string                     `json:"DataDistributionType,omitempty"`
+	InputMode                 string                     `json:"InputMode,omitempty"`
+}
+
+// ProcessingFeatureStoreOutput mirrors types.ProcessingFeatureStoreOutput
+// (ProcessingOutput.FeatureStoreOutput).
+type ProcessingFeatureStoreOutput struct {
+	FeatureGroupName string `json:"FeatureGroupName"`
 }
 
 // ProcessingOutput specifies output data for a processing job.
 type ProcessingOutput struct {
-	S3Output   *ProcessingS3Output `json:"S3Output,omitempty"`
-	OutputName string              `json:"OutputName"`
-	AppManaged bool                `json:"AppManaged,omitempty"`
+	S3Output           *ProcessingS3Output           `json:"S3Output,omitempty"`
+	FeatureStoreOutput *ProcessingFeatureStoreOutput `json:"FeatureStoreOutput,omitempty"`
+	OutputName         string                        `json:"OutputName"`
+	AppManaged         bool                          `json:"AppManaged,omitempty"`
 }
 
 // ProcessingS3Output specifies S3 output for a processing step.
@@ -153,6 +188,14 @@ func cloneProcessingJob(pj *ProcessingJob) *ProcessingJob {
 		}
 		if inp.DatasetDefinition != nil {
 			dd := *inp.DatasetDefinition
+			if inp.DatasetDefinition.AthenaDatasetDefinition != nil {
+				adf := *inp.DatasetDefinition.AthenaDatasetDefinition
+				dd.AthenaDatasetDefinition = &adf
+			}
+			if inp.DatasetDefinition.RedshiftDatasetDefinition != nil {
+				rdf := *inp.DatasetDefinition.RedshiftDatasetDefinition
+				dd.RedshiftDatasetDefinition = &rdf
+			}
 			pi.DatasetDefinition = &dd
 		}
 		cp.ProcessingInputs[i] = pi
@@ -166,6 +209,10 @@ func cloneProcessingJob(pj *ProcessingJob) *ProcessingJob {
 		if out.S3Output != nil {
 			s3 := *out.S3Output
 			po.S3Output = &s3
+		}
+		if out.FeatureStoreOutput != nil {
+			fso := *out.FeatureStoreOutput
+			po.FeatureStoreOutput = &fso
 		}
 		cp.ProcessingOutputConfig.Outputs[i] = po
 	}

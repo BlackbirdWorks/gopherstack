@@ -236,18 +236,25 @@ func (b *InMemoryBackend) UpdateCustomKeyStore(
 		)
 	}
 
-	if input.NewCustomKeyStoreName != "" && input.NewCustomKeyStoreName != ks.CustomKeyStoreName {
-		for _, existing := range b.customKeyStoresStore(region).All() {
-			if existing.CustomKeyStoreName == input.NewCustomKeyStoreName {
-				return fmt.Errorf(
-					"%w: custom key store with name %q already exists",
-					ErrCustomKeyStoreAlreadyExists,
-					input.NewCustomKeyStoreName,
-				)
-			}
+	if input.NewCustomKeyStoreName != nil {
+		newName := *input.NewCustomKeyStoreName
+		if strings.TrimSpace(newName) == "" {
+			return fmt.Errorf("%w: NewCustomKeyStoreName must not be empty", ErrValidation)
 		}
 
-		ks.CustomKeyStoreName = input.NewCustomKeyStoreName
+		if newName != ks.CustomKeyStoreName {
+			for _, existing := range b.customKeyStoresStore(region).All() {
+				if existing.CustomKeyStoreName == newName {
+					return fmt.Errorf(
+						"%w: custom key store with name %q already exists",
+						ErrCustomKeyStoreAlreadyExists,
+						newName,
+					)
+				}
+			}
+
+			ks.CustomKeyStoreName = newName
+		}
 	}
 
 	return nil

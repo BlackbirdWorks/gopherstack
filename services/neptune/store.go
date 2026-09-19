@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -79,6 +80,21 @@ func validateNeptuneIdentifier(id, fieldName string) error {
 	}
 
 	return nil
+}
+
+// validateMonitoringInterval rejects a MonitoringInterval outside AWS's
+// documented enum (api_op_CreateDBInstance.go / api_op_ModifyDBInstance.go:
+// "Valid Values: 0, 1, 5, 10, 15, 30, 60").
+func validateMonitoringInterval(interval int) error {
+	validIntervals := [...]int{0, 1, 5, 10, 15, 30, 60}
+	if slices.Contains(validIntervals[:], interval) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%w: MonitoringInterval %d is not valid; must be one of %v",
+		ErrInvalidParameter, interval, validIntervals,
+	)
 }
 
 const (

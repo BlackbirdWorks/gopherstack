@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: ssm
 sdk_module: aws-sdk-go-v2/service/ssm@v1.77.0
-last_audit_commit: d3b4494d3
-last_audit_date: 2026-08-21
+last_audit_commit: 6cce41004
+last_audit_date: 2026-09-18
 overall: A                 # cursor-population sweep (2026-08-29, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns):
                             # audited every List/Describe/Get op that declares a real NextToken (53 of
                             # 80 ops, from the pinned SDK Output structs directly, not by grep) for the
@@ -385,126 +385,157 @@ families:
   ops-center: {status: fixed, note: "SPOT-CHECKED (parity-sweep-3, split out of the previously-deferred combined family) — Priority confirmed missing and fixed. FULLY FIELD-DIFFED phase-2 (bd gopherstack-iq4m, closed) — CreateOpsItemInput/UpdateOpsItemInput were missing AccountId/ActualStartTime/ActualEndTime/Notifications/PlannedStartTime/PlannedEndTime/RelatedOpsItems (mostly Change-Manager /aws/changerequest-oriented), confirmed against api_op_CreateOpsItem.go/api_op_UpdateOpsItem.go; all 7 now round-trip and are covered by wire-shape-asserting tests (ops_items_test.go). UpdateOpsItemInput.OperationalDataToDelete (confirmed present but outside the bd issue's field list) deliberately left out of scope, documented in models_ops_items.go. GetOpsItem/DeleteOpsItem/DescribeOpsItems (filters+pagination)/AssociateOpsItemRelatedItem/DisassociateOpsItemRelatedItem/ListOpsItemRelatedItems/ListOpsItemEvents/CreateOpsMetadata/GetOpsMetadata/DeleteOpsMetadata re-confirmed already-correct, no changes needed. CORRECTION (gopherstack-7rq1): UpdateOpsMetadata was NOT actually correct -- UpdateOpsMetadataInput's Metadata field carried json tag \"Metadata\", but the real UpdateOpsMetadataRequest member (ssm/2014-11-06/service-2.json) is \"MetadataToUpdate\" (CreateOpsMetadataRequest genuinely does use \"Metadata\", which is presumably how this got missed). A real client's update payload was silently dropped by json.Unmarshal every time, making UpdateOpsMetadata a complete no-op; the existing test asserting HTTP 200 with a body keyed \"Metadata\" passed despite this. Fixed the json tag; TestOpsMetadata_FullCRUD's Update step now sends the real wire key and asserts the update actually lands. CORRECTION (gopherstack-a250): ListOpsMetadata was NOT actually correct either -- input was a literal struct{}; real ListOpsMetadataInput (api_op_ListOpsMetadata.go) has optional Filters/MaxResults/NextToken, all discarded. Now filters by Key==\"ResourceId\" (the only OpsMetadata attribute with real backing state; other keys accept-and-echo) and paginates. TestListOpsMetadata_FilterAndPagination, hand-verified failing against unfixed code. GetOpsSummary's Aggregators/Filters/MaxResults/NextToken/ResultAttributes/SyncName (also a literal struct{}) deliberately left unwired: this backend's GetOpsSummary always returns one fixed AWS:OpsItem/Count entity, not a queryable multi-type OpsData dataset these members could honestly filter or aggregate over -- documented in models_ops_items.go rather than fabricating query semantics. STRUCTFIELDDIFF PASS 8 (gopherstack-enpq, 2026-08-21), all 15 ops re-diffed against ssm@v1.73.4: 5 real bugs fixed. (1) GetOpsItemOutput/DescribeOpsItems' OpsItem marshalled the internal OpsItem record straight to the wire, fabricating AccountId -- real types.OpsItem/types.OpsItemSummary have no AccountId member at all (it exists only on CreateOpsItemInput); UpdateOpsItemInput also modeled AccountId (again with no such member on the real api_op_UpdateOpsItem.go) and applied it, letting a caller silently rewrite an OpsItem's AccountId through an op the real SDK cannot even express. Fixed via a new OpsItemOutput projection type (GetOpsItem) and removing AccountId from UpdateOpsItemInput/applyOpsItemChangeManagerUpdates, whose own doc comment falsely claimed AccountId as one of UpdateOpsItemInput's real members -- also corrected. Added the real OpsItemArn member UpdateOpsItemInput does have (previously entirely missing) and Version (real types.OpsItem member, increments on every edit; had no Go member at all). (2) GetOpsMetadataOutput embedded the full OpsMetadata type, fabricating OpsMetadataArn/CreationDate/LastModifiedDate -- the real op's output (api_op_GetOpsMetadata.go) is only Metadata/NextToken/ResourceId, a narrower and different shape than the OpsMetadata type ListOpsMetadata returns; fixed via a dedicated GetOpsMetadataOutput type. (3) OpsItemSummary (DescribeOpsItems) was missing OperationalData/PlannedEndTime/PlannedStartTime/ActualEndTime/ActualStartTime/OpsItemType/Category/Severity/LastModifiedTime -- all real types.OpsItemSummary members with no Go field at all; added and wired from the stored OpsItem. (4) CreateOpsItemInput.Description had no required-field validation at all despite being required on the real op (api_op_CreateOpsItem.go marks it 'This member is required.', discovered via a real-client test that the SDK itself refused to send without it) -- fixed, ~15 existing test call sites updated to supply it. (5) AssociateOpsItemRelatedItem/DisassociateOpsItemRelatedItem's required fields (AssociationType/ResourceType/ResourceUri; OpsItemId/AssociationId respectively, all marked required on api_op_AssociateOpsItemRelatedItem.go/api_op_DisassociateOpsItemRelatedItem.go) were entirely unvalidated -- fixed. STUB-OP LEAD: 1 of this family's ops was on TestStubOps_SimpleCalls's bare-{}-body list, DisassociateOpsItemRelatedItem, and it read nothing (empty OpsItemId silently returned 200); now validates and rejects with ValidationException. FIXED (gopherstack-uox6, value-semantics sweep, 2026-08-30): opsItemMatchesFilters ignored OpsItemFilter.Operator entirely and always compared for exact equality, even though api_op_DescribeOpsItems.go's doc comment documents Title and Source as also supporting Operator=Contains (substring) -- a real client asking for a Contains match on either key got either nothing (values that happen to equal the substring) or a silent exact-match instead. Now Operator=\"Contains\" does a substring compare on the two keys that support it; Status stays Equals-only per the same doc comment. Disclosed rather than fixed: OpsItemFilter only honors Status/Title/Source of the ~35 real DescribeOpsItems filter keys (no generic filter-operator engine, same disclosed-gap class as GetInventory/ListComplianceItems); ListOpsItemRelatedItemsInput/ListOpsItemEventsInput.MaxResults are *int64 where the real type is *int32 (zero practical wire impact, left as-is given the ripple through existing bounds-check tests using an int64 helper); OpsItemSummary/OpsMetadata's CreatedBy/LastModifiedBy/LastModifiedUser remain unmodeled (no caller-identity infra, same class as ServiceSetting.LastModifiedUser)."}
 gaps: []
 items_still_open:
-  - "gopherstack-e91b (2026-09-06): RejectedPatchesAction (BLOCK/ALLOW_AS_DEPENDENCY) is now
-    validated but not fully semantically evaluated -- the two values only diverge in real AWS via
-    package-dependency installation and INSTALLED_REJECTED history for a patch installed before
-    it was rejected, and this backend's synthetic Patch catalogue has no dependency graph while
-    InstancePatchState/PatchComplianceData are recomputed fresh per AWS-RunPatchBaseline run
-    rather than tracked incrementally, so there is no pre-existing-install history to distinguish
-    the two against. Structural -- needs a package-dependency feature and incremental (not
-    recomputed) instance patch history, both real features of their own. PatchBaseline's
-    GlobalFilters (restricts which catalogue patches a baseline covers at all) also remains
-    round-trip-only, same class as the pre-existing ApprovalRules/RejectedPatches gap this issue
-    fixed one layer of. See PARITY.md's gopherstack-e91b section above for what was fixed."
-  - "2026-08-30 (region-isolation sweep, fix/wrapper-key-sweep-rds-cloudwatch-sqs-sns): checked
-    the cloudwatchlogs/memorydb bug class (identifier/storage key built from the backend's fixed
-    default region instead of the request's; a read that discards ctx and scans every region) --
-    CONFIRMED CLEAN, not a gap. Traced getRegion(ctx) (store.go) -- sourced from
-    httputils.ExtractRegionFromRequest at handler.go's request entry point, defaultRegion used
-    ONLY as getRegion's ctx-missing fallback and at bootstrap/seed/restore call sites
-    (registerDefaultDocuments, janitor-absent-context paths), never in a live request path -- back
-    through every *Store(region) accessor's call site across the package (parametersStore,
-    documentsStore, sessionsStore, etc., ~230 backend methods total): every one derives its
-    `region` local from getRegion(ctx), no exceptions, no backend method discards ctx (`_
-    context.Context`) despite touching a per-region map. The one cross-region background scan
-    (collectDueParameterPolicyNotificationsLocked, parameter_policy_notifications.go) legitimately
-    ranges every region -- it is a scheduled sweep like janitor.go's, not a client-facing read, and
-    tags each result with its own region rather than conflating them. This package already carries
-    its own proof test for this exact class (isolation_test.go's TestSSMRegionIsolation: same-named
-    Parameter in two regions via regionContextKey, asserts each region's Get/Delete only affects
-    its own). No fix needed."
-  - "gopherstack-enpq (2026-08-14): ServiceSetting.LastModifiedUser (real member: \"The ARN of the last modified user\", populated only when the setting value was overwritten) is not modeled -- this emulator has no caller-identity/SigV4-principal tracking to derive a real IAM ARN from, same disclosed-gap class as sns's ConfirmSubscriptionInput.AuthenticateOnUnsubscribe (gopherstack-cu4g)."
-  - "gopherstack-enpq (2026-08-14): PutComplianceItemsInput.UploadType (COMPLETE/PARTIAL) is accepted but not evaluated -- real AWS's PARTIAL mode only overwrites one association's compliance data (requiring SyncCompliance=MANUAL) while leaving other associations for the same resource untouched; this backend always applies COMPLETE semantics (replaces every item for ResourceId). Needs compliance storage reshaped to key by association, not just ResourceId -- disclosed rather than rushed."
-  - "gopherstack-enpq (2026-08-14): GetInventory's Aggregators/Filters/ResultAttributes, ListInventoryEntries' Filters, and ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries' Filters (all InventoryFilter/ComplianceStringFilter with a shared Key/Values/QueryOperatorType shape: Equal/NotEqual/BeginWith/GreaterThan/LessThan/Exists) are entirely unmodeled -- these backends return everything and let the caller filter client-side. Implementing this needs a generic filter-operator evaluator shared across ~5 ops; a real feature, not a one-line fix, disclosed rather than half-built."
-  - "gopherstack-enpq (2026-08-14): GetInventorySchema's real InventoryItemSchema.Attributes ([]InventoryItemAttribute, required, each with Name/DataType) is not modeled -- gopherstack's static built-in schema catalog only tracks TypeName/Version. AWS has not published the exact per-type attribute list in the SDK source (only in web docs this agent did not fetch), so fabricating attribute names for each of the 13 built-in types would be inventing wire content rather than verifying it -- disclosed instead."
-  - "gopherstack-enpq (2026-08-14): CreateActivationInput.RegistrationMetadata ([]types.RegistrationMetadataItem, optional Key/Value pairs attached to the registered instance) is not modeled. Low-value (no consumer reads it back anywhere in this backend's Activation-derived Node/Instance types), disclosed rather than added speculatively."
-  - "gopherstack-enpq (2026-08-14): DeleteInventoryInput's ClientToken (idempotency token) and SchemaDeleteOption (DisableSchema/DeleteSchema) are not modeled -- this backend only tracks inventory items, not versioned schema state, so the two SchemaDeleteOption values have no distinct effect to honor without inventing schema-versioning state that does not otherwise exist here."
-  - "gopherstack-enpq (2026-08-14): PutInventoryOutput.Message (a free-text informational string, no documented behavioral meaning) is not modeled -- low value, disclosed rather than fabricating placeholder text."
-  - "NoChangeNotification/ExpirationNotification are now fully EVALUATED (see families.parameter-store and Notes: 'Parameter policy notifications') — a new janitor sweep computes due-ness and calls an injectable ParameterPolicyNotifier, and the real EventBridge-side adapter (services/eventbridge/ssm_integration.go) is implemented and proven by a cross-package test (TestNotifyParameterPolicyAction). The ONE remaining piece, deliberately left undone because this agent was instructed not to edit cli.go, is the single wiring call — `ssmBackend.SetParameterPolicyNotifier(eventbridgeBackend)` (mirroring the existing SetEventBridgeIntegration/SetSQSIntegration/SetGlueIntegration wiring block in cli.go around wireStepFunctionsServiceIntegrations) — that actually injects the real notifier into the running SSM backend at startup. Until that line lands, PutParameter/the janitor behave exactly as before from an external caller's perspective (b.parameterPolicyNotifier is nil, so the sweep is a safe no-op) — see cli_wiring_note in the pass receipt."
-  - "ValidateCloudConnector cannot make a real outbound call to Azure (gopherstack has no Azure tenant), so its ValidationFindings are derived deterministically from the connector's own stored Configuration (tenant/subscription IDs) rather than reflecting real third-party connectivity/permission state. This is an inherent sandbox constraint (same category as KMS being locally emulated instead of a real HSM call), not a wire/state bug — re-confirmed phase-2, still genuinely impossible for the same reason (no Azure credentials/tenant/egress available to the emulator, and reaching out to a live Azure tenant from an AWS emulator's request handler would be inappropriate even if it were possible) — documented here so a future reader doesn't mistake the mocked findings for verified AWS behavior."
-  - "CreateMaintenanceWindow/UpdateMaintenanceWindow's new StartDate/EndDate/ScheduleTimezone/ScheduleOffset fields are stored and round-tripped verbatim but not evaluated — DescribeMaintenanceWindowSchedule/DescribeMaintenanceWindowExecutions do not yet factor StartDate/EndDate into whether a window is currently active, or ScheduleOffset into the computed next-run time. Untouched this pass — out of scope (not one of this pass's assigned gaps)."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 6): CreateResourceDataSync's S3Destination.DestinationDataSharing and SyncSource.AwsOrganizationsSource (both real, nested one level deeper -- Organizations cross-account config) are not modeled, matching the shallow-scalar convention this file already documents for SyncSource. DeleteResourceDataSync's SyncType is not modeled -- this backend's resourceDataSyncsStore keys solely by SyncName (store_setup.go's resourceDataSyncKeyFn), so two syncs can never coexist under one name with different types in this backend's model, making a SyncType match check unobservable rather than a real behavioral gap."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 6): ssm's commands family has no per-plugin execution model -- a whole SSM document runs as one synchronous unit (command_exec.go), so CommandPlugins (real, per-document-step status/output/timing breakdown on CommandInvocation), GetCommandInvocation's PluginName (accepted and echoed, cannot actually select among plugins that don't exist as distinct objects here), and ResponseCode (a real shell exit code this backend has no real process to derive a nonzero value from -- fabricating one for a Failed invocation would be inventing data) are all disclosed rather than fabricated. AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (real, round-trip-only fields on SendCommand/Command/CommandInvocation) are not modeled -- this backend has no CloudWatch-alarm-polling or SNS/EventBridge notification-firing infra for a Run Command execution to plug into; modeling the wire shape without any real behavior behind it would be indistinguishable from a stub. DocumentHash/DocumentHashType (client-side document-integrity validation, input-only) and Filters ([]types.CommandFilter on ListCommands/ListCommandInvocations, deeper Key/Value matching than the InstanceId/CommandId fields already modeled) are not modeled -- low value and no generic filter-operator engine exists yet (same class of gap already disclosed for GetInventory/ListComplianceItems' Filters)."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 6): GetParameter/GetParameters/GetParametersByPath's real wire type (types.Parameter) has no SourceResult member modeled -- real AWS populates it only when the parameter's Value is itself a reference into another AWS resource (aws:ssm:parameter/aws:ec2:image \"advanced parameter\" source resolution), a feature this backend does not implement at all (every parameter's Value is a caller-supplied literal). GetParameterHistory's LastModifiedUser and DescribeParameters' ParameterMetadata.LastModifiedUser both remain unmodeled -- no caller-identity/SigV4-principal infra to derive a real IAM ARN from, same disclosed-gap class as ServiceSetting.LastModifiedUser (pass 4). the deprecated Filters ([]types.ParametersFilter, superseded by ParameterFilters/ParameterStringFilter which this backend already models) is not modeled -- AWS's own deprecated field. DescribeParametersInput.Shared FIXED 2026-09-12 (gopherstack-xhu2t slice 1): this backend has no cross-account parameter sharing, so Shared=true now honestly returns an empty list rather than dropping the parameter entirely -- see the dated note below."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 7): DocumentDescription/GetDocumentOutput/DocumentIdentifier/DocumentVersionInfo's real VersionName member (an alternate, caller-assigned name for a specific document version, usable as a selector alongside $LATEST/$DEFAULT/an explicit version number) is modeled on DocumentVersionInfo only and was never populated by anything -- a dead, always-empty field. Not extended to CreateDocumentInput/UpdateDocumentInput/DocumentDescription/GetDocumentOutput this pass: doing so honestly needs a resolveDocumentVersionSelector-style lookup-by-name path threaded through GetDocument/DescribeDocument/UpdateDocumentDefaultVersion/ListDocumentMetadataHistory, which is a small feature of its own, not a field-diff-sized fix -- disclosed rather than half-wired."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 7): DocumentDescription's ApprovedVersion/PendingReviewVersion/ReviewInformation/ReviewStatus (the document review-approval workflow) and Category/CategoryEnum (AWS-curated document-marketplace categorization) remain entirely unmodeled, matching UpdateDocumentMetadata/ListDocumentMetadataHistory's existing stub status (no review state machine exists in this backend at all -- UpdateDocumentMetadata's required-field validation was fixed this pass, but it still does not persist or apply any review-state change). Author/Owner remain unmodeled for the same no-caller-identity-infra reason already disclosed for ServiceSetting.LastModifiedUser/Parameter's LastModifiedUser. GetDocumentOutput.AttachmentsContent (types.AttachmentContent{Hash,HashType,Name,Size,Url}, the actual attachment bytes' hash/size/URL) is not modeled -- this backend has no S3-backed object store to derive real content-addressed values from, same class as ValidateCloudConnector's no-real-Azure-tenant gap."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): Association/AssociationDescription's AlarmConfiguration, Date (creation date, distinct from the now-modeled Status.Date), LastExecutionDate, LastSuccessfulExecutionDate, ScheduleOffset, TargetLocations, TargetMaps and TriggeredAlarms remain unmodeled -- CreateAssociationInput/UpdateAssociationInput never carried the first and last three either. AlarmConfiguration/TriggeredAlarms need the same CloudWatch-alarm infra already disclosed as missing for commands (pass 6); TargetLocations/TargetMaps are alternate multi-account/multi-region and key-value targeting schemes this backend's single-region Targets-only model doesn't support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real scheduler this backend (which runs associations synchronously on demand, not on a cron loop) does not have."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): DescribeAssociationInput.AssociationVersion (view a specific historical version, real member on api_op_DescribeAssociation.go) is accepted-and-ignored -- this backend keeps only the current version of an association (ListAssociationVersions always returns exactly one synthesized entry), so there is no version history to select among. Real multi-version storage is a feature of its own, not a field-diff-sized fix."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): ListAssociations' real per-item response type is the narrower types.Association (AssociationId/AssociationName/AssociationVersion/DocumentVersion/Duration/InstanceId/LastExecutionDate/Name/Overview/ScheduleExpression/ScheduleOffset/TargetMaps/Targets only -- api_op_ListAssociations.go), not the full types.AssociationDescription every other op in this family returns; gopherstack's ListAssociations marshals the same internal Association record used everywhere else, so it over-projects fields real AWS's ListAssociations response never carries (ComplianceSeverity/SyncCompliance/MaxConcurrency/MaxErrors/Parameters/OutputLocation/CalendarNames/ApplyOnlyAtCronInterval/AssociationDispatchAssumeRole/AutomationTargetParameterName/AssociationDispatchAssumeRole/LastUpdateAssociationDate). Not a wire break (aws-sdk-go-v2's json unmarshaler silently discards unrecognized keys), but a real over-projection of an internal record straight to the wire the campaign has otherwise fixed elsewhere (GetParameter/DescribeSessions) -- disclosed rather than reshaped, since a narrower type here would also need to be kept in sync by hand with the same underlying store."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): UpdateAssociation's own doc comment (api_op_UpdateAssociation.go) states real AWS replaces every optional parameter with null when omitted from the request ('the system removes all optional parameters from the request and overwrites the association with null values for those parameters'); gopherstack's UpdateAssociation merges instead -- an omitted field leaves the prior value untouched (applyAssociationCoreUpdates/applyAssociationExtendedUpdates, associations.go). Implementing real replace semantics needs UpdateAssociationInput's plain string/bool fields switched to pointers (or a raw-JSON presence check) to distinguish 'omitted' from 'explicitly cleared', which no other op in this struct currently needs and would ripple through every existing merge-semantics test in associations_test.go (e.g. TestUpdateAssociation/update_name_and_version relies on Targets/Duration/etc. surviving an update that doesn't mention them) -- disclosed as a real, doc-confirmed behavioral gap rather than reshaped under time pressure."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/TargetLocationsURL/TargetMaps/TargetParameterName/Targets remain unmodeled, matching the pre-existing shallow-scalar simplification Runbook already documents (this backend runs one synchronous, single-account/region execution per call, so multi-target rate-control and cross-account/region fan-out have nothing to plug into). SendAutomationSignal's Payload (real, required for StartStep/StopStep/Resume) is now a Go field but not consulted for per-step targeting -- this backend has no per-step Waiting/InProgress state (every step goes straight to Success), same simplification as WarningMessage (gopherstack-gt9o)."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's AlarmConfiguration/ClientToken/LoggingInfo/TaskInvocationParameters/TaskParameters remain unmodeled (CutoffBehavior FIXED 2026-09-12, gopherstack-xhu2t slice 1 -- see the dated note below: declared, stored, and echoed back by Get/DescribeMaintenanceWindowTasks/UpdateMaintenanceWindowTask). TaskInvocationParameters is the real per-task-type union (RunCommand/Automation/StepFunctions/Lambda parameters) that actually carries what a registered task executes -- this backend's task model (MaintenanceWindowTask) has no concept of invocation-specific parameters at all, only the shallow TaskArn/TaskType/Targets/MaxConcurrency/MaxErrors/Priority/CutoffBehavior already modeled; implementing the full 4-variant union is a feature of its own, not a field-diff-sized fix, disclosed rather than half-modeled. TaskParameters is AWS's own deprecated predecessor to TaskInvocationParameters, lower value. UpdateMaintenanceWindowTaskInput.Replace (real, changes merge-vs-replace update semantics, same class as UpdateAssociation's replace-semantics gap) is also unmodeled -- this backend always merges."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 8): DeregisterTargetFromMaintenanceWindowInput.Safe (real, when true rejects deregistering a target still referenced by a registered task instead of deregistering unconditionally) is not modeled -- this backend does not check for referencing tasks at all before deregistering a target, a real permissiveness gap. GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (real, the actual command/automation parameters used for one invocation) is not modeled -- this backend has no per-invocation parameter snapshot, only task-level defaults."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 9): DescribePatchPropertiesOutput.Properties aggregates baseline name/OS pairs and ignores both required input fields (OperatingSystem, Property) entirely -- real AWS instead lists distinct catalogue values of the requested Property (PRODUCT/PRODUCT_FAMILY/CLASSIFICATION/MSRC_SEVERITY/PRIORITY/SEVERITY) for the given OS (api_op_DescribePatchProperties.go doc comment). This is a real, pre-existing functional bug independent of the required-field validation this pass added, but the real per-Property map-key convention for the output's untyped []map[string]string cannot be verified from the pinned SDK source (no member-level schema exists to diff against) -- same disclosed-gap class as GetInventorySchema.Attributes (pass 4), left unfixed rather than fabricating a differently-wrong shape."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 9): UpdatePatchBaselineInput.Replace (real, switches update semantics from merge to replace-on-omit) is not modeled -- same class as UpdateAssociation's disclosed replace-semantics gap (pass 8), needs pointer fields throughout UpdatePatchBaselineInput to distinguish omitted from explicitly-cleared, which would ripple through existing merge-semantics tests. CreatePatchBaselineInput.ClientToken (idempotency token) is not modeled -- low value, same class as CreateActivationInput.RegistrationMetadata (pass 4)."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 9): GetDeployablePatchSnapshotForInstanceInput.BaselineOverride (real, a full inline PatchBaseline substituted for the instance's actual registered baseline when computing the snapshot) is not modeled -- this backend's snapshot response is already synthetic (no real snapshot-generation lifecycle backs SnapshotId), so BaselineOverride would need real effective-patch computation threaded through a second baseline that isn't the instance's registered one, a feature of its own. UseS3DualStackEndpoint FIXED 2026-09-12 (gopherstack-xhu2t slice 1): the fabricated SnapshotDownloadUrl now uses the dualstack S3 host form when set, see the dated note below."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 9): DescribePatchGroupStateOutput is missing 6 real *int32 members with no Go field at all -- InstancesWithAvailableSecurityUpdates/InstancesWithInstalledPendingRebootPatches/InstancesWithInstalledRejectedPatches/InstancesWithOtherNonCompliantPatches/InstancesWithSecurityNonCompliantPatches/InstancesWithUnreportedNotApplicablePatches. These need per-instance security-update-specific and pending-reboot compliance tracking this backend's InstancePatchState does not carry (only FailedCount/InstalledCount/MissingCount), a feature of its own rather than a field-diff-sized fix."
-  - "gopherstack-enpq (2026-08-21, structfielddiff pass 9): DescribeAvailablePatches' real filter keys PATCH_ID/MSRC_SEVERITY/PRODUCT_FAMILY/PATCH_SET (api_op_DescribeAvailablePatches.go doc comment) are not honored -- this pass wired PRODUCT/NAME/SEVERITY/CLASSIFICATION, the four backed by fields Patch already models; the rest would need Patch extended with fields the built-in catalogue has no real per-patch data to populate honestly."
-  - "gopherstack-uox6 (value-semantics sweep, 2026-08-30): documentMatchesFilters' DocumentKeyValuesFilter Owner key ('Self' vs. other accounts) is not modeled -- this backend has no caller-identity infra to resolve 'Self' against, same disclosed-gap class as ServiceSetting.LastModifiedUser. The tag:tagName custom-key form is also not modeled -- would need the per-resource misc-tag store (already used for Document.Tags on the response side) threaded into the filter matcher, not wired this pass."
-  - "gopherstack-s7aq (2026-09-07): audited SendCommand/CreateAssociation's MaxConcurrency/MaxErrors against
-    what the two fields are documented to actually do, since the issue was filed title-only. First
-    established the fan-out DOES exist (the issue's own premise was worth checking): SendCommand resolves
-    InstanceIds+Targets into one CommandInvocation per instance (commandTargetInstanceIDs/
-    mergeUniqueInstanceIDs, commands.go) stored per-command and readable via ListCommandInvocations -- not
-    a single unexpanded command record. MaxConcurrency (SendCommandInput/CreateAssociationInput doc
-    comments, api_op_SendCommand.go:95-100/api_op_CreateAssociation.go:157-165: 'maximum number of managed
-    nodes/targets ... allowed to run the command/association at the same time') throttles CONCURRENT
-    in-flight execution -- a notion this backend has nothing to violate: SendCommand builds every
-    invocation, drives Pending->InProgress->Success/Failed and returns, all within one synchronous call
-    with no elapsed wall-clock time and no concept of two invocations overlapping. There is no state for a
-    concurrency cap to constrain, so applying it would mean fabricating a delay/queue purely to make a
-    number 'do something' -- rejected as invented behavior, not verified AWS behavior. Structural, matches
-    this file's existing precedent for other unobservable-in-a-synchronous-emulator fields (e.g.
-    ValidateCloudConnector's real-Azure-call gap). MaxErrors (api_op_SendCommand.go:102-106/
-    api_op_CreateAssociation.go:167-180: 'stops sending the command to additional targets' after N
-    failures, i.e. a final-state stop condition, not just a timing artifact) was checked separately per the
-    issue's own instruction, since a stop-after-N-failures rule IS observable in a synchronous model in
-    principle -- but renderCommandOutput (command_exec.go) computes exactly ONE (stdout, stderr, status)
-    result per SendCommand call from the document/parameters, and commands.go's SendCommand stamps that
-    SAME finalStatus onto every resolved instance's invocation outside the per-instance loop -- so every
-    invocation of one command always shares an identical outcome; there is no per-instance failure
-    variance for MaxErrors to threshold against today. Implementing MaxErrors now would require first
-    building genuine per-instance outcome variance (e.g. a way for individual target scripts/documents to
-    fail independently), which is a real feature of its own -- explicitly out of this issue's scope per its
-    own SCOPE NOTE against speculative fan-out/invocation-subsystem work. Both left unfixed, disclosed
-    rather than faked. FIXED, self-contained (the issue's own suggested fallback): NEITHER field was
-    validated against its documented format at all. ssm/2014-11-06/service-2.json (botocore wire model)
-    declares MaxConcurrency pattern ^([1-9][0-9]*|[1-9][0-9]%|[1-9]%|100%)$ and MaxErrors pattern
-    ^([1-9][0-9]*|[0]|[1-9][0-9]%|[0-9]%|100%)$ (both min 1/max 7 chars) -- matching the same two doc
-    comments' 'You can specify a number such as 10 or a percentage such as 10%' language -- but SendCommand
-    and CreateAssociation both accepted any string verbatim: '0' for MaxConcurrency (only MaxErrors allows
-    the literal zero), a leading-zero '05', 'abc', or an out-of-range '150%' all round-tripped with no
-    error. Now rejected via new validateMaxConcurrency/validateMaxErrors (commands.go), returning
-    ValidationException like every other required/format check in this package. The identical unvalidated
-    gap exists on UpdateAssociation, RegisterTaskWithMaintenanceWindow/UpdateMaintenanceWindowTask, and
-    StartAutomationExecution's Runbooks[].MaxConcurrency/MaxErrors -- left alone as out of this issue's
-    stated SendCommand/CreateAssociation scope, though the same validateMaxConcurrency/validateMaxErrors
-    helpers apply directly if those are visited later. TestSendCommand_MaxConcurrencyMaxErrorsValidation
-    (commands_test.go)/TestCreateAssociation_MaxConcurrencyMaxErrorsValidation (associations_test.go),
-    both hand-verified failing (every malformed-value subtest got nil instead of ValidationException)
-    against unfixed code."
-  - "2026-09-12 (gopherstack-xhu2t slice 1): ListCommandInvocationsInput.Details is now declared but
-    inert -- real AWS only populates CommandInvocation.CommandPlugins (per-plugin status/output) when
-    Details=true, and this backend has no CommandPlugin type or per-plugin execution state at all
-    (same no-per-plugin-model gap already disclosed for the commands family above, pass 6)."
-  - "2026-09-12 (gopherstack-xhu2t slice 1): StartExecutionPreviewInput.DocumentVersion is now declared
-    but inert -- this backend's execution preview never resolves or diffs actual document content by
-    version, and neither StartExecutionPreviewOutput nor GetExecutionPreviewOutput's
-    types.ExecutionPreview echoes the version back on the real wire either, so there is no observable
+  - "RejectedPatchesAction (BLOCK/ALLOW_AS_DEPENDENCY) only diverges via patch-dependency
+    install history this backend's synthetic catalogue doesn't model (recomputed fresh per
+    run, not tracked incrementally) -- structural, needs a real dependency graph and
+    incremental (not recomputed) instance patch history. PatchBaseline.GlobalFilters
+    remains round-trip-only, same class."
+  - "ServiceSetting.LastModifiedUser (the ARN of the last-writing caller) can't be populated
+    -- this emulator has no caller-identity/SigV4-principal tracking."
+  - "GetInventory's Aggregators/Filters/ResultAttributes and ListInventoryEntries/
+    ListComplianceItems/ListComplianceSummaries/ListResourceComplianceSummaries' Filters
+    (InventoryFilter/ComplianceStringFilter's Equal/NotEqual/BeginWith/GreaterThan/
+    LessThan/Exists operators) are unmodeled -- needs a generic filter-operator evaluator
+    shared across 5 ops, a real feature not yet built."
+  - "GetInventorySchema's real per-type Attributes ([]InventoryItemAttribute) aren't
+    modeled -- AWS hasn't published the exact attribute list for the 13 built-in types
+    outside web docs, so fabricating names would invent wire content rather than verify it."
+  - "CreateActivationInput.RegistrationMetadata is accepted-and-discarded -- real AWS's own
+    Activation/DescribeActivations types never echo it either, so there is no wire location
+    to round-trip it to."
+  - "DeleteInventoryInput's ClientToken (idempotency) and SchemaDeleteOption
+    (DisableSchema/DeleteSchema) are unmodeled -- this backend tracks only inventory items,
+    not versioned schema state, so SchemaDeleteOption has nothing distinct to act on."
+  - "PutInventoryOutput.Message (free-text, no documented behavioral meaning) is unmodeled
+    -- low value; fabricating placeholder text would add nothing verifiable."
+  - "ValidateCloudConnector can't make a real outbound Azure call (no Azure tenant,
+    credentials, or egress in this emulator) -- ValidationFindings are deterministically
+    derived from the connector's own stored Configuration instead, an inherent sandbox
+    constraint like KMS's local HSM emulation."
+  - "CreateMaintenanceWindow/UpdateMaintenanceWindow's StartDate/EndDate/ScheduleTimezone/
+    ScheduleOffset are stored and round-tripped but not evaluated -- this backend's
+    DescribeMaintenanceWindowSchedule/Executions synthesize a single always-on execution
+    and don't even honor Enabled, so factoring in a date range needs a real scheduler this
+    backend doesn't have."
+  - "CreateResourceDataSync's S3Destination.DestinationDataSharing and
+    SyncSource.AwsOrganizationsSource (Organizations cross-account config) remain
+    unmodeled, matching this backend's shallow-scalar convention; DeleteResourceDataSync's
+    SyncType is unobservable since resourceDataSyncsStore keys solely by SyncName."
+  - "ssm's commands family has no per-plugin execution model (a whole document runs as one
+    synchronous unit) -- CommandPlugins/PluginName/ResponseCode,
+    AlarmConfiguration/CloudWatchOutputConfig/NotificationConfig/TriggeredAlarms (no
+    CloudWatch-alarm/notification infra), and DocumentHash/DocumentHashType/
+    CommandFilter-based Filters remain unmodeled."
+  - "GetParameter/GetParameters/GetParametersByPath's SourceResult (advanced-parameter
+    source resolution) and GetParameterHistory/DescribeParameters' LastModifiedUser (no
+    caller-identity infra) remain unmodeled; the deprecated ParametersFilter (superseded by
+    ParameterFilters, already modeled) is also unmodeled."
+  - "DocumentVersionInfo.VersionName is modeled but never populated -- resolving it needs a
+    resolveDocumentVersionSelector-style lookup-by-name path threaded through
+    Create/Update/GetDocument/DescribeDocument and ListDocumentMetadataHistory, a feature
+    of its own."
+  - "DocumentDescription's review-approval workflow (ApprovedVersion/PendingReviewVersion/
+    ReviewInformation/ReviewStatus) and Category/CategoryEnum remain entirely unmodeled --
+    no review state machine exists in this backend. Author/Owner need the same
+    caller-identity infra ServiceSetting.LastModifiedUser lacks; GetDocumentOutput.
+    AttachmentsContent needs a real S3-backed object store this backend doesn't have."
+  - "Association/AssociationDescription's AlarmConfiguration/TriggeredAlarms need
+    CloudWatch-alarm infra this backend lacks; TargetLocations/TargetMaps are alternate
+    multi-account/key-value targeting schemes this backend's Targets-only model doesn't
+    support; ScheduleOffset/LastExecutionDate/LastSuccessfulExecutionDate need a real
+    scheduler (associations run synchronously on demand, not on a cron loop)."
+  - "DescribeAssociationInput.AssociationVersion is accepted-and-ignored -- this backend
+    keeps only the current version of an association (no version-history store)."
+  - "ListAssociations marshals the same internal Association record every other op in this
+    family uses, over-projecting fields real AWS's narrower types.Association response
+    never carries -- not a wire break (a real client discards unknown keys), disclosed
+    rather than hand-syncing a second narrower type against the same store."
+  - "UpdateAssociation merges omitted fields instead of nulling them per its own doc
+    comment's replace semantics -- fixing this needs UpdateAssociationInput's scalar fields
+    switched to pointers to distinguish omitted from explicitly-cleared, which would ripple
+    through every existing merge-semantics test in associations_test.go."
+  - "StartAutomationExecutionInput's AlarmConfiguration/ClientToken/Tags/TargetLocations/
+    TargetMaps/TargetParameterName/Targets remain unmodeled (this backend runs one
+    synchronous single-account/region execution, nothing for multi-target fan-out to plug
+    into); SendAutomationSignal's Payload is stored but not consulted since this backend
+    has no per-step Waiting/InProgress state (every step goes straight to Success)."
+  - "RegisterTaskWithMaintenanceWindowInput/UpdateMaintenanceWindowTaskInput's
+    AlarmConfiguration/ClientToken/LoggingInfo/TaskInvocationParameters/TaskParameters
+    remain unmodeled -- TaskInvocationParameters is a real 4-variant union
+    (RunCommand/Automation/StepFunctions/Lambda) this backend's shallow task model has
+    nothing to plug into. UpdateMaintenanceWindowTaskInput.Replace is also unmodeled --
+    this backend always merges, same class as UpdateAssociation's replace-semantics gap."
+  - "GetMaintenanceWindowExecutionTaskInvocationOutput.Parameters (the actual
+    command/automation parameters used for one invocation) is unmodeled -- this backend has
+    no per-invocation parameter snapshot, only task-level defaults."
+  - "DescribePatchPropertiesOutput.Properties aggregates baseline name/OS pairs instead of
+    listing distinct catalogue values of the requested Property, per its own doc comment --
+    the real per-Property map-key convention for the untyped []map[string]string output
+    can't be verified from the pinned SDK source, so fixing it risks fabricating a
+    differently-wrong shape."
+  - "UpdatePatchBaselineInput.Replace is unmodeled, same class as UpdateAssociation's
+    replace-semantics gap (needs pointer fields, would ripple through merge-semantics
+    tests); CreatePatchBaselineInput.ClientToken (idempotency) is low-value and unmodeled."
+  - "GetDeployablePatchSnapshotForInstanceInput.BaselineOverride is unmodeled -- this
+    backend's snapshot response is already synthetic, so honoring a second, non-registered
+    baseline needs real effective-patch computation this backend doesn't have."
+  - "DescribePatchGroupStateOutput is missing 6 real *int32 members
+    (InstancesWithAvailableSecurityUpdates and 5 others) -- these need per-instance
+    security-update-specific and pending-reboot compliance tracking InstancePatchState
+    doesn't carry (only FailedCount/InstalledCount/MissingCount)."
+  - "DescribeAvailablePatches' PATCH_ID filter key remains unhonored -- real AWS's Patch.Id
+    is a distinct opaque identifier from the KB number/Name this synthetic catalogue
+    already models, and fabricating one would invent data with nothing real to verify it
+    against."
+  - "documentMatchesFilters' DocumentKeyValuesFilter Owner key ('Self' vs. other accounts)
+    is unmodeled -- this backend has no caller-identity infra to resolve 'Self' against,
+    same disclosed-gap class as ServiceSetting.LastModifiedUser."
+  - "ListCommandInvocationsInput.Details is declared but inert -- real AWS only populates
+    CommandInvocation.CommandPlugins (per-plugin status/output) when Details=true, and this
+    backend has no CommandPlugin type or per-plugin execution state."
+  - "StartExecutionPreviewInput.DocumentVersion is declared but inert -- this backend's
+    execution preview never resolves document content by version, and neither preview
+    output type echoes the version back on the real wire either, so there is no observable
     point to prove this against."
 deferred: []              # phase-2 (2026-07-24): closed CreateAssociationInput/UpdateAssociationInput/
                            # CreateAssociationBatchRequestEntry field gaps (bd gopherstack-ouvq),
                            # CreateOpsItemInput/UpdateOpsItemInput field gaps (bd gopherstack-iq4m),
                            # PatchBaseline.ApprovedPatchesEnableNonSecurity bool->*bool, ListCloudConnectors/
                            # ValidateCloudConnector MaxResults bounds (now AWS-published), and implemented
-                           # NoChangeNotification/ExpirationNotification evaluation+emission end-to-end
-                           # except the single cli.go injection line. Remaining open items are proven
-                           # impossibilities (ValidateCloudConnector's Azure call) or genuinely out of this
-                           # pass's assigned scope (MaintenanceWindow schedule evaluation).
+                           # NoChangeNotification/ExpirationNotification evaluation+emission end-to-end,
+                           # including the cli.go SetParameterPolicyNotifier wiring (landed since, confirmed
+                           # live at cli.go:2995/4921). Remaining open items are proven impossibilities
+                           # (ValidateCloudConnector's Azure call) or genuinely out of this pass's assigned
+                           # scope (MaintenanceWindow schedule evaluation).
 leaks: {status: clean, note: "Janitor (janitor.go) is the only background goroutine, ctx.Done()-aware, single Run() loop shared across all sweeps (parameters/commands/sessions). PutParameter's history cap now also deletes the corresponding parameterLabels[version] entries on eviction (previously left as an unbounded-growth leak: labels attached to since-evicted versions stayed in the map forever with no key ever removed). THIS PASS: new AccessRequest store (services/ssm/sessions.go) follows the same pattern as patchBaselines/opsItems/documents — a user-managed resource with no automatic janitor sweep, not a leak (consistent with existing precedent for resources the caller is expected to explicitly delete). No new goroutines/tickers/timers introduced this pass; the epoch-seconds timestamp fix (see overall note) touched only struct field types and their few call-site assignments, no new state or locking."}
 ---
 
 ## Notes
+
+### 2026-09-18 (zeroguard census: omitted-optional-member value semantics, gopherstack-uox6)
+
+91 rows -> 42 (all remaining are identifiers/required-content/replace-
+everything Put fields, false positives). Fixed optional string/int32 fields
+to pointers with nil-checked apply across UpdateAssociation, UpdateCloud-
+Connector, UpdateDocument, UpdateMaintenanceWindow(/Target/Task), UpdateOps-
+Item, UpdatePatchBaseline -- plus UpdateMaintenanceWindowTarget.OwnerInfo, a
+second bug zeroguard missed. Proven via 8 typed aws-sdk-go-v2 client tests.
+
+### 2026-09-18 (gap burn-down: adjudicated all 33 items_still_open entries)
+
+Fixed (6, real behavior + tests): MaxConcurrency/MaxErrors validation on 4 more
+ops (Update/RegisterTask/UpdateTask/StartChangeRequestExecution);
+PutComplianceItems' UploadType now scopes+merges by ComplianceType/Id;
+DeregisterTarget.Safe checks task references; documentMatchesFilters honors
+tag:tagName; DescribeAvailablePatches honors PRODUCT_FAMILY/MSRC_SEVERITY/
+PATCH_SET. Removed stale (3): NoChangeNotification wiring (already landed),
+region-isolation note, s7aq's now-fixed gap. Kept (26), one line each.
+Net 33 -> 29.
+
+### 2026-09-18 (reqfielddiff tier-1): CreateAssociationBatch.AssociationDispatchAssumeRole -- false positive
+
+Already read: associations.go:169 assigns `entry.AssociationDispatchAssumeRole` per batch
+entry (CreateAssociation's singular sibling does the same at line 96). Tool false positive.
 
 ### 2026-09-07 (gopherstack-jpfk: is ValidationException-sentinel reuse a defect class?)
 

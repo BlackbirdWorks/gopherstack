@@ -18,13 +18,23 @@ type ClusterOptionalConfig struct {
 	AccessConfig  *AccessConfig
 	ComputeConfig *ComputeConfig
 	StorageConfig *StorageConfig
+	// UpgradePolicySupportType is CreateClusterInput.UpgradePolicy.SupportType
+	// ("STANDARD" or "EXTENDED"); empty means "not specified", resolved to
+	// the real default of EXTENDED by resolveClusterOptionalConfig.
+	UpgradePolicySupportType string
+	// LogEntries is CreateClusterInput.Logging.ClusterLogging -- the same
+	// shape UpdateClusterConfig already applies via ClusterConfigUpdate.
+	LogEntries []ClusterLogEntry
+	// DeletionProtection is CreateClusterInput.DeletionProtection; enforced
+	// by DeleteCluster.
+	DeletionProtection bool
 }
 
 // resolveClusterOptionalConfig deep-copies the (at most one) supplied
 // ClusterOptionalConfig into independent, nil-safe fields for CreateCluster.
 func resolveClusterOptionalConfig(
 	opts ...ClusterOptionalConfig,
-) (*AccessConfig, *ComputeConfig, *StorageConfig) {
+) (*AccessConfig, *ComputeConfig, *StorageConfig, []ClusterLogEntry, string, bool) {
 	var opt ClusterOptionalConfig
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -49,7 +59,14 @@ func resolveClusterOptionalConfig(
 		storageCfg = &cp
 	}
 
-	return accessCfg, computeCfg, storageCfg
+	supportType := opt.UpgradePolicySupportType
+	if supportType == "" {
+		supportType = "EXTENDED"
+	}
+
+	return accessCfg, computeCfg, storageCfg, slices.Clone(
+		opt.LogEntries,
+	), supportType, opt.DeletionProtection
 }
 
 // cloneKubernetesNetworkConfig deep-copies a KubernetesNetworkConfig,
@@ -92,27 +109,39 @@ func (b *InMemoryBackend) newClusterLocked(
 
 	netCopy := cloneKubernetesNetworkConfig(networkConfig)
 
-	accessCfg, computeCfg, storageCfg := resolveClusterOptionalConfig(opts...)
+	accessCfg, computeCfg, storageCfg, logEntries, supportType, deletionProtection := resolveClusterOptionalConfig(
+		opts...)
 
 	return &Cluster{
-		Name:                    name,
-		ARN:                     clusterARN,
-		Version:                 version,
-		RoleARN:                 roleARN,
-		Status:                  statusCreating,
-		Endpoint:                fmt.Sprintf("https://%s.%s.eks.amazonaws.com", stableID(name), b.region),
-		OIDCIssuer:              fmt.Sprintf("https://oidc.eks.%s.amazonaws.com/id/%s", b.region, randomHex16()),
-		PlatformVersion:         "eks.1",
-		AccountID:               b.accountID,
-		Region:                  b.region,
-		CreatedAt:               time.Now().UTC(),
-		Tags:                    t,
-		VpcConfig:               vpcCopy,
-		KubernetesNetworkConfig: netCopy,
-		AccessConfig:            accessCfg,
-		ComputeConfig:           computeCfg,
-		StorageConfig:           storageCfg,
-		CertificateAuthority:    stableID(name + "/ca"),
+		Name:    name,
+		ARN:     clusterARN,
+		Version: version,
+		RoleARN: roleARN,
+		Status:  statusCreating,
+		Endpoint: fmt.Sprintf(
+			"https://%s.%s.eks.amazonaws.com",
+			stableID(name),
+			b.region,
+		),
+		OIDCIssuer: fmt.Sprintf(
+			"https://oidc.eks.%s.amazonaws.com/id/%s",
+			b.region,
+			randomHex16(),
+		),
+		PlatformVersion:          "eks.1",
+		AccountID:                b.accountID,
+		Region:                   b.region,
+		CreatedAt:                time.Now().UTC(),
+		Tags:                     t,
+		VpcConfig:                vpcCopy,
+		KubernetesNetworkConfig:  netCopy,
+		AccessConfig:             accessCfg,
+		ComputeConfig:            computeCfg,
+		StorageConfig:            storageCfg,
+		CertificateAuthority:     stableID(name + "/ca"),
+		ClusterLogging:           logEntries,
+		UpgradePolicySupportType: supportType,
+		DeletionProtection:       deletionProtection,
 	}
 }
 
@@ -188,7 +217,8 @@ func (b *InMemoryBackend) CreateCluster(
 
 		if n := len(vpcConfig.PublicAccessCIDRs); n > b.limits.publicAccessCIDRsPerCluster {
 			return nil, resourceLimitExceededErr(
-				"public endpoint access CIDR ranges per cluster", b.limits.publicAccessCIDRsPerCluster,
+				"public endpoint access CIDR ranges per cluster",
+				b.limits.publicAccessCIDRsPerCluster,
 			)
 		}
 	}
@@ -307,6 +337,14 @@ func (b *InMemoryBackend) DeleteCluster(name string) (*Cluster, error) {
 		return nil, fmt.Errorf("%w: cluster %s not found", ErrNotFound, name)
 	}
 
+	if c.DeletionProtection {
+		return nil, fmt.Errorf(
+			"%w: cluster %s has deletion protection enabled",
+			ErrAlreadyExists,
+			name,
+		)
+	}
+
 	if ngs := b.nodegroupsByCluster.Get(name); len(ngs) > 0 {
 		return nil, fmt.Errorf("%w: cluster %s still has attached nodegroup %s",
 			ErrAlreadyExists, name, ngs[0].NodegroupName)
@@ -363,7 +401,10 @@ func (b *InMemoryBackend) RegisterCluster(
 	}
 
 	if n := b.countClusters(true); n >= b.limits.registeredClustersPerAccount {
-		return nil, resourceLimitExceededErr("registered clusters", b.limits.registeredClustersPerAccount)
+		return nil, resourceLimitExceededErr(
+			"registered clusters",
+			b.limits.registeredClustersPerAccount,
+		)
 	}
 
 	clusterARN := arn.Build("eks", b.region, b.accountID, "cluster/"+name)
@@ -432,19 +473,27 @@ func clusterVersionSupportTable() []clusterVersionSupport {
 	return []clusterVersionSupport{
 		{
 			Version: defaultK8sVersion, Default: true,
-			EndOfStandardSupport: mustParse("2027-04-01"), EndOfExtendedSupport: mustParse("2028-04-01"),
+			EndOfStandardSupport: mustParse(
+				"2027-04-01",
+			), EndOfExtendedSupport: mustParse("2028-04-01"),
 		},
 		{
-			Version:              "1.31",
-			EndOfStandardSupport: mustParse("2026-11-01"), EndOfExtendedSupport: mustParse("2027-11-01"),
+			Version: "1.31",
+			EndOfStandardSupport: mustParse(
+				"2026-11-01",
+			), EndOfExtendedSupport: mustParse("2027-11-01"),
 		},
 		{
-			Version:              "1.30",
-			EndOfStandardSupport: mustParse("2026-07-01"), EndOfExtendedSupport: mustParse("2027-07-01"),
+			Version: "1.30",
+			EndOfStandardSupport: mustParse(
+				"2026-07-01",
+			), EndOfExtendedSupport: mustParse("2027-07-01"),
 		},
 		{
-			Version:              "1.29",
-			EndOfStandardSupport: mustParse("2026-03-01"), EndOfExtendedSupport: mustParse("2027-03-01"),
+			Version: "1.29",
+			EndOfStandardSupport: mustParse(
+				"2026-03-01",
+			), EndOfExtendedSupport: mustParse("2027-03-01"),
 		},
 	}
 }
@@ -474,18 +523,25 @@ func clusterVersionSupportFor(version string) (clusterVersionSupport, bool) {
 	return clusterVersionSupport{}, false
 }
 
-// DescribeClusterVersions returns supported cluster versions.
-func (b *InMemoryBackend) DescribeClusterVersions() []map[string]any {
+// DescribeClusterVersions returns supported cluster versions. When
+// defaultOnly is true, only the table's default version(s) are returned
+// (DescribeClusterVersionsInput.DefaultOnly, "Filter to show only default
+// versions").
+func (b *InMemoryBackend) DescribeClusterVersions(defaultOnly bool) []map[string]any {
 	table := clusterVersionSupportTable()
-	out := make([]map[string]any, len(table))
+	out := make([]map[string]any, 0, len(table))
 
-	for i, v := range table {
-		out[i] = map[string]any{
+	for _, v := range table {
+		if defaultOnly && !v.Default {
+			continue
+		}
+
+		out = append(out, map[string]any{
 			keyClusterVersion:           v.Version,
 			keyDefaultVersion:           v.Default,
 			keyEndOfStandardSupportDate: awstime.Epoch(v.EndOfStandardSupport),
 			keyEndOfExtendedSupportDate: awstime.Epoch(v.EndOfExtendedSupport),
-		}
+		})
 	}
 
 	return out

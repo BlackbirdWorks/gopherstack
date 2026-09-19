@@ -363,7 +363,7 @@ func TestCloudWatchLogsBackend_DescribeQueries(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			queries, _, err := b.DescribeQueries(tt.logGroupName, tt.status, "", 0)
+			queries, _, err := b.DescribeQueries(tt.logGroupName, tt.status, "", "", 0)
 			require.NoError(t, err)
 			assert.Len(t, queries, tt.wantLen)
 		})
@@ -447,7 +447,7 @@ func TestCloudWatchLogsBackend_QueryEviction_TTL(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			queries, _, err := b.DescribeQueries("", "", "", 0)
+			queries, _, err := b.DescribeQueries("", "", "", "", 0)
 			require.NoError(t, err)
 			assert.Len(t, queries, tt.wantLen)
 		})
@@ -541,7 +541,7 @@ func TestCloudWatchLogsBackend_QueryEviction_MaxCap(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			queries, _, err := b.DescribeQueries("", "", "", 100)
+			queries, _, err := b.DescribeQueries("", "", "", "", 100)
 			require.NoError(t, err)
 			assert.Len(t, queries, tt.wantLen)
 

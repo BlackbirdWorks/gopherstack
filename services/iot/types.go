@@ -231,8 +231,8 @@ type GetPolicyOutput struct {
 // UpdateThingInput is the input for UpdateThing.
 type UpdateThingInput struct {
 	AttributePayload *AttributePayload `json:"attributePayload"`
+	ThingTypeName    *string           `json:"thingTypeName,omitempty"`
 	ThingName        string            `json:"thingName"`
-	ThingTypeName    string            `json:"thingTypeName,omitempty"`
 	RemoveThingType  bool              `json:"removeThingType,omitempty"`
 	ExpectedVersion  int64             `json:"expectedVersion,omitempty"`
 }
@@ -320,6 +320,8 @@ type PolicyVersion struct {
 
 // TopicRuleDestination represents an AWS IoT Topic Rule Destination.
 type TopicRuleDestination struct {
+	CreatedAt         time.Time                     `json:"-"`
+	LastUpdatedAt     time.Time                     `json:"-"`
 	HTTPURLProperties *HTTPURLDestinationProperties `json:"httpUrlProperties,omitempty"`
 	ARN               string                        `json:"arn"`
 	Status            string                        `json:"status"`
@@ -380,11 +382,11 @@ type CreateThingGroupInput struct {
 type UpdateThingGroupInput struct {
 	Attributes      map[string]string
 	Merge           *bool
+	Description     *string
+	QueryString     *string
+	IndexName       *string
+	QueryVersion    *string
 	ThingGroupName  string
-	Description     string
-	QueryString     string
-	IndexName       string
-	QueryVersion    string
 	ExpectedVersion int64
 }
 
@@ -465,7 +467,7 @@ type CreateCertificateProviderInput struct {
 // UpdateCertificateProviderInput is the input for UpdateCertificateProvider.
 type UpdateCertificateProviderInput struct {
 	CertificateProviderName     string
-	LambdaFunctionARN           string
+	LambdaFunctionARN           *string
 	AccountDefaultForOperations []string
 }
 
@@ -664,8 +666,8 @@ type StartThingRegistrationTaskInput struct {
 
 // UpdateThingTypeInput is the input for UpdateThingType.
 type UpdateThingTypeInput struct {
+	Description          *string
 	ThingTypeName        string
-	Description          string
 	SearchableAttributes []string
 }
 

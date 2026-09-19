@@ -82,6 +82,21 @@ func (h *Handler) handleGetBackupPlan(c *echo.Context, id string) error {
 		}
 	}
 
+	if maxPreview := parseInt(c.Request().URL.Query().Get("MaxScheduledRunsPreview")); maxPreview > 0 {
+		preview := ScheduledRunsPreview(p, maxPreview, time.Now().UTC())
+		items := make([]map[string]any, 0, len(preview))
+
+		for _, s := range preview {
+			items = append(items, map[string]any{
+				"ExecutionTime":     epochSeconds(s.ExecutionTime),
+				"RuleExecutionType": s.RuleExecutionType,
+				"RuleId":            s.RuleID,
+			})
+		}
+
+		resp["ScheduledRunsPreview"] = items
+	}
+
 	return c.JSON(http.StatusOK, resp)
 }
 

@@ -165,8 +165,8 @@ func (b *InMemoryBackend) UpdateConnection(ctx context.Context, input UpdateConn
 		return nil, fmt.Errorf("%w: connection %s not found", ErrNotFound, input.Name)
 	}
 
-	if input.Description != "" {
-		conn.Description = input.Description
+	if input.Description != nil {
+		conn.Description = *input.Description
 	}
 	if input.AuthorizationType != "" {
 		conn.AuthorizationType = input.AuthorizationType

@@ -149,16 +149,30 @@ type DataQualityRunOptions struct {
 func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRun(
 	rulesetNames []string,
 ) (*DataQualityEvaluationRun, error) {
-	return b.StartDataQualityRulesetEvaluationRunWithOptions(rulesetNames, DataQualityRunOptions{})
+	return b.StartDataQualityRulesetEvaluationRunWithOptions(rulesetNames, DataQualityEvaluationRunOptions{})
+}
+
+// DataQualityEvaluationRunOptions carries every optional
+// StartDataQualityRulesetEvaluationRunInput member (glue@v1.157.0
+// api_op_StartDataQualityRulesetEvaluationRun.go) beyond RulesetNames. Role and
+// DataSource are real, required input members enforced by the handler (not
+// here, so direct-backend callers/tests are unaffected); this backend never
+// evaluates a ruleset against real data, so DataSource/AdditionalDataSources
+// are stored and echoed back but otherwise inert.
+type DataQualityEvaluationRunOptions struct {
+	DataSource            *DataQualityDataSource
+	AdditionalRunOptions  *DataQualityRunAdditionalOptions
+	AdditionalDataSources map[string]DataQualityDataSource
+	Role                  string
+	DataQualityRunOptions
 }
 
 // StartDataQualityRulesetEvaluationRunWithOptions is
-// StartDataQualityRulesetEvaluationRun plus the optional NumberOfWorkers/
-// Timeout StartDataQualityRulesetEvaluationRunInput also supports
-// (glue@v1.157.0 api_op_StartDataQualityRulesetEvaluationRun.go), echoed
-// back by GetDataQualityRulesetEvaluationRun.
+// StartDataQualityRulesetEvaluationRun plus every optional field
+// StartDataQualityRulesetEvaluationRunInput supports, echoed back by
+// GetDataQualityRulesetEvaluationRun.
 func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRunWithOptions(
-	rulesetNames []string, opts DataQualityRunOptions,
+	rulesetNames []string, opts DataQualityEvaluationRunOptions,
 ) (*DataQualityEvaluationRun, error) {
 	b.mu.Lock("StartDataQualityRulesetEvaluationRun")
 	defer b.mu.Unlock()
@@ -175,11 +189,15 @@ func (b *InMemoryBackend) StartDataQualityRulesetEvaluationRunWithOptions(
 			time.Now().UnixNano(),
 			mrand.IntN(10000), //nolint:gosec,mnd // non-security mock run ID
 		),
-		RulesetNames:    append([]string(nil), rulesetNames...),
-		Status:          stateRunning,
-		StartedOn:       float64(time.Now().Unix()),
-		NumberOfWorkers: opts.NumberOfWorkers,
-		Timeout:         opts.Timeout,
+		RulesetNames:          append([]string(nil), rulesetNames...),
+		Status:                stateRunning,
+		StartedOn:             float64(time.Now().Unix()),
+		Role:                  opts.Role,
+		DataSource:            opts.DataSource,
+		AdditionalRunOptions:  opts.AdditionalRunOptions,
+		AdditionalDataSources: opts.AdditionalDataSources,
+		NumberOfWorkers:       opts.NumberOfWorkers,
+		Timeout:               opts.Timeout,
 	}
 	b.dataQualityEvalRuns.Put(run)
 

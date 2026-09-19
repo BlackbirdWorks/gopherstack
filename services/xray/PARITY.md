@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: xray
 sdk_module: aws-sdk-go-v2/service/xray@v1.39.4   # version audited against (go.mod pin; was stale at v1.36.20)
-last_audit_commit: 4ad94a2e4                       # HEAD when this manifest was last rewritten
-last_audit_date: 2026-08-29
+last_audit_commit: d4dc4a723                       # HEAD when this manifest was last rewritten
+last_audit_date: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -108,6 +108,12 @@ version bump.
 
 ## Notes
 
+- **2026-09-18** (acceptguard invented-field census): GetGroups, GetIndexingRules,
+  ListRetrievedTraces, GetTraceSummaries each read a "MaxResults" field their real Input
+  (xray@v1.39.4) does not declare -- only NextToken exists; the server alone picks the
+  page size. Removed the field and the read from all four; pagination now always uses
+  the existing default page size. No real client could ever reach the old field, so
+  behavior for real clients is unchanged.
 - **Route-matcher bug class** (prior pass, unchanged): 6 of 34 routed X-Ray operations used
   their operation-name-shaped path (e.g. `/GetInsight`) instead of the actual REST path the
   real `aws-sdk-go-v2/service/xray` client serializes (e.g. `/Insight`). See git history for

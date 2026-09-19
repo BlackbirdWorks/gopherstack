@@ -212,6 +212,33 @@ func TestCreateConfiguration_DefaultAuthenticationStrategy(t *testing.T) {
 	assert.Equal(t, mqtypes.AuthenticationStrategySimple, created.AuthenticationStrategy)
 }
 
+// TestCreateConfiguration_NoDescriptionMember covers an invented-field bug
+// (acceptguard): the handler read a "description" field CreateConfigurationInput
+// (mq@v1.39.4 api_op_CreateConfiguration.go) does not declare -- Description is
+// only ever settable via UpdateConfiguration, which creates a new revision. No
+// real client can influence it at creation; this proves the server always
+// synthesizes a non-empty description instead.
+func TestCreateConfiguration_NoDescriptionMember(t *testing.T) {
+	t.Parallel()
+
+	backend := mq.NewInMemoryBackend("000000000000", mqTagsRTRegion)
+	client := newTestMQClient(t, mq.NewHandler(backend))
+
+	created, err := client.CreateConfiguration(t.Context(), &mqsdk.CreateConfigurationInput{
+		Name:          aws.String("no-description-config"),
+		EngineType:    "ACTIVEMQ",
+		EngineVersion: aws.String("5.15.14"),
+	})
+	require.NoError(t, err)
+
+	described, err := client.DescribeConfiguration(t.Context(), &mqsdk.DescribeConfigurationInput{
+		ConfigurationId: created.Id,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, aws.ToString(described.Description),
+		"CreateConfigurationInput has no description member; the server must synthesize one")
+}
+
 // TestUpdateConfiguration_Created_SDKRoundTrip proves UpdateConfigurationOutput.Created
 // (api_op_UpdateConfiguration.go, "Required. The date and time of the
 // configuration.") is emitted -- previously the handler's response map had

@@ -32,14 +32,20 @@ func (h *Handler) handleDescribeExportTasks(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlExportTask, 0, len(tasks))
-	for _, task := range tasks {
+	members, marker, err := paginateDescribe(vals, tasks, func(a, b ExportTask) bool {
+		return a.ExportTaskIdentifier < b.ExportTaskIdentifier
+	}, func(task ExportTask) xmlExportTask {
 		cp := task
-		members = append(members, toXMLExportTask(&cp))
+
+		return toXMLExportTask(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeExportTasksResponse{
 		Xmlns:       rdsXMLNS,
+		Marker:      marker,
 		ExportTasks: xmlExportTaskList{Members: members},
 	}, nil
 }
@@ -96,6 +102,7 @@ type startExportTaskResponse struct {
 type describeExportTasksResponse struct {
 	XMLName     xml.Name          `xml:"DescribeExportTasksResponse"`
 	Xmlns       string            `xml:"xmlns,attr"`
+	Marker      string            `xml:"DescribeExportTasksResult>Marker,omitempty"`
 	ExportTasks xmlExportTaskList `xml:"DescribeExportTasksResult>ExportTasks"`
 }
 

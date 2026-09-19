@@ -40,7 +40,9 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 			name: "duplicate_destination",
 			setup: func(b *sesv2.InMemoryBackend) {
 				_, _ = b.CreateConfigurationSet("my-set", nil)
-				_, _ = b.CreateConfigurationSetEventDestination("my-set", "my-dest", true, nil)
+				_, _ = b.CreateConfigurationSetEventDestination(
+					"my-set", "my-dest", sesv2.EventDestinationConfig{Enabled: true},
+				)
 			},
 			configSetName: "my-set",
 			destName:      "my-dest",
@@ -56,7 +58,8 @@ func TestCreateConfigurationSetEventDestination(t *testing.T) {
 			tt.setup(backend)
 
 			_, err := backend.CreateConfigurationSetEventDestination(
-				tt.configSetName, tt.destName, true, []string{"SEND"},
+				tt.configSetName, tt.destName,
+				sesv2.EventDestinationConfig{Enabled: true, MatchingEventTypes: []string{"SEND"}},
 			)
 
 			if tt.wantErr {

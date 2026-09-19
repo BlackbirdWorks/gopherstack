@@ -160,7 +160,7 @@ type handleUpdateESMInput struct {
 	FilterCriteria                 *FilterCriteria             `json:"FilterCriteria"`
 	DestinationConfig              *ESMDestinationConfig       `json:"DestinationConfig"`
 	BisectBatchOnFunctionError     *bool                       `json:"BisectBatchOnFunctionError"`
-	KMSKeyArn                      string                      `json:"KMSKeyArn"`
+	KMSKeyArn                      *string                     `json:"KMSKeyArn"`
 	SourceAccessConfigurations     []SourceAccessConfiguration `json:"SourceAccessConfigurations"`
 	Topics                         []string                    `json:"Topics"`
 	Queues                         []string                    `json:"Queues"`

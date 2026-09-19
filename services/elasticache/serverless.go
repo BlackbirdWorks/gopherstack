@@ -90,6 +90,17 @@ func (b *InMemoryBackend) CreateServerlessCacheSnapshot(
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
+
+	return b.createServerlessCacheSnapshotLocked(region, snapshotName, serverlessCacheName, kmsKeyID)
+}
+
+// createServerlessCacheSnapshotLocked is CreateServerlessCacheSnapshot's body,
+// factored out so DeleteServerlessCache can take a final snapshot
+// (DeleteServerlessCacheInput.FinalSnapshotName) without a nested b.mu.Lock --
+// it already holds the lock when it needs this.
+func (b *InMemoryBackend) createServerlessCacheSnapshotLocked(
+	region, snapshotName, serverlessCacheName, kmsKeyID string,
+) (*ServerlessCacheSnapshot, error) {
 	snapStore := b.serverlessCacheSnapshotsStore(region)
 	if _, exists := snapStore.Get(snapshotName); exists {
 		return nil, ErrServerlessCacheSnapshotExists
@@ -329,8 +340,15 @@ func (b *InMemoryBackend) ModifyServerlessCacheFull(
 // CreateSubnetGroupFull — with VpcId
 // ----------------------------------------
 
-// DeleteServerlessCache deletes a serverless cache.
-func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string) (*ServerlessCache, error) {
+// DeleteServerlessCache deletes a serverless cache. When finalSnapshotName is
+// non-empty (DeleteServerlessCacheInput.FinalSnapshotName), a manual snapshot
+// under that name is taken before the cache is removed -- see
+// elasticache@v1.56.4 api_op_DeleteServerlessCache.go's doc comment ("Name of
+// the final snapshot to be taken before the serverless cache is deleted").
+func (b *InMemoryBackend) DeleteServerlessCache(
+	ctx context.Context,
+	name, finalSnapshotName string,
+) (*ServerlessCache, error) {
 	b.mu.Lock("DeleteServerlessCache")
 	defer b.mu.Unlock()
 
@@ -345,6 +363,12 @@ func (b *InMemoryBackend) DeleteServerlessCache(ctx context.Context, name string
 		sc.Status, sc.PendingStatus, sc.AvailableAt, ErrServerlessCacheNotAvailable,
 	); err != nil {
 		return nil, err
+	}
+
+	if finalSnapshotName != "" {
+		if _, err := b.createServerlessCacheSnapshotLocked(region, finalSnapshotName, name, ""); err != nil {
+			return nil, err
+		}
 	}
 
 	if d := b.pendingUntil(); !d.IsZero() {

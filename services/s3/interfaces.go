@@ -261,6 +261,10 @@ type StorageBackend interface {
 		ctx context.Context,
 		input *s3.ListObjectAnnotationsInput,
 	) (*s3.ListObjectAnnotationsOutput, error)
+	CopyObjectAnnotations(
+		srcBucket, srcKey string, srcVersionID *string,
+		destBucket, destKey string, destVersionID *string,
+	) error
 
 	// GetObjectAttributes / RestoreObject / RenameObject
 	GetObjectAttributes(

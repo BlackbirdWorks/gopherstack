@@ -1,8 +1,8 @@
 ---
 service: ssoadmin
 sdk_module: aws-sdk-go-v2/service/ssoadmin@v1.43.1
-last_audit_commit: 1d7169f66
-last_audit_date: 2026-08-07
+last_audit_commit: 15d6ce54c
+last_audit_date: 2026-09-18
 overall: A            # multiple severe client-breaking wire-shape bugs found and fixed 2026-07-24 sweep.
                       # 2026-08-21 (gopherstack-c8ge, Scope B): fixed UpdateTrustedTokenIssuer reusing
                       # Create's OIDC config shape for Update, wholesale-replacing the stored config and
@@ -45,7 +45,7 @@ ops:
   CreateApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response wrapped the full application under an invented 'Application' object; real CreateApplicationOutput is exactly {ApplicationArn, IdentityStoreArn, InstanceArn} flat, and IdentityStoreArn was never returned. Fixed; backend now derives ApplicationAccount/CreatedFrom/IdentityStoreArn."}
   DescribeApplication: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: entire response was nested one level too deep under an invented 'Application' wrapper (plus a fabricated 'Tags' member) -- a real aws-sdk-go-v2 client parsing this would get every DescribeApplicationOutput field nil. Real shape is flat: ApplicationAccount/ApplicationArn/ApplicationProviderArn/CreatedDate/CreatedFrom/Description/IdentityStoreArn/InstanceArn/Name/PortalOptions/Status, no Tags. Fixed; tags now only reachable via ListTagsForResource like every other taggable resource."}
   UpdateApplication: {wire: ok, errors: ok, state: ok, persist: fixed, note: "response echoed a full invented 'Application' object; real UpdateApplicationOutput is void. Fixed to {}. 2026-08-21 (gopherstack-1vv2): persist was accept-and-corrupt — UpdateApplicationInput.PortalOptions is types.UpdateApplicationPortalOptions (SignInOptions only, no Visibility, unlike Create-side types.PortalOptions), and the handler wholesale-replaced app.PortalOptions with a freshly-decoded struct on EVERY UpdateApplication call, even ones that never mentioned PortalOptions at all — silently zeroing Visibility and SignInOptions every time. Fixed: PortalOptions is now a nil-able pointer at decode time and the backend merges only SignInOptions into the existing PortalOptions, leaving Visibility untouched. See TestUpdateApplication_PreservesVisibility."}
-  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed. FIXED 2026-08-29 (wrapper-key sweep): ListApplicationsInput.Filter (ApplicationAccount/ApplicationProvider, types.ListApplicationsFilter, serializers.go:5111) was a real wire field the handler's request struct didn't even declare -- json.Unmarshal silently dropped it, so every call returned every application in the instance regardless of the filter. Now reads Filter.ApplicationAccount/Filter.ApplicationProvider and matches against Application.ApplicationAccount/ApplicationProviderArn. See TestListApplications_Filter."}
+  ListApplications: {wire: ok, errors: ok, state: ok, persist: ok, note: "was missing ApplicationAccount/CreatedFrom/IdentityStoreArn (present on the real per-item Application type) and MaxResults/NextToken pagination; both fixed. FIXED 2026-08-29 (wrapper-key sweep): ListApplicationsInput.Filter (ApplicationAccount/ApplicationProvider, types.ListApplicationsFilter, serializers.go:5111) was a real wire field the handler's request struct didn't even declare -- json.Unmarshal silently dropped it, so every call returned every application in the instance regardless of the filter. Now reads Filter.ApplicationAccount/Filter.ApplicationProvider and matches against Application.ApplicationAccount/ApplicationProviderArn. See TestListApplications_Filter. FIXED 2026-09-18 (gopherstack-21my, per-item field sweep): applicationView (the per-item shape) dropped PortalOptions entirely even though the real per-item Application type declares it and DescribeApplication already returns it from the same backend field; now included. See TestListApplications_PortalOptions_RealClient."}
   DescribeApplicationAssignment: {wire: ok, errors: ok, state: ok, persist: ok, note: "SEVERE: response nested under an invented 'ApplicationAssignment' wrapper; real DescribeApplicationAssignmentOutput is flat {ApplicationArn, PrincipalId, PrincipalType}. Fixed."}
   ListApplicationAssignments: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken were ignored; now paginated"}
   ListApplicationAssignmentsForPrincipal: {wire: ok, errors: ok, state: ok, persist: ok, note: "Filter.ApplicationArn and MaxResults/NextToken pagination were both ignored; now implemented"}
@@ -463,3 +463,12 @@ in-code comments documenting prior fixes for exactly these ops. Gates:
 --new-from-rev=HEAD` (0 issues), `go test -race -count=1` (all pass).
 `pkgs/persistence`'s `TestSnapshotVersionGuard` clean (no persisted-struct
 fields touched). No version bump.
+
+## 2026-09-18 (gopherstack-21my: per-item field sweep, ssoadmin)
+
+Diffed every List/Get item shape against the real SDK. One bug: `applicationView`
+(ListApplications' per-item shape) dropped `PortalOptions`, a real, already-backend-
+populated field DescribeApplication already returns correctly. Fixed; proven failing
+pre-fix by `TestListApplications_PortalOptions_RealClient`. All other item shapes
+(AccountAssignment, ApplicationProvider, TrustedTokenIssuerMetadata, status metadata
+types, etc.) matched the SDK exactly. Gates clean (0 lint, new and full-run).

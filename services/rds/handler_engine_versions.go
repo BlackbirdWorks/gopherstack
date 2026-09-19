@@ -13,13 +13,35 @@ func (h *Handler) handleDescribeDBEngineVersions(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBEngineVersion, 0, len(versions))
-	for _, v := range versions {
-		members = append(members, xmlDBEngineVersion(v))
+	if vals.Get("DefaultOnly") == formTrue {
+		filtered := make([]DBEngineVersion, 0, len(versions))
+		for _, v := range versions {
+			if v.IsDefault {
+				filtered = append(filtered, v)
+			}
+		}
+		versions = filtered
+	}
+	members, marker, err := paginateDescribe(vals, versions, func(a, b DBEngineVersion) bool {
+		if a.Engine == b.Engine {
+			return a.EngineVersion < b.EngineVersion
+		}
+
+		return a.Engine < b.Engine
+	}, func(v DBEngineVersion) xmlDBEngineVersion {
+		return xmlDBEngineVersion{
+			Engine:              v.Engine,
+			EngineVersion:       v.EngineVersion,
+			DBEngineDescription: v.DBEngineDescription,
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBEngineVersionsResponse{
 		Xmlns:            rdsXMLNS,
+		Marker:           marker,
 		DBEngineVersions: xmlDBEngineVersionList{Members: members},
 	}, nil
 }
@@ -28,14 +50,26 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 	options := h.Backend.DescribeOrderableDBInstanceOptions(engine, engineVersion)
-	members := make([]xmlOrderableDBInstanceOption, 0, len(options))
-	for _, o := range options {
-		members = append(members, xmlOrderableDBInstanceOption(o))
+	members, marker, err := paginateDescribe(vals, options, func(a, b OrderableDBInstanceOption) bool {
+		if a.Engine != b.Engine {
+			return a.Engine < b.Engine
+		}
+		if a.EngineVersion != b.EngineVersion {
+			return a.EngineVersion < b.EngineVersion
+		}
+
+		return a.DBInstanceClass < b.DBInstanceClass
+	}, func(o OrderableDBInstanceOption) xmlOrderableDBInstanceOption {
+		return xmlOrderableDBInstanceOption(o)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeOrderableDBInstanceOptionsResponse{
 		Xmlns: rdsXMLNS,
 		Result: describeOrderableDBInstanceOptionsResult{
+			Marker:                     marker,
 			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
 		},
 	}, nil
@@ -54,6 +88,7 @@ type xmlDBEngineVersionList struct {
 type describeDBEngineVersionsResponse struct {
 	XMLName          xml.Name               `xml:"DescribeDBEngineVersionsResponse"`
 	Xmlns            string                 `xml:"xmlns,attr"`
+	Marker           string                 `xml:"DescribeDBEngineVersionsResult>Marker,omitempty"`
 	DBEngineVersions xmlDBEngineVersionList `xml:"DescribeDBEngineVersionsResult>DBEngineVersions"`
 }
 
@@ -69,6 +104,7 @@ type xmlOrderableDBInstanceOptionList struct {
 }
 
 type describeOrderableDBInstanceOptionsResult struct {
+	Marker                     string                           `xml:"Marker,omitempty"`
 	OrderableDBInstanceOptions xmlOrderableDBInstanceOptionList `xml:"OrderableDBInstanceOptions"`
 }
 
@@ -86,7 +122,14 @@ type describeOrderableDBInstanceOptionsResponse struct {
 // therefore carries the full result-element chain individually instead of nesting
 // through a shared struct, matching the pattern already used for e.g.
 // ModifyCurrentDBClusterCapacityResult below.
+type xmlCustomDBEngineVersionAMI struct {
+	ImageID string `xml:"ImageId,omitempty"`
+	Status  string `xml:"Status,omitempty"`
+}
+
 type createCustomDBEngineVersionResponse struct {
+	Image *xmlCustomDBEngineVersionAMI `xml:"CreateCustomDBEngineVersionResult>Image,omitempty"`
+
 	XMLName                    xml.Name `xml:"CreateCustomDBEngineVersionResponse"`
 	Xmlns                      string   `xml:"xmlns,attr"`
 	Engine                     string   `xml:"CreateCustomDBEngineVersionResult>Engine"`
@@ -117,22 +160,28 @@ func (h *Handler) handleCreateCustomDBEngineVersion(vals url.Values) (any, error
 	engine := vals.Get("Engine")
 	engineVersion := vals.Get("EngineVersion")
 	description := vals.Get("Description")
+	imageID := vals.Get("ImageId")
 
-	cev, err := h.Backend.CreateCustomDBEngineVersion(engine, engineVersion, description)
+	cev, err := h.Backend.CreateCustomDBEngineVersion(engine, engineVersion, description, imageID)
 	if err != nil {
 		return nil, err
 	}
 
 	h.applyCreateTags(vals, cev.DBEngineVersionArn)
 
-	return &createCustomDBEngineVersionResponse{
+	resp := &createCustomDBEngineVersionResponse{
 		Xmlns:                      rdsXMLNS,
 		Engine:                     cev.Engine,
 		EngineVersion:              cev.EngineVersion,
 		DBEngineVersionArn:         cev.DBEngineVersionArn,
 		Status:                     cev.Status,
 		DBEngineVersionDescription: cev.Description,
-	}, nil
+	}
+	if cev.ImageID != "" {
+		resp.Image = &xmlCustomDBEngineVersionAMI{ImageID: cev.ImageID, Status: cev.Status}
+	}
+
+	return resp, nil
 }
 
 func (h *Handler) handleDeleteCustomDBEngineVersion(vals url.Values) (any, error) {

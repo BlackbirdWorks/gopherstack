@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -70,8 +71,8 @@ func TestInMemoryBackend_UpdateStage_AllFields(t *testing.T) {
 
 	autoDeploy := true
 	updated, err := b.UpdateStage(api.APIID, "dev", apigatewayv2.UpdateStageInput{
-		DeploymentID:   "deploy-1",
-		Description:    "new desc",
+		DeploymentID:   aws.String("deploy-1"),
+		Description:    aws.String("new desc"),
 		AutoDeploy:     &autoDeploy,
 		StageVariables: map[string]string{"key": "val"},
 	})
@@ -96,7 +97,11 @@ func TestInMemoryBackend_UpdateStage_ManagedStageImmutable(t *testing.T) {
 	require.Len(t, stages, 1)
 	require.True(t, stages[0].APIGatewayManaged)
 
-	_, err = b.UpdateStage(api.APIID, stages[0].StageName, apigatewayv2.UpdateStageInput{Description: "new desc"})
+	_, err = b.UpdateStage(
+		api.APIID,
+		stages[0].StageName,
+		apigatewayv2.UpdateStageInput{Description: aws.String("new desc")},
+	)
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
 
 	got, err := b.GetStage(api.APIID, stages[0].StageName)
@@ -230,7 +235,7 @@ func Test_Stage_ClientCertificateID(t *testing.T) {
 
 			if tc.updateCertID != "" {
 				_, err = b.UpdateStage(api.APIID, "prod", apigatewayv2.UpdateStageInput{
-					ClientCertificateID: tc.updateCertID,
+					ClientCertificateID: aws.String(tc.updateCertID),
 				})
 				require.NoError(t, err)
 			}

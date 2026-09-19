@@ -88,6 +88,8 @@ func (h *Handler) handleDescribeTransitGateways(vals url.Values, reqID string) (
 		return nil, err
 	}
 
+	tgws = applyTransitGatewayFilters(tgws, parseEC2Filters(vals), h.Backend)
+
 	resp := &describeTransitGatewaysResponse{RequestID: reqID}
 
 	for _, tgw := range tgws {

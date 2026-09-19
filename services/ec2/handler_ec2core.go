@@ -501,6 +501,8 @@ func (h *Handler) handleDescribeTransitGatewayRouteTables(
 		return nil, err
 	}
 
+	rts = applyTGWRouteTableFilters(rts, parseEC2Filters(vals))
+
 	resp := &describeTransitGatewayRouteTablesResponse{RequestID: reqID}
 
 	for _, rt := range rts {

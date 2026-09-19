@@ -84,21 +84,22 @@ func (b *InMemoryBackend) CreateLoadBalancer(
 	}
 
 	lb := &LoadBalancer{
-		Name:            name,
-		Arn:             b.regionalARN(ResourceTypeLoadBalancer, newUUID()),
-		SupportCode:     newSupportCode(),
-		DNSName:         name + "-" + randomHex() + "." + b.region + ".elb.amazonaws.com",
-		State:           LoadBalancerStateProvisioning,
-		Protocol:        LoadBalancerProtocolHTTP,
-		IPAddressType:   ipType,
-		TLSPolicyName:   tlsPolicyName,
-		HealthCheckPath: path,
-		InstancePort:    instancePort,
-		CreatedAt:       nowUTC(),
-		Location:        ResourceLocation{RegionName: b.region, AvailabilityZone: availabilityZoneA(b.region)},
-		InstanceHealth:  make(map[string]instanceHealth),
-		PublicPorts:     []int32{80},
-		Tags:            tags.New("lightsail.loadbalancer." + name + ".tags"),
+		Name:                 name,
+		Arn:                  b.regionalARN(ResourceTypeLoadBalancer, newUUID()),
+		SupportCode:          newSupportCode(),
+		DNSName:              name + "-" + randomHex() + "." + b.region + ".elb.amazonaws.com",
+		State:                LoadBalancerStateProvisioning,
+		Protocol:             LoadBalancerProtocolHTTP,
+		IPAddressType:        ipType,
+		TLSPolicyName:        tlsPolicyName,
+		HealthCheckPath:      path,
+		InstancePort:         instancePort,
+		CreatedAt:            nowUTC(),
+		Location:             ResourceLocation{RegionName: b.region, AvailabilityZone: availabilityZoneA(b.region)},
+		InstanceHealth:       make(map[string]instanceHealth),
+		ConfigurationOptions: make(map[string]string),
+		PublicPorts:          []int32{80},
+		Tags:                 tags.New("lightsail.loadbalancer." + name + ".tags"),
 	}
 	lb.Tags.Merge(userTags)
 	b.loadBalancers.Put(lb)
@@ -244,11 +245,14 @@ func (b *InMemoryBackend) DetachInstancesFromLoadBalancer(name string, instanceN
 }
 
 // UpdateLoadBalancerAttribute updates one named attribute on the load
-// balancer -- HealthCheckPath and HTTPSRedirectionEnabled are modeled
-// directly; every other attribute name (SessionStickinessEnabled etc.) is
-// stored verbatim in ConfigurationOptions-equivalent bookkeeping without
-// this backend independently acting on it (an honest scoped-down behavior:
-// its wire value is retained and echoed back, never silently dropped).
+// balancer. HealthCheckPath, HttpsRedirectionEnabled, and TlsPolicyName
+// (types.LoadBalancerAttributeName's real casing -- confirmed via
+// aws-sdk-go-v2/service/lightsail/types/enums.go) are also modeled directly
+// on LoadBalancer; every attribute name, including these three, is stored
+// verbatim in ConfigurationOptions and echoed back on Get, so
+// SessionStickinessEnabled/SessionStickiness_LB_CookieDurationSeconds (not
+// independently acted on by this backend) are retained rather than
+// silently dropped.
 func (b *InMemoryBackend) UpdateLoadBalancerAttribute(name, attributeName, attributeValue string) ([]Operation, error) {
 	b.mu.Lock("UpdateLoadBalancerAttribute")
 	defer b.mu.Unlock()
@@ -261,11 +265,17 @@ func (b *InMemoryBackend) UpdateLoadBalancerAttribute(name, attributeName, attri
 	switch attributeName {
 	case "HealthCheckPath":
 		lb.HealthCheckPath = attributeValue
-	case "HTTPSRedirectionEnabled":
+	case "HttpsRedirectionEnabled":
 		lb.HTTPSRedirectionEnabled = attributeValue == "true"
-	case "TLSPolicyName":
+	case "TlsPolicyName":
 		lb.TLSPolicyName = attributeValue
 	}
+
+	if lb.ConfigurationOptions == nil {
+		lb.ConfigurationOptions = make(map[string]string)
+	}
+
+	lb.ConfigurationOptions[attributeName] = attributeValue
 
 	return b.newOperationsLocked(opTypeUpdateLoadBalancerAttribute, ResourceTypeLoadBalancer, []string{name}), nil
 }

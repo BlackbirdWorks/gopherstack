@@ -18,8 +18,8 @@ type describeSubnetGroupsRequest struct {
 }
 
 type updateSubnetGroupRequest struct {
+	Description     *string  `json:"Description"`
 	SubnetGroupName string   `json:"SubnetGroupName"`
-	Description     string   `json:"Description"`
 	SubnetIDs       []string `json:"SubnetIds"`
 }
 

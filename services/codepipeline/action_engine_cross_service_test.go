@@ -31,6 +31,13 @@ func (f *fakeLambdaInvoker) InvokeFunction(
 	return nil, 200, f.err
 }
 
+// fakeCodeDeployStarter is a minimal codepipeline.CodeDeployStarter double.
+type fakeCodeDeployStarter struct {
+	err error
+}
+
+func (f *fakeCodeDeployStarter) CreateDeployment(_, _ string) error { return f.err }
+
 // codeBuildActionPipeline returns a 2-stage pipeline (Source -> Build) whose
 // Build stage is a single built-in Build/CodeBuild action configured with
 // ProjectName.
@@ -157,6 +164,73 @@ func TestRunOneAction_Lambda(t *testing.T) {
 	}
 }
 
+// codeDeployActionPipeline returns a 2-stage pipeline (Source -> Deploy)
+// whose Deploy stage is a single built-in Deploy/CodeDeploy action
+// configured with ApplicationName/DeploymentGroupName.
+func codeDeployActionPipeline(name, appName, dgName string) codepipeline.PipelineDeclaration {
+	p := samplePipeline(name)
+	p.Stages = append(p.Stages, codepipeline.Stage{
+		Name: "Deploy",
+		Actions: []codepipeline.Action{
+			{
+				Name: "DeployAction",
+				ActionTypeID: codepipeline.ActionTypeID{
+					Category: "Deploy",
+					Owner:    "AWS",
+					Provider: "CodeDeploy",
+					Version:  "1",
+				},
+				Configuration: map[string]string{
+					"ApplicationName":     appName,
+					"DeploymentGroupName": dgName,
+				},
+			},
+		},
+	})
+
+	return p
+}
+
+// TestRunOneAction_CodeDeploy covers a Deploy/CodeDeploy action's three
+// reachable outcomes, mirroring TestRunOneAction_CodeBuild: unwired
+// (unchanged), wired against a CodeDeploy backend that accepts the
+// deployment, and wired against one that rejects it (e.g. an unknown
+// application/deployment group). Before this fix, every case here reported
+// Succeeded regardless.
+func TestRunOneAction_CodeDeploy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		codeDeploy codepipeline.CodeDeployStarter
+		name       string
+		wantStatus string
+	}{
+		{name: "unwired", codeDeploy: nil, wantStatus: "Succeeded"},
+		{name: "wired success", codeDeploy: &fakeCodeDeployStarter{}, wantStatus: "Succeeded"},
+		{name: "wired failure", codeDeploy: &fakeCodeDeployStarter{err: errFakeBackend}, wantStatus: "Failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			if tt.codeDeploy != nil {
+				h.Backend.SetCodeDeployBackend(tt.codeDeploy)
+			}
+
+			ctx := context.Background()
+			p := codeDeployActionPipeline("cd-"+tt.name, "my-app", "my-dg")
+			_, err := h.Backend.CreatePipeline(ctx, p, nil)
+			require.NoError(t, err)
+
+			exec, err := h.Backend.StartPipelineExecution(ctx, p.Name)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantStatus, exec.Status)
+		})
+	}
+}
+
 // TestRunOneAction_MissingConfiguration proves that a wired backend with no
 // ProjectName/FunctionName configured on the action still succeeds instantly
 // (nothing to call), rather than newly failing on a Configuration shape this
@@ -188,6 +262,21 @@ func TestRunOneAction_MissingConfiguration(t *testing.T) {
 		h.Backend.SetLambdaBackend(&fakeLambdaInvoker{err: errFakeBackend})
 
 		p := lambdaActionPipeline("lambda-no-config", "")
+		_, err := h.Backend.CreatePipeline(ctx, p, nil)
+		require.NoError(t, err)
+
+		exec, err := h.Backend.StartPipelineExecution(ctx, p.Name)
+		require.NoError(t, err)
+		assert.Equal(t, "Succeeded", exec.Status)
+	})
+
+	t.Run("codedeploy", func(t *testing.T) {
+		t.Parallel()
+
+		h := newTestHandler(t)
+		h.Backend.SetCodeDeployBackend(&fakeCodeDeployStarter{err: errFakeBackend})
+
+		p := codeDeployActionPipeline("cd-no-config", "", "")
 		_, err := h.Backend.CreatePipeline(ctx, p, nil)
 		require.NoError(t, err)
 

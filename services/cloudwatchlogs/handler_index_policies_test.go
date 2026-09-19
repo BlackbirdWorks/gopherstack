@@ -29,7 +29,20 @@ func TestHandler_IndexPolicy(t *testing.T) {
 				"logGroupIdentifier": "/aws/lambda/fn",
 				"policyDocument":     `{"fields":["@message"]}`,
 			},
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/aws/lambda/fn"}`)
+			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:   "PutIndexPolicy/LogGroupNotFound",
+			action: "PutIndexPolicy",
+			body: map[string]any{
+				"logGroupIdentifier": "/no/such/group",
+				"policyDocument":     `{}`,
+			},
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:   "PutIndexPolicy/EmptyIdentifier",
@@ -46,6 +59,8 @@ func TestHandler_IndexPolicy(t *testing.T) {
 			body:   map[string]any{"logGroupIdentifiers": []string{"/grp1", "/grp2"}},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/grp1"}`)
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/grp2"}`)
 				doLogsRequest(t, h, e, "PutIndexPolicy",
 					`{"logGroupIdentifier":"/grp1","policyDocument":"{}"}`)
 				doLogsRequest(t, h, e, "PutIndexPolicy",
@@ -65,6 +80,7 @@ func TestHandler_IndexPolicy(t *testing.T) {
 			body:   map[string]any{"logGroupIdentifier": "/aws/lambda/fn"},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/aws/lambda/fn"}`)
 				doLogsRequest(t, h, e, "PutIndexPolicy",
 					`{"logGroupIdentifier":"/aws/lambda/fn","policyDocument":"{}"}`)
 			},
@@ -154,16 +170,26 @@ func TestHandler_IndexPolicyResponseShape(t *testing.T) {
 		wantCode   int
 	}{
 		{
-			name:       "PutIndexPolicy/HasIndexPolicy",
-			action:     "PutIndexPolicy",
-			body:       map[string]any{"logGroupIdentifier": "/grp", "policyDocument": `{}`},
+			name:   "PutIndexPolicy/HasIndexPolicy",
+			action: "PutIndexPolicy",
+			body:   map[string]any{"logGroupIdentifier": "/grp", "policyDocument": `{}`},
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/grp"}`)
+			},
 			wantFields: []string{"indexPolicy"},
 			wantCode:   http.StatusOK,
 		},
 		{
-			name:       "DescribeIndexPolicies/HasIndexPolicies",
-			action:     "DescribeIndexPolicies",
-			body:       map[string]any{"logGroupIdentifiers": []string{"/grp"}},
+			name:   "DescribeIndexPolicies/HasIndexPolicies",
+			action: "DescribeIndexPolicies",
+			body:   map[string]any{"logGroupIdentifiers": []string{"/grp"}},
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/grp"}`)
+				doLogsRequest(t, h, e, "PutIndexPolicy",
+					`{"logGroupIdentifier":"/grp","policyDocument":"{}"}`)
+			},
 			wantFields: []string{"indexPolicies"},
 			wantCode:   http.StatusOK,
 		},

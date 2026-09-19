@@ -2,6 +2,7 @@ package cloudwatchlogs_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -296,6 +297,49 @@ func TestHandler_CreateScheduledQueryOperations(t *testing.T) {
 					assert.NotEmpty(t, out[tt.wantKey], "expected non-empty %s", tt.wantKey)
 				}
 			}
+		})
+	}
+}
+
+// TestHandler_GetScheduledQueryHistory_RequiresTimeRange asserts StartTime
+// and EndTime (both real required GetScheduledQueryHistoryInput members,
+// validateOpGetScheduledQueryHistoryInput) are enforced -- a previous
+// revision didn't even decode either field, so a request omitting them was
+// silently accepted instead of rejected.
+func TestHandler_GetScheduledQueryHistory_RequiresTimeRange(t *testing.T) {
+	t.Parallel()
+
+	e := echo.New()
+	backend := cloudwatchlogs.NewInMemoryBackend()
+	h := cloudwatchlogs.NewHandler(backend)
+
+	createRec := doLogsRequest(
+		t, h, e, "CreateScheduledQuery",
+		`{"name":"q-history-required","queryString":"fields @message","queryLanguage":"CWLI",`+
+			`"scheduleExpression":"cron(0 * * * ? *)","executionRoleArn":"arn:aws:iam::123:role/r"}`,
+	)
+	require.Equal(t, http.StatusOK, createRec.Code)
+
+	var created map[string]any
+	require.NoError(t, json.Unmarshal(createRec.Body.Bytes(), &created))
+	arn, _ := created["scheduledQueryArn"].(string)
+	require.NotEmpty(t, arn)
+
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing start time", body: `{"identifier":%q,"endTime":9999999999}`},
+		{name: "missing end time", body: `{"identifier":%q,"startTime":0}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := doLogsRequest(t, h, e, "GetScheduledQueryHistory", fmt.Sprintf(tt.body, arn))
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.Contains(t, rec.Body.String(), "ValidationException")
 		})
 	}
 }

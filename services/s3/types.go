@@ -164,6 +164,7 @@ type StoredMultipartUpload struct {
 	Key          string                `json:"key"`
 	Tagging      string                `json:"tagging,omitempty"`
 	StorageClass string                `json:"storageClass,omitempty"`
+	ACL          string                `json:"acl,omitempty"`
 	closed       bool                  `json:"-"`
 }
 

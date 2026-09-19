@@ -13,6 +13,11 @@ import (
 
 // --- Package version methods ---
 
+const (
+	packageVersionStatusPublished  = "Published"
+	packageVersionStatusUnfinished = "Unfinished"
+)
+
 // packageVersionKey returns the map key for a package version.
 func packageVersionKey(domainName, repoName, format, namespace, name, version string) string {
 	return packageKey(domainName, repoName, format, namespace, name) + "/" + version
@@ -44,7 +49,7 @@ func (b *InMemoryBackend) DescribePackageVersion(
 			Namespace:   namespace,
 			PackageName: name,
 			Version:     version,
-			Status:      "Published",
+			Status:      packageVersionStatusPublished,
 			PublishedAt: time.Now().UTC(),
 			Revision:    uuid.NewString()[:8],
 			region:      region,
@@ -478,10 +483,27 @@ func (b *InMemoryBackend) GetPackageVersionReadme(
 // upserts the uploaded asset (by name) into its Assets list. Unlike
 // DescribePackageVersion's auto-create fallback, this is the real entry point AWS
 // clients use to create a version, so it validates the repository exists first.
+// resolvePublishStatus applies PublishPackageVersionInput.Unfinished's documented
+// semantics (api_op_PublishPackageVersion.go:15-19): unfinished=true keeps the
+// version in the Unfinished state until an upload omits the flag, but once a
+// version reaches Published it can never revert to Unfinished.
+func resolvePublishStatus(existingStatus string, exists bool, unfinished bool) string {
+	if exists && existingStatus == packageVersionStatusPublished {
+		return packageVersionStatusPublished
+	}
+
+	if unfinished {
+		return packageVersionStatusUnfinished
+	}
+
+	return packageVersionStatusPublished
+}
+
 func (b *InMemoryBackend) PublishPackageVersion(
 	ctx context.Context,
 	domainName, repoName, format, namespace, name, version string,
 	asset AssetInfo,
+	unfinished bool,
 ) (*PackageVersion, error) {
 	region := getRegion(ctx, b.region)
 
@@ -495,6 +517,14 @@ func (b *InMemoryBackend) PublishPackageVersion(
 	key := packageVersionKey(domainName, repoName, format, namespace, name, version)
 
 	pv, ok := b.packageVersions.Get(regionKey(region, key))
+
+	existingStatus := ""
+	if ok {
+		existingStatus = pv.Status
+	}
+
+	status := resolvePublishStatus(existingStatus, ok, unfinished)
+
 	if !ok {
 		pv = &PackageVersion{
 			DomainName:  domainName,
@@ -503,12 +533,14 @@ func (b *InMemoryBackend) PublishPackageVersion(
 			Namespace:   namespace,
 			PackageName: name,
 			Version:     version,
-			Status:      "Published",
+			Status:      status,
 			Revision:    uuid.NewString()[:8],
 			PublishedAt: time.Now().UTC(),
 			region:      region,
 		}
 		b.packageVersions.Put(pv)
+	} else {
+		pv.Status = status
 	}
 
 	if asset.Name != "" {

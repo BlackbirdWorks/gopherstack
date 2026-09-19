@@ -1,6 +1,7 @@
 package glue_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -1171,6 +1172,10 @@ func testIntegrationsRealClient(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, resourceArn, aws.ToString(created.ResourceArn))
+	assert.True(
+		t, strings.HasPrefix(aws.ToString(created.ResourcePropertyArn), "arn:aws:glue:::integrationresourceproperty/"),
+		"ResourcePropertyArn = %q", aws.ToString(created.ResourcePropertyArn),
+	)
 	require.NotNil(t, created.SourceProcessingProperties)
 	assert.Equal(
 		t,
@@ -1182,6 +1187,7 @@ func testIntegrationsRealClient(t *testing.T) {
 		ResourceArn: aws.String(resourceArn),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(created.ResourcePropertyArn), aws.ToString(got.ResourcePropertyArn))
 	require.NotNil(t, got.SourceProcessingProperties)
 	assert.Equal(
 		t, "arn:aws:iam::"+testAccountID+":role/glue-role", aws.ToString(got.SourceProcessingProperties.RoleArn),

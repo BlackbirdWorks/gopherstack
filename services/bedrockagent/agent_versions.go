@@ -3,6 +3,7 @@ package bedrockagent
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -49,18 +50,22 @@ func (b *InMemoryBackend) newAgentVersionLocked(agentID, description string) (*A
 
 	now := time.Now().UTC()
 	av := &AgentVersion{
-		AgentID:                 agentID,
-		AgentARN:                a.AgentARN,
-		AgentName:               a.AgentName,
-		AgentVersion:            version,
-		AgentStatus:             agentStatusPrepared,
-		FoundationModel:         a.FoundationModel,
-		Instruction:             a.Instruction,
-		RoleARN:                 a.RoleARN,
-		IdleSessionTTLInSeconds: a.IdleSessionTTLInSeconds,
-		Description:             description,
-		CreatedAt:               now,
-		UpdatedAt:               now,
+		AgentID:                     agentID,
+		AgentARN:                    a.AgentARN,
+		AgentName:                   a.AgentName,
+		AgentVersion:                version,
+		AgentStatus:                 agentStatusPrepared,
+		FoundationModel:             a.FoundationModel,
+		Instruction:                 a.Instruction,
+		RoleARN:                     a.RoleARN,
+		IdleSessionTTLInSeconds:     a.IdleSessionTTLInSeconds,
+		Description:                 description,
+		Collaboration:               a.Collaboration,
+		Guardrail:                   maps.Clone(a.Guardrail),
+		Memory:                      maps.Clone(a.Memory),
+		PromptOverrideConfiguration: maps.Clone(a.PromptOverrideConfiguration),
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 
 	b.agentVersions.Put(av)
@@ -215,12 +220,13 @@ func (b *InMemoryBackend) ListAgentVersions(
 	for _, k := range keys {
 		av, _ := b.agentVersions.Get(agentVersionKey(agentID, k))
 		out = append(out, &AgentVersionSummary{
-			AgentName:    av.AgentName,
-			AgentVersion: av.AgentVersion,
-			AgentStatus:  av.AgentStatus,
-			Description:  av.Description,
-			CreatedAt:    av.CreatedAt,
-			UpdatedAt:    av.UpdatedAt,
+			AgentName:              av.AgentName,
+			AgentVersion:           av.AgentVersion,
+			AgentStatus:            av.AgentStatus,
+			Description:            av.Description,
+			CreatedAt:              av.CreatedAt,
+			UpdatedAt:              av.UpdatedAt,
+			GuardrailConfiguration: av.Guardrail,
 		})
 	}
 

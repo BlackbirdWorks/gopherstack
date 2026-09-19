@@ -135,8 +135,9 @@ func TestPublisher(t *testing.T) {
 
 	// RegisterPublisher
 	rec := postForm(t, h, url.Values{
-		"Action":        []string{"RegisterPublisher"},
-		"ConnectionArn": []string{"arn:aws:codestar-connections:us-east-1:123456789012:connection/abc"},
+		"Action":                   []string{"RegisterPublisher"},
+		"ConnectionArn":            []string{"arn:aws:codestar-connections:us-east-1:123456789012:connection/abc"},
+		"AcceptTermsAndConditions": []string{"true"},
 	}.Encode())
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "RegisterPublisherResponse")

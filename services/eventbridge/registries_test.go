@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -29,7 +30,7 @@ func TestSchemaRegistry_CRUD(t *testing.T) {
 
 	updated, err := b.UpdateRegistry(context.Background(), eventbridge.UpdateRegistryInput{
 		RegistryName: "my-registry",
-		Description:  "updated description",
+		Description:  aws.String("updated description"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated description", updated.Description)

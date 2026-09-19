@@ -111,7 +111,7 @@ func TestListBackupVaultsFiltered(t *testing.T) {
 	// Vault.MinRetentionDays. A logically air-gapped vault is a distinct
 	// resource created via CreateLogicallyAirGappedBackupVault.
 	if _, err := b.CreateLogicallyAirGappedBackupVault(
-		"locked-vault", "", 30, 365, nil,
+		"locked-vault", "", "", 30, 365, nil,
 	); err != nil {
 		t.Fatalf("CreateLogicallyAirGappedBackupVault: %v", err)
 	}

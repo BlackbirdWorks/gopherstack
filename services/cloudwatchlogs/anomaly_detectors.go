@@ -319,13 +319,18 @@ func (b *InMemoryBackend) ListAnomalies(
 	return all[startIdx:end], outToken, nil
 }
 
+// suppressionTypeLimited is the one SuppressionType member whose semantics
+// this backend inspects further (it alone carries a SuppressionPeriod);
+// INFINITE has no reuse site beyond validSuppressionTypes.
+const suppressionTypeLimited = "LIMITED"
+
 // validSuppressionTypes mirrors aws-sdk-go-v2 types.SuppressionType.Values()
 // (LIMITED/INFINITE). There is no "unsuppress" enum member on the real API:
 // per UpdateAnomalyInput's own doc comment, ending a suppression is done by
 // calling this operation again and omitting suppressionType (and
 // suppressionPeriod) entirely, not by passing a sentinel value.
 func validSuppressionTypes() map[string]bool {
-	return map[string]bool{"LIMITED": true, "INFINITE": true}
+	return map[string]bool{suppressionTypeLimited: true, "INFINITE": true}
 }
 
 // applyAnomalySuppression mutates a in place per UpdateAnomaly's semantics:
@@ -337,10 +342,38 @@ func validSuppressionTypes() map[string]bool {
 // that has no wire representation at all), so a real client ending a
 // suppression by omitting suppressionType was incorrectly marked as newly
 // suppressed instead.
+const (
+	secondsPerMinute = 60
+	secondsPerHour   = 60 * secondsPerMinute
+	millisPerSecond  = 1000
+)
+
+// suppressionUnitSeconds mirrors aws-sdk-go-v2 types.SuppressionUnit
+// (SECONDS/MINUTES/HOURS, api_op_UpdateAnomaly.go's SuppressionPeriod).
+func suppressionUnitSeconds(unit string) (int64, bool) {
+	switch unit {
+	case "SECONDS":
+		return 1, true
+	case "MINUTES":
+		return secondsPerMinute, true
+	case "HOURS":
+		return secondsPerHour, true
+	default:
+		return 0, false
+	}
+}
+
 // applyAnomalySuppression mutates a per UpdateAnomaly's semantics. baseline
 // (api_op_UpdateAnomaly.go: "the behavior is then treated as baseline
 // behavior") takes State straight to Baseline regardless of suppressionType.
-func applyAnomalySuppression(a *Anomaly, suppressionType string, baseline bool) {
+// suppressionPeriodValue/suppressionPeriodUnit implement SuppressionPeriod:
+// LIMITED computes SuppressedUntil from now+period; INFINITE (or LIMITED with
+// no period given) leaves SuppressedUntil unset, matching the doc comment
+// ("If you specify INFINITE, any value for suppressionPeriod is ignored").
+func applyAnomalySuppression(
+	a *Anomaly, suppressionType string, baseline bool,
+	suppressionPeriodValue int32, suppressionPeriodUnit string,
+) {
 	if baseline {
 		a.State = AnomalyStateBaseline
 		suppressed := false
@@ -365,17 +398,21 @@ func applyAnomalySuppression(a *Anomaly, suppressionType string, baseline bool) 
 	suppressed := true
 	a.Suppressed = &suppressed
 	a.SuppressedDate = time.Now().UnixMilli()
+	a.SuppressedUntil = 0
+
+	if suppressionType == suppressionTypeLimited && suppressionPeriodValue > 0 {
+		if secs, ok := suppressionUnitSeconds(suppressionPeriodUnit); ok {
+			a.SuppressedUntil = a.SuppressedDate + int64(suppressionPeriodValue)*secs*millisPerSecond
+		}
+	}
 }
 
-// UpdateAnomaly updates the suppression state of a stored anomaly or, when
-// patternID is given instead of anomalyID, every stored anomaly sharing that
-// pattern -- UpdateAnomalyInput's own doc comment: "Use this operation to
-// suppress anomaly detection for a specified anomaly or pattern... You must
-// specify either anomalyId or patternId, but you can't specify both
-// parameters in the same operation." (api_op_UpdateAnomaly.go:12-19).
-func (b *InMemoryBackend) UpdateAnomaly(
+// validateUpdateAnomalyParams checks UpdateAnomaly's request-shape rules
+// (mutual exclusion, enum membership) that don't need the backend lock,
+// split out to keep UpdateAnomaly itself under this repo's complexity cap.
+func validateUpdateAnomalyParams(
 	anomalyID, anomalyDetectorArn, suppressionType, patternID string,
-	baseline bool,
+	suppressionPeriodValue int32, suppressionPeriodUnit string,
 ) error {
 	if anomalyDetectorArn == "" {
 		return fmt.Errorf("%w: anomalyDetectorArn is required", ErrValidation)
@@ -390,6 +427,33 @@ func (b *InMemoryBackend) UpdateAnomaly(
 
 	if suppressionType != "" && !validSuppressionTypes()[suppressionType] {
 		return fmt.Errorf("%w: invalid suppressionType %q", ErrValidation, suppressionType)
+	}
+
+	if suppressionType == suppressionTypeLimited && suppressionPeriodValue > 0 {
+		if _, ok := suppressionUnitSeconds(suppressionPeriodUnit); !ok {
+			return fmt.Errorf("%w: invalid suppressionPeriod.suppressionUnit %q", ErrValidation, suppressionPeriodUnit)
+		}
+	}
+
+	return nil
+}
+
+// UpdateAnomaly updates the suppression state of a stored anomaly or, when
+// patternID is given instead of anomalyID, every stored anomaly sharing that
+// pattern -- UpdateAnomalyInput's own doc comment: "Use this operation to
+// suppress anomaly detection for a specified anomaly or pattern... You must
+// specify either anomalyId or patternId, but you can't specify both
+// parameters in the same operation." (api_op_UpdateAnomaly.go:12-19).
+func (b *InMemoryBackend) UpdateAnomaly(
+	anomalyID, anomalyDetectorArn, suppressionType, patternID string,
+	baseline bool,
+	suppressionPeriodValue int32, suppressionPeriodUnit string,
+) error {
+	if err := validateUpdateAnomalyParams(
+		anomalyID, anomalyDetectorArn, suppressionType, patternID,
+		suppressionPeriodValue, suppressionPeriodUnit,
+	); err != nil {
+		return err
 	}
 
 	b.mu.Lock("UpdateAnomaly")
@@ -408,7 +472,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 
 		for _, a := range b.anomalyByDetector.Get(anomalyDetectorArn) {
 			if a.PatternID == patternID {
-				applyAnomalySuppression(a, suppressionType, baseline)
+				applyAnomalySuppression(a, suppressionType, baseline, suppressionPeriodValue, suppressionPeriodUnit)
 
 				matched = true
 			}
@@ -436,7 +500,7 @@ func (b *InMemoryBackend) UpdateAnomaly(
 		)
 	}
 
-	applyAnomalySuppression(anomaly, suppressionType, baseline)
+	applyAnomalySuppression(anomaly, suppressionType, baseline, suppressionPeriodValue, suppressionPeriodUnit)
 
 	return nil
 }

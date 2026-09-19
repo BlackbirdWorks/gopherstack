@@ -2,6 +2,7 @@ package transcribe
 
 import (
 	"context"
+	"strings"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
@@ -139,11 +140,32 @@ func buildCallAnalyticsJobOutput(job *CallAnalyticsJob) *callAnalyticsJobOutput 
 
 	if job.CallAnalyticsJobStatus == jobStatusCompleted {
 		out.Transcript = &transcriptOutput{
-			TranscriptFileURI: "s3://synthetic-transcripts/" + job.CallAnalyticsJobName + ".json",
+			TranscriptFileURI: resolveCallAnalyticsOutputLocation(job.OutputLocation, job.CallAnalyticsJobName),
 		}
 	}
 
 	return out
+}
+
+// resolveCallAnalyticsOutputLocation applies StartCallAnalyticsJobInput.OutputLocation's
+// three documented forms (transcribe@v1.64.0 api_op_StartCallAnalyticsJob.go): a
+// bucket-only URI or a folder URI (trailing "/") both get the job name appended as the
+// default file name; a URI that already names a file is used as-is. Empty means the
+// caller didn't specify one, so the job lands in the service-managed bucket.
+func resolveCallAnalyticsOutputLocation(outputLocation, jobName string) string {
+	if outputLocation == "" {
+		return "s3://synthetic-transcripts/" + jobName + ".json"
+	}
+
+	if strings.HasSuffix(outputLocation, "/") {
+		return outputLocation + jobName + ".json"
+	}
+
+	if !strings.Contains(strings.TrimPrefix(outputLocation, "s3://"), "/") {
+		return outputLocation + "/" + jobName + ".json"
+	}
+
+	return outputLocation
 }
 
 type getCallAnalyticsJobOutput struct {
@@ -173,6 +195,7 @@ type startCallAnalyticsJobInput struct {
 	CallAnalyticsJobName string                 `json:"CallAnalyticsJobName"`
 	LanguageCode         string                 `json:"LanguageCode"`
 	DataAccessRoleArn    string                 `json:"DataAccessRoleArn"`
+	OutputLocation       string                 `json:"OutputLocation"`
 	ChannelDefinitions   []ChannelDefinition    `json:"ChannelDefinitions"`
 }
 
@@ -190,6 +213,7 @@ func (h *Handler) handleStartCallAnalyticsJob(
 		Media:                in.Media,
 		DataAccessRoleArn:    in.DataAccessRoleArn,
 		ChannelDefinitions:   in.ChannelDefinitions,
+		OutputLocation:       in.OutputLocation,
 		Settings:             in.Settings,
 		Tags:                 tagsToMap(in.Tags),
 	})

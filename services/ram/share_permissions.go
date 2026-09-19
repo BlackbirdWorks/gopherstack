@@ -239,10 +239,36 @@ func (b *InMemoryBackend) ListResourceSharePermissions(shareARN string) []*Resou
 	return result
 }
 
+// matchesPermissionAssociationFilterLocked reports whether a (permissionARN, version)
+// association passes ListPermissionAssociations' optional filters. Caller must hold
+// b.mu (any lock mode).
+func (b *InMemoryBackend) matchesPermissionAssociationFilterLocked(
+	pARN string, ver int32, permissionARN string, permissionVersion *int32, defaultVersion *bool,
+) bool {
+	if permissionARN != "" && pARN != permissionARN {
+		return false
+	}
+
+	if permissionVersion != nil && ver != *permissionVersion {
+		return false
+	}
+
+	if defaultVersion != nil && *defaultVersion {
+		p, ok := b.permissions.Get(pARN)
+		if !ok || p.DefaultVersion != ver {
+			return false
+		}
+	}
+
+	return true
+}
+
 // ListPermissionAssociations returns all share-permission associations filtered optionally
-// by permissionARN and permissionVersion, sorted by share ARN + permission ARN.
+// by permissionARN, permissionVersion, and defaultVersion (true restricts to associations
+// pinned to their permission's current default version -- ram@v1.39.4
+// api_op_ListPermissionAssociations.go:38-48), sorted by share ARN + permission ARN.
 func (b *InMemoryBackend) ListPermissionAssociations(
-	permissionARN string, permissionVersion *int32,
+	permissionARN string, permissionVersion *int32, defaultVersion *bool,
 ) []SharePermissionAssociation {
 	b.mu.RLock("ListPermissionAssociations")
 	defer b.mu.RUnlock()
@@ -251,11 +277,10 @@ func (b *InMemoryBackend) ListPermissionAssociations(
 
 	for shareARN, perms := range b.sharePermissions {
 		for pARN, ver := range perms {
-			if permissionARN != "" && pARN != permissionARN {
-				continue
-			}
-
-			if permissionVersion != nil && ver != *permissionVersion {
+			match := b.matchesPermissionAssociationFilterLocked(
+				pARN, ver, permissionARN, permissionVersion, defaultVersion,
+			)
+			if !match {
 				continue
 			}
 

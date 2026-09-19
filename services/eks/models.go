@@ -189,27 +189,29 @@ type ConnectorConfig struct {
 // The Tags field is backend-owned. Callers must treat the returned pointer as
 // read-only; mutate tags only via TagResource / CreateCluster.
 type Cluster struct {
-	CreatedAt               time.Time                `json:"createdAt"`
-	Tags                    *tags.Tags               `json:"tags,omitempty"`
-	VpcConfig               *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
-	KubernetesNetworkConfig *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
-	AccessConfig            *AccessConfig            `json:"accessConfig,omitempty"`
-	ComputeConfig           *ComputeConfig           `json:"computeConfig,omitempty"`
-	StorageConfig           *StorageConfig           `json:"storageConfig,omitempty"`
-	ConnectorConfig         *ConnectorConfig         `json:"connectorConfig,omitempty"`
-	ARN                     string                   `json:"arn"`
-	Name                    string                   `json:"name"`
-	Endpoint                string                   `json:"endpoint,omitempty"`
-	OIDCIssuer              string                   `json:"oidcIssuer,omitempty"`
-	Version                 string                   `json:"version"`
-	Status                  string                   `json:"status"`
-	RoleARN                 string                   `json:"roleArn,omitempty"`
-	AccountID               string                   `json:"accountId"`
-	Region                  string                   `json:"region"`
-	PlatformVersion         string                   `json:"platformVersion,omitempty"`
-	CertificateAuthority    string                   `json:"certificateAuthority,omitempty"`
-	ClusterLogging          []ClusterLogEntry        `json:"clusterLogging,omitempty"`
-	EncryptionConfig        []EncryptionConfig       `json:"encryptionConfig,omitempty"`
+	CreatedAt                time.Time                `json:"createdAt"`
+	Tags                     *tags.Tags               `json:"tags,omitempty"`
+	VpcConfig                *VpcConfig               `json:"resourcesVpcConfig,omitempty"`
+	KubernetesNetworkConfig  *KubernetesNetworkConfig `json:"kubernetesNetworkConfig,omitempty"`
+	AccessConfig             *AccessConfig            `json:"accessConfig,omitempty"`
+	ComputeConfig            *ComputeConfig           `json:"computeConfig,omitempty"`
+	StorageConfig            *StorageConfig           `json:"storageConfig,omitempty"`
+	ConnectorConfig          *ConnectorConfig         `json:"connectorConfig,omitempty"`
+	ARN                      string                   `json:"arn"`
+	Name                     string                   `json:"name"`
+	Endpoint                 string                   `json:"endpoint,omitempty"`
+	OIDCIssuer               string                   `json:"oidcIssuer,omitempty"`
+	Version                  string                   `json:"version"`
+	Status                   string                   `json:"status"`
+	RoleARN                  string                   `json:"roleArn,omitempty"`
+	AccountID                string                   `json:"accountId"`
+	Region                   string                   `json:"region"`
+	PlatformVersion          string                   `json:"platformVersion,omitempty"`
+	CertificateAuthority     string                   `json:"certificateAuthority,omitempty"`
+	UpgradePolicySupportType string                   `json:"upgradePolicySupportType,omitempty"`
+	ClusterLogging           []ClusterLogEntry        `json:"clusterLogging,omitempty"`
+	EncryptionConfig         []EncryptionConfig       `json:"encryptionConfig,omitempty"`
+	DeletionProtection       bool                     `json:"deletionProtection,omitempty"`
 }
 
 // NodegroupTaint represents a Kubernetes taint applied to managed nodes.
@@ -246,6 +248,7 @@ type NodegroupResources struct {
 type NodegroupUpdateConfig struct {
 	MaxUnavailable           *int32 `json:"maxUnavailable,omitempty"`
 	MaxUnavailablePercentage *int32 `json:"maxUnavailablePercentage,omitempty"`
+	UpdateStrategy           string `json:"updateStrategy,omitempty"`
 }
 
 // Nodegroup represents an EKS managed node group.
@@ -254,6 +257,7 @@ type NodegroupUpdateConfig struct {
 // read-only; mutate tags only via TagResource / CreateNodegroup.
 type Nodegroup struct {
 	CreatedAt      time.Time              `json:"createdAt"`
+	ModifiedAt     time.Time              `json:"modifiedAt"`
 	Tags           *tags.Tags             `json:"tags,omitempty"`
 	Labels         map[string]string      `json:"labels,omitempty"`
 	RemoteAccess   *RemoteAccess          `json:"remoteAccess,omitempty"`
@@ -296,6 +300,7 @@ type AccessEntry struct {
 // AccessPolicyAssociation represents an access policy associated with an access entry.
 type AccessPolicyAssociation struct {
 	AssociatedAt time.Time      `json:"associatedAt"`
+	ModifiedAt   time.Time      `json:"modifiedAt"`
 	AccessScope  map[string]any `json:"accessScope,omitempty"`
 	PolicyARN    string         `json:"policyArn"`
 	ClusterName  string         `json:"clusterName"`

@@ -1005,6 +1005,8 @@ func testWirelessDeviceImportTasksRealClient(t *testing.T, client *iotwirelesssd
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "slice6-import-dest", aws.ToString(got.DestinationName))
+	require.NotNil(t, got.Sidewalk, "GetWirelessDeviceImportTaskOutput.Sidewalk must round-trip the create-time file")
+	assert.Equal(t, []string{"s3://bucket/devices.csv"}, got.Sidewalk.DeviceCreationFileList)
 
 	list, err := client.ListWirelessDeviceImportTasks(
 		ctx, &iotwirelesssdk.ListWirelessDeviceImportTasksInput{},
@@ -1037,6 +1039,21 @@ func testWirelessDeviceImportTasksRealClient(t *testing.T, client *iotwirelesssd
 		},
 	)
 	require.NoError(t, err)
+
+	// UpdateWirelessDeviceImportTaskInput has no DestinationName member --
+	// it must stay whatever Start set -- and the new file is appended to
+	// Sidewalk.DeviceCreationFileList, not a wholesale replace.
+	afterUpdate, err := client.GetWirelessDeviceImportTask(
+		ctx, &iotwirelesssdk.GetWirelessDeviceImportTaskInput{Id: task.Id},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "slice6-import-dest", aws.ToString(afterUpdate.DestinationName))
+	require.NotNil(t, afterUpdate.Sidewalk)
+	assert.Equal(
+		t,
+		[]string{"s3://bucket/devices.csv", "s3://bucket/more-devices.csv"},
+		afterUpdate.Sidewalk.DeviceCreationFileList,
+	)
 
 	single, err := client.StartSingleWirelessDeviceImportTask(
 		ctx,

@@ -122,17 +122,15 @@ func (b *InMemoryBackend) ListConnectors() []*Connector {
 
 // UpdateConnectorInput holds all optional fields for UpdateConnector.
 type UpdateConnectorInput struct {
-	SftpConfig            *ConnectorSftpConfig
-	As2Config             *ConnectorAs2Config
-	ConnectorID           string
-	URL                   string
-	AccessRole            string
-	LoggingRole           string
-	SecurityPolicyName    string
-	IPAddressType         string
-	SetLoggingRole        bool
-	SetSecurityPolicyName bool
-	SetIPAddressType      bool
+	SftpConfig         *ConnectorSftpConfig
+	As2Config          *ConnectorAs2Config
+	URL                *string
+	AccessRole         *string
+	LoggingRole        *string
+	SecurityPolicyName *string
+	ConnectorID        string
+	IPAddressType      string
+	SetIPAddressType   bool
 }
 
 // UpdateConnector updates mutable fields on a connector.
@@ -143,8 +141,8 @@ func (b *InMemoryBackend) UpdateConnector(
 ) (*Connector, error) {
 	return b.UpdateConnectorFull(&UpdateConnectorInput{
 		ConnectorID: connectorID,
-		URL:         url,
-		AccessRole:  accessRole,
+		URL:         &url,
+		AccessRole:  &accessRole,
 		SftpConfig:  sftpConfig,
 		As2Config:   as2Config,
 	})
@@ -160,12 +158,12 @@ func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connec
 		return nil, fmt.Errorf("%w: connector %s not found", ErrConnectorNotFound, in.ConnectorID)
 	}
 
-	if in.URL != "" {
-		c.URL = in.URL
+	if in.URL != nil {
+		c.URL = *in.URL
 	}
 
-	if in.AccessRole != "" {
-		c.AccessRole = in.AccessRole
+	if in.AccessRole != nil {
+		c.AccessRole = *in.AccessRole
 	}
 
 	if in.SftpConfig != nil {
@@ -176,12 +174,12 @@ func (b *InMemoryBackend) UpdateConnectorFull(in *UpdateConnectorInput) (*Connec
 		c.As2Config = in.As2Config
 	}
 
-	if in.SetLoggingRole {
-		c.LoggingRole = in.LoggingRole
+	if in.LoggingRole != nil {
+		c.LoggingRole = *in.LoggingRole
 	}
 
-	if in.SetSecurityPolicyName {
-		c.SecurityPolicyName = in.SecurityPolicyName
+	if in.SecurityPolicyName != nil {
+		c.SecurityPolicyName = *in.SecurityPolicyName
 	}
 
 	if in.SetIPAddressType {

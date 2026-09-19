@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -73,11 +74,11 @@ func TestInMemoryBackend_UpdateRoute_AllFields(t *testing.T) {
 	require.NoError(t, err)
 
 	updated, err := b.UpdateRoute(api.APIID, route.RouteID, apigatewayv2.UpdateRouteInput{
-		RouteKey:          "POST /test",
-		Target:            "integrations/abc",
+		RouteKey:          aws.String("POST /test"),
+		Target:            aws.String("integrations/abc"),
 		AuthorizationType: "JWT",
-		AuthorizerID:      "auth-1",
-		OperationName:     "DoSomething",
+		AuthorizerID:      aws.String("auth-1"),
+		OperationName:     aws.String("DoSomething"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "POST /test", updated.RouteKey)
@@ -96,7 +97,7 @@ func TestInMemoryBackend_UpdateRoute_RejectsInvalidAuthTypeWithoutMutatingRouteK
 	require.NoError(t, err)
 
 	_, err = b.UpdateRoute(api.APIID, route.RouteID, apigatewayv2.UpdateRouteInput{
-		RouteKey:          "POST /test",
+		RouteKey:          aws.String("POST /test"),
 		AuthorizationType: "BOGUS",
 	})
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
@@ -121,7 +122,11 @@ func TestInMemoryBackend_UpdateRoute_ManagedRouteKeyImmutable(t *testing.T) {
 	require.Len(t, routes, 1)
 	require.True(t, routes[0].APIGatewayManaged)
 
-	_, err = b.UpdateRoute(api.APIID, routes[0].RouteID, apigatewayv2.UpdateRouteInput{RouteKey: "GET /bar"})
+	_, err = b.UpdateRoute(
+		api.APIID,
+		routes[0].RouteID,
+		apigatewayv2.UpdateRouteInput{RouteKey: aws.String("GET /bar")},
+	)
 	require.ErrorIs(t, err, apigatewayv2.ErrBadRequest)
 
 	got, err := b.GetRoute(api.APIID, routes[0].RouteID)
@@ -129,7 +134,11 @@ func TestInMemoryBackend_UpdateRoute_ManagedRouteKeyImmutable(t *testing.T) {
 	assert.Equal(t, "GET /foo", got.RouteKey)
 
 	// Non-route-key fields on a managed route are still updatable.
-	updated, err := b.UpdateRoute(api.APIID, routes[0].RouteID, apigatewayv2.UpdateRouteInput{OperationName: "op"})
+	updated, err := b.UpdateRoute(
+		api.APIID,
+		routes[0].RouteID,
+		apigatewayv2.UpdateRouteInput{OperationName: aws.String("op")},
+	)
 	require.NoError(t, err)
 	assert.Equal(t, "op", updated.OperationName)
 }

@@ -16,6 +16,7 @@ func (b *InMemoryBackend) CreateApplication(
 	appConfigs []AppConfig,
 	dataSources []AppDataSource,
 	tagMap map[string]string,
+	kmsKeyArn ...string,
 ) (*Application, error) {
 	if name == "" {
 		return nil, fmt.Errorf("%w: Name is required", ErrInvalidParameter)
@@ -46,10 +47,16 @@ func (b *InMemoryBackend) CreateApplication(
 
 	now := float64(b.clock().Unix())
 
+	var kmsKeyArnVal string
+	if len(kmsKeyArn) > 0 {
+		kmsKeyArnVal = kmsKeyArn[0]
+	}
+
 	app := &Application{
 		ID:            id,
 		Name:          name,
 		ARN:           appARN,
+		KmsKeyArn:     kmsKeyArnVal,
 		AppConfigs:    appConfigs,
 		DataSources:   dataSources,
 		CreatedAt:     now,

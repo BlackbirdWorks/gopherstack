@@ -60,6 +60,61 @@ func TestDescribeAvailablePatches(t *testing.T) {
 	}
 }
 
+// TestDescribeAvailablePatches_ProductFamilyMsrcSeverityPatchSetFilters locks
+// in PRODUCT_FAMILY/MSRC_SEVERITY/PATCH_SET (api_op_DescribeAvailablePatches.go
+// doc comment's filter key list) against the built-in catalog, which
+// previously fell through patchMatchesFilters' default case and matched
+// every patch regardless of these keys.
+func TestDescribeAvailablePatches_ProductFamilyMsrcSeverityPatchSetFilters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		filters   []ssm.PatchFilter
+		wantNames []string
+	}{
+		{
+			name:      "product family windows",
+			filters:   []ssm.PatchFilter{{Key: "PRODUCT_FAMILY", Values: []string{"Windows"}}},
+			wantNames: []string{"KB5034441", "KB5034129"},
+		},
+		{
+			name:      "product family amazon linux 2",
+			filters:   []ssm.PatchFilter{{Key: "PRODUCT_FAMILY", Values: []string{"Amazon Linux 2"}}},
+			wantNames: []string{"ALAS2-2024-2451", "ALAS2-2024-2460"},
+		},
+		{
+			name:      "msrc severity critical",
+			filters:   []ssm.PatchFilter{{Key: "MSRC_SEVERITY", Values: []string{"Critical"}}},
+			wantNames: []string{"KB5034441"},
+		},
+		{
+			name:      "patch set os matches every catalog entry",
+			filters:   []ssm.PatchFilter{{Key: "PATCH_SET", Values: []string{"OS"}}},
+			wantNames: []string{"KB5034441", "KB5034129", "ALAS2-2024-2451", "ALAS2-2024-2460", "USN-6567-1"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			out, err := b.DescribeAvailablePatches(context.Background(), &ssm.DescribeAvailablePatchesInput{
+				Filters: tc.filters,
+			})
+			require.NoError(t, err)
+
+			got := make([]string, 0, len(out.Patches))
+			for _, p := range out.Patches {
+				got = append(got, p.Name)
+			}
+			assert.ElementsMatch(t, tc.wantNames, got)
+		})
+	}
+}
+
 // TestDescribePatchGroupState verifies that patch group state is aggregated from instance patch states.
 func TestDescribePatchGroupState(t *testing.T) {
 	t.Parallel()

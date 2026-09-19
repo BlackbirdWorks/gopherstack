@@ -14,7 +14,7 @@ func TestHandler_MacHosts_DescribeDerivedFromDedicatedHost(t *testing.T) {
 
 	h := newHandler()
 
-	hosts, err := h.Backend.AllocateHosts("us-east-1a", "mac2.metal", 1)
+	hosts, err := h.Backend.AllocateHosts("us-east-1a", "mac2.metal", 1, "", "")
 	require.NoError(t, err)
 	hostID := hosts[0].HostID
 

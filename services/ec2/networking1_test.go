@@ -65,7 +65,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	vpc, err := bk.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", nil)
+	fls, err := bk.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow-logs", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -82,7 +82,7 @@ func TestNetworking1_FlowLogs(t *testing.T) {
 	assert.Empty(t, bk.DescribeFlowLogs(nil))
 
 	// Error cases.
-	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "", nil)
+	_, err2 := bk.CreateFlowLogs(nil, "ALL", "", "", "", 0, nil)
 	require.Error(t, err2)
 
 	err3 := bk.DeleteFlowLogs(nil)
@@ -185,7 +185,7 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 	assert.Equal(t, ltIDLocal, modified.ID)
 
 	// Create new version.
-	ver, err := bk3.CreateLaunchTemplateVersion(ltIDLocal, "ami-456", "t3.micro")
+	ver, err := bk3.CreateLaunchTemplateVersion(ltIDLocal, "ami-456", "t3.micro", "")
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), ver.VersionNumber)
 
@@ -201,10 +201,10 @@ func TestNetworking1_LaunchTemplateExtras(t *testing.T) {
 	_, err3 := bk3.ModifyLaunchTemplate("nonexistent", 1)
 	require.Error(t, err3)
 
-	_, err4 := bk3.CreateLaunchTemplateVersion("", "", "")
+	_, err4 := bk3.CreateLaunchTemplateVersion("", "", "", "")
 	require.Error(t, err4)
 
-	_, err5 := bk3.CreateLaunchTemplateVersion("nonexistent", "", "")
+	_, err5 := bk3.CreateLaunchTemplateVersion("nonexistent", "", "", "")
 	require.Error(t, err5)
 
 	_, err6 := bk3.DeleteLaunchTemplateVersions("", nil)

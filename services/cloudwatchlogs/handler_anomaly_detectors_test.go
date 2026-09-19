@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	cwlsdk "github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs"
@@ -447,6 +448,86 @@ func TestUpdateAnomaly_PatternID(t *testing.T) {
 	assert.Equal(t, cwltypes.StateSuppressed, byID["anomaly-a"].State)
 	assert.Equal(t, cwltypes.StateSuppressed, byID["anomaly-b"].State)
 	assert.Equal(t, cwltypes.StateActive, byID["anomaly-other"].State)
+}
+
+// TestUpdateAnomaly_SuppressionPeriod drives UpdateAnomalyInput.SuppressionPeriod
+// (api_op_UpdateAnomaly.go, types.SuppressionPeriod{Value, SuppressionUnit})
+// through the real SDK client. gopherstack previously had no field for it at
+// all, so a LIMITED suppression's SuppressedUntil (types.Anomaly.SuppressedUntil)
+// always stayed zero regardless of what a real client requested.
+func TestUpdateAnomaly_SuppressionPeriod(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		suppressionType   cwltypes.SuppressionType
+		suppressionPeriod *cwltypes.SuppressionPeriod
+		name              string
+		wantUntilAfter    bool
+	}{
+		{
+			name:            "limited with period sets suppressedUntil",
+			suppressionType: cwltypes.SuppressionTypeLimited,
+			suppressionPeriod: &cwltypes.SuppressionPeriod{
+				Value:           30,
+				SuppressionUnit: cwltypes.SuppressionUnitMinutes,
+			},
+			wantUntilAfter: true,
+		},
+		{
+			name:            "infinite ignores suppressionPeriod",
+			suppressionType: cwltypes.SuppressionTypeInfinite,
+			suppressionPeriod: &cwltypes.SuppressionPeriod{
+				Value:           30,
+				SuppressionUnit: cwltypes.SuppressionUnitMinutes,
+			},
+			wantUntilAfter: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := cloudwatchlogs.NewInMemoryBackend()
+			client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
+
+			detOut, err := client.CreateLogAnomalyDetector(t.Context(), &cwlsdk.CreateLogAnomalyDetectorInput{
+				LogGroupArnList: []string{
+					"arn:aws:logs:us-east-1:000000000000:log-group:suppression-period-group",
+				},
+			})
+			require.NoError(t, err)
+
+			backend.AddAnomalyInternal(cloudwatchlogs.Anomaly{
+				AnomalyDetectorArn: *detOut.AnomalyDetectorArn,
+				AnomalyID:          "anomaly-1",
+				State:              cloudwatchlogs.AnomalyStateActive,
+				Active:             true,
+			})
+
+			before := time.Now().UnixMilli()
+
+			_, err = client.UpdateAnomaly(t.Context(), &cwlsdk.UpdateAnomalyInput{
+				AnomalyDetectorArn: detOut.AnomalyDetectorArn,
+				AnomalyId:          aws.String("anomaly-1"),
+				SuppressionType:    tt.suppressionType,
+				SuppressionPeriod:  tt.suppressionPeriod,
+			})
+			require.NoError(t, err)
+
+			out, err := client.ListAnomalies(t.Context(), &cwlsdk.ListAnomaliesInput{
+				AnomalyDetectorArn: detOut.AnomalyDetectorArn,
+			})
+			require.NoError(t, err)
+			require.Len(t, out.Anomalies, 1)
+
+			if tt.wantUntilAfter {
+				assert.Greater(t, out.Anomalies[0].SuppressedUntil, before+29*60*1000)
+			} else {
+				assert.Zero(t, out.Anomalies[0].SuppressedUntil)
+			}
+		})
+	}
 }
 
 // TestUpdateAnomaly_AnomalyIDAndPatternIDMutualExclusion asserts

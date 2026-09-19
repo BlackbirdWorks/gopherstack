@@ -47,16 +47,18 @@ func (h *S3Handler) createMultipartUpload(
 	ctx = context.WithValue(ctx, sseKey, sse)
 
 	out, err := h.Backend.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
-		Bucket:               aws.String(bucketName),
-		Key:                  aws.String(key),
-		Tagging:              aws.String(tagging),
-		Expires:              parseExpiresHeader(r),
-		StorageClass:         types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
-		ServerSideEncryption: types.ServerSideEncryption(sse.Algorithm),
-		SSEKMSKeyId:          ptrconv.NilIfEmpty(sse.KMSKeyID),
-		SSECustomerAlgorithm: ptrconv.NilIfEmpty(sse.SSECAlgorithm),
-		SSECustomerKeyMD5:    ptrconv.NilIfEmpty(sse.SSECKeyMD5),
-		SSECustomerKey:       ptrconv.NilIfEmpty(sse.SSECKeyB64),
+		Bucket:                  aws.String(bucketName),
+		Key:                     aws.String(key),
+		Tagging:                 aws.String(tagging),
+		Expires:                 parseExpiresHeader(r),
+		StorageClass:            types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ACL:                     types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
+		ServerSideEncryption:    types.ServerSideEncryption(sse.Algorithm),
+		SSEKMSKeyId:             ptrconv.NilIfEmpty(sse.KMSKeyID),
+		SSEKMSEncryptionContext: ptrconv.NilIfEmpty(sse.EncryptionContext),
+		SSECustomerAlgorithm:    ptrconv.NilIfEmpty(sse.SSECAlgorithm),
+		SSECustomerKeyMD5:       ptrconv.NilIfEmpty(sse.SSECKeyMD5),
+		SSECustomerKey:          ptrconv.NilIfEmpty(sse.SSECKeyB64),
 	})
 	if err != nil {
 		WriteError(ctx, w, r, err)
@@ -65,6 +67,7 @@ func (h *S3Handler) createMultipartUpload(
 	}
 
 	setAbortIncompleteHeaders(w, out.AbortDate, out.AbortRuleId)
+	setSSEResponseHeaders(w, sse)
 
 	resp := InitiateMultipartUploadResult{
 		Bucket:   bucketName,

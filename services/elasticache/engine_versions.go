@@ -75,10 +75,14 @@ func builtinCacheEngineVersions() []CacheEngineVersion {
 }
 
 // DescribeCacheEngineVersions returns engine versions, optionally filtered.
+// defaultOnly restricts the result to each matched engine's default version
+// (the same version defaultEngineVersion assigns a new cluster/replication
+// group that omits EngineVersion).
 func (b *InMemoryBackend) DescribeCacheEngineVersions(
 	_ context.Context,
 	engine, family, engineVersion, marker string,
 	maxRecords int,
+	defaultOnly bool,
 ) (page.Page[CacheEngineVersion], error) {
 	b.mu.RLock("DescribeCacheEngineVersions")
 	defer b.mu.RUnlock()
@@ -96,6 +100,10 @@ func (b *InMemoryBackend) DescribeCacheEngineVersions(
 		}
 
 		if engineVersion != "" && v.EngineVersion != engineVersion {
+			continue
+		}
+
+		if defaultOnly && v.EngineVersion != defaultEngineVersion(v.Engine) {
 			continue
 		}
 

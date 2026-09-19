@@ -38,11 +38,13 @@ type operationSpec struct {
 	listField string
 	// summaryFields lists the Data keys the real List op's <Kind>Summary type
 	// declares (verified per-kind against aws-sdk-go-v2/service/forecast's
-	// types.go); summaryStatus reports whether that Summary type declares
-	// Status. Describe/Create/Update keep the full resourceOutput -- only List
-	// is narrowed, since AWS scopes List responses but not those.
-	summaryFields []string
-	summaryStatus bool
+	// types.go); summaryStatus/summaryMessage report whether that Summary
+	// type declares Status/Message. Describe/Create/Update keep the full
+	// resourceOutput -- only List is narrowed, since AWS scopes List
+	// responses but not those.
+	summaryFields  []string
+	summaryStatus  bool
+	summaryMessage bool
 }
 
 // Handler serves Amazon Forecast JSON protocol operations.
@@ -433,6 +435,10 @@ func summaryOutput(spec operationSpec, resource *Resource) map[string]any {
 		output["Status"] = resource.Status
 	}
 
+	if spec.summaryMessage && resource.Message != "" {
+		output["Message"] = resource.Message
+	}
+
 	return output
 }
 
@@ -649,7 +655,8 @@ func registerDataOperations(operations map[string]operationSpec) {
 		"DatasetGroupArn",
 		"DatasetGroups",
 		true,
-		nil, // DatasetGroupSummary: no extra fields, no Status
+		nil, // DatasetGroupSummary: no extra fields, no Status, no Message
+		false,
 		false,
 	)
 	// update=false: real Forecast has no UpdateDataset operation (verified against
@@ -665,7 +672,7 @@ func registerDataOperations(operations map[string]operationSpec) {
 	// wired-but-unadvertised.
 	addCRUD(
 		operations, "Dataset", kindDataset, "DatasetName", "DatasetArn", "Datasets", false,
-		[]string{"DatasetType", "Domain"}, false, // DatasetSummary: no Status
+		[]string{"DatasetType", "Domain"}, false, false, // DatasetSummary: no Status, no Message
 	)
 	addCRUD(
 		operations,
@@ -677,6 +684,7 @@ func registerDataOperations(operations map[string]operationSpec) {
 		false,
 		[]string{"DataSource", "ImportMode"},
 		true,
+		true,
 	)
 	addCRUD(
 		operations, "Predictor", kindPredictor, "PredictorName", fieldPredictorArn, "Predictors", false,
@@ -687,7 +695,7 @@ func registerDataOperations(operations map[string]operationSpec) {
 		// DataConfig, and IsAutoPredictor/ReferencePredictorSummary are never
 		// recorded at all. Left absent rather than fabricated; a separate,
 		// pre-existing missing-field gap, not this issue's over-wide class.
-		nil, true,
+		nil, true, true,
 	)
 }
 
@@ -702,10 +710,11 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		false,
 		[]string{fieldDestination},
 		true,
+		true,
 	)
 	addCRUD(
 		operations, "Forecast", kindForecast, "ForecastName", fieldForecastArn, "Forecasts", false,
-		[]string{"PredictorArn"}, true,
+		[]string{"PredictorArn"}, true, true,
 	)
 	addCRUD(
 		operations,
@@ -716,6 +725,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		"ForecastExportJobs",
 		false,
 		[]string{fieldDestination},
+		true,
 		true,
 	)
 	addCRUD(
@@ -728,6 +738,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		false,
 		[]string{fieldDestination},
 		true,
+		true,
 	)
 	addCRUD(
 		operations,
@@ -738,6 +749,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		"WhatIfAnalyses",
 		false,
 		[]string{fieldForecastArn},
+		true,
 		true,
 	)
 	addCRUD(
@@ -750,6 +762,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		false,
 		[]string{"WhatIfAnalysisArn"},
 		true,
+		true,
 	)
 	addCRUD(
 		operations,
@@ -761,10 +774,11 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		false,
 		[]string{fieldDestination, "WhatIfForecastArns"},
 		true,
+		true,
 	)
 	addCRUD(
 		operations, "Monitor", kindMonitor, "MonitorName", "MonitorArn", "Monitors", false,
-		[]string{fieldResourceArn}, true,
+		[]string{fieldResourceArn}, true, false, // MonitorSummary: Status but no Message
 	)
 	addCRUD(
 		operations,
@@ -775,6 +789,7 @@ func registerForecastingOperations(operations map[string]operationSpec) {
 		"Explainabilities",
 		false,
 		[]string{fieldResourceArn, "ExplainabilityConfig"},
+		true,
 		true,
 	)
 }
@@ -789,10 +804,11 @@ func addCRUD(
 	update bool,
 	summaryFields []string,
 	summaryStatus bool,
+	summaryMessage bool,
 ) {
 	spec := operationSpec{
 		kind: kind, nameField: nameField, arnField: arnField, listField: listField,
-		summaryFields: summaryFields, summaryStatus: summaryStatus,
+		summaryFields: summaryFields, summaryStatus: summaryStatus, summaryMessage: summaryMessage,
 	}
 	operations["Create"+base] = withMode(spec, modeCreate)
 	operations["Describe"+base] = withMode(spec, modeDescribe)

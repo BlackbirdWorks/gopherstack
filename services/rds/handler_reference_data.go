@@ -37,6 +37,7 @@ type xmlCertificateList struct {
 type describeCertificatesResponse struct {
 	XMLName      xml.Name           `xml:"DescribeCertificatesResponse"`
 	Xmlns        string             `xml:"xmlns,attr"`
+	Marker       string             `xml:"DescribeCertificatesResult>Marker,omitempty"`
 	Certificates xmlCertificateList `xml:"DescribeCertificatesResult>Certificates"`
 }
 
@@ -59,6 +60,7 @@ type xmlSourceRegionList struct {
 type describeSourceRegionsResponse struct {
 	XMLName       xml.Name            `xml:"DescribeSourceRegionsResponse"`
 	Xmlns         string              `xml:"xmlns,attr"`
+	Marker        string              `xml:"DescribeSourceRegionsResult>Marker,omitempty"`
 	SourceRegions xmlSourceRegionList `xml:"DescribeSourceRegionsResult>SourceRegions"`
 }
 
@@ -75,6 +77,7 @@ type xmlDBMajorEngineVersionList struct {
 type describeDBMajorEngineVersionsResponse struct {
 	XMLName               xml.Name                    `xml:"DescribeDBMajorEngineVersionsResponse"`
 	Xmlns                 string                      `xml:"xmlns,attr"`
+	Marker                string                      `xml:"DescribeDBMajorEngineVersionsResult>Marker,omitempty"`
 	DBMajorEngineVersions xmlDBMajorEngineVersionList `xml:"DescribeDBMajorEngineVersionsResult>DBMajorEngineVersions"`
 }
 
@@ -185,20 +188,24 @@ func (h *Handler) handleDescribeCertificates(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlCertificate, 0, len(certs))
-	for _, c := range certs {
-		members = append(members, toXMLCertificate(c))
+	members, marker, err := paginateDescribe(vals, certs, func(a, b Certificate) bool {
+		return a.CertificateIdentifier < b.CertificateIdentifier
+	}, toXMLCertificate)
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeCertificatesResponse{
 		Xmlns:        rdsXMLNS,
+		Marker:       marker,
 		Certificates: xmlCertificateList{Members: members},
 	}, nil
 }
 
 func (h *Handler) handleModifyCertificates(vals url.Values) (any, error) {
 	certID := vals.Get("CertificateIdentifier")
-	cert, err := h.Backend.ModifyCertificates(certID)
+	removeCustomerOverride := vals.Get("RemoveCustomerOverride") == formTrue
+	cert, err := h.Backend.ModifyCertificates(certID, removeCustomerOverride)
 	if err != nil {
 		return nil, err
 	}
@@ -212,13 +219,16 @@ func (h *Handler) handleModifyCertificates(vals url.Values) (any, error) {
 func (h *Handler) handleDescribeSourceRegions(vals url.Values) (any, error) {
 	regionName := vals.Get("RegionName")
 	regions := h.Backend.DescribeSourceRegions(regionName)
-	members := make([]xmlSourceRegion, 0, len(regions))
-	for _, r := range regions {
-		members = append(members, xmlSourceRegion(r))
+	members, marker, err := paginateDescribe(vals, regions, func(a, b SourceRegion) bool {
+		return a.RegionName < b.RegionName
+	}, func(r SourceRegion) xmlSourceRegion { return xmlSourceRegion(r) })
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeSourceRegionsResponse{
 		Xmlns:         rdsXMLNS,
+		Marker:        marker,
 		SourceRegions: xmlSourceRegionList{Members: members},
 	}, nil
 }
@@ -226,13 +236,20 @@ func (h *Handler) handleDescribeSourceRegions(vals url.Values) (any, error) {
 func (h *Handler) handleDescribeDBMajorEngineVersions(vals url.Values) (any, error) {
 	engine := vals.Get("Engine")
 	versions := h.Backend.DescribeDBMajorEngineVersions(engine)
-	members := make([]xmlDBMajorEngineVersion, 0, len(versions))
-	for _, v := range versions {
-		members = append(members, xmlDBMajorEngineVersion(v))
+	members, marker, err := paginateDescribe(vals, versions, func(a, b DBMajorEngineVersion) bool {
+		if a.Engine == b.Engine {
+			return a.MajorEngineVersion < b.MajorEngineVersion
+		}
+
+		return a.Engine < b.Engine
+	}, func(v DBMajorEngineVersion) xmlDBMajorEngineVersion { return xmlDBMajorEngineVersion(v) })
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBMajorEngineVersionsResponse{
 		Xmlns:                 rdsXMLNS,
+		Marker:                marker,
 		DBMajorEngineVersions: xmlDBMajorEngineVersionList{Members: members},
 	}, nil
 }

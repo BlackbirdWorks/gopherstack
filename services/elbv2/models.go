@@ -37,22 +37,24 @@ type CapacityReservation struct {
 
 // LoadBalancer represents an ELBv2 load balancer.
 type LoadBalancer struct {
-	CreatedTime           time.Time            `json:"createdTime"`
-	State                 LoadBalancerState    `json:"state"`
-	Tags                  *tags.Tags           `json:"tags,omitempty"`
-	Attributes            map[string]string    `json:"attributes,omitempty"`
-	CapacityReservation   *CapacityReservation `json:"capacityReservation,omitempty"`
-	LoadBalancerArn       string               `json:"loadBalancerArn"`
-	LoadBalancerName      string               `json:"loadBalancerName"`
-	DNSName               string               `json:"dnsName"`
-	CanonicalHostedZoneID string               `json:"canonicalHostedZoneId"`
-	VpcID                 string               `json:"vpcId"`
-	Scheme                string               `json:"scheme"`
-	Type                  string               `json:"type"`
-	IPAddressType         string               `json:"ipAddressType"`
-	IPv4IPAMPoolID        string               `json:"ipv4IpamPoolId,omitempty"`
-	AvailabilityZones     []AvailabilityZone   `json:"availabilityZones"`
-	SecurityGroups        []string             `json:"securityGroups"`
+	CreatedTime                        time.Time            `json:"createdTime"`
+	Tags                               *tags.Tags           `json:"tags,omitempty"`
+	Attributes                         map[string]string    `json:"attributes,omitempty"`
+	CapacityReservation                *CapacityReservation `json:"capacityReservation,omitempty"`
+	State                              LoadBalancerState    `json:"state"`
+	CanonicalHostedZoneID              string               `json:"canonicalHostedZoneId"`
+	LoadBalancerName                   string               `json:"loadBalancerName"`
+	DNSName                            string               `json:"dnsName"`
+	LoadBalancerArn                    string               `json:"loadBalancerArn"`
+	VpcID                              string               `json:"vpcId"`
+	Scheme                             string               `json:"scheme"`
+	Type                               string               `json:"type"`
+	IPAddressType                      string               `json:"ipAddressType"`
+	IPv4IPAMPoolID                     string               `json:"ipv4IpamPoolId,omitempty"`
+	EnablePrefixForIpv6SourceNat       string               `json:"enablePrefixForIpv6SourceNat,omitempty"`
+	EnforceSGInboundRulesOnPrivateLink string               `json:"enforceSgInboundRulesOnPrivateLink,omitempty"`
+	AvailabilityZones                  []AvailabilityZone   `json:"availabilityZones"`
+	SecurityGroups                     []string             `json:"securityGroups"`
 }
 
 // TargetGroup represents an ELBv2 target group.
@@ -65,6 +67,7 @@ type TargetGroup struct {
 	ProtocolVersion            string            `json:"protocolVersion,omitempty"`
 	VpcID                      string            `json:"vpcId"`
 	TargetType                 string            `json:"targetType"`
+	IPAddressType              string            `json:"ipAddressType,omitempty"`
 	HealthCheckProtocol        string            `json:"healthCheckProtocol"`
 	HealthCheckPort            string            `json:"healthCheckPort"`
 	HealthCheckPath            string            `json:"healthCheckPath"`
@@ -303,14 +306,15 @@ type TrustStore struct {
 
 // CreateLoadBalancerInput holds the parameters for creating a load balancer.
 type CreateLoadBalancerInput struct {
-	Name           string
-	Scheme         string
-	Type           string
-	IPAddressType  string
-	Subnets        []string        // plain subnet IDs (Subnets.member.N)
-	SubnetMappings []SubnetMapping // rich subnet mappings (SubnetMappings.member.N)
-	SecurityGroups []string
-	Tags           []tags.KV
+	Name                         string
+	Scheme                       string
+	Type                         string
+	IPAddressType                string
+	EnablePrefixForIpv6SourceNat string
+	Subnets                      []string        // plain subnet IDs (Subnets.member.N)
+	SubnetMappings               []SubnetMapping // rich subnet mappings (SubnetMappings.member.N)
+	SecurityGroups               []string
+	Tags                         []tags.KV
 }
 
 // CreateTargetGroupInput holds the parameters for creating a target group.
@@ -320,6 +324,7 @@ type CreateTargetGroupInput struct {
 	ProtocolVersion            string
 	VpcID                      string
 	TargetType                 string
+	IPAddressType              string
 	HealthCheckProtocol        string
 	HealthCheckPort            string
 	HealthCheckPath            string
@@ -337,15 +342,15 @@ type CreateTargetGroupInput struct {
 // HealthCheckEnabled is a pointer so that an absent parameter does not overwrite the stored value.
 type ModifyTargetGroupInput struct {
 	HealthCheckEnabled         *bool
+	HealthCheckPort            *string
+	HealthCheckPath            *string
+	HealthCheckIntervalSeconds *int32
+	HealthCheckTimeoutSeconds  *int32
+	HealthyThresholdCount      *int32
+	UnhealthyThresholdCount    *int32
 	Matcher                    Matcher
 	TargetGroupArn             string
 	HealthCheckProtocol        string
-	HealthCheckPort            string
-	HealthCheckPath            string
-	HealthCheckIntervalSeconds int32
-	HealthCheckTimeoutSeconds  int32
-	HealthyThresholdCount      int32
-	UnhealthyThresholdCount    int32
 }
 
 // CreateListenerInput holds the parameters for creating a listener.
@@ -364,13 +369,13 @@ type CreateListenerInput struct {
 // ModifyListenerInput holds the parameters for modifying a listener.
 type ModifyListenerInput struct {
 	MutualAuthentication *MutualAuthentication
+	SSLPolicy            *string
+	Port                 *int32
 	ListenerArn          string
 	Protocol             string
-	SSLPolicy            string
 	AlpnPolicy           []string
 	DefaultActions       []Action
 	Certificates         []Certificate
-	Port                 int32
 }
 
 // CreateRuleInput holds the parameters for creating a listener rule.

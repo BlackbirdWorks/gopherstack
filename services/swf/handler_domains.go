@@ -103,6 +103,7 @@ type handleListDomainsInput struct {
 	RegistrationStatus string `json:"registrationStatus"`
 	NextPageToken      string `json:"nextPageToken,omitempty"`
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
+	ReverseOrder       bool   `json:"reverseOrder,omitempty"`
 }
 
 func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInput) (*listDomainsOutput, error) {
@@ -110,7 +111,13 @@ func (h *Handler) handleListDomains(_ context.Context, in *handleListDomainsInpu
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(domains, func(i, j int) bool { return domains[i].Name < domains[j].Name })
+	sort.Slice(domains, func(i, j int) bool {
+		if in.ReverseOrder {
+			return domains[i].Name > domains[j].Name
+		}
+
+		return domains[i].Name < domains[j].Name
+	})
 	domains, nextPageToken := applyPageTokenSlice(domains, in.NextPageToken, in.MaximumPageSize)
 	infos := make([]domainInfoOutput, len(domains))
 	for i, d := range domains {

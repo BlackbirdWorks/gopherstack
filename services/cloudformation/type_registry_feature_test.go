@@ -318,7 +318,7 @@ func TestListTypes_Visibility(t *testing.T) {
 			if tc.setup != nil {
 				tc.setup(b)
 			}
-			types, err := b.ListTypes("", 0, "")
+			types, err := b.ListTypes("", "", 0, "")
 			require.NoError(t, err)
 
 			typeMap := make(map[string]cloudformation.TypeSummary, len(types.Data))

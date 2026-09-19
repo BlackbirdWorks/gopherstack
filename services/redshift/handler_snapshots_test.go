@@ -742,13 +742,13 @@ func TestRestoreFromClusterSnapshot_TagsInitialized(t *testing.T) {
 
 	b := newRedshiftBackend()
 
-	_, err := b.CreateCluster("src-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := b.CreateCluster("src-cluster", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
 	require.NoError(t, err)
 
-	_, err = b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+	_, err = b.RestoreFromClusterSnapshot("restored-cluster", "src-snap", redshift.RestoreFromClusterSnapshotOptions{})
 	require.NoError(t, err)
 
 	// Previously panicked with a nil pointer dereference inside tags.Tags.Clone.
@@ -801,12 +801,16 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 
 		b := newRedshiftBackend()
 
-		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "")
+		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 		require.NoError(t, err)
 		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
 		require.NoError(t, err)
 
-		restored, err := b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+		restored, err := b.RestoreFromClusterSnapshot(
+			"restored-cluster",
+			"src-snap",
+			redshift.RestoreFromClusterSnapshotOptions{},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "available", restored.Status)
 	})
@@ -817,12 +821,16 @@ func TestRestoreFromClusterSnapshot_Lifecycle(t *testing.T) {
 		b := newRedshiftBackend()
 		redshift.SetClusterActivationDelay(b, 20*time.Millisecond)
 
-		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "")
+		_, err := b.CreateCluster("src-cluster", "", "", "", nil, "", redshift.CreateClusterOptions{})
 		require.NoError(t, err)
 		_, err = b.CreateClusterSnapshot("src-snap", "src-cluster")
 		require.NoError(t, err)
 
-		restored, err := b.RestoreFromClusterSnapshot("restored-cluster", "src-snap")
+		restored, err := b.RestoreFromClusterSnapshot(
+			"restored-cluster",
+			"src-snap",
+			redshift.RestoreFromClusterSnapshotOptions{},
+		)
 		require.NoError(t, err)
 		assert.Equal(t, "restoring", restored.Status,
 			"restored cluster should start in restoring state when an activation delay is configured")

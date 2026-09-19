@@ -1,19 +1,21 @@
 ---
 service: sagemakerruntime
 sdk_module: aws-sdk-go-v2/service/sagemakerruntime@v1.43.4
-last_audit_commit: 73dccf417
-last_audit_date: 2026-09-04
-overall: A            # fixed the one open gap: InvokeEndpointAsync now rejects Body/InputLocation both-or-neither with ValidationError, matching the real API's "provide exactly one of them" constraint (unenforceable client-side, so it must be a server check)
+last_audit_commit: ab7ac08a7
+last_audit_date: 2026-09-18
+overall: A            # 2026-09-18: fixed InvokeEndpointAsync.Filename (was read nowhere; now shapes the generated OutputLocation's final path segment, per its doc "generates a filename based on the inference ID"); InvocationTimeoutSeconds/RequestTTLSeconds recorded as structural (no output member, no queue to expire)
 ops:
   InvokeEndpoint: {wire: ok, errors: ok, state: ok, persist: n/a, note: "sync op; EndpointName is now validated against the wired services/sagemaker endpoint registry (existence + InService); NewSessionId's Expires= attribute now matches the SDK's RFC-3339 wire format; ClosedSessionId is now emitted when an expired session is touched. body is an opaque mock, other headers round-trip correctly"}
-  InvokeEndpointAsync: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns InferenceId (JSON body)/OutputLocation/FailureLocation headers correctly; EndpointName now validated like the other two ops; Body and InputLocation are now enforced as mutually exclusive/exactly-one-of (handler.go's handleInvokeEndpointAsync), matching api_op_InvokeEndpointAsync.go's doc comment on InvokeEndpointAsyncInput.Body -- previously neither, or both, was silently accepted"}
+  InvokeEndpointAsync: {wire: ok, errors: ok, state: ok, persist: ok, note: "returns InferenceId (JSON body)/OutputLocation/FailureLocation headers correctly; EndpointName now validated like the other two ops; Body and InputLocation are now enforced as mutually exclusive/exactly-one-of (handler.go's handleInvokeEndpointAsync), matching api_op_InvokeEndpointAsync.go's doc comment on InvokeEndpointAsyncInput.Body -- previously neither, or both, was silently accepted; Filename (X-Amzn-Sagemaker-Filename) now read and used as the generated OutputLocation's filename segment instead of the previous hardcoded 'output' literal"}
   InvokeEndpointWithResponseStream: {wire: ok, errors: ok, state: ok, persist: n/a, note: "event-stream framing (prelude/header/payload/CRC) verified against smithy-go wire format; EndpointName now validated; SessionId only touches, never creates (per SDK doc: sessions can't be created via this op), and InvokeEndpointWithResponseStreamOutput has no ClosedSessionId member so expiry-driven closure is a side effect only here, never surfaced on this response"}
 families:
   sessions: {status: ok, note: "NEW_SESSION creation, FIFO eviction (maxSessions=1000), TouchSession on subsequent calls, ExpiresAt now enforced (session past its ExpiresAt is evicted and reported via ClosedSessionId on InvokeEndpoint; see SessionTouchOutcome) -- all covered."}
   invocation_history: {status: ok, note: "bounded FIFO (maxInvocationHistory=1000), persisted."}
   endpoint_validation: {status: ok, note: "EndpointLookup (endpoint_lookup.go) is a minimal interface satisfied directly by *sagemaker.InMemoryBackend's exported DescribeEndpoint method; wired at Provider.Init via wireEndpointLookup (provider.go), following the services/cloudwatchlogs/provider.go s3HandlerProvider precedent -- no change to services/sagemaker was needed, since DescribeEndpoint was already an exported, lock-safe read accessor. Unknown EndpointName and known-but-not-InService both surface real AWS's 'Endpoint <name> of account <account> not found.' ValidationError message (confirmed against real-world AWS error reports: an endpoint still Creating is reported as not-found from InvokeEndpoint's perspective too, since the runtime routing table only serves InService endpoints). When no lookup is wired (bare NewInMemoryBackend, e.g. every pre-existing test in this package), validation is a no-op, preserving standalone behaviour."}
 gaps: []
-items_still_open: []
+items_still_open:
+  - "InvokeEndpointAsync.InvocationTimeoutSeconds: request-only header (serializers.go), no output member reflects it and there is no real async queue/timeout engine to expire against -- structural, not fixable without simulating actual processing duration."
+  - "InvokeEndpointAsync.RequestTTLSeconds: same as InvocationTimeoutSeconds -- request-only header, no queue to age a request out of."
 deferred: []
 leaks: {status: clean, note: "sessions/asyncInvocations/invocations are all FIFO-capped (maxSessions/maxAsyncInvocations/maxInvocationHistory=1000); no goroutines, no janitor (Shutdown is a documented no-op). New endpointLookup field is a plain interface reference (no goroutine, no owned resource); SetEndpointLookup/validateEndpoint both take/release the backend's own lock before calling out to the (separately-locked) sagemaker backend, so no lock is held across the cross-service call and no lock-ordering cycle is introduced."}
 ---
@@ -249,6 +251,26 @@ Gates: `go build`, `go vet`, `go fix -diff` (empty), `gofmt -l` (empty),
 `go test -race` (all green, including the new round-trip test),
 `golangci-lint run` (0 issues). `git status --short` outside this service
 directory: clean.
+
+## 2026-09-18 reqfielddiff tier-1 sweep
+
+`cmd/reqfielddiff` reported 6 tier-1 findings, all httpHeader-bound fields it
+structurally can't see being read (it doesn't inspect header consumption,
+only decode-target structs/params). `TargetVariant` (both InvokeEndpoint and
+InvokeEndpointWithResponseStream, `handler.go:297`/`:250` via
+`setVariantResponseHeader`) and `InvokeEndpointAsync.InferenceId`
+(`handler.go:212`) were already read -- false positives, no change. Fixed
+one real drop: `InvokeEndpointAsync.Filename` was never read; `RecordAsyncInvocation`
+always hardcoded the generated `OutputLocation`'s final path segment to
+`"output"`, ignoring the SDK doc's "generates a filename based on the
+inference ID" default. Now reads `X-Amzn-Sagemaker-Filename`
+(`async_invocations.go`) and uses it as that segment when the caller
+supplies one, proved via `TestSDKInvokeEndpointAsync_FilenameShapesOutputLocation`
+(real SDK client, asserts `OutputLocation` suffix). `InvocationTimeoutSeconds`/
+`RequestTTLSeconds` recorded in `items_still_open`: request-only headers
+with no output member and no async queue to time out against -- structural.
+Tier-1: 6 before -> 6 after (unfixable-by-tool-design false positives plus
+now-disclosed structural items remain; the one real gap is fixed).
 
 ## 2026-09-04 diff-scoped re-audit and gap fix
 

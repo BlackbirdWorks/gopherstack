@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -8,13 +9,22 @@ import (
 )
 
 // PutTransformer creates or updates a log transformer.
-func (b *InMemoryBackend) PutTransformer(logGroupIdentifier string, processors []map[string]any) error {
+func (b *InMemoryBackend) PutTransformer(
+	ctx context.Context, logGroupIdentifier string, processors []map[string]any,
+) error {
 	if logGroupIdentifier == "" {
 		return fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
 	}
 
+	name := normalizeLogGroupIdentifier(logGroupIdentifier)
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutTransformer")
 	defer b.mu.Unlock()
+
+	if _, ok := b.groupGet(region, name); !ok {
+		return fmt.Errorf("%w: log group %s not found", ErrLogGroupNotFound, name)
+	}
 
 	b.transformers.Put(&Transformer{
 		LogGroupIdentifier: logGroupIdentifier,

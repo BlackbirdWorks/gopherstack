@@ -43,7 +43,7 @@ func TestStorePersistence_FullStateRoundTrip(t *testing.T) {
 
 	// pullThroughCacheRules
 	_, err = b1.CreatePullThroughCacheRule(
-		ctx, "cache-prefix", "https://upstream.example.com", "", "", "", "")
+		ctx, "cache-prefix", "https://upstream.example.com", "", "", "", "", "")
 	require.NoError(t, err)
 
 	// repositoryCreationTemplates
@@ -124,7 +124,7 @@ func TestStorePersistence_FullStateRoundTrip(t *testing.T) {
 	assert.Equal(t, "persist-repo", findings.RepositoryName)
 
 	// pullThroughCacheRules
-	rules, err := b2.DescribePullThroughCacheRules(ctx, nil)
+	rules, err := b2.DescribePullThroughCacheRules(ctx, nil, "")
 	require.NoError(t, err)
 	require.Len(t, rules, 1)
 	assert.Equal(t, "cache-prefix", rules[0].EcrRepositoryPrefix)

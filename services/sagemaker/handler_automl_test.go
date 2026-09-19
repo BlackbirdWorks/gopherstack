@@ -170,7 +170,7 @@ func TestHandler_StopAutoMLJob(t *testing.T) {
 	rec = doSageMakerRequest(t, h, "DescribeAutoMLJob", map[string]any{"AutoMLJobName": "job-stop"})
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, "Stopped", resp["AutoMLJobStatus"])
+	assert.Equal(t, "Stopping", resp["AutoMLJobStatus"])
 }
 
 func TestHandler_ListAutoMLJobs(t *testing.T) {

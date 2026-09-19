@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakersdk "github.com/aws/aws-sdk-go-v2/service/sagemaker"
+	smtypes "github.com/aws/aws-sdk-go-v2/service/sagemaker/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -337,6 +340,79 @@ func TestHandler_CreateTransformJob_RoleArnNotPartOfWireShape(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &descResp))
 	_, present := descResp["RoleArn"]
 	assert.False(t, present, "RoleArn is not a real CreateTransformJobInput/DescribeTransformJobOutput field")
+}
+
+// TestCreateTransformJob_AcceptAndStoreConfigs proves DataCaptureConfig,
+// DataProcessing, ExperimentConfig and ModelClientConfig (all real, optional
+// CreateTransformJobInput fields, api_op_CreateTransformJob.go:101-166) round
+// trip through DescribeTransformJob instead of being silently dropped.
+func TestCreateTransformJob_AcceptAndStoreConfigs(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestSageMakerClient(t, h)
+
+	_, err := client.CreateModel(t.Context(), &sagemakersdk.CreateModelInput{
+		ModelName: aws.String("configs-model"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateTransformJob(t.Context(), &sagemakersdk.CreateTransformJobInput{
+		TransformJobName: aws.String("configs-transform"),
+		ModelName:        aws.String("configs-model"),
+		TransformInput: &smtypes.TransformInput{
+			DataSource: &smtypes.TransformDataSource{
+				S3DataSource: &smtypes.TransformS3DataSource{
+					S3Uri:      aws.String("s3://b/in"),
+					S3DataType: smtypes.S3DataTypeS3Prefix,
+				},
+			},
+		},
+		TransformOutput: &smtypes.TransformOutput{S3OutputPath: aws.String("s3://b/out")},
+		TransformResources: &smtypes.TransformResources{
+			InstanceType:  smtypes.TransformInstanceTypeMlM5Large,
+			InstanceCount: aws.Int32(1),
+		},
+		DataCaptureConfig: &smtypes.BatchDataCaptureConfig{
+			DestinationS3Uri:    aws.String("s3://b/capture"),
+			GenerateInferenceId: aws.Bool(true),
+		},
+		DataProcessing: &smtypes.DataProcessing{
+			InputFilter:  aws.String("$.features"),
+			JoinSource:   smtypes.JoinSourceInput,
+			OutputFilter: aws.String("$"),
+		},
+		ExperimentConfig: &smtypes.ExperimentConfig{
+			ExperimentName: aws.String("exp-1"),
+			TrialName:      aws.String("trial-1"),
+		},
+		ModelClientConfig: &smtypes.ModelClientConfig{
+			InvocationsMaxRetries:       aws.Int32(2),
+			InvocationsTimeoutInSeconds: aws.Int32(30),
+		},
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeTransformJob(t.Context(), &sagemakersdk.DescribeTransformJobInput{
+		TransformJobName: aws.String("configs-transform"),
+	})
+	require.NoError(t, err)
+
+	require.NotNil(t, out.DataCaptureConfig)
+	assert.Equal(t, "s3://b/capture", aws.ToString(out.DataCaptureConfig.DestinationS3Uri))
+	assert.True(t, aws.ToBool(out.DataCaptureConfig.GenerateInferenceId))
+
+	require.NotNil(t, out.DataProcessing)
+	assert.Equal(t, "$.features", aws.ToString(out.DataProcessing.InputFilter))
+	assert.Equal(t, smtypes.JoinSourceInput, out.DataProcessing.JoinSource)
+
+	require.NotNil(t, out.ExperimentConfig)
+	assert.Equal(t, "exp-1", aws.ToString(out.ExperimentConfig.ExperimentName))
+	assert.Equal(t, "trial-1", aws.ToString(out.ExperimentConfig.TrialName))
+
+	require.NotNil(t, out.ModelClientConfig)
+	assert.Equal(t, int32(2), aws.ToInt32(out.ModelClientConfig.InvocationsMaxRetries))
+	assert.Equal(t, int32(30), aws.ToInt32(out.ModelClientConfig.InvocationsTimeoutInSeconds))
 }
 
 // ---------------------------------------------------------------------------

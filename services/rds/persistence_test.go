@@ -135,7 +135,7 @@ func TestRDSBackend_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create global cluster.
-	_, err = b1.CreateGlobalCluster("gc1", "aurora-postgresql", "14.3", true, false)
+	_, err = b1.CreateGlobalCluster("gc1", "aurora-postgresql", "14.3", "", true, false)
 	require.NoError(t, err)
 
 	// Add cluster endpoint.
@@ -402,7 +402,7 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	_, err = b.StartExportTask("exp1", "arn:aws:rds:us-east-1:000000000000:snapshot:snap1", "bucket1",
 		"arn:aws:iam::000000000000:role/export-role", "arn:aws:kms:us-east-1:000000000000:key/test-key")
 	require.NoError(t, err)
-	_, err = b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.6", false, false)
+	_, err = b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.6", "", false, false)
 	require.NoError(t, err)
 	_, err = b.CreateEventSubscription("evsub1", "arn:sns:topic", "db-instance", nil, nil)
 	require.NoError(t, err)
@@ -414,11 +414,11 @@ func TestInMemoryBackend_FullStateSnapshotRestoreRoundTrip(t *testing.T) {
 	// reservedInstances / recommendations / proxies / proxyTargetGroups / proxyEndpoints / customEngineVersions
 	_, err = b.PurchaseReservedDBInstancesOffering("offering1", "ri1", 1)
 	require.NoError(t, err)
-	_, err = b.CreateDBProxy("proxy1", "MYSQL", "arn:aws:iam::000000000000:role/proxy", nil, nil, nil)
+	_, err = b.CreateDBProxy("proxy1", "MYSQL", "arn:aws:iam::000000000000:role/proxy", nil, nil, nil, "", "", "")
 	require.NoError(t, err)
-	_, err = b.CreateDBProxyEndpoint("proxy1", "proxyep1", "", nil, nil)
+	_, err = b.CreateDBProxyEndpoint("proxy1", "proxyep1", "", nil, nil, "")
 	require.NoError(t, err)
-	_, err = b.CreateCustomDBEngineVersion("custom-mysql", "8.0.35.custom", "desc")
+	_, err = b.CreateCustomDBEngineVersion("custom-mysql", "8.0.35.custom", "desc", "")
 	require.NoError(t, err)
 
 	// shardGroups / integrations / tenantDatabases

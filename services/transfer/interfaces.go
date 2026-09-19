@@ -44,11 +44,15 @@ type StorageBackend interface {
 	CreateAgreementFull(
 		serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole, status string,
 		tags map[string]string,
+		extras ...AgreementCreateExtras,
 	) (*Agreement, error)
 	DeleteAgreement(serverID, agreementID string) error
 	DescribeAgreement(serverID, agreementID string) (*Agreement, error)
 	ListAgreements(serverID string) ([]*Agreement, error)
-	UpdateAgreement(serverID, agreementID, description, status string) (*Agreement, error)
+	UpdateAgreement(
+		serverID, agreementID, description, status string,
+		extras ...AgreementUpdateExtras,
+	) (*Agreement, error)
 	CreateConnector(
 		url, accessRole string,
 		sftpConfig *ConnectorSftpConfig,

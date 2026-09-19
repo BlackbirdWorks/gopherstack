@@ -158,22 +158,36 @@ func applyListenerPage(listeners []Listener, marker string, pageSize int) ([]Lis
 	return listeners, nextMarker
 }
 
+// formStringPtr distinguishes an omitted form value (nil, "unchanged") from
+// one explicitly sent empty (pointer to "", a real clear) -- vals.Get alone
+// returns "" for both cases, and this is form-encoded awsquery where
+// "omitted" means the form key is absent (mirrors autoscaling's
+// formStringOrNil for the same protocol).
+func formStringPtr(vals url.Values, param string) *string {
+	if !vals.Has(param) {
+		return nil
+	}
+
+	v := vals.Get(param)
+
+	return &v
+}
+
 func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 	listenerArn := vals.Get("ListenerArn")
 	if listenerArn == "" {
 		return nil, fmt.Errorf("%w: ListenerArn is required", ErrInvalidParameter)
 	}
 
-	portStr := vals.Get("Port")
-	var port int32
+	var port *int32
 
-	if portStr != "" {
-		p, err := parseInt32(portStr)
+	if vals.Has("Port") {
+		p, err := parseInt32(vals.Get("Port"))
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid Port", ErrInvalidParameter)
 		}
 
-		port = p
+		port = &p
 	}
 
 	var mutualAuth *MutualAuthentication
@@ -198,7 +212,7 @@ func (h *Handler) handleModifyListener(vals url.Values) (any, error) {
 		Port:                 port,
 		DefaultActions:       parseActions(vals, "DefaultActions.member"),
 		Certificates:         parseCerts(vals),
-		SSLPolicy:            vals.Get("SslPolicy"),
+		SSLPolicy:            formStringPtr(vals, "SslPolicy"),
 		AlpnPolicy:           parseMembers(vals, "AlpnPolicy.member"),
 		MutualAuthentication: mutualAuth,
 	})

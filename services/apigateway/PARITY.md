@@ -1,8 +1,8 @@
 ---
 service: apigateway
 sdk_module: aws-sdk-go-v2/service/apigateway@v1.42.4
-last_audit_commit: 01f7563b
-last_audit_date: 2026-07-23
+last_audit_commit: f66686eee
+last_audit_date: 2026-09-18
 overall: A            # closed all 5 documented gaps + 3 deferred items from the 2026-07-11 sweep: RestApi.{ApiStatus,ApiStatusMessage,DisableExecuteApiEndpoint,EndpointAccessMode}, Stage.DocumentationVersion, ApiKey.StageKeys (Create + PATCH /stages), UsagePlan per-route throttle PATCH, Stage canarySettings.stageVariableOverrides PATCH, MethodSetting.{CacheDataEncrypted,UnauthorizedCacheControlHeaderStrategy} + their PATCH paths, and 2 concrete instances of the top-level-scalar-PATCH-remove gap (RestApi./description, Authorizer./identitySource). Found+fixed 2 new bugs while doing so (see Notes): a multi-op-per-request PATCH clobbering bug in the 3 resolvers this sweep touches, and UpdateUsagePlan returning an unprotected pointer into backend state. Found+documented (not fixed, out of assigned scope) a pre-existing UpdateDomainName PATCH gap.
 # 2026-08-08 follow-up (bd: gopherstack-vvsy): fixed the multi-op-per-request clobbering bug in the remaining 6 resolvers; added applyDomainNamePatchOp so UpdateDomainName's nested "/endpointConfiguration/*" and "/mutualTlsAuthentication/*" PATCH paths no longer silently no-op; pointer-ified DomainName's certificateArn/regionalCertificateArn (a 3rd concrete PATCH-remove-on-scalar fix); re-verified UsagePlan throttle PATCH path shape against a fresh patch-operations.html fetch (already correct, no change needed). See gaps below for what's still open.
 # 2026-08-09 follow-up (bd: gopherstack-npq5): added the DomainName/UsagePlan fields left missing by the prior follow-up — DomainName.{CertificateName,RegionalCertificateName,OwnershipVerificationCertificateARN} (*string on UpdateDomainNameInput, remove-supported per patch-operations.html) and .{ManagementPolicy,Policy,RoutingMode,EndpointAccessMode} (plain string, replace-only); UsagePlan.ProductCode (*string on UpdateUsagePlanInput, remove-supported). All seven flow through the existing single-segment PATCH machinery (applyTopLevelPatchOp + removableTopLevelScalar) with no new resolver code needed. Corrected the ticket: endpointConfiguration/vpcEndpointIds, which the ticket listed under DomainName, is documented only under UpdateRestApi's table, not UpdateDomainName's — left unmodeled here as a RestApi-scoped gap, out of this fix's scope. Verified against a live fetch of patch-operations.html plus aws-sdk-go-v2/service/apigateway@v1.42.4's deserializers.go (wire field names match exactly). Proven via both a pre-fix-failing unit suite and two real aws-sdk-go-v2-client integration tests (test/integration/apigateway_audit_test.go) that fail against the pre-fix binary (200 OK, field silently empty) and pass post-fix.
@@ -285,6 +285,14 @@ deferred:
   - "2026-08-11 (gopherstack-oius): Method.AuthorizationScopes is not modeled anywhere in this backend (not on Method, not on PutMethodInput/CreateAuthorizerInput's COGNITO_USER_POOLS flow) even though patch-operations.html documents UpdateMethod's \"/authorizationScopes\" as add/remove-supported and it's a real, commonly-used field (COGNITO_USER_POOLS authorizer scope matching). UpdateMethod now explicitly REJECTS this path (BadRequestException) rather than silently accepting a patch that changes nothing — see applyMethodPatchOp. Properly modeling it needs PutMethod/PutMethodInput plumbing too, a larger change than this PATCH-focused sweep; tracked here as the next real step."
 leaks: {status: fixed, note: "no new goroutines/tickers/persistent state introduced this sweep — all new code (StageKeyInput resolution, patch.go's new resolvers/stagedValue helper) is request-scoped and synchronous under the existing coarse b.mu; UpdateUsagePlan's missing defensive copy (return p instead of a copy, found while extending it for per-route throttle) was also fixed, closing a latent aliasing hole where a caller mutating the returned *UsagePlan would have corrupted backend state directly. 2026-09-04 (bd: gopherstack-fum): FIXED -- h.trieCache (the compiled per-API routing-trie cache, a sync.Map keyed by RestApi ID) was never evicted on DeleteRestApi; since IDs are fresh-random per CreateRestApi a deleted API's cached trie could never be overwritten by a later Store and stayed in process memory for the server's remaining lifetime. Fixed in handler_rest_apis.go's deleteRestAPIAction (h.trieCache.Delete after a successful backend delete); TestDeleteRestAPI_EvictsTrieCache confirmed failing pre-fix, passing post-fix."}
 ---
+
+## Notes (2026-09-18 pass — zeroguard omitted-vs-zero audit, no code change)
+
+`cmd/zeroguard` flagged 40 rows; all 40 false positives. Each is a Put
+full-replace op (PutMethod/PutIntegration/PutIntegrationResponse/
+PutGatewayResponse) or an httpLabel lookup identifier — v1's real Update*Input
+wire shape is always `{...ids, patchOperations}`, so the mutable fields flow
+through `patch.go`'s already-audited PATCH machinery instead.
 
 ## Notes
 

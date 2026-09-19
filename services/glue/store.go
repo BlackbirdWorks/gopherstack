@@ -208,6 +208,8 @@ type InMemoryBackend struct {
 	jobRunStopAt       map[string]map[string]time.Time // jobName → runID → stopAt for STOPPING→STOPPED
 	crawlerReadyAt     map[string]time.Time            // crawlerName → readyAt for RUNNING→READY
 	integrationReadyAt map[string]time.Time            // integrationName → readyAt for CREATING→ACTIVE
+	sessionReadyAt     map[string]time.Time            // sessionID → readyAt for PROVISIONING→READY
+	sessionStopAt      map[string]time.Time            // sessionID → stopAt for STOPPING→STOPPED
 
 	// connection-type registry (custom types registered via RegisterConnectionType).
 	customConnectionTypes *store.Table[ConnectionTypeInfo]
@@ -285,6 +287,8 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		jobRunStopAt:              make(map[string]map[string]time.Time),
 		crawlerReadyAt:            make(map[string]time.Time),
 		integrationReadyAt:        make(map[string]time.Time),
+		sessionReadyAt:            make(map[string]time.Time),
+		sessionStopAt:             make(map[string]time.Time),
 	}
 
 	registerAllTables(b)
@@ -348,6 +352,8 @@ func (b *InMemoryBackend) resetLifecycleStateLocked() {
 	b.jobRunStopAt = make(map[string]map[string]time.Time)
 	b.crawlerReadyAt = make(map[string]time.Time)
 	b.integrationReadyAt = make(map[string]time.Time)
+	b.sessionReadyAt = make(map[string]time.Time)
+	b.sessionStopAt = make(map[string]time.Time)
 }
 
 // Region returns the backend region.

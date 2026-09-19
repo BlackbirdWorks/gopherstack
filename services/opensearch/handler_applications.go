@@ -192,6 +192,7 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 			"appConfigs": app.AppConfigs, "dataSources": app.DataSources,
 			jsonKeyStatusLower:   pkgStateActive,
 			"endpoint":           applicationEndpoint(app.ID, h.Backend.Region()),
+			"kmsKeyArn":          app.KmsKeyArn,
 			jsonKeyCreatedAt:     app.CreatedAt,
 			jsonKeyLastUpdatedAt: app.LastUpdatedAt,
 		})
@@ -246,6 +247,7 @@ func (h *Handler) handleApplicationIDRoutes(w http.ResponseWriter, r *http.Reque
 // createApplicationRequest is the JSON request body for CreateApplication.
 type createApplicationRequest struct {
 	Name        string          `json:"name"`
+	KmsKeyArn   string          `json:"kmsKeyArn,omitempty"`
 	AppConfigs  []appConfigJSON `json:"appConfigs"`
 	DataSources []appDSJSON     `json:"dataSources"`
 	TagList     []svcTags.KV    `json:"tagList,omitempty"`
@@ -272,6 +274,7 @@ type createApplicationOutput struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	ARN         string          `json:"arn"`
+	KmsKeyArn   string          `json:"kmsKeyArn,omitempty"`
 	AppConfigs  []appConfigJSON `json:"appConfigs"`
 	DataSources []appDSJSON     `json:"dataSources"`
 	CreatedAt   float64         `json:"createdAt"`
@@ -302,7 +305,9 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 		dataSources = append(dataSources, AppDataSource(ds))
 	}
 
-	app, createErr := h.Backend.CreateApplication(req.Name, appConfigs, dataSources, svcTags.MapFromKV(req.TagList))
+	app, createErr := h.Backend.CreateApplication(
+		req.Name, appConfigs, dataSources, svcTags.MapFromKV(req.TagList), req.KmsKeyArn,
+	)
 	if createErr != nil {
 		if errors.Is(createErr, ErrApplicationAlreadyExists) {
 			// CreateApplication's own deserializer (opensearch@v1.75.4
@@ -330,6 +335,7 @@ func (h *Handler) handleCreateApplication(w http.ResponseWriter, r *http.Request
 		ID:          app.ID,
 		Name:        app.Name,
 		ARN:         app.ARN,
+		KmsKeyArn:   app.KmsKeyArn,
 		AppConfigs:  outConfigs,
 		DataSources: outDS,
 		CreatedAt:   app.CreatedAt,

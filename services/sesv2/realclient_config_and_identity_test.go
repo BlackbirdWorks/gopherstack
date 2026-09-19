@@ -56,6 +56,10 @@ func TestRealClient_ConfigAndIdentity(t *testing.T) {
 				require.Len(t, getOut.EventDestinations, 1)
 				assert.Equal(t, "dest-1", aws.ToString(getOut.EventDestinations[0].Name))
 				assert.True(t, getOut.EventDestinations[0].Enabled)
+				require.NotNil(t, getOut.EventDestinations[0].EventBridgeDestination)
+				assert.Equal(t,
+					"arn:aws:events:us-east-1:000000000000:event-bus/default",
+					aws.ToString(getOut.EventDestinations[0].EventBridgeDestination.EventBusArn))
 
 				_, err = client.UpdateConfigurationSetEventDestination(
 					ctx, &sesv2sdk.UpdateConfigurationSetEventDestinationInput{
@@ -139,6 +143,7 @@ func TestRealClient_ConfigAndIdentity(t *testing.T) {
 						SuppressedReasons: []sesv2types.SuppressionListReason{
 							sesv2types.SuppressionListReasonBounce,
 						},
+						SuppressionScope: sesv2types.SuppressionListScopeAccount,
 					},
 				)
 				require.NoError(t, err)
@@ -156,6 +161,7 @@ func TestRealClient_ConfigAndIdentity(t *testing.T) {
 				require.NotNil(t, getOut.SuppressionOptions)
 				assert.Equal(t, []sesv2types.SuppressionListReason{sesv2types.SuppressionListReasonBounce},
 					getOut.SuppressionOptions.SuppressedReasons)
+				assert.Equal(t, sesv2types.SuppressionListScopeAccount, getOut.SuppressionOptions.SuppressionScope)
 
 				listOut, err := client.ListConfigurationSets(ctx, &sesv2sdk.ListConfigurationSetsInput{})
 				require.NoError(t, err)

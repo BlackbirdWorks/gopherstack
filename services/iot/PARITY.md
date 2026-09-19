@@ -2,8 +2,8 @@
 service: iot
 sdk_module: aws-sdk-go-v2/service/iot@v1.83.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/iotdataplane@v1.35.0]  # device-shadow ops (Get/Update/DeleteThingShadow, ListNamedShadowsForThing); see device_shadows family
-last_audit_commit: 2a94081753c196de1bbad6b25b8f9b9a90dce321  # pass #4; pass #5 below is uncommitted at write time
-last_audit_date: 2026-08-29
+last_audit_commit: 302aa4e3c  # topic rule destination timestamp test flake fix
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): pagination/
                        # filter/sort constraints across the certificate, policy, authorizer,
                        # role-alias, stream, and audit-suppression families were never read or
@@ -291,6 +291,9 @@ items_still_open:
   - "CreateAuditSuppression/CreateCustomMetric/CreateDimension/StartAuditMitigationActionsTask/StartDetectMitigationActionsTask's ClientRequestToken is not honored for idempotent-replay dedup (CreateCustomMetric/CreateDimension decode it into their input struct but never read the value; the other three don't even declare it). Real semantics need a token->result cache keyed per op plus rejecting a same-token-different-params replay, and this newer SDK codegen (v1.83.0, schema-based, no per-op deserializeOpError functions) doesn't resolve to a specific declared exception type for the mismatch case the way older-gen services (see eks/fsx's ClientRequestToken idempotency) do -- implementing it without a confirmed wire error code risks inventing behavior. StartAuditMitigationActionsTask/StartDetectMitigationActionsTask already reject a reused taskId (the real practical replay-safety case) via TaskAlreadyExistsException, independent of this token (gopherstack-xhu2t slice 2)."
   - "DeleteOTAUpdate's ForceDeleteAWSJob is not honored: CreateOTAUpdate fabricates an AWSIoTJobId/AWSIoTJobArn string but never creates a real entry in this backend's jobs table, so there is no actual Job resource for force to act on (DeleteOTAUpdate has no state to gate on either way). Modeling this for real would mean CreateOTAUpdate actually calling CreateJob and DeleteOTAUpdate checking that job's status, a structural change out of this pass's bounds (gopherstack-xhu2t slice 2)."
   - "GetThingConnectivityData's IncludeSocketInformation is not honored: the real output's socket fields (sourcePort/targetPort/sourceIp/targetIp/vpcEndpointId) have no backing data anywhere in this backend's ThingConnectivityData model (only Connected/Timestamp/DisconnectReason are tracked), so there is nothing to conditionally include even if the flag were read (gopherstack-xhu2t slice 2)."
+  - "gopherstack-21my (per-item sweep): ListJobs' JobSummary omits IsConcurrent and ThingGroupId -- neither is modeled anywhere on the Job type (no concurrent-execution or thing-group-target tracking exists), so there is no honest value to surface. CompletedAt IS a real Job struct field but nothing ever sets it (no job-completion codepath writes it), so it would always emit as its own zero value; left unwired rather than adding a field that can never round-trip a real value."
+  - "gopherstack-21my (per-item sweep): ListCommandExecutions/GetCommandExecution's CommandExecutionSummary omits StartedAt/CompletedAt -- IoTCommandExecution has no such fields and this backend has no StartCommandExecution/UpdateCommandExecution control-plane op to set them (executions only arrive via test-seeding or Get/Delete), matching the existing doc comment on commandExecutionSummaryFields."
+  - "gopherstack-21my (per-item sweep): ListTopicRuleDestinations/GetTopicRuleDestination never surface VpcDestinationSummary/InfluxDBSummary or StatusReason -- this backend only implements the HTTP URL destination variant (TopicRuleDestination has no VPC/InfluxDB config at all), and no failure path ever produces a StatusReason string."
 deferred: []
   # gopherstack-srzb (job_and_jobtemplate + device_defender consolidated tracking issue) and
   # the security_profiles item that superseded it as pass #3's sole open item are both closed
@@ -299,6 +302,46 @@ leaks: {status: found_and_fixed, note: "FOUND: Handler.StartWorker launched the 
 ---
 
 ## Notes
+
+### 2026-09-18 flaky TestTopicRuleDestination_Timestamps fix
+
+Create+Update both truncate to whole-second epoch on the wire, and ran
+within the same wall-clock second often enough to fail `LastUpdatedAt.After`.
+Added `SetTopicRuleDestinationTimestampsInternal` (mirrors
+`AddRuleInternal`/`AddCommandInternal`) so the test backdates stored state
+instead of sleeping. No behavior change.
+
+### 2026-09-18 zeroguard census: omitted-member blanking on 8 ops
+
+UpdateJob.Description, UpdateFleetMetric (QueryString/IndexName/QueryVersion/
+Description/AggregationField), UpdateCertificateProvider.LambdaFunctionArn,
+UpdateThing.ThingTypeName, UpdateThingType.Description and
+UpdateThingGroup/UpdateDynamicThingGroup (Description/QueryString/IndexName/
+QueryVersion -- the latter three not in the census list itself since these
+two ops share one internal Go struct and the tool only checks it against
+UpdateThingGroup's own SDK shape, but same bug, found while fixing the
+listed rows) decoded these as plain strings, so an update omitting the
+field blanked stored state. Fixed by decoding as `*string` and applying
+only when non-nil. Also fixed a real gap found while proving the
+ThingGroup case: DescribeThingGroup never echoed queryString/indexName/
+queryVersion at all, so no real client could ever observe these fields
+post-update. zeroguard rows 22 -> 14; the rest are required lookup
+identifiers, ExpectedVersion (compare-only, never applied), Period (SDK
+disallows 0 so no explicit-zero case exists), and
+UpdateEncryptionConfiguration's Kms* fields (both required together
+whenever CUSTOMER_MANAGED_KMS_KEY is chosen -- full-replace, not partial
+preserve).
+
+### 2026-09-18 (gopherstack-21my: per-item field sweep)
+
+Swept all 22 flagged over-wide List ops' item shapes against the pinned SDK's
+`schemas.go`/`types.go`. Narrowed 2 leaks: `ListDomainConfigurations`
+(`domainConfigurationStatus`, Describe-only) and
+`ListProvisioningTemplateVersions` (leaked stored `templateBody`). Fixed 1
+drop: `TopicRuleDestination`/`Summary` never carried `createdAt`/
+`lastUpdatedAt` (new model fields, wired through Create/Update/Confirm and
+persistence's DTO). 3 unmodeled-subsystem gaps recorded above. Tests:
+`services/iot/wire_field_fixes_test.go`.
 
 - **IoT is restjson1, not XML** — the "wrong XML list wrappers" bug class from other
   services' parity sweeps doesn't apply here. List/object field names were verified

@@ -74,7 +74,7 @@ func testSlice5ClusterLifecycleRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-c1", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster("slice5-c1", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	modified, err := client.ModifyCluster(ctx, &redshiftsdk.ModifyClusterInput{
@@ -248,7 +248,15 @@ func testSlice5SnapshotsCopyRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-snapc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"slice5-snapc",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateClusterSnapshot("slice5-snap-src", "slice5-snapc")
@@ -376,7 +384,7 @@ func testSlice5UsageLimitsScheduledActionsRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-ulc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster("slice5-ulc", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	ul, err := backend.CreateUsageLimit("slice5-ulc", "concurrency-scaling", "time", "log", 60, nil)
@@ -467,7 +475,15 @@ func testSlice5TagsRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	cluster, err := backend.CreateCluster("slice5-tagc", "dc2.large", "dev", "admin", nil, "")
+	cluster, err := backend.CreateCluster(
+		"slice5-tagc",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	resourceArn := "arn:aws:redshift:" + rtTestRegion + ":000000000000:cluster:" + cluster.ClusterIdentifier
@@ -500,7 +516,7 @@ func testSlice5EndpointAccessRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-epc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster("slice5-epc", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	_, err = backend.CreateEndpointAccess("slice5-epc", "slice5-endpoint", "", "", nil)
@@ -600,7 +616,15 @@ func testSlice5PartnersRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-partnerc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"slice5-partnerc",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	added, err := client.AddPartner(ctx, &redshiftsdk.AddPartnerInput{
@@ -761,7 +785,7 @@ func testSlice5ResourcePolicyCustomDomainRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-rpc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster("slice5-rpc", "dc2.large", "dev", "admin", nil, "", redshift.CreateClusterOptions{})
 	require.NoError(t, err)
 
 	resourceArn := "arn:aws:redshift:" + rtTestRegion + ":000000000000:cluster:slice5-rpc"
@@ -800,7 +824,15 @@ func testSlice5AccountClusterInfoRealClient(t *testing.T) {
 	backend, client := newSlice5RedshiftBackendAndClient(t)
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("slice5-infoc", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"slice5-infoc",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	attrs, err := client.DescribeAccountAttributes(ctx, &redshiftsdk.DescribeAccountAttributesInput{})

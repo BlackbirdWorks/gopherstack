@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	sagemakerruntimesdk "github.com/aws/aws-sdk-go-v2/service/sagemakerruntime"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -129,6 +131,56 @@ func TestAsyncInvocationOutputLocation(t *testing.T) {
 				assert.Equal(t, respLoc, async[0].OutputLocation,
 					"response header and stored location must agree")
 			}
+		})
+	}
+}
+
+// TestSDKInvokeEndpointAsync_FilenameShapesOutputLocation verifies that
+// InvokeEndpointAsyncInput.Filename (serializers.go binds it to the
+// X-Amzn-Sagemaker-Filename request header) is used as the generated
+// OutputLocation's final path segment, per the SDK doc on Filename: "If
+// not specified, Amazon SageMaker AI generates a filename based on the
+// inference ID." Driven through the real SDK client so the effect is
+// observed the way a caller would see it, not by inspecting backend state.
+func TestSDKInvokeEndpointAsync_FilenameShapesOutputLocation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		filename     string
+		wantSegment  string
+		wantNotEqual string
+	}{
+		{
+			name:        "default_filename_when_not_supplied",
+			wantSegment: "/output",
+		},
+		{
+			name:        "caller_supplied_filename_used",
+			filename:    "result.json",
+			wantSegment: "/result.json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			h := newTestHandler(t)
+			client := newTestSDKClient(t, h)
+
+			in := &sagemakerruntimesdk.InvokeEndpointAsyncInput{
+				EndpointName:  aws.String("ep"),
+				InputLocation: aws.String("s3://input/request"),
+			}
+			if tt.filename != "" {
+				in.Filename = aws.String(tt.filename)
+			}
+
+			out, err := client.InvokeEndpointAsync(t.Context(), in)
+			require.NoError(t, err)
+			assert.True(t, strings.HasSuffix(aws.ToString(out.OutputLocation), tt.wantSegment),
+				"OutputLocation %q must end with %q", aws.ToString(out.OutputLocation), tt.wantSegment)
 		})
 	}
 }
@@ -266,7 +318,7 @@ func TestBackendRecordAsyncWithSuppliedLocation(t *testing.T) {
 			t.Parallel()
 
 			b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
-			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation)
+			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation, "")
 
 			if tt.wantContainsS3Mock {
 				assert.Contains(t, inv.OutputLocation, "sagemaker-runtime-mock")
@@ -318,7 +370,7 @@ func TestBackendRecordAsyncFailureLocationDerivation(t *testing.T) {
 			t.Parallel()
 
 			b := sagemakerruntime.NewInMemoryBackend("000000000000", "us-east-1")
-			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation)
+			inv := b.RecordAsyncInvocation("ep", "infer-1", "payload", tt.outputLocation, "")
 
 			assert.Equal(t, tt.wantFailureLoc, inv.FailureLocation)
 			assert.NotEqual(t, inv.OutputLocation, inv.FailureLocation)

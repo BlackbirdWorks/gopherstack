@@ -777,3 +777,63 @@ func TestHandler_DeleteDBParameterGroup_InUse(t *testing.T) {
 	})
 	assert.Equal(t, http.StatusOK, recDelete.Code)
 }
+
+// TestHandler_DescribeDBParameters_MaxRecordsPaginates verifies
+// DescribeDBParameters.MaxRecords (bd gopherstack-xhu2t tier-1 finding) is
+// wired to the same applyNeptuneMarker helper the sibling Describe ops use.
+func TestHandler_DescribeDBParameters_MaxRecordsPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	doRequest(t, h, url.Values{
+		"Action":                 {"CreateDBParameterGroup"},
+		"Version":                {"2014-10-31"},
+		"DBParameterGroupName":   {"page-instance-pg"},
+		"DBParameterGroupFamily": {"neptune1.3"},
+		"Description":            {"d"},
+	})
+
+	full := doRequest(t, h, url.Values{
+		"Action":               {"DescribeDBParameters"},
+		"Version":              {"2014-10-31"},
+		"DBParameterGroupName": {"page-instance-pg"},
+	})
+	require.Equal(t, http.StatusOK, full.Code)
+	fullCount := strings.Count(full.Body.String(), "<Parameter>")
+	require.Greater(t, fullCount, 1, "catalog must have more than 1 parameter for this test to be meaningful")
+
+	paged := doRequest(t, h, url.Values{
+		"Action":               {"DescribeDBParameters"},
+		"Version":              {"2014-10-31"},
+		"DBParameterGroupName": {"page-instance-pg"},
+		"MaxRecords":           {"1"},
+	})
+	require.Equal(t, http.StatusOK, paged.Code)
+	assert.Equal(t, 1, strings.Count(paged.Body.String(), "<Parameter>"))
+	assert.Contains(t, paged.Body.String(), "<Marker>")
+}
+
+// TestHandler_DescribeEngineDefaultParameters_MaxRecordsPaginates verifies
+// the EngineDefaults-nested Marker (a different wire shape than
+// DescribeDBParameters' top-level Marker) is also wired.
+func TestHandler_DescribeEngineDefaultParameters_MaxRecordsPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	full := doRequest(t, h, url.Values{
+		"Action":  {"DescribeEngineDefaultParameters"},
+		"Version": {"2014-10-31"},
+	})
+	require.Equal(t, http.StatusOK, full.Code)
+	fullCount := strings.Count(full.Body.String(), "<Parameter>")
+	require.Greater(t, fullCount, 1, "catalog must have more than 1 parameter for this test to be meaningful")
+
+	paged := doRequest(t, h, url.Values{
+		"Action":     {"DescribeEngineDefaultParameters"},
+		"Version":    {"2014-10-31"},
+		"MaxRecords": {"1"},
+	})
+	require.Equal(t, http.StatusOK, paged.Code)
+	assert.Equal(t, 1, strings.Count(paged.Body.String(), "<Parameter>"))
+	assert.Contains(t, paged.Body.String(), "<Marker>")
+}

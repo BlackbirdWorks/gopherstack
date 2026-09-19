@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: comprehend
 sdk_module: aws-sdk-go-v2/service/comprehend@v1.43.4
-last_audit_commit: cb5dac6ff
-last_audit_date: 2026-08-29
+last_audit_commit: a2084957b
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-29 (later same day, wrapper-key/constraint-parameter sweep): the
                       # enum-VALUE pass below claimed Filter support was "NEW" and complete across
                       # every List*Jobs/List<Resource>s op -- it was, except ListFlywheelIterationHistory,
@@ -115,14 +115,14 @@ overall: A            # 2026-08-29 (later same day, wrapper-key/constraint-param
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
   DetectSentiment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "synchronous, deterministic word-list mock is acceptable; LanguageCode now required+validated (12-lang enum), Text now enforces the real 5KB limit -> TextSizeLimitExceededException"}
-  DetectEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode correctly optional (EndpointArn alternative per real API) but format-validated when supplied; Text enforces 100KB limit"}
+  DetectEntities: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "LanguageCode correctly optional (EndpointArn alternative per real API) but format-validated when supplied; Text enforces 100KB limit. FIXED (2026-09-18, gopherstack-xhu2t) -- EndpointArn (api_op_DetectEntities.go) was accepted on the wire in comment only, never actually read: detection always ran the built-in generic heuristic regardless of a supplied custom-model endpoint, and an unknown/nonexistent EndpointArn silently succeeded instead of failing. EndpointCustomEntityTypes (store.go) now resolves the endpoint to its backing entity recognizer and uses that recognizer's own configured entity types (real, user-supplied training data, not fabricated) for every match; an EndpointArn naming no known endpoint now returns ResourceNotFoundException. DocumentReaderConfig (same op) remains a disclosed gap -- see items_still_open."}
   DetectKeyPhrases: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+validated; Text enforces 100KB limit"}
   DetectPiiEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+validated; Text enforces 100KB limit"}
   DetectSyntax: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode validated against the narrower 6-value SyntaxLanguageCode enum (types.LanguageCode's 12 values do NOT all apply here); Text enforces 5KB limit"}
   DetectDominantLanguage: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly has no LanguageCode field; Text enforces 100KB limit"}
   DetectToxicContent: {wire: ok, errors: ok, state: ok, persist: n/a, note: "ResultList/Labels/Toxicity field names verified against types.ToxicLabels; LanguageCode required+English-only per real doc comment despite the general enum type; TextSegments now enforces 1KB-per-segment/10KB-total"}
   DetectTargetedSentiment: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+English-only per real doc comment; Text enforces 5KB limit. FIXED 2026-08-20: TargetedSentimentEntity previously carried Text/Score/BeginOffset/EndOffset/Type at the wrong nesting level (entity root instead of nested inside Mentions[]) and never populated DescriptiveMentionIndex -- see header note. Also fixes BatchDetectTargetedSentiment, which reuses the same detector."}
-  ClassifyDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly has no LanguageCode field; Text enforces 100KB limit"}
+  ClassifyDocument: {wire: ok, errors: ok, state: ok, persist: n/a, note: "correctly has no LanguageCode field; Text enforces 100KB limit. DocumentReaderConfig is a disclosed gap -- see items_still_open."}
   ContainsPiiEntities: {wire: ok, errors: ok, state: ok, persist: n/a, note: "LanguageCode required+validated; Text enforces 100KB limit"}
   BatchDetect-family (Sentiment/Entities/KeyPhrases/Syntax/DominantLanguage/TargetedSentiment -- 6 families excluding PiiEntities): {wire: ok, errors: ok, state: ok, persist: n/a, note: "FIXED: TextList>25 items now rejected whole-request with BatchSizeLimitExceededException (was silently accepted); per-item >5KB now becomes a BatchItemError entry (ErrorCode/ErrorMessage/Index) in ErrorList instead of being ignored, matching every Batch*Output doc comment's 'if there are no errors in the batch, the ErrorList is empty' partial-failure semantics; shared LanguageCode validated once per request against the correct per-op allowed set (BatchDetectSyntax: 6-lang, BatchDetectTargetedSentiment: English-only, others: 12-lang). 2026-07-31 CORRECTION: this row's \"BatchDetect*\" wildcard previously implied all Detect* ops have a Batch form -- PiiEntities does not (no BatchDetectPiiEntities on the real SDK client at all); a prior pass had fabricated it, now removed (see header note)."}
   StartDetectionJob-family (9 families): {wire: ok, errors: ok, state: ok, persist: ok, note: "Tags correctly seed b.tags[JobArn] (prior fix, re-verified); NEW this pass: TooManyTagsException (>50 initial tags) and KmsKeyValidationException (malformed VolumeKmsKeyId) enforced before job creation"}
@@ -147,6 +147,7 @@ families:
   routing: {status: ok, note: "RouteMatcher/ExtractOperation verified against X-Amz-Target: Comprehend_20171127.<Op> prefix; sdk_completeness_test.go confirms every SDK op is routed (no notImplemented entries needed) -- also re-confirms the deleted fabricated Version ops were never part of the real SDK surface this test checks against, so removing them didn't regress completeness"}
 gaps: []
 items_still_open:
+  - "2026-09-18 (gopherstack-xhu2t): ClassifyDocument.DocumentReaderConfig and DetectEntities.DocumentReaderConfig (types.DocumentReaderConfig -- required DocumentReadAction, optional DocumentReadMode/FeatureTypes) control how Amazon Textract extracts text from a PDF/image document supplied via the Bytes input member. This emulator's documentText() (handler_detection.go) only ever reads the Text input member -- Bytes-based document input is not modeled at all, so there is no text-extraction pipeline for DocumentReaderConfig to configure. Implementing this would mean simulating Textract's DetectDocumentText/AnalyzeDocument operations, an unmodeled subsystem out of scope here; fabricating extracted text from opaque bytes would be dishonest. Not fixed."
   - "2026-08-29: FlywheelIterationProperties is missing 5 of its 11 real members (EvaluatedModelArn/EvaluatedModelMetrics/EvaluationManifestS3Prefix/TrainedModelArn/TrainedModelMetrics -- confirmed against awsAwsjson11_deserializeDocumentFlywheelIterationProperties's own 11-case switch, deserializers.go:16022). Left unfixed deliberately: unlike ClassifierMetadata/RecognizerMetadata's synthetic accuracy NUMBERS (an established, precedented pattern in this file for a fake-but-plausible metric on a resource that genuinely exists), these five fields are mostly ARN IDENTIFIERS (EvaluatedModelArn/TrainedModelArn) pointing at a trained-model resource this emulator's flywheel-iteration flow never actually creates. Fabricating a plausible-looking model ARN with no backing resource risks becoming a NEW bug (a client that then calls DescribeDocumentClassifier/DescribeEntityRecognizer on that ARN gets a 404 that looks like data corruption, worse than the field being honestly absent). Fix requires either wiring iteration completion to actually create a backing model resource, or accepting the same kind of opaque-but-honest gap already on file for VpcConfig/RedactionConfig above -- a materially bigger unit of work than the Status wire-key/enum fix landed this pass, deferred rather than half-done."
   - "2026-08-29 LANDMINE (currently unreachable, not fixed as live code): DocumentClassifierProperties.Status/EntityRecognizerProperties.Status use the SAME wrong SUBMITTED/IN_PROGRESS/FAILED vocabulary as the three fixed bugs above -- real types.ModelStatus (types/enums.go:502-513) is SUBMITTED/TRAINING/DELETING/STOP_REQUESTED/STOPPED/IN_ERROR/TRAINED/TRAINED_WITH_WARNING, i.e. TRAINING not IN_PROGRESS and IN_ERROR not FAILED. advanceTrainingResource (store.go) still contains this wrong transition. It is UNREACHABLE today only because initialResourceStatus unconditionally fast-forwards resourceTypeDocClassifier/resourceTypeEntityRecognizer straight to TRAINED on create (CI-timeout workaround, intentional and documented elsewhere in this file) -- SUBMITTED/IN_PROGRESS/FAILED are dead states no code path can reach via the public API. Not fixed this pass because it changes zero observable client behavior today; flagged so the next person who removes or conditionalizes that fast-forward doesn't silently reintroduce a live wrong-enum bug."
   - "IMPOSSIBLE (re-confirmed gopherstack-sw2q): VpcConfig (types.VpcConfig: SecurityGroupIds+Subnets, both smithy-required) and RedactionConfig (types.RedactionConfig: MaskCharacter/MaskMode enum MASK|REPLACE_WITH_PII_ENTITY_TYPE/PiiEntityTypes) are passed through opaquely (whatever the caller sent, verbatim) rather than sub-field-validated. Diffed this pass against types.go: DataSecurityConfig's gap was a genuine, precedented one (three KMS key fields matching the exact validateKmsKeyID pattern already applied to top-level ModelKmsKeyId/VolumeKmsKeyId elsewhere) and is now FIXED (see CreateFlywheel). VpcConfig/RedactionConfig are different in kind: enforcing their required-member/enum shape would mean implementing generic smithy-required-field and enum validation for an arbitrary nested passthrough object with no existing precedent anywhere else in this service (or, per applicationautoscaling's PARITY.md, in the broader codebase's general philosophy of not over-validating optional nested sub-shapes). Wire-shape correctness of the echo itself is not at risk -- these fields are stored and echoed byte-for-byte unmodified, never renamed or restructured, so a real client round-trips exactly what it sent. Left as an honestly-documented gap, not implemented, to avoid inventing a new validation convention unilaterally."
@@ -803,3 +804,24 @@ No regression test added -- nothing was fixed; both sites are proven
 unreachable via a real `aws-sdk-go-v2` client, not merely undertested.
 Gates: `golangci-lint run ./services/comprehend/...` (0 issues),
 `go test -race ./services/comprehend/...` (pass) -- no source changed.
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings. 1 fixed: DetectEntities.EndpointArn was
+accepted on the wire in a comment only, never read -- detection always ran
+the built-in generic heuristic and an unknown EndpointArn silently
+succeeded. New EndpointCustomEntityTypes (store.go) resolves the endpoint to
+its backing entity recognizer and uses that recognizer's own configured
+entity types (real training data via resourceEntityTypeNames, refactored out
+of the existing recognizerEntityTypes) for detection; an EndpointArn naming
+no known endpoint now fails with ResourceNotFoundException. 2 recorded as a
+missing feature (both DocumentReaderConfig findings, ClassifyDocument and
+DetectEntities): this emulator has no Textract-style document-bytes
+text-extraction pipeline to configure at all, only plain Text input -- see
+items_still_open. New test (detect_entities_endpoint_test.go) proves a
+custom endpoint's entity type is used instead of the built-in vocabulary,
+the built-in vocabulary still applies without EndpointArn, and an unknown
+EndpointArn fails. Tier-1 count 3 -> 2 (both disclosed). Gates: `go build
+./...` (whole module), `go vet`, `go test -race -count=1
+./services/comprehend/...`, `golangci-lint run --new-from-rev=HEAD` (0
+issues) all clean. No persisted struct fields changed; no version bump.

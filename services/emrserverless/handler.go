@@ -40,6 +40,8 @@ const (
 	keyExecutionRole = "executionRole"
 	keyAttempt       = "attempt"
 	keyMode          = "mode"
+
+	queryValueTrue = "true"
 )
 
 const (
@@ -903,8 +905,32 @@ func (h *Handler) handleStartJobRun(c *echo.Context, applicationID string, body 
 	})
 }
 
+// parseAttemptQueryParam parses GetJobRunInput/GetDashboardForJobRunInput's
+// optional "attempt" query parameter (serializers.go's
+// SetQuery("attempt").Integer). A nil result means the caller omitted it.
+func parseAttemptQueryParam(c *echo.Context) (*int32, error) {
+	s := c.Request().URL.Query().Get(keyAttempt)
+	if s == "" {
+		return nil, nil //nolint:nilnil // absent query param is a real nil-nil state, not an error
+	}
+
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("attempt must be an integer: %w", err)
+	}
+
+	attempt := int32(n)
+
+	return &attempt, nil
+}
+
 func (h *Handler) handleGetJobRun(c *echo.Context, applicationID, jobRunID string) error {
-	jr, err := h.Backend.GetJobRun(applicationID, jobRunID)
+	attempt, err := parseAttemptQueryParam(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	}
+
+	jr, err := h.Backend.GetJobRun(applicationID, jobRunID, attempt)
 	if err != nil {
 		return h.handleError(c, err)
 	}
@@ -971,7 +997,14 @@ func (h *Handler) handleCancelJobRun(c *echo.Context, applicationID, jobRunID st
 }
 
 func (h *Handler) handleGetDashboardForJobRun(c *echo.Context, applicationID, jobRunID string) error {
-	dashURL, err := h.Backend.GetDashboardForJobRun(applicationID, jobRunID)
+	attempt, err := parseAttemptQueryParam(c)
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, errResp("ValidationException", err.Error()))
+	}
+
+	accessSystemProfileLogs := c.Request().URL.Query().Get("accessSystemProfileLogs") == queryValueTrue
+
+	dashURL, err := h.Backend.GetDashboardForJobRun(applicationID, jobRunID, attempt, accessSystemProfileLogs)
 	if err != nil {
 		return h.handleError(c, err)
 	}

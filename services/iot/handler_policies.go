@@ -476,7 +476,7 @@ func (h *Handler) handleListPolicyVersions(c *echo.Context) error {
 	out := make([]map[string]any, 0, len(versions))
 	for _, v := range versions {
 		out = append(out, map[string]any{
-			"versionId":         v.VersionID,
+			keyVersionID:        v.VersionID,
 			keyIsDefaultVersion: v.IsDefaultVersion,
 			"createDate":        awstime.Epoch(v.CreatedAt),
 		})

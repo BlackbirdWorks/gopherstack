@@ -36,6 +36,7 @@ type loadBalancerTLSCertSummaryWire struct {
 type loadBalancerWire struct {
 	Location                *resourceLocationWire            `json:"location,omitempty"`
 	CreatedAt               *float64                         `json:"createdAt,omitempty"`
+	ConfigurationOptions    map[string]string                `json:"configurationOptions,omitempty"`
 	ResourceType            string                           `json:"resourceType,omitempty"`
 	Arn                     string                           `json:"arn,omitempty"`
 	TLSPolicyName           string                           `json:"tlsPolicyName,omitempty"`
@@ -71,7 +72,8 @@ func loadBalancerToWire(l *LoadBalancer) loadBalancerWire {
 	}
 
 	return loadBalancerWire{
-		Arn: l.Arn, CreatedAt: epochPtr(l.CreatedAt), DNSName: l.DNSName, HealthCheckPath: l.HealthCheckPath,
+		Arn: l.Arn, ConfigurationOptions: l.ConfigurationOptions, CreatedAt: epochPtr(l.CreatedAt), DNSName: l.DNSName,
+		HealthCheckPath:         l.HealthCheckPath,
 		HTTPSRedirectionEnabled: l.HTTPSRedirectionEnabled, InstanceHealthSummary: health, InstancePort: l.InstancePort,
 		IPAddressType: l.IPAddressType, Location: locationToWire(l.Location), Name: l.Name, Protocol: l.Protocol,
 		PublicPorts: l.PublicPorts, ResourceType: ResourceTypeLoadBalancer, State: l.State, SupportCode: l.SupportCode,

@@ -284,7 +284,7 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 	dimensions := parseDimensionsFromForm(form, "Dimensions.")
 	statistics := parseMemberList(form, "Statistics.")
 	extendedStatistics := parseMemberList(form, "ExtendedStatistics.")
-	dps, berr := h.Backend.GetMetricStatistics(
+	dps, berr := h.Backend.GetMetricStatisticsForUnit(
 		namespace,
 		metricName,
 		dimensions,
@@ -293,6 +293,7 @@ func (h *Handler) handleGetMetricStatistics(form url.Values, c *echo.Context) er
 		int32(period),
 		statistics,
 		extendedStatistics,
+		form.Get("Unit"),
 	)
 	if berr != nil {
 		return h.xmlError(c, http.StatusInternalServerError, "InternalFailure", berr.Error())

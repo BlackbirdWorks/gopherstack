@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -78,12 +79,12 @@ func TestInMemoryBackend_UpdateIntegration_AllFields(t *testing.T) {
 
 	updated, err := b.UpdateIntegration(api.APIID, integration.IntegrationID, apigatewayv2.UpdateIntegrationInput{
 		IntegrationType:      "HTTP_PROXY",
-		IntegrationMethod:    "POST",
-		IntegrationURI:       "https://example.com",
-		Description:          "updated",
-		PayloadFormatVersion: "2.0",
+		IntegrationMethod:    aws.String("POST"),
+		IntegrationURI:       aws.String("https://example.com"),
+		Description:          aws.String("updated"),
+		PayloadFormatVersion: aws.String("2.0"),
 		ConnectionType:       "INTERNET",
-		ConnectionID:         "conn-1",
+		ConnectionID:         aws.String("conn-1"),
 		TimeoutInMillis:      5000,
 	})
 	require.NoError(t, err)
@@ -406,7 +407,7 @@ func Test_Integration_CredentialsArn(t *testing.T) {
 	const updatedARN = "arn:aws:iam::*:user/*"
 
 	updated, err := b.UpdateIntegration(api.APIID, intg.IntegrationID, apigatewayv2.UpdateIntegrationInput{
-		CredentialsArn: updatedARN,
+		CredentialsArn: aws.String(updatedARN),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, updatedARN, updated.CredentialsArn)

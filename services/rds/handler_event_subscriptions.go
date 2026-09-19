@@ -133,13 +133,20 @@ func (h *Handler) handleDescribeEventSubscriptions(vals url.Values) (any, error)
 		return nil, err
 	}
 	accountID := h.Backend.AccountID()
-	members := make([]xmlEventSubscription, 0, len(subs))
-	for i := range subs {
-		members = append(members, toXMLEventSubscription(&subs[i], accountID))
+	members, marker, err := paginateDescribe(vals, subs, func(a, b EventSubscription) bool {
+		return a.SubscriptionName < b.SubscriptionName
+	}, func(s EventSubscription) xmlEventSubscription {
+		cp := s
+
+		return toXMLEventSubscription(&cp, accountID)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeEventSubscriptionsResponse{
 		Xmlns:                  rdsXMLNS,
+		Marker:                 marker,
 		EventSubscriptionsList: xmlEventSubscriptionList{Members: members},
 	}, nil
 }
@@ -242,6 +249,7 @@ type xmlEventSubscriptionList struct {
 type describeEventSubscriptionsResponse struct {
 	XMLName                xml.Name                 `xml:"DescribeEventSubscriptionsResponse"`
 	Xmlns                  string                   `xml:"xmlns,attr"`
+	Marker                 string                   `xml:"DescribeEventSubscriptionsResult>Marker,omitempty"`
 	EventSubscriptionsList xmlEventSubscriptionList `xml:"DescribeEventSubscriptionsResult>EventSubscriptionsList"`
 }
 

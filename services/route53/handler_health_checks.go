@@ -202,6 +202,7 @@ type xmlUpdateHealthCheckRequest struct {
 	RoutingControlArn            string              `xml:"RoutingControlArn,omitempty"`
 	Regions                      []string            `xml:"Regions>Region,omitempty"`
 	ChildHealthChecks            []string            `xml:"ChildHealthChecks>ChildHealthCheck,omitempty"`
+	ResetElements                []string            `xml:"ResetElements>ResettableElementName,omitempty"`
 	Port                         int                 `xml:"Port,omitempty"`
 	RequestInterval              int                 `xml:"RequestInterval,omitempty"`
 	FailureThreshold             int                 `xml:"FailureThreshold,omitempty"`
@@ -435,8 +436,9 @@ func (h *Handler) deleteHealthCheck(c *echo.Context, path string) error {
 }
 
 // mergeHealthCheckUpdateStrings merges the request's non-empty string fields
-// into cfg. A field left empty on the wire means "leave unchanged" — Route 53
-// UpdateHealthCheck has no separate "clear this field" signal for these.
+// into cfg. A field left empty on the wire means "leave unchanged"; ResetElements
+// (applyHealthCheckResets) is the separate signal for explicitly clearing
+// FullyQualifiedDomainName, ResourcePath, ChildHealthChecks or Regions.
 func mergeHealthCheckUpdateStrings(cfg HealthCheckConfig, req xmlUpdateHealthCheckRequest) HealthCheckConfig {
 	if req.IPAddress != "" {
 		cfg.IPAddress = req.IPAddress
@@ -534,6 +536,37 @@ func mergeHealthCheckUpdateCollections(cfg HealthCheckConfig, req xmlUpdateHealt
 	return cfg
 }
 
+// ResettableElementName wire values (types.ResettableElementName enum).
+const (
+	resettableElementFullyQualifiedDomainName = "FullyQualifiedDomainName"
+	resettableElementResourcePath             = "ResourcePath"
+	resettableElementChildHealthChecks        = "ChildHealthChecks"
+	resettableElementRegions                  = "Regions"
+)
+
+// applyHealthCheckResets clears the fields named in ResetElements to their
+// documented reset value (api_op_UpdateHealthCheck.go's ResetElements doc:
+// ChildHealthChecks/FullyQualifiedDomainName/ResourcePath -> null, Regions ->
+// the default region set, which this backend already represents as nil — see
+// getHealthCheckStatus's empty-Regions fallback). Applied after the per-field
+// merge so an explicit reset wins over a same-request new value.
+func applyHealthCheckResets(cfg HealthCheckConfig, resetElements []string) HealthCheckConfig {
+	for _, el := range resetElements {
+		switch el {
+		case resettableElementFullyQualifiedDomainName:
+			cfg.FullyQualifiedDomainName = ""
+		case resettableElementResourcePath:
+			cfg.ResourcePath = ""
+		case resettableElementChildHealthChecks:
+			cfg.ChildHealthChecks = nil
+		case resettableElementRegions:
+			cfg.Regions = nil
+		}
+	}
+
+	return cfg
+}
+
 // mergeHealthCheckUpdate merges every non-zero field UpdateHealthCheck's
 // request carries into the health check's existing config, leaving fields
 // the request omitted untouched.
@@ -542,6 +575,7 @@ func mergeHealthCheckUpdate(cfg HealthCheckConfig, req xmlUpdateHealthCheckReque
 	cfg = mergeHealthCheckUpdateNumeric(cfg, req)
 	cfg = mergeHealthCheckUpdateFlags(cfg, req)
 	cfg = mergeHealthCheckUpdateCollections(cfg, req)
+	cfg = applyHealthCheckResets(cfg, req.ResetElements)
 
 	return cfg
 }

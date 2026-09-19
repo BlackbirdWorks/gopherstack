@@ -153,13 +153,25 @@ func (h *Handler) handleDescribeDBClusterParameters(vals url.Values) (any, error
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBParameter, 0, len(params))
-	for _, p := range params {
-		members = append(members, xmlDBParameter(p))
+	if source := vals.Get("Source"); source != "" {
+		filtered := make([]DBParameter, 0, len(params))
+		for _, p := range params {
+			if p.Source == source {
+				filtered = append(filtered, p)
+			}
+		}
+		params = filtered
+	}
+	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
+		return a.ParameterName < b.ParameterName
+	}, func(p DBParameter) xmlDBParameter { return xmlDBParameter(p) })
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBClusterParametersResponse{
 		Xmlns:      rdsXMLNS,
+		Marker:     marker,
 		Parameters: xmlDBParameterList{Members: members},
 	}, nil
 }
@@ -200,6 +212,7 @@ type modifyDBClusterParameterGroupResponse struct {
 type describeDBClusterParametersResponse struct {
 	XMLName    xml.Name           `xml:"DescribeDBClusterParametersResponse"`
 	Xmlns      string             `xml:"xmlns,attr"`
+	Marker     string             `xml:"DescribeDBClusterParametersResult>Marker,omitempty"`
 	Parameters xmlDBParameterList `xml:"DescribeDBClusterParametersResult>Parameters"`
 }
 
@@ -218,18 +231,23 @@ type describeEngineDefaultClusterParametersResponse struct {
 func (h *Handler) handleDescribeEngineDefaultClusterParameters(vals url.Values) (any, error) {
 	family := vals.Get("DBParameterGroupFamily")
 	params := h.Backend.DescribeEngineDefaultClusterParameters(family)
-	members := make([]xmlDBParameter, 0, len(params))
-	for _, p := range params {
-		members = append(members, xmlDBParameter{
+	members, marker, err := paginateDescribe(vals, params, func(a, b DBParameter) bool {
+		return a.ParameterName < b.ParameterName
+	}, func(p DBParameter) xmlDBParameter {
+		return xmlDBParameter{
 			ParameterName:  p.ParameterName,
 			ParameterValue: p.ParameterValue,
-		})
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeEngineDefaultClusterParametersResponse{
 		Xmlns: rdsXMLNS,
 		Result: engineDefaults{
 			DBParameterGroupFamily: family,
+			Marker:                 marker,
 			Parameters:             xmlDBParameterList{Members: members},
 		},
 	}, nil

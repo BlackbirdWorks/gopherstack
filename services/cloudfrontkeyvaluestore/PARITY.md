@@ -1,28 +1,36 @@
 ---
 service: cloudfrontkeyvaluestore
 sdk_module: aws-sdk-go-v2/service/cloudfrontkeyvaluestore@v1.15.4
-last_audit_commit: 37229aaf1
-last_audit_date: 2026-09-04
-overall: B
+last_audit_commit: de1f49c7c
+last_audit_date: 2026-09-18
+overall: A            # A: SDK-driven test/integration suite TestIntegration_CloudFrontKeyValueStore_KeyLifecycle
+                       # (test/integration/cloudfrontkeyvaluestore_test.go) + every buildable gap closed.
 ops:
-  DescribeKeyValueStore: {wire: ok, errors: ok, state: ok, persist: ok, note: "ItemCount/TotalSizeInBytes computed from real per-store data; see gaps for the byte-accounting approximation"}
+  DescribeKeyValueStore: {wire: ok, errors: ok, state: ok, persist: ok, note: "ItemCount/TotalSizeInBytes computed from real per-store data; see structural_gaps for the byte-accounting approximation"}
   GetKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutKey: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutKey: {wire: ok, errors: ok, state: ok, persist: ok, note: "checkKeyValueSize/checkStoreSizeQuota enforce the 512B/1KB/5MB quotas -> ServiceQuotaExceededException"}
   DeleteKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken pagination via pkgs/page"}
-  UpdateKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "all-or-nothing per the real API is NOT modeled -- see gaps"}
+  ListKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "MaxResults/NextToken pagination via pkgs/page; per-item Key/Value fields verified against ListKeysResponseListItem (gopherstack-21my)"}
+  UpdateKeys: {wire: ok, errors: ok, state: ok, persist: ok, note: "checkUpdateKeysBatch/checkStoreSizeQuotaBatch enforce the 50-key/3MB batch and 5MB store quotas before any mutation runs -> ServiceQuotaExceededException"}
 gaps: []
-items_still_open:
-  - "TotalSizeInBytes is len(key)+len(value) summed per item. AWS's real byte accounting includes undocumented per-item overhead this emulator cannot replicate exactly; the number is real and deterministic (derived from actual stored data, not fabricated) but will not byte-for-byte match a real account. (bd: gopherstack-4ara)"
-  - "UpdateKeys is not transactional: puts and deletes apply sequentially against the shared InMemoryBackend lock rather than as a single all-or-nothing batch. A backend error partway through (never currently possible, since PutKVSValue/DeleteKVSValue on an already-validated store/ETag cannot fail mid-batch) would leave a partial result. (bd: gopherstack-4ara)"
-  - "No per-store size/count quotas enforced and no AccessDeniedException path (no IAM enforcement in this emulator) -- see errors.go's doc comment. The AWS Developer Guide's 'Quotas on key value stores' table (docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/cloudfront-limits.html#limits-keyvaluestores; not stated in the SDK doc comments themselves) documents: max key size 512 Bytes, max value size 1 KB, max UpdateKeys batch 50 keys or 3 MB payload, max individual store size 5 MB, max key value stores per account 200. None of these are enforced here, so ServiceQuotaExceededException/AccessDeniedException are never returned, though both are in the real client's exception set for several ops. (bd: gopherstack-4ara)"
+items_still_open: []
 structural_gaps:
-  - "None. Every op here reads or mutates real per-KVS-store key/value state (services/cloudfront's keyValueStoreData/keyValueDataETags) -- there is no billing/ML/hardware dependency that would make any of these ops structurally unimplementable."
+  - "TotalSizeInBytes is len(key)+len(value) summed per item. AWS's real byte accounting includes undocumented per-item storage overhead (confirmed absent from validators.go/deserializers.go -- no length constraint is modeled in the SDK at all, so the exact formula isn't derivable from any source this emulator can read); the number is real and deterministic (derived from actual stored data, not fabricated) but will not byte-for-byte match a real account. (bd: gopherstack-4ara)"
+  - "Per-account key-value-store count quota (200, AWS Developer Guide's 'Quotas on key value stores' table) is enforced, if at all, by services/cloudfront's CreateKeyValueStore -- a different package's op, out of this manifest's scope."
 deferred: []
 leaks: {status: clean, note: "Handler owns no goroutines, janitors, or independent maps -- see Handler's doc comment and persistence_test.go's TestHandler_OwnsNoState guard."}
 ---
 
 ## Notes
+
+**2026-09-18**: added `test/integration/cloudfrontkeyvaluestore_test.go`
+(`TestIntegration_CloudFrontKeyValueStore_KeyLifecycle`), the Docker-backed
+SDK-driven suite the prior B grade's sole `items_still_open` entry named --
+store created via the real `cloudfront` client, then
+Describe/Put/Get/List/UpdateKeys/Delete against the data plane, plus a stale
+`IfMatch` -> typed `ConflictException` and an oversized key ->
+`ServiceQuotaExceededException`. All subtests pass against the real
+container. Grade moves B -> A.
 
 **Why this package exists** (gopherstack-4ara): AWS splits CloudFront's
 KeyValueStore surface across two SDK clients/protocols. `cloudfront.Client`
@@ -164,3 +172,60 @@ mutating handlers in production -- `PutKVSValue`/`DeleteKVSValue`/
 `TestHandler_MutationsRequireIfMatch` in handler_test.go drives the
 handler directly with raw HTTP requests (not the SDK client, which
 validates this client-side and would never send such a request).
+
+## 2026-09-18: gopherstack-21my per-item sweep + quota enforcement (B stays B, honestly)
+
+Per-item sweep: `structfielddiff -op ListKeys` is the only op in this SDK
+returning a nested item type (`ListKeysResponseListItem{Key,Value}`, both
+required); `handleListKeys` already emitted exactly those two fields
+correctly. `overwidecandidates` flags `ListKeys` by name pattern
+(`...Item` suffix), but the real type has no members beyond `Key`/`Value`
+to leak -- confirmed a false positive, no narrowing needed.
+`TestSDKClient_ListKeysItemFields` records this verification.
+
+Re-read every `items_still_open` entry against the actual code instead of
+trusting the prior wording:
+
+- **AccessDeniedException claim was stale.** `iam.EnforcementMiddleware` is
+  wired repo-wide ahead of every service's handler (cli.go:12066), this
+  package included, and `iam_enforcement_test.go`'s
+  `denied_action_returns_access_denied` subtest already proves a real 403
+  AccessDenied response. The "no AccessDeniedException path" half of the old
+  gap was wrong; corrected here and in errors.go's doc comment.
+- **UpdateKeys "not transactional" is a non-issue, not a live bug.**
+  `UpdateKVSValues` takes `b.mu.Lock()` once for the whole batch (verified
+  in services/cloudfront/key_value_store.go) -- puts and deletes cannot
+  interleave with a concurrent request, and the loop body cannot fail
+  per-item (no per-item validation, just map writes). There is no code path
+  that produces the partial-batch result the old note worried about.
+  Removed from items_still_open.
+- **Size/count quotas: closed the buildable part.** Added
+  `checkKeyValueSize` (512B key / 1KB value, PutKey and each UpdateKeys
+  item), `checkUpdateKeysBatch` (50-op / 3MB batch), and
+  `checkStoreSizeQuota`/`checkStoreSizeQuotaBatch` (5MB per-store, computed
+  from a snapshot of current items before any mutation runs) to
+  handler.go, all returning `ServiceQuotaExceededException` (402) --
+  verified against deserializers.go that `ServiceQuotaExceededException`
+  is in PutKey/DeleteKey/UpdateKeys' error sets but *not*
+  GetKey/ListKeys/DescribeKeyValueStore's, matching that only the mutating
+  ops can trigger a quota. `TestSDKClient_QuotaExceeded` and
+  `TestSDKClient_StoreSizeQuotaExceeded` drive this through the real SDK
+  client. The per-account store-count quota (200) is a different package's
+  op (`services/cloudfront`'s `CreateKeyValueStore`) and is out of this
+  manifest's scope -- moved to structural_gaps as a scope note, not a bug
+  here.
+- **Byte-accounting approximation is genuinely structural**, not a
+  deferred `gaps:` item: the SDK models no length constraint at all for
+  this field (nothing in validators.go to check against), so there is no
+  source this emulator can read to derive AWS's private per-item overhead
+  formula. Moved from items_still_open to structural_gaps.
+
+**Grade stays B.** Every buildable, in-scope gap is now closed, but the
+schema's A bar (`gopherstack-parity-audit` SKILL.md) requires "full
+integration-suite proof" -- a Docker-backed suite under test/integration/,
+per parity-principles rule 3, distinct from this package's own SDK-client
+tests against an in-process httptest server. No such file exists for this
+service, and adding one was out of this pass's directed scope (services/
+cloudfrontkeyvaluestore/ and services/resiliencehub/ only). Recorded
+honestly as the sole remaining items_still_open entry rather than
+upgrading the grade without closing the actual reason for it.

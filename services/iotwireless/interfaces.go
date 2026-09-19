@@ -189,13 +189,16 @@ type StorageBackend interface {
 	DeleteQueuedMessages(wirelessDeviceID string) error
 	EnqueueMessage(wirelessDeviceID string, msg QueuedMessage)
 
-	StartWirelessDeviceImportTask(accountID, region, destinationName string) (*WirelessDeviceImportTask, error)
+	StartWirelessDeviceImportTask(
+		accountID, region, destinationName, positioning string,
+		sidewalk WirelessDeviceImportSidewalk,
+	) (*WirelessDeviceImportTask, error)
 	StartSingleWirelessDeviceImportTask(
 		accountID, region, destinationName string,
 	) (*SingleWirelessDeviceImportTask, error)
 	GetWirelessDeviceImportTask(id string) (*WirelessDeviceImportTask, error)
 	DeleteWirelessDeviceImportTask(id string) error
-	UpdateWirelessDeviceImportTask(id, destinationName string) error
+	UpdateWirelessDeviceImportTask(id string, sidewalk WirelessDeviceImportSidewalk) error
 	ListWirelessDeviceImportTasks() []*WirelessDeviceImportTask
 
 	TagResource(arn string, tags map[string]string) error

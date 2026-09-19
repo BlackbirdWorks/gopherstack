@@ -1,8 +1,8 @@
 ---
 service: kinesis
 sdk_module: aws-sdk-go-v2/service/kinesis@v1.53.0
-last_audit_commit: a4d4c728b
-last_audit_date: 2026-08-19
+last_audit_commit: 302aa4e3c
+last_audit_date: 2026-09-18
 overall: A            # this pass (gopherstack-nbg8): the 2026-07-23 audit's "wire: ok" claim was false for DescribeAccountSettings/UpdateAccountSettings/UpdateMaxRecordSize/UpdateStreamWarmThroughput -- all four decoded wholly fabricated request/response shapes with no basis in the real SDK. Rebuilt all four around their real Input/Output shapes (MinimumThroughputBillingCommitmentInput/Output; MaxRecordSizeInKiB, not Bytes; WarmThroughputMiBps + the previously-unmodeled WarmThroughput Output object). Also found and fixed, while reading the whole operation rather than just the flagged field: DescribeLimits was silently dropping two of its four *required* output members (OnDemandStreamCount/OnDemandStreamCountLimit) -- also marked "wire: ok" -- and UpdateMaxRecordSize's Input had a StreamName field with no basis in the real shape (only StreamARN exists). This is the second and third time this service's manifest has positively claimed verification that was false (see gopherstack-3jqz for the first). Only remaining gap is KMSAccessDeniedException, honestly undeliverable without an IAM policy engine. gopherstack-r80d (required-OUTPUT-member sweep): re-extracted every "This member is required." field from every *Output struct across all 39 ops in the pinned SDK (17 required fields across 11 ops) and cross-checked each against the handler's success path. DescribeLimits (above) was the only miss, already fixed; the other 10 ops (DescribeStream, DescribeStreamConsumer, DescribeStreamSummary, GetRecords, GetResourcePolicy, ListStreams, ListTagsForStream, PutRecord, PutRecords, RegisterStreamConsumer) all populate their required members correctly. Service is settled for this bug class.
 ops:
   IncreaseStreamRetentionPeriod: {wire: fixed, errors: ok, state: ok, persist: ok, note: "reverted 2b2086c9: that commit made equal-to-current RetentionPeriodHours return InvalidArgumentException (a strict reading of the aws-sdk-go-v2 doc comment 'Must be more than the current retention period'), which broke TestTerraform_Kinesis in CI -- terraform's aws_kinesis_stream resource issues IncreaseStreamRetentionPeriod even when the requested value already equals the stream's current retention (confirmed live: CreateStream -> 24h default -> Increase(48) OK -> a second Increase(48) against the already-48h stream 400'd with InvalidArgumentException before this fix). Real AWS tolerates the equal case rather than erroring on every no-drift re-apply, so restored equal-value == no-op success. Strictly-lower and out-of-[24,8760] values are still rejected. gopherstack-enpq (2026-08-22): Input had no StreamARN member at all (api_op_IncreaseStreamRetentionPeriod.go:43-58 (StreamARN:52) -- 'you must use either the StreamARN or the StreamName parameter, or both'); an ARN-only caller silently resolved to an empty stream name and 400'd. Fixed via resolveStreamNameAndRegion."}
@@ -86,6 +86,20 @@ leaks: {status: clean, note: "stream.mu (lockmetrics) and stream.Tags always Clo
 ---
 
 ## Notes
+
+### 2026-09-18 (zeroguard omitted-vs-zero sweep): all 13 rows false positive
+
+`cmd/zeroguard` flagged 13 rows across 8 Put/Update ops, all identifiers used
+only for lookup (StreamName/StreamARN/ChannelARN/ResourceARN) or per-request
+values with no "preserve stored state" semantics (PutRecord.PartitionKey/
+ExplicitHashKey, PutResourcePolicy.Policy — full-replace, required). No code
+changes; zeroguard count unchanged at 13.
+
+### 2026-09-18 (reqfielddiff tier-1): PutRecord.SequenceNumberForOrdering -- false positive
+
+Unread, but shards.go:77 nextSequenceNumber() already assigns a strictly increasing
+per-shard counter unconditionally under the coarse lock, meeting/exceeding the field's
+documented guarantee ("coarsely ordered" is the fallback without it) -- nothing to gate.
 
 ### 2026-09-11: implemented the Kinesis Data Streams "channels" API (CreateChannel/DeleteChannel/DescribeChannel/ListChannels/UpdateChannel)
 

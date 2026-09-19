@@ -288,9 +288,9 @@ type UpdateStageInput struct {
 	RouteSettings        map[string]RouteSettings `json:"routeSettings,omitempty"`
 	StageVariables       map[string]string        `json:"stageVariables,omitempty"`
 	AutoDeploy           *bool                    `json:"autoDeploy,omitempty"`
-	DeploymentID         string                   `json:"deploymentId,omitempty"`
-	Description          string                   `json:"description,omitempty"`
-	ClientCertificateID  string                   `json:"clientCertificateId,omitempty"`
+	DeploymentID         *string                  `json:"deploymentId,omitempty"`
+	Description          *string                  `json:"description,omitempty"`
+	ClientCertificateID  *string                  `json:"clientCertificateId,omitempty"`
 }
 
 // CreateRouteInput is the input for CreateRoute.
@@ -311,12 +311,12 @@ type CreateRouteInput struct {
 type UpdateRouteInput struct {
 	RequestModels            map[string]string                 `json:"requestModels,omitempty"`
 	RequestParameters        map[string]RouteRequiredParameter `json:"requestParameters,omitempty"`
-	RouteKey                 string                            `json:"routeKey,omitempty"`
-	Target                   string                            `json:"target,omitempty"`
+	RouteKey                 *string                           `json:"routeKey,omitempty"`
+	Target                   *string                           `json:"target,omitempty"`
 	AuthorizationType        string                            `json:"authorizationType,omitempty"`
-	AuthorizerID             string                            `json:"authorizerId,omitempty"`
-	OperationName            string                            `json:"operationName,omitempty"`
-	ModelSelectionExpression string                            `json:"modelSelectionExpression,omitempty"`
+	AuthorizerID             *string                           `json:"authorizerId,omitempty"`
+	OperationName            *string                           `json:"operationName,omitempty"`
+	ModelSelectionExpression *string                           `json:"modelSelectionExpression,omitempty"`
 	APIKeyRequired           *bool                             `json:"apiKeyRequired,omitempty"`
 	AuthorizationScopes      []string                          `json:"authorizationScopes,omitempty"`
 }
@@ -342,20 +342,20 @@ type CreateIntegrationInput struct {
 
 // UpdateIntegrationInput is the input for UpdateIntegration (PATCH).
 type UpdateIntegrationInput struct {
-	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	TemplateSelectionExpression *string               `json:"templateSelectionExpression,omitempty"`
 	RequestParameters           map[string]string     `json:"requestParameters,omitempty"`
 	RequestTemplates            map[string]string     `json:"requestTemplates,omitempty"`
+	TLSConfig                   *IntegrationTLSConfig `json:"tlsConfig,omitempty"`
+	IntegrationSubtype          *string               `json:"integrationSubtype,omitempty"`
+	IntegrationMethod           *string               `json:"integrationMethod,omitempty"`
+	IntegrationURI              *string               `json:"integrationUri,omitempty"`
+	Description                 *string               `json:"description,omitempty"`
+	PayloadFormatVersion        *string               `json:"payloadFormatVersion,omitempty"`
+	CredentialsArn              *string               `json:"credentialsArn,omitempty"`
+	ConnectionID                *string               `json:"connectionId,omitempty"`
 	IntegrationType             string                `json:"integrationType,omitempty"`
-	IntegrationSubtype          string                `json:"integrationSubtype,omitempty"`
-	IntegrationMethod           string                `json:"integrationMethod,omitempty"`
-	IntegrationURI              string                `json:"integrationUri,omitempty"`
-	Description                 string                `json:"description,omitempty"`
-	PayloadFormatVersion        string                `json:"payloadFormatVersion,omitempty"`
-	ConnectionType              string                `json:"connectionType,omitempty"`
-	ConnectionID                string                `json:"connectionId,omitempty"`
-	TemplateSelectionExpression string                `json:"templateSelectionExpression,omitempty"`
 	PassthroughBehavior         string                `json:"passthroughBehavior,omitempty"`
-	CredentialsArn              string                `json:"credentialsArn,omitempty"`
+	ConnectionType              string                `json:"connectionType,omitempty"`
 	TimeoutInMillis             int32                 `json:"timeoutInMillis,omitempty"`
 }
 
@@ -400,7 +400,7 @@ type UpdateAPIMappingInput struct {
 
 // UpdateDeploymentInput is the input for UpdateDeployment (PATCH).
 type UpdateDeploymentInput struct {
-	Description string `json:"description,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // UpdateDomainNameInput is the input for UpdateDomainName (PATCH).
@@ -415,24 +415,24 @@ type UpdateDomainNameInput struct {
 type UpdateIntegrationResponseInput struct {
 	ResponseParameters          map[string]string `json:"responseParameters,omitempty"`
 	ResponseTemplates           map[string]string `json:"responseTemplates,omitempty"`
-	IntegrationResponseKey      string            `json:"integrationResponseKey,omitempty"`
+	IntegrationResponseKey      *string           `json:"integrationResponseKey,omitempty"`
+	TemplateSelectionExpression *string           `json:"templateSelectionExpression,omitempty"`
 	ContentHandlingStrategy     string            `json:"contentHandlingStrategy,omitempty"`
-	TemplateSelectionExpression string            `json:"templateSelectionExpression,omitempty"`
 }
 
 // UpdateModelInput is the input for UpdateModel (PATCH).
 type UpdateModelInput struct {
-	Name        string `json:"name,omitempty"`
-	Schema      string `json:"schema,omitempty"`
-	ContentType string `json:"contentType,omitempty"`
-	Description string `json:"description,omitempty"`
+	Name        *string `json:"name,omitempty"`
+	Schema      *string `json:"schema,omitempty"`
+	ContentType *string `json:"contentType,omitempty"`
+	Description *string `json:"description,omitempty"`
 }
 
 // UpdateRouteResponseInput is the input for UpdateRouteResponse (PATCH).
 type UpdateRouteResponseInput struct {
 	ResponseModels           map[string]string `json:"responseModels,omitempty"`
-	RouteResponseKey         string            `json:"routeResponseKey,omitempty"`
-	ModelSelectionExpression string            `json:"modelSelectionExpression,omitempty"`
+	RouteResponseKey         *string           `json:"routeResponseKey,omitempty"`
+	ModelSelectionExpression *string           `json:"modelSelectionExpression,omitempty"`
 }
 
 // UpdatePortalInput is the input for UpdatePortal (PATCH). Status is
@@ -442,8 +442,8 @@ type UpdateRouteResponseInput struct {
 // request body.
 type UpdatePortalInput struct {
 	Tags                      map[string]string `json:"tags,omitempty"`
-	LogoURI                   string            `json:"logoUri,omitempty"`
-	RumAppMonitorName         string            `json:"rumAppMonitorName,omitempty"`
+	LogoURI                   *string           `json:"logoUri,omitempty"`
+	RumAppMonitorName         *string           `json:"rumAppMonitorName,omitempty"`
 	Status                    string            `json:"-"`
 	PublishDescription        string            `json:"-"`
 	IncludedPortalProductArns []string          `json:"includedPortalProductArns,omitempty"`
@@ -452,8 +452,8 @@ type UpdatePortalInput struct {
 // UpdatePortalProductInput is the input for UpdatePortalProduct (PATCH).
 type UpdatePortalProductInput struct {
 	Tags        map[string]string `json:"tags,omitempty"`
-	DisplayName string            `json:"displayName,omitempty"`
-	Description string            `json:"description,omitempty"`
+	DisplayName *string           `json:"displayName,omitempty"`
+	Description *string           `json:"description,omitempty"`
 }
 
 // UpdateProductPageInput is the input for UpdateProductPage (PATCH).
@@ -920,7 +920,7 @@ type CreateVpcLinkInput struct {
 
 // UpdateVpcLinkInput is the input for UpdateVpcLink.
 type UpdateVpcLinkInput struct {
-	Name string `json:"name,omitempty"`
+	Name *string `json:"name,omitempty"`
 }
 
 // RoutingRule represents an API Gateway domain routing rule.

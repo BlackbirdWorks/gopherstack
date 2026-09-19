@@ -7,7 +7,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -264,6 +268,43 @@ func TestHandlerDescribeSpotFleetRequestHistory(t *testing.T) {
 	}
 	require.NoError(t, xml.Unmarshal(rec.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.HistoryRecords.Items)
+}
+
+// TestDescribeSpotFleetRequestHistory_EventType_RealClient covers
+// gopherstack-xhu2t: EventType was never read, so DescribeSpotFleetRequestHistory
+// always returned every record regardless of the requested event type.
+func TestDescribeSpotFleetRequestHistory_EventType_RealClient(t *testing.T) {
+	t.Parallel()
+
+	_, client := newTestBackendAndClient(t)
+
+	req, err := client.RequestSpotFleet(t.Context(), &ec2sdk.RequestSpotFleetInput{
+		SpotFleetRequestConfig: &types.SpotFleetRequestConfigData{
+			IamFleetRole:   aws.String("arn:aws:iam::000000000000:role/fleet-role"),
+			TargetCapacity: aws.Int32(1),
+			LaunchSpecifications: []types.SpotFleetLaunchSpecification{{
+				ImageId:      aws.String("ami-fleet-eventtype"),
+				InstanceType: types.InstanceTypeM5Large,
+			}},
+		},
+	})
+	require.NoError(t, err)
+
+	matching, err := client.DescribeSpotFleetRequestHistory(t.Context(), &ec2sdk.DescribeSpotFleetRequestHistoryInput{
+		SpotFleetRequestId: req.SpotFleetRequestId,
+		StartTime:          aws.Time(time.Unix(0, 0)),
+		EventType:          types.EventTypeBatchChange,
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, matching.HistoryRecords, "matching EventType filtered out real records")
+
+	empty, err := client.DescribeSpotFleetRequestHistory(t.Context(), &ec2sdk.DescribeSpotFleetRequestHistoryInput{
+		SpotFleetRequestId: req.SpotFleetRequestId,
+		StartTime:          aws.Time(time.Unix(0, 0)),
+		EventType:          types.EventTypeInstanceChange,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, empty.HistoryRecords, "EventType dropped - non-matching event type still returned records")
 }
 
 // ---- Spot Datafeed ---- //nolint:godot // existing issue.

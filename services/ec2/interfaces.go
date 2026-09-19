@@ -16,6 +16,7 @@ type Backend interface {
 	// Attribute names match EC2 ModifyInstanceAttribute keys (e.g. "userData", "instanceType").
 	// Returns ErrInvalidInstanceState if the instance must be stopped for the given attribute.
 	SetInstanceAttribute(instanceID, attribute, value string) error
+	SetInstanceSecurityGroups(instanceID string, groupIDs []string) error
 
 	// SetInstanceLaunchConfig sets the key pair name and security groups on an instance.
 	SetInstanceLaunchConfig(instanceID, keyName string, securityGroups []string) error
@@ -145,7 +146,7 @@ type Backend interface {
 
 	// CreateVolume creates a new EBS volume, optionally restored from an
 	// existing EBS snapshot (snapshotID may be empty).
-	CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error)
+	CreateVolume(az, volType string, size int, snapshotID string, volumeInitializationRate ...int32) (*Volume, error)
 
 	// SetVolumeEncryption marks a volume as encrypted and optionally sets its KMS key ID.
 	SetVolumeEncryption(volumeID string, encrypted bool, kmsKeyID string) error
@@ -160,7 +161,7 @@ type Backend interface {
 	DeleteVolume(id string) error
 
 	// AttachVolume attaches a volume to an instance.
-	AttachVolume(volumeID, instanceID, device string) (*VolumeAttachment, error)
+	AttachVolume(volumeID, instanceID, device string, ebsCardIndex ...int32) (*VolumeAttachment, error)
 
 	// DetachVolume detaches a volume; force flag is accepted but ignored in mock.
 	DetachVolume(volumeID string, force bool) (*VolumeAttachment, error)
@@ -320,6 +321,7 @@ type Backend interface {
 	CreateVpcEndpointWithRouteTableIDs(
 		vpcID, serviceName, endpointType string,
 		subnetIDs, routeTableIDs []string,
+		opts ...VpcEndpointCreateOptions,
 	) (*VpcEndpoint, error)
 
 	// DescribeVpcEndpoints returns VPC endpoints, optionally filtered by IDs.
@@ -339,7 +341,7 @@ type Backend interface {
 	DescribeNetworkInterfaces(ids []string) []*NetworkInterface
 
 	// CreateNetworkInterface creates a new ENI in the given subnet.
-	CreateNetworkInterface(subnetID, description string) (*NetworkInterface, error)
+	CreateNetworkInterface(subnetID, description string, interfaceType ...string) (*NetworkInterface, error)
 
 	// DeleteNetworkInterface removes a network interface by ID.
 	DeleteNetworkInterface(id string) error
@@ -364,14 +366,17 @@ type Backend interface {
 	// SetNetworkInterfaceDeleteOnTermination updates the DeleteOnTermination
 	// flag for the attachment identified by attachmentID.
 	SetNetworkInterfaceDeleteOnTermination(attachmentID string, del bool) error
+	SetNetworkInterfaceSecurityGroups(eniID string, groupIDs []string) error
 
 	// ---- spot instances ----
 
-	// RequestSpotInstances creates a spot instance request (mock: immediately fulfilled).
+	// RequestSpotInstances creates InstanceCount spot instance requests (mock:
+	// immediately fulfilled), defaulting to 1 when omitted.
 	RequestSpotInstances(
 		imageID, instanceType, subnetID, spotPrice string,
 		tags map[string]string,
-	) (*SpotInstanceRequest, error)
+		opts ...RequestSpotInstancesOptions,
+	) ([]*SpotInstanceRequest, error)
 
 	// DescribeSpotInstanceRequests returns spot requests, optionally filtered by IDs.
 	DescribeSpotInstanceRequests(ids []string) []*SpotInstanceRequest
@@ -449,7 +454,9 @@ type Backend interface {
 	AdvertiseByoipCidr(cidr string) (*ByoipCidr, error)
 
 	// AllocateHosts allocates one or more Dedicated Hosts.
-	AllocateHosts(availabilityZone, instanceType string, hostCount int) ([]*Host, error)
+	AllocateHosts(
+		availabilityZone, instanceType string, hostCount int, autoPlacement, hostRecovery string,
+	) ([]*Host, error)
 
 	// ---- describe operations for new resource types ----
 
@@ -466,7 +473,9 @@ type Backend interface {
 	DescribeVpcPeeringConnections(ids []string) []*VpcPeeringConnection
 
 	// CreateVpcPeeringConnection creates a new pending VPC peering connection.
-	CreateVpcPeeringConnection(requesterVPCID, accepterVPCID string) (*VpcPeeringConnection, error)
+	CreateVpcPeeringConnection(
+		requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
+	) (*VpcPeeringConnection, error)
 
 	// DeleteVpcPeeringConnection removes a VPC peering connection.
 	DeleteVpcPeeringConnection(id string) error
@@ -522,7 +531,8 @@ type Backend interface {
 	// CreateFlowLogs creates flow log records for the given resources.
 	CreateFlowLogs(
 		resourceIDs []string,
-		trafficType, logDestinationType, logDestination string,
+		trafficType, logDestinationType, logDestination, logFormat string,
+		maxAggregationInterval int32,
 		tags map[string]string,
 	) ([]*FlowLog, error)
 
@@ -552,7 +562,7 @@ type Backend interface {
 	ModifyLaunchTemplate(id string, defaultVersion int64) (*LaunchTemplate, error)
 
 	// CreateLaunchTemplateVersion adds a new version to a launch template.
-	CreateLaunchTemplateVersion(id, imageID, instanceType string) (*LaunchTemplateVersion, error)
+	CreateLaunchTemplateVersion(id, imageID, instanceType, sourceVersion string) (*LaunchTemplateVersion, error)
 
 	// DeleteLaunchTemplateVersions removes specific versions from a launch template.
 	DeleteLaunchTemplateVersions(id string, versions []int64) ([]int64, error)
@@ -858,7 +868,7 @@ type Backend interface {
 	// ---- VPN Gateways ----
 
 	// CreateVpnGateway creates a new virtual private gateway.
-	CreateVpnGateway(gatewayType string) (*VpnGateway, error)
+	CreateVpnGateway(gatewayType string, amazonSideAsn int64) (*VpnGateway, error)
 
 	// DescribeVpnGateways returns virtual private gateways, optionally filtered by IDs.
 	DescribeVpnGateways(ids []string) []*VpnGateway
@@ -897,10 +907,11 @@ type Backend interface {
 	// GetVpnConnectionRoutes returns the static routes registered against a VPN connection.
 	GetVpnConnectionRoutes(vpnConnectionID string) []*VpnConnectionRoute
 
-	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4 CIDRs and the
-	// static-routes-only flag of a VPN connection.
+	// ModifyVpnConnectionOptions updates the negotiated local/remote IPv4/IPv6 CIDRs,
+	// tunnel bandwidth, and the static-routes-only flag of a VPN connection.
 	ModifyVpnConnectionOptions(
 		vpnConnectionID, localIPv4CIDR, remoteIPv4CIDR string, staticRoutesOnly *bool,
+		extra ...VpnConnectionExtraOptions,
 	) (*VpnConnection, error)
 
 	// ModifyVpnTunnelOptions updates the configuration of a single tunnel of a VPN connection.
@@ -958,7 +969,7 @@ type Backend interface {
 	ModifyIpam(id string, opts IpamOptions) (*Ipam, error)
 
 	// DeleteIpam removes an IPAM instance.
-	DeleteIpam(id string) error
+	DeleteIpam(id string, cascade ...bool) error
 
 	// CreateIpamScope creates an additional (non-default) private IPAM scope.
 	CreateIpamScope(ipamID, description string) (*IpamScope, error)
@@ -1186,7 +1197,7 @@ type Backend interface {
 
 	// ---- batch1: EBS volume lifecycle ----
 
-	ModifyVolume(volumeID, volumeType string, size, iops int) (*VolumeModification, error)
+	ModifyVolume(volumeID, volumeType string, size, iops int, throughput ...int) (*VolumeModification, error)
 	DescribeVolumeStatus(ids []string) []VolumeStatusItem
 	DescribeVolumesModifications(ids []string) []*VolumeModification
 	CopySnapshot(sourceSnapshotID, description string, encryptOverride bool, kmsKeyID string) (*Snapshot, error)
@@ -1284,7 +1295,7 @@ type Backend interface {
 	ModifyVpcEndpointServicePayerResponsibility(serviceID, payerResponsibility string) error
 	DescribeVpcEndpointServicePermissions(serviceID string) []string
 	ModifyVpcEndpointServicePermissions(serviceID string, add, remove []string) ([]string, error)
-	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string) error
+	ModifyVpcEndpoint(endpointID string, addSubnetIDs, removeSubnetIDs []string, resetPolicy ...bool) error
 
 	// ModifyVpcEndpointPayerResponsibility sets who is billed for a VPC
 	// endpoint's usage within the given charge scope.
@@ -1313,6 +1324,7 @@ type Backend interface {
 	GetImageBlockPublicAccessState() string
 	EnableImageDeprecation(imageID, deprecateAt string) error
 	DisableImageDeprecation(imageID string) error
+	ImageDeprecation() map[string]string
 	EnableImageDeregistrationProtection(imageID string) error
 	DisableImageDeregistrationProtection(imageID string) error
 	ModifyImageAttribute(imageID, attribute, value string) error
@@ -1339,7 +1351,7 @@ type Backend interface {
 	// ---- batch3 ----
 
 	CreateCapacityReservation(
-		instanceType, availabilityZone string,
+		instanceType, availabilityZone, instanceMatchCriteria, tenancy string,
 		instanceCount int,
 		tags map[string]string,
 	) (*CapacityReservation, error)
@@ -1350,10 +1362,13 @@ type Backend interface {
 		subnetID string,
 		securityGroupIDs []string,
 		preserveClientIP bool,
+		ipAddressType ...string,
 	) (*InstanceConnectEndpoint, error)
 	DeleteInstanceConnectEndpoint(id string) (*InstanceConnectEndpoint, error)
 	DescribeInstanceConnectEndpoints(ids []string) []*InstanceConnectEndpoint
-	ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error
+	ModifyInstanceConnectEndpoint(
+		id string, preserveClientIP bool, extra ...InstanceConnectEndpointModifyOptions,
+	) error
 	CreateInstanceEventWindow(name, cronExpression string) (*InstanceEventWindow, error)
 	DeleteInstanceEventWindow(id string) error
 	DescribeInstanceEventWindows(ids []string) []*InstanceEventWindow
@@ -1362,6 +1377,7 @@ type Backend interface {
 	DeleteSpotDatafeedSubscription()
 	DescribeSpotDatafeedSubscription() *SpotDatafeed
 	RegisterImage(name, description, architecture string) (*AMIStub, error)
+	SetImageMetadata(imageID, imdsSupport, virtualizationType string)
 	ImportImage(description, architecture, platform string, encrypted bool, kmsKeyID string) (*ImageImportTask, error)
 	DescribeImportImageTasks(taskIDs []string) []*ImageImportTask
 	ExportImage(imageID, description, diskImageFormat, s3Bucket, s3Prefix, roleName string) (*ExportImageTaskRec, error)
@@ -1384,7 +1400,7 @@ type Backend interface {
 	GetInstanceTypesFromInstanceRequirements(q *instanceRequirementsQuery) []string
 	GetSubnetCidrReservations(subnetID string) ([]*SubnetCIDRReservation, error)
 	GetSecurityGroupsForVpc(vpcID string) ([]SecurityGroupForVpcItem, error)
-	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string) error
+	ReplaceRoute(rtID, destCIDR, gatewayID, natGatewayID string, localTarget ...bool) error
 	RegisterInstanceEventNotificationAttributes(includeAllTags bool)
 	ResetEbsDefaultKmsKeyID()
 	UpdateSecurityGroupRuleDescriptionsIngress(groupID string, rules []SecurityGroupRule) error
@@ -1471,7 +1487,7 @@ type Backend interface {
 	DeleteTransitGatewayConnect(id string) (*TransitGatewayConnect, error)
 	DescribeTransitGatewayConnects(ids []string) []*TransitGatewayConnect
 	CreateTransitGatewayConnectPeer(
-		connectAttachmentID, peerAddress string,
+		connectAttachmentID, peerAddress, transitGatewayAddress string,
 		insideCidrBlocks []string,
 	) (*TransitGatewayConnectPeer, error)
 	DeleteTransitGatewayConnectPeer(id string) (*TransitGatewayConnectPeer, error)
@@ -1549,7 +1565,9 @@ type Backend interface {
 	) (*TrafficMirrorFilterRule, error)
 	DeleteTrafficMirrorFilterRule(id string) error
 	DescribeTrafficMirrorFilterRules(filterID string) ([]*TrafficMirrorFilterRule, error)
-	ModifyTrafficMirrorFilterRule(id, action, description string) (*TrafficMirrorFilterRule, error)
+	ModifyTrafficMirrorFilterRule(
+		id, action, description string, removeFields ...string,
+	) (*TrafficMirrorFilterRule, error)
 	CreateTrafficMirrorSession(
 		networkInterfaceID, targetID, filterID, description string,
 		sessionNumber int,
@@ -1558,7 +1576,9 @@ type Backend interface {
 	) (*TrafficMirrorSession, error)
 	DeleteTrafficMirrorSession(id string) error
 	DescribeTrafficMirrorSessions(ids []string) []*TrafficMirrorSession
-	ModifyTrafficMirrorSession(id, targetID, filterID, description string) (*TrafficMirrorSession, error)
+	ModifyTrafficMirrorSession(
+		id, targetID, filterID, description string, removeFields ...string,
+	) (*TrafficMirrorSession, error)
 	CreateTrafficMirrorTarget(
 		networkInterfaceID, networkLoadBalancerArn, description string,
 		tags map[string]string,
@@ -1604,7 +1624,7 @@ type Backend interface {
 
 	// ---- batch5: ReservedInstances ----
 	DescribeReservedInstances(ids []string) []*ReservedInstance
-	DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass string) []*ReservedInstancesOffering
+	DescribeReservedInstancesOfferings(params DescribeReservedInstancesOfferingsParams) []*ReservedInstancesOffering
 	PurchaseReservedInstancesOffering(offeringID string, instanceCount int) (*ReservedInstance, error)
 	CreateReservedInstancesListing(
 		reservedInstancesID string, instanceCount int, schedules []PriceScheduleEntry,
@@ -2084,10 +2104,10 @@ type Backend interface {
 	DescribeTransitGatewayAttachments(ids []string) []*TransitGatewayAttachmentSummary
 
 	CreateInterruptibleCapacityReservationAllocation(
-		sourceCapacityReservationID string, instanceCount int32,
+		sourceCapacityReservationID, zeroSizePreference string, instanceCount int32,
 	) (*InterruptibleCapacityReservationAllocation, error)
 	UpdateInterruptibleCapacityReservationAllocation(
-		sourceCapacityReservationID string, targetInstanceCount int32,
+		sourceCapacityReservationID, zeroSizePreference string, targetInstanceCount int32,
 	) (*InterruptibleCapacityReservationAllocation, error)
 	GetCapacityReservationUsage(id string) (*CapacityReservationUsage, error)
 	DescribeCapacityReservationTopology(ids []string) []*CapacityReservationTopologyEntry

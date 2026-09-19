@@ -128,16 +128,16 @@ func (b *InMemoryBackend) UpdateStage(apiID, stageName string, input UpdateStage
 		return nil, fmt.Errorf("%w: a quick-create managed stage can't be modified", ErrBadRequest)
 	}
 
-	if input.DeploymentID != "" {
-		s.DeploymentID = input.DeploymentID
+	if input.DeploymentID != nil {
+		s.DeploymentID = *input.DeploymentID
 	}
 
-	if input.Description != "" {
-		s.Description = input.Description
+	if input.Description != nil {
+		s.Description = *input.Description
 	}
 
-	if input.ClientCertificateID != "" {
-		s.ClientCertificateID = input.ClientCertificateID
+	if input.ClientCertificateID != nil {
+		s.ClientCertificateID = *input.ClientCertificateID
 	}
 
 	if input.AutoDeploy != nil {

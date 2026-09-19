@@ -13,16 +13,20 @@ import (
 // ---------------------------------------------------------------------------
 
 type createTransformJobRequest struct {
-	Environment             map[string]string  `json:"Environment,omitempty"`
-	TransformInput          TransformInput     `json:"TransformInput"`
-	TransformOutput         TransformOutput    `json:"TransformOutput"`
-	TransformJobName        string             `json:"TransformJobName"`
-	ModelName               string             `json:"ModelName"`
-	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
-	TransformResources      TransformResources `json:"TransformResources"`
-	Tags                    []tagObject        `json:"Tags,omitempty"`
-	MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
-	MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
+	Environment             map[string]string           `json:"Environment,omitempty"`
+	TransformInput          TransformInput              `json:"TransformInput"`
+	TransformOutput         TransformOutput             `json:"TransformOutput"`
+	DataCaptureConfig       *TransformDataCaptureConfig `json:"DataCaptureConfig,omitempty"`
+	DataProcessing          *TransformDataProcessing    `json:"DataProcessing,omitempty"`
+	ExperimentConfig        *TransformExperimentConfig  `json:"ExperimentConfig,omitempty"`
+	ModelClientConfig       *TransformModelClientConfig `json:"ModelClientConfig,omitempty"`
+	TransformJobName        string                      `json:"TransformJobName"`
+	ModelName               string                      `json:"ModelName"`
+	BatchStrategy           string                      `json:"BatchStrategy,omitempty"`
+	TransformResources      TransformResources          `json:"TransformResources"`
+	Tags                    []tagObject                 `json:"Tags,omitempty"`
+	MaxConcurrentTransforms int32                       `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB          int32                       `json:"MaxPayloadInMB,omitempty"`
 }
 
 func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -56,6 +60,10 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: TransformResources.InstanceCount is required", errInvalidRequest)
 	}
 
+	if req.DataCaptureConfig != nil && req.DataCaptureConfig.DestinationS3URI == "" {
+		return nil, fmt.Errorf("%w: DataCaptureConfig.DestinationS3Uri is required", errInvalidRequest)
+	}
+
 	tj, err := h.Backend.CreateTransformJob(ctx, TransformJobOptions{
 		TransformJobName:        req.TransformJobName,
 		ModelName:               req.ModelName,
@@ -64,6 +72,10 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		MaxPayloadInMB:          req.MaxPayloadInMB,
 		TransformInput:          req.TransformInput,
 		TransformOutput:         req.TransformOutput,
+		DataCaptureConfig:       req.DataCaptureConfig,
+		DataProcessing:          req.DataProcessing,
+		ExperimentConfig:        req.ExperimentConfig,
+		ModelClientConfig:       req.ModelClientConfig,
 		TransformResources:      req.TransformResources,
 		Environment:             req.Environment,
 		Tags:                    fromTagObjects(req.Tags),
@@ -122,6 +134,18 @@ func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) (
 	}
 	if len(tj.Environment) > 0 {
 		resp["Environment"] = tj.Environment
+	}
+	if tj.DataCaptureConfig != nil {
+		resp["DataCaptureConfig"] = tj.DataCaptureConfig
+	}
+	if tj.DataProcessing != nil {
+		resp["DataProcessing"] = tj.DataProcessing
+	}
+	if tj.ExperimentConfig != nil {
+		resp["ExperimentConfig"] = tj.ExperimentConfig
+	}
+	if tj.ModelClientConfig != nil {
+		resp["ModelClientConfig"] = tj.ModelClientConfig
 	}
 
 	return json.Marshal(resp)

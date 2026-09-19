@@ -432,6 +432,31 @@ func TestDescribeEngineDefaultClusterParameters_DefaultFamily(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "neptune1.3")
 }
 
+// TestDescribeEngineDefaultClusterParameters_MaxRecordsPaginates verifies
+// DescribeEngineDefaultClusterParameters.MaxRecords (bd gopherstack-xhu2t
+// tier-1 finding) is wired, including the EngineDefaults-nested Marker.
+func TestDescribeEngineDefaultClusterParameters_MaxRecordsPaginates(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	full := doRequest(t, h, url.Values{
+		"Action":  {"DescribeEngineDefaultClusterParameters"},
+		"Version": {"2014-10-31"},
+	})
+	require.Equal(t, http.StatusOK, full.Code)
+	fullCount := strings.Count(full.Body.String(), "<Parameter>")
+	require.Greater(t, fullCount, 1, "catalog must have more than 1 parameter for this test to be meaningful")
+
+	paged := doRequest(t, h, url.Values{
+		"Action":     {"DescribeEngineDefaultClusterParameters"},
+		"Version":    {"2014-10-31"},
+		"MaxRecords": {"1"},
+	})
+	require.Equal(t, http.StatusOK, paged.Code)
+	assert.Equal(t, 1, strings.Count(paged.Body.String(), "<Parameter>"))
+	assert.Contains(t, paged.Body.String(), "<Marker>")
+}
+
 // TestCopyDBClusterParameterGroup_MissingSource verifies error on missing source.
 func TestCopyDBClusterParameterGroup_MissingSource(t *testing.T) {
 	t.Parallel()

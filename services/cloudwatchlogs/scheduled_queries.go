@@ -236,33 +236,104 @@ func (b *InMemoryBackend) ListScheduledQueries(
 	return all[startIdx:end], outToken, nil
 }
 
-// UpdateScheduledQuery updates the state of a scheduled query.
-func (b *InMemoryBackend) UpdateScheduledQuery(scheduledQueryArn, state string) error {
-	if scheduledQueryArn == "" {
-		return fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
+// ScheduledQueryUpdateParams bundles UpdateScheduledQuery's real-API request
+// fields (field-diffed against UpdateScheduledQueryInput): Identifier,
+// ExecutionRoleArn, QueryLanguage, QueryString, and ScheduleExpression are
+// all real required members ("This operation uses PUT semantics" -- a full
+// replace, not a partial state-only patch like a previous revision
+// implemented).
+type ScheduledQueryUpdateParams struct {
+	DestinationConfiguration *ScheduledQueryDestinationConfig
+	Identifier               string
+	ExecutionRoleArn         string
+	QueryLanguage            string
+	QueryString              string
+	ScheduleExpression       string
+	Description              string
+	State                    string
+	Timezone                 string
+	LogGroupIdentifiers      []string
+	EndTimeOffset            int64
+	StartTimeOffset          int64
+	ScheduleStartTime        int64
+	ScheduleEndTime          int64
+}
+
+// UpdateScheduledQuery fully replaces a scheduled query's configuration, per
+// UpdateScheduledQueryInput's PUT semantics. State is the one field kept
+// unchanged when omitted: the real input's own doc comment gives it no
+// documented default, and clearing a running query's enabled/disabled state
+// on every metadata edit would be a real (not documented) behavior change.
+func (b *InMemoryBackend) UpdateScheduledQuery(p ScheduledQueryUpdateParams) (*ScheduledQuery, error) {
+	if p.Identifier == "" {
+		return nil, fmt.Errorf("%w: identifier is required", ErrValidationException)
 	}
-	if state == "" {
-		return fmt.Errorf("%w: state is required", ErrValidationException)
+
+	if p.ExecutionRoleArn == "" {
+		return nil, fmt.Errorf("%w: executionRoleArn is required", ErrValidationException)
 	}
-	if _, ok := validScheduledQueryStates()[state]; !ok {
-		return fmt.Errorf("%w: invalid state %q, must be ENABLED or DISABLED", ErrValidationException, state)
+
+	if p.QueryString == "" {
+		return nil, fmt.Errorf("%w: queryString is required", ErrValidationException)
+	}
+
+	if p.ScheduleExpression == "" {
+		return nil, fmt.Errorf("%w: scheduleExpression is required", ErrValidationException)
+	}
+
+	if p.QueryLanguage == "" {
+		return nil, fmt.Errorf("%w: queryLanguage is required", ErrValidationException)
+	}
+
+	if _, ok := validScheduledQueryLanguages()[p.QueryLanguage]; !ok {
+		return nil, fmt.Errorf(
+			"%w: invalid queryLanguage %q, must be one of CWLI, PPL, SQL",
+			ErrValidationException, p.QueryLanguage,
+		)
+	}
+
+	if p.State != "" {
+		if _, ok := validScheduledQueryStates()[p.State]; !ok {
+			return nil, fmt.Errorf(
+				"%w: invalid state %q, must be ENABLED or DISABLED",
+				ErrValidationException,
+				p.State,
+			)
+		}
 	}
 
 	b.mu.Lock("UpdateScheduledQuery")
 	defer b.mu.Unlock()
 
-	sq, ok := b.scheduledQueries.Get(scheduledQueryArn)
+	sq, ok := b.scheduledQueries.Get(p.Identifier)
 	if !ok {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"%w: scheduled query %s not found",
 			ErrScheduledQueryNotFound,
-			scheduledQueryArn,
+			p.Identifier,
 		)
 	}
-	sq.State = state
+
+	sq.ExecutionRoleArn = p.ExecutionRoleArn
+	sq.QueryLanguage = p.QueryLanguage
+	sq.QueryString = p.QueryString
+	sq.ScheduleExpression = p.ScheduleExpression
+	sq.Description = p.Description
+	sq.Timezone = p.Timezone
+	sq.LogGroupIdentifiers = p.LogGroupIdentifiers
+	sq.DestinationConfiguration = p.DestinationConfiguration
+	sq.EndTimeOffset = p.EndTimeOffset
+	sq.StartTimeOffset = p.StartTimeOffset
+	sq.ScheduleStartTime = p.ScheduleStartTime
+	sq.ScheduleEndTime = p.ScheduleEndTime
+	if p.State != "" {
+		sq.State = p.State
+	}
 	sq.LastUpdatedTime = time.Now().UnixMilli()
 
-	return nil
+	cp := *sq
+
+	return &cp, nil
 }
 
 // AddScheduledQueryInternal seeds a ScheduledQuery directly into the store
@@ -315,14 +386,26 @@ func (b *InMemoryBackend) GetScheduledQuery(scheduledQueryArn string) (*Schedule
 	return &cp, nil
 }
 
-// GetScheduledQueryHistory returns the execution history for a scheduled query.
+// GetScheduledQueryHistory returns the execution history for a scheduled
+// query, filtered to runs whose TriggeredTimestamp falls in [startTime,
+// endTime] (both real required GetScheduledQueryHistoryInput members,
+// validateOpGetScheduledQueryHistoryInput; presence is enforced by the
+// caller, since 0 is a legitimate epoch-start value). executionStatuses is a
+// real optional filter. All three were previously undecoded entirely.
 func (b *InMemoryBackend) GetScheduledQueryHistory(
 	scheduledQueryArn string,
 	nextToken string,
 	maxResults int,
+	startTime, endTime int64,
+	executionStatuses []string,
 ) ([]ScheduledQueryRunSummary, string, error) {
 	if scheduledQueryArn == "" {
 		return nil, "", fmt.Errorf("%w: scheduledQueryArn is required", ErrValidationException)
+	}
+
+	statusFilter := make(map[string]bool, len(executionStatuses))
+	for _, s := range executionStatuses {
+		statusFilter[s] = true
 	}
 
 	b.mu.RLock("GetScheduledQueryHistory")
@@ -342,6 +425,14 @@ func (b *InMemoryBackend) GetScheduledQueryHistory(
 	}
 	all := make([]ScheduledQueryRunSummary, 0, len(runs))
 	for _, r := range runs {
+		if r.TriggeredTimestamp < startTime || r.TriggeredTimestamp > endTime {
+			continue
+		}
+
+		if len(statusFilter) > 0 && !statusFilter[r.ExecutionStatus] {
+			continue
+		}
+
 		all = append(all, *r)
 	}
 	// Most recent invocations first.

@@ -376,6 +376,7 @@ func applyReqToUpdateInput(req *domainJSON) UpdateDomainConfigInput {
 		EngineVersion:   req.EngineVersion,
 		AccessPolicies:  req.AccessPolicies,
 		AutoTuneOptions: autoTuneUpdateInputFromReq(req.AutoTuneOptions),
+		AdvancedOptions: req.AdvancedOptions,
 	}
 	if req.ClusterConfig != nil {
 		cc := parseClusterConfigFromReq(req.ClusterConfig)

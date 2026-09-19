@@ -8,7 +8,7 @@
 | Metric | Value |
 | --- | --- |
 | PARITY entries audited | 68 (68 ok) |
-| Known gaps | 5 |
+| Known gaps | 6 |
 | Deferred items | 6 |
 | Resource leaks | clean |
 
@@ -19,6 +19,7 @@
 - CLOSED 2026-08-08 (gopherstack-n7gh follow-up): UserMigration_ForgotPassword trigger source and domain AWSAccountId/ManagedLoginVersion/S3Bucket, the two items explicitly named but not reached in the SRP-6a pass -- see families.ForgotPassword and families.domains above for detail.
 - CLOSED 2026-08-08 (gopherstack-n7gh follow-up): op-by-op re-walk of user_import_jobs/devices/webauthn/managed_login_branding/risk_config/terms/log_delivery plus a full field diff of identity_providers/resource_servers, the remaining named scope item. Found and fixed 4 real bugs beyond the headline items: webauthn's wrong wire key (FriendlyName vs FriendlyCredentialName) and missing required AuthenticatorTransports; managed_login_branding's Settings/Assets/UseCognitoProvidedValues completely discarded; SetLogDeliveryConfiguration's disguised-nil-stub; CreateUserImportJob's dropped CloudWatchLogsRoleArn/PasswordHashingAlgorithm. See families above for each. terms/ was found to be built on a fictional wire model entirely and needs a full redesign -- explicitly NOT fixed this pass, see deferred below.
 - CLOSED 2026-09-12 (gopherstack-n3zi): GetUser's real wire response (types.GetUserOutput, cognitoidentityprovider@1.67.4 api_op_GetUser.go:72) carries a legacy MFAOptions field that handleGetUserAccurate never populated -- a real client calling SetUserSettings then GetUser always saw an empty MFAOptions slice regardless of what was just set, even though the sibling AdminGetUser path already surfaced the same user.MFAOptions via toMFAOptionsWire. Fixed by adding MFAOptions to getUserWithMFAOutput and populating it the same way AdminGetUser does. Found only by a typed-client round trip (realclient_managed_login_and_provisioning_test.go); see the dated Notes section for detail. Also closes cognitoidp's typed-client coverage gap entirely: 0 of 129 ops now uncovered (was 32 before this pass).
+- CLOSED 2026-09-13 (gopherstack-xhu2t): CreateUserPoolClient/UpdateUserPoolClient never decoded DefaultRedirectURI/ReadAttributes/WriteAttributes at all -- any value sent by a real client was silently dropped, never stored, never echoed on Describe/Create/Update responses. Fixed: all three now round-trip through UserPoolClient (new DefaultRedirectURI/ReadAttributes/WriteAttributes fields) and clientDataAccurate. CreateUserPool's Schema was also entirely undecoded; now custom:/dev:-prefixed entries are stored into the same CustomAttributes list AddCustomAttributes already populates post-creation (unprefixed standard-attribute entries in Schema, e.g. email/phone_number, are accepted but not modeled -- this backend tracks no schema for built-in standard attributes at all, a pre-existing simplification DescribeUserPool's custom-only SchemaAttributes list already embodies, not a new gap introduced by this fix).
 
 ### Deferred
 

@@ -167,10 +167,13 @@ type pipelineStepMetadata struct {
 	Callback *pipelineStepCallbackMetadata `json:"Callback,omitempty"`
 }
 
+// pipelineExecStepSummary mirrors types.PipelineExecutionStep
+// (types/types.go:17387, sagemaker@v1.263.2), which has no StepType field:
+// a real client tells steps apart by which Metadata member is populated
+// (Metadata.Callback, .TrainingJob, ...), never by a StepType string.
 type pipelineExecStepSummary struct {
 	Metadata      *pipelineStepMetadata `json:"Metadata,omitempty"`
 	StepName      string                `json:"StepName"`
-	StepType      string                `json:"StepType,omitempty"`
 	StepStatus    string                `json:"StepStatus"`
 	FailureReason string                `json:"FailureReason,omitempty"`
 	StartTime     float64               `json:"StartTime,omitempty"`
@@ -210,7 +213,6 @@ func (h *Handler) handleListPipelineExecutionSteps(ctx context.Context, body []b
 	for _, s := range steps {
 		sum := pipelineExecStepSummary{
 			StepName:      s.StepName,
-			StepType:      s.StepType,
 			StepStatus:    s.StepStatus,
 			FailureReason: s.FailureReason,
 			StartTime:     epochSeconds(s.StartTime),
@@ -460,7 +462,7 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 		return nil, fmt.Errorf("%w: PipelineName is required", errInvalidRequest)
 	}
 
-	p, lastRunTime, err := h.Backend.DescribePipeline(ctx, req.PipelineName, req.PipelineVersionID)
+	p, lastRunTime, version, err := h.Backend.DescribePipeline(ctx, req.PipelineName, req.PipelineVersionID)
 	if err != nil {
 		return nil, err
 	}
@@ -487,13 +489,24 @@ func (h *Handler) handleDescribePipeline(ctx context.Context, body []byte) ([]by
 		resp["LastRunTime"] = epochSeconds(lastRunTime)
 	}
 
+	if version != nil {
+		if version.PipelineVersionDescription != "" {
+			resp["PipelineVersionDescription"] = version.PipelineVersionDescription
+		}
+
+		if version.PipelineVersionDisplayName != "" {
+			resp["PipelineVersionDisplayName"] = version.PipelineVersionDisplayName
+		}
+	}
+
 	return json.Marshal(resp)
 }
 
+// pipelineSummary mirrors PipelineSummary (types.go:17593-17620,
+// sagemaker@v1.263.2) -- that type carries no PipelineStatus field.
 type pipelineSummary struct {
 	PipelineName        string  `json:"PipelineName"`
 	PipelineArn         string  `json:"PipelineArn"`
-	PipelineStatus      string  `json:"PipelineStatus"`
 	PipelineDescription string  `json:"PipelineDescription,omitempty"`
 	PipelineDisplayName string  `json:"PipelineDisplayName,omitempty"`
 	RoleArn             string  `json:"RoleArn,omitempty"`
@@ -538,7 +551,6 @@ func (h *Handler) handleListPipelines(ctx context.Context, body []byte) ([]byte,
 		sum := pipelineSummary{
 			PipelineName:        p.PipelineName,
 			PipelineArn:         p.PipelineArn,
-			PipelineStatus:      p.PipelineStatus,
 			PipelineDescription: p.PipelineDescription,
 			PipelineDisplayName: p.PipelineDisplayName,
 			RoleArn:             p.RoleArn,

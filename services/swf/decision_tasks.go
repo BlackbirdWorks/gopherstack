@@ -19,11 +19,45 @@ func (b *InMemoryBackend) CountPendingDecisionTasks(domain, taskList string) int
 	return len(b.decisionQueues[domain+":"+taskList])
 }
 
+// lastDecisionTaskStartedEventID returns the EventID of the most recent
+// DecisionTaskStarted event in events, or 0 if the execution has never had a
+// decision task started before (event IDs are assigned in chronological
+// order starting at 1, so 0 is never a real event ID).
+func lastDecisionTaskStartedEventID(events []HistoryEvent) int64 {
+	var id int64
+
+	for _, e := range events {
+		if e.EventType == "DecisionTaskStarted" {
+			id = e.EventID
+		}
+	}
+
+	return id
+}
+
+// eventsFromID returns the suffix of events (assumed EventID-ascending) whose
+// EventID is >= fromID, or events unchanged when fromID is 0 (no previous
+// DecisionTaskStarted event exists yet).
+func eventsFromID(events []HistoryEvent, fromID int64) []HistoryEvent {
+	if fromID == 0 {
+		return events
+	}
+
+	for i, e := range events {
+		if e.EventID >= fromID {
+			return events[i:]
+		}
+	}
+
+	return nil
+}
+
 // PollForDecisionTask returns the next available decision task for a task list, or nil if none.
 func (b *InMemoryBackend) PollForDecisionTask(
 	domain, taskList string,
 	maxPageSize int,
 	nextPageToken string,
+	startAtPreviousStartedEvent bool,
 ) *DecisionTask {
 	b.mu.Lock("PollForDecisionTask")
 	defer b.mu.Unlock()
@@ -40,6 +74,9 @@ func (b *InMemoryBackend) PollForDecisionTask(
 	b.decisionQueues[key] = queue[1:]
 	task.TaskToken = uuid.New().String()
 
+	histKey := executionKey(domain, task.WorkflowID, task.RunID)
+	previousStartedEventID := lastDecisionTaskStartedEventID(b.history[histKey])
+
 	// DecisionTaskStartedEventAttributes requires scheduledEventId -- mirrors
 	// PollForActivityTask's ActivityTaskStarted recording below in activity_tasks.go.
 	startedEventID := b.appendHistoryEventLocked(
@@ -51,6 +88,7 @@ func (b *InMemoryBackend) PollForDecisionTask(
 		},
 	)
 	task.StartedEventID = startedEventID
+	task.PreviousStartedEventID = previousStartedEventID
 
 	b.activeDecisionTasks.Put(&activeDecisionTaskRecord{
 		Domain:           domain,
@@ -61,7 +99,11 @@ func (b *InMemoryBackend) PollForDecisionTask(
 		StartedEventID:   startedEventID,
 	})
 
-	histEvents := b.history[executionKey(domain, task.WorkflowID, task.RunID)]
+	histEvents := b.history[histKey]
+	if startAtPreviousStartedEvent {
+		histEvents = eventsFromID(histEvents, previousStartedEventID)
+	}
+
 	if len(histEvents) > 0 {
 		cp := make([]HistoryEvent, len(histEvents))
 		copy(cp, histEvents)

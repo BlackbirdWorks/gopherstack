@@ -156,10 +156,15 @@ func (b *InMemoryBackend) CreatePipeline(
 // version instead of the current one (DescribePipelineInput.PipelineVersionId,
 // api_op_DescribePipeline.go). lastRunTime is the StartTime of the most
 // recent PipelineExecution for this pipeline (DescribePipelineOutput.LastRunTime),
-// or the zero time if the pipeline has never been run.
+// or the zero time if the pipeline has never been run. version is the resolved
+// PipelineVersion (the requested one, or the latest if versionID is 0), whose
+// PipelineVersionDescription/PipelineVersionDisplayName are distinct wire
+// fields from the pipeline's own PipelineDescription/PipelineDisplayName
+// (DescribePipelineOutput, api_op_DescribePipeline.go); nil if the pipeline
+// has no recorded versions.
 func (b *InMemoryBackend) DescribePipeline(
 	ctx context.Context, name string, versionID int64,
-) (*Pipeline, time.Time, error) {
+) (*Pipeline, time.Time, *PipelineVersion, error) {
 	b.mu.RLock("DescribePipeline")
 	defer b.mu.RUnlock()
 
@@ -167,25 +172,31 @@ func (b *InMemoryBackend) DescribePipeline(
 
 	p, ok := b.pipelinesStoreRO(region).Get(name)
 	if !ok {
-		return nil, time.Time{}, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
+		return nil, time.Time{}, nil, fmt.Errorf("%w: pipeline %q not found", ErrPipelineNotFound, name)
 	}
 
 	result := clonePipeline(p)
+	versions := b.pipelineVersionsStoreRO(region)[name]
+
+	var version *PipelineVersion
 
 	if versionID != 0 {
-		v, found := findPipelineVersion(b.pipelineVersionsStoreRO(region)[name], versionID)
+		v, found := findPipelineVersion(versions, versionID)
 		if !found {
-			return nil, time.Time{}, fmt.Errorf(
+			return nil, time.Time{}, nil, fmt.Errorf(
 				"%w: pipeline %q version %d not found", ErrPipelineNotFound, name, versionID,
 			)
 		}
 
 		result.PipelineDefinition = v.PipelineDefinition
+		version = v
+	} else if len(versions) > 0 {
+		version = versions[len(versions)-1]
 	}
 
 	lastRunTime := latestExecutionStartTime(b.pipelineExecutionsStoreRO(region).All(), p.PipelineArn)
 
-	return result, lastRunTime, nil
+	return result, lastRunTime, version, nil
 }
 
 // ListPipelinesParams bundles ListPipelines' filter/sort/pagination input

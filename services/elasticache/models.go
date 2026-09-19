@@ -35,14 +35,19 @@ type Cluster struct {
 	ConnectAddress             string
 	PendingStatus              string
 	SubnetGroupName            string
+	PreferredAvailabilityZone  string
+	AuthToken                  string
 	AvailableAt                time.Time
 	Members                    []CacheNodeMember
+	PreferredAvailabilityZones []string
+	CacheSecurityGroupNames    []string
 	Port                       int
 	AllocatedPort              int
 	NumCacheNodes              int
 	SnapshotRetentionLimit     int
 	TransitEncryptionEnabled   bool
 	AtRestEncryptionEnabled    bool
+	AuthTokenEnabled           bool
 }
 
 // ReplicationGroup represents an ElastiCache replication group.
@@ -137,6 +142,7 @@ type StorageBackend interface {
 	) (*Cluster, error)
 	DeleteCluster(ctx context.Context, id string) error
 	SetClusterSubnetGroupName(ctx context.Context, id, subnetGroupName string) error
+	SetClusterAvailabilityZones(ctx context.Context, id, az string, azs []string) error
 	SetClusterSnapshotRetentionLimit(ctx context.Context, id string, limit *int) error
 	SetClusterReplicationGroupID(ctx context.Context, id, replicationGroupID string) error
 	DescribeClusters(ctx context.Context, id, marker string, maxRecords int, notInRG bool) (page.Page[Cluster], error)
@@ -144,6 +150,7 @@ type StorageBackend interface {
 		ctx context.Context,
 		id, nodeType, paramGroupName, engineVersion, maintenanceWindow, snapshotWindow string,
 		numCacheNodes int,
+		opts *ModifyClusterOptions,
 	) (*Cluster, error)
 	ListTagsForResource(ctx context.Context, arn string) (map[string]string, error)
 	AddTagsToResource(ctx context.Context, arn string, newTags map[string]string) error
@@ -179,7 +186,9 @@ type StorageBackend interface {
 		paramNames []string,
 		resetAll bool,
 	) (*CacheParameterGroup, error)
-	DescribeParameters(ctx context.Context, name, marker string, maxRecords int) (page.Page[CacheParameter], error)
+	DescribeParameters(
+		ctx context.Context, name, marker string, maxRecords int, source string,
+	) (page.Page[CacheParameter], error)
 	CreateSubnetGroup(ctx context.Context, name, description string, subnetIDs []string) (*CacheSubnetGroup, error)
 	CreateSubnetGroupFull(
 		ctx context.Context,
@@ -329,7 +338,7 @@ type StorageBackend interface {
 		cacheNodeCount int32,
 	) (*ReservedCacheNode, error)
 	// ServerlessCache operations
-	DeleteServerlessCache(ctx context.Context, name string) (*ServerlessCache, error)
+	DeleteServerlessCache(ctx context.Context, name, finalSnapshotName string) (*ServerlessCache, error)
 	DeleteServerlessCacheSnapshot(ctx context.Context, name string) (*ServerlessCacheSnapshot, error)
 	DescribeServerlessCaches(
 		ctx context.Context,
@@ -376,12 +385,14 @@ type StorageBackend interface {
 		replicationGroupID string,
 		nodeGroupCount int32,
 		applyImmediately bool,
+		reshardingConfig []ReshardingConfig,
 	) (*ReplicationGroup, error)
 	// Cache info operations
 	DescribeCacheEngineVersions(
 		ctx context.Context,
 		engine, family, engineVersion, marker string,
 		maxRecords int,
+		defaultOnly bool,
 	) (page.Page[CacheEngineVersion], error)
 	RebootCacheCluster(ctx context.Context, clusterID string, nodeIDs []string) (*Cluster, error)
 	DeleteCacheSecurityGroup(ctx context.Context, name string) error
@@ -438,6 +449,7 @@ type CacheParameter struct {
 	Description   string
 	DataType      string
 	AllowedValues string
+	Source        string
 	IsModifiable  bool
 }
 
@@ -527,6 +539,14 @@ type RGPendingModifiedValues struct {
 	AutomaticFailoverStatus string `json:"automaticFailoverStatus,omitempty"`
 }
 
+// ReshardingConfig carries one entry of ModifyReplicationGroupShardConfiguration's
+// ReshardingConfiguration -- the preferred AZs for a newly-added node group's
+// nodes when NodeGroupCount increases the shard count.
+type ReshardingConfig struct {
+	NodeGroupID                string
+	PreferredAvailabilityZones []string
+}
+
 // LogDeliveryConfig holds log delivery configuration for slow-log or engine-log (gap #6).
 type LogDeliveryConfig struct {
 	DestinationDetails string `json:"destinationDetails"`
@@ -595,6 +615,7 @@ type ReplicationGroupModifyOpts struct {
 	LogDeliveryConfigurations []LogDeliveryConfig
 	UserGroupIDsToAdd         []string
 	UserGroupIDsToRemove      []string
+	CacheSecurityGroupNames   []string
 	ApplyImmediately          bool
 }
 

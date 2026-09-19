@@ -53,7 +53,25 @@ type EdgePackagingJob struct {
 	RoleArn                string            `json:"RoleArn,omitempty"`
 	CompilationJobName     string            `json:"CompilationJobName,omitempty"`
 	ResourceKey            string            `json:"ResourceKey,omitempty"`
-	FailureReason          string            `json:"FailureReason,omitempty"`
+	// FailureReason is never set by this backend and never written to the
+	// wire (DescribeEdgePackagingJobOutput has no such member at all -- the
+	// real field for job status text is EdgePackagingJobStatusMessage,
+	// unmodeled, see PARITY.md). Kept only so an older persisted snapshot
+	// that still carries the key decodes without a version bump.
+	FailureReason string `json:"FailureReason,omitempty"`
+	ModelArtifact string `json:"ModelArtifact,omitempty"`
+}
+
+// modelArtifactFromEdgeOutputConfig derives DescribeEdgePackagingJobOutput's
+// ModelArtifact (S3 URI) from the client-required OutputConfig.S3OutputLocation,
+// the same deterministic "<location>/model.tar.gz" formula
+// modelArtifactsFromCompilationOutputConfig already uses for CompilationJob.
+func modelArtifactFromEdgeOutputConfig(oc EdgeOutputConfig) string {
+	if oc.S3OutputLocation == "" {
+		return ""
+	}
+
+	return strings.TrimSuffix(oc.S3OutputLocation, "/") + "/model.tar.gz"
 }
 
 func cloneEdgePackagingJob(j *EdgePackagingJob) *EdgePackagingJob {
@@ -137,6 +155,7 @@ func (b *InMemoryBackend) scheduleEdgePackagingJobCompletion(ctx context.Context
 		}
 
 		j.EdgePackagingJobStatus = edgePackagingJobStatusCompleted
+		j.ModelArtifact = modelArtifactFromEdgeOutputConfig(j.OutputConfig)
 		j.LastModifiedTime = time.Now()
 	})
 }

@@ -177,6 +177,9 @@ func (h *Handler) handleDescribeThingGroup(c *echo.Context) error {
 			"attributePayload":      map[string]any{keyAttributes: tg.Attributes},
 		},
 		"thingGroupMetadata": metadata,
+		keyQueryString:       tg.QueryString,
+		keyIndexName:         tg.IndexName,
+		keyQueryVersion:      tg.QueryVersion,
 	})
 }
 
@@ -205,7 +208,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 	var body struct {
 		ThingGroupProperties *struct {
 			AttributePayload      *AttributePayload `json:"attributePayload"`
-			ThingGroupDescription string            `json:"thingGroupDescription"`
+			ThingGroupDescription *string           `json:"thingGroupDescription,omitempty"`
 		} `json:"thingGroupProperties"`
 		ExpectedVersion int64 `json:"expectedVersion"`
 	}
@@ -215,7 +218,7 @@ func (h *Handler) handleUpdateThingGroup(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, awsErrBody{errTypeInvalidRequest, err.Error()})
 	}
 
-	desc := ""
+	var desc *string
 	var attrs map[string]string
 	var merge *bool
 	if body.ThingGroupProperties != nil {
@@ -385,18 +388,18 @@ func (h *Handler) handleUpdateDynamicThingGroup(c *echo.Context) error {
 	var req struct {
 		ThingGroupProperties *struct {
 			AttributePayload      *AttributePayload `json:"attributePayload"`
-			ThingGroupDescription string            `json:"thingGroupDescription"`
+			ThingGroupDescription *string           `json:"thingGroupDescription,omitempty"`
 		} `json:"thingGroupProperties"`
-		QueryString     string `json:"queryString"`
-		IndexName       string `json:"indexName"`
-		QueryVersion    string `json:"queryVersion"`
-		ExpectedVersion int64  `json:"expectedVersion"`
+		QueryString     *string `json:"queryString,omitempty"`
+		IndexName       *string `json:"indexName,omitempty"`
+		QueryVersion    *string `json:"queryVersion,omitempty"`
+		ExpectedVersion int64   `json:"expectedVersion"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err
 	}
 
-	desc := ""
+	var desc *string
 	var attrs map[string]string
 	var merge *bool
 	if req.ThingGroupProperties != nil {

@@ -134,8 +134,6 @@ func (b *InMemoryBackend) deleteDataSourceChildrenLocked(kbID, dsID string) {
 }
 
 // ListDataSources returns paginated data source summaries.
-//
-//nolint:dupl // structurally mirrors ListAgentAliases but filters a distinct table/type
 func (b *InMemoryBackend) ListDataSources(
 	_ context.Context, kbID string, maxResults int, nextToken string,
 ) ([]*DataSourceSummary, string, error) {

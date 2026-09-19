@@ -27,6 +27,44 @@ const (
 	randMantissa  = 1 << 53
 )
 
+const (
+	ipv4Bits = 32
+	ipv6Bits = 128
+	// edns0DefaultMaskV4/V6 are TestDNSAnswer's documented EDNS0ClientSubnetMask
+	// defaults when the request omits it (api_op_TestDNSAnswer.go).
+	edns0DefaultMaskV4 = 24
+	edns0DefaultMaskV6 = 64
+)
+
+// edns0SubnetNetworkIP simulates the subnet AWS's real TestDnsAnswer builds
+// from edns0clientsubnetip + edns0clientsubnetmask: the checking tool queries
+// as if from the *network* address of ip/mask, not the exact client address
+// (api_op_TestDNSAnswer.go's EDNS0ClientSubnetMask doc: "...will simulate a
+// request from 192.0.2.0/24"). maskStr may be empty, in which case the
+// documented default (24 bits for IPv4, 64 for IPv6) applies.
+func edns0SubnetNetworkIP(ip, maskStr string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip
+	}
+
+	addr, bits := parsed, ipv6Bits
+	if v4 := parsed.To4(); v4 != nil {
+		addr, bits = v4, ipv4Bits
+	}
+
+	maskBits := edns0DefaultMaskV6
+	if bits == ipv4Bits {
+		maskBits = edns0DefaultMaskV4
+	}
+
+	if n, err := strconv.Atoi(maskStr); err == nil && n >= 0 && n <= bits {
+		maskBits = n
+	}
+
+	return addr.Mask(net.CIDRMask(maskBits, bits)).String()
+}
+
 // AWS region identifiers referenced by the latency and geo-IP tables. Declared
 // as constants so the string literals are not duplicated across the package.
 const (

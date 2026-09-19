@@ -16,14 +16,18 @@ type spotLaunchSpecItem struct {
 }
 
 type spotInstanceRequestItem struct {
-	LaunchSpecification   spotLaunchSpecItem `xml:"launchSpecification"`
-	SpotInstanceRequestID string             `xml:"spotInstanceRequestId"`
-	InstanceID            string             `xml:"instanceId,omitempty"`
-	State                 string             `xml:"state"`
-	SpotPrice             string             `xml:"spotPrice"`
-	Type                  string             `xml:"type"`
-	CreateTime            string             `xml:"createTime"`
-	TagSet                []simpleTagItem    `xml:"tagSet>item"`
+	LaunchSpecification          spotLaunchSpecItem `xml:"launchSpecification"`
+	SpotInstanceRequestID        string             `xml:"spotInstanceRequestId"`
+	InstanceID                   string             `xml:"instanceId,omitempty"`
+	State                        string             `xml:"state"`
+	SpotPrice                    string             `xml:"spotPrice"`
+	Type                         string             `xml:"type"`
+	CreateTime                   string             `xml:"createTime"`
+	ValidUntil                   string             `xml:"validUntil,omitempty"`
+	AvailabilityZoneGroup        string             `xml:"availabilityZoneGroup,omitempty"`
+	LaunchGroup                  string             `xml:"launchGroup,omitempty"`
+	InstanceInterruptionBehavior string             `xml:"instanceInterruptionBehavior,omitempty"`
+	TagSet                       []simpleTagItem    `xml:"tagSet>item"`
 }
 
 type spotInstanceRequestSet struct {
@@ -80,13 +84,16 @@ type describeSpotPriceHistoryResponse struct {
 }
 
 func toSpotRequestItem(req *SpotInstanceRequest, tags map[string]string) spotInstanceRequestItem {
-	return spotInstanceRequestItem{
-		SpotInstanceRequestID: req.ID,
-		InstanceID:            req.InstanceID,
-		State:                 req.State,
-		SpotPrice:             req.SpotPrice,
-		Type:                  req.Type,
-		CreateTime:            req.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+	item := spotInstanceRequestItem{
+		SpotInstanceRequestID:        req.ID,
+		InstanceID:                   req.InstanceID,
+		State:                        req.State,
+		SpotPrice:                    req.SpotPrice,
+		Type:                         req.Type,
+		CreateTime:                   req.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		AvailabilityZoneGroup:        req.AvailabilityZoneGroup,
+		LaunchGroup:                  req.LaunchGroup,
+		InstanceInterruptionBehavior: req.InstanceInterruptionBehavior,
 		LaunchSpecification: spotLaunchSpecItem{
 			ImageID:      req.LaunchSpec.ImageID,
 			InstanceType: req.LaunchSpec.InstanceType,
@@ -94,6 +101,12 @@ func toSpotRequestItem(req *SpotInstanceRequest, tags map[string]string) spotIns
 		},
 		TagSet: tagItemsFromMap(tags),
 	}
+
+	if !req.ValidUntil.IsZero() {
+		item.ValidUntil = req.ValidUntil.UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+
+	return item
 }
 
 func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any, error) {
@@ -115,19 +128,38 @@ func (h *Handler) handleRequestSpotInstances(vals url.Values, reqID string) (any
 
 	tags := parseTagSpecification(vals, "spot-instances-request")
 
-	req, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice, tags)
+	var instanceCount int
+	if v := vals.Get("InstanceCount"); v != "" {
+		parseIntValue(v, &instanceCount)
+	}
+
+	var validUntil time.Time
+	if v := vals.Get("ValidUntil"); v != "" {
+		validUntil, _ = time.Parse(time.RFC3339, v)
+	}
+
+	opts := RequestSpotInstancesOptions{
+		AvailabilityZoneGroup:        vals.Get("AvailabilityZoneGroup"),
+		LaunchGroup:                  vals.Get("LaunchGroup"),
+		InstanceInterruptionBehavior: vals.Get("InstanceInterruptionBehavior"),
+		ValidUntil:                   validUntil,
+		InstanceCount:                instanceCount,
+	}
+
+	reqs, err := h.Backend.RequestSpotInstances(imageID, instanceType, subnetID, spotPrice, tags, opts)
 	if err != nil {
 		return nil, err
 	}
 
+	items := make([]spotInstanceRequestItem, 0, len(reqs))
+	for _, r := range reqs {
+		items = append(items, toSpotRequestItem(r, h.Backend.TagsForResource(r.ID)))
+	}
+
 	return &requestSpotInstancesResponse{
-		Xmlns:     ec2XMLNS,
-		RequestID: reqID,
-		SpotInstanceRequestSet: spotInstanceRequestSet{
-			Items: []spotInstanceRequestItem{
-				toSpotRequestItem(req, h.Backend.TagsForResource(req.ID)),
-			},
-		},
+		Xmlns:                  ec2XMLNS,
+		RequestID:              reqID,
+		SpotInstanceRequestSet: spotInstanceRequestSet{Items: items},
 	}, nil
 }
 

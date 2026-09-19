@@ -9,10 +9,12 @@ import (
 )
 
 type startBackupJobBody struct {
-	BackupVaultName string `json:"BackupVaultName"`
-	ResourceArn     string `json:"ResourceArn"`
-	IamRoleArn      string `json:"IamRoleArn"`
-	ResourceType    string `json:"ResourceType"`
+	BackupOptions      map[string]string `json:"BackupOptions,omitempty"`
+	BackupVaultName    string            `json:"BackupVaultName"`
+	ResourceArn        string            `json:"ResourceArn"`
+	IamRoleArn         string            `json:"IamRoleArn"`
+	ResourceType       string            `json:"ResourceType"`
+	StartWindowMinutes int64             `json:"StartWindowMinutes,omitempty"`
 }
 
 func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
@@ -36,6 +38,8 @@ func (h *Handler) handleStartBackupJob(c *echo.Context, body []byte) error {
 		in.ResourceArn,
 		in.IamRoleArn,
 		in.ResourceType,
+		in.BackupOptions,
+		in.StartWindowMinutes,
 	)
 	if err != nil {
 		return h.handleError(c, err)
@@ -70,6 +74,9 @@ func (h *Handler) handleDescribeBackupJob(c *echo.Context, jobID string) error {
 	setOptionalStr(resp, "MessageCategory", j.MessageCategory)
 	setOptionalStr(resp, "ParentJobId", j.ParentJobID)
 	setOptionalStr(resp, "CompositeMemberIdentifier", j.CompositeMemberIdentifier)
+	if len(j.BackupOptions) > 0 {
+		resp["BackupOptions"] = j.BackupOptions
+	}
 
 	if j.IsParent {
 		resp["IsParent"] = j.IsParent

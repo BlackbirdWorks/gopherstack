@@ -14,6 +14,7 @@ import (
 type putSuppressedDestinationInput struct {
 	EmailAddress string `json:"EmailAddress"`
 	Reason       string `json:"Reason"`
+	TenantName   string `json:"TenantName"`
 }
 
 func (h *Handler) handlePutSuppressedDestination(c *echo.Context) (any, error) {
@@ -23,24 +24,24 @@ func (h *Handler) handlePutSuppressedDestination(c *echo.Context) (any, error) {
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	if err := h.Backend.PutSuppressedDestination(in.EmailAddress, in.Reason); err != nil {
+	if err := h.Backend.PutSuppressedDestination(in.EmailAddress, in.Reason, in.TenantName); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
-func (h *Handler) handleGetSuppressedDestination(email string) (any, error) {
-	dest, err := h.Backend.GetSuppressedDestination(email)
+func (h *Handler) handleGetSuppressedDestination(c *echo.Context, email string) (any, error) {
+	dest, err := h.Backend.GetSuppressedDestination(email, c.QueryParam("TenantName"))
 	if err != nil {
 		return nil, err
 	}
 
-	return map[string]any{"SuppressedDestination": toSuppressedDestinationOutput(dest)}, nil
+	return map[string]any{"SuppressedDestination": toGetSuppressedDestinationOutput(dest)}, nil
 }
 
-func (h *Handler) handleDeleteSuppressedDestination(email string) (any, error) {
-	if err := h.Backend.DeleteSuppressedDestination(email); err != nil {
+func (h *Handler) handleDeleteSuppressedDestination(c *echo.Context, email string) (any, error) {
+	if err := h.Backend.DeleteSuppressedDestination(email, c.QueryParam("TenantName")); err != nil {
 		return nil, err
 	}
 
@@ -75,8 +76,9 @@ func (h *Handler) handleListSuppressedDestinations(c *echo.Context) (any, error)
 	reasons := c.Request().URL.Query()["Reason"]
 	startDate := parseSESv2QueryDate(c.QueryParam("StartDate"))
 	endDate := parseSESv2QueryDate(c.QueryParam("EndDate"))
+	tenantName := c.QueryParam("TenantName")
 
-	pg := h.Backend.ListSuppressedDestinations(reasons, startDate, endDate, nextToken, pageSize)
+	pg := h.Backend.ListSuppressedDestinations(reasons, startDate, endDate, tenantName, nextToken, pageSize)
 
 	items := make([]suppressedDestinationOutput, 0, len(pg.Data))
 	for _, d := range pg.Data {

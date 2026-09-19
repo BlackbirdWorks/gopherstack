@@ -171,9 +171,16 @@ func (b *InMemoryBackend) SeedReservedInstancesOffering(
 	offeringID, instanceType, az, productDesc, offeringType, offeringClass string,
 	duration int64,
 	fixedPrice, usagePrice float64,
+	tenancy ...string,
 ) {
 	b.mu.Lock("SeedReservedInstancesOffering")
 	defer b.mu.Unlock()
+
+	t := "default"
+	if len(tenancy) > 0 && tenancy[0] != "" {
+		t = tenancy[0]
+	}
+
 	b.reservedInstancesOfferings.Put(&ReservedInstancesOffering{
 		ReservedInstancesOfferingID: offeringID,
 		InstanceType:                instanceType,
@@ -181,6 +188,7 @@ func (b *InMemoryBackend) SeedReservedInstancesOffering(
 		ProductDescription:          productDesc,
 		OfferingType:                offeringType,
 		OfferingClass:               offeringClass,
+		Tenancy:                     t,
 		Duration:                    duration,
 		FixedPrice:                  fixedPrice,
 		UsagePrice:                  usagePrice,

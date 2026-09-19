@@ -55,7 +55,7 @@ func (h *Handler) dispatchAllowListOps(op, path, query string, body []byte) (any
 
 	case opDeleteAllowList:
 		id := extractID(path, pathAllowLists)
-		code, err := h.handleDeleteAllowList(id)
+		code, err := h.handleDeleteAllowList(id, query)
 
 		return nil, code, true, err
 
@@ -139,10 +139,17 @@ func (h *Handler) handleUpdateAllowList(id string, body []byte) (any, int, error
 	return map[string]string{keyArn: al.Arn, "id": al.ID}, http.StatusOK, nil
 }
 
-func (h *Handler) handleDeleteAllowList(id string) (int, error) {
-	if err := h.Backend.DeleteAllowList(id); err != nil {
+func (h *Handler) handleDeleteAllowList(id, query string) (int, error) {
+	q, _ := url.ParseQuery(query)
+	ignoreJobChecks := q.Get("ignoreJobChecks") == "true"
+
+	if err := h.Backend.DeleteAllowList(id, ignoreJobChecks); err != nil {
 		if errors.Is(err, awserr.ErrNotFound) {
 			return http.StatusNotFound, err
+		}
+
+		if errors.Is(err, awserr.ErrConflict) {
+			return http.StatusConflict, err
 		}
 
 		return http.StatusInternalServerError, err

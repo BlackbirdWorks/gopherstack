@@ -435,24 +435,24 @@ func nextOpsItemVersion(current string) int {
 // applyOpsItemCoreUpdates applies UpdateOpsItemInput's original (pre-Change-
 // Manager-fields) settable properties to item in place.
 func applyOpsItemCoreUpdates(item *OpsItem, input *UpdateOpsItemInput) {
-	if input.Title != "" {
-		item.Title = input.Title
+	if input.Title != nil {
+		item.Title = *input.Title
 	}
 
-	if input.Description != "" {
-		item.Description = input.Description
+	if input.Description != nil {
+		item.Description = *input.Description
 	}
 
 	if input.Status != "" {
 		item.Status = input.Status
 	}
 
-	if input.Severity != "" {
-		item.Severity = input.Severity
+	if input.Severity != nil {
+		item.Severity = *input.Severity
 	}
 
-	if input.Category != "" {
-		item.Category = input.Category
+	if input.Category != nil {
+		item.Category = *input.Category
 	}
 
 	if input.Priority != nil {
@@ -477,8 +477,8 @@ func applyOpsItemCoreUpdates(item *OpsItem, input *UpdateOpsItemInput) {
 // attribution after creation. Split out of UpdateOpsItem to keep its
 // cyclomatic complexity under the package limit.
 func applyOpsItemChangeManagerUpdates(item *OpsItem, input *UpdateOpsItemInput) {
-	if input.OpsItemArn != "" {
-		item.OpsItemArn = input.OpsItemArn
+	if input.OpsItemArn != nil {
+		item.OpsItemArn = *input.OpsItemArn
 	}
 
 	if input.ActualStartTime != nil {

@@ -36,7 +36,7 @@ func TestDeleteDBCluster_CascadeDeletesClusterEndpoints(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, before, 2)
 
-	_, err = b.DeleteDBClusterWithOptions("leak-cluster", true, "")
+	_, err = b.DeleteDBClusterWithOptions("leak-cluster", true, "", true)
 	require.NoError(t, err)
 
 	// The endpoints must be gone, not just the cluster. DBClusterEndpointIdentifier

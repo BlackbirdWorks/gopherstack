@@ -15,7 +15,7 @@ import (
 func pollDecisionTask(t *testing.T, b *swf.InMemoryBackend, domain, taskList string) string {
 	t.Helper()
 
-	task := b.PollForDecisionTask(domain, taskList, 0, "")
+	task := b.PollForDecisionTask(domain, taskList, 0, "", false)
 	require.NotNil(t, task, "expected a decision task")
 
 	return task.TaskToken
@@ -273,7 +273,7 @@ func TestRespondDecisionTaskCompleted_ContinueAsNew(t *testing.T) {
 	// A fresh decision task must have been enqueued so the decider can make
 	// progress on the new run -- this is the core bug being fixed (the old
 	// behavior left the workflow stuck OPEN forever with no way to resume).
-	task := b.PollForDecisionTask("dom", "default", 0, "")
+	task := b.PollForDecisionTask("dom", "default", 0, "", false)
 	require.NotNil(t, task, "expected a decision task for the continued run")
 	assert.Equal(t, exec.RunID, task.RunID)
 }
@@ -497,7 +497,7 @@ func TestDecisionTask_HistoryIncluded(t *testing.T) {
 	require.NoError(t, err)
 
 	b.EnqueueDecisionTaskInternal("dom", "default", "wf-1", "run-1")
-	task := b.PollForDecisionTask("dom", "default", 0, "")
+	task := b.PollForDecisionTask("dom", "default", 0, "", false)
 	require.NotNil(t, task)
 	assert.NotEmpty(t, task.Events, "decision task should include history events")
 	assert.NotEmpty(t, task.TaskToken)
@@ -525,7 +525,7 @@ func TestRespondDecisionTask_ViaHandler(t *testing.T) {
 				})
 				require.NoError(t, err)
 				b.EnqueueDecisionTaskInternal("dom", "default", "wf-1", "run-1")
-				task := b.PollForDecisionTask("dom", "default", 0, "")
+				task := b.PollForDecisionTask("dom", "default", 0, "", false)
 				require.NotNil(t, task)
 
 				return task.TaskToken
@@ -552,7 +552,7 @@ func TestRespondDecisionTask_ViaHandler(t *testing.T) {
 				})
 				require.NoError(t, err)
 				b.EnqueueDecisionTaskInternal("dom2", "default", "wf-2", "run-1")
-				task := b.PollForDecisionTask("dom2", "default", 0, "")
+				task := b.PollForDecisionTask("dom2", "default", 0, "", false)
 				require.NotNil(t, task)
 
 				return task.TaskToken

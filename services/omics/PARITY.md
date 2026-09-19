@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-09-04
+last_audit_commit: ab7ac08a7
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.
                        # StartRunBatch takes real BatchRunSettings (inlineSettings, field-diffed
                        # against awsRestjson1_serializeDocumentBatchRunSettings/InlineSetting) +
@@ -73,6 +73,22 @@ leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutine
 ---
 
 ## Notes
+
+**2026-09-18 (reqfielddiff tier-1 re-check, gopherstack-xhu2t):** `cmd/reqfielddiff
+-dir omics` still reports the same 6 tier-1 findings
+(`CreateWorkflow`/`CreateWorkflowVersion.ParameterTemplatePath`/`.ReadmePath`,
+`CreateWorkflow.WorkflowBucketOwnerId`, `ListBatch.MaxItems`) as the
+2026-08-31 `gopherstack-4glf` pass already adjudicated below ("Recorded as
+unmodellable or false positive, not fixed (6)"). Re-verified each against
+current HEAD rather than trusting the prior write-up: `ParameterTemplatePath`/
+`ReadmePath`/`WorkflowBucketOwnerId` still appear nowhere in any non-test
+`.go` file in this package (`grep -rn` empty) -- still correctly unfixed,
+same repository-relative-path/pure-validation-gate reasoning as before, no
+regression. `ListBatch.MaxItems` is still read at `handler.go:817`
+(`batchQueryParams`, the real `maxItems` query key) -- still a detector
+blind spot (a raw `q.Get` inside a shared helper isn't recognized as a
+per-op declared field), not a bug. Zero findings changed; zero code changes
+this pass. Tier-1: 6 before -> 6 after (all pre-adjudicated).
 
 **2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr):** `UploadReadSetPart`'s
 body-read-failure branch (`handler_read_sets.go`) emitted the fabricated

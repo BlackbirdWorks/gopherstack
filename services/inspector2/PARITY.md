@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: inspector2
 sdk_module: aws-sdk-go-v2/service/inspector2@v1.54.1   # version audited against
-last_audit_commit: 9e3baacb5                            # HEAD when this manifest was written
-last_audit_date: 2026-07-29
+last_audit_commit: a2084957b                            # HEAD when this manifest was written
+last_audit_date: 2026-09-18
 overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name length+charset constraints now enforced (fetched live from AWS API Reference -- the Go SDK module has no length/pattern doc prose for these 4 fields), CoverageFilterCriteria's scanStatusCode/scanStatusReason/scanMode/lastScannedAt facets fixed from accepted-but-silently-ignored to genuinely narrowing (real bug, not just an omission), FindingDetail.Ttps added; authorizationUrl gap and the 7 remaining Cvss/Epss/Evidence-class nested struct types re-confirmed as genuine, deliberately-scoped-out gaps (not oversights) -- no prior family regressed
 # 2026-08-21 gopherstack-r80d batch 12 (required-output cut): last_audit_commit
 # left unchanged -- this pass's own commit sha is not known at edit time (the
@@ -98,8 +98,8 @@ ops:
   DeleteFilter: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFilters: {wire: ok, errors: ok, state: ok, persist: ok}
   ListFindings: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed 2026-08-21 (gopherstack-r80d batch 12) — severity was a fabricated {label,score} nested object; real wire shape is a bare Severity string enum (deserializers.go's awsRestjson1_deserializeDocumentFinding), which made every real SDK client's call fail once a finding existed, not merely drop a field. Also fixed: required Remediation (no struct field) and Resources (dropped when empty) were both omitted. gopherstack-4ly2 wrapper-key sweep (2026-08-29): SortCriteria was parsed nowhere (decodeFilterListRequest had no such member) -- every response came back in FindingArn order regardless of the client's request. Now honored for the 8 SortField values this backend's Finding model actually carries data for (AWS_ACCOUNT_ID/FINDING_TYPE/SEVERITY/FIRST_OBSERVED_AT/LAST_OBSERVED_AT/FINDING_STATUS/RESOURCE_TYPE/EPSS_SCORE); the remaining 9 (ECR_IMAGE_*/NETWORK_PROTOCOL/COMPONENT_TYPE/VULNERABILITY_ID/VULNERABILITY_SOURCE/INSPECTOR_SCORE/VENDOR_SEVERITY) fall back to the prior stable FindingArn order -- structural gap, this backend's Finding has no per-package/per-resource detail to sort by, disclosed not fabricated. Also extended findingFilterCriteria (previously only severity/findingType/findingStatus/awsAccountId) with resourceId/resourceType/title/findingArn/fixAvailable, which map directly onto existing Finding fields and were simply never wired in."}
-  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): Ec2ScanModeState.ScanModeStatus was the non-member string \"ENABLED\" -- types.Ec2ScanModeStatus only has SUCCESS/PENDING (types/enums.go:1191-1207). UpdateConfiguration applies scan-mode changes synchronously with no pending state modeled, so the setting is always already in effect -- now emits SUCCESS (scanModeStatusSuccess, store.go). See TestGetConfiguration_ScanModeStatus_RealSDKClient (wire_field_fixes_test.go). ALSO FIXED (78d9fdf9f, gopherstack-k3w5): ecrConfiguration.rescanDurationState's status had the same non-member \"ENABLED\" bug for types.EcrRescanDurationStatus (SUCCESS/PENDING/FAILED, types/enums.go:1289-1303) -- enumcheck's ambiguous-key filter silently dropped this one since \"status\" resolves to 13 enum types in this module; the filter now reports ambiguous keys as needs-review instead of discarding them. Now emits SUCCESS (ecrRescanDurationStatusSuccess, store.go). See TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient (wire_field_fixes_test.go)."}
-  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  GetConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (cmd/enumcheck sweep, 1d6e40d1a): Ec2ScanModeState.ScanModeStatus was the non-member string \"ENABLED\" -- types.Ec2ScanModeStatus only has SUCCESS/PENDING (types/enums.go:1191-1207). UpdateConfiguration applies scan-mode changes synchronously with no pending state modeled, so the setting is always already in effect -- now emits SUCCESS (scanModeStatusSuccess, store.go). See TestGetConfiguration_ScanModeStatus_RealSDKClient (wire_field_fixes_test.go). ALSO FIXED (78d9fdf9f, gopherstack-k3w5): ecrConfiguration.rescanDurationState's status had the same non-member \"ENABLED\" bug for types.EcrRescanDurationStatus (SUCCESS/PENDING/FAILED, types/enums.go:1289-1303) -- enumcheck's ambiguous-key filter silently dropped this one since \"status\" resolves to 13 enum types in this module; the filter now reports ambiguous keys as needs-review instead of discarding them. Now emits SUCCESS (ecrRescanDurationStatusSuccess, store.go). See TestGetConfiguration_EcrRescanDurationStatus_RealSDKClient (wire_field_fixes_test.go). FIXED (2026-09-18, gopherstack-xhu2t): AccountId (api_op_GetConfiguration.go) was parsed off the wire nowhere, so a delegated admin could never read a member account's own configuration -- always got its own back regardless of the AccountId given, with no existence validation either. Now validates AccountId against the members table (MemberNotFound for an unknown one) and returns that member's effective configuration -- see UpdateConfiguration's note for the override/inherit model."}
+  UpdateConfiguration: {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-09-18, gopherstack-xhu2t): AccountId (api_op_UpdateConfiguration.go) was parsed off the wire nowhere, so every call updated the delegated admin's own Configuration regardless of the target account, and UpdateConfigurationInheritance (reset a member's overridden scan type back to inheriting the admin's config) was silently dropped entirely. Added the memberConfigs table (MemberConfiguration, keyed by AccountID): AccountId now targets a validated member (MemberNotFound otherwise), whose override wins over the admin's own Configuration for that scan type (see GetConfiguration.effectiveMemberConfig) until UpdateConfigurationInheritance resets it."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -803,3 +803,28 @@ list); `GOTOOLCHAIN=go1.26.6 go build ./...` passes; `GOTOOLCHAIN=go1.26.6
 go test ./pkgs/persistence/... -run TestSnapshotVersionGuard` passes
 unchanged (no snapshot-shaped state touched by this pass — `map[string]any`
 wire envelopes only, not a persisted struct).
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings, all genuine dropped parameters, all
+fixed. GetConfiguration.AccountId / UpdateConfiguration.AccountId were
+parsed nowhere -- a delegated admin's own account was always read/written
+regardless of the account targeted, with no member-existence validation.
+UpdateConfiguration.UpdateConfigurationInheritance was accepted on the wire
+and silently discarded. Added a new persisted store.Table[MemberConfiguration]
+(keyed by AccountID, clean/direct-registered like memberEc2Status) holding
+each member's per-scan-type override; GetConfiguration/UpdateConfiguration
+now validate AccountId against the members table and apply/echo the
+override-or-inherit model documented on both ops. New realclient test
+(member_scoped_configuration_test.go) proves an unassociated AccountId
+fails, an unconfigured member inherits the admin's config, an override wins
+per scan type, the admin's own config is untouched by a member-scoped
+update, and INHERIT_FROM_ADMIN reverts an override. Tier-1 count 3 -> 0.
+
+`pkgs/persistence/testdata/snapshot_inventory.json` gained 3
+MemberConfiguration field rows (additive, no version bump -- confirmed by
+TestSnapshotVersionGuard). Gates: `go build ./...` (whole module), `go vet`,
+`go test -race -count=1 ./services/inspector2/...`, `golangci-lint run
+--new-from-rev=HEAD` (0 issues), `go test -count=1 ./pkgs/persistence/...`
+(inspector2 clean; the one remaining failure is services/transfer's, a
+concurrent unrelated pass) all clean.

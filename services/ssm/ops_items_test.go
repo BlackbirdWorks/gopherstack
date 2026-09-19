@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -360,7 +361,7 @@ func TestBackendOps_UpdateOpsItem(t *testing.T) {
 
 	out, err := b.UpdateOpsItem(context.TODO(), &ssm.UpdateOpsItemInput{
 		OpsItemID: id,
-		Title:     "updated-title",
+		Title:     aws.String("updated-title"),
 		Status:    "Resolved",
 	})
 	require.NoError(t, err)
@@ -744,18 +745,18 @@ func TestUpdateOpsItem_Branches(t *testing.T) {
 			name: "not_found",
 			update: ssm.UpdateOpsItemInput{
 				OpsItemID: "oi-does-not-exist",
-				Title:     "new title",
+				Title:     aws.String("new title"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "update_all_fields",
 			update: ssm.UpdateOpsItemInput{
-				Title:       "Updated Title",
-				Description: "Updated Description",
+				Title:       aws.String("Updated Title"),
+				Description: aws.String("Updated Description"),
 				Status:      "Resolved",
-				Severity:    "2",
-				Category:    "Security",
+				Severity:    aws.String("2"),
+				Category:    aws.String("Security"),
 				OperationalData: map[string]ssm.OpsItemDataValue{
 					"key": {Value: "val", Type: "SearchableString"},
 				},

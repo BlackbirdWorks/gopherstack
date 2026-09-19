@@ -49,7 +49,7 @@ func TestModifyVpcPeeringConnectionOptions(t *testing.T) { //nolint:paralleltest
 	b := ec2.NewInMemoryBackend("000000000000", "us-east-1")
 
 	vpc2, _ := b.CreateVpc("10.0.0.0/16", "default")
-	pc, _ := b.CreateVpcPeeringConnection("vpc-default", vpc2.ID)
+	pc, _ := b.CreateVpcPeeringConnection("vpc-default", vpc2.ID, "", "")
 
 	t.Run("stores options", func(t *testing.T) {
 		opts := ec2.PeeringConnectionOptions{AllowDNSResolutionFromRemoteVPC: true}
@@ -163,7 +163,7 @@ func TestHandlerVpcPeeringConnectionHandlers(t *testing.T) {
 	// Create another for reject test.
 	vpc3, err := b.CreateVpc("10.22.0.0/16", "default")
 	require.NoError(t, err)
-	pc2, err := b.CreateVpcPeeringConnection(vpc1.ID, vpc3.ID)
+	pc2, err := b.CreateVpcPeeringConnection(vpc1.ID, vpc3.ID, "", "")
 	require.NoError(t, err)
 
 	// Reject it.

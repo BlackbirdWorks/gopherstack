@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+// accountPolicyScopeAll matches types.Scope's ALL member (the other member,
+// SELECTION_CRITERIA, has no reuse site outside validAccountPolicyScopes).
+const accountPolicyScopeAll = "ALL"
+
 // validAccountPolicyTypes returns the allowed values for the account policy type field.
 func validAccountPolicyTypes() map[string]struct{} {
 	return map[string]struct{}{
@@ -19,8 +23,8 @@ func validAccountPolicyTypes() map[string]struct{} {
 // validAccountPolicyScopes returns the allowed values for the account policy scope field.
 func validAccountPolicyScopes() map[string]struct{} {
 	return map[string]struct{}{
-		"ALL":                {},
-		"SELECTION_CRITERIA": {},
+		accountPolicyScopeAll: {},
+		"SELECTION_CRITERIA":  {},
 	}
 }
 
@@ -106,7 +110,7 @@ func (b *InMemoryBackend) PutAccountPolicy(
 		return nil, fmt.Errorf("%w: invalid policyType %q", ErrValidation, policyType)
 	}
 	if scope == "" {
-		scope = "ALL"
+		scope = accountPolicyScopeAll
 	}
 	if _, ok := validAccountPolicyScopes()[scope]; !ok {
 		return nil, fmt.Errorf(

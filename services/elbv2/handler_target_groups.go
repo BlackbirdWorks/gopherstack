@@ -59,6 +59,7 @@ func (h *Handler) handleCreateTargetGroup(vals url.Values) (any, error) {
 		Port:                port,
 		VpcID:               vals.Get("VpcId"),
 		TargetType:          vals.Get("TargetType"),
+		IPAddressType:       vals.Get("IpAddressType"),
 		Tags:                tagKVs,
 		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
 		HealthCheckPort:     vals.Get("HealthCheckPort"),
@@ -150,30 +151,46 @@ func (h *Handler) handleDescribeTargetGroups(vals url.Values) (any, error) {
 	}, nil
 }
 
+// bindOptionalInt32Field distinguishes an omitted form value (dest left nil,
+// "unchanged") from one explicitly sent (a real update), unlike
+// parseOptionalInt32 whose 0-for-missing return can't tell "omitted" from an
+// explicit 0.
+func bindOptionalInt32Field(vals url.Values, param string, dest **int32) error {
+	if !vals.Has(param) {
+		return nil
+	}
+
+	n, err := strconv.ParseInt(vals.Get(param), 10, 32)
+	if err != nil {
+		return fmt.Errorf("%w: invalid %s", ErrInvalidParameter, param)
+	}
+
+	v := int32(n)
+	*dest = &v
+
+	return nil
+}
+
 func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 	tgArn := vals.Get("TargetGroupArn")
 	if tgArn == "" {
 		return nil, fmt.Errorf("%w: TargetGroupArn is required", ErrInvalidParameter)
 	}
 
-	hcInterval, mErr := parseOptionalInt32(vals, "HealthCheckIntervalSeconds")
-	if mErr != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheckIntervalSeconds", ErrInvalidParameter)
-	}
+	var hcInterval, hcTimeout, healthyThreshold, unhealthyThreshold *int32
 
-	hcTimeout, mErr := parseOptionalInt32(vals, "HealthCheckTimeoutSeconds")
-	if mErr != nil {
-		return nil, fmt.Errorf("%w: invalid HealthCheckTimeoutSeconds", ErrInvalidParameter)
-	}
-
-	healthyThreshold, mErr := parseOptionalInt32(vals, "HealthyThresholdCount")
-	if mErr != nil {
-		return nil, fmt.Errorf("%w: invalid HealthyThresholdCount", ErrInvalidParameter)
-	}
-
-	unhealthyThreshold, mErr := parseOptionalInt32(vals, "UnhealthyThresholdCount")
-	if mErr != nil {
-		return nil, fmt.Errorf("%w: invalid UnhealthyThresholdCount", ErrInvalidParameter)
+	for _, f := range []struct {
+		dest  **int32
+		param string
+	}{
+		{&hcInterval, "HealthCheckIntervalSeconds"},
+		{&hcTimeout, "HealthCheckTimeoutSeconds"},
+		{&healthyThreshold, "HealthyThresholdCount"},
+		{&unhealthyThreshold, "UnhealthyThresholdCount"},
+	} {
+		if err := bindOptionalInt32Field(vals, f.param, f.dest); err != nil {
+			return nil, err
+		}
 	}
 
 	// HealthCheckEnabled is optional: only update the field when the parameter is present.
@@ -186,8 +203,8 @@ func (h *Handler) handleModifyTargetGroup(vals url.Values) (any, error) {
 	tg, err := h.Backend.ModifyTargetGroup(ModifyTargetGroupInput{
 		TargetGroupArn:      tgArn,
 		HealthCheckProtocol: vals.Get("HealthCheckProtocol"),
-		HealthCheckPort:     vals.Get("HealthCheckPort"),
-		HealthCheckPath:     vals.Get("HealthCheckPath"),
+		HealthCheckPort:     formStringPtr(vals, "HealthCheckPort"),
+		HealthCheckPath:     formStringPtr(vals, "HealthCheckPath"),
 		Matcher: Matcher{
 			HTTPCode: vals.Get("Matcher.HTTPCode"),
 			GrpcCode: vals.Get("Matcher.GrpcCode"),
@@ -312,6 +329,7 @@ func toXMLTargetGroup(tg *TargetGroup) xmlTargetGroup {
 		Port:                       tg.Port,
 		VpcID:                      tg.VpcID,
 		TargetType:                 tg.TargetType,
+		IPAddressType:              tg.IPAddressType,
 		HealthCheckProtocol:        tg.HealthCheckProtocol,
 		HealthCheckPort:            tg.HealthCheckPort,
 		HealthCheckPath:            tg.HealthCheckPath,
@@ -353,6 +371,7 @@ type xmlTargetGroup struct {
 	ProtocolVersion            string         `xml:"ProtocolVersion,omitempty"`
 	VpcID                      string         `xml:"VpcId,omitempty"`
 	TargetType                 string         `xml:"TargetType"`
+	IPAddressType              string         `xml:"IpAddressType,omitempty"`
 	HealthCheckProtocol        string         `xml:"HealthCheckProtocol"`
 	HealthCheckPort            string         `xml:"HealthCheckPort"`
 	HealthCheckPath            string         `xml:"HealthCheckPath,omitempty"`

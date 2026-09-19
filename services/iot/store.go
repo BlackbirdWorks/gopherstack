@@ -546,9 +546,9 @@ func (b *InMemoryBackend) UpdateThing(input *UpdateThingInput) error {
 	if input.RemoveThingType {
 		t.ThingTypeName = ""
 		t.ThingType = ""
-	} else if input.ThingTypeName != "" {
-		t.ThingTypeName = input.ThingTypeName
-		t.ThingType = input.ThingTypeName
+	} else if input.ThingTypeName != nil && *input.ThingTypeName != "" {
+		t.ThingTypeName = *input.ThingTypeName
+		t.ThingType = *input.ThingTypeName
 	}
 
 	t.Attributes = applyAttributePayload(t.Attributes, input.AttributePayload)

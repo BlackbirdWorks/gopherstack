@@ -223,6 +223,7 @@ type parameterXML struct {
 	ParameterName  string `xml:"ParameterName"`
 	ParameterValue string `xml:"ParameterValue"`
 	DataType       string `xml:"DataType"`
+	Source         string `xml:"Source,omitempty"`
 	IsModifiable   bool   `xml:"IsModifiable"`
 }
 
@@ -247,6 +248,7 @@ func buildParameterItems(params []CacheParameter) []parameterXML {
 			ParameterName:  param.Name,
 			ParameterValue: param.Value,
 			DataType:       param.DataType,
+			Source:         param.Source,
 			IsModifiable:   param.IsModifiable,
 		})
 	}
@@ -256,12 +258,13 @@ func buildParameterItems(params []CacheParameter) []parameterXML {
 
 func (h *Handler) describeCacheParameters(ctx context.Context, c *echo.Context, form url.Values) error {
 	name := form.Get("CacheParameterGroupName")
+	source := form.Get("Source")
 	marker, maxRecords, err := parsePaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
-	p, err := h.Backend.DescribeParameters(ctx, name, marker, maxRecords)
+	p, err := h.Backend.DescribeParameters(ctx, name, marker, maxRecords, source)
 	if err != nil {
 		if errors.Is(err, ErrParameterGroupNotFound) {
 			return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")

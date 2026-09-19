@@ -17,7 +17,9 @@ type instanceConnectEndpointItem struct {
 	SubnetID                  string          `xml:"subnetId"`
 	VPCID                     string          `xml:"vpcId"`
 	State                     string          `xml:"state"`
+	IPAddressType             string          `xml:"ipAddressType,omitempty"`
 	TagSet                    []simpleTagItem `xml:"tagSet>item"`
+	SecurityGroupIDSet        stringItemSet   `xml:"securityGroupIdSet"`
 	PreserveClientIP          bool            `xml:"preserveClientIp"`
 }
 
@@ -40,6 +42,8 @@ func toCapacityReservationItem(cr *CapacityReservation, tags map[string]string) 
 		AvailabilityZone:       cr.AvailabilityZone,
 		OwnedBy:                cr.OwnedBy,
 		State:                  cr.State,
+		InstanceMatchCriteria:  cr.InstanceMatchCriteria,
+		Tenancy:                cr.Tenancy,
 		TotalInstanceCount:     cr.TotalInstanceCount,
 		AvailableInstanceCount: cr.AvailableInstanceCount,
 		TagSet:                 tagItemsFromMap(tags),
@@ -54,9 +58,19 @@ func (h *Handler) handleCreateCapacityReservation(vals url.Values, reqID string)
 		count = 1
 	}
 
+	instanceMatchCriteria := vals.Get("InstanceMatchCriteria")
+	if instanceMatchCriteria == "" {
+		instanceMatchCriteria = "open"
+	}
+
+	tenancy := vals.Get("Tenancy")
+	if tenancy == "" {
+		tenancy = crFleetTenancyDefault
+	}
+
 	tags := parseTagSpecificationPlural(vals, "capacity-reservation")
 
-	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, count, tags)
+	cr, err := h.Backend.CreateCapacityReservation(instanceType, az, instanceMatchCriteria, tenancy, count, tags)
 	if err != nil {
 		return nil, err
 	}
@@ -131,8 +145,9 @@ func (h *Handler) handleCreateInterruptibleCapacityReservationAllocation(
 ) (any, error) {
 	crID := vals.Get("CapacityReservationId")
 	instanceCount := parseInt32Value(vals.Get("InstanceCount"))
+	zeroSizePreference := vals.Get("ZeroSizePreference")
 
-	alloc, err := h.Backend.CreateInterruptibleCapacityReservationAllocation(crID, instanceCount)
+	alloc, err := h.Backend.CreateInterruptibleCapacityReservationAllocation(crID, zeroSizePreference, instanceCount)
 	if err != nil {
 		return nil, err
 	}
@@ -162,8 +177,11 @@ func (h *Handler) handleUpdateInterruptibleCapacityReservationAllocation(
 ) (any, error) {
 	crID := vals.Get("CapacityReservationId")
 	targetInstanceCount := parseInt32Value(vals.Get("TargetInstanceCount"))
+	zeroSizePreference := vals.Get("ZeroSizePreference")
 
-	alloc, err := h.Backend.UpdateInterruptibleCapacityReservationAllocation(crID, targetInstanceCount)
+	alloc, err := h.Backend.UpdateInterruptibleCapacityReservationAllocation(
+		crID, zeroSizePreference, targetInstanceCount,
+	)
 	if err != nil {
 		return nil, err
 	}

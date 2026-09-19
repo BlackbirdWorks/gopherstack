@@ -222,6 +222,20 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// A custom entity recognition model (EndpointArn) uses that recognizer's
+	// own trained entity types instead of the built-in generic vocabulary --
+	// this is the model's real, user-configured training data (see
+	// EndpointCustomEntityTypes), not fabricated content.
+	var customTypes []string
+
+	if endpointArn := stringValue(input, fieldEndpointARN, ""); endpointArn != "" {
+		customTypes, err = h.Backend.EndpointCustomEntityTypes(endpointArn)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	textLower := strings.ToLower(text)
 	entities := make([]map[string]any, 0)
 	for word := range strings.FieldsSeq(text) {
@@ -234,6 +248,9 @@ func (h *Handler) detectEntities(input map[string]any) (map[string]any, error) {
 			continue
 		}
 		kind := entityType(cleaned, textLower)
+		if len(customTypes) > 0 {
+			kind = customTypes[len(entities)%len(customTypes)]
+		}
 		entities = append(entities, matchResult(text, cleaned, kind))
 	}
 

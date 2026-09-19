@@ -6,12 +6,9 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: elasticbeanstalk
 sdk_module: aws-sdk-go-v2/service/elasticbeanstalk@v1.37.4   # version audited against
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in;
-  # method (deserializer/serializer key-switch extraction, gopherstack-6flj wrapper-key sweep)
-  # is narrower/deeper than the prior Go-struct-level audit below, per the mediatailor/codedeploy
-  # sessions' precedent for the same situation
-last_audit_date: 2026-09-11   # this pass (gopherstack-hoky follow-up); header date bumped,
-  # last_audit_commit left as before (already flagged unknown/unbackfilled above)
+last_audit_commit: c9523cebb                      # backfilled 2026-09-18 (reqfielddiff tier-1 pass); prior blank was
+  # from a pass that ran without git access -- gopherstack-33in
+last_audit_date: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
                        #
                        # gopherstack-hoky pass (2026-09-11): CreateConfigurationTemplate's
@@ -98,6 +95,7 @@ items_still_open:
   - "(2026-09-12, gopherstack-n3zi) ListAvailableSolutionStacksOutput.SolutionStackDetails ([]types.SolutionStackDescription, each carrying PermittedFileTypes -- confirmed real via elasticbeanstalk@v1.37.4 api_op_ListAvailableSolutionStacks.go:37) is not modeled at all; listAvailableSolutionStacksResponse only emits the parallel SolutionStacks string list. PermittedFileTypes has no honest source in this backend (no per-solution-stack file-type table exists) -- disclosed rather than fabricated."
   - "(2026-09-12, gopherstack-n3zi) CreateApplicationInput.ResourceLifecycleConfig (confirmed real via api_op_CreateApplication.go:42) is accepted nowhere in handleCreateApplication -- only UpdateApplicationResourceLifecycle's own ServiceRole is read. ApplicationResourceLifecycleConfig.VersionLifecycleConfig (MaxAgeRule/MaxCountRule, each with Enabled/DeleteSourceFromS3/MaxAgeInDays-or-MaxCount) is unread by BOTH ops -- a real client setting either rule via Create or Update always gets it silently dropped, and a real client reading it back via DescribeApplications always sees nil regardless of what it set. Not fixed this pass (scope: adding two new sub-shapes plus their storage); this pass's own round-trip test only exercises the already-correct ServiceRole field, deliberately not asserting on VersionLifecycleConfig so as not to mask the gap as tested."
   - "(2026-09-12, gopherstack-n3zi) ComposeEnvironmentsInput.VersionLabels (the source-bundle version labels naming env.yaml manifests that this op is documented to create NEW environments from) is parsed nowhere -- InMemoryBackend.ComposeEnvironments(ctx, appName) simply returns the application's existing environments. A real client's ComposeEnvironments does not create environments in this backend at all, unlike real AWS. Full manifest-driven environment creation is a structural gap (no env.yaml parsing anywhere in this backend), not something this pass's typed-coverage scope could honestly add; this pass's own test exercises only the current (simplified) list-existing-environments behavior."
+  - "(reqfielddiff tier-1, 2026-09-18) TerminateEnvironment.TerminateResources is not read: it controls whether underlying resources (EC2/ASG/ELB) are also torn down vs retained, but this backend deletes the environment record unconditionally and models no separate underlying-resource lifecycle (DescribeEnvironmentResources reads off the same environment, which is already gone either way) -- there is no distinct state for retain-vs-terminate to gate. (bd: unfiled)"
 deferred:                 # consciously not audited this pass (scope) — next pass targets
   - DescribeConfigurationOptions full per-platform option catalog
   - CreateApplication idempotency-on-duplicate-name confirmation
@@ -105,6 +103,11 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; store.Tabl
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): TerminateEnvironment.TerminateResources -- missing feature
+
+Retain-vs-terminate distinction has no backing state: this emulator doesn't model
+underlying resources separately from the environment record. See items_still_open.
 
 Freeform: AWS-behavior specifics worth remembering (exact algorithms, wire quirks,
 error-message text, protocol = query-XML / REST-XML / REST-JSON / json-1.0), and any

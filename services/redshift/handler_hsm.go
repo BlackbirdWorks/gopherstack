@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"sort"
 
 	svcTags "github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
@@ -57,6 +58,7 @@ type describeHsmClientCertificatesResponse struct {
 	XMLName xml.Name `xml:"DescribeHsmClientCertificatesResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker                string                    `xml:"Marker,omitempty"`
 		HsmClientCertificates []hsmClientCertificateXML `xml:"HsmClientCertificates>HsmClientCertificate"`
 	} `xml:"DescribeHsmClientCertificatesResult"`
 }
@@ -67,6 +69,11 @@ func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, err
 	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	certs, err := h.Backend.DescribeHsmClientCertificates(id)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +92,15 @@ func (h *Handler) handleDescribeHsmClientCertificates(vals url.Values) (any, err
 		})
 	}
 
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].HsmClientCertificateIdentifier < members[j].HsmClientCertificateIdentifier
+	})
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(c hsmClientCertificateXML) string { return c.HsmClientCertificateIdentifier })
+
 	resp := &describeHsmClientCertificatesResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.HsmClientCertificates = members
 
 	return resp, nil
@@ -171,6 +186,7 @@ type describeHsmConfigurationsResponse struct {
 	XMLName xml.Name `xml:"DescribeHsmConfigurationsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker            string                `xml:"Marker,omitempty"`
 		HsmConfigurations []hsmConfigurationXML `xml:"HsmConfigurations>HsmConfiguration"`
 	} `xml:"DescribeHsmConfigurationsResult"`
 }
@@ -181,6 +197,11 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 	tagValues := parseRedshiftTagKeysAt(vals, "TagValues.TagValue.")
 
 	cfgs, err := h.Backend.DescribeHsmConfigurations(id)
+	if err != nil {
+		return nil, err
+	}
+
+	maxRecords, err := parseRedshiftMaxRecords(vals)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +222,15 @@ func (h *Handler) handleDescribeHsmConfigurations(vals url.Values) (any, error) 
 		})
 	}
 
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].HsmConfigurationIdentifier < members[j].HsmConfigurationIdentifier
+	})
+
+	members, nextMarker := paginateByMarker(members, vals.Get("Marker"), maxRecords,
+		func(c hsmConfigurationXML) string { return c.HsmConfigurationIdentifier })
+
 	resp := &describeHsmConfigurationsResponse{Xmlns: redshiftXMLNS}
+	resp.Result.Marker = nextMarker
 	resp.Result.HsmConfigurations = members
 
 	return resp, nil

@@ -402,19 +402,14 @@ func TestHandler_GetGroups_Pagination(t *testing.T) {
 			wantHasNext: false,
 		},
 		{
-			name:        "MaxResults limits results and sets NextToken",
-			groupCount:  5,
-			body:        map[string]any{"MaxResults": 2},
-			wantCount:   2,
+			// GetGroupsInput (xray@v1.39.4 api_op_GetGroups.go) has no
+			// page-size member -- only the server's default page size (25)
+			// controls this.
+			name:        "over default page size sets NextToken",
+			groupCount:  30,
+			wantCount:   25,
 			wantStatus:  http.StatusOK,
 			wantHasNext: true,
-		},
-		{
-			name:       "zero MaxResults uses default page size",
-			groupCount: 3,
-			body:       map[string]any{"MaxResults": 0},
-			wantCount:  3,
-			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -454,32 +449,35 @@ func TestHandler_GetGroups_NextTokenContinuation(t *testing.T) {
 
 	h, b := newTestHandlerWithBackend(t)
 
-	for i := range 5 {
+	const total = 30
+	const defaultPageSize = 25
+
+	for i := range total {
 		_, err := b.CreateGroup(fmt.Sprintf("pg-group-%d", i), "")
 		require.NoError(t, err)
 	}
 
-	// First page: 3 groups
-	rec1 := doXrayRequest(t, h, "/Groups", map[string]any{"MaxResults": 3})
+	// First page: default page size (GetGroupsInput has no page-size member).
+	rec1 := doXrayRequest(t, h, "/Groups", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
 
 	groups1 := resp1["Groups"].([]any)
-	assert.Len(t, groups1, 3)
+	assert.Len(t, groups1, defaultPageSize)
 	nextToken := resp1["NextToken"].(string)
 	require.NotEmpty(t, nextToken)
 
-	// Second page: remaining 2 groups
-	rec2 := doXrayRequest(t, h, "/Groups", map[string]any{"MaxResults": 3, "NextToken": nextToken})
+	// Second page: remaining groups.
+	rec2 := doXrayRequest(t, h, "/Groups", map[string]any{"NextToken": nextToken})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
 
 	groups2 := resp2["Groups"].([]any)
-	assert.Len(t, groups2, 2)
+	assert.Len(t, groups2, total-defaultPageSize)
 	assert.Empty(t, resp2["NextToken"])
 }
 

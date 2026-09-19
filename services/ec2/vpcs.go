@@ -193,7 +193,7 @@ func (b *InMemoryBackend) ModifyVpcAttribute(vpcID, attribute string, value bool
 
 // CreateVpcPeeringConnection creates a new pending VPC peering connection.
 func (b *InMemoryBackend) CreateVpcPeeringConnection(
-	requesterVPCID, accepterVPCID string,
+	requesterVPCID, accepterVPCID, peerOwnerID, peerRegion string,
 ) (*VpcPeeringConnection, error) {
 	if requesterVPCID == "" || accepterVPCID == "" {
 		return nil, fmt.Errorf("%w: VpcId and PeerVpcId are required", ErrInvalidParameter)
@@ -206,10 +206,20 @@ func (b *InMemoryBackend) CreateVpcPeeringConnection(
 		return nil, fmt.Errorf("%w: %s", ErrVPCNotFound, requesterVPCID)
 	}
 
+	if peerOwnerID == "" {
+		peerOwnerID = b.AccountID
+	}
+
+	if peerRegion == "" {
+		peerRegion = b.Region
+	}
+
 	pc := &VpcPeeringConnection{
 		VpcPeeringConnectionID: "pcx-" + uuid.New().String()[:8],
 		RequesterVpcID:         requesterVPCID,
 		AccepterVpcID:          accepterVPCID,
+		AccepterOwnerID:        peerOwnerID,
+		AccepterRegion:         peerRegion,
 		State:                  "pending-acceptance",
 	}
 	b.vpcPeeringConnections.Put(pc)

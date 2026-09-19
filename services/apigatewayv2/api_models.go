@@ -113,20 +113,20 @@ func (b *InMemoryBackend) UpdateModel(apiID, modelID string, input UpdateModelIn
 		return nil, ErrModelNotFound
 	}
 
-	if input.Name != "" {
-		m.Name = input.Name
+	if input.Name != nil {
+		m.Name = *input.Name
 	}
 
-	if input.Schema != "" {
-		m.Schema = input.Schema
+	if input.Schema != nil {
+		m.Schema = *input.Schema
 	}
 
-	if input.ContentType != "" {
-		m.ContentType = input.ContentType
+	if input.ContentType != nil {
+		m.ContentType = *input.ContentType
 	}
 
-	if input.Description != "" {
-		m.Description = input.Description
+	if input.Description != nil {
+		m.Description = *input.Description
 	}
 
 	cp := *m

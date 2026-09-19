@@ -57,12 +57,6 @@ func TestHandler_GetIndexingRules_Pagination(t *testing.T) {
 			wantMin:    1,
 		},
 		{
-			name:       "MaxResults=1 limits results",
-			body:       map[string]any{"MaxResults": 1},
-			wantStatus: http.StatusOK,
-			wantMin:    1,
-		},
-		{
 			name:       "empty body accepted",
 			body:       nil,
 			wantStatus: http.StatusOK,

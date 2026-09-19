@@ -92,8 +92,8 @@ func (b *InMemoryBackend) UpdateCodeSigningConfig(
 		cfg.CodeSigningPolicies = input.CodeSigningPolicies
 	}
 
-	if input.Description != "" {
-		cfg.Description = input.Description
+	if input.Description != nil {
+		cfg.Description = *input.Description
 	}
 
 	cfg.LastModified = time.Now().UTC().Format(time.RFC3339)

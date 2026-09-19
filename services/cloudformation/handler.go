@@ -473,6 +473,10 @@ func parseStackOptions(form url.Values) StackOptions {
 		DisableRollback:             disableRollback,
 		RollbackConfiguration:       parseRollbackConfiguration(form),
 		StackPolicyDuringUpdateBody: form.Get("StackPolicyDuringUpdateBody"),
+		ResourceTypes:               parseMemberList(form, "ResourceTypes."),
+		EnableTerminationProtection: strings.EqualFold(form.Get("EnableTerminationProtection"), "true"),
+		DisableValidation:           strings.EqualFold(form.Get("DisableValidation"), "true"),
+		RetainExceptOnCreate:        strings.EqualFold(form.Get("RetainExceptOnCreate"), "true"),
 	}
 }
 

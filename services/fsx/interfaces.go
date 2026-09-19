@@ -147,6 +147,7 @@ type FileSystem struct {
 	OwnersID              string                `json:"OwnerId,omitempty"`
 	SubnetIDs             []string              `json:"SubnetIds,omitempty"`
 	NetworkInterfaceIDs   []string              `json:"NetworkInterfaceIds,omitempty"`
+	NetworkType           string                `json:"NetworkType,omitempty"`
 	Tags                  []Tag                 `json:"Tags,omitempty"`
 	StorageCapacityGiB    int32                 `json:"StorageCapacity,omitempty"`
 }
@@ -260,14 +261,15 @@ type FileSystemAlias struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryAssociation struct {
-	CreationTime       epochTime `json:"CreationTime"`
-	AssociationID      string    `json:"AssociationId"`
-	FileSystemID       string    `json:"FileSystemId"`
-	FileSystemPath     string    `json:"FileSystemPath"`
-	DataRepositoryPath string    `json:"DataRepositoryPath"`
-	Lifecycle          string    `json:"Lifecycle"`
-	ResourceARN        string    `json:"ResourceARN"`
-	Tags               []Tag     `json:"Tags,omitempty"`
+	CreationTime          epochTime `json:"CreationTime"`
+	AssociationID         string    `json:"AssociationId"`
+	FileSystemID          string    `json:"FileSystemId"`
+	FileSystemPath        string    `json:"FileSystemPath"`
+	DataRepositoryPath    string    `json:"DataRepositoryPath"`
+	Lifecycle             string    `json:"Lifecycle"`
+	ResourceARN           string    `json:"ResourceARN"`
+	Tags                  []Tag     `json:"Tags,omitempty"`
+	ImportedFileChunkSize int32     `json:"ImportedFileChunkSize,omitempty"`
 }
 
 // CompletionReport mirrors types.CompletionReport (types.go:468). Enabled is

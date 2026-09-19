@@ -14,10 +14,10 @@ func TestBackend_DescribeMacHosts_DerivedFromDedicatedHosts(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	_, err := b.AllocateHosts("us-east-1a", "mac2.metal", 1)
+	_, err := b.AllocateHosts("us-east-1a", "mac2.metal", 1, "", "")
 	require.NoError(t, err)
 
-	nonMac, err := b.AllocateHosts("us-east-1a", "c5.metal", 1)
+	nonMac, err := b.AllocateHosts("us-east-1a", "c5.metal", 1, "", "")
 	require.NoError(t, err)
 	require.Len(t, nonMac, 1)
 
@@ -32,10 +32,10 @@ func TestBackend_DescribeMacHosts_FilterByID(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	hosts1, err := b.AllocateHosts("us-east-1a", "mac1.metal", 1)
+	hosts1, err := b.AllocateHosts("us-east-1a", "mac1.metal", 1, "", "")
 	require.NoError(t, err)
 
-	_, err = b.AllocateHosts("us-east-1a", "mac2.metal", 1)
+	_, err = b.AllocateHosts("us-east-1a", "mac2.metal", 1, "", "")
 	require.NoError(t, err)
 
 	filtered := b.DescribeMacHosts([]string{hosts1[0].HostID})

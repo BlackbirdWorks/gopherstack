@@ -51,7 +51,7 @@ func TestStartChildWorkflowExecutionDecision_Success(t *testing.T) {
 	assert.Equal(t, "RUNNING", child.Status)
 	assert.Equal(t, `{"x":1}`, child.Input)
 
-	childTask := b.PollForDecisionTask("dom", "child-tasks", 0, "")
+	childTask := b.PollForDecisionTask("dom", "child-tasks", 0, "", false)
 	require.NotNil(t, childTask, "child must have its own initial decision task")
 	assert.Equal(t, "child-1", childTask.WorkflowID)
 
@@ -256,7 +256,7 @@ func TestChildWorkflowClosure_PropagatesToParent(t *testing.T) {
 			}
 			assert.True(t, found, "expected %s on parent history", tt.wantEventType)
 
-			task := b.PollForDecisionTask("dom", "parent-tasks", 0, "")
+			task := b.PollForDecisionTask("dom", "parent-tasks", 0, "", false)
 			assert.NotNil(t, task, "parent must get a fresh decision task when its child closes")
 
 			// openChildWorkflowExecutions must have dropped back to 0.
@@ -375,7 +375,7 @@ func TestTerminateWorkflowExecution_ChildPolicyOverride_RequestCancel(t *testing
 	}
 	assert.True(t, found, "expected WorkflowExecutionCancelRequested on the child's own history")
 
-	task := b.PollForDecisionTask("dom", "child-tasks", 0, "")
+	task := b.PollForDecisionTask("dom", "child-tasks", 0, "", false)
 	assert.NotNil(t, task, "the cascaded cancel request must enqueue the child a fresh decision task")
 }
 
@@ -454,7 +454,7 @@ func TestSignalExternalWorkflowExecutionDecision_Success(t *testing.T) {
 	assert.Equal(t, "go", attrs["signalName"])
 	assert.Equal(t, `{"n":1}`, attrs["input"])
 
-	targetTask := b.PollForDecisionTask("dom", "target-tasks", 0, "")
+	targetTask := b.PollForDecisionTask("dom", "target-tasks", 0, "", false)
 	require.NotNil(t, targetTask, "the signal must enqueue the target a decision task")
 
 	senderEvents, _ := b.GetWorkflowExecutionHistory("dom", "sender-1", "", 0, "", false)
@@ -537,7 +537,7 @@ func TestRequestCancelExternalWorkflowExecutionDecision_Success(t *testing.T) {
 	}
 	assert.True(t, found, "expected WorkflowExecutionCancelRequested on target history")
 
-	targetTask := b.PollForDecisionTask("dom", "target-tasks", 0, "")
+	targetTask := b.PollForDecisionTask("dom", "target-tasks", 0, "", false)
 	require.NotNil(t, targetTask, "the cancel request must enqueue the target a decision task")
 }
 

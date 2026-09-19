@@ -37,6 +37,13 @@ const (
 func (h *Handler) handleDescribeSSLPolicies(vals url.Values) (any, error) {
 	allPolicies := allSSLPolicies()
 
+	// Gateway Load Balancers operate at layer 3 and have no TLS listeners,
+	// so they support no SSL policies at all. Application and Network Load
+	// Balancers share the same predefined policy catalog.
+	if vals.Get("LoadBalancerType") == lbTypeGateway {
+		allPolicies = nil
+	}
+
 	// Filter by Names if provided.
 	names := parseMembers(vals, "Names.member")
 	policies := filterSSLPoliciesByName(allPolicies, names)

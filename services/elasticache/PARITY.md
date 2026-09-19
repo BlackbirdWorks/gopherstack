@@ -249,6 +249,7 @@ gaps: []
   #    this was flagged as a "cross-service concern" in the prior ledger -- it is now
   #    fixed for elasticache specifically; other services were not touched.
 items_still_open:
+  - "(2026-09-13, gopherstack-xhu2t slice 13) CreateReplicationGroup.PreferredCacheClusterAZs is unmodeled: real AWS places the replication group's primary in the first listed AZ, but this backend's CreateReplicationGroupFull never creates member Cluster rows for a replication group's own primary/initial replicas (a pre-existing structural gap already tracked below, item (2) of the 2026-09-08 entry) and NodeGroup.PrimaryNode is never populated either -- there is nothing to attach an AZ to without fabricating member state this backend doesn't otherwise track. ModifyReplicationGroupShardConfiguration's ReshardingConfiguration (the analogous per-new-shard AZ field) IS implemented for the *newly added* node groups' Replicas slots, which resizeNodeGroups does create real placeholders for -- see applyReshardingConfig (replication_groups.go)."
   - "(2026-09-08, gopherstack-ccb8; NARROWED 2026-09-08 gopherstack-v5fe, step 1 of 3 done) STRUCTURAL, partially fixed: DeleteCacheCluster's primary-node-of-a-replication-group precondition (api_op_DeleteCacheCluster.go:25, \"A cluster that is the primary node of a replication group\") still cannot be checked because gopherstack has no primary/replica role on a Cluster record. The deeper finding that motivated a 3-step plan -- no production code path ever links a Cluster to a ReplicationGroup at all -- is now step 1 done, steps 2-3 open: (1) DONE (gopherstack-v5fe): CreateCacheCluster's ReplicationGroupId parameter now attaches the new Cluster to an existing ReplicationGroup via the new SetClusterReplicationGroupID (cache_clusters.go), rejecting a nonexistent one with ReplicationGroupNotFoundFault pre-create; see CreateCacheCluster/DeleteCacheCluster ops-table notes and TestCreateCacheCluster_ReplicationGroupId_AttachesAndProtectsFromDelete/_NotFound (handler_cache_clusters_test.go). This makes the existing last-read-replica guard (isLastRGMemberLocked) reachable through a real CreateCacheCluster->DeleteCacheCluster sequence, not just the whitebox `AddClusterInRGInternal` test helper -- but ONLY for clusters created that way. (2) STILL OPEN: CreateReplicationGroup(Full) still never creates member Cluster rows for its own primary/initial replicas (deliberately out of scope for gopherstack-v5fe: a materially larger, riskier change touching both cache_clusters and replication_groups Create paths and their store relationship -- not attempted speculatively). (3) STILL OPEN, blocked on (2): a role field (e.g. Cluster.IsPrimary or a first-class link into NodeGroup.PrimaryNode/.Replicas, matching types.NodeGroupMember.CurrentRole -- aws-sdk-go-v2/service/elasticache@v1.56.4/types/types.go:1156-1159) checked in DeleteCluster for the primary-node bullet. The Multi-AZ-node-group and cluster-mode-enabled-replication-group DeleteCacheCluster preconditions remain blocked on (2)-(3) too."
   - "(2026-08-11, gopherstack-31dm, closes the 2026-08-10 pin-correction gap below) Re-diffed types.ServerlessCache/types.ReplicationGroup/types.Snapshot at the actual pinned v1.56.4 (not v1.51.11) against models.go field-by-field; confirmed the six fields the pin-correction pass flagged are the complete list (verified by diffing v1.51.11 vs v1.56.4 struct member sets directly -- no others were added between those versions) and that FullEngineVersion (already shape-modeled-but-unset since 2026-07-25) was NOT one of them. Of the six, only two have a real Create/Modify input member to source a non-fabricated value from: ServerlessCache.NetworkType (CreateServerlessCacheInput.NetworkType, serializers.go:6709 -- create-only, no ModifyServerlessCacheInput member) and ReplicationGroup.Durability (CreateReplicationGroupInput.Durability serializers.go:6506 / ModifyReplicationGroupInput.Durability serializers.go:8171). Both are now modeled on ServerlessCache/ReplicationGroup (models.go) and echoed on the wire (deserializers.go:23264 / 21351) exactly as the caller supplied them -- never defaulted or guessed when absent. The other four -- ServerlessCache.StorageEncryptionType, ReplicationGroup.EffectiveDurability, ReplicationGroup.StorageEncryptionType, Snapshot.Durability -- have NO Create/Modify input member at all (each is either KMS-key-state-derived or engine/cluster-mode-resolved server-side, undocumented well enough to reproduce without guessing); these are now present in the wire XML structs with omitempty tags (serverlessCacheXML/replicationGroupXML/snapshotXML) but deliberately always empty, same no-fabrication precedent as FullEngineVersion. Verified with real elasticachesdk.Client + raw-body wire assertions (TestHandler_NewSDKFields_WireShape, which checks the raw XML for the two present-when-set/absent-when-unset fields AND that the four never-set fields never appear at all -- not just that the SDK-parsed value looks like its zero value, which wouldn't catch a field that serializes as an empty element instead of omitting it) and a Snapshot/Restore persistence round trip for the two real fields (TestBackend_Persistence_gopherstack31dm_NewFields). elasticacheSnapshotVersion was NOT bumped (both new fields are additive omitempty on structs that persist whole)."
 deferred:
@@ -258,6 +259,62 @@ leaks: {status: clean, note: "zero goroutines/timers/tickers in the entire packa
 ---
 
 ## Notes
+
+### 2026-09-13 (gopherstack-xhu2t slice 13: reqfielddiff tier-1 sweep, 17→0)
+
+Worked all 17 tier-1 `cmd/reqfielddiff` findings. 12 real fixes: `CreateCacheCluster`
+gained `PreferredAvailabilityZone`/`PreferredAvailabilityZones` (threaded through a new
+`SetClusterAvailabilityZones`, echoed as `CacheCluster.PreferredAvailabilityZone`
+("Multiple" when nodes span >1 AZ, per the real doc comment) and each node's
+`CustomerAvailabilityZone`, replacing the previous hardcoded `region+"a"`);
+`DeleteServerlessCache.FinalSnapshotName` now takes a real manual snapshot before
+deleting (`createServerlessCacheSnapshotLocked` factored out of
+`CreateServerlessCacheSnapshot` to avoid a nested lock); `DescribeCacheEngineVersions.
+DefaultOnly` filters against `defaultEngineVersion(engine)`; `DescribeCacheParameters.
+Source` now merges the family's engine-default catalog with user overrides (previously
+returned ONLY user-set keys, never the full catalog -- a real, separate gap this fix
+also corrects; two pre-existing tests asserting a length-1/empty parameter list were
+corrected to assert by name, per parity-principles.md's "correct tests pinning dropped
+behaviour" allowance) and filters on it; `ModifyCacheCluster` gained
+`AuthToken`/`AuthTokenUpdateStrategy` (mirrors `ReplicationGroup`'s existing
+SET/ROTATE/DELETE strategy handling) and `CacheSecurityGroupNames` (validated against
+the security-group store, echoed as `CacheCluster.CacheSecurityGroups`);
+`ModifyReplicationGroup.CacheSecurityGroupNames` propagates to member Clusters (the real
+wire type `types.ReplicationGroup` has no `CacheSecurityGroups` member at all, unlike
+`types.CacheCluster` -- verified against v1.56.4 types.go -- so this cannot live on the
+replication group object itself); `ModifyReplicationGroupShardConfiguration.
+ReshardingConfiguration` assigns each newly-added node group's Replicas' AZ (PrimaryNode
+stays unpopulated, a separate pre-existing gap -- see items_still_open);
+`CopyServerlessCacheSnapshot.Tags` now applies via the existing `applyCreateTimeTags`
+helper (provable via `ListTagsForResource`, since the copy response itself carries no
+Tags member).
+
+One real BUG found and fixed while investigating: `DescribeServerlessCaches` and
+`DescribeServerlessCacheSnapshots` read pagination via the shared `Marker`/`MaxRecords`
+form keys, but these two ops' real wire fields are `NextToken`/`MaxResults` (verified
+against `api_op_DescribeServerlessCaches.go`/`api_op_DescribeServerlessCacheSnapshots.go`
+serializers -- confirmed live: a real client's `MaxResults` was silently ignored, no
+truncation ever occurred). Added `parseMaxResultsPaginationChecked` (handler.go) and
+fixed both handlers' request parsing and response XML (`Marker`->`NextToken`).
+
+1 gap recorded: `CreateReplicationGroup.PreferredCacheClusterAZs` (see
+items_still_open). 4 tier-1 findings were tool false positives, already correctly wired
+through the shared `describeListChecked`/`parsePaginationChecked` helpers (a query-form
+blind spot per gopherstack-99nj): `DescribeCacheParameterGroups.MaxRecords`,
+`DescribeCacheSecurityGroups.MaxRecords`, `DescribeCacheSubnetGroups.MaxRecords` — all
+proven already-correct by real-client pagination tests during this pass.
+
+Proof: `TestRealClient_AvailabilityZonesSecurityGroupsAndParameters`
+(realclient_availability_zones_security_groups_and_parameters_test.go), 10 subtests, all
+against the real aws-sdk-go-v2 client. `go build`/`go vet`/`go test -race`/
+`golangci-lint` all clean; `cmd/paritylint` 0 missing-items-still-open; `pkgs/persistence`
+green with 5 inventory rows added by hand (`Cluster.AuthToken`,
+`Cluster.AuthTokenEnabled`, `Cluster.CacheSecurityGroupNames`,
+`Cluster.PreferredAvailabilityZone`, `Cluster.PreferredAvailabilityZones`); no snapshot
+version bump (additive fields only, `Cluster` isn't itself in `backendSnapshot` --
+`clusterSnapshot`, the DTO that is, was left untouched since none of these new fields
+are persisted, consistent with several pre-existing `Cluster` fields already absent from
+that DTO).
 
 ### 2026-08-29 (list-filter-params sweep: parameters declared and never honoured)
 

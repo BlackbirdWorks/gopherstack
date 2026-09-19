@@ -711,8 +711,8 @@ func applyFunctionConfigurationUpdate(fn *FunctionConfiguration, input *UpdateFu
 // applyFunctionConfigurationCoreFields applies the scalar/identity fields
 // (description, sizing, execution identity, code layers) from input onto fn.
 func applyFunctionConfigurationCoreFields(fn *FunctionConfiguration, input *UpdateFunctionConfigurationInput) {
-	if input.Description != "" {
-		fn.Description = input.Description
+	if input.Description != nil {
+		fn.Description = *input.Description
 	}
 
 	if input.MemorySize > 0 {
@@ -727,16 +727,16 @@ func applyFunctionConfigurationCoreFields(fn *FunctionConfiguration, input *Upda
 		fn.Environment = input.Environment
 	}
 
-	if input.Role != "" {
-		fn.Role = input.Role
+	if input.Role != nil {
+		fn.Role = *input.Role
 	}
 
 	if input.Runtime != "" {
 		fn.Runtime = input.Runtime
 	}
 
-	if input.Handler != "" {
-		fn.Handler = input.Handler
+	if input.Handler != nil {
+		fn.Handler = *input.Handler
 	}
 
 	if input.Layers != nil {

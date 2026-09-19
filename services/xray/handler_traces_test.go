@@ -527,8 +527,13 @@ func TestHandler_GetTraceSummaries_Pagination(t *testing.T) {
 	h := newTestHandler(t)
 	now := float64(time.Now().Unix())
 
-	// Put 5 traces via the segments API
-	for i := range 5 {
+	// GetTraceSummariesInput (xray@v1.39.4 api_op_GetTraceSummaries.go) has
+	// no page-size member -- only the server's default page size (100)
+	// controls this.
+	const total = 105
+	const defaultPageSize = 100
+
+	for i := range total {
 		docs := []string{
 			fmt.Sprintf(`{"trace_id":"1-pag-%d","id":"s%d","name":"svc","start_time":%f}`, i, i, now-float64(i+1)),
 		}
@@ -536,32 +541,30 @@ func TestHandler_GetTraceSummaries_Pagination(t *testing.T) {
 		require.Equal(t, http.StatusOK, rec.Code)
 	}
 
-	// Page 1: 3 results
-	rec1 := doXrayRequest(t, h, "/TraceSummaries", map[string]any{"MaxResults": 3})
+	rec1 := doXrayRequest(t, h, "/TraceSummaries", nil)
 	require.Equal(t, http.StatusOK, rec1.Code)
 
 	var resp1 map[string]any
 	require.NoError(t, json.Unmarshal(rec1.Body.Bytes(), &resp1))
 
 	summaries1, _ := resp1["TraceSummaries"].([]any)
-	assert.Len(t, summaries1, 3)
+	assert.Len(t, summaries1, defaultPageSize)
 	nextToken, _ := resp1["NextToken"].(string)
 	assert.NotEmpty(t, nextToken)
 
-	// Page 2: remaining 2
-	rec2 := doXrayRequest(t, h, "/TraceSummaries", map[string]any{"MaxResults": 3, "NextToken": nextToken})
+	rec2 := doXrayRequest(t, h, "/TraceSummaries", map[string]any{"NextToken": nextToken})
 	require.Equal(t, http.StatusOK, rec2.Code)
 
 	var resp2 map[string]any
 	require.NoError(t, json.Unmarshal(rec2.Body.Bytes(), &resp2))
 
 	summaries2, _ := resp2["TraceSummaries"].([]any)
-	assert.Len(t, summaries2, 2)
+	assert.Len(t, summaries2, total-defaultPageSize)
 	assert.Empty(t, resp2["NextToken"])
 
 	// TracesProcessedCount reports the full set count, not the page count
 	totalCount, _ := resp1["TracesProcessedCount"].(float64)
-	assert.InDelta(t, float64(5), totalCount, 0)
+	assert.InDelta(t, float64(total), totalCount, 0)
 }
 
 func TestGetTraceSummaries_DurationFromSegmentTimes(t *testing.T) {

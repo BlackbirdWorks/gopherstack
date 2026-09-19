@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -21,12 +22,13 @@ func (h *Handler) describeCacheEngineVersions(ctx context.Context, c *echo.Conte
 	engine := form.Get("Engine")
 	family := form.Get("CacheParameterGroupFamily")
 	engineVersion := form.Get("EngineVersion")
+	defaultOnly := strings.EqualFold(form.Get("DefaultOnly"), "true")
 	marker, maxRecords, err := parsePaginationChecked(c, form)
 	if err != nil {
 		return err
 	}
 
-	p, err := h.Backend.DescribeCacheEngineVersions(ctx, engine, family, engineVersion, marker, maxRecords)
+	p, err := h.Backend.DescribeCacheEngineVersions(ctx, engine, family, engineVersion, marker, maxRecords, defaultOnly)
 	if err != nil {
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())
 	}

@@ -134,14 +134,14 @@ func applyUpdateFields(p *Pipe, in UpdatePipeInput) {
 	if in.RoleARN != "" {
 		p.RoleARN = in.RoleARN
 	}
-	if in.Target != "" {
-		p.Target = in.Target
+	if in.Target != nil {
+		p.Target = *in.Target
 	}
 	if in.DesiredState != "" {
 		p.DesiredState = in.DesiredState
 	}
-	if in.Enrichment != "" {
-		p.Enrichment = in.Enrichment
+	if in.Enrichment != nil {
+		p.Enrichment = *in.Enrichment
 	}
 	if in.KmsKeyIdentifier != nil {
 		p.KmsKeyIdentifier = *in.KmsKeyIdentifier

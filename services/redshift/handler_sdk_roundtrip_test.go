@@ -121,7 +121,15 @@ func testDescribeCustomDomainAssociations(t *testing.T, backend *redshift.InMemo
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-cd-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-cd-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateCustomDomainAssociation(
@@ -151,7 +159,15 @@ func testDescribeSnapshotSchedulesAssociatedClusters(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-sched-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-sched-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateSnapshotSchedule("rt-sched", "roundtrip test", []string{"rate(12 hours)"}, nil)
@@ -215,7 +231,15 @@ func testDescribeEndpointAuthorization(t *testing.T, backend *redshift.InMemoryB
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-epauth-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-epauth-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.AuthorizeEndpointAccess("rt-epauth-cluster", "111122223333", nil)
@@ -236,7 +260,15 @@ func testDescribeUsageLimits(t *testing.T, backend *redshift.InMemoryBackend, cl
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-ul-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-ul-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateUsageLimit("rt-ul-cluster", "concurrency-scaling", "time", "log", 60, nil)
@@ -343,7 +375,15 @@ func testCreateCustomDomainAssociationCertExpiryTime(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-cdexp-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-cdexp-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	out, err := client.CreateCustomDomainAssociation(ctx, &redshiftsdk.CreateCustomDomainAssociationInput{
@@ -363,7 +403,15 @@ func testModifyCustomDomainAssociationCertExpiryTime(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-cdexp-mod-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-cdexp-mod-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = backend.CreateCustomDomainAssociation(
@@ -448,7 +496,15 @@ func testModifyClusterDBRevisionClusterWrapper(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-dbrev-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-dbrev-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	out, err := client.ModifyClusterDbRevision(ctx, &redshiftsdk.ModifyClusterDbRevisionInput{
@@ -472,7 +528,15 @@ func testListRecommendationsRecommendationType(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-rec-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-rec-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	out, err := client.ListRecommendations(ctx, &redshiftsdk.ListRecommendationsInput{
@@ -494,7 +558,15 @@ func testDescribeLoggingStatusReflectsRealState(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-logstatus-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-logstatus-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 
 	_, err = client.EnableLogging(ctx, &redshiftsdk.EnableLoggingInput{
@@ -534,7 +606,15 @@ func testModifyClusterSnapshotOmittedRetentionPreserved(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-modsnap-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-modsnap-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 	backend.AddSnapshotInternal(&redshift.Snapshot{
 		SnapshotIdentifier:            "rt-modsnap-1",
@@ -562,7 +642,15 @@ func testBatchModifyClusterSnapshotsOmittedRetentionPreserved(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-batchmodsnap-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-batchmodsnap-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 	backend.AddSnapshotInternal(&redshift.Snapshot{
 		SnapshotIdentifier:            "rt-batchmodsnap-1",
@@ -602,7 +690,15 @@ func testRevokeSnapshotAccessAuthorizationNotFoundErrorCode(
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := backend.CreateCluster("rt-revoke-cluster", "dc2.large", "dev", "admin", nil, "")
+	_, err := backend.CreateCluster(
+		"rt-revoke-cluster",
+		"dc2.large",
+		"dev",
+		"admin",
+		nil,
+		"",
+		redshift.CreateClusterOptions{},
+	)
 	require.NoError(t, err)
 	backend.AddSnapshotInternal(&redshift.Snapshot{
 		SnapshotIdentifier: "rt-revoke-snap",

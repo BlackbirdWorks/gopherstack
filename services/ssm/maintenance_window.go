@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -604,12 +605,34 @@ func (b *InMemoryBackend) DeregisterTargetFromMaintenanceWindow(
 		return nil, ErrMaintenanceWindowNotFound
 	}
 
+	if input.Safe {
+		tasks := b.maintenanceWindowTasksStore(region).All()
+		if maintenanceWindowTargetReferencedByTask(tasks, input.WindowTargetID) {
+			return nil, ErrMaintenanceWindowTargetInUse
+		}
+	}
+
 	targets.Delete(input.WindowTargetID)
 
 	return &DeregisterTargetFromMaintenanceWindowOutput{
 		WindowID:       input.WindowID,
 		WindowTargetID: input.WindowTargetID,
 	}, nil
+}
+
+// maintenanceWindowTargetReferencedByTask reports whether any task's Targets
+// list references targetID via the "WindowTargetIds" key convention
+// RegisterTaskWithMaintenanceWindow already uses.
+func maintenanceWindowTargetReferencedByTask(tasks []*MaintenanceWindowTask, targetID string) bool {
+	for _, task := range tasks {
+		for _, t := range task.Targets {
+			if t.Key == "WindowTargetIds" && slices.Contains(t.Values, targetID) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // DeregisterTaskFromMaintenanceWindow removes a task from a maintenance window.
@@ -880,6 +903,14 @@ func (b *InMemoryBackend) RegisterTaskWithMaintenanceWindow(
 	ctx context.Context,
 	input *RegisterTaskWithMaintenanceWindowInput,
 ) (*RegisterTaskWithMaintenanceWindowOutput, error) {
+	if err := validateMaxConcurrency(input.MaxConcurrency); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(input.MaxErrors); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("RegisterTaskWithMaintenanceWindow")
 	defer b.mu.Unlock()
@@ -926,24 +957,24 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 
 	mw := *mwPtr
 
-	if input.Name != "" {
-		mw.Name = input.Name
+	if input.Name != nil {
+		mw.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		mw.Description = input.Description
+	if input.Description != nil {
+		mw.Description = *input.Description
 	}
 
-	if input.Schedule != "" {
-		mw.Schedule = input.Schedule
+	if input.Schedule != nil {
+		mw.Schedule = *input.Schedule
 	}
 
-	if input.Duration != 0 {
-		mw.Duration = input.Duration
+	if input.Duration != nil {
+		mw.Duration = *input.Duration
 	}
 
-	if input.Cutoff != 0 {
-		mw.Cutoff = input.Cutoff
+	if input.Cutoff != nil {
+		mw.Cutoff = *input.Cutoff
 	}
 
 	if input.Enabled != nil {
@@ -958,16 +989,16 @@ func (b *InMemoryBackend) UpdateMaintenanceWindow(
 		mw.ScheduleOffset = *input.ScheduleOffset
 	}
 
-	if input.ScheduleTimezone != "" {
-		mw.ScheduleTimezone = input.ScheduleTimezone
+	if input.ScheduleTimezone != nil {
+		mw.ScheduleTimezone = *input.ScheduleTimezone
 	}
 
-	if input.StartDate != "" {
-		mw.StartDate = input.StartDate
+	if input.StartDate != nil {
+		mw.StartDate = *input.StartDate
 	}
 
-	if input.EndDate != "" {
-		mw.EndDate = input.EndDate
+	if input.EndDate != nil {
+		mw.EndDate = *input.EndDate
 	}
 
 	mw.ModifiedDate = UnixTimeFloat(timeNow())
@@ -1158,16 +1189,16 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTarget(
 
 	target := *targetPtr
 
-	if input.OwnerInfo != "" {
-		target.OwnerInfo = input.OwnerInfo
+	if input.OwnerInfo != nil {
+		target.OwnerInfo = *input.OwnerInfo
 	}
 
-	if input.Name != "" {
-		target.Name = input.Name
+	if input.Name != nil {
+		target.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		target.Description = input.Description
+	if input.Description != nil {
+		target.Description = *input.Description
 	}
 
 	if len(input.Targets) > 0 {
@@ -1192,6 +1223,14 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 	ctx context.Context,
 	input *UpdateMaintenanceWindowTaskInput,
 ) (*UpdateMaintenanceWindowTaskOutput, error) {
+	if err := validateMaxConcurrency(ptrconv.String(input.MaxConcurrency)); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateMaintenanceWindowTask")
 	defer b.mu.Unlock()
@@ -1207,32 +1246,32 @@ func (b *InMemoryBackend) UpdateMaintenanceWindowTask(
 
 	task := *taskPtr
 
-	if input.TaskArn != "" {
-		task.TaskArn = input.TaskArn
+	if input.TaskArn != nil {
+		task.TaskArn = *input.TaskArn
 	}
 
-	if input.Name != "" {
-		task.Name = input.Name
+	if input.Name != nil {
+		task.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		task.Description = input.Description
+	if input.Description != nil {
+		task.Description = *input.Description
 	}
 
 	if input.Priority != nil {
 		task.Priority = *input.Priority
 	}
 
-	if input.ServiceRoleArn != "" {
-		task.ServiceRoleArn = input.ServiceRoleArn
+	if input.ServiceRoleArn != nil {
+		task.ServiceRoleArn = *input.ServiceRoleArn
 	}
 
-	if input.MaxConcurrency != "" {
-		task.MaxConcurrency = input.MaxConcurrency
+	if input.MaxConcurrency != nil {
+		task.MaxConcurrency = *input.MaxConcurrency
 	}
 
-	if input.MaxErrors != "" {
-		task.MaxErrors = input.MaxErrors
+	if input.MaxErrors != nil {
+		task.MaxErrors = *input.MaxErrors
 	}
 
 	if input.CutoffBehavior != "" {

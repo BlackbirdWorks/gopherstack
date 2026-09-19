@@ -347,6 +347,45 @@ func TestDocumentMatchesFilters_TargetTypeAndPlatformTypes(t *testing.T) {
 	})
 }
 
+// TestDocumentMatchesFilters_TagKey exercises the tag:tagName filter key form
+// (types.DocumentKeyValuesFilter, api_op_ListDocuments.go), threaded through
+// the same misc-tag store AddTagsToResource/ListTagsForResource already use
+// for non-Parameter resources.
+func TestDocumentMatchesFilters_TagKey(t *testing.T) {
+	t.Parallel()
+
+	b := ssm.NewInMemoryBackend()
+	_, err := b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:    "TaggedDoc",
+		Content: `{"schemaVersion":"2.2"}`,
+	})
+	require.NoError(t, err)
+	_, err = b.CreateDocument(context.TODO(), &ssm.CreateDocumentInput{
+		Name:    "UntaggedDoc",
+		Content: `{"schemaVersion":"2.2"}`,
+	})
+	require.NoError(t, err)
+
+	err = b.AddTagsToResource(context.TODO(), &ssm.AddTagsToResourceInput{
+		ResourceType: "Document",
+		ResourceID:   "TaggedDoc",
+		Tags:         []ssm.Tag{{Key: "env", Value: "prod"}},
+	})
+	require.NoError(t, err)
+
+	out, err := b.ListDocuments(context.TODO(), &ssm.ListDocumentsInput{
+		Filters: []ssm.DocumentFilter{{Key: "tag:env", Values: []string{"prod"}}},
+	})
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(out.DocumentIdentifiers))
+	for _, d := range out.DocumentIdentifiers {
+		names = append(names, d.Name)
+	}
+	assert.Contains(t, names, "TaggedDoc")
+	assert.NotContains(t, names, "UntaggedDoc")
+}
+
 // TestProvider_NilContext exercises the nil-context error path.
 func TestProvider_NilContext(t *testing.T) {
 	t.Parallel()

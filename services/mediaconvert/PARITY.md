@@ -1,8 +1,12 @@
 ---
 service: mediaconvert
 sdk_module: aws-sdk-go-v2/service/mediaconvert@v1.97.1
-last_audit_commit: b451ad0d
-last_audit_date: 2026-08-29
+last_audit_commit: 2dfc55a39
+last_audit_date: 2026-09-18  # gopherstack-xhu2t: reqfielddiff tier-1 request-field audit, all
+                              # 5 findings (ListJobs/ListJobTemplates/ListPresets/ListQueues/
+                              # SearchJobs .Order) confirmed already handled -- tool false
+                              # positives (raw q.Get("order") reads, not struct fields the tool
+                              # can see). No code change. See 2026-09-18 Notes entry.
 overall: A            # 2026-08-29 (wrapper-key-sweep, constraint-not-honoured class): ListQueues/
                       # ListJobTemplates/ListPresets never read ListBy (NAME/CREATION_DATE) at
                       # all -- always returned name-sorted regardless of the caller's choice;
@@ -72,6 +76,14 @@ leaks: {status: clean, note: "janitor.go uses pkgs/worker.Group.Ticker bound to 
 
 ## Notes
 
+- 2026-09-18 (gopherstack-xhu2t, reqfielddiff tier-1 sweep): all 5 findings
+  (ListJobs/ListJobTemplates/ListPresets/ListQueues/SearchJobs `.Order`) confirmed
+  already handled -- `order` is read via `q.Get("order")` and applied through
+  `applyListOrdering`/`ListJobsFiltered` in each handler (handler_jobs.go:142,
+  handler_job_templates.go:115, handler_presets.go:94, handler_queues.go:104,
+  handler_search.go:22). Tool false positive: reqfielddiff can't see raw query-param
+  reads, only struct-tag-declared fields. No code change. Tier-1: 5 -> 5 (unchanged;
+  all 5 are this same false positive).
 - Protocol: restjson1, paths under `/2017-08-29/...`. Errors are returned as JSON
   `{"__type": "<Code>Exception", "message": "..."}` with an HTTP status matching the
   code (400/404/409/500); the real `restjson.GetErrorInfo` reads either `code` or

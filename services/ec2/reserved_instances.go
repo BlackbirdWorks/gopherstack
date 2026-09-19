@@ -31,8 +31,55 @@ func (b *InMemoryBackend) DescribeReservedInstances(ids []string) []*ReservedIns
 	return result
 }
 
+// DescribeReservedInstancesOfferingsParams holds the request-narrowing
+// parameters for DescribeReservedInstancesOfferings, beyond the plain
+// Filters.N list already applied by the handler via
+// applyReservedInstancesOfferingFilters.
+type DescribeReservedInstancesOfferingsParams struct {
+	InstanceType, AvailabilityZone, ProductDescription string
+	OfferingClass, InstanceTenancy                     string
+	MinDuration, MaxDuration                           int64
+}
+
+// reservedInstancesOfferingMatches reports whether o satisfies every
+// non-empty/non-zero field of params.
+func reservedInstancesOfferingMatches(
+	o *ReservedInstancesOffering,
+	params DescribeReservedInstancesOfferingsParams,
+) bool {
+	if params.InstanceType != "" && o.InstanceType != params.InstanceType {
+		return false
+	}
+
+	if params.AvailabilityZone != "" && o.AvailabilityZone != params.AvailabilityZone {
+		return false
+	}
+
+	if params.ProductDescription != "" && o.ProductDescription != params.ProductDescription {
+		return false
+	}
+
+	if params.OfferingClass != "" && o.OfferingClass != params.OfferingClass {
+		return false
+	}
+
+	if params.InstanceTenancy != "" && o.Tenancy != params.InstanceTenancy {
+		return false
+	}
+
+	if params.MinDuration > 0 && o.Duration < params.MinDuration {
+		return false
+	}
+
+	if params.MaxDuration > 0 && o.Duration > params.MaxDuration {
+		return false
+	}
+
+	return true
+}
+
 func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
-	instanceType, az, productDesc, offeringClass string,
+	params DescribeReservedInstancesOfferingsParams,
 ) []*ReservedInstancesOffering {
 	b.mu.RLock("DescribeReservedInstancesOfferings")
 	defer b.mu.RUnlock()
@@ -40,19 +87,7 @@ func (b *InMemoryBackend) DescribeReservedInstancesOfferings(
 	var result []*ReservedInstancesOffering
 
 	for _, o := range b.reservedInstancesOfferings.All() {
-		if instanceType != "" && o.InstanceType != instanceType {
-			continue
-		}
-
-		if az != "" && o.AvailabilityZone != az {
-			continue
-		}
-
-		if productDesc != "" && o.ProductDescription != productDesc {
-			continue
-		}
-
-		if offeringClass != "" && o.OfferingClass != offeringClass {
+		if !reservedInstancesOfferingMatches(o, params) {
 			continue
 		}
 

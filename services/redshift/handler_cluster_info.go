@@ -80,6 +80,7 @@ type xmlClusterVersionList struct {
 }
 
 type xmlDescribeClusterVersionsResult struct {
+	Marker          string                `xml:"Marker,omitempty"`
 	ClusterVersions xmlClusterVersionList `xml:"ClusterVersions"`
 }
 
@@ -89,19 +90,28 @@ type describeClusterVersionsResponse struct {
 	Result  xmlDescribeClusterVersionsResult `xml:"DescribeClusterVersionsResult"`
 }
 
-func (h *Handler) handleDescribeClusterVersions(_ url.Values) (any, error) {
+func (h *Handler) handleDescribeClusterVersions(vals url.Values) (any, error) {
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	versions := []xmlClusterVersion{
+		{
+			ClusterVersion:              modelVersion10,
+			ClusterParameterGroupFamily: "redshift-1.0",
+			Description:                 "Amazon Redshift 1.0",
+		},
+	}
+
+	versions, nextMarker := paginateByMarker(versions, vals.Get("Marker"), maxRecords,
+		func(v xmlClusterVersion) string { return v.ClusterVersion })
+
 	return &describeClusterVersionsResponse{
 		Xmlns: redshiftXMLNS,
 		Result: xmlDescribeClusterVersionsResult{
-			ClusterVersions: xmlClusterVersionList{
-				Versions: []xmlClusterVersion{
-					{
-						ClusterVersion:              modelVersion10,
-						ClusterParameterGroupFamily: "redshift-1.0",
-						Description:                 "Amazon Redshift 1.0",
-					},
-				},
-			},
+			Marker:          nextMarker,
+			ClusterVersions: xmlClusterVersionList{Versions: versions},
 		},
 	}, nil
 }
@@ -119,6 +129,7 @@ type xmlOrderableClusterOptionList struct {
 }
 
 type xmlDescribeOrderableClusterOptionsResult struct {
+	Marker                  string                        `xml:"Marker,omitempty"`
 	OrderableClusterOptions xmlOrderableClusterOptionList `xml:"OrderableClusterOptions"`
 }
 
@@ -128,18 +139,37 @@ type describeOrderableClusterOptionsResponse struct {
 	Result  xmlDescribeOrderableClusterOptionsResult `xml:"DescribeOrderableClusterOptionsResult"`
 }
 
-func (h *Handler) handleDescribeOrderableClusterOptions(_ url.Values) (any, error) {
+// handleDescribeOrderableClusterOptions applies the documented ClusterVersion
+// filter (DescribeOrderableClusterOptionsInput: "Specify this parameter to
+// show only the available offerings matching the specified version") -- this
+// backend's only modeled version is modelVersion10 ("1.0"), so a
+// ClusterVersion that doesn't match it returns an empty list rather than
+// silently ignoring the filter.
+func (h *Handler) handleDescribeOrderableClusterOptions(vals url.Values) (any, error) {
+	maxRecords, err := parseRedshiftMaxRecords(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	options := []xmlOrderableClusterOption{
+		{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: defaultNodeType},
+		{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: defaultNodeType},
+		{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: nodeTypeDC28xlarge},
+		{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: nodeTypeDC28xlarge},
+	}
+
+	if cv := vals.Get("ClusterVersion"); cv != "" && cv != modelVersion10 {
+		options = nil
+	}
+
+	options, nextMarker := paginateByMarker(options, vals.Get("Marker"), maxRecords,
+		func(o xmlOrderableClusterOption) string { return o.ClusterType + "#" + o.NodeType })
+
 	return &describeOrderableClusterOptionsResponse{
 		Xmlns: redshiftXMLNS,
 		Result: xmlDescribeOrderableClusterOptionsResult{
-			OrderableClusterOptions: xmlOrderableClusterOptionList{
-				Options: []xmlOrderableClusterOption{
-					{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: defaultNodeType},
-					{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: defaultNodeType},
-					{ClusterVersion: modelVersion10, ClusterType: "multi-node", NodeType: nodeTypeDC28xlarge},
-					{ClusterVersion: modelVersion10, ClusterType: "single-node", NodeType: nodeTypeDC28xlarge},
-				},
-			},
+			Marker:                  nextMarker,
+			OrderableClusterOptions: xmlOrderableClusterOptionList{Options: options},
 		},
 	}, nil
 }

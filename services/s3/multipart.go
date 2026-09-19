@@ -100,6 +100,7 @@ func (b *InMemoryBackend) CreateMultipartUpload(
 		Tagging:      tagging,
 		SSE:          sse,
 		StorageClass: string(input.StorageClass),
+		ACL:          string(input.ACL),
 		Expires:      aws.ToTime(input.Expires),
 		mu:           lockmetrics.New("s3.upload"),
 	})
@@ -225,6 +226,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 	var tagging string
 	var sse sseInfo
 	var storageClass string
+	var acl string
 	var expires time.Time
 	func() {
 		upload.mu.RLock("CompleteMultipartUpload.tagging")
@@ -233,6 +235,7 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		tagging = upload.Tagging
 		sse = upload.SSE
 		storageClass = upload.StorageClass
+		acl = upload.ACL
 		expires = upload.Expires
 	}()
 
@@ -262,7 +265,9 @@ func (b *InMemoryBackend) CompleteMultipartUpload(
 		return nil, err
 	}
 
-	versionID, err := b.commitMultipartObject(bucket, bucketName, key, assembled, tagging, sse, storageClass, expires)
+	versionID, err := b.commitMultipartObject(
+		bucket, bucketName, key, assembled, tagging, sse, storageClass, acl, expires,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -476,6 +481,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 	tagging string,
 	sse sseInfo,
 	storageClass string,
+	acl string,
 	expires time.Time,
 ) (string, error) {
 	var obj *StoredObject
@@ -540,6 +546,7 @@ func (b *InMemoryBackend) commitMultipartObject(
 			EncryptionDEK:   dek,
 			EncryptionNonce: nonce,
 			StorageClass:    storageClass,
+			ACL:             acl,
 			Expires:         expires,
 		}
 

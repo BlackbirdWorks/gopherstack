@@ -247,7 +247,7 @@ func (h *Handler) handleUpdateJob(c *echo.Context) error {
 		TimeoutConfig              *TimeoutConfig              `json:"timeoutConfig"`
 		JobExecutionsRetryConfig   *JobExecutionsRetryConfig   `json:"jobExecutionsRetryConfig"`
 		PresignedURLConfig         *PresignedURLConfig         `json:"presignedUrlConfig"`
-		Description                string                      `json:"description"`
+		Description                *string                     `json:"description"`
 	}
 	if err := readBody(c, &req); err != nil {
 		return err

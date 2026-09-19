@@ -58,24 +58,40 @@ func (b *InMemoryBackend) CreateClientVpnEndpointWithOptions(
 		sessionTimeoutHours = 24
 	}
 
+	// api_op_CreateClientVpnEndpoint.go: "The default value is true."
+	disconnectOnSessionTimeout := opts.DisconnectOnSessionTimeout == nil || *opts.DisconnectOnSessionTimeout
+
+	endpointIPAddressType := opts.EndpointIPAddressType
+	if endpointIPAddressType == "" {
+		endpointIPAddressType = addressFamilyIPv4
+	}
+
+	trafficIPAddressType := opts.TrafficIPAddressType
+	if trafficIPAddressType == "" {
+		trafficIPAddressType = addressFamilyIPv4
+	}
+
 	id := "cvpn-endpoint-" + uuid.New().String()[:8]
 	ep := &ClientVpnEndpoint{
-		ClientVpnEndpointID:  id,
-		DNSName:              id + ".prod.clientvpn." + b.Region + ".amazonaws.com",
-		Status:               stateAvailable,
-		Description:          description,
-		ClientCidrBlock:      clientCidrBlock,
-		DNSServers:           dnsServers,
-		VpnProtocol:          "openvpn",
-		TransportProtocol:    transportProtocol,
-		VPCID:                opts.VpcID,
-		VpnPort:              vpnPort,
-		SplitTunnel:          opts.SplitTunnel != nil && *opts.SplitTunnel,
-		SecurityGroupIDs:     opts.SecurityGroupIDs,
-		ServerCertificateArn: opts.ServerCertificateArn,
-		SessionTimeoutHours:  sessionTimeoutHours,
-		SelfServicePortalURL: opts.SelfServicePortalURL,
-		CreationTime:         time.Now().UTC().Format(time.RFC3339),
+		ClientVpnEndpointID:        id,
+		DNSName:                    id + ".prod.clientvpn." + b.Region + ".amazonaws.com",
+		Status:                     stateAvailable,
+		Description:                description,
+		ClientCidrBlock:            clientCidrBlock,
+		DNSServers:                 dnsServers,
+		VpnProtocol:                "openvpn",
+		TransportProtocol:          transportProtocol,
+		VPCID:                      opts.VpcID,
+		VpnPort:                    vpnPort,
+		SplitTunnel:                opts.SplitTunnel != nil && *opts.SplitTunnel,
+		SecurityGroupIDs:           opts.SecurityGroupIDs,
+		ServerCertificateArn:       opts.ServerCertificateArn,
+		SessionTimeoutHours:        sessionTimeoutHours,
+		SelfServicePortalURL:       opts.SelfServicePortalURL,
+		CreationTime:               time.Now().UTC().Format(time.RFC3339),
+		DisconnectOnSessionTimeout: disconnectOnSessionTimeout,
+		EndpointIPAddressType:      endpointIPAddressType,
+		TrafficIPAddressType:       trafficIPAddressType,
 	}
 
 	if opts.TransitGatewayID != "" {
@@ -511,6 +527,9 @@ func (b *InMemoryBackend) ModifyClientVpnEndpointWithOptions(
 	}
 	if opts.SplitTunnel != nil {
 		ep.SplitTunnel = *opts.SplitTunnel
+	}
+	if opts.DisconnectOnSessionTimeout != nil {
+		ep.DisconnectOnSessionTimeout = *opts.DisconnectOnSessionTimeout
 	}
 
 	return nil

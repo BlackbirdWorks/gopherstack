@@ -163,7 +163,9 @@ func (b *InMemoryBackend) UpdateRegistry(
 		return nil, fmt.Errorf("%w: registry %s not found", ErrNotFound, input.RegistryName)
 	}
 
-	reg.Description = input.Description
+	if input.Description != nil {
+		reg.Description = *input.Description
+	}
 
 	cp := *reg
 

@@ -205,6 +205,7 @@ type permissionAssociationObject struct {
 
 type listPermissionAssociationsRequest struct {
 	PermissionVersion *int32 `json:"permissionVersion,omitempty"`
+	DefaultVersion    *bool  `json:"defaultVersion,omitempty"`
 	MaxResults        *int32 `json:"maxResults,omitempty"`
 	PermissionArn     string `json:"permissionArn"`
 	NextToken         string `json:"nextToken"`
@@ -221,7 +222,7 @@ func (h *Handler) handleListPermissionAssociations(_ context.Context, body []byt
 		return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
 	}
 
-	assocs := h.Backend.ListPermissionAssociations(req.PermissionArn, req.PermissionVersion)
+	assocs := h.Backend.ListPermissionAssociations(req.PermissionArn, req.PermissionVersion, req.DefaultVersion)
 	objs := make([]permissionAssociationObject, 0, len(assocs))
 
 	for _, a := range assocs {

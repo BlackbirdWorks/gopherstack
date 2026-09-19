@@ -62,13 +62,20 @@ func (h *Handler) handleDescribeDBSecurityGroups(vals url.Values) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	members := make([]xmlDBSecurityGroup, 0, len(groups))
-	for i := range groups {
-		members = append(members, toXMLDBSecurityGroup(&groups[i]))
+	members, marker, err := paginateDescribe(vals, groups, func(a, b DBSecurityGroup) bool {
+		return a.DBSecurityGroupName < b.DBSecurityGroupName
+	}, func(g DBSecurityGroup) xmlDBSecurityGroup {
+		cp := g
+
+		return toXMLDBSecurityGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeDBSecurityGroupsResponse{
 		Xmlns:            rdsXMLNS,
+		Marker:           marker,
 		DBSecurityGroups: xmlDBSecurityGroupList{Members: members},
 	}, nil
 }
@@ -103,6 +110,7 @@ type xmlDBSecurityGroupList struct {
 type describeDBSecurityGroupsResponse struct {
 	XMLName          xml.Name               `xml:"DescribeDBSecurityGroupsResponse"`
 	Xmlns            string                 `xml:"xmlns,attr"`
+	Marker           string                 `xml:"DescribeDBSecurityGroupsResult>Marker,omitempty"`
 	DBSecurityGroups xmlDBSecurityGroupList `xml:"DescribeDBSecurityGroupsResult>DBSecurityGroups"`
 }
 

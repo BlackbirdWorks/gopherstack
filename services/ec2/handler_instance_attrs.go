@@ -298,10 +298,10 @@ func (h *Handler) handleModifyInstancePlacement(vals url.Values, reqID string) (
 	ok, err := h.Backend.ModifyInstancePlacement(ModifyInstancePlacementInput{
 		InstanceID:           vals.Get("InstanceId"),
 		Affinity:             vals.Get("Affinity"),
-		GroupID:              vals.Get("GroupId"),
+		GroupID:              parseOptionalString(vals, "GroupId"),
 		GroupName:            parseOptionalString(vals, "GroupName"),
-		HostID:               vals.Get("HostId"),
-		HostResourceGroupArn: vals.Get("HostResourceGroupArn"),
+		HostID:               parseOptionalString(vals, "HostId"),
+		HostResourceGroupArn: parseOptionalString(vals, "HostResourceGroupArn"),
 		Tenancy:              vals.Get("Tenancy"),
 		PartitionNumber:      parseOptionalInt32(vals, "PartitionNumber"),
 	})
@@ -454,6 +454,21 @@ func (h *Handler) handleModifyInstanceAttribute(vals url.Values, reqID string) (
 	instanceID := vals.Get("InstanceId")
 	if instanceID == "" {
 		return nil, fmt.Errorf("%w: InstanceId is required", ErrInvalidParameter)
+	}
+
+	// Groups (wire key GroupId.N, api_op_ModifyInstanceAttribute.go's Groups
+	// field) is a list, not a single Attribute.Value pair, so it's handled
+	// as its own path rather than through parseModifyInstanceAttributeValue.
+	if groupIDs := parseMemberList(vals, "GroupId"); len(groupIDs) > 0 {
+		if err := h.Backend.SetInstanceSecurityGroups(instanceID, groupIDs); err != nil {
+			return nil, err
+		}
+
+		return &modifyInstanceAttributeResponse{
+			Xmlns:     ec2XMLNS,
+			RequestID: reqID,
+			Return:    true,
+		}, nil
 	}
 
 	// Determine which attribute is being set and its new value.

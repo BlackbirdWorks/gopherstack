@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: dax
 sdk_module: aws-sdk-go-v2/service/dax@v1.32.4   # awsjson1.1 protocol, target prefix AmazonDAXV3.
-last_audit_commit: fa462f07c   # refreshed 2026-09-07 -- current HEAD at write time
-last_audit_date: 2026-09-07
+last_audit_commit: 302aa4e3c   # zeroguard: UpdateCluster/UpdateSubnetGroup omitted-member fix
+last_audit_date: 2026-09-18
 overall: A            # 2026-07-24: follow-up pass: closed all 3 previously-known gaps, killed both banned nolints
                       # 2026-07-31: pkgs/sdkcheck reverse check found ResetParameterGroup wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal test scaffolding. Grade held at A: unreachable by real traffic either way, since DAX dispatches purely by X-Amz-Target and no real client can send this target.
                       # 2026-08-10: control-plane sweep (gopherstack-mmqd). Fixed state-mutated-before-validation in UpdateCluster and UpdateParameterGroup, a wrong error fault code on 6 required-field checks, a fabricated Tags field on the Cluster wire response, 3 unvalidated @required fields (TagResource.Tags, UntagResource.TagKeys, UpdateParameterGroup.ParameterNameValues), and a missing per-subnet SupportedNetworkTypes field. See Notes.
@@ -70,6 +70,16 @@ leaks: {status: clean, note: "CreateCluster/DeleteCluster/IncreaseReplicationFac
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard: UpdateCluster/UpdateSubnetGroup omitted-member fix
+
+PreferredMaintenanceWindow, ParameterGroupName, NotificationTopicArn,
+NotificationTopicStatus (UpdateCluster) and Description (UpdateSubnetGroup)
+were plain strings guarded by `!= ""`; changed to `*string` end to end
+(request structs decode into these via direct type conversion, so field
+order had to stay aligned). ClusterName/ParameterGroupName(UpdateParameterGroup)/
+SubnetGroupName are false positives: required lookup identifiers, never
+written back to state. Rows 8 -> 3.
 
 **Protocol**: DAX uses `awsjson1.1` (`X-Amz-Target: AmazonDAXV3.<Op>`), confirmed against the
 SDK's `awsAwsjson11_*` (de)serializer function names in

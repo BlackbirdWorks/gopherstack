@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appstream
 sdk_module: aws-sdk-go-v2/service/appstream@v1.64.5
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-23
+last_audit_commit: d4dc4a723
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-23: closed the one remaining named-and-flagged gap this file
                        # carried (UpdateThemeForStack request-side accept-and-drop -- see
                        # UpdateThemeForStack/Theme ops rows and the dated Notes section at the
@@ -1051,3 +1051,11 @@ run --new-from-rev=HEAD ./services/appstream/...` all clean.
 `storedAppBlockBuilder` gained one field (`EnableDefaultInternetAccess
 *bool`, omitempty) -- `pkgs/persistence/testdata/snapshot_inventory.json`
 updated by hand with that one row; no version bump.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+CreateImageBuilder's handler read a "Platform" field CreateImageBuilderInput
+(appstream@v1.64.5) does not declare -- Platform is
+CreateFleet/CreateAppBlockBuilder-only. Removed the read; CreateImageBuilder
+now always defaults, matching what a real client experiences. See
+`TestCreateImageBuilder_NoPlatformMember`.

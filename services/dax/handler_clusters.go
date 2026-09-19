@@ -35,11 +35,11 @@ type describeClustersRequest struct {
 
 type updateClusterRequest struct {
 	Description                *string  `json:"Description"`
+	PreferredMaintenanceWindow *string  `json:"PreferredMaintenanceWindow"`
+	ParameterGroupName         *string  `json:"ParameterGroupName"`
+	NotificationTopicArn       *string  `json:"NotificationTopicArn"`
+	NotificationTopicStatus    *string  `json:"NotificationTopicStatus"`
 	ClusterName                string   `json:"ClusterName"`
-	PreferredMaintenanceWindow string   `json:"PreferredMaintenanceWindow"`
-	ParameterGroupName         string   `json:"ParameterGroupName"`
-	NotificationTopicArn       string   `json:"NotificationTopicArn"`
-	NotificationTopicStatus    string   `json:"NotificationTopicStatus"`
 	SecurityGroupIDs           []string `json:"SecurityGroupIds"`
 }
 

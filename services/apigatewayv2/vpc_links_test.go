@@ -3,6 +3,7 @@ package apigatewayv2_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,7 +40,7 @@ func TestInMemoryBackend_VpcLinks(t *testing.T) {
 	assert.Len(t, all, 1)
 
 	// UpdateVpcLink.
-	upd, err := b.UpdateVpcLink(vl.VpcLinkID, apigatewayv2.UpdateVpcLinkInput{Name: "updated-link"})
+	upd, err := b.UpdateVpcLink(vl.VpcLinkID, apigatewayv2.UpdateVpcLinkInput{Name: aws.String("updated-link")})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-link", upd.Name)
 

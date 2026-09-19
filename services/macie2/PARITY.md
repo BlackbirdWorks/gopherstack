@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: da77e2959
-last_audit_date: 2026-08-29
+last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (DeleteAllowList.IgnoreJobChecks)
+last_audit_date: 2026-09-18
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
                           # gap` at the time this A was recorded (BucketCriteria/SortCriteria/pagination
@@ -31,7 +31,7 @@ ops:
   CreateAllowList: {wire: ok, errors: ok, state: ok, persist: ok}
   GetAllowList: {wire: ok, errors: ok, state: ok, persist: ok}
   UpdateAllowList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "route method was PATCH; real SDK sends PUT /allow-lists/{id} -- unreachable via real client before fix"}
-  DeleteAllowList: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteAllowList: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): IgnoreJobChecks query param was parsed nowhere -- a delete always succeeded even while a non-terminal (not COMPLETE/CANCELLED) classification job still referenced the allow list via AllowListIds. Now rejected with ConflictException unless ignoreJobChecks=true."}
   ListAllowLists: {wire: ok, errors: ok, state: ok, persist: ok}
   CreateCustomDataIdentifier: {wire: fixed, errors: ok, state: ok, persist: ok, note: "now accepts severityLevels (real CreateCustomDataIdentifierInput field) and threads it through to storage/Get/BatchGet"}
   GetCustomDataIdentifier: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added 'deleted' and 'severityLevels' fields (real GetCustomDataIdentifierOutput has both). Also fixed a real-behavior bug: Get on a soft-deleted identifier previously 404'd -- real AWS soft-deletes (DeleteCustomDataIdentifier never hard-deletes), so Get must keep succeeding with deleted:true; only a never-existed ID 404s now."}
@@ -622,3 +622,48 @@ Gates: `go build ./...` (whole module) clean. `go vet`, `go test -race
 `golangci-lint run --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint`
 stays at 0 FAIL (missing-items-still-open). No persisted-struct/inventory
 changes; no version bump.
+
+## 2026-09-18: DeleteAllowList.IgnoreJobChecks dropped; 3 tool false positives confirmed (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields: `CreateCustomDataIdentifier.MaximumMatchDistance`,
+`DeleteAllowList.IgnoreJobChecks`, `ListMembers.OnlyAssociated`,
+`TestCustomDataIdentifier.MaximumMatchDistance` (macie2@v1.54.4).
+
+3 are tool false positives, confirmed at HEAD before any change: the tool's
+static field-declaration scan misses fields read from an anonymous inline
+`struct{}` literal or straight off the query string rather than a named,
+top-level request type.
+- `CreateCustomDataIdentifier.MaximumMatchDistance` / `TestCustomDataIdentifier.MaximumMatchDistance`:
+  both already parsed (`handler_custom_data_identifiers.go:90,177`),
+  range-validated 1-300 with default 50 (`custom_data_identifiers.go:25-41`,
+  `store.go`'s `minMatchDist`/`maxMatchDist`/`defaultMatchDist`), and wire
+  key `maximumMatchDistance` confirmed against the pinned SDK's
+  `serializers.go`. No code change.
+- `ListMembers.OnlyAssociated`: already parsed off the query string
+  (`handler_members.go:206-221`) with the documented default (true) and
+  applied in `ListMembers` (`members.go:68-72`). No code change.
+
+The 4th, `DeleteAllowList.IgnoreJobChecks`, was genuinely dropped: never
+read anywhere, so a delete always succeeded even while a non-terminal
+classification job (status other than COMPLETE/CANCELLED) still referenced
+the allow list via `AllowListIds`. Fixed: `handleDeleteAllowList` now reads
+the `ignoreJobChecks` query param (httpQuery-bound per
+`serializers.go`'s `SetQuery("ignoreJobChecks")`); `Backend.DeleteAllowList`
+gained an `ignoreJobChecks bool` parameter and rejects the delete with the
+new `ErrAllowListInUse` (`ConflictException`) when a non-terminal job
+references the list and the caller didn't set the flag.
+
+Proven with `TestDeleteAllowList_IgnoreJobChecks_RealClient` (typed
+`aws-sdk-go-v2` client, `allow_list_delete_job_checks_test.go`): a running
+`ONE_TIME` classification job referencing the allow list blocks a plain
+delete (`ConflictException`, list survives) but not one with
+`IgnoreJobChecks: "true"`.
+
+Because 3 of the 4 findings are query-string/inline-struct reads the tool's
+static scan cannot see, `cmd/reqfielddiff -dir macie2`'s tier-1 count stays
+at 4 after this fix -- verified at HEAD (grep + code read) rather than by
+the tool's count, per this sweep's protocol. Semantically: 4/4 handled (3
+false positives, 1 genuine fix). No persisted (`backendSnapshot`) fields
+changed. Gates: `go build ./...`, `go vet ./services/macie2/`, `go test
+-race -count=1 ./services/macie2/` (all pass), `golangci-lint run
+--new-from-rev=HEAD ./services/macie2/` (0 issues).

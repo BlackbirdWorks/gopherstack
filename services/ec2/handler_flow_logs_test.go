@@ -5,18 +5,78 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
 
+// TestCreateFlowLogs_LogFormatAndMaxAggregationInterval_RealClient covers
+// gopherstack-xhu2t: LogFormat and MaxAggregationInterval were never read,
+// so DescribeFlowLogs always echoed them empty/zero regardless of the request.
+func TestCreateFlowLogs_LogFormatAndMaxAggregationInterval_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateFlowLogs(t.Context(), &ec2sdk.CreateFlowLogsInput{
+		ResourceIds:            []string{"vpc-default"},
+		ResourceType:           "VPC",
+		TrafficType:            "ALL",
+		LogDestinationType:     "s3",
+		LogDestination:         aws.String("arn:aws:s3:::dest"),
+		LogFormat:              aws.String("${srcaddr} ${dstaddr}"),
+		MaxAggregationInterval: aws.Int32(60),
+	})
+	require.NoError(t, err)
+	require.Len(t, created.FlowLogIds, 1)
+
+	desc, err := client.DescribeFlowLogs(t.Context(), &ec2sdk.DescribeFlowLogsInput{
+		FlowLogIds: created.FlowLogIds,
+	})
+	require.NoError(t, err)
+	require.Len(t, desc.FlowLogs, 1)
+	assert.Equal(t, "${srcaddr} ${dstaddr}", aws.ToString(desc.FlowLogs[0].LogFormat),
+		"LogFormat dropped - CreateFlowLogs never read it")
+	assert.Equal(t, int32(60), aws.ToInt32(desc.FlowLogs[0].MaxAggregationInterval),
+		"MaxAggregationInterval dropped - CreateFlowLogs never read it")
+}
+
+// TestCreateFlowLogs_MaxAggregationInterval_OmittedDefaultsTo600 pins the
+// documented default (600 seconds when omitted).
+func TestCreateFlowLogs_MaxAggregationInterval_OmittedDefaultsTo600(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler()
+	client := newTestEC2Client(t, h)
+
+	created, err := client.CreateFlowLogs(t.Context(), &ec2sdk.CreateFlowLogsInput{
+		ResourceIds:        []string{"vpc-default"},
+		ResourceType:       "VPC",
+		TrafficType:        "ALL",
+		LogDestinationType: "s3",
+		LogDestination:     aws.String("arn:aws:s3:::dest"),
+	})
+	require.NoError(t, err)
+	require.Len(t, created.FlowLogIds, 1)
+
+	desc, err := client.DescribeFlowLogs(t.Context(), &ec2sdk.DescribeFlowLogsInput{
+		FlowLogIds: created.FlowLogIds,
+	})
+	require.NoError(t, err)
+	require.Len(t, desc.FlowLogs, 1)
+	assert.Equal(t, int32(600), aws.ToInt32(desc.FlowLogs[0].MaxAggregationInterval))
+}
+
 func TestGetFlowLogsIntegrationTemplateHTTP(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler()
 
-	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest", nil)
+	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -43,7 +103,7 @@ func TestGetFlowLogsIntegrationTemplateHTTP_IntegrateServicesRequired(t *testing
 
 	h := newTestHandler()
 
-	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest", nil)
+	fls, err := h.Backend.CreateFlowLogs([]string{"vpc-default"}, "ALL", "s3", "arn:aws:s3:::dest", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, fls, 1)
 
@@ -69,7 +129,7 @@ func TestHandlerDeleteFlowLogs(t *testing.T) {
 	vpc, err := b.CreateVpc("10.8.0.0/16", "default")
 	require.NoError(t, err)
 
-	logs, err := b.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow", nil)
+	logs, err := b.CreateFlowLogs([]string{vpc.ID}, "ALL", "cloud-watch-logs", "/aws/vpc/flow", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, logs, 1)
 	logID := logs[0].FlowLogID

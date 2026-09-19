@@ -143,8 +143,8 @@ type UpdateWebAppInput struct {
 	IdentityCenterRole *string
 	WebAppUnits        *int32
 	VpcIPAddressType   *string
+	AccessEndpoint     *string
 	WebAppID           string
-	AccessEndpoint     string
 	VpcSubnetIDs       []string
 }
 
@@ -158,8 +158,8 @@ func (b *InMemoryBackend) UpdateWebApp(in *UpdateWebAppInput) (*WebApp, error) {
 		return nil, fmt.Errorf("%w: web app %s not found", ErrWebAppNotFound, in.WebAppID)
 	}
 
-	if in.AccessEndpoint != "" {
-		w.AccessEndpoint = in.AccessEndpoint
+	if in.AccessEndpoint != nil {
+		w.AccessEndpoint = *in.AccessEndpoint
 	}
 
 	if in.VpcSubnetIDs != nil {

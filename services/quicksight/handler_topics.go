@@ -21,6 +21,7 @@ const (
 	keyRefreshSchedules = "RefreshSchedules"
 	keyDatasetID        = "DatasetId"
 	keyDatasetArn       = "DatasetArn"
+	keyDatasetName      = "DatasetName"
 	keyIsEnabled        = "IsEnabled"
 	keyRefreshType      = "RefreshType"
 	// keyTopicScheduleType is types.TopicRefreshSchedule's real schedule-type
@@ -243,13 +244,7 @@ func (h *Handler) handleListTopics(c *echo.Context) error {
 
 	items := make([]map[string]any, 0, len(topics))
 	for _, t := range topics {
-		items = append(items, map[string]any{
-			keyArn:             t.Arn,
-			keyTopicID:         t.TopicID,
-			keyName:            t.Name,
-			keyCreatedTime:     t.CreatedTime.Unix(),
-			keyLastUpdatedTime: t.LastUpdatedTime.Unix(),
-		})
+		items = append(items, topicSummaryToMap(t))
 	}
 
 	resp := map[string]any{
@@ -525,13 +520,20 @@ func (h *Handler) handleListTopicRefreshSchedules(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
+	// types.TopicRefreshScheduleSummary (deserializers.go: awsRestjson1_
+	// deserializeDocumentTopicRefreshScheduleSummary) also carries
+	// DatasetName -- derived from the dataset itself, not fabricated.
 	items := make([]map[string]any, 0, len(schedules))
 	for _, s := range schedules {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyDatasetID:       s.DatasetID,
 			keyDatasetArn:      s.DatasetArn,
 			keyRefreshSchedule: topicRefreshScheduleToMap(s),
-		})
+		}
+		if ds, dsErr := h.Backend.DescribeDataSet(accountID, s.DatasetID); dsErr == nil {
+			item[keyDatasetName] = ds.Name
+		}
+		items = append(items, item)
 	}
 
 	return writeJSON(c, http.StatusOK, map[string]any{

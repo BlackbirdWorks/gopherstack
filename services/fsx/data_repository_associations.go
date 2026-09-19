@@ -8,35 +8,44 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// defaultImportedFileChunkSize is the real API's documented omission
+// default for ImportedFileChunkSize on CreateDataRepositoryAssociation:
+// "The default chunk size is 1,024 MiB (1 GiB)"
+// (api_op_CreateDataRepositoryAssociation.go).
+const defaultImportedFileChunkSize = 1024
+
 type storedDataRepositoryAssoc struct {
-	CreationTime       time.Time         `json:"creationTime"`
-	Tags               map[string]string `json:"tags"`
-	AssociationID      string            `json:"associationId"`
-	FileSystemID       string            `json:"fileSystemId"`
-	FileSystemPath     string            `json:"fileSystemPath"`
-	DataRepositoryPath string            `json:"dataRepositoryPath"`
-	Lifecycle          string            `json:"lifecycle"`
-	ResourceARN        string            `json:"resourceArn"`
+	CreationTime          time.Time         `json:"creationTime"`
+	Tags                  map[string]string `json:"tags"`
+	AssociationID         string            `json:"associationId"`
+	FileSystemID          string            `json:"fileSystemId"`
+	FileSystemPath        string            `json:"fileSystemPath"`
+	DataRepositoryPath    string            `json:"dataRepositoryPath"`
+	Lifecycle             string            `json:"lifecycle"`
+	ResourceARN           string            `json:"resourceArn"`
+	ImportedFileChunkSize int32             `json:"importedFileChunkSize"`
 }
 
 func (a *storedDataRepositoryAssoc) toPublic() *DataRepositoryAssociation {
 	return &DataRepositoryAssociation{
-		CreationTime:       epochTime(a.CreationTime),
-		AssociationID:      a.AssociationID,
-		FileSystemID:       a.FileSystemID,
-		FileSystemPath:     a.FileSystemPath,
-		DataRepositoryPath: a.DataRepositoryPath,
-		Lifecycle:          a.Lifecycle,
-		ResourceARN:        a.ResourceARN,
-		Tags:               tagsMapToSlice(a.Tags),
+		CreationTime:          epochTime(a.CreationTime),
+		AssociationID:         a.AssociationID,
+		FileSystemID:          a.FileSystemID,
+		FileSystemPath:        a.FileSystemPath,
+		DataRepositoryPath:    a.DataRepositoryPath,
+		Lifecycle:             a.Lifecycle,
+		ResourceARN:           a.ResourceARN,
+		Tags:                  tagsMapToSlice(a.Tags),
+		ImportedFileChunkSize: a.ImportedFileChunkSize,
 	}
 }
 
 type createDataRepositoryAssociationInput struct {
-	FileSystemID       string `json:"FileSystemId"`
-	FileSystemPath     string `json:"FileSystemPath"`
-	DataRepositoryPath string `json:"DataRepositoryPath"`
-	Tags               []Tag  `json:"Tags,omitempty"`
+	ImportedFileChunkSize *int32 `json:"ImportedFileChunkSize,omitempty"`
+	FileSystemID          string `json:"FileSystemId"`
+	FileSystemPath        string `json:"FileSystemPath"`
+	DataRepositoryPath    string `json:"DataRepositoryPath"`
+	Tags                  []Tag  `json:"Tags,omitempty"`
 }
 
 // CreateDataRepositoryAssociation creates a data repository association.
@@ -59,15 +68,21 @@ func (b *InMemoryBackend) CreateDataRepositoryAssociation(
 	now := time.Now().UTC()
 	tags := tagsSliceToMap(input.Tags)
 
+	chunkSize := int32(defaultImportedFileChunkSize)
+	if input.ImportedFileChunkSize != nil {
+		chunkSize = *input.ImportedFileChunkSize
+	}
+
 	a := &storedDataRepositoryAssoc{
-		CreationTime:       now,
-		Tags:               tags,
-		AssociationID:      id,
-		FileSystemID:       input.FileSystemID,
-		FileSystemPath:     input.FileSystemPath,
-		DataRepositoryPath: input.DataRepositoryPath,
-		Lifecycle:          lifecycleAvailable,
-		ResourceARN:        arn,
+		CreationTime:          now,
+		Tags:                  tags,
+		AssociationID:         id,
+		FileSystemID:          input.FileSystemID,
+		FileSystemPath:        input.FileSystemPath,
+		DataRepositoryPath:    input.DataRepositoryPath,
+		Lifecycle:             lifecycleAvailable,
+		ResourceARN:           arn,
+		ImportedFileChunkSize: chunkSize,
 	}
 
 	b.dataRepositoryAssocs.Put(a)
@@ -152,9 +167,10 @@ func (b *InMemoryBackend) DescribeDataRepositoryAssociations( //nolint:dupl // e
 }
 
 type updateDataRepositoryAssociationInput struct {
-	AssociationID      string `json:"AssociationId"`
-	FileSystemPath     string `json:"FileSystemPath,omitempty"`
-	DataRepositoryPath string `json:"DataRepositoryPath,omitempty"`
+	ImportedFileChunkSize *int32 `json:"ImportedFileChunkSize,omitempty"`
+	AssociationID         string `json:"AssociationId"`
+	FileSystemPath        string `json:"FileSystemPath,omitempty"`
+	DataRepositoryPath    string `json:"DataRepositoryPath,omitempty"`
 }
 
 // UpdateDataRepositoryAssociation updates a DRA's paths.
@@ -175,6 +191,10 @@ func (b *InMemoryBackend) UpdateDataRepositoryAssociation(
 
 	if input.DataRepositoryPath != "" {
 		a.DataRepositoryPath = input.DataRepositoryPath
+	}
+
+	if input.ImportedFileChunkSize != nil {
+		a.ImportedFileChunkSize = *input.ImportedFileChunkSize
 	}
 
 	return a.toPublic(), nil

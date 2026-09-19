@@ -219,7 +219,9 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	taskDef, err := original.CreateWirelessGatewayTaskDefinition(testAccountID, testRegion, "taskdef-1", true, nil)
 	require.NoError(t, err)
 
-	_, err = original.StartWirelessDeviceImportTask(testAccountID, testRegion, dest.Name)
+	_, err = original.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, dest.Name, "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
 	_, err = original.StartSingleWirelessDeviceImportTask(testAccountID, testRegion, dest.Name)
@@ -605,7 +607,9 @@ func TestInMemoryBackend_Snapshot_IncludesImportTasks(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	task, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
+	task, err := b.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, "snap-dest", "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())
@@ -668,7 +672,9 @@ func TestInMemoryBackend_SnapshotRestore_FullRoundTrip(t *testing.T) {
 	nc, err := b.CreateNetworkAnalyzerConfig(testAccountID, testRegion, "snap-nc", "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	it, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "snap-dest")
+	it, err := b.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, "snap-dest", "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
 	snap := b.Snapshot(t.Context())

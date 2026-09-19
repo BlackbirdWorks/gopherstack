@@ -56,6 +56,7 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 	name, description string,
 	dataSourceType json.RawMessage,
 	openSearchArns []string,
+	dataSourceAccessPolicy ...string,
 ) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("%w: DataSourceName is required", ErrInvalidParameter)
@@ -72,13 +73,19 @@ func (b *InMemoryBackend) AddDirectQueryDataSource(
 		)
 	}
 
+	var accessPolicy string
+	if len(dataSourceAccessPolicy) > 0 {
+		accessPolicy = dataSourceAccessPolicy[0]
+	}
+
 	dsARN := arn.Build("opensearch", b.region, b.accountID, "directQueryDataSource/"+name)
 	b.directQueryDataSources.Put(&DirectQueryDataSource{
-		Name:           name,
-		Description:    description,
-		DataSourceType: dataSourceType,
-		OpenSearchArns: openSearchArns,
-		DataSourceArn:  dsARN,
+		Name:                   name,
+		Description:            description,
+		DataSourceType:         dataSourceType,
+		OpenSearchArns:         openSearchArns,
+		DataSourceArn:          dsARN,
+		DataSourceAccessPolicy: accessPolicy,
 	})
 
 	return dsARN, nil
@@ -204,6 +211,7 @@ func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 	name, description string,
 	dataSourceType json.RawMessage,
 	openSearchArns []string,
+	dataSourceAccessPolicy string,
 ) (*DirectQueryDataSource, error) {
 	b.mu.Lock("UpdateDirectQueryDataSource")
 	defer b.mu.Unlock()
@@ -222,6 +230,12 @@ func (b *InMemoryBackend) UpdateDirectQueryDataSource(
 
 	if len(dataSourceType) > 0 {
 		ds.DataSourceType = dataSourceType
+	}
+
+	// DataSourceAccessPolicy: "If not specified, the existing access policy
+	// if present remains unchanged" (api_op_UpdateDirectQueryDataSource.go).
+	if dataSourceAccessPolicy != "" {
+		ds.DataSourceAccessPolicy = dataSourceAccessPolicy
 	}
 
 	cp := *ds

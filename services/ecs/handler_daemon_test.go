@@ -536,6 +536,70 @@ func TestECS_DescribeDaemon_SDKRoundTrip_RevisionNesting(t *testing.T) {
 	}
 }
 
+// TestECS_DaemonCritical_DefaultsTrueAndHonoursExplicitFalse proves CreateDaemon
+// and UpdateDaemon's Critical parameter (undeclared before this fix -- see
+// cmd/reqfielddiff), documented default true (api_op_CreateDaemon.go:86,
+// api_op_UpdateDaemon.go:79), round-trips through DescribeDaemonRevisions'
+// types.DaemonRevision.Critical rather than being silently dropped.
+func TestECS_DaemonCritical_DefaultsTrueAndHonoursExplicitFalse(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECSClient(t, h)
+	ctx := t.Context()
+	tdArn := registerDaemonTaskDef(t, h, "critical-family")
+	cpArn := createCapacityProviderForDaemon(t, h, "critical-cp")
+
+	createOut, err := client.CreateDaemon(ctx, &ecssdk.CreateDaemonInput{
+		DaemonName:              aws.String("critical-daemon"),
+		DaemonTaskDefinitionArn: aws.String(tdArn),
+		CapacityProviderArns:    []string{cpArn},
+	})
+	require.NoError(t, err)
+
+	descOut, err := client.DescribeDaemonRevisions(ctx, &ecssdk.DescribeDaemonRevisionsInput{
+		DaemonRevisionArns: []string{},
+	})
+	require.NoError(t, err)
+	require.Empty(t, descOut.DaemonRevisions, "no ARNs requested yet")
+
+	getOut, err := client.DescribeDaemon(ctx, &ecssdk.DescribeDaemonInput{DaemonArn: createOut.DaemonArn})
+	require.NoError(t, err)
+	require.Len(t, getOut.Daemon.CurrentRevisions, 1)
+
+	revArn := aws.ToString(getOut.Daemon.CurrentRevisions[0].Arn)
+
+	describeRevOut, err := client.DescribeDaemonRevisions(ctx, &ecssdk.DescribeDaemonRevisionsInput{
+		DaemonRevisionArns: []string{revArn},
+	})
+	require.NoError(t, err)
+	require.Len(t, describeRevOut.DaemonRevisions, 1)
+	require.NotNil(t, describeRevOut.DaemonRevisions[0].Critical)
+	assert.True(t, *describeRevOut.DaemonRevisions[0].Critical, "Critical must default to true when omitted")
+
+	updateOut, err := client.UpdateDaemon(ctx, &ecssdk.UpdateDaemonInput{
+		DaemonArn:               createOut.DaemonArn,
+		DaemonTaskDefinitionArn: aws.String(tdArn),
+		CapacityProviderArns:    []string{cpArn},
+		Critical:                aws.Bool(false),
+	})
+	require.NoError(t, err)
+
+	getOut, err = client.DescribeDaemon(ctx, &ecssdk.DescribeDaemonInput{DaemonArn: updateOut.DaemonArn})
+	require.NoError(t, err)
+	require.Len(t, getOut.Daemon.CurrentRevisions, 1)
+
+	updatedRevArn := aws.ToString(getOut.Daemon.CurrentRevisions[0].Arn)
+
+	describeRevOut, err = client.DescribeDaemonRevisions(ctx, &ecssdk.DescribeDaemonRevisionsInput{
+		DaemonRevisionArns: []string{updatedRevArn},
+	})
+	require.NoError(t, err)
+	require.Len(t, describeRevOut.DaemonRevisions, 1)
+	require.NotNil(t, describeRevOut.DaemonRevisions[0].Critical)
+	assert.False(t, *describeRevOut.DaemonRevisions[0].Critical, "explicit Critical=false must not be dropped")
+}
+
 func TestECS_UpdateDaemon(t *testing.T) {
 	t.Parallel()
 

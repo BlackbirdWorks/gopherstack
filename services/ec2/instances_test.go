@@ -3,11 +3,82 @@ package ec2_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	ec2sdk "github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/blackbirdworks/gopherstack/services/ec2"
 )
+
+// TestRunInstances_CreditSpecification_RealClient covers gopherstack-xhu2t:
+// CreditSpecification.CpuCredits was never read, so
+// DescribeInstanceCreditSpecifications always reported the "standard" default
+// regardless of the request.
+func TestRunInstances_CreditSpecification_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	run, err := client.RunInstances(t.Context(), &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String("ami-test"),
+		InstanceType: types.InstanceTypeT3Micro,
+		MinCount:     aws.Int32(1),
+		MaxCount:     aws.Int32(1),
+		CreditSpecification: &types.CreditSpecificationRequest{
+			CpuCredits: aws.String("unlimited"),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, run.Instances, 1)
+	instanceID := aws.ToString(run.Instances[0].InstanceId)
+
+	out, err := client.DescribeInstanceCreditSpecifications(
+		t.Context(), &ec2sdk.DescribeInstanceCreditSpecificationsInput{InstanceIds: []string{instanceID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.InstanceCreditSpecifications, 1)
+	assert.Equal(t, "unlimited", aws.ToString(out.InstanceCreditSpecifications[0].CpuCredits),
+		"CreditSpecification.CpuCredits dropped - RunInstances never read it")
+}
+
+// TestRunInstances_PrivateDnsNameOptions_RealClient covers gopherstack-xhu2t:
+// PrivateDnsNameOptions was never read on RunInstances, and Instance never
+// echoed it on DescribeInstances even though ModifyPrivateDnsNameOptions
+// already stored it (write-only field).
+func TestRunInstances_PrivateDnsNameOptions_RealClient(t *testing.T) {
+	t.Parallel()
+
+	h := ec2.NewHandler(ec2.NewInMemoryBackend("000000000000", "us-east-1"))
+	client := newTestEC2Client(t, h)
+
+	run, err := client.RunInstances(t.Context(), &ec2sdk.RunInstancesInput{
+		ImageId:      aws.String("ami-test"),
+		InstanceType: types.InstanceTypeT3Micro,
+		MinCount:     aws.Int32(1),
+		MaxCount:     aws.Int32(1),
+		PrivateDnsNameOptions: &types.PrivateDnsNameOptionsRequest{
+			HostnameType:                 types.HostnameTypeResourceName,
+			EnableResourceNameDnsARecord: aws.Bool(true),
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, run.Instances, 1)
+	instanceID := aws.ToString(run.Instances[0].InstanceId)
+
+	out, err := client.DescribeInstances(
+		t.Context(), &ec2sdk.DescribeInstancesInput{InstanceIds: []string{instanceID}},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.Reservations, 1)
+	require.Len(t, out.Reservations[0].Instances, 1)
+	inst := out.Reservations[0].Instances[0]
+	require.NotNil(t, inst.PrivateDnsNameOptions, "PrivateDnsNameOptions dropped - RunInstances never read it")
+	assert.Equal(t, types.HostnameTypeResourceName, inst.PrivateDnsNameOptions.HostnameType)
+	assert.True(t, aws.ToBool(inst.PrivateDnsNameOptions.EnableResourceNameDnsARecord))
+}
 
 func TestSendDiagnosticInterrupt(t *testing.T) {
 	t.Parallel()

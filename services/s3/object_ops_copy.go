@@ -171,6 +171,7 @@ func (h *S3Handler) copyObject(
 		ContentType:       contentType,
 		Expires:           expires,
 		StorageClass:      types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ACL:               types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
 		ChecksumAlgorithm: copyChecksumAlgorithm(r, srcVer),
 	}
 	h.resolveCopyTagging(ctx, r, putInput, tagging, taggingReplace)
@@ -182,8 +183,39 @@ func (h *S3Handler) copyObject(
 		return
 	}
 
+	h.copyAnnotations(r, srcVer, destBucket, destKey, destVer)
+
 	setSSEResponseHeaders(w, destSSE)
 	h.writeCopyResponse(ctx, w, destBucket, destKey, srcVer, destVer)
+}
+
+// annotationDirectiveExclude is the EXCLUDE value for
+// X-Amz-Object-Annotation-Directive; COPY (the default, any other value
+// including absent) copies the source object's annotations.
+const annotationDirectiveExclude = "EXCLUDE"
+
+// copyAnnotations implements CopyObjectInput.AnnotationDirective: annotations
+// are copied from the source version to the destination version unless the
+// caller explicitly requests EXCLUDE.
+func (h *S3Handler) copyAnnotations(
+	r *http.Request,
+	srcVer *s3.GetObjectOutput,
+	destBucket, destKey string,
+	destVer *s3.PutObjectOutput,
+) {
+	if strings.EqualFold(r.Header.Get("X-Amz-Object-Annotation-Directive"), annotationDirectiveExclude) {
+		return
+	}
+
+	srcBucket, srcKey, _, ok := parseCopySource(r.Header.Get("X-Amz-Copy-Source"))
+	if !ok {
+		return
+	}
+
+	// srcVer.VersionId is the exact version copySourceData already resolved
+	// and fetched (honoring any X-Amz-Copy-Source-Version-Id override), so
+	// reuse it rather than re-deriving from headers.
+	_ = h.Backend.CopyObjectAnnotations(srcBucket, srcKey, srcVer.VersionId, destBucket, destKey, destVer.VersionId)
 }
 
 // resolveCopyTagging sets the destination tagging on putInput. When the request

@@ -93,6 +93,8 @@ func (h *Handler) handleDescribeLaunchTemplateVersions(vals url.Values, reqID st
 		items = append(items, item)
 	}
 
+	items = applyLaunchTemplateVersionFilters(items, parseEC2Filters(vals))
+
 	return &describeLaunchTemplateVersionsResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,

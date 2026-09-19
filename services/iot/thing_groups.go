@@ -131,8 +131,8 @@ func (b *InMemoryBackend) UpdateThingGroup(input *UpdateThingGroupInput) (int64,
 			ErrVersionConflict, input.ExpectedVersion, tg.Version)
 	}
 
-	if input.Description != "" {
-		tg.Description = input.Description
+	if input.Description != nil {
+		tg.Description = *input.Description
 	}
 
 	if input.Attributes != nil {
@@ -321,17 +321,17 @@ func (b *InMemoryBackend) UpdateDynamicThingGroup(input *UpdateThingGroupInput) 
 			ErrVersionConflict, input.ExpectedVersion, tg.Version)
 	}
 
-	if input.Description != "" {
-		tg.Description = input.Description
+	if input.Description != nil {
+		tg.Description = *input.Description
 	}
-	if input.QueryString != "" {
-		tg.QueryString = input.QueryString
+	if input.QueryString != nil {
+		tg.QueryString = *input.QueryString
 	}
-	if input.IndexName != "" {
-		tg.IndexName = input.IndexName
+	if input.IndexName != nil {
+		tg.IndexName = *input.IndexName
 	}
-	if input.QueryVersion != "" {
-		tg.QueryVersion = input.QueryVersion
+	if input.QueryVersion != nil {
+		tg.QueryVersion = *input.QueryVersion
 	}
 	tg.Version++
 

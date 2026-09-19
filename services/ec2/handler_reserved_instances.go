@@ -23,6 +23,7 @@ type reservedInstancesOfferingItem struct {
 	ProductDescription          string  `xml:"productDescription,omitempty"`
 	OfferingType                string  `xml:"offeringType,omitempty"`
 	OfferingClass               string  `xml:"offeringClass,omitempty"`
+	InstanceTenancy             string  `xml:"instanceTenancy,omitempty"`
 	Duration                    int64   `xml:"duration"`
 	FixedPrice                  float64 `xml:"fixedPrice"`
 	UsagePrice                  float64 `xml:"usagePrice"`
@@ -257,6 +258,7 @@ func toReservedInstancesOfferingItem(o *ReservedInstancesOffering) reservedInsta
 		ProductDescription:          o.ProductDescription,
 		OfferingType:                o.OfferingType,
 		OfferingClass:               o.OfferingClass,
+		InstanceTenancy:             o.Tenancy,
 		Duration:                    o.Duration,
 		FixedPrice:                  o.FixedPrice,
 		UsagePrice:                  o.UsagePrice,
@@ -346,12 +348,19 @@ func (h *Handler) handleDescribeReservedInstancesOfferings(
 	vals url.Values,
 	reqID string,
 ) (any, error) {
-	instanceType := vals.Get("InstanceType")
-	az := vals.Get("AvailabilityZone")
-	productDesc := vals.Get("ProductDescription")
-	offeringClass := vals.Get("OfferingClass")
+	minDuration, _ := strconv.ParseInt(vals.Get("MinDuration"), 10, 64)
+	maxDuration, _ := strconv.ParseInt(vals.Get("MaxDuration"), 10, 64)
 
-	offerings := h.Backend.DescribeReservedInstancesOfferings(instanceType, az, productDesc, offeringClass)
+	offerings := h.Backend.DescribeReservedInstancesOfferings(DescribeReservedInstancesOfferingsParams{
+		InstanceType:       vals.Get("InstanceType"),
+		AvailabilityZone:   vals.Get("AvailabilityZone"),
+		ProductDescription: vals.Get("ProductDescription"),
+		OfferingClass:      vals.Get("OfferingClass"),
+		InstanceTenancy:    vals.Get("InstanceTenancy"),
+		MinDuration:        minDuration,
+		MaxDuration:        maxDuration,
+	})
+	offerings = applyReservedInstancesOfferingFilters(offerings, parseEC2Filters(vals))
 
 	maxResults, offset, err := parseEC2Pagination(
 		vals, ec2PageMinDefault, ec2PageMaxReservedInstancesOfferings, ec2PageMaxReservedInstancesOfferings,

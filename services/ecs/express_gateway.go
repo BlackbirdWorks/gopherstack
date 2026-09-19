@@ -32,6 +32,16 @@ func expressGatewayRevisionArnFor(svc *ExpressGatewayService) string {
 // primaryContainer, executionRoleArn, taskRoleArn, cpu, or memory" (see the
 // TaskDefinitionArn doc comment on CreateExpressGatewayServiceInput /
 // UpdateExpressGatewayServiceInput in the real SDK).
+// stringOrCurrent returns *v when the field was sent on this update, or
+// current (the prior revision's value) when it was omitted.
+func stringOrCurrent(v *string, current string) string {
+	if v != nil {
+		return *v
+	}
+
+	return current
+}
+
 func validateExpressGatewayConfigInput(
 	taskDefinitionArn string,
 	primaryContainer *ExpressGatewayContainer,
@@ -108,8 +118,9 @@ func (b *InMemoryBackend) UpdateExpressGatewayService(
 	}
 
 	if err := validateExpressGatewayConfigInput(
-		input.TaskDefinitionArn, input.PrimaryContainer,
-		input.ExecutionRoleArn, input.TaskRoleArn, input.CPU, input.Memory,
+		stringOrCurrent(input.TaskDefinitionArn, ""), input.PrimaryContainer,
+		stringOrCurrent(input.ExecutionRoleArn, ""), stringOrCurrent(input.TaskRoleArn, ""),
+		stringOrCurrent(input.CPU, ""), stringOrCurrent(input.Memory, ""),
 	); err != nil {
 		return nil, err
 	}
@@ -126,9 +137,24 @@ func (b *InMemoryBackend) UpdateExpressGatewayService(
 		svc.InfrastructureRoleArn = input.InfrastructureRoleArn
 	}
 
+	// An omitted CPU/Memory/HealthCheckPath/ExecutionRoleArn/TaskRoleArn/
+	// TaskDefinitionArn must carry over from the current revision, not reset
+	// to buildExpressGatewayServiceConfiguration's Create-time defaults (or,
+	// worse, to "" for the role/task-definition fields, which had no
+	// fallback at all).
+	var current ExpressGatewayServiceConfiguration
+	if len(svc.ActiveConfigurations) > 0 {
+		current = svc.ActiveConfigurations[0]
+	}
+
 	cfg := buildExpressGatewayServiceConfiguration(
-		svc, input.CPU, input.Memory, input.HealthCheckPath,
-		input.ExecutionRoleArn, input.TaskRoleArn, input.TaskDefinitionArn,
+		svc,
+		stringOrCurrent(input.CPU, current.CPU),
+		stringOrCurrent(input.Memory, current.Memory),
+		stringOrCurrent(input.HealthCheckPath, current.HealthCheckPath),
+		stringOrCurrent(input.ExecutionRoleArn, current.ExecutionRoleArn),
+		stringOrCurrent(input.TaskRoleArn, current.TaskRoleArn),
+		stringOrCurrent(input.TaskDefinitionArn, current.TaskDefinitionArn),
 		input.NetworkConfiguration, input.PrimaryContainer, input.ScalingTarget,
 	)
 

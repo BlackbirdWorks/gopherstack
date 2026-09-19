@@ -68,17 +68,18 @@ func (h *Handler) handleExecuteStatement(ctx context.Context, body []byte) ([]by
 // wire but not behaviorally significant, and why ClientToken is.
 func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) ([]byte, error) {
 	var req struct {
+		ClusterIdentifier       string         `json:"ClusterIdentifier"`
 		ResultFormat            string         `json:"ResultFormat"`
-		WorkgroupName           string         `json:"WorkgroupName"`
 		Database                string         `json:"Database"`
 		DBUser                  string         `json:"DbUser"`
 		SecretArn               string         `json:"SecretArn"`
 		StatementName           string         `json:"StatementName"`
-		ClusterIdentifier       string         `json:"ClusterIdentifier"`
-		SessionID               string         `json:"SessionId"`
 		ClientToken             string         `json:"ClientToken"`
-		Sqls                    []string       `json:"Sqls"`
+		ExecutionMode           string         `json:"ExecutionMode"`
+		WorkgroupName           string         `json:"WorkgroupName"`
+		SessionID               string         `json:"SessionId"`
 		Parameters              []SQLParameter `json:"Parameters"`
+		Sqls                    []string       `json:"Sqls"`
 		SessionKeepAliveSeconds int32          `json:"SessionKeepAliveSeconds"`
 		WithEvent               bool           `json:"WithEvent"`
 	}
@@ -100,7 +101,7 @@ func (h *Handler) handleBatchExecuteStatement(ctx context.Context, body []byte) 
 		req.Sqls, req.ClusterIdentifier, req.WorkgroupName,
 		req.Database, req.DBUser, req.SecretArn, req.StatementName,
 		req.WithEvent, req.ResultFormat, req.Parameters,
-		req.SessionID,
+		req.SessionID, req.ExecutionMode,
 	)
 	if err != nil {
 		return nil, err
@@ -459,6 +460,10 @@ func statementToDescribeResponse(stmt *Statement) map[string]any {
 
 	if stmt.Error != "" {
 		resp["Error"] = stmt.Error
+	}
+
+	if stmt.ExecutionMode != "" {
+		resp["ExecutionMode"] = stmt.ExecutionMode
 	}
 
 	if len(stmt.Parameters) > 0 {

@@ -26,7 +26,7 @@ func TestHostReservations_Lifecycle(t *testing.T) { //nolint:paralleltest // exi
 		}
 	})
 
-	hosts, err := b.AllocateHosts("us-east-1a", "m5.large", 2)
+	hosts, err := b.AllocateHosts("us-east-1a", "m5.large", 2, "", "")
 	require.NoError(t, err)
 	require.Len(t, hosts, 2)
 

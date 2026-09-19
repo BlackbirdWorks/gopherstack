@@ -287,6 +287,8 @@ func (rc *ResourceCreator) createEC2VPCPeeringConnection(
 	pc, err := rc.backends.EC2.Backend.CreateVpcPeeringConnection(
 		strProp(props, "VpcId", params, physicalIDs),
 		strProp(props, "PeerVpcId", params, physicalIDs),
+		strProp(props, "PeerOwnerId", params, physicalIDs),
+		strProp(props, "PeerRegion", params, physicalIDs),
 	)
 	if err != nil {
 		return "", fmt.Errorf("create EC2 VPC peering connection: %w", err)
@@ -496,6 +498,8 @@ func (rc *ResourceCreator) createEC2FlowLog(
 		strProp(props, "TrafficType", params, physicalIDs),
 		strProp(props, "LogDestinationType", params, physicalIDs),
 		strProp(props, "LogDestination", params, physicalIDs),
+		strProp(props, "LogFormat", params, physicalIDs),
+		int32(intProp(props, "MaxAggregationInterval")), // #nosec G115 -- seconds, bounded by the ec2 validation
 		nil,
 	)
 	if err != nil {

@@ -39,6 +39,11 @@ var (
 	// reference doc comment: error returned if an attempt is made to delete
 	// a patch baseline that is registered for a patch group.
 	ErrPatchBaselineInUse = errors.New("ResourceInUseException")
+	// ErrMaintenanceWindowTargetInUse is returned by
+	// DeregisterTargetFromMaintenanceWindow when Safe=true and the target is
+	// still referenced by a registered task. TargetInUseException is the
+	// real declared exception (ssm@v1.77.0 types/errors.go).
+	ErrMaintenanceWindowTargetInUse = errors.New("TargetInUseException")
 )
 var (
 	ErrResourceDataSyncNotFound    = errors.New("ResourceDataSyncNotFoundException")

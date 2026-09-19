@@ -318,23 +318,27 @@ func (b *InMemoryBackend) RestoreDBInstanceFromDBSnapshot(
 		}
 
 		inst := &DBInstance{
-			DBInstanceIdentifier: id,
-			DBInstanceArn:        b.rdsARN("db", id),
-			DbiResourceID:        id,
-			Engine:               snap.Engine,
-			EngineVersion:        snap.EngineVersion,
-			DBInstanceStatus:     instanceStatusAvailable,
-			Endpoint:             endpoint,
-			Port:                 port,
-			AllocatedStorage:     snap.AllocatedStorage,
-			StorageType:          opts.StorageType,
-			StorageEncrypted:     snap.StorageEncrypted,
-			AvailabilityZone:     opts.AvailabilityZone,
-			MultiAZ:              opts.MultiAZ,
-			DeletionProtection:   opts.DeletionProtection,
-			DBParameterGroupName: opts.DBParameterGroupName,
-			OptionGroupName:      opts.OptionGroupName,
+			DBInstanceIdentifier:             id,
+			DBInstanceArn:                    b.rdsARN("db", id),
+			DbiResourceID:                    id,
+			Engine:                           snap.Engine,
+			EngineVersion:                    snap.EngineVersion,
+			DBInstanceStatus:                 instanceStatusAvailable,
+			Endpoint:                         endpoint,
+			Port:                             port,
+			AllocatedStorage:                 snap.AllocatedStorage,
+			StorageType:                      opts.StorageType,
+			StorageEncrypted:                 snap.StorageEncrypted,
+			AvailabilityZone:                 opts.AvailabilityZone,
+			MultiAZ:                          opts.MultiAZ,
+			DeletionProtection:               opts.DeletionProtection,
+			DBParameterGroupName:             opts.DBParameterGroupName,
+			OptionGroupName:                  opts.OptionGroupName,
+			IAMDatabaseAuthenticationEnabled: opts.IAMDatabaseAuthenticationEnabled,
+			UseDefaultProcessorFeatures:      opts.UseDefaultProcessorFeatures,
+			BackupTarget:                     opts.BackupTarget,
 		}
+		applyVpcSecurityGroups(inst, opts.VpcSecurityGroupIDs)
 		b.instances.Put(inst)
 		b.publishInstanceEventLocked(id, "DB instance restored from snapshot")
 		cp := *inst

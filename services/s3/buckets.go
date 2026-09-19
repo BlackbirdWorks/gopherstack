@@ -2,6 +2,7 @@ package s3
 
 import (
 	"context"
+	"encoding/xml"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +15,23 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
+
+// buildOwnershipControlsXML synthesizes the OwnershipControls document that
+// CreateBucket's ObjectOwnership header implies, matching the shape
+// PutBucketOwnershipControls stores verbatim from a client-supplied body.
+func buildOwnershipControlsXML(ownership string) string {
+	cfg := OwnershipControls{
+		Xmlns: xmlNamespaceS3,
+		Rules: []OwnershipControlsRule{{ObjectOwnership: ownership}},
+	}
+
+	out, err := xml.Marshal(cfg)
+	if err != nil {
+		return ""
+	}
+
+	return string(out)
+}
 
 func (b *InMemoryBackend) CreateBucket(
 	ctx context.Context,
@@ -47,6 +65,11 @@ func (b *InMemoryBackend) CreateBucket(
 		tags = input.CreateBucketConfiguration.Tags
 	}
 
+	var ownershipControls string
+	if input.ObjectOwnership != "" {
+		ownershipControls = buildOwnershipControlsXML(string(input.ObjectOwnership))
+	}
+
 	b.buckets.Put(&StoredBucket{
 		Name:         bucketName,
 		Region:       region,
@@ -63,8 +86,9 @@ func (b *InMemoryBackend) CreateBucket(
 		// S3 Express directory buckets use the naming convention {name}--{az-id}--x-s3.
 		// Detect this at creation time so ListBuckets and ListDirectoryBuckets can
 		// correctly partition general-purpose vs. directory buckets.
-		IsDirectoryBucket: strings.HasSuffix(bucketName, "--x-s3"),
-		ObjectLockEnabled: aws.ToBool(input.ObjectLockEnabledForBucket),
+		IsDirectoryBucket:       strings.HasSuffix(bucketName, "--x-s3"),
+		ObjectLockEnabled:       aws.ToBool(input.ObjectLockEnabledForBucket),
+		OwnershipControlsConfig: ownershipControls,
 	})
 
 	return &s3.CreateBucketOutput{

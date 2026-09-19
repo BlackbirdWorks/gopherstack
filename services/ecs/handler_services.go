@@ -224,7 +224,7 @@ type updateServiceInput struct {
 	Monitoring                    *monitoringConfigurationInput     `json:"monitoring,omitempty"`
 	Cluster                       string                            `json:"cluster,omitempty"`
 	Service                       string                            `json:"service"`
-	TaskDefinition                string                            `json:"taskDefinition,omitempty"`
+	TaskDefinition                *string                           `json:"taskDefinition,omitempty"`
 	PropagateTags                 string                            `json:"propagateTags,omitempty"`
 	AvailabilityZoneRebalancing   string                            `json:"availabilityZoneRebalancing,omitempty"`
 	LoadBalancers                 []loadBalancerInput               `json:"loadBalancers,omitempty"`

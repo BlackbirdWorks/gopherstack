@@ -324,14 +324,14 @@ func TestUpdateThingGroup_VersionIncrements(t *testing.T) {
 
 	ver1, err := b.UpdateThingGroup(&iot.UpdateThingGroupInput{
 		ThingGroupName: "inc-group",
-		Description:    "first update",
+		Description:    aws.String("first update"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), ver1)
 
 	ver2, err := b.UpdateThingGroup(&iot.UpdateThingGroupInput{
 		ThingGroupName: "inc-group",
-		Description:    "second update",
+		Description:    aws.String("second update"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), ver2)
@@ -346,7 +346,7 @@ func TestUpdateThingGroup_ExpectedVersionMismatch(t *testing.T) {
 
 	_, err = b.UpdateThingGroup(&iot.UpdateThingGroupInput{
 		ThingGroupName:  "ev-group",
-		Description:     "upd",
+		Description:     aws.String("upd"),
 		ExpectedVersion: 99,
 	})
 	require.ErrorIs(t, err, iot.ErrVersionConflict)
@@ -361,7 +361,7 @@ func TestUpdateThingGroup_ZeroExpectedVersion_Ignored(t *testing.T) {
 
 	_, err = b.UpdateThingGroup(&iot.UpdateThingGroupInput{
 		ThingGroupName:  "nocheck-group",
-		Description:     "updated",
+		Description:     aws.String("updated"),
 		ExpectedVersion: 0,
 	})
 	require.NoError(t, err)

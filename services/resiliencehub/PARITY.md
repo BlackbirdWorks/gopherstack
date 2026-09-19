@@ -12,8 +12,8 @@
 # audit body (Sections 1-4 below) is kept as reference material.
 service: resiliencehub
 sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
-last_audit_commit: 59c11330a
-last_audit_date: 2026-08-06
+last_audit_commit: 9bcb4b792
+last_audit_date: 2026-09-18
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed
 # SDK-driven integration suite (test/integration/resiliencehub_test.go, 9
 # TestIntegration_ResilienceHub_* funcs / 27 subtests) proves wire
@@ -1023,3 +1023,78 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes (every op exercised
 reads existing persisted state or is response-only). No version bump.
+
+## 2026-09-18 (gopherstack-xhu2t)
+
+reqfielddiff tier-1 scan: 3 findings (ListAppAssessments/ListApps/
+ListRecommendationTemplates .ReverseOrder), all 3 false positives -- each
+already parsed (`q.Get("reverseOrder")`, handler_apps.go:86,
+handler_assessments.go:55, handler_templates.go:42) and applied to sort
+order (apps.go:236-241, assessments.go:265-273, templates.go:158-168),
+verified against serializers.go's `SetQuery("reverseOrder")` binding on
+all three ops. The tool only matches struct-declared request fields, not
+raw query-string reads, so it cannot see this. No code change. Tier-1
+count unchanged at 3 (same tool blind spot, not a real gap). Gates: `go
+build ./...`, `go vet`, `go test -race -count=1
+./services/resiliencehub/...`, `golangci-lint run --new-from-rev=HEAD` (0
+issues) all clean. No persisted fields changed; no version bump.
+
+## 2026-09-18 (gopherstack-21my): per-item field sweep -- 0 bugs, confirmed at HEAD
+
+The wrapper-key sweep (6flj) never checked fields *inside* each List/Get
+item, only the top-level response key. Ran `structfielddiff -service
+resiliencehub` (63 ops) and diffed every nested Summary/Item/domain wire
+struct in wire.go field-by-field against the SDK's own types.go, not
+against this handler's prior output:
+
+`appSummaryWire`/`AppSummary` (13), `appVersionSummaryWire`/
+`AppVersionSummary` (4), `appWire`/`App` (19, incl. nested
+`eventSubscriptionWire`/`EventSubscription` and
+`permissionModelWire`/`PermissionModel`), `appComponentWire`/
+`AppComponent` (4), `physicalResourceWire`/`PhysicalResource` (9, incl.
+nested `logicalResourceIDWire`/`LogicalResourceId` and
+`physicalResourceIDWire`/`PhysicalResourceId`), `resourceMappingWire`/
+`ResourceMapping` (8), `unsupportedResourceWire`/`UnsupportedResource`
+(4), `appInputSourceWire`/`AppInputSource` (6),
+`resiliencyPolicyWire`/`ResiliencyPolicy` (9, shared by
+ListResiliencyPolicies and the documented ListSuggestedResiliencyPolicies
+stand-in), `appAssessmentWire`/`AppAssessment` (19),
+`appAssessmentSummaryWire`/`AppAssessmentSummary` (14),
+`complianceDriftWire`/`ComplianceDrift` (10), `resourceDriftWire`/
+`ResourceDrift` (5), `appComponentComplianceWire`/
+`AppComponentCompliance` (6), `disruptionComplianceWire`/
+`DisruptionCompliance` (10), `resiliencyScoreWire`/`ResiliencyScore` (3,
+incl. nested `scoringComponentResiliencyScoreWire`/
+`ScoringComponentResiliencyScore`), `resourceErrorsDetailsWire`/
+`ResourceErrorsDetails` (2, incl. nested `resourceErrorWire`/
+`ResourceError`), `assessmentSummaryWire`/`AssessmentSummary` (2, incl.
+nested `assessmentRiskRecommendationWire`/`AssessmentRiskRecommendation`),
+`costWire`/`Cost` (3), `recommendationTemplateWire`/
+`RecommendationTemplate` (14), the `BatchUpdateRecommendationStatus`/
+`Accept`/`RejectResourceGroupingRecommendations` entry and
+failed-entry wire types, and `describeMetricsExportResponse`/
+`DescribeMetricsExportOutput` (incl. nested `s3LocationWire`/`S3Location`)
+-- every field on every one of these matched the SDK exactly: no dropped
+members, no fabricated members, no wrong case/name, no nesting mismatch.
+
+The four always-empty recommendation-family Lists
+(Alarm/Sop/Test/AppComponentRecommendations) and
+ListResourceGroupingRecommendations were left as `[]struct{}` on
+purpose (structural_gaps: no recommendation content is ever generated,
+confirmed already documented above) -- an empty slice has no per-item
+shape to get wrong, so there was nothing to sweep there beyond
+re-confirming the wrapper key, which 6flj already covered.
+
+`overwidecandidates` flags `ListAppAssessments`/`ListAppVersions`/
+`ListApps` by name pattern (their item types end in "Summary"), but each
+one's wire type is exactly the SDK's own narrower Summary shape (verified
+above) -- false positives, no narrowing needed.
+
+No code changes. Existing typed-client tests (sdk_roundtrip_test.go,
+sdk_roundtrip_app_version_and_resources_test.go) already exercise these
+ops through the real SDK client; this pass's contribution is the
+mechanical per-item field diff against the SDK source, not new tests, since
+it found nothing to prove. Gates: `go build ./...`, `go vet`, `go test
+-race -count=1 ./services/resiliencehub/...`, `go test -count=1
+./pkgs/persistence/`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
+all clean. No persisted fields changed; no version bump.

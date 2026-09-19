@@ -95,7 +95,7 @@ func TestCreateVpcPeeringConnection(t *testing.T) {
 				requesterID = vpc.ID
 			}
 
-			pc, err := b.CreateVpcPeeringConnection(requesterID, tt.accepterVPCID)
+			pc, err := b.CreateVpcPeeringConnection(requesterID, tt.accepterVPCID, "", "")
 
 			if tt.wantErr {
 				require.Error(t, err)
@@ -126,7 +126,7 @@ func TestDeleteVpcPeeringConnection(t *testing.T) {
 	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	pc, err := b.CreateVpcPeeringConnection(vpc.ID, "vpc-remote-12345678")
+	pc, err := b.CreateVpcPeeringConnection(vpc.ID, "vpc-remote-12345678", "", "")
 	require.NoError(t, err)
 
 	// Delete it.

@@ -284,7 +284,7 @@ func TestCircuitBreaker_RollsBackToStableTaskDef(t *testing.T) {
 	if _, err := b.UpdateService(UpdateServiceInput{
 		Cluster:        "cb",
 		Service:        "svc",
-		TaskDefinition: v2,
+		TaskDefinition: &v2,
 	}); err != nil {
 		t.Fatalf("UpdateService: %v", err)
 	}

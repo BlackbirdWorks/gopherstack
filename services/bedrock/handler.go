@@ -62,6 +62,14 @@ const (
 	// singular) -- see resource_policy.go's package doc comment.
 	resourcePolicyPath = "/resource-policy"
 
+	// Op name constants used across multiple route files.
+	opTagResource          = "TagResource"
+	opUntagResource        = "UntagResource"
+	opListTagsForResource  = "ListTagsForResource"
+	opPutResourcePolicy    = "PutResourcePolicy"
+	opGetResourcePolicy    = "GetResourcePolicy"
+	opDeleteResourcePolicy = "DeleteResourcePolicy"
+
 	// Response key constants.
 	keyJobArn                   = "jobArn"
 	keyStatus                   = "status"
@@ -81,6 +89,9 @@ const (
 	keyPromptRouterArn          = "promptRouterArn"
 	keyCustomModelDeploymentArn = "customModelDeploymentArn"
 	keyRoleArn                  = "roleArn"
+	keyID                       = "id"
+	keyVersion                  = "version"
+	keyDefinitionHash           = "definitionHash"
 
 	// Stub operation paths.
 	modelCopyJobsPrefix       = "/model-copy-jobs"

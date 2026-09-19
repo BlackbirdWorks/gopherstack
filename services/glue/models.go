@@ -613,16 +613,53 @@ type DataQualityTargetTable struct {
 	CatalogID    string `json:"CatalogId,omitempty"`
 }
 
+// DataQualityGlueTableRef is the GlueTable/DataQualityGlueTable shape shared by
+// both branches of the real types.DataSource union (glue@v1.157.0
+// types/types.go:4061, serializers.go's serializeDocumentGlueTable/
+// DataQualityGlueTable) -- both carry the same DatabaseName/TableName/CatalogId.
+type DataQualityGlueTableRef struct {
+	DatabaseName string `json:"DatabaseName,omitempty"`
+	TableName    string `json:"TableName,omitempty"`
+	CatalogID    string `json:"CatalogId,omitempty"`
+}
+
+// DataQualityDataSource mirrors the real types.DataSource union verbatim
+// (exactly one of GlueTable/DataQualityGlueTable set) so it can be stored and
+// echoed back without collapsing which variant a caller supplied.
+type DataQualityDataSource struct {
+	GlueTable            *DataQualityGlueTableRef `json:"GlueTable,omitempty"`
+	DataQualityGlueTable *DataQualityGlueTableRef `json:"DataQualityGlueTable,omitempty"`
+}
+
+// DataQualityRunAdditionalOptions carries StartDataQualityRulesetEvaluationRunInput's
+// AdditionalRunOptions scalar members (glue@v1.157.0 types.
+// DataQualityEvaluationRunAdditionalRunOptions). The catalog-table-writeback
+// sub-options (DataQualityRuleResults/ObservationResults/ProfilingResults/
+// RowLevelResults) and anomaly-detection ObservationMode/ObservationScope are
+// deliberately not modeled here: this backend never writes evaluation output to
+// a Data Catalog table and has no anomaly-detection engine, so there is nothing
+// honest to back them with.
+type DataQualityRunAdditionalOptions struct {
+	CompositeRuleEvaluationMethod string `json:"CompositeRuleEvaluationMethod,omitempty"`
+	CustomLogGroupPrefix          string `json:"CustomLogGroupPrefix,omitempty"`
+	ResultsS3Prefix               string `json:"ResultsS3Prefix,omitempty"`
+	CloudWatchMetricsEnabled      bool   `json:"CloudWatchMetricsEnabled,omitempty"`
+}
+
 // DataQualityEvaluationRun represents a data quality ruleset evaluation run.
 type DataQualityEvaluationRun struct {
-	RunID           string   `json:"RunId"`
-	Status          string   `json:"Status"`
-	ErrorString     string   `json:"ErrorString,omitempty"`
-	RulesetNames    []string `json:"RulesetNames,omitempty"`
-	StartedOn       float64  `json:"StartedOn,omitempty"`
-	CompletedOn     float64  `json:"CompletedOn,omitempty"`
-	NumberOfWorkers int32    `json:"NumberOfWorkers,omitempty"`
-	Timeout         int32    `json:"Timeout,omitempty"`
+	DataSource            *DataQualityDataSource           `json:"DataSource,omitempty"`
+	AdditionalRunOptions  *DataQualityRunAdditionalOptions `json:"AdditionalRunOptions,omitempty"`
+	AdditionalDataSources map[string]DataQualityDataSource `json:"AdditionalDataSources,omitempty"`
+	RunID                 string                           `json:"RunId"`
+	Status                string                           `json:"Status"`
+	ErrorString           string                           `json:"ErrorString,omitempty"`
+	Role                  string                           `json:"Role,omitempty"`
+	RulesetNames          []string                         `json:"RulesetNames,omitempty"`
+	StartedOn             float64                          `json:"StartedOn,omitempty"`
+	CompletedOn           float64                          `json:"CompletedOn,omitempty"`
+	NumberOfWorkers       int32                            `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32                            `json:"Timeout,omitempty"`
 }
 
 // CrawlerOptions holds the CreateCrawler/UpdateCrawler fields beyond the core
@@ -694,12 +731,16 @@ type ColumnStatisticsTaskSettings struct {
 // MaterializedViewRefreshRun.StartedOn already carries the correct
 // "StartTime" tag; this one did not.
 type ColumnStatisticsTaskRun struct {
-	DatabaseName              string  `json:"DatabaseName"`
-	TableName                 string  `json:"TableName"`
-	ColumnStatisticsTaskRunID string  `json:"ColumnStatisticsTaskRunId"`
-	Status                    string  `json:"Status"`
-	Role                      string  `json:"Role,omitempty"`
-	StartedOn                 float64 `json:"StartTime,omitempty"`
+	DatabaseName              string   `json:"DatabaseName"`
+	TableName                 string   `json:"TableName"`
+	ColumnStatisticsTaskRunID string   `json:"ColumnStatisticsTaskRunId"`
+	Status                    string   `json:"Status"`
+	Role                      string   `json:"Role,omitempty"`
+	CatalogID                 string   `json:"CatalogID,omitempty"`
+	SecurityConfiguration     string   `json:"SecurityConfiguration,omitempty"`
+	ColumnNameList            []string `json:"ColumnNameList,omitempty"`
+	StartedOn                 float64  `json:"StartTime,omitempty"`
+	SampleSize                float64  `json:"SampleSize,omitempty"`
 }
 
 // MaterializedViewRefreshRun represents a materialized view refresh task run.
@@ -753,6 +794,7 @@ type IntegrationResourceProperty struct {
 	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
 	ResourceArn                string         `json:"ResourceArn"`
+	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
 }
 
 // UnmarshalJSON tolerates a persisted snapshot written before

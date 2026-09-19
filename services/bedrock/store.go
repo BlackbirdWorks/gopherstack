@@ -40,7 +40,12 @@ const (
 	statusStopped    = "Stopped"
 	statusAvailable  = "AVAILABLE"
 	statusActive     = "Active"
+	lifecycleActive  = "ACTIVE"
 )
+
+// draftVersion is the AWS DRAFT version marker shared by several resource
+// families (guardrails' mutable current version, e.g.).
+const draftVersion = "DRAFT"
 
 // sortOrderDescending is the real AWS SortOrder value used by every List op
 // in this package that supports Ascending (default)|Descending sorting
@@ -88,8 +93,7 @@ type InMemoryBackend struct {
 	// not-persisted rationale as arpAnnotationSetHash above.
 	arpAnnotationsUpdatedAt map[string]time.Time // policyARN+":"+buildWorkflowID → updatedAt
 	useCaseFormData         []byte               // raw FormData for PutUseCaseForModelAccess
-	// parity-4 additions. resourcePolicies is shared by both the core
-	// bedrock and bedrock-agent flavors -- see resource_policy.go.
+	// parity-4 additions.
 	advancedPromptOptimizationJobs *store.Table[AdvancedPromptOptimizationJob] // jobArn → job
 	resourcePolicies               *store.Table[ResourcePolicy]                // resourceArn → policy
 	accountDataRetention           *AccountDataRetention
@@ -104,32 +108,6 @@ type InMemoryBackend struct {
 	inferenceProfilesByName        map[string]string // profile name → ARN
 	marketplaceEndpointsByName     map[string]string // endpoint name → ARN
 	promptRoutersByName            map[string]string // router name → ARN
-	// Agents
-	agents              *store.Table[Agent]
-	agentsByName        map[string]string                           // agentName → agentID
-	agentActionGroups   *store.Table[AgentActionGroup]              // agentID/actionGroupID → group
-	agentAliases        *store.Table[AgentAlias]                    // agentID/aliasID → alias
-	agentKBAssociations *store.Table[AgentKnowledgeBaseAssociation] // agentID/kbID → assoc
-	knowledgeBases      *store.Table[KnowledgeBase]                 // kbID → kb
-	kbByName            map[string]string                           // kbName → kbID
-	dataSources         *store.Table[DataSource]                    // kbID/dsID → ds
-	ingestionJobs       *store.Table[IngestionJob]                  // kbID/dsID/jobID → job
-	// Agents batch-3 additions
-	flows                          *store.Table[Flow]                         // flowID → flow
-	flowsByName                    map[string]string                          // flowName → flowID
-	flowAliases                    *store.Table[FlowAlias]                    // flowAliasKey(flowID, aliasID) → alias
-	flowVersions                   map[string]*store.Table[FlowVersion]       // flowID → version table (lazy)
-	flowVersionCounters            map[string]int                             // flowID → next version number
-	prompts                        *store.Table[Prompt]                       // promptID → prompt
-	promptsByName                  map[string]string                          // promptName → promptID
-	promptVersions                 map[string]*store.Table[PromptVersion]     // promptID → version table (lazy)
-	promptVersionCounters          map[string]int                             // promptID → next version number
-	agentVersions                  map[string]*store.Table[AgentVersion]      // agentID → version table (lazy)
-	agentVersionCounters           map[string]int                             // agentID → next version number
-	agentCollaborators             map[string]*store.Table[AgentCollaborator] // agentID → collaborator table (lazy)
-	kbDocuments                    *store.Table[KnowledgeBaseDocument]        // kbDocKey → document
-	agentTags                      map[string]map[string]string               // ARN → tagKey → tagValue
-	agentMemory                    map[string][]any                           // agentID/sessionID → memory entries
 	registry                       *store.Registry
 	mu                             *lockmetrics.RWMutex
 	accountID                      string
@@ -152,17 +130,6 @@ type InMemoryBackend struct {
 	modelInvocationJobCounter      int
 	promptRouterCounter            int
 	enforcedGuardrailConfigCounter int
-	agentCounter                   int
-	actionGroupCounter             int
-	agentAliasCounter              int
-	kbCounter                      int
-	dataSourceCounter              int
-	ingestionJobCounter            int
-	// Batch-3 counters
-	flowCounter        int
-	flowAliasCounter   int
-	promptCounter      int
-	agentCollabCounter int
 	// parity-4 counters.
 	advancedPromptOptJobCounter   int
 	resourcePolicyRevisionCounter int
@@ -186,19 +153,6 @@ func NewInMemoryBackend(accountID, region string) *InMemoryBackend {
 		arpAnnotationSetHash:       make(map[string]string),
 		arpAnnotationsUpdatedAt:    make(map[string]time.Time),
 		promptRoutersByName:        make(map[string]string),
-		agentsByName:               make(map[string]string),
-		kbByName:                   make(map[string]string),
-		flowsByName:                make(map[string]string),
-		flowVersions:               make(map[string]*store.Table[FlowVersion]),
-		flowVersionCounters:        make(map[string]int),
-		promptsByName:              make(map[string]string),
-		promptVersions:             make(map[string]*store.Table[PromptVersion]),
-		promptVersionCounters:      make(map[string]int),
-		agentVersions:              make(map[string]*store.Table[AgentVersion]),
-		agentVersionCounters:       make(map[string]int),
-		agentCollaborators:         make(map[string]*store.Table[AgentCollaborator]),
-		agentTags:                  make(map[string]map[string]string),
-		agentMemory:                make(map[string][]any),
 		accountID:                  accountID,
 		region:                     region,
 		mu:                         lockmetrics.New("bedrock"),
@@ -219,15 +173,6 @@ func (b *InMemoryBackend) Reset() {
 	b.mu.Lock("Reset")
 	defer b.mu.Unlock()
 
-	// registry.ResetAll empties every registered table in place -- including
-	// every per-parent flowVersions/promptVersions/agentVersions/
-	// agentCollaborators table lazily registered so far. It deliberately does
-	// NOT unregister them: b.flowVersions/b.promptVersions/b.agentVersions/
-	// b.agentCollaborators keep pointing at the same *store.Table instances,
-	// so a parent ID touched again after Reset reuses its existing
-	// registration instead of re-registering under an already-used name
-	// (which would panic -- see store.Register). Mirrors services/kms's
-	// Reset (keysStore/aliasesStore/grantsRegion/customKeyStoresStore).
 	b.registry.ResetAll()
 	b.resetIndexMaps()
 	b.resetCounters()
@@ -247,10 +192,6 @@ func (b *InMemoryBackend) resetIndexMaps() {
 	b.customizationJobsByName = make(map[string]string)
 	b.inferenceProfilesByName = make(map[string]string)
 	b.marketplaceEndpointsByName = make(map[string]string)
-	b.agentsByName = make(map[string]string)
-	b.kbByName = make(map[string]string)
-	b.flowsByName = make(map[string]string)
-	b.promptsByName = make(map[string]string)
 	b.promptRoutersByName = make(map[string]string)
 }
 
@@ -258,19 +199,6 @@ func (b *InMemoryBackend) resetIndexMaps() {
 // back to its zero value.
 func (b *InMemoryBackend) resetCounters() {
 	b.arpVersionCountByPolicy = make(map[string]int)
-	b.agentCounter = 0
-	b.actionGroupCounter = 0
-	b.agentAliasCounter = 0
-	b.kbCounter = 0
-	b.dataSourceCounter = 0
-	b.ingestionJobCounter = 0
-	b.flowVersionCounters = make(map[string]int)
-	b.promptVersionCounters = make(map[string]int)
-	b.agentVersionCounters = make(map[string]int)
-	b.flowCounter = 0
-	b.flowAliasCounter = 0
-	b.promptCounter = 0
-	b.agentCollabCounter = 0
 	b.guardrailCounter = 0
 	b.guardrailVersionCounter = 0
 	b.provisionedCounter = 0
@@ -296,8 +224,6 @@ func (b *InMemoryBackend) resetCounters() {
 // of the registered table registry.
 func (b *InMemoryBackend) resetAuxState() {
 	b.loggingConfig = nil
-	b.agentTags = make(map[string]map[string]string)
-	b.agentMemory = make(map[string][]any)
 	b.arpAnnotations = make(map[string][]any)
 	b.arpAnnotationSetHash = make(map[string]string)
 	b.arpAnnotationsUpdatedAt = make(map[string]time.Time)
@@ -309,7 +235,7 @@ func (b *InMemoryBackend) seedFoundationModels() {
 	// Real AWS foundation model ARNs use region but NOT account ID:
 	// arn:{partition}:bedrock:{region}::foundation-model/{modelId}
 	prefix := "arn:aws:bedrock:" + b.region + "::foundation-model/"
-	active := &FoundationModelLifecycle{Status: kbStatusActive}
+	active := &FoundationModelLifecycle{Status: lifecycleActive}
 
 	b.foundationModels = []*FoundationModelSummary{
 		{

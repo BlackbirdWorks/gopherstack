@@ -11,6 +11,28 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestHandler_DescribeEdgePackagingJob_FailureReasonNotOnWire proves
+// FailureReason (a fabricated key: DescribeEdgePackagingJobOutput has no such
+// member, api_op_DescribeEdgePackagingJob.go -- the real field for job status
+// text is EdgePackagingJobStatusMessage) is never emitted.
+func TestHandler_DescribeEdgePackagingJob_FailureReasonNotOnWire(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+
+	doSageMakerRequest(t, h, "CreateEdgePackagingJob", edgePackagingJobRequestBody("no-failure-reason"))
+
+	rec := doSageMakerRequest(t, h, "DescribeEdgePackagingJob", map[string]any{
+		"EdgePackagingJobName": "no-failure-reason",
+	})
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	_, present := out["FailureReason"]
+	assert.False(t, present, "FailureReason is not a real DescribeEdgePackagingJobOutput field")
+}
+
 func TestHandler_EdgePackagingJobLifecycle(t *testing.T) {
 	t.Parallel()
 
@@ -117,6 +139,8 @@ func TestHandler_EdgePackagingJob_ReachesCompleted(t *testing.T) {
 		var out map[string]any
 		require.NoError(t, json.Unmarshal(descRec.Body.Bytes(), &out))
 		assert.Equal(t, "COMPLETED", out["EdgePackagingJobStatus"])
+		assert.Equal(t, "s3://bucket/edge-out/model.tar.gz", out["ModelArtifact"],
+			"ModelArtifact must be derived from OutputConfig.S3OutputLocation once the job completes")
 	})
 }
 

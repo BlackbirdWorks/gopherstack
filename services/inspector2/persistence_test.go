@@ -47,7 +47,7 @@ func newPersistenceTestBackend(t *testing.T) (*inspector2.InMemoryBackend, persi
 	require.NoError(t, b.Enable([]string{"EC2"}))
 
 	// config raw struct.
-	require.NoError(t, b.UpdateConfiguration("EC2_HYBRID", "DAYS_30"))
+	require.NoError(t, b.UpdateConfiguration("", "EC2_HYBRID", "DAYS_30", false, false))
 
 	// members table.
 	require.NoError(t, b.AssociateMember("222222222222"))
@@ -204,7 +204,8 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	assert.Equal(t, "ENABLED", status.Ec2Status)
 
 	// config raw struct.
-	cfg := fresh.GetConfiguration()
+	cfg, err := fresh.GetConfiguration("")
+	require.NoError(t, err)
 	assert.Equal(t, "EC2_HYBRID", cfg.Ec2ScanMode)
 	assert.Equal(t, "DAYS_30", cfg.EcrRescanDuration)
 

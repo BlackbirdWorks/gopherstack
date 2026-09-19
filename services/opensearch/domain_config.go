@@ -102,8 +102,12 @@ func applyOperationalConfig(d *Domain, input UpdateDomainConfigInput) {
 		d.LogPublishingOptions = input.LogPublishingOptions
 	}
 
-	if input.AccessPolicies != "" {
-		d.AccessPolicies = input.AccessPolicies
+	if input.AccessPolicies != nil {
+		d.AccessPolicies = *input.AccessPolicies
+	}
+
+	if input.AdvancedOptions != nil {
+		d.AdvancedOptions = input.AdvancedOptions
 	}
 }
 

@@ -144,7 +144,7 @@ func TestStartJobRun_JobDriverPassthrough(t *testing.T) {
 	assert.Equal(t, jobDriver, jr.JobDriver)
 	assert.Equal(t, configOverrides, jr.ConfigurationOverrides)
 
-	got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID)
+	got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, jobDriver, got.JobDriver)
 	assert.Equal(t, configOverrides, got.ConfigurationOverrides)
@@ -200,7 +200,7 @@ func TestStartJobRun_CreatedByAndTimeoutDefaults(t *testing.T) {
 			assert.Equal(t, "arn:aws:iam::000000000000:role/creator", jr.CreatedBy)
 			assert.Equal(t, tt.wantExecutionTimeout, jr.ExecutionTimeoutMinutes)
 
-			got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID)
+			got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID, nil)
 			require.NoError(t, err)
 			assert.Equal(t, "arn:aws:iam::000000000000:role/creator", got.CreatedBy)
 			assert.Equal(t, tt.wantExecutionTimeout, got.ExecutionTimeoutMinutes)
@@ -228,7 +228,7 @@ func TestStartJobRun_ExecutionIamPolicyAndRetryPolicyPassthrough(t *testing.T) {
 	assert.Equal(t, execPolicy, jr.ExecutionIamPolicy)
 	assert.Equal(t, retryPolicy, jr.RetryPolicy)
 
-	got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID)
+	got, err := b.GetJobRun(app.ApplicationID, jr.JobRunID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, execPolicy, got.ExecutionIamPolicy)
 	assert.Equal(t, retryPolicy, got.RetryPolicy)
@@ -249,7 +249,7 @@ func TestJobRunOps_NoRunsForApp(t *testing.T) {
 		{
 			name: "GetJobRun",
 			call: func(b *emrserverless.InMemoryBackend, appID string) error {
-				_, err := b.GetJobRun(appID, "nonexistent-run")
+				_, err := b.GetJobRun(appID, "nonexistent-run", nil)
 
 				return err
 			},
@@ -257,7 +257,7 @@ func TestJobRunOps_NoRunsForApp(t *testing.T) {
 		{
 			name: "GetDashboardForJobRun",
 			call: func(b *emrserverless.InMemoryBackend, appID string) error {
-				_, err := b.GetDashboardForJobRun(appID, "nonexistent-run")
+				_, err := b.GetDashboardForJobRun(appID, "nonexistent-run", nil, false)
 
 				return err
 			},

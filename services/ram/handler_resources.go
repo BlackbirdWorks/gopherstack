@@ -269,8 +269,41 @@ var awsShareableResourceTypes = []resourceTypeObject{
 	},
 }
 
-func (h *Handler) handleListResourceTypes(_ context.Context, _ []byte) ([]byte, error) {
-	return json.Marshal(listResourceTypesResponse{ResourceTypes: awsShareableResourceTypes})
+type listResourceTypesRequest struct {
+	ResourceRegionScope string `json:"resourceRegionScope"`
+}
+
+// handleListResourceTypes serves the static shareable-resource-type catalogue, filtered by
+// the documented ResourceRegionScope enum (ram@v1.39.4 api_op_ListResourceTypes.go:46-58:
+// ALL, the default, GLOBAL, or REGIONAL). MaxResults/NextToken are intentionally not
+// consulted -- see PARITY.md, the 21-entry catalogue never exceeds a page.
+func (h *Handler) handleListResourceTypes(_ context.Context, body []byte) ([]byte, error) {
+	var req listResourceTypesRequest
+	if len(body) > 0 {
+		if err := json.Unmarshal(body, &req); err != nil {
+			return nil, fmt.Errorf("%w: %w", errInvalidRequest, err)
+		}
+	}
+
+	types := awsShareableResourceTypes
+
+	switch req.ResourceRegionScope {
+	case "", "ALL":
+	case resourceRegionScopeRegional, resourceRegionScopeGlobal:
+		filtered := make([]resourceTypeObject, 0, len(types))
+
+		for _, t := range types {
+			if t.ResourceRegionScope == req.ResourceRegionScope {
+				filtered = append(filtered, t)
+			}
+		}
+
+		types = filtered
+	default:
+		return nil, fmt.Errorf("%w: invalid resourceRegionScope %q", errInvalidRequest, req.ResourceRegionScope)
+	}
+
+	return json.Marshal(listResourceTypesResponse{ResourceTypes: types})
 }
 
 // associatedSourceObject is the JSON representation of an AssociatedSource (RAM's wire

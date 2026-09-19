@@ -36,24 +36,55 @@ type cacheNodes struct {
 	CacheNode []cacheNode `xml:"CacheNode"`
 }
 
+// cacheSecurityGroupMembershipXML is the XML representation of a cache
+// security group membership on a cluster or replication group.
+type cacheSecurityGroupMembershipXML struct {
+	CacheSecurityGroupName string `xml:"CacheSecurityGroupName"`
+	Status                 string `xml:"Status"`
+}
+
+// cacheSecurityGroupsXML is the XML container for cache security group memberships.
+type cacheSecurityGroupsXML struct {
+	CacheSecurityGroup []cacheSecurityGroupMembershipXML `xml:"CacheSecurityGroup"`
+}
+
 // cacheClusterXML is the XML representation of a cache cluster.
 type cacheClusterXML struct {
-	CacheParameterGroupName    string     `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
-	PreferredMaintenanceWindow string     `xml:"PreferredMaintenanceWindow,omitempty"`
-	CacheNodeType              string     `xml:"CacheNodeType"`
-	Engine                     string     `xml:"Engine"`
-	EngineVersion              string     `xml:"EngineVersion"`
-	ARN                        string     `xml:"ARN"`
-	CacheClusterStatus         string     `xml:"CacheClusterStatus"`
-	CreatedAt                  string     `xml:"CacheClusterCreateTime,omitempty"`
-	CacheClusterID             string     `xml:"CacheClusterId"`
-	ReplicationGroupID         string     `xml:"ReplicationGroupId,omitempty"`
-	SnapshotWindow             string     `xml:"SnapshotWindow,omitempty"`
-	CacheNodes                 cacheNodes `xml:"CacheNodes"`
-	NumCacheNodes              int        `xml:"NumCacheNodes"`
-	SnapshotRetentionLimit     int        `xml:"SnapshotRetentionLimit,omitempty"`
-	TransitEncryptionEnabled   bool       `xml:"TransitEncryptionEnabled"`
-	AtRestEncryptionEnabled    bool       `xml:"AtRestEncryptionEnabled"`
+	CacheParameterGroupName    string                 `xml:"CacheParameterGroup>CacheParameterGroupName,omitempty"`
+	PreferredMaintenanceWindow string                 `xml:"PreferredMaintenanceWindow,omitempty"`
+	CacheNodeType              string                 `xml:"CacheNodeType"`
+	Engine                     string                 `xml:"Engine"`
+	EngineVersion              string                 `xml:"EngineVersion"`
+	ARN                        string                 `xml:"ARN"`
+	CacheClusterStatus         string                 `xml:"CacheClusterStatus"`
+	CreatedAt                  string                 `xml:"CacheClusterCreateTime,omitempty"`
+	CacheClusterID             string                 `xml:"CacheClusterId"`
+	ReplicationGroupID         string                 `xml:"ReplicationGroupId,omitempty"`
+	SnapshotWindow             string                 `xml:"SnapshotWindow,omitempty"`
+	PreferredAvailabilityZone  string                 `xml:"PreferredAvailabilityZone,omitempty"`
+	CacheNodes                 cacheNodes             `xml:"CacheNodes"`
+	CacheSecurityGroups        cacheSecurityGroupsXML `xml:"CacheSecurityGroups"`
+	NumCacheNodes              int                    `xml:"NumCacheNodes"`
+	SnapshotRetentionLimit     int                    `xml:"SnapshotRetentionLimit,omitempty"`
+	TransitEncryptionEnabled   bool                   `xml:"TransitEncryptionEnabled"`
+	AtRestEncryptionEnabled    bool                   `xml:"AtRestEncryptionEnabled"`
+	AuthTokenEnabled           bool                   `xml:"AuthTokenEnabled"`
+}
+
+// parseNumCacheNodes parses NumCacheNodes, falling back to def when unset or
+// non-positive. Split out of createCacheCluster to keep its cyclomatic
+// complexity down.
+func parseNumCacheNodes(form url.Values, def int) int {
+	s := form.Get("NumCacheNodes")
+	if s == "" {
+		return def
+	}
+
+	if n, err := strconv.Atoi(s); err == nil && n > 0 {
+		return n
+	}
+
+	return def
 }
 
 func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -67,13 +98,7 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 	paramGroupName := form.Get("CacheParameterGroupName")
 	maintenanceWindow := form.Get("PreferredMaintenanceWindow")
 	snapshotWindow := form.Get("SnapshotWindow")
-	numCacheNodes := 1
-
-	if s := form.Get("NumCacheNodes"); s != "" {
-		if n, err := strconv.Atoi(s); err == nil && n > 0 {
-			numCacheNodes = n
-		}
-	}
+	numCacheNodes := parseNumCacheNodes(form, 1)
 
 	var restoreErr error
 
@@ -122,6 +147,10 @@ func (h *Handler) createCacheCluster(ctx context.Context, c *echo.Context, form 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", sgErr.Error())
 	}
 
+	if azErr := h.applyClusterAvailabilityZones(ctx, form, id, cluster); azErr != nil {
+		return xmlError(c, http.StatusInternalServerError, "InternalFailure", azErr.Error())
+	}
+
 	if srErr := h.applyClusterSnapshotRetentionLimit(ctx, form, id, cluster); srErr != nil {
 		return snapshotRetentionLimitErrorResponse(c, srErr)
 	}
@@ -161,6 +190,31 @@ func (h *Handler) applyClusterSubnetGroup(
 	}
 
 	cluster.SubnetGroupName = subnetGroupName
+
+	return nil
+}
+
+// applyClusterAvailabilityZones records PreferredAvailabilityZone (single-node,
+// Redis OSS/Valkey) and PreferredAvailabilityZones (one per node, Memcached
+// only) on a just-created cluster, if the caller supplied either. Split out
+// of createCacheCluster for the same reason as applyClusterSubnetGroup.
+func (h *Handler) applyClusterAvailabilityZones(
+	ctx context.Context, form url.Values, id string, cluster *Cluster,
+) error {
+	az := form.Get("PreferredAvailabilityZone")
+	azs := parseRepeatedField(form, "PreferredAvailabilityZones.PreferredAvailabilityZone")
+	if az == "" && len(azs) == 0 {
+		return nil
+	}
+
+	if err := h.Backend.SetClusterAvailabilityZones(ctx, id, az, azs); err != nil {
+		return err
+	}
+
+	cluster.PreferredAvailabilityZone = az
+	if len(azs) > 0 {
+		cluster.PreferredAvailabilityZones = azs
+	}
 
 	return nil
 }
@@ -417,7 +471,7 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 			CacheNodeID:              nodeID,
 			CacheNodeStatus:          status,
 			CacheNodeCreateTime:      cl.CreatedAt.UTC().Format(time.RFC3339),
-			CustomerAvailabilityZone: region + "a",
+			CustomerAvailabilityZone: nodeAvailabilityZone(cl, i, region),
 			Endpoint: cacheEndpoint{
 				Address: cl.Endpoint,
 				Port:    cl.Port,
@@ -437,14 +491,69 @@ func clusterToXML(cl *Cluster, status string) cacheClusterXML {
 		ReplicationGroupID:         cl.ReplicationGroupID,
 		PreferredMaintenanceWindow: cl.PreferredMaintenanceWindow,
 		SnapshotWindow:             cl.SnapshotWindow,
+		PreferredAvailabilityZone:  clusterAvailabilityZone(cl),
 		SnapshotRetentionLimit:     cl.SnapshotRetentionLimit,
 		TransitEncryptionEnabled:   cl.TransitEncryptionEnabled,
 		AtRestEncryptionEnabled:    cl.AtRestEncryptionEnabled,
+		AuthTokenEnabled:           cl.AuthTokenEnabled,
 		CreatedAt:                  cl.CreatedAt.UTC().Format(time.RFC3339),
 		CacheNodes: cacheNodes{
 			CacheNode: nodes,
 		},
+		CacheSecurityGroups: cacheSecurityGroupsXML{
+			CacheSecurityGroup: cacheSecurityGroupMembershipsXML(cl.CacheSecurityGroupNames),
+		},
 	}
+}
+
+// cacheSecurityGroupMembershipsXML builds the XML membership list for a set
+// of cache security group names, all reported "active" (this backend has no
+// asynchronous authorization workflow to produce any other status).
+func cacheSecurityGroupMembershipsXML(names []string) []cacheSecurityGroupMembershipXML {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]cacheSecurityGroupMembershipXML, 0, len(names))
+	for _, n := range names {
+		out = append(out, cacheSecurityGroupMembershipXML{CacheSecurityGroupName: n, Status: "active"})
+	}
+
+	return out
+}
+
+// nodeAvailabilityZone returns the AZ node i is placed in: the single
+// PreferredAvailabilityZone when set, the i-th (cycled) entry of
+// PreferredAvailabilityZones for a Memcached multi-node cluster, or the
+// synthetic region+"a" fallback when the caller specified neither.
+func nodeAvailabilityZone(cl *Cluster, i int, region string) string {
+	if cl.PreferredAvailabilityZone != "" {
+		return cl.PreferredAvailabilityZone
+	}
+	if len(cl.PreferredAvailabilityZones) > 0 {
+		return cl.PreferredAvailabilityZones[i%len(cl.PreferredAvailabilityZones)]
+	}
+
+	return region + "a"
+}
+
+// clusterAvailabilityZone returns CacheCluster.PreferredAvailabilityZone: the
+// AZ name the cluster is located in, or "Multiple" when
+// PreferredAvailabilityZones names more than one distinct zone -- see
+// elasticache@v1.56.4 types.CacheCluster's own doc comment.
+func clusterAvailabilityZone(cl *Cluster) string {
+	if cl.PreferredAvailabilityZone != "" {
+		return cl.PreferredAvailabilityZone
+	}
+	if len(cl.PreferredAvailabilityZones) == 0 {
+		return ""
+	}
+	for _, az := range cl.PreferredAvailabilityZones[1:] {
+		if az != cl.PreferredAvailabilityZones[0] {
+			return "Multiple"
+		}
+	}
+
+	return cl.PreferredAvailabilityZones[0]
 }
 
 func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form url.Values) error {
@@ -462,6 +571,13 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 	}
 
+	opts := &ModifyClusterOptions{
+		AuthToken:               form.Get("AuthToken"),
+		AuthTokenUpdateStrategy: form.Get("AuthTokenUpdateStrategy"),
+		CacheSecurityGroupNames: parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
+		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
+	}
+
 	cluster, err := h.Backend.ModifyCluster(ctx,
 		id,
 		nodeType,
@@ -470,6 +586,7 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		maintenanceWindow,
 		snapshotWindow,
 		numCacheNodes,
+		opts,
 	)
 	if err != nil {
 		if errors.Is(err, ErrClusterNotFound) {
@@ -480,6 +597,9 @@ func (h *Handler) modifyCacheCluster(ctx context.Context, c *echo.Context, form 
 		}
 		if errors.Is(err, ErrClusterNotAvailable) {
 			return xmlError(c, http.StatusBadRequest, "InvalidCacheClusterState", err.Error())
+		}
+		if errors.Is(err, ErrCacheSecurityGroupNotFound) {
+			return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 		}
 
 		return xmlError(c, http.StatusInternalServerError, "InternalFailure", err.Error())

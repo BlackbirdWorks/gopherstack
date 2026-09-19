@@ -1,8 +1,8 @@
 ---
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
-last_audit_commit: c47d785b7
-last_audit_date: 2026-08-28
+last_audit_commit: d4dc4a723
+last_audit_date: 2026-09-18
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
@@ -50,12 +50,18 @@ items_still_open:
   - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
   - "WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)"
   - "QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)"
+  - "StartQueryExecution.EngineConfiguration (reqfielddiff tier-1, 2026-09-18) is not declared at all -- it only matters for Capacity Reservation DPU-range validation (min-dpu-count/max-dpu-count classifications), a per-query override into the Capacity Reservations subsystem this emulator's StartQueryExecution never consults. No observable effect to gate without wiring query execution into capacity-reservation DPU accounting, a larger feature than a field-level fix. (bd: unfiled)"
 deferred:
   - none — full routed-op surface re-audited this pass (base + extended dispatch tables, 70 ops total)
 leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Done() teardown; no raw goroutines spawned elsewhere in the service. New capacityReservationARN-based resourceTags entries are cascade-deleted on DeleteCapacityReservation (TestInMemoryBackend_DeleteCapacityReservation_CascadesTags), matching the existing WorkGroup/DataCatalog cascade-delete behavior — no ghost tag rows after delete."}
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): StartQueryExecution.EngineConfiguration -- missing feature
+
+Only meaningful for Capacity Reservation DPU-range validation, which StartQueryExecution
+never consults today. See items_still_open.
 
 **Protocol**: awsjson1.1 (`application/x-amz-json-1.1`, single POST endpoint,
 `X-Amz-Target: AmazonAthena.<Op>` dispatch). Route matcher
@@ -543,3 +549,13 @@ Gates: `go build ./...` (whole module, clean). `go vet ./services/athena/...`
 the updated `TestHandler_ListNotebookSessions`). `golangci-lint run
 --new-from-rev=HEAD ./services/athena/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+CreateWorkGroup's handler read a "State" field CreateWorkGroupInput
+(athena@v1.60.4) does not declare -- every real workgroup is created
+ENABLED; State is only settable via UpdateWorkGroup. Removed the read;
+rewrote `TestWorkGroup_StateValidation`'s create-side cases (which assumed
+State was accepted/validated at creation) and added
+`TestCreateWorkGroup_AlwaysEnabled_NoStateMember` proving the create path
+now always yields ENABLED regardless of client input.

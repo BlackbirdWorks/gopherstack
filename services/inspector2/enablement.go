@@ -106,28 +106,103 @@ func (b *InMemoryBackend) GetStatus() *AccountStatusResponse {
 	}
 }
 
-// GetConfiguration returns the current configuration.
-func (b *InMemoryBackend) GetConfiguration() *Configuration {
+// effectiveMemberConfig returns accountID's effective configuration: any
+// individually-configured scan type overrides the delegated admin's own
+// Configuration, and any scan type never configured (or reset to inherit,
+// see UpdateConfiguration) falls back to it -- api_op_UpdateConfiguration.go:
+// "this operation updates the delegated administrator's configuration and
+// propagates it to member accounts that have not been individually
+// configured." Callers must hold at least a read lock.
+func (b *InMemoryBackend) effectiveMemberConfig(accountID string) Configuration {
+	cfg := b.config
+
+	if mc, ok := b.memberConfigs.Get(accountID); ok {
+		if mc.Ec2ScanMode != "" {
+			cfg.Ec2ScanMode = mc.Ec2ScanMode
+		}
+
+		if mc.EcrRescanDuration != "" {
+			cfg.EcrRescanDuration = mc.EcrRescanDuration
+		}
+	}
+
+	return cfg
+}
+
+// GetConfiguration returns accountID's configuration. An empty accountID
+// (or the backend's own account) returns the delegated admin's own
+// Configuration; any other accountId must name a known member (real AWS:
+// "you must be the delegated administrator for the specified member
+// account") and gets its effective (override-or-inherited) configuration.
+func (b *InMemoryBackend) GetConfiguration(accountID string) (*Configuration, error) {
 	b.mu.RLock("GetConfiguration")
 	defer b.mu.RUnlock()
 
-	cfg := b.config
+	if accountID == "" || accountID == b.accountID {
+		cfg := b.config
 
-	return &cfg
+		return &cfg, nil
+	}
+
+	if _, ok := b.members.Get(accountID); !ok {
+		return nil, ErrMemberNotFound
+	}
+
+	cfg := b.effectiveMemberConfig(accountID)
+
+	return &cfg, nil
 }
 
-// UpdateConfiguration updates the scan configuration.
-func (b *InMemoryBackend) UpdateConfiguration(ec2ScanMode, ecrRescanDuration string) error {
+// UpdateConfiguration updates accountID's scan configuration. An empty
+// accountID updates the delegated admin's own Configuration (and implicitly
+// propagates to members with no individual override, via
+// effectiveMemberConfig's fallback). A non-empty accountID must name a known
+// member; resetEc2ToInherit/resetEcrToInherit (from
+// UpdateConfigurationInheritance) clear that member's override for the named
+// scan type, restoring inheritance from the admin's Configuration.
+func (b *InMemoryBackend) UpdateConfiguration(
+	accountID, ec2ScanMode, ecrRescanDuration string,
+	resetEc2ToInherit, resetEcrToInherit bool,
+) error {
 	b.mu.Lock("UpdateConfiguration")
 	defer b.mu.Unlock()
 
-	if ec2ScanMode != "" {
-		b.config.Ec2ScanMode = ec2ScanMode
+	if accountID == "" || accountID == b.accountID {
+		if ec2ScanMode != "" {
+			b.config.Ec2ScanMode = ec2ScanMode
+		}
+
+		if ecrRescanDuration != "" {
+			b.config.EcrRescanDuration = ecrRescanDuration
+		}
+
+		return nil
 	}
 
-	if ecrRescanDuration != "" {
-		b.config.EcrRescanDuration = ecrRescanDuration
+	if _, ok := b.members.Get(accountID); !ok {
+		return ErrMemberNotFound
 	}
+
+	mc := MemberConfiguration{AccountID: accountID}
+	if existing, ok := b.memberConfigs.Get(accountID); ok {
+		mc = *existing
+	}
+
+	switch {
+	case resetEc2ToInherit:
+		mc.Ec2ScanMode = ""
+	case ec2ScanMode != "":
+		mc.Ec2ScanMode = ec2ScanMode
+	}
+
+	switch {
+	case resetEcrToInherit:
+		mc.EcrRescanDuration = ""
+	case ecrRescanDuration != "":
+		mc.EcrRescanDuration = ecrRescanDuration
+	}
+
+	b.memberConfigs.Put(&mc)
 
 	return nil
 }

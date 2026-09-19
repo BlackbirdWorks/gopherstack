@@ -170,16 +170,15 @@ func (b *InMemoryBackend) DeleteUser(serverID, userName string) error {
 // UpdateUserInput holds all optional fields for UpdateUser.
 type UpdateUserInput struct {
 	PosixProfile             *PosixProfile
+	HomeDir                  *string
+	Role                     *string
+	Policy                   *string
 	ServerID                 string
 	UserName                 string
-	HomeDir                  string
-	Role                     string
 	HomeDirectoryType        string
-	Policy                   string
 	HomeDirectoryMappings    []HomeDirectoryMapEntry
 	SetPosixProfile          bool
 	SetHomeDirectoryMappings bool
-	SetPolicy                bool
 	SetHomeDirectoryType     bool
 }
 
@@ -188,8 +187,8 @@ func (b *InMemoryBackend) UpdateUser(serverID, userName, homeDir, role string) (
 	return b.UpdateUserFull(&UpdateUserInput{
 		ServerID: serverID,
 		UserName: userName,
-		HomeDir:  homeDir,
-		Role:     role,
+		HomeDir:  &homeDir,
+		Role:     &role,
 	})
 }
 
@@ -212,12 +211,12 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 		)
 	}
 
-	if in.HomeDir != "" {
-		u.HomeDir = in.HomeDir
+	if in.HomeDir != nil {
+		u.HomeDir = *in.HomeDir
 	}
 
-	if in.Role != "" {
-		u.Role = in.Role
+	if in.Role != nil {
+		u.Role = *in.Role
 	}
 
 	if in.SetPosixProfile {
@@ -228,8 +227,8 @@ func (b *InMemoryBackend) UpdateUserFull(in *UpdateUserInput) (*User, error) {
 		u.HomeDirectoryMappings = in.HomeDirectoryMappings
 	}
 
-	if in.SetPolicy {
-		u.Policy = in.Policy
+	if in.Policy != nil {
+		u.Policy = *in.Policy
 	}
 
 	if in.SetHomeDirectoryType && in.HomeDirectoryType != "" {

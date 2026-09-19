@@ -113,6 +113,11 @@ func TestIndexPolicy_RealClientRoundTrip(t *testing.T) {
 	backend := cloudwatchlogs.NewInMemoryBackend()
 	client := newTestCloudWatchLogsClient(t, cloudwatchlogs.NewHandler(backend))
 
+	_, err := client.CreateLogGroup(t.Context(), &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("/aws/lambda/fn"),
+	})
+	require.NoError(t, err)
+
 	putOut, err := client.PutIndexPolicy(t.Context(), &cwlsdk.PutIndexPolicyInput{
 		LogGroupIdentifier: aws.String("/aws/lambda/fn"),
 		PolicyDocument:     aws.String(`{"Fields":["@message"]}`),

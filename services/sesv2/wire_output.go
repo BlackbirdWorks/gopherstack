@@ -14,13 +14,35 @@ import "github.com/blackbirdworks/gopherstack/pkgs/awstime"
 
 // ---- contact list ----
 
+// topicOutput mirrors types.Topic.
+type topicOutput struct {
+	TopicName                 string `json:"TopicName"`
+	DisplayName               string `json:"DisplayName"`
+	DefaultSubscriptionStatus string `json:"DefaultSubscriptionStatus"`
+	Description               string `json:"Description,omitempty"`
+}
+
+func toTopicOutputs(topics []Topic) []topicOutput {
+	if len(topics) == 0 {
+		return nil
+	}
+
+	out := make([]topicOutput, len(topics))
+	for i, t := range topics {
+		out[i] = topicOutput(t)
+	}
+
+	return out
+}
+
 // contactListOutput mirrors GetContactListOutput's top-level fields.
 type contactListOutput struct {
-	ContactListName      string     `json:"ContactListName"`
-	Description          string     `json:"Description,omitempty"`
-	Tags                 []tagEntry `json:"Tags,omitempty"`
-	CreatedTimestamp     float64    `json:"CreatedTimestamp,omitempty"`
-	LastUpdatedTimestamp float64    `json:"LastUpdatedTimestamp,omitempty"`
+	ContactListName      string        `json:"ContactListName"`
+	Description          string        `json:"Description,omitempty"`
+	Tags                 []tagEntry    `json:"Tags,omitempty"`
+	Topics               []topicOutput `json:"Topics,omitempty"`
+	CreatedTimestamp     float64       `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp float64       `json:"LastUpdatedTimestamp,omitempty"`
 }
 
 func toContactListOutput(cl *ContactList) *contactListOutput {
@@ -30,6 +52,7 @@ func toContactListOutput(cl *ContactList) *contactListOutput {
 		CreatedTimestamp:     awstime.Epoch(cl.CreatedAt),
 		LastUpdatedTimestamp: awstime.Epoch(cl.LastUpdatedAt),
 		Tags:                 tagsToEntries(cl.Tags),
+		Topics:               toTopicOutputs(cl.Topics),
 	}
 }
 
@@ -68,42 +91,69 @@ func toTopicPreferenceOutputs(prefs []TopicPreference) []topicPreferenceOutput {
 	return out
 }
 
-// contactOutput mirrors GetContactOutput's top-level fields.
-type contactOutput struct {
-	ContactListName      string                  `json:"ContactListName"`
-	EmailAddress         string                  `json:"EmailAddress"`
-	TopicPreferences     []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
-	CreatedTimestamp     float64                 `json:"CreatedTimestamp,omitempty"`
-	LastUpdatedTimestamp float64                 `json:"LastUpdatedTimestamp,omitempty"`
-	UnsubscribeAll       bool                    `json:"UnsubscribeAll"`
+// topicDefaultPreferenceOutputs derives types.Contact/GetContactOutput's
+// TopicDefaultPreferences member from the contact's own list's Topics --
+// each topic's DefaultSubscriptionStatus, independent of what the contact
+// itself chose (that's TopicPreferences above). Real AWS: "The default
+// topic preferences applied to the contact.".
+func topicDefaultPreferenceOutputs(topics []Topic) []topicPreferenceOutput {
+	if len(topics) == 0 {
+		return nil
+	}
+
+	out := make([]topicPreferenceOutput, len(topics))
+	for i, t := range topics {
+		out[i] = topicPreferenceOutput{
+			TopicName:          t.TopicName,
+			SubscriptionStatus: t.DefaultSubscriptionStatus,
+		}
+	}
+
+	return out
 }
 
-func toContactOutput(c *Contact) *contactOutput {
+// contactOutput mirrors GetContactOutput's top-level fields.
+type contactOutput struct {
+	ContactListName         string                  `json:"ContactListName"`
+	EmailAddress            string                  `json:"EmailAddress"`
+	AttributesData          string                  `json:"AttributesData,omitempty"`
+	TopicPreferences        []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
+	TopicDefaultPreferences []topicPreferenceOutput `json:"TopicDefaultPreferences,omitempty"`
+	CreatedTimestamp        float64                 `json:"CreatedTimestamp,omitempty"`
+	LastUpdatedTimestamp    float64                 `json:"LastUpdatedTimestamp,omitempty"`
+	UnsubscribeAll          bool                    `json:"UnsubscribeAll"`
+}
+
+func toContactOutput(c *Contact, listTopics []Topic) *contactOutput {
 	return &contactOutput{
-		ContactListName:      c.ContactListName,
-		EmailAddress:         c.EmailAddress,
-		CreatedTimestamp:     awstime.Epoch(c.CreatedAt),
-		LastUpdatedTimestamp: awstime.Epoch(c.LastUpdatedAt),
-		TopicPreferences:     toTopicPreferenceOutputs(c.TopicPreferences),
-		UnsubscribeAll:       c.UnsubscribeAll,
+		ContactListName:         c.ContactListName,
+		EmailAddress:            c.EmailAddress,
+		AttributesData:          c.AttributesData,
+		CreatedTimestamp:        awstime.Epoch(c.CreatedAt),
+		LastUpdatedTimestamp:    awstime.Epoch(c.LastUpdatedAt),
+		TopicPreferences:        toTopicPreferenceOutputs(c.TopicPreferences),
+		TopicDefaultPreferences: topicDefaultPreferenceOutputs(listTopics),
+		UnsubscribeAll:          c.UnsubscribeAll,
 	}
 }
 
 // contactSummaryOutput mirrors types.Contact, the ListContacts item shape --
-// notably it has neither ContactListName nor CreatedTimestamp.
+// notably it has neither ContactListName, CreatedTimestamp nor AttributesData.
 type contactSummaryOutput struct {
-	EmailAddress         string                  `json:"EmailAddress"`
-	TopicPreferences     []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
-	LastUpdatedTimestamp float64                 `json:"LastUpdatedTimestamp,omitempty"`
-	UnsubscribeAll       bool                    `json:"UnsubscribeAll"`
+	EmailAddress            string                  `json:"EmailAddress"`
+	TopicPreferences        []topicPreferenceOutput `json:"TopicPreferences,omitempty"`
+	TopicDefaultPreferences []topicPreferenceOutput `json:"TopicDefaultPreferences,omitempty"`
+	LastUpdatedTimestamp    float64                 `json:"LastUpdatedTimestamp,omitempty"`
+	UnsubscribeAll          bool                    `json:"UnsubscribeAll"`
 }
 
-func toContactSummaryOutput(c *Contact) contactSummaryOutput {
+func toContactSummaryOutput(c *Contact, listTopics []Topic) contactSummaryOutput {
 	return contactSummaryOutput{
-		EmailAddress:         c.EmailAddress,
-		LastUpdatedTimestamp: awstime.Epoch(c.LastUpdatedAt),
-		TopicPreferences:     toTopicPreferenceOutputs(c.TopicPreferences),
-		UnsubscribeAll:       c.UnsubscribeAll,
+		EmailAddress:            c.EmailAddress,
+		LastUpdatedTimestamp:    awstime.Epoch(c.LastUpdatedAt),
+		TopicPreferences:        toTopicPreferenceOutputs(c.TopicPreferences),
+		TopicDefaultPreferences: topicDefaultPreferenceOutputs(listTopics),
+		UnsubscribeAll:          c.UnsubscribeAll,
 	}
 }
 
@@ -127,6 +177,30 @@ func toSuppressedDestinationOutput(d *SuppressedDestination) suppressedDestinati
 	}
 }
 
+// getSuppressedDestinationOutput mirrors types.SuppressedDestination, the
+// GetSuppressedDestination item shape -- richer than ListSuppressedDestinations'
+// SuppressedDestinationSummary (suppressedDestinationOutput above): it also
+// carries TenantName (confirmed in deserializers.go's
+// awsRestjson1_deserializeDocumentSuppressedDestination "TenantName" case),
+// which SuppressedDestinationSummary has no member for at all. Attributes
+// (FeedbackId/MessageId) is left unmodeled: this backend has no bounce/
+// complaint event pipeline to source them from.
+type getSuppressedDestinationOutput struct {
+	EmailAddress   string  `json:"EmailAddress"`
+	Reason         string  `json:"Reason"`
+	TenantName     string  `json:"TenantName,omitempty"`
+	LastUpdateTime float64 `json:"LastUpdateTime,omitempty"`
+}
+
+func toGetSuppressedDestinationOutput(d *SuppressedDestination) getSuppressedDestinationOutput {
+	return getSuppressedDestinationOutput{
+		EmailAddress:   d.EmailAddress,
+		Reason:         d.Reason,
+		TenantName:     d.TenantName,
+		LastUpdateTime: awstime.Epoch(d.LastUpdateTime),
+	}
+}
+
 // ---- dedicated IP pool ----
 
 // dedicatedIPPoolOutput mirrors types.DedicatedIpPool.
@@ -141,17 +215,93 @@ func toDedicatedIPPoolOutput(p *DedicatedIPPool) dedicatedIPPoolOutput {
 
 // ---- configuration set event destination ----
 
-// eventDestinationOutput mirrors types.EventDestination's modelled subset
-// (Name, Enabled, MatchingEventTypes). Note the real type has no
-// ConfigurationSetName or creation-time field.
+// cloudWatchDimensionConfigurationOutput mirrors types.CloudWatchDimensionConfiguration.
+type cloudWatchDimensionConfigurationOutput struct {
+	DimensionName         string `json:"DimensionName"`
+	DimensionValueSource  string `json:"DimensionValueSource"`
+	DefaultDimensionValue string `json:"DefaultDimensionValue"`
+}
+
+// cloudWatchDestinationOutput mirrors types.CloudWatchDestination.
+type cloudWatchDestinationOutput struct {
+	DimensionConfigurations []cloudWatchDimensionConfigurationOutput `json:"DimensionConfigurations,omitempty"`
+}
+
+func toCloudWatchDestinationOutput(d *CloudWatchDestination) *cloudWatchDestinationOutput {
+	if d == nil {
+		return nil
+	}
+
+	dims := make([]cloudWatchDimensionConfigurationOutput, len(d.DimensionConfigurations))
+	for i, dc := range d.DimensionConfigurations {
+		dims[i] = cloudWatchDimensionConfigurationOutput(dc)
+	}
+
+	return &cloudWatchDestinationOutput{DimensionConfigurations: dims}
+}
+
+// eventBridgeDestinationOutput mirrors types.EventBridgeDestination.
+type eventBridgeDestinationOutput struct {
+	EventBusArn string `json:"EventBusArn"`
+}
+
+// kinesisFirehoseDestinationOutput mirrors types.KinesisFirehoseDestination.
+type kinesisFirehoseDestinationOutput struct {
+	IamRoleArn        string `json:"IamRoleArn"`
+	DeliveryStreamArn string `json:"DeliveryStreamArn"`
+}
+
+// pinpointDestinationOutput mirrors types.PinpointDestination.
+type pinpointDestinationOutput struct {
+	ApplicationArn string `json:"ApplicationArn,omitempty"`
+}
+
+// snsDestinationOutput mirrors types.SnsDestination.
+type snsDestinationOutput struct {
+	TopicArn string `json:"TopicArn"`
+}
+
+// eventDestinationOutput mirrors types.EventDestination. Note the real type
+// has no ConfigurationSetName or creation-time field.
 type eventDestinationOutput struct {
-	Name               string   `json:"Name"`
-	MatchingEventTypes []string `json:"MatchingEventTypes"`
-	Enabled            bool     `json:"Enabled"`
+	CloudWatchDestination      *cloudWatchDestinationOutput      `json:"CloudWatchDestination,omitempty"`
+	EventBridgeDestination     *eventBridgeDestinationOutput     `json:"EventBridgeDestination,omitempty"`
+	KinesisFirehoseDestination *kinesisFirehoseDestinationOutput `json:"KinesisFirehoseDestination,omitempty"`
+	PinpointDestination        *pinpointDestinationOutput        `json:"PinpointDestination,omitempty"`
+	SnsDestination             *snsDestinationOutput             `json:"SnsDestination,omitempty"`
+	Name                       string                            `json:"Name"`
+	MatchingEventTypes         []string                          `json:"MatchingEventTypes"`
+	Enabled                    bool                              `json:"Enabled"`
 }
 
 func toEventDestinationOutput(d *EventDestination) eventDestinationOutput {
-	return eventDestinationOutput{Name: d.Name, Enabled: d.Enabled, MatchingEventTypes: d.MatchingEventTypes}
+	out := eventDestinationOutput{
+		Name:                  d.Name,
+		Enabled:               d.Enabled,
+		MatchingEventTypes:    d.MatchingEventTypes,
+		CloudWatchDestination: toCloudWatchDestinationOutput(d.CloudWatchDestination),
+	}
+
+	if eb := d.EventBridgeDestination; eb != nil {
+		out.EventBridgeDestination = &eventBridgeDestinationOutput{EventBusArn: eb.EventBusArn}
+	}
+
+	if kf := d.KinesisFirehoseDestination; kf != nil {
+		out.KinesisFirehoseDestination = &kinesisFirehoseDestinationOutput{
+			IamRoleArn:        kf.IamRoleArn,
+			DeliveryStreamArn: kf.DeliveryStreamArn,
+		}
+	}
+
+	if pd := d.PinpointDestination; pd != nil {
+		out.PinpointDestination = &pinpointDestinationOutput{ApplicationArn: pd.ApplicationArn}
+	}
+
+	if sns := d.SnsDestination; sns != nil {
+		out.SnsDestination = &snsDestinationOutput{TopicArn: sns.TopicArn}
+	}
+
+	return out
 }
 
 func toEventDestinationOutputs(dests []*EventDestination) []eventDestinationOutput {

@@ -21,13 +21,14 @@ type Contact struct {
 	LastUpdatedAt    time.Time         `json:"lastUpdatedAt"`
 	EmailAddress     string            `json:"emailAddress"`
 	ContactListName  string            `json:"contactListName"`
+	AttributesData   string            `json:"attributesData,omitempty"`
 	TopicPreferences []TopicPreference `json:"topicPreferences"`
 	UnsubscribeAll   bool              `json:"unsubscribeAll"`
 }
 
 // CreateContact adds a contact to a contact list.
 func (b *InMemoryBackend) CreateContact(
-	contactListName, emailAddress string,
+	contactListName, emailAddress, attributesData string,
 	topicPreferences []TopicPreference,
 	unsubscribeAll bool,
 ) (*Contact, error) {
@@ -53,6 +54,7 @@ func (b *InMemoryBackend) CreateContact(
 	c := &Contact{
 		EmailAddress:     emailAddress,
 		ContactListName:  contactListName,
+		AttributesData:   attributesData,
 		TopicPreferences: prefs,
 		UnsubscribeAll:   unsubscribeAll,
 		CreatedAt:        now,
@@ -113,9 +115,10 @@ func (b *InMemoryBackend) DeleteContact(contactListName, emailAddress string) er
 	return nil
 }
 
-// UpdateContact updates a contact's topic preferences and unsubscribe-all status.
+// UpdateContact updates a contact's attributes data, topic preferences and
+// unsubscribe-all status.
 func (b *InMemoryBackend) UpdateContact(
-	contactListName, emailAddress string,
+	contactListName, emailAddress, attributesData string,
 	topicPreferences []TopicPreference,
 	unsubscribeAll bool,
 ) error {
@@ -139,6 +142,7 @@ func (b *InMemoryBackend) UpdateContact(
 	prefs := make([]TopicPreference, len(topicPreferences))
 	copy(prefs, topicPreferences)
 	c.TopicPreferences = prefs
+	c.AttributesData = attributesData
 	c.UnsubscribeAll = unsubscribeAll
 	c.LastUpdatedAt = time.Now()
 

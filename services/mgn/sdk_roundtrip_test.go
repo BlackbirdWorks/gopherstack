@@ -218,6 +218,18 @@ func TestRoundTrip_ConfigTemplates(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, aws.ToString(rct.ReplicationConfigurationTemplateID))
+	require.Equal(t, "subnet-1", aws.ToString(rct.StagingAreaSubnetId),
+		"real wire key is stagingAreaSubnetId (deserializers.go), not stagingAreaSubnetID")
+
+	described, err := client.DescribeReplicationConfigurationTemplates(
+		ctx,
+		&mgnsdk.DescribeReplicationConfigurationTemplatesInput{
+			ReplicationConfigurationTemplateIDs: []string{aws.ToString(rct.ReplicationConfigurationTemplateID)},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, described.Items, 1)
+	require.Equal(t, "subnet-1", aws.ToString(described.Items[0].StagingAreaSubnetId))
 
 	_, err = client.DeleteReplicationConfigurationTemplate(ctx, &mgnsdk.DeleteReplicationConfigurationTemplateInput{
 		ReplicationConfigurationTemplateID: rct.ReplicationConfigurationTemplateID,
@@ -255,10 +267,21 @@ func TestRoundTrip_PerServerConfiguration(t *testing.T) {
 	require.Equal(t, id, aws.ToString(rc.SourceServerID))
 
 	updatedRC, err := client.UpdateReplicationConfiguration(ctx, &mgnsdk.UpdateReplicationConfigurationInput{
-		SourceServerID: aws.String(id), Name: aws.String("new-rc-name"),
+		SourceServerID:      aws.String(id),
+		Name:                aws.String("new-rc-name"),
+		StagingAreaSubnetId: aws.String("subnet-rc-1"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "new-rc-name", aws.ToString(updatedRC.Name))
+	require.Equal(t, "subnet-rc-1", aws.ToString(updatedRC.StagingAreaSubnetId),
+		"real wire key is stagingAreaSubnetId (deserializers.go), not stagingAreaSubnetID")
+
+	rc2, err := client.GetReplicationConfiguration(
+		ctx,
+		&mgnsdk.GetReplicationConfigurationInput{SourceServerID: aws.String(id)},
+	)
+	require.NoError(t, err)
+	require.Equal(t, "subnet-rc-1", aws.ToString(rc2.StagingAreaSubnetId))
 }
 
 // TestRoundTrip_Connectors drives Create/Update/List/DeleteConnector.
@@ -274,11 +297,16 @@ func TestRoundTrip_Connectors(t *testing.T) {
 	require.NoError(t, err)
 	id := aws.ToString(created.ConnectorID)
 
+	// UpdateConnectorInput (mgn@v1.48.4 api_op_UpdateConnector.go) has no
+	// SsmInstanceID member -- it's CreateConnectorInput-only -- so the real
+	// SDK type structurally cannot request a change to it here; this proves
+	// the value set at creation survives an otherwise-unrelated update.
 	updated, err := client.UpdateConnector(ctx, &mgnsdk.UpdateConnectorInput{
 		ConnectorID: aws.String(id), Name: aws.String("renamed"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, "renamed", aws.ToString(updated.Name))
+	require.Equal(t, "mi-1234567890abcdef0", aws.ToString(updated.SsmInstanceID))
 
 	listed, err := client.ListConnectors(ctx, &mgnsdk.ListConnectorsInput{})
 	require.NoError(t, err)

@@ -75,6 +75,7 @@ func TestHandler_RestoreClusterOperations(t *testing.T) {
 				"Version":                   {"2014-10-31"},
 				"SourceDBClusterIdentifier": {"source-cluster"},
 				"DBClusterIdentifier":       {"restored-cluster"},
+				"UseLatestRestorableTime":   {"true"},
 			},
 			wantStatus:   http.StatusOK,
 			wantContains: "restored-cluster",
@@ -86,6 +87,7 @@ func TestHandler_RestoreClusterOperations(t *testing.T) {
 				"Version":                   {"2014-10-31"},
 				"SourceDBClusterIdentifier": {"nonexistent"},
 				"DBClusterIdentifier":       {"restored-cluster"},
+				"UseLatestRestorableTime":   {"true"},
 			},
 			wantStatus:   http.StatusBadRequest,
 			wantContains: "DBClusterNotFoundFault",
@@ -236,6 +238,7 @@ func TestRestoreCluster_ToPointInTime(t *testing.T) {
 				"Version":                   {"2014-10-31"},
 				"SourceDBClusterIdentifier": {"pitr-source"},
 				"DBClusterIdentifier":       {"pitr-target"},
+				"UseLatestRestorableTime":   {"true"},
 			})
 			assert.Equal(t, tt.wantStatus, rr.Code)
 			assert.Contains(t, rr.Body.String(), tt.wantContains)
@@ -368,9 +371,10 @@ func TestRestoreDBClusterToPointInTime_Errors(t *testing.T) {
 			}
 
 			vals := url.Values{
-				"Action":              {"RestoreDBClusterToPointInTime"},
-				"Version":             {"2014-10-31"},
-				"DBClusterIdentifier": {tt.targetID},
+				"Action":                  {"RestoreDBClusterToPointInTime"},
+				"Version":                 {"2014-10-31"},
+				"DBClusterIdentifier":     {tt.targetID},
+				"UseLatestRestorableTime": {"true"},
 			}
 			if tt.sourceID != "" {
 				vals.Set("SourceDBClusterIdentifier", tt.sourceID)
@@ -432,6 +436,7 @@ func TestRestoreDBClusterToPointInTime_InheritsProperties(t *testing.T) {
 		"Version":                   {"2014-10-31"},
 		"SourceDBClusterIdentifier": {"pit-props-source"},
 		"DBClusterIdentifier":       {"pit-props-target"},
+		"UseLatestRestorableTime":   {"true"},
 	})
 	require.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "adminuser")

@@ -45,6 +45,22 @@ var (
 	// the stack is not in UPDATE_IN_PROGRESS state. Real AWS: "You can
 	// cancel only stacks that are in the UPDATE_IN_PROGRESS state".
 	ErrCancelUpdateStackInvalidState = errors.New("can only cancel stacks that are in the UPDATE_IN_PROGRESS state")
+	// ErrResourceTypeNotAllowed is returned when a template resource's Type
+	// doesn't match any pattern in the caller's optional ResourceTypes
+	// allowlist (CreateStackInput.ResourceTypes/UpdateStackInput.ResourceTypes/
+	// CreateChangeSetInput.ResourceTypes).
+	ErrResourceTypeNotAllowed = errors.New("resource type is not in the allowed ResourceTypes list")
+	// ErrChangeSetTypeMismatch is returned when CreateChangeSetInput's
+	// ChangeSetType conflicts with whether the target stack actually exists
+	// (CREATE against an existing stack, or UPDATE against a missing one --
+	// api_op_CreateChangeSet.go: "You can't use the UPDATE type to create a
+	// change set for a new stack or the CREATE type to create a change set
+	// for an existing stack").
+	ErrChangeSetTypeMismatch = errors.New("ChangeSetType does not match whether the stack exists")
+	// ErrChangeSetTypeUnsupported is returned for CreateChangeSetInput.
+	// ChangeSetType=IMPORT, which this backend does not model (no
+	// resources-to-import machinery exists).
+	ErrChangeSetTypeUnsupported = errors.New("ChangeSetType IMPORT is not supported")
 )
 
 // ErrTerminationProtectionEnabled is returned when deleting a termination-protected stack.

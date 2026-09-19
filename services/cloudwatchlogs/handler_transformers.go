@@ -12,7 +12,7 @@ type putTransformerInput struct {
 }
 
 func (h *Handler) handlePutTransformer(
-	ctx context.Context, //nolint:revive // existing issue.
+	ctx context.Context,
 	body []byte,
 ) (any, error) {
 	var in putTransformerInput
@@ -21,7 +21,7 @@ func (h *Handler) handlePutTransformer(
 	}
 
 	if b := cwlBackend(h); b != nil {
-		if err := b.PutTransformer(in.LogGroupIdentifier, in.TransformerConfig); err != nil {
+		if err := b.PutTransformer(ctx, in.LogGroupIdentifier, in.TransformerConfig); err != nil {
 			return nil, err
 		}
 	}

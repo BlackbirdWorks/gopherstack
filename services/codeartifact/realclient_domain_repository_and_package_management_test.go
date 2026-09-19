@@ -228,6 +228,7 @@ func TestRealClient_DomainRepositoryAndPackageManagement(t *testing.T) {
 			_, err = h.Backend.PublishPackageVersion(
 				ctx, "dom-assoc", "repo1", "npm", "", "left-pad", "1.0.0",
 				codeartifact.AssetInfo{Name: "left-pad-1.0.0.tgz", Content: []byte("data"), SHA256: "abc", Size: 4},
+				false,
 			)
 			require.NoError(t, err)
 
@@ -261,6 +262,7 @@ func TestRealClient_DomainRepositoryAndPackageManagement(t *testing.T) {
 					SHA256:  "deadbeef",
 					Size:    int64(len("tarball-bytes")),
 				},
+				false,
 			)
 			require.NoError(t, err)
 

@@ -342,7 +342,6 @@ type CLI struct {
 	applicationautoscalingHandler service.Registerable
 	batchHandler                  service.Registerable
 	bedrockHandler                service.Registerable
-	bedrockAgentsHandler          service.Registerable
 	bedrockruntimeHandler         service.Registerable
 	ceHandler                     service.Registerable
 	cloudcontrolHandler           service.Registerable
@@ -1648,11 +1647,6 @@ func (c *CLI) GetBatchHandler() service.Registerable { return c.batchHandler }
 //nolint:ireturn // architecturally required to return interface
 func (c *CLI) GetBedrockHandler() service.Registerable { return c.bedrockHandler }
 
-// GetBedrockAgentsHandler returns the Bedrock Agents handler.
-//
-//nolint:ireturn // architecturally required to return interface
-func (c *CLI) GetBedrockAgentsHandler() service.Registerable { return c.bedrockAgentsHandler }
-
 // GetBedrockRuntimeHandler returns the Bedrock Runtime handler.
 //
 //nolint:ireturn // architecturally required to return interface
@@ -2752,7 +2746,6 @@ func storeCLIExtendedHandlers(cli *CLI, byName map[string]service.Registerable) 
 	cli.applicationautoscalingHandler = byName["ApplicationAutoscaling"]
 	cli.batchHandler = byName["Batch"]
 	cli.bedrockHandler = byName["Bedrock"]
-	cli.bedrockAgentsHandler = byName["BedrockAgents"]
 	cli.bedrockruntimeHandler = byName["BedrockRuntime"]
 	cli.ecrHandler = byName["ECR"]
 	cli.ecsHandler = byName["ECS"]
@@ -3757,13 +3750,15 @@ func wireStorageAndSecretsIntegrations(byName map[string]service.Registerable) {
 	// resource (gopherstack-0o0q).
 	wireBackupS3(byName["Backup"], byName["S3"])
 
-	// Wire CodePipeline → CodeBuild/Lambda so a Build/CodeBuild action's
-	// ProjectName and an Invoke/Lambda action's FunctionName actually reach
-	// their backend, instead of every non-Approval action being marked
-	// Succeeded unconditionally with no cross-service call at all
-	// (gopherstack-cb9l).
+	// Wire CodePipeline → CodeBuild/Lambda/CodeDeploy so a Build/CodeBuild
+	// action's ProjectName, an Invoke/Lambda action's FunctionName, and a
+	// Deploy/CodeDeploy action's ApplicationName/DeploymentGroupName
+	// actually reach their backend, instead of every non-Approval action
+	// being marked Succeeded unconditionally with no cross-service call at
+	// all (gopherstack-cb9l).
 	wireCodePipelineCodeBuild(byName["CodePipeline"], byName["CodeBuild"])
 	wireCodePipelineLambda(byName["CodePipeline"], byName["Lambda"])
+	wireCodePipelineCodeDeploy(byName["CodePipeline"], byName["CodeDeploy"])
 }
 
 // wireAppConfigDeployments wires the AppConfigData backend as AppConfig's
@@ -3996,7 +3991,6 @@ func getRemainingServiceProviders() []service.Provider {
 		&applicationautoscalingbackend.Provider{},
 		&batchbackend.Provider{},
 		&bedrockbackend.Provider{},
-		&bedrockbackend.AgentsProvider{},
 		&bedrockruntimebackend.Provider{},
 		&cebackend.Provider{},
 		&cloudcontrolbackend.Provider{},
@@ -6566,6 +6560,42 @@ func wireCodePipelineLambda(codepipelineReg, lambdaReg service.Registerable) {
 	}
 
 	cpH.Backend.SetLambdaBackend(lambdaBk)
+}
+
+// wireCodePipelineCodeDeploy connects the CodePipeline backend to CodeDeploy
+// so a Deploy/CodeDeploy action's ApplicationName/DeploymentGroupName
+// actually starts a deployment and fails the action when either doesn't
+// exist, instead of every non-Approval action being marked Succeeded
+// unconditionally with no cross-service call at all (gopherstack-cb9l).
+// codedeploy.InMemoryBackend's CreateDeployment takes a codedeploy-specific
+// DeploymentOptions and returns a *Deployment, so
+// codepipelineCodeDeployAdapter supplies the zero value CodePipeline's
+// Deploy action has no per-run overrides for and discards the deployment
+// record.
+func wireCodePipelineCodeDeploy(codepipelineReg, codeDeployReg service.Registerable) {
+	cpH, ok := codepipelineReg.(*codepipelinebackend.Handler)
+	if !ok {
+		return
+	}
+
+	cdH, cdOk := codeDeployReg.(*codedeploybackend.Handler)
+	if !cdOk {
+		return
+	}
+
+	cpH.Backend.SetCodeDeployBackend(&codepipelineCodeDeployAdapter{backend: cdH.Backend})
+}
+
+// codepipelineCodeDeployAdapter adapts the CodeDeploy backend to the
+// codepipeline.CodeDeployStarter interface.
+type codepipelineCodeDeployAdapter struct {
+	backend *codedeploybackend.InMemoryBackend
+}
+
+func (a *codepipelineCodeDeployAdapter) CreateDeployment(applicationName, deploymentGroupName string) error {
+	_, err := a.backend.CreateDeployment(applicationName, deploymentGroupName, codedeploybackend.DeploymentOptions{})
+
+	return err
 }
 
 // wireTextractS3 connects the Textract backend to S3 so a Document/

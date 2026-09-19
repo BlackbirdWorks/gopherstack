@@ -2,8 +2,8 @@
 service: eventbridge
 sdk_module: aws-sdk-go-v2/service/eventbridge@v1.53.0
 sibling_sdk_modules: [aws-sdk-go-v2/service/pipes@v1.26.4, aws-sdk-go-v2/service/schemas@v1.37.4]  # Pipes and Schema Registry ops this Handler also implements; see schema_registry_and_pipes below
-last_audit_commit: b72533e7a
-last_audit_date: 2026-08-07
+last_audit_commit: f66686eee
+last_audit_date: 2026-09-18
 overall: A
 # 2026-08-30 wrapper-key sweep (uncommitted as of this note): type-aware
 # go/types field-usage scan (302 exported fields across all 40 *Input/*Request
@@ -118,6 +118,20 @@ leaks: {status: clean, note: "Re-verified this sweep: PutEvents's async delivery
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard census: omitted-member blanking on 6 Update/Put ops
+
+UpdateArchive (Description/EventPattern/KmsKeyIdentifier), UpdateConnection
+(Description), UpdateEndpoint (Description/RoleArn), UpdateEventBus
+(Description/KmsKeyIdentifier -- these two were unconditionally overwritten,
+no guard at all), UpdateRegistry (Description) and UpdateSchema
+(Content/Description) decoded these as plain strings, so an update that
+omitted the field blanked it instead of preserving the stored value. Fixed
+by decoding as `*string` and applying only when non-nil (explicit empty
+still clears). zeroguard rows 36 -> 25; the rest are PutRule's documented
+full-replace-on-update semantics, PutPermission/PutCodeBinding's
+Create-shaped per-call statement/binding construction, or required lookup
+identifiers -- see zeroguard output for file:line.
 
 ### 2026-08-13 remaining RFC3339-vs-epoch-seconds holdouts (gopherstack-hjap)
 

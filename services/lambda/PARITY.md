@@ -1,8 +1,8 @@
 ---
 service: lambda
 sdk_module: aws-sdk-go-v2/service/lambda@v1.107.0
-last_audit_commit: a007ec3e
-last_audit_date: 2026-09-03
+last_audit_commit: 302aa4e3c
+last_audit_date: 2026-09-18
 overall: A   # durable_execution wire-shape rewrite closed the last open gap; all gates green
 protocol: REST-JSON
 families:
@@ -51,6 +51,17 @@ items_still_open:
 deferred: []
 leaks: {status: ok, note: "gopherstack-9zx (2026-09-03): 2 real leak-class bugs found + fixed, see dated section below -- cleanupTimedOutRuntime silently dropped container/port/tempdir cleanup when b.cleanupSem was saturated (its two sibling call sites already fell back to inline cleanup; this one just returned), and a genuine async-invocation timeout skipped both retry and DLQ/on-failure destination delivery entirely (AWS treats a runtime timeout as a function error for async purposes). Everything else re-verified clean this pass: event-source pollers + janitor + container lifecycle otherwise leak-conscious; go test -race passes (3/3 clean runs). New PublishVersionWithRevision path adds no new goroutines/locks (reuses the existing PublishVersion lock); layerPolicyRevisionID/policyRevisionID are pure functions with no new backend state (derived from already-persisted b.permissions / b.layerPolicies, so no new persistence surface either). durable_execution rewrite: durableExecutionStore starts no goroutines and holds no live resources (pure in-memory map + mutex), so Shutdown has nothing to drain; every Lock/RLock is immediately followed by a deferred Unlock/RUnlock with no intervening early return; b.durableExecs.reset() (lifecycle.go) clears both the executions map and the callbackOwner index together, so no ghost callbackOwner entries survive a Reset."}
 ---
+
+## Notes (2026-09-18 pass — zeroguard omitted-vs-zero sweep)
+
+`cmd/zeroguard` flagged 19 rows across 5 Update/Put ops. 7 fields were real
+bugs, pointer-ified: UpdateCodeSigningConfig.Description,
+UpdateEventSourceMapping.KMSKeyArn, UpdateFunctionConfiguration.{Description,
+Role,Handler}, UpdateAlias.{FunctionVersion,Description} — each proven in
+`update_omitted_members_preserve_state_test.go` (typed real client). 12 false
+positives: identifiers used only for lookup (UUID, RevisionId precondition
+fields), or Put/replace-required fields (UpdateFunctionCode's
+ImageUri/S3Bucket/S3Key, PutRuntimeManagementConfig.RuntimeVersionArn).
 
 ## Notes
 - InvocationType is a type alias (type InvocationType = string) so lambda backend satisfies sns.LambdaInvoker directly.

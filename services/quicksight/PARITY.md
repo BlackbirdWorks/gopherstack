@@ -1,7 +1,7 @@
 service: quicksight
 sdk_module: aws-sdk-go-v2/service/quicksight@v1.129.0
-last_audit_commit: 73f133771
-last_audit_date: 2026-08-13 # gopherstack-wl0s: CreateOAuthClientApplication's ClientId,
+last_audit_commit: 5783fa294  # gopherstack-21my per-item field sweep
+last_audit_date: 2026-09-18 # gopherstack-wl0s: CreateOAuthClientApplication's ClientId,
                       # ClientSecret, OAuthClientAuthenticationType, and OAuthTokenEndpointUrl
                       # are all required per validateOpCreateOAuthClientApplicationInput but
                       # were never presence-checked -- OAuthClientAuthenticationType/
@@ -289,6 +289,10 @@ items_still_open:
   - "2026-09-12 (reqfielddiff tier-1 sweep, gopherstack-xhu2t slice 3): GetDashboardEmbedUrl's ResetDisabled/StatePersistenceEnabled/UndoRedoDisabled (all real httpQuery members) are decoded nowhere. This backend's embed URL (embedurl.go's generateEmbedURL) is an opaque generated string with a fixed format and no session-config channel -- there is no rendering surface or other observable state these three toggles could affect without fabricating a URL format real AWS doesn't document. Namespace (the fourth undecoded query field on this op) IS now fixed -- see ops table."
   - "2026-09-12 (same sweep): StartAssetBundleExportJob.ValidationStrategy (real, optional) is decoded nowhere. This backend's export job has no validation engine at all (it always reaches QUEUED/SUCCESSFUL with no per-resource checks), so there is nothing for StrictModeForAllResources to loosen or tighten."
   - "2026-09-12 (same sweep): CreateDashboard.Parameters (real, on the wire) is decoded nowhere. No Describe* op echoes it back (verified against quicksight@v1.129.0's DescribeDashboardDefinitionOutput, which has no Parameters member at all -- unlike the sibling DashboardPublishOptions field, fixed this pass), and this backend's Dashboard.Definition is an opaque blob with no parameter-driven rendering to apply initial overrides to. Storing it with nowhere to prove it landed would violate this campaign's no-fabrication rule."
+  - "gopherstack-21my (per-item sweep, 2026-09-18): ListApps has no handler at all (Q Apps within QuickSight are an entirely unmodeled subsystem) -- flagged by cmd/overwidecandidates as an item-shape candidate, but there is no op to sweep."
+  - "gopherstack-21my (per-item sweep): DataSetSummary/DataSet never model ColumnLevelPermissionRulesApplied, RowLevelPermissionDataSet(Map), RowLevelPermissionTagConfigurationApplied, or UseAs -- row-level/column-level security is an entirely unmodeled subsystem, not a dropped field."
+  - "gopherstack-21my (per-item sweep): KnowledgeBaseSummary omits PrimaryOwnerUsername and Type -- KnowledgeBase tracks PrimaryOwnerArn but no username lookup or knowledge-base-type classification exists to derive either honestly."
+  - "gopherstack-21my (per-item sweep): ListDashboardVersions synthesizes each DashboardVersionSummary on the fly (CreatedTime/Arn/Status/VersionNumber only) -- this backend never stores a per-historical-version Description or SourceEntityArn (only the current Dashboard.VersionDescription), so neither can be surfaced without a structural change to how UpdateDashboard records version history."
 deferred: []
   # All families audited across the prior and this pass; see families above. None
   # remain deferred.
@@ -297,6 +301,16 @@ leaks: {status: clean, note: "no goroutines/timers/janitors found in this servic
 ---
 
 ## Notes
+
+### 2026-09-18 (gopherstack-21my: per-item field sweep)
+
+Swept all 26 flagged over-wide List ops against the pinned SDK's
+`types.go`/`deserializers.go`. Fixed 2 leaks: `ListThemes` fabricated
+`Type`; `ListTopics` fabricated `Created/LastUpdatedTime` while dropping
+real `UserExperienceVersion` (unused correct helper already existed). Fixed
+1 drop: `ListTopicRefreshSchedules.DatasetName` (derived via
+`DescribeDataSet`). 4 unmodeled-subsystem gaps recorded above. Tests:
+`services/quicksight/wire_field_fixes_test.go`.
 
 ### 2026-09-12 (gopherstack-n3zi: typed real-client coverage)
 

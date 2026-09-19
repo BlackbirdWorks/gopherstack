@@ -2,6 +2,7 @@ package glue
 
 import (
 	"context"
+	"fmt"
 	"slices"
 )
 
@@ -235,10 +236,21 @@ func (h *Handler) handleListDataQualityRulesets(
 	return &listDataQualityRulesetsOutput{Rulesets: items, NextToken: next}, nil
 }
 
+// startDataQualityRulesetEvaluationRunInput holds input for
+// StartDataQualityRulesetEvaluationRun. Role and DataSource are real, required
+// input members (glue@v1.157.0 api_op_StartDataQualityRulesetEvaluationRun.go);
+// ClientToken is accepted but not stored -- idempotent-replay detection needs a
+// request-dedup store this backend doesn't have anywhere (same class of gap as
+// IdempotentParameterMismatchException, see PARITY.md).
 type startDataQualityRulesetEvaluationRunInput struct {
-	RulesetNames    []string `json:"RulesetNames"`
-	NumberOfWorkers int32    `json:"NumberOfWorkers,omitempty"`
-	Timeout         int32    `json:"Timeout,omitempty"`
+	DataSource            *DataQualityDataSource           `json:"DataSource,omitempty"`
+	AdditionalRunOptions  *DataQualityRunAdditionalOptions `json:"AdditionalRunOptions,omitempty"`
+	AdditionalDataSources map[string]DataQualityDataSource `json:"AdditionalDataSources,omitempty"`
+	Role                  string                           `json:"Role"`
+	ClientToken           string                           `json:"ClientToken,omitempty"`
+	RulesetNames          []string                         `json:"RulesetNames"`
+	NumberOfWorkers       int32                            `json:"NumberOfWorkers,omitempty"`
+	Timeout               int32                            `json:"Timeout,omitempty"`
 }
 
 type startDataQualityRulesetEvaluationRunOutput struct {
@@ -249,10 +261,24 @@ func (h *Handler) handleStartDataQualityRulesetEvaluationRun(
 	_ context.Context,
 	in *startDataQualityRulesetEvaluationRunInput,
 ) (*startDataQualityRulesetEvaluationRunOutput, error) {
-	run, err := h.Backend.StartDataQualityRulesetEvaluationRunWithOptions(in.RulesetNames, DataQualityRunOptions{
-		NumberOfWorkers: in.NumberOfWorkers,
-		Timeout:         in.Timeout,
-	})
+	if in.Role == "" {
+		return nil, fmt.Errorf("%w: Role is required", ErrValidation)
+	}
+
+	if in.DataSource == nil {
+		return nil, fmt.Errorf("%w: DataSource is required", ErrValidation)
+	}
+
+	run, err := h.Backend.StartDataQualityRulesetEvaluationRunWithOptions(
+		in.RulesetNames, DataQualityEvaluationRunOptions{
+			NumberOfWorkers:       in.NumberOfWorkers,
+			Timeout:               in.Timeout,
+			Role:                  in.Role,
+			DataSource:            in.DataSource,
+			AdditionalRunOptions:  in.AdditionalRunOptions,
+			AdditionalDataSources: in.AdditionalDataSources,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

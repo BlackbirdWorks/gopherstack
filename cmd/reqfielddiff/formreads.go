@@ -165,12 +165,14 @@ func matchFormReadCall(
 	formKeys map[string]string,
 	ctx handlerResolveCtx,
 	res *opResolution,
+	localLits map[string]string,
+	chainVisited map[*ast.FuncDecl]bool,
 ) {
 	if len(formKeys) == 0 {
 		return
 	}
 
-	if matchFormGetCall(call, urlValuesNames, formKeys, res) {
+	if matchFormGetCall(call, urlValuesNames, formKeys, res, localLits) {
 		return
 	}
 
@@ -178,7 +180,7 @@ func matchFormReadCall(
 		return
 	}
 
-	matchFormHelperCall(call, urlValuesNames, formKeys, ctx, res)
+	matchFormHelperCall(call, urlValuesNames, formKeys, ctx, res, localLits, chainVisited)
 }
 
 // matchFormGetCall matches `vals.Get("Name")` -- either vals is a
@@ -195,6 +197,7 @@ func matchFormGetCall(
 	urlValuesNames map[string]bool,
 	formKeys map[string]string,
 	res *opResolution,
+	localLits map[string]string,
 ) bool {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok || sel.Sel.Name != "Get" || len(call.Args) == 0 {
@@ -207,7 +210,7 @@ func matchFormGetCall(
 			return false
 		}
 
-		return addFormReadLiteral(call.Args[0], formKeys, res)
+		return addFormReadLiteral(call.Args[0], formKeys, res, localLits)
 	case *ast.CallExpr:
 		if !isURLQueryCall(recv) {
 			return false
@@ -221,13 +224,29 @@ func matchFormGetCall(
 
 // matchFormHelperCall matches a call to a package-level helper whose own
 // first parameter is url.Values -- ec2's `parseMemberList(vals, "KeyName")`
-// shape, and its equivalents across the other affected services.
+// shape, and its equivalents across the other affected services. When the
+// helper resolves, its own body is chased too (scanURLValuesFuncBody) --
+// rds's handleDescribeDBInstances calls the generic paginateDescribe(vals,
+// ...) directly, which itself calls parseDescribePagination(vals), whose
+// OWN body reads `vals.Get("MaxRecords")`: two calls from the handler,
+// past scanBody's single-hop cap on every OTHER decode signal. Chasing
+// this chain has no depth limit (chainVisited only guards against a
+// cycle) because, unlike scanBody's return-type struct resolution --
+// capped at one hop specifically to avoid gopherstack-id70's
+// same-named-different-receiver hazard -- every step here is gated by
+// three independent conditions regardless of depth: the callee's own
+// first parameter must be url.Values (structural), the caller must pass
+// one of its OWN already-confirmed url.Values locals into it (dataflow),
+// and a match still only counts against THIS operation's own SDK field
+// names (formKeys).
 func matchFormHelperCall(
 	call *ast.CallExpr,
 	urlValuesNames map[string]bool,
 	formKeys map[string]string,
 	ctx handlerResolveCtx,
 	res *opResolution,
+	localLits map[string]string,
+	chainVisited map[*ast.FuncDecl]bool,
 ) {
 	fn, ok := call.Fun.(*ast.Ident)
 	if !ok {
@@ -258,30 +277,201 @@ func matchFormHelperCall(
 	}
 
 	for _, arg := range call.Args {
-		addFormReadLiteral(arg, formKeys, res)
+		addFormReadLiteral(arg, formKeys, res, localLits)
 	}
+
+	scanURLValuesFuncBody(fd, ctx, formKeys, res, chainVisited)
 }
 
-// addFormReadLiteral checks a call-argument expression for a string literal
-// matching one of formKeys, either whole (a scalar field, or a plural
-// field's singular member prefix: "KeyName" matching declared "KeyNames")
-// or by its first dot-segment (a nested-prefix read like
+// scanURLValuesFuncBody walks fd's own body for Get() calls and further
+// url.Values-forwarding helper calls, keyed by fd's OWN url.Values
+// parameter names rather than the original caller's -- see
+// matchFormHelperCall's doc for why following this chain to any depth is
+// safe. chainVisited prevents infinite recursion through a call cycle.
+func scanURLValuesFuncBody(
+	fd *ast.FuncDecl,
+	ctx handlerResolveCtx,
+	formKeys map[string]string,
+	res *opResolution,
+	chainVisited map[*ast.FuncDecl]bool,
+) {
+	if fd == nil || fd.Body == nil || fd.Type == nil || chainVisited[fd] {
+		return
+	}
+
+	chainVisited[fd] = true
+
+	ownNames := map[string]bool{}
+	addURLValuesParams(fd.Type.Params, ownNames)
+
+	if len(ownNames) == 0 {
+		return
+	}
+
+	localLits := map[string]string{}
+
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		if as, ok := n.(*ast.AssignStmt); ok {
+			recordLocalPrefixAssign(as, localLits)
+
+			return true
+		}
+
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+
+		matchFormGetCall(call, ownNames, formKeys, res, localLits)
+		matchFormHelperCall(call, ownNames, formKeys, ctx, res, localLits, chainVisited)
+
+		return true
+	})
+}
+
+// addFormReadLiteral checks a call-argument expression for a wire-name
+// prefix matching one of formKeys, either whole (a scalar field, or a
+// plural field's singular member prefix: "KeyName" matching declared
+// "KeyNames") or by its first dot-segment (a nested-prefix read like
 // "AssociationTarget.InstanceId", matched against the top-level
 // "AssociationTarget" field this scan is scoped to -- see the package doc,
 // this tool only ever compares top-level Input fields). Requires an
 // uppercase-ASCII first letter, since every AWS wire/query-param name in
 // this repo's query-protocol services is PascalCase; a lowercase literal is
 // never a wire key and is excluded before it can collide with anything.
-func addFormReadLiteral(arg ast.Expr, formKeys map[string]string, res *opResolution) bool {
-	return matchWireLiteral(arg, formKeys, res, true)
+// The argument need not be a plain string literal -- see
+// resolveLiteralPrefix.
+func addFormReadLiteral(arg ast.Expr, formKeys map[string]string, res *opResolution, localLits map[string]string) bool {
+	return matchExprLiteral(arg, formKeys, res, true, localLits)
 }
 
-// matchWireLiteral is addFormReadLiteral's shared core, parameterized on
-// whether an uppercase first letter is required -- dropped for the
-// non-query-protocol read shapes (a fully chained `.Query().Get(lit)` with
-// no url.Values receiver, a header read) whose camelCase/mixed-case
-// conventions would never pass that gate at all; formKeys' own per-op
-// field-name scoping remains the actual safety net regardless.
+// matchExprLiteral is addFormReadLiteral's shared core: resolve arg to a
+// literal prefix (resolveLiteralPrefix, which -- unlike a plain
+// *ast.BasicLit check -- follows an fmt.Sprintf format string or a local
+// variable built from string concatenation) and match it the same way
+// matchWireLiteral does.
+func matchExprLiteral(
+	arg ast.Expr,
+	formKeys map[string]string,
+	res *opResolution,
+	requireUpper bool,
+	localLits map[string]string,
+) bool {
+	s, ok := resolveLiteralPrefix(arg, localLits)
+	if !ok {
+		return false
+	}
+
+	return matchLiteralString(cutAtFormatVerb(s), formKeys, res, requireUpper)
+}
+
+// resolveLiteralPrefix resolves a wire-name-bearing prefix out of an
+// expression more general than a single string literal -- the two shapes
+// this repo's indexed-list/nested-prefix form-read helpers build their
+// AWS query-protocol keys with: a string concatenation chain rooted in a
+// literal (`"ImageCriterion." + strconv.Itoa(i)`, ec2's
+// parseImageCriteria; `"DhcpConfiguration." + strconv.Itoa(i) + ".Key"`,
+// ec2's parseDhcpConfigurations), and an fmt.Sprintf format string
+// (`fmt.Sprintf("Filter.%d.Name", i)`, ec2's parseEC2Filters;
+// `fmt.Sprintf("Tags.Tag.%d.Key", i)`, rds's parseTagEntries). localLits
+// carries every local variable in the SAME function body already resolved
+// to a literal prefix earlier in this same walk (recordLocalPrefixAssign
+// populates it in source order, so `prefix := "ImageCriterion." +
+// strconv.Itoa(i)` used two lines later as `vals.Get(prefix + ".Name")`
+// resolves too). Anything else -- an unrelated function call, a
+// concatenation operand with no known local -- resolves to "", false,
+// deliberately: an unresolved expression is left as a finding, never
+// guessed at.
+func resolveLiteralPrefix(expr ast.Expr, localLits map[string]string) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		if e.Kind != token.STRING {
+			return "", false
+		}
+
+		s, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return "", false
+		}
+
+		return s, true
+	case *ast.Ident:
+		s, ok := localLits[e.Name]
+
+		return s, ok
+	case *ast.BinaryExpr:
+		if e.Op != token.ADD {
+			return "", false
+		}
+
+		if s, ok := resolveLiteralPrefix(e.X, localLits); ok {
+			return s, true
+		}
+
+		return resolveLiteralPrefix(e.Y, localLits)
+	case *ast.CallExpr:
+		if !isSprintfCall(e) || len(e.Args) == 0 {
+			return "", false
+		}
+
+		return resolveLiteralPrefix(e.Args[0], localLits)
+	default:
+		return "", false
+	}
+}
+
+// isSprintfCall reports whether call is fmt.Sprintf(...), matched
+// structurally against the selector rather than an imported-package
+// identity check -- consistent with this file's other structural call
+// recognisers (isURLQueryCall, isHeaderGetCall).
+func isSprintfCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+
+	id, ok := sel.X.(*ast.Ident)
+
+	return ok && id.Name == "fmt" && sel.Sel.Name == "Sprintf"
+}
+
+// cutAtFormatVerb truncates a resolved fmt.Sprintf format string at its
+// first verb ("Filter.%d.Name" -> "Filter.") so the trailing "%d"/"%s"
+// never reaches normalizeWireName or the dot-segment split as noise.
+func cutAtFormatVerb(s string) string {
+	head, _, _ := strings.Cut(s, "%")
+
+	return head
+}
+
+// recordLocalPrefixAssign updates localLits when stmt assigns a single
+// local from an expression resolveLiteralPrefix can already resolve
+// (using localLits' current contents, so a later local can build on an
+// earlier one defined previously in the same body). Source order makes
+// this valid: ast.Inspect visits a block's statements in the order they
+// appear, so the defining assignment is always visited before a later
+// read of the same local.
+func recordLocalPrefixAssign(as *ast.AssignStmt, localLits map[string]string) {
+	if len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+		return
+	}
+
+	id, isIdent := as.Lhs[0].(*ast.Ident)
+	if !isIdent || id.Name == "_" {
+		return
+	}
+
+	if s, resolved := resolveLiteralPrefix(as.Rhs[0], localLits); resolved {
+		localLits[id.Name] = s
+	}
+}
+
+// matchWireLiteral is matchLiteralString's plain-*ast.BasicLit-only
+// entry point, used where an fmt.Sprintf/concatenation prefix is not a
+// shape this repo exhibits (a header read, the fully chained
+// `.Query().Get(lit)` case) -- resolveLiteralPrefix's Ident/BinaryExpr/
+// Sprintf following is deliberately not used here, since neither call
+// site has a localLits map of its own to resolve against.
 func matchWireLiteral(arg ast.Expr, formKeys map[string]string, res *opResolution, requireUpper bool) bool {
 	lit, ok := arg.(*ast.BasicLit)
 	if !ok || lit.Kind != token.STRING {
@@ -290,6 +480,21 @@ func matchWireLiteral(arg ast.Expr, formKeys map[string]string, res *opResolutio
 
 	s, err := strconv.Unquote(lit.Value)
 	if err != nil || s == "" {
+		return false
+	}
+
+	return matchLiteralString(s, formKeys, res, requireUpper)
+}
+
+// matchLiteralString is matchWireLiteral's and matchExprLiteral's shared
+// matching core, parameterized on whether an uppercase first letter is
+// required -- dropped for the non-query-protocol read shapes (a fully
+// chained `.Query().Get(lit)` with no url.Values receiver, a header read)
+// whose camelCase/mixed-case conventions would never pass that gate at
+// all; formKeys' own per-op field-name scoping remains the actual safety
+// net regardless.
+func matchLiteralString(s string, formKeys map[string]string, res *opResolution, requireUpper bool) bool {
+	if s == "" {
 		return false
 	}
 
@@ -509,4 +714,37 @@ func matchPathSegmentLocalNames(fl funcLike, ctx handlerResolveCtx, formKeys map
 
 		return true
 	})
+}
+
+// formLoopRanges reports whether fl's body ranges directly over one of
+// urlValuesNames -- a dynamic per-key loop (`for key := range vals { if
+// strings.HasPrefix(key, someExpr) ... }`) with no literal wire name at
+// the range statement itself for this scan to resolve. Unlike every other
+// recogniser in this file, this one never declares a field: a loop keyed
+// off a runtime prefix this scan can't statically resolve is real,
+// unmeasured surface, not a false positive to wave through silently (see
+// the package doc's orphan lesson) -- resolveOp records it as
+// FormLoopUnresolved instead, and callers report it as a separate
+// "form-loop (unresolved)" count so it stays visible.
+func formLoopRanges(fl funcLike, urlValuesNames map[string]bool) bool {
+	if fl.Body == nil || len(urlValuesNames) == 0 {
+		return false
+	}
+
+	found := false
+
+	ast.Inspect(fl.Body, func(n ast.Node) bool {
+		rs, ok := n.(*ast.RangeStmt)
+		if !ok {
+			return true
+		}
+
+		if id, isIdent := rs.X.(*ast.Ident); isIdent && urlValuesNames[id.Name] {
+			found = true
+		}
+
+		return true
+	})
+
+	return found
 }

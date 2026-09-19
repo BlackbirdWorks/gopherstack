@@ -27,7 +27,7 @@ func TestReset_ClearsAccountAndSideMapState(t *testing.T) {
 	insts, err := b.RunInstances("ami-test", "t2.micro", "", 1)
 	require.NoError(t, err)
 	instanceID := insts[0].ID
-	pc, err := b.CreateVpcPeeringConnection("vpc-default", "vpc-default")
+	pc, err := b.CreateVpcPeeringConnection("vpc-default", "vpc-default", "", "")
 	require.NoError(t, err)
 	svcCfg, err := b.CreateVpcEndpointServiceConfiguration(false, nil)
 	require.NoError(t, err)

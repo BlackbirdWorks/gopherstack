@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transcribe
 sdk_module: aws-sdk-go-v2/service/transcribe@v1.64.0   # version audited against
-last_audit_commit:                                # unknown: gopherstack-6flj wrapper-key sweep pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-09-05
+last_audit_commit: 366fb4907                      # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (StartCallAnalyticsJob.OutputLocation)
+last_audit_date: 2026-09-18
 overall: A            # A = genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -16,7 +16,7 @@ ops:
   GetTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "same fixes as Start; deferred-job polling advances QUEUED->IN_PROGRESS->COMPLETED correctly"}
   ListTranscriptionJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "added JobNameContains filter + missing TranscriptionJobSummary fields (StartTime, IdentifyLanguage, IdentifyMultipleLanguages, IdentifiedLanguageScore, ContentRedaction, ModelSettings, LanguageCodes, ToxicityDetection, OutputLocationType)"}
   DeleteTranscriptionJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
-  StartCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: CallAnalyticsSettings.LanguageIdSettings was entirely unmodeled (zero grep hits) -- added map[string]LanguageIDSettings field, flows through automatically since Settings is passed by reference"}
+  StartCallAnalyticsJob: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-6flj: CallAnalyticsSettings.LanguageIdSettings was entirely unmodeled (zero grep hits) -- added map[string]LanguageIDSettings field, flows through automatically since Settings is passed by reference. FIXED 2026-09-18 (reqfielddiff tier-1): OutputLocation was parsed nowhere -- every job's transcript URI was the hardcoded synthetic-transcripts bucket regardless of the caller's choice. Now resolveCallAnalyticsOutputLocation honors all 3 documented forms (bucket-only, folder, fully-specified file). OutputEncryptionKMSKeyId left unmodeled -- see gaps."}
   GetCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "gopherstack-6flj: same LanguageIdSettings fix (shared Settings type)"}
   ListCallAnalyticsJobs: {wire: ok, errors: ok, state: ok, persist: ok, note: "added JobNameContains filter + missing StartTime on CallAnalyticsJobSummary. gopherstack-6flj: confirmed CallAnalyticsJobDetails/Skipped (per-summary) still a disclosed gap, see gaps:"}
   DeleteCallAnalyticsJob: {wire: ok, errors: ok, state: ok, persist: ok, note: "forgets resource tags"}
@@ -68,6 +68,7 @@ gaps: []
 items_still_open:
   - "CallAnalyticsJobDetails (skipped-analytics-feature reporting) on CallAnalyticsJobSummary/CallAnalyticsJob is not implemented -- gopherstack's synthetic backend never skips any Call Analytics feature, so this optional field would always be absent/empty in a real scenario too; low priority. Re-checked this pass (gopherstack-5or5): still true, still no backing data to populate Skipped[] truthfully, left undone rather than fabricated. Re-confirmed gopherstack-6flj (2026-08-15): still zero grep hits, still no backing data source; disclosed not fixed."
   - "MedicalScribeContext (StartMedicalScribeJobInput patient-context field) and MedicalScribeContextProvided (response echo of whether it was supplied) are not implemented. Since gopherstack never accepts MedicalScribeContext, MedicalScribeContextProvided would always be false, and awsjson1.1 omits false bool fields on the wire (matching the omitted-field behavior already produced by not implementing it) -- low priority, not client-breaking. Re-checked this pass (gopherstack-5or5): still true. Re-confirmed gopherstack-6flj (2026-08-15): still unimplemented; a safe superset (real client that sets MedicalScribeContext gets no error, just a false-negative on the Provided echo), same category as xray's Sampling/SamplingStrategy no-op disclosure."
+  - "StartCallAnalyticsJob.OutputEncryptionKMSKeyId, StartMedicalScribeJob.OutputEncryptionKMSKeyId, StartMedicalTranscriptionJob.OutputEncryptionKMSKeyId (reqfielddiff tier-1, 2026-09-18): all three are real request members (transcribe@v1.64.0), but none of CallAnalyticsJob/MedicalScribeJob/MedicalTranscriptionJob's real response types echo an encryption key back (confirmed: zero grep hits in types.go), and this backend has no real S3/KMS pipeline to actually encrypt a synthetic transcript with -- there is no client-observable behavior to fix or test (same non-issue as the pre-existing, unproven StartTranscriptionJob.OutputEncryptionKMSKeyId sibling field, which is likewise accepted-and-stored with no echo/validation). Needs a simulated S3/KMS encrypted-output subsystem before this could ever be more than a config field nobody can observe; left unmodeled rather than adding untestable dead code."
 deferred: []
 leaks: {status: clean, note: "no goroutines/janitors in this service; Snapshot/Restore delegate cleanly to InMemoryBackend; Handler.Snapshot/Restore already exposed. New backend struct fields (LanguageIdSettings, FailureReason x3, MedicalScribeOutput synthesis) are all pure additive struct fields going through the existing generic store.Table snapshot/restore path (store_setup.go) -- no new tables, no new lock paths, no persistence.go changes needed."}
 ---
@@ -497,3 +498,41 @@ input struct carries dead surface; harmless (validateLanguageCode accepts
 empty), left as-is since fixing it is outside this slice's scope (no
 uncovered op touches it) and every existing test that does set it predates
 this pass.
+
+## 2026-09-18: StartCallAnalyticsJob.OutputLocation dropped (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields: `StartCallAnalyticsJob.OutputEncryptionKMSKeyId`,
+`StartCallAnalyticsJob.OutputLocation`, `StartMedicalScribeJob.OutputEncryptionKMSKeyId`,
+`StartMedicalTranscriptionJob.OutputEncryptionKMSKeyId` (transcribe@v1.64.0, all real
+request members with documented defaults).
+
+Fixed: `StartCallAnalyticsJob.OutputLocation` was parsed nowhere --
+`buildCallAnalyticsJobOutput` hardcoded every completed job's transcript URI to
+`s3://synthetic-transcripts/<name>.json`. Added `OutputLocation` to the request
+struct and the `CallAnalyticsJob` model; `resolveCallAnalyticsOutputLocation`
+now implements all 3 documented forms from the SDK doc comment (bucket-only and
+folder URIs get the job name appended as the default file name; a URI that
+already names a file is used as-is). Proven with
+`TestStartCallAnalyticsJob_OutputLocation_RealClient` (typed client,
+`call_analytics_output_location_test.go`), table-driven over all 4 cases
+(bucket-only, folder, fully-specified, omitted).
+
+Recorded, not fixed: the 3 `OutputEncryptionKMSKeyId` findings (CallAnalytics,
+MedicalScribe, MedicalTranscription) -- confirmed none of the 3 real response
+types echo an encryption key anywhere (zero grep hits in the pinned SDK's
+types.go), so there is no client-observable behavior for this field to drive
+and no way to prove a fix with a typed test; the pre-existing
+`StartTranscriptionJob.OutputEncryptionKMSKeyId` sibling field is in the same
+unproven, un-echoed state. See `items_still_open`.
+
+No persisted (`backendSnapshot`) fields changed beyond the new additive
+`CallAnalyticsJob.OutputLocation` (pure struct addition through the existing
+generic store.Table snapshot/restore path -- no version bump needed). Gates:
+`go build ./...`, `go vet ./services/transcribe/`,
+`go test -race -count=1 ./services/transcribe/` (all pass), `golangci-lint
+run --new-from-rev=HEAD ./services/transcribe/` (0 issues). tier-1
+(`cmd/reqfielddiff -dir transcribe`): 4 -> 1 (the 3 OutputEncryptionKMSKeyId
+findings collapse to 1 remaining after StartCallAnalyticsJob's OutputLocation
+fix removed that op's line, plus StartMedicalScribeJob and
+StartMedicalTranscriptionJob's OutputEncryptionKMSKeyId lines stay open --
+see items_still_open, not a code gap this pass can close).

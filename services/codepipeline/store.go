@@ -88,20 +88,26 @@ const (
 	// action types, as opposed to "ThirdParty" or "Custom".
 	actionOwnerAWS = "AWS"
 
-	// actionProviderCodeBuild and actionProviderLambda are the
-	// ActionTypeID.Provider values for the built-in Build/CodeBuild and
-	// Invoke/Lambda action types, wired via SetCodeBuildBackend/
-	// SetLambdaBackend when a real backend is available (action_engine.go).
-	actionProviderCodeBuild = "CodeBuild"
-	actionProviderLambda    = "Lambda"
+	// actionProviderCodeBuild, actionProviderLambda, and
+	// actionProviderCodeDeploy are the ActionTypeID.Provider values for the
+	// built-in Build/CodeBuild, Invoke/Lambda, and Deploy/CodeDeploy action
+	// types, wired via SetCodeBuildBackend/SetLambdaBackend/
+	// SetCodeDeployBackend when a real backend is available
+	// (action_engine.go).
+	actionProviderCodeBuild  = "CodeBuild"
+	actionProviderLambda     = "Lambda"
+	actionProviderCodeDeploy = "CodeDeploy"
 
-	// configKeyProjectName and configKeyFunctionName are the
-	// Action.Configuration keys real AWS documents for the built-in
-	// Build/CodeBuild and Invoke/Lambda action types (not part of the SDK's
+	// configKeyProjectName, configKeyFunctionName, configKeyApplicationName,
+	// and configKeyDeploymentGroupName are the Action.Configuration keys
+	// real AWS documents for the built-in Build/CodeBuild, Invoke/Lambda,
+	// and Deploy/CodeDeploy action types (not part of the SDK's
 	// Action/ActionTypeId shape, which leaves Configuration an opaque
 	// map[string]string).
-	configKeyProjectName  = "ProjectName"
-	configKeyFunctionName = "FunctionName"
+	configKeyProjectName         = "ProjectName"
+	configKeyFunctionName        = "FunctionName"
+	configKeyApplicationName     = "ApplicationName"
+	configKeyDeploymentGroupName = "DeploymentGroupName"
 
 	// approvalStatusApproved and approvalStatusRejected are the valid
 	// ApprovalResult.Status values for PutApprovalResult.
@@ -156,16 +162,18 @@ type InMemoryBackend struct {
 	executions                 map[string]map[string][]*PipelineExecution  // region → pipelineName → executions
 	actionExecutions           map[string]map[string][]*ActionExecution    // region → pipelineName → action executions
 	actionRevisions            map[string]map[string]*ActionRevisionRecord // region → "pipeline/stage/action" → revision
-	// codeBuildBackend and lambdaBackend back a Build/CodeBuild and an
-	// Invoke/Lambda action respectively (see runOneAction, action_engine.go).
-	// Nil until wired via SetCodeBuildBackend/SetLambdaBackend, in which case
-	// those actions complete instantly with no cross-service call, matching
-	// this backend's original behavior.
-	codeBuildBackend CodeBuildStarter
-	lambdaBackend    LambdaInvoker
-	mu               *lockmetrics.RWMutex
-	accountID        string
-	region           string
+	// codeBuildBackend, lambdaBackend, and codeDeployBackend back a
+	// Build/CodeBuild, an Invoke/Lambda, and a Deploy/CodeDeploy action
+	// respectively (see runOneAction, action_engine.go). Nil until wired via
+	// SetCodeBuildBackend/SetLambdaBackend/SetCodeDeployBackend, in which
+	// case those actions complete instantly with no cross-service call,
+	// matching this backend's original behavior.
+	codeBuildBackend  CodeBuildStarter
+	lambdaBackend     LambdaInvoker
+	codeDeployBackend CodeDeployStarter
+	mu                *lockmetrics.RWMutex
+	accountID         string
+	region            string
 }
 
 // NewInMemoryBackend creates a new backend for the given account and region.
@@ -203,6 +211,16 @@ func (b *InMemoryBackend) SetLambdaBackend(lambda LambdaInvoker) {
 	defer b.mu.Unlock()
 
 	b.lambdaBackend = lambda
+}
+
+// SetCodeDeployBackend wires CodeDeploy so a Deploy/CodeDeploy action's
+// ApplicationName/DeploymentGroupName actually starts a deployment, instead
+// of every action completing unconditionally with no cross-service call.
+func (b *InMemoryBackend) SetCodeDeployBackend(codeDeploy CodeDeployStarter) {
+	b.mu.Lock("SetCodeDeployBackend")
+	defer b.mu.Unlock()
+
+	b.codeDeployBackend = codeDeploy
 }
 
 // regionKey builds the composite store.Table primary key ("region|id") shared

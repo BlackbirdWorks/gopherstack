@@ -53,7 +53,10 @@ func TestInMemoryBackend_ImportTask_NotFound(t *testing.T) {
 			name: "update_not_found",
 			runTest: func(t *testing.T, b *iotwireless.InMemoryBackend) {
 				t.Helper()
-				err := b.UpdateWirelessDeviceImportTask("no-such-id", "dest")
+				err := b.UpdateWirelessDeviceImportTask(
+					"no-such-id",
+					iotwireless.WirelessDeviceImportSidewalk{DeviceCreationFile: "s3://bucket/devices.csv"},
+				)
 				require.Error(t, err)
 				assert.ErrorIs(t, err, iotwireless.ErrImportTaskNotFound)
 			},
@@ -89,7 +92,9 @@ func TestInMemoryBackend_ImportTask_CRUD(t *testing.T) {
 			b := iotwireless.NewInMemoryBackend()
 
 			// Start.
-			task, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, tt.destination)
+			task, err := b.StartWirelessDeviceImportTask(
+				testAccountID, testRegion, tt.destination, "", iotwireless.WirelessDeviceImportSidewalk{},
+			)
 			require.NoError(t, err)
 			assert.NotEmpty(t, task.ID)
 			assert.NotEmpty(t, task.ARN)
@@ -106,13 +111,18 @@ func TestInMemoryBackend_ImportTask_CRUD(t *testing.T) {
 			tasks := b.ListWirelessDeviceImportTasks()
 			assert.Len(t, tasks, 1)
 
-			// Update.
-			err = b.UpdateWirelessDeviceImportTask(task.ID, "updated-dest")
+			// Update: DestinationName is immutable (the real
+			// UpdateWirelessDeviceImportTaskInput has no such member); only
+			// Sidewalk.DeviceCreationFile is appended.
+			err = b.UpdateWirelessDeviceImportTask(
+				task.ID, iotwireless.WirelessDeviceImportSidewalk{DeviceCreationFile: "s3://bucket/more-devices.csv"},
+			)
 			require.NoError(t, err)
 
 			got, err = b.GetWirelessDeviceImportTask(task.ID)
 			require.NoError(t, err)
-			assert.Equal(t, "updated-dest", got.DestinationName)
+			assert.Equal(t, tt.destination, got.DestinationName)
+			assert.Equal(t, []string{"s3://bucket/more-devices.csv"}, got.SidewalkDeviceCreationFiles)
 
 			// Delete.
 			err = b.DeleteWirelessDeviceImportTask(task.ID)
@@ -135,7 +145,9 @@ func TestInMemoryBackend_ImportTaskARN_ContainsRegionAndAccount(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	task, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "d")
+	task, err := b.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, "d", "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
 	assert.Contains(t, task.ARN, testRegion)
@@ -161,10 +173,14 @@ func TestInMemoryBackend_Reset_ClearsImportTasks(t *testing.T) {
 
 	b := iotwireless.NewInMemoryBackend()
 
-	_, err := b.StartWirelessDeviceImportTask(testAccountID, testRegion, "d1")
+	_, err := b.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, "d1", "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
-	_, err = b.StartWirelessDeviceImportTask(testAccountID, testRegion, "d2")
+	_, err = b.StartWirelessDeviceImportTask(
+		testAccountID, testRegion, "d2", "", iotwireless.WirelessDeviceImportSidewalk{},
+	)
 	require.NoError(t, err)
 
 	assert.Len(t, b.ListWirelessDeviceImportTasks(), 2)

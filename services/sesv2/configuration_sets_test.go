@@ -367,7 +367,7 @@ func TestBackendPutConfigSetSuppressionOptions(t *testing.T) {
 	_, err := backend.CreateConfigurationSet("supp-test", nil)
 	require.NoError(t, err)
 
-	err = backend.PutConfigurationSetSuppressionOptions("supp-test", []string{"BOUNCE", "COMPLAINT"})
+	err = backend.PutConfigurationSetSuppressionOptions("supp-test", []string{"BOUNCE", "COMPLAINT"}, "")
 	require.NoError(t, err)
 
 	cs, err := backend.GetConfigurationSet("supp-test")
@@ -475,7 +475,7 @@ func TestGetConfigurationSetDeepCopy(t *testing.T) {
 			_, err := backend.CreateConfigurationSet("copy-set", map[string]string{"k1": "v1"})
 			require.NoError(t, err)
 
-			err = backend.PutConfigurationSetSuppressionOptions("copy-set", []string{"BOUNCE"})
+			err = backend.PutConfigurationSetSuppressionOptions("copy-set", []string{"BOUNCE"}, "")
 			require.NoError(t, err)
 
 			err = backend.PutConfigurationSetVdmOptions("copy-set", map[string]any{"EngagementMetrics": "ENABLED"}, nil)
@@ -501,7 +501,9 @@ func TestDeleteConfigurationSetCascade(t *testing.T) {
 	_, err := backend.CreateConfigurationSet("my-set", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateConfigurationSetEventDestination("my-set", "dest-1", true, nil)
+	_, err = backend.CreateConfigurationSetEventDestination(
+		"my-set", "dest-1", sesv2.EventDestinationConfig{Enabled: true},
+	)
 	require.NoError(t, err)
 
 	err = backend.DeleteConfigurationSet("my-set")

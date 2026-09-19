@@ -74,7 +74,7 @@ func TestAlias_CreateAndDescribe(t *testing.T) {
 	routing := []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v.StateMachineVersionArn, Weight: 100},
 	}
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "live", "prod alias", routing)
+	alias, err := b.CreateStateMachineAlias("live", "prod alias", routing)
 	require.NoError(t, err)
 	assert.NotEmpty(t, alias.StateMachineAliasArn)
 	assert.Equal(t, "live", alias.Name)
@@ -105,7 +105,7 @@ func TestAlias_ListAliases(t *testing.T) {
 	}
 
 	for _, name := range []string{"staging", "production"} {
-		_, err = b.CreateStateMachineAlias(sm.StateMachineArn, name, "", routing)
+		_, err = b.CreateStateMachineAlias(name, "", routing)
 		require.NoError(t, err)
 	}
 
@@ -133,7 +133,7 @@ func TestAlias_Delete(t *testing.T) {
 	routing := []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v.StateMachineVersionArn, Weight: 100},
 	}
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "del-alias", "", routing)
+	alias, err := b.CreateStateMachineAlias("del-alias", "", routing)
 	require.NoError(t, err)
 
 	require.NoError(t, b.DeleteStateMachineAlias(alias.StateMachineAliasArn))
@@ -228,11 +228,19 @@ func TestCreateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 			)
 			require.NoError(t, err)
 
+			routing := make([]stepfunctions.AliasRoutingConfig, len(tt.routing))
+			copy(routing, tt.routing)
+
+			for i := range routing {
+				v, verr := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
+				require.NoError(t, verr)
+				routing[i].StateMachineVersionArn = v.StateMachineVersionArn
+			}
+
 			_, err = b.CreateStateMachineAlias(
-				sm.StateMachineArn,
 				"my-alias-"+tt.name[:min(len(tt.name), 10)],
 				"",
-				tt.routing,
+				routing,
 			)
 			if tt.wantErr {
 				require.ErrorIs(t, err, stepfunctions.ErrInvalidRoutingConfiguration)
@@ -259,7 +267,7 @@ func TestUpdateStateMachineAlias_RoutingWeightsMustSum100(t *testing.T) {
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "stable", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("stable", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)

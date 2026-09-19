@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"time"
 )
 
@@ -135,8 +136,6 @@ func (b *InMemoryBackend) DeleteAgentAlias(_ context.Context, agentID, aliasID s
 }
 
 // ListAgentAliases returns paginated alias summaries for an agent.
-//
-//nolint:dupl // structurally mirrors ListDataSources but filters a distinct table/type
 func (b *InMemoryBackend) ListAgentAliases(
 	_ context.Context, agentID string, maxResults int, nextToken string,
 ) ([]*AgentAliasSummary, string, error) {
@@ -152,12 +151,13 @@ func (b *InMemoryBackend) ListAgentAliases(
 	for _, id := range ids {
 		al, _ := b.agentAliases.Get(aliasKey(agentID, id))
 		out = append(out, &AgentAliasSummary{
-			AgentAliasID:     al.AgentAliasID,
-			AgentAliasName:   al.AgentAliasName,
-			AgentAliasStatus: al.AgentAliasStatus,
-			Description:      al.Description,
-			CreatedAt:        al.CreatedAt,
-			UpdatedAt:        al.UpdatedAt,
+			AgentAliasID:         al.AgentAliasID,
+			AgentAliasName:       al.AgentAliasName,
+			AgentAliasStatus:     al.AgentAliasStatus,
+			Description:          al.Description,
+			CreatedAt:            al.CreatedAt,
+			UpdatedAt:            al.UpdatedAt,
+			RoutingConfiguration: slices.Clone(al.RoutingConfiguration),
 		})
 	}
 

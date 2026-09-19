@@ -565,6 +565,11 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 		}
 	}
 
+	opts, err := parseCreateClusterOptions(vals)
+	if err != nil {
+		return nil, err
+	}
+
 	cluster, err := h.Backend.CreateCluster(
 		id,
 		nodeType,
@@ -572,6 +577,7 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 		masterUser,
 		clusterSecurityGroups,
 		clusterParameterGroupName,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -583,21 +589,113 @@ func (h *Handler) handleCreateCluster(vals url.Values) (any, error) {
 	}, nil
 }
 
-func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
-	id := vals.Get("ClusterIdentifier")
-	skipFinalStr := vals.Get("SkipFinalClusterSnapshot")
-	finalSnapshotID := vals.Get("FinalClusterSnapshotIdentifier")
+// parseCreateClusterOptions reads CreateClusterInput's documented-default
+// fields (AllowVersionUpgrade, AutomatedSnapshotRetentionPeriod,
+// AvailabilityZone, ClusterSubnetGroupName, DefaultIamRoleArn,
+// ExtraComputeForAutomaticOptimization, ManualSnapshotRetentionPeriod, Port,
+// VpcSecurityGroupIds -- confirmed against redshift@v1.65.4 serializers.go's
+// awsAwsquery_serializeOpDocumentCreateClusterInput) that CreateCluster
+// previously dropped entirely.
+func parseCreateClusterOptions(vals url.Values) (CreateClusterOptions, error) {
+	opts := CreateClusterOptions{
+		AvailabilityZone:                     vals.Get("AvailabilityZone"),
+		ClusterSubnetGroupName:               vals.Get("ClusterSubnetGroupName"),
+		DefaultIamRoleArn:                    vals.Get("DefaultIamRoleArn"),
+		VpcSecurityGroupIDs:                  parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
+		ExtraComputeForAutomaticOptimization: vals.Get("ExtraComputeForAutomaticOptimization") == paramValueTrue,
+	}
 
-	// When SkipFinalClusterSnapshot is explicitly "false", enforce AWS snapshot semantics.
-	if skipFinalStr == "false" {
-		if finalSnapshotID == "" {
-			return nil, fmt.Errorf(
-				"%w: FinalClusterSnapshotIdentifier is required when SkipFinalClusterSnapshot is false",
+	if v := vals.Get("AllowVersionUpgrade"); v != "" {
+		b := v == paramValueTrue
+		opts.AllowVersionUpgrade = &b
+	}
+
+	if v := vals.Get("AutomatedSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return CreateClusterOptions{}, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be an integer",
 				ErrInvalidParameter,
 			)
 		}
 
-		if _, err := h.Backend.CreateClusterSnapshot(finalSnapshotID, id); err != nil {
+		opts.AutomatedSnapshotRetentionPeriod = &n
+	}
+
+	if v := vals.Get("ManualSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return CreateClusterOptions{}, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be an integer",
+				ErrInvalidParameter,
+			)
+		}
+
+		opts.ManualSnapshotRetentionPeriod = &n
+	}
+
+	if v := vals.Get("Port"); v != "" {
+		p, err := strconv.Atoi(v)
+		if err != nil {
+			return CreateClusterOptions{}, fmt.Errorf("%w: Port must be an integer", ErrInvalidParameter)
+		}
+
+		opts.Port = p
+	}
+
+	return opts, nil
+}
+
+// takeFinalClusterSnapshot enforces AWS's DeleteCluster snapshot semantics
+// for SkipFinalClusterSnapshot=false: a final snapshot identifier is
+// required, the snapshot is created, and an optional retention period is
+// applied to it.
+func (h *Handler) takeFinalClusterSnapshot(vals url.Values, id, finalSnapshotID string) error {
+	if finalSnapshotID == "" {
+		return fmt.Errorf(
+			"%w: FinalClusterSnapshotIdentifier is required when SkipFinalClusterSnapshot is false",
+			ErrInvalidParameter,
+		)
+	}
+
+	if _, err := h.Backend.CreateClusterSnapshot(finalSnapshotID, id); err != nil {
+		return err
+	}
+
+	v := vals.Get("FinalClusterSnapshotRetentionPeriod")
+	if v == "" {
+		return nil
+	}
+
+	// FinalClusterSnapshotRetentionPeriod (real DeleteClusterInput docs:
+	// "-1 or an integer between 1 and 3,653 ... default value is -1")
+	// previously had no effect: CreateClusterSnapshot always hardcodes
+	// -1 (indefinite), so a caller asking for a bounded retention on
+	// their final snapshot was silently ignored.
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fmt.Errorf("%w: FinalClusterSnapshotRetentionPeriod must be an integer", ErrInvalidParameter)
+	}
+
+	if n != indefiniteManualSnapshotRetentionPeriod &&
+		(n < minManualSnapshotRetentionPeriod || n > maxManualSnapshotRetentionPeriod) {
+		return fmt.Errorf(
+			"%w: FinalClusterSnapshotRetentionPeriod must be -1 or between %d and %d",
+			ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+		)
+	}
+
+	_, modErr := h.Backend.ModifyClusterSnapshot(finalSnapshotID, &n, false)
+
+	return modErr
+}
+
+func (h *Handler) handleDeleteCluster(vals url.Values) (any, error) {
+	id := vals.Get("ClusterIdentifier")
+	finalSnapshotID := vals.Get("FinalClusterSnapshotIdentifier")
+
+	if vals.Get("SkipFinalClusterSnapshot") == "false" {
+		if err := h.takeFinalClusterSnapshot(vals, id, finalSnapshotID); err != nil {
 			return nil, err
 		}
 	}
@@ -730,24 +828,31 @@ func clusterParameterGroupNameOrDefault(name string) string {
 // tag map once with a single DescribeTags call instead of once per cluster.
 func toXMLClusterWithTags(c *Cluster, tags map[string]string) xmlCluster {
 	return xmlCluster{
-		Tags:                             tagMapToKVList(tags),
-		ClusterIdentifier:                c.ClusterIdentifier,
-		NodeType:                         c.NodeType,
-		ClusterType:                      c.ClusterType,
-		Endpoint:                         c.Endpoint,
-		EndpointPort:                     c.Port,
-		ClusterStatus:                    c.Status,
-		ClusterAvailabilityStatus:        "Available",
-		AvailabilityZoneRelocationStatus: statusDisabled,
-		MultiAZ:                          "Disabled",
-		NumberOfNodes:                    c.NumberOfNodes,
-		Encrypted:                        c.Encrypted,
-		EnhancedVpcRouting:               c.EnhancedVpcRouting,
-		SnapshotScheduleIdentifier:       c.SnapshotScheduleIdentifier,
-		SnapshotScheduleState:            c.SnapshotScheduleState,
-		CatalogArn:                       c.CatalogArn,
-		LakehouseRegistrationStatus:      c.LakehouseRegistrationStatus,
-		AquaConfiguration:                defaultAquaConfig(),
+		Tags:                                 tagMapToKVList(tags),
+		ClusterIdentifier:                    c.ClusterIdentifier,
+		NodeType:                             c.NodeType,
+		ClusterType:                          c.ClusterType,
+		Endpoint:                             c.Endpoint,
+		EndpointPort:                         c.Port,
+		ClusterStatus:                        c.Status,
+		ClusterAvailabilityStatus:            "Available",
+		AvailabilityZoneRelocationStatus:     statusDisabled,
+		MultiAZ:                              "Disabled",
+		NumberOfNodes:                        c.NumberOfNodes,
+		Encrypted:                            c.Encrypted,
+		EnhancedVpcRouting:                   c.EnhancedVpcRouting,
+		SnapshotScheduleIdentifier:           c.SnapshotScheduleIdentifier,
+		SnapshotScheduleState:                c.SnapshotScheduleState,
+		CatalogArn:                           c.CatalogArn,
+		LakehouseRegistrationStatus:          c.LakehouseRegistrationStatus,
+		AvailabilityZone:                     c.AvailabilityZone,
+		ClusterSubnetGroupName:               c.ClusterSubnetGroupName,
+		DefaultIamRoleArn:                    c.DefaultIamRoleArn,
+		AutomatedSnapshotRetentionPeriod:     c.AutomatedSnapshotRetentionPeriod,
+		ManualSnapshotRetentionPeriod:        c.ManualSnapshotRetentionPeriod,
+		AllowVersionUpgrade:                  c.AllowVersionUpgrade,
+		ExtraComputeForAutomaticOptimization: c.ExtraComputeForAutomaticOptimization,
+		AquaConfiguration:                    defaultAquaConfig(),
 		ClusterNodes: xmlClusterNodes{
 			Members: []xmlClusterNode{{
 				NodeRole:         "LEADER",
@@ -944,6 +1049,9 @@ type xmlCluster struct {
 	SnapshotScheduleState            string                          `xml:"SnapshotScheduleState,omitempty"`
 	CatalogArn                       string                          `xml:"CatalogArn,omitempty"`
 	LakehouseRegistrationStatus      string                          `xml:"LakehouseRegistrationStatus,omitempty"`
+	AvailabilityZone                 string                          `xml:"AvailabilityZone,omitempty"`
+	ClusterSubnetGroupName           string                          `xml:"ClusterSubnetGroupName,omitempty"`
+	DefaultIamRoleArn                string                          `xml:"DefaultIamRoleArn,omitempty"`
 	ClusterParameterGroups           xmlClusterParamGroups           `xml:"ClusterParameterGroups"`
 	ClusterSecurityGroups            xmlClusterSecGroups             `xml:"ClusterSecurityGroups"`
 	ClusterNodes                     xmlClusterNodes                 `xml:"ClusterNodes"`
@@ -953,9 +1061,14 @@ type xmlCluster struct {
 	VpcSecurityGroups                []xmlVpcSecurityGroupMembership `xml:"VpcSecurityGroups>VpcSecurityGroup,omitempty"`
 	NumberOfNodes                    int                             `xml:"NumberOfNodes,omitempty"`
 	EndpointPort                     int                             `xml:"Endpoint>Port,omitempty"`
+	AutomatedSnapshotRetentionPeriod int                             `xml:"AutomatedSnapshotRetentionPeriod"`
+	ManualSnapshotRetentionPeriod    int                             `xml:"ManualSnapshotRetentionPeriod"`
 	EnhancedVpcRouting               bool                            `xml:"EnhancedVpcRouting"`
 	Encrypted                        bool                            `xml:"Encrypted"`
 	PubliclyAccessible               bool                            `xml:"PubliclyAccessible"`
+	AllowVersionUpgrade              bool                            `xml:"AllowVersionUpgrade"`
+
+	ExtraComputeForAutomaticOptimization bool `xml:"ExtraComputeForAutomaticOptimization"`
 }
 
 type xmlAquaConfig struct {

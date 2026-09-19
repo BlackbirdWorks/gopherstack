@@ -173,7 +173,7 @@ func TestInMemoryBackend_SnapshotRestore_FullState(t *testing.T) {
 	require.NotNil(t, activityTask)
 
 	original.EnqueueDecisionTaskInternal(domainName, taskListName, workflowID, exec.RunID)
-	decisionTask := original.PollForDecisionTask(domainName, taskListName, 0, "")
+	decisionTask := original.PollForDecisionTask(domainName, taskListName, 0, "", false)
 	require.NotNil(t, decisionTask)
 
 	snap := original.Snapshot(ctx)

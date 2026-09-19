@@ -49,3 +49,42 @@ func Test_SDKRoundTrip_ListPermissionAssociations_ArnAndVersionShape(t *testing.
 	require.NotNil(t, got.PermissionVersion)
 	assert.Equal(t, "1", *got.PermissionVersion)
 }
+
+// TestListPermissionAssociations_DefaultVersionFilter proves DefaultVersion
+// (ram@v1.39.4 api_op_ListPermissionAssociations.go:38-48: "When true ... list only
+// those associations ... that use the default version") is read and applied, not
+// silently dropped: an association pinned to a non-default version is excluded when
+// DefaultVersion=true.
+func TestListPermissionAssociations_DefaultVersionFilter(t *testing.T) {
+	t.Parallel()
+
+	backend := ram.NewInMemoryBackend("000000000000", "us-east-1")
+	h := ram.NewHandler(backend)
+	client := newTestRAMClient(t, h)
+
+	perm, err := backend.CreatePermission("default-version-filter-perm", "ec2:Subnet", `{}`, nil)
+	require.NoError(t, err)
+
+	_, err = backend.CreatePermissionVersion(perm.ARN, `{}`)
+	require.NoError(t, err)
+
+	defaultShare, err := backend.CreateResourceShare("default-version-share", false, nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, backend.AssociateResourceSharePermission(defaultShare.ARN, perm.ARN, false, nil))
+
+	nonDefaultVersion := int32(2)
+	pinnedShare, err := backend.CreateResourceShare("pinned-version-share", false, nil, nil, nil)
+	require.NoError(t, err)
+	require.NoError(t, backend.AssociateResourceSharePermission(
+		pinnedShare.ARN, perm.ARN, false, &nonDefaultVersion,
+	))
+
+	out, err := client.ListPermissionAssociations(t.Context(), &ramsdk.ListPermissionAssociationsInput{
+		PermissionArn:  aws.String(perm.ARN),
+		DefaultVersion: aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Permissions, 1)
+	require.NotNil(t, out.Permissions[0].ResourceShareArn)
+	assert.Equal(t, defaultShare.ARN, *out.Permissions[0].ResourceShareArn)
+}

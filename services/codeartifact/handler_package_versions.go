@@ -543,6 +543,7 @@ func mostRecentlyPublished(versions []*PackageVersion) string {
 func (h *Handler) handlePublishPackageVersion(
 	c *echo.Context,
 	domainName, repoName, format, namespace, name, version, assetName, assetSHA256 string,
+	unfinished bool,
 	body []byte,
 ) error {
 	if domainName == "" {
@@ -598,6 +599,7 @@ func (h *Handler) handlePublishPackageVersion(
 		name,
 		version,
 		asset,
+		unfinished,
 	)
 	if err != nil {
 		return h.handleError(c, err)

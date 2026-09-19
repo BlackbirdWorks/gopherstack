@@ -176,10 +176,10 @@ func TestDescribeFlowLogs_Filters_RealClient(t *testing.T) {
 	vpc, err := b.CreateVpc("10.0.0.0/16", "default")
 	require.NoError(t, err)
 
-	want, err := b.CreateFlowLogs([]string{vpc.ID}, "ACCEPT", "cloud-watch-logs", "log-group", nil)
+	want, err := b.CreateFlowLogs([]string{vpc.ID}, "ACCEPT", "cloud-watch-logs", "log-group", "", 0, nil)
 	require.NoError(t, err)
 	require.Len(t, want, 1)
-	_, err = b.CreateFlowLogs([]string{vpc.ID}, "REJECT", "cloud-watch-logs", "log-group", nil)
+	_, err = b.CreateFlowLogs([]string{vpc.ID}, "REJECT", "cloud-watch-logs", "log-group", "", 0, nil)
 	require.NoError(t, err)
 
 	out, err := client.DescribeFlowLogs(t.Context(), &ec2sdk.DescribeFlowLogsInput{

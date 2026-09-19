@@ -80,7 +80,9 @@ func (h *Handler) handleUpdateFlow(
 }
 
 func (h *Handler) handleDeleteFlow(ctx context.Context, c *echo.Context, flowID string) error {
-	if err := h.Backend.DeleteFlow(ctx, flowID); err != nil {
+	skip, _ := strconv.ParseBool(c.QueryParam("skipResourceInUseCheck"))
+
+	if err := h.Backend.DeleteFlow(ctx, flowID, skip); err != nil {
 		return handleErr(c, err)
 	}
 

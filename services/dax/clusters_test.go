@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -552,7 +553,7 @@ func TestUpdateCluster(t *testing.T) {
 			input: func(name string) dax.UpdateClusterInput {
 				return dax.UpdateClusterInput{
 					ClusterName:          name,
-					NotificationTopicArn: "arn:aws:sns:us-east-1:123456789012:topic",
+					NotificationTopicArn: aws.String("arn:aws:sns:us-east-1:123456789012:topic"),
 				}
 			},
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -574,7 +575,7 @@ func TestUpdateCluster(t *testing.T) {
 			input: func(name string) dax.UpdateClusterInput {
 				return dax.UpdateClusterInput{
 					ClusterName:             name,
-					NotificationTopicStatus: "inactive",
+					NotificationTopicStatus: aws.String("inactive"),
 				}
 			},
 			check: func(t *testing.T, c *dax.Cluster) {
@@ -706,9 +707,9 @@ func TestUpdateClusterRejectedRequestDoesNotMutateState(t *testing.T) {
 
 	_, err = b.UpdateCluster(dax.UpdateClusterInput{
 		ClusterName:                "atomic-update",
-		PreferredMaintenanceWindow: "mon:01:00-mon:02:00",
+		PreferredMaintenanceWindow: aws.String("mon:01:00-mon:02:00"),
 		SecurityGroupIDs:           []string{"sg-changed"},
-		ParameterGroupName:         "no-such-pg",
+		ParameterGroupName:         aws.String("no-such-pg"),
 	})
 	require.Error(t, err)
 

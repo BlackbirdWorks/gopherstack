@@ -187,9 +187,13 @@ func (b *InMemoryBackend) UpdateEventBus(ctx context.Context, input UpdateEventB
 		return nil, fmt.Errorf("%w: event bus %s not found", ErrEventBusNotFound, busName)
 	}
 
-	bus.Description = input.Description
+	if input.Description != nil {
+		bus.Description = *input.Description
+	}
+	if input.KmsKeyIdentifier != nil {
+		bus.KmsKeyIdentifier = *input.KmsKeyIdentifier
+	}
 	bus.DeadLetterConfig = input.DeadLetterConfig
-	bus.KmsKeyIdentifier = input.KmsKeyIdentifier
 	bus.LogConfig = input.LogConfig
 	bus.LastModifiedTime = time.Now()
 

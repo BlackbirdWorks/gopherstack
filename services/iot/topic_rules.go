@@ -222,8 +222,11 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	arn := arn.Build("iot", b.region, b.accountID,
 		fmt.Sprintf("ruledestination/http/%s", uuid.NewString()))
 
+	now := time.Now()
 	dest := &TopicRuleDestination{
-		ARN: arn,
+		ARN:           arn,
+		CreatedAt:     now,
+		LastUpdatedAt: now,
 	}
 
 	if input.DestinationConfiguration != nil && input.DestinationConfiguration.HTTPURLConfiguration != nil {
@@ -241,6 +244,23 @@ func (b *InMemoryBackend) CreateTopicRuleDestination(
 	b.topicRuleDestinations.Put(dest)
 
 	return dest, nil
+}
+
+// SetTopicRuleDestinationTimestampsInternal backdates a destination's
+// CreatedAt/LastUpdatedAt for testing (mirrors AddRuleInternal/
+// AddCommandInternal), letting tests control Update's LastUpdatedAt delta
+// without depending on real-clock second-resolution timing.
+func (b *InMemoryBackend) SetTopicRuleDestinationTimestampsInternal(arn string, createdAt, lastUpdatedAt time.Time) {
+	b.mu.Lock("SetTopicRuleDestinationTimestampsInternal")
+	defer b.mu.Unlock()
+
+	dest, ok := b.topicRuleDestinations.Get(arn)
+	if !ok {
+		return
+	}
+
+	dest.CreatedAt = createdAt
+	dest.LastUpdatedAt = lastUpdatedAt
 }
 
 // GetTopicRuleDestination returns a topic rule destination by ARN.
@@ -285,6 +305,7 @@ func (b *InMemoryBackend) UpdateTopicRuleDestination(input *UpdateTopicRuleDesti
 	}
 
 	dest.Status = input.Status
+	dest.LastUpdatedAt = time.Now()
 
 	return nil
 }
@@ -318,6 +339,7 @@ func (b *InMemoryBackend) ConfirmTopicRuleDestination(token string) error {
 		if dest.ConfirmationToken != "" && dest.ConfirmationToken == token {
 			dest.Status = statusEnabled
 			dest.ConfirmationToken = ""
+			dest.LastUpdatedAt = time.Now()
 
 			return nil
 		}

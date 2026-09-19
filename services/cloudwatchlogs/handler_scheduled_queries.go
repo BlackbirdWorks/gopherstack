@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 )
 
 type createScheduledQueryInput struct {
@@ -96,12 +97,26 @@ func scheduledQuerySummaryToWire(sq *ScheduledQuery) map[string]any {
 }
 
 // --- UpdateScheduledQuery ---.
+// Field-diffed against UpdateScheduledQueryInput: Identifier, ExecutionRoleArn,
+// QueryLanguage, QueryString, and ScheduleExpression are all real required
+// members ("This operation uses PUT semantics") -- a previous revision
+// decoded only Identifier/State and silently dropped every other field.
 type updateScheduledQueryInput struct {
-	Identifier string `json:"identifier"`
-	State      string `json:"state"`
+	DestinationConfiguration *ScheduledQueryDestinationConfig `json:"destinationConfiguration"`
+	Identifier               string                           `json:"identifier"`
+	ExecutionRoleArn         string                           `json:"executionRoleArn"`
+	QueryLanguage            string                           `json:"queryLanguage"`
+	QueryString              string                           `json:"queryString"`
+	ScheduleExpression       string                           `json:"scheduleExpression"`
+	Description              string                           `json:"description"`
+	State                    string                           `json:"state"`
+	Timezone                 string                           `json:"timezone"`
+	LogGroupIdentifiers      []string                         `json:"logGroupIdentifiers"`
+	EndTimeOffset            int64                            `json:"endTimeOffset"`
+	StartTimeOffset          int64                            `json:"startTimeOffset"`
+	ScheduleStartTime        int64                            `json:"scheduleStartTime"`
+	ScheduleEndTime          int64                            `json:"scheduleEndTime"`
 }
-
-type updateScheduledQueryOutput struct{}
 
 // --- GetScheduledQuery ---.
 type getScheduledQueryInput struct {
@@ -109,10 +124,17 @@ type getScheduledQueryInput struct {
 }
 
 // --- GetScheduledQueryHistory ---.
+// StartTime/EndTime are real required members (validateOpGetScheduledQueryHistoryInput)
+// -- *int64 so an explicit 0 (epoch start, used by real callers) is
+// distinguishable from an absent field. ExecutionStatuses is a real optional
+// filter. All three were previously undecoded.
 type getScheduledQueryHistoryInput struct {
-	Identifier string `json:"identifier"`
-	NextToken  string `json:"nextToken"`
-	MaxResults int    `json:"maxResults"`
+	StartTime         *int64   `json:"startTime"`
+	EndTime           *int64   `json:"endTime"`
+	Identifier        string   `json:"identifier"`
+	NextToken         string   `json:"nextToken"`
+	ExecutionStatuses []string `json:"executionStatuses"`
+	MaxResults        int      `json:"maxResults"`
 }
 
 // getScheduledQueryHistoryOutput is GetScheduledQueryHistoryOutput's real
@@ -214,11 +236,15 @@ func (h *Handler) handleUpdateScheduledQuery(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
-	if err := h.Backend.UpdateScheduledQuery(input.Identifier, input.State); err != nil {
+
+	sq, err := h.Backend.UpdateScheduledQuery(ScheduledQueryUpdateParams(input))
+	if err != nil {
 		return nil, err
 	}
 
-	return &updateScheduledQueryOutput{}, nil
+	// UpdateScheduledQueryOutput's members sit flat at the top level, the
+	// same real shape as GetScheduledQueryOutput (field-diffed identical).
+	return sq, nil
 }
 
 func (h *Handler) handleGetScheduledQuery(
@@ -251,10 +277,22 @@ func (h *Handler) handleGetScheduledQueryHistory(
 	if err := json.Unmarshal(b, &input); err != nil {
 		return nil, err
 	}
+
+	if input.StartTime == nil {
+		return nil, fmt.Errorf("%w: startTime is required", ErrValidationException)
+	}
+
+	if input.EndTime == nil {
+		return nil, fmt.Errorf("%w: endTime is required", ErrValidationException)
+	}
+
 	runs, next, err := h.Backend.GetScheduledQueryHistory(
 		input.Identifier,
 		input.NextToken,
 		input.MaxResults,
+		*input.StartTime,
+		*input.EndTime,
+		input.ExecutionStatuses,
 	)
 	if err != nil {
 		return nil, err

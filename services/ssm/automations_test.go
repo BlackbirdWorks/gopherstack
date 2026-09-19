@@ -79,6 +79,47 @@ func TestChangeRequest(t *testing.T) {
 		`{"DocumentName":"AWS-ChangeRequest","Runbooks":[{}]}`)
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
+
+func TestStartChangeRequestExecution_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		maxConcurrency string
+		maxErrors      string
+		wantErr        bool
+	}{
+		{name: "absolute counts", maxConcurrency: "10", maxErrors: "0"},
+		{name: "unset is allowed"},
+		{name: "maxConcurrency leading zero", maxConcurrency: "05", wantErr: true},
+		{name: "maxErrors non-numeric", maxErrors: "abc", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+
+			_, err := b.StartChangeRequestExecution(context.Background(), &ssm.StartChangeRequestExecutionInput{
+				DocumentName: "AWS-ChangeRequest",
+				Runbooks: []ssm.Runbook{{
+					DocumentName:   "AWS-RunShellScript",
+					MaxConcurrency: tc.maxConcurrency,
+					MaxErrors:      tc.maxErrors,
+				}},
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, ssm.ErrValidationException)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
 func TestExecutionPreview(t *testing.T) {
 	t.Parallel()
 

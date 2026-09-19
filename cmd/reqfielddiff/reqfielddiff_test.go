@@ -630,6 +630,287 @@ func (h *Handler) handleModifyActivityStream(vals url.Values) (any, error) {
 	require.Equal(t, "ResourceArn", missing[0].Field.Name)
 }
 
+// TestResolveOp_FormReadComputedPrefixShapes is gopherstack-99nj's second
+// pass: ec2's parseEC2Filters and rds's parseTagEntries/parseSubnetIDMembers
+// build their indexed-list wire keys from an fmt.Sprintf format string or a
+// string-concatenation chain (a literal plus a loop counter), not a plain
+// string literal -- the shape TestResolveOp_FormReadIndexedListMember
+// already covers. Before resolveLiteralPrefix, a Get call built this way
+// was invisible to every recogniser in formreads.go, so ec2's own
+// DescribeInstances.Filters -- read via exactly this shape -- still read
+// tier-1 undeclared after the original form-read fix landed.
+func TestResolveOp_FormReadComputedPrefixShapes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		src    string
+		opName string
+		fields []sdkField
+	}{
+		{
+			name: "fmt.Sprintf format string inside a single-hop helper",
+			src: `package fixture
+
+func parseFilters(vals url.Values) map[string][]string {
+	filters := make(map[string][]string)
+	for i := 1; ; i++ {
+		name := vals.Get(fmt.Sprintf("Filter.%d.Name", i))
+		if name == "" {
+			break
+		}
+		filters[name] = nil
+	}
+	return filters
+}
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeThings(vals url.Values, reqID string) (any, error) {
+	filters := parseFilters(vals)
+	_ = filters
+	return nil, nil
+}
+`,
+			opName: "DescribeThings",
+			fields: []sdkField{mustField("Filters", "", false)},
+		},
+		{
+			name: "string concatenation through a local prefix variable",
+			src: `package fixture
+
+func parseCriteria(vals url.Values) []string {
+	var out []string
+	for i := 1; ; i++ {
+		prefix := "ImageCriterion." + strconv.Itoa(i)
+		name := vals.Get(prefix + ".ImageName")
+		if name == "" {
+			break
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
+type Handler struct{}
+
+func (h *Handler) handleReplaceCriteria(vals url.Values, reqID string) (any, error) {
+	out := parseCriteria(vals)
+	_ = out
+	return nil, nil
+}
+`,
+			opName: "ReplaceCriteria",
+			// "ImageCriterion" (singular) is deliberately the exact SDK
+			// field name here, not a pluralized "ImageCriteria" --
+			// singularVariant's suffix-strip doesn't cover an irregular
+			// plural like Criteria/Criterion (the package doc discloses
+			// this), and that is a separate, already-known limitation
+			// this test is not exercising; this case isolates the
+			// computed-prefix mechanism (resolveLiteralPrefix's local
+			// variable tracking) on its own.
+			fields: []sdkField{mustField("ImageCriterion", "", false)},
+		},
+		{
+			name: "inline string concatenation with no intermediate local",
+			src: `package fixture
+
+func parseConfigs(vals url.Values) []string {
+	var out []string
+	for i := 1; ; i++ {
+		key := vals.Get("DhcpConfiguration." + strconv.Itoa(i) + ".Key")
+		if key == "" {
+			break
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
+type Handler struct{}
+
+func (h *Handler) handleCreateDhcpOptions(vals url.Values, reqID string) (any, error) {
+	out := parseConfigs(vals)
+	_ = out
+	return nil, nil
+}
+`,
+			opName: "CreateDhcpOptions",
+			fields: []sdkField{mustField("DhcpConfigurations", "", false)},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			idx := parseSrc(t, tt.src)
+			op := sdkOp{Name: tt.opName, Fields: tt.fields}
+			res := idx.resolveOps([]sdkOp{op})[tt.opName]
+
+			require.True(t, res.HasSignal)
+			assert.Empty(t, findMissing(op, res))
+		})
+	}
+}
+
+// TestResolveOp_FormReadChainedHelper is rds's confirmed shape: a handler
+// calls a generic pagination helper directly (paginateDescribe(vals,
+// ...)), which itself calls a second package-level helper
+// (parseDescribePagination(vals)) whose OWN body reads
+// vals.Get("MaxRecords") -- two calls away from the handler, past
+// scanBody's single-hop cap on every other decode signal. Before
+// scanURLValuesFuncBody's unbounded (cycle-guarded) chase, MaxRecords read
+// this way across ~20 rds Describe* operations all stayed tier-1
+// undeclared even though every one of them genuinely applies it.
+func TestResolveOp_FormReadChainedHelper(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+func parsePagination(vals url.Values) (string, int) {
+	marker := vals.Get("Marker")
+	max := vals.Get("MaxRecords")
+	_ = max
+	return marker, 0
+}
+
+func paginateDescribe[T any](vals url.Values, items []T) ([]T, string) {
+	marker, _ := parsePagination(vals)
+	return items, marker
+}
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeDBInstances(vals url.Values) (any, error) {
+	instances, _ := paginateDescribe(vals, []int{})
+	_ = instances
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeDBInstances", Fields: []sdkField{
+		mustField("Marker", "", false),
+		mustField("MaxRecords", "", false),
+	}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeDBInstances"]
+
+	require.True(t, res.HasSignal)
+	assert.Empty(t, findMissing(op, res))
+}
+
+// TestResolveOp_FormReadChainDoesNotOvermatchUnrelatedField is the
+// orphan-risk guard for scanURLValuesFuncBody: chasing a chain of
+// url.Values-forwarding helpers must still only declare a field the chain
+// genuinely reads, never every field on the operation just because SOME
+// chain was followed successfully.
+func TestResolveOp_FormReadChainDoesNotOvermatchUnrelatedField(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+func parsePagination(vals url.Values) (string, int) {
+	marker := vals.Get("Marker")
+	_ = marker
+	return marker, 0
+}
+
+func paginateDescribe(vals url.Values) string {
+	marker, _ := parsePagination(vals)
+	return marker
+}
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeThings(vals url.Values) (any, error) {
+	_ = paginateDescribe(vals)
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeThings", Fields: []sdkField{
+		mustField("Marker", "", false),
+		mustField("MaxRecords", "", false),
+	}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeThings"]
+
+	missing := findMissing(op, res)
+	require.Len(t, missing, 1)
+	assert.Equal(t, "MaxRecords", missing[0].Field.Name)
+}
+
+// TestResolveOp_FormReadChainHandlesCycleWithoutHanging confirms
+// scanURLValuesFuncBody's chainVisited guard actually stops a call cycle
+// between two url.Values-forwarding helpers rather than recursing forever.
+func TestResolveOp_FormReadChainHandlesCycleWithoutHanging(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+func parseA(vals url.Values) string {
+	return parseB(vals)
+}
+
+func parseB(vals url.Values) string {
+	v := vals.Get("Name")
+	if v == "" {
+		return parseA(vals)
+	}
+	return v
+}
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeThings(vals url.Values) (any, error) {
+	_ = parseA(vals)
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeThings", Fields: []sdkField{mustField("Name", "", false)}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeThings"]
+
+	assert.Empty(t, findMissing(op, res))
+}
+
+// TestResolveOp_FormLoopUnresolvedIsReportedNotDeclared covers the
+// prefix-loop shape this scan deliberately does NOT try to resolve: a
+// dynamic per-key loop over the operation's own url.Values with no literal
+// wire name at the range statement itself. Silently declaring nothing
+// here would look identical to a genuinely undeclared field; silently
+// declaring EVERYTHING would be a false "declared" match. Instead this
+// must surface as FormLoopUnresolved so a human sees it, while the field
+// itself still reports as missing -- the tool reports a raw signal, it
+// does not guess.
+func TestResolveOp_FormLoopUnresolvedIsReportedNotDeclared(t *testing.T) {
+	t.Parallel()
+
+	src := `package fixture
+
+import "strings"
+
+type Handler struct{}
+
+func (h *Handler) handleDescribeThings(vals url.Values) (any, error) {
+	for key := range vals {
+		if strings.HasPrefix(key, "Tag:") {
+			_ = key
+		}
+	}
+	return nil, nil
+}
+`
+	idx := parseSrc(t, src)
+	op := sdkOp{Name: "DescribeThings", Fields: []sdkField{mustField("Tags", "", false)}}
+	res := idx.resolveOps([]sdkOp{op})["DescribeThings"]
+
+	assert.True(t, res.FormLoopUnresolved, "a dynamic range over the op's own url.Values must be flagged")
+
+	missing := findMissing(op, res)
+	require.Len(t, missing, 1, "an unresolved form loop must not silently declare the field either")
+	assert.Equal(t, "Tags", missing[0].Field.Name)
+}
+
 // TestFindHandlerByNameFold_Deterministic is gopherstack-fr30's regression
 // test. Before the fix, this fixture's fallback scan picked a winner via
 // Go's randomized map iteration order -- CreateAPI (an exported Backend

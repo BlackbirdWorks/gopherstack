@@ -20,14 +20,15 @@ func (h *Handler) handleCreateLoadBalancer(vals url.Values) (any, error) {
 	subnetMappings := parseSubnetMappings(vals)
 
 	lb, err := h.Backend.CreateLoadBalancer(CreateLoadBalancerInput{
-		Name:           name,
-		Scheme:         vals.Get("Scheme"),
-		Type:           vals.Get("Type"),
-		IPAddressType:  vals.Get("IpAddressType"),
-		Subnets:        subnets,
-		SubnetMappings: subnetMappings,
-		SecurityGroups: sgs,
-		Tags:           tagKVs,
+		Name:                         name,
+		Scheme:                       vals.Get("Scheme"),
+		Type:                         vals.Get("Type"),
+		IPAddressType:                vals.Get("IpAddressType"),
+		EnablePrefixForIpv6SourceNat: vals.Get("EnablePrefixForIpv6SourceNat"),
+		Subnets:                      subnets,
+		SubnetMappings:               subnetMappings,
+		SecurityGroups:               sgs,
+		Tags:                         tagKVs,
 	})
 	if err != nil {
 		return nil, err
@@ -166,7 +167,9 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 
 	sgs := parseMembers(vals, "SecurityGroups.member")
 
-	lb, err := h.Backend.SetSecurityGroups(lbArn, sgs)
+	lb, err := h.Backend.SetSecurityGroups(
+		lbArn, sgs, vals.Get("EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic"),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +183,7 @@ func (h *Handler) handleSetSecurityGroups(vals url.Values) (any, error) {
 		Xmlns: elbv2XMLNS,
 		Result: setSecurityGroupsResult{
 			SecurityGroupIDs:                 xmlStringList{Members: members},
-			EnforceInboundRulesOnPrivateLink: "off",
+			EnforceInboundRulesOnPrivateLink: lb.EnforceSGInboundRulesOnPrivateLink,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-sgs"},
 	}, nil
@@ -200,7 +203,7 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		}
 	}
 
-	lb, err := h.Backend.SetSubnets(lbArn, mappings)
+	lb, err := h.Backend.SetSubnets(lbArn, mappings, vals.Get("EnablePrefixForIpv6SourceNat"))
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +218,7 @@ func (h *Handler) handleSetSubnets(vals url.Values) (any, error) {
 		Result: setSubnetsResult{
 			AvailabilityZones:            xmlAZMappingList{Members: azMembers},
 			IPAddressType:                lb.IPAddressType,
-			EnablePrefixForIpv6SourceNat: "off",
+			EnablePrefixForIpv6SourceNat: lb.EnablePrefixForIpv6SourceNat,
 		},
 		ResponseMetadata: xmlResponseMetadata{RequestID: "elbv2-set-subnets"},
 	}, nil
@@ -316,18 +319,19 @@ func toXMLLoadBalancer(lb *LoadBalancer) xmlLoadBalancer {
 	}
 
 	xlb := xmlLoadBalancer{
-		LoadBalancerArn:       lb.LoadBalancerArn,
-		LoadBalancerName:      lb.LoadBalancerName,
-		DNSName:               lb.DNSName,
-		CanonicalHostedZoneID: lb.CanonicalHostedZoneID,
-		CreatedTime:           lb.CreatedTime.UTC().Format("2006-01-02T15:04:05Z"),
-		Scheme:                lb.Scheme,
-		Type:                  lb.Type,
-		IPAddressType:         lb.IPAddressType,
-		VpcID:                 lb.VpcID,
-		State:                 xmlLoadBalancerState{Code: lb.State.Code, Reason: lb.State.Description},
-		AvailabilityZones:     xmlAZMappingList{Members: azs},
-		SecurityGroups:        xmlStringList{Members: sgs},
+		LoadBalancerArn:              lb.LoadBalancerArn,
+		LoadBalancerName:             lb.LoadBalancerName,
+		DNSName:                      lb.DNSName,
+		CanonicalHostedZoneID:        lb.CanonicalHostedZoneID,
+		CreatedTime:                  lb.CreatedTime.UTC().Format("2006-01-02T15:04:05Z"),
+		Scheme:                       lb.Scheme,
+		Type:                         lb.Type,
+		IPAddressType:                lb.IPAddressType,
+		EnablePrefixForIpv6SourceNat: lb.EnablePrefixForIpv6SourceNat,
+		VpcID:                        lb.VpcID,
+		State:                        xmlLoadBalancerState{Code: lb.State.Code, Reason: lb.State.Description},
+		AvailabilityZones:            xmlAZMappingList{Members: azs},
+		SecurityGroups:               xmlStringList{Members: sgs},
 	}
 
 	if lb.IPv4IPAMPoolID != "" {
@@ -352,19 +356,20 @@ type xmlAZMappingList struct {
 }
 
 type xmlLoadBalancer struct {
-	IpamPools             *xmlIpamPools        `xml:"IpamPools,omitempty"`
-	State                 xmlLoadBalancerState `xml:"State"`
-	CanonicalHostedZoneID string               `xml:"CanonicalHostedZoneId"`
-	LoadBalancerArn       string               `xml:"LoadBalancerArn"`
-	CreatedTime           string               `xml:"CreatedTime"`
-	Scheme                string               `xml:"Scheme"`
-	Type                  string               `xml:"Type"`
-	IPAddressType         string               `xml:"IpAddressType"`
-	VpcID                 string               `xml:"VpcId"`
-	DNSName               string               `xml:"DNSName"`
-	LoadBalancerName      string               `xml:"LoadBalancerName"`
-	AvailabilityZones     xmlAZMappingList     `xml:"AvailabilityZones"`
-	SecurityGroups        xmlStringList        `xml:"SecurityGroups"`
+	IpamPools                    *xmlIpamPools        `xml:"IpamPools,omitempty"`
+	State                        xmlLoadBalancerState `xml:"State"`
+	CanonicalHostedZoneID        string               `xml:"CanonicalHostedZoneId"`
+	LoadBalancerArn              string               `xml:"LoadBalancerArn"`
+	CreatedTime                  string               `xml:"CreatedTime"`
+	Scheme                       string               `xml:"Scheme"`
+	Type                         string               `xml:"Type"`
+	IPAddressType                string               `xml:"IpAddressType"`
+	EnablePrefixForIpv6SourceNat string               `xml:"EnablePrefixForIpv6SourceNat,omitempty"`
+	VpcID                        string               `xml:"VpcId"`
+	DNSName                      string               `xml:"DNSName"`
+	LoadBalancerName             string               `xml:"LoadBalancerName"`
+	AvailabilityZones            xmlAZMappingList     `xml:"AvailabilityZones"`
+	SecurityGroups               xmlStringList        `xml:"SecurityGroups"`
 }
 
 type xmlLoadBalancerList struct {

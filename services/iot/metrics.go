@@ -114,11 +114,11 @@ func (b *InMemoryBackend) ListFleetMetrics() []*FleetMetric {
 
 // UpdateFleetMetricInput holds input for UpdateFleetMetric.
 type UpdateFleetMetricInput struct {
-	QueryString      string           `json:"queryString,omitempty"`
-	IndexName        string           `json:"indexName,omitempty"`
-	QueryVersion     string           `json:"queryVersion,omitempty"`
-	Description      string           `json:"description,omitempty"`
-	AggregationField string           `json:"aggregationField,omitempty"`
+	QueryString      *string          `json:"queryString,omitempty"`
+	IndexName        *string          `json:"indexName,omitempty"`
+	QueryVersion     *string          `json:"queryVersion,omitempty"`
+	Description      *string          `json:"description,omitempty"`
+	AggregationField *string          `json:"aggregationField,omitempty"`
 	AggregationType  *AggregationType `json:"aggregationType,omitempty"`
 	Unit             string           `json:"unit,omitempty"`
 	Period           int32            `json:"period,omitempty"`
@@ -138,20 +138,20 @@ func (b *InMemoryBackend) UpdateFleetMetric(name string, input *UpdateFleetMetri
 		return fmt.Errorf("%w: expected version %d but current is %d",
 			ErrVersionConflict, input.ExpectedVersion, fm.Version)
 	}
-	if input.QueryString != "" {
-		fm.QueryString = input.QueryString
+	if input.QueryString != nil {
+		fm.QueryString = *input.QueryString
 	}
-	if input.IndexName != "" {
-		fm.IndexName = input.IndexName
+	if input.IndexName != nil {
+		fm.IndexName = *input.IndexName
 	}
-	if input.QueryVersion != "" {
-		fm.QueryVersion = input.QueryVersion
+	if input.QueryVersion != nil {
+		fm.QueryVersion = *input.QueryVersion
 	}
-	if input.Description != "" {
-		fm.Description = input.Description
+	if input.Description != nil {
+		fm.Description = *input.Description
 	}
-	if input.AggregationField != "" {
-		fm.AggregationField = input.AggregationField
+	if input.AggregationField != nil {
+		fm.AggregationField = *input.AggregationField
 	}
 	if input.AggregationType != nil {
 		fm.AggregationType = input.AggregationType

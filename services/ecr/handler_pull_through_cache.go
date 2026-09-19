@@ -13,6 +13,7 @@ type createPullThroughCacheRuleInput struct {
 	CustomRoleArn            string `json:"customRoleArn,omitempty"`
 	UpstreamRegistry         string `json:"upstreamRegistry,omitempty"`
 	UpstreamRepositoryPrefix string `json:"upstreamRepositoryPrefix,omitempty"`
+	RegistryID               string `json:"registryId,omitempty"`
 }
 
 type createPullThroughCacheRuleOutput struct {
@@ -39,6 +40,7 @@ func (h *Handler) handleCreatePullThroughCacheRule(
 		in.UpstreamRegistry,
 		in.CustomRoleArn,
 		in.UpstreamRepositoryPrefix,
+		in.RegistryID,
 	)
 	if err != nil {
 		return nil, err
@@ -59,6 +61,7 @@ func (h *Handler) handleCreatePullThroughCacheRule(
 
 type describePullThroughCacheRulesInput struct {
 	NextToken             string   `json:"nextToken,omitempty"`
+	RegistryID            string   `json:"registryId,omitempty"`
 	EcrRepositoryPrefixes []string `json:"ecrRepositoryPrefixes,omitempty"`
 	MaxResults            int      `json:"maxResults,omitempty"`
 }
@@ -72,7 +75,7 @@ func (h *Handler) handleDescribePullThroughCacheRules(
 	ctx context.Context,
 	in *describePullThroughCacheRulesInput,
 ) (*describePullThroughCacheRulesOutput, error) {
-	rules, err := h.Backend.DescribePullThroughCacheRules(ctx, in.EcrRepositoryPrefixes)
+	rules, err := h.Backend.DescribePullThroughCacheRules(ctx, in.EcrRepositoryPrefixes, in.RegistryID)
 	if err != nil {
 		return nil, err
 	}

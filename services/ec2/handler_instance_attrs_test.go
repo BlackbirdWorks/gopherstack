@@ -32,7 +32,7 @@ func TestHandler_ModifyHosts(t *testing.T) {
 
 	h := newHandler()
 
-	hosts, err := h.Backend.AllocateHosts("us-east-1a", "c5.metal", 1)
+	hosts, err := h.Backend.AllocateHosts("us-east-1a", "c5.metal", 1, "", "")
 	require.NoError(t, err)
 	hostID := hosts[0].HostID
 

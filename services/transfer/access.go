@@ -176,16 +176,15 @@ func (b *InMemoryBackend) UpdateAccess(
 // UpdateAccessInput holds all mutable fields for UpdateAccessFull.
 type UpdateAccessInput struct {
 	PosixProfile             *PosixProfile
+	Role                     *string
+	HomeDir                  *string
+	Policy                   *string
 	ServerID                 string
 	ExternalID               string
-	Role                     string
-	HomeDir                  string
 	HomeDirectoryType        string
-	Policy                   string
 	HomeDirectoryMappings    []HomeDirectoryMapEntry
 	SetPosixProfile          bool
 	SetHomeDirectoryType     bool
-	SetPolicy                bool
 	SetHomeDirectoryMappings bool
 }
 
@@ -202,20 +201,20 @@ func (b *InMemoryBackend) UpdateAccessFull(in *UpdateAccessInput) (*Access, erro
 		)
 	}
 
-	if in.Role != "" {
-		a.Role = in.Role
+	if in.Role != nil {
+		a.Role = *in.Role
 	}
 
-	if in.HomeDir != "" {
-		a.HomeDir = in.HomeDir
+	if in.HomeDir != nil {
+		a.HomeDir = *in.HomeDir
 	}
 
 	if in.SetHomeDirectoryType {
 		a.HomeDirectoryType = in.HomeDirectoryType
 	}
 
-	if in.SetPolicy {
-		a.Policy = in.Policy
+	if in.Policy != nil {
+		a.Policy = *in.Policy
 	}
 
 	if in.SetPosixProfile {

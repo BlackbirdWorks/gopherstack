@@ -8,10 +8,26 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
+// isValidGetTemplateStage reports whether stage is one of the only two real
+// GetTemplateInput.TemplateStage values (api_op_GetTemplate.go: Original|
+// Processed, default Processed) or empty. This backend never applies
+// transforms differently between the two -- there is no separate "processed"
+// template to return -- so both stages return the identical stored body
+// (matching real AWS's own documented fallback: "If the template doesn't
+// include transforms, Original and Processed return the same template");
+// an unrecognized value is still rejected rather than silently accepted.
+func isValidGetTemplateStage(stage string) bool {
+	return stage == "" || stage == "Original" || stage == "Processed"
+}
+
 func (h *Handler) handleGetTemplate(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	if stackName == "" {
 		return h.xmlError(c, "ValidationError", "StackName is required")
+	}
+
+	if !isValidGetTemplateStage(form.Get("TemplateStage")) {
+		return h.xmlError(c, "ValidationError", "TemplateStage must be Original or Processed")
 	}
 
 	body, err := h.Backend.GetTemplate(stackName)
@@ -53,6 +69,10 @@ func (h *Handler) dispatchTemplateOps(action string, form url.Values, c *echo.Co
 func (h *Handler) handleGetTemplateSummary(form url.Values, c *echo.Context) error {
 	templateBody := form.Get("TemplateBody")
 	stackName := form.Get("StackName")
+
+	if err := h.validateCallAsForStackSet(form.Get("StackSetName"), form.Get("CallAs")); err != nil {
+		return h.xmlError(c, "ValidationError", err.Error())
+	}
 
 	summary, err := h.Backend.GetTemplateSummary(templateBody, stackName)
 	if err != nil {

@@ -18,8 +18,14 @@ func (h *Handler) handleCreateDBProxy(vals url.Values) (any, error) {
 	auth := parseUserAuthConfigs(vals)
 	subnetIDs := extractIndexedList(vals, "VpcSubnetIds.member.")
 	sgIDs := extractIndexedList(vals, "VpcSecurityGroupIds.member.")
+	defaultAuthScheme := vals.Get("DefaultAuthScheme")
+	endpointNetworkType := vals.Get("EndpointNetworkType")
+	targetConnectionNetworkType := vals.Get("TargetConnectionNetworkType")
 
-	proxy, err := h.Backend.CreateDBProxy(name, engineFamily, roleARN, auth, subnetIDs, sgIDs)
+	proxy, err := h.Backend.CreateDBProxy(
+		name, engineFamily, roleARN, auth, subnetIDs, sgIDs,
+		defaultAuthScheme, endpointNetworkType, targetConnectionNetworkType,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -52,13 +58,20 @@ func (h *Handler) handleDescribeDBProxies(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	xmlProxies := make([]xmlDBProxy, 0, len(proxies))
-	for i := range proxies {
-		xmlProxies = append(xmlProxies, toXMLProxy(&proxies[i]))
+	xmlProxies, marker, err := paginateDescribe(vals, proxies, func(a, b DBProxy) bool {
+		return a.DBProxyName < b.DBProxyName
+	}, func(p DBProxy) xmlDBProxy {
+		cp := p
+
+		return toXMLProxy(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return describeDBProxiesResponse{
 		Xmlns:     rdsXMLNS,
+		Marker:    marker,
 		DBProxies: xmlDBProxyList{Members: xmlProxies},
 	}, nil
 }
@@ -79,8 +92,9 @@ func (h *Handler) handleModifyDBProxy(vals url.Values) (any, error) {
 	}
 
 	auth := parseUserAuthConfigs(vals)
+	defaultAuthScheme := vals.Get("DefaultAuthScheme")
 
-	proxy, err := h.Backend.ModifyDBProxy(name, requireTLS, idleClientTimeout, auth)
+	proxy, err := h.Backend.ModifyDBProxy(name, requireTLS, idleClientTimeout, auth, defaultAuthScheme)
 	if err != nil {
 		return nil, err
 	}
@@ -146,13 +160,16 @@ func (h *Handler) handleDescribeDBProxyTargets(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	xmlTargets := make([]xmlDBProxyTarget, 0, len(targets))
-	for _, t := range targets {
-		xmlTargets = append(xmlTargets, toXMLProxyTarget(t))
+	xmlTargets, marker, err := paginateDescribe(vals, targets, func(a, b DBProxyTarget) bool {
+		return a.TargetARN < b.TargetARN
+	}, toXMLProxyTarget)
+	if err != nil {
+		return nil, err
 	}
 
 	return describeDBProxyTargetsResponse{
 		Xmlns:   rdsXMLNS,
+		Marker:  marker,
 		Targets: xmlDBProxyTargetList{Members: xmlTargets},
 	}, nil
 }
@@ -166,13 +183,20 @@ func (h *Handler) handleDescribeDBProxyTargetGroups(vals url.Values) (any, error
 		return nil, err
 	}
 
-	xmlGroups := make([]xmlDBProxyTargetGroup, 0, len(groups))
-	for i := range groups {
-		xmlGroups = append(xmlGroups, toXMLProxyTargetGroup(&groups[i]))
+	xmlGroups, marker, err := paginateDescribe(vals, groups, func(a, b DBProxyTargetGroup) bool {
+		return a.TargetGroupName < b.TargetGroupName
+	}, func(g DBProxyTargetGroup) xmlDBProxyTargetGroup {
+		cp := g
+
+		return toXMLProxyTargetGroup(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return describeDBProxyTargetGroupsResponse{
 		Xmlns:        rdsXMLNS,
+		Marker:       marker,
 		TargetGroups: xmlDBProxyTargetGroupList{Members: xmlGroups},
 	}, nil
 }
@@ -216,8 +240,11 @@ func (h *Handler) handleCreateDBProxyEndpoint(vals url.Values) (any, error) {
 
 	subnetIDs := extractIndexedList(vals, "VpcSubnetIds.member.")
 	sgIDs := extractIndexedList(vals, "VpcSecurityGroupIds.member.")
+	endpointNetworkType := vals.Get("EndpointNetworkType")
 
-	ep, err := h.Backend.CreateDBProxyEndpoint(proxyName, endpointName, targetRole, subnetIDs, sgIDs)
+	ep, err := h.Backend.CreateDBProxyEndpoint(
+		proxyName, endpointName, targetRole, subnetIDs, sgIDs, endpointNetworkType,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -252,13 +279,20 @@ func (h *Handler) handleDescribeDBProxyEndpoints(vals url.Values) (any, error) {
 		return nil, err
 	}
 
-	xmlEps := make([]xmlDBProxyEndpoint, 0, len(endpoints))
-	for i := range endpoints {
-		xmlEps = append(xmlEps, toXMLProxyEndpoint(&endpoints[i]))
+	xmlEps, marker, err := paginateDescribe(vals, endpoints, func(a, b DBProxyEndpoint) bool {
+		return a.DBProxyEndpointName < b.DBProxyEndpointName
+	}, func(ep DBProxyEndpoint) xmlDBProxyEndpoint {
+		cp := ep
+
+		return toXMLProxyEndpoint(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return describeDBProxyEndpointsResponse{
 		Xmlns:            rdsXMLNS,
+		Marker:           marker,
 		DBProxyEndpoints: xmlDBProxyEndpointList{Members: xmlEps},
 	}, nil
 }
@@ -306,20 +340,23 @@ func toXMLProxy(p *DBProxy) xmlDBProxy {
 	}
 
 	return xmlDBProxy{
-		DBProxyName:         p.DBProxyName,
-		DBProxyARN:          p.DBProxyARN,
-		Status:              p.Status,
-		Endpoint:            p.Endpoint,
-		EngineFamily:        p.EngineFamily,
-		RoleARN:             p.RoleARN,
-		RequireTLS:          p.RequireTLS,
-		IdleClientTimeout:   p.IdleClientTimeout,
-		DebugLogging:        p.DebugLogging,
-		CreatedDate:         p.CreatedDate.Format(time.RFC3339),
-		UpdatedDate:         p.UpdatedDate.Format(time.RFC3339),
-		Auth:                xmlUserAuthConfigList{Members: xmlAuth},
-		VpcSecurityGroupIDs: xmlStringMemberList{Members: p.VpcSecurityGroupIDs},
-		VpcSubnetIDs:        xmlStringMemberList{Members: p.VpcSubnetIDs},
+		DBProxyName:                 p.DBProxyName,
+		DBProxyARN:                  p.DBProxyARN,
+		Status:                      p.Status,
+		Endpoint:                    p.Endpoint,
+		EngineFamily:                p.EngineFamily,
+		RoleARN:                     p.RoleARN,
+		RequireTLS:                  p.RequireTLS,
+		IdleClientTimeout:           p.IdleClientTimeout,
+		DebugLogging:                p.DebugLogging,
+		CreatedDate:                 p.CreatedDate.Format(time.RFC3339),
+		UpdatedDate:                 p.UpdatedDate.Format(time.RFC3339),
+		Auth:                        xmlUserAuthConfigList{Members: xmlAuth},
+		VpcSecurityGroupIDs:         xmlStringMemberList{Members: p.VpcSecurityGroupIDs},
+		VpcSubnetIDs:                xmlStringMemberList{Members: p.VpcSubnetIDs},
+		DefaultAuthScheme:           p.DefaultAuthScheme,
+		EndpointNetworkType:         p.EndpointNetworkType,
+		TargetConnectionNetworkType: p.TargetConnectionNetworkType,
 	}
 }
 
@@ -371,6 +408,7 @@ func toXMLProxyEndpoint(ep *DBProxyEndpoint) xmlDBProxyEndpoint {
 		CreatedDate:         ep.CreatedDate.Format(time.RFC3339),
 		VpcSecurityGroupIDs: xmlStringMemberList{Members: ep.VpcSecurityGroupIDs},
 		VpcSubnetIDs:        xmlStringMemberList{Members: ep.VpcSubnetIDs},
+		EndpointNetworkType: ep.EndpointNetworkType,
 	}
 }
 
@@ -399,20 +437,23 @@ type xmlStringMemberList struct {
 }
 
 type xmlDBProxy struct {
-	DBProxyName         string                `xml:"DBProxyName"`
-	DBProxyARN          string                `xml:"DBProxyArn"`
-	Status              string                `xml:"Status"`
-	Endpoint            string                `xml:"Endpoint,omitempty"`
-	EngineFamily        string                `xml:"EngineFamily,omitempty"`
-	RoleARN             string                `xml:"RoleArn,omitempty"`
-	CreatedDate         string                `xml:"CreatedDate,omitempty"`
-	UpdatedDate         string                `xml:"UpdatedDate,omitempty"`
-	Auth                xmlUserAuthConfigList `xml:"Auth"`
-	VpcSecurityGroupIDs xmlStringMemberList   `xml:"VpcSecurityGroupIds"`
-	VpcSubnetIDs        xmlStringMemberList   `xml:"VpcSubnetIds"`
-	IdleClientTimeout   int                   `xml:"IdleClientTimeout,omitempty"`
-	RequireTLS          bool                  `xml:"RequireTLS,omitempty"`
-	DebugLogging        bool                  `xml:"DebugLogging,omitempty"`
+	EndpointNetworkType         string                `xml:"EndpointNetworkType,omitempty"`
+	TargetConnectionNetworkType string                `xml:"TargetConnectionNetworkType,omitempty"`
+	Status                      string                `xml:"Status"`
+	Endpoint                    string                `xml:"Endpoint,omitempty"`
+	EngineFamily                string                `xml:"EngineFamily,omitempty"`
+	RoleARN                     string                `xml:"RoleArn,omitempty"`
+	CreatedDate                 string                `xml:"CreatedDate,omitempty"`
+	UpdatedDate                 string                `xml:"UpdatedDate,omitempty"`
+	DBProxyARN                  string                `xml:"DBProxyArn"`
+	DBProxyName                 string                `xml:"DBProxyName"`
+	DefaultAuthScheme           string                `xml:"DefaultAuthScheme,omitempty"`
+	Auth                        xmlUserAuthConfigList `xml:"Auth"`
+	VpcSecurityGroupIDs         xmlStringMemberList   `xml:"VpcSecurityGroupIds"`
+	VpcSubnetIDs                xmlStringMemberList   `xml:"VpcSubnetIds"`
+	IdleClientTimeout           int                   `xml:"IdleClientTimeout,omitempty"`
+	RequireTLS                  bool                  `xml:"RequireTLS,omitempty"`
+	DebugLogging                bool                  `xml:"DebugLogging,omitempty"`
 }
 
 type xmlDBProxyList struct {
@@ -434,6 +475,7 @@ type deleteDBProxyResponse struct {
 type describeDBProxiesResponse struct {
 	XMLName   xml.Name       `xml:"DescribeDBProxiesResponse"`
 	Xmlns     string         `xml:"xmlns,attr"`
+	Marker    string         `xml:"DescribeDBProxiesResult>Marker,omitempty"`
 	DBProxies xmlDBProxyList `xml:"DescribeDBProxiesResult>DBProxies"`
 }
 
@@ -481,6 +523,7 @@ type deregisterDBProxyTargetsResponse struct {
 type describeDBProxyTargetsResponse struct {
 	XMLName xml.Name             `xml:"DescribeDBProxyTargetsResponse"`
 	Xmlns   string               `xml:"xmlns,attr"`
+	Marker  string               `xml:"DescribeDBProxyTargetsResult>Marker,omitempty"`
 	Targets xmlDBProxyTargetList `xml:"DescribeDBProxyTargetsResult>Targets"`
 }
 
@@ -502,6 +545,7 @@ type xmlDBProxyTargetGroupList struct {
 type describeDBProxyTargetGroupsResponse struct {
 	XMLName      xml.Name                  `xml:"DescribeDBProxyTargetGroupsResponse"`
 	Xmlns        string                    `xml:"xmlns,attr"`
+	Marker       string                    `xml:"DescribeDBProxyTargetGroupsResult>Marker,omitempty"`
 	TargetGroups xmlDBProxyTargetGroupList `xml:"DescribeDBProxyTargetGroupsResult>TargetGroups"`
 }
 
@@ -519,6 +563,7 @@ type xmlDBProxyEndpoint struct {
 	Endpoint            string              `xml:"Endpoint,omitempty"`
 	TargetRole          string              `xml:"TargetRole,omitempty"`
 	CreatedDate         string              `xml:"CreatedDate,omitempty"`
+	EndpointNetworkType string              `xml:"EndpointNetworkType,omitempty"`
 	VpcSecurityGroupIDs xmlStringMemberList `xml:"VpcSecurityGroupIds"`
 	VpcSubnetIDs        xmlStringMemberList `xml:"VpcSubnetIds"`
 	IsDefault           bool                `xml:"IsDefault,omitempty"`
@@ -543,6 +588,7 @@ type deleteDBProxyEndpointResponse struct {
 type describeDBProxyEndpointsResponse struct {
 	XMLName          xml.Name               `xml:"DescribeDBProxyEndpointsResponse"`
 	Xmlns            string                 `xml:"xmlns,attr"`
+	Marker           string                 `xml:"DescribeDBProxyEndpointsResult>Marker,omitempty"`
 	DBProxyEndpoints xmlDBProxyEndpointList `xml:"DescribeDBProxyEndpointsResult>DBProxyEndpoints"`
 }
 

@@ -38,7 +38,7 @@ type StorageBackend interface {
 		opts DBInstanceCreateOptions,
 	) (*DBInstance, error)
 	DescribeDBInstances(ctx context.Context, id string, clusterFilter []string) ([]DBInstance, error)
-	DeleteDBInstance(ctx context.Context, id string) (*DBInstance, error)
+	DeleteDBInstance(ctx context.Context, id string, opts DBInstanceDeleteOptions) (*DBInstance, error)
 	ModifyDBInstance(
 		ctx context.Context,
 		id, instanceClass string,
@@ -209,6 +209,7 @@ type StorageBackend interface {
 	RestoreDBClusterToPointInTime(
 		ctx context.Context,
 		srcClusterID, targetClusterID string,
+		opts RestoreToPointInTimeOptions,
 	) (*DBCluster, error)
 
 	// Subnet group extended operations

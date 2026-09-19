@@ -20,6 +20,11 @@ const (
 	resultFormatCSV = "CSV"
 	// resultFormatJSON is the default result format returned by GetStatementResult.
 	resultFormatJSON = "JSON"
+	// executionModeTransaction is BatchExecuteStatement's default ExecutionMode:
+	// all SQL statements run as a single transaction.
+	executionModeTransaction = "TRANSACTION"
+	// executionModeAutoCommit commits each SQL statement in the batch individually.
+	executionModeAutoCommit = "AUTO_COMMIT"
 	// maxListStatementsResults is the maximum number of statements AWS allows per ListStatements page.
 	maxListStatementsResults = 100
 	// defaultListStatementsResults is the default page size for ListStatements when MaxResults is 0.
@@ -167,8 +172,8 @@ type SubStatementData struct {
 type Statement struct {
 	CreatedAt         time.Time `json:"createdAt"`
 	UpdatedAt         time.Time `json:"updatedAt"`
-	Database          string    `json:"database"`
-	ID                string    `json:"id"`
+	Status            string    `json:"status"`
+	Error             string    `json:"error"`
 	ClusterIdentifier string    `json:"clusterIdentifier"`
 	WorkgroupName     string    `json:"workgroupName"`
 	QueryString       string    `json:"queryString"`
@@ -176,17 +181,21 @@ type Statement struct {
 	SecretARN         string    `json:"secretARN"`
 	StatementName     string    `json:"statementName"`
 	ResultFormat      string    `json:"resultFormat"`
+	// ExecutionMode is BatchExecuteStatementInput.ExecutionMode, echoed back on
+	// DescribeStatement (TRANSACTION | AUTO_COMMIT). Empty for ExecuteStatement,
+	// which has no such input member.
+	ExecutionMode string `json:"executionMode,omitempty"`
+	ID            string `json:"id"`
+	Database      string `json:"database"`
 	// SessionID is the session identifier echoed back from the ExecuteStatement/
 	// BatchExecuteStatement request that created this statement (StatementData.SessionId
 	// / DescribeStatementOutput.SessionId in the real API). Empty when the caller did
 	// not supply one -- this mock does not mint new session ids on the caller's behalf,
 	// it only threads through what was provided (see handleExecuteStatement).
 	SessionID     string             `json:"sessionID,omitempty"`
-	Status        string             `json:"status"`
-	Error         string             `json:"error"`
-	QueryStrings  []string           `json:"queryStrings"`
 	Parameters    []SQLParameter     `json:"parameters,omitempty"`
 	SubStatements []SubStatementData `json:"subStatements,omitempty"`
+	QueryStrings  []string           `json:"queryStrings"`
 	// DurationMs is the total wall-clock execution time in milliseconds. Populated
 	// when the statement reaches a terminal state (FINISHED / FAILED / ABORTED).
 	DurationMs       int64 `json:"durationMs"`

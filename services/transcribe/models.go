@@ -105,6 +105,7 @@ type CallAnalyticsJob struct {
 	DataAccessRoleArn       string                 `json:"dataAccessRoleArn,omitempty"`
 	FailureReason           string                 `json:"failureReason,omitempty"`
 	CallAnalyticsJobName    string                 `json:"callAnalyticsJobName"`
+	OutputLocation          string                 `json:"outputLocation,omitempty"`
 	ChannelDefinitions      []ChannelDefinition    `json:"channelDefinitions,omitempty"`
 	TranscriptJSON          []byte                 `json:"-"`
 	IdentifiedLanguageScore float32                `json:"identifiedLanguageScore,omitempty"`

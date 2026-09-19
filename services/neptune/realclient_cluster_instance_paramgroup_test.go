@@ -205,6 +205,7 @@ func TestDBClusterFailoverAndRestore_RealClient(t *testing.T) {
 					&neptunesdk.RestoreDBClusterToPointInTimeInput{
 						SourceDBClusterIdentifier: aws.String(sourceID),
 						DBClusterIdentifier:       aws.String("pitr-target"),
+						UseLatestRestorableTime:   aws.Bool(true),
 					},
 				)
 				require.NoError(t, err)

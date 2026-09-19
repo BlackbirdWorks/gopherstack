@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -284,7 +285,7 @@ func TestBackendOps_UpdateMaintenanceWindow(t *testing.T) {
 
 	out, err := b.UpdateMaintenanceWindow(context.TODO(), &ssm.UpdateMaintenanceWindowInput{
 		WindowID: wid,
-		Name:     "updated-window",
+		Name:     aws.String("updated-window"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-window", out.Name)
@@ -499,7 +500,7 @@ func TestBackendOps_UpdateMaintenanceWindowTarget(t *testing.T) {
 	out, err := b.UpdateMaintenanceWindowTarget(context.TODO(), &ssm.UpdateMaintenanceWindowTargetInput{
 		WindowID:       wid,
 		WindowTargetID: targetOut.WindowTargetID,
-		Name:           "updated-target",
+		Name:           aws.String("updated-target"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-target", out.Name)
@@ -521,13 +522,204 @@ func TestBackendOps_UpdateMaintenanceWindowTask(t *testing.T) {
 	out, err := b.UpdateMaintenanceWindowTask(context.TODO(), &ssm.UpdateMaintenanceWindowTaskInput{
 		WindowID:     wid,
 		WindowTaskID: taskOut.WindowTaskID,
-		Name:         "updated-task",
+		Name:         aws.String("updated-task"),
 		Priority:     &priority,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "updated-task", out.Name)
 	assert.Equal(t, int32(5), out.Priority)
 }
+
+func TestRegisterTaskWithMaintenanceWindow_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		maxConcurrency string
+		maxErrors      string
+		wantErr        bool
+	}{
+		{name: "absolute counts", maxConcurrency: "10", maxErrors: "0"},
+		{name: "unset is allowed"},
+		{name: "maxConcurrency leading zero", maxConcurrency: "05", wantErr: true},
+		{name: "maxErrors non-numeric", maxErrors: "abc", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			wid := createTestWindow(t, b)
+
+			_, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
+				WindowID:       wid,
+				TaskArn:        "AWS-RunShellScript",
+				TaskType:       "RUN_COMMAND",
+				MaxConcurrency: tc.maxConcurrency,
+				MaxErrors:      tc.maxErrors,
+			})
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, ssm.ErrValidationException)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestUpdateMaintenanceWindowTask_MaxConcurrencyMaxErrorsValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		maxConcurrency string
+		maxErrors      string
+		wantErr        bool
+	}{
+		{name: "absolute counts", maxConcurrency: "10", maxErrors: "0"},
+		{name: "unset is allowed"},
+		{name: "maxConcurrency over 100 percent", maxConcurrency: "150%", wantErr: true},
+		{name: "maxErrors non-numeric", maxErrors: "abc", wantErr: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newBackend(t)
+			wid := createTestWindow(t, b)
+
+			registerInput := &ssm.RegisterTaskWithMaintenanceWindowInput{
+				WindowID: wid,
+				TaskArn:  "AWS-RunShellScript",
+				TaskType: "RUN_COMMAND",
+			}
+			taskOut, err := b.RegisterTaskWithMaintenanceWindow(context.TODO(), registerInput)
+			require.NoError(t, err)
+
+			taskUpdate := &ssm.UpdateMaintenanceWindowTaskInput{
+				WindowID:     wid,
+				WindowTaskID: taskOut.WindowTaskID,
+			}
+			if tc.maxConcurrency != "" {
+				taskUpdate.MaxConcurrency = aws.String(tc.maxConcurrency)
+			}
+
+			if tc.maxErrors != "" {
+				taskUpdate.MaxErrors = aws.String(tc.maxErrors)
+			}
+
+			_, err = b.UpdateMaintenanceWindowTask(context.TODO(), taskUpdate)
+
+			if tc.wantErr {
+				require.ErrorIs(t, err, ssm.ErrValidationException)
+
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestDeregisterTargetFromMaintenanceWindow_Safe(t *testing.T) {
+	t.Parallel()
+
+	t.Run("safe rejects a target still referenced by a task", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		wid := createTestWindow(t, b)
+
+		registerTargetInput := &ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		}
+		targetOut, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), registerTargetInput)
+		require.NoError(t, err)
+
+		_, err = b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
+			WindowID: wid,
+			TaskArn:  "AWS-RunShellScript",
+			TaskType: "RUN_COMMAND",
+			Targets:  []ssm.WindowTarget{{Key: "WindowTargetIds", Values: []string{targetOut.WindowTargetID}}},
+		})
+		require.NoError(t, err)
+
+		_, err = b.DeregisterTargetFromMaintenanceWindow(
+			context.TODO(),
+			&ssm.DeregisterTargetFromMaintenanceWindowInput{
+				WindowID:       wid,
+				WindowTargetID: targetOut.WindowTargetID,
+				Safe:           true,
+			},
+		)
+		require.ErrorIs(t, err, ssm.ErrMaintenanceWindowTargetInUse)
+	})
+
+	t.Run("safe allows an unreferenced target", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		wid := createTestWindow(t, b)
+
+		registerTargetInput := &ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		}
+		targetOut, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), registerTargetInput)
+		require.NoError(t, err)
+
+		_, err = b.DeregisterTargetFromMaintenanceWindow(
+			context.TODO(),
+			&ssm.DeregisterTargetFromMaintenanceWindowInput{
+				WindowID:       wid,
+				WindowTargetID: targetOut.WindowTargetID,
+				Safe:           true,
+			},
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("without safe a referenced target still deregisters", func(t *testing.T) {
+		t.Parallel()
+
+		b := newBackend(t)
+		wid := createTestWindow(t, b)
+
+		registerTargetInput := &ssm.RegisterTargetWithMaintenanceWindowInput{
+			WindowID:     wid,
+			ResourceType: "INSTANCE",
+			Targets:      []ssm.WindowTarget{{Key: "InstanceIds", Values: []string{"i-test"}}},
+		}
+		targetOut, err := b.RegisterTargetWithMaintenanceWindow(context.TODO(), registerTargetInput)
+		require.NoError(t, err)
+
+		_, err = b.RegisterTaskWithMaintenanceWindow(context.TODO(), &ssm.RegisterTaskWithMaintenanceWindowInput{
+			WindowID: wid,
+			TaskArn:  "AWS-RunShellScript",
+			TaskType: "RUN_COMMAND",
+			Targets:  []ssm.WindowTarget{{Key: "WindowTargetIds", Values: []string{targetOut.WindowTargetID}}},
+		})
+		require.NoError(t, err)
+
+		_, err = b.DeregisterTargetFromMaintenanceWindow(
+			context.TODO(),
+			&ssm.DeregisterTargetFromMaintenanceWindowInput{
+				WindowID:       wid,
+				WindowTargetID: targetOut.WindowTargetID,
+			},
+		)
+		require.NoError(t, err)
+	})
+}
+
 func TestMaintenanceWindowsForTarget_NoMatchReturnsEmpty(t *testing.T) {
 	t.Parallel()
 

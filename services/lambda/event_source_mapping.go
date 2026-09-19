@@ -143,7 +143,7 @@ type UpdateEventSourceMappingInput struct {
 	DestinationConfig              *ESMDestinationConfig
 	BisectBatchOnFunctionError     *bool
 	UUID                           string
-	KMSKeyArn                      string
+	KMSKeyArn                      *string
 	SourceAccessConfigurations     []SourceAccessConfiguration
 	Topics                         []string
 	Queues                         []string
@@ -435,8 +435,8 @@ func applyESMUpdate(esm *EventSourceMapping, input *UpdateEventSourceMappingInpu
 		esm.BisectBatchOnFunctionError = *input.BisectBatchOnFunctionError
 	}
 
-	if input.KMSKeyArn != "" {
-		esm.KMSKeyArn = input.KMSKeyArn
+	if input.KMSKeyArn != nil {
+		esm.KMSKeyArn = *input.KMSKeyArn
 	}
 
 	applyESMWindowFields(esm, input)

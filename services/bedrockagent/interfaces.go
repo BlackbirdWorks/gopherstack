@@ -19,7 +19,7 @@ type StorageBackend interface {
 	CreateAgent(ctx context.Context, cfg AgentConfig) (*Agent, error)
 	GetAgent(ctx context.Context, agentID string) (*Agent, error)
 	UpdateAgent(ctx context.Context, agentID string, cfg AgentConfig) (*Agent, error)
-	DeleteAgent(ctx context.Context, agentID string) error
+	DeleteAgent(ctx context.Context, agentID string, skipResourceInUseCheck bool) error
 	ListAgents(ctx context.Context, maxResults int, nextToken string) ([]*AgentSummary, string, error)
 	PrepareAgent(ctx context.Context, agentID string) (*Agent, error)
 
@@ -120,7 +120,7 @@ type StorageBackend interface {
 	CreateFlow(ctx context.Context, cfg FlowConfig) (*Flow, error)
 	GetFlow(ctx context.Context, flowID string) (*Flow, error)
 	UpdateFlow(ctx context.Context, flowID string, cfg FlowConfig) (*Flow, error)
-	DeleteFlow(ctx context.Context, flowID string) error
+	DeleteFlow(ctx context.Context, flowID string, skipResourceInUseCheck bool) error
 	ListFlows(ctx context.Context, maxResults int, nextToken string) ([]*FlowSummary, string, error)
 	PrepareFlow(ctx context.Context, flowID string) (*Flow, error)
 	ValidateFlowDefinition(ctx context.Context, definition map[string]any) ([]FlowValidationError, error)

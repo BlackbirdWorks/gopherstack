@@ -203,7 +203,7 @@ func TestSnapshotRestore(t *testing.T) {
 	t.Parallel()
 
 	backend := sesv2.NewInMemoryBackend()
-	_, err := backend.CreateContactList("my-list", "desc", nil)
+	_, err := backend.CreateContactList("my-list", "desc", nil, nil)
 	require.NoError(t, err)
 
 	snap := backend.Snapshot(t.Context())
@@ -226,7 +226,7 @@ func TestSnapshotRestoreRoundTrip(t *testing.T) {
 	_, err := backend.CreateEmailIdentity("snap@example.com", "", nil)
 	require.NoError(t, err)
 
-	_, err = backend.CreateContactList("snap-list", "desc", nil)
+	_, err = backend.CreateContactList("snap-list", "desc", nil, nil)
 	require.NoError(t, err)
 
 	_, err = backend.CreateDedicatedIPPool("snap-pool", "STANDARD", nil)

@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: redshiftdata
 sdk_module: aws-sdk-go-v2/service/redshiftdata@v1.43.4   # version audited against
-last_audit_commit: eff9b1496                              # HEAD when this audit began (working tree, uncommitted)
-last_audit_date: 2026-09-04
+last_audit_commit: c9523cebb                              # HEAD when this audit began (working tree, uncommitted)
+last_audit_date: 2026-09-18
 overall: A            # genuine wire-shape/field gaps found and fixed this pass
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -48,7 +48,12 @@ ops:
     Prior-pass fixes retained: ClientToken idempotency and Database-required relaxation,
     identical treatment and identical SDK-source citations as ExecuteStatement above
     (BatchExecuteStatementInput's Database/ClientToken doc comments and validator are the
-    same shape). SessionId/SessionKeepAliveSeconds: same treatment as ExecuteStatement.}
+    same shape). SessionId/SessionKeepAliveSeconds: same treatment as ExecuteStatement.
+    FIXED 2026-09-18: ExecutionMode was never declared on the request struct at all
+    (dropped, not just unread) -- now validated (TRANSACTION|AUTO_COMMIT, default
+    TRANSACTION per doc), stored on Statement, and echoed on DescribeStatementOutput.
+    ExecutionMode (the real member that carries it back; BatchExecuteStatementOutput
+    itself has no such member). Regression: TestBatchExecuteStatement_ExecutionMode_SDKRoundTrip.}
   DescribeStatement: {wire: ok, errors: ok, state: ok, persist: ok, note: >
     FIXED 2026-08-20 (wrapper-key sweep): statementToDescribeResponse emitted FOUR
     fabricated members with no case at all in the real DescribeStatementOutput
@@ -202,6 +207,12 @@ leaks: {status: clean, note: "Janitor uses pkgs/worker.Group with TaskTimeout bo
 ---
 
 ## Notes
+
+### 2026-09-18 pass (reqfielddiff tier-1): BatchExecuteStatement.ExecutionMode was undeclared
+
+Not read anywhere in the handler or backend. Now validated, stored on Statement,
+and echoed via DescribeStatementOutput.ExecutionMode (the real SDK member that
+carries it back). Proven by TestBatchExecuteStatement_ExecutionMode_SDKRoundTrip.
 
 ### 2026-09-04 pass (gopherstack-2v1, parity sweep): ListStatements connection-target gap found and fixed; ExecuteStatement/BatchExecuteStatement mutual-exclusivity re-verified
 

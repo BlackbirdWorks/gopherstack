@@ -419,6 +419,33 @@ func parsePaginationChecked(c *echo.Context, form url.Values) (string, int, erro
 	return marker, maxRecords, nil
 }
 
+// parseMaxResultsPaginationChecked is parsePaginationChecked's counterpart
+// for the newer serverless-cache Describe operations, which use
+// NextToken/MaxResults rather than Marker/MaxRecords (verified against
+// elasticache@v1.56.4 api_op_DescribeServerlessCaches.go and
+// api_op_DescribeServerlessCacheSnapshots.go) and document no numeric bound
+// on MaxResults, unlike MaxRecords's modeled [20,100].
+func parseMaxResultsPaginationChecked(c *echo.Context, form url.Values) (string, int, error) {
+	nextToken := form.Get("NextToken")
+
+	s := form.Get("MaxResults")
+	if s == "" {
+		return nextToken, 0, nil
+	}
+
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		_ = xmlError(
+			c, http.StatusBadRequest, "InvalidParameterValue",
+			fmt.Sprintf("MaxResults must be an integer, got %q", s),
+		)
+
+		return "", 0, errResponseWritten
+	}
+
+	return nextToken, n, nil
+}
+
 // describeListChecked runs the sequence shared by every paginated
 // Describe*/List* handler: validate Marker/MaxRecords, invoke the backend
 // call, and split its error into NotFound-vs-InternalFailure. Centralizing

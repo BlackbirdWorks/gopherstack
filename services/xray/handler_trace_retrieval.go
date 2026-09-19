@@ -16,10 +16,11 @@ type segmentDoc struct {
 	EndTime   float64 `json:"end_time"`
 }
 
+// ListRetrievedTracesInput (xray@v1.39.4 api_op_ListRetrievedTraces.go) has
+// no page-size member, only NextToken -- the server picks the page size.
 type listRetrievedTracesInput struct {
 	RetrievalToken string `json:"RetrievalToken"`
 	NextToken      string `json:"NextToken"`
-	MaxResults     int    `json:"MaxResults"`
 }
 
 // buildTraceView converts a raw Trace into the map shape returned by ListRetrievedTraces.
@@ -84,7 +85,7 @@ func (h *Handler) handleListRetrievedTraces(_ context.Context, body []byte) ([]b
 		traceViews = append(traceViews, buildTraceView(t))
 	}
 
-	pg := page.New(traceViews, in.NextToken, in.MaxResults, defaultTracesPageSize)
+	pg := page.New(traceViews, in.NextToken, 0, defaultTracesPageSize)
 	resp := map[string]any{
 		"RetrievalStatus": status,
 		"Traces":          pg.Data,

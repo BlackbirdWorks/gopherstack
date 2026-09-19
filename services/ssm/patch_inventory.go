@@ -78,31 +78,48 @@ const defaultAgentVersionSSM = "3.0.0"
 // the real-world release dates of these KB/advisory IDs, fixed at compile
 // time (never time.Now()) so ApprovalRules.ApproveAfterDays evaluation stays
 // reproducible.
+// patchSetOS is every catalog entry's PatchSet value: all five are
+// OS-level updates, never APPLICATION (types.PatchSet's other value).
+const patchSetOS = "OS"
+
+// patchProductFamilyWindows and patchSeverityCritical back multiple catalog
+// entries below.
+const (
+	patchProductFamilyWindows = "Windows"
+	patchSeverityCritical     = "Critical"
+)
+
 func defaultPatchCatalog() []Patch {
 	return []Patch{
 		{
-			Name: "KB5034441", Product: "WindowsServer2022",
-			Classification: patchClassificationSecurityUpdates, Severity: "Critical",
+			Name: "KB5034441", Product: "WindowsServer2022", ProductFamily: patchProductFamilyWindows,
+			Classification: patchClassificationSecurityUpdates,
+			MsrcSeverity:   patchSeverityCritical, Severity: patchSeverityCritical,
+			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.January, 9, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "KB5034129", Product: "WindowsServer2019",
-			Classification: patchClassificationSecurityUpdates, Severity: "Important",
+			Name: "KB5034129", Product: "WindowsServer2019", ProductFamily: patchProductFamilyWindows,
+			Classification: patchClassificationSecurityUpdates, MsrcSeverity: "Important", Severity: "Important",
+			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2023, time.December, 12, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "ALAS2-2024-2451", Product: patchProductAmazonLinux2,
-			Classification: "Security", Severity: "Critical",
+			Name: "ALAS2-2024-2451", Product: patchProductAmazonLinux2, ProductFamily: "Amazon Linux 2",
+			Classification: "Security", Severity: patchSeverityCritical,
+			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.March, 1, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "ALAS2-2024-2460", Product: patchProductAmazonLinux2,
+			Name: "ALAS2-2024-2460", Product: patchProductAmazonLinux2, ProductFamily: "Amazon Linux 2",
 			Classification: "Bugfix", Severity: "Medium",
+			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.March, 15, 0, 0, 0, 0, time.UTC)),
 		},
 		{
-			Name: "USN-6567-1", Product: "Ubuntu2204",
+			Name: "USN-6567-1", Product: "Ubuntu2204", ProductFamily: "Ubuntu",
 			Classification: "Security", Severity: "High",
+			PatchSet:    patchSetOS,
 			ReleaseDate: UnixTimeFloat(time.Date(2024, time.January, 22, 0, 0, 0, 0, time.UTC)),
 		},
 	}

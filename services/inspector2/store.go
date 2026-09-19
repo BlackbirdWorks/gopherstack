@@ -51,6 +51,7 @@ type InMemoryBackend struct {
 	sbomExports                    *store.Table[SbomExport]
 	findingsReports                *store.Table[FindingsReport]
 	memberEc2Status                *store.Table[MemberEc2DeepInspectionStatus]
+	memberConfigs                  *store.Table[MemberConfiguration]
 	members                        *store.Table[Member]
 	registry                       *store.Registry
 	encryptionKeys                 *store.Table[EncryptionKey]

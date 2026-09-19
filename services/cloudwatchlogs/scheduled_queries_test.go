@@ -103,7 +103,15 @@ func TestCloudWatchLogsBackend_ScheduledQueryLifecycle(t *testing.T) {
 				queries, _, err = b.ListScheduledQueries(50, "", "", "")
 				require.NoError(t, err)
 				require.Len(t, queries, 1)
-				err = b.UpdateScheduledQuery(queries[0].ScheduledQueryArn, tt.newState)
+				params := testScheduledQueryParams("q1")
+				_, err = b.UpdateScheduledQuery(cloudwatchlogs.ScheduledQueryUpdateParams{
+					Identifier:         queries[0].ScheduledQueryArn,
+					ExecutionRoleArn:   params.ExecutionRoleArn,
+					QueryLanguage:      params.QueryLanguage,
+					QueryString:        params.QueryString,
+					ScheduleExpression: params.ScheduleExpression,
+					State:              tt.newState,
+				})
 			}
 
 			if tt.wantErr != nil {
@@ -234,7 +242,7 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 				arn = tt.setup(t, b)
 			}
 
-			summaries, next, err := b.GetScheduledQueryHistory(arn, "", 0)
+			summaries, next, err := b.GetScheduledQueryHistory(arn, "", 0, 1, 9_999_999_999_999, nil)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -245,6 +253,53 @@ func TestCloudWatchLogsBackend_GetScheduledQueryHistory(t *testing.T) {
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(summaries), tt.wantMinLen)
 			assert.Empty(t, next)
+		})
+	}
+}
+
+func TestCloudWatchLogsBackend_GetScheduledQueryHistory_FiltersByStatusAndTimeRange(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		executionStatuses []string
+		startTime         int64
+		endTime           int64
+		wantLen           int
+	}{
+		{
+			name: "status match", executionStatuses: []string{"Failed"},
+			startTime: 1, endTime: 9_999_999_999_999, wantLen: 1,
+		},
+		{
+			name: "status mismatch", executionStatuses: []string{"Timeout"},
+			startTime: 1, endTime: 9_999_999_999_999, wantLen: 0,
+		},
+		{
+			name: "outside time range", executionStatuses: []string{"Failed"},
+			startTime: 1, endTime: 400, wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := cloudwatchlogs.NewInMemoryBackend()
+			arn, err := b.CreateScheduledQuery(testScheduledQueryParams("q1"))
+			require.NoError(t, err)
+
+			cloudwatchlogs.AddScheduledQueryRunInternal(b, arn, cloudwatchlogs.ScheduledQueryRunSummary{
+				QueryID:            "run-failed",
+				ExecutionStatus:    "Failed",
+				TriggeredTimestamp: 500,
+			})
+
+			summaries, _, err := b.GetScheduledQueryHistory(
+				arn, "", 0, tt.startTime, tt.endTime, tt.executionStatuses,
+			)
+			require.NoError(t, err)
+			assert.Len(t, summaries, tt.wantLen)
 		})
 	}
 }

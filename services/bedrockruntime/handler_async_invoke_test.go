@@ -203,13 +203,18 @@ func TestStartAsyncInvoke_ValidS3URI(t *testing.T) {
 	assert.Equal(t, http.StatusAccepted, rec.Code)
 }
 
-func TestStartAsyncInvoke_InferenceProfileIdentifier(t *testing.T) {
+// TestStartAsyncInvoke_ModelIDAsInferenceProfileARN covers an invented-field
+// bug (acceptguard): the handler read a dead "inferenceProfileIdentifier"
+// fallback field that does not exist on the real StartAsyncInvokeInput
+// (bedrockruntime@v1.57.1 api_op_StartAsyncInvoke.go) -- an inference
+// profile ARN is passed as ModelId's value, the same as any other model ID.
+func TestStartAsyncInvoke_ModelIDAsInferenceProfileARN(t *testing.T) {
 	t.Parallel()
 
 	h := newTestHandler(t)
 	rec := doRequest(t, h, http.MethodPost, "/async-invoke",
 		map[string]any{
-			"inferenceProfileIdentifier": "arn:aws:bedrock:us-east-1::inference-profile/" +
+			"modelId": "arn:aws:bedrock:us-east-1::inference-profile/" +
 				"us.anthropic.claude-3-sonnet-20240229-v1-0",
 			"outputDataConfig": map[string]any{
 				"s3OutputDataConfig": map[string]any{

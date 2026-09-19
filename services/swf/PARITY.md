@@ -1,8 +1,8 @@
 ---
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
-last_audit_commit: fd65c414d
-last_audit_date: 2026-08-29
+last_audit_commit: 366fb4907                    # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (ReverseOrder List ops + PollForDecisionTask.StartAtPreviousStartedEvent)
+last_audit_date: 2026-09-18
 overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep
                        # (2026-08-20) that found and fixed 2 more real bugs; see Notes.
                        # 2026-08-29: one more genuine bug found and fixed (ListOpen/
@@ -13,17 +13,17 @@ overall: A            # genuine fixes found this pass, plus a wrapper-key/nested
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDomains: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListDomains: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder (documented default: ascending) was parsed nowhere -- always sorted ascending regardless of the request."}
   DeprecateDomain: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was not cascading DEPRECATED onto the domain's registered workflow/activity types, see Notes"}
   UndeprecateDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListWorkflowTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
+  ListWorkflowTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains."}
   DescribeWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
   DeprecateWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   UndeprecateWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListActivityTypes: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
+  ListActivityTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains."}
   DescribeActivityType: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
   DeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   UndeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -41,7 +41,7 @@ ops:
   CountPendingActivityTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
   CountPendingDecisionTasks: {wire: ok, errors: ok, state: ok, persist: n/a}
   PollForActivityTask: {wire: ok, errors: ok, state: ok, persist: partial, note: "activityQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency -- see Notes: timeout enforcement"}
-  PollForDecisionTask: {wire: fixed, errors: ok, state: ok, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask. 2026-08-21 (gopherstack-r80d batch 17): required StartedEventId was always 0 (no struct field anywhere tracked a real DecisionTaskStarted event) -- now a real DecisionTaskStarted event is recorded and its ID threaded through, see Notes"}
+  PollForDecisionTask: {wire: fixed, errors: ok, state: fixed, persist: partial, note: "decisionQueues intentionally ephemeral, see Notes. Now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask. 2026-08-21 (gopherstack-r80d batch 17): required StartedEventId was always 0 (no struct field anywhere tracked a real DecisionTaskStarted event) -- now a real DecisionTaskStarted event is recorded and its ID threaded through, see Notes. FIXED 2026-09-18 (reqfielddiff tier-1): StartAtPreviousStartedEvent was parsed nowhere and PreviousStartedEventId was always 0 -- now the previous DecisionTaskStarted event ID is tracked and returned, and StartAtPreviousStartedEvent trims Events to that event onward when set."}
   RecordActivityTaskHeartbeat: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   RespondActivityTaskCanceled: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
   RespondActivityTaskCompleted: {wire: ok, errors: ok, state: fixed, persist: ok, note: "now propagates ChildWorkflowExecutionCompleted to the parent execution, see Notes. Also sweeps expired executions first (gopherstack-7gse), same as PollForActivityTask"}
@@ -66,7 +66,6 @@ items_still_open:
   - "2026-08-20 wire-parity sweep, disclosed but NOT fixed: TimerCanceledEventAttributes.StartedEventId (required, types/types.go -- 'the ID of the TimerStarted event that was recorded when this timer was started') is never emitted by handleCancelTimerDecision (decision_tasks.go) -- only decisionTaskCompletedEventId and timerId are. WorkflowExecution.OpenTimerIDs (models.go) tracks only the open timerId strings, not each one's originating TimerStarted event ID, so this needs a new map[timerID]->startedEventID on WorkflowExecution, not just a key/nesting fix. Left as a gap rather than fixed mid-sweep given the state-shape change required."
   - "FIXED 2026-08-23 (manifest harvest): ActivityTypeInfo.DeprecationDate and WorkflowTypeInfo.DeprecationDate are now populated. Was: '2026-08-20 wire-parity sweep, disclosed but NOT fixed: ... the internal ActivityType/WorkflowType structs (models.go) have no field to hold this timestamp at all, so DescribeActivityType/DescribeWorkflowType/ListActivityTypes/ListWorkflowTypes never has one to surface even for a type actually in DEPRECATED status.' Added ActivityType.DeprecationDate/WorkflowType.DeprecationDate (models.go, epoch-seconds float64 like the existing CreationDate), set by DeprecateActivityType/DeprecateWorkflowType (activity_types.go/workflow_types.go) and cleared by UndeprecateActivityType/UndeprecateWorkflowType (real AWS's own field doc: 'If DEPRECATED, the date and time Deprecate* was called' -- implying it applies only while DEPRECATED). Wired through to the wire response in activityTypeInfoOutput/workflowTypeInfoOutput (handler_activity_types.go/handler_workflow_types.go, key deprecationDate, confirmed against aws-sdk-go-v2/service/swf@v1.37.4's deserializers.go epoch-seconds case for both types). Purely additive field on a persisted struct; pkgs/persistence's TestSnapshotVersionGuard classified it as bookkeeping-only (no version bump needed) and testdata/snapshot_inventory.json's swf entry was refreshed accordingly. Proven with TestDeprecationDate_SDKRoundTrip (wire_sdk_roundtrip_test.go), a real aws-sdk-go-v2 client test asserting DeprecationDate is nil while REGISTERED and non-nil once DEPRECATED for both ActivityType and WorkflowType; confirmed failing against the pre-fix code via hand-revert (both subtests failed with 'Expected value not to be nil')."
   - "Value-semantics sweep (gopherstack-uox6), CLEAN -- no value-semantics bug found (distinct from the other-axis findings below). Swept the pinned SDK for every List/Count operation's doc language ('by default', 'if you don't specify'); found 5 hits, all ReverseOrder ordering defaults. Two (ListOpen/ListClosedWorkflowExecutions) are correctly implemented -- see the 2026-08-29 wrapper-key sweep note above and sortExecutionsByTimestamp (workflow_executions.go). ExecutionTimeFilter's OldestDate/LatestDate bounds ('the oldest/latest ... to return') are both implemented inclusively (matchStartRange/matchCloseRange, workflow_executions.go), matching the wording. WorkflowTypeFilter.Version, TagFilter.Tag, WorkflowExecutionFilter.WorkflowId, CloseStatusFilter.Status are all plain equality with no default-absence language and are read correctly (buildExecutionFilter, handler_workflow_executions.go)."
-  - "Other axis (never-read, found incidentally by this sweep, NOT the value-semantics class this issue tracks -- recorded, not fixed): ListDomains/ListActivityTypes/ListWorkflowTypes each document a ReverseOrder input member with the same 'By default, results are in ascending ... order' language that ListOpen/ListClosedWorkflowExecutions had (fixed 2026-08-29, see above), but unlike those two, ReverseOrder is not declared at all on handleListDomainsInput/handleListActivityTypesInput/handleListWorkflowTypesInput (handler_domains.go/handler_activity_types.go/handler_workflow_types.go) -- each always sorts ascending by name (sort.Slice, unconditional) with no way for a client to request DESC. Same shape as the 2026-08-29 fix, on three sibling ops the prior sweep did not reach."
   - "Validation-shaped, not fixed here (other axis): ListActivityTypes/ListWorkflowTypes/ListDomains's RegistrationStatus is documented 'This member is required' but an empty value is accepted as no-filter (validateRegistrationStatus, store.go) rather than rejected -- a missing rejection, not a wrong algorithm."
 deferred:
   - "DescribeWorkflowExecution's openCounts.openLambdaFunctions (always 0) and the ScheduleLambdaFunction decision type -- SWF Lambda task support is out of scope for a JSON-wire-shape/state-mutation audit."
@@ -783,3 +782,45 @@ diff` confirmed.
 (2026-08-10) before this batch touched the file -- left as-is per this
 campaign's standing rule (never write a fresh `pending`), not introduced
 here.
+
+## 2026-09-18: ReverseOrder (List ops) and PollForDecisionTask.StartAtPreviousStartedEvent (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields: `ListActivityTypes.ReverseOrder`,
+`ListDomains.ReverseOrder`, `ListWorkflowTypes.ReverseOrder`,
+`PollForDecisionTask.StartAtPreviousStartedEvent` (swf@v1.37.4, all real
+request members with documented defaults). The 3 `ReverseOrder` findings were
+already disclosed in `items_still_open` as "recorded, not fixed" by an
+earlier sweep (the "Other axis" entry, now removed since this pass closes
+it) -- `handleListDomainsInput`/`handleListActivityTypesInput`/
+`handleListWorkflowTypesInput` never declared the field at all, so every
+call sorted ascending by name regardless of the request.
+
+Fixed: all three now take `ReverseOrder` and flip their `sort.Slice`
+comparator, same shape as the 2026-08-29
+`ListOpen`/`ListClosedWorkflowExecutions` fix. `PollForDecisionTask` never
+declared `StartAtPreviousStartedEvent` and never tracked
+`PreviousStartedEventId` (always the Go zero value, 0, even though
+`DecisionTask.PreviousStartedEventID` has existed on the model since
+2026-08-20's disclosed-not-fixed sweep) -- `lastDecisionTaskStartedEventID`
+now finds the prior `DecisionTaskStarted` event before appending the new
+one, `PollForDecisionTask` always echoes it as `PreviousStartedEventId`, and
+`eventsFromID` trims `Events` to that event onward when
+`StartAtPreviousStartedEvent` is set. `Backend.PollForDecisionTask` gained a
+5th parameter; all ~18 backend-direct call sites in this package's tests
+were updated to pass `false` (or `true` where relevant) -- no other
+`services/` package calls this method directly.
+
+Proven with `TestList_ReverseOrder_RealClient` (table of 3 subtests, one per
+op) and `TestPollForDecisionTask_StartAtPreviousStartedEvent_RealClient`
+(typed `aws-sdk-go-v2` client, `list_reverse_order_test.go` and
+`decision_task_previous_started_event_test.go`) -- the latter drives 3
+decision tasks across a real workflow execution and asserts the trimmed
+poll's `Events` excludes everything before the previous
+`DecisionTaskStarted` event (5 of 10 total history events) while the
+untrimmed poll returns the full history (7 of 7 at that point).
+
+No persisted (`backendSnapshot`) fields changed (`PreviousStartedEventID`
+was already a model field, just never populated). Gates: `go build ./...`,
+`go vet ./services/swf/`, `go test -race -count=1 ./services/swf/` (all
+pass), `golangci-lint run --new-from-rev=HEAD ./services/swf/` (0 issues).
+tier-1 (`cmd/reqfielddiff -dir swf`): 4 -> 0.

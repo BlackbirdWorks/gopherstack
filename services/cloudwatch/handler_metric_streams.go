@@ -33,6 +33,54 @@ func parseMetricStreamFiltersFromForm(form url.Values, listPrefix string) []Metr
 	}
 }
 
+// parseMetricStreamStatisticsConfigurationsFromForm parses
+// StatisticsConfigurations.member.N.AdditionalStatistics.member.M and
+// StatisticsConfigurations.member.N.IncludeMetrics.member.M.Namespace/
+// MetricName form values (PutMetricStreamInput.StatisticsConfigurations,
+// same member.N/member.M nested-list convention as IncludeFilters/
+// ExcludeFilters above).
+func parseMetricStreamStatisticsConfigurationsFromForm(form url.Values) []MetricStreamStatisticsConfiguration {
+	var configs []MetricStreamStatisticsConfiguration
+
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("StatisticsConfigurations.member.%d.", i)
+
+		var additionalStats []string
+		for j := 1; ; j++ {
+			s := form.Get(fmt.Sprintf("%sAdditionalStatistics.member.%d", prefix, j))
+			if s == "" {
+				break
+			}
+
+			additionalStats = append(additionalStats, s)
+		}
+
+		var includeMetrics []MetricStreamStatisticsMetric
+		for j := 1; ; j++ {
+			metricPrefix := fmt.Sprintf("%sIncludeMetrics.member.%d.", prefix, j)
+			ns := form.Get(metricPrefix + "Namespace")
+
+			if ns == "" {
+				break
+			}
+
+			includeMetrics = append(includeMetrics, MetricStreamStatisticsMetric{
+				Namespace:  ns,
+				MetricName: form.Get(metricPrefix + "MetricName"),
+			})
+		}
+
+		if len(additionalStats) == 0 && len(includeMetrics) == 0 {
+			return configs
+		}
+
+		configs = append(configs, MetricStreamStatisticsConfiguration{
+			AdditionalStatistics: additionalStats,
+			IncludeMetrics:       includeMetrics,
+		})
+	}
+}
+
 func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) error {
 	name := form.Get("Name")
 	if name == "" {
@@ -40,13 +88,14 @@ func (h *Handler) putMetricStreamFromForm(form url.Values, c *echo.Context) erro
 	}
 
 	if err := h.Backend.PutMetricStream(&MetricStream{
-		Name:           name,
-		FirehoseArn:    form.Get("FirehoseArn"),
-		RoleArn:        form.Get("RoleArn"),
-		OutputFormat:   form.Get("OutputFormat"),
-		State:          form.Get("State"),
-		IncludeFilters: parseMetricStreamFiltersFromForm(form, "IncludeFilters."),
-		ExcludeFilters: parseMetricStreamFiltersFromForm(form, "ExcludeFilters."),
+		Name:                     name,
+		FirehoseArn:              form.Get("FirehoseArn"),
+		RoleArn:                  form.Get("RoleArn"),
+		OutputFormat:             form.Get("OutputFormat"),
+		State:                    form.Get("State"),
+		IncludeFilters:           parseMetricStreamFiltersFromForm(form, "IncludeFilters."),
+		ExcludeFilters:           parseMetricStreamFiltersFromForm(form, "ExcludeFilters."),
+		StatisticsConfigurations: parseMetricStreamStatisticsConfigurationsFromForm(form),
 	}); err != nil {
 		if errors.Is(err, ErrValidation) {
 			return h.xmlError(c, http.StatusBadRequest, "InvalidParameterValue", err.Error())
@@ -180,17 +229,26 @@ func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error 
 		Namespace   string   `xml:"Namespace"`
 		MetricNames []string `xml:"MetricNames>member,omitempty"`
 	}
+	type statsMetricXML struct {
+		Namespace  string `xml:"Namespace"`
+		MetricName string `xml:"MetricName"`
+	}
+	type statsConfigXML struct {
+		AdditionalStatistics []string         `xml:"AdditionalStatistics>member"`
+		IncludeMetrics       []statsMetricXML `xml:"IncludeMetrics>member"`
+	}
 	type result struct {
-		Name           string      `xml:"Name"`
-		Arn            string      `xml:"Arn"`
-		FirehoseArn    string      `xml:"FirehoseArn"`
-		RoleArn        string      `xml:"RoleArn"`
-		State          string      `xml:"State"`
-		OutputFormat   string      `xml:"OutputFormat"`
-		CreationDate   string      `xml:"CreationDate,omitempty"`
-		LastUpdateDate string      `xml:"LastUpdateDate,omitempty"`
-		IncludeFilters []filterXML `xml:"IncludeFilters>member,omitempty"`
-		ExcludeFilters []filterXML `xml:"ExcludeFilters>member,omitempty"`
+		Name                     string           `xml:"Name"`
+		Arn                      string           `xml:"Arn"`
+		FirehoseArn              string           `xml:"FirehoseArn"`
+		RoleArn                  string           `xml:"RoleArn"`
+		State                    string           `xml:"State"`
+		OutputFormat             string           `xml:"OutputFormat"`
+		CreationDate             string           `xml:"CreationDate,omitempty"`
+		LastUpdateDate           string           `xml:"LastUpdateDate,omitempty"`
+		IncludeFilters           []filterXML      `xml:"IncludeFilters>member,omitempty"`
+		ExcludeFilters           []filterXML      `xml:"ExcludeFilters>member,omitempty"`
+		StatisticsConfigurations []statsConfigXML `xml:"StatisticsConfigurations>member,omitempty"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"GetMetricStreamResponse"`
@@ -208,20 +266,38 @@ func (h *Handler) handleGetMetricStream(form url.Values, c *echo.Context) error 
 		return out
 	}
 
+	toStatsConfigXML := func(configs []MetricStreamStatisticsConfiguration) []statsConfigXML {
+		out := make([]statsConfigXML, 0, len(configs))
+		for _, cfg := range configs {
+			metrics := make([]statsMetricXML, 0, len(cfg.IncludeMetrics))
+			for _, m := range cfg.IncludeMetrics {
+				metrics = append(metrics, statsMetricXML{Namespace: m.Namespace, MetricName: m.MetricName})
+			}
+
+			out = append(out, statsConfigXML{
+				AdditionalStatistics: cfg.AdditionalStatistics,
+				IncludeMetrics:       metrics,
+			})
+		}
+
+		return out
+	}
+
 	return writeXML(c, response{
 		Xmlns:     cloudwatchNS,
 		RequestID: uuid.New().String(),
 		Result: result{
-			Name:           stream.Name,
-			Arn:            stream.Arn,
-			FirehoseArn:    stream.FirehoseArn,
-			RoleArn:        stream.RoleArn,
-			State:          stream.State,
-			OutputFormat:   stream.OutputFormat,
-			CreationDate:   formatTimeOmitZero(stream.CreationDate),
-			LastUpdateDate: formatTimeOmitZero(stream.LastUpdateDate),
-			IncludeFilters: toFilterXML(stream.IncludeFilters),
-			ExcludeFilters: toFilterXML(stream.ExcludeFilters),
+			Name:                     stream.Name,
+			Arn:                      stream.Arn,
+			FirehoseArn:              stream.FirehoseArn,
+			RoleArn:                  stream.RoleArn,
+			State:                    stream.State,
+			OutputFormat:             stream.OutputFormat,
+			CreationDate:             formatTimeOmitZero(stream.CreationDate),
+			LastUpdateDate:           formatTimeOmitZero(stream.LastUpdateDate),
+			IncludeFilters:           toFilterXML(stream.IncludeFilters),
+			ExcludeFilters:           toFilterXML(stream.ExcludeFilters),
+			StatisticsConfigurations: toStatsConfigXML(stream.StatisticsConfigurations),
 		},
 	})
 }

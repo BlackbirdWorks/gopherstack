@@ -130,17 +130,30 @@ func findServiceField(fm []string) (string, bool) {
 // lockstep with) -- a conflict marker is never legitimate PARITY.md content
 // under any version of the schema.
 func findMergeConflictMarker(lines []string) int {
-	markers := [3]string{"<<<<<<<", "=======", ">>>>>>>"}
-
 	for i, line := range lines {
-		for _, marker := range markers {
-			if strings.HasPrefix(line, marker) {
-				return i + 1
-			}
+		if isMergeConflictMarker(line) {
+			return i + 1
 		}
 	}
 
 	return 0
+}
+
+// isMergeConflictMarker matches git's exact marker lines: the separator is
+// seven '=' alone, the start/end markers are seven '<'/'>' followed by a
+// label. A longer run of '=' is prose (race-detector dumps use 18).
+func isMergeConflictMarker(line string) bool {
+	line = strings.TrimRight(line, " \t\r")
+	if line == "=======" {
+		return true
+	}
+	for _, marker := range [2]string{"<<<<<<<", ">>>>>>>"} {
+		if line == marker || strings.HasPrefix(line, marker+" ") {
+			return true
+		}
+	}
+
+	return false
 }
 
 // checkManifest checks content (a services/<slug>/PARITY.md's raw bytes)

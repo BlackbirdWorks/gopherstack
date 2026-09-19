@@ -59,33 +59,39 @@ func (b *InMemoryBackend) CreateDBInstance(
 	endpoint := fmt.Sprintf("%s.docdb.%s.amazonaws.com", id, region)
 
 	var (
-		caCertID           string
-		copyTagsToSnapshot bool
+		caCertID                    string
+		performanceInsightsKMSKeyID string
+		copyTagsToSnapshot          bool
+		enablePerformanceInsights   bool
 	)
 	if opts != nil {
 		caCertID = opts.CACertificateIdentifier
+		performanceInsightsKMSKeyID = opts.PerformanceInsightsKMSKeyID
 		copyTagsToSnapshot = opts.CopyTagsToSnapshot
+		enablePerformanceInsights = opts.EnablePerformanceInsights
 	}
 
 	inst := &DBInstance{
-		region:                  region,
-		DBInstanceIdentifier:    id,
-		DBClusterIdentifier:     clusterID,
-		DBInstanceClass:         instanceClass,
-		Engine:                  engine,
-		DBInstanceStatus:        statusAvailable,
-		Endpoint:                endpoint,
-		Port:                    defaultDocDBPort,
-		DBInstanceArn:           instanceArn,
-		EngineVersion:           valueOrDefault(clusterEngineVersion, defaultEngineVersion),
-		StorageEncrypted:        clusterStorageEncrypted,
-		AvailabilityZone:        clusterAZ,
-		DBSubnetGroupName:       clusterSubnetGroupName,
-		PromotionTier:           promotionTier,
-		Tags:                    copyTags(tags),
-		CACertificateIdentifier: caCertID,
-		CopyTagsToSnapshot:      copyTagsToSnapshot,
-		InstanceCreateTime:      time.Now().UTC().Format(time.RFC3339),
+		region:                      region,
+		DBInstanceIdentifier:        id,
+		DBClusterIdentifier:         clusterID,
+		DBInstanceClass:             instanceClass,
+		Engine:                      engine,
+		DBInstanceStatus:            statusAvailable,
+		Endpoint:                    endpoint,
+		Port:                        defaultDocDBPort,
+		DBInstanceArn:               instanceArn,
+		EngineVersion:               valueOrDefault(clusterEngineVersion, defaultEngineVersion),
+		StorageEncrypted:            clusterStorageEncrypted,
+		AvailabilityZone:            clusterAZ,
+		DBSubnetGroupName:           clusterSubnetGroupName,
+		PromotionTier:               promotionTier,
+		Tags:                        copyTags(tags),
+		CACertificateIdentifier:     caCertID,
+		CopyTagsToSnapshot:          copyTagsToSnapshot,
+		InstanceCreateTime:          time.Now().UTC().Format(time.RFC3339),
+		PerformanceInsightsKMSKeyID: performanceInsightsKMSKeyID,
+		PerformanceInsightsEnabled:  enablePerformanceInsights,
 	}
 	b.instancePut(inst)
 	if len(tags) > 0 {
@@ -207,6 +213,12 @@ func (b *InMemoryBackend) ModifyDBInstance(
 	}
 	if opts.CACertificateIdentifier != "" {
 		inst.CACertificateIdentifier = opts.CACertificateIdentifier
+	}
+	if opts.PerformanceInsightsKMSKeyID != "" {
+		inst.PerformanceInsightsKMSKeyID = opts.PerformanceInsightsKMSKeyID
+	}
+	if opts.EnablePerformanceInsights != nil {
+		inst.PerformanceInsightsEnabled = *opts.EnablePerformanceInsights
 	}
 	if opts.CopyTagsToSnapshot != nil {
 		inst.CopyTagsToSnapshot = *opts.CopyTagsToSnapshot

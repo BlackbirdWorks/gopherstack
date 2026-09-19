@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"net/url"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
@@ -47,8 +48,13 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 	cs, err := h.Backend.CreateChangeSet(
 		c.Request().Context(), stackName, changeSetName, templateBody, description, params, capabilities,
 		parseTags(form),
+		CreateChangeSetOptions{ChangeSetType: form.Get("ChangeSetType")},
 	)
 	if err != nil {
+		if errors.Is(err, ErrChangeSetTypeMismatch) || errors.Is(err, ErrChangeSetTypeUnsupported) {
+			return h.xmlError(c, "ValidationError", err.Error())
+		}
+
 		return h.xmlError(c, "AlreadyExistsException", err.Error())
 	}
 
@@ -73,8 +79,12 @@ func (h *Handler) handleCreateChangeSet(form url.Values, c *echo.Context) error 
 func (h *Handler) handleExecuteChangeSet(form url.Values, c *echo.Context) error {
 	stackName := form.Get("StackName")
 	changeSetName := form.Get("ChangeSetName")
+	disableRollback := strings.EqualFold(form.Get("DisableRollback"), "true")
+	retainExceptOnCreate := strings.EqualFold(form.Get("RetainExceptOnCreate"), "true")
 
-	if err := h.Backend.ExecuteChangeSet(c.Request().Context(), stackName, changeSetName); err != nil {
+	if err := h.Backend.ExecuteChangeSet(
+		c.Request().Context(), stackName, changeSetName, disableRollback, retainExceptOnCreate,
+	); err != nil {
 		if errors.Is(err, ErrChangeSetNotExecutable) {
 			return h.xmlError(c, "InvalidChangeSetStatus", err.Error())
 		}

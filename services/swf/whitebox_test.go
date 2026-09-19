@@ -55,7 +55,7 @@ func TestDecisionHandlers_CoverAllDecisionTypes(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			task := b.PollForDecisionTask("dom", "tasks", 0, "")
+			task := b.PollForDecisionTask("dom", "tasks", 0, "", false)
 			require.NotNil(t, task)
 
 			// A bare decision (nil attrs) must never panic or error --
