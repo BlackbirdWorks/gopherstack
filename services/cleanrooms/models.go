@@ -354,6 +354,7 @@ type CollaborationAnalysisTemplateSummary struct {
 	CreatorAccountID string  `json:"creatorAccountId"`
 	ID               string  `json:"id"`
 	Name             string  `json:"name"`
+	Description      string  `json:"description,omitempty"`
 	CreateTime       float64 `json:"createTime,omitempty"`
 	UpdateTime       float64 `json:"updateTime,omitempty"`
 }
@@ -688,6 +689,7 @@ type CollaborationIDNamespaceAssociationSummary struct {
 	CollaborationID          string         `json:"collaborationId"`
 	CreatorAccountID         string         `json:"creatorAccountId"`
 	Name                     string         `json:"name"`
+	Description              string         `json:"description,omitempty"`
 	ID                       string         `json:"id"`
 	CreateTime               float64        `json:"createTime,omitempty"`
 	UpdateTime               float64        `json:"updateTime,omitempty"`
@@ -735,6 +737,7 @@ type ConfiguredAudienceModelAssociationSummary struct {
 	MembershipArn                                string  `json:"membershipArn"`
 	MembershipIdentifier                         string  `json:"-"`
 	Name                                         string  `json:"name"`
+	Description                                  string  `json:"description,omitempty"`
 	ID                                           string  `json:"id"`
 	MembershipID                                 string  `json:"membershipId"`
 	CollaborationID                              string  `json:"collaborationId"`
@@ -752,6 +755,7 @@ type CollaborationConfiguredAudienceModelAssociationSummary struct {
 	CollaborationID  string  `json:"collaborationId"`
 	CreatorAccountID string  `json:"creatorAccountId"`
 	Name             string  `json:"name"`
+	Description      string  `json:"description,omitempty"`
 	ID               string  `json:"id"`
 	CreateTime       float64 `json:"createTime,omitempty"`
 	UpdateTime       float64 `json:"updateTime,omitempty"`
