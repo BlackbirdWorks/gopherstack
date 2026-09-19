@@ -609,13 +609,7 @@ func TestSDKCompleteness(t *testing.T) {
 	backend := iam.NewInMemoryBackend()
 	h := iam.NewHandler(backend)
 
-	// Added by the aws-sdk-go-v2/service/iam v1.63.0 bump; unimplemented.
-	notImplemented := []string{
-		"AcquireRole",
-		"GetAccountProperties",
-		"GetRoleTemplateVersion",
-		"PutAccountProperties",
-	}
+	notImplemented := []string{}
 	sdkcheck.CheckCompleteness(t, &iamsdk.Client{}, h.GetSupportedOperations(), notImplemented)
 }
 

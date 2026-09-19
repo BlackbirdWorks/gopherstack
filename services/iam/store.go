@@ -40,6 +40,10 @@ type StorageBackend interface {
 	ListRoles(marker string, maxItems int) (page.Page[Role], error)
 	GetRole(roleName string) (*Role, error)
 	GetRoleByArn(roleArn string) (*Role, error)
+	AcquireRole(templateArn string, minorVersion *int32, replacementValues map[string][]string) (*Role, error)
+	GetRoleTemplateVersion(templateArn string, minorVersion *int32) (*RoleTemplateVersion, error)
+	GetAccountProperties() map[string]string
+	PutAccountProperties(properties map[string]string) error
 	UpdateRoleMaxSessionDuration(roleName string, maxSessionDuration int32) error
 
 	// Policies
@@ -319,8 +323,8 @@ const (
 
 // InMemoryBackend implements StorageBackend using in-memory maps.
 type InMemoryBackend struct {
-	rolePolicies               map[string][]string
-	loginProfiles              *store.Table[LoginProfile]
+	policyVersionCounters      map[string]int
+	groups                     *store.Table[Group]
 	policies                   *store.Table[Policy]
 	policyByARN                map[string]string
 	roleByARN                  map[string]string
@@ -332,18 +336,18 @@ type InMemoryBackend struct {
 	groupPolicies              map[string][]string
 	userPolicies               map[string][]string
 	policyAttachments          map[string]policyAttachmentRefs
-	mu                         *lockmetrics.RWMutex
+	serviceSpecificCreds       *store.Table[ServiceSpecificCredential]
 	groupInlinePolicies        map[string]map[string]string
-	groups                     *store.Table[Group]
+	deletedV1Policies          map[string]bool
 	oidcProviders              *store.Table[OIDCProvider]
 	userInlinePolicies         map[string]map[string]string
 	delegationRequests         *store.Table[DelegationRequest]
 	roleInlinePolicies         map[string]map[string]string
 	virtualMFADevices          *store.Table[VirtualMFADevice]
 	policyVersions             map[string][]StoredPolicyVersion
-	policyVersionCounters      map[string]int
-	deletedV1Policies          map[string]bool
-	serviceSpecificCreds       *store.Table[ServiceSpecificCredential]
+	loginProfiles              *store.Table[LoginProfile]
+	rolePolicies               map[string][]string
+	mu                         *lockmetrics.RWMutex
 	roles                      *store.Table[Role]
 	signingCertificates        *store.Table[SigningCertificate]
 	serverCertificates         *store.Table[ServerCertificate]
@@ -351,9 +355,11 @@ type InMemoryBackend struct {
 	users                      *store.Table[User]
 	registry                   *store.Registry
 	comprehensive              *comprehensiveBackend
-	accountID                  string
-	currentPassword            string
+	accountProperties          map[string]string
+	roleTemplateVersions       *store.Table[RoleTemplateVersion]
 	globalEndpointTokenVersion string
+	currentPassword            string
+	accountID                  string
 	accountAliases             []string
 	currentPasswordHistory     []string
 	sortedUserNames            []string
@@ -393,6 +399,7 @@ func NewInMemoryBackendWithConfig(accountID string) *InMemoryBackend {
 		policyVersions:             make(map[string][]StoredPolicyVersion),
 		policyVersionCounters:      make(map[string]int),
 		deletedV1Policies:          make(map[string]bool),
+		accountProperties:          make(map[string]string),
 		accountID:                  accountID,
 		mu:                         lockmetrics.New("iam"),
 		registry:                   store.NewRegistry(),
@@ -669,6 +676,7 @@ func (b *InMemoryBackend) Reset() {
 	b.policyVersions = make(map[string][]StoredPolicyVersion)
 	b.policyVersionCounters = make(map[string]int)
 	b.deletedV1Policies = make(map[string]bool)
+	b.accountProperties = make(map[string]string)
 	b.sortedUserNames = nil
 	b.sortedRoleNames = nil
 	b.sortedPolicyNames = nil

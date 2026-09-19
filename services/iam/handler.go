@@ -338,11 +338,24 @@ func completenessIAMOperations() []string {
 	}
 }
 
+// roleManagerIAMOperations returns the Role Manager operations
+// (AcquireRole, GetRoleTemplateVersion) and account properties operations
+// (GetAccountProperties, PutAccountProperties) added by the iam v1.63.0 SDK bump.
+func roleManagerIAMOperations() []string {
+	return []string{
+		"AcquireRole",
+		"GetAccountProperties",
+		"GetRoleTemplateVersion",
+		"PutAccountProperties",
+	}
+}
+
 // GetSupportedOperations returns the list of supported IAM operations.
 func (h *Handler) GetSupportedOperations() []string {
 	ops := coreIAMOperations()
 	ops = append(ops, extendedIAMOperations()...)
 	ops = append(ops, completenessIAMOperations()...)
+	ops = append(ops, roleManagerIAMOperations()...)
 
 	return ops
 }
@@ -539,9 +552,11 @@ func (h *Handler) buildDispatchTable() map[string]iamActionFn {
 		h.iamMiscDispatchTable(),
 		h.iamNewOpsDispatchTable(),
 		h.iamRefinementDispatchTable(),
-		h.iamRefinement2DispatchTable(),   // overrides with PathPrefix filtering + new ops
-		h.iamCompletenessDispatchTable(),  // previously notImplemented operations
-		h.iamComprehensiveDispatchTable(), // SSH keys, MFA linking, access advisor, real SSC reset
+		h.iamRefinement2DispatchTable(),       // overrides with PathPrefix filtering + new ops
+		h.iamCompletenessDispatchTable(),      // previously notImplemented operations
+		h.iamComprehensiveDispatchTable(),     // SSH keys, MFA linking, access advisor, real SSC reset
+		h.iamRoleTemplateDispatchTable(),      // AcquireRole, GetRoleTemplateVersion
+		h.iamAccountPropertiesDispatchTable(), // GetAccountProperties, PutAccountProperties
 	}
 
 	combined := make(map[string]iamActionFn)
@@ -623,6 +638,8 @@ var iamErrorMappings = []iamErrorMapping{
 	{ErrMalformedCertificate, "MalformedCertificate", http.StatusBadRequest},
 	{ErrUnrecognizedPublicKeyEncoding, "UnrecognizedPublicKeyEncoding", http.StatusBadRequest},
 	{ErrInvalidAuthenticationCode, "InvalidAuthenticationCode", http.StatusForbidden},
+	{ErrRoleTemplateNotFound, codeNoSuchEntity, http.StatusNotFound},
+	{ErrRoleTemplateDisabled, "RoleTemplateDisabled", http.StatusBadRequest},
 }
 
 // handleError writes a standardized IAM XML error response.
