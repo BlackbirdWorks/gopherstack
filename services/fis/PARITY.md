@@ -1,7 +1,7 @@
 ---
 service: fis
 sdk_module: aws-sdk-go-v2/service/fis@v1.40.4   # version audited against
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
+last_audit_commit: 090ec574b
 last_audit_date: 2026-09-19
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
@@ -505,6 +505,16 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 -race -count=1 ./services/fis/...` clean. `golangci-lint run
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes. No version bump.
+
+## Notes (2026-09-19 pass — skip-audit)
+
+`TestIntegration_FIS_TagResource_NotFound` (test/integration/fis_test.go)
+stays quarantined: it's flaky under the full parallel suite because
+`/tags/{arn}` is a RouteMatcher prefix shared by ~30 services, not an
+FIS-local bug (see route-matcher-prefix-collision memory: never fix by
+raising MatchPriority). The skip comment cited a dangling "go-9b08" that
+doesn't exist in bd; filed gopherstack-0y8bi and repointed the comment/skip
+message at it. No behavior change; left for cmd/routecollisions to close.
 
 ## Notes (2026-09-19 leak-audit follow-up — gopherstack-1x2u0 Part 2)
 

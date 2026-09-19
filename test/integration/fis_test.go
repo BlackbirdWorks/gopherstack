@@ -472,12 +472,13 @@ func TestIntegration_FIS_InjectAPIErrorViaExperiment(t *testing.T) {
 // TestIntegration_FIS_TagResource_NotFound verifies that tagging a non-existent resource returns 404.
 func TestIntegration_FIS_TagResource_NotFound(t *testing.T) {
 	t.Parallel()
-	// QUARANTINED (go-9b08): flaky only under the full parallel CI suite — passes
-	// standalone and alongside the new-service tests. A concurrent test corrupts
+	// QUARANTINED (gopherstack-0y8bi): flaky only under the full parallel CI suite —
+	// passes standalone and alongside the new-service tests. A concurrent test corrupts
 	// shared dispatch/routing state so POST /tags/{fis-arn} resolves to a 200
-	// handler instead of FIS's 404. Re-enable once the interacting test is found
-	// and made parallel-safe. Blocks the merge queue otherwise.
-	t.Skip("flaky under full parallel suite — tracked in go-9b08")
+	// handler instead of FIS's 404 — a RouteMatcher /tags/ prefix collision shared
+	// with ~30 other services, not an FIS-local bug. Re-enable once
+	// cmd/routecollisions closes that gap. Blocks the merge queue otherwise.
+	t.Skip("flaky under full parallel suite — tracked in gopherstack-0y8bi")
 
 	unknownARN := "arn:aws:fis:us-east-1:000000000000:experiment-template/EXTdoesnotexist00000000"
 	tagPath := "/tags/" + unknownARN

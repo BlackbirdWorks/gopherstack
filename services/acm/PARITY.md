@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: acm
 sdk_module: aws-sdk-go-v2/service/acm@v1.49.0   # version audited against
-last_audit_commit: 49cff86c4
+last_audit_commit: 090ec574b
 last_audit_date: 2026-09-19
 overall: A            # A = genuine fix found (wire-shape bug); B = already-accurate, proven op-by-op
 # 2026-08-29 pass (gopherstack-6flj/21my dropped-filter/wrapper-key class,
@@ -1061,6 +1061,15 @@ Gates: `go build ./...`, `go vet`, `go test -race -count=1`
 (services/acm + pkgs/persistence), `golangci-lint run --new-from-rev=HEAD`
 (0 issues). `cmd/paritylint` stays at 0 missing-items-still-open FAIL. No
 persisted-struct fields changed; no version bump.
+
+## Notes (2026-09-19 pass — skip-audit)
+
+Two RevokeCertificate tests self-skipped ("cert auto-validated before test
+could run") on a real race against the 100ms auto-validate timer. Fixed by
+building the backend with `SetAutoValidateDelayForTest(time.Hour)` before
+issuing the cert, matching janitor_test.go/leak_test.go's existing pattern;
+both tests now assert PENDING_VALIDATION deterministically instead of
+skipping. `go test -race` clean, `golangci-lint run` 0 issues.
 
 ## Notes (2026-09-19 pass — gopherstack-dv4s over-wide-response census)
 
