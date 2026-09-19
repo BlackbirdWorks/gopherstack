@@ -1,7 +1,7 @@
 ---
 service: s3
 sdk_module: aws-sdk-go-v2/service/s3@v1.111.0   # version audited against (go.mod pin)
-last_audit_commit: 62e6a1538
+last_audit_commit: 5892fbc9f
 last_audit_date: 2026-09-19
 overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled". gopherstack-6flj (2026-08-15): full List/Describe/Get wrapper-key sweep (45 ops), 2 more real bugs fixed (ListObjects/V2 Owner, GetBucketVersioning MFADelete), 1 severe wrong-response-shape finding flagged not fixed (GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration) -- see families/ops/gaps below.
 protocol: REST-XML
@@ -54,6 +54,18 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 ---
 
 ## Notes
+
+### 2026-09-19 (terraform mega-batch-10)
+
+Added real-provider fixture coverage for bucket accelerate/ACL/analytics/
+CORS/intelligent-tiering/inventory/lifecycle/metrics/request-payment
+configuration plus a legacy aws_s3_bucket_object upload — all applied/read/
+destroyed cleanly with zero emulator changes needed
+(test/terraform/fixtures/mega-batch-10.tf). One fixture-level gotcha found,
+not a bug: a Requester-Pays bucket's own aws_s3_bucket_object still needs the
+ack header since gopherstack can't distinguish owner from requester (see
+services/s3/requester_pays.go) — worked around by giving the object its own
+plain bucket rather than changing enforcement.
 
 ### 2026-09-19 (pgoload perf sweep)
 

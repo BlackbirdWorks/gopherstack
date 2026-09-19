@@ -6,7 +6,7 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # of one entry per resource); policy simulation was already flagged as NOT
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
-last_audit_commit: 4a7682d1e
+last_audit_commit: 5892fbc9f
 last_audit_date: 2026-09-19
 overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # GetRoleTemplateVersion) and account properties (GetAccountProperties,
@@ -145,6 +145,12 @@ items_still_open:
 ---
 
 ## Notes
+- 2026-09-19 (terraform mega-batch-10): added real-provider fixture coverage
+  for group/group-membership/group-policy(-attachment), user-policy(-attachment),
+  access-key, login-profile, SSH key, service-specific credential, virtual MFA
+  device, account alias/password-policy, OIDC/SAML providers, and
+  service-linked role — all applied/read/destroyed cleanly with zero emulator
+  changes needed (test/terraform/fixtures/mega-batch-10.tf).
 - 2026-09-19 (required-output-members census, gopherstack-r80d): checked all
   49 ops the census flags with >=1 SDK-required output member (63 fields
   total) against handler success paths, wire-layer only (no check loosened).
