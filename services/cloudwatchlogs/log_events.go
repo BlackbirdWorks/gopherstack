@@ -1,10 +1,12 @@
 package cloudwatchlogs
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -590,14 +592,28 @@ func validateFilterLogEventsRequest(p FilterLogEventsParams) (bool, error) {
 func (b *InMemoryBackend) collectFilterLogEventsCandidates(
 	region, groupName string, streamOrder []string, compiled *compiledFilterPattern,
 ) []taggedEvent {
-	var all []taggedEvent
+	type namedStream struct {
+		stream *LogStream
+		name   string
+	}
 
+	found := make([]namedStream, 0, len(streamOrder))
+	total := 0
 	for _, sName := range streamOrder {
 		stream, ok := b.streamGet(region, groupName, sName)
 		if !ok {
 			continue
 		}
-		for _, ev := range stream.events {
+		found = append(found, namedStream{stream: stream, name: sName})
+		total += len(stream.events)
+	}
+
+	// Preallocated to the unfiltered event count (an upper bound when compiled
+	// is set) so the common case appends without repeated slice growth.
+	all := make([]taggedEvent, 0, total)
+	for _, ns := range found {
+		sName := ns.name
+		for _, ev := range ns.stream.events {
 			if compiled != nil && !compiled.matches(ev.Message) {
 				continue
 			}
@@ -664,8 +680,10 @@ func (b *InMemoryBackend) FilterLogEvents(
 	all = filterTaggedByTime(all, p.StartTime, p.EndTime)
 	// Interleave across streams: AWS returns matched events sorted by timestamp.
 	// A stable sort preserves per-stream ingestion order for equal timestamps.
-	sort.SliceStable(all, func(i, j int) bool {
-		return all[i].ev.Timestamp < all[j].ev.Timestamp
+	// slices.SortStableFunc avoids sort.SliceStable's reflect-based Swap, which
+	// dominated this call (~90% of FilterLogEvents' CPU on the pgoload profile).
+	slices.SortStableFunc(all, func(a, b taggedEvent) int {
+		return cmp.Compare(a.ev.Timestamp, b.ev.Timestamp)
 	})
 
 	startIdx, backward := resolveFilterLogEventsPage(p.NextToken, explicitBackward)

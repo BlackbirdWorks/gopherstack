@@ -1,0 +1,356 @@
+{
+  "events": [
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 0",
+      "timestamp": 1000
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 1",
+      "timestamp": 1001
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 2",
+      "timestamp": 1002
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 3",
+      "timestamp": 1003
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 4",
+      "timestamp": 1004
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 5",
+      "timestamp": 1005
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 0",
+      "timestamp": 1005
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 6",
+      "timestamp": 1006
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 1",
+      "timestamp": 1006
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 7",
+      "timestamp": 1007
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 2",
+      "timestamp": 1007
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 8",
+      "timestamp": 1008
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 3",
+      "timestamp": 1008
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 9",
+      "timestamp": 1009
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 4",
+      "timestamp": 1009
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 10",
+      "timestamp": 1010
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 5",
+      "timestamp": 1010
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 0",
+      "timestamp": 1010
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 11",
+      "timestamp": 1011
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 6",
+      "timestamp": 1011
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 1",
+      "timestamp": 1011
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 12",
+      "timestamp": 1012
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 7",
+      "timestamp": 1012
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 2",
+      "timestamp": 1012
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 13",
+      "timestamp": 1013
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 8",
+      "timestamp": 1013
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 3",
+      "timestamp": 1013
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 14",
+      "timestamp": 1014
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 9",
+      "timestamp": 1014
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 4",
+      "timestamp": 1014
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 15",
+      "timestamp": 1015
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 10",
+      "timestamp": 1015
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 5",
+      "timestamp": 1015
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 16",
+      "timestamp": 1016
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 11",
+      "timestamp": 1016
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 6",
+      "timestamp": 1016
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 17",
+      "timestamp": 1017
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 12",
+      "timestamp": 1017
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 7",
+      "timestamp": 1017
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 18",
+      "timestamp": 1018
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 13",
+      "timestamp": 1018
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 8",
+      "timestamp": 1018
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-a",
+      "message": "line stream-a 19",
+      "timestamp": 1019
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 14",
+      "timestamp": 1019
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 9",
+      "timestamp": 1019
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 15",
+      "timestamp": 1020
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 10",
+      "timestamp": 1020
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 16",
+      "timestamp": 1021
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-c",
+      "message": "line stream-c 11",
+      "timestamp": 1021
+    },
+    {
+      "eventId": "\u003credacted\u003e",
+      "ingestionTime": "\u003credacted\u003e",
+      "logStreamName": "stream-b",
+      "message": "line stream-b 17",
+      "timestamp": 1022
+    }
+  ],
+  "nextToken": "NTA=",
+  "searchedLogStreams": []
+}

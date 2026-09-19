@@ -1,0 +1,56 @@
+{
+  "events": [
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 20",
+      "timestamp": 1020
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 21",
+      "timestamp": 1021
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 22",
+      "timestamp": 1022
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 23",
+      "timestamp": 1023
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 24",
+      "timestamp": 1024
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 25",
+      "timestamp": 1025
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 26",
+      "timestamp": 1026
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 27",
+      "timestamp": 1027
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 28",
+      "timestamp": 1028
+    },
+    {
+      "ingestionTime": "\u003credacted\u003e",
+      "message": "line s 29",
+      "timestamp": 1029
+    }
+  ],
+  "nextBackwardToken": "QjIw",
+  "nextForwardToken": "MzA="
+}

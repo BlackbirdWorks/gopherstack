@@ -1,7 +1,7 @@
 ---
 service: cloudwatchlogs
 sdk_module: aws-sdk-go-v2/service/cloudwatchlogs@v1.86.0
-last_audit_commit: 6ea4f5153  # 2026-09-19 leak-audit pass (goleak TestMain)
+last_audit_commit: 41d2135ec  # 2026-09-19 PGO perf sweep (FilterLogEvents sort)
 last_audit_date: 2026-09-19
 overall: A            # 2026-08-13 (gopherstack-wl0s): GetLogFields never read dataSourceType
                        # from the request body at all (not even a field on the decode struct),
@@ -1040,3 +1040,11 @@ existing default page size (50). See
 
 Added `leak_main_test.go`. Backend already had `Close()`; janitor StartWorker
 call sites already cancel their ctx. `go test -race -count=2` clean.
+
+## 2026-09-19 PGO perf sweep (pgoload cpu.pprof)
+
+`FilterLogEvents` was 90%+ `sort.SliceStable`, whose reflect-based Swap beat
+a plain `slices.SortStableFunc`; switched, and preallocated the candidate
+slice to the unfiltered event count. Behaviour identical (golden +
+byte-equal against pre-change worktree). 10k-event benchmark median:
+30.1ms -> 27.2ms, ~18.5MB -> ~17.5MB/op.
