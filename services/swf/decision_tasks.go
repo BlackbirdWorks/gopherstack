@@ -3,6 +3,7 @@ package swf
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -363,6 +364,14 @@ func (b *InMemoryBackend) handleStartTimerDecision(dc decisionCtx) {
 		dc.exec.TimerStartedEventIDs = make(map[string]int64)
 	}
 	dc.exec.TimerStartedEventIDs[attrs.TimerID] = startedEventID
+
+	if secs, err := strconv.Atoi(attrs.StartToFireTimeout); err == nil {
+		if dc.exec.OpenTimerDeadlines == nil {
+			dc.exec.OpenTimerDeadlines = make(map[string]float64)
+		}
+
+		dc.exec.OpenTimerDeadlines[attrs.TimerID] = float64(time.Now().UnixMilli())/milliDivisor + float64(secs)
+	}
 }
 
 // handleCancelTimerDecision records a CancelTimer decision. If timerID isn't
@@ -389,6 +398,7 @@ func (b *InMemoryBackend) handleCancelTimerDecision(dc decisionCtx) {
 	dc.exec.OpenTimerIDs = slices.Delete(dc.exec.OpenTimerIDs, idx, idx+1)
 	startedEventID := dc.exec.TimerStartedEventIDs[attrs.TimerID]
 	delete(dc.exec.TimerStartedEventIDs, attrs.TimerID)
+	delete(dc.exec.OpenTimerDeadlines, attrs.TimerID)
 	b.appendHistoryEventLocked(dc.domain, dc.workflowID, dc.runID, "TimerCanceled", map[string]any{
 		eventAttrKey("TimerCanceled"): map[string]any{
 			attrDTCEventID:  dc.decisionTaskCompletedEventID,

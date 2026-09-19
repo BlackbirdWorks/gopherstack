@@ -26523,6 +26523,7 @@
       "WorkflowExecution.Input string `json:\"input,omitempty\"`",
       "WorkflowExecution.LambdaRole string `json:\"lambdaRole,omitempty\"`",
       "WorkflowExecution.LatestExecutionContext string `json:\"latestExecutionContext,omitempty\"`",
+      "WorkflowExecution.OpenTimerDeadlines map[string]float64 `json:\"-\"`",
       "WorkflowExecution.OpenTimerIDs []string `json:\"openTimerIDs,omitempty\"`",
       "WorkflowExecution.ParentInitiatedEventID int64 `json:\"parentInitiatedEventID,omitempty\"`",
       "WorkflowExecution.ParentRunID string `json:\"parentRunID,omitempty\"`",
