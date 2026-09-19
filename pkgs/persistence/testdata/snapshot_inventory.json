@@ -26093,6 +26093,8 @@
       "OpsItemEventSummary.Source string `json:\"Source,omitempty\"`",
       "OpsItemRelatedItem.AssociationID string `json:\"AssociationId\"`",
       "OpsItemRelatedItem.AssociationType string `json:\"AssociationType\"`",
+      "OpsItemRelatedItem.CreatedTime float64 `json:\"CreatedTime,omitempty\"`",
+      "OpsItemRelatedItem.OpsItemID string `json:\"OpsItemId,omitempty\"`",
       "OpsItemRelatedItem.ResourceType string `json:\"ResourceType\"`",
       "OpsItemRelatedItem.ResourceURI string `json:\"ResourceUri\"`",
       "ParameterHistory.AllowedPattern string `json:\"AllowedPattern,omitempty\"`",
