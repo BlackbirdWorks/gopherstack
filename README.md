@@ -467,7 +467,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [App Runner](services/apprunner/README.md) | A | 37 | 2 gaps |
 | [Auto Scaling](services/autoscaling/README.md) | A | 66 | 3 gaps |
-| [Batch](services/batch/README.md) | A | 45 | 7 gaps |
+| [Batch](services/batch/README.md) | A | 45 | 8 gaps |
 | [EC2](services/ec2/README.md) | A | — | 22 families; 9 gaps; 2 structural gaps; 8 deferred |
 | [Elastic Beanstalk](services/elasticbeanstalk/README.md) | A | 47 | 13 gaps |
 | [Lambda](services/lambda/README.md) | A | — | 10 families; 2 gaps |
@@ -539,7 +539,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [EventBridge](services/eventbridge/README.md) | A | 66 | 2 gaps; 2 deferred |
 | [EventBridge Pipes](services/pipes/README.md) | A | 10 | 1 gap |
 | [EventBridge Scheduler](services/scheduler/README.md) | A | 12 | 1 gap |
-| [Pinpoint](services/pinpoint/README.md) | A | 50 | 2 gaps; 3 deferred |
+| [Pinpoint](services/pinpoint/README.md) | A | 51 | 2 gaps; 3 deferred |
 | [SES](services/ses/README.md) | A | 71 | 6 gaps; 1 deferred |
 | [SES v2](services/sesv2/README.md) | A | 112 | 2 gaps |
 | [SNS](services/sns/README.md) | A | 34 | 2 gaps; 2 deferred |
@@ -583,7 +583,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Secrets Manager](services/secretsmanager/README.md) | A | 24 | 7 gaps; 2 deferred |
 | [Security Hub](services/securityhub/README.md) | A | 116 | 6 gaps |
 | [Shield](services/shield/README.md) | A | 36 | 2 gaps; 3 deferred |
-| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 5 gaps |
+| [Verified Permissions](services/verifiedpermissions/README.md) | A | 34 | 6 gaps |
 | [WAF](services/waf/README.md) | A | 4 | 2 gaps; 2 structural gaps |
 | [WAFv2](services/wafv2/README.md) | A | 59 | 3 gaps; 1 structural gap |
 
@@ -593,9 +593,9 @@ Every service links to its own page with a coverage breakdown — audited operat
 |---|---|---|---|
 | [Cognito Identity](services/cognitoidentity/README.md) | A | 23 | 2 gaps; 4 deferred |
 | [Cognito Identity Provider](services/cognitoidp/README.md) | A | 68 | 2 gaps |
-| [Directory Service](services/directoryservice/README.md) | A | 80 | 8 gaps; 2 deferred |
+| [Directory Service](services/directoryservice/README.md) | A | 80 | 9 gaps; 2 deferred |
 | [IAM](services/iam/README.md) | A | 37 | 7 gaps |
-| [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 5 gaps; 1 deferred |
+| [IAM Access Analyzer](services/accessanalyzer/README.md) | A | 39 | 6 gaps; 1 deferred |
 | [IAM Identity Center (SSO)](services/ssoadmin/README.md) | A | 56 | 4 gaps |
 | [IAM Roles Anywhere](services/rolesanywhere/README.md) | A | 30 | 5 gaps |
 | [Identity Store](services/identitystore/README.md) | A | 19 | 2 gaps; 1 deferred |
@@ -631,7 +631,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 | [Amplify](services/amplify/README.md) | A | 37 | 7 gaps |
 | [CodeArtifact](services/codeartifact/README.md) | A | 48 | 9 gaps; 3 deferred |
 | [CodeBuild](services/codebuild/README.md) | A | 59 | 5 gaps; 1 deferred |
-| [CodeCommit](services/codecommit/README.md) | A | 79 | 7 gaps |
+| [CodeCommit](services/codecommit/README.md) | A | 79 | 8 gaps |
 | [CodeConnections](services/codeconnections/README.md) | A | 27 | 2 gaps |
 | [CodeDeploy](services/codedeploy/README.md) | A | 47 | 5 gaps; 2 deferred |
 | [CodePipeline](services/codepipeline/README.md) | A | 22 | 11 gaps; 4 deferred |
@@ -681,7 +681,7 @@ Every service links to its own page with a coverage breakdown — audited operat
 
 | Service | Parity | PARITY Entries | Notes |
 |---|---|---|---|
-| [DataSync](services/datasync/README.md) | A | 53 | 4 gaps; 1 deferred |
+| [DataSync](services/datasync/README.md) | A | 53 | 5 gaps; 1 deferred |
 | [Database Migration Service](services/dms/README.md) | A | 97 | 4 gaps |
 | [Transfer Family](services/transfer/README.md) | A | — | 20 families |
 
