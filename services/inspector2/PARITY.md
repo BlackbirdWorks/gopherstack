@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: inspector2
 sdk_module: aws-sdk-go-v2/service/inspector2@v1.54.1   # version audited against
-last_audit_commit: 6d3b2159e                            # HEAD when this manifest was written
-last_audit_date: 2026-09-18
+last_audit_commit: fa93861fb                            # HEAD when this manifest was written
+last_audit_date: 2026-09-19
 overall: A            # gopherstack-zj76 remainder pass: CIS/code-security name length+charset constraints now enforced (fetched live from AWS API Reference -- the Go SDK module has no length/pattern doc prose for these 4 fields), CoverageFilterCriteria's scanStatusCode/scanStatusReason/scanMode/lastScannedAt facets fixed from accepted-but-silently-ignored to genuinely narrowing (real bug, not just an omission), FindingDetail.Ttps added; authorizationUrl gap and the 7 remaining Cvss/Epss/Evidence-class nested struct types re-confirmed as genuine, deliberately-scoped-out gaps (not oversights) -- no prior family regressed
 # 2026-08-21 gopherstack-r80d batch 12 (required-output cut): last_audit_commit
 # left unchanged -- this pass's own commit sha is not known at edit time (the
@@ -186,6 +186,9 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all resour
 ---
 
 ## Notes
+
+**2026-09-19 (gopherstack-fndhb)**: mega-batch-6 terraform coverage found status responses
+omitted codeRepository/lambdaCode, crashing terraform-provider-aws's reader. Fixed; apply+destroy verified against real provider v5.100.0.
 
 **2026-08-07 (fixed by a concurrent account-service pass, gopherstack-303i)**: `RouteMatcher`
 matched `pathEnable`/`pathDisable` (`"/enable"`/`"/disable"`) as raw path *prefixes* with no

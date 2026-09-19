@@ -97,20 +97,29 @@ func buildState(status string) map[string]any {
 
 // buildResourceState constructs the resourceState map used by
 // BatchGetAccountStatus, keying each resource type to its own State object.
+// All five resource types are always present: the real API's ResourceState
+// shape marks Ec2/Ecr as required and always populates CodeRepository/
+// Lambda/LambdaCode too, and terraform-provider-aws's AccountStatuses
+// (internal/service/inspector2/enabler.go) dereferences them unconditionally
+// -- a response omitting any of them panics that client (gopherstack-fndhb).
 func buildResourceState(status *AccountStatusResponse) map[string]any {
 	return map[string]any{
-		"ec2":    buildState(status.Ec2Status),
-		"ecr":    buildState(status.EcrStatus),
-		"lambda": buildState(status.LambdaStatus),
+		"ec2":            buildState(status.Ec2Status),
+		"ecr":            buildState(status.EcrStatus),
+		"lambda":         buildState(status.LambdaStatus),
+		"lambdaCode":     buildState(status.LambdaCodeStatus),
+		"codeRepository": buildState(status.CodeRepositoryStatus),
 	}
 }
 
 // buildResourceStatus constructs the resourceStatus map.
 func buildResourceStatus(status *AccountStatusResponse) map[string]any {
 	return map[string]any{
-		"ec2":    status.Ec2Status,
-		"ecr":    status.EcrStatus,
-		"lambda": status.LambdaStatus,
+		"ec2":            status.Ec2Status,
+		"ecr":            status.EcrStatus,
+		"lambda":         status.LambdaStatus,
+		"lambdaCode":     status.LambdaCodeStatus,
+		"codeRepository": status.CodeRepositoryStatus,
 	}
 }
 
