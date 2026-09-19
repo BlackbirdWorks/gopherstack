@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
 sdk_module: aws-sdk-go-v2/service/wafv2@v1.77.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
-last_audit_commit: 366fb4907                      # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (LoggingConfiguration LogScope/LogType)
+last_audit_commit: 1d121bbad                      # over-wide census sweep, ListAPIKeys/GetDecryptedAPIKey Scope leak
 last_audit_date: 2026-09-18
 overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family
                       # (GetRevenueStatistics/GetRevenueStatisticsSummary/
@@ -75,8 +75,8 @@ ops:
   CheckCapacity: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes); 2026-08-22 gopherstack-zquj: response key was \"ConsumedCapacity\", real wire key is \"Capacity\" -- see Notes"}
   CreateAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAPIKeys: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDecryptedAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAPIKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-18 (over-wide census) — APIKeySummary has no Scope member (deserializers.go's awsAwsjson11_deserializeDocumentAPIKeySummary silently drops it); removed. Version (real int32 member, \"internal value used by WAF to manage the key\") stays absent — no UpdateAPIKey op or other source in this backend ever produces one; unsourced, not fabricated."}
+  GetDecryptedAPIKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-18 — same Scope leak as ListAPIKeys/APIKeySummary, found alongside it; GetDecryptedAPIKeyOutput only has CreationTimestamp/TokenDomains."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now honors Limit/NextMarker via pkgs/page (see Notes)"}
@@ -125,6 +125,22 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+- **2026-09-18 (over-wide response class census)**: `cmd/overwidecandidates`
+  flagged ListAPIKeys, ListAvailableManagedRuleGroups, ListIPSets,
+  ListManagedRuleSets, ListMobileSdkReleases, ListRegexPatternSets,
+  ListRuleGroups, ListWebACLs. Member-by-member diff against
+  wafv2@v1.77.3: 6 already emit the exact narrow Summary shape
+  (`handleListResourceFamily` for IPSets/RegexPatternSets/RuleGroups/WebACLs;
+  dedicated converters for ListAvailableManagedRuleGroups/
+  ListMobileSdkReleases). Found and fixed two real leaks: ListAPIKeys and
+  GetDecryptedAPIKey both emitted a `Scope` key that
+  `APIKeySummary`/`GetDecryptedAPIKeyOutput` don't declare (silently dropped
+  by the real deserializer, so no SDK-client test could see it — fixed with a
+  raw-body assertion in `list_summary_shapes_test.go`). `APIKeySummary.Version`
+  (real member) stays unsourced/absent — no op in this service ever produces
+  a per-key version. ListManagedRuleSets' Description/LabelNamespace gap was
+  already known and recorded in items_still_open; re-confirmed, unchanged.
 
 - **2026-08-22 (gopherstack-zquj, keycheck sweep)**: `CheckCapacity` wrote the
   wire-response key `"ConsumedCapacity"`. The real
