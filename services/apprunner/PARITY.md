@@ -1,7 +1,7 @@
 ---
 service: apprunner
 sdk_module: aws-sdk-go-v2/service/apprunner@v1.42.4
-last_audit_commit: a5efc2c05
+last_audit_commit: 75c14a90f
 last_audit_date: 2026-09-19
 overall: A            # full field-diff sweep: closed every gaps/deferred item from the 2026-07-13 audit,
                        # plus the wrapper-key/nested-shape sweep (2026-08-19, one fabricated-field bug fixed);
@@ -55,6 +55,15 @@ leaks: {status: clean, note: "no goroutines/janitors in this backend; existing l
 ---
 
 ## Notes
+
+### 2026-09-19: required-output-member census
+
+Checked every op with >=1 SDK-required output member (32 ops, 44 members;
+`cmd/requiredoutputfields`) against handler code, focusing on Delete*/Create*
+wrappers and AssociateCustomDomain/DisassociateCustomDomain's VpcDNSTargets.
+All already always-populated (this service's prior sweeps already closed the
+DeletedAt/Latest/UpdatedAt/vpcDNSTargets gaps in this exact class — see
+entries below). No fixes needed.
 
 **Fixed: systemic wrong exception-type names (the real bug this sweep found).** App Runner's
 error model (`aws-sdk-go-v2/service/apprunner/types/errors.go`) has exactly five exception

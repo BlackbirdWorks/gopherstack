@@ -1,8 +1,8 @@
 ---
 service: securityhub
 sdk_module: aws-sdk-go-v2/service/securityhub@v1.75.4
-last_audit_commit: 1659d616
-last_audit_date: 2026-07-25
+last_audit_commit: 75c14a90f
+last_audit_date: 2026-09-19
 overall: A            # parity-4: 7 new SDK ops (CSPM Connectors CRUD+List, SecurityHub V2 opt-in
                        # Feature enable/disable) implemented for real against v1.75.0, wired into
                        # existing DescribeSecurityHubV2 state; one bonus fix (DescribeSecurityHubV2's
@@ -153,6 +153,17 @@ leaks: {status: clean, note: "no goroutines, tickers, or background loops in ser
 ---
 
 ## Notes
+
+### 2026-09-19: required-output-member census
+
+Checked every op with >=1 SDK-required output member (30 ops, 47 members;
+`cmd/requiredoutputfields`) against handler code, prioritizing idempotent
+deletes and V2 CSPM Connector/Ticket paths. All already always-populated —
+`GetConnector`/`GetConnectorV2` (Health/ProviderDetail), `BatchImportFindings`
+(SuccessCount/FailedCount), `CreateTicketV2` (TicketId), `DescribeProducts`/
+`DescribeProductsV2`, insight/resource/trend wrappers all set the required
+key on every response path, none behind a conditional or `omitempty`. No
+fixes needed.
 
 ### reqfielddiff slice 6 (2026-09-12, gopherstack-xhu2t)
 
