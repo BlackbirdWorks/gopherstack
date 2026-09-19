@@ -61,6 +61,11 @@ func main() {
 		"report dispatcher path literals no RouteMatcher claim covers (gopherstack-blzga), "+
 			"instead of the default over-claim collision report",
 	)
+	why := flag.Bool(
+		"why", false,
+		"print the recognized guard construct (file:line + shape) behind every guarded winner/loser, "+
+			"so a collision row can be verified without re-reading the matcher source",
+	)
 	flag.Parse()
 
 	if *unclaimed {
@@ -88,7 +93,7 @@ func main() {
 		}
 	}
 
-	printCollisionReport(results)
+	printCollisionReport(results, *why)
 }
 
 func run() ([]svcInfo, error) {
@@ -467,11 +472,14 @@ func buildServiceInfos(pd *pkgData, name string, priority int) []svcInfo {
 			continue
 		}
 
+		evidence := isGuarded(fn, pd)
+
 		out = append(out, svcInfo{
-			Dir:      name,
-			Priority: priority,
-			Guarded:  guardRe.MatchString(body),
-			Claims:   claims,
+			Dir:           name,
+			Priority:      priority,
+			Guarded:       len(evidence) > 0,
+			GuardEvidence: evidence,
+			Claims:        claims,
 		})
 	}
 
