@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudwatch
 sdk_module: aws-sdk-go-v2/service/cloudwatch@v1.71.0
-last_audit_commit: ab7ac08a7
-last_audit_date: 2026-09-18
+last_audit_commit: ee2e6b5b4
+last_audit_date: 2026-09-19
 overall: A            # 2026-08-07 pass (bd gopherstack-lrmf): metric streams now actually deliver
                       # matched PutMetricData records to their configured Firehose delivery stream
                       # when OutputFormat=json, via a new FirehosePutter interface (SetFirehosePutter,
@@ -1312,3 +1312,10 @@ decoded correctly through the real rpc-v2 CBOR client. Gates: `go build
 ./...` (whole module), `go vet`, `go test -race -count=1`, `golangci-lint
 run --new-from-rev=HEAD` (0 issues) all clean. No persisted struct fields
 changed; no version bump.
+
+## 2026-09-19 metrics-map eviction fix (gopherstack-4thzo)
+
+Added `metricRecord.LastDatapoint` (additive, no version bump). `SweepExpiredMetrics`
+now evicts a whole series once idle past the documented 2-week `ListMetrics`
+window (`api_op_ListMetrics.go`); `ListMetrics` honours that window unconditionally,
+even before a sweep runs. Alarms on an evicted series read INSUFFICIENT_DATA.

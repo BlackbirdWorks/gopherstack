@@ -65,6 +65,9 @@ const CwMaxMetricNamesPerNamespace = cwMaxMetricNamesPerNamespace
 // CwMetricRetentionDays exposes the constant for tests.
 const CwMetricRetentionDays = cwMetricRetentionDays
 
+// CwListMetricsVisibilityWindow exposes the constant for tests.
+const CwListMetricsVisibilityWindow = cwListMetricsVisibilityWindow
+
 // GetInsightRuleContributors is a test-visible wrapper that acquires the lock
 // and delegates to the unexported implementation.
 func (b *InMemoryBackend) GetInsightRuleContributorsForTest(

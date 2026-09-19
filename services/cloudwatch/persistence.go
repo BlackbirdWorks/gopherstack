@@ -103,6 +103,8 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 		snap.AlarmHistory = make(map[string][]AlarmHistoryItem)
 	}
 
+	backfillLastDatapoint(snap.Metrics)
+
 	b.metrics = snap.Metrics
 	b.alarmHistory = snap.AlarmHistory
 	b.accountID = snap.AccountID
@@ -119,6 +121,27 @@ func (b *InMemoryBackend) Restore(ctx context.Context, data []byte) error {
 	b.totalMetrics = total
 
 	return nil
+}
+
+// backfillLastDatapoint sets metricRecord.LastDatapoint from the latest Points
+// Timestamp on any record restored from a snapshot taken before that field
+// existed (additive field: decodes as the zero value on older data). Without
+// this, every pre-upgrade series would look infinitely stale to
+// SweepExpiredMetrics/ListMetrics and vanish on the first sweep after upgrade.
+func backfillLastDatapoint(metrics map[string]map[string]*metricRecord) {
+	for _, nsMap := range metrics {
+		for _, rec := range nsMap {
+			if !rec.LastDatapoint.IsZero() {
+				continue
+			}
+
+			for _, pt := range rec.Points {
+				if pt.Timestamp.After(rec.LastDatapoint) {
+					rec.LastDatapoint = pt.Timestamp
+				}
+			}
+		}
+	}
 }
 
 // handlerSnapshot wraps the backend snapshot with the handler-level tags map.

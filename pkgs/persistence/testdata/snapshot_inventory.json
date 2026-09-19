@@ -5155,6 +5155,7 @@
       "handlerSnapshot.Backend []byte `json:\"backend\"`",
       "handlerSnapshot.Tags map[string]map[string]string `json:\"tags,omitempty\"`",
       "metricRecord.Dimensions []Dimension `json:\"Dimensions,omitempty\"`",
+      "metricRecord.LastDatapoint time.Time `json:\"LastDatapoint,omitzero\"`",
       "metricRecord.MetricName string `json:\"MetricName\"`",
       "metricRecord.Points []MetricDatum `json:\"Points\"`"
     ],

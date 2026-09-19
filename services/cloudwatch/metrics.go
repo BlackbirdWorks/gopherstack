@@ -164,6 +164,10 @@ func (b *InMemoryBackend) storeDatum(namespace string, d MetricDatum) {
 
 	rec.Points = append(rec.Points, d)
 
+	if d.Timestamp.After(rec.LastDatapoint) {
+		rec.LastDatapoint = d.Timestamp
+	}
+
 	// Cap data points: copy the tail into a fresh slice so the old backing
 	// array (which may be 2× or larger after repeated appends) can be GC'd.
 	if len(rec.Points) > cwMaxMetricDataPoints {
@@ -325,14 +329,62 @@ func (b *InMemoryBackend) sweepApplyResults(cutoff time.Time, results []sweepRes
 	}
 }
 
-// SweepExpiredMetrics removes metric data points older than cwMetricRetentionDays.
-// It is intended to be called periodically (e.g., by a janitor goroutine).
+// cwListMetricsVisibilityWindow is the documented lookback window after which a
+// metric series stops appearing in ListMetrics: aws-sdk-go-v2 service/cloudwatch
+// api_op_ListMetrics.go's ListMetrics doc comment states "ListMetrics doesn't
+// return information about metrics if those metrics haven't reported data in
+// the past two weeks." This also bounds b.metrics: a series whose last datapoint
+// falls outside this window is evicted entirely (not just point-trimmed) by
+// SweepExpiredMetrics, which is what keeps distinct name/dimension keys from
+// accumulating forever (gopherstack-4thzo).
+const cwListMetricsVisibilityWindow = 14 * 24 * time.Hour
+
+// metricVisibleInListMetrics reports whether rec has reported a datapoint
+// within cwListMetricsVisibilityWindow of now, independent of the RecentlyActive
+// (PT3H) opt-in filter.
+func metricVisibleInListMetrics(rec *metricRecord, now time.Time) bool {
+	return !rec.LastDatapoint.Before(now.Add(-cwListMetricsVisibilityWindow))
+}
+
+// sweepStaleKeys evicts entire metric series whose last datapoint is older
+// than cutoff, dropping any namespace map left empty. Unlike the point-level
+// sweep below, this removes the series itself so it stops appearing in
+// ListMetrics and stops occupying map space once real CloudWatch would have
+// forgotten it existed. Alarms referencing an evicted series are unaffected:
+// GetMetricStatisticsForUnit already treats a missing series as "no
+// datapoints," which alarm evaluation reports as INSUFFICIENT_DATA.
+func (b *InMemoryBackend) sweepStaleKeys(cutoff time.Time) {
+	b.mu.Lock("SweepExpiredMetrics.staleKeys")
+	defer b.mu.Unlock()
+
+	for ns, nsMap := range b.metrics {
+		for key, rec := range nsMap {
+			if rec.LastDatapoint.Before(cutoff) {
+				delete(nsMap, key)
+				b.totalMetrics-- // #60: maintain running total
+			}
+		}
+
+		if len(nsMap) == 0 {
+			delete(b.metrics, ns)
+		}
+	}
+}
+
+// SweepExpiredMetrics evicts metric series that have gone quiet for longer
+// than cwListMetricsVisibilityWindow, and trims individual data points older
+// than cwMetricRetentionDays from series that are still active. It is intended
+// to be called periodically (e.g., by a janitor goroutine).
 //
-// Uses a two-phase approach: snapshot candidate series under a read lock, then
-// apply deletions under a write lock. This avoids holding the write lock during
-// the full O(series × points) filter scan.
+// The point-level phase uses a two-phase approach: snapshot candidate series
+// under a read lock, then apply deletions under a write lock. This avoids
+// holding the write lock during the full O(series × points) filter scan.
 func (b *InMemoryBackend) SweepExpiredMetrics() {
-	cutoff := time.Now().UTC().AddDate(0, 0, -cwMetricRetentionDays)
+	now := time.Now().UTC()
+
+	b.sweepStaleKeys(now.Add(-cwListMetricsVisibilityWindow))
+
+	cutoff := now.AddDate(0, 0, -cwMetricRetentionDays)
 
 	candidates := b.sweepScanCandidates(cutoff)
 	if len(candidates) == 0 {
@@ -683,6 +735,9 @@ type listMetricsFilter struct {
 
 // matches reports whether rec (in namespace ns) satisfies the filter.
 func (f listMetricsFilter) matches(rec *metricRecord) bool {
+	if !metricVisibleInListMetrics(rec, f.now) {
+		return false
+	}
 	if f.metricName != "" && rec.MetricName != f.metricName {
 		return false
 	}
