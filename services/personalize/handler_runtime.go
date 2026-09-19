@@ -10,7 +10,10 @@ import (
 
 // --- Personalize Runtime ---
 
-const defaultNumRecommendations = 25
+const (
+	defaultNumRecommendations = 25
+	keyRecommendationID       = "recommendationId"
+)
 
 func (h *Handler) getRecommendations(input map[string]any) (map[string]any, error) {
 	campaignArn, _ := input["campaignArn"].(string)
@@ -29,8 +32,34 @@ func (h *Handler) getRecommendations(input map[string]any) (map[string]any, erro
 	items := syntheticItemList(seed, numResults)
 
 	return map[string]any{
-		"recommendationId": uuid.NewString(),
-		"itemList":         items,
+		keyRecommendationID: uuid.NewString(),
+		"itemList":          items,
+	}, nil
+}
+
+// getActionRecommendations serves GetActionRecommendations. It genuinely
+// validates the campaign (ErrNotFound for an unknown ARN) and its recipe
+// type, but -- unlike getRecommendations/getPersonalizedRanking above --
+// deliberately does NOT fabricate scored action items: this backend has no
+// PERSONALIZED_ACTIONS recipe in its built-in catalog (recipes.go) and no
+// actions-dataset item store to source real action IDs from, so every
+// campaign fails ValidateActionRecommenderCampaign's recipe-type check with
+// the real SDK-declared InvalidInputException, matching what real AWS
+// returns for a campaign trained with any other recipe. See PARITY.md.
+func (h *Handler) getActionRecommendations(input map[string]any) (map[string]any, error) {
+	campaignArn, _ := input[keyCampaignArn].(string)
+
+	if campaignArn == "" {
+		return nil, fmt.Errorf("%w: campaignArn is required", ErrValidation)
+	}
+
+	if err := h.Backend.ValidateActionRecommenderCampaign(campaignArn); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		keyRecommendationID: uuid.NewString(),
+		"actionList":        []map[string]any{},
 	}, nil
 }
 
@@ -61,7 +90,7 @@ func (h *Handler) getPersonalizedRanking(input map[string]any) (map[string]any, 
 	}
 
 	return map[string]any{
-		"recommendationId":    uuid.NewString(),
+		keyRecommendationID:   uuid.NewString(),
 		"personalizedRanking": ranked,
 	}, nil
 }

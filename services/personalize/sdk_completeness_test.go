@@ -23,8 +23,9 @@ func TestSDKCompleteness(t *testing.T) {
 	// GetSupportedOperations(), so this test splits them before checking
 	// each half against the SDK client that actually owns it.
 	runtimeOps := map[string]bool{
-		"GetPersonalizedRanking": true,
-		"GetRecommendations":     true,
+		"GetPersonalizedRanking":   true,
+		"GetRecommendations":       true,
+		"GetActionRecommendations": true,
 	}
 
 	var controlPlaneOps, inferenceOps []string
@@ -37,9 +38,5 @@ func TestSDKCompleteness(t *testing.T) {
 	}
 
 	sdkcheck.CheckCompleteness(t, &personalizesdk.Client{}, controlPlaneOps, []string{})
-	// GetActionRecommendations is a real personalizeruntime operation this
-	// Handler does not implement.
-	sdkcheck.CheckCompleteness(
-		t, &personalizeruntimesdk.Client{}, inferenceOps, []string{"GetActionRecommendations"},
-	)
+	sdkcheck.CheckCompleteness(t, &personalizeruntimesdk.Client{}, inferenceOps, []string{})
 }

@@ -30,6 +30,10 @@ const (
 	// service claims either literal path.
 	personalizeRuntimeRecommendationsPath = "/recommendations"
 	personalizeRuntimeRankingPath         = "/personalize-ranking"
+	// personalizeRuntimeActionRecommendationsPath is GetActionRecommendations'
+	// real literal path (personalizeruntime@v1.36.4 serializers.go:
+	// httpbinding.SplitURI("/action-recommendations")).
+	personalizeRuntimeActionRecommendationsPath = "/action-recommendations"
 	// personalizeRuntimeContentType is the real REST-JSON1 wire content type
 	// (serializers.go: restEncoder.SetHeader("Content-Type").String("application/json")),
 	// distinct from classic Personalize's JSON-RPC 1.1 content type above.
@@ -65,6 +69,13 @@ const (
 	keyFilterArn            = "filterArn"
 
 	recipeTypeUserPersonalization = "USER_PERSONALIZATION"
+	// recipeTypePersonalizedActions is the recipe type GetActionRecommendations
+	// requires a campaign's deployed solution version to have been trained
+	// with (personalizeruntime@v1.36.4 api_op_GetActionRecommendations.go doc:
+	// "This campaign must deploy a solution version trained with a
+	// PERSONALIZED_ACTIONS recipe."). No such recipe exists in
+	// getBuiltinRecipes (recipes.go) -- this backend cannot train one.
+	recipeTypePersonalizedActions = "PERSONALIZED_ACTIONS"
 )
 
 type opFunc func(map[string]any) (map[string]any, error)
@@ -126,6 +137,8 @@ func runtimeRESTOpForPath(path string) string {
 		return "GetRecommendations"
 	case personalizeRuntimeRankingPath:
 		return "GetPersonalizedRanking"
+	case personalizeRuntimeActionRecommendationsPath:
+		return "GetActionRecommendations"
 	default:
 		return ""
 	}
@@ -382,8 +395,9 @@ func (h *Handler) buildOps() map[string]opFunc {
 		"UntagResource":       h.untagResource,
 		"ListTagsForResource": h.listTagsForResource,
 		// Personalize Runtime
-		"GetRecommendations":     h.getRecommendations,
-		"GetPersonalizedRanking": h.getPersonalizedRanking,
+		"GetRecommendations":       h.getRecommendations,
+		"GetPersonalizedRanking":   h.getPersonalizedRanking,
+		"GetActionRecommendations": h.getActionRecommendations,
 	}
 }
 
