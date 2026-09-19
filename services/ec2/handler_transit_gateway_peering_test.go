@@ -67,7 +67,7 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	})
 
 	t.Run("create connect peer", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		peer, err := b.CreateTransitGatewayConnectPeer(connectID, "1.2.3.4", []string{"169.254.6.0/29"})
+		peer, err := b.CreateTransitGatewayConnectPeer(connectID, "1.2.3.4", "", []string{"169.254.6.0/29"})
 		require.NoError(t, err)
 		assert.NotEmpty(t, peer.TransitGatewayConnectPeerID)
 		assert.Equal(t, "1.2.3.4", peer.PeerAddress)
@@ -99,7 +99,7 @@ func TestTGWConnect(t *testing.T) { //nolint:paralleltest // existing issue.
 	t.Run( //nolint:paralleltest // existing issue.
 		"create peer for non-existent connect returns error",
 		func(t *testing.T) {
-			_, err := b.CreateTransitGatewayConnectPeer("nonexistent", "1.2.3.4", nil)
+			_, err := b.CreateTransitGatewayConnectPeer("nonexistent", "1.2.3.4", "", nil)
 			require.Error(t, err)
 		},
 	)
@@ -222,7 +222,7 @@ func TestTGW_ConnectCRUD(t *testing.T) {
 
 	// add a connect peer
 	peer, err := b.CreateTransitGatewayConnectPeer(
-		conn.TransitGatewayAttachmentID, "1.2.3.4", []string{"169.254.6.0/29"},
+		conn.TransitGatewayAttachmentID, "1.2.3.4", "", []string{"169.254.6.0/29"},
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, peer.TransitGatewayConnectPeerID)

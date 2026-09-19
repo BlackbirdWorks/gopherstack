@@ -115,6 +115,89 @@ func (h *Handler) applyInstanceLaunchAttributes(
 	return nil
 }
 
+// applyRunInstancesCreditSpecification wires RunInstances'
+// CreditSpecification.CpuCredits (ec2@v1.329.0 serializers.go
+// awsEc2query_serializeOpDocumentRunInstancesInput: flat key
+// "CreditSpecification.CpuCredits") onto the same instanceCreditSpecs store
+// ModifyInstanceCreditSpecification already uses -- observable via
+// DescribeInstanceCreditSpecifications.
+func (h *Handler) applyRunInstancesCreditSpecification(instances []*Instance, cpuCredits string) {
+	if cpuCredits == "" {
+		return
+	}
+
+	specs := make([]InstanceCreditSpec, 0, len(instances))
+	for _, inst := range instances {
+		specs = append(specs, InstanceCreditSpec{InstanceID: inst.ID, CPUCredits: cpuCredits})
+	}
+
+	h.Backend.ModifyInstanceCreditSpecification(specs)
+}
+
+// applyRunInstancesPrivateDNSNameOptions wires RunInstances'
+// PrivateDnsNameOptions (ec2@v1.329.0 serializers.go
+// awsEc2query_serializeOpDocumentRunInstancesInput: nested under
+// "PrivateDnsNameOptions.HostnameType"/".EnableResourceNameDnsARecord"/
+// ".EnableResourceNameDnsAAAARecord") onto the same per-instance store
+// ModifyPrivateDnsNameOptions already uses.
+func (h *Handler) applyRunInstancesPrivateDNSNameOptions(instances []*Instance, vals url.Values) error {
+	hostnameType := vals.Get("PrivateDnsNameOptions.HostnameType")
+
+	_, hasARecord := vals["PrivateDnsNameOptions.EnableResourceNameDnsARecord"]
+	_, hasAAAARecord := vals["PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord"]
+
+	if hostnameType == "" && !hasARecord && !hasAAAARecord {
+		return nil
+	}
+
+	var enableARecord, enableAAAARecord *bool
+
+	if hasARecord {
+		v := vals.Get("PrivateDnsNameOptions.EnableResourceNameDnsARecord") == ec2BooleanTrue
+		enableARecord = &v
+	}
+
+	if hasAAAARecord {
+		v := vals.Get("PrivateDnsNameOptions.EnableResourceNameDnsAAAARecord") == ec2BooleanTrue
+		enableAAAARecord = &v
+	}
+
+	for _, inst := range instances {
+		if _, err := h.Backend.ModifyPrivateDNSNameOptions(
+			inst.ID, hostnameType, enableARecord, enableAAAARecord,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applyRunInstancesPostCreateOptions applies the RunInstances request fields
+// that mutate freshly-launched instances after creation but aren't part of
+// the core InstanceType/ImageId/SubnetId/count path: CreditSpecification,
+// PrivateDnsNameOptions, and the IAM instance profile association.
+func (h *Handler) applyRunInstancesPostCreateOptions(instances []*Instance, vals url.Values) error {
+	h.applyRunInstancesCreditSpecification(instances, vals.Get("CreditSpecification.CpuCredits"))
+
+	if err := h.applyRunInstancesPrivateDNSNameOptions(instances, vals); err != nil {
+		return err
+	}
+
+	profileARN := iamInstanceProfileArg(vals)
+	if profileARN == "" {
+		return nil
+	}
+
+	for _, inst := range instances {
+		if _, err := h.Backend.AssociateIamInstanceProfile(inst.ID, profileARN); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // iamInstanceProfileArg reads the real RunInstances/AssociateIamInstanceProfile
 // IamInstanceProfile.Arn/IamInstanceProfile.Name wire keys (serializers.go:91938,
 // awsEc2query_serializeDocumentIamInstanceProfileSpecification), preferring Arn.
@@ -181,12 +264,8 @@ func (h *Handler) handleRunInstances(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	if profileARN := iamInstanceProfileArg(vals); profileARN != "" {
-		for _, inst := range instances {
-			if _, err = h.Backend.AssociateIamInstanceProfile(inst.ID, profileARN); err != nil {
-				return nil, err
-			}
-		}
+	if err = h.applyRunInstancesPostCreateOptions(instances, vals); err != nil {
+		return nil, err
 	}
 
 	if cb, c := h.computeBackend(); c != nil {
@@ -479,10 +558,14 @@ func toInstanceItem(
 		TagSet:                instanceTagItemSet{Items: tagItems},
 		IamInstanceProfile:    iamProfile,
 		Placement: instancePlacementItem{
-			Tenancy:          inst.Placement.Tenancy,
-			AvailabilityZone: inst.Placement.AvailabilityZone,
-			GroupName:        inst.Placement.GroupName,
-			Affinity:         inst.Placement.Affinity,
+			Tenancy:              inst.Placement.Tenancy,
+			AvailabilityZone:     inst.Placement.AvailabilityZone,
+			GroupName:            inst.Placement.GroupName,
+			GroupID:              inst.Placement.GroupID,
+			Affinity:             inst.Placement.Affinity,
+			HostID:               inst.Placement.HostID,
+			HostResourceGroupArn: inst.Placement.HostResourceGroupArn,
+			PartitionNumber:      inst.Placement.PartitionNumber,
 		},
 	}
 
@@ -510,6 +593,14 @@ func toInstanceItem(
 		}
 	}
 
+	if inst.PrivateDNSNameOptions.HostnameType != "" {
+		item.PrivateDNSNameOptions = &instancePrivateDNSNameOptionsItem{
+			HostnameType:                    inst.PrivateDNSNameOptions.HostnameType,
+			EnableResourceNameDNSARecord:    inst.PrivateDNSNameOptions.EnableResourceNameDNSARecord,
+			EnableResourceNameDNSAAAARecord: inst.PrivateDNSNameOptions.EnableResourceNameDNSAAAARecord,
+		}
+	}
+
 	return item
 }
 
@@ -528,10 +619,14 @@ type instanceGroupSet struct {
 }
 
 type instancePlacementItem struct {
-	Tenancy          string `xml:"tenancy,omitempty"`
-	AvailabilityZone string `xml:"availabilityZone,omitempty"`
-	GroupName        string `xml:"groupName,omitempty"`
-	Affinity         string `xml:"affinity,omitempty"`
+	Tenancy              string `xml:"tenancy,omitempty"`
+	AvailabilityZone     string `xml:"availabilityZone,omitempty"`
+	GroupName            string `xml:"groupName,omitempty"`
+	GroupID              string `xml:"groupId,omitempty"`
+	Affinity             string `xml:"affinity,omitempty"`
+	HostID               string `xml:"hostId,omitempty"`
+	HostResourceGroupArn string `xml:"hostResourceGroupArn,omitempty"`
+	PartitionNumber      int32  `xml:"partitionNumber,omitempty"`
 }
 
 // stateReasonItem is the <stateReason> element carrying the structured
@@ -554,12 +649,22 @@ type instanceNetworkPerformanceOptionsItem struct {
 	BandwidthWeighting string `xml:"bandwidthWeighting,omitempty"`
 }
 
+// instancePrivateDNSNameOptionsItem mirrors PrivateDnsNameOptionsResponse
+// (ec2@v1.329.0 types/types.go:18643), rendered under <privateDnsNameOptions>
+// (deserializers.go:114945).
+type instancePrivateDNSNameOptionsItem struct {
+	HostnameType                    string `xml:"hostnameType,omitempty"`
+	EnableResourceNameDNSARecord    bool   `xml:"enableResourceNameDnsARecord"`
+	EnableResourceNameDNSAAAARecord bool   `xml:"enableResourceNameDnsAAAARecord"`
+}
+
 type instanceItem struct {
 	NetworkPerformanceOptions *instanceNetworkPerformanceOptionsItem `xml:"networkPerformanceOptions,omitempty"`
 	MaintenanceOptions        *instanceMaintenanceOptionsItem        `xml:"maintenanceOptions,omitempty"`
 	CPUOptions                *instanceCPUOptionsItem                `xml:"cpuOptions,omitempty"`
 	StateReasonItem           *stateReasonItem                       `xml:"stateReason,omitempty"`
 	IamInstanceProfile        *iamProfileSpec                        `xml:"iamInstanceProfile,omitempty"`
+	PrivateDNSNameOptions     *instancePrivateDNSNameOptionsItem     `xml:"privateDnsNameOptions,omitempty"`
 	Placement                 instancePlacementItem                  `xml:"placement"`
 	// OutpostArn is a top-level field, sibling to Placement -- see
 	// store.go's Instance.OutpostArn doc comment for the SDK confirmation.

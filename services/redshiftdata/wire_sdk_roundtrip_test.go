@@ -99,6 +99,78 @@ func TestBatchExecuteStatement_Status_SDKRoundTrip(t *testing.T) {
 	require.NotNil(t, out.HasResultSet)
 }
 
+// TestBatchExecuteStatement_ExecutionMode_SDKRoundTrip proves
+// BatchExecuteStatementInput.ExecutionMode is read and echoed back on
+// DescribeStatementOutput.ExecutionMode. Confirmed against
+// aws-sdk-go-v2/service/redshiftdata@v1.43.4's api_op_BatchExecuteStatement.go
+// ("By default, the SQL statements are run as a single transaction[.] To
+// change this behavior, see the ExecutionMode parameter") and
+// api_op_DescribeStatement.go, whose DescribeStatementOutput carries
+// ExecutionMode back to the caller.
+func TestBatchExecuteStatement_ExecutionMode_SDKRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input redshiftdatatypes.ExecutionMode
+		want  redshiftdatatypes.ExecutionMode
+	}{
+		{name: "default", input: "", want: redshiftdatatypes.ExecutionModeTransaction},
+		{
+			name:  "explicit transaction",
+			input: redshiftdatatypes.ExecutionModeTransaction,
+			want:  redshiftdatatypes.ExecutionModeTransaction,
+		},
+		{
+			name:  "auto commit",
+			input: redshiftdatatypes.ExecutionModeAutoCommit,
+			want:  redshiftdatatypes.ExecutionModeAutoCommit,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			backend := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
+			h := redshiftdata.NewHandler(backend)
+			client := newTestRedshiftDataSDKClient(t, h)
+
+			batchOut, err := client.BatchExecuteStatement(t.Context(), &redshiftdatasdk.BatchExecuteStatementInput{
+				Sqls:              []string{"SELECT 1", "SELECT 2"},
+				Database:          aws.String("testdb"),
+				ClusterIdentifier: aws.String("my-cluster"),
+				ExecutionMode:     tt.input,
+			})
+			require.NoError(t, err)
+
+			descOut, err := client.DescribeStatement(t.Context(), &redshiftdatasdk.DescribeStatementInput{
+				Id: batchOut.Id,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, descOut.ExecutionMode)
+		})
+	}
+}
+
+// TestBatchExecuteStatement_ExecutionMode_Invalid proves an unrecognized
+// ExecutionMode is rejected rather than silently accepted.
+func TestBatchExecuteStatement_ExecutionMode_Invalid(t *testing.T) {
+	t.Parallel()
+
+	backend := redshiftdata.NewInMemoryBackend(testAccountID, testRegion)
+	h := redshiftdata.NewHandler(backend)
+	client := newTestRedshiftDataSDKClient(t, h)
+
+	_, err := client.BatchExecuteStatement(t.Context(), &redshiftdatasdk.BatchExecuteStatementInput{
+		Sqls:              []string{"SELECT 1"},
+		Database:          aws.String("testdb"),
+		ClusterIdentifier: aws.String("my-cluster"),
+		ExecutionMode:     "BOGUS",
+	})
+	require.Error(t, err)
+}
+
 // TestDescribeStatement_NoFabricatedFields proves DescribeStatement never
 // leaks IsBatchStatement/StatementName/QueryStrings/WithEvent on the wire.
 // Confirmed against aws-sdk-go-v2/service/redshiftdata@v1.43.4's

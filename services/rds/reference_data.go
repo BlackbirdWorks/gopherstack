@@ -55,11 +55,13 @@ func (b *InMemoryBackend) DescribeCertificates(certID string) ([]Certificate, er
 
 // ModifyCertificates sets (or, when certID is empty, resets) the default CA
 // certificate identifier for the account and returns the resulting default.
-func (b *InMemoryBackend) ModifyCertificates(certID string) (*Certificate, error) {
+func (b *InMemoryBackend) ModifyCertificates(certID string, removeCustomerOverride bool) (*Certificate, error) {
 	certs := staticCertificates()
 
-	// An empty identifier resets to the system default.
-	if certID == "" {
+	// An empty identifier, or an explicit RemoveCustomerOverride, resets to
+	// the system default (rds@v1.124.1 api_op_ModifyCertificates.go's
+	// RemoveCustomerOverride: "the default is reinstated").
+	if certID == "" || removeCustomerOverride {
 		certID = defaultCACertificateID
 	}
 
@@ -69,7 +71,7 @@ func (b *InMemoryBackend) ModifyCertificates(certID string) (*Certificate, error
 			b.defaultCACertificateID = certID
 			b.mu.Unlock()
 			cp := c
-			cp.CustomerOverride = true
+			cp.CustomerOverride = !removeCustomerOverride
 
 			return &cp, nil
 		}

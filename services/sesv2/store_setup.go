@@ -85,7 +85,9 @@ func exportJobKeyFn(v *ExportJob) string { return v.JobID }
 
 func importJobKeyFn(v *ImportJob) string { return v.JobID }
 
-func suppressedDestinationKeyFn(v *SuppressedDestination) string { return v.EmailAddress }
+func suppressedDestinationKeyFn(v *SuppressedDestination) string {
+	return suppressedDestinationKey(v.TenantName, v.EmailAddress)
+}
 
 // registerAllTables constructs and registers every store.Table-backed
 // resource field exactly once, at construction time. It must be called

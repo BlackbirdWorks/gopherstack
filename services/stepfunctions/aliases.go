@@ -56,8 +56,13 @@ func validateRoutingConfig(routing []AliasRoutingConfig) error {
 }
 
 // CreateStateMachineAlias creates a named routing alias for one or more state machine versions.
+// It has no state machine ARN parameter: the real CreateStateMachineAliasInput
+// (sfn@v1.49.0 api_op_CreateStateMachineAlias.go) declares only Name,
+// Description, and RoutingConfiguration -- the target state machine is
+// derived from the routed versions' own StateMachineVersionArn, which every
+// entry must share.
 func (b *InMemoryBackend) CreateStateMachineAlias(
-	smARN, name, description string,
+	name, description string,
 	routing []AliasRoutingConfig,
 ) (*StateMachineAlias, error) {
 	if err := validateRoutingConfig(routing); err != nil {
@@ -67,11 +72,33 @@ func (b *InMemoryBackend) CreateStateMachineAlias(
 	b.mu.Lock("CreateStateMachineAlias")
 	defer b.mu.Unlock()
 
-	sm, exists := b.stateMachines.Get(smARN)
+	v, exists := b.versions.Get(routing[0].StateMachineVersionArn)
 	if !exists {
 		// AWS: CreateStateMachineAlias's own error switch models ResourceNotFound
-		// for a missing state machine, not StateMachineDoesNotExist -- reuse the
-		// alias family's not-found sentinel, which already maps there.
+		// for a missing version, not StateMachineVersionDoesNotExist (no such type
+		// exists in this SDK) -- reuse the alias family's not-found sentinel,
+		// which already maps there.
+		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, routing[0].StateMachineVersionArn)
+	}
+
+	smARN := v.StateMachineArn
+
+	for _, r := range routing[1:] {
+		v2, ok := b.versions.Get(r.StateMachineVersionArn)
+		if !ok {
+			return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, r.StateMachineVersionArn)
+		}
+
+		if v2.StateMachineArn != smARN {
+			return nil, fmt.Errorf(
+				"%w: all routed versions must belong to the same state machine",
+				ErrInvalidRoutingConfiguration,
+			)
+		}
+	}
+
+	sm, exists := b.stateMachines.Get(smARN)
+	if !exists {
 		return nil, fmt.Errorf("%w: %s", ErrStateMachineAliasDoesNotExist, smARN)
 	}
 

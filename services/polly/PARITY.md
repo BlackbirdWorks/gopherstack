@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: polly
 sdk_module: aws-sdk-go-v2/service/polly@v1.60.4   # version audited against
-last_audit_commit: eb5faf60f                      # HEAD when this manifest was written
-last_audit_date: 2026-09-04
+last_audit_commit: c9523cebb
+last_audit_date: 2026-09-18
 overall: A            # two real bugs found and fixed this pass (StartSpeechSynthesisStream accepted non-generative Engine values; StartSpeechSynthesisTask shared SynthesizeSpeech's wider mp3/ogg_vorbis SampleRate set)
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -35,6 +35,11 @@ leaks: {status: clean, note: "no goroutines/timers; task lifecycle advances sync
 ---
 
 ## Notes
+
+### 2026-09-18 (reqfielddiff tier-1): StartSpeechSynthesisStream.LanguageCode -- false positive
+
+Already read: handler.go:268 sets `LanguageCode: c.Request().Header.Get(headerStreamLanguageCode)`
+(X-Amzn-Languagecode), same header-binding pattern as this op's Engine/VoiceId/OutputFormat/etc.
 
 ### 2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr): ErrValidation's fabricated wire code
 

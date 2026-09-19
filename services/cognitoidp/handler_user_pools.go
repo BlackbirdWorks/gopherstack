@@ -150,6 +150,7 @@ func (h *Handler) handleCreateUserPoolWithOpts(
 		AccountRecoverySetting: in.AccountRecoverySetting,
 		DeletionProtection:     in.DeletionProtection,
 		MfaConfiguration:       in.MfaConfiguration,
+		Schema:                 in.Schema,
 	}
 
 	if in.Policies != nil && in.Policies.PasswordPolicy != nil {

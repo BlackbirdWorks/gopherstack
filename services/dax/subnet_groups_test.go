@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -180,7 +181,7 @@ func TestUpdateSubnetGroup(t *testing.T) {
 			setup: func(b *dax.InMemoryBackend) {
 				_, _ = b.CreateSubnetGroup("upd-sg", "old desc", []string{"subnet-11111111"})
 			},
-			input: dax.UpdateSubnetGroupInput{SubnetGroupName: "upd-sg", Description: "new desc"},
+			input: dax.UpdateSubnetGroupInput{SubnetGroupName: "upd-sg", Description: aws.String("new desc")},
 			check: func(t *testing.T, sg *dax.SubnetGroup) {
 				t.Helper()
 				assert.Equal(t, "new desc", sg.Description)

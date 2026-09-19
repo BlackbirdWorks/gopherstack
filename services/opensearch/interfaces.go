@@ -59,6 +59,7 @@ type StorageBackend interface {
 		name, description string,
 		dataSourceType json.RawMessage,
 		openSearchArns []string,
+		dataSourceAccessPolicy ...string,
 	) (string, error)
 	ListDirectQueryDataSources() []*DirectQueryDataSource
 	GetDirectQueryDataSource(name string) (*DirectQueryDataSource, error)
@@ -66,6 +67,7 @@ type StorageBackend interface {
 		name, description string,
 		dataSourceType json.RawMessage,
 		openSearchArns []string,
+		dataSourceAccessPolicy string,
 	) (*DirectQueryDataSource, error)
 	DeleteDirectQueryDataSource(name string) error
 
@@ -140,6 +142,7 @@ type StorageBackend interface {
 	// Application operations
 	CreateApplication(
 		name string, appConfigs []AppConfig, dataSources []AppDataSource, tagMap map[string]string,
+		kmsKeyArn ...string,
 	) (*Application, error)
 	GetApplication(id string) (*Application, error)
 	ListApplications(statuses []string, nextToken string, maxResults int) page.Page[*Application]

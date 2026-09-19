@@ -82,13 +82,16 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
-	CreationTime      time.Time  `xml:"CreationTime"                json:"creationTime"`
-	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"      json:"deletionTime,omitempty"`
-	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"   json:"lastUpdatedTime,omitempty"`
-	StackID           string     `xml:"StackId"                     json:"stackID"`
-	StackName         string     `xml:"StackName"                   json:"stackName"`
-	StackStatus       string     `xml:"StackStatus"                 json:"stackStatus"`
-	StackStatusReason string     `xml:"StackStatusReason,omitempty" json:"stackStatusReason,omitempty"`
+	CreationTime        time.Time  `xml:"CreationTime"                  json:"creationTime"`
+	DeletionTime        *time.Time `xml:"DeletionTime,omitempty"        json:"deletionTime,omitempty"`
+	LastUpdatedTime     *time.Time `xml:"LastUpdatedTime,omitempty"     json:"lastUpdatedTime,omitempty"`
+	StackID             string     `xml:"StackId"                       json:"stackID"`
+	StackName           string     `xml:"StackName"                     json:"stackName"`
+	StackStatus         string     `xml:"StackStatus"                   json:"stackStatus"`
+	StackStatusReason   string     `xml:"StackStatusReason,omitempty"   json:"stackStatusReason,omitempty"`
+	ParentID            string     `xml:"ParentId,omitempty"            json:"parentID,omitempty"`
+	RootID              string     `xml:"RootId,omitempty"              json:"rootID,omitempty"`
+	TemplateDescription string     `xml:"TemplateDescription,omitempty" json:"templateDescription,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
 }
 
 // StackEvent is a single event in a stack's history.
@@ -135,6 +138,12 @@ type ChangeSet struct {
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
 	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
+	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
+	// fields (api_op_CreateChangeSet.go:192,254) -- not part of
+	// DescribeChangeSetOutput's wire shape, threaded through to Execute's
+	// internal CreateStack/UpdateStack call the same way Capabilities is.
+	ResourceTypes     []string `xml:"-" json:"resourceTypes,omitempty"`
+	DisableValidation bool     `xml:"-" json:"disableValidation,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -278,10 +287,13 @@ type ManagedExecution struct {
 
 // StackSetSummary is a brief summary of a StackSet.
 type StackSetSummary struct {
-	StackSetID   string `xml:"StackSetId"`
-	StackSetName string `xml:"StackSetName"`
-	Status       string `xml:"Status"`
-	Description  string `xml:"Description,omitempty"`
+	AutoDeployment   *AutoDeployment   `xml:"-"`
+	ManagedExecution *ManagedExecution `xml:"-"`
+	StackSetID       string            `xml:"StackSetId"`
+	StackSetName     string            `xml:"StackSetName"`
+	Status           string            `xml:"Status"`
+	Description      string            `xml:"Description,omitempty"`
+	PermissionModel  string            `xml:"-"`
 }
 
 // StackInstance represents an instance of a StackSet in a specific account/region.
@@ -315,12 +327,21 @@ type GeneratedTemplate struct {
 
 // ResourceScan holds the status of a resource scan.
 type ResourceScan struct {
-	ResourceScanID      string  `xml:"ResourceScanId,omitempty"      json:"resourceScanID,omitempty"`
-	Status              string  `xml:"Status,omitempty"              json:"status,omitempty"`
+	ResourceScanID string `xml:"ResourceScanId,omitempty" json:"resourceScanID,omitempty"`
+	Status         string `xml:"Status,omitempty"         json:"status,omitempty"`
+	// ScanType mirrors types.ResourceScanSummary.ScanType (FULL|PARTIAL) --
+	// StartResourceScan (generated_templates.go) always performs a full
+	// scan, so this backend only ever produces "FULL".
+	ScanType            string  `xml:"ScanType,omitempty"            json:"scanType,omitempty"`
 	PercentageCompleted float64 `xml:"PercentageCompleted,omitempty" json:"percentageCompleted,omitempty"`
 }
 
-// TypeSummary holds a brief summary of a CloudFormation type.
+// TypeSummary holds a brief summary of a CloudFormation type. Visibility is
+// computed for filtering (see ListTypes) but, like every field below with an
+// xml tag no handler actually serializes, is not itself wire-visible on the
+// real ListTypesOutput.TypeSummary shape (confirmed against
+// awsAwsquery_deserializeDocumentTypeSummary, cloudformation@v1.76.1
+// deserializers.go).
 type TypeSummary struct {
 	TypeName         string `xml:"TypeName,omitempty"`
 	TypeArn          string `xml:"TypeArn,omitempty"`

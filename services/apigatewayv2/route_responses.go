@@ -139,12 +139,12 @@ func (b *InMemoryBackend) UpdateRouteResponse(
 		return nil, ErrRouteResponseNotFound
 	}
 
-	if input.RouteResponseKey != "" {
-		rr.RouteResponseKey = input.RouteResponseKey
+	if input.RouteResponseKey != nil {
+		rr.RouteResponseKey = *input.RouteResponseKey
 	}
 
-	if input.ModelSelectionExpression != "" {
-		rr.ModelSelectionExpression = input.ModelSelectionExpression
+	if input.ModelSelectionExpression != nil {
+		rr.ModelSelectionExpression = *input.ModelSelectionExpression
 	}
 
 	if input.ResponseModels != nil {

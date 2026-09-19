@@ -278,7 +278,7 @@ func TestActivityStream_BackendErrors(t *testing.T) {
 	require.ErrorIs(t, err, rds.ErrInvalidDBInstanceState)
 	require.NotErrorIs(t, err, rds.ErrActivityStreamNotStarted)
 
-	_, err = b.StartActivityStream("as-backend-cluster", "key-1", "")
+	_, err = b.StartActivityStream("as-backend-cluster", "key-1", "", false)
 	require.NoError(t, err)
 
 	cluster, err := b.ModifyActivityStream("as-backend-cluster", "unlocked")

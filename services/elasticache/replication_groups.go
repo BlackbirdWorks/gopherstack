@@ -242,6 +242,38 @@ func (b *InMemoryBackend) FailoverReplicationGroup(ctx context.Context, id, _ st
 
 // resizeNodeGroups resizes a node-group slice to targetCount, preserving existing groups
 // and adding stub groups as needed. replicaCount controls the replica stub count.
+// applyReshardingConfig assigns each new node group's Replicas'
+// PreferredAvailabilityZone from the matching ReshardingConfig entry (by
+// NodeGroupId when the caller supplied one, otherwise positionally), cycling
+// through PreferredAvailabilityZones if there are more replicas than AZs.
+// PrimaryNode is left untouched: this backend never populates NodeGroup.PrimaryNode
+// for any replication group (a separate, pre-existing structural gap), so
+// there is nothing on the primary side to assign an AZ to.
+func applyReshardingConfig(newGroups []NodeGroup, reshardingConfig []ReshardingConfig) {
+	if len(reshardingConfig) == 0 {
+		return
+	}
+	for i := range newGroups {
+		var azs []string
+		for _, rc := range reshardingConfig {
+			if rc.NodeGroupID != "" && rc.NodeGroupID == newGroups[i].NodeGroupID {
+				azs = rc.PreferredAvailabilityZones
+
+				break
+			}
+		}
+		if azs == nil && i < len(reshardingConfig) && reshardingConfig[i].NodeGroupID == "" {
+			azs = reshardingConfig[i].PreferredAvailabilityZones
+		}
+		if len(azs) == 0 {
+			continue
+		}
+		for j := range newGroups[i].Replicas {
+			newGroups[i].Replicas[j].PreferredAvailabilityZone = azs[j%len(azs)]
+		}
+	}
+}
+
 func resizeNodeGroups(existing []NodeGroup, targetCount, replicaCount int) []NodeGroup {
 	if targetCount <= 0 {
 		return existing
@@ -509,15 +541,44 @@ func (b *InMemoryBackend) ModifyReplicationGroupFull(
 		}
 	}
 
+	if len(opts.CacheSecurityGroupNames) > 0 {
+		sgStore := b.cacheSecurityGroupsStoreRO(region)
+		for _, sgName := range opts.CacheSecurityGroupNames {
+			if _, ok := sgStore.Get(sgName); !ok {
+				return nil, ErrCacheSecurityGroupNotFound
+			}
+		}
+	}
+
 	if err := validateTransitEncryptionModify(rg, opts); err != nil {
 		return nil, err
 	}
 
 	b.applyModifyOptsLocked(rg, opts)
+	if len(opts.CacheSecurityGroupNames) > 0 {
+		b.propagateCacheSecurityGroupsLocked(region, id, opts.CacheSecurityGroupNames)
+	}
 	b.markTransitionLocked(&rg.PendingStatus, &rg.AvailableAt, statusModifying)
 	b.appendEventLocked(id, "replication-group", "replication group modified")
 
 	return b.replicationGroupView(rg), nil
+}
+
+// propagateCacheSecurityGroupsLocked authorizes names on every cache cluster
+// that is a member of replicationGroupID. Real AWS's ModifyReplicationGroup
+// doc comment for CacheSecurityGroupNames: "A list of cache security group
+// names to authorize for the clusters in this replication group" -- the
+// replication group object itself has no CacheSecurityGroups member
+// (verified: elasticache@v1.56.4 types.ReplicationGroup has none, unlike
+// types.CacheCluster), so this must be applied to the member clusters. Must
+// hold b.mu.
+func (b *InMemoryBackend) propagateCacheSecurityGroupsLocked(region, replicationGroupID string, names []string) {
+	for _, c := range b.clustersStore(region).All() {
+		if c.ReplicationGroupID != replicationGroupID {
+			continue
+		}
+		c.CacheSecurityGroupNames = append([]string(nil), names...)
+	}
 }
 
 // applyModifyOptsLocked applies modification options to an existing replication group.
@@ -629,11 +690,11 @@ func applyAuthTokenModify(rg *ReplicationGroup, token, strategy string) {
 	}
 
 	switch strategy {
-	case "DELETE":
+	case authTokenUpdateStrategyDelete:
 		rg.AuthToken = ""
 		rg.AuthTokenEnabled = false
 		rg.AuthTokenLastModifiedDate = nil
-	case "SET":
+	case authTokenUpdateStrategySet:
 		if token == "" {
 			token = generateAuthToken()
 		}
@@ -641,7 +702,7 @@ func applyAuthTokenModify(rg *ReplicationGroup, token, strategy string) {
 		rg.AuthTokenEnabled = true
 		now := time.Now()
 		rg.AuthTokenLastModifiedDate = &now
-	case "ROTATE":
+	case authTokenUpdateStrategyRotate:
 		rg.AuthToken = generateAuthToken()
 		now := time.Now()
 		rg.AuthTokenLastModifiedDate = &now
@@ -660,9 +721,9 @@ func validateTransitEncryptionModify(rg *ReplicationGroup, opts ReplicationGroup
 	authTokenWillBeEnabled := rg.AuthTokenEnabled
 
 	switch opts.AuthTokenUpdateStrategy {
-	case "SET", "ROTATE":
+	case authTokenUpdateStrategySet, authTokenUpdateStrategyRotate:
 		authTokenWillBeEnabled = true
-	case "DELETE":
+	case authTokenUpdateStrategyDelete:
 		authTokenWillBeEnabled = false
 	}
 
@@ -974,6 +1035,7 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	replicationGroupID string,
 	nodeGroupCount int32,
 	applyImmediately bool,
+	reshardingConfig []ReshardingConfig,
 ) (*ReplicationGroup, error) {
 	if !applyImmediately {
 		return nil, ErrApplyImmediatelyRequired
@@ -998,7 +1060,9 @@ func (b *InMemoryBackend) ModifyReplicationGroupShardConfiguration(
 	}
 
 	if nodeGroupCount > 0 {
+		existingCount := len(rg.NodeGroups)
 		rg.NodeGroups = resizeNodeGroups(rg.NodeGroups, int(nodeGroupCount), int(rg.ReplicaCount))
+		applyReshardingConfig(rg.NodeGroups[existingCount:], reshardingConfig)
 	}
 
 	b.appendEventLocked(replicationGroupID, "replication-group", "shard configuration modified")

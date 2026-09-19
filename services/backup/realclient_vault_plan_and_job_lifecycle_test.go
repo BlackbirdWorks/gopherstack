@@ -36,11 +36,14 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 			_, client := newRealClient(t)
 			ctx := t.Context()
 
+			const lagKeyArn = "arn:aws:kms:us-east-1:123456789012:key/lag-vault-key"
+
 			lagOut, err := client.CreateLogicallyAirGappedBackupVault(
 				ctx, &backupsdk.CreateLogicallyAirGappedBackupVaultInput{
 					BackupVaultName:  aws.String("lag-vault"),
 					MinRetentionDays: aws.Int64(7),
 					MaxRetentionDays: aws.Int64(365),
+					EncryptionKeyArn: aws.String(lagKeyArn),
 				},
 			)
 			require.NoError(t, err)
@@ -64,6 +67,8 @@ func TestRealClient_VaultPlanAndJobLifecycle(t *testing.T) {
 				"arn:aws:mpa:us-east-1:123456789012:approval-team/team-1",
 				aws.ToString(descOut.MpaApprovalTeamArn),
 			)
+			assert.Equal(t, lagKeyArn, aws.ToString(descOut.EncryptionKeyArn))
+			assert.Equal(t, types.EncryptionKeyTypeCustomerManagedKmsKey, descOut.EncryptionKeyType)
 
 			_, err = client.DisassociateBackupVaultMpaApprovalTeam(
 				ctx, &backupsdk.DisassociateBackupVaultMpaApprovalTeamInput{

@@ -292,6 +292,7 @@ type DeploymentOptions struct {
 	FileExistsBehavior            string
 	Description                   string
 	Creator                       string
+	DeploymentConfigName          string
 	UpdateOutdatedInstancesOnly   bool
 	IgnoreApplicationStopFailures bool
 }

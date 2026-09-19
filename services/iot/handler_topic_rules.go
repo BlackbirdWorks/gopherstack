@@ -325,7 +325,12 @@ func (h *Handler) handleReplaceTopicRule(c *echo.Context) error {
 // (aws-sdk-go-v2/service/iot@v1.77.4 types.TopicRuleDestination), used by
 // Create/GetTopicRuleDestination.
 func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
-	out := map[string]any{keyArn: d.ARN, keyStatus: d.Status}
+	out := map[string]any{
+		keyArn:           d.ARN,
+		keyStatus:        d.Status,
+		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
+		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlProperties"] = d.HTTPURLProperties
 	}
@@ -338,7 +343,12 @@ func topicRuleDestinationFields(d *TopicRuleDestination) map[string]any {
 // TopicRuleDestination, but the HTTP URL sub-object is "httpUrlSummary" (types.
 // HttpUrlDestinationSummary), not "httpUrlProperties".
 func topicRuleDestinationSummaryFields(d *TopicRuleDestination) map[string]any {
-	out := map[string]any{keyArn: d.ARN, keyStatus: d.Status}
+	out := map[string]any{
+		keyArn:           d.ARN,
+		keyStatus:        d.Status,
+		keyCreatedAt:     awstime.Epoch(d.CreatedAt),
+		keyLastUpdatedAt: awstime.Epoch(d.LastUpdatedAt),
+	}
 	if d.HTTPURLProperties != nil {
 		out["httpUrlSummary"] = d.HTTPURLProperties
 	}

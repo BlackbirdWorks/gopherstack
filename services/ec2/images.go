@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"time"
 
@@ -9,6 +10,11 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// imageOwnerAliasAmazon is the well-known non-numeric OwnerID this backend's
+// seeded public AMI catalog uses (imageOwnerAlias on the wire, not
+// imageOwnerId -- see handler_images.go's knownImageOwnerAliases).
+const imageOwnerAliasAmazon = "amazon"
 
 // AMIStub is a static image entry.
 type AMIStub struct {
@@ -22,6 +28,15 @@ type AMIStub struct {
 	// SourceImageID is the parent AMI this image was copied from via
 	// CopyImage, or empty for root images. Used by GetImageAncestry.
 	SourceImageID string `json:"sourceImageID,omitempty"`
+	// OwnerID is the account ID (or "amazon" for the seeded public catalog
+	// entries below) that owns this AMI, used by DescribeImages' Owner.N
+	// filter.
+	OwnerID string `json:"ownerID,omitempty"`
+	// ImdsSupport/VirtualizationType are RegisterImage inputs echoed back
+	// on DescribeImages; this backend has no IMDS or hypervisor simulation
+	// to enforce either against.
+	ImdsSupport        string `json:"imdsSupport,omitempty"`
+	VirtualizationType string `json:"virtualizationType,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
@@ -32,6 +47,7 @@ var stubAMIs = []AMIStub{
 		Description:    "Amazon Linux 2 (x86_64)",
 		Architecture:   archX8664,
 		RootDeviceName: "/dev/xvda",
+		OwnerID:        imageOwnerAliasAmazon,
 	},
 	{
 		ImageID:        "ami-0eb260c4d5475b901",
@@ -39,6 +55,7 @@ var stubAMIs = []AMIStub{
 		Description:    "Ubuntu 22.04 LTS (x86_64)",
 		Architecture:   archX8664,
 		RootDeviceName: "/dev/sda1",
+		OwnerID:        imageOwnerAliasAmazon,
 	},
 	{
 		ImageID:        "ami-09d3b3274b6c5d4aa",
@@ -47,6 +64,7 @@ var stubAMIs = []AMIStub{
 		Architecture:   archX8664,
 		Platform:       "windows",
 		RootDeviceName: "/dev/sda1",
+		OwnerID:        imageOwnerAliasAmazon,
 	},
 }
 
@@ -144,6 +162,19 @@ func (b *InMemoryBackend) EnableImageDeprecation(imageID, deprecateAt string) er
 	b.imageDeprecated[imageID] = deprecateAt
 
 	return nil
+}
+
+// ImageDeprecation returns a copy of the imageID -> DeprecateAt map
+// EnableImageDeprecation/DisableImageDeprecation maintain, for
+// DescribeImages' DeprecationTime echo and IncludeDeprecated filter.
+func (b *InMemoryBackend) ImageDeprecation() map[string]string {
+	b.mu.RLock("ImageDeprecation")
+	defer b.mu.RUnlock()
+
+	out := make(map[string]string, len(b.imageDeprecated))
+	maps.Copy(out, b.imageDeprecated)
+
+	return out
 }
 
 // DisableImageDeprecation removes deprecation from an AMI.
@@ -316,6 +347,7 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 		Name:         name,
 		Description:  description,
 		Architecture: architecture,
+		OwnerID:      b.AccountID,
 	}
 	if img.Architecture == "" {
 		img.Architecture = archX8664
@@ -323,6 +355,27 @@ func (b *InMemoryBackend) RegisterImage(name, description, architecture string) 
 	b.images.Put(img)
 
 	return img, nil
+}
+
+// SetImageMetadata applies RegisterImage's ImdsSupport/VirtualizationType --
+// both declare+apply-only fields (empty is left unset): this backend has no
+// IMDS or hypervisor simulation to enforce either against.
+func (b *InMemoryBackend) SetImageMetadata(imageID, imdsSupport, virtualizationType string) {
+	b.mu.Lock("SetImageMetadata")
+	defer b.mu.Unlock()
+
+	img, ok := b.images.Get(imageID)
+	if !ok {
+		return
+	}
+
+	if imdsSupport != "" {
+		img.ImdsSupport = imdsSupport
+	}
+
+	if virtualizationType != "" {
+		img.VirtualizationType = virtualizationType
+	}
 }
 
 // ImportImage creates an import task for importing a VM image.
@@ -610,6 +663,7 @@ func (b *InMemoryBackend) CopyImage(sourceImageID, name, description string) (*A
 		Platform:       src.Platform,
 		RootDeviceName: src.RootDeviceName,
 		SourceImageID:  src.ImageID,
+		OwnerID:        b.AccountID,
 	}
 	b.images.Put(newImage)
 

@@ -140,6 +140,16 @@ func (b *InMemoryBackend) GetLoggingStatus(clusterID string) (*LoggingStatus, er
 	return &cp, nil
 }
 
+// AddEventInternal seeds an event directly into the backend. Production code
+// never populates the events table (this backend does not itself generate
+// event history), so tests use this to exercise DescribeEvents' filtering,
+// Duration cutoff and Marker/MaxRecords pagination against real records.
+func (b *InMemoryBackend) AddEventInternal(e *Event) {
+	b.mu.Lock("AddEventInternal")
+	defer b.mu.Unlock()
+	b.events.Put(e)
+}
+
 // DescribeEvents returns events for a Redshift resource.
 // This in-memory implementation returns an empty list since events are not tracked.
 func (b *InMemoryBackend) DescribeEvents(sourceIdentifier, sourceType string) ([]Event, error) {

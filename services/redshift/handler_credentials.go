@@ -2,9 +2,28 @@ package redshift
 
 import (
 	"encoding/xml"
+	"fmt"
 	"net/url"
+	"strconv"
 	"time"
 )
+
+// parseDurationSecondsParam reads the shared GetClusterCredentials(WithIAM)
+// DurationSeconds request parameter. ok is false when the caller omitted it
+// (the backend then applies its own default).
+func parseDurationSecondsParam(vals url.Values) (int, bool, error) {
+	v := vals.Get("DurationSeconds")
+	if v == "" {
+		return 0, false, nil
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, false, fmt.Errorf("%w: DurationSeconds must be an integer", ErrInvalidParameter)
+	}
+
+	return n, true, nil
+}
 
 // ---- GetClusterCredentials ----
 
@@ -25,7 +44,17 @@ func (h *Handler) handleGetClusterCredentials(vals url.Values) (any, error) {
 	dbUser := vals.Get("DbUser")
 	autoCreate := vals.Get("AutoCreate") == paramValueTrue
 
-	creds, err := h.Backend.GetClusterCredentials(clusterID, dbUser, autoCreate)
+	duration, hasDuration, err := parseDurationSecondsParam(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	var durationPtr *int
+	if hasDuration {
+		durationPtr = &duration
+	}
+
+	creds, err := h.Backend.GetClusterCredentials(clusterID, dbUser, autoCreate, durationPtr)
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +83,17 @@ func (h *Handler) handleGetClusterCredentialsWithIAM(vals url.Values) (any, erro
 	clusterID := vals.Get("ClusterIdentifier")
 	dbName := vals.Get("DbName")
 
-	creds, err := h.Backend.GetClusterCredentialsWithIAM(clusterID, dbName)
+	duration, hasDuration, err := parseDurationSecondsParam(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	var durationPtr *int
+	if hasDuration {
+		durationPtr = &duration
+	}
+
+	creds, err := h.Backend.GetClusterCredentialsWithIAM(clusterID, dbName, durationPtr)
 	if err != nil {
 		return nil, err
 	}

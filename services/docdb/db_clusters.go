@@ -42,9 +42,9 @@ func validateCreateDBClusterParams(
 // threshold.
 func extractCreateDBClusterOpts(
 	opts *CreateDBClusterOptions,
-) (string, []string, []string) {
+) (string, string, []string, []string) {
 	if opts == nil {
-		return "", nil, nil
+		return "", "", nil, nil
 	}
 	var vpcSecurityGroupIDs, enabledCloudwatchLogsExports []string
 	if len(opts.VpcSecurityGroupIDs) > 0 {
@@ -56,7 +56,7 @@ func extractCreateDBClusterOpts(
 		copy(enabledCloudwatchLogsExports, opts.EnabledCloudwatchLogsExports)
 	}
 
-	return opts.KmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports
+	return opts.KmsKeyID, opts.StorageType, vpcSecurityGroupIDs, enabledCloudwatchLogsExports
 }
 
 // CreateDBCluster creates a cluster. The unnamed string parameter between
@@ -116,13 +116,18 @@ func (b *InMemoryBackend) CreateDBCluster(
 	azs := make([]string, len(availabilityZones))
 	copy(azs, availabilityZones)
 
-	kmsKeyID, vpcSecurityGroupIDs, enabledCloudwatchLogsExports := extractCreateDBClusterOpts(opts)
+	kmsKeyID, storageType, vpcSecurityGroupIDs, enabledCloudwatchLogsExports := extractCreateDBClusterOpts(opts)
+	storageType, err := validateStorageType(storageType)
+	if err != nil {
+		return nil, err
+	}
 
 	cluster := &DBCluster{
 		region:                       region,
 		DBClusterIdentifier:          id,
 		Engine:                       engine,
 		Status:                       statusAvailable,
+		StorageType:                  storageType,
 		MasterUsername:               masterUser,
 		DBClusterParameterGroupName:  paramGroupName,
 		DBSubnetGroupName:            subnetGroupName,
@@ -275,20 +280,42 @@ func (b *InMemoryBackend) ModifyDBCluster(
 		c.PreferredMaintenanceWindow = preferredMaintenanceWindow
 	}
 	if opts != nil {
-		if opts.MasterUserPassword != "" {
-			if err := validateMasterUserPassword(opts.MasterUserPassword); err != nil {
-				return nil, err
-			}
-		}
-
-		applyModifyDBClusterOpts(c, opts)
-		if opts.NewDBClusterIdentifier != "" {
-			b.clusterDelete(region, id)
-			b.clusterPut(c)
+		if err := b.applyModifyDBClusterExtras(region, id, c, opts); err != nil {
+			return nil, err
 		}
 	}
 
 	return copyCluster(c), nil
+}
+
+// applyModifyDBClusterExtras validates and applies the ModifyDBCluster
+// fields that need more than a plain field copy (password validation,
+// StorageType validation, and identifier-rename re-keying).
+func (b *InMemoryBackend) applyModifyDBClusterExtras(
+	region, id string,
+	c *DBCluster,
+	opts *ModifyDBClusterOptions,
+) error {
+	if opts.MasterUserPassword != "" {
+		if err := validateMasterUserPassword(opts.MasterUserPassword); err != nil {
+			return err
+		}
+	}
+	if opts.StorageType != "" {
+		storageType, err := validateStorageType(opts.StorageType)
+		if err != nil {
+			return err
+		}
+		c.StorageType = storageType
+	}
+
+	applyModifyDBClusterOpts(c, opts)
+	if opts.NewDBClusterIdentifier != "" {
+		b.clusterDelete(region, id)
+		b.clusterPut(c)
+	}
+
+	return nil
 }
 
 // applyModifyDBClusterOpts applies optional ModifyDBCluster parameters to an existing cluster.
@@ -404,16 +431,39 @@ func (b *InMemoryBackend) FailoverDBCluster(
 	return copyCluster(c), nil
 }
 
+// RestoreDBClusterOptions holds optional extra parameters shared by the
+// restore-a-new-cluster operations (RestoreDBClusterFromSnapshot,
+// RestoreDBClusterToPointInTime).
+type RestoreDBClusterOptions struct {
+	StorageType string
+	// RestoreToTime and UseLatestRestorableTime are mutually exclusive per
+	// docdb@v1.51.4 api_op_RestoreDBClusterToPointInTime.go:127-134 ("Must be
+	// specified if the UseLatestRestorableTime parameter is not provided" /
+	// "Cannot be specified if the UseLatestRestorableTime parameter is
+	// true"); RestoreDBClusterFromSnapshot never reads these two.
+	RestoreToTime           string
+	UseLatestRestorableTime bool
+}
+
 // RestoreDBClusterFromSnapshot restores a new cluster from a snapshot.
 func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 	ctx context.Context,
 	snapshotID, clusterID, engine string,
+	opts *RestoreDBClusterOptions,
 ) (*DBCluster, error) {
 	if snapshotID == "" {
 		return nil, fmt.Errorf("%w: DBClusterSnapshotIdentifier is required", ErrInvalidParameter)
 	}
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	var storageTypeIn string
+	if opts != nil {
+		storageTypeIn = opts.StorageType
+	}
+	storageType, err := validateStorageType(storageTypeIn)
+	if err != nil {
+		return nil, err
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterFromSnapshot")
@@ -448,6 +498,7 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 		DBClusterIdentifier:         clusterID,
 		Engine:                      engine,
 		Status:                      statusAvailable,
+		StorageType:                 storageType,
 		DBClusterParameterGroupName: paramGroupName,
 		DBSubnetGroupName:           subnetGroupName,
 		Endpoint:                    endpoint,
@@ -467,12 +518,36 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 	ctx context.Context,
 	sourceClusterID, targetClusterID string,
+	opts *RestoreDBClusterOptions,
 ) (*DBCluster, error) {
 	if sourceClusterID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterIdentifier is required", ErrInvalidParameter)
 	}
 	if targetClusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	var storageTypeIn, restoreToTime string
+	var useLatestRestorableTime bool
+	if opts != nil {
+		storageTypeIn = opts.StorageType
+		restoreToTime = opts.RestoreToTime
+		useLatestRestorableTime = opts.UseLatestRestorableTime
+	}
+	storageType, err := validateStorageType(storageTypeIn)
+	if err != nil {
+		return nil, err
+	}
+	switch {
+	case restoreToTime != "" && useLatestRestorableTime:
+		return nil, fmt.Errorf(
+			"%w: RestoreToTime cannot be specified when UseLatestRestorableTime is true",
+			ErrInvalidParameter,
+		)
+	case restoreToTime == "" && !useLatestRestorableTime:
+		return nil, fmt.Errorf(
+			"%w: RestoreToTime must be specified if UseLatestRestorableTime is not provided",
+			ErrInvalidParameter,
+		)
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterToPointInTime")
@@ -492,6 +567,7 @@ func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
 		DBClusterIdentifier:         targetClusterID,
 		Engine:                      src.Engine,
 		Status:                      statusAvailable,
+		StorageType:                 storageType,
 		MasterUsername:              src.MasterUsername,
 		DBClusterParameterGroupName: src.DBClusterParameterGroupName,
 		DBSubnetGroupName:           src.DBSubnetGroupName,

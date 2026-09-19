@@ -47,7 +47,7 @@ func TestBackend_ModifyHosts_SuccessAndUnsuccessful(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	hosts, err := b.AllocateHosts("us-east-1a", "c5.metal", 1)
+	hosts, err := b.AllocateHosts("us-east-1a", "c5.metal", 1, "", "")
 	require.NoError(t, err)
 	hostID := hosts[0].HostID
 
@@ -198,7 +198,7 @@ func TestBackend_ModifyInstancePlacement_UnknownHostFails(t *testing.T) {
 	stoppedID := newStoppedInstance(t, b)
 
 	_, err := b.ModifyInstancePlacement(ec2.ModifyInstancePlacementInput{
-		InstanceID: stoppedID, HostID: "h-doesnotexist",
+		InstanceID: stoppedID, HostID: aws.String("h-doesnotexist"),
 	})
 	require.ErrorIs(t, err, ec2.ErrHostNotFound)
 }

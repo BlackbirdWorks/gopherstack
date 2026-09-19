@@ -112,7 +112,7 @@ func TestInstanceRefreshTransition_Cancelled(t *testing.T) {
 			t.Fatalf("StartInstanceRefresh: %v", err)
 		}
 
-		if _, err := b.CancelInstanceRefresh("cancel-asg"); err != nil {
+		if _, err := b.CancelInstanceRefresh("cancel-asg", true); err != nil {
 			t.Fatalf("CancelInstanceRefresh: %v", err)
 		}
 

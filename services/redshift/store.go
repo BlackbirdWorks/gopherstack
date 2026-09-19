@@ -34,6 +34,18 @@ const (
 	defaultMasterUsername        = "admin"
 	defaultPort                  = 5439
 	qev2IdcOnboardStatusComplete = "COMPLETED"
+
+	// defaultAutomatedSnapshotRetentionPeriod/defaultManualSnapshotRetentionPeriod
+	// match CreateClusterInput's documented defaults (redshift@v1.65.4
+	// api_op_CreateCluster.go: "Default: 1" / ManualSnapshotRetentionPeriod's
+	// "-1" meaning retained indefinitely).
+	defaultAutomatedSnapshotRetentionPeriod = 1
+	defaultManualSnapshotRetentionPeriod    = -1
+	minAutomatedSnapshotRetentionPeriod     = 0
+	maxAutomatedSnapshotRetentionPeriod     = 35
+	indefiniteManualSnapshotRetentionPeriod = -1
+	minManualSnapshotRetentionPeriod        = 1
+	maxManualSnapshotRetentionPeriod        = 3653
 )
 
 // InMemoryBackend is the in-memory store for Redshift clusters.
@@ -203,6 +215,95 @@ func (b *InMemoryBackend) validateClusterAssociationsLocked(
 	return nil
 }
 
+// CreateClusterOptions groups CreateCluster's optional fields not already
+// covered by its required positional arguments (real CreateClusterInput,
+// redshift@v1.65.4 api_op_CreateCluster.go, has ~40 fields; this backend
+// models the documented-default subset gopherstack-xhu2t scoped in).
+//
+// AllowVersionUpgrade and ExtraComputeForAutomaticOptimization are tri-state
+// pointers because their zero value ("not specified") must be distinguished
+// from an explicit "false" -- both default true/false respectively per their
+// own docs, matching ModifyClusterOptions' existing Encrypted/
+// EnhancedVpcRouting/PubliclyAccessible convention.
+type CreateClusterOptions struct {
+	AllowVersionUpgrade                  *bool
+	AutomatedSnapshotRetentionPeriod     *int
+	ManualSnapshotRetentionPeriod        *int
+	AvailabilityZone                     string
+	ClusterSubnetGroupName               string
+	DefaultIamRoleArn                    string
+	VpcSecurityGroupIDs                  []string
+	Port                                 int
+	ExtraComputeForAutomaticOptimization bool
+}
+
+// validateClusterID checks ClusterIdentifier against the real API's format
+// rules (must start with a letter, contain only lowercase letters/digits/
+// hyphens, not end with a hyphen, not contain consecutive hyphens).
+func validateClusterID(id string) error {
+	if id == "" {
+		return fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	if !clusterIDRegex.MatchString(id) || strings.HasSuffix(id, "-") || strings.Contains(id, "--") {
+		return fmt.Errorf(
+			"%w: ClusterIdentifier %q is invalid (must start with a letter, "+
+				"contain only lowercase letters/digits/hyphens, not end with a hyphen, "+
+				"not contain consecutive hyphens, max 63 chars)",
+			ErrInvalidParameter, id,
+		)
+	}
+
+	return nil
+}
+
+// resolveClusterRetentionPeriods validates and resolves CreateCluster's
+// snapshot-retention options, defaulting any left unset.
+func resolveClusterRetentionPeriods(opts CreateClusterOptions) (int, int, error) {
+	automated := defaultAutomatedSnapshotRetentionPeriod
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		automated = *opts.AutomatedSnapshotRetentionPeriod
+		if automated < minAutomatedSnapshotRetentionPeriod || automated > maxAutomatedSnapshotRetentionPeriod {
+			return 0, 0, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	manual := defaultManualSnapshotRetentionPeriod
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		manual = *opts.ManualSnapshotRetentionPeriod
+		if manual != indefiniteManualSnapshotRetentionPeriod &&
+			(manual < minManualSnapshotRetentionPeriod || manual > maxManualSnapshotRetentionPeriod) {
+			return 0, 0, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	return automated, manual, nil
+}
+
+// resolveClusterCreateDefaults fills in CreateCluster's defaulted fields.
+func resolveClusterCreateDefaults(nodeType, dbName, masterUser string, port int) (string, string, string, int) {
+	if nodeType == "" {
+		nodeType = defaultNodeType
+	}
+	if dbName == "" {
+		dbName = defaultDBName
+	}
+	if masterUser == "" {
+		masterUser = defaultMasterUsername
+	}
+	if port == 0 {
+		port = defaultPort
+	}
+
+	return nodeType, dbName, masterUser, port
+}
+
 // CreateCluster creates a new Redshift cluster. clusterSecurityGroups and
 // clusterParameterGroupName associate the cluster with existing
 // ClusterSecurityGroup/ClusterParameterGroup resources (real
@@ -214,18 +315,20 @@ func (b *InMemoryBackend) CreateCluster(
 	id, nodeType, dbName, masterUser string,
 	clusterSecurityGroups []string,
 	clusterParameterGroupName string,
+	opts CreateClusterOptions,
 ) (*Cluster, error) {
-	if id == "" {
-		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	if err := validateClusterID(id); err != nil {
+		return nil, err
 	}
 
-	if !clusterIDRegex.MatchString(id) || strings.HasSuffix(id, "-") || strings.Contains(id, "--") {
-		return nil, fmt.Errorf(
-			"%w: ClusterIdentifier %q is invalid (must start with a letter, "+
-				"contain only lowercase letters/digits/hyphens, not end with a hyphen, "+
-				"not contain consecutive hyphens, max 63 chars)",
-			ErrInvalidParameter, id,
-		)
+	automatedRetention, manualRetention, err := resolveClusterRetentionPeriods(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	allowVersionUpgrade := true
+	if opts.AllowVersionUpgrade != nil {
+		allowVersionUpgrade = *opts.AllowVersionUpgrade
 	}
 
 	b.mu.Lock("CreateCluster")
@@ -235,19 +338,11 @@ func (b *InMemoryBackend) CreateCluster(
 		return nil, fmt.Errorf("%w: cluster %s already exists", ErrClusterAlreadyExists, id)
 	}
 
-	if err := b.validateClusterAssociationsLocked(clusterSecurityGroups, clusterParameterGroupName); err != nil {
+	if err = b.validateClusterAssociationsLocked(clusterSecurityGroups, clusterParameterGroupName); err != nil {
 		return nil, err
 	}
 
-	if nodeType == "" {
-		nodeType = defaultNodeType
-	}
-	if dbName == "" {
-		dbName = defaultDBName
-	}
-	if masterUser == "" {
-		masterUser = defaultMasterUsername
-	}
+	nodeType, dbName, masterUser, port := resolveClusterCreateDefaults(nodeType, dbName, masterUser, opts.Port)
 
 	endpoint := fmt.Sprintf("%s.%s.%s.redshift.amazonaws.com", id, b.accountID, b.region)
 
@@ -257,18 +352,26 @@ func (b *InMemoryBackend) CreateCluster(
 	}
 
 	cluster := &Cluster{
-		ClusterIdentifier:         id,
-		NodeType:                  nodeType,
-		ClusterType:               clusterTypeMultiNode,
-		Endpoint:                  endpoint,
-		Status:                    initialStatus,
-		DBName:                    dbName,
-		MasterUsername:            masterUser,
-		Port:                      defaultPort,
-		NumberOfNodes:             1,
-		Tags:                      tags.New("redshift.cluster." + id + ".tags"),
-		ClusterSecurityGroups:     clusterSecurityGroups,
-		ClusterParameterGroupName: clusterParameterGroupName,
+		ClusterIdentifier:                    id,
+		NodeType:                             nodeType,
+		ClusterType:                          clusterTypeMultiNode,
+		Endpoint:                             endpoint,
+		Status:                               initialStatus,
+		DBName:                               dbName,
+		MasterUsername:                       masterUser,
+		Port:                                 port,
+		NumberOfNodes:                        1,
+		Tags:                                 tags.New("redshift.cluster." + id + ".tags"),
+		ClusterSecurityGroups:                clusterSecurityGroups,
+		ClusterParameterGroupName:            clusterParameterGroupName,
+		VpcSecurityGroupIDs:                  opts.VpcSecurityGroupIDs,
+		AvailabilityZone:                     opts.AvailabilityZone,
+		ClusterSubnetGroupName:               opts.ClusterSubnetGroupName,
+		DefaultIamRoleArn:                    opts.DefaultIamRoleArn,
+		AllowVersionUpgrade:                  allowVersionUpgrade,
+		AutomatedSnapshotRetentionPeriod:     automatedRetention,
+		ManualSnapshotRetentionPeriod:        manualRetention,
+		ExtraComputeForAutomaticOptimization: opts.ExtraComputeForAutomaticOptimization,
 	}
 	b.clusters.Put(cluster)
 

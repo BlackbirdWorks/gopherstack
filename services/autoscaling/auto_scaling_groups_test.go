@@ -3,6 +3,7 @@ package autoscaling_test
 import (
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -266,7 +267,7 @@ func TestInMemoryBackend_SetDesiredCapacity(t *testing.T) {
 				tt.setup(b)
 			}
 
-			err := b.SetDesiredCapacity(tt.group, tt.desired)
+			err := b.SetDesiredCapacity(tt.group, tt.desired, false)
 			if tt.wantErr {
 				require.Error(t, err)
 
@@ -485,7 +486,7 @@ func TestInMemoryBackend_VPCZoneIdentifier(t *testing.T) {
 
 				g, err := b.UpdateAutoScalingGroup(autoscaling.UpdateAutoScalingGroupInput{
 					AutoScalingGroupName: "vpc-update-asg",
-					VPCZoneIdentifier:    "subnet-ccc",
+					VPCZoneIdentifier:    aws.String("subnet-ccc"),
 				})
 				require.NoError(t, err)
 				assert.Equal(t, "subnet-ccc", g.VPCZoneIdentifier)

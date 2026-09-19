@@ -267,7 +267,7 @@ func TestPersonalize_ListOps_SummaryShape(t *testing.T) {
 		},
 		{
 			name:    "datasetImportJobs",
-			present: []string{"datasetImportJobArn", "jobName", "status", "creationDateTime"},
+			present: []string{"datasetImportJobArn", "jobName", "importMode", "status", "creationDateTime"},
 			leaked:  []string{"datasetArn", "roleArn", "dataSource"},
 			setup: func(t *testing.T, h *personalize.Handler) map[string]any {
 				t.Helper()

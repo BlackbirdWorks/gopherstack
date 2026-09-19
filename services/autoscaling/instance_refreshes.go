@@ -8,9 +8,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// CancelInstanceRefresh cancels an active instance refresh for the group.
-// It returns the ID of the cancelled refresh.
-func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error) {
+// CancelInstanceRefresh cancels an active instance refresh for the group. It
+// returns the ID of the cancelled refresh. waitForTransitioningInstances
+// mirrors CancelInstanceRefreshInput's own doc comment: true (the default)
+// waits for in-flight launches/terminations before finishing the cancel
+// (modeled here as the existing Cancelling->Cancelled delayed transition);
+// false skips the wait and finishes the cancel immediately.
+func (b *InMemoryBackend) CancelInstanceRefresh(groupName string, waitForTransitioningInstances bool) (string, error) {
 	b.mu.Lock("CancelInstanceRefresh")
 	defer b.mu.Unlock()
 
@@ -20,6 +24,12 @@ func (b *InMemoryBackend) CancelInstanceRefresh(groupName string) (string, error
 
 	for _, r := range b.instanceRefreshes[groupName] {
 		if r.Status == statusInProgress || r.Status == statusPending {
+			if !waitForTransitioningInstances {
+				r.Status = statusCancelled
+
+				return r.InstanceRefreshID, nil
+			}
+
 			r.Status = statusCancelling
 			b.armRefreshTransition(r.InstanceRefreshID, groupName, statusCancelled)
 

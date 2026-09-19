@@ -149,13 +149,18 @@ func (h *Handler) handleListProjects(ctx context.Context, body []byte) ([]byte, 
 
 	summaries := make([]map[string]any, 0, len(items))
 	for _, p := range items {
-		summaries = append(summaries, map[string]any{
+		summary := map[string]any{
 			keyProjectName:   p.ProjectName,
 			keyProjectArn:    p.ProjectArn,
 			keyProjectID:     p.ProjectID,
 			keyProjectStatus: p.ProjectStatus,
 			keyCreationTime:  epochSeconds(p.CreationTime),
-		})
+		}
+		if p.ProjectDescription != "" {
+			summary["ProjectDescription"] = p.ProjectDescription
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"ProjectSummaryList": summaries}

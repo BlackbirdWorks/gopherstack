@@ -161,20 +161,15 @@ func TestCensusService_RealServices(t *testing.T) {
 	}{
 		{name: "ssm", total: 152, ldg: 80, listOps: 19, describe: 33, getOps: 28},
 		{name: "route53resolver", total: 72, ldg: 32, listOps: 17, describe: 0, getOps: 15},
-		// gopherstack-1t0m: bedrock declares GetSupportedOperations twice
-		// (Handler in handler.go, AgentsHandler in handler_agents_dispatch.go).
-		// 179 is the union, hand-verified by calling
-		// NewHandler(...).GetSupportedOperations() (108) and
-		// NewAgentsHandler(...).GetSupportedOperations() (77) and deduping --
-		// they overlap on exactly ListTagsForResource, TagResource,
-		// UntagResource, DeleteResourcePolicy, GetResourcePolicy,
-		// PutResourcePolicy. Before the fix this resolved to 77: AgentsHandler
-		// only, entirely bedrockagent-shaped, with none of Handler's real
-		// model-management ops.
-		{
-			name: "bedrock", total: 179, ldg: 78, listOps: 36, describe: 0, getOps: 42,
-			declaredBy: []string{"*AgentsHandler", "*Handler"},
-		},
+		// bedrock previously declared GetSupportedOperations twice (Handler
+		// in handler.go, AgentsHandler in handler_agents_dispatch.go), for a
+		// union total of 179 (gopherstack-1t0m). AgentsHandler was deleted as
+		// dead code (gopherstack-m2eiu): every route it registered resolved
+		// to services/bedrockagent's higher-priority Handler in production,
+		// so its ops could never execute. bedrock now declares
+		// GetSupportedOperations once, hand-verified by calling
+		// NewHandler(...).GetSupportedOperations() (108).
+		{name: "bedrock", total: 108, ldg: 49, listOps: 22, describe: 0, getOps: 27},
 		// gopherstack-1t0m: redshift declares GetSupportedOperations twice
 		// (Handler in handler.go, ServerlessHandler in handler_serverless.go).
 		// 198 is the union, hand-verified the same way (Handler=145,

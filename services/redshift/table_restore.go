@@ -7,12 +7,31 @@ import (
 	"github.com/google/uuid"
 )
 
+// defaultSchemaName is RestoreTableFromClusterSnapshotInput.SourceSchemaName/
+// TargetSchemaName's documented default ("If you do not specify a
+// SourceSchemaName value, the default is public").
+const defaultSchemaName = "public"
+
 // CreateTableRestoreStatus creates a table restore status entry.
+// sourceSchemaName/targetSchemaName mirror real
+// RestoreTableFromClusterSnapshotInput.SourceSchemaName/TargetSchemaName
+// (redshift@v1.65.4 api_op_RestoreTableFromClusterSnapshot.go);
+// types.TableRestoreStatus.SourceSchemaName/TargetSchemaName echo them back
+// on the wire.
 func (b *InMemoryBackend) CreateTableRestoreStatus(
 	clusterID, snapshotID, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
+	sourceSchemaName, targetSchemaName string,
 ) (*TableRestoreStatus, error) {
 	if clusterID == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
+	}
+
+	if sourceSchemaName == "" {
+		sourceSchemaName = defaultSchemaName
+	}
+
+	if targetSchemaName == "" {
+		targetSchemaName = defaultSchemaName
 	}
 
 	b.mu.Lock("CreateTableRestoreStatus")
@@ -25,8 +44,10 @@ func (b *InMemoryBackend) CreateTableRestoreStatus(
 		SnapshotIdentifier:    snapshotID,
 		Status:                tableRestoreStatusInProgress,
 		SourceDatabaseName:    sourceDatabaseName,
+		SourceSchemaName:      sourceSchemaName,
 		SourceTableName:       sourceTableName,
 		TargetDatabaseName:    targetDatabaseName,
+		TargetSchemaName:      targetSchemaName,
 		TargetTableName:       targetTableName,
 		RequestTime:           time.Now().UTC(),
 	}

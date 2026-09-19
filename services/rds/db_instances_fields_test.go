@@ -29,7 +29,7 @@ func TestModifyDBInstanceNewFields(t *testing.T) {
 		"AllowMajorVersionUpgrade": {"true"},
 		"MonitoringInterval":       {"30"},
 		"MonitoringRoleArn":        {"arn:aws:iam::123456789012:role/rds-mon"},
-		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-aaaaaaaa"},
+		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-aaaaaaaa"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 
@@ -82,9 +82,9 @@ func TestReadReplicaIdentifiersTrackedOnSource(t *testing.T) {
 		rds.DBInstanceOptions{},
 	)
 	require.NoError(t, err)
-	_, err = b.CreateDBInstanceReadReplica("rep-x", "replica-src-b", "", "", "")
+	_, err = b.CreateDBInstanceReadReplica("rep-x", "replica-src-b", "", "", "", rds.DBInstanceOptions{})
 	require.NoError(t, err)
-	_, err = b.CreateDBInstanceReadReplica("rep-y", "replica-src-b", "", "", "")
+	_, err = b.CreateDBInstanceReadReplica("rep-y", "replica-src-b", "", "", "", rds.DBInstanceOptions{})
 	require.NoError(t, err)
 
 	instances, err := b.DescribeDBInstances("replica-src-b")
@@ -105,8 +105,8 @@ func TestVpcSecurityGroupsViaModify(t *testing.T) {
 		"Action":               {"ModifyDBInstance"},
 		"Version":              {"2014-10-31"},
 		"DBInstanceIdentifier": {"sg-modify-inst"},
-		"VpcSecurityGroupIds.VpcSecurityGroupID.1": {"sg-ffffffff"},
-		"VpcSecurityGroupIds.VpcSecurityGroupID.2": {"sg-eeeeeeee"},
+		"VpcSecurityGroupIds.VpcSecurityGroupId.1": {"sg-ffffffff"},
+		"VpcSecurityGroupIds.VpcSecurityGroupId.2": {"sg-eeeeeeee"},
 	})
 	require.Equal(t, http.StatusOK, rec.Code)
 

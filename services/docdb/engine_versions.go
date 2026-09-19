@@ -3,7 +3,11 @@ package docdb
 import "context"
 
 // DescribeDBEngineVersions returns available engine versions, optionally filtered.
-func (b *InMemoryBackend) DescribeDBEngineVersions(_ context.Context, engine, engineVersion string) []DBEngineVersion {
+func (b *InMemoryBackend) DescribeDBEngineVersions(
+	_ context.Context,
+	engine, engineVersion string,
+	defaultOnly bool,
+) []DBEngineVersion {
 	all := []DBEngineVersion{
 		{Engine: docDBEngine, EngineVersion: docDBEngineVersion36, DBEngineDescription: docDBEngineDescription},
 		{Engine: docDBEngine, EngineVersion: defaultEngineVersion, DBEngineDescription: docDBEngineDescription},
@@ -15,6 +19,9 @@ func (b *InMemoryBackend) DescribeDBEngineVersions(_ context.Context, engine, en
 			continue
 		}
 		if engineVersion != "" && v.EngineVersion != engineVersion {
+			continue
+		}
+		if defaultOnly && v.EngineVersion != defaultEngineVersion {
 			continue
 		}
 		result = append(result, v)

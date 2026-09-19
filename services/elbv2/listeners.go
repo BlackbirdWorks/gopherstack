@@ -338,12 +338,12 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		return nil, err
 	}
 
-	if input.Port != 0 && input.Port != l.Port {
-		if err := checkDuplicateListenerPort(b.listenersByLB.Get(l.LoadBalancerArn), input.Port); err != nil {
+	if input.Port != nil && *input.Port != l.Port {
+		if err := checkDuplicateListenerPort(b.listenersByLB.Get(l.LoadBalancerArn), *input.Port); err != nil {
 			return nil, err
 		}
 
-		l.Port = input.Port
+		l.Port = *input.Port
 	}
 
 	if len(input.DefaultActions) > 0 {
@@ -366,8 +366,8 @@ func (b *InMemoryBackend) ModifyListener(input ModifyListenerInput) (*Listener, 
 		b.markCertificatesInUse(input.ListenerArn, input.Certificates)
 	}
 
-	if input.SSLPolicy != "" {
-		l.SSLPolicy = input.SSLPolicy
+	if input.SSLPolicy != nil {
+		l.SSLPolicy = *input.SSLPolicy
 	}
 
 	if len(input.AlpnPolicy) > 0 {

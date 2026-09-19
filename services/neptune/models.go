@@ -42,6 +42,7 @@ type DBClusterModifyOptions struct {
 	NetworkType                     string
 	PreferredBackupWindow           string
 	PreferredMaintenanceWindow      string
+	DBInstanceParameterGroupName    string
 	VpcSecurityGroupIDs             []string
 	BackupRetentionPeriod           int
 	EnableIAMDatabaseAuthentication bool
@@ -52,6 +53,11 @@ type DBClusterModifyOptions struct {
 	CopyTagsToSnapshot              bool
 	CopyTagsToSnapshotSet           bool
 	BackupRetentionPeriodSet        bool
+	// ApplyImmediately is read for wire-declaration parity but this backend
+	// always applies modifications immediately, same disclosed
+	// simplification as docdb's ModifyDBCluster.ApplyImmediately
+	// (services/docdb/models.go).
+	ApplyImmediately bool
 }
 
 // DBClusterDeleteOptions holds optional fields for DeleteDBCluster.
@@ -115,37 +121,37 @@ type DBCluster struct {
 
 // DBInstance represents an Amazon Neptune DB instance.
 type DBInstance struct {
-	// region is the AWS region this instance belongs to; see DBCluster.region
-	// for the composite-key rationale (store_setup.go/persistence.go).
-	region                     string
-	DBInstanceIdentifier       string `json:"DBInstanceIdentifier"`
-	DBInstanceArn              string `json:"DBInstanceArn"`
-	DBClusterIdentifier        string `json:"DBClusterIdentifier"`
-	DBInstanceClass            string `json:"DBInstanceClass"`
-	Engine                     string `json:"Engine"`
-	EngineVersion              string `json:"EngineVersion"`
-	DBInstanceStatus           string `json:"DBInstanceStatus"`
-	InstanceCreateTime         string `json:"InstanceCreateTime"`
-	Endpoint                   string `json:"Endpoint"`
-	DBSubnetGroupName          string `json:"DBSubnetGroupName"`
-	DBParameterGroupName       string `json:"DBParameterGroupName"`
-	PreferredMaintenanceWindow string `json:"PreferredMaintenanceWindow"`
-	PreferredBackupWindow      string `json:"PreferredBackupWindow"`
-	AvailabilityZone           string `json:"AvailabilityZone"`
-	// NetworkType is inherited from the instance's DB cluster at create time
-	// (neptune@v1.48.4 types/types.go:764: "Inherited from the DB cluster" --
-	// CreateDBInstanceInput/ModifyDBInstanceInput carry no NetworkType member
-	// of their own).
-	NetworkType                     string `json:"NetworkType,omitempty"`
-	Port                            int    `json:"Port"`
-	PromotionTier                   int    `json:"PromotionTier"`
-	StorageEncrypted                bool   `json:"StorageEncrypted"`
-	AutoMinorVersionUpgrade         bool   `json:"AutoMinorVersionUpgrade"`
-	CopyTagsToSnapshot              bool   `json:"CopyTagsToSnapshot"`
-	EnableIAMDatabaseAuthentication bool   `json:"EnableIAMDatabaseAuthentication"`
-	MultiAZ                         bool   `json:"MultiAZ"`
-	PubliclyAccessible              bool   `json:"PubliclyAccessible"`
-	DeletionProtection              bool   `json:"DeletionProtection"`
+	AvailabilityZone                string `json:"AvailabilityZone"`
+	Endpoint                        string `json:"Endpoint"`
+	DBInstanceArn                   string `json:"DBInstanceArn"`
+	DBClusterIdentifier             string `json:"DBClusterIdentifier"`
+	DBInstanceClass                 string `json:"DBInstanceClass"`
+	Engine                          string `json:"Engine"`
+	EngineVersion                   string `json:"EngineVersion"`
+	DBInstanceStatus                string `json:"DBInstanceStatus"`
+	InstanceCreateTime              string `json:"InstanceCreateTime"`
+	MonitoringRoleArn               string `json:"MonitoringRoleArn,omitempty"`
+	DBSubnetGroupName               string `json:"DBSubnetGroupName"`
+	DBParameterGroupName            string `json:"DBParameterGroupName"`
+	PreferredMaintenanceWindow      string `json:"PreferredMaintenanceWindow"`
+	PreferredBackupWindow           string `json:"PreferredBackupWindow"`
+	DBInstanceIdentifier            string `json:"DBInstanceIdentifier"`
+	region                          string
+	NetworkType                     string   `json:"NetworkType,omitempty"`
+	VpcSecurityGroupIDs             []string `json:"VpcSecurityGroupIDs,omitempty"`
+	DBSecurityGroups                []string `json:"DBSecurityGroups,omitempty"`
+	BackupRetentionPeriod           int      `json:"BackupRetentionPeriod,omitempty"`
+	MonitoringInterval              int      `json:"MonitoringInterval,omitempty"`
+	Iops                            int      `json:"Iops,omitempty"`
+	Port                            int      `json:"Port"`
+	PromotionTier                   int      `json:"PromotionTier"`
+	StorageEncrypted                bool     `json:"StorageEncrypted"`
+	AutoMinorVersionUpgrade         bool     `json:"AutoMinorVersionUpgrade"`
+	CopyTagsToSnapshot              bool     `json:"CopyTagsToSnapshot"`
+	EnableIAMDatabaseAuthentication bool     `json:"EnableIAMDatabaseAuthentication"`
+	MultiAZ                         bool     `json:"MultiAZ"`
+	PubliclyAccessible              bool     `json:"PubliclyAccessible"`
+	DeletionProtection              bool     `json:"DeletionProtection"`
 }
 
 // DBInstanceCreateOptions holds optional fields for CreateDBInstance.
@@ -155,7 +161,11 @@ type DBInstanceCreateOptions struct {
 	PreferredMaintenanceWindow      string
 	PreferredBackupWindow           string
 	AvailabilityZone                string
+	MonitoringRoleArn               string
+	DBSecurityGroups                []string
 	PromotionTier                   int
+	MonitoringInterval              int
+	Iops                            int
 	AutoMinorVersionUpgrade         bool
 	CopyTagsToSnapshot              bool
 	EnableIAMDatabaseAuthentication bool
@@ -169,7 +179,12 @@ type DBInstanceModifyOptions struct {
 	PreferredMaintenanceWindow      string
 	PreferredBackupWindow           string
 	AvailabilityZone                string
+	MonitoringRoleArn               string
+	DBSecurityGroups                []string
 	PromotionTier                   int
+	MonitoringInterval              int
+	Iops                            int
+	Port                            int
 	AutoMinorVersionUpgrade         bool
 	AutoMinorVersionUpgradeSet      bool
 	CopyTagsToSnapshot              bool
@@ -177,8 +192,30 @@ type DBInstanceModifyOptions struct {
 	EnableIAMDatabaseAuthentication bool
 	IamAuthSet                      bool
 	PromotionTierSet                bool
+	MonitoringIntervalSet           bool
+	IopsSet                         bool
+	PortSet                         bool
 	DeletionProtection              bool
 	DeletionProtectionSet           bool
+	// ApplyImmediately is read for wire-declaration parity but this backend
+	// always applies modifications immediately (same disclosed
+	// simplification as ModifyDBCluster.ApplyImmediately).
+	ApplyImmediately bool
+}
+
+// RestoreToPointInTimeOptions holds optional fields for
+// RestoreDBClusterToPointInTime. RestoreToTime and UseLatestRestorableTime
+// are mutually exclusive and one is required, per
+// api_op_RestoreDBClusterToPointInTime.go:145-192.
+type RestoreToPointInTimeOptions struct {
+	RestoreToTime           string
+	UseLatestRestorableTime bool
+}
+
+// DBInstanceDeleteOptions holds optional fields for DeleteDBInstance.
+type DBInstanceDeleteOptions struct {
+	FinalDBSnapshotIdentifier string
+	SkipFinalSnapshot         bool
 }
 
 // DBSubnetGroup represents a Neptune DB subnet group.

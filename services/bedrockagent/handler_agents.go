@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -24,6 +25,7 @@ func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body [
 		FoundationModel         string            `json:"foundationModel"`
 		Instruction             string            `json:"instruction"`
 		RoleARN                 string            `json:"agentResourceRoleArn"`
+		OrchestrationType       string            `json:"orchestrationType"`
 		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
 	}
 
@@ -38,6 +40,7 @@ func (h *Handler) handleCreateAgent(ctx context.Context, c *echo.Context, body [
 		FoundationModel:         req.FoundationModel,
 		Instruction:             req.Instruction,
 		RoleARN:                 req.RoleARN,
+		OrchestrationType:       req.OrchestrationType,
 		Tags:                    req.Tags,
 		Guardrail:               req.Guardrail,
 		Memory:                  req.Memory,
@@ -72,6 +75,7 @@ func (h *Handler) handleUpdateAgent(
 		FoundationModel         string            `json:"foundationModel"`
 		Instruction             string            `json:"instruction"`
 		RoleARN                 string            `json:"agentResourceRoleArn"`
+		OrchestrationType       string            `json:"orchestrationType"`
 		IdleSessionTTLInSeconds int               `json:"idleSessionTTLInSeconds"`
 	}
 
@@ -86,6 +90,7 @@ func (h *Handler) handleUpdateAgent(
 		FoundationModel:         req.FoundationModel,
 		Instruction:             req.Instruction,
 		RoleARN:                 req.RoleARN,
+		OrchestrationType:       req.OrchestrationType,
 		Tags:                    req.Tags,
 		Guardrail:               req.Guardrail,
 		Memory:                  req.Memory,
@@ -99,7 +104,9 @@ func (h *Handler) handleUpdateAgent(
 }
 
 func (h *Handler) handleDeleteAgent(ctx context.Context, c *echo.Context, agentID string) error {
-	if err := h.Backend.DeleteAgent(ctx, agentID); err != nil {
+	skip, _ := strconv.ParseBool(c.QueryParam("skipResourceInUseCheck"))
+
+	if err := h.Backend.DeleteAgent(ctx, agentID, skip); err != nil {
 		return handleErr(c, err)
 	}
 

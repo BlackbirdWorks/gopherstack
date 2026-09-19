@@ -83,7 +83,7 @@ func TestBackend_DeleteServerlessCache(t *testing.T) {
 	_, err := b.CreateServerlessCache(context.Background(), "del-sc", "to be deleted", "redis")
 	require.NoError(t, err)
 
-	sc, err := b.DeleteServerlessCache(context.Background(), "del-sc")
+	sc, err := b.DeleteServerlessCache(context.Background(), "del-sc", "")
 	require.NoError(t, err)
 	assert.Equal(t, "del-sc", sc.Name)
 

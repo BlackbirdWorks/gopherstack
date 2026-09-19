@@ -510,7 +510,7 @@ func TestUpdate_Params_NodegroupVersion(t *testing.T) {
 	mustCreateCluster(t, b, "ng-upd-cluster")
 	mustCreateNodegroup(t, b, "ng-upd-cluster")
 
-	upd, err := b.UpdateNodegroupVersion("ng-upd-cluster", "ng1", "1.33")
+	upd, err := b.UpdateNodegroupVersion("ng-upd-cluster", "ng1", "1.33", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, upd.Params, "UpdateNodegroupVersion must populate Params")
 	assert.Equal(t, "Version", upd.Params[0].Type)
@@ -651,7 +651,7 @@ func TestUpdateNodegroupVersion_Status_InProgress(t *testing.T) {
 	mustCreateClusterNoVpc(t, b, "ng-inprog-cluster")
 	mustCreateNodegroup(t, b, "ng-inprog-cluster")
 
-	upd, err := b.UpdateNodegroupVersion("ng-inprog-cluster", "ng1", "1.33")
+	upd, err := b.UpdateNodegroupVersion("ng-inprog-cluster", "ng1", "1.33", "")
 	require.NoError(t, err)
 	assert.Equal(t, "InProgress", upd.Status)
 

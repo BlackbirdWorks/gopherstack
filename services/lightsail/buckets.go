@@ -8,7 +8,6 @@ package lightsail
 
 import (
 	"fmt"
-	"slices"
 	"sort"
 
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
@@ -188,7 +187,10 @@ func (b *InMemoryBackend) GetBuckets(name string) ([]*Bucket, error) {
 }
 
 // SetResourceAccessForBucket grants or revokes resourceName's (an Instance
-// or ContainerService) access to the named bucket.
+// or ContainerService) access to the named bucket, reflected in
+// Bucket.ResourcesReceivingAccess -- NOT ReadonlyAccessAccounts, a separate
+// AWS-account-ID field types.Bucket's own doc comment does not associate
+// with this op.
 func (b *InMemoryBackend) SetResourceAccessForBucket(resourceName, bucketName, access string) ([]Operation, error) {
 	b.mu.Lock("SetResourceAccessForBucket")
 	defer b.mu.Unlock()
@@ -203,21 +205,23 @@ func (b *InMemoryBackend) SetResourceAccessForBucket(resourceName, bucketName, a
 		return nil, notFoundError("Instance or ContainerService", resourceName)
 	}
 
+	filtered := bk.ResourcesReceivingAccess[:0:0]
+
+	for _, r := range bk.ResourcesReceivingAccess {
+		if r.Name != resourceName {
+			filtered = append(filtered, r)
+		}
+	}
+
+	bk.ResourcesReceivingAccess = filtered
+
 	if access == "allow" {
-		bk.ReadonlyAccessAccounts = appendUnique(bk.ReadonlyAccessAccounts, resourceName)
-	} else {
-		bk.ReadonlyAccessAccounts = removeString(bk.ReadonlyAccessAccounts, resourceName)
+		bk.ResourcesReceivingAccess = append(
+			bk.ResourcesReceivingAccess, ResourceReceivingAccess{Name: resourceName, ResourceType: kind},
+		)
 	}
 
 	return b.newOperationsLocked(opTypeSetResourceAccessForBucket, ResourceTypeBucket, []string{bucketName}), nil
-}
-
-func appendUnique(in []string, s string) []string {
-	if slices.Contains(in, s) {
-		return in
-	}
-
-	return append(in, s)
 }
 
 // GetBucketMetricData returns a real, well-formed, EMPTY MetricData

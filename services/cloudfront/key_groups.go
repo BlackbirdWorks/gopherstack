@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -67,6 +68,7 @@ func (b *InMemoryBackend) CreatePublicKey(
 		EncodedKey:      encodedKey,
 		CallerReference: callerRef,
 		ETag:            uuid.NewString(),
+		CreatedTime:     time.Now().UTC().Format(time.RFC3339),
 	}
 	b.publicKeys.Put(pk)
 	b.publicKeyByName[name] = id
@@ -197,11 +199,12 @@ func (b *InMemoryBackend) CreateKeyGroup(name, comment string, items []string) (
 
 	id := generateID()
 	kg := &KeyGroup{
-		ID:      id,
-		Name:    name,
-		Comment: comment,
-		Items:   append([]string(nil), items...),
-		ETag:    uuid.NewString(),
+		ID:               id,
+		Name:             name,
+		Comment:          comment,
+		Items:            append([]string(nil), items...),
+		ETag:             uuid.NewString(),
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 	}
 	b.keyGroups.Put(kg)
 	b.keyGroupByName[name] = id
@@ -276,6 +279,7 @@ func (b *InMemoryBackend) UpdateKeyGroup(
 	kg.Comment = comment
 	kg.Items = append([]string(nil), items...)
 	kg.ETag = uuid.NewString()
+	kg.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 
 	return b.copyKeyGroup(kg), nil
 }

@@ -663,7 +663,7 @@ func TestBackend_ModifyReplicationGroupShardConfiguration_RequiresClusterMode(t 
 	})
 	require.NoError(t, err)
 
-	_, err = b.ModifyReplicationGroupShardConfiguration(context.Background(), "no-cluster-rg", 2, true)
+	_, err = b.ModifyReplicationGroupShardConfiguration(context.Background(), "no-cluster-rg", 2, true, nil)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, elasticache.ErrClusterModeRequired)
 }
@@ -681,7 +681,7 @@ func TestBackend_ModifyReplicationGroupShardConfiguration_WithClusterMode(t *tes
 	})
 	require.NoError(t, err)
 
-	rg, err := b.ModifyReplicationGroupShardConfiguration(context.Background(), "yes-cluster-rg", 4, true)
+	rg, err := b.ModifyReplicationGroupShardConfiguration(context.Background(), "yes-cluster-rg", 4, true, nil)
 	require.NoError(t, err)
 	assert.Len(t, rg.NodeGroups, 4)
 }

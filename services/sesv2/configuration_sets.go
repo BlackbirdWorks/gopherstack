@@ -20,14 +20,15 @@ type ArchivingOptions struct {
 // ConfigurationSet represents a SES v2 configuration set.
 type ConfigurationSet struct {
 	CreatedAt                    time.Time         `json:"createdAt"`
-	Name                         string            `json:"name"`
-	Tags                         map[string]string `json:"tags,omitempty"`
-	TrackingCustomRedirectDomain string            `json:"trackingCustomRedirectDomain,omitempty"`
-	TrackingHTTPSPolicy          string            `json:"trackingHttpsPolicy,omitempty"`
-	DeliveryTLSPolicy            string            `json:"deliveryTlsPolicy,omitempty"`
-	DeliverySendingPoolName      string            `json:"deliverySendingPoolName,omitempty"`
-	ArchivingOptions             *ArchivingOptions `json:"archivingOptions,omitempty"`
 	VdmOptions                   *VdmOptions       `json:"vdmOptions,omitempty"`
+	Tags                         map[string]string `json:"tags,omitempty"`
+	ArchivingOptions             *ArchivingOptions `json:"archivingOptions,omitempty"`
+	DeliverySendingPoolName      string            `json:"deliverySendingPoolName,omitempty"`
+	DeliveryTLSPolicy            string            `json:"deliveryTlsPolicy,omitempty"`
+	TrackingHTTPSPolicy          string            `json:"trackingHttpsPolicy,omitempty"`
+	TrackingCustomRedirectDomain string            `json:"trackingCustomRedirectDomain,omitempty"`
+	Name                         string            `json:"name"`
+	SuppressionScope             string            `json:"suppressionScope,omitempty"`
 	SuppressionReasons           []string          `json:"suppressionReasons,omitempty"`
 	SendingEnabled               bool              `json:"sendingEnabled"`
 	ReputationMetricsEnabled     bool              `json:"reputationMetricsEnabled"`
@@ -233,10 +234,17 @@ func (b *InMemoryBackend) PutConfigurationSetSendingOptions(
 	return nil
 }
 
-// PutConfigurationSetSuppressionOptions stores the suppression reason list.
+// PutConfigurationSetSuppressionOptions stores the suppression reason list
+// and scope. ValidationOptions (predictive-suppression mailbox validation,
+// PutConfigurationSetSuppressionOptionsInput.ValidationOptions) is not
+// modeled: this backend has no mailbox-validation engine to derive a
+// confidence verdict from, and there is nothing else it could return besides
+// the client's own submitted threshold, so it's disclosed as a gap in
+// PARITY.md instead of echoed as if enforced.
 func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 	name string,
 	suppressedReasons []string,
+	suppressionScope string,
 ) error {
 	b.mu.Lock("PutConfigurationSetSuppressionOptions")
 	defer b.mu.Unlock()
@@ -249,6 +257,7 @@ func (b *InMemoryBackend) PutConfigurationSetSuppressionOptions(
 	reasons := make([]string, len(suppressedReasons))
 	copy(reasons, suppressedReasons)
 	cs.SuppressionReasons = reasons
+	cs.SuppressionScope = suppressionScope
 
 	return nil
 }

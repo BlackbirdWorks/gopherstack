@@ -160,12 +160,14 @@ func (s *stubBackend) UploadLayerPart(
 
 func (s *stubBackend) CreatePullThroughCacheRule(
 	_ context.Context,
-	_, _, _, _, _, _ string,
+	_, _, _, _, _, _, _ string,
 ) (*ecr.PullThroughCacheRule, error) {
 	return &ecr.PullThroughCacheRule{}, nil
 }
 
-func (s *stubBackend) DescribePullThroughCacheRules(_ context.Context, _ []string) ([]ecr.PullThroughCacheRule, error) {
+func (s *stubBackend) DescribePullThroughCacheRules(
+	_ context.Context, _ []string, _ string,
+) ([]ecr.PullThroughCacheRule, error) {
 	return []ecr.PullThroughCacheRule{}, nil
 }
 

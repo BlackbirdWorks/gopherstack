@@ -170,6 +170,7 @@ func buildPutObjectInput(
 		ContentDisposition: ptrconv.NilIfEmpty(r.Header.Get("Content-Disposition")),
 		Expires:            parseExpiresHeader(r),
 		StorageClass:       types.StorageClass(r.Header.Get("X-Amz-Storage-Class")),
+		ACL:                types.ObjectCannedACL(r.Header.Get("X-Amz-Acl")),
 		ChecksumAlgorithm:  types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:      crc32p,
 		ChecksumCRC32C:     crc32cp,

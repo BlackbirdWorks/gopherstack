@@ -47,6 +47,7 @@ const (
 	headerOutputLocation    = "X-Amzn-Sagemaker-Outputlocation"
 	headerFailureLocation   = "X-Amzn-Sagemaker-Failurelocation"
 	headerInputLocation     = "X-Amzn-Sagemaker-Inputlocation"
+	headerFilename          = "X-Amzn-Sagemaker-Filename"
 	headerAsyncAccept       = "X-Amzn-Sagemaker-Accept"
 	headerStreamContentType = "X-Amzn-Sagemaker-Content-Type"
 	headerTargetVariant     = "X-Amzn-Sagemaker-Target-Variant"
@@ -212,6 +213,7 @@ func (h *Handler) handleInvokeEndpointAsync(
 		c.Request().Header.Get(headerInferenceID),
 		string(body),
 		c.Request().Header.Get(headerOutputLocation),
+		c.Request().Header.Get(headerFilename),
 	)
 	out, err := json.Marshal(map[string]string{"InferenceId": async.InferenceID})
 	if err != nil {

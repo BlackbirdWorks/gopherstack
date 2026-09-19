@@ -204,7 +204,7 @@ func TestTagsCleanedUpOnDelete(t *testing.T) {
 			setupFn: func(t *testing.T, b *ec2.InMemoryBackend) string {
 				t.Helper()
 
-				vgw, err := b.CreateVpnGateway("ipsec.1")
+				vgw, err := b.CreateVpnGateway("ipsec.1", 0)
 				require.NoError(t, err)
 
 				return vgw.VpnGatewayID
@@ -358,9 +358,9 @@ func TestJanitor_CancelledSpotRequestsSweep(t *testing.T) {
 
 	b := newTestBackend()
 
-	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
+	spotReqs, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
-	reqID := req.ID
+	reqID := spotReqs[0].ID
 
 	err = b.CancelSpotInstanceRequests([]string{reqID})
 	require.NoError(t, err)
@@ -389,9 +389,9 @@ func TestJanitor_CancelledSpotRequestsNotSweptBeforeTTL(t *testing.T) {
 
 	b := newTestBackend()
 
-	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
+	spotReqs, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
-	reqID := req.ID
+	reqID := spotReqs[0].ID
 
 	err = b.CancelSpotInstanceRequests([]string{reqID})
 	require.NoError(t, err)
@@ -415,10 +415,10 @@ func TestTerminateInstances_ClosesAssociatedSpotRequest(t *testing.T) {
 	req, err := b.RequestSpotInstances("ami-test", "t2.micro", "", "0.05", nil)
 	require.NoError(t, err)
 
-	_, err = b.TerminateInstances([]string{req.InstanceID})
+	_, err = b.TerminateInstances([]string{req[0].InstanceID})
 	require.NoError(t, err)
 
-	reqs := b.DescribeSpotInstanceRequests([]string{req.ID})
+	reqs := b.DescribeSpotInstanceRequests([]string{req[0].ID})
 	require.Len(t, reqs, 1)
 	assert.Equal(
 		t,

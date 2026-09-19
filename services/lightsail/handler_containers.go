@@ -68,29 +68,41 @@ func containerDeploymentToWire(d *ContainerServiceDeployment) *containerServiceD
 }
 
 type containerServiceWire struct {
-	NextDeployment       *containerServiceDeploymentWire  `json:"nextDeployment,omitempty"`
-	StateDetail          *containerServiceStateDetailWire `json:"stateDetail,omitempty"`
-	CreatedAt            *float64                         `json:"createdAt,omitempty"`
-	CurrentDeployment    *containerServiceDeploymentWire  `json:"currentDeployment,omitempty"`
-	PublicDomainNames    map[string][]string              `json:"publicDomainNames,omitempty"`
-	Location             *resourceLocationWire            `json:"location,omitempty"`
-	ResourceType         string                           `json:"resourceType,omitempty"`
-	Power                string                           `json:"power,omitempty"`
-	PowerID              string                           `json:"powerId,omitempty"`
-	PrincipalArn         string                           `json:"principalArn,omitempty"`
-	PrivateDomainName    string                           `json:"privateDomainName,omitempty"`
-	Arn                  string                           `json:"arn,omitempty"`
-	State                string                           `json:"state,omitempty"`
-	ContainerServiceName string                           `json:"containerServiceName,omitempty"`
-	URL                  string                           `json:"url,omitempty"`
-	Tags                 []tagWire                        `json:"tags,omitempty"`
-	Scale                int32                            `json:"scale,omitempty"`
-	IsDisabled           bool                             `json:"isDisabled,omitempty"`
+	NextDeployment        *containerServiceDeploymentWire  `json:"nextDeployment,omitempty"`
+	StateDetail           *containerServiceStateDetailWire `json:"stateDetail,omitempty"`
+	PrivateRegistryAccess *privateRegistryAccessWire       `json:"privateRegistryAccess,omitempty"`
+	CreatedAt             *float64                         `json:"createdAt,omitempty"`
+	CurrentDeployment     *containerServiceDeploymentWire  `json:"currentDeployment,omitempty"`
+	PublicDomainNames     map[string][]string              `json:"publicDomainNames,omitempty"`
+	Location              *resourceLocationWire            `json:"location,omitempty"`
+	ResourceType          string                           `json:"resourceType,omitempty"`
+	Power                 string                           `json:"power,omitempty"`
+	PowerID               string                           `json:"powerId,omitempty"`
+	PrincipalArn          string                           `json:"principalArn,omitempty"`
+	PrivateDomainName     string                           `json:"privateDomainName,omitempty"`
+	Arn                   string                           `json:"arn,omitempty"`
+	State                 string                           `json:"state,omitempty"`
+	ContainerServiceName  string                           `json:"containerServiceName,omitempty"`
+	URL                   string                           `json:"url,omitempty"`
+	Tags                  []tagWire                        `json:"tags,omitempty"`
+	Scale                 int32                            `json:"scale,omitempty"`
+	IsDisabled            bool                             `json:"isDisabled,omitempty"`
 }
 
 type containerServiceStateDetailWire struct {
 	Code    string `json:"code,omitempty"`
 	Message string `json:"message,omitempty"`
+}
+
+// privateRegistryAccessWire mirrors types.PrivateRegistryAccess.
+type privateRegistryAccessWire struct {
+	EcrImagePullerRole *ecrImagePullerRoleWire `json:"ecrImagePullerRole,omitempty"`
+}
+
+// ecrImagePullerRoleWire mirrors types.ContainerServiceECRImagePullerRole.
+type ecrImagePullerRoleWire struct {
+	PrincipalArn string `json:"principalArn,omitempty"`
+	IsActive     bool   `json:"isActive,omitempty"`
 }
 
 func containerServiceToWire(cs *ContainerService) containerServiceWire {
@@ -105,6 +117,15 @@ func containerServiceToWire(cs *ContainerService) containerServiceWire {
 
 	if cs.StateDetailCode != "" {
 		w.StateDetail = &containerServiceStateDetailWire{Code: cs.StateDetailCode}
+	}
+
+	if cs.ECRImagePullerRoleActive || cs.ECRImagePullerRolePrincipalArn != "" {
+		w.PrivateRegistryAccess = &privateRegistryAccessWire{
+			EcrImagePullerRole: &ecrImagePullerRoleWire{
+				IsActive:     cs.ECRImagePullerRoleActive,
+				PrincipalArn: cs.ECRImagePullerRolePrincipalArn,
+			},
+		}
 	}
 
 	return w
@@ -129,18 +150,31 @@ func containersFromWire(in map[string]containerWire) map[string]ContainerDefinit
 	return out
 }
 
+// privateRegistryAccessRequestWire mirrors types.PrivateRegistryAccessRequest.
+type privateRegistryAccessRequestWire struct {
+	EcrImagePullerRole *struct {
+		IsActive bool `json:"isActive,omitempty"`
+	} `json:"ecrImagePullerRole,omitempty"`
+}
+
+func (p *privateRegistryAccessRequestWire) ecrImagePullerRoleActive() *bool {
+	if p == nil || p.EcrImagePullerRole == nil {
+		return nil
+	}
+
+	active := p.EcrImagePullerRole.IsActive
+
+	return &active
+}
+
 type createContainerServiceRequest struct {
 	Deployment            *containerServiceDeploymentRequestWire `json:"deployment,omitempty"`
-	PrivateRegistryAccess *struct {
-		EcrImagePullerRole *struct {
-			IsActive bool `json:"isActive,omitempty"`
-		} `json:"ecrImagePullerRole,omitempty"`
-	} `json:"privateRegistryAccess,omitempty"`
-	PublicDomainNames map[string][]string `json:"publicDomainNames,omitempty"`
-	Power             string              `json:"power"`
-	ServiceName       string              `json:"serviceName"`
-	Tags              []tagWire           `json:"tags,omitempty"`
-	Scale             int32               `json:"scale"`
+	PrivateRegistryAccess *privateRegistryAccessRequestWire      `json:"privateRegistryAccess,omitempty"`
+	PublicDomainNames     map[string][]string                    `json:"publicDomainNames,omitempty"`
+	Power                 string                                 `json:"power"`
+	ServiceName           string                                 `json:"serviceName"`
+	Tags                  []tagWire                              `json:"tags,omitempty"`
+	Scale                 int32                                  `json:"scale"`
 }
 
 func (h *Handler) handleCreateContainerService(_ context.Context, body []byte) ([]byte, error) {
@@ -166,6 +200,8 @@ func (h *Handler) handleCreateContainerService(_ context.Context, body []byte) (
 		}
 	}
 
+	ecrActive := req.PrivateRegistryAccess.ecrImagePullerRoleActive()
+
 	cs, createErr := h.Backend.CreateContainerService(
 		req.ServiceName,
 		req.Power,
@@ -173,6 +209,7 @@ func (h *Handler) handleCreateContainerService(_ context.Context, body []byte) (
 		deployment,
 		req.PublicDomainNames,
 		tagsFromWire(req.Tags),
+		ecrActive != nil && *ecrActive,
 	)
 	if createErr != nil {
 		return nil, createErr
@@ -192,11 +229,12 @@ type serviceNameRequest struct {
 }
 
 type updateContainerServiceRequest struct {
-	PublicDomainNames map[string][]string `json:"publicDomainNames,omitempty"`
-	Power             string              `json:"power,omitempty"`
-	ServiceName       string              `json:"serviceName"`
-	Scale             int32               `json:"scale,omitempty"`
-	IsDisabled        bool                `json:"isDisabled,omitempty"`
+	PrivateRegistryAccess *privateRegistryAccessRequestWire `json:"privateRegistryAccess,omitempty"`
+	PublicDomainNames     map[string][]string               `json:"publicDomainNames,omitempty"`
+	Power                 string                            `json:"power,omitempty"`
+	ServiceName           string                            `json:"serviceName"`
+	Scale                 int32                             `json:"scale,omitempty"`
+	IsDisabled            bool                              `json:"isDisabled,omitempty"`
 }
 
 func (h *Handler) handleUpdateContainerService(_ context.Context, body []byte) ([]byte, error) {
@@ -213,6 +251,7 @@ func (h *Handler) handleUpdateContainerService(_ context.Context, body []byte) (
 		req.Power,
 		req.Scale,
 		req.PublicDomainNames,
+		req.PrivateRegistryAccess.ecrImagePullerRoleActive(),
 	)
 	if updateErr != nil {
 		return nil, updateErr

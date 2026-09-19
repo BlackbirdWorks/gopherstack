@@ -15,7 +15,7 @@ func TestVpnConnectionRoute(t *testing.T) { //nolint:paralleltest // existing is
 
 	// Create a VPN connection first
 	gw, _ := b.CreateCustomerGateway("ipsec.1", "1.2.3.4", "65000")
-	vgw, _ := b.CreateVpnGateway("ipsec.1")
+	vgw, _ := b.CreateVpnGateway("ipsec.1", 0)
 	conn, setupErr := b.CreateVpnConnection("ipsec.1", gw.CustomerGatewayID, vgw.VpnGatewayID)
 	require.NoError(t, setupErr)
 

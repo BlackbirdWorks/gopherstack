@@ -100,17 +100,23 @@ func TestBackend_ResetParameterGroup_Specific(t *testing.T) {
 	_, err = b.ResetParameterGroup(context.Background(), "reset-spec-pg", []string{"maxmemory-policy"}, false)
 	require.NoError(t, err)
 
-	p, err := b.DescribeParameters(context.Background(), "reset-spec-pg", "", 0)
+	p, err := b.DescribeParameters(context.Background(), "reset-spec-pg", "", 0, "")
 	require.NoError(t, err)
-	// maxmemory-policy should be reset; activerehashing should remain.
+	// DescribeParameters returns the full family catalog (engine defaults
+	// merged with overrides), not just user-set keys -- see the sourceByName
+	// helper this test uses below. maxmemory-policy should be reset back to
+	// its engine-default value and source; activerehashing should remain the
+	// user override.
 	paramMap := make(map[string]string)
+	sourceByName := make(map[string]string)
 	for _, param := range p.Data {
-		if param.Value != "" {
-			paramMap[param.Name] = param.Value
-		}
+		paramMap[param.Name] = param.Value
+		sourceByName[param.Name] = param.Source
 	}
-	assert.Empty(t, paramMap["maxmemory-policy"])
+	assert.Equal(t, "noeviction", paramMap["maxmemory-policy"])
+	assert.Equal(t, "engine-default", sourceByName["maxmemory-policy"])
 	assert.Equal(t, "yes", paramMap["activerehashing"])
+	assert.Equal(t, "user", sourceByName["activerehashing"])
 }
 
 // ----------------------------------------

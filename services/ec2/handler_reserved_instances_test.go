@@ -29,28 +29,36 @@ func TestReservedInstances(t *testing.T) { //nolint:paralleltest // existing iss
 	)
 
 	t.Run("describe offerings returns seeded offering", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "", "", "")
+		offerings := b.DescribeReservedInstancesOfferings(ec2.DescribeReservedInstancesOfferingsParams{})
 		assert.NotEmpty(t, offerings)
 	})
 
 	t.Run("describe offerings by instance type", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("t3.medium", "", "", "")
+		offerings := b.DescribeReservedInstancesOfferings(
+			ec2.DescribeReservedInstancesOfferingsParams{InstanceType: "t3.medium"},
+		)
 		require.Len(t, offerings, 1)
 		assert.Equal(t, "t3.medium", offerings[0].InstanceType)
 	})
 
 	t.Run("describe offerings by az", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "us-east-1a", "", "")
+		offerings := b.DescribeReservedInstancesOfferings(
+			ec2.DescribeReservedInstancesOfferingsParams{AvailabilityZone: "us-east-1a"},
+		)
 		require.Len(t, offerings, 1)
 	})
 
 	t.Run("describe offerings by product description", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("", "", "Linux/UNIX", "")
+		offerings := b.DescribeReservedInstancesOfferings(
+			ec2.DescribeReservedInstancesOfferingsParams{ProductDescription: "Linux/UNIX"},
+		)
 		require.Len(t, offerings, 1)
 	})
 
 	t.Run("describe offerings no match", func(t *testing.T) { //nolint:paralleltest // existing issue.
-		offerings := b.DescribeReservedInstancesOfferings("m5.xlarge", "", "", "")
+		offerings := b.DescribeReservedInstancesOfferings(
+			ec2.DescribeReservedInstancesOfferingsParams{InstanceType: "m5.xlarge"},
+		)
 		assert.Empty(t, offerings)
 	})
 

@@ -496,7 +496,9 @@ func toInstanceConnectEndpointItem(
 		SubnetID:                  ep.SubnetID,
 		VPCID:                     ep.VPCID,
 		State:                     ep.State,
+		IPAddressType:             ep.IPAddressType,
 		PreserveClientIP:          ep.PreserveClientIP,
+		SecurityGroupIDSet:        stringItemSet{Items: ep.SecurityGroupIDs},
 		TagSet:                    tagItemsFromMap(tags),
 	}
 }
@@ -505,8 +507,9 @@ func (h *Handler) handleCreateInstanceConnectEndpoint(vals url.Values, reqID str
 	subnetID := vals.Get("SubnetId")
 	sgIDs := parseMemberList(vals, "SecurityGroupId")
 	preserveClientIP := vals.Get("PreserveClientIp") == ec2BooleanTrue
+	ipAddressType := vals.Get("IpAddressType")
 
-	ep, err := h.Backend.CreateInstanceConnectEndpoint(subnetID, sgIDs, preserveClientIP)
+	ep, err := h.Backend.CreateInstanceConnectEndpoint(subnetID, sgIDs, preserveClientIP, ipAddressType)
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +577,10 @@ func (h *Handler) handleDescribeInstanceConnectEndpoints(
 func (h *Handler) handleModifyInstanceConnectEndpoint(vals url.Values, reqID string) (any, error) {
 	id := vals.Get("InstanceConnectEndpointId")
 	preserveClientIP := vals.Get("PreserveClientIp") == ec2BooleanTrue
-	if err := h.Backend.ModifyInstanceConnectEndpoint(id, preserveClientIP); err != nil {
+	sgIDs := parseMemberList(vals, "SecurityGroupId")
+	if err := h.Backend.ModifyInstanceConnectEndpoint(
+		id, preserveClientIP, InstanceConnectEndpointModifyOptions{SecurityGroupIDs: sgIDs},
+	); err != nil {
 		return nil, err
 	}
 

@@ -520,6 +520,7 @@ func parseModifyReplicationGroupOpts(form url.Values) ReplicationGroupModifyOpts
 		NotificationTopicArn:    form.Get("NotificationTopicArn"),
 		TransitEncryptionMode:   form.Get("TransitEncryptionMode"),
 		Durability:              form.Get("Durability"),
+		CacheSecurityGroupNames: parseRepeatedField(form, "CacheSecurityGroupNames.CacheSecurityGroupName"),
 		ApplyImmediately:        strings.EqualFold(form.Get("ApplyImmediately"), "true"),
 	}
 
@@ -572,6 +573,8 @@ func mapReplicationGroupModifyErr(c *echo.Context, err error) error {
 		return xmlError(c, http.StatusNotFound, "ReplicationGroupNotFoundFault", "Replication group not found")
 	case errors.Is(err, ErrParameterGroupNotFound):
 		return xmlError(c, http.StatusNotFound, "CacheParameterGroupNotFound", "Cache parameter group not found")
+	case errors.Is(err, ErrCacheSecurityGroupNotFound):
+		return xmlError(c, http.StatusNotFound, "CacheSecurityGroupNotFound", "Cache security group not found")
 	case errors.Is(err, ErrTransitEncryptionModeInvalid):
 		return xmlError(c, http.StatusBadRequest, "InvalidParameterCombination", err.Error())
 	case errors.Is(err, ErrClusterModeRequired):
@@ -763,6 +766,26 @@ func (h *Handler) decreaseReplicaCount(ctx context.Context, c *echo.Context, for
 	})
 }
 
+// parseReshardingConfiguration parses ModifyReplicationGroupShardConfiguration's
+// ReshardingConfiguration.ReshardingConfiguration.N.NodeGroupId/
+// PreferredAvailabilityZones.AvailabilityZone.M form values -- the real
+// aws-sdk-go-v2 query-protocol serializer's wrapper name repeats the field
+// name (awsAwsquery_serializeDocumentReshardingConfigurationList).
+func parseReshardingConfiguration(form url.Values) []ReshardingConfig {
+	var out []ReshardingConfig
+	for i := 1; ; i++ {
+		prefix := fmt.Sprintf("ReshardingConfiguration.ReshardingConfiguration.%d.", i)
+		nodeGroupID := form.Get(prefix + "NodeGroupId")
+		azs := parseRepeatedField(form, prefix+"PreferredAvailabilityZones.AvailabilityZone")
+		if nodeGroupID == "" && len(azs) == 0 {
+			break
+		}
+		out = append(out, ReshardingConfig{NodeGroupID: nodeGroupID, PreferredAvailabilityZones: azs})
+	}
+
+	return out
+}
+
 func (h *Handler) modifyReplicationGroupShardConfiguration(
 	ctx context.Context,
 	c *echo.Context,
@@ -771,9 +794,10 @@ func (h *Handler) modifyReplicationGroupShardConfiguration(
 	replicationGroupID := form.Get("ReplicationGroupId")
 	nodeGroupCount, _ := strconv.ParseInt(form.Get("NodeGroupCount"), 10, 32)
 	applyImmediately := strings.EqualFold(form.Get("ApplyImmediately"), "true")
+	reshardingConfig := parseReshardingConfiguration(form)
 
 	rg, err := h.Backend.ModifyReplicationGroupShardConfiguration(
-		ctx, replicationGroupID, int32(nodeGroupCount), applyImmediately,
+		ctx, replicationGroupID, int32(nodeGroupCount), applyImmediately, reshardingConfig,
 	)
 	if err != nil {
 		return mapReplicationGroupModifyErr(c, err)

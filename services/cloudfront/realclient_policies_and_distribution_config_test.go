@@ -881,3 +881,50 @@ func testCopyAndStagingDistributionRealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, primary.ID, aws.ToString(stagingOut.Distribution.Id))
 }
+
+// TestCopyDistribution_EnabledOverridesSourceState proves CopyDistributionInput.
+// Enabled (undeclared before this fix -- see cmd/reqfielddiff) is read and
+// applied, not silently replaced by the primary distribution's own Enabled
+// state: a copy created from a disabled primary distribution defaults to
+// enabled (its documented default, api_op_CopyDistribution.go:63-68), and an
+// explicit Enabled=false override is honoured even though the primary is
+// enabled.
+func TestCopyDistribution_EnabledOverridesSourceState(t *testing.T) {
+	t.Parallel()
+
+	backend, client := newRealClientBackendAndClient(t)
+	ctx := t.Context()
+
+	disabledPrimary, err := backend.CreateDistribution(
+		"cd-enabled-primary-off", "off", false,
+		minimalDistConfig("cd-enabled-primary-off", "off", false),
+	)
+	require.NoError(t, err)
+
+	copyOut, err := client.CopyDistribution(ctx, &cfsdk.CopyDistributionInput{
+		PrimaryDistributionId: aws.String(disabledPrimary.ID),
+		CallerReference:       aws.String("cd-enabled-default"),
+		Staging:               aws.Bool(true),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, copyOut.Distribution.DistributionConfig.Enabled)
+	assert.True(t, *copyOut.Distribution.DistributionConfig.Enabled,
+		"omitted Enabled must default to true regardless of the source distribution's state")
+
+	enabledPrimary, err := backend.CreateDistribution(
+		"cd-enabled-primary-on", "on", true,
+		minimalDistConfig("cd-enabled-primary-on", "on", true),
+	)
+	require.NoError(t, err)
+
+	copyOut, err = client.CopyDistribution(ctx, &cfsdk.CopyDistributionInput{
+		PrimaryDistributionId: aws.String(enabledPrimary.ID),
+		CallerReference:       aws.String("cd-enabled-override"),
+		Staging:               aws.Bool(true),
+		Enabled:               aws.Bool(false),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, copyOut.Distribution.DistributionConfig.Enabled)
+	assert.False(t, *copyOut.Distribution.DistributionConfig.Enabled,
+		"an explicit Enabled=false override must not be replaced by the source's enabled state")
+}

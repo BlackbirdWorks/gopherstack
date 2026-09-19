@@ -411,15 +411,14 @@ func validatePutComplianceItemsInput(input *PutComplianceItemsInput) error {
 	return nil
 }
 
-// PutComplianceItems stores compliance items for a resource.
-//
-// UploadType (COMPLETE/PARTIAL) is accepted but not evaluated: real AWS's
-// PARTIAL mode only overwrites the items for one association (requiring
-// SyncCompliance=MANUAL) while leaving other associations' compliance data
-// for the same resource untouched. This backend always applies COMPLETE
-// semantics (replaces every item for ResourceId), a real behavioral gap
-// disclosed in PARITY.md rather than rushed -- it needs compliance storage
-// reshaped to key by association, not just ResourceId.
+// PutComplianceItems stores compliance items for a resource. Both COMPLETE
+// (default) and PARTIAL UploadType scope the write to ComplianceType, per the
+// SDK doc comment ("this call overwrites existing compliance information on
+// the resource" for COMPLETE; PARTIAL "overwrites compliance information for
+// a specific association" -- api_op_PutComplianceItems.go): a resource's
+// items for a different ComplianceType (e.g. Patch vs Association) are never
+// touched by either mode. PARTIAL additionally merges into the existing
+// items of that ComplianceType by Id instead of replacing them outright.
 func (b *InMemoryBackend) PutComplianceItems(
 	ctx context.Context,
 	input *PutComplianceItemsInput,
@@ -451,9 +450,48 @@ func (b *InMemoryBackend) PutComplianceItems(
 	if b.compliance[region] == nil {
 		b.compliance[region] = make(map[string][]ComplianceItem)
 	}
-	b.complianceStore(region)[input.ResourceID] = newItems
+
+	existing := b.complianceStore(region)[input.ResourceID]
+
+	var kept []ComplianceItem
+
+	for _, item := range existing {
+		if item.ComplianceType != input.ComplianceType {
+			kept = append(kept, item)
+		}
+	}
+
+	if input.UploadType == "PARTIAL" {
+		kept = mergeComplianceItemsByID(kept, existing, input.ComplianceType, newItems)
+	}
+
+	b.complianceStore(region)[input.ResourceID] = append(kept, newItems...)
 
 	return &PutComplianceItemsOutput{}, nil
+}
+
+// mergeComplianceItemsByID appends the same-ComplianceType items from
+// existing whose Id doesn't appear in newItems, so a PARTIAL upload adds to
+// (rather than replaces) prior compliance data for that ComplianceType.
+func mergeComplianceItemsByID(
+	kept, existing []ComplianceItem,
+	complianceType string,
+	newItems []ComplianceItem,
+) []ComplianceItem {
+	newIDs := make(map[string]bool, len(newItems))
+	for _, item := range newItems {
+		if item.ID != "" {
+			newIDs[item.ID] = true
+		}
+	}
+
+	for _, item := range existing {
+		if item.ComplianceType == complianceType && !newIDs[item.ID] {
+			kept = append(kept, item)
+		}
+	}
+
+	return kept
 }
 
 // ListComplianceItems returns stored compliance items, optionally filtered by ResourceId/ResourceType.
@@ -527,7 +565,58 @@ func (b *InMemoryBackend) ListComplianceItems(
 	return &ListComplianceItemsOutput{NextToken: nextToken, ComplianceItems: all[startIdx:end]}, nil
 }
 
-// buildComplianceTallies accumulates compliant/non-compliant item counts per ComplianceType.
+// bumpSeverity increments s's counter matching item's Severity
+// (types.ComplianceSeverity: CRITICAL/HIGH/MEDIUM/LOW/INFORMATIONAL), falling
+// back to UnspecifiedCount for an empty or unrecognized value rather than
+// dropping it silently.
+func bumpSeverity(s *SeveritySummary, severity string) {
+	switch severity {
+	case "CRITICAL":
+		s.CriticalCount++
+	case "HIGH":
+		s.HighCount++
+	case "MEDIUM":
+		s.MediumCount++
+	case "LOW":
+		s.LowCount++
+	case "INFORMATIONAL":
+		s.InformationalCount++
+	default:
+		s.UnspecifiedCount++
+	}
+}
+
+// Severity ranks for severityRank -- higher is more severe.
+const (
+	severityRankInformational = iota + 1
+	severityRankLow
+	severityRankMedium
+	severityRankHigh
+	severityRankCritical
+)
+
+// severityRank orders ComplianceSeverity from most to least severe, used to
+// derive ResourceComplianceSummaryItem.OverallSeverity from a resource's
+// items.
+func severityRank(severity string) int {
+	switch severity {
+	case "CRITICAL":
+		return severityRankCritical
+	case "HIGH":
+		return severityRankHigh
+	case "MEDIUM":
+		return severityRankMedium
+	case "LOW":
+		return severityRankLow
+	case "INFORMATIONAL":
+		return severityRankInformational
+	default:
+		return 0
+	}
+}
+
+// buildComplianceTallies accumulates compliant/non-compliant item counts and
+// their per-severity breakdown per ComplianceType.
 func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*complianceTally {
 	tallies := make(map[string]*complianceTally)
 	for _, items := range store {
@@ -541,8 +630,10 @@ func buildComplianceTallies(store map[string][]ComplianceItem) map[string]*compl
 			}
 			if item.Status == complianceStatusCompliant {
 				tallies[ct].compliantCount++
+				bumpSeverity(&tallies[ct].compliantSeverity, item.Severity)
 			} else {
 				tallies[ct].nonCompliantCount++
+				bumpSeverity(&tallies[ct].nonCompliantSeverity, item.Severity)
 			}
 		}
 	}
@@ -566,10 +657,12 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 		summaries = append(summaries, ComplianceSummaryItem{
 			ComplianceType: ct,
 			CompliantSummary: ComplianceCountSummary{
-				CompliantCount: t.compliantCount,
+				CompliantCount:  t.compliantCount,
+				SeveritySummary: &t.compliantSeverity,
 			},
 			NonCompliantSummary: ComplianceCountSummary{
 				NonCompliantCount: t.nonCompliantCount,
+				SeveritySummary:   &t.nonCompliantSeverity,
 			},
 		})
 	}
@@ -620,6 +713,52 @@ func (b *InMemoryBackend) ListComplianceSummaries(
 	}, nil
 }
 
+// resourceComplianceSummaryFor tallies one resource's compliance items into
+// a ResourceComplianceSummaryItem: counts, per-status severity breakdown,
+// and OverallSeverity (the highest real severity among its items).
+func resourceComplianceSummaryFor(resourceID string, items []ComplianceItem) ResourceComplianceSummaryItem {
+	compliant := 0
+	nonCompliant := 0
+	overallSeverity := "UNSPECIFIED"
+
+	var compliantSeverity, nonCompliantSeverity SeveritySummary
+
+	for _, item := range items {
+		if item.Status == complianceStatusCompliant {
+			compliant++
+			bumpSeverity(&compliantSeverity, item.Severity)
+		} else {
+			nonCompliant++
+			bumpSeverity(&nonCompliantSeverity, item.Severity)
+		}
+
+		if severityRank(item.Severity) > severityRank(overallSeverity) {
+			overallSeverity = item.Severity
+		}
+	}
+
+	status := complianceStatusCompliant
+	if nonCompliant > 0 {
+		status = complianceStatusNonCompliant
+	}
+
+	return ResourceComplianceSummaryItem{
+		ResourceID:      resourceID,
+		ResourceType:    items[0].ResourceType,
+		ComplianceType:  items[0].ComplianceType,
+		OverallSeverity: overallSeverity,
+		Status:          status,
+		CompliantSummary: ComplianceCountSummary{
+			CompliantCount:  compliant,
+			SeveritySummary: &compliantSeverity,
+		},
+		NonCompliantSummary: ComplianceCountSummary{
+			NonCompliantCount: nonCompliant,
+			SeveritySummary:   &nonCompliantSeverity,
+		},
+	}
+}
+
 // ListResourceComplianceSummaries returns per-resource compliance summaries
 // derived from stored compliance items.
 func (b *InMemoryBackend) ListResourceComplianceSummaries(
@@ -638,35 +777,7 @@ func (b *InMemoryBackend) ListResourceComplianceSummaries(
 			continue
 		}
 
-		compliant := 0
-		nonCompliant := 0
-
-		for _, item := range items {
-			if item.Status == complianceStatusCompliant {
-				compliant++
-			} else {
-				nonCompliant++
-			}
-		}
-
-		status := complianceStatusCompliant
-		if nonCompliant > 0 {
-			status = complianceStatusNonCompliant
-		}
-
-		summaries = append(summaries, ResourceComplianceSummaryItem{
-			ResourceID:      resourceID,
-			ResourceType:    items[0].ResourceType,
-			ComplianceType:  items[0].ComplianceType,
-			OverallSeverity: "INFORMATIONAL",
-			Status:          status,
-			CompliantSummary: ComplianceCountSummary{
-				CompliantCount: compliant,
-			},
-			NonCompliantSummary: ComplianceCountSummary{
-				NonCompliantCount: nonCompliant,
-			},
-		})
+		summaries = append(summaries, resourceComplianceSummaryFor(resourceID, items))
 	}
 
 	sort.Slice(summaries, func(i, j int) bool {

@@ -239,16 +239,16 @@ func (b *InMemoryBackend) UpdateAlias(
 		return nil, ErrPreconditionFailed
 	}
 
-	if input.FunctionVersion != "" {
-		if input.FunctionVersion != versionLatest && !versionInList(b.versions[name], input.FunctionVersion) {
+	if input.FunctionVersion != nil {
+		if *input.FunctionVersion != versionLatest && !versionInList(b.versions[name], *input.FunctionVersion) {
 			return nil, ErrVersionNotFound
 		}
 
-		alias.FunctionVersion = input.FunctionVersion
+		alias.FunctionVersion = *input.FunctionVersion
 	}
 
-	if input.Description != "" {
-		alias.Description = input.Description
+	if input.Description != nil {
+		alias.Description = *input.Description
 	}
 
 	if input.RoutingConfig != nil {

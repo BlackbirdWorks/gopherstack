@@ -26,6 +26,7 @@ type getLogEventsInput struct {
 type filterLogEventsInput struct {
 	StartTime           *int64   `json:"startTime"`
 	EndTime             *int64   `json:"endTime"`
+	StartFromHead       *bool    `json:"startFromHead"`
 	LogGroupName        string   `json:"logGroupName"`
 	FilterPattern       string   `json:"filterPattern"`
 	NextToken           string   `json:"nextToken"`
@@ -115,6 +116,7 @@ func (h *Handler) logEventActions() map[string]actionFn {
 				EndTime:             input.EndTime,
 				Limit:               input.Limit,
 				NextToken:           input.NextToken,
+				StartFromHead:       input.StartFromHead,
 			})
 			if err != nil {
 				return nil, err

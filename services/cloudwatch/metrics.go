@@ -470,18 +470,21 @@ func (b *InMemoryBackend) GetMetricStatistics(
 	statistics []string,
 	extendedStatistics []string,
 ) ([]Datapoint, error) {
-	return b.getMetricStatisticsForUnit(
+	return b.GetMetricStatisticsForUnit(
 		namespace, metricName, dimensions, startTime, endTime, period,
 		statistics, extendedStatistics, "",
 	)
 }
 
-// getMetricStatisticsForUnit is GetMetricStatistics restricted to datapoints
+// GetMetricStatisticsForUnit is GetMetricStatistics restricted to datapoints
 // published with the given unit; an empty unit matches all datapoints regardless
-// of unit. Used by the alarm evaluator: a MetricAlarm with a Unit set only
-// evaluates datapoints published with that exact StandardUnit (PutMetricAlarm
-// API doc, "Unit" parameter).
-func (b *InMemoryBackend) getMetricStatisticsForUnit(
+// of unit. Used by the alarm evaluator (a MetricAlarm with a Unit set only
+// evaluates datapoints published with that exact StandardUnit, per the
+// PutMetricAlarm API doc's "Unit" parameter) and by GetMetricStatistics's own
+// handlers, which read the real GetMetricStatisticsInput.Unit member
+// (api_op_GetMetricStatistics.go: "If you specify a unit, the operation
+// returns only data that was collected with that unit specified").
+func (b *InMemoryBackend) GetMetricStatisticsForUnit(
 	namespace, metricName string,
 	dimensions []Dimension,
 	startTime, endTime time.Time,

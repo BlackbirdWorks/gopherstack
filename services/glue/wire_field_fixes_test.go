@@ -38,9 +38,12 @@ func TestStartColumnStatisticsTaskRun_StatusIsLegalEnumMember(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = client.StartColumnStatisticsTaskRun(ctx, &gluesdk.StartColumnStatisticsTaskRunInput{
-		DatabaseName: aws.String("db1"),
-		TableName:    aws.String("tbl1"),
-		Role:         aws.String("arn:aws:iam::" + testAccountID + ":role/glue-role"),
+		DatabaseName:          aws.String("db1"),
+		TableName:             aws.String("tbl1"),
+		Role:                  aws.String("arn:aws:iam::" + testAccountID + ":role/glue-role"),
+		ColumnNameList:        []string{"col1", "col2"},
+		SampleSize:            42.5,
+		SecurityConfiguration: aws.String("secconf1"),
 	})
 	require.NoError(t, err)
 
@@ -57,6 +60,9 @@ func TestStartColumnStatisticsTaskRun_StatusIsLegalEnumMember(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, out.ColumnStatisticsTaskRun)
 	assert.Equal(t, types.ColumnStatisticsStateStarting, out.ColumnStatisticsTaskRun.Status)
+	assert.Equal(t, []string{"col1", "col2"}, out.ColumnStatisticsTaskRun.ColumnNameList)
+	assert.InEpsilon(t, 42.5, out.ColumnStatisticsTaskRun.SampleSize, 0.0001)
+	assert.Equal(t, "secconf1", aws.ToString(out.ColumnStatisticsTaskRun.SecurityConfiguration))
 }
 
 // TestCancelDataQualityRuleRecommendationRun_StatusIsLegalEnumMember drives
@@ -117,9 +123,9 @@ func TestCancelDataQualityRulesetEvaluationRun_StatusIsLegalEnumMember(t *testin
 		"Ruleset": "Rules = [ RowCount > 100 ]",
 	})
 
-	startRec := doGlueRequest(t, h, "StartDataQualityRulesetEvaluationRun", map[string]any{
-		"RulesetNames": []string{"my-ruleset"},
-	})
+	startRec := doGlueRequest(
+		t, h, "StartDataQualityRulesetEvaluationRun", dqEvalRunRequiredFields([]string{"my-ruleset"}),
+	)
 	require.Equal(t, 200, startRec.Code)
 	var startOut map[string]string
 	require.NoError(t, json.Unmarshal(startRec.Body.Bytes(), &startOut))

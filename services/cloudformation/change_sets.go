@@ -12,6 +12,25 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// CreateChangeSetOptions groups CreateChangeSet's optional fields beyond
+// name/template/params/capabilities/tags.
+type CreateChangeSetOptions struct {
+	// ChangeSetType mirrors CreateChangeSetInput.ChangeSetType
+	// (api_op_CreateChangeSet.go): "" defers to this backend's existing
+	// stack-existence inference (CREATE if the stack doesn't exist, UPDATE
+	// if it does); an explicit CREATE/UPDATE that conflicts with reality is
+	// rejected (ErrChangeSetTypeMismatch); IMPORT is rejected outright
+	// (ErrChangeSetTypeUnsupported -- no resources-to-import machinery
+	// exists in this backend).
+	ChangeSetType string
+	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
+	// fields (api_op_CreateChangeSet.go:192,254); stored on the ChangeSet
+	// and applied when ExecuteChangeSet calls CreateStack/UpdateStack,
+	// same as Capabilities.
+	ResourceTypes     []string
+	DisableValidation bool
+}
+
 // CreateChangeSet creates a change set for a stack.
 func (b *InMemoryBackend) CreateChangeSet(
 	_ context.Context,
@@ -19,6 +38,7 @@ func (b *InMemoryBackend) CreateChangeSet(
 	params []Parameter,
 	capabilities []string,
 	tags []Tag,
+	opts CreateChangeSetOptions,
 ) (*ChangeSet, error) {
 	b.mu.Lock("CreateChangeSet")
 	defer b.mu.Unlock()
@@ -33,12 +53,16 @@ func (b *InMemoryBackend) CreateChangeSet(
 
 	stack, _ := b.resolveStack(stackName)
 
+	changeSetType, typeErr := resolveChangeSetType(opts.ChangeSetType, stack != nil)
+	if typeErr != nil {
+		return nil, typeErr
+	}
+
 	csID := uuid.New().String()
 	stackID := ""
-	changeSetType := "CREATE"
+
 	if stack != nil {
 		stackID = stack.StackID
-		changeSetType = "UPDATE"
 	}
 
 	cs := &ChangeSet{
@@ -60,6 +84,9 @@ func (b *InMemoryBackend) CreateChangeSet(
 		Parameters:      params,
 		Capabilities:    capabilities,
 		Tags:            tags,
+
+		ResourceTypes:     opts.ResourceTypes,
+		DisableValidation: opts.DisableValidation,
 	}
 
 	cs.Changes = b.computeChanges(templateBody, stack)
@@ -77,6 +104,46 @@ func (b *InMemoryBackend) CreateChangeSet(
 	b.changeSets[stackName][changeSetName] = cs
 
 	return cs, nil
+}
+
+// changeSetTypeCreate/changeSetTypeUpdate/changeSetTypeImport are
+// CreateChangeSetInput.ChangeSetType's three documented enum values
+// (api_op_CreateChangeSet.go).
+const (
+	changeSetTypeCreate = "CREATE"
+	changeSetTypeUpdate = "UPDATE"
+	changeSetTypeImport = "IMPORT"
+)
+
+// resolveChangeSetType validates the requested ChangeSetType against whether
+// the target stack actually exists, returning the effective type to store on
+// the ChangeSet. An empty requested type falls back to the existing
+// stack-existence inference (CREATE/UPDATE); IMPORT is always rejected.
+func resolveChangeSetType(requested string, stackExists bool) (string, error) {
+	switch requested {
+	case "":
+		if stackExists {
+			return changeSetTypeUpdate, nil
+		}
+
+		return changeSetTypeCreate, nil
+	case changeSetTypeCreate:
+		if stackExists {
+			return "", fmt.Errorf("%w: CREATE specified but the stack already exists", ErrChangeSetTypeMismatch)
+		}
+
+		return changeSetTypeCreate, nil
+	case changeSetTypeUpdate:
+		if !stackExists {
+			return "", fmt.Errorf("%w: UPDATE specified but the stack does not exist", ErrChangeSetTypeMismatch)
+		}
+
+		return changeSetTypeUpdate, nil
+	case changeSetTypeImport:
+		return "", ErrChangeSetTypeUnsupported
+	default:
+		return "", fmt.Errorf("%w: ChangeSetType must be CREATE, UPDATE or IMPORT", ErrChangeSetTypeMismatch)
+	}
 }
 
 // computeChanges computes the change set diff from a template body against an
@@ -133,6 +200,7 @@ func (b *InMemoryBackend) DescribeChangeSet(stackName, changeSetName string) (*C
 func (b *InMemoryBackend) ExecuteChangeSet(
 	ctx context.Context,
 	stackName, changeSetName string,
+	disableRollback, retainExceptOnCreate bool,
 ) error {
 	var cs *ChangeSet
 	lockErr := func() error {
@@ -159,7 +227,13 @@ func (b *InMemoryBackend) ExecuteChangeSet(
 	}
 
 	var execErr error
-	opts := StackOptions{Capabilities: cs.Capabilities}
+	opts := StackOptions{
+		Capabilities:         cs.Capabilities,
+		DisableRollback:      disableRollback,
+		RetainExceptOnCreate: retainExceptOnCreate,
+		ResourceTypes:        cs.ResourceTypes,
+		DisableValidation:    cs.DisableValidation,
+	}
 	_, err := b.UpdateStack(ctx, stackName, cs.TemplateBody, cs.Parameters, opts)
 	if err != nil {
 		// Stack may not exist yet — create it.

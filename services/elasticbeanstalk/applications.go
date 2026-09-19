@@ -46,6 +46,19 @@ func (b *InMemoryBackend) CreateApplication(
 	name, description string,
 	tags map[string]string,
 ) (*Application, error) {
+	return b.CreateApplicationWithParams(ctx, name, description, tags, nil)
+}
+
+// CreateApplicationWithParams creates a new application, optionally seeding
+// its ResourceLifecycleConfig (real CreateApplicationInput member,
+// api_op_CreateApplication.go -- previously accepted nowhere in this
+// handler, see PARITY.md items_still_open). lifecycle may be nil.
+func (b *InMemoryBackend) CreateApplicationWithParams(
+	ctx context.Context,
+	name, description string,
+	tags map[string]string,
+	lifecycle *ApplicationResourceLifecycleParams,
+) (*Application, error) {
 	b.mu.Lock("CreateApplication")
 	defer b.mu.Unlock()
 
@@ -66,6 +79,7 @@ func (b *InMemoryBackend) CreateApplication(
 		Tags:            copyTags(tags),
 		region:          region,
 	}
+	applyResourceLifecycleParams(app, lifecycle)
 	b.applicationPut(app)
 
 	// Real AWS: "Creates an application that has one configuration template
@@ -73,6 +87,29 @@ func (b *InMemoryBackend) CreateApplication(
 	b.createDefaultConfigurationTemplate(region, name)
 
 	return cloneApplication(app), nil
+}
+
+// applyResourceLifecycleParams merges lifecycle (if non-nil) onto app: an
+// empty ServiceRole or a nil rule means "not present in this request, leave
+// unchanged" -- see ApplicationResourceLifecycleParams's doc comment.
+func applyResourceLifecycleParams(app *Application, lifecycle *ApplicationResourceLifecycleParams) {
+	if lifecycle == nil {
+		return
+	}
+
+	if lifecycle.ServiceRole != "" {
+		app.ResourceLifecycleServiceRole = lifecycle.ServiceRole
+	}
+
+	if lifecycle.MaxAgeRule != nil {
+		rule := *lifecycle.MaxAgeRule
+		app.VersionLifecycleMaxAgeRule = &rule
+	}
+
+	if lifecycle.MaxCountRule != nil {
+		rule := *lifecycle.MaxCountRule
+		app.VersionLifecycleMaxCountRule = &rule
+	}
 }
 
 // DescribeApplications returns applications, optionally filtered by names.
@@ -136,6 +173,20 @@ func (b *InMemoryBackend) UpdateApplicationResourceLifecycle(
 	ctx context.Context,
 	appName, serviceRole string,
 ) (*Application, error) {
+	return b.UpdateApplicationResourceLifecycleWithParams(
+		ctx, appName, ApplicationResourceLifecycleParams{ServiceRole: serviceRole},
+	)
+}
+
+// UpdateApplicationResourceLifecycleWithParams applies lifecycle's fields to
+// appName: ApplicationVersionLifecycleConfig's MaxAgeRule/MaxCountRule (real
+// members, api_op_UpdateApplicationResourceLifecycle.go) were previously
+// accepted nowhere -- see PARITY.md items_still_open.
+func (b *InMemoryBackend) UpdateApplicationResourceLifecycleWithParams(
+	ctx context.Context,
+	appName string,
+	lifecycle ApplicationResourceLifecycleParams,
+) (*Application, error) {
 	b.mu.Lock("UpdateApplicationResourceLifecycle")
 	defer b.mu.Unlock()
 
@@ -146,7 +197,7 @@ func (b *InMemoryBackend) UpdateApplicationResourceLifecycle(
 		return nil, fmt.Errorf("%w: application %s not found", ErrNotFound, appName)
 	}
 
-	app.ResourceLifecycleServiceRole = serviceRole
+	applyResourceLifecycleParams(app, &lifecycle)
 
 	return cloneApplication(app), nil
 }

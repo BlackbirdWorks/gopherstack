@@ -15,67 +15,129 @@ type modifyClusterResponse struct {
 	Cluster xmlCluster `xml:"ModifyClusterResult>Cluster"`
 }
 
+// modifyClusterBoolFlags holds the tri-state (*bool) ModifyClusterInput
+// members: real AWS represents these as *bool, so a pointer is only built
+// when the form actually included the key, distinguishing "not specified"
+// from "explicitly false" (e.g. decrypting a cluster).
+type modifyClusterBoolFlags struct {
+	encrypted                            *bool
+	enhancedVpcRouting                   *bool
+	publiclyAccessible                   *bool
+	allowVersionUpgrade                  *bool
+	extraComputeForAutomaticOptimization *bool
+}
+
+func parseModifyClusterBoolFlags(vals url.Values) modifyClusterBoolFlags {
+	parse := func(key string) *bool {
+		v, ok := vals[key]
+		if !ok || len(v) == 0 || v[0] == "" {
+			return nil
+		}
+
+		b := v[0] == paramValueTrue
+
+		return &b
+	}
+
+	return modifyClusterBoolFlags{
+		encrypted:                            parse("Encrypted"),
+		enhancedVpcRouting:                   parse("EnhancedVpcRouting"),
+		publiclyAccessible:                   parse("PubliclyAccessible"),
+		allowVersionUpgrade:                  parse("AllowVersionUpgrade"),
+		extraComputeForAutomaticOptimization: parse("ExtraComputeForAutomaticOptimization"),
+	}
+}
+
+// modifyClusterIntFields holds the plain-int and *int ModifyClusterInput
+// members parsed from form values.
+type modifyClusterIntFields struct {
+	automatedSnapshotRetentionPeriod *int
+	manualSnapshotRetentionPeriod    *int
+	numberOfNodes                    int
+	port                             int
+}
+
+func parseModifyClusterIntFields(vals url.Values) (modifyClusterIntFields, error) {
+	var f modifyClusterIntFields
+
+	var err error
+
+	if f.numberOfNodes, err = parseOptionalInt(vals, "NumberOfNodes", "NumberOfNodes must be an integer"); err != nil {
+		return f, err
+	}
+
+	if f.port, err = parseOptionalInt(vals, "Port", "Port must be an integer"); err != nil {
+		return f, err
+	}
+
+	if f.automatedSnapshotRetentionPeriod, err = parseOptionalIntPtr(
+		vals, "AutomatedSnapshotRetentionPeriod", "AutomatedSnapshotRetentionPeriod must be an integer",
+	); err != nil {
+		return f, err
+	}
+
+	if f.manualSnapshotRetentionPeriod, err = parseOptionalIntPtr(
+		vals, "ManualSnapshotRetentionPeriod", "ManualSnapshotRetentionPeriod must be an integer",
+	); err != nil {
+		return f, err
+	}
+
+	return f, nil
+}
+
+func parseOptionalInt(vals url.Values, key, errMsg string) (int, error) {
+	v := vals.Get(key)
+	if v == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s", ErrInvalidParameter, errMsg)
+	}
+
+	return n, nil
+}
+
+func parseOptionalIntPtr(vals url.Values, key, errMsg string) (*int, error) {
+	v := vals.Get(key)
+	if v == "" {
+		return nil, nil //nolint:nilnil // absent form field means "unset", not an error
+	}
+
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidParameter, errMsg)
+	}
+
+	return &n, nil
+}
+
 func (h *Handler) handleModifyCluster(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
-	numberOfNodesStr := vals.Get("NumberOfNodes")
-	applyImmediatelyStr := vals.Get("ApplyImmediately")
-	portStr := vals.Get("Port")
+	flags := parseModifyClusterBoolFlags(vals)
 
-	// Encrypted/EnhancedVpcRouting/PubliclyAccessible are tri-state on the wire
-	// (real ModifyClusterInput fields are *bool): only build a pointer when the
-	// form actually included the key, so "not specified" is distinguishable
-	// from "explicitly false" (e.g. decrypting a cluster).
-	var encrypted *bool
-	if v := vals.Get("Encrypted"); v != "" {
-		b := v == paramValueTrue
-		encrypted = &b
-	}
-
-	var enhancedVpcRouting *bool
-	if v := vals.Get("EnhancedVpcRouting"); v != "" {
-		b := v == paramValueTrue
-		enhancedVpcRouting = &b
-	}
-
-	var publiclyAccessible *bool
-	if v := vals.Get("PubliclyAccessible"); v != "" {
-		b := v == paramValueTrue
-		publiclyAccessible = &b
-	}
-
-	numberOfNodes := 0
-
-	if numberOfNodesStr != "" {
-		n, err := strconv.Atoi(numberOfNodesStr)
-		if err != nil {
-			return nil, fmt.Errorf("%w: NumberOfNodes must be an integer", ErrInvalidParameter)
-		}
-
-		numberOfNodes = n
-	}
-
-	port := 0
-
-	if portStr != "" {
-		p, err := strconv.Atoi(portStr)
-		if err != nil {
-			return nil, fmt.Errorf("%w: Port must be an integer", ErrInvalidParameter)
-		}
-
-		port = p
+	ints, err := parseModifyClusterIntFields(vals)
+	if err != nil {
+		return nil, err
 	}
 
 	cluster, err := h.Backend.ModifyCluster(id, ModifyClusterOptions{
-		NodeType:            vals.Get("NodeType"),
-		MasterUserPassword:  vals.Get("MasterUserPassword"),
-		ClusterVersion:      vals.Get("ClusterVersion"),
-		VpcSecurityGroupIDs: parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
-		NumberOfNodes:       numberOfNodes,
-		Port:                port,
-		Encrypted:           encrypted,
-		EnhancedVpcRouting:  enhancedVpcRouting,
-		PubliclyAccessible:  publiclyAccessible,
-		ApplyImmediately:    applyImmediatelyStr != "false",
+		NodeType:                             vals.Get("NodeType"),
+		MasterUserPassword:                   vals.Get("MasterUserPassword"),
+		ClusterVersion:                       vals.Get("ClusterVersion"),
+		ClusterParameterGroupName:            vals.Get("ClusterParameterGroupName"),
+		VpcSecurityGroupIDs:                  parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
+		NumberOfNodes:                        ints.numberOfNodes,
+		Port:                                 ints.port,
+		Encrypted:                            flags.encrypted,
+		EnhancedVpcRouting:                   flags.enhancedVpcRouting,
+		PubliclyAccessible:                   flags.publiclyAccessible,
+		AllowVersionUpgrade:                  flags.allowVersionUpgrade,
+		ExtraComputeForAutomaticOptimization: flags.extraComputeForAutomaticOptimization,
+		AutomatedSnapshotRetentionPeriod:     ints.automatedSnapshotRetentionPeriod,
+		ManualSnapshotRetentionPeriod:        ints.manualSnapshotRetentionPeriod,
+		ApplyImmediately:                     vals.Get("ApplyImmediately") != "false",
 	})
 	if err != nil {
 		return nil, err
@@ -224,8 +286,9 @@ func (h *Handler) handleModifyClusterIamRoles(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
 	addRoles := parseStringList(vals, "AddIamRoles.IamRoleArn.")
 	removeRoles := parseStringList(vals, "RemoveIamRoles.IamRoleArn.")
+	defaultIamRoleArn := vals.Get("DefaultIamRoleArn")
 
-	cluster, err := h.Backend.ModifyClusterIamRoles(id, addRoles, removeRoles)
+	cluster, err := h.Backend.ModifyClusterIamRoles(id, addRoles, removeRoles, defaultIamRoleArn)
 	if err != nil {
 		return nil, err
 	}
@@ -271,12 +334,18 @@ type describeClusterDBRevisionsResponse struct {
 	XMLName xml.Name `xml:"DescribeClusterDBRevisionsResponse"`
 	Xmlns   string   `xml:"xmlns,attr"`
 	Result  struct {
+		Marker             string                 `xml:"Marker,omitempty"`
 		ClusterDBRevisions []clusterDBRevisionXML `xml:"ClusterDBRevisions>ClusterDbRevision"`
 	} `xml:"DescribeClusterDBRevisionsResult"`
 }
 
 func (h *Handler) handleDescribeClusterDBRevisions(vals url.Values) (any, error) {
 	id := vals.Get("ClusterIdentifier")
+
+	if _, err := parseRedshiftMaxRecords(vals); err != nil {
+		return nil, err
+	}
+
 	resp := &describeClusterDBRevisionsResponse{Xmlns: redshiftXMLNS}
 
 	if id != "" {

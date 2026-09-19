@@ -762,7 +762,7 @@ func TestListUpdates_ReturnsStoredIDs(t *testing.T) {
 	u1, err := b.UpdateClusterVersion("list-upd-cluster", "1.30")
 	require.NoError(t, err)
 
-	u2, err := b.UpdateNodegroupVersion("list-upd-cluster", "ng1", "1.30")
+	u2, err := b.UpdateNodegroupVersion("list-upd-cluster", "ng1", "1.30", "")
 	require.NoError(t, err)
 
 	ids, err = b.ListUpdates("list-upd-cluster")

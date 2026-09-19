@@ -8,7 +8,7 @@ import (
 
 // CreateCustomDBEngineVersion creates a custom DB engine version.
 func (b *InMemoryBackend) CreateCustomDBEngineVersion(
-	engine, engineVersion, description string,
+	engine, engineVersion, description, imageID string,
 ) (*CustomDBEngineVersion, error) {
 	if engine == "" {
 		return nil, fmt.Errorf("%w: Engine is required", ErrInvalidParameter)
@@ -36,6 +36,7 @@ func (b *InMemoryBackend) CreateCustomDBEngineVersion(
 		DBEngineVersionArn: b.rdsARN("cev", engine+"/"+engineVersion),
 		Status:             instanceStatusAvailable,
 		Description:        description,
+		ImageID:            imageID,
 	}
 	b.customEngineVersions.Put(cev)
 	cp := *cev
@@ -103,14 +104,24 @@ func (b *InMemoryBackend) ModifyCustomDBEngineVersion(
 // same operation like any other engine/version pair, distinguished only by their Engine
 // value.
 func (b *InMemoryBackend) DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion {
+	// IsDefault marks the newest version per engine -- this backend's stand-in for
+	// AWS's per-engine "default" version (rds@v1.124.1 DescribeDBEngineVersions's
+	// DefaultOnly doc: "the default version of the specified engine or engine and
+	// major version combination"). Custom engine versions are never default.
 	builtin := []DBEngineVersion{
 		{Engine: enginePostgres, EngineVersion: "14.10", DBEngineDescription: "PostgreSQL 14.10"},
-		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5"},
-		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35"},
-		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14"},
-		{Engine: engineAuroraMySQL, EngineVersion: "3.04.0", DBEngineDescription: "Aurora MySQL 3.04.0"},
+		{Engine: enginePostgres, EngineVersion: "15.5", DBEngineDescription: "PostgreSQL 15.5", IsDefault: true},
+		{Engine: engineMySQL, EngineVersion: "8.0.35", DBEngineDescription: "MySQL 8.0.35", IsDefault: true},
+		{Engine: engineMariaDB, EngineVersion: "10.6.14", DBEngineDescription: "MariaDB 10.6.14", IsDefault: true},
+		{
+			Engine: engineAuroraMySQL, EngineVersion: "3.04.0",
+			DBEngineDescription: "Aurora MySQL 3.04.0", IsDefault: true,
+		},
 		{Engine: engineAuroraPostgresql, EngineVersion: "14.9", DBEngineDescription: "Aurora PostgreSQL 14.9"},
-		{Engine: engineAuroraPostgresql, EngineVersion: "15.4", DBEngineDescription: "Aurora PostgreSQL 15.4"},
+		{
+			Engine: engineAuroraPostgresql, EngineVersion: "15.4",
+			DBEngineDescription: "Aurora PostgreSQL 15.4", IsDefault: true,
+		},
 	}
 
 	b.mu.RLock("DescribeDBEngineVersions")

@@ -53,6 +53,15 @@ type StorageBackend interface {
 		statistics []string,
 		extendedStatistics []string,
 	) ([]Datapoint, error)
+	GetMetricStatisticsForUnit(
+		namespace, metricName string,
+		dimensions []Dimension,
+		startTime, endTime time.Time,
+		period int32,
+		statistics []string,
+		extendedStatistics []string,
+		unit string,
+	) ([]Datapoint, error)
 	GetMetricData(
 		queries []MetricDataQuery,
 		startTime, endTime time.Time,

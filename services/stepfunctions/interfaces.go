@@ -25,7 +25,7 @@ type StorageBackend interface {
 		maxResults int,
 	) ([]StateMachineVersion, string, error)
 	CreateStateMachineAlias(
-		smARN, name, description string,
+		name, description string,
 		routing []AliasRoutingConfig,
 	) (*StateMachineAlias, error)
 	UpdateStateMachineAlias(

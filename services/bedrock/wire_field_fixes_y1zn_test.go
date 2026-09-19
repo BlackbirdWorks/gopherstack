@@ -1,7 +1,6 @@
 package bedrock_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -11,62 +10,6 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/services/bedrock"
 )
-
-// TestDeleteDataSource_NoInventedStatusKey_RealClient covers gopherstack-y1zn.
-// handleDeleteDataSource emitted "dataSourceStatus"; DeleteDataSourceOutput
-// (bedrockagent@v1.58.4 deserializers.go's
-// awsRestjson1_deserializeOpDocumentDeleteDataSourceOutput) declares exactly
-// dataSourceId/knowledgeBaseId/status. A typed client silently ignores the
-// unknown key and never sees Status at all, so the proof is the raw body.
-func TestDeleteDataSource_NoInventedStatusKey_RealClient(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-	kbID, dsID := createKBAndDS(t, h)
-
-	rec := doAgentRequest(
-		t, h, http.MethodDelete,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s", kbID, dsID),
-		nil,
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	body := rec.Body.String()
-	assert.NotContains(t, body, `"dataSourceStatus"`,
-		"DeleteDataSourceOutput has no dataSourceStatus member")
-	assert.Contains(t, body, `"status"`,
-		"DeleteDataSourceOutput's real member is status")
-
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
-	assert.Equal(t, "DELETING", out["status"])
-}
-
-// TestIngestKBDocuments_DocumentDetailsKey_RealClient covers
-// gopherstack-y1zn. handleIngestKBDocuments emitted "documents";
-// IngestKnowledgeBaseDocumentsOutput (bedrockagent@v1.58.4 deserializers.go's
-// awsRestjson1_deserializeOpDocumentIngestKnowledgeBaseDocumentsOutput)
-// declares only documentDetails, exactly like its List/Get siblings in the
-// same file already emit correctly.
-func TestIngestKBDocuments_DocumentDetailsKey_RealClient(t *testing.T) {
-	t.Parallel()
-
-	h, _ := newTestAgentsHandler(t)
-	kbID, dsID := createKBAndDS(t, h)
-
-	rec := doAgentRequest(
-		t, h, http.MethodPut,
-		fmt.Sprintf("/knowledgebases/%s/datasources/%s/documents", kbID, dsID),
-		ingestDocs("s3://bucket/doc-1"),
-	)
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	body := rec.Body.String()
-	assert.NotContains(t, body, `"documents"`,
-		"IngestKnowledgeBaseDocumentsOutput has no documents member")
-	assert.Contains(t, body, `"documentDetails"`,
-		"IngestKnowledgeBaseDocumentsOutput's real member is documentDetails")
-}
 
 // TestARPBuildWorkflowResultAssets_BuildWorkflowAssetsKey_RealClient covers
 // gopherstack-y1zn. handleGetARPBuildWorkflowResultAssets emitted

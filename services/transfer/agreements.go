@@ -9,6 +9,47 @@ import (
 	"github.com/google/uuid"
 )
 
+// AgreementCreateExtras holds optional CreateAgreement fields that don't fit
+// CreateAgreementFull's positional parameter list.
+type AgreementCreateExtras struct {
+	EnforceMessageSigning string
+	PreserveFilename      string
+}
+
+// validateEnforceMessageSigning validates the EnforceMessageSigning enum, defaulting to DISABLED.
+func validateEnforceMessageSigning(v string) (string, error) {
+	if v == "" {
+		return agreementSigningDisabled, nil
+	}
+
+	switch v {
+	case agreementSigningEnabled, agreementSigningDisabled:
+		return v, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: EnforceMessageSigning must be ENABLED or DISABLED, got %q",
+			ErrValidation, v,
+		)
+	}
+}
+
+// validatePreserveFilename validates the PreserveFilename enum, defaulting to DISABLED.
+func validatePreserveFilename(v string) (string, error) {
+	if v == "" {
+		return agreementPreserveFilenameDisabled, nil
+	}
+
+	switch v {
+	case agreementPreserveFilenameEnabled, agreementPreserveFilenameDisabled:
+		return v, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: PreserveFilename must be ENABLED or DISABLED, got %q",
+			ErrValidation, v,
+		)
+	}
+}
+
 // CreateAgreement creates an AS2 agreement on an existing server.
 func (b *InMemoryBackend) CreateAgreement(
 	serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole string,
@@ -30,6 +71,7 @@ func (b *InMemoryBackend) CreateAgreement(
 func (b *InMemoryBackend) CreateAgreementFull(
 	serverID, description, localProfileID, partnerProfileID, baseDirectory, accessRole, status string,
 	tags map[string]string,
+	extras ...AgreementCreateExtras,
 ) (*Agreement, error) {
 	b.mu.Lock("CreateAgreement")
 	defer b.mu.Unlock()
@@ -54,24 +96,41 @@ func (b *InMemoryBackend) CreateAgreementFull(
 		)
 	}
 
+	var extra AgreementCreateExtras
+	if len(extras) > 0 {
+		extra = extras[0]
+	}
+
+	enforceMessageSigning, err := validateEnforceMessageSigning(extra.EnforceMessageSigning)
+	if err != nil {
+		return nil, err
+	}
+
+	preserveFilename, err := validatePreserveFilename(extra.PreserveFilename)
+	if err != nil {
+		return nil, err
+	}
+
 	agreementID := "a-" + uuid.NewString()[:20]
 
 	merged := make(map[string]string, len(tags))
 	maps.Copy(merged, tags)
 
 	ag := &Agreement{
-		AgreementID:      agreementID,
-		ServerID:         serverID,
-		Description:      description,
-		LocalProfileID:   localProfileID,
-		PartnerProfileID: partnerProfileID,
-		BaseDirectory:    baseDirectory,
-		AccessRole:       accessRole,
-		Status:           status,
-		CreatedAt:        time.Now(),
-		Tags:             merged,
-		AccountID:        b.accountID,
-		Region:           b.region,
+		AgreementID:           agreementID,
+		ServerID:              serverID,
+		Description:           description,
+		LocalProfileID:        localProfileID,
+		PartnerProfileID:      partnerProfileID,
+		BaseDirectory:         baseDirectory,
+		AccessRole:            accessRole,
+		Status:                status,
+		CreatedAt:             time.Now(),
+		Tags:                  merged,
+		AccountID:             b.accountID,
+		Region:                b.region,
+		EnforceMessageSigning: enforceMessageSigning,
+		PreserveFilename:      preserveFilename,
 	}
 	b.agreements.Put(ag)
 	b.initTagsStore(agreementARN(b.accountID, b.region, serverID, agreementID), merged)
@@ -145,9 +204,17 @@ func (b *InMemoryBackend) ListAgreements(serverID string) ([]*Agreement, error) 
 	return out, nil
 }
 
+// AgreementUpdateExtras holds optional UpdateAgreement fields that don't fit
+// UpdateAgreement's positional parameter list.
+type AgreementUpdateExtras struct {
+	EnforceMessageSigning string
+	PreserveFilename      string
+}
+
 // UpdateAgreement updates mutable fields on an agreement.
 func (b *InMemoryBackend) UpdateAgreement(
 	serverID, agreementID, description, status string,
+	extras ...AgreementUpdateExtras,
 ) (*Agreement, error) {
 	b.mu.Lock("UpdateAgreement")
 	defer b.mu.Unlock()
@@ -179,6 +246,29 @@ func (b *InMemoryBackend) UpdateAgreement(
 		}
 
 		ag.Status = status
+	}
+
+	var extra AgreementUpdateExtras
+	if len(extras) > 0 {
+		extra = extras[0]
+	}
+
+	if extra.EnforceMessageSigning != "" {
+		enforceMessageSigning, err := validateEnforceMessageSigning(extra.EnforceMessageSigning)
+		if err != nil {
+			return nil, err
+		}
+
+		ag.EnforceMessageSigning = enforceMessageSigning
+	}
+
+	if extra.PreserveFilename != "" {
+		preserveFilename, err := validatePreserveFilename(extra.PreserveFilename)
+		if err != nil {
+			return nil, err
+		}
+
+		ag.PreserveFilename = preserveFilename
 	}
 
 	return cloneAgreement(ag), nil

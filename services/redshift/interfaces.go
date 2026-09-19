@@ -10,6 +10,7 @@ type StorageBackend interface {
 		id, nodeType, dbName, masterUser string,
 		clusterSecurityGroups []string,
 		clusterParameterGroupName string,
+		opts CreateClusterOptions,
 	) (*Cluster, error)
 	DeleteCluster(id string) (*Cluster, error)
 	DescribeClusters(id, marker string, maxRecords int, tagKeys, tagValues []string) ([]Cluster, string, error)
@@ -19,7 +20,7 @@ type StorageBackend interface {
 	ResumeCluster(id string) (*Cluster, error)
 	ResizeCluster(id, nodeType, clusterType string, numberOfNodes int, classic bool) (*Cluster, error)
 	RotateEncryptionKey(id string) (*Cluster, error)
-	ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error)
+	ModifyClusterIamRoles(id string, addRoles, removeRoles []string, defaultIamRoleArn string) (*Cluster, error)
 	ModifyClusterMaintenance(id, maintenanceTrack string, deferMaintenance bool) (*Cluster, error)
 	ModifyAquaConfiguration(id string) (*Cluster, error)
 	ModifyLakehouseConfiguration(p ModifyLakehouseConfigParams) (*ClusterLakehouseConfigResult, error)
@@ -69,7 +70,7 @@ type StorageBackend interface {
 	DeleteClusterSnapshot(snapshotID string) (*Snapshot, error)
 	DescribeClusterSnapshots(snapshotID, clusterID, snapshotType string, clusterExists *bool) ([]Snapshot, error)
 	CopyClusterSnapshot(sourceSnapshotID, destinationSnapshotID string) (*Snapshot, error)
-	RestoreFromClusterSnapshot(clusterID, snapshotID string) (*Cluster, error)
+	RestoreFromClusterSnapshot(clusterID, snapshotID string, opts RestoreFromClusterSnapshotOptions) (*Cluster, error)
 	AuthorizeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
 	BatchDeleteClusterSnapshots(identifiers []string) ([]SnapshotBatchError, []string)
 	BatchModifyClusterSnapshots(identifiers []string, retentionPeriod *int, force bool) ([]SnapshotBatchError, []string)
@@ -120,7 +121,7 @@ type StorageBackend interface {
 	RevokeSnapshotAccess(snapshotID, accountWithRestoreAccess string) (*Snapshot, error)
 
 	// Credentials
-	GetClusterCredentials(clusterID, dbUser string, autoCreate bool) (*ClusterCredentials, error)
+	GetClusterCredentials(clusterID, dbUser string, autoCreate bool, durationSeconds *int) (*ClusterCredentials, error)
 
 	// Logging operations
 	EnableLogging(clusterID, bucketName, s3KeyPrefix string) (*LoggingStatus, error)
@@ -194,11 +195,12 @@ type StorageBackend interface {
 	DeleteResourcePolicy(resourceArn string) error
 
 	// Additional operations
-	GetClusterCredentialsWithIAM(clusterID, dbName string) (*ClusterCredentials, error)
+	GetClusterCredentialsWithIAM(clusterID, dbName string, durationSeconds *int) (*ClusterCredentials, error)
 	FailoverPrimaryCompute(clusterID string) (*Cluster, error)
 	DescribeTableRestoreStatus(clusterID string) ([]TableRestoreStatus, error)
 	CreateTableRestoreStatus(
 		clusterID, snapshotID, sourceDatabaseName, sourceTableName, targetDatabaseName, targetTableName string,
+		sourceSchemaName, targetSchemaName string,
 	) (*TableRestoreStatus, error)
 
 	// HSM client certificate operations

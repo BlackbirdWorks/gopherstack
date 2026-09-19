@@ -9,6 +9,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
 
+// jobRunOnlyAttempt is the only JobRunAttemptSummary.Attempt value this
+// backend ever produces (see ListJobRunAttempts) -- it does not model retries.
+const jobRunOnlyAttempt = 0
+
 func (b *InMemoryBackend) jobRunARN(applicationID, jobRunID string) string {
 	return arn.Build("emr-serverless", b.region, b.accountID,
 		fmt.Sprintf("/applications/%s/jobruns/%s", applicationID, jobRunID))
@@ -132,8 +136,12 @@ func (b *InMemoryBackend) jobRunForToken(applicationID, clientToken string) *Job
 	return jr
 }
 
-// GetJobRun retrieves a job run by application ID and job run ID.
-func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, error) {
+// GetJobRun retrieves a job run by application ID and job run ID. attempt
+// (GetJobRunInput.Attempt) is optional and, when given, must name an
+// existing attempt: this backend never models retries (see
+// ListJobRunAttempts), so the only attempt that ever exists is 0, the job
+// run's own current state.
+func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string, attempt *int32) (*JobRun, error) {
 	b.mu.RLock("GetJobRun")
 	defer b.mu.RUnlock()
 
@@ -144,6 +152,10 @@ func (b *InMemoryBackend) GetJobRun(applicationID, jobRunID string) (*JobRun, er
 	jr, ok := b.jobRuns.Get(jobRunID)
 	if !ok || jr.ApplicationID != applicationID {
 		return nil, fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
+	}
+
+	if attempt != nil && *attempt != jobRunOnlyAttempt {
+		return nil, fmt.Errorf("%w: attempt %d not found for job run %s", ErrNotFound, *attempt, jobRunID)
 	}
 
 	return cloneJobRun(jr), nil
@@ -227,8 +239,14 @@ func (b *InMemoryBackend) CancelJobRun(applicationID, jobRunID string) (*JobRun,
 	return cloneJobRun(jr), nil
 }
 
-// GetDashboardForJobRun returns a dashboard URL for a job run.
-func (b *InMemoryBackend) GetDashboardForJobRun(applicationID, jobRunID string) (string, error) {
+// GetDashboardForJobRun returns a dashboard URL for a job run. attempt is
+// validated exactly as GetJobRun's (see its doc comment); accessSystemProfileLogs
+// (GetDashboardForJobRunInput.AccessSystemProfileLogs) is echoed into the
+// synthesized URL's query string, since this backend has no real Lake
+// Formation system-profile-log integration to grant access to.
+func (b *InMemoryBackend) GetDashboardForJobRun(
+	applicationID, jobRunID string, attempt *int32, accessSystemProfileLogs bool,
+) (string, error) {
 	b.mu.RLock("GetDashboardForJobRun")
 	defer b.mu.RUnlock()
 
@@ -241,8 +259,17 @@ func (b *InMemoryBackend) GetDashboardForJobRun(applicationID, jobRunID string) 
 		return "", fmt.Errorf("%w: job run %s not found", ErrNotFound, jobRunID)
 	}
 
-	url := fmt.Sprintf("https://console.aws.amazon.com/emr-serverless/home?region=%s#/applications/%s/jobruns/%s",
-		b.region, applicationID, jobRunID)
+	if attempt != nil && *attempt != jobRunOnlyAttempt {
+		return "", fmt.Errorf("%w: attempt %d not found for job run %s", ErrNotFound, *attempt, jobRunID)
+	}
+
+	query := "region=" + b.region
+	if accessSystemProfileLogs {
+		query += "&accessSystemProfileLogs=true"
+	}
+
+	url := fmt.Sprintf("https://console.aws.amazon.com/emr-serverless/home?%s#/applications/%s/jobruns/%s",
+		query, applicationID, jobRunID)
 
 	return url, nil
 }

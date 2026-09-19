@@ -509,38 +509,38 @@ func (b *InMemoryBackend) UpdateCluster(input UpdateClusterInput) (*Cluster, err
 		)
 	}
 
-	if input.ParameterGroupName != "" && !b.paramGroups.Has(input.ParameterGroupName) {
-		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, input.ParameterGroupName)
+	if input.ParameterGroupName != nil && !b.paramGroups.Has(*input.ParameterGroupName) {
+		return nil, fmt.Errorf("%w: %s", ErrParameterGroupNotFound, *input.ParameterGroupName)
 	}
 
 	if input.Description != nil {
 		cluster.Description = *input.Description
 	}
 
-	if input.PreferredMaintenanceWindow != "" {
-		cluster.PreferredMaintenanceWindow = input.PreferredMaintenanceWindow
+	if input.PreferredMaintenanceWindow != nil {
+		cluster.PreferredMaintenanceWindow = *input.PreferredMaintenanceWindow
 	}
 
 	if len(input.SecurityGroupIDs) > 0 {
 		cluster.SecurityGroupIDs = append([]string(nil), input.SecurityGroupIDs...)
 	}
 
-	if input.ParameterGroupName != "" {
-		cluster.ParameterGroup.ParameterGroupName = input.ParameterGroupName
+	if input.ParameterGroupName != nil {
+		cluster.ParameterGroup.ParameterGroupName = *input.ParameterGroupName
 	}
 
-	if input.NotificationTopicArn != "" {
+	if input.NotificationTopicArn != nil {
 		status := notificationTopicStatusActive
-		if input.NotificationTopicStatus != "" {
-			status = input.NotificationTopicStatus
+		if input.NotificationTopicStatus != nil {
+			status = *input.NotificationTopicStatus
 		}
 
 		cluster.NotificationConfiguration = &NotificationConfiguration{
-			TopicArn:    input.NotificationTopicArn,
+			TopicArn:    *input.NotificationTopicArn,
 			TopicStatus: status,
 		}
-	} else if input.NotificationTopicStatus != "" && cluster.NotificationConfiguration != nil {
-		cluster.NotificationConfiguration.TopicStatus = input.NotificationTopicStatus
+	} else if input.NotificationTopicStatus != nil && cluster.NotificationConfiguration != nil {
+		cluster.NotificationConfiguration.TopicStatus = *input.NotificationTopicStatus
 	}
 
 	cp := b.clusterCopy(cluster)

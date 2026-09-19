@@ -239,8 +239,8 @@ func (b *InMemoryBackend) DeleteDetector(detectorID string) error {
 	return nil
 }
 
-// ListDetectors returns all detector IDs.
-func (b *InMemoryBackend) ListDetectors() []string {
+// ListDetectors returns a page of detector IDs.
+func (b *InMemoryBackend) ListDetectors(maxResults int32, nextToken string) ([]string, string, error) {
 	b.mu.RLock("ListDetectors")
 	defer b.mu.RUnlock()
 
@@ -251,5 +251,15 @@ func (b *InMemoryBackend) ListDetectors() []string {
 		ids[i] = d.DetectorID
 	}
 
-	return ids
+	slices.Sort(ids)
+
+	offset, err := decodeToken(nextToken)
+	if err != nil {
+		return nil, "", ErrValidation
+	}
+
+	size := resolvePageSize(int(maxResults))
+	page, next := paginate(ids, offset, size)
+
+	return page, next, nil
 }

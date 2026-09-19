@@ -272,29 +272,30 @@ func TestHandler_DeleteWirelessDeviceImportTask(t *testing.T) {
 	}
 }
 
+// TestHandler_UpdateWirelessDeviceImportTask proves UpdateWirelessDeviceImportTaskInput
+// (iotwireless@v1.59.4) has no DestinationName member -- only Id and a
+// Sidewalk.DeviceCreationFile -- so DestinationName must stay whatever
+// StartWirelessDeviceImportTask set, and the update instead appends to
+// Sidewalk.DeviceCreationFileList.
 func TestHandler_UpdateWirelessDeviceImportTask(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		initialDest string
-		updatedDest string
-		wantNewDest string
-		wantStatus  int
+		name         string
+		updateBody   string
+		wantFileList []any
+		wantStatus   int
 	}{
 		{
-			name:        "update_destination",
-			initialDest: "dest-old",
-			updatedDest: "dest-new",
-			wantStatus:  http.StatusNoContent,
-			wantNewDest: "dest-new",
+			name:         "appends_device_creation_file",
+			updateBody:   `{"Sidewalk":{"DeviceCreationFile":"s3://bucket/more.csv"}}`,
+			wantStatus:   http.StatusNoContent,
+			wantFileList: []any{"s3://bucket/more.csv"},
 		},
 		{
-			name:        "empty_update_preserves",
-			initialDest: "dest-initial",
-			updatedDest: "",
-			wantStatus:  http.StatusNoContent,
-			wantNewDest: "dest-initial",
+			name:       "empty_sidewalk_leaves_list_untouched",
+			updateBody: `{}`,
+			wantStatus: http.StatusNoContent,
 		},
 	}
 
@@ -305,21 +306,14 @@ func TestHandler_UpdateWirelessDeviceImportTask(t *testing.T) {
 			h := newTestHandlerHTTP()
 
 			rec := doIoTWRequest(t, h, http.MethodPost, "/wireless_device_import_task",
-				`{"DestinationName":"`+tt.initialDest+`"}`)
+				`{"DestinationName":"dest-old"}`)
 			require.Equal(t, http.StatusCreated, rec.Code)
 
 			var createResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &createResp))
 			taskID := createResp["Id"].(string)
 
-			var body string
-			if tt.updatedDest != "" {
-				body = `{"DestinationName":"` + tt.updatedDest + `"}`
-			} else {
-				body = `{}`
-			}
-
-			rec = doIoTWRequest(t, h, http.MethodPatch, "/wireless_device_import_task/"+taskID, body)
+			rec = doIoTWRequest(t, h, http.MethodPatch, "/wireless_device_import_task/"+taskID, tt.updateBody)
 			assert.Equal(t, tt.wantStatus, rec.Code)
 
 			// Verify via Get.
@@ -328,7 +322,15 @@ func TestHandler_UpdateWirelessDeviceImportTask(t *testing.T) {
 
 			var getResp map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &getResp))
-			assert.Equal(t, tt.wantNewDest, getResp["DestinationName"])
+			assert.Equal(t, "dest-old", getResp["DestinationName"])
+
+			if tt.wantFileList == nil {
+				assert.Nil(t, getResp["Sidewalk"])
+			} else {
+				sidewalk, ok := getResp["Sidewalk"].(map[string]any)
+				require.True(t, ok, "expected Sidewalk object, got %#v", getResp["Sidewalk"])
+				assert.Equal(t, tt.wantFileList, sidewalk["DeviceCreationFileList"])
+			}
 		})
 	}
 }

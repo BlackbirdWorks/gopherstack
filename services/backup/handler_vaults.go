@@ -128,12 +128,29 @@ func (h *Handler) handleListBackupVaults(c *echo.Context) error {
 			keyVaultState:            vaultStateFor(v),
 			keyVaultType:             vt,
 		}
+		setOptionalStr(item, "EncryptionKeyArn", v.EncryptionKeyArn)
+		setOptionalStr(item, "CreatorRequestId", v.CreatorRequestID)
+		// EncryptionKeyType mirrors handleDescribeBackupVault's derivation:
+		// no dedicated backend field, fully determined by whether an
+		// EncryptionKeyArn was supplied.
 		if v.EncryptionKeyArn != "" {
-			item["EncryptionKeyArn"] = v.EncryptionKeyArn
+			item["EncryptionKeyType"] = "CUSTOMER_MANAGED_KMS_KEY"
+		} else {
+			item["EncryptionKeyType"] = "AWS_OWNED_KMS_KEY"
 		}
-		if v.MinRetentionDays > 0 {
-			item["MinRetentionDays"] = v.MinRetentionDays
-			item["MaxRetentionDays"] = v.MaxRetentionDays
+
+		// Locked/LockDate/retention bounds mirror handleDescribeBackupVault's
+		// lock-config lookup -- BackupVaultListMember carries the same
+		// members as DescribeBackupVaultOutput here.
+		if cfg, cfgErr := h.Backend.GetBackupVaultLockConfig(v.BackupVaultName); cfgErr == nil {
+			item["Locked"] = true
+			item["MinRetentionDays"] = cfg.MinRetentionDays
+			item["MaxRetentionDays"] = cfg.MaxRetentionDays
+			if cfg.LockDate != nil {
+				item["LockDate"] = epochSeconds(*cfg.LockDate)
+			}
+		} else {
+			item["Locked"] = false
 		}
 		items = append(items, item)
 	}
@@ -194,6 +211,7 @@ func (h *Handler) handleAssociateBackupVaultMpaApprovalTeam(
 type createLogicallyAirGappedBody struct {
 	BackupVaultTags  map[string]string `json:"BackupVaultTags,omitempty"`
 	CreatorRequestID string            `json:"CreatorRequestId,omitempty"`
+	EncryptionKeyArn string            `json:"EncryptionKeyArn,omitempty"`
 	MaxRetentionDays int64             `json:"MaxRetentionDays"`
 	MinRetentionDays int64             `json:"MinRetentionDays"`
 }
@@ -221,7 +239,7 @@ func (h *Handler) handleCreateLogicallyAirGappedBackupVault(
 	}
 
 	v, err := h.Backend.CreateLogicallyAirGappedBackupVault(
-		name, in.CreatorRequestID, in.MinRetentionDays, in.MaxRetentionDays, in.BackupVaultTags,
+		name, in.EncryptionKeyArn, in.CreatorRequestID, in.MinRetentionDays, in.MaxRetentionDays, in.BackupVaultTags,
 	)
 	if err != nil {
 		return h.handleError(c, err)

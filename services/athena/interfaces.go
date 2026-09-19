@@ -137,7 +137,7 @@ type StorageBackend interface {
 	GetSessionEndpoint(id string) (url, authToken string, authTokenExpiration float64, err error)
 	TerminateSession(id string) (string, error)
 	ListSessions(workGroup, stateFilter string) ([]SessionSummary, error)
-	ListNotebookSessions(notebookID string) ([]SessionSummary, error)
+	ListNotebookSessions(notebookID string) ([]NotebookSessionSummary, error)
 
 	// Calculations
 	StartCalculationExecution(sessionID, description, codeBlock string) (string, string, error)

@@ -44,6 +44,9 @@ const (
 	maxBackupRetentionPeriod = 35
 
 	docDBEngineDescription = "Amazon DocumentDB"
+
+	storageTypeStandard = "standard"
+	storageTypeIOOpt1   = "iopt1"
 )
 
 var validDocDBVersions = map[string]bool{ //nolint:gochecknoglobals // compile-time constant set
@@ -77,6 +80,23 @@ func validateEngineVersion(engineVersion string) error {
 	}
 
 	return nil
+}
+
+// validateStorageType returns an error if storageType is non-empty and not
+// one of the two documented values (standard | iopt1), and otherwise
+// normalizes an empty value to the documented default ("standard").
+func validateStorageType(storageType string) (string, error) {
+	if storageType == "" {
+		return storageTypeStandard, nil
+	}
+	if storageType != storageTypeStandard && storageType != storageTypeIOOpt1 {
+		return "", fmt.Errorf(
+			"%w: StorageType %q is not valid; valid values: standard, iopt1",
+			ErrInvalidParameter, storageType,
+		)
+	}
+
+	return storageType, nil
 }
 
 // validateMasterUserPassword validates per AWS rules: 8-100 chars, no '/', '"', or '@'.
@@ -146,6 +166,7 @@ type DBCluster struct {
 	DBClusterIdentifier         string            `json:"dbClusterIdentifier"`
 	ReaderEndpoint              string            `json:"readerEndpoint"`
 	Status                      string            `json:"status"`
+	StorageType                 string            `json:"storageType"`
 	DBSubnetGroupName           string            `json:"dbSubnetGroupName"`
 	PreferredBackupWindow       string            `json:"preferredBackupWindow"`
 	ClusterCreateTime           string            `json:"clusterCreateTime"`
@@ -186,6 +207,7 @@ type DBInstance struct {
 	PreferredMaintenanceWindow   string            `json:"preferredMaintenanceWindow"`
 	CACertificateIdentifier      string            `json:"caCertificateIdentifier"`
 	InstanceCreateTime           string            `json:"instanceCreateTime"`
+	PerformanceInsightsKMSKeyID  string            `json:"performanceInsightsKMSKeyId"`
 	EnabledCloudwatchLogsExports []string          `json:"enabledCloudwatchLogsExports"`
 	Port                         int               `json:"port"`
 	PromotionTier                int               `json:"promotionTier"`
@@ -193,6 +215,7 @@ type DBInstance struct {
 	AutoMinorVersionUpgrade      bool              `json:"autoMinorVersionUpgrade"`
 	PubliclyAccessible           bool              `json:"publiclyAccessible"`
 	CopyTagsToSnapshot           bool              `json:"copyTagsToSnapshot"`
+	PerformanceInsightsEnabled   bool              `json:"performanceInsightsEnabled"`
 }
 
 type DBSubnetGroup struct {
@@ -412,6 +435,7 @@ type InMemoryBackend struct {
 // CreateDBClusterOptions holds optional parameters for CreateDBCluster.
 type CreateDBClusterOptions struct {
 	KmsKeyID                     string
+	StorageType                  string
 	VpcSecurityGroupIDs          []string
 	EnabledCloudwatchLogsExports []string
 }
@@ -427,16 +451,25 @@ type ModifyDBClusterOptions struct {
 	EngineVersion          string
 	MasterUserPassword     string
 	NewDBClusterIdentifier string
+	StorageType            string
 	VpcSecurityGroupIDs    []string
 	EnableLogsTypes        []string
 	DisableLogsTypes       []string
 	Port                   int
+	// ApplyImmediately is read for wire-declaration parity but this backend
+	// applies every ModifyDBCluster change immediately regardless of its
+	// value -- same disclosed simplification as rds's ModifyDBCluster (see
+	// services/rds/handler_db_clusters.go), no deferred/pending-reboot state
+	// is modeled here either.
+	ApplyImmediately bool
 }
 
 // CreateDBInstanceOptions holds optional parameters for CreateDBInstance.
 type CreateDBInstanceOptions struct {
-	CACertificateIdentifier string
-	CopyTagsToSnapshot      bool
+	CACertificateIdentifier     string
+	PerformanceInsightsKMSKeyID string
+	CopyTagsToSnapshot          bool
+	EnablePerformanceInsights   bool
 }
 
 // DBClusterMemberEntry represents an instance that is a member of a DB cluster.
@@ -448,9 +481,18 @@ type DBClusterMemberEntry struct {
 
 // ModifyDBInstanceOptions holds optional extra parameters for ModifyDBInstance.
 type ModifyDBInstanceOptions struct {
-	CopyTagsToSnapshot      *bool
-	PromotionTier           *int
-	CACertificateIdentifier string
+	CopyTagsToSnapshot          *bool
+	EnablePerformanceInsights   *bool
+	PromotionTier               *int
+	CACertificateIdentifier     string
+	PerformanceInsightsKMSKeyID string
+	// ApplyImmediately and CertificateRotationRestart are read for
+	// wire-declaration parity but this backend applies every ModifyDBInstance
+	// change immediately regardless of their values -- same disclosed
+	// simplification as ModifyDBClusterOptions.ApplyImmediately above; no
+	// deferred/pending-reboot state is modeled.
+	ApplyImmediately           bool
+	CertificateRotationRestart bool
 }
 
 // DBEngineVersion represents a supported DocDB engine version.

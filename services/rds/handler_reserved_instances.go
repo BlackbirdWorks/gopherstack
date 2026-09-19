@@ -35,6 +35,7 @@ type purchaseReservedDBInstancesOfferingResponse struct {
 type describeReservedDBInstancesResponse struct {
 	XMLName             xml.Name                  `xml:"DescribeReservedDBInstancesResponse"`
 	Xmlns               string                    `xml:"xmlns,attr"`
+	Marker              string                    `xml:"DescribeReservedDBInstancesResult>Marker,omitempty"`
 	ReservedDBInstances xmlReservedDBInstanceList `xml:"DescribeReservedDBInstancesResult>ReservedDBInstances"`
 }
 
@@ -55,6 +56,7 @@ type xmlReservedDBInstancesOfferingList struct {
 }
 
 type xmlReservedOfferingsWrapper struct {
+	Marker    string                             `xml:"Marker,omitempty"`
 	Offerings xmlReservedDBInstancesOfferingList `xml:"ReservedDBInstancesOfferings"`
 }
 
@@ -89,13 +91,20 @@ func (h *Handler) handleDescribeReservedDBInstances(vals url.Values) (any, error
 	reservedID := vals.Get("ReservedDBInstanceId")
 	dbInstanceClass := vals.Get("DBInstanceClass")
 	instances := h.Backend.DescribeReservedDBInstances(reservedID, dbInstanceClass)
-	members := make([]xmlReservedDBInstance, 0, len(instances))
-	for i := range instances {
-		members = append(members, toXMLReservedDBInstance(&instances[i]))
+	members, marker, err := paginateDescribe(vals, instances, func(a, b ReservedDBInstance) bool {
+		return a.ReservedDBInstanceID < b.ReservedDBInstanceID
+	}, func(r ReservedDBInstance) xmlReservedDBInstance {
+		cp := r
+
+		return toXMLReservedDBInstance(&cp)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeReservedDBInstancesResponse{
 		Xmlns:               rdsXMLNS,
+		Marker:              marker,
 		ReservedDBInstances: xmlReservedDBInstanceList{Members: members},
 	}, nil
 }
@@ -104,14 +113,19 @@ func (h *Handler) handleDescribeReservedDBInstancesOfferings(vals url.Values) (a
 	offeringID := vals.Get("ReservedDBInstancesOfferingId")
 	dbInstanceClass := vals.Get("DBInstanceClass")
 	offerings := h.Backend.DescribeReservedDBInstancesOfferings(offeringID, dbInstanceClass)
-	members := make([]xmlReservedDBInstancesOffering, 0, len(offerings))
-	for _, o := range offerings {
-		members = append(members, xmlReservedDBInstancesOffering(o))
+	members, marker, err := paginateDescribe(vals, offerings, func(a, b ReservedDBInstancesOffering) bool {
+		return a.ReservedDBInstancesOfferingID < b.ReservedDBInstancesOfferingID
+	}, func(o ReservedDBInstancesOffering) xmlReservedDBInstancesOffering {
+		return xmlReservedDBInstancesOffering(o)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &describeReservedDBInstancesOfferingsResponse{
 		Xmlns: rdsXMLNS,
 		Result: xmlReservedOfferingsWrapper{
+			Marker:    marker,
 			Offerings: xmlReservedDBInstancesOfferingList{Members: members},
 		},
 	}, nil

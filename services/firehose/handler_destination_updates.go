@@ -59,6 +59,17 @@ func (h *Handler) handleUpdateDestination(
 		}
 	}
 
+	if in.AmazonOpenSearchServiceDestinationUpdate != nil {
+		if err := validateDocumentIDOptions(in.AmazonOpenSearchServiceDestinationUpdate.DocumentIDOptions); err != nil {
+			return nil, err
+		}
+	}
+	if in.ElasticsearchDestinationUpdate != nil {
+		if err := validateDocumentIDOptions(in.ElasticsearchDestinationUpdate.DocumentIDOptions); err != nil {
+			return nil, err
+		}
+	}
+
 	update := UpdateDestinationInput{
 		S3Destination:            buildS3DestinationDescription(rawS3),
 		HTTPEndpointDestination:  buildHTTPEndpointDestination(in.HTTPEndpointDestinationUpdate),

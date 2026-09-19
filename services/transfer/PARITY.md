@@ -6,24 +6,12 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: transfer
 sdk_module: aws-sdk-go-v2/service/transfer@v1.75.4   # version audited against (go.mod)
-last_audit_commit: 33ef0db22
-last_audit_date: 2026-08-30                          # 2026-08-30 (transfer/emr/elasticache Describe/List rigor
-                                                       # pass, same wrapper-key-sweep branch): independently
-                                                       # re-derived this service's 27-op Describe/List surface from
-                                                       # handler.go's dispatch table (not PARITY.md prose): 13
-                                                       # Describe + 14 List. Read all 27 handlers field-by-field
-                                                       # against their own api_op_<Op>.go Input structs (transfer
-                                                       # is awsAwsjson1.1, X-Amz-Target: TransferService.<Op>,
-                                                       # reconfirmed via serializers.go). No new bug found -- every
-                                                       # op already correctly reads its declared filters
-                                                       # (ListProfiles.ProfileType, ListExecutions/ListAgreements/
-                                                       # ListAccesses/ListHostKeys/ListUsers's required By-ID
-                                                       # selectors, ListFileTransferResults's required
-                                                       # ConnectorId+TransferId), no listing skips its store, no
-                                                       # handler discards its whole request, no wrong Go type. This
-                                                       # corroborates rather than supersedes the 2026-08-29 wrapper-
-                                                       # key-sweep and filter/pagination audits already recorded
-                                                       # below -- independently re-verified, not re-fixed.
+last_audit_commit: f66686eee
+last_audit_date: 2026-09-18                          # reqfielddiff tier-1 request-field audit: 5 tier-1
+                                                       # findings, all real (CreateAgreement/UpdateAgreement x
+                                                       # EnforceMessageSigning+PreserveFilename,
+                                                       # UpdateServer.IdentityProviderType), all fixed and
+                                                       # proven by typed-client tests; see 2026-09-18 Notes entry.
 overall: A                # WebApp create/wire rewrite to real shape, SecurityPolicy catalog rewrite to real names/algos, Start* op wire fixes, epoch-timestamp bug class fixed across Certificate/HostKey/SSHPublicKey
                            # 2026-08-29 wrapper-key sweep (query/path/header key hunt, cross-service with
                            # apigateway/efs/appconfig): the class this sweep hunts (a handler reading a
@@ -55,10 +43,10 @@ overall: A                # WebApp create/wire rewrite to real shape, SecurityPo
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 families:
   RouteMatcher: {status: ok, note: "X-Amz-Target prefix \"TransferService.\" matches every real SDK serializer target (verified against all 66 api_op_*.go files in the vendored module); MatchPriority is header-exact. No unreachable ops."}
-  Server: {status: ok, note: "CreateServer/DescribeServer/ListServers/StartServer/StopServer/DeleteServer/UpdateServer audited op-by-op (unchanged since 2026-07-12 audit; re-confirmed no timestamp fields exist on DescribedServer in the pinned SDK, so the epoch-seconds bug class does not apply here)."}
+  Server: {status: ok, note: "CreateServer/DescribeServer/ListServers/StartServer/StopServer/DeleteServer/UpdateServer audited op-by-op (unchanged since 2026-07-12 audit; re-confirmed no timestamp fields exist on DescribedServer in the pinned SDK, so the epoch-seconds bug class does not apply here). FIXED 2026-09-18 (reqfielddiff tier-1): UpdateServerInput.IdentityProviderType was parsed nowhere -- a real client could never change a server's identity provider type after creation. Now applied via UpdateServerFull's SetIdentityProviderType."}
   User: {status: ok, note: "CreateUser/DescribeUser/ListUsers/DeleteUser/UpdateUser audited (unchanged since 2026-07-12). FIXED this pass: DescribeUser's embedded SshPublicKeys[].DateImported was a Format(time.RFC3339) string; real SshPublicKey.DateImported deserializes via smithytime.ParseEpochSeconds (JSON number) -- a real aws-sdk-go-v2 client would fail to parse the string. Now emits awstime.Epoch(...)."}
   Access: {status: ok, note: "CreateAccess/DescribeAccess/ListAccesses/UpdateAccess/DeleteAccess audited (unchanged since 2026-07-12). No Tags/ARN in real AWS for Access -- confirmed still correct."}
-  Agreement: {status: ok, note: "unchanged since 2026-07-12 audit. FIXED 2026-09-12 (typed slice 32): ListAgreements' per-item map omitted the real ServerId member (types.ListedAgreement); added, see dated section below."}
+  Agreement: {status: ok, note: "unchanged since 2026-07-12 audit. FIXED 2026-09-12 (typed slice 32): ListAgreements' per-item map omitted the real ServerId member (types.ListedAgreement); added, see dated section below. FIXED 2026-09-18 (reqfielddiff tier-1): CreateAgreementInput/UpdateAgreementInput's EnforceMessageSigning/PreserveFilename were parsed nowhere and every agreement silently got the DISABLED default; now applied and echoed on DescribeAgreement."}
   Connector: {status: ok, note: "CreateConnector/DescribeConnector/ListConnectors/UpdateConnector/DeleteConnector unchanged since 2026-07-12. TestConnection/StartFileTransfer/StartDirectoryListing/StartRemoteDelete/StartRemoteMove field-diffed 2026-07-24 -- see the dedicated Start* family entry below (was previously 'deferred'). FIXED this pass: IpAddressType (types.ConnectorsIpAddressType: IPV4/DUALSTACK, added to CreateConnectorInput/UpdateConnectorInput/DescribedConnector since v1.69.4) is now accepted on Create/UpdateConnector and echoed on DescribeConnector; not validated as an enum, matching the sibling Server.IpAddressType field in this same package, which also accepts any string. ListedConnector has no IpAddressType field in real AWS (confirmed via types.go and the deserializer), so ListConnectors correctly omits it."}
   Profile: {status: ok, note: "unchanged since 2026-07-12 audit."}
   Workflow: {status: ok, note: "unchanged since 2026-07-12 audit."}
@@ -81,6 +69,30 @@ leaks: {status: clean, note: "Shutdown(ctx) stops the backend's worker (StartSer
 ---
 
 ## Notes
+
+### 2026-09-18 zeroguard census: omitted-member blanking on 6 ops (12 fields)
+
+UpdateAccess/UpdateUser (Role, HomeDirectory, Policy -- Policy was hidden
+behind a `SetPolicy` flag itself derived from `!= ""`, same bug one layer
+up), UpdateCertificate (Description), UpdateConnector (Url, AccessRole,
+LoggingRole, SecurityPolicyName), UpdateServer (Certificate, HostKey,
+LoggingRole, PreAuthenticationLoginBanner, PostAuthenticationLoginBanner,
+SecurityPolicyName) and UpdateWebApp (AccessEndpoint) decoded these as
+plain strings, so an update omitting the field blanked stored state. Fixed
+by decoding as `*string` and applying only when non-nil. zeroguard rows
+25 -> 9; the rest are required lookup identifiers (ServerId/ExternalId/
+CertificateId/ConnectorId/ProfileId/UserName/WebAppId).
+
+### 2026-09-18 (gopherstack-xhu2t): reqfielddiff tier-1 request-field sweep
+
+Fixed all 5 tier-1 findings: CreateAgreement/UpdateAgreement's EnforceMessageSigning and
+PreserveFilename (both previously parsed nowhere, silently defaulting to DISABLED) and
+UpdateServer's IdentityProviderType (previously never applied). Proven by
+`TestAgreement_EnforceMessageSigningAndPreserveFilename_RealClient` and
+`TestUpdateServer_IdentityProviderType_RealClient` (wire_field_fixes_test.go). Tier-1:
+5 -> 0 (`go run ./cmd/reqfielddiff -dir transfer`). Added 2 additive persisted fields
+(Agreement.EnforceMessageSigning/PreserveFilename) to the snapshot inventory golden, no
+version bump.
 
 ### 2026-09-12 (gopherstack-n3zi): typed-client round trips for the 42-op tail, 29/71 -> 71/71
 

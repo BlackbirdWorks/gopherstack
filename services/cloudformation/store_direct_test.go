@@ -187,13 +187,13 @@ func TestResourceScan_CRUD(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "COMPLETE", scan.Status)
 
-	scans, err := b.ListResourceScans(0, "")
+	scans, err := b.ListResourceScans(0, "", "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, scans.Data)
 
-	resources, err := b.ListResourceScanResources(scanID, "")
+	p, err := b.ListResourceScanResources(scanID, "", 0)
 	require.NoError(t, err)
-	assert.NotNil(t, resources)
+	assert.NotNil(t, p.Data)
 }
 
 // ---- Backend: Type management -------------------------------------------------
@@ -212,7 +212,7 @@ func TestTypeManagement_RegisterAndList(t *testing.T) {
 	assert.NotEmpty(t, regStatus)
 	assert.NotEmpty(t, regTypeArn)
 
-	types, err := b.ListTypes("", 0, "")
+	types, err := b.ListTypes("", "", 0, "")
 	require.NoError(t, err)
 	assert.NotEmpty(t, types.Data)
 
@@ -650,12 +650,13 @@ func TestChangeSet_ExecuteOnNewStack(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		cloudformation.CreateChangeSetOptions{},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "brand-new", cs.StackName)
 
 	// Execute — should create the stack.
-	err = b.ExecuteChangeSet(t.Context(), "brand-new", "my-cs")
+	err = b.ExecuteChangeSet(t.Context(), "brand-new", "my-cs", false, false)
 	require.NoError(t, err)
 
 	stack, err := b.DescribeStack("brand-new")
@@ -799,6 +800,7 @@ func TestChangeSet_ChangesContainAdd(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		cloudformation.CreateChangeSetOptions{},
 	)
 	require.NoError(t, err)
 	assert.NotEmpty(t, cs.Changes)

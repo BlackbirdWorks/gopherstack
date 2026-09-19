@@ -25,6 +25,7 @@ type UserPoolClient struct {
 	ClientName                      string               `json:"clientName,omitempty"`
 	UserPoolID                      string               `json:"userPoolId,omitempty"`
 	ClientSecret                    string               `json:"clientSecret,omitempty"`
+	DefaultRedirectURI              string               `json:"defaultRedirectUri,omitempty"`
 	ExtraClientSecrets              []ClientSecretRecord `json:"extraClientSecrets,omitempty"`
 	PreventUserExistenceErrors      string               `json:"preventUserExistenceErrors,omitempty"`
 	AllowedOAuthScopes              []string             `json:"allowedOAuthScopes,omitempty"`
@@ -33,6 +34,8 @@ type UserPoolClient struct {
 	LogoutURLs                      []string             `json:"logoutURLs,omitempty"`
 	SupportedIdentityProviders      []string             `json:"supportedIdentityProviders,omitempty"`
 	AllowedOAuthFlows               []string             `json:"allowedOAuthFlows,omitempty"`
+	ReadAttributes                  []string             `json:"readAttributes,omitempty"`
+	WriteAttributes                 []string             `json:"writeAttributes,omitempty"`
 	AccessTokenValidity             int32                `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32                `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32                `json:"refreshTokenValidity,omitempty"`
@@ -44,12 +47,15 @@ type UserPoolClient struct {
 type UserPoolClientOptions struct {
 	TokenValidityUnits              map[string]string `json:"tokenValidityUnits,omitempty"`
 	PreventUserExistenceErrors      string            `json:"preventUserExistenceErrors,omitempty"`
+	DefaultRedirectURI              string            `json:"defaultRedirectUri,omitempty"`
 	SupportedIdentityProviders      []string          `json:"supportedIdentityProviders,omitempty"`
 	ExplicitAuthFlows               []string          `json:"explicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"callbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"logoutURLs,omitempty"`
 	AllowedOAuthScopes              []string          `json:"allowedOAuthScopes,omitempty"`
 	AllowedOAuthFlows               []string          `json:"allowedOAuthFlows,omitempty"`
+	ReadAttributes                  []string          `json:"readAttributes,omitempty"`
+	WriteAttributes                 []string          `json:"writeAttributes,omitempty"`
 	AccessTokenValidity             int32             `json:"accessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"idTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"refreshTokenValidity,omitempty"`
@@ -93,12 +99,15 @@ type clientDataAccurate struct {
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientSecret                    string            `json:"ClientSecret,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
+	DefaultRedirectURI              string            `json:"DefaultRedirectURI,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
+	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
 	CreationDate                    float64           `json:"CreationDate,omitempty"`
 	LastModifiedDate                float64           `json:"LastModifiedDate,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
@@ -113,12 +122,15 @@ type createUserPoolClientWithOptsInput struct {
 	UserPoolID                      string            `json:"UserPoolId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
+	DefaultRedirectURI              string            `json:"DefaultRedirectURI,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
+	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`
@@ -137,12 +149,15 @@ type updateUserPoolClientWithOptsInput struct {
 	ClientID                        string            `json:"ClientId,omitempty"`
 	ClientName                      string            `json:"ClientName,omitempty"`
 	PreventUserExistenceErrors      string            `json:"PreventUserExistenceErrors,omitempty"`
+	DefaultRedirectURI              string            `json:"DefaultRedirectURI,omitempty"`
 	AllowedOAuthFlows               []string          `json:"AllowedOAuthFlows,omitempty"`
 	AllowedOAuthScopes              []string          `json:"AllowedOAuthScopes,omitempty"`
 	ExplicitAuthFlows               []string          `json:"ExplicitAuthFlows,omitempty"`
 	CallbackURLs                    []string          `json:"CallbackURLs,omitempty"`
 	LogoutURLs                      []string          `json:"LogoutURLs,omitempty"`
 	SupportedIdentityProviders      []string          `json:"SupportedIdentityProviders,omitempty"`
+	ReadAttributes                  []string          `json:"ReadAttributes,omitempty"`
+	WriteAttributes                 []string          `json:"WriteAttributes,omitempty"`
 	AccessTokenValidity             int32             `json:"AccessTokenValidity,omitempty"`
 	IDTokenValidity                 int32             `json:"IdTokenValidity,omitempty"`
 	RefreshTokenValidity            int32             `json:"RefreshTokenValidity,omitempty"`

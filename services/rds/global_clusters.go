@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 )
 
 // CreateGlobalCluster creates a new global cluster.
 func (b *InMemoryBackend) CreateGlobalCluster(
-	id, engine, engineVersion string,
+	id, engine, engineVersion, engineLifecycleSupport string,
 	storageEncrypted, deletionProtection bool,
 ) (*GlobalCluster, error) {
 	if id == "" {
@@ -34,6 +35,7 @@ func (b *InMemoryBackend) CreateGlobalCluster(
 		Status:                  instanceStatusAvailable,
 		StorageEncrypted:        storageEncrypted,
 		DeletionProtection:      deletionProtection,
+		EngineLifecycleSupport:  engineLifecycleSupport,
 	}
 	b.globalClusters.Put(gc)
 	cp := *gc
@@ -135,10 +137,22 @@ func (b *InMemoryBackend) DeleteGlobalCluster(id string) (*GlobalCluster, error)
 	return &cp, nil
 }
 
+// majorVersion returns the leading dot-separated segment of an engine
+// version string (e.g. "15.4" -> "15"), this backend's simplified stand-in
+// for AWS's per-engine major-version compatibility matrix.
+func majorVersion(v string) string {
+	if before, _, found := strings.Cut(v, "."); found {
+		return before
+	}
+
+	return v
+}
+
 // ModifyGlobalCluster modifies properties of a global cluster.
 func (b *InMemoryBackend) ModifyGlobalCluster(
 	id, newGlobalClusterID, engineVersion string,
 	deletionProtection *bool,
+	allowMajorVersionUpgrade bool,
 ) (*GlobalCluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: GlobalClusterIdentifier must not be empty", ErrInvalidParameter)
@@ -165,6 +179,14 @@ func (b *InMemoryBackend) ModifyGlobalCluster(
 		b.globalClusters.Put(gc)
 	}
 	if engineVersion != "" {
+		if !allowMajorVersionUpgrade && gc.EngineVersion != "" &&
+			majorVersion(engineVersion) != majorVersion(gc.EngineVersion) {
+			return nil, fmt.Errorf(
+				"%w: engine version upgrade from %s to %s changes the major version; "+
+					"set AllowMajorVersionUpgrade to upgrade",
+				ErrInvalidParameterCombination, gc.EngineVersion, engineVersion,
+			)
+		}
 		gc.EngineVersion = engineVersion
 	}
 	if deletionProtection != nil {

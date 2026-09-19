@@ -88,6 +88,7 @@ func (s *storedServiceNetwork) toSummary() *ServiceNetworkSummary {
 		NumberOfAssociatedServices: s.NumberOfAssociatedServices,
 		NumberOfAssociatedVPCs:     s.NumberOfAssociatedVPCs,
 		CreatedAt:                  s.CreatedAt,
+		LastUpdatedAt:              s.LastUpdatedAt,
 	}
 }
 
@@ -141,6 +142,7 @@ func (s *storedSNSA) toSummary() *ServiceNetworkServiceAssociationSummary {
 		ServiceNetworkID:   s.ServiceNetworkID,
 		ServiceNetworkName: s.ServiceNetworkName,
 		Status:             s.Status,
+		CreatedBy:          s.CreatedBy,
 		CustomDomainName:   s.CustomDomainName,
 		DNSName:            s.DNSName,
 		HostedZoneID:       s.HostedZoneID,
@@ -197,9 +199,11 @@ func (s *storedSNVA) toSummary() *ServiceNetworkVpcAssociationSummary {
 		ServiceNetworkID:   s.ServiceNetworkID,
 		ServiceNetworkName: s.ServiceNetworkName,
 		Status:             s.Status,
+		CreatedBy:          s.CreatedBy,
 		PrivateDNSEnabled:  s.PrivateDNSEnabled,
 		DNSOptions:         s.DNSOptions,
 		CreatedAt:          s.CreatedAt,
+		LastUpdatedAt:      s.LastUpdatedAt,
 	}
 }
 
@@ -549,6 +553,8 @@ func (s *storedSNRA) toSummary() *ServiceNetworkResourceAssociationSummary {
 		ServiceNetworkID:          s.ServiceNetworkID,
 		ServiceNetworkName:        s.ServiceNetworkName,
 		Status:                    s.Status,
+		CreatedBy:                 s.CreatedBy,
+		PrivateDNSEnabled:         s.PrivateDNSEnabled,
 		CreatedAt:                 s.CreatedAt,
 	}
 }
@@ -576,6 +582,7 @@ func (d *storedDomainVerification) toDomainVerification() *DomainVerification {
 		DomainName:       d.DomainName,
 		Status:           d.Status,
 		LastVerifiedTime: d.LastVerifiedTime,
+		Tags:             copyTags(d.Tags),
 		CreatedAt:        d.CreatedAt,
 	}
 }
@@ -587,6 +594,7 @@ func (d *storedDomainVerification) toSummary() *DomainVerificationSummary {
 		DomainName:       d.DomainName,
 		Status:           d.Status,
 		LastVerifiedTime: d.LastVerifiedTime,
+		Tags:             copyTags(d.Tags),
 		CreatedAt:        d.CreatedAt,
 	}
 }

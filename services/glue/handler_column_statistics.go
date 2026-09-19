@@ -325,20 +325,23 @@ func (h *Handler) handleListColumnStatisticsTaskRuns(
 // startColumnStatisticsTaskRunInput holds input for StartColumnStatisticsTaskRun.
 //
 // CatalogID (real member name is "CatalogID", not "CatalogId" --
-// glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go) now scopes the target
-// table like every other op in this service. ColumnNameList, SampleSize, and
-// SecurityConfiguration remain unmodeled: StartColumnStatisticsTaskRun never
-// actually computes statistics (no reconciler transitions the run out of
-// "starting" -- see StartColumnStatisticsTaskRun, column_statistics.go), so
-// there is no per-column computation to select a subset of -- accepted on
-// the wire and otherwise inert (see PARITY.md). Role is real and required
+// glue@v1.152.0 api_op_StartColumnStatisticsTaskRun.go) scopes the target
+// table like every other op in this service, and is now also stored/echoed on
+// the run itself (ColumnStatisticsTaskRun.CatalogID). ColumnNameList,
+// SampleSize and SecurityConfiguration are declared and stored/echoed too,
+// but otherwise inert: StartColumnStatisticsTaskRun never actually computes
+// statistics (no reconciler transitions the run out of "starting" -- see
+// StartColumnStatisticsTaskRun, column_statistics.go), so there is no
+// per-column computation for them to affect. Role is real and required
 // (ColumnStatisticsTaskRun.Role, models.go).
 type startColumnStatisticsTaskRunInput struct {
-	DatabaseName   string   `json:"DatabaseName"`
-	TableName      string   `json:"TableName"`
-	Role           string   `json:"Role"`
-	CatalogID      string   `json:"CatalogID,omitempty"`
-	ColumnNameList []string `json:"ColumnNameList,omitempty"`
+	DatabaseName          string   `json:"DatabaseName"`
+	TableName             string   `json:"TableName"`
+	Role                  string   `json:"Role"`
+	CatalogID             string   `json:"CatalogID,omitempty"`
+	SecurityConfiguration string   `json:"SecurityConfiguration,omitempty"`
+	ColumnNameList        []string `json:"ColumnNameList,omitempty"`
+	SampleSize            float64  `json:"SampleSize,omitempty"`
 }
 
 // startColumnStatisticsTaskRunOutput holds the result for StartColumnStatisticsTaskRun.
@@ -365,7 +368,14 @@ func (h *Handler) handleStartColumnStatisticsTaskRun(
 		}
 	}
 
-	run, err := h.Backend.StartColumnStatisticsTaskRun(in.DatabaseName, in.TableName, in.Role)
+	run, err := h.Backend.StartColumnStatisticsTaskRunWithOptions(
+		in.DatabaseName, in.TableName, in.Role, ColumnStatisticsRunOptions{
+			CatalogID:             in.CatalogID,
+			SecurityConfiguration: in.SecurityConfiguration,
+			ColumnNameList:        in.ColumnNameList,
+			SampleSize:            in.SampleSize,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

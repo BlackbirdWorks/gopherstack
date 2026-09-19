@@ -169,19 +169,20 @@ type Widget struct {
 
 // EventDataStore represents a CloudTrail event data store resource.
 type EventDataStore struct {
-	Tags                   *tags.Tags              `json:"tags,omitempty"`
 	CreatedTimestamp       time.Time               `json:"createdTimestamp"`
 	UpdatedTimestamp       time.Time               `json:"updatedTimestamp"`
-	EventDataStoreID       string                  `json:"eventDataStoreId"`
-	EventDataStoreARN      string                  `json:"eventDataStoreArn"`
+	Tags                   *tags.Tags              `json:"tags,omitempty"`
+	FederationRoleArn      string                  `json:"federationRoleArn,omitempty"`
+	KMSKeyID               string                  `json:"kmsKeyId,omitempty"`
 	Name                   string                  `json:"name"`
 	Status                 string                  `json:"status"`
 	FederationStatus       string                  `json:"federationStatus,omitempty"`
-	FederationRoleArn      string                  `json:"federationRoleArn,omitempty"`
+	EventDataStoreID       string                  `json:"eventDataStoreId"`
 	BillingMode            string                  `json:"billingMode,omitempty"`
-	KMSKeyID               string                  `json:"kmsKeyId,omitempty"`
-	AdvancedEventSelectors []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
+	EventDataStoreARN      string                  `json:"eventDataStoreArn"`
+	InsightsDestination    string                  `json:"insightsDestination,omitempty"`
 	InsightSelectors       []InsightSelector       `json:"insightSelectors,omitempty"`
+	AdvancedEventSelectors []AdvancedEventSelector `json:"advancedEventSelectors,omitempty"`
 	RetentionPeriod        int32                   `json:"retentionPeriod"`
 	MultiRegionEnabled     bool                    `json:"multiRegionEnabled"`
 	OrganizationEnabled    bool                    `json:"organizationEnabled"`

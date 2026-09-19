@@ -54,11 +54,12 @@ func (b *InMemoryBackend) CreateConnector(in CreateConnectorInput) (*Connector, 
 }
 
 // UpdateConnectorInput mirrors UpdateConnectorInput -- everything but
-// ConnectorID is optional.
+// ConnectorID is optional. It has no SsmInstanceID member (mgn@v1.48.4
+// api_op_UpdateConnector.go): that field is CreateConnectorInput-only and,
+// on UpdateConnectorOutput, server-reported, never client-set.
 type UpdateConnectorInput struct {
 	SsmCommandConfig *ConnectorSsmCommandConfig
 	Name             *string
-	SsmInstanceID    *string
 }
 
 // UpdateConnector applies a partial update to a Connector.
@@ -77,10 +78,6 @@ func (b *InMemoryBackend) UpdateConnector(id string, in UpdateConnectorInput) (*
 
 	if in.Name != nil {
 		c.Name = *in.Name
-	}
-
-	if in.SsmInstanceID != nil {
-		c.SsmInstanceID = *in.SsmInstanceID
 	}
 
 	if in.SsmCommandConfig != nil {

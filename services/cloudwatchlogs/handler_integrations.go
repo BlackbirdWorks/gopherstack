@@ -183,12 +183,23 @@ func (h *Handler) handleGetIntegration(
 	}, nil
 }
 
+type listIntegrationsInput struct {
+	IntegrationNamePrefix string `json:"integrationNamePrefix"`
+	IntegrationStatus     string `json:"integrationStatus"`
+	IntegrationType       string `json:"integrationType"`
+}
+
 func (h *Handler) handleListIntegrations(
 	ctx context.Context, //nolint:revive // existing issue.
-	_ []byte,
+	body []byte,
 ) (any, error) {
+	var in listIntegrationsInput
+	if err := json.Unmarshal(body, &in); err != nil {
+		return nil, err
+	}
+
 	if b := cwlBackend(h); b != nil {
-		igs := b.ListIntegrations()
+		igs := b.ListIntegrations(in.IntegrationNamePrefix, in.IntegrationStatus, in.IntegrationType)
 		out := make([]map[string]any, 0, len(igs))
 		for _, ig := range igs {
 			out = append(out, map[string]any{

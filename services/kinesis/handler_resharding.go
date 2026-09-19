@@ -29,6 +29,7 @@ type jsonUpdateShardCountReq struct {
 
 type jsonUpdateShardCountResp struct {
 	StreamName        string `json:"StreamName"`
+	StreamARN         string `json:"StreamARN,omitempty"`
 	CurrentShardCount int    `json:"CurrentShardCount"`
 	TargetShardCount  int    `json:"TargetShardCount"`
 }
@@ -100,6 +101,7 @@ func (h *Handler) handleUpdateShardCount(
 
 	return jsonUpdateShardCountResp{
 		StreamName:        out.StreamName,
+		StreamARN:         out.StreamARN,
 		CurrentShardCount: out.CurrentShardCount,
 		TargetShardCount:  out.TargetShardCount,
 	}, nil

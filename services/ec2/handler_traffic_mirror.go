@@ -379,8 +379,9 @@ func (h *Handler) handleModifyTrafficMirrorFilterRule(vals url.Values, reqID str
 	id := vals.Get("TrafficMirrorFilterRuleId")
 	action := vals.Get("RuleAction")
 	description := vals.Get("Description")
+	removeFields := parseMemberList(vals, "RemoveField")
 
-	rule, err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description)
+	rule, err := h.Backend.ModifyTrafficMirrorFilterRule(id, action, description, removeFields...)
 	if err != nil {
 		return nil, err
 	}
@@ -481,8 +482,9 @@ func (h *Handler) handleModifyTrafficMirrorSession(vals url.Values, reqID string
 	targetID := vals.Get("TrafficMirrorTargetId")
 	filterID := vals.Get("TrafficMirrorFilterId")
 	description := vals.Get("Description")
+	removeFields := parseMemberList(vals, "RemoveField")
 
-	s, err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description)
+	s, err := h.Backend.ModifyTrafficMirrorSession(id, targetID, filterID, description, removeFields...)
 	if err != nil {
 		return nil, err
 	}

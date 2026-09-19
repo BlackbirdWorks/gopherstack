@@ -81,19 +81,18 @@ func Test_SDKRoundTrip_StateMachineAlias_UpdateDate(t *testing.T) {
 
 	// CreateStateMachineAliasInput has no stateMachineArn field on the real
 	// wire -- AWS derives the target state machine from the version ARN
-	// inside routingConfiguration -- but this backend's CreateStateMachineAlias
-	// requires it explicitly, so driving CreateStateMachineAlias itself
-	// through the real SDK client 404s today. That gap is unrelated to
-	// gopherstack-1ai8's timestamp scope and is called out separately in the
-	// session report rather than fixed here; set the alias up directly
-	// against the backend so this test can isolate the UpdateDate wire-tag
-	// bug this issue is about.
-	alias, err := backend.CreateStateMachineAlias(smArn, "live", "", []stepfunctions.AliasRoutingConfig{
-		{StateMachineVersionArn: *pub.StateMachineVersionArn, Weight: 100},
+	// inside routingConfiguration -- and gopherstack-1ai8's acceptguard fix
+	// (2026-09-18) now does the same, so this drives Create through the real
+	// SDK client too, matching the rest of this test.
+	created, err := client.CreateStateMachineAlias(ctx, &sfnsdk.CreateStateMachineAliasInput{
+		Name: aws.String("live"),
+		RoutingConfiguration: []sfntypes.RoutingConfigurationListItem{
+			{StateMachineVersionArn: pub.StateMachineVersionArn, Weight: 100},
+		},
 	})
 	require.NoError(t, err)
-	aliasArn := alias.StateMachineAliasArn
-	require.NotZero(t, alias.CreationDate)
+	aliasArn := *created.StateMachineAliasArn
+	require.NotZero(t, *created.CreationDate)
 
 	described, err := client.DescribeStateMachineAlias(ctx, &sfnsdk.DescribeStateMachineAliasInput{
 		StateMachineAliasArn: aws.String(aliasArn),

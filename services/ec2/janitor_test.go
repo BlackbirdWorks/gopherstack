@@ -65,7 +65,7 @@ func TestJanitor_SweepOnce(t *testing.T) {
 			// Create and cancel a spot request.
 			spotReq, err := b.RequestSpotInstances("ami-test", "t2.micro", subnet.ID, "0.05", nil)
 			require.NoError(t, err)
-			spotID := spotReq.ID
+			spotID := spotReq[0].ID
 			require.NoError(t, b.CancelSpotInstanceRequests([]string{spotID}))
 
 			if tt.spotOld {

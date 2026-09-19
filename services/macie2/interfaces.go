@@ -151,7 +151,7 @@ type StorageBackend interface {
 		id, name, description string,
 		criteria AllowListCriteria,
 	) (*AllowListSummary, error)
-	DeleteAllowList(id string) error
+	DeleteAllowList(id string, ignoreJobChecks bool) error
 	ListAllowLists(limit int, token string) ([]*AllowListSummary, string, error)
 
 	// Custom data identifier operations

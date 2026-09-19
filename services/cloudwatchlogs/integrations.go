@@ -3,6 +3,7 @@ package cloudwatchlogs
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -171,13 +172,29 @@ func (b *InMemoryBackend) GetIntegration(name string) (*CWLIntegration, error) {
 	return &cp, nil
 }
 
-// ListIntegrations returns all integrations sorted by name.
-func (b *InMemoryBackend) ListIntegrations() []CWLIntegration {
+// ListIntegrations returns integrations sorted by name, optionally filtered
+// by name prefix, status, and/or type (all real, optional
+// ListIntegrationsInput members). Low-impact in practice: this op's own doc
+// comment says "Currently, only one integration can be created in an
+// account," so there is at most one row to filter.
+func (b *InMemoryBackend) ListIntegrations(namePrefix, status, integrationType string) []CWLIntegration {
 	b.mu.RLock("ListIntegrations")
 	defer b.mu.RUnlock()
 
 	out := make([]CWLIntegration, 0, b.integrations.Len())
 	for _, ig := range b.integrations.All() {
+		if namePrefix != "" && !strings.HasPrefix(ig.Name, namePrefix) {
+			continue
+		}
+
+		if status != "" && ig.Status != status {
+			continue
+		}
+
+		if integrationType != "" && ig.Type != integrationType {
+			continue
+		}
+
 		out = append(out, *ig)
 	}
 

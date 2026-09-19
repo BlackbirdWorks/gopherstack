@@ -484,8 +484,8 @@ func (b *InMemoryBackend) UpdateService(input UpdateServiceInput) (*Service, err
 
 	newTaskDef := false
 
-	if input.TaskDefinition != "" {
-		td, err := b.findTaskDefinitionLocked(input.TaskDefinition)
+	if input.TaskDefinition != nil {
+		td, err := b.findTaskDefinitionLocked(*input.TaskDefinition)
 		if err != nil {
 			return nil, err
 		}

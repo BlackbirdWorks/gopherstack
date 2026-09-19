@@ -24,13 +24,18 @@ func (b *InMemoryBackend) PutLoggingConfiguration(
 	return nil
 }
 
-// DeleteLoggingConfiguration removes the logging configuration for the given resource ARN.
-func (b *InMemoryBackend) DeleteLoggingConfiguration(ctx context.Context, resourceARN string) error {
+// DeleteLoggingConfiguration removes the logging configuration for the given resource ARN,
+// scoped to logScope ("" means the documented default, CUSTOMER -- see defaultLogScope).
+// A stored config owned by a different scope is reported not-found, matching real AWS
+// treating ResourceArn+LogScope as the lookup key.
+func (b *InMemoryBackend) DeleteLoggingConfiguration(ctx context.Context, resourceARN, logScope string) error {
 	b.mu.Lock("DeleteLoggingConfiguration")
 	defer b.mu.Unlock()
 
 	region := getRegion(ctx, b.region)
-	if _, exists := b.loggingConfigs[region][resourceARN]; !exists {
+
+	cfg, exists := b.loggingConfigs[region][resourceARN]
+	if !exists || !loggingConfigInScope(cfg, logScope) {
 		return fmt.Errorf("%w: no logging configuration found for resource %q", ErrLoggingConfigNotFound, resourceARN)
 	}
 
@@ -39,14 +44,20 @@ func (b *InMemoryBackend) DeleteLoggingConfiguration(ctx context.Context, resour
 	return nil
 }
 
-// GetLoggingConfiguration returns the stored logging configuration JSON for the given resource ARN.
-func (b *InMemoryBackend) GetLoggingConfiguration(ctx context.Context, resourceARN string) (json.RawMessage, error) {
+// GetLoggingConfiguration returns the stored logging configuration JSON for the given
+// resource ARN, scoped to logScope ("" means the documented default, CUSTOMER -- see
+// defaultLogScope).
+func (b *InMemoryBackend) GetLoggingConfiguration(
+	ctx context.Context,
+	resourceARN, logScope string,
+) (json.RawMessage, error) {
 	b.mu.RLock("GetLoggingConfiguration")
 	defer b.mu.RUnlock()
 
 	region := getRegion(ctx, b.region)
+
 	cfg, exists := b.loggingConfigs[region][resourceARN]
-	if !exists {
+	if !exists || !loggingConfigInScope(cfg, logScope) {
 		return nil, fmt.Errorf(
 			"%w: no logging configuration found for resource %q",
 			ErrLoggingConfigNotFound,
@@ -58,6 +69,29 @@ func (b *InMemoryBackend) GetLoggingConfiguration(ctx context.Context, resourceA
 	copy(out, cfg)
 
 	return out, nil
+}
+
+// loggingConfigInScope reports whether cfg's LogScope (default CUSTOMER when the
+// document omits it) matches wantScope ("" matches the default, CUSTOMER).
+func loggingConfigInScope(cfg json.RawMessage, wantScope string) bool {
+	if wantScope == "" {
+		wantScope = defaultLogScope
+	}
+
+	var doc struct {
+		LogScope string `json:"LogScope"`
+	}
+
+	if err := json.Unmarshal(cfg, &doc); err != nil {
+		return false
+	}
+
+	scope := doc.LogScope
+	if scope == "" {
+		scope = defaultLogScope
+	}
+
+	return scope == wantScope
 }
 
 // ListLoggingConfigurations returns all stored logging configuration JSONs for the

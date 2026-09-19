@@ -1054,9 +1054,10 @@ func TestUpdateSecret_TypeAcceptedAndEchoed(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	newType := "AnotherPartner"
 	_, err = b.UpdateSecret(context.Background(), &secretsmanager.UpdateSecretInput{
 		SecretID: "mes-update",
-		Type:     "AnotherPartner",
+		Type:     &newType,
 	})
 	require.NoError(t, err)
 

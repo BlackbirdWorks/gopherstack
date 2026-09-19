@@ -551,18 +551,18 @@ type CreateEndpointInput struct {
 
 // UpdateArchiveInput is the input for UpdateArchive.
 type UpdateArchiveInput struct {
-	ArchiveName      string `json:"ArchiveName"`
-	Description      string `json:"Description,omitempty"`
-	EventPattern     string `json:"EventPattern,omitempty"`
-	KmsKeyIdentifier string `json:"KmsKeyIdentifier,omitempty"`
-	RetentionDays    int    `json:"RetentionDays,omitempty"`
+	Description      *string `json:"Description,omitempty"`
+	EventPattern     *string `json:"EventPattern,omitempty"`
+	KmsKeyIdentifier *string `json:"KmsKeyIdentifier,omitempty"`
+	ArchiveName      string  `json:"ArchiveName"`
+	RetentionDays    int     `json:"RetentionDays,omitempty"`
 }
 
 // UpdateConnectionInput is the input for UpdateConnection.
 type UpdateConnectionInput struct {
-	AuthorizationType string                    `json:"AuthorizationType,omitempty"`
 	AuthParameters    *ConnectionAuthParameters `json:"AuthParameters,omitempty"`
-	Description       string                    `json:"Description,omitempty"`
+	Description       *string                   `json:"Description,omitempty"`
+	AuthorizationType string                    `json:"AuthorizationType,omitempty"`
 	Name              string                    `json:"Name"`
 }
 
@@ -570,9 +570,9 @@ type UpdateConnectionInput struct {
 type UpdateEndpointInput struct {
 	ReplicationConfig *ReplicationConfig `json:"ReplicationConfig,omitempty"`
 	RoutingConfig     *RoutingConfig     `json:"RoutingConfig,omitempty"`
-	Description       string             `json:"Description,omitempty"`
+	Description       *string            `json:"Description,omitempty"`
+	RoleArn           *string            `json:"RoleArn,omitempty"`
 	Name              string             `json:"Name"`
-	RoleArn           string             `json:"RoleArn,omitempty"`
 	EventBuses        []EndpointEventBus `json:"EventBuses,omitempty"`
 }
 
@@ -610,8 +610,8 @@ type StartReplayInput struct {
 type UpdateEventBusInput struct {
 	DeadLetterConfig *DeadLetterConfig `json:"DeadLetterConfig,omitempty"`
 	LogConfig        *LogConfig        `json:"LogConfig,omitempty"`
-	Description      string            `json:"Description,omitempty"`
-	KmsKeyIdentifier string            `json:"KmsKeyIdentifier,omitempty"`
+	Description      *string           `json:"Description,omitempty"`
+	KmsKeyIdentifier *string           `json:"KmsKeyIdentifier,omitempty"`
 	Name             string            `json:"Name"`
 }
 
@@ -727,8 +727,8 @@ type CreateRegistryInput struct {
 
 // UpdateRegistryInput is the input for UpdateRegistry.
 type UpdateRegistryInput struct {
-	RegistryName string `json:"RegistryName"`
-	Description  string `json:"Description,omitempty"`
+	Description  *string `json:"Description,omitempty"`
+	RegistryName string  `json:"RegistryName"`
 }
 
 // CreateSchemaInput is the input for CreateSchema.
@@ -743,12 +743,12 @@ type CreateSchemaInput struct {
 
 // UpdateSchemaInput is the input for UpdateSchema (creates a new version).
 type UpdateSchemaInput struct {
-	RegistryName  string `json:"RegistryName"`
-	SchemaName    string `json:"SchemaName"`
-	Type          string `json:"Type,omitempty"`
-	Content       string `json:"Content,omitempty"`
-	Description   string `json:"Description,omitempty"`
-	ClientTokenID string `json:"ClientTokenId,omitempty"`
+	RegistryName  string  `json:"RegistryName"`
+	SchemaName    string  `json:"SchemaName"`
+	Type          string  `json:"Type,omitempty"`
+	Content       *string `json:"Content,omitempty"`
+	Description   *string `json:"Description,omitempty"`
+	ClientTokenID string  `json:"ClientTokenId,omitempty"`
 }
 
 // PutCodeBindingInput is the input for PutCodeBinding.

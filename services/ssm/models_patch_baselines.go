@@ -27,8 +27,11 @@ type PatchFilter struct {
 type Patch struct {
 	Name           string  `json:"Name"`
 	Product        string  `json:"Product"`
+	ProductFamily  string  `json:"ProductFamily,omitempty"`
 	Classification string  `json:"Classification"`
+	MsrcSeverity   string  `json:"MsrcSeverity,omitempty"`
 	Severity       string  `json:"Severity"`
+	PatchSet       string  `json:"PatchSet,omitempty"`
 	ReleaseDate    float64 `json:"ReleaseDate,omitempty"`
 }
 
@@ -112,8 +115,8 @@ type UpdatePatchBaselineInput struct {
 	GlobalFilters                            *PatchFilterGroup `json:"GlobalFilters,omitempty"`
 	ApprovedPatchesEnableNonSecurity         *bool             `json:"ApprovedPatchesEnableNonSecurity,omitempty"`
 	BaselineID                               string            `json:"BaselineId"`
-	Name                                     string            `json:"Name,omitempty"`
-	Description                              string            `json:"Description,omitempty"`
+	Name                                     *string           `json:"Name,omitempty"`
+	Description                              *string           `json:"Description,omitempty"`
 	ApprovedPatchesComplianceLevel           string            `json:"ApprovedPatchesComplianceLevel,omitempty"`
 	AvailableSecurityUpdatesComplianceStatus string            `json:"AvailableSecurityUpdatesComplianceStatus,omitempty"`
 	RejectedPatchesAction                    string            `json:"RejectedPatchesAction,omitempty"`

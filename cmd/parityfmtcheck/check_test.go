@@ -148,6 +148,14 @@ func TestFindMergeConflictMarker(t *testing.T) {
 			content: "service: dlm\n=======\nlast_audit_commit: abc1234\n",
 			want:    2,
 		},
+		{
+			name:    "race detector rule is prose",
+			content: "service: dlm\n==================\nWARNING: DATA RACE\n",
+		},
+		{
+			name:    "angle brackets in prose",
+			content: "service: dlm\n<<<<<<<< not a marker\n",
+		},
 	}
 
 	for _, tt := range tests {

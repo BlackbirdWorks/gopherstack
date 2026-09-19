@@ -457,6 +457,7 @@ func TestRestoreDBClusterFromS3(t *testing.T) {
 			got, err := b.RestoreDBClusterFromS3(
 				p.clusterID, p.engine, p.masterUsername, p.s3Bucket,
 				p.s3IngestionRoleArn, p.sourceEngine, p.sourceEngineVersion,
+				rds.DBClusterOptions{},
 			)
 			if tt.wantErr {
 				require.Error(t, err)

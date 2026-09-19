@@ -24,6 +24,8 @@ func (h *Handler) handleRestoreTableFromClusterSnapshot(vals url.Values) (any, e
 		vals.Get("SourceTableName"),
 		vals.Get("TargetDatabaseName"),
 		vals.Get("NewTableName"),
+		vals.Get("SourceSchemaName"),
+		vals.Get("TargetSchemaName"),
 	)
 	if err != nil {
 		return nil, err
@@ -50,8 +52,10 @@ type xmlTableRestoreStatus struct {
 	Status                string `xml:"Status,omitempty"`
 	Message               string `xml:"Message,omitempty"`
 	SourceDatabaseName    string `xml:"SourceDatabaseName,omitempty"`
+	SourceSchemaName      string `xml:"SourceSchemaName,omitempty"`
 	SourceTableName       string `xml:"SourceTableName,omitempty"`
 	TargetDatabaseName    string `xml:"TargetDatabaseName,omitempty"`
+	TargetSchemaName      string `xml:"TargetSchemaName,omitempty"`
 	NewTableName          string `xml:"NewTableName,omitempty"`
 }
 
@@ -73,8 +77,10 @@ func tableRestoreStatusToXML(s *TableRestoreStatus) xmlTableRestoreStatus {
 		Status:                s.Status,
 		Message:               s.Message,
 		SourceDatabaseName:    s.SourceDatabaseName,
+		SourceSchemaName:      s.SourceSchemaName,
 		SourceTableName:       s.SourceTableName,
 		TargetDatabaseName:    s.TargetDatabaseName,
+		TargetSchemaName:      s.TargetSchemaName,
 		NewTableName:          s.TargetTableName,
 	}
 

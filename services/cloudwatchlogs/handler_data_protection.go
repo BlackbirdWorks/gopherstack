@@ -27,12 +27,15 @@ type putAccountPolicyOutput struct {
 }
 
 // --- DescribeAccountPolicies ---.
+// describeAccountPoliciesInput has no MaxResults member: the real
+// DescribeAccountPoliciesInput (cloudwatchlogs@v1.86.0
+// api_op_DescribeAccountPolicies.go) declares no page-size member at all,
+// only NextToken -- the server picks the page size.
 type describeAccountPoliciesInput struct {
 	PolicyName         string   `json:"policyName"`
 	PolicyType         string   `json:"policyType"`
 	NextToken          string   `json:"nextToken,omitempty"`
 	AccountIdentifiers []string `json:"accountIdentifiers,omitempty"`
-	MaxResults         int      `json:"maxResults,omitempty"`
 }
 
 type describeAccountPoliciesOutput struct {
@@ -90,7 +93,7 @@ func (h *Handler) handleDescribeAccountPolicies(
 		input.PolicyType,
 		input.PolicyName,
 		input.AccountIdentifiers,
-		input.MaxResults,
+		0,
 		input.NextToken,
 	)
 	if err != nil {

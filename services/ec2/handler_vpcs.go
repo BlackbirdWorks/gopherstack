@@ -175,6 +175,8 @@ type createVpcPeeringConnectionResponse struct {
 		VpcPeeringConnectionID string `xml:"vpcPeeringConnectionId"`
 		RequesterVpcID         string `xml:"requesterVpcInfo>vpcId"`
 		AccepterVpcID          string `xml:"accepterVpcInfo>vpcId"`
+		AccepterOwnerID        string `xml:"accepterVpcInfo>ownerId,omitempty"`
+		AccepterRegion         string `xml:"accepterVpcInfo>region,omitempty"`
 		Status                 struct {
 			Code string `xml:"code"`
 		} `xml:"status"`
@@ -243,8 +245,10 @@ func toTransitGatewayItem(tgw *TransitGateway, tags map[string]string) transitGa
 func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string) (any, error) {
 	requesterVPCID := vals.Get("VpcId")
 	accepterVPCID := vals.Get("PeerVpcId")
+	peerOwnerID := vals.Get("PeerOwnerId")
+	peerRegion := vals.Get("PeerRegion")
 
-	pc, err := h.Backend.CreateVpcPeeringConnection(requesterVPCID, accepterVPCID)
+	pc, err := h.Backend.CreateVpcPeeringConnection(requesterVPCID, accepterVPCID, peerOwnerID, peerRegion)
 	if err != nil {
 		return nil, err
 	}
@@ -260,6 +264,8 @@ func (h *Handler) handleCreateVpcPeeringConnection(vals url.Values, reqID string
 	resp.VpcPeeringConnection.VpcPeeringConnectionID = pc.VpcPeeringConnectionID
 	resp.VpcPeeringConnection.RequesterVpcID = pc.RequesterVpcID
 	resp.VpcPeeringConnection.AccepterVpcID = pc.AccepterVpcID
+	resp.VpcPeeringConnection.AccepterOwnerID = pc.AccepterOwnerID
+	resp.VpcPeeringConnection.AccepterRegion = pc.AccepterRegion
 	resp.VpcPeeringConnection.Status.Code = pc.State
 	resp.VpcPeeringConnection.TagSet = tagItemsFromMap(tags)
 

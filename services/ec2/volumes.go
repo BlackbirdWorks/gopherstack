@@ -10,10 +10,14 @@ import (
 )
 
 // ModifyVolume records a volume modification request and immediately applies
-// the target type/size so DescribeVolumes reflects the change.
+// the target type/size/throughput so DescribeVolumes reflects the change.
+// throughput is an optional trailing arg (api_op_ModifyVolume.go's
+// Throughput, MiB/s) -- variadic to stay back-compatible with existing call
+// sites.
 func (b *InMemoryBackend) ModifyVolume(
 	volumeID, volumeType string,
 	size, iops int,
+	throughput ...int,
 ) (*VolumeModification, error) {
 	if volumeID == "" {
 		return nil, fmt.Errorf("%w: VolumeId is required", ErrInvalidParameter)
@@ -27,14 +31,21 @@ func (b *InMemoryBackend) ModifyVolume(
 		return nil, fmt.Errorf("%w: %s", ErrVolumeNotFound, volumeID)
 	}
 
+	var newThroughput int
+	if len(throughput) > 0 {
+		newThroughput = throughput[0]
+	}
+
 	mod := &VolumeModification{
 		VolumeID:          volumeID,
 		ModificationState: stateCompleted,
 		OrigVolumeType:    vol.VolumeType,
 		OrigSize:          vol.Size,
+		OrigThroughput:    vol.Throughput,
 		TargetVolumeType:  volumeType,
 		TargetSize:        size,
 		TargetIops:        iops,
+		TargetThroughput:  newThroughput,
 		StartTime:         time.Now().UTC(),
 		Progress:          progressComplete,
 	}
@@ -50,6 +61,12 @@ func (b *InMemoryBackend) ModifyVolume(
 		vol.Size = size
 	} else {
 		mod.TargetSize = vol.Size
+	}
+
+	if newThroughput > 0 {
+		vol.Throughput = newThroughput
+	} else {
+		mod.TargetThroughput = vol.Throughput
 	}
 	b.volumeModifications.Put(mod)
 
@@ -458,15 +475,20 @@ type Volume struct {
 	Iops       int    `json:"iops,omitempty"`
 	Throughput int    `json:"throughput,omitempty"`
 	Encrypted  bool   `json:"encrypted,omitempty"`
+	// VolumeInitializationRate is CreateVolume's declare+echo-only rate
+	// (MiB/s) -- this backend performs no real fast-snapshot-restore or
+	// lazy-load initialization to apply it against.
+	VolumeInitializationRate int32 `json:"volumeInitializationRate,omitempty"`
 }
 
 // VolumeAttachment represents the attachment state of a volume.
 type VolumeAttachment struct {
-	AttachTime time.Time `json:"attachTime"`
-	VolumeID   string    `json:"volumeID,omitempty"`
-	InstanceID string    `json:"instanceID,omitempty"`
-	Device     string    `json:"device,omitempty"`
-	State      string    `json:"state,omitempty"`
+	AttachTime   time.Time `json:"attachTime"`
+	VolumeID     string    `json:"volumeID,omitempty"`
+	InstanceID   string    `json:"instanceID,omitempty"`
+	Device       string    `json:"device,omitempty"`
+	State        string    `json:"state,omitempty"`
+	EbsCardIndex int32     `json:"ebsCardIndex,omitempty"`
 }
 
 // CreateVolume creates a new EBS volume, optionally restored from an
@@ -476,7 +498,9 @@ type VolumeAttachment struct {
 // must be at least the snapshot's VolumeSize otherwise (real AWS rejects a
 // smaller target); Encrypted/KmsKeyID are inherited from the snapshot, since
 // a volume created from an encrypted snapshot is always encrypted in AWS.
-func (b *InMemoryBackend) CreateVolume(az, volType string, size int, snapshotID string) (*Volume, error) {
+func (b *InMemoryBackend) CreateVolume(
+	az, volType string, size int, snapshotID string, volumeInitializationRate ...int32,
+) (*Volume, error) {
 	if az == "" {
 		az = b.Region + "a"
 	}
@@ -528,6 +552,9 @@ func (b *InMemoryBackend) CreateVolume(az, volType string, size int, snapshotID 
 		SnapshotID: snapshotID,
 		Encrypted:  encrypted,
 		KmsKeyID:   kmsKeyID,
+	}
+	if len(volumeInitializationRate) > 0 {
+		vol.VolumeInitializationRate = volumeInitializationRate[0]
 	}
 	b.volumes.Put(vol)
 
@@ -591,9 +618,12 @@ func (b *InMemoryBackend) DeleteVolume(id string) error {
 	return nil
 }
 
-// AttachVolume attaches a volume to an instance.
+// AttachVolume attaches a volume to an instance. ebsCardIndex is an
+// optional trailing arg (api_op_AttachVolume.go: "Some instance types
+// support multiple EBS cards. The default EBS card index is 0") --
+// variadic to stay back-compatible with existing call sites.
 func (b *InMemoryBackend) AttachVolume(
-	volumeID, instanceID, device string,
+	volumeID, instanceID, device string, ebsCardIndex ...int32,
 ) (*VolumeAttachment, error) {
 	b.mu.Lock("AttachVolume")
 	defer b.mu.Unlock()
@@ -611,12 +641,18 @@ func (b *InMemoryBackend) AttachVolume(
 		return nil, fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
 	}
 
+	var cardIndex int32
+	if len(ebsCardIndex) > 0 {
+		cardIndex = ebsCardIndex[0]
+	}
+
 	att := &VolumeAttachment{
-		VolumeID:   volumeID,
-		InstanceID: instanceID,
-		Device:     device,
-		State:      attachmentStateAttached,
-		AttachTime: time.Now(),
+		VolumeID:     volumeID,
+		InstanceID:   instanceID,
+		Device:       device,
+		EbsCardIndex: cardIndex,
+		State:        attachmentStateAttached,
+		AttachTime:   time.Now(),
 	}
 	vol.Attachment = att
 	vol.State = stateInUse

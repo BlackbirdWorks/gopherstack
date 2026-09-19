@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -915,6 +916,14 @@ func (h *Handler) handleGetIpamPrefixListResolverVersions(vals url.Values, reqID
 		return nil, err
 	}
 
+	// "Specific version numbers to retrieve. If not specified, all versions
+	// are returned" (api_op_GetIpamPrefixListResolverVersions.go).
+	if requested := parseIpamPrefixListResolverVersionFilter(vals); len(requested) > 0 {
+		versions = slices.DeleteFunc(slices.Clone(versions), func(v int64) bool {
+			return !slices.Contains(requested, v)
+		})
+	}
+
 	resp := &getIpamPrefixListResolverVersionsResponse{Xmlns: ec2XMLNS, RequestID: reqID}
 	for _, v := range versions {
 		resp.IpamPrefixListResolverVersionSet.Items = append(
@@ -923,6 +932,25 @@ func (h *Handler) handleGetIpamPrefixListResolverVersions(vals url.Values, reqID
 	}
 
 	return resp, nil
+}
+
+// parseIpamPrefixListResolverVersionFilter reads the FlatKey
+// "IpamPrefixListResolverVersion.N" list
+// (awsEc2query_serializeOpDocumentGetIpamPrefixListResolverVersionsInput).
+// Non-integer entries are ignored rather than erroring.
+func parseIpamPrefixListResolverVersionFilter(vals url.Values) []int64 {
+	var out []int64
+
+	for i := 1; ; i++ {
+		v := vals.Get(fmt.Sprintf("IpamPrefixListResolverVersion.%d", i))
+		if v == "" {
+			return out
+		}
+
+		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
+			out = append(out, n)
+		}
+	}
 }
 
 func (h *Handler) handleGetIpamPrefixListResolverVersionEntries(vals url.Values, reqID string) (any, error) {

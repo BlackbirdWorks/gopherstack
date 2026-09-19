@@ -182,10 +182,10 @@ type ListDocumentsOutput struct {
 type UpdateDocumentInput struct {
 	Name            string              `json:"Name"`
 	Content         string              `json:"Content"`
-	DisplayName     string              `json:"DisplayName,omitempty"`
+	DisplayName     *string             `json:"DisplayName,omitempty"`
 	DocumentFormat  string              `json:"DocumentFormat,omitempty"`
-	DocumentVersion string              `json:"DocumentVersion,omitempty"`
-	TargetType      string              `json:"TargetType,omitempty"`
+	DocumentVersion *string             `json:"DocumentVersion,omitempty"`
+	TargetType      *string             `json:"TargetType,omitempty"`
 	Attachments     []AttachmentsSource `json:"Attachments,omitempty"`
 }
 

@@ -328,6 +328,18 @@ func (h *Handler) handleDescribeSpotFleetRequestHistory(
 		return nil, err
 	}
 
+	if eventType := vals.Get("EventType"); eventType != "" {
+		filtered := make([]SpotFleetHistoryRecord, 0, len(records))
+
+		for _, rec := range records {
+			if rec.EventType == eventType {
+				filtered = append(filtered, rec)
+			}
+		}
+
+		records = filtered
+	}
+
 	maxResults, offset, err := parseEC2Pagination(vals, ec2PageMinDefault, ec2PageMaxDefault, ec2PageMaxDefault)
 	if err != nil {
 		return nil, err

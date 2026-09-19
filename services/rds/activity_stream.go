@@ -3,7 +3,9 @@ package rds
 import "fmt"
 
 // StartActivityStream starts the database activity stream for a DB cluster.
-func (b *InMemoryBackend) StartActivityStream(clusterID, kmsKeyID, mode string) (*DBCluster, error) {
+func (b *InMemoryBackend) StartActivityStream(
+	clusterID, kmsKeyID, mode string, engineNativeAuditFieldsIncluded bool,
+) (*DBCluster, error) {
 	b.mu.Lock("StartActivityStream")
 	defer b.mu.Unlock()
 
@@ -27,6 +29,7 @@ func (b *InMemoryBackend) StartActivityStream(clusterID, kmsKeyID, mode string) 
 	cluster.ActivityStreamMode = mode
 	cluster.ActivityStreamKMSKeyID = kmsKeyID
 	cluster.ActivityStreamKinesisStreamName = fmt.Sprintf("aws-rds-das-%s-%s", b.region, cluster.DBClusterIdentifier)
+	cluster.ActivityStreamEngineNativeAuditFieldsIncluded = engineNativeAuditFieldsIncluded
 
 	return cluster, nil
 }

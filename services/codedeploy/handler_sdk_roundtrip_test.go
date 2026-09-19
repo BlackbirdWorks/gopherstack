@@ -378,3 +378,56 @@ func Test_SDKRoundTrip_ListDeployments_CreateTimeRange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, listOut.Deployments, 1)
 }
+
+// Test_SDKRoundTrip_CreateDeployment_DeploymentConfigNameOverride proves
+// CreateDeploymentInput.DeploymentConfigName (undeclared before this fix --
+// see cmd/reqfielddiff) is read and applied, not silently replaced by the
+// deployment group's own default: a deployment created with an explicit
+// override reports that override, not the deployment group's
+// CodeDeployDefault.AllAtOnce default, and an unknown name is rejected with
+// DeploymentConfigDoesNotExistException (a documented CreateDeployment error).
+func Test_SDKRoundTrip_CreateDeployment_DeploymentConfigNameOverride(t *testing.T) {
+	t.Parallel()
+
+	backend := codedeploy.NewInMemoryBackend("000000000000", rtTestRegion)
+	h := codedeploy.NewHandler(backend)
+	client := newTestCodeDeployClient(t, h)
+
+	_, err := client.CreateApplication(t.Context(), &codedeploysdk.CreateApplicationInput{
+		ApplicationName: aws.String("rt-dcn-app"),
+		ComputePlatform: types.ComputePlatformServer,
+	})
+	require.NoError(t, err)
+
+	_, err = client.CreateDeploymentGroup(t.Context(), &codedeploysdk.CreateDeploymentGroupInput{
+		ApplicationName:     aws.String("rt-dcn-app"),
+		DeploymentGroupName: aws.String("rt-dcn-dg"),
+		ServiceRoleArn:      aws.String("arn:aws:iam::000000000000:role/role"),
+	})
+	require.NoError(t, err)
+
+	deployOut, err := client.CreateDeployment(t.Context(), &codedeploysdk.CreateDeploymentInput{
+		ApplicationName:      aws.String("rt-dcn-app"),
+		DeploymentGroupName:  aws.String("rt-dcn-dg"),
+		DeploymentConfigName: aws.String("CodeDeployDefault.OneAtATime"),
+	})
+	require.NoError(t, err)
+
+	getOut, err := client.GetDeployment(t.Context(), &codedeploysdk.GetDeploymentInput{
+		DeploymentId: deployOut.DeploymentId,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, getOut.DeploymentInfo.DeploymentConfigName)
+	assert.Equal(t, "CodeDeployDefault.OneAtATime", *getOut.DeploymentInfo.DeploymentConfigName,
+		"CreateDeployment's DeploymentConfigName override must not be replaced by the group's default")
+
+	_, err = client.CreateDeployment(t.Context(), &codedeploysdk.CreateDeploymentInput{
+		ApplicationName:      aws.String("rt-dcn-app"),
+		DeploymentGroupName:  aws.String("rt-dcn-dg"),
+		DeploymentConfigName: aws.String("does-not-exist"),
+	})
+	require.Error(t, err)
+
+	var notFound *types.DeploymentConfigDoesNotExistException
+	require.ErrorAs(t, err, &notFound)
+}

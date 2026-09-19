@@ -447,9 +447,27 @@ func (b *InMemoryBackend) ModifyDBCluster(
 	}
 	applyClusterSecurityGroups(c, opts)
 	b.applyClusterMasterSecret(c, region, id, opts)
+	if opts.DBInstanceParameterGroupName != "" {
+		b.applyDBInstanceParameterGroupName(region, c, opts.DBInstanceParameterGroupName)
+	}
 	cp := cloneCluster(c)
 
 	return &cp, nil
+}
+
+// applyDBInstanceParameterGroupName sets DBParameterGroupName on every
+// current member instance of c, per ModifyDBClusterInput's doc comment
+// ("When you apply a parameter group using DBInstanceParameterGroupName,
+// parameter changes ... are applied immediately", api_op_ModifyDBCluster.go:90).
+// This backend does not validate the named group exists, matching the
+// existing convention for the sibling DBClusterParameterGroupName field
+// above (also unvalidated).
+func (b *InMemoryBackend) applyDBInstanceParameterGroupName(region string, c *DBCluster, name string) {
+	for _, m := range c.DBClusterMembers {
+		if inst, ok := b.instanceGet(region, m.DBInstanceIdentifier); ok {
+			inst.DBParameterGroupName = name
+		}
+	}
 }
 
 // applyClusterScalarModifications applies the optional scalar fields of opts onto c.
@@ -768,13 +786,25 @@ func (b *InMemoryBackend) RestoreDBClusterFromSnapshot(
 
 // RestoreDBClusterToPointInTime restores a Neptune DB cluster to a point in time.
 func (b *InMemoryBackend) RestoreDBClusterToPointInTime(
-	ctx context.Context, srcClusterID, targetClusterID string,
+	ctx context.Context, srcClusterID, targetClusterID string, opts RestoreToPointInTimeOptions,
 ) (*DBCluster, error) {
 	if srcClusterID == "" {
 		return nil, fmt.Errorf("%w: SourceDBClusterIdentifier is required", ErrInvalidParameter)
 	}
 	if targetClusterID == "" {
 		return nil, fmt.Errorf("%w: DBClusterIdentifier is required", ErrInvalidParameter)
+	}
+	switch {
+	case opts.RestoreToTime != "" && opts.UseLatestRestorableTime:
+		return nil, fmt.Errorf(
+			"%w: RestoreToTime cannot be specified when UseLatestRestorableTime is true",
+			ErrInvalidParameter,
+		)
+	case opts.RestoreToTime == "" && !opts.UseLatestRestorableTime:
+		return nil, fmt.Errorf(
+			"%w: RestoreToTime must be specified if UseLatestRestorableTime is not provided",
+			ErrInvalidParameter,
+		)
 	}
 	region := getRegion(ctx, b.region)
 	b.mu.Lock("RestoreDBClusterToPointInTime")

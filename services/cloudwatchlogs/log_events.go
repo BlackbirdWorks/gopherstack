@@ -400,16 +400,16 @@ func (b *InMemoryBackend) appendEvents(
 	}
 }
 
-// logEventsTokenBackwardMarker distinguishes a backward-paging GetLogEvents
-// token from a forward one. encodeNextToken (store.go), used by every other
-// paginated op in this package, has no such marker -- a plain base64(decimal)
-// token decodes here as forward, for backward compatibility with tokens
-// issued before this marker existed.
+// logEventsTokenBackwardMarker distinguishes a backward-paging GetLogEvents/
+// FilterLogEvents token from a forward one. encodeNextToken (store.go), used
+// by every other paginated op in this package, has no such marker -- a plain
+// base64(decimal) token decodes here as forward, for backward compatibility
+// with tokens issued before this marker existed.
 const logEventsTokenBackwardMarker = 'B'
 
-// encodeLogEventsToken encodes a GetLogEvents pagination cursor with its
-// direction, so a nextBackwardToken fed back in can be told apart from a
-// nextForwardToken -- see parseLogEventsToken.
+// encodeLogEventsToken encodes a GetLogEvents/FilterLogEvents pagination
+// cursor with its direction, so a nextBackwardToken fed back in can be told
+// apart from a nextForwardToken -- see parseLogEventsToken.
 func encodeLogEventsToken(idx int, backward bool) string {
 	payload := strconv.Itoa(idx)
 	if backward {
@@ -419,8 +419,9 @@ func encodeLogEventsToken(idx int, backward bool) string {
 	return base64.StdEncoding.EncodeToString([]byte(payload))
 }
 
-// parseLogEventsToken decodes a GetLogEvents cursor back to its offset and
-// direction. Unmarked (legacy/plain-decimal) tokens decode as forward.
+// parseLogEventsToken decodes a GetLogEvents/FilterLogEvents cursor back to
+// its offset and direction. Unmarked (legacy/plain-decimal) tokens decode as
+// forward.
 func parseLogEventsToken(token string) (int, bool) {
 	if token == "" {
 		return 0, false
@@ -533,6 +534,7 @@ func (b *InMemoryBackend) GetLogEvents(
 type FilterLogEventsParams struct {
 	StartTime           *int64
 	EndTime             *int64
+	StartFromHead       *bool
 	GroupName           string
 	FilterPattern       string
 	NextToken           string
@@ -541,11 +543,82 @@ type FilterLogEventsParams struct {
 	Limit               int
 }
 
+// filterLogEventsMinStartFromHeadFalseMs is Jan 1, 2024 00:00:00 UTC in epoch
+// milliseconds: AWS rejects startFromHead=false unless startTime is on or
+// after this instant (api_op_FilterLogEvents.go StartFromHead doc).
+const filterLogEventsMinStartFromHeadFalseMs = 1704067200000
+
 // taggedEvent pairs a stored event with the name of the stream it came from so
 // FilterLogEvents can populate the logStreamName field on each FilteredLogEvent.
 type taggedEvent struct {
 	ev     *OutputLogEvent
 	stream string
+}
+
+// reverseTaggedEvents reverses a slice of tagged events in place, used to
+// serve FilterLogEvents' startFromHead=false (newest-first) ordering from
+// the same timestamp-ascending sort used for the default direction.
+func reverseTaggedEvents(events []taggedEvent) {
+	for i, j := 0, len(events)-1; i < j; i, j = i+1, j-1 {
+		events[i], events[j] = events[j], events[i]
+	}
+}
+
+// validateFilterLogEventsRequest checks FilterLogEvents' cross-field
+// constraints and reports whether the request explicitly asked for
+// newest-first ordering (startFromHead=false).
+func validateFilterLogEventsRequest(p FilterLogEventsParams) (bool, error) {
+	// AWS rejects requests that set both logStreamNames and logStreamNamePrefix.
+	if len(p.StreamNames) > 0 && p.LogStreamNamePrefix != "" {
+		return false, fmt.Errorf(
+			"%w: logStreamNames and logStreamNamePrefix are mutually exclusive", ErrValidation)
+	}
+
+	explicitBackward := p.StartFromHead != nil && !*p.StartFromHead
+	if explicitBackward && (p.StartTime == nil || *p.StartTime < filterLogEventsMinStartFromHeadFalseMs) {
+		return false, fmt.Errorf(
+			"%w: startFromHead can only be set to false when startTime is on or after "+
+				"Jan 1, 2024 00:00:00 UTC", ErrValidation)
+	}
+
+	return explicitBackward, nil
+}
+
+// collectFilterLogEventsCandidates gathers every event across streamOrder
+// whose message matches compiled (or every event, when compiled is nil),
+// tagging each with its originating stream name.
+func (b *InMemoryBackend) collectFilterLogEventsCandidates(
+	region, groupName string, streamOrder []string, compiled *compiledFilterPattern,
+) []taggedEvent {
+	var all []taggedEvent
+
+	for _, sName := range streamOrder {
+		stream, ok := b.streamGet(region, groupName, sName)
+		if !ok {
+			continue
+		}
+		for _, ev := range stream.events {
+			if compiled != nil && !compiled.matches(ev.Message) {
+				continue
+			}
+			all = append(all, taggedEvent{ev: ev, stream: sName})
+		}
+	}
+
+	return all
+}
+
+// resolveFilterLogEventsPage returns the pagination offset and sort
+// direction for a FilterLogEvents call: a nextToken carries the direction of
+// the request that issued it, taking precedence once paging is underway
+// (api_op_FilterLogEvents.go StartFromHead doc); otherwise the direction
+// comes from the request's own startFromHead.
+func resolveFilterLogEventsPage(nextToken string, explicitBackward bool) (int, bool) {
+	if nextToken != "" {
+		return parseLogEventsToken(nextToken)
+	}
+
+	return 0, explicitBackward
 }
 
 // FilterLogEvents searches events across streams in a group with an optional
@@ -556,10 +629,9 @@ func (b *InMemoryBackend) FilterLogEvents(
 	ctx context.Context,
 	p FilterLogEventsParams,
 ) ([]FilteredLogEvent, string, []SearchedLogStream, error) {
-	// AWS rejects requests that set both logStreamNames and logStreamNamePrefix.
-	if len(p.StreamNames) > 0 && p.LogStreamNamePrefix != "" {
-		return nil, "", nil, fmt.Errorf(
-			"%w: logStreamNames and logStreamNamePrefix are mutually exclusive", ErrValidation)
+	explicitBackward, err := validateFilterLogEventsRequest(p)
+	if err != nil {
+		return nil, "", nil, err
 	}
 
 	region := getRegion(ctx, b.region)
@@ -587,20 +659,7 @@ func (b *InMemoryBackend) FilterLogEvents(
 		streamOrder = filterStreamsByPrefix(streamOrder, p.LogStreamNamePrefix)
 	}
 
-	var all []taggedEvent
-
-	for _, sName := range streamOrder {
-		stream, ok := b.streamGet(region, p.GroupName, sName)
-		if !ok {
-			continue
-		}
-		for _, ev := range stream.events {
-			if compiled != nil && !compiled.matches(ev.Message) {
-				continue
-			}
-			all = append(all, taggedEvent{ev: ev, stream: sName})
-		}
-	}
+	all := b.collectFilterLogEventsCandidates(region, p.GroupName, streamOrder, compiled)
 
 	all = filterTaggedByTime(all, p.StartTime, p.EndTime)
 	// Interleave across streams: AWS returns matched events sorted by timestamp.
@@ -609,7 +668,11 @@ func (b *InMemoryBackend) FilterLogEvents(
 		return all[i].ev.Timestamp < all[j].ev.Timestamp
 	})
 
-	startIdx := parseNextToken(p.NextToken)
+	startIdx, backward := resolveFilterLogEventsPage(p.NextToken, explicitBackward)
+	if backward {
+		reverseTaggedEvents(all)
+	}
+
 	limit := p.Limit
 	if limit <= 0 {
 		limit = defaultEventLimit
@@ -618,7 +681,7 @@ func (b *InMemoryBackend) FilterLogEvents(
 	end := startIdx + limit
 	var outToken string
 	if end < len(all) {
-		outToken = encodeNextToken(end)
+		outToken = encodeLogEventsToken(end, backward)
 	} else {
 		end = len(all)
 	}

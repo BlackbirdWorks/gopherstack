@@ -217,8 +217,13 @@ func sessionSummaryOf(s *Session) SessionSummary {
 	}
 }
 
-// ListNotebookSessions returns sessions associated with a notebook.
-func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]SessionSummary, error) {
+// ListNotebookSessions returns sessions associated with a notebook. Real
+// types.NotebookSessionSummary is CreationTime+SessionId only -- a distinct,
+// narrower shape from types.SessionSummary (ListSessions), see
+// NotebookSessionSummary's doc comment. CreationTime is sourced from the
+// session's own Status.StartDateTime (its start IS its creation -- sessions
+// have no separate pending-then-started state).
+func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]NotebookSessionSummary, error) {
 	if notebookID == "" {
 		return nil, fmt.Errorf("%w: NotebookId is required", ErrValidation)
 	}
@@ -230,14 +235,17 @@ func (b *InMemoryBackend) ListNotebookSessions(notebookID string) ([]SessionSumm
 		return nil, fmt.Errorf("%w: notebook %q not found", ErrNotFound, notebookID)
 	}
 
-	out := make([]SessionSummary, 0, b.sessions.Len())
+	out := make([]NotebookSessionSummary, 0, b.sessions.Len())
 
 	for _, s := range b.sessions.All() {
 		if s.NotebookID != notebookID {
 			continue
 		}
 
-		out = append(out, sessionSummaryOf(s))
+		out = append(out, NotebookSessionSummary{
+			SessionID:    s.SessionID,
+			CreationTime: s.Status.StartDateTime,
+		})
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].SessionID < out[j].SessionID })

@@ -53,7 +53,7 @@ func TestChangeSet_TypeAndExecutionStatus(t *testing.T) {
 				tc.setup(b)
 			}
 			cs, err := b.CreateChangeSet(t.Context(), tc.stackName, tc.changeSetName,
-				simpleTemplate, "test", nil, nil, nil)
+				simpleTemplate, "test", nil, nil, nil, cloudformation.CreateChangeSetOptions{})
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantChangeSetType, cs.ChangeSetType)
 			assert.Equal(t, tc.wantExecStatus, cs.ExecutionStatus)
@@ -70,11 +70,11 @@ func TestChangeSet_ExecutionStatus_AfterExecute(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = b.CreateChangeSet(t.Context(), "exec-status-stack", "my-cs",
-		modifiedTemplate, "test", nil, nil, nil)
+		modifiedTemplate, "test", nil, nil, nil, cloudformation.CreateChangeSetOptions{})
 	require.NoError(t, err)
 
 	// After execute, the changeset is removed (EXECUTE_COMPLETE).
-	err = b.ExecuteChangeSet(t.Context(), "exec-status-stack", "my-cs")
+	err = b.ExecuteChangeSet(t.Context(), "exec-status-stack", "my-cs", false, false)
 	require.NoError(t, err)
 
 	// Changeset no longer exists — verify.
@@ -123,11 +123,12 @@ func TestChangeSet_Capabilities_ThreadedToExecute(t *testing.T) {
 
 			cs, err := b.CreateChangeSet(
 				t.Context(), "cs-cap-stack", "cs-cap", iamTemplate, "test", nil, tt.capabilities, nil,
+				cloudformation.CreateChangeSetOptions{},
 			)
 			require.NoError(t, err)
 			assert.Equal(t, tt.capabilities, cs.Capabilities)
 
-			err = b.ExecuteChangeSet(t.Context(), "cs-cap-stack", "cs-cap")
+			err = b.ExecuteChangeSet(t.Context(), "cs-cap-stack", "cs-cap", false, false)
 			if tt.wantErr {
 				require.ErrorIs(t, err, cloudformation.ErrInsufficientCapabilities)
 			} else {

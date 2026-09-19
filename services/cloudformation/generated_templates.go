@@ -215,6 +215,7 @@ func (b *InMemoryBackend) StartResourceScan() (string, error) {
 	b.resourceScans.Put(&ResourceScan{
 		ResourceScanID:      scanID,
 		Status:              statusComplete,
+		ScanType:            scanTypeFull,
 		PercentageCompleted: resourceScanCompletePercent,
 	})
 	// Populate scan items from existing active stacks.
@@ -260,19 +261,26 @@ func (b *InMemoryBackend) DescribeResourceScan(scanID string) (*ResourceScan, er
 }
 
 // ListResourceScans default 10 / max 100 per MaxResults
-// (cloudformation@v1.76.1 api_op_ListResourceScans.go:35).
+// (cloudformation@v1.76.1 api_op_ListResourceScans.go:35). scanTypeFull is
+// the only ScanType this backend's StartResourceScan ever produces (real
+// types.ScanType also defines PARTIAL, which nothing here creates).
 const (
 	cfnResourceScansDefaultPageSize = 10
 	cfnResourceScansMaxPageSize     = 100
+	scanTypeFull                    = "FULL"
 )
 
 func (b *InMemoryBackend) ListResourceScans(
-	maxResults int, nextToken string,
+	maxResults int, nextToken, scanTypeFilter string,
 ) (page.Page[ResourceScan], error) {
 	b.mu.RLock("ListResourceScans")
 	defer b.mu.RUnlock()
 	result := make([]ResourceScan, 0, b.resourceScans.Len())
 	for _, rs := range b.resourceScans.All() {
+		if scanTypeFilter != "" && rs.ScanType != scanTypeFilter {
+			continue
+		}
+
 		result = append(result, *rs)
 	}
 
@@ -283,17 +291,28 @@ func (b *InMemoryBackend) ListResourceScans(
 	return page.New(result, nextToken, limit, cfnResourceScansDefaultPageSize), nil
 }
 
-func (b *InMemoryBackend) ListResourceScanResources(scanID, _ string) ([]ScannedResource, error) {
+// ListResourceScanResources: default 100 / max 100 per MaxResults
+// (cloudformation@v1.76.1 api_op_ListResourceScanResources.go).
+const (
+	cfnResourceScanResourcesDefaultPageSize = 100
+	cfnResourceScanResourcesMaxPageSize     = 100
+)
+
+func (b *InMemoryBackend) ListResourceScanResources(
+	scanID, nextToken string, maxResults int,
+) (page.Page[ScannedResource], error) {
 	b.mu.RLock("ListResourceScanResources")
 	defer b.mu.RUnlock()
 	if !b.resourceScans.Has(scanID) {
-		return nil, ErrResourceScanNotFound
+		return page.Page[ScannedResource]{}, ErrResourceScanNotFound
 	}
 	items := b.resourceScanItems[scanID]
 	out := make([]ScannedResource, len(items))
 	copy(out, items)
 
-	return out, nil
+	limit := min(maxResults, cfnResourceScanResourcesMaxPageSize)
+
+	return page.New(out, nextToken, limit, cfnResourceScanResourcesDefaultPageSize), nil
 }
 
 func (b *InMemoryBackend) ListResourceScanRelatedResources(

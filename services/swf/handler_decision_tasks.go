@@ -36,19 +36,22 @@ type decisionTaskOutput struct {
 }
 
 type handlePollForDecisionTaskInput struct {
-	Domain          string      `json:"domain"`
-	TaskList        taskListRef `json:"taskList"`
-	NextPageToken   string      `json:"nextPageToken,omitempty"`
-	Identity        string      `json:"identity,omitempty"`
-	MaximumPageSize int         `json:"maximumPageSize,omitempty"`
-	ReverseOrder    bool        `json:"reverseOrder,omitempty"`
+	Domain                      string      `json:"domain"`
+	TaskList                    taskListRef `json:"taskList"`
+	NextPageToken               string      `json:"nextPageToken,omitempty"`
+	Identity                    string      `json:"identity,omitempty"`
+	MaximumPageSize             int         `json:"maximumPageSize,omitempty"`
+	ReverseOrder                bool        `json:"reverseOrder,omitempty"`
+	StartAtPreviousStartedEvent bool        `json:"startAtPreviousStartedEvent,omitempty"`
 }
 
 func (h *Handler) handlePollForDecisionTask(
 	_ context.Context,
 	in *handlePollForDecisionTaskInput,
 ) (*decisionTaskOutput, error) {
-	task := h.Backend.PollForDecisionTask(in.Domain, in.TaskList.Name, in.MaximumPageSize, in.NextPageToken)
+	task := h.Backend.PollForDecisionTask(
+		in.Domain, in.TaskList.Name, in.MaximumPageSize, in.NextPageToken, in.StartAtPreviousStartedEvent,
+	)
 	if task == nil {
 		return &decisionTaskOutput{}, nil
 	}

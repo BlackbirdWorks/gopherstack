@@ -789,8 +789,8 @@ type RotateKeyOnDemandOutput struct {
 
 // UpdateCustomKeyStoreInput is the request payload for UpdateCustomKeyStore.
 type UpdateCustomKeyStoreInput struct {
-	CustomKeyStoreID      string `json:"CustomKeyStoreId"`
-	NewCustomKeyStoreName string `json:"NewCustomKeyStoreName,omitempty"`
+	NewCustomKeyStoreName *string `json:"NewCustomKeyStoreName,omitempty"`
+	CustomKeyStoreID      string  `json:"CustomKeyStoreId"`
 }
 
 // UpdateKeyDescriptionInput is the request payload for UpdateKeyDescription.

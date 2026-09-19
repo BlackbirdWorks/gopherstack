@@ -5,6 +5,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	memorydbsdk "github.com/aws/aws-sdk-go-v2/service/memorydb"
+	memorydbtypes "github.com/aws/aws-sdk-go-v2/service/memorydb/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -55,4 +56,44 @@ func TestUpdateCluster_EngineParameterGroupSecurityGroups_RoundTrip(t *testing.T
 	assert.Equal(t, "wire-update-pg", aws.ToString(got.ParameterGroupName))
 	require.Len(t, got.SecurityGroups, 1)
 	assert.Equal(t, "sg-abc123", aws.ToString(got.SecurityGroups[0].SecurityGroupId))
+}
+
+// TestUpdateCluster_NoNetworkTypeOrAutoMinorVersionUpgradeMember covers an
+// invented-field bug (acceptguard): UpdateClusterInput (memorydb@v1.36.4
+// api_op_UpdateCluster.go) declares neither NetworkType nor
+// AutoMinorVersionUpgrade -- both are CreateClusterInput-only members. The
+// real SDK's UpdateClusterInput struct has no such fields to set, so this
+// proves the values set at creation survive an otherwise-unrelated update
+// untouched.
+func TestUpdateCluster_NoNetworkTypeOrAutoMinorVersionUpgradeMember(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newMemorydbSDKClient(t, h)
+	ctx := t.Context()
+
+	_, err := client.CreateCluster(ctx, &memorydbsdk.CreateClusterInput{
+		ClusterName:             aws.String("wire-update-cluster-net"),
+		NodeType:                aws.String("db.r6g.large"),
+		ACLName:                 aws.String("open-access"),
+		NetworkType:             memorydbtypes.NetworkTypeIpv6,
+		AutoMinorVersionUpgrade: aws.Bool(true),
+	})
+	require.NoError(t, err)
+
+	_, err = client.UpdateCluster(ctx, &memorydbsdk.UpdateClusterInput{
+		ClusterName: aws.String("wire-update-cluster-net"),
+		Description: aws.String("unrelated update"),
+	})
+	require.NoError(t, err)
+
+	out, err := client.DescribeClusters(ctx, &memorydbsdk.DescribeClustersInput{
+		ClusterName: aws.String("wire-update-cluster-net"),
+	})
+	require.NoError(t, err)
+	require.Len(t, out.Clusters, 1)
+
+	got := out.Clusters[0]
+	assert.Equal(t, memorydbtypes.NetworkTypeIpv6, got.NetworkType)
+	assert.True(t, aws.ToBool(got.AutoMinorVersionUpgrade))
 }

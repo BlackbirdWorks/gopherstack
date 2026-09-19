@@ -22,7 +22,7 @@ func newFullPersistenceTestBackend(t *testing.T) *sagemakerruntime.InMemoryBacke
 
 	b.RecordInvocation("InvokeEndpoint", "ep", `{"seq":0}`, `{}`)
 	b.StartSession("ep")
-	b.RecordAsyncInvocation("ep", "full-inference-id", "input", "s3://bucket/output")
+	b.RecordAsyncInvocation("ep", "full-inference-id", "input", "s3://bucket/output", "")
 
 	return b
 }
@@ -174,7 +174,7 @@ func TestBackend_PersistenceSnapshotRestore(t *testing.T) {
 			}
 			if tt.setupInvCount > 0 {
 				b.StartSession("ep")
-				b.RecordAsyncInvocation("ep", "persisted-id", "input", "")
+				b.RecordAsyncInvocation("ep", "persisted-id", "input", "", "")
 			}
 
 			snap := b.Snapshot(t.Context())

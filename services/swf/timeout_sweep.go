@@ -1,6 +1,7 @@
 package swf
 
 import (
+	"slices"
 	"strconv"
 	"time"
 )
@@ -23,16 +24,18 @@ func executionDeadline(exec *WorkflowExecution) (float64, bool) {
 }
 
 // sweepTimedOutExecutionsLocked closes every RUNNING execution whose
-// ExecutionStartToCloseTimeout has elapsed as of now. This backend has no
-// background timer (see PARITY.md's leaks note) -- timeout enforcement is
-// instead lazily evaluated by this sweep at the top of every backend op that
-// reads or mutates execution state (Describe/GetHistory/List/Count/Poll/
-// Respond/Terminate/RequestCancel/Signal/Start), so a timed-out execution
-// becomes visible on the next such call rather than at the real wall-clock
-// instant it expired. now is a parameter rather than an internal time.Now()
-// call so the sweep's evaluation instant is directly controllable in tests,
-// without sleeping or a background goroutine. Caller must hold the write
-// lock. Returns the number of executions closed.
+// ExecutionStartToCloseTimeout has elapsed as of now, and fires any of its
+// open StartTimer decisions whose StartToFireTimeout has likewise elapsed.
+// This backend has no background timer (see PARITY.md's leaks note) --
+// timeout/timer enforcement is instead lazily evaluated by this sweep at the
+// top of every backend op that reads or mutates execution state
+// (Describe/GetHistory/List/Count/Poll/Respond/Terminate/RequestCancel/
+// Signal/Start), so a timed-out execution or fired timer becomes visible on
+// the next such call rather than at the real wall-clock instant it expired.
+// now is a parameter rather than an internal time.Now() call so the sweep's
+// evaluation instant is directly controllable in tests, without sleeping or
+// a background goroutine. Caller must hold the write lock. Returns the
+// number of executions closed (timer fires are not counted).
 func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 	nowEpoch := float64(now.UnixMilli()) / milliDivisor
 
@@ -41,6 +44,8 @@ func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 		if exec.Status != statusRunning {
 			continue
 		}
+
+		b.fireExpiredTimersLocked(exec, nowEpoch)
 
 		deadline, hasTimeout := executionDeadline(exec)
 		if !hasTimeout || nowEpoch < deadline {
@@ -52,6 +57,38 @@ func (b *InMemoryBackend) sweepTimedOutExecutionsLocked(now time.Time) int {
 	}
 
 	return swept
+}
+
+// fireExpiredTimersLocked fires every one of exec's open StartTimer
+// decisions whose StartToFireTimeout has elapsed as of nowEpoch: real SWF
+// appends a TimerFired history event (types.TimerFiredEventAttributes
+// requires startedEventId/timerId, both derived from the timer's own
+// StartTimer decision -- confirmed against
+// aws-sdk-go-v2/service/swf@v1.37.4/types/types.go) and gives the execution
+// a fresh decision task. Caller must hold the write lock; exec must be
+// RUNNING.
+func (b *InMemoryBackend) fireExpiredTimersLocked(exec *WorkflowExecution, nowEpoch float64) {
+	for _, timerID := range slices.Clone(exec.OpenTimerIDs) {
+		deadline, ok := exec.OpenTimerDeadlines[timerID]
+		if !ok || nowEpoch < deadline {
+			continue
+		}
+
+		startedEventID := exec.TimerStartedEventIDs[timerID]
+
+		idx := slices.Index(exec.OpenTimerIDs, timerID)
+		exec.OpenTimerIDs = slices.Delete(exec.OpenTimerIDs, idx, idx+1)
+		delete(exec.TimerStartedEventIDs, timerID)
+		delete(exec.OpenTimerDeadlines, timerID)
+
+		b.appendHistoryEventLocked(exec.Domain, exec.WorkflowID, exec.RunID, "TimerFired", map[string]any{
+			eventAttrKey("TimerFired"): map[string]any{
+				attrTimerID:     timerID,
+				attrStartedEvID: startedEventID,
+			},
+		})
+		b.enqueueDecisionTaskLocked(exec.Domain, exec.WorkflowID, exec.RunID)
+	}
 }
 
 // timeoutExecutionLocked closes exec as TIMED_OUT: real SWF's

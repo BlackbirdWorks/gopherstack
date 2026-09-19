@@ -37,6 +37,7 @@ type sendingOptionsOutput struct {
 }
 
 type suppressionOptionsOutput struct {
+	SuppressionScope  string   `json:"SuppressionScope,omitempty"`
 	SuppressedReasons []string `json:"SuppressedReasons,omitempty"`
 }
 
@@ -112,9 +113,10 @@ func (h *Handler) handleGetConfigurationSet(name string) (any, error) {
 		}
 	}
 
-	if len(cs.SuppressionReasons) > 0 {
+	if len(cs.SuppressionReasons) > 0 || cs.SuppressionScope != "" {
 		out.SuppressionOptions = &suppressionOptionsOutput{
 			SuppressedReasons: cs.SuppressionReasons,
+			SuppressionScope:  cs.SuppressionScope,
 		}
 	}
 
@@ -236,6 +238,7 @@ func (h *Handler) handlePutConfigurationSetSuppressionOptions(
 	name string,
 ) (any, error) {
 	var in struct {
+		SuppressionScope  string   `json:"SuppressionScope"`
 		SuppressedReasons []string `json:"SuppressedReasons"`
 	}
 
@@ -246,6 +249,7 @@ func (h *Handler) handlePutConfigurationSetSuppressionOptions(
 	return &emptyDeleteOutput{}, h.Backend.PutConfigurationSetSuppressionOptions(
 		name,
 		in.SuppressedReasons,
+		in.SuppressionScope,
 	)
 }
 

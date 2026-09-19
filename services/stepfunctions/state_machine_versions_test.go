@@ -129,7 +129,7 @@ func TestVersion_Delete_RejectedWhileReferencedByAlias(t *testing.T) {
 	v, err := b.PublishStateMachineVersion(sm.StateMachineArn, "", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "live", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("live", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)

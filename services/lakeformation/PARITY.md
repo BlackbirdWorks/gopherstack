@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: lakeformation
 sdk_module: aws-sdk-go-v2/service/lakeformation@v1.50.4
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-15
+last_audit_commit: b1905140e                      # gopherstack-xhu2t reqfielddiff tier-1 sweep
+last_audit_date: 2026-09-18
 overall: A            # gopherstack-6flj wrapper-key sweep: GetTemporaryDataLocationCredentials wire-breaking sibling-copy bug fixed, plus 4 adjacent bugs
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -86,6 +86,7 @@ items_still_open:
   - "PARTIALLY FIXED (gopherstack-kbnu): LFTagPolicy-based permission grants are now expanded into effective per-resource permissions in GetEffectivePermissionsForPath (resolves the resourceArn to a Database/Table, looks up its actual LF-tags, and evaluates each LFTagPolicy grant's Expression/ExpressionName against them -- AND across tag keys, OR across one key's values, per https://docs.aws.amazon.com/lake-formation/latest/dg/managing-tag-expressions.html). ListPermissions filtered by a concrete resource intentionally still does NOT expand tag-policy grants: AWS's own documented behavior is that LF-Tag-based grants are queried via their own LFTagPolicy/LF_TAG_POLICY_* resource type, not by listing the concrete resource they happen to cover (a tag-based grant 'may not appear in ListPermissions results for specific resources'). SearchTablesByLFTags/SearchDatabasesByLFTags remain untouched (out of scope for this pass -- they answer 'which resources have these tags', not 'what permissions apply to this resource'). No LakeFormation operation in this backend enforces authorization at runtime (permissions are bookkeeping, not an enforcement engine); this pass only makes the LF-Tag-derived permission *record* visible where AWS documents it should be, it does not add access control."
   - "NOT FIXED (gopherstack-4ly2, 2026-08-29): ListPermissionsInput.IncludeRelated (\"show the cell filters on a table resource\") is parsed into the wire request struct but never read. This backend's permissionsList only holds explicitly granted permissions (via Grant/RevokePermissions) -- there are no separately-derived cell-filter permission entries for IncludeRelated to toggle inclusion of, so honoring it would require inventing a synthetic permission-derivation feature. Structural gap, not an unread parameter with real data behind it."
   - "NOT FIXED (gopherstack-4ly2, 2026-08-29): ListTableStorageOptimizersInput.MaxResults/NextToken are parsed but ListTableStorageOptimizers returns the full unpaginated list. Left as reported-but-unfixed: at most 3 StorageOptimizerType values exist per table (COMPACTION/GARBAGE_COLLECTION/RETENTION), so truncation can never actually be observed against any real MaxResults value -- same bug class as the FilterConditionList/ResourceShareType fixes above, but bounded low enough in impact that fix effort went to those instead."
+  - "NOT FIXED (2026-09-18, gopherstack-xhu2t reqfielddiff tier-1): ListPermissionsInput.CatalogId and GetEffectivePermissionsForPathInput.CatalogId (both documented default 'the account ID', lakeformation@v1.50.4) are not declared on this service's own listPermissionsInput/getEffectivePermissionsForPathInput wire structs -- the same single-catalog structural gap already disclosed for the 7 sibling ops in the 2026-08-30 reqfieldscan note below (BatchGrantPermissions, BatchRevokePermissions, DeleteObjectsOnCancel, GetDataLakeSettings, GrantPermissions, PutDataLakeSettings, RevokePermissions), just not previously named for these two List/Get ops specifically. No catalog-scoped storage exists anywhere in the permissions subsystem for either field to plug into."
   - "FIXED (gopherstack-kbnu): GetResourceLFTags/AddLFTagsToResource/RemoveLFTagsFromResource now reject Resource kinds other than Database/Table/TableWithColumns with InvalidInputException, matching the documented restriction (\"The database, table, or column resource...\", api_op_GetResourceLFTags.go:30-33 / api_op_AddLFTagsToResource.go:29-31; RemoveLFTagsFromResource states it explicitly: \"Only database, table, or tableWithColumns resource are allowed.\", api_op_RemoveLFTagsFromResource.go:12-14, aws-sdk-go-v2/service/lakeformation@v1.50.4). Was a permissive superset (accepted Catalog/DataLocation/DataCellsFilter/LFTag/LFTagExpression/LFTagPolicy too) -- the same bug class as a glacier-pass finding the same day (gopherstack accepting a clause AWS rejects)."
 deferred: []  # previously: Condition/RowFilter AllRowsWildcard, ColumnWildcard, LFTagPolicyResource -- ALL implemented this pass (see resource_union family + CreateDataCellsFilter note). The prior claim that RedshiftScopeUnion/ServiceIntegrationUnion had no routed wire surface was WRONG (disproved gopherstack-6flj, 2026-08-15): ServiceIntegrations is a real member of CreateLakeFormationIdentityCenterConfigurationInput/UpdateLakeFormationIdentityCenterConfigurationInput/DescribeLakeFormationIdentityCenterConfigurationOutput, all three of them routed ops. Now implemented -- see the identity-center ops above and the ServiceIntegration/RedshiftScopeUnion/RedshiftConnect types in models.go.
 leaks: {status: clean, note: "no new goroutines/janitors added this pass; all new backend methods take b.mu via existing lockmetrics.RWMutex Lock/RLock with defer Unlock/RUnlock, following the pre-existing pattern."}
@@ -149,6 +150,12 @@ Gates: `go build ./services/lakeformation/...`, `go vet ./services/lakeformation
 ---
 
 ## Notes
+
+**2026-09-18 (gopherstack-xhu2t reqfielddiff tier-1 sweep):** 2 tier-1 undeclared request
+fields, both recorded as a missing feature, 0 fixed: `ListPermissions.CatalogId` and
+`GetEffectivePermissionsForPath.CatalogId` are the same single-catalog structural gap
+already disclosed for 7 sibling ops (2026-08-30 reqfieldscan note below), just not
+previously named for these two ops. See items_still_open. tier1 count 2 -> 2.
 
 **2026-08-22 (gopherstack-i8lo):** verified the DataCellsFilter op family's
 required-member handling in both directions, following up on a report that

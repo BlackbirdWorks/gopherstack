@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -137,7 +138,7 @@ func TestUpdateCustomKeyStore_RenameSucceeds(t *testing.T) {
 
 	require.NoError(t, b.UpdateCustomKeyStore(context.Background(), &kms.UpdateCustomKeyStoreInput{
 		CustomKeyStoreID:      storeID,
-		NewCustomKeyStoreName: "new-name",
+		NewCustomKeyStoreName: aws.String("new-name"),
 	}))
 
 	desc, err := b.DescribeCustomKeyStores(context.Background(), &kms.DescribeCustomKeyStoresInput{

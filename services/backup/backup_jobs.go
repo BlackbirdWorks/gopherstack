@@ -18,6 +18,7 @@ const completedJobBytes = 1024
 // StartBackupJob starts a new backup job.
 func (b *InMemoryBackend) StartBackupJob(
 	vaultName, resourceArn, iamRoleArn, resourceType string,
+	backupOptions map[string]string, startWindowMinutes int64,
 ) (*Job, error) {
 	b.mu.Lock("StartBackupJob")
 	defer b.mu.Unlock()
@@ -40,6 +41,7 @@ func (b *InMemoryBackend) StartBackupJob(
 	}
 
 	jobID := uuid.NewString()
+	now := time.Now().UTC()
 	j := &Job{
 		BackupJobID:     jobID,
 		BackupVaultName: vaultName,
@@ -50,8 +52,15 @@ func (b *InMemoryBackend) StartBackupJob(
 		State:           statusCreated,
 		AccountID:       b.accountID,
 		Region:          b.region,
-		CreationTime:    time.Now().UTC(),
+		CreationTime:    now,
+		BackupOptions:   backupOptions,
 	}
+
+	if startWindowMinutes > 0 {
+		startBy := now.Add(time.Duration(startWindowMinutes) * time.Minute)
+		j.StartBy = &startBy
+	}
+
 	b.jobs.Put(j)
 	cp := *j
 
@@ -306,10 +315,12 @@ func (b *InMemoryBackend) CompleteBackupJob(jobID string) error {
 
 	// Update protected resource record.
 	b.protectedResources.Put(&ProtectedResource{
-		ResourceArn:     job.ResourceArn,
-		ResourceType:    job.ResourceType,
-		BackupVaultName: job.BackupVaultName,
-		LastBackupTime:  now,
+		ResourceArn:          job.ResourceArn,
+		ResourceType:         job.ResourceType,
+		BackupVaultName:      job.BackupVaultName,
+		LastBackupTime:       now,
+		LastBackupVaultArn:   vault.BackupVaultArn,
+		LastRecoveryPointArn: rpArn,
 	})
 
 	return nil

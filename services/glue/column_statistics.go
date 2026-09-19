@@ -129,6 +129,27 @@ func (b *InMemoryBackend) StopColumnStatisticsTaskRunSchedule(dbName, tableName 
 func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 	dbName, tableName, role string,
 ) (*ColumnStatisticsTaskRun, error) {
+	return b.StartColumnStatisticsTaskRunWithOptions(dbName, tableName, role, ColumnStatisticsRunOptions{})
+}
+
+// ColumnStatisticsRunOptions carries StartColumnStatisticsTaskRunInput's
+// optional CatalogID/ColumnNameList/SampleSize/SecurityConfiguration members
+// (glue@v1.157.0 api_op_StartColumnStatisticsTaskRun.go). This backend never
+// actually computes statistics (no reconciler transitions a run out of
+// "starting"), so none of these affect any computation -- they are accepted
+// and echoed back by GetColumnStatisticsTaskRun, same as Role already was.
+type ColumnStatisticsRunOptions struct {
+	CatalogID             string
+	SecurityConfiguration string
+	ColumnNameList        []string
+	SampleSize            float64
+}
+
+// StartColumnStatisticsTaskRunWithOptions is StartColumnStatisticsTaskRun plus
+// the optional fields ColumnStatisticsRunOptions carries.
+func (b *InMemoryBackend) StartColumnStatisticsTaskRunWithOptions(
+	dbName, tableName, role string, opts ColumnStatisticsRunOptions,
+) (*ColumnStatisticsTaskRun, error) {
 	b.mu.Lock("StartColumnStatisticsTaskRun")
 	defer b.mu.Unlock()
 
@@ -140,6 +161,10 @@ func (b *InMemoryBackend) StartColumnStatisticsTaskRun(
 		Status:                    stateStarting,
 		Role:                      role,
 		StartedOn:                 float64(time.Now().Unix()),
+		CatalogID:                 opts.CatalogID,
+		SecurityConfiguration:     opts.SecurityConfiguration,
+		ColumnNameList:            append([]string(nil), opts.ColumnNameList...),
+		SampleSize:                opts.SampleSize,
 	}
 	b.columnStatTaskRuns.Put(run)
 	cp := *run

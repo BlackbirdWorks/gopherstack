@@ -193,13 +193,14 @@ func (h *Handler) handleListThemes(c *echo.Context) error {
 		return httpErr(c, err)
 	}
 
+	// types.ThemeSummary (types.go:21801-21821, quicksight@v1.129.0) has no
+	// Type member -- that's Theme/DescribeThemeOutput-only. Don't leak it here.
 	items := make([]map[string]any, 0, len(themes))
 	for _, t := range themes {
 		items = append(items, map[string]any{
 			keyArn:                 t.Arn,
 			keyThemeID:             t.ThemeID,
 			keyName:                t.Name,
-			keyThemeType:           t.Type,
 			keyCreatedTime:         t.CreatedTime.Unix(),
 			keyLastUpdatedTime:     t.LastUpdatedTime.Unix(),
 			keyLatestVersionNumber: t.Version.VersionNumber,

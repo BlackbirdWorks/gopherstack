@@ -55,12 +55,14 @@ type createIntegrationResourcePropertyInput struct {
 // CreateIntegrationResourceProperty. SourceProcessingProperties/
 // TargetProcessingProperties (not the fictitious "SourceProperties"/
 // "TargetProperties") are the real member names -- glue@v1.157.0
-// api_op_CreateIntegrationResourceProperty.go:62-66.
+// api_op_CreateIntegrationResourceProperty.go:62-66. That op's real output has
+// no CreateTime member at all (previously fabricated here) and does carry
+// ResourcePropertyArn, which this backend now mints.
 type createIntegrationResourcePropertyOutput struct {
-	ResourceArn                string         `json:"ResourceArn"`
 	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
-	CreateTime                 string         `json:"CreateTime,omitempty"`
+	ResourceArn                string         `json:"ResourceArn"`
+	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
 }
 
 func (h *Handler) handleCreateIntegrationResourceProperty(
@@ -78,9 +80,9 @@ func (h *Handler) handleCreateIntegrationResourceProperty(
 
 	return &createIntegrationResourcePropertyOutput{
 		ResourceArn:                prop.ResourceArn,
+		ResourcePropertyArn:        prop.ResourcePropertyArn,
 		SourceProcessingProperties: prop.SourceProcessingProperties,
 		TargetProcessingProperties: prop.TargetProcessingProperties,
-		CreateTime:                 prop.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}, nil
 }
 
@@ -374,6 +376,7 @@ type getIntegrationResourcePropertyOutput struct {
 	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
 	ResourceArn                string         `json:"ResourceArn"`
+	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
 }
 
 func (h *Handler) handleGetIntegrationResourceProperty(
@@ -387,6 +390,7 @@ func (h *Handler) handleGetIntegrationResourceProperty(
 
 	return &getIntegrationResourcePropertyOutput{
 		ResourceArn:                prop.ResourceArn,
+		ResourcePropertyArn:        prop.ResourcePropertyArn,
 		SourceProcessingProperties: prop.SourceProcessingProperties,
 		TargetProcessingProperties: prop.TargetProcessingProperties,
 	}, nil
@@ -440,6 +444,7 @@ type integrationResourcePropertyOut struct {
 	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
 	ResourceArn                string         `json:"ResourceArn"`
+	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
 }
 
 // listIntegrationResourcePropertiesOutput holds the result for ListIntegrationResourceProperties.
@@ -466,6 +471,7 @@ func (h *Handler) handleListIntegrationResourceProperties(
 	for _, p := range page {
 		list = append(list, integrationResourcePropertyOut{
 			ResourceArn:                p.ResourceArn,
+			ResourcePropertyArn:        p.ResourcePropertyArn,
 			SourceProcessingProperties: p.SourceProcessingProperties,
 			TargetProcessingProperties: p.TargetProcessingProperties,
 		})
@@ -520,6 +526,7 @@ type updateIntegrationResourcePropertyOutput struct {
 	SourceProcessingProperties map[string]any `json:"SourceProcessingProperties,omitempty"`
 	TargetProcessingProperties map[string]any `json:"TargetProcessingProperties,omitempty"`
 	ResourceArn                string         `json:"ResourceArn"`
+	ResourcePropertyArn        string         `json:"ResourcePropertyArn"`
 }
 
 func (h *Handler) handleUpdateIntegrationResourceProperty(
@@ -535,6 +542,7 @@ func (h *Handler) handleUpdateIntegrationResourceProperty(
 
 	return &updateIntegrationResourcePropertyOutput{
 		ResourceArn:                prop.ResourceArn,
+		ResourcePropertyArn:        prop.ResourcePropertyArn,
 		SourceProcessingProperties: prop.SourceProcessingProperties,
 		TargetProcessingProperties: prop.TargetProcessingProperties,
 	}, nil

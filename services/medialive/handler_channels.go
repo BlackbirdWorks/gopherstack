@@ -841,8 +841,15 @@ func toChannelOutput(ch *Channel) channelOutput {
 // comment) and using a plain map (ListChannels' existing wire shape, unlike
 // Describe/Create/Update/Delete/Start/Stop's typed channelOutput) so the
 // summary's extra "pipelinesRunningCount" placement matches the pre-existing
-// handleListChannels behavior exactly.
+// handleListChannels behavior exactly. "tags" IS a real ChannelSummary
+// member (medialive@v1.101.4 types.ChannelSummary) even though it was
+// previously dropped here -- gopherstack-dv4s.
 func channelSummaryToWire(s *ChannelSummary) map[string]any {
+	tags := s.Tags
+	if tags == nil {
+		tags = map[string]string{}
+	}
+
 	item := map[string]any{
 		keyArn:                  s.ARN,
 		keyID:                   s.ID,
@@ -850,6 +857,7 @@ func channelSummaryToWire(s *ChannelSummary) map[string]any {
 		"channelClass":          s.ChannelClass,
 		keyState:                s.State,
 		"pipelinesRunningCount": pipelinesRunningCount(s.State, s.ChannelClass),
+		keyTags:                 tags,
 	}
 
 	if s.LogLevel != "" {

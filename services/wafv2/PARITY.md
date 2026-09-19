@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: wafv2
 sdk_module: aws-sdk-go-v2/service/wafv2@v1.77.3   # version audited against (bumped from v1.76.0; go.mod pin was stale)
-last_audit_commit: d7f71c4cd                      # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (WebACL/RuleGroup/DescribeManagedRuleGroup LabelNamespace + WebACL.Capacity)
-last_audit_date: 2026-08-29
+last_audit_commit: 1d121bbad                      # over-wide census sweep, ListAPIKeys/GetDecryptedAPIKey Scope leak
+last_audit_date: 2026-09-18
 overall: A            # New this pass: the AI-bot pay-per-crawl monetization-reporting family
                       # (GetRevenueStatistics/GetRevenueStatisticsSummary/
                       # GetRevenueStatisticsTimeSeries/ListSettlementRecords), added to the SDK
@@ -75,14 +75,14 @@ ops:
   CheckCapacity: {wire: fixed, errors: ok, state: ok, persist: n/a, note: "real per-statement-type WCU cost model in capacity.go, replacing the flat 1-WCU/rule stub (see Notes); 2026-08-22 gopherstack-zquj: response key was \"ConsumedCapacity\", real wire key is \"Capacity\" -- see Notes"}
   CreateAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListAPIKeys: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetDecryptedAPIKey: {wire: ok, errors: ok, state: ok, persist: ok}
+  ListAPIKeys: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-18 (over-wide census) — APIKeySummary has no Scope member (deserializers.go's awsAwsjson11_deserializeDocumentAPIKeySummary silently drops it); removed. Version (real int32 member, \"internal value used by WAF to manage the key\") stays absent — no UpdateAPIKey op or other source in this backend ever produces one; unsourced, not fabricated."}
+  GetDecryptedAPIKey: {wire: fixed, errors: ok, state: ok, persist: ok, note: "FIXED 2026-09-18 — same Scope leak as ListAPIKeys/APIKeySummary, found alongside it; GetDecryptedAPIKeyOutput only has CreationTimestamp/TokenDomains."}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: now honors Limit/NextMarker via pkgs/page (see Notes)"}
   PutLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  DeleteLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetLoggingConfiguration: {wire: ok, errors: ok, state: ok, persist: ok}
+  DeleteLoggingConfiguration: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "LogScope/LogType (api_op_DeleteLoggingConfiguration.go, Default: CUSTOMER/WAF_LOGS) were dropped entirely -- a request for a non-CUSTOMER scope deleted the CUSTOMER-scoped config instead of reporting not-found. FIXED 2026-09-18 (reqfielddiff tier-1): scope now resolved against the stored doc's LogScope (loggingConfigInScope); LogType/LogScope values outside the documented enum now return WAFInvalidParameterException."}
+  GetLoggingConfiguration: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "same LogScope/LogType drop as DeleteLoggingConfiguration -- FIXED 2026-09-18 (reqfielddiff tier-1), same fix (loggingConfigInScope)."}
   ListLoggingConfigurations: {wire: ok, errors: ok, state: fixed, persist: ok, note: "LogScope (api_op_ListLoggingConfigurations.go, Default: CUSTOMER) was parsed into the request struct but never applied -- every LogScope value returned every stored configuration. Now filters each entry's stored LogScope (default CUSTOMER when the document omits it, matching the SDK serializer's `if len(v.LogScope) > 0` omit-when-zero behavior) against the request -- FIXED this sweep (2026-08-29, wrapper-key-sweep-rds-cloudwatch-sqs-sns)"}
   PutPermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
   DeletePermissionPolicy: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -125,6 +125,22 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+- **2026-09-18 (over-wide response class census)**: `cmd/overwidecandidates`
+  flagged ListAPIKeys, ListAvailableManagedRuleGroups, ListIPSets,
+  ListManagedRuleSets, ListMobileSdkReleases, ListRegexPatternSets,
+  ListRuleGroups, ListWebACLs. Member-by-member diff against
+  wafv2@v1.77.3: 6 already emit the exact narrow Summary shape
+  (`handleListResourceFamily` for IPSets/RegexPatternSets/RuleGroups/WebACLs;
+  dedicated converters for ListAvailableManagedRuleGroups/
+  ListMobileSdkReleases). Found and fixed two real leaks: ListAPIKeys and
+  GetDecryptedAPIKey both emitted a `Scope` key that
+  `APIKeySummary`/`GetDecryptedAPIKeyOutput` don't declare (silently dropped
+  by the real deserializer, so no SDK-client test could see it — fixed with a
+  raw-body assertion in `list_summary_shapes_test.go`). `APIKeySummary.Version`
+  (real member) stays unsourced/absent — no op in this service ever produces
+  a per-key version. ListManagedRuleSets' Description/LabelNamespace gap was
+  already known and recorded in items_still_open; re-confirmed, unchanged.
 
 - **2026-08-22 (gopherstack-zquj, keycheck sweep)**: `CheckCapacity` wrote the
   wire-response key `"ConsumedCapacity"`. The real
@@ -682,3 +698,37 @@ typed-client tests and the corrected raw-body fixtures), `golangci-lint run
 --new-from-rev=HEAD ./services/wafv2/...` (0 issues). `cmd/paritylint` stays
 at 0 FAIL (missing-items-still-open). Typed-client census: wafv2 23/59 ->
 59/59 (100%).
+
+## 2026-09-18: LoggingConfiguration LogScope/LogType dropped on Get/Delete (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields: `DeleteLoggingConfiguration.LogScope`,
+`DeleteLoggingConfiguration.LogType`, `GetLoggingConfiguration.LogScope`,
+`GetLoggingConfiguration.LogType` (wafv2@v1.77.3
+api_op_{Delete,Get}LoggingConfiguration.go: both real request members,
+documented defaults CUSTOMER/WAF_LOGS). `ListLoggingConfigurations` already
+filtered by `LogScope` (2026-08-23 fix above) but the two single-resource ops
+never read either field at all, so a request for a non-CUSTOMER scope always
+resolved the CUSTOMER-scoped config instead of reporting it not-found --
+`ResourceArn`+`LogScope` is the real lookup key, not `ResourceArn` alone.
+
+Fixed: `Backend.{Get,Delete}LoggingConfiguration` now take a `logScope`
+parameter and check the stored doc's `LogScope` (default `CUSTOMER` when
+absent, matching the SDK serializer's omit-when-zero behavior, same as the
+existing `filterLoggingConfigsByLogScope` helper) via the new
+`loggingConfigInScope`; a mismatch reports `WAFNonexistentItemException`
+instead of silently operating on the wrong scope. `LogType`/`LogScope`
+values outside their documented enums now return `WAFInvalidParameterException`
+(`validateLogType`/`validateLogScope`) instead of being silently accepted.
+
+Proven with `TestLoggingConfiguration_LogScopeSelectsDistinctConfig` and
+`TestLoggingConfiguration_InvalidLogTypeRejected` (typed `aws-sdk-go-v2`
+client, `services/wafv2/logging_configuration_scope_test.go`) -- asserts a
+mismatched-scope Get/Delete returns `WAFNonexistentItemException` and leaves
+the CUSTOMER config intact, and an unrecognized `LogType` returns
+`WAFInvalidParameterException`.
+
+No persisted (`backendSnapshot`) fields changed. Gates: `go build ./...`,
+`go vet ./services/wafv2/`, `go test -race -count=1 ./services/wafv2/` (all
+pass), `golangci-lint run --new-from-rev=HEAD ./services/wafv2/` (0 issues).
+tier-1 (`cmd/reqfielddiff -dir wafv2`): 4 -> 0. `DescribeAllManagedProducts.Scope`
+(tier3, out of this sweep's scope) still open, unchanged.

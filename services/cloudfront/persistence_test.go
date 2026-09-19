@@ -238,7 +238,7 @@ func TestNewOperations_PersistenceRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	// Copy the distribution.
-	_, err = b.CopyDistribution(d.ID, "copy-persist-ref")
+	_, err = b.CopyDistribution(d.ID, "copy-persist-ref", nil)
 	require.NoError(t, err)
 
 	// Create new resource types.

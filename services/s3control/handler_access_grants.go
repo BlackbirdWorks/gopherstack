@@ -372,6 +372,7 @@ type createAccessGrantResponseXML struct {
 	Permission             string                      `xml:"Permission"`
 	Grantee                createAccessGrantGranteeXML `xml:"Grantee,omitempty"`
 	ApplicationArn         string                      `xml:"ApplicationArn,omitempty"`
+	CreatedAt              string                      `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
@@ -414,6 +415,7 @@ func (h *Handler) handleCreateAccessGrant(c *echo.Context) error {
 			GranteeIdentifier: grant.GranteeIdentifier,
 		},
 		ApplicationArn: grant.ApplicationArn,
+		CreatedAt:      grant.CreatedAt,
 	})
 }
 
@@ -432,6 +434,7 @@ type createAccessGrantsLocationResponseXML struct {
 	AccessGrantsLocationID  string   `xml:"AccessGrantsLocationId"`
 	LocationScope           string   `xml:"LocationScope"`
 	IAMRoleArn              string   `xml:"IAMRoleArn"`
+	CreatedAt               string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
@@ -462,6 +465,7 @@ func (h *Handler) handleCreateAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationID:  loc.AccessGrantsLocationID,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 
@@ -742,6 +746,7 @@ type getAccessGrantsLocationResponseXML struct {
 	AccessGrantsLocationArn string   `xml:"AccessGrantsLocationArn"`
 	LocationScope           string   `xml:"LocationScope"`
 	IAMRoleArn              string   `xml:"IAMRoleArn"`
+	CreatedAt               string   `xml:"CreatedAt,omitempty"`
 }
 
 func (h *Handler) handleGetAccessGrantsLocation(c *echo.Context) error {
@@ -758,6 +763,7 @@ func (h *Handler) handleGetAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 
@@ -796,6 +802,7 @@ func (h *Handler) handleUpdateAccessGrantsLocation(c *echo.Context) error {
 		AccessGrantsLocationArn: loc.AccessGrantsLocationArn,
 		LocationScope:           loc.LocationScope,
 		IAMRoleArn:              loc.IAMRoleArn,
+		CreatedAt:               loc.CreatedAt,
 	})
 }
 
@@ -839,10 +846,32 @@ func (h *Handler) handleListAccessGrantsLocations(c *echo.Context) error {
 	}{Locations: page, NextToken: tok})
 }
 
+// getDataAccessMinDurationSeconds/getDataAccessMaxDurationSeconds bound
+// GetDataAccessInput.DurationSeconds ("the grantee can specify a range from
+// 900 seconds (15 minutes) up to 43200 seconds (12 hours). If the grantee
+// requests a value higher than this maximum, the operation fails").
+const (
+	getDataAccessMinDurationSeconds = 900
+	getDataAccessMaxDurationSeconds = 43200
+)
+
 func (h *Handler) handleGetDataAccess(c *echo.Context) error {
 	accountID := accountIDFromRequest(c)
 	target := c.Request().URL.Query().Get("target")
 	permission := c.Request().URL.Query().Get("permission")
+
+	if s := c.Request().URL.Query().Get("durationSeconds"); s != "" {
+		n, convErr := strconv.Atoi(s)
+		if convErr != nil || n < getDataAccessMinDurationSeconds || n > getDataAccessMaxDurationSeconds {
+			return writeXMLErrorCode(c, http.StatusBadRequest, "InvalidRequest",
+				"durationSeconds must be between 900 and 43200 seconds")
+		}
+	}
+
+	if p := c.Request().URL.Query().Get("privilege"); p != "" && p != "Default" && p != "Minimal" {
+		return writeXMLErrorCode(c, http.StatusBadRequest, "InvalidRequest",
+			"privilege must be one of Default, Minimal")
+	}
 
 	if _, err := h.Backend.GetDataAccess(accountID, target, permission); err != nil {
 		return handleBackendError(c, err)

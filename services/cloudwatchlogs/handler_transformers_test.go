@@ -32,7 +32,20 @@ func TestHandler_Transformer(t *testing.T) {
 				"logGroupIdentifier": "/aws/lambda/fn",
 				"transformerConfig":  []map[string]any{{"parseJSON": map[string]any{}}},
 			},
+			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
+				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/aws/lambda/fn"}`)
+			},
 			wantCode: http.StatusOK,
+		},
+		{
+			name:   "PutTransformer/LogGroupNotFound",
+			action: "PutTransformer",
+			body: map[string]any{
+				"logGroupIdentifier": "/no/such/group",
+				"transformerConfig":  []map[string]any{{"parseJSON": map[string]any{}}},
+			},
+			wantCode: http.StatusNotFound,
 		},
 		{
 			name:   "PutTransformer/EmptyIdentifier",
@@ -49,6 +62,7 @@ func TestHandler_Transformer(t *testing.T) {
 			body:   map[string]any{"logGroupIdentifier": "/aws/lambda/fn"},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/aws/lambda/fn"}`)
 				doLogsRequest(t, h, e, "PutTransformer",
 					`{"logGroupIdentifier":"/aws/lambda/fn","transformerConfig":[{"parseJSON":{}}]}`)
 			},
@@ -66,6 +80,7 @@ func TestHandler_Transformer(t *testing.T) {
 			body:   map[string]any{"logGroupIdentifier": "/aws/lambda/fn"},
 			setup: func(t *testing.T, h *cloudwatchlogs.Handler, e *echo.Echo) {
 				t.Helper()
+				doLogsRequest(t, h, e, "CreateLogGroup", `{"logGroupName":"/aws/lambda/fn"}`)
 				doLogsRequest(t, h, e, "PutTransformer",
 					`{"logGroupIdentifier":"/aws/lambda/fn","transformerConfig":[{"parseJSON":{}}]}`)
 			},
@@ -119,7 +134,12 @@ func TestHandler_GetTransformer_Timestamps(t *testing.T) {
 	client := newTestCloudWatchLogsClient(t, h)
 	ctx := t.Context()
 
-	_, err := client.PutTransformer(ctx, &cwlsdk.PutTransformerInput{
+	_, err := client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{
+		LogGroupName: aws.String("/aws/lambda/ts-fn"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.PutTransformer(ctx, &cwlsdk.PutTransformerInput{
 		LogGroupIdentifier: aws.String("/aws/lambda/ts-fn"),
 		TransformerConfig:  []cwltypes.Processor{{ParseJSON: &cwltypes.ParseJSON{}}},
 	})

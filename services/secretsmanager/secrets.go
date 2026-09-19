@@ -731,7 +731,7 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 	// UpdateSecret call is allowed through here; any of the other fields
 	// makes this a rejected independent update.
 	if secret.isReplica() && (input.SecretString != "" || len(input.SecretBinary) > 0 ||
-		input.Description != "" || input.Type != "") {
+		input.Description != nil || input.Type != nil) {
 		return nil, fmt.Errorf(
 			"%w: %s is a replica secret; only its encryption key can be updated"+
 				" independently of the primary secret in %s",
@@ -762,12 +762,12 @@ func (b *InMemoryBackend) UpdateSecret(ctx context.Context, input *UpdateSecretI
 		}
 	}
 
-	if input.Description != "" {
-		secret.Description = input.Description
+	if input.Description != nil {
+		secret.Description = *input.Description
 	}
 
-	if input.Type != "" {
-		secret.Type = input.Type
+	if input.Type != nil {
+		secret.Type = *input.Type
 	}
 
 	return &UpdateSecretOutput{

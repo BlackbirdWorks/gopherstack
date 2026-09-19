@@ -32,6 +32,15 @@ func toDirectQueryDataSourceJSON(ds *DirectQueryDataSource) directQueryDataSourc
 	}
 }
 
+// getDirectQueryDataSourceOutputJSON is the JSON response for
+// GetDirectQueryDataSource. Unlike the plain types.DirectQueryDataSource
+// (used by ListDirectQueryDataSources), GetDirectQueryDataSourceOutput also
+// carries DataSourceAccessPolicy (api_op_GetDirectQueryDataSource.go).
+type getDirectQueryDataSourceOutputJSON struct {
+	DataSourceAccessPolicy string `json:"DataSourceAccessPolicy,omitempty"`
+	directQueryDataSourceJSON
+}
+
 // dataSourceJSON renders a DataSource as the wire-shape types.DataSourceDetails
 // / GetDataSourceOutput object (top-level fields, no envelope).
 type dataSourceJSON struct {
@@ -91,7 +100,10 @@ func (h *Handler) handleGetDirectQueryDataSource(
 
 		return
 	}
-	h.writeJSON(r, w, toDirectQueryDataSourceJSON(ds))
+	h.writeJSON(r, w, getDirectQueryDataSourceOutputJSON{
+		directQueryDataSourceJSON: toDirectQueryDataSourceJSON(ds),
+		DataSourceAccessPolicy:    ds.DataSourceAccessPolicy,
+	})
 }
 
 func (h *Handler) handleDeleteDirectQueryDataSource(
@@ -115,9 +127,10 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 		return
 	}
 	var req struct {
-		DataSourceType json.RawMessage `json:"DataSourceType"`
-		Description    string          `json:"Description"`
-		OpenSearchArns []string        `json:"OpenSearchArns"`
+		DataSourceType         json.RawMessage `json:"DataSourceType"`
+		Description            string          `json:"Description"`
+		DataSourceAccessPolicy string          `json:"DataSourceAccessPolicy"`
+		OpenSearchArns         []string        `json:"OpenSearchArns"`
 	}
 	if len(body) > 0 {
 		if unmarshalErr := json.Unmarshal(body, &req); unmarshalErr != nil {
@@ -131,6 +144,7 @@ func (h *Handler) handleUpdateDirectQueryDataSource(
 		req.Description,
 		req.DataSourceType,
 		req.OpenSearchArns,
+		req.DataSourceAccessPolicy,
 	)
 	if updateErr != nil {
 		h.writeError(r, w, http.StatusNotFound, "ResourceNotFoundException", updateErr.Error())
@@ -230,10 +244,11 @@ func (h *Handler) handleAddDataSource(w http.ResponseWriter, r *http.Request, do
 
 // addDirectQueryDataSourceRequest is the JSON request body for AddDirectQueryDataSource.
 type addDirectQueryDataSourceRequest struct {
-	DataSourceName string          `json:"DataSourceName"`
-	Description    string          `json:"Description"`
-	DataSourceType json.RawMessage `json:"DataSourceType"`
-	OpenSearchArns []string        `json:"OpenSearchArns"`
+	DataSourceName         string          `json:"DataSourceName"`
+	Description            string          `json:"Description"`
+	DataSourceType         json.RawMessage `json:"DataSourceType"`
+	DataSourceAccessPolicy string          `json:"DataSourceAccessPolicy"`
+	OpenSearchArns         []string        `json:"OpenSearchArns"`
 }
 
 // addDirectQueryDataSourceOutput is the JSON response for AddDirectQueryDataSource.
@@ -261,6 +276,7 @@ func (h *Handler) handleAddDirectQueryDataSource(w http.ResponseWriter, r *http.
 		req.Description,
 		req.DataSourceType,
 		req.OpenSearchArns,
+		req.DataSourceAccessPolicy,
 	)
 	if addErr != nil {
 		// AddDirectQueryDataSource's own deserializer (opensearch@v1.75.4

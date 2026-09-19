@@ -1,10 +1,11 @@
 ---
 items_still_open:
-  - "Contact.AttributesData (CreateContactInput/UpdateContactInput's AttributesData, api_op_CreateContact.go/api_op_UpdateContact.go) is completely unmodeled: no field on the Contact struct, not decoded by createContactInput/updateContactInput, not echoed by any Get/List response. Found 2026-09-12 (gopherstack-n3zi typed slice 11) while fixing the adjacent UnsubscribeAll accept-and-drop bug on the same two ops. Not fixed this pass: unlike UnsubscribeAll (an existing field just never wired through), this requires adding a new field to the Contact model, its JSON wire tag, and both Get/List echo paths -- a small but real feature addition, not a one-line wiring fix, so left disclosed rather than rushed."
+  - "PutConfigurationSetSuppressionOptionsInput.ValidationOptions (predictive-suppression mailbox-validation confidence threshold, api_op_PutConfigurationSetSuppressionOptions.go: SuppressionValidationOptions{ConditionThreshold{ConditionThresholdEnabled, OverallConfidenceThreshold{ConfidenceVerdictThreshold}}}) is unmodeled -- this backend has no mailbox-validation engine to derive a confidence verdict from, and echoing back only the client's own submitted threshold (with no verdict ever computed against it) would look enforced without being real. Found and disclosed 2026-09-18 (per-item field sweep, gopherstack-21my) alongside the sibling SuppressionScope bug, which WAS fixed this pass."
+  - "GetMessageInsightsOutput.EmailTags (api_op_GetMessageInsights.go: []types.MessageTag{Name, Value}) is unmodeled end to end -- SendEmailInput/SendBulkEmailInput's own EmailTags member isn't read either, so there is nothing stored to echo back. Found 2026-09-18 (per-item field sweep, gopherstack-21my); fixing it means threading EmailTags through SendEmail/SendBulkEmail's Email model first, not just GetMessageInsights's response, so left disclosed rather than half-wired."
 service: sesv2
 sdk_module: aws-sdk-go-v2/service/sesv2@v1.66.4   # version audited against (bumped from v1.60.1; 2 new ops appeared: PutAccountPricingAttributes, PutTenantSuppressionAttributes)
-last_audit_commit: 8ddfcca9b7157a079a75e8cda1d26d70118f4ae9
-last_audit_date: 2026-08-13
+last_audit_commit: d4dc4a723                      # HEAD after the 2026-09-18 invented-field census (acceptguard)
+last_audit_date: 2026-09-18
 overall: A            # route-matcher rewrite + wire-shape DTOs; this pass implemented the 2 new v1.66.0 ops and fixed a previously-mis-graded GetAccount wire-shape bug found while wiring PutAccountPricingAttributes in (see "This pass (2026-07-25)")
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -17,15 +18,15 @@ ops:
   GetConfigurationSet: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TrackingOptions.CustomRedirectDomain (required on types.TrackingOptions) was tagged omitempty and dropped whenever a caller set HttpsPolicy alone via PutConfigurationSetTrackingOptions -- see 2026-08-21 entry (gopherstack-r80d batch 21)"}
   ListConfigurationSets: {wire: fixed, errors: ok, state: ok, persist: ok, note: "ConfigurationSets was []{Name} objects; real shape is []string. handler.go:listConfigurationSetsOutput"}
   DeleteConfigurationSet: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-04 (parity sweep) -- deleted the configuration set (cascading its event destinations) but left b.resourceTags[configurationSetARN] behind. Same class as DeleteContactList/DeleteDedicatedIpPool/DeleteEmailTemplate/DeleteEmailIdentity/DeleteTenant."}
-  CreateConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetConfigurationSetEventDestinations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "items marshalled internal EventDestination struct (lowerCamelCase tags, extra ConfigurationSetName/CreatedAt fields); added eventDestinationOutput"}
+  CreateConfigurationSetEventDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (per-item field sweep, gopherstack-21my): EventDestinationDefinition's five destination sub-objects (CloudWatchDestination/EventBridgeDestination/KinesisFirehoseDestination/PinpointDestination/SnsDestination -- where the event actually routes to) were parsed nowhere; only MatchingEventTypes/Enabled were read. Confirmed via realclient_config_and_identity_test.go, which already constructed an EventBridgeDestination and never asserted it came back (it couldn't have). Now stored via EventDestinationConfig and echoed on Get."}
+  GetConfigurationSetEventDestinations: {wire: fixed, errors: ok, state: ok, persist: ok, note: "items marshalled internal EventDestination struct (lowerCamelCase tags, extra ConfigurationSetName/CreatedAt fields); added eventDestinationOutput. FIXED 2026-09-18 (gopherstack-21my): eventDestinationOutput carried only Name/Enabled/MatchingEventTypes (a disclosed 'modelled subset') -- now emits CloudWatchDestination/EventBridgeDestination/KinesisFirehoseDestination/PinpointDestination/SnsDestination, matching types.EventDestination in full."}
   DeleteConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateConfigurationSetEventDestination: {wire: ok, errors: ok, state: ok, persist: ok}
+  UpdateConfigurationSetEventDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (gopherstack-21my): same drop as CreateConfigurationSetEventDestination -- see that entry."}
   PutConfigurationSetSendingOptions: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "route required sub-path 'sending-options'; real path is '.../sending'. Unroutable before fix."}
   PutConfigurationSetArchivingOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetDeliveryOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   PutConfigurationSetReputationOptions: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutConfigurationSetSuppressionOptions: {wire: ok, errors: ok, state: ok, persist: ok}
+  PutConfigurationSetSuppressionOptions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (gopherstack-21my): SuppressionScope (a real, non-required input member) was parsed nowhere, so GetConfigurationSet's SuppressionOptions could never report ACCOUNT/TENANT scope. ValidationOptions (predictive-suppression mailbox-validation confidence threshold) remains unmodeled -- see items_still_open."}
   PutConfigurationSetTrackingOptions: {wire: fixed, errors: ok, state: ok, persist: ok, note: "CustomRedirectDomain is optional on this op's own input (api_op_PutConfigurationSetTrackingOptions.go), so a caller can set HttpsPolicy alone -- see GetConfigurationSet's 2026-08-21 entry"}
   PutConfigurationSetVdmOptions: {wire: ok, errors: ok, state: ok, persist: ok}
   SendEmail: {wire: fixed, errors: fixed, state: ok, persist: ok, note: "FIXED 2026-08-29 (error-path sweep) -- an unverified From identity/domain raised BadRequestException (the generic sentinel), but SendEmail's own deserializeOpError models the dedicated MailFromDomainNotVerifiedException for exactly this case (types/errors.go:220, 'The message can't be sent because the sending domain isn't verified.'); a real client's errors.As against that type never matched. Now raises the dedicated sentinel. Wrong-sentinel bug, not missing -- gopherstack already checked the condition, just labeled it with the wrong wire code. FIXED 2026-09-04 (parity sweep) -- Content.Template (api_op_SendEmail.go:24-26, 'Templated -- a message that contains personalization tags') was decoded into no field at all: emailContent only had Simple/Raw, so a templated SendEmail silently sent an empty subject/body. Now shares SendBulkEmail's bulkEmailTemplate resolution (inline TemplateContent or a TemplateName lookup, {{var}} substitution)."}
@@ -33,16 +34,16 @@ ops:
   ListTagsForResource: {wire: ok, errors: ok, state: ok, persist: ok}
   TagResource: {wire: ok, errors: ok, state: ok, persist: ok}
   UntagResource: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateContactList: {wire: ok, errors: ok, state: ok, persist: ok}
-  GetContactList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "marshalled internal ContactList struct directly (lowerCamelCase tags, wrong field name 'name' vs 'ContactListName'); added contactListOutput"}
-  ListContactLists: {wire: fixed, errors: ok, state: ok, persist: ok, note: "item shape now matches types.ContactList (ContactListName+LastUpdatedTimestamp only)"}
+  CreateContactList: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (per-item field sweep, gopherstack-21my): Topics (CreateContactListInput's Topic list -- TopicName/DisplayName/DefaultSubscriptionStatus/Description) was parsed nowhere; ContactList had no field for it at all. Now validated (required members per topic) and stored."}
+  GetContactList: {wire: fixed, errors: ok, state: ok, persist: ok, note: "marshalled internal ContactList struct directly (lowerCamelCase tags, wrong field name 'name' vs 'ContactListName'); added contactListOutput. FIXED 2026-09-18 (gopherstack-21my): now echoes Topics (see CreateContactList)."}
+  ListContactLists: {wire: fixed, errors: ok, state: ok, persist: ok, note: "item shape now matches types.ContactList (ContactListName+LastUpdatedTimestamp only) -- confirmed types.ContactList (List item) genuinely has no Topics member, so it correctly stays absent there even after the GetContactList fix."}
   DeleteContactList: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-04 (parity sweep) -- deleted the contact list but left its b.resourceTags[contactListARN] entry behind; ListTagsForResource on the deleted (or a same-named recreated) list's ARN kept returning the old tags."}
-  UpdateContactList: {wire: ok, errors: ok, state: ok, persist: ok}
-  CreateContact: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- UnsubscribeAll (a real, non-required CreateContactInput member) was decoded by no field on createContactInput at all and never reached the backend, so a contact created with UnsubscribeAll:true was silently stored as UnsubscribeAll:false. AttributesData remains unwired -- see items_still_open."}
-  GetContact: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added contactOutput (PascalCase, epoch timestamps, TopicPreferences item casing)"}
-  ListContacts: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, filter: partial, note: "real route is POST .../contacts/list with NextToken/Filter in the JSON body, not GET .../contacts with a query string; gopherstack had fabricated the GET route and it was completely unroutable by a real SDK client. This pass (2026-08-29): PageSize was parsed but never honored (hardcoded 0) -- fixed. Filter (FilteredStatus/TopicFilter) still unread: ContactList doesn't model per-topic default subscription status needed for TopicFilter.UseDefaultIfPreferenceUnavailable, and the AWS doc doesn't settle what standalone FilteredStatus filters against -- left."}
+  UpdateContactList: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (gopherstack-21my): same Topics drop as CreateContactList -- see that entry."}
+  CreateContact: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- UnsubscribeAll (a real, non-required CreateContactInput member) was decoded by no field on createContactInput at all and never reached the backend, so a contact created with UnsubscribeAll:true was silently stored as UnsubscribeAll:false. FIXED 2026-09-18 (gopherstack-21my): AttributesData (flagged unwired above) is now read, stored on Contact, and echoed by GetContact (not ListContacts -- types.Contact, the List item, genuinely has no AttributesData member)."}
+  GetContact: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added contactOutput (PascalCase, epoch timestamps, TopicPreferences item casing). FIXED 2026-09-18 (gopherstack-21my): now echoes AttributesData and TopicDefaultPreferences (derived from the contact's own ContactList.Topics -- each topic's DefaultSubscriptionStatus), both real GetContactOutput members that were entirely absent."}
+  ListContacts: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, filter: partial, note: "real route is POST .../contacts/list with NextToken/Filter in the JSON body, not GET .../contacts with a query string; gopherstack had fabricated the GET route and it was completely unroutable by a real SDK client. This pass (2026-08-29): PageSize was parsed but never honored (hardcoded 0) -- fixed. Filter (FilteredStatus/TopicFilter) still unread: the AWS doc doesn't settle what standalone FilteredStatus filters against, and TopicFilter is a secondary refinement on top of that undocumented base behavior -- left. FIXED 2026-09-18 (gopherstack-21my): items now report TopicDefaultPreferences (types.Contact's List-item shape genuinely has this member too, unlike AttributesData) -- see GetContact."}
   DeleteContact: {wire: ok, errors: ok, state: ok, persist: ok}
-  UpdateContact: {wire: ok, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- same UnsubscribeAll accept-and-drop as CreateContact, confirmed via a real typed client round-trip (UpdateContact(UnsubscribeAll:true) then GetContact showed false). updateContactInput/UpdateContact now carry it through."}
+  UpdateContact: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-12 (gopherstack-n3zi typed slice 11) -- same UnsubscribeAll accept-and-drop as CreateContact, confirmed via a real typed client round-trip (UpdateContact(UnsubscribeAll:true) then GetContact showed false). updateContactInput/UpdateContact now carry it through. FIXED 2026-09-18 (gopherstack-21my): same AttributesData drop as CreateContact -- see that entry."}
   CreateEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetEmailTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "TemplateContent.HTML tag was 'html'/'text'/'subject' lowercase and top-level CreatedAt leaked into the response; real field is 'Html' and GetEmailTemplateOutput has no timestamp"}
   ListEmailTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "metadata items now use TemplateName+CreatedTimestamp (types.EmailTemplateMetadata), no content"}
@@ -58,10 +59,10 @@ ops:
   GetDedicatedIps: {wire: fixed, errors: ok, state: ok, persist: ok, note: "This pass (2026-08-29): handleGetDedicatedIps took no arguments at all -- PoolName filter, NextToken, and PageSize (all real query params) were completely ignored, always returning every tracked IP on one page. Fixed: backend now filters by pool and paginates."}
   PutDedicatedIpInPool: {wire: ok, errors: ok, state: ok, persist: ok}
   PutDedicatedIpWarmupAttributes: {wire: ok, errors: ok, state: ok, persist: ok}
-  PutSuppressedDestination: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed, note: "top-level path was fabricated as '/v2/email/suppressed-destination'; real path family is '/v2/email/suppression/addresses[/{EmailAddress}]'. All 4 ops in this family were completely unroutable before fix."}
-  GetSuppressedDestination: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, note: "also needed a {SuppressedDestination: {...}} wrapper and PascalCase fields"}
-  DeleteSuppressedDestination: {wire: ok, errors: ok, state: ok, persist: ok, route: fixed}
-  ListSuppressedDestinations: {wire: fixed, errors: ok, state: ok, persist: ok, route: fixed, filter: partial, note: "This pass (2026-08-29): Reasons/StartDate/EndDate/PageSize (all real query params) were parsed only for NextToken; the rest were dropped -- fixed Reasons/StartDate/EndDate/PageSize. TenantName left: SuppressedDestination has no per-tenant tracking or separate per-tenant store."}
+  PutSuppressedDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, note: "top-level path was fabricated as '/v2/email/suppressed-destination'; real path family is '/v2/email/suppression/addresses[/{EmailAddress}]'. All 4 ops in this family were completely unroutable before fix. FIXED 2026-09-18 (reqfielddiff tier-1): TenantName was parsed nowhere -- see ListSuppressedDestinations note below for the shared fix."}
+  GetSuppressedDestination: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, note: "also needed a {SuppressedDestination: {...}} wrapper and PascalCase fields. FIXED 2026-09-18 (reqfielddiff tier-1): TenantName query param was parsed nowhere -- see ListSuppressedDestinations note below. FIXED 2026-09-18 (per-item field sweep, gopherstack-21my): that same pass fixed the request side (reading TenantName from the query) but the RESPONSE side stayed broken -- toSuppressedDestinationOutput (shared with ListSuppressedDestinations) never had a TenantName field, so a tenant-scoped Get's response never echoed it even though the real singular SuppressedDestination shape (unlike SuppressedDestinationSummary, the List item) carries the member. Added a distinct getSuppressedDestinationOutput for Get."}
+  DeleteSuppressedDestination: {wire: ok, errors: ok, state: fixed, persist: ok, route: fixed, note: "FIXED 2026-09-18 (reqfielddiff tier-1): TenantName query param was parsed nowhere -- see ListSuppressedDestinations note below."}
+  ListSuppressedDestinations: {wire: fixed, errors: ok, state: fixed, persist: ok, route: fixed, filter: ok, note: "This pass (2026-08-29): Reasons/StartDate/EndDate/PageSize (all real query params) were parsed only for NextToken; the rest were dropped -- fixed Reasons/StartDate/EndDate/PageSize. FIXED 2026-09-18 (reqfielddiff tier-1, all 4 SuppressedDestination ops): TenantName was parsed nowhere on any of Put/Get/Delete/List, so account-level and tenant-scoped suppression entries for the same email address collided in one shared store -- a tenant-scoped Put could be read back (or deleted) through the account-level Get/Delete and vice versa. SuppressedDestination gained a TenantName field (\"\" = account-level); the store's key function now composites TenantName+EmailAddress (suppressedDestinationKey) so each tenant (and the account level) has its own independent list, matching the SDK doc: 'To target a tenant's suppression list, specify TenantName. If you omit TenantName, the operation targets the account-level suppression list.'"}
   CreateCustomVerificationEmailTemplate: {wire: ok, errors: ok, state: ok, persist: ok}
   GetCustomVerificationEmailTemplate: {wire: fixed, errors: ok, state: ok, persist: ok, note: "added customVerificationEmailTemplateOutput (PascalCase)"}
   ListCustomVerificationEmailTemplates: {wire: fixed, errors: ok, state: ok, persist: ok, note: "metadata items (no TemplateContent) now use customVerificationEmailTemplateMetadataOutput"}
@@ -126,6 +127,29 @@ families:
   route-matcher: {status: fixed, note: "Built a full (method,path)->op regression matrix from aws-sdk-go-v2/service/sesv2 v1.60.1 serializers.go (services/sesv2/route_matrix_test.go, 110+ real routes, every real SDK route now covered -- see route_matrix_test.go). Original pass fixed 12/30 unroutable-or-misrouted routes; this pass closed the remaining 18: RPC-style tenant/resource-tenant paths (8 routes), deliverability-dashboard sub-resources (5 routes: test-reports x2, statistics-report, campaigns, domains/.../campaigns), insights/recommendations (3: email-address-insights, insights/{MessageId}, vdm/recommendations), reputation-entity listing (1, plus deletion of a gopherstack-invented duplicate 'reputation-entities' top-level path), and the POST-based list-export-jobs/import-jobs/list variants (2). gopherstack-jqh2: independently re-extracted all 112 real ops' method+path from the pinned sesv2@v1.66.4 serializers.go (no manual reliance on this file's prior citation) and diffed against ExtractOperation directly -- 112/112 match, confirming route_matrix_test.go is current and this family's 'fixed' status holds against the pinned SDK version; no new test added since route_matrix_test.go already covers this exact ground (including the 2 ops -- PutAccountPricingAttributes, PutTenantSuppressionAttributes -- that appeared between v1.60.1 and v1.66.4) and duplicating it would just be two tables to keep in sync. No query-flag-discriminated ops, no duplicate op-resolution table, no wrong-date-prefix paths found in this pass either."}
 leaks: {status: clean, note: "no goroutines/janitors spawned; email retention capped at maxRetainedEmails (10000, FIFO-compacted) so SendEmail/SendCustomVerificationEmail can't leak memory on a long-running instance. DeleteTenant now cascades its resource-association index cleanup (both tenantResources and resourceTenants maps) so deleting a tenant with associated resources doesn't leave ghost rows."}
 ---
+
+## 2026-09-18: per-item response field sweep (gopherstack-21my)
+
+The wrapper-key sweep only checked each List/Get/Describe response's
+top-level key; this pass field-diffed every item/nested shape against the
+pinned SDK via `cmd/structfielddiff`. Four real drops found and fixed, all
+proven with typed aws-sdk-go-v2 client tests: GetSuppressedDestination never
+echoed TenantName (List's summary type genuinely lacks it, so the bug was
+Get-only -- the exact Get/List sibling trap this campaign exists to catch);
+CreateContactList/UpdateContactList silently dropped Topics entirely
+(ContactList had no field for it); CreateContact/UpdateContact dropped
+AttributesData, and GetContact/ListContacts never derived
+TopicDefaultPreferences from the list's own topic defaults;
+Create/UpdateConfigurationSetEventDestination read only
+MatchingEventTypes/Enabled, dropping all five destination sub-objects
+(CloudWatch/EventBridge/KinesisFirehose/Pinpoint/Sns -- where the event
+actually goes); PutConfigurationSetSuppressionOptions dropped
+SuppressionScope. ValidationOptions (mailbox-validation) and
+GetMessageInsights's EmailTags are real but need unmodeled subsystems --
+disclosed in items_still_open rather than fabricated. Everything else swept
+(dedicated IPs/pools, multi-region endpoints, reputation entities,
+deliverability test reports, tenants, export/import jobs, tags) matched the
+SDK exactly.
 
 ## This pass (2026-08-29): pagination-arithmetic sweep
 
@@ -789,3 +813,50 @@ dirty before this session touched anything); `go vet ./services/sesv2/...`
 clean; `go test -race -count=1 ./services/sesv2/...` all pass; `go test
 -race -count=1 ./pkgs/persistence/...` passes; `golangci-lint run
 --new-from-rev=HEAD services/sesv2/...` 0 issues.
+
+## 2026-09-18: SuppressedDestination family TenantName dropped (reqfielddiff tier-1)
+
+`reqfielddiff` flagged 4 tier-1 fields, all `TenantName`, on
+`PutSuppressedDestination`, `GetSuppressedDestination`,
+`DeleteSuppressedDestination`, and `ListSuppressedDestinations`
+(sesv2@v1.66.4). `ListSuppressedDestinations` had already disclosed this as
+"no per-tenant tracking or separate per-tenant store" (2026-08-29 pass), but
+it was never in `items_still_open` and the other 3 ops in the family shared
+the identical drop, unrecorded.
+
+Fixed: `SuppressedDestination` gained a `TenantName` field ("" =
+account-level). The backing `store.Table`'s key function
+(`suppressedDestinationKeyFn`, `store_setup.go`) now composites
+`TenantName`+`EmailAddress` via the new `suppressedDestinationKey` helper,
+so the account-level list and each tenant's list are genuinely independent
+stores sharing one table, matching the SDK doc ("the same address" can be
+suppressed "for your account or for a specific tenant" independently).
+`Get`/`Delete` read `TenantName` off the query string (httpQuery-bound per
+serializers.go's `awsRestjson1_serializeOpHttpBindingsGetSuppressedDestinationInput`
+et al.); `Put` reads it from the JSON body (document-bound). No response
+shape changed -- confirmed neither `types.SuppressedDestination` nor
+`SuppressedDestinationSummary` echoes `TenantName` back.
+
+Proven with `TestSuppressedDestination_TenantNameScopesIndependentLists`
+(typed `aws-sdk-go-v2` client, `suppressed_destination_tenant_scope_test.go`):
+puts the same email at both the account level and `tenant-a`, then asserts
+Get/List honor the scope independently and a Delete under an unrelated
+tenant (`tenant-b`) 404s without disturbing either real entry.
+
+Persisted field added: `SuppressedDestination.TenantName` (additive,
+`pkgs/persistence/testdata/snapshot_inventory.json` sesv2 entry updated,
+`TestSnapshotVersionGuard` classified it as bookkeeping-only, no version
+bump). Gates: `go build ./...`, `go vet ./services/sesv2/`, `go test -race
+-count=1 ./services/sesv2/` (all pass), `go test -count=1
+./pkgs/persistence/` (passes for sesv2; an unrelated `transfer:` failure is
+another pass's concurrent work), `golangci-lint run --new-from-rev=HEAD
+./services/sesv2/` (0 issues). tier-1 (`cmd/reqfielddiff -dir sesv2`): 4 -> 0.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+`updateReputationEntityCustomerManagedStatusInput`/`updateReputationEntityPolicyInput`
+each carried a dead fallback alias field (`CustomerManagedStatus`, `Policy`)
+that no real client can send -- the real Inputs (sesv2@v1.66.4) name these
+members `SendingStatus`/`ReputationEntityPolicy` only. Removed both aliases
+per the no-dead-paths rule; existing `SendingStatus`/`ReputationEntityPolicy`
+coverage (deliverability_test.go, persistence_test.go) is unaffected.

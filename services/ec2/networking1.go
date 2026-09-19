@@ -29,13 +29,15 @@ var (
 
 // FlowLog represents a VPC Flow Log record.
 type FlowLog struct {
-	CreationTime       time.Time `json:"creationTime"`
-	FlowLogID          string    `json:"flowLogId,omitempty"`
-	ResourceID         string    `json:"resourceId,omitempty"`
-	TrafficType        string    `json:"trafficType,omitempty"`
-	LogDestinationType string    `json:"logDestinationType,omitempty"`
-	LogDestination     string    `json:"logDestination,omitempty"`
-	FlowLogStatus      string    `json:"flowLogStatus,omitempty"`
+	CreationTime           time.Time `json:"creationTime"`
+	FlowLogID              string    `json:"flowLogId,omitempty"`
+	ResourceID             string    `json:"resourceId,omitempty"`
+	TrafficType            string    `json:"trafficType,omitempty"`
+	LogDestinationType     string    `json:"logDestinationType,omitempty"`
+	LogDestination         string    `json:"logDestination,omitempty"`
+	LogFormat              string    `json:"logFormat,omitempty"`
+	FlowLogStatus          string    `json:"flowLogStatus,omitempty"`
+	MaxAggregationInterval int32     `json:"maxAggregationInterval,omitempty"`
 }
 
 // DhcpConfiguration is a single key-value configuration inside a DHCP options set.
@@ -153,7 +155,8 @@ func (b *InMemoryBackend) DeleteTransitGatewayVpcAttachment(id string) error {
 // CreateFlowLogs creates flow log records for the given resources.
 func (b *InMemoryBackend) CreateFlowLogs(
 	resourceIDs []string,
-	trafficType, logDestinationType, logDestination string,
+	trafficType, logDestinationType, logDestination, logFormat string,
+	maxAggregationInterval int32,
 	tags map[string]string,
 ) ([]*FlowLog, error) {
 	if len(resourceIDs) == 0 {
@@ -168,6 +171,11 @@ func (b *InMemoryBackend) CreateFlowLogs(
 		logDestinationType = "cloud-watch-logs"
 	}
 
+	if maxAggregationInterval == 0 {
+		// Default: 600 (api_op_CreateFlowLogs.go's MaxAggregationInterval doc comment).
+		maxAggregationInterval = 600
+	}
+
 	b.mu.Lock("CreateFlowLogs")
 	defer b.mu.Unlock()
 
@@ -175,13 +183,15 @@ func (b *InMemoryBackend) CreateFlowLogs(
 
 	for _, rid := range resourceIDs {
 		fl := &FlowLog{
-			FlowLogID:          newFlowLogID(),
-			ResourceID:         rid,
-			TrafficType:        trafficType,
-			LogDestinationType: logDestinationType,
-			LogDestination:     logDestination,
-			FlowLogStatus:      "ACTIVE",
-			CreationTime:       time.Now().UTC(),
+			FlowLogID:              newFlowLogID(),
+			ResourceID:             rid,
+			TrafficType:            trafficType,
+			LogDestinationType:     logDestinationType,
+			LogDestination:         logDestination,
+			LogFormat:              logFormat,
+			FlowLogStatus:          "ACTIVE",
+			CreationTime:           time.Now().UTC(),
+			MaxAggregationInterval: maxAggregationInterval,
 		}
 		b.flowLogs.Put(fl)
 		b.setTagsLocked(fl.FlowLogID, tags)
@@ -381,9 +391,13 @@ func (b *InMemoryBackend) ModifyLaunchTemplate(
 	return &cp, nil
 }
 
-// CreateLaunchTemplateVersion adds a new version to an existing launch template.
+// CreateLaunchTemplateVersion adds a new version to an existing launch
+// template. When sourceVersion is set, the new version inherits ImageID/
+// InstanceType from that version before imageID/instanceType overrides are
+// applied, per api_op_CreateLaunchTemplateVersion.go's SourceVersion doc
+// comment.
 func (b *InMemoryBackend) CreateLaunchTemplateVersion(
-	id, imageID, instanceType string,
+	id, imageID, instanceType, sourceVersion string,
 ) (*LaunchTemplateVersion, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: LaunchTemplateId is required", ErrInvalidParameter)
@@ -397,15 +411,29 @@ func (b *InMemoryBackend) CreateLaunchTemplateVersion(
 		return nil, fmt.Errorf("%w: %s", ErrLaunchTemplateNotFound, id)
 	}
 
+	baseImageID, baseInstanceType := lt.ImageID, lt.InstanceType
+
+	if sourceVersion != "" {
+		src, err := resolveLaunchTemplateVersion(lt, sourceVersion)
+		if err != nil {
+			return nil, err
+		}
+
+		baseImageID, baseInstanceType = src.ImageID, src.InstanceType
+	}
+
 	lt.LatestVersionNumber++
 
 	if imageID != "" {
-		lt.ImageID = imageID
+		baseImageID = imageID
 	}
 
 	if instanceType != "" {
-		lt.InstanceType = instanceType
+		baseInstanceType = instanceType
 	}
+
+	lt.ImageID = baseImageID
+	lt.InstanceType = baseInstanceType
 
 	ver := &LaunchTemplateVersion{
 		LaunchTemplateID:   lt.ID,

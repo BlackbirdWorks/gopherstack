@@ -147,16 +147,16 @@ func (b *InMemoryBackend) UpdateIntegrationResponse(
 		return nil, ErrIntegrationResponseNotFound
 	}
 
-	if input.IntegrationResponseKey != "" {
-		ir.IntegrationResponseKey = input.IntegrationResponseKey
+	if input.IntegrationResponseKey != nil {
+		ir.IntegrationResponseKey = *input.IntegrationResponseKey
 	}
 
 	if input.ContentHandlingStrategy != "" {
 		ir.ContentHandlingStrategy = input.ContentHandlingStrategy
 	}
 
-	if input.TemplateSelectionExpression != "" {
-		ir.TemplateSelectionExpression = input.TemplateSelectionExpression
+	if input.TemplateSelectionExpression != nil {
+		ir.TemplateSelectionExpression = *input.TemplateSelectionExpression
 	}
 
 	if input.ResponseParameters != nil {

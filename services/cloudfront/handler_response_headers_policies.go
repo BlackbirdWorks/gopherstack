@@ -164,9 +164,10 @@ func (h *Handler) handleListResponseHeadersPolicies(c *echo.Context) error {
 	for _, p := range page {
 		fmt.Fprintf(&sb,
 			`<ResponseHeadersPolicySummary><Type>%s</Type><ResponseHeadersPolicy><Id>%s</Id>`+
+				`<LastModifiedTime>%s</LastModifiedTime>`+
 				`<ResponseHeadersPolicyConfig>%s</ResponseHeadersPolicyConfig>`+
 				`</ResponseHeadersPolicy></ResponseHeadersPolicySummary>`,
-			policyTypeString(p.Managed), p.ID, rhpConfigXMLBlock(p))
+			policyTypeString(p.Managed), p.ID, p.LastModifiedTime, rhpConfigXMLBlock(p))
 	}
 
 	nextMarkerXML := ""
@@ -372,12 +373,14 @@ func rhpConfigXMLBlock(p *ResponseHeadersPolicy) string {
 	return sb.String()
 }
 
+// rhpResponseXML builds the full ResponseHeadersPolicy XML response.
+// LastModifiedTime is required on types.ResponseHeadersPolicy (cloudfront@v1.67.4 types.go).
 func rhpResponseXML(p *ResponseHeadersPolicy) string {
 	return fmt.Sprintf(
 		`<?xml version="1.0" encoding="UTF-8"?>`+
-			`<ResponseHeadersPolicy xmlns="%s"><Id>%s</Id>`+
+			`<ResponseHeadersPolicy xmlns="%s"><Id>%s</Id><LastModifiedTime>%s</LastModifiedTime>`+
 			`<ResponseHeadersPolicyConfig>%s</ResponseHeadersPolicyConfig></ResponseHeadersPolicy>`,
-		cfNS, p.ID, rhpConfigXMLBlock(p),
+		cfNS, p.ID, p.LastModifiedTime, rhpConfigXMLBlock(p),
 	)
 }
 

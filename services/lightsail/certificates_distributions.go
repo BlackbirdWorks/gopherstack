@@ -163,6 +163,8 @@ type CreateDistributionRequest struct {
 	Name                  string
 	BundleID              string
 	OriginName            string
+	OriginRegionName      string
+	OriginProtocolPolicy  string
 	IPAddressType         string
 	CertificateName       string
 	ViewerMinTLSVersion   string
@@ -197,6 +199,16 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 		ipType = ipAddressTypeDualStack
 	}
 
+	originRegion := req.OriginRegionName
+	if originRegion == "" {
+		originRegion = b.region
+	}
+
+	originProtocolPolicy := req.OriginProtocolPolicy
+	if originProtocolPolicy == "" {
+		originProtocolPolicy = "http-only"
+	}
+
 	dist := &Distribution{
 		Name: req.Name, Arn: b.distributionARN(req.Name), SupportCode: newSupportCode(),
 		BundleID: req.BundleID, Status: "InProgress", DomainName: req.Name + "." + randomHex() + ".cloudfront.net",
@@ -205,8 +217,8 @@ func (b *InMemoryBackend) CreateDistribution(req CreateDistributionRequest) ([]O
 		Location: ResourceLocation{RegionName: distributionRegion},
 		Origin: DistributionOrigin{
 			Name:           req.OriginName,
-			RegionName:     b.region,
-			ProtocolPolicy: "http-only",
+			RegionName:     originRegion,
+			ProtocolPolicy: originProtocolPolicy,
 		},
 		DefaultCacheBehavior:  req.DefaultCacheBehavior,
 		CacheBehaviorSettings: req.CacheBehaviorSettings,

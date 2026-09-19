@@ -20,6 +20,70 @@ func TestRealClient_FileSystemAndStorageConfiguration(t *testing.T) {
 		run  func(t *testing.T)
 		name string
 	}{
+		{name: "create file system network type defaults and round trips", run: func(t *testing.T) {
+			t.Helper()
+
+			backend := fsx.NewInMemoryBackend("000000000000", tagsRTRegion)
+			client := newTestFSxClient(t, fsx.NewHandler(backend))
+			ctx := t.Context()
+
+			defaultOut, err := client.CreateFileSystem(ctx, &fsxsdk.CreateFileSystemInput{
+				FileSystemType:  types.FileSystemTypeLustre,
+				SubnetIds:       []string{"subnet-0123abcd"},
+				StorageCapacity: aws.Int32(1200),
+				LustreConfiguration: &types.CreateFileSystemLustreConfiguration{
+					DeploymentType: types.LustreDeploymentTypeScratch2,
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, types.NetworkTypeIpv4, defaultOut.FileSystem.NetworkType)
+
+			explicitOut, err := client.CreateFileSystem(ctx, &fsxsdk.CreateFileSystemInput{
+				FileSystemType:  types.FileSystemTypeLustre,
+				SubnetIds:       []string{"subnet-0123abcd"},
+				StorageCapacity: aws.Int32(1200),
+				NetworkType:     types.NetworkTypeDual,
+				LustreConfiguration: &types.CreateFileSystemLustreConfiguration{
+					DeploymentType: types.LustreDeploymentTypeScratch2,
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, types.NetworkTypeDual, explicitOut.FileSystem.NetworkType)
+		}},
+		{name: "data repository association imported file chunk size defaults and updates", run: func(t *testing.T) {
+			t.Helper()
+
+			backend := fsx.NewInMemoryBackend("000000000000", tagsRTRegion)
+			client := newTestFSxClient(t, fsx.NewHandler(backend))
+			ctx := t.Context()
+
+			fsOut := createTestLustreFS(t, client)
+
+			defaultOut, err := client.CreateDataRepositoryAssociation(ctx, &fsxsdk.CreateDataRepositoryAssociationInput{
+				FileSystemId:       fsOut.FileSystem.FileSystemId,
+				DataRepositoryPath: aws.String("s3://bucket/prefix"),
+				FileSystemPath:     aws.String("/data"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, int32(1024), aws.ToInt32(defaultOut.Association.ImportedFileChunkSize))
+
+			explicitIn := &fsxsdk.CreateDataRepositoryAssociationInput{
+				FileSystemId:          fsOut.FileSystem.FileSystemId,
+				DataRepositoryPath:    aws.String("s3://bucket/other"),
+				FileSystemPath:        aws.String("/other"),
+				ImportedFileChunkSize: aws.Int32(2048),
+			}
+			explicitOut, err := client.CreateDataRepositoryAssociation(ctx, explicitIn)
+			require.NoError(t, err)
+			assert.Equal(t, int32(2048), aws.ToInt32(explicitOut.Association.ImportedFileChunkSize))
+
+			updOut, err := client.UpdateDataRepositoryAssociation(ctx, &fsxsdk.UpdateDataRepositoryAssociationInput{
+				AssociationId:         defaultOut.Association.AssociationId,
+				ImportedFileChunkSize: aws.Int32(4096),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, int32(4096), aws.ToInt32(updOut.Association.ImportedFileChunkSize))
+		}},
 		{name: "shared vpc configuration describe update", run: func(t *testing.T) {
 			t.Helper()
 

@@ -19,6 +19,7 @@ const interruptibleAllocStatusActive = "active"
 type InterruptibleCapacityReservationAllocation struct {
 	SourceCapacityReservationID string `json:"sourceCapacityReservationID,omitempty"`
 	Status                      string `json:"status,omitempty"`
+	ZeroSizePreference          string `json:"zeroSizePreference,omitempty"`
 	TargetInstanceCount         int32  `json:"targetInstanceCount,omitempty"`
 }
 
@@ -56,7 +57,7 @@ type CapacityReservationTopologyEntry struct {
 
 // CreateCapacityReservation creates a new capacity reservation.
 func (b *InMemoryBackend) CreateCapacityReservation(
-	instanceType, availabilityZone string,
+	instanceType, availabilityZone, instanceMatchCriteria, tenancy string,
 	instanceCount int,
 	tags map[string]string,
 ) (*CapacityReservation, error) {
@@ -71,6 +72,8 @@ func (b *InMemoryBackend) CreateCapacityReservation(
 		CapacityReservationID:  "cr-" + uuid.New().String()[:8],
 		InstanceType:           instanceType,
 		AvailabilityZone:       availabilityZone,
+		InstanceMatchCriteria:  instanceMatchCriteria,
+		Tenancy:                tenancy,
 		TotalInstanceCount:     instanceCount,
 		AvailableInstanceCount: instanceCount,
 		State:                  stateActive,
@@ -143,7 +146,7 @@ func (b *InMemoryBackend) GetGroupsForCapacityReservation(reservationID string) 
 // interruptible allocation from a source Capacity Reservation's spare
 // capacity, reducing the source's AvailableInstanceCount.
 func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
-	sourceCapacityReservationID string, instanceCount int32,
+	sourceCapacityReservationID, zeroSizePreference string, instanceCount int32,
 ) (*InterruptibleCapacityReservationAllocation, error) {
 	if sourceCapacityReservationID == "" {
 		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
@@ -170,9 +173,14 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 
 	cr.AvailableInstanceCount -= int(instanceCount)
 
+	if zeroSizePreference == "" {
+		zeroSizePreference = crFleetTenancyDefault
+	}
+
 	alloc := &InterruptibleCapacityReservationAllocation{
 		SourceCapacityReservationID: sourceCapacityReservationID,
 		Status:                      interruptibleAllocStatusActive,
+		ZeroSizePreference:          zeroSizePreference,
 		TargetInstanceCount:         instanceCount,
 	}
 	b.interruptibleCRAllocations.Put(alloc)
@@ -186,7 +194,7 @@ func (b *InMemoryBackend) CreateInterruptibleCapacityReservationAllocation(
 // created interruptible allocation, adjusting the source reservation's
 // AvailableInstanceCount by the delta.
 func (b *InMemoryBackend) UpdateInterruptibleCapacityReservationAllocation(
-	sourceCapacityReservationID string, targetInstanceCount int32,
+	sourceCapacityReservationID, zeroSizePreference string, targetInstanceCount int32,
 ) (*InterruptibleCapacityReservationAllocation, error) {
 	if sourceCapacityReservationID == "" {
 		return nil, fmt.Errorf("%w: CapacityReservationId is required", ErrInvalidParameter)
@@ -219,7 +227,17 @@ func (b *InMemoryBackend) UpdateInterruptibleCapacityReservationAllocation(
 
 	cr.AvailableInstanceCount -= int(delta)
 	alloc.TargetInstanceCount = targetInstanceCount
-	alloc.Status = interruptibleAllocStatusActive
+
+	if zeroSizePreference != "" {
+		alloc.ZeroSizePreference = zeroSizePreference
+	}
+
+	switch {
+	case targetInstanceCount == 0 && alloc.ZeroSizePreference != "retain":
+		alloc.Status = "canceled"
+	default:
+		alloc.Status = interruptibleAllocStatusActive
+	}
 
 	cp := *alloc
 

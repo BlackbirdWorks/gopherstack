@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -72,7 +73,7 @@ func TestDomainProcessingWindow_UpdateUpgrade(t *testing.T) {
 			mutate: func(t *testing.T, b *opensearch.InMemoryBackend) {
 				t.Helper()
 				_, err := b.UpdateDomainConfig("lc", opensearch.UpdateDomainConfigInput{
-					AccessPolicies: "{}",
+					AccessPolicies: aws.String("{}"),
 				})
 				require.NoError(t, err)
 			},

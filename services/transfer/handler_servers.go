@@ -352,15 +352,16 @@ type updateServerInput struct {
 	ProtocolDetails               *protocolDetailsInput         `json:"ProtocolDetails,omitempty"`
 	WorkflowDetails               *workflowDetailsInput         `json:"WorkflowDetails,omitempty"`
 	S3StorageOptions              *s3StorageOptionsInput        `json:"S3StorageOptions,omitempty"`
-	Certificate                   string                        `json:"Certificate,omitempty"`
+	Certificate                   *string                       `json:"Certificate,omitempty"`
+	HostKey                       *string                       `json:"HostKey,omitempty"`
+	LoggingRole                   *string                       `json:"LoggingRole,omitempty"`
+	PreAuthenticationLoginBanner  *string                       `json:"PreAuthenticationLoginBanner,omitempty"`
+	PostAuthenticationLoginBanner *string                       `json:"PostAuthenticationLoginBanner,omitempty"`
+	SecurityPolicyName            *string                       `json:"SecurityPolicyName,omitempty"`
 	ServerID                      string                        `json:"ServerId"`
 	EndpointType                  string                        `json:"EndpointType,omitempty"`
-	HostKey                       string                        `json:"HostKey,omitempty"`
-	LoggingRole                   string                        `json:"LoggingRole,omitempty"`
-	PreAuthenticationLoginBanner  string                        `json:"PreAuthenticationLoginBanner,omitempty"`
-	PostAuthenticationLoginBanner string                        `json:"PostAuthenticationLoginBanner,omitempty"`
-	SecurityPolicyName            string                        `json:"SecurityPolicyName,omitempty"`
 	IPAddressType                 string                        `json:"IpAddressType,omitempty"`
+	IdentityProviderType          string                        `json:"IdentityProviderType,omitempty"`
 	StructuredLogDestinations     []string                      `json:"StructuredLogDestinations,omitempty"`
 	Protocols                     []string                      `json:"Protocols,omitempty"`
 }
@@ -381,21 +382,17 @@ func (h *Handler) handleUpdateServer(
 		ServerID:                      in.ServerID,
 		Protocols:                     in.Protocols,
 		Certificate:                   in.Certificate,
-		SetCertificate:                in.Certificate != "",
 		EndpointType:                  in.EndpointType,
 		SetEndpointType:               in.EndpointType != "",
 		HostKey:                       in.HostKey,
-		SetHostKey:                    in.HostKey != "",
 		LoggingRole:                   in.LoggingRole,
-		SetLoggingRole:                in.LoggingRole != "",
 		PreAuthenticationLoginBanner:  in.PreAuthenticationLoginBanner,
-		SetPreAuthBanner:              in.PreAuthenticationLoginBanner != "",
 		PostAuthenticationLoginBanner: in.PostAuthenticationLoginBanner,
-		SetPostAuthBanner:             in.PostAuthenticationLoginBanner != "",
 		SecurityPolicyName:            in.SecurityPolicyName,
-		SetSecurityPolicyName:         in.SecurityPolicyName != "",
 		IPAddressType:                 in.IPAddressType,
 		SetIPAddressType:              in.IPAddressType != "",
+		IdentityProviderType:          in.IdentityProviderType,
+		SetIdentityProviderType:       in.IdentityProviderType != "",
 		IdentityProviderDetails:       toIdentityProviderDetails(in.IdentityProviderDetails),
 		SetIdentityProviderDetails:    in.IdentityProviderDetails != nil,
 		EndpointDetails:               toEndpointDetails(in.EndpointDetails),

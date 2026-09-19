@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"fmt"
+	"net"
 	"sort"
 
 	"github.com/google/uuid"
@@ -157,9 +158,14 @@ func (b *InMemoryBackend) DescribeTransitGatewayConnects(ids []string) []*Transi
 	return out
 }
 
-// CreateTransitGatewayConnectPeer creates a TGW connect peer.
+// CreateTransitGatewayConnectPeer creates a TGW connect peer. When
+// transitGatewayAddress is empty, it is auto-assigned as the first host
+// address of the parent transit gateway's first CIDR block, matching the
+// documented default (api_op_CreateTransitGatewayConnectPeer.go:
+// "If not specified, Amazon automatically assigns the first available IP
+// address from the transit gateway CIDR block.").
 func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
-	connectAttachmentID, peerAddress string,
+	connectAttachmentID, peerAddress, transitGatewayAddress string,
 	insideCidrBlocks []string,
 ) (*TransitGatewayConnectPeer, error) {
 	if connectAttachmentID == "" || peerAddress == "" {
@@ -172,8 +178,13 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 	b.mu.Lock("CreateTransitGatewayConnectPeer")
 	defer b.mu.Unlock()
 
-	if _, ok := b.tgwConnects.Get(connectAttachmentID); !ok {
+	conn, ok := b.tgwConnects.Get(connectAttachmentID)
+	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrTransitGatewayConnectNotFound, connectAttachmentID)
+	}
+
+	if transitGatewayAddress == "" {
+		transitGatewayAddress = b.firstTGWCidrHostAddressLocked(conn.TransitGatewayID)
 	}
 
 	id := "tgw-connect-peer-" + uuid.New().String()[:8]
@@ -183,10 +194,37 @@ func (b *InMemoryBackend) CreateTransitGatewayConnectPeer(
 		State:                       stateAvailable,
 		InsideCidrBlocks:            insideCidrBlocks,
 		PeerAddress:                 peerAddress,
+		TransitGatewayAddress:       transitGatewayAddress,
 	}
 	b.tgwConnectPeers.Put(peer)
 
 	return peer, nil
+}
+
+// firstTGWCidrHostAddressLocked returns the first host address of tgwID's
+// first configured CIDR block, or "" if the transit gateway has none.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) firstTGWCidrHostAddressLocked(tgwID string) string {
+	tgw, ok := b.transitGateways.Get(tgwID)
+	if !ok || len(tgw.Options.TransitGatewayCidrBlocks) == 0 {
+		return ""
+	}
+
+	_, network, err := net.ParseCIDR(tgw.Options.TransitGatewayCidrBlocks[0])
+	if err != nil {
+		return ""
+	}
+
+	ip := network.IP.To4()
+	if ip == nil {
+		return ""
+	}
+
+	host := make(net.IP, len(ip))
+	copy(host, ip)
+	host[len(host)-1]++
+
+	return host.String()
 }
 
 // DeleteTransitGatewayConnectPeer removes a TGW connect peer.

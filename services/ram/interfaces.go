@@ -49,7 +49,9 @@ type StorageBackend interface {
 	// Permission list/version/promotion operations
 	ListPermissions(resourceType string) []*Permission
 	ListPermissionVersions(permissionARN string) ([]*PermissionVersion, error)
-	ListPermissionAssociations(permissionARN string, permissionVersion *int32) []SharePermissionAssociation
+	ListPermissionAssociations(
+		permissionARN string, permissionVersion *int32, defaultVersion *bool,
+	) []SharePermissionAssociation
 	SetDefaultPermissionVersion(permissionARN string, version int32) (*Permission, error)
 	PromotePermissionCreatedFromPolicy(permissionARN, name string) (*Permission, error)
 	PromoteResourceShareCreatedFromPolicy(shareARN string) (*ResourceShare, error)

@@ -26,3 +26,14 @@ type LambdaInvoker interface {
 		payload []byte,
 	) ([]byte, int, error)
 }
+
+// CodeDeployStarter is the subset of CodeDeploy operations CodePipeline
+// needs to run a Deploy/CodeDeploy action, wired via SetCodeDeployBackend.
+// When unset, Deploy actions complete instantly with no cross-service call,
+// matching this backend's original behavior.
+type CodeDeployStarter interface {
+	// CreateDeployment starts a deployment against the named application and
+	// deployment group. An error (e.g. either does not exist) fails the
+	// pipeline action.
+	CreateDeployment(applicationName, deploymentGroupName string) error
+}

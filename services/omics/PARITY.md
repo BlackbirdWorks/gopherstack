@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: omics
 sdk_module: aws-sdk-go-v2/service/omics@v1.49.5
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-09-04
+last_audit_commit: 3fd671fd6
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled.
                        # StartRunBatch takes real BatchRunSettings (inlineSettings, field-diffed
                        # against awsRestjson1_serializeDocumentBatchRunSettings/InlineSetting) +
@@ -67,12 +67,39 @@ items_still_open:
   - "CLOSED 2026-08-07 (gopherstack-hnhk): RunBatch's real body shape is now modeled and StartRunBatch creates its constituent runs -- see the RunBatch family note above for the full accounting, including what's still not modeled (s3UriSettings, most optional DefaultRunSetting fields, RequestId idempotency dedup)."
   - "STALE CLAIM, CORRECTED 2026-08-23: this entry previously said ListAnnotationStores/ListVariantStores (status + ids), ListAnnotationStoreVersions (status), and ListShares (resourceArns/status/resourceTypes) don't apply their own real AWS filter/ids body fields. Re-verified against the pinned SDK and against this file's OWN neighboring op notes (which already document the fix, e.g. ListAnnotationStores's family note: 'ListAnnotationStores now applies its own status/ids filter... -- see AnnotationStoreVersion note'): all four filters are real, landed in PR #2417 (commit 69bbb940a, 2026-08-15, part of the same merge that fixed RAM/mq's accepted-then-ignored params) -- annotation_stores.go's ListAnnotationStores/ListAnnotationStoreVersions, variant_stores.go's ListVariantStores, and shares.go's ListShares each call storeMatchesFilter/shareMatchesFilter before including a row, and TestListAnnotationStores_Filters/TestListVariantStores_Filters/TestListAnnotationStoreVersions_FiltersByStatus/TestListShares_Filters all pass, asserting non-matching rows are excluded. This gap note simply never got marked CLOSED when the fix landed -- direction-1 stale claim (work described as open that is already done), not a re-discovery."
   - "RunBatchFilter.RunGroupID (ListBatch) is accepted from the query string for wire compatibility but not applied -- this backend has no run-group-of-a-batch's-runs association. RunsInBatchFilter.SubmissionStatus (ListRunsInBatch) is likewise accepted but not applied -- this backend has no async submission-status state machine (batches complete submission synchronously). RunSettingID IS now applied (fixed this pass, see RunBatch family note)."
+  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): several List summaries are missing optional members the real SDK type declares, with no source on the corresponding domain model to derive them from (not fabricated) -- ReadSetSummary.CreationType/Etag/SequenceInformation (ListReadSets, no per-read-set creation-type/checksum/alignment tracking); RunSummary.Priority (ListRuns -- neither StartRunInput nor StartRunBatch's DefaultRunSetting/InlineRunSetting Priority field is threaded through to a stored Run); RunTaskSummary.CacheHit/CacheS3Uri/Gpus/InstanceType (ListRunTasks -- no cache-execution engine, no per-task compute-type modeling); WorkflowSummary/WorkflowVersionSummary.Digest/Metadata (ListWorkflows/ListWorkflowVersions -- no definition-content hashing, no metadata input anywhere on CreateWorkflow/CreateWorkflowVersion). (no bd issue filed yet)"
 deferred:
   - "Field-by-field diff of ReferenceMetadata/ReadSetMetadata optional sub-object fields (Files/ReferenceFiles, CreationJobId, CreationType, Etag, SequenceInformation) against the SDK model -- MD5/fileType (top-level scalars) are now confirmed correct; the sub-objects remain unpopulated but are optional/pointer-safe on the wire"
 leaks: {status: clean, note: "pure synchronous in-memory backend -- no goroutines, tickers, or janitors; nothing to leak (reconfirmed this pass)"}
 ---
 
 ## Notes
+
+**2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** all 21
+census-flagged List ops verified member by member. 14 leaked Get/Describe-
+only members (Configuration/ReadSet/Reference/RunCache/RunGroup/RunTask/
+Run/RunsInBatch/Workflow(Version) families) -- each given a narrow
+`<Op>Summary` wire type. ListRunTasks/Runs/RunsInBatch also gained real
+members they lacked (task uuid, run workflowName, submissionStatus);
+ReadSetUploadPart gained creationTime and its real "partSource" key.
+Unsourced members recorded in items_still_open. 7 ops already correctly
+narrowed needed no change. See `list_summary_shapes_test.go`.
+
+**2026-09-18 (reqfielddiff tier-1 re-check, gopherstack-xhu2t):** `cmd/reqfielddiff
+-dir omics` still reports the same 6 tier-1 findings
+(`CreateWorkflow`/`CreateWorkflowVersion.ParameterTemplatePath`/`.ReadmePath`,
+`CreateWorkflow.WorkflowBucketOwnerId`, `ListBatch.MaxItems`) as the
+2026-08-31 `gopherstack-4glf` pass already adjudicated below ("Recorded as
+unmodellable or false positive, not fixed (6)"). Re-verified each against
+current HEAD rather than trusting the prior write-up: `ParameterTemplatePath`/
+`ReadmePath`/`WorkflowBucketOwnerId` still appear nowhere in any non-test
+`.go` file in this package (`grep -rn` empty) -- still correctly unfixed,
+same repository-relative-path/pure-validation-gate reasoning as before, no
+regression. `ListBatch.MaxItems` is still read at `handler.go:817`
+(`batchQueryParams`, the real `maxItems` query key) -- still a detector
+blind spot (a raw `q.Get` inside a shared helper isn't recognized as a
+per-op declared field), not a bug. Zero findings changed; zero code changes
+this pass. Tier-1: 6 before -> 6 after (all pre-adjudicated).
 
 **2026-09-12 (errcodeaudit fifth pass, gopherstack-r3pr):** `UploadReadSetPart`'s
 body-read-failure branch (`handler_read_sets.go`) emitted the fabricated

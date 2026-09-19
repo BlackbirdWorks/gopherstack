@@ -237,6 +237,78 @@ gaps: []
   # - [FIXED, prior pass] CreateDBShardGroup/DeleteDBShardGroup/ModifyDBShardGroup/RebootDBShardGroup and CreateIntegration/DeleteIntegration/ModifyIntegration and CreateCustomDBEngineVersion/DeleteCustomDBEngineVersion/ModifyCustomDBEngineVersion (10 ops total) previously wrapped their response fields one XML level too deep (e.g. `<CreateDBShardGroupResult><DBShardGroup><DBShardGroupIdentifier>...`) when the real aws-sdk-go-v2 output for all 10 is a FLAT shape with no such wrapper (`<CreateDBShardGroupResult><DBShardGroupIdentifier>...`) — see Notes. A real aws-sdk-go-v2 client's query-XML deserializer only looks for named fields as direct children of the `<XxxResult>` element, so every field on these 10 ops (including the identifier needed to address the resource in a follow-up call) previously came back empty/zero to a real SDK client, even though the emulator's backend state was correct.
   # - [FIXED, prior pass] CreateCustomDBEngineVersion/ModifyCustomDBEngineVersion additionally serialized the description field under the wrong element name (`DatabaseInstallationFilesS3BucketName` instead of `DBEngineVersionDescription`) — see Notes.
 items_still_open:
+  - "OPEN 2026-09-13 (gopherstack-xhu2t tier-1 sweep): 11 request fields across
+    CreateDBCluster/CreateDBInstance/CreateTenantDatabase/ModifyDBCluster/
+    ModifyDBInstance(x2: MasterUserSecretKmsKeyId + MasterUserPassword)/
+    ModifyTenantDatabase/RestoreDBClusterFromS3/RestoreDBInstanceFromDBSnapshot/
+    RestoreDBInstanceFromS3/RestoreDBInstanceToPointInTime's .MasterUserSecretKmsKeyId
+    are accepted-but-dropped: this backend has no Secrets Manager integration
+    (no modeled ManageMasterUserPassword/RotateMasterUserPassword/master-secret
+    ARN anywhere), matching the pre-existing, already-documented precedent in
+    tenant_databases.go's ModifyTenantDatabase doc comment ('real
+    ManageMasterUserPassword/MasterUserPassword/MasterUserSecretKmsKeyId/
+    RotateMasterUserPassword aren't modeled by TenantDatabase -- no Secrets
+    Manager integration in this backend'). Implementing this for real would mean
+    building a master-password rotation/secret-ARN subsystem from scratch, not a
+    wire-field fix; declined, consistent with the existing precedent rather than
+    inventing a fabricated secret ARN."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): DeleteTenantDatabase.SkipFinalSnapshot
+    is accepted-but-dropped -- tenant database snapshots aren't modeled at all
+    (no TenantDatabase-scoped snapshot entity anywhere in this backend), so
+    there is no final-snapshot behavior to gate on the flag."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): DescribeDBClusterSnapshots/
+    DescribeDBSnapshots .IncludePublic/.IncludeShared (4 fields) are
+    accepted-but-dropped. This backend is single-account/single-tenant: every
+    snapshot it holds already belongs to the caller, and there is no
+    cross-account snapshot-sharing or AWS-public-snapshot-marketplace data
+    anywhere to additionally reveal when either flag is set, so the flags have
+    no observable effect to implement without fabricating other accounts'
+    data."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): DescribeDBEngineVersions
+    .ListSupportedCharacterSets/.ListSupportedTimezones (2 fields) are
+    accepted-but-dropped -- this backend's engine-version catalog
+    (engine_versions.go's static builtin list) has no per-version character-set
+    or timezone catalog to attach a SupportedCharacterSets/SupportedTimezones
+    list to; DescribeDBEngineVersions.IncludeAll is likewise dropped, since the
+    real flag's effect is including deprecated/non-default versions and this
+    catalog has no deprecated-version/status concept at all (every entry is
+    implicitly current) -- unlike DefaultOnly (FIXED this pass, see Notes),
+    which only needed a per-entry IsDefault bookkeeping flag, IncludeAll would
+    need fabricating deprecated version data that doesn't exist."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBInstance.CertificateRotationRestart
+    is accepted-but-dropped. Real AWS restarts the instance when a pending CA
+    certificate rotation requires it; this backend has no CA-certificate-rotation
+    concept tied to instances (only the account-level default CA via
+    ModifyCertificates) and reusing the existing RebootDBInstance state machine
+    here would fabricate a rotation-triggered-restart distinction this backend
+    cannot actually detect (every ModifyDBInstance already transitions the
+    instance through 'modifying', so there is no distinguishable additional
+    effect to add)."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBInstance.ResumeFullAutomationModeMinutes
+    is accepted-but-dropped -- RDS Custom's automation-mode pause/resume
+    lifecycle (AutomationMode field, ResumeFullAutomationModeMinutes' pairing)
+    isn't modeled anywhere in this backend; instances have no automation-mode
+    state to resume."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): ModifyDBProxyTargetGroup.NewName is
+    accepted-but-dropped. Real AWS's own doc comment on this field says 'You
+    can't rename the default target group' (rds@v1.124.1
+    api_op_ModifyDBProxyTargetGroup.go), and this backend, matching real AWS,
+    only ever creates the single implicit 'default' target group per proxy
+    (CreateDBProxy) -- there is no non-default target group this field could
+    ever legally apply to, so it can never have an observable effect here
+    either."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): RestoreDBClusterToPointInTime/
+    RestoreDBInstanceToPointInTime .UseLatestRestorableTime (2 fields) are
+    accepted-but-dropped, tied to the existing RestoreTime gap on both ops
+    (tier5, no strong signal -- point-in-time restore-to-an-exact-timestamp
+    isn't modeled; both ops always restore from the source's current live
+    state). UseLatestRestorableTime is RestoreTime's boolean alternative
+    ('use the latest point in time') and adds no new capability beyond that
+    already-current-state default, so it has nothing additional to gate."
+  - "OPEN 2026-09-13 (gopherstack-xhu2t): SwitchoverBlueGreenDeployment.SwitchoverTimeout
+    is accepted-but-dropped -- this backend's blue/green switchover completes
+    synchronously with no async timing/deadline machinery, so there is no
+    in-progress operation a timeout could ever cut short."
   - "OPEN 2026-09-11 (gopherstack-qpxye): DescribeEngineDefaultParameters always returns an
     empty Parameters list. Real AWS returns the engine family's default parameter set (a
     few hundred parameters per DBParameterGroupFamily, e.g. mysql8.0), but this backend
@@ -1502,3 +1574,201 @@ only, not backend model fields); no version bump. Gates: `go build ./...`,
 `go vet ./services/rds/...`, `go test -race -count=1 ./services/rds/...`
 (pass), `golangci-lint run --new-from-rev=HEAD ./services/rds/...` (0
 issues). `cmd/paritylint` stays at 0 FAIL.
+
+## 2026-09-13: reqfielddiff tier-1 sweep (gopherstack-xhu2t/gopherstack-99nj)
+
+`cmd/reqfielddiff -dir rds` reported 125 tier-1 undeclared-request-field
+findings (query-protocol form-read recognition, per gopherstack-99nj, now
+follows computed/Sprintf keys and helper chains, so this count is a real
+backlog, not the earlier form-blind upper bound). Worked all 125: 24 fixed
+via a mechanical pagination-wiring pass (family 1), 76 fixed via per-field
+wire/model wiring (family 2), 25 recorded as genuine structural gaps (see
+`items_still_open`, 2026-09-13 entries). Re-running reqfielddiff after this
+pass: 125 -> 25 tier-1 for rds, exactly matching the 25 recorded
+`items_still_open` entries -- every remaining finding is disclosed, none
+undisclosed.
+
+### Family 1: pagination (MaxRecords/Marker), 24 fields, 23 ops
+
+`handler_shared.go`'s `paginateDescribe[T]`/`parseDescribePagination` helper
+already existed and was already used by several ops (`DescribeDBInstances`,
+`DescribeDBClusters`, etc.) but 23 Describe ops never called it, so
+`MaxRecords`/`Marker` were silently ignored -- every item was always
+returned in a single page regardless of the caller's `MaxRecords`. Wired all
+23 through the shared helper (an add-a-`Marker`-field-to-the-response +
+`paginateDescribe` call in each handler, no new mechanism): `DescribeBlueGreenDeployments`,
+`DescribeCertificates`, `DescribeDBClusterBacktracks`, `DescribeDBClusterEndpoints`,
+`DescribeDBClusterParameters` (+ its `.Source` filter, matched against the
+already-modeled `DBParameter.Source` field), `DescribeDBEngineVersions`,
+`DescribeDBMajorEngineVersions`, `DescribeDBProxies`, `DescribeDBProxyEndpoints`,
+`DescribeDBProxyTargetGroups`, `DescribeDBProxyTargets`, `DescribeDBSecurityGroups`,
+`DescribeEngineDefaultClusterParameters`, `DescribeEngineDefaultParameters`
+(validates `MaxRecords` now; data stays permanently empty, see existing
+`items_still_open` entry -- nothing to page over), `DescribeEventSubscriptions`,
+`DescribeExportTasks`, `DescribeGlobalClusters`, `DescribeOptionGroupOptions`
+(same as EngineDefaultParameters -- validates, nothing to page), `DescribeOrderableDBInstanceOptions`,
+`DescribePendingMaintenanceActions`, `DescribeReservedDBInstances`,
+`DescribeReservedDBInstancesOfferings`, `DescribeSourceRegions`. No filter
+family remained to work this pass -- the campaign notes' expected "family 2
+(Filters)" had already been fully closed by prior batches
+(`describe_filters_batch1_test.go`/`describe_filters_batch2_test.go`); the
+tier-1 census for rds after gopherstack-99nj's recognizer fix confirmed zero
+remaining Filters findings.
+
+Proof: `realclient_describe_pagination_test.go`,
+`TestRealClient_DescribePagination`, 23 subtests -- 19 seed enough items to
+force a second page and assert both the first page's length and that
+following the real `Marker` yields the rest; the 4 structurally-single-page
+ops (`DescribeEngineDefaultParameters`, `DescribeEngineDefaultClusterParameters`,
+`DescribeOptionGroupOptions`, `DescribeDBProxyTargetGroups` -- this backend
+gives every proxy exactly one "default" target group, matching real AWS)
+assert instead that an out-of-range `MaxRecords` is now rejected instead of
+silently ignored.
+
+### Family 2: dropped Create/Modify/Restore fields, 76 fields, ~30 ops
+
+Every field below was declared on the wire (per the real SDK's serializer)
+but never read from the request, applied to backend state, or echoed back
+in the response. Grouped by mechanism:
+
+- **AutoMinorVersionUpgrade** (bool, store+echo): `CreateDBCluster`,
+  `CreateDBInstance`, `CreateDBInstanceReadReplica`, `ModifyDBCluster`,
+  `RestoreDBInstanceFromS3`. New `DBCluster.AutoMinorVersionUpgrade`/
+  `DBInstance.AutoMinorVersionUpgrade` fields.
+- **EnableHttpEndpoint** (bool, real effect): `CreateDBCluster`,
+  `ModifyDBCluster` now set/toggle the already-modeled `DBCluster.HTTPEndpointEnabled`
+  (previously only the dedicated `EnableHTTPEndpoint`/`DisableHTTPEndpoint`
+  ops could change it).
+- **OptionGroupName** (cluster side, string, real effect): `CreateDBCluster`,
+  `ModifyDBCluster`, `RestoreDBClusterFromSnapshot`, `RestoreDBClusterToPointInTime`.
+  New `DBCluster.OptionGroupName`, echoed via the real
+  `DBClusterOptionGroupMemberships>DBClusterOptionGroup` wire shape (a list
+  of `{DBClusterOptionGroupName, Status}`, not a flat string -- verified
+  against `deserializers.go`'s `awsAwsquery_deserializeDocumentDBClusterOptionGroupStatus`).
+- **PubliclyAccessible** (cluster side, bool, store+echo): `CreateDBCluster`,
+  `RestoreDBClusterFromSnapshot`, `RestoreDBClusterToPointInTime`. New
+  `DBCluster.PubliclyAccessible`.
+- **EnableIAMDatabaseAuthentication** (bool, store+echo, both instance and
+  cluster side): `CreateDBCluster`, `ModifyDBCluster`, `RestoreDBClusterFromS3`,
+  `RestoreDBClusterFromSnapshot`, `RestoreDBClusterToPointInTime` (new
+  `DBCluster.IAMDatabaseAuthenticationEnabled`); `CreateDBInstanceReadReplica`,
+  `RestoreDBInstanceFromDBSnapshot`, `RestoreDBInstanceFromS3`,
+  `RestoreDBInstanceToPointInTime` (existing `DBInstance.IAMDatabaseAuthenticationEnabled`,
+  just never threaded through these four ops).
+- **VpcSecurityGroupIds** (real effect, `[]string`): `CreateDBInstanceReadReplica`,
+  `RestoreDBInstanceFromDBSnapshot`, `RestoreDBInstanceToPointInTime`, now call
+  the existing `applyVpcSecurityGroups` helper. Found and fixed a real,
+  **pre-existing** wire-shape bug while wiring this: the query-protocol array
+  element name for this field is `VpcSecurityGroupId` (verified against
+  `serializers.go:12323`'s `awsAwsquery_serializeDocumentVpcSecurityGroupIdList`,
+  `array := value.Array("VpcSecurityGroupId")`), but `CreateDBInstance` and
+  `ModifyDBInstance`'s existing (pre-this-pass) handlers read
+  `"VpcSecurityGroupIds.VpcSecurityGroupID"` (wrong case on the last letter)
+  -- a real SDK client's `VpcSecurityGroupIds` was silently dropped on both
+  ops. Fixed the case in all 5 call sites (the 2 pre-existing + the 3 new
+  this pass); corrected the matching (wrong-cased, self-consistently-wrong)
+  raw-form-body test fixtures in `db_instances_fields_test.go`/
+  `db_instances_operations_test.go` to match the real wire spelling rather
+  than weakening them.
+- **DeleteAutomatedBackups** (cluster side, real effect): `DeleteDBCluster`
+  (`DeleteDBClusterWithOptions` gained the parameter, mirroring the
+  instance-side `DeleteDBInstanceWithOptions`; deletes the cluster's
+  `DBClusterAutomatedBackup` row when true).
+- **CopyTags** (`CopyDBClusterSnapshot`, real effect): now copies the source
+  snapshot's tags onto the target snapshot's ARN (`b.tags` map), mirroring
+  what `CopyDBSnapshotOptions.CopyTags` was *supposed* to do on the instance
+  side -- found that the instance-side sibling field was itself dead code
+  (declared, read into `opts.CopyTags`, never used anywhere), so this is a
+  first real implementation of the copy-tags contract for snapshots, not a
+  copy of working instance-side behavior.
+- **EngineLifecycleSupport** (`CreateGlobalCluster`, string, store+echo): new
+  `GlobalCluster.EngineLifecycleSupport`.
+- **AllowMajorVersionUpgrade** (`ModifyGlobalCluster`, real gating): added
+  `majorVersion()` (leading dot-separated segment) and reject an
+  `EngineVersion` change that crosses major versions unless the flag is set
+  and the cluster already has a known `EngineVersion` (a cluster created
+  without one has nothing to compare against, so the check is skipped rather
+  than always rejecting).
+- **PerformanceInsightsEnabled/KMSKeyId/RetentionPeriod** (16 fields, both
+  instance and cluster side, store+echo): `CreateDBCluster`, `ModifyDBCluster`,
+  `RestoreDBClusterFromSnapshot`, `RestoreDBClusterToPointInTime` (new
+  `DBCluster.PerformanceInsightsEnabled`/`PerformanceInsightsKMSKeyID`/
+  `PerformanceInsightsRetentionPeriod` -- Performance Insights wasn't modeled
+  on clusters at all before this pass); `CreateDBInstance`,
+  `CreateDBInstanceReadReplica`, `ModifyDBInstance`, `RestoreDBInstanceFromS3`
+  (new `DBInstance.PerformanceInsightsKMSKeyID`/`PerformanceInsightsRetentionPeriod`
+  alongside the already-existing `PerformanceInsightsEnabled`).
+- **ClusterScalabilityType** (`CreateDBCluster`, string, store+echo): new
+  `DBCluster.ClusterScalabilityType`.
+- **DefaultAuthScheme/EndpointNetworkType/TargetConnectionNetworkType**
+  (`CreateDBProxy`, `ModifyDBProxy`.DefaultAuthScheme,
+  `CreateDBProxyEndpoint`.EndpointNetworkType): new `DBProxy.DefaultAuthScheme`/
+  `EndpointNetworkType`/`TargetConnectionNetworkType`, `DBProxyEndpoint.EndpointNetworkType`.
+  Note the real `DescribeDBProxiesOutput`'s `DefaultAuthScheme` is `*string`
+  on the wire, not the `types.DefaultAuthScheme` enum used on the input --
+  verified against `types/types.go`.
+- **ReplicaMode/UseDefaultProcessorFeatures** (`CreateDBInstanceReadReplica`,
+  `ModifyDBInstance`, + `UseDefaultProcessorFeatures` also on
+  `RestoreDBInstanceFromDBSnapshot`/`RestoreDBInstanceFromS3`/
+  `RestoreDBInstanceToPointInTime`): new `DBInstance.ReplicaMode` (echoed on
+  the wire) and `DBInstance.UseDefaultProcessorFeatures` (stored, not
+  echoed -- real `DBInstance` output has no such member; real AWS's own
+  effect, resetting `ProcessorFeatures`, has nothing to reset since
+  `ProcessorFeatures` isn't modeled either, so the stored bool is verified
+  via the backend's own `DescribeDBInstances`, not the XML wire, in the
+  proof test).
+- **MultiTenant/PromotionTier/BackupTarget** (`CreateDBInstance`,
+  `ModifyDBInstance`.PromotionTier, `RestoreDBInstanceFromDBSnapshot`/
+  `RestoreDBInstanceToPointInTime`.BackupTarget): new `DBInstance.MultiTenant`/
+  `PromotionTier`/`BackupTarget`.
+- **DBPortNumber** (`ModifyDBInstance`, real effect): applies immediately to
+  `DBInstance.Port` (existing field, previously never updatable post-create).
+- **DBInstanceParameterGroupName** (`ModifyDBCluster`, real cascading
+  effect): new `DBCluster.DBInstanceParameterGroupName`, and
+  `cascadeInstanceParameterGroupLocked` now applies it to every current
+  cluster member's own `DBInstance.DBParameterGroupName` (matching the real
+  field's doc: "the DB parameter group to apply to all instances of the DB
+  cluster").
+- **RemoveCustomerOverride** (`ModifyCertificates`, real effect): resets the
+  account's default CA certificate the same way an empty `CertificateIdentifier`
+  already did, and now correctly reports `CustomerOverride=false` on the
+  response (previously always `true`).
+- **EngineNativeAuditFieldsIncluded** (`StartActivityStream`, bool,
+  store+echo): new `DBCluster.ActivityStreamEngineNativeAuditFieldsIncluded`.
+- **ImageId** (`CreateCustomDBEngineVersion`, string, real effect): new
+  `CustomDBEngineVersion.ImageID`, echoed via the real nested
+  `Image>ImageId`/`Image>Status` wire shape (`types.CustomDBEngineVersionAMI`
+  -- verified against `deserializers.go`'s `case "Image"` handling), not a
+  flat field.
+- **DefaultOnly** (`DescribeDBEngineVersions`, real filter): added an
+  internal (non-wire, real AWS's own `DBEngineVersion` output type has no
+  such member) `DBEngineVersion.IsDefault` bookkeeping flag, marked on the
+  static builtin catalog's newest version per engine, and filter on it when
+  `DefaultOnly=true`.
+
+Proof: `realclient_create_modify_restore_fields_test.go`,
+`TestRealClient_CreateModifyRestoreFields`, 19 subtests grouped by op family,
+each setting the real fields through the typed `aws-sdk-go-v2/service/rds`
+client and asserting the stored/echoed effect (including the
+`ModifyGlobalCluster` major-version-upgrade rejection and the
+`CopyDBClusterSnapshot` tag-copy side effect via `ListTagsForResource`).
+
+### Gates (foreground, worktree `chore/parity-sweep-2026-09-13`)
+
+`go build ./services/rds/...`, `go vet ./services/rds/... .`,
+`go test -race -count=1 -p 2 ./services/rds/... .` (pass, 0 failures),
+`golangci-lint run --concurrency 2 --new-from-rev=HEAD ./services/rds/...`
+(0 issues). `go vet -tags integration`/`-tags e2e` scoped to
+`./services/rds/... .`: no rds-specific errors (root-package `./...` builds
+under all these tags are blocked by a concurrent, unrelated,
+already-broken `services/ec2`/`services/cloudformation` state from another
+agent working the same worktree at the same time -- confirmed pre-existing
+and untouched by this pass; `services/ec2` is out of this pass's scope per
+the campaign's own instructions). `cmd/paritylint`: 0 missing-`items_still_open`
+FAIL. `pkgs/persistence`'s `TestSnapshotVersionGuard`: rds's
+`backendSnapshot` fields changed additively (new fields only, no
+retyping/removal) without a version bump, exactly as the guard expects for
+an additive change -- `pkgs/persistence/testdata/snapshot_inventory.json`
+hand-updated with 27 new rds field rows (sorted, matching the file's
+existing convention), no version bump. `go run ./cmd/reqfielddiff -dir rds`:
+125 -> 25 tier-1, all 25 disclosed in `items_still_open`.

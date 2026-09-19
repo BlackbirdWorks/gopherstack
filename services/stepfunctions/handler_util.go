@@ -10,11 +10,27 @@ import (
 type validateStateMachineDefinitionOutput struct {
 	Result      string `json:"result"`
 	Diagnostics []any  `json:"diagnostics"`
+	Truncated   bool   `json:"truncated"`
 }
 
 type validateStateMachineDefinitionInput struct {
 	Definition string `json:"definition"`
+	Severity   string `json:"severity"`
+	Type       string `json:"type"`
+	MaxResults int32  `json:"maxResults"`
 }
+
+// validateStateMachineDefinitionMaxResultsDefault is AWS's documented
+// default and max diagnostics-per-call value; a caller-supplied 0 also
+// falls back to it (api_op_ValidateStateMachineDefinition.go MaxResults doc).
+const validateStateMachineDefinitionMaxResultsDefault = 100
+
+const (
+	validateStateMachineDefinitionSeverityError   = "ERROR"
+	validateStateMachineDefinitionSeverityWarning = "WARNING"
+	validateStateMachineDefinitionTypeStandard    = "STANDARD"
+	validateStateMachineDefinitionTypeExpress     = "EXPRESS"
+)
 
 // utilActions returns utility operations like definition validation.
 func (h *Handler) utilActions() map[string]actionFn {
@@ -25,19 +41,47 @@ func (h *Handler) utilActions() map[string]actionFn {
 				return nil, err
 			}
 
-			if _, err := asl.Parse(input.Definition); err != nil {
-				//nolint:nilerr // parse error is returned as Result:FAIL in the response body
-				return &validateStateMachineDefinitionOutput{
-					Result: "FAIL",
-					Diagnostics: []any{map[string]string{
-						"message":  err.Error(),
-						"code":     "SCHEMA_VALIDATION_FAILED",
-						"severity": "ERROR",
-					}},
-				}, nil
+			if input.Severity != "" &&
+				input.Severity != validateStateMachineDefinitionSeverityError &&
+				input.Severity != validateStateMachineDefinitionSeverityWarning {
+				return nil, fmt.Errorf(
+					"%w: severity %q is not ERROR or WARNING", ErrValidation, input.Severity)
+			}
+			if input.Type != "" &&
+				input.Type != validateStateMachineDefinitionTypeStandard &&
+				input.Type != validateStateMachineDefinitionTypeExpress {
+				return nil, fmt.Errorf(
+					"%w: type %q is not STANDARD or EXPRESS", ErrValidation, input.Type)
 			}
 
-			return &validateStateMachineDefinitionOutput{Result: "OK", Diagnostics: []any{}}, nil
+			maxResults := input.MaxResults
+			if maxResults <= 0 {
+				maxResults = validateStateMachineDefinitionMaxResultsDefault
+			}
+
+			result := "OK"
+
+			diagnostics := []any{}
+			if _, err := asl.Parse(input.Definition); err != nil {
+				result = "FAIL"
+				diagnostics = []any{map[string]string{
+					"message":  err.Error(),
+					"code":     "SCHEMA_VALIDATION_FAILED",
+					"severity": validateStateMachineDefinitionSeverityError,
+				}}
+			}
+
+			var truncated bool
+			if len(diagnostics) > int(maxResults) {
+				diagnostics = diagnostics[:maxResults]
+				truncated = true
+			}
+
+			return &validateStateMachineDefinitionOutput{
+				Result:      result,
+				Diagnostics: diagnostics,
+				Truncated:   truncated,
+			}, nil
 		},
 	}
 }

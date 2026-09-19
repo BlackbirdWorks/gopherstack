@@ -242,22 +242,28 @@ func (h *Handler) handleListStacks(form url.Values, c *echo.Context) error {
 	summaries := p.Data
 
 	type summaryXML struct {
-		StackID           string `xml:"StackId"`
-		StackName         string `xml:"StackName"`
-		StackStatus       string `xml:"StackStatus"`
-		StackStatusReason string `xml:"StackStatusReason,omitempty"`
-		CreationTime      string `xml:"CreationTime"`
-		LastUpdatedTime   string `xml:"LastUpdatedTime,omitempty"`
-		DeletionTime      string `xml:"DeletionTime,omitempty"`
+		StackID             string `xml:"StackId"`
+		StackName           string `xml:"StackName"`
+		StackStatus         string `xml:"StackStatus"`
+		StackStatusReason   string `xml:"StackStatusReason,omitempty"`
+		CreationTime        string `xml:"CreationTime"`
+		LastUpdatedTime     string `xml:"LastUpdatedTime,omitempty"`
+		DeletionTime        string `xml:"DeletionTime,omitempty"`
+		ParentID            string `xml:"ParentId,omitempty"`
+		RootID              string `xml:"RootId,omitempty"`
+		TemplateDescription string `xml:"TemplateDescription,omitempty"`
 	}
 	members := make([]summaryXML, 0, len(summaries))
 	for _, s := range summaries {
 		m := summaryXML{
-			StackID:           s.StackID,
-			StackName:         s.StackName,
-			StackStatus:       s.StackStatus,
-			StackStatusReason: s.StackStatusReason,
-			CreationTime:      s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			StackID:             s.StackID,
+			StackName:           s.StackName,
+			StackStatus:         s.StackStatus,
+			StackStatusReason:   s.StackStatusReason,
+			CreationTime:        s.CreationTime.UTC().Format("2006-01-02T15:04:05Z"),
+			ParentID:            s.ParentID,
+			RootID:              s.RootID,
+			TemplateDescription: s.TemplateDescription,
 		}
 		if s.LastUpdatedTime != nil {
 			m.LastUpdatedTime = s.LastUpdatedTime.UTC().Format("2006-01-02T15:04:05Z")

@@ -87,6 +87,7 @@ func toDaemonDeploymentConfigurationView(cfg *DaemonDeploymentConfiguration) *da
 
 type createDaemonInput struct {
 	DeploymentConfiguration *daemonDeploymentConfigurationInput `json:"deploymentConfiguration,omitempty"`
+	Critical                *bool                               `json:"critical,omitempty"`
 	CapacityProviderArns    []string                            `json:"capacityProviderArns"`
 	DaemonName              string                              `json:"daemonName"`
 	DaemonTaskDefinitionArn string                              `json:"daemonTaskDefinitionArn"`
@@ -125,6 +126,7 @@ func (h *Handler) handleCreateDaemon(_ context.Context, in *createDaemonInput) (
 		EnableECSManagedTags:    in.EnableECSManagedTags,
 		EnableExecuteCommand:    in.EnableExecuteCommand,
 		Tags:                    tagsFromInput(in.Tags),
+		Critical:                in.Critical,
 	})
 	if err != nil {
 		return nil, err
@@ -239,6 +241,7 @@ func (h *Handler) handleDescribeDaemon(_ context.Context, in *describeDaemonInpu
 
 type updateDaemonInput struct {
 	DeploymentConfiguration *daemonDeploymentConfigurationInput `json:"deploymentConfiguration,omitempty"`
+	Critical                *bool                               `json:"critical,omitempty"`
 	DaemonArn               string                              `json:"daemonArn"`
 	DaemonTaskDefinitionArn string                              `json:"daemonTaskDefinitionArn"`
 	PropagateTags           string                              `json:"propagateTags,omitempty"`
@@ -264,6 +267,7 @@ func (h *Handler) handleUpdateDaemon(_ context.Context, in *updateDaemonInput) (
 		PropagateTags:           in.PropagateTags,
 		EnableECSManagedTags:    in.EnableECSManagedTags,
 		EnableExecuteCommand:    in.EnableExecuteCommand,
+		Critical:                in.Critical,
 	})
 	if err != nil {
 		return nil, err
@@ -501,6 +505,7 @@ type daemonRevisionView struct {
 	CreatedAt               float64                    `json:"createdAt,omitempty"`
 	EnableECSManagedTags    bool                       `json:"enableECSManagedTags,omitempty"`
 	EnableExecuteCommand    bool                       `json:"enableExecuteCommand,omitempty"`
+	Critical                bool                       `json:"critical"`
 }
 
 // daemonContainerImages resolves the container images referenced by the
@@ -545,6 +550,7 @@ func (h *Handler) handleDescribeDaemonRevisions(
 			PropagateTags:           rev.PropagateTags,
 			EnableECSManagedTags:    rev.EnableECSManagedTags,
 			EnableExecuteCommand:    rev.EnableExecuteCommand,
+			Critical:                rev.Critical,
 		})
 	}
 

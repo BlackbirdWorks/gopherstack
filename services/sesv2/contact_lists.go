@@ -11,6 +11,15 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
+// Topic represents a contact list topic (types.Topic): a subscription
+// category a contact can independently opt in or out of.
+type Topic struct {
+	TopicName                 string `json:"topicName"`
+	DisplayName               string `json:"displayName"`
+	DefaultSubscriptionStatus string `json:"defaultSubscriptionStatus"`
+	Description               string `json:"description,omitempty"`
+}
+
 // ContactList represents a SES v2 contact list.
 type ContactList struct {
 	CreatedAt     time.Time         `json:"createdAt"`
@@ -18,6 +27,7 @@ type ContactList struct {
 	Tags          map[string]string `json:"tags"`
 	Name          string            `json:"name"`
 	Description   string            `json:"description"`
+	Topics        []Topic           `json:"topics,omitempty"`
 }
 
 // contactListARN builds the ARN for a contact list:
@@ -29,13 +39,39 @@ func (b *InMemoryBackend) contactListARN(name string) string {
 	return arn.Build("ses", b.region, b.accountID, "contact-list/"+name)
 }
 
+// validateTopics checks each Topic's required members (types.Topic:
+// TopicName/DisplayName/DefaultSubscriptionStatus are required, Description
+// is not).
+func validateTopics(topics []Topic) error {
+	for _, t := range topics {
+		if t.TopicName == "" {
+			return fmt.Errorf("%w: Topics[].TopicName is required", ErrInvalidInput)
+		}
+
+		if t.DisplayName == "" {
+			return fmt.Errorf("%w: Topics[].DisplayName is required", ErrInvalidInput)
+		}
+
+		if t.DefaultSubscriptionStatus == "" {
+			return fmt.Errorf("%w: Topics[].DefaultSubscriptionStatus is required", ErrInvalidInput)
+		}
+	}
+
+	return nil
+}
+
 // CreateContactList creates a new contact list.
 func (b *InMemoryBackend) CreateContactList(
 	name, description string,
 	tags map[string]string,
+	topics []Topic,
 ) (*ContactList, error) {
 	if strings.TrimSpace(name) == "" {
 		return nil, fmt.Errorf("%w: ContactListName is required", ErrInvalidInput)
+	}
+
+	if err := validateTopics(topics); err != nil {
+		return nil, err
 	}
 
 	b.mu.Lock("CreateContactList")
@@ -50,6 +86,7 @@ func (b *InMemoryBackend) CreateContactList(
 		Name:          name,
 		Description:   description,
 		Tags:          make(map[string]string),
+		Topics:        slices.Clone(topics),
 		CreatedAt:     now,
 		LastUpdatedAt: now,
 	}
@@ -107,8 +144,12 @@ func (b *InMemoryBackend) DeleteContactList(name string) error {
 	return nil
 }
 
-// UpdateContactList updates a contact list description.
-func (b *InMemoryBackend) UpdateContactList(name, description string) error {
+// UpdateContactList updates a contact list's description and topics.
+func (b *InMemoryBackend) UpdateContactList(name, description string, topics []Topic) error {
+	if err := validateTopics(topics); err != nil {
+		return err
+	}
+
 	b.mu.Lock("UpdateContactList")
 	defer b.mu.Unlock()
 
@@ -118,6 +159,7 @@ func (b *InMemoryBackend) UpdateContactList(name, description string) error {
 	}
 
 	cl.Description = description
+	cl.Topics = slices.Clone(topics)
 	cl.LastUpdatedAt = time.Now()
 
 	return nil

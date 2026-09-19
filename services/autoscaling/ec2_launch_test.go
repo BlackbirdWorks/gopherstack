@@ -161,7 +161,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleOut(t *testing.T) {
 				require.Len(t, g.Instances, 1)
 				launcher.launches = nil // reset after initial create
 
-				require.NoError(t, b.SetDesiredCapacity("asg-scale-out", 3))
+				require.NoError(t, b.SetDesiredCapacity("asg-scale-out", 3, false))
 
 				groups, err := b.DescribeAutoScalingGroups([]string{"asg-scale-out"}, nil)
 				require.NoError(t, err)
@@ -300,7 +300,7 @@ func TestInMemoryBackend_EC2Launcher_ScaleIn(t *testing.T) {
 				require.Len(t, g.Instances, 3)
 				launcher.launches = nil
 
-				require.NoError(t, b.SetDesiredCapacity(g.AutoScalingGroupName, 1))
+				require.NoError(t, b.SetDesiredCapacity(g.AutoScalingGroupName, 1, false))
 
 				groups, err := b.DescribeAutoScalingGroups([]string{g.AutoScalingGroupName}, nil)
 				require.NoError(t, err)

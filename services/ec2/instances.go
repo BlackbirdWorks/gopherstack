@@ -517,10 +517,15 @@ func (b *InMemoryBackend) ModifyDefaultCreditSpecification(cpuCredits string) er
 // ---- Replace root volume tasks ----
 
 // CreateInstanceConnectEndpoint creates a new Instance Connect Endpoint.
+// ipAddressType is an optional trailing arg (api_op_CreateInstanceConnectEndpoint.go:
+// "dualstack/ipv4/ipv6 depending on the subnet's CIDRs"); this backend has no
+// IPv6-subnet CIDR modeling to derive that from, so it defaults to "ipv4"
+// (the common case) rather than fabricating dualstack/ipv6 detection.
 func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 	subnetID string,
 	securityGroupIDs []string,
 	preserveClientIP bool,
+	ipAddressType ...string,
 ) (*InstanceConnectEndpoint, error) {
 	if subnetID == "" {
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
@@ -534,6 +539,11 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
+	addrType := addressFamilyIPv4
+	if len(ipAddressType) > 0 && ipAddressType[0] != "" {
+		addrType = ipAddressType[0]
+	}
+
 	id := "eice-" + uuid.New().String()[:8]
 	ep := &InstanceConnectEndpoint{
 		InstanceConnectEndpointID:  id,
@@ -543,6 +553,7 @@ func (b *InMemoryBackend) CreateInstanceConnectEndpoint(
 		SecurityGroupIDs:           securityGroupIDs,
 		State:                      stateActive,
 		PreserveClientIP:           preserveClientIP,
+		IPAddressType:              addrType,
 		CreateTime:                 time.Now().UTC(),
 	}
 	b.instanceConnectEndpoints.Put(ep)
@@ -599,7 +610,11 @@ func (b *InMemoryBackend) DescribeInstanceConnectEndpoints(
 }
 
 // ModifyInstanceConnectEndpoint modifies preserveClientIP for an endpoint.
-func (b *InMemoryBackend) ModifyInstanceConnectEndpoint(id string, preserveClientIP bool) error {
+// ModifyInstanceConnectEndpoint updates preserveClientIP and (via the
+// optional trailing extra arg) SecurityGroupIds for an endpoint.
+func (b *InMemoryBackend) ModifyInstanceConnectEndpoint(
+	id string, preserveClientIP bool, extra ...InstanceConnectEndpointModifyOptions,
+) error {
 	if id == "" {
 		return fmt.Errorf("%w: InstanceConnectEndpointId is required", ErrInvalidParameter)
 	}
@@ -612,6 +627,10 @@ func (b *InMemoryBackend) ModifyInstanceConnectEndpoint(id string, preserveClien
 		return fmt.Errorf("%w: %s", ErrInstanceConnectEndpointNotFound, id)
 	}
 	ep.PreserveClientIP = preserveClientIP
+
+	if len(extra) > 0 && len(extra[0].SecurityGroupIDs) > 0 {
+		ep.SecurityGroupIDs = extra[0].SecurityGroupIDs
+	}
 
 	return nil
 }

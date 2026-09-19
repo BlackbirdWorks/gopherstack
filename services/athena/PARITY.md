@@ -1,8 +1,8 @@
 ---
 service: athena
 sdk_module: aws-sdk-go-v2/service/athena@v1.60.4
-last_audit_commit: c47d785b7
-last_audit_date: 2026-08-28
+last_audit_commit: da8db2cd3
+last_audit_date: 2026-09-18
 overall: A            # genuine wire-shape fixes found in a previously well-built, well-tested service
                        # 2026-08-28 (gopherstack-6flj write-only-state sweep): CreateWorkGroup silently
                        # dropped Configuration.EngineConfiguration/MonitoringConfiguration entirely (no
@@ -34,7 +34,7 @@ ops:
   CapacityReservation (Create/Get/List/Update/Cancel/Delete): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CapacityReservation carried the same invented Tags field as WorkGroup/DataCatalog, but worse: CreateCapacityReservation had never built an ARN or written to resourceTags at all, so a capacity reservation's tags were previously unreachable via TagResource/ListTagsForResource entirely (no arn.Build call existed for this resource kind). Added InMemoryBackend.capacityReservationARN and wired Create/Delete to mirror/cascade-clean resourceTags like WorkGroup/DataCatalog already did."}
   CapacityAssignmentConfiguration (Put/Get): {wire: ok, errors: ok, state: ok, persist: ok}
   Notebook (Create/Delete/Export/Import/Update/UpdateMetadata/GetMetadata/ListMetadata): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — CreateNotebookInput carried an invented Tags field; the real CreateNotebookInput has only Name/WorkGroup/ClientRequestToken (unlike WorkGroup/DataCatalog/CapacityReservation, notebooks cannot be tagged at creation in the real API). Removed; a client sending Tags anyway (as no real SDK client would) is now harmlessly ignored rather than silently accepted. A notebook remains taggable after creation via TagResource against its ARN."}
-  Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28 (gopherstack-6flj) — EngineConfiguration.Classifications ([]types.Classification{Name,Properties}) was missing from the shared EngineConfiguration model, affecting StartSession the same way it affected CreateWorkGroup; see the WorkGroup row. FIXED (gopherstack-cgq3) — StartSession was missing the real optional MonitoringConfiguration field (types.MonitoringConfiguration: CloudWatchLoggingConfiguration/ManagedLoggingConfiguration/S3LoggingConfiguration, per GetSessionOutput.MonitoringConfiguration). Now accepted, stored on Session, and echoed by GetSession, matching the real API's own StartSession->GetSession round trip. StartSession's own request struct also still carries a SessionConfiguration field with no counterpart on the real StartSessionInput (only GetSessionOutput has SessionConfiguration, and it's workgroup-derived there, not client-supplied) — out of this fix's scope, left as-is and noted here for a future pass."}
+  Session (Start/Get/GetStatus/Terminate/List/ListNotebookSessions): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-28 (gopherstack-6flj) — EngineConfiguration.Classifications ([]types.Classification{Name,Properties}) was missing from the shared EngineConfiguration model, affecting StartSession the same way it affected CreateWorkGroup; see the WorkGroup row. FIXED (gopherstack-cgq3) — StartSession was missing the real optional MonitoringConfiguration field (types.MonitoringConfiguration: CloudWatchLoggingConfiguration/ManagedLoggingConfiguration/S3LoggingConfiguration, per GetSessionOutput.MonitoringConfiguration). Now accepted, stored on Session, and echoed by GetSession, matching the real API's own StartSession->GetSession round trip. StartSession's own request struct also still carries a SessionConfiguration field with no counterpart on the real StartSessionInput (only GetSessionOutput has SessionConfiguration, and it's workgroup-derived there, not client-supplied) — out of this fix's scope, left as-is and noted here for a future pass. FIXED 2026-09-18 (list-summary-shapes sweep, overwidecandidates re-audit) — ListNotebookSessions marshaled the full SessionSummary (ListSessions' own, richer shape: Description/EngineVersion/NotebookVersion/Status) straight onto the wire; the real ListNotebookSessionsOutput uses a distinct, narrower types.NotebookSessionSummary (CreationTime+SessionId only) -- a real client's deserializer ignores unknown keys so this wasn't a hard break, but it leaked internal session state (Description, live Status) that AWS's own API never exposes at this list granularity. Fixed via a new NotebookSessionSummary type; CreationTime sourced from the session's own Status.StartDateTime (no separate creation timestamp tracked, and a session's start IS its creation). See list_summary_shapes_test.go."}
   Calculation (Start/Get/GetStatus/GetCode/Stop/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED 2026-08-21 (gopherstack-us9u kind-mismatch sweep) -- CalculationStatistics.Progress was int64, hardcoded to 100 on every calculation; the real types.CalculationStatistics.Progress is *string (deserializers.go case \"Progress\": expected DescriptionString to be of type string), so every real SDK client's GetCalculationExecutionStatus/GetCalculationExecution call failed outright since Progress is always populated. Fixed by changing the field to string (now \"COMPLETED\"). Proven via a real aws-sdk-go-v2/service/athena client round trip (wire_calculation_progress_test.go), hand-reverted/confirmed-failing (expected DescriptionString to be of type string, got json.Number instead)/restored, md5sum-verified byte-identical."}
   Database/TableMetadata (Get/List): {wire: ok, errors: ok, state: ok, persist: ok, note: "'dirty' tables round-trip through the DTO registry in persistence.go; verified by persistence_test.go (the store_setup_test.go filename this note previously cited does not exist in the tree — stale reference, the coverage itself is real and passing). FIXED (gopherstack-yabd) — GetDatabase/ListDatabases/GetTableMetadata/ListTableMetadata never branched on a DataCatalog's Type, so a GLUE-type catalog (including the built-in AwsDataCatalog, which real AWS backs with the account's Glue Data Catalog) was always served from Athena's own internal database/table simulation, never from services/glue. Added GlueMetadataSource (interfaces.go) + SetGlueMetadataSource, wired in cli.go's wireAthenaGlue from services/glue's real GetDatabase/GetDatabases/GetTable/GetTables. When unwired (e.g. every test that constructs the backend directly), GLUE-type catalogs keep falling back to the internal simulation — permissive by default, matching this repo's cross-service hook convention."}
   Tags (Tag/Untag/ListTagsForResource): {wire: ok, errors: ok, state: ok, persist: ok, note: "FIXED (2026-07-23) — TagResource/UntagResource/ListTagsForResource now validate ResourceARN resolves to a currently existing taggable resource (workgroup/datacatalog/capacity-reservation/notebook, parsed from the ARN's kind/id resource segment), returning InvalidRequestException (ErrNotFound) otherwise instead of silently no-oping or returning an empty tag list. ListTagsForResource now also honors MaxResults/NextToken pagination (previously ignored both, always returning every tag in one response)."}
@@ -50,12 +50,34 @@ items_still_open:
   - DeleteDataCatalogInput.DeleteCatalogOnly (real SDK v1.57.2 field, FEDERATED-catalog-only) is not modeled as a request input; gopherstack does not simulate the underlying CFN Stack/Lambda/Glue Connection resources a FEDERATED catalog's deletion would otherwise need to selectively preserve, so the flag would have no observable effect either way in this emulator. Not a wire-shape break (an extra unrecognized request field is harmlessly ignored). (bd: unfiled)
   - "WorkGroupConfiguration.IdentityCenterConfiguration/ManagedQueryResultsConfiguration/QueryResultsS3AccessGrantsConfiguration (real members on types.WorkGroupConfiguration/types.WorkGroupConfigurationUpdates, confirmed 2026-08-28 via serializers.go) remain unmodeled — each is a substantial real feature (IAM Identity Center-gated workgroups, Athena-managed query-result-object lifecycle, S3 Access Grants) this emulator does not simulate end to end, not a quick wire-shape passthrough. WorkGroup.IdentityCenterApplicationArn (the paired response field) likewise unmodeled. (bd: unfiled)"
   - "QueryExecution.SubstatementType (real *string member on types.QueryExecution, e.g. further classifying a DDL StatementType as CTAS) is not modeled — found 2026-08-28 field-diffing types.QueryExecution, not fixed this pass; low-value single descriptive field. (bd: unfiled)"
+  - "StartQueryExecution.EngineConfiguration (reqfielddiff tier-1, 2026-09-18) is not declared at all -- it only matters for Capacity Reservation DPU-range validation (min-dpu-count/max-dpu-count classifications), a per-query override into the Capacity Reservations subsystem this emulator's StartQueryExecution never consults. No observable effect to gate without wiring query execution into capacity-reservation DPU accounting, a larger feature than a field-level fix. (bd: unfiled)"
 deferred:
   - none — full routed-op surface re-audited this pass (base + extended dispatch tables, 70 ops total)
 leaks: {status: clean, note: "janitor uses pkgs/worker.Group with proper ctx.Done() teardown; no raw goroutines spawned elsewhere in the service. New capacityReservationARN-based resourceTags entries are cascade-deleted on DeleteCapacityReservation (TestInMemoryBackend_DeleteCapacityReservation_CascadesTags), matching the existing WorkGroup/DataCatalog cascade-delete behavior — no ghost tag rows after delete."}
 ---
 
 ## Notes
+
+### 2026-09-18: list-summary-shapes sweep (overwidecandidates re-audit)
+
+9 flagged ops, member-by-member verified against `athena@v1.60.4`
+(`structfielddiff`). 1 real fix: ListNotebookSessions marshaled the full
+`SessionSummary` (ListSessions' shape) instead of the real, distinct
+`NotebookSessionSummary` (CreationTime+SessionId only), leaking
+Description/EngineVersion/NotebookVersion/Status onto the wire; fixed with
+a new narrow type, CreationTime sourced from Status.StartDateTime. The
+other 8 (ListCalculationExecutions, ListDataCatalogs, ListExecutors,
+ListNotebookMetadata, ListPreparedStatements, ListSessions,
+ListTableMetadata, ListWorkGroups) already matched their real Summary/
+ListItem type exactly, modulo pre-existing disclosed gaps (WorkGroupSummary.
+IdentityCenterApplicationArn). Proof: list_summary_shapes_test.go, real
+aws-sdk-go-v2 client, hand-verified failing pre-fix (leaked keys present,
+CreationTime absent).
+
+### 2026-09-18 (reqfielddiff tier-1): StartQueryExecution.EngineConfiguration -- missing feature
+
+Only meaningful for Capacity Reservation DPU-range validation, which StartQueryExecution
+never consults today. See items_still_open.
 
 **Protocol**: awsjson1.1 (`application/x-amz-json-1.1`, single POST endpoint,
 `X-Amz-Target: AmazonAthena.<Op>` dispatch). Route matcher
@@ -543,3 +565,13 @@ Gates: `go build ./...` (whole module, clean). `go vet ./services/athena/...`
 the updated `TestHandler_ListNotebookSessions`). `golangci-lint run
 --new-from-rev=HEAD ./services/athena/...` (0 issues). `cmd/paritylint`
 stays at 0 FAIL.
+
+## 2026-09-18 invented-field census (acceptguard)
+
+CreateWorkGroup's handler read a "State" field CreateWorkGroupInput
+(athena@v1.60.4) does not declare -- every real workgroup is created
+ENABLED; State is only settable via UpdateWorkGroup. Removed the read;
+rewrote `TestWorkGroup_StateValidation`'s create-side cases (which assumed
+State was accepted/validated at creation) and added
+`TestCreateWorkGroup_AlwaysEnabled_NoStateMember` proving the create path
+now always yields ENABLED regardless of client input.

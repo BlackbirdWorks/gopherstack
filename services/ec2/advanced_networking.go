@@ -103,6 +103,7 @@ type VpnGateway struct {
 	Type            string `json:"type,omitempty"`
 	AttachedVPCID   string `json:"attachedVpcId,omitempty"`
 	AttachmentState string `json:"attachmentState,omitempty"`
+	AmazonSideAsn   int64  `json:"amazonSideAsn,omitempty"`
 }
 
 // CustomerGateway represents a customer gateway.
@@ -149,6 +150,9 @@ type VpnTunnelOption struct {
 type VpnConnectionOptions struct {
 	LocalIPv4NetworkCIDR  string            `json:"localIpv4NetworkCidr,omitempty"`
 	RemoteIPv4NetworkCIDR string            `json:"remoteIpv4NetworkCidr,omitempty"`
+	LocalIPv6NetworkCIDR  string            `json:"localIpv6NetworkCidr,omitempty"`
+	RemoteIPv6NetworkCIDR string            `json:"remoteIpv6NetworkCidr,omitempty"`
+	TunnelBandwidth       string            `json:"tunnelBandwidth,omitempty"`
 	TunnelOptions         []VpnTunnelOption `json:"tunnelOptions,omitempty"`
 	StaticRoutesOnly      bool              `json:"staticRoutesOnly,omitempty"`
 }
@@ -215,27 +219,31 @@ type VpcEndpointServiceConfig struct {
 
 // Ipam represents an AWS IPAM instance.
 type Ipam struct {
-	PrivateDefaultScopeID                 string   `json:"privateDefaultScopeId,omitempty"`
-	DefaultResourceDiscoveryAssociationID string   `json:"defaultResourceDiscoveryAssociationId,omitempty"`
+	IpamARN                               string   `json:"ipamArn,omitempty"`
+	IpamID                                string   `json:"ipamId,omitempty"`
 	State                                 string   `json:"state,omitempty"`
 	Region                                string   `json:"region,omitempty"`
 	OwnerID                               string   `json:"ownerId,omitempty"`
 	Description                           string   `json:"description,omitempty"`
+	DefaultResourceDiscoveryAssociationID string   `json:"defaultResourceDiscoveryAssociationId,omitempty"`
 	PublicDefaultScopeID                  string   `json:"publicDefaultScopeId,omitempty"`
+	PrivateDefaultScopeID                 string   `json:"privateDefaultScopeId,omitempty"`
 	Tier                                  string   `json:"tier,omitempty"`
-	IpamARN                               string   `json:"ipamArn,omitempty"`
-	IpamID                                string   `json:"ipamId,omitempty"`
 	DefaultResourceDiscoveryID            string   `json:"defaultResourceDiscoveryId,omitempty"`
+	MeteredAccount                        string   `json:"meteredAccount,omitempty"`
 	OperatingRegions                      []string `json:"operatingRegions,omitempty"`
 	ScopeCount                            int32    `json:"scopeCount,omitempty"`
 	ResourceDiscoveryAssociationCount     int32    `json:"resourceDiscoveryAssociationCount,omitempty"`
+	EnablePrivateGua                      bool     `json:"enablePrivateGua,omitempty"`
 }
 
 // IpamOptions holds optional parameters accepted by CreateIpam and ModifyIpam.
 type IpamOptions struct {
 	Description      string
 	Tier             string
+	MeteredAccount   string
 	OperatingRegions []string
+	EnablePrivateGua bool
 }
 
 // IpamScope represents an IPAM scope: a private or public routing domain within an IPAM.
@@ -252,32 +260,35 @@ type IpamScope struct {
 
 // IpamPool represents an IPAM pool.
 type IpamPool struct {
-	IpamPoolID                     string `json:"ipamPoolId,omitempty"`
-	IpamPoolARN                    string `json:"ipamPoolArn,omitempty"`
+	Cidr                           string `json:"cidr,omitempty"`
+	Description                    string `json:"description,omitempty"`
 	IpamID                         string `json:"ipamId,omitempty"`
 	IpamScopeID                    string `json:"ipamScopeId,omitempty"`
 	SourceIpamPoolID               string `json:"sourceIpamPoolId,omitempty"`
 	State                          string `json:"state,omitempty"`
+	IpamPoolARN                    string `json:"ipamPoolArn,omitempty"`
 	Locale                         string `json:"locale,omitempty"`
+	IpamPoolID                     string `json:"ipamPoolId,omitempty"`
 	AddressFamily                  string `json:"addressFamily,omitempty"`
-	Cidr                           string `json:"cidr,omitempty"`
-	Description                    string `json:"description,omitempty"`
-	AutoImport                     bool   `json:"autoImport,omitempty"`
-	PubliclyAdvertisable           bool   `json:"publiclyAdvertisable,omitempty"`
+	PublicIPSource                 string `json:"publicIpSource,omitempty"`
 	AllocationMinNetmaskLength     int32  `json:"allocationMinNetmaskLength,omitempty"`
 	AllocationMaxNetmaskLength     int32  `json:"allocationMaxNetmaskLength,omitempty"`
 	AllocationDefaultNetmaskLength int32  `json:"allocationDefaultNetmaskLength,omitempty"`
+	PubliclyAdvertisable           bool   `json:"publiclyAdvertisable,omitempty"`
+	AutoImport                     bool   `json:"autoImport,omitempty"`
 }
 
 // IpamPoolOptions holds optional parameters accepted by CreateIpamPool and ModifyIpamPool.
 type IpamPoolOptions struct {
-	IpamScopeID                    string
-	Description                    string
-	AutoImport                     bool
-	PubliclyAdvertisable           bool
-	AllocationMinNetmaskLength     int32
-	AllocationMaxNetmaskLength     int32
-	AllocationDefaultNetmaskLength int32
+	IpamScopeID                         string
+	Description                         string
+	PublicIPSource                      string
+	AllocationMinNetmaskLength          int32
+	AllocationMaxNetmaskLength          int32
+	AllocationDefaultNetmaskLength      int32
+	AutoImport                          bool
+	PubliclyAdvertisable                bool
+	ClearAllocationDefaultNetmaskLength bool
 }
 
 // IpamPoolCidr represents a CIDR range provisioned to an IPAM pool via ProvisionIpamPoolCidr.

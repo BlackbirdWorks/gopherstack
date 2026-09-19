@@ -123,9 +123,10 @@ func (h *Handler) handleGetEventSelectors(c *echo.Context, body []byte) error {
 // EventDataStore are mutually exclusive: Insights can be configured on
 // either a trail or an event data store.
 type putInsightSelectorsBody struct {
-	TrailName        string            `json:"TrailName"`
-	EventDataStore   string            `json:"EventDataStore"`
-	InsightSelectors []InsightSelector `json:"InsightSelectors"`
+	TrailName           string            `json:"TrailName"`
+	EventDataStore      string            `json:"EventDataStore"`
+	InsightsDestination string            `json:"InsightsDestination"`
+	InsightSelectors    []InsightSelector `json:"InsightSelectors"`
 }
 
 func (h *Handler) handlePutInsightSelectors(c *echo.Context, body []byte) error {
@@ -146,15 +147,20 @@ func (h *Handler) handlePutInsightSelectors(c *echo.Context, body []byte) error 
 			keyInsightSelectors: t.InsightSelectors,
 		})
 	case in.EventDataStore != "":
-		eds, err := h.Backend.PutEDSInsightSelectors(in.EventDataStore, in.InsightSelectors)
+		eds, err := h.Backend.PutEDSInsightSelectors(in.EventDataStore, in.InsightsDestination, in.InsightSelectors)
 		if err != nil {
 			return h.handleError(c, err)
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{
+		resp := map[string]any{
 			keyEDSArn:           eds.EventDataStoreARN,
 			keyInsightSelectors: eds.InsightSelectors,
-		})
+		}
+		if eds.InsightsDestination != "" {
+			resp["InsightsDestination"] = eds.InsightsDestination
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	default:
 		return c.JSON(
 			http.StatusBadRequest,
@@ -190,15 +196,20 @@ func (h *Handler) handleGetInsightSelectors(c *echo.Context, body []byte) error 
 			keyInsightSelectors: selectors,
 		})
 	case in.EventDataStore != "":
-		edsARN, selectors, err := h.Backend.GetEDSInsightSelectors(in.EventDataStore)
+		edsARN, insightsDestination, selectors, err := h.Backend.GetEDSInsightSelectors(in.EventDataStore)
 		if err != nil {
 			return h.handleError(c, err)
 		}
 
-		return c.JSON(http.StatusOK, map[string]any{
+		resp := map[string]any{
 			keyEDSArn:           edsARN,
 			keyInsightSelectors: selectors,
-		})
+		}
+		if insightsDestination != "" {
+			resp["InsightsDestination"] = insightsDestination
+		}
+
+		return c.JSON(http.StatusOK, resp)
 	default:
 		return c.JSON(
 			http.StatusBadRequest,

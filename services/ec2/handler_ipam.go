@@ -24,10 +24,14 @@ func parseIpamOperatingRegions(vals url.Values) []string {
 }
 
 func (h *Handler) handleCreateIpam(vals url.Values, reqID string) (any, error) {
+	enablePrivateGua, _ := strconv.ParseBool(vals.Get("EnablePrivateGua"))
+
 	ipam, err := h.Backend.CreateIpam(IpamOptions{
 		Description:      vals.Get("Description"),
 		OperatingRegions: parseIpamOperatingRegions(vals),
 		Tier:             vals.Get("Tier"),
+		MeteredAccount:   vals.Get("MeteredAccount"),
+		EnablePrivateGua: enablePrivateGua,
 	})
 	if err != nil {
 		return nil, err
@@ -66,10 +70,14 @@ func (h *Handler) handleDescribeIpams(vals url.Values, reqID string) (any, error
 }
 
 func (h *Handler) handleModifyIpam(vals url.Values, reqID string) (any, error) {
+	enablePrivateGua, _ := strconv.ParseBool(vals.Get("EnablePrivateGua"))
+
 	ipam, err := h.Backend.ModifyIpam(vals.Get("IpamId"), IpamOptions{
 		Description:      vals.Get("Description"),
 		OperatingRegions: parseIpamOperatingRegions(vals),
 		Tier:             vals.Get("Tier"),
+		MeteredAccount:   vals.Get("MeteredAccount"),
+		EnablePrivateGua: enablePrivateGua,
 	})
 	if err != nil {
 		return nil, err
@@ -90,7 +98,8 @@ func (h *Handler) handleDeleteIpam(vals url.Values, reqID string) (any, error) {
 		return nil, fmt.Errorf("%w: %s", ErrIpamNotFound, id)
 	}
 
-	if err := h.Backend.DeleteIpam(id); err != nil {
+	cascade, _ := strconv.ParseBool(vals.Get("Cascade"))
+	if err := h.Backend.DeleteIpam(id, cascade); err != nil {
 		return nil, err
 	}
 
@@ -237,6 +246,7 @@ func (h *Handler) handleCreateIpamPool(vals url.Values, reqID string) (any, erro
 		IpamPoolOptions{
 			IpamScopeID:                    vals.Get("IpamScopeId"),
 			Description:                    vals.Get("Description"),
+			PublicIPSource:                 vals.Get("PublicIpSource"),
 			AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
 			PubliclyAdvertisable:           vals.Get("PubliclyAdvertisable") == ec2BooleanTrue,
 			AllocationMinNetmaskLength:     minNetmask,
@@ -297,12 +307,15 @@ func (h *Handler) handleModifyIpamPool(vals url.Values, reqID string) (any, erro
 		return nil, err
 	}
 
+	clearDefaultNetmask, _ := strconv.ParseBool(vals.Get("ClearAllocationDefaultNetmaskLength"))
+
 	pool, err := h.Backend.ModifyIpamPool(vals.Get("IpamPoolId"), IpamPoolOptions{
-		Description:                    vals.Get("Description"),
-		AutoImport:                     vals.Get("AutoImport") == ec2BooleanTrue,
-		AllocationMinNetmaskLength:     minNetmask,
-		AllocationMaxNetmaskLength:     maxNetmask,
-		AllocationDefaultNetmaskLength: defaultNetmask,
+		Description:                         vals.Get("Description"),
+		AutoImport:                          vals.Get("AutoImport") == ec2BooleanTrue,
+		AllocationMinNetmaskLength:          minNetmask,
+		AllocationMaxNetmaskLength:          maxNetmask,
+		AllocationDefaultNetmaskLength:      defaultNetmask,
+		ClearAllocationDefaultNetmaskLength: clearDefaultNetmask,
 	})
 	if err != nil {
 		return nil, err

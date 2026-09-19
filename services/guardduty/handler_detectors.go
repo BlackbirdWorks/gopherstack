@@ -5,7 +5,7 @@ import (
 	"net/http"
 )
 
-func (h *Handler) dispatchDetectorOps(op, path string, body []byte) (any, int, bool, error) {
+func (h *Handler) dispatchDetectorOps(op, path, query string, body []byte) (any, int, bool, error) {
 	switch op {
 	case opCreateDetector:
 		result, code, err := h.handleCreateDetector(body)
@@ -31,9 +31,9 @@ func (h *Handler) dispatchDetectorOps(op, path string, body []byte) (any, int, b
 		return nil, code, true, err
 
 	case opListDetectors:
-		result, code := h.handleListDetectors()
+		result, code, err := h.handleListDetectors(query)
 
-		return result, code, true, nil
+		return result, code, true, err
 	}
 
 	return nil, 0, false, nil
@@ -109,8 +109,18 @@ func (h *Handler) handleDeleteDetector(detectorID string) (int, error) {
 	return http.StatusOK, nil
 }
 
-func (h *Handler) handleListDetectors() (any, int) {
-	ids := h.Backend.ListDetectors()
+func (h *Handler) handleListDetectors(query string) (any, int, error) {
+	maxResults, nextToken := paginationParamsFromQuery(query)
 
-	return map[string]any{"detectorIds": ids}, http.StatusOK
+	ids, next, err := h.Backend.ListDetectors(maxResults, nextToken)
+	if err != nil {
+		return nil, http.StatusBadRequest, err
+	}
+
+	resp := map[string]any{"detectorIds": ids}
+	if next != "" {
+		resp["nextToken"] = next
+	}
+
+	return resp, http.StatusOK, nil
 }

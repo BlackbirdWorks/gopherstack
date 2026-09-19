@@ -1,8 +1,8 @@
 ---
 service: sns
 sdk_module: aws-sdk-go-v2/service/sns@v1.46.0
-last_audit_commit: 3afc23468
-last_audit_date: 2026-08-10
+last_audit_commit: b1905140e
+last_audit_date: 2026-09-18
 overall: A
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -59,6 +59,17 @@ leaks: {status: clean, note: "fixed this pass: (1) topicMessageArchive was never
 ---
 
 ## Notes
+
+## 2026-09-18 audit (gopherstack-xhu2t reqfielddiff tier-1 sweep)
+
+2 tier-1 undeclared request fields, both false positives (reqfielddiff misses form-body
+reads, this is an awsquery service): `CreateTopic.Attributes` is read via
+`extractFormAttributes` (handler_topics.go:19); `SetSMSAttributes.Attributes` is read via
+`parseSetSMSAttributesForm` (handler_sms.go:184-195), which correctly matches the SDK's
+own unusual lowercase `attributes` wire key for this one op (serializers.go:3765,
+`awsAwsquery_serializeOpDocumentSetSMSAttributesInput`, confirmed distinct from every
+other op's PascalCase `Attributes` key). 0 fixed, 0 code changes. tier1 count 2 -> 2
+(both confirmed non-bugs, not tracked as gaps).
 
 ## 2026-09-03 audit (gopherstack-0k0)
 

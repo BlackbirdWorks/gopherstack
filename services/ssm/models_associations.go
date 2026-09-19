@@ -85,16 +85,16 @@ type UpdateAssociationInput struct {
 	Parameters                    map[string][]string                `json:"Parameters,omitempty"`
 	Duration                      *int32                             `json:"Duration,omitempty"`
 	OutputLocation                *InstanceAssociationOutputLocation `json:"OutputLocation,omitempty"`
-	AssociationDispatchAssumeRole string                             `json:"AssociationDispatchAssumeRole,omitempty"`
+	AssociationDispatchAssumeRole *string                            `json:"AssociationDispatchAssumeRole,omitempty"`
 	AssociationID                 string                             `json:"AssociationId"`
 	SyncCompliance                string                             `json:"SyncCompliance,omitempty"`
-	DocumentVersion               string                             `json:"DocumentVersion,omitempty"`
-	AutomationTargetParameterName string                             `json:"AutomationTargetParameterName,omitempty"`
-	ScheduleExpression            string                             `json:"ScheduleExpression,omitempty"`
+	DocumentVersion               *string                            `json:"DocumentVersion,omitempty"`
+	AutomationTargetParameterName *string                            `json:"AutomationTargetParameterName,omitempty"`
+	ScheduleExpression            *string                            `json:"ScheduleExpression,omitempty"`
 	ComplianceSeverity            string                             `json:"ComplianceSeverity,omitempty"`
-	AssociationName               string                             `json:"AssociationName,omitempty"`
-	MaxConcurrency                string                             `json:"MaxConcurrency,omitempty"`
-	MaxErrors                     string                             `json:"MaxErrors,omitempty"`
+	AssociationName               *string                            `json:"AssociationName,omitempty"`
+	MaxConcurrency                *string                            `json:"MaxConcurrency,omitempty"`
+	MaxErrors                     *string                            `json:"MaxErrors,omitempty"`
 	Targets                       []AssociationTarget                `json:"Targets,omitempty"`
 	CalendarNames                 []string                           `json:"CalendarNames,omitempty"`
 	ApplyOnlyAtCronInterval       bool                               `json:"ApplyOnlyAtCronInterval,omitempty"`

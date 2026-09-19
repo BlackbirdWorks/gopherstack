@@ -316,7 +316,7 @@ func TestListBackupVaults_WireFilters(t *testing.T) {
 	client := newTestBackupClient(t, h)
 
 	mustVault(t, backend, "bv-regular")
-	_, err := backend.CreateLogicallyAirGappedBackupVault("bv-airgapped", "", 7, 30, nil)
+	_, err := backend.CreateLogicallyAirGappedBackupVault("bv-airgapped", "", "", 7, 30, nil)
 	require.NoError(t, err)
 
 	out, err := client.ListBackupVaults(t.Context(), &backupsdk.ListBackupVaultsInput{

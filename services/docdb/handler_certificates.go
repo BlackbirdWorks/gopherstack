@@ -15,9 +15,12 @@ func (h *Handler) handleDescribeCertificates(ctx context.Context, vals url.Value
 		members = append(members, toXMLCertificate(&cp))
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeCertificatesResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeCertificatesResult{
+			Marker:       nextMarker,
 			Certificates: xmlCertificateList{Members: members},
 		},
 	}, nil
@@ -36,6 +39,7 @@ type xmlCertificateList struct {
 }
 
 type describeCertificatesResult struct {
+	Marker       string             `xml:"Marker,omitempty"`
 	Certificates xmlCertificateList `xml:"Certificates"`
 }
 

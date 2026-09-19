@@ -5,6 +5,7 @@ import (
 	"context"
 	"hash"
 	"io"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -56,6 +57,61 @@ func (b *InMemoryBackend) getObjectForAnnotation(bucketName, key string) (*Store
 	}
 
 	return obj, nil
+}
+
+// CopyObjectAnnotations copies every annotation from the source object version
+// onto the destination version, implementing CopyObjectInput.AnnotationDirective's
+// default COPY behavior (s3@v1.111.0 api_op_CopyObject.go doc: "annotations are
+// copied unless ... EXCLUDE"). The CopyObject handler calls this after its own
+// PutObject has already landed the destination version, so a missing source or
+// destination object here is unexpected rather than a normal race; either is
+// treated as "nothing to copy" rather than failing an already-succeeded copy.
+func (b *InMemoryBackend) CopyObjectAnnotations(
+	srcBucket, srcKey string, srcVersionID *string,
+	destBucket, destKey string, destVersionID *string,
+) error {
+	srcObj, err := b.getObjectForAnnotation(srcBucket, srcKey)
+	if err != nil {
+		return nil
+	}
+
+	var annotations map[string]*StoredAnnotation
+	func() {
+		srcObj.mu.RLock("CopyObjectAnnotations.src")
+		defer srcObj.mu.RUnlock()
+
+		if srcVer, verErr := resolveObjectVersion(srcObj, srcVersionID); verErr == nil {
+			annotations = maps.Clone(srcVer.Annotations)
+		}
+	}()
+
+	if len(annotations) == 0 {
+		return nil
+	}
+
+	destObj, err := b.getObjectForAnnotation(destBucket, destKey)
+	if err != nil {
+		return nil
+	}
+
+	destObj.mu.Lock("CopyObjectAnnotations.dest")
+	defer destObj.mu.Unlock()
+
+	destVer, err := resolveObjectVersion(destObj, destVersionID)
+	if err != nil {
+		return nil
+	}
+
+	// "Objects encrypted with SSE-C cannot have annotations" (same rule
+	// PutObjectAnnotation enforces) -- silently skip rather than storing
+	// state no direct PutObjectAnnotation call could ever have produced.
+	if destVer.SSECAlgorithm != "" {
+		return nil
+	}
+
+	destVer.Annotations = annotations
+
+	return nil
 }
 
 // PutObjectAnnotation attaches a named annotation to an object version.

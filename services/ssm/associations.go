@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/blackbirdworks/gopherstack/pkgs/ptrconv"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
 
@@ -598,8 +599,6 @@ func matchesAssociationFilter(a Association, f AssociationFilterEntry) bool {
 // input.AssociationFilterList and paginated by input.MaxResults/NextToken --
 // real, optional ListAssociationsInput members (api_op_ListAssociations.go)
 // a literal struct{} input previously discarded from every request.
-//
-//nolint:dupl // mirrors ListOpsMetadata's filter/sort/paginate shape inherently, not by copy-paste
 func (b *InMemoryBackend) ListAssociations(
 	ctx context.Context,
 	input *ListAssociationsInput,
@@ -642,12 +641,12 @@ func (b *InMemoryBackend) ListAssociations(
 // applyAssociationCoreUpdates applies UpdateAssociationInput's original
 // (pre-extended-fields) settable properties to assoc in place.
 func applyAssociationCoreUpdates(assoc *Association, input *UpdateAssociationInput) {
-	if input.AssociationName != "" {
-		assoc.AssociationName = input.AssociationName
+	if input.AssociationName != nil {
+		assoc.AssociationName = *input.AssociationName
 	}
 
-	if input.DocumentVersion != "" {
-		assoc.DocumentVersion = input.DocumentVersion
+	if input.DocumentVersion != nil {
+		assoc.DocumentVersion = *input.DocumentVersion
 	}
 
 	if input.Parameters != nil {
@@ -671,12 +670,12 @@ func applyAssociationExtendedUpdates(assoc *Association, input *UpdateAssociatio
 		assoc.ApplyOnlyAtCronInterval = input.ApplyOnlyAtCronInterval
 	}
 
-	if input.AssociationDispatchAssumeRole != "" {
-		assoc.AssociationDispatchAssumeRole = input.AssociationDispatchAssumeRole
+	if input.AssociationDispatchAssumeRole != nil {
+		assoc.AssociationDispatchAssumeRole = *input.AssociationDispatchAssumeRole
 	}
 
-	if input.AutomationTargetParameterName != "" {
-		assoc.AutomationTargetParameterName = input.AutomationTargetParameterName
+	if input.AutomationTargetParameterName != nil {
+		assoc.AutomationTargetParameterName = *input.AutomationTargetParameterName
 	}
 
 	if input.CalendarNames != nil {
@@ -691,20 +690,20 @@ func applyAssociationExtendedUpdates(assoc *Association, input *UpdateAssociatio
 		assoc.Duration = input.Duration
 	}
 
-	if input.MaxConcurrency != "" {
-		assoc.MaxConcurrency = input.MaxConcurrency
+	if input.MaxConcurrency != nil {
+		assoc.MaxConcurrency = *input.MaxConcurrency
 	}
 
-	if input.MaxErrors != "" {
-		assoc.MaxErrors = input.MaxErrors
+	if input.MaxErrors != nil {
+		assoc.MaxErrors = *input.MaxErrors
 	}
 
 	if input.OutputLocation != nil {
 		assoc.OutputLocation = copyAssocOutputLocation(input.OutputLocation)
 	}
 
-	if input.ScheduleExpression != "" {
-		assoc.ScheduleExpression = input.ScheduleExpression
+	if input.ScheduleExpression != nil {
+		assoc.ScheduleExpression = *input.ScheduleExpression
 	}
 
 	if input.SyncCompliance != "" {
@@ -717,6 +716,14 @@ func (b *InMemoryBackend) UpdateAssociation(
 	ctx context.Context,
 	input *UpdateAssociationInput,
 ) (*UpdateAssociationOutput, error) {
+	if err := validateMaxConcurrency(ptrconv.String(input.MaxConcurrency)); err != nil {
+		return nil, err
+	}
+
+	if err := validateMaxErrors(ptrconv.String(input.MaxErrors)); err != nil {
+		return nil, err
+	}
+
 	region := getRegion(ctx)
 	b.mu.Lock("UpdateAssociation")
 	defer b.mu.Unlock()

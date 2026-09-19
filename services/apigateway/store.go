@@ -147,7 +147,7 @@ type StorageBackend interface {
 
 	// Models (per-API)
 	CreateModel(input CreateModelInput) (*Model, error)
-	GetModel(restAPIID, modelName string) (*Model, error)
+	GetModel(restAPIID, modelName string, flatten bool) (*Model, error)
 	GetModels(restAPIID string) ([]Model, error)
 	DeleteModel(restAPIID, modelName string) error
 	UpdateModel(restAPIID, modelName string, input UpdateModelInput) (*Model, error)

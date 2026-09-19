@@ -38,10 +38,40 @@ type processingS3InputRequest struct {
 	S3CompressionType      string `json:"S3CompressionType,omitempty"`
 }
 
+type athenaDatasetDefinitionRequest struct {
+	Catalog           string `json:"Catalog"`
+	Database          string `json:"Database"`
+	OutputFormat      string `json:"OutputFormat"`
+	OutputS3URI       string `json:"OutputS3Uri"`
+	QueryString       string `json:"QueryString"`
+	KmsKeyID          string `json:"KmsKeyId,omitempty"`
+	OutputCompression string `json:"OutputCompression,omitempty"`
+}
+
+type redshiftDatasetDefinitionRequest struct {
+	ClusterID         string `json:"ClusterId"`
+	ClusterRoleArn    string `json:"ClusterRoleArn"`
+	Database          string `json:"Database"`
+	DBUser            string `json:"DbUser"`
+	OutputFormat      string `json:"OutputFormat"`
+	OutputS3URI       string `json:"OutputS3Uri"`
+	QueryString       string `json:"QueryString"`
+	KmsKeyID          string `json:"KmsKeyId,omitempty"`
+	OutputCompression string `json:"OutputCompression,omitempty"`
+}
+
+type datasetDefinitionRequest struct {
+	AthenaDatasetDefinition   *athenaDatasetDefinitionRequest   `json:"AthenaDatasetDefinition,omitempty"`
+	RedshiftDatasetDefinition *redshiftDatasetDefinitionRequest `json:"RedshiftDatasetDefinition,omitempty"`
+	DataDistributionType      string                            `json:"DataDistributionType,omitempty"`
+	InputMode                 string                            `json:"InputMode,omitempty"`
+}
+
 type processingInputRequest struct {
-	S3Input    *processingS3InputRequest `json:"S3Input,omitempty"`
-	InputName  string                    `json:"InputName"`
-	AppManaged bool                      `json:"AppManaged,omitempty"`
+	S3Input           *processingS3InputRequest `json:"S3Input,omitempty"`
+	DatasetDefinition *datasetDefinitionRequest `json:"DatasetDefinition,omitempty"`
+	InputName         string                    `json:"InputName"`
+	AppManaged        bool                      `json:"AppManaged,omitempty"`
 }
 
 type processingS3OutputRequest struct {
@@ -50,10 +80,15 @@ type processingS3OutputRequest struct {
 	S3UploadMode string `json:"S3UploadMode,omitempty"`
 }
 
+type processingFeatureStoreOutputRequest struct {
+	FeatureGroupName string `json:"FeatureGroupName"`
+}
+
 type processingOutputRequest struct {
-	S3Output   *processingS3OutputRequest `json:"S3Output,omitempty"`
-	OutputName string                     `json:"OutputName"`
-	AppManaged bool                       `json:"AppManaged,omitempty"`
+	S3Output           *processingS3OutputRequest           `json:"S3Output,omitempty"`
+	FeatureStoreOutput *processingFeatureStoreOutputRequest `json:"FeatureStoreOutput,omitempty"`
+	OutputName         string                               `json:"OutputName"`
+	AppManaged         bool                                 `json:"AppManaged,omitempty"`
 }
 
 type processingOutputConfigRequest struct {
@@ -136,6 +171,36 @@ func processingInputsFromRequest(reqInputs []processingInputRequest) []Processin
 				S3CompressionType:      inp.S3Input.S3CompressionType,
 			}
 		}
+		if inp.DatasetDefinition != nil {
+			pi.DatasetDefinition = &DatasetDefinition{
+				DataDistributionType: inp.DatasetDefinition.DataDistributionType,
+				InputMode:            inp.DatasetDefinition.InputMode,
+			}
+			if a := inp.DatasetDefinition.AthenaDatasetDefinition; a != nil {
+				pi.DatasetDefinition.AthenaDatasetDefinition = &AthenaDatasetDefinition{
+					Catalog:           a.Catalog,
+					Database:          a.Database,
+					OutputFormat:      a.OutputFormat,
+					OutputS3URI:       a.OutputS3URI,
+					QueryString:       a.QueryString,
+					KmsKeyID:          a.KmsKeyID,
+					OutputCompression: a.OutputCompression,
+				}
+			}
+			if r := inp.DatasetDefinition.RedshiftDatasetDefinition; r != nil {
+				pi.DatasetDefinition.RedshiftDatasetDefinition = &RedshiftDatasetDefinition{
+					ClusterID:         r.ClusterID,
+					ClusterRoleArn:    r.ClusterRoleArn,
+					Database:          r.Database,
+					DBUser:            r.DBUser,
+					OutputFormat:      r.OutputFormat,
+					OutputS3URI:       r.OutputS3URI,
+					QueryString:       r.QueryString,
+					KmsKeyID:          r.KmsKeyID,
+					OutputCompression: r.OutputCompression,
+				}
+			}
+		}
 		inputs[i] = pi
 	}
 
@@ -154,6 +219,11 @@ func processingOutputsFromRequest(reqOutputs []processingOutputRequest) []Proces
 				S3Uri:        out.S3Output.S3Uri,
 				LocalPath:    out.S3Output.LocalPath,
 				S3UploadMode: out.S3Output.S3UploadMode,
+			}
+		}
+		if out.FeatureStoreOutput != nil {
+			po.FeatureStoreOutput = &ProcessingFeatureStoreOutput{
+				FeatureGroupName: out.FeatureStoreOutput.FeatureGroupName,
 			}
 		}
 		outputs[i] = po
@@ -345,8 +415,10 @@ type processingJobSummary struct {
 	ProcessingJobName   string  `json:"ProcessingJobName"`
 	ProcessingJobArn    string  `json:"ProcessingJobArn"`
 	ProcessingJobStatus string  `json:"ProcessingJobStatus"`
+	FailureReason       string  `json:"FailureReason,omitempty"`
 	CreationTime        float64 `json:"CreationTime"`
 	LastModifiedTime    float64 `json:"LastModifiedTime"`
+	ProcessingEndTime   float64 `json:"ProcessingEndTime,omitempty"`
 }
 
 type listProcessingJobsRequest struct {
@@ -381,13 +453,19 @@ func (h *Handler) handleListProcessingJobs(ctx context.Context, body []byte) ([]
 	})
 	summaries := make([]processingJobSummary, 0, len(jobs))
 	for _, pj := range jobs {
-		summaries = append(summaries, processingJobSummary{
+		summary := processingJobSummary{
 			ProcessingJobName:   pj.ProcessingJobName,
 			ProcessingJobArn:    pj.ProcessingJobArn,
 			ProcessingJobStatus: pj.ProcessingJobStatus,
 			CreationTime:        epochSeconds(pj.CreationTime),
 			LastModifiedTime:    epochSeconds(pj.LastModifiedTime),
-		})
+			FailureReason:       pj.FailureReason,
+		}
+		if pj.ProcessingEndTime != nil {
+			summary.ProcessingEndTime = epochSeconds(*pj.ProcessingEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"ProcessingJobSummaries": summaries}

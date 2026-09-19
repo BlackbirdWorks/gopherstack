@@ -36,6 +36,21 @@ type ReferenceMetadata struct {
 	MD5              string            `json:"md5"`
 }
 
+// ReferenceSummary is the real ListReferencesOutput element shape
+// (types.ReferenceListItem, omics@v1.49.5 types.go) -- narrower than
+// GetReferenceMetadataOutput: no files or tags.
+type ReferenceSummary struct {
+	CreationTime     time.Time `json:"creationTime"`
+	UpdateTime       time.Time `json:"updateTime"`
+	Arn              string    `json:"arn"`
+	ID               string    `json:"id"`
+	ReferenceStoreID string    `json:"referenceStoreId"`
+	Name             string    `json:"name,omitempty"`
+	Description      string    `json:"description,omitempty"`
+	Status           string    `json:"status,omitempty"`
+	MD5              string    `json:"md5"`
+}
+
 // ReferenceFilter is filter criteria for listing references.
 type ReferenceFilter struct {
 	Name string
@@ -55,6 +70,18 @@ type ReferenceImportJob struct {
 	RoleARN          string                     `json:"roleArn"`
 	Status           string                     `json:"status"`
 	Sources          []ReferenceImportJobSource `json:"sources"`
+}
+
+// ReferenceImportJobSummary is the real ListReferenceImportJobsOutput
+// element shape (types.ImportReferenceJobItem, omics@v1.49.5 types.go) --
+// narrower than GetReferenceImportJobOutput: no sources.
+type ReferenceImportJobSummary struct {
+	CreationTime     time.Time  `json:"creationTime"`
+	CompletionTime   *time.Time `json:"completionTime,omitempty"`
+	ID               string     `json:"id"`
+	ReferenceStoreID string     `json:"referenceStoreId"`
+	RoleARN          string     `json:"roleArn"`
+	Status           string     `json:"status"`
 }
 
 // ReferenceImportJobSource is a source for a reference import job.
@@ -107,6 +134,28 @@ type ReadSetMetadata struct {
 	ReferenceARN string `json:"referenceArn"`
 }
 
+// ReadSetSummary is the real ListReadSetsOutput element shape
+// (types.ReadSetListItem, omics@v1.49.5 types.go) -- narrower than
+// GetReadSetMetadataOutput: no files, tags or updateTime.
+//
+// creationType/etag/sequenceInformation are real ReadSetListItem members
+// this backend has no source for (not tracked anywhere at read-set creation)
+// -- see PARITY.md items_still_open.
+type ReadSetSummary struct {
+	CreationTime    time.Time `json:"creationTime"`
+	Arn             string    `json:"arn"`
+	ID              string    `json:"id"`
+	SequenceStoreID string    `json:"sequenceStoreId"`
+	Name            string    `json:"name,omitempty"`
+	Description     string    `json:"description,omitempty"`
+	FileType        string    `json:"fileType"`
+	Status          string    `json:"status"`
+	StatusMessage   string    `json:"statusMessage,omitempty"`
+	SubjectID       string    `json:"subjectId,omitempty"`
+	SampleID        string    `json:"sampleId,omitempty"`
+	ReferenceARN    string    `json:"referenceArn,omitempty"`
+}
+
 // ReadSetFilter is filter criteria for listing read sets.
 type ReadSetFilter struct {
 	Name   string
@@ -133,6 +182,17 @@ type ReadSetActivationJob struct {
 	SequenceStoreID string                       `json:"sequenceStoreId"`
 	Status          string                       `json:"status"`
 	Sources         []ReadSetActivationJobSource `json:"sources"`
+}
+
+// ReadSetActivationJobSummary is the real ListReadSetActivationJobsOutput
+// element shape (types.ActivateReadSetJobItem, omics@v1.49.5 types.go) --
+// narrower than GetReadSetActivationJobOutput: no sources or statusMessage.
+type ReadSetActivationJobSummary struct {
+	CreationTime    time.Time  `json:"creationTime"`
+	CompletionTime  *time.Time `json:"completionTime,omitempty"`
+	ID              string     `json:"id"`
+	SequenceStoreID string     `json:"sequenceStoreId"`
+	Status          string     `json:"status"`
 }
 
 // ReadSetExportJobSource is a source for a read set export job.
@@ -176,6 +236,18 @@ type ReadSetImportJob struct {
 	Sources         []ReadSetImportJobSource `json:"sources"`
 }
 
+// ReadSetImportJobSummary is the real ListReadSetImportJobsOutput element
+// shape (types.ImportReadSetJobItem, omics@v1.49.5 types.go) -- narrower
+// than GetReadSetImportJobOutput: no sources.
+type ReadSetImportJobSummary struct {
+	CreationTime    time.Time  `json:"creationTime"`
+	CompletionTime  *time.Time `json:"completionTime,omitempty"`
+	ID              string     `json:"id"`
+	SequenceStoreID string     `json:"sequenceStoreId"`
+	RoleARN         string     `json:"roleArn"`
+	Status          string     `json:"status"`
+}
+
 // MultipartReadSetUpload represents an in-progress multipart read set upload.
 //
 // Field names/JSON keys were field-diffed against
@@ -208,11 +280,35 @@ type MultipartReadSetUpload struct {
 	Description  string `json:"description,omitempty"`
 }
 
-// ReadSetUploadPart represents a single part of a multipart read set upload.
+// ReadSetUploadPart represents a single part of a multipart read set upload
+// and is also this backend's persisted record for it (backendSnapshot.
+// UploadParts) -- its json tags are the on-disk keys, so Source keeps the
+// "source" tag here rather than the real wire key (see
+// ReadSetUploadPartSummary for that). CreationTime is a real
+// ReadSetUploadPartListItem required member, previously missing from this
+// struct entirely (purely additive: an older snapshot decodes it as the
+// zero Time).
 type ReadSetUploadPart struct {
+	CreationTime    time.Time `json:"creationTime"`
 	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
 	Checksum        string    `json:"checksum"`
 	Source          string    `json:"source"`
+	PartNumber      int       `json:"partNumber"`
+	PartSize        int64     `json:"partSize"`
+}
+
+// ReadSetUploadPartSummary is the real ListReadSetUploadPartsOutput element
+// wire shape (types.ReadSetUploadPartListItem, omics@v1.49.5
+// deserializers.go) -- Source is tagged "partSource", the real wire key
+// (confirmed against the SDK deserializer); ReadSetUploadPart's own
+// "source" tag is its on-disk persistence key instead (see its doc
+// comment), so this backend cannot marshal that struct directly for the
+// wire response.
+type ReadSetUploadPartSummary struct {
+	CreationTime    time.Time `json:"creationTime"`
+	LastUpdatedTime time.Time `json:"lastUpdatedTime"`
+	Checksum        string    `json:"checksum"`
+	Source          string    `json:"partSource"`
 	PartNumber      int       `json:"partNumber"`
 	PartSize        int64     `json:"partSize"`
 }
@@ -233,6 +329,20 @@ type RunGroup struct {
 	MaxRuns      int               `json:"maxRuns"`
 	MaxDuration  int               `json:"maxDuration"`
 	MaxGPUs      int               `json:"maxGpus"`
+}
+
+// RunGroupSummary is the real ListRunGroupsOutput element shape
+// (types.RunGroupListItem, omics@v1.49.5 types.go) -- narrower than
+// GetRunGroupOutput: no tags.
+type RunGroupSummary struct {
+	CreationTime time.Time `json:"creationTime"`
+	Arn          string    `json:"arn"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name,omitempty"`
+	MaxCPUs      int       `json:"maxCpus,omitempty"`
+	MaxRuns      int       `json:"maxRuns,omitempty"`
+	MaxDuration  int       `json:"maxDuration,omitempty"`
+	MaxGPUs      int       `json:"maxGpus,omitempty"`
 }
 
 // RunFilter is filter criteria for listing runs.
@@ -293,6 +403,50 @@ type Run struct {
 	pollCount           int    // tracks PENDING→RUNNING→COMPLETED progression; not serialized
 }
 
+// RunSummary is the real ListRunsOutput element shape (types.RunListItem,
+// omics@v1.49.5 types.go) -- narrower than GetRunOutput: no configuration,
+// tags, parameters, roleArn, runGroupId, runSettingId, networkingMode,
+// runOutputUri, cacheId, cacheBehavior, retentionMode, scratchStorageMode,
+// workflowType or uuid.
+//
+// WorkflowName is a real RunListItem-only member -- GetRunOutput has no such
+// field -- resolved from the run's stored WorkflowID by the caller (see
+// newRunSummary). priority is a real RunListItem member this backend has no
+// source for: neither StartRunInput nor StartRunBatch's
+// DefaultRunSetting/InlineRunSetting ever thread their Priority field
+// through to a stored Run -- see PARITY.md items_still_open.
+type RunSummary struct {
+	StartTime           *time.Time `json:"startTime,omitempty"`
+	StopTime            *time.Time `json:"stopTime,omitempty"`
+	StorageCapacity     *int       `json:"storageCapacity,omitempty"`
+	CreationTime        time.Time  `json:"creationTime"`
+	Arn                 string     `json:"arn"`
+	ID                  string     `json:"id"`
+	Name                string     `json:"name,omitempty"`
+	WorkflowID          string     `json:"workflowId,omitempty"`
+	WorkflowName        string     `json:"workflowName,omitempty"`
+	WorkflowVersionName string     `json:"workflowVersionName,omitempty"`
+	RunBatchID          string     `json:"batchId,omitempty"`
+	StorageType         string     `json:"storageType,omitempty"`
+	Status              string     `json:"status"`
+}
+
+// RunInBatchSummary is the real ListRunsInBatchOutput element shape
+// (types.RunBatchListItem, omics@v1.49.5 types.go) -- a much narrower shape
+// than GetRunOutput/Run: only the run's identity plus its batch submission
+// outcome. Every run in this backend's ListRunsInBatch result set was
+// submitted successfully (StartRunBatch never creates a Run row for a
+// failed submission -- see RunBatch.SubmissionFailureCount's doc comment),
+// so SubmissionStatus is always the real SUCCESS enum value and the failure
+// fields stay empty.
+type RunInBatchSummary struct {
+	RunArn           string `json:"runArn,omitempty"`
+	RunID            string `json:"runId,omitempty"`
+	RunUUID          string `json:"runInternalUuid,omitempty"`
+	RunSettingID     string `json:"runSettingId,omitempty"`
+	SubmissionStatus string `json:"submissionStatus,omitempty"`
+}
+
 // StartRunInput holds input for StartRun (real StartRunInput fields this
 // backend models). RunBatchID/RunSettingID have no real StartRunInput
 // counterpart -- they're set internally by StartRunBatch's constituent-run
@@ -340,9 +494,31 @@ type RunTask struct {
 	RunID        string     `json:"runId"`
 	Name         string     `json:"name"`
 	Status       string     `json:"status"`
+	UUID         string     `json:"uuid,omitempty"`
 	CPUs         int        `json:"cpus"`
 	Memory       int        `json:"memory"`
 	pollCount    int        // tracks PENDING→RUNNING→COMPLETED progression; not serialized
+}
+
+// RunTaskSummary is the real ListRunTasksOutput element shape
+// (types.TaskListItem, omics@v1.49.5 types.go) -- narrower than
+// GetRunTaskOutput: no runId, failureReason, imageDetails, logStream or
+// statusMessage.
+//
+// cacheHit/cacheS3Uri/gpus/instanceType are real TaskListItem members this
+// backend has no source for (no cache-execution engine, no per-task compute
+// type modeling -- every task is the same synchronous stub) -- see
+// PARITY.md items_still_open.
+type RunTaskSummary struct {
+	StartTime    *time.Time `json:"startTime,omitempty"`
+	StopTime     *time.Time `json:"stopTime,omitempty"`
+	CreationTime time.Time  `json:"creationTime"`
+	TaskID       string     `json:"taskId"`
+	Name         string     `json:"name"`
+	Status       string     `json:"status"`
+	UUID         string     `json:"uuid,omitempty"`
+	CPUs         int        `json:"cpus"`
+	Memory       int        `json:"memory"`
 }
 
 // WorkflowFilter is filter criteria for listing workflows.
@@ -379,6 +555,23 @@ type Workflow struct {
 	UUID              string                       `json:"uuid,omitempty"`
 	Status            string                       `json:"status"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
+}
+
+// WorkflowSummary is the real ListWorkflowsOutput element shape
+// (types.WorkflowListItem, omics@v1.49.5 types.go) -- narrower than
+// GetWorkflowOutput: no tags, parameterTemplate, storageCapacity,
+// description, engine, storageType or uuid.
+//
+// digest/metadata are real WorkflowListItem members this backend has no
+// source for (no definition-content hashing, no metadata input anywhere on
+// CreateWorkflow) -- see PARITY.md items_still_open.
+type WorkflowSummary struct {
+	CreationTime time.Time `json:"creationTime"`
+	Arn          string    `json:"arn"`
+	ID           string    `json:"id"`
+	Name         string    `json:"name,omitempty"`
+	Status       string    `json:"status"`
+	Type         string    `json:"type,omitempty"`
 }
 
 // CreateWorkflowInput holds input for CreateWorkflow (real CreateWorkflowInput
@@ -428,6 +621,24 @@ type WorkflowVersion struct {
 	StorageType       string                       `json:"storageType,omitempty"`
 	Status            string                       `json:"status"`
 	pollCount         int                          // tracks CREATING→ACTIVE progression; not serialized
+}
+
+// WorkflowVersionSummary is the real ListWorkflowVersionsOutput element
+// shape (types.WorkflowVersionListItem, omics@v1.49.5 types.go) -- narrower
+// than GetWorkflowVersionOutput: no tags, parameterTemplate,
+// storageCapacity, engine or storageType.
+//
+// digest/metadata are real WorkflowVersionListItem members this backend has
+// no source for -- see WorkflowSummary's doc comment and PARITY.md
+// items_still_open.
+type WorkflowVersionSummary struct {
+	CreationTime time.Time `json:"creationTime"`
+	Arn          string    `json:"arn"`
+	WorkflowID   string    `json:"workflowId"`
+	VersionName  string    `json:"versionName"`
+	Description  string    `json:"description,omitempty"`
+	Status       string    `json:"status"`
+	Type         string    `json:"type,omitempty"`
 }
 
 // StoreStatusFilter is filter criteria shared by ListAnnotationStores,
@@ -844,6 +1055,19 @@ type RunCache struct {
 	CacheBehavior string `json:"cacheBehavior,omitempty"`
 }
 
+// RunCacheSummary is the real ListRunCachesOutput element shape
+// (types.RunCacheListItem, omics@v1.49.5 types.go) -- narrower than
+// GetRunCacheOutput: no description or tags.
+type RunCacheSummary struct {
+	CreationTime    time.Time `json:"creationTime"`
+	Arn             string    `json:"arn"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name,omitempty"`
+	CacheS3Location string    `json:"cacheS3Uri,omitempty"`
+	Status          string    `json:"status"`
+	CacheBehavior   string    `json:"cacheBehavior,omitempty"`
+}
+
 // RunBatch represents an HealthOmics run batch (real GetBatchOutput shape --
 // RunSummary/SubmissionSummary/TotalRuns are NOT stored here; they are computed live
 // from the batch's constituent Run records by summarizeRunBatchLocked, since this
@@ -949,6 +1173,17 @@ type Configuration struct {
 	ARN               string                          `json:"arn,omitempty"`
 	UUID              string                          `json:"uuid,omitempty"`
 	Status            string                          `json:"status,omitempty"`
+}
+
+// ConfigurationSummary is the real ListConfigurationsOutput element shape
+// (types.ConfigurationListItem, omics@v1.49.5 types.go) -- narrower than
+// GetConfigurationOutput: no runConfigurations, tags or uuid.
+type ConfigurationSummary struct {
+	CreationTime time.Time `json:"creationTime"`
+	Arn          string    `json:"arn,omitempty"`
+	Name         string    `json:"name"`
+	Description  string    `json:"description,omitempty"`
+	Status       string    `json:"status,omitempty"`
 }
 
 // S3AccessPolicy holds an S3 access policy for HealthOmics.

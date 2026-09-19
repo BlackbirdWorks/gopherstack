@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -307,7 +308,7 @@ func TestMaintenanceWindow_ScheduleFieldsRoundTrip(t *testing.T) {
 	allowFalse := false
 	updated, err := b.UpdateMaintenanceWindow(context.Background(), &ssm.UpdateMaintenanceWindowInput{
 		WindowID:                 created.WindowID,
-		ScheduleTimezone:         "UTC",
+		ScheduleTimezone:         aws.String("UTC"),
 		AllowUnassociatedTargets: &allowFalse,
 	})
 	require.NoError(t, err)
@@ -649,26 +650,26 @@ func TestUpdateMaintenanceWindow(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
 		update  ssm.UpdateMaintenanceWindowInput
+		name    string
 		wantErr bool
 	}{
 		{
 			name: "not_found",
 			update: ssm.UpdateMaintenanceWindowInput{
 				WindowID: "mw-does-not-exist",
-				Name:     "newname",
+				Name:     aws.String("newname"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "update_all_fields",
 			update: ssm.UpdateMaintenanceWindowInput{
-				Name:        "new-name",
-				Description: "new-desc",
-				Schedule:    "cron(0 3 * * ? *)",
-				Duration:    6,
-				Cutoff:      1,
+				Name:        aws.String("new-name"),
+				Description: aws.String("new-desc"),
+				Schedule:    aws.String("cron(0 3 * * ? *)"),
+				Duration:    aws.Int32(6),
+				Cutoff:      aws.Int32(1),
 				Enabled: func() *bool {
 					v := false
 

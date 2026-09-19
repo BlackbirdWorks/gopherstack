@@ -21,6 +21,7 @@ type DeleteMaintenanceWindowInput struct {
 type DeregisterTargetFromMaintenanceWindowInput struct {
 	WindowID       string `json:"WindowId"`
 	WindowTargetID string `json:"WindowTargetId"`
+	Safe           bool   `json:"Safe,omitempty"`
 }
 
 // DeregisterTaskFromMaintenanceWindowInput is the request for DeregisterTaskFromMaintenanceWindow.
@@ -238,18 +239,18 @@ type RegisterTaskWithMaintenanceWindowOutput struct {
 
 // UpdateMaintenanceWindowInput is the request payload for UpdateMaintenanceWindow.
 type UpdateMaintenanceWindowInput struct {
-	Enabled                  *bool  `json:"Enabled,omitempty"`
-	AllowUnassociatedTargets *bool  `json:"AllowUnassociatedTargets,omitempty"`
-	ScheduleOffset           *int32 `json:"ScheduleOffset,omitempty"`
-	WindowID                 string `json:"WindowId"`
-	Name                     string `json:"Name,omitempty"`
-	Description              string `json:"Description,omitempty"`
-	Schedule                 string `json:"Schedule,omitempty"`
-	ScheduleTimezone         string `json:"ScheduleTimezone,omitempty"`
-	StartDate                string `json:"StartDate,omitempty"`
-	EndDate                  string `json:"EndDate,omitempty"`
-	Duration                 int32  `json:"Duration,omitempty"`
-	Cutoff                   int32  `json:"Cutoff,omitempty"`
+	Enabled                  *bool   `json:"Enabled,omitempty"`
+	AllowUnassociatedTargets *bool   `json:"AllowUnassociatedTargets,omitempty"`
+	ScheduleOffset           *int32  `json:"ScheduleOffset,omitempty"`
+	Duration                 *int32  `json:"Duration,omitempty"`
+	Cutoff                   *int32  `json:"Cutoff,omitempty"`
+	Name                     *string `json:"Name,omitempty"`
+	Description              *string `json:"Description,omitempty"`
+	Schedule                 *string `json:"Schedule,omitempty"`
+	ScheduleTimezone         *string `json:"ScheduleTimezone,omitempty"`
+	StartDate                *string `json:"StartDate,omitempty"`
+	EndDate                  *string `json:"EndDate,omitempty"`
+	WindowID                 string  `json:"WindowId"`
 }
 
 // UpdateMaintenanceWindowOutput is the response payload for UpdateMaintenanceWindow.
@@ -514,9 +515,9 @@ func maintenanceWindowTaskToGetOutput(t *MaintenanceWindowTask) GetMaintenanceWi
 type UpdateMaintenanceWindowTargetInput struct {
 	WindowID       string         `json:"WindowId"`
 	WindowTargetID string         `json:"WindowTargetId"`
-	OwnerInfo      string         `json:"OwnerInformation,omitempty"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
+	OwnerInfo      *string        `json:"OwnerInformation,omitempty"`
+	Name           *string        `json:"Name,omitempty"`
+	Description    *string        `json:"Description,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }
 
@@ -536,12 +537,12 @@ type UpdateMaintenanceWindowTaskInput struct {
 	Priority       *int32         `json:"Priority,omitempty"`
 	WindowID       string         `json:"WindowId"`
 	WindowTaskID   string         `json:"WindowTaskId"`
-	TaskArn        string         `json:"TaskArn,omitempty"`
-	Name           string         `json:"Name,omitempty"`
-	Description    string         `json:"Description,omitempty"`
-	ServiceRoleArn string         `json:"ServiceRoleArn,omitempty"`
-	MaxConcurrency string         `json:"MaxConcurrency,omitempty"`
-	MaxErrors      string         `json:"MaxErrors,omitempty"`
+	TaskArn        *string        `json:"TaskArn,omitempty"`
+	Name           *string        `json:"Name,omitempty"`
+	Description    *string        `json:"Description,omitempty"`
+	ServiceRoleArn *string        `json:"ServiceRoleArn,omitempty"`
+	MaxConcurrency *string        `json:"MaxConcurrency,omitempty"`
+	MaxErrors      *string        `json:"MaxErrors,omitempty"`
 	CutoffBehavior string         `json:"CutoffBehavior,omitempty"`
 	Targets        []WindowTarget `json:"Targets,omitempty"`
 }

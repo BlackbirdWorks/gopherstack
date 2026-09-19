@@ -48,8 +48,9 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 	volumeType := vals.Get("VolumeType")
 	sizeStr := vals.Get("Size")
 	iopsStr := vals.Get("Iops")
+	throughputStr := vals.Get("Throughput")
 
-	var size, iops int
+	var size, iops, throughput int
 	if sizeStr != "" {
 		var parseErr error
 		size, parseErr = strconv.Atoi(sizeStr)
@@ -64,8 +65,15 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 			return nil, fmt.Errorf("%w: invalid Iops value: %s", ErrInvalidParameter, iopsStr)
 		}
 	}
+	if throughputStr != "" {
+		var parseErr error
+		throughput, parseErr = strconv.Atoi(throughputStr)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: invalid Throughput value: %s", ErrInvalidParameter, throughputStr)
+		}
+	}
 
-	mod, err := h.Backend.ModifyVolume(volumeID, volumeType, size, iops)
+	mod, err := h.Backend.ModifyVolume(volumeID, volumeType, size, iops, throughput)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +87,8 @@ func (h *Handler) handleModifyVolume(vals url.Values, reqID string) (any, error)
 			TargetSize:        mod.TargetSize,
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
+			TargetThroughput:  mod.TargetThroughput,
+			OrigThroughput:    mod.OrigThroughput,
 			Progress:          mod.Progress,
 			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		},
@@ -136,6 +146,8 @@ func (h *Handler) handleDescribeVolumesModifications(vals url.Values, reqID stri
 			TargetSize:        mod.TargetSize,
 			OrigVolumeType:    mod.OrigVolumeType,
 			OrigSize:          mod.OrigSize,
+			TargetThroughput:  mod.TargetThroughput,
+			OrigThroughput:    mod.OrigThroughput,
 			Progress:          mod.Progress,
 			StartTime:         mod.StartTime.UTC().Format("2006-01-02T15:04:05.000Z"),
 		})
@@ -156,6 +168,8 @@ type volumeModificationItem struct {
 	Progress          int64  `xml:"progress"`
 	TargetSize        int    `xml:"targetSize"`
 	OrigSize          int    `xml:"originalSize"`
+	TargetThroughput  int    `xml:"targetThroughput,omitempty"`
+	OrigThroughput    int    `xml:"originalThroughput,omitempty"`
 }
 
 type ebsEncryptionByDefaultResponse struct {
@@ -524,27 +538,29 @@ const (
 )
 
 type volumeItem struct {
-	Attachment *attachmentItem `xml:"attachmentSet>item,omitempty"`
-	VolumeID   string          `xml:"volumeId"`
-	AZ         string          `xml:"availabilityZone"`
-	VolumeType string          `xml:"volumeType"`
-	State      string          `xml:"status"`
-	CreateTime string          `xml:"createTime"`
-	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
-	SnapshotID string          `xml:"snapshotId,omitempty"`
-	TagSet     []simpleTagItem `xml:"tagSet>item"`
-	Size       int             `xml:"size"`
-	Iops       int             `xml:"iops,omitempty"`
-	Throughput int             `xml:"throughput,omitempty"`
-	Encrypted  bool            `xml:"encrypted"`
+	Attachment               *attachmentItem `xml:"attachmentSet>item,omitempty"`
+	VolumeID                 string          `xml:"volumeId"`
+	AZ                       string          `xml:"availabilityZone"`
+	VolumeType               string          `xml:"volumeType"`
+	State                    string          `xml:"status"`
+	CreateTime               string          `xml:"createTime"`
+	KmsKeyID                 string          `xml:"kmsKeyId,omitempty"`
+	SnapshotID               string          `xml:"snapshotId,omitempty"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+	Size                     int             `xml:"size"`
+	Iops                     int             `xml:"iops,omitempty"`
+	Throughput               int             `xml:"throughput,omitempty"`
+	Encrypted                bool            `xml:"encrypted"`
+	VolumeInitializationRate int32           `xml:"volumeInitializationRate,omitempty"`
 }
 
 type attachmentItem struct {
-	VolumeID   string `xml:"volumeId"`
-	InstanceID string `xml:"instanceId"`
-	Device     string `xml:"device"`
-	State      string `xml:"status"`
-	AttachTime string `xml:"attachTime"`
+	VolumeID     string `xml:"volumeId"`
+	InstanceID   string `xml:"instanceId"`
+	Device       string `xml:"device"`
+	State        string `xml:"status"`
+	AttachTime   string `xml:"attachTime"`
+	EbsCardIndex int32  `xml:"ebsCardIndex,omitempty"`
 }
 
 type volumeItemSet struct {
@@ -559,21 +575,22 @@ type describeVolumesResponse struct {
 }
 
 type createVolumeResponse struct {
-	XMLName    xml.Name        `xml:"CreateVolumeResponse"`
-	Xmlns      string          `xml:"xmlns,attr"`
-	RequestID  string          `xml:"requestId"`
-	VolumeID   string          `xml:"volumeId"`
-	AZ         string          `xml:"availabilityZone"`
-	VolumeType string          `xml:"volumeType"`
-	State      string          `xml:"status"`
-	CreateTime string          `xml:"createTime"`
-	KmsKeyID   string          `xml:"kmsKeyId,omitempty"`
-	SnapshotID string          `xml:"snapshotId,omitempty"`
-	TagSet     []simpleTagItem `xml:"tagSet>item"`
-	Size       int             `xml:"size"`
-	Iops       int             `xml:"iops,omitempty"`
-	Throughput int             `xml:"throughput,omitempty"`
-	Encrypted  bool            `xml:"encrypted"`
+	XMLName                  xml.Name        `xml:"CreateVolumeResponse"`
+	Xmlns                    string          `xml:"xmlns,attr"`
+	RequestID                string          `xml:"requestId"`
+	VolumeID                 string          `xml:"volumeId"`
+	AZ                       string          `xml:"availabilityZone"`
+	VolumeType               string          `xml:"volumeType"`
+	State                    string          `xml:"status"`
+	CreateTime               string          `xml:"createTime"`
+	KmsKeyID                 string          `xml:"kmsKeyId,omitempty"`
+	SnapshotID               string          `xml:"snapshotId,omitempty"`
+	TagSet                   []simpleTagItem `xml:"tagSet>item"`
+	Size                     int             `xml:"size"`
+	Iops                     int             `xml:"iops,omitempty"`
+	Throughput               int             `xml:"throughput,omitempty"`
+	Encrypted                bool            `xml:"encrypted"`
+	VolumeInitializationRate int32           `xml:"volumeInitializationRate,omitempty"`
 }
 
 type deleteVolumeResponse struct {
@@ -584,14 +601,15 @@ type deleteVolumeResponse struct {
 }
 
 type attachVolumeResponse struct {
-	XMLName    xml.Name `xml:"AttachVolumeResponse"`
-	Xmlns      string   `xml:"xmlns,attr"`
-	RequestID  string   `xml:"requestId"`
-	VolumeID   string   `xml:"volumeId"`
-	InstanceID string   `xml:"instanceId"`
-	Device     string   `xml:"device"`
-	State      string   `xml:"status"`
-	AttachTime string   `xml:"attachTime"`
+	XMLName      xml.Name `xml:"AttachVolumeResponse"`
+	Xmlns        string   `xml:"xmlns,attr"`
+	RequestID    string   `xml:"requestId"`
+	VolumeID     string   `xml:"volumeId"`
+	InstanceID   string   `xml:"instanceId"`
+	Device       string   `xml:"device"`
+	State        string   `xml:"status"`
+	AttachTime   string   `xml:"attachTime"`
+	EbsCardIndex int32    `xml:"ebsCardIndex,omitempty"`
 }
 
 type detachVolumeResponse struct {
@@ -606,27 +624,29 @@ type detachVolumeResponse struct {
 
 func toVolumeItem(vol *Volume, tags map[string]string) volumeItem {
 	item := volumeItem{
-		VolumeID:   vol.ID,
-		Size:       vol.Size,
-		AZ:         vol.AZ,
-		VolumeType: vol.VolumeType,
-		State:      vol.State,
-		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
-		Encrypted:  vol.Encrypted,
-		KmsKeyID:   vol.KmsKeyID,
-		SnapshotID: vol.SnapshotID,
-		Iops:       vol.Iops,
-		Throughput: vol.Throughput,
-		TagSet:     tagItemsFromMap(tags),
+		VolumeID:                 vol.ID,
+		Size:                     vol.Size,
+		AZ:                       vol.AZ,
+		VolumeType:               vol.VolumeType,
+		State:                    vol.State,
+		CreateTime:               vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		Encrypted:                vol.Encrypted,
+		KmsKeyID:                 vol.KmsKeyID,
+		SnapshotID:               vol.SnapshotID,
+		Iops:                     vol.Iops,
+		Throughput:               vol.Throughput,
+		VolumeInitializationRate: vol.VolumeInitializationRate,
+		TagSet:                   tagItemsFromMap(tags),
 	}
 
 	if vol.Attachment != nil {
 		item.Attachment = &attachmentItem{
-			VolumeID:   vol.Attachment.VolumeID,
-			InstanceID: vol.Attachment.InstanceID,
-			Device:     vol.Attachment.Device,
-			State:      vol.Attachment.State,
-			AttachTime: vol.Attachment.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+			VolumeID:     vol.Attachment.VolumeID,
+			InstanceID:   vol.Attachment.InstanceID,
+			Device:       vol.Attachment.Device,
+			State:        vol.Attachment.State,
+			AttachTime:   vol.Attachment.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+			EbsCardIndex: vol.Attachment.EbsCardIndex,
 		}
 	}
 
@@ -770,7 +790,16 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 		return nil, err
 	}
 
-	vol, err := h.Backend.CreateVolume(az, volType, size, snapshotID)
+	var initRate int32
+	if v := vals.Get("VolumeInitializationRate"); v != "" {
+		n, parseErr := strconv.ParseInt(v, 10, 32)
+		if parseErr != nil {
+			return nil, fmt.Errorf("%w: VolumeInitializationRate must be an integer", ErrInvalidParameter)
+		}
+		initRate = int32(n)
+	}
+
+	vol, err := h.Backend.CreateVolume(az, volType, size, snapshotID, initRate)
 	if err != nil {
 		return nil, err
 	}
@@ -805,20 +834,21 @@ func (h *Handler) handleCreateVolume(vals url.Values, reqID string) (any, error)
 	}
 
 	return &createVolumeResponse{
-		Xmlns:      ec2XMLNS,
-		RequestID:  reqID,
-		VolumeID:   vol.ID,
-		Size:       vol.Size,
-		AZ:         vol.AZ,
-		VolumeType: vol.VolumeType,
-		State:      vol.State,
-		CreateTime: vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
-		Encrypted:  vol.Encrypted,
-		KmsKeyID:   vol.KmsKeyID,
-		SnapshotID: vol.SnapshotID,
-		Iops:       vol.Iops,
-		Throughput: vol.Throughput,
-		TagSet:     tagItemsFromMap(h.Backend.TagsForResource(vol.ID)),
+		Xmlns:                    ec2XMLNS,
+		RequestID:                reqID,
+		VolumeID:                 vol.ID,
+		Size:                     vol.Size,
+		AZ:                       vol.AZ,
+		VolumeType:               vol.VolumeType,
+		State:                    vol.State,
+		CreateTime:               vol.CreateTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		Encrypted:                vol.Encrypted,
+		KmsKeyID:                 vol.KmsKeyID,
+		SnapshotID:               vol.SnapshotID,
+		Iops:                     vol.Iops,
+		Throughput:               vol.Throughput,
+		VolumeInitializationRate: vol.VolumeInitializationRate,
+		TagSet:                   tagItemsFromMap(h.Backend.TagsForResource(vol.ID)),
 	}, nil
 }
 
@@ -871,19 +901,29 @@ func (h *Handler) handleAttachVolume(vals url.Values, reqID string) (any, error)
 		return nil, fmt.Errorf("%w: VolumeId and InstanceId are required", ErrInvalidParameter)
 	}
 
-	att, err := h.Backend.AttachVolume(volumeID, instanceID, device)
+	var ebsCardIndex int32
+	if v := vals.Get("EbsCardIndex"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("%w: EbsCardIndex must be an integer", ErrInvalidParameter)
+		}
+		ebsCardIndex = int32(n)
+	}
+
+	att, err := h.Backend.AttachVolume(volumeID, instanceID, device, ebsCardIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	return &attachVolumeResponse{
-		Xmlns:      ec2XMLNS,
-		RequestID:  reqID,
-		VolumeID:   att.VolumeID,
-		InstanceID: att.InstanceID,
-		Device:     att.Device,
-		State:      att.State,
-		AttachTime: att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		Xmlns:        ec2XMLNS,
+		RequestID:    reqID,
+		VolumeID:     att.VolumeID,
+		InstanceID:   att.InstanceID,
+		Device:       att.Device,
+		State:        att.State,
+		AttachTime:   att.AttachTime.UTC().Format("2006-01-02T15:04:05.000Z"),
+		EbsCardIndex: att.EbsCardIndex,
 	}, nil
 }
 

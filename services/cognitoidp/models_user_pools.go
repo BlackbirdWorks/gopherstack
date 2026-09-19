@@ -49,14 +49,15 @@ type PoolMetrics struct {
 
 // UserPoolOptions holds optional parameters for CreateUserPoolWithOpts.
 type UserPoolOptions struct {
-	LambdaConfig           map[string]any  `json:"lambdaConfig,omitempty"`
-	EmailConfiguration     map[string]any  `json:"emailConfiguration,omitempty"`
-	AccountRecoverySetting map[string]any  `json:"accountRecoverySetting,omitempty"`
-	PasswordPolicy         *PasswordPolicy `json:"passwordPolicy,omitempty"`
-	SignInPolicy           *SignInPolicy   `json:"signInPolicy,omitempty"`
-	DeletionProtection     string          `json:"deletionProtection,omitempty"`
-	MfaConfiguration       string          `json:"mfaConfiguration,omitempty"`
-	AutoVerifiedAttributes []string        `json:"autoVerifiedAttributes,omitempty"`
+	LambdaConfig           map[string]any    `json:"lambdaConfig,omitempty"`
+	EmailConfiguration     map[string]any    `json:"emailConfiguration,omitempty"`
+	AccountRecoverySetting map[string]any    `json:"accountRecoverySetting,omitempty"`
+	PasswordPolicy         *PasswordPolicy   `json:"passwordPolicy,omitempty"`
+	SignInPolicy           *SignInPolicy     `json:"signInPolicy,omitempty"`
+	DeletionProtection     string            `json:"deletionProtection,omitempty"`
+	MfaConfiguration       string            `json:"mfaConfiguration,omitempty"`
+	AutoVerifiedAttributes []string          `json:"autoVerifiedAttributes,omitempty"`
+	Schema                 []SchemaAttribute `json:"schema,omitempty"`
 }
 
 // UserPoolMfaFullConfig holds the complete MFA configuration for a pool.
@@ -120,6 +121,7 @@ type createUserPoolWithOptsInput struct {
 	MfaConfiguration       string                 `json:"MfaConfiguration,omitempty"`
 	DeletionProtection     string                 `json:"DeletionProtection,omitempty"`
 	AutoVerifiedAttributes []string               `json:"AutoVerifiedAttributes,omitempty"`
+	Schema                 []SchemaAttribute      `json:"Schema,omitempty"`
 }
 
 type userPoolPoliciesInput struct {

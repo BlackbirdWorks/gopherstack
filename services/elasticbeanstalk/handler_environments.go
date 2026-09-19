@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -610,10 +611,10 @@ func (h *Handler) handleComposeEnvironments(ctx context.Context, vals url.Values
 // describeEnvironmentHealthResponse is the XML response for DescribeEnvironmentHealth.
 type describeEnvironmentHealthResult struct {
 	EnvironmentName string `xml:"EnvironmentName"`
-	HealthStatus    string `xml:"HealthStatus"`
-	Status          string `xml:"Status"`
-	Color           string `xml:"Color"`
-	RefreshedAt     string `xml:"RefreshedAt"`
+	HealthStatus    string `xml:"HealthStatus,omitempty"`
+	Status          string `xml:"Status,omitempty"`
+	Color           string `xml:"Color,omitempty"`
+	RefreshedAt     string `xml:"RefreshedAt,omitempty"`
 }
 
 type describeEnvironmentHealthResponse struct {
@@ -651,16 +652,38 @@ func (h *Handler) handleDescribeEnvironmentHealth(ctx context.Context, vals url.
 		return nil, err
 	}
 
+	result := describeEnvironmentHealthResult{EnvironmentName: envName}
+
+	// AttributeNames.member (real DescribeEnvironmentHealthInput member):
+	// "If no attribute names are specified, returns [only] the name of the
+	// environment" -- confirmed against api_op_DescribeEnvironmentHealth.go.
+	// ApplicationMetrics/Causes/InstancesHealth are never populated (see
+	// PARITY.md items_still_open): no request-metrics or per-instance health
+	// data is modeled by this backend at all.
+	attrs := parseMembers(vals, "AttributeNames.member")
+	wantsAll := slices.Contains(attrs, "All")
+	wants := func(attr string) bool { return wantsAll || slices.Contains(attrs, attr) }
+
+	if wants("HealthStatus") {
+		result.HealthStatus = envHealthStatusOk
+	}
+
+	if wants("Status") {
+		result.Status = status
+	}
+
+	if wants("Color") {
+		result.Color = healthColorGreen
+	}
+
+	if wants("RefreshedAt") {
+		result.RefreshedAt = healthRefreshedAt
+	}
+
 	return &describeEnvironmentHealthResponse{
-		Xmlns: ebXMLNS,
-		DescribeEnvironmentHealthResult: describeEnvironmentHealthResult{
-			EnvironmentName: envName,
-			HealthStatus:    envHealthStatusOk,
-			Status:          status,
-			Color:           healthColorGreen,
-			RefreshedAt:     healthRefreshedAt,
-		},
-		ResponseMetadata: responseMetadata{RequestID: "eb-describe-env-health"},
+		Xmlns:                           ebXMLNS,
+		DescribeEnvironmentHealthResult: result,
+		ResponseMetadata:                responseMetadata{RequestID: "eb-describe-env-health"},
 	}, nil
 }
 

@@ -215,7 +215,7 @@ func (h *Handler) handleListOptimizationJobs(ctx context.Context, body []byte) (
 
 	items := make([]map[string]any, 0, len(jobs))
 	for _, j := range jobs {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			"OptimizationJobName":    j.OptimizationJobName,
 			"OptimizationJobArn":     j.OptimizationJobArn,
 			"OptimizationJobStatus":  j.OptimizationJobStatus,
@@ -223,7 +223,12 @@ func (h *Handler) handleListOptimizationJobs(ctx context.Context, body []byte) (
 			"OptimizationTypes":      optimizationTypesOf(j.OptimizationConfigs),
 			keyCreationTime:          epochSeconds(j.CreationTime),
 			keyLastModifiedTime:      epochSeconds(j.LastModifiedTime),
-		})
+		}
+		if j.MaxInstanceCount > 0 {
+			item["MaxInstanceCount"] = j.MaxInstanceCount
+		}
+
+		items = append(items, item)
 	}
 
 	return listResp("OptimizationJobSummaries", items, nextToken)

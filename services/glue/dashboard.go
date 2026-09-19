@@ -88,6 +88,8 @@ func (b *InMemoryBackend) GetDashboardURL(resourceID, resourceType, requestOrigi
 // URL/token are deterministic mock values (same modeling choice as
 // GetDashboardURL above), but the existence and state checks are real.
 func (b *InMemoryBackend) GetSessionEndpoint(sessionID string) (*SessionEndpoint, error) {
+	b.advanceStates(time.Now())
+
 	b.mu.RLock("GetSessionEndpoint")
 	defer b.mu.RUnlock()
 

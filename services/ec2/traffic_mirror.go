@@ -199,8 +199,13 @@ func (b *InMemoryBackend) DescribeTrafficMirrorFilterRules(filterID string) ([]*
 	return result, nil
 }
 
+// ModifyTrafficMirrorFilterRule updates a Traffic Mirror filter rule.
+// removeFields is an optional trailing arg listing
+// TrafficMirrorFilterRuleField values (api_op_ModifyTrafficMirrorFilterRule.go:
+// "When you remove a property ... the property is set to the default") --
+// variadic to stay back-compatible with existing call sites.
 func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(
-	id, action, description string,
+	id, action, description string, removeFields ...string,
 ) (*TrafficMirrorFilterRule, error) {
 	b.mu.Lock("ModifyTrafficMirrorFilterRule")
 	defer b.mu.Unlock()
@@ -216,6 +221,19 @@ func (b *InMemoryBackend) ModifyTrafficMirrorFilterRule(
 
 	if description != "" {
 		rule.Description = description
+	}
+
+	for _, f := range removeFields {
+		switch f {
+		case "destination-port-range":
+			rule.DestinationPortRange = nil
+		case "source-port-range":
+			rule.SourcePortRange = nil
+		case "protocol":
+			rule.Protocol = 0
+		case "description":
+			rule.Description = ""
+		}
 	}
 
 	cp := *rule
@@ -303,8 +321,13 @@ func (b *InMemoryBackend) DescribeTrafficMirrorSessions(ids []string) []*Traffic
 	return result
 }
 
+// ModifyTrafficMirrorSession updates a Traffic Mirror session. removeFields
+// is an optional trailing arg listing TrafficMirrorSessionField values
+// (api_op_ModifyTrafficMirrorSession.go: "When you remove a property ...
+// the property is set to the default") -- variadic to stay back-compatible
+// with existing call sites.
 func (b *InMemoryBackend) ModifyTrafficMirrorSession(
-	id, targetID, filterID, description string,
+	id, targetID, filterID, description string, removeFields ...string,
 ) (*TrafficMirrorSession, error) {
 	b.mu.Lock("ModifyTrafficMirrorSession")
 	defer b.mu.Unlock()
@@ -324,6 +347,17 @@ func (b *InMemoryBackend) ModifyTrafficMirrorSession(
 
 	if description != "" {
 		s.Description = description
+	}
+
+	for _, f := range removeFields {
+		switch f {
+		case "packet-length":
+			s.PacketLength = 0
+		case "description":
+			s.Description = ""
+		case "virtual-network-id":
+			s.VirtualNetworkID = trafficMirrorSessionVNI(id)
+		}
 	}
 
 	cp := *s

@@ -111,9 +111,15 @@ func (h *Handler) handleListAPIKeys(ctx context.Context, body []byte) ([]byte, e
 	items := make([]map[string]any, 0, len(page))
 
 	for _, k := range page {
+		// APIKeySummary (types.go) has no Scope member -- the real deserializer
+		// (awsAwsjson11_deserializeDocumentAPIKeySummary) silently drops it, so
+		// emitting it here was a harmless-looking leak. Version (int32,
+		// "Internal value used by WAF to manage the key") IS a real member but
+		// has no backend analog -- there is no UpdateAPIKey op and nothing else
+		// tracks a per-key version, so it stays unsourced rather than fabricated
+		// (see PARITY.md).
 		items = append(items, map[string]any{
 			"APIKey":            base64.StdEncoding.EncodeToString([]byte(k.APIKeyValue)),
-			keyScope:            k.Scope,
 			"TokenDomains":      k.TokenDomains,
 			"CreationTimestamp": k.CreatedAt,
 		})
@@ -161,9 +167,10 @@ func (h *Handler) handleGetDecryptedAPIKey(ctx context.Context, body []byte) ([]
 		return nil, err
 	}
 
+	// GetDecryptedAPIKeyOutput has no Scope member either (same shape family
+	// as APIKeySummary above) -- dropped as a leak found alongside it.
 	return json.Marshal(map[string]any{
 		"TokenDomains":      a.TokenDomains,
-		keyScope:            a.Scope,
 		"CreationTimestamp": a.CreatedAt,
 	})
 }

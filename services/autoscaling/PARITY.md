@@ -1,8 +1,8 @@
 ---
 service: autoscaling
 sdk_module: aws-sdk-go-v2/service/autoscaling@v1.70.4
-last_audit_commit: 1c4ee34e
-last_audit_date: 2026-07-23
+last_audit_commit: 302aa4e3c  # zeroguard: UpdateAutoScalingGroup form-field omitted-member fix
+last_audit_date: 2026-09-18
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (autoscaling@v1.70.4 deserializers.go,
 # 66/67 ops N-of-N). Handler.autoscalingErrorCode is one global sentinel
@@ -77,7 +77,7 @@ ops:
   CompleteLifecycleAction: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: previously only stopped a timer that was never created anywhere (dead code) and had zero effect on instance state. Now resolves a real pending lifecycle wait (Pending:Wait/Terminating:Wait -> actual transition), looked up by token OR by (group,hook,instance). This pass (bd gopherstack-2uti): ABANDON on a launching hook now terminates AND relaunches a replacement to restore DesiredCapacity (see Notes) - previously it terminated with no replacement, silently leaving the group under capacity"}
   CreateOrUpdateTags: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok}
-  SetDesiredCapacity: {wire: ok, errors: ok, state: ok, persist: ok, note: "scale-out path gates new instances through an active launch hook. This pass: scale-in path now also gates removed instances through an active terminating hook (was previously immediate regardless of hooks; closes bd gopherstack-9wo) via the new applyScaleIn/terminationCapacityPreset machinery - see Notes"}
+  SetDesiredCapacity: {wire: ok, errors: ok, state: ok, persist: ok, note: "scale-out path gates new instances through an active launch hook. Scale-in path also gates removed instances through an active terminating hook via applyScaleIn/terminationCapacityPreset (closed bd gopherstack-9wo). This pass (2026-09-17, gopherstack-xhu2t): HonorCooldown now honored against DefaultCooldown/LastScalingActivity, rejecting ScalingActivityInProgress mid-cooldown instead of accepting and ignoring the flag - see Notes"}
   TerminateInstanceInAutoScalingGroup: {wire: ok, errors: ok, state: ok, persist: ok, note: "CRITICAL fix: now defers actual removal to Terminating:Wait + CompleteLifecycleAction/timeout when a terminating hook is registered, instead of always terminating instantly; also fixed the replacement-instance path never adding the new instance to instanceIndex"}
   PutLifecycleHook: {wire: ok, errors: ok, state: ok, persist: ok, note: "fixed: NotificationMetadata was never parsed from the request"}
   DescribeLifecycleHooks: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -149,6 +149,25 @@ leaks: {status: clean, note: "go test -race passes (verified this pass). The pen
 Protocol: EC2 Auto Scaling uses the `query` (form-urlencoded request, XML response)
 protocol, `Version=2011-01-01`. Verified against the awsquery serializers/deserializers
 in `aws-sdk-go-v2/service/autoscaling@v1.64.2`.
+
+### 2026-09-18 zeroguard: UpdateAutoScalingGroup form-field omitted-member fix
+
+LaunchConfigurationName, VPCZoneIdentifier, Context, DesiredCapacityType and
+HealthCheckType read via `vals.Get` alone, so an omitted form key and one
+sent empty were indistinguishable (form-encoded: "omitted" means the key is
+absent, not that `Get` returns ""). Changed to `*string` via the existing
+`formStringOrNil` helper (already used for PlacementGroup), matching that
+precedent. AutoScalingGroupName stays plain string: required lookup
+identifier, never written back. Rows 11 -> 1.
+
+### 2026-09-17 (bd gopherstack-xhu2t): reqfielddiff cleanup
+
+`SetDesiredCapacity` gained `HonorCooldown`, gated on `DefaultCooldown`/
+`LastScalingActivity` (`ExecutePolicy`'s shape), rejecting `ScalingActivityInProgress`
+mid-cooldown. Also wired `ServiceLinkedRoleARN`, `IncludeInstances`,
+`WaitForTransitioningInstances`, `RetryStrategy` validation, `EstimatedInstanceWarmup`/
+`Enabled`, and warm-pool `InstanceReusePolicy.ReuseOnScaleIn` - each verified on the wire
+and proven via a real SDK client test. reqfielddiff tier-1: 10 -> 2, both tool false positives.
 
 ### bd gopherstack-2uti (2026-08-08): PredictiveScalingConfiguration, InstanceRequirements, ABANDON auto-relaunch
 

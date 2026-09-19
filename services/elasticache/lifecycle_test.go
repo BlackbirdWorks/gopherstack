@@ -71,7 +71,7 @@ func clusterOps() lifecycleOps {
 			})
 		},
 		modify: func(ctx context.Context, b *elasticache.InMemoryBackend) error {
-			_, err := b.ModifyCluster(ctx, "lc-cluster", "cache.t3.small", "", "", "", "", 0)
+			_, err := b.ModifyCluster(ctx, "lc-cluster", "cache.t3.small", "", "", "", "", 0, nil)
 
 			return err
 		},
@@ -124,7 +124,7 @@ func serverlessOps() lifecycleOps {
 			return err
 		},
 		delete: func(ctx context.Context, b *elasticache.InMemoryBackend) error {
-			_, err := b.DeleteServerlessCache(ctx, "lc-sc")
+			_, err := b.DeleteServerlessCache(ctx, "lc-sc", "")
 
 			return err
 		},

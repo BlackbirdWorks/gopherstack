@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/labstack/echo/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -206,7 +207,9 @@ func schemasBatch2Setup(t *testing.T, registryName, schemaName string, extraVers
 		_, err = b.UpdateSchema(context.Background(), eventbridge.UpdateSchemaInput{
 			RegistryName: registryName,
 			SchemaName:   schemaName,
-			Content:      `{"openapi":"3.0.0","info":{"title":"S","version":"` + string(rune('2'+i)) + `"},"paths":{}}`,
+			Content: aws.String(
+				`{"openapi":"3.0.0","info":{"title":"S","version":"` + string(rune('2'+i)) + `"},"paths":{}}`,
+			),
 		})
 		require.NoError(t, err)
 	}

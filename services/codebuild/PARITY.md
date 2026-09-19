@@ -1005,3 +1005,47 @@ clean. `go test -race -count=1 ./services/codebuild/...` and
 ./cmd/paritylint` stayed at 0 FAIL (missing-items-still-open) throughout. No
 version bump; no `items_still_open` changes needed (the one bug found was
 fixed outright, not disclosed as a new gap).
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields. Three were false positives,
+already declared and applied: `CreateProject.SourceVersion`/
+`UpdateProject.SourceVersion` (handler_projects.go, projects.go:215-216) and
+`CreateProject.TimeoutInMinutes` (handler_projects.go:31, projects.go:246-247).
+
+The other four were real:
+
+- `ImportSourceCredentials.ShouldOverwrite`: decoded nowhere before this
+  pass, so any value (including the real default of `true`) had no effect
+  -- a re-import for a serverType that already had stored credentials always
+  silently overwrote them. Now decoded and enforced:
+  `ShouldOverwrite=false` against an existing serverType credential rejects
+  with `ResourceAlreadyExistsException` (`ErrAlreadyExists`); unset or
+  `true` still overwrites, matching the real documented default.
+- `DescribeTestCases.MaxResults`/`NextToken`, `ListSharedProjects.
+  MaxResults`, `ListSharedReportGroups.MaxResults`: none of the three input
+  structs decoded pagination at all. All three operate over lists this
+  backend can never grow past zero/one page today (no test-case-content
+  ingestion pipeline for DescribeTestCases; no cross-account resource-
+  sharing model at all for the two ListShared* ops -- both pre-existing,
+  disclosed gaps, see `items_still_open`/the `ListSharedProjects`/
+  `ListSharedReportGroups` op rows above), so truncation itself can't be
+  demonstrated with real data. Wired anyway (via the existing
+  `paginateIDs`/new `paginateTestCases` helpers in pagination.go) because
+  the fields are real, and correctly proven via the other observable
+  effect available: a malformed `NextToken` is now rejected
+  (`page.ValidateToken`) instead of being silently ignored, which was the
+  actual pre-fix behavior for all three.
+
+New tests: `TestImportSourceCredentials_ShouldOverwrite` and
+`TestPaginationParams_HonourMalformedNextToken` (table-driven, covering all
+three pagination ops) in
+realclient_fleet_build_and_report_management_test.go, driven through the
+real `aws-sdk-go-v2/service/codebuild` client.
+
+Gates: `go build ./...` (whole module) clean; `go vet
+./services/codebuild/...` clean; `go test -race -count=1 -p 2
+./services/codebuild/...` `ok`; `golangci-lint run --concurrency 2
+--new-from-rev=HEAD ./services/codebuild/...` 0 issues; `go run
+./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
+no version bump.

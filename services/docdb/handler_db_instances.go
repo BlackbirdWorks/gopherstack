@@ -18,8 +18,10 @@ func (h *Handler) handleCreateDBInstance(ctx context.Context, vals url.Values) (
 	}
 	tags := parseTags(vals)
 	opts := &CreateDBInstanceOptions{
-		CACertificateIdentifier: vals.Get("CACertificateIdentifier"),
-		CopyTagsToSnapshot:      vals.Get("CopyTagsToSnapshot") == stringTrue,
+		CACertificateIdentifier:     vals.Get("CACertificateIdentifier"),
+		PerformanceInsightsKMSKeyID: vals.Get("PerformanceInsightsKMSKeyId"),
+		CopyTagsToSnapshot:          vals.Get("CopyTagsToSnapshot") == stringTrue,
+		EnablePerformanceInsights:   vals.Get("EnablePerformanceInsights") == stringTrue,
 	}
 	inst, err := h.Backend.CreateDBInstance(ctx, id, clusterID, instanceClass, engine, promotionTier, tags, opts)
 	if err != nil {
@@ -79,8 +81,12 @@ func (h *Handler) handleModifyDBInstance(ctx context.Context, vals url.Values) (
 	preferredMaintenanceWindow := vals.Get("PreferredMaintenanceWindow")
 
 	opts := &ModifyDBInstanceOptions{
-		CACertificateIdentifier: vals.Get("CACertificateIdentifier"),
-		CopyTagsToSnapshot:      parseBoolParam(vals, "CopyTagsToSnapshot"),
+		CACertificateIdentifier:     vals.Get("CACertificateIdentifier"),
+		PerformanceInsightsKMSKeyID: vals.Get("PerformanceInsightsKMSKeyId"),
+		CopyTagsToSnapshot:          parseBoolParam(vals, "CopyTagsToSnapshot"),
+		EnablePerformanceInsights:   parseBoolParam(vals, "EnablePerformanceInsights"),
+		ApplyImmediately:            vals.Get("ApplyImmediately") == stringTrue,
+		CertificateRotationRestart:  vals.Get("CertificateRotationRestart") == stringTrue,
 	}
 	if ptStr := vals.Get("PromotionTier"); ptStr != "" {
 		pt, _ := strconv.Atoi(ptStr)
@@ -138,9 +144,12 @@ func (h *Handler) handleDescribeOrderableDBInstanceOptions(vals url.Values) (any
 		members = append(members, opt)
 	}
 
+	members, nextMarker := applyDocDBMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
+
 	return &describeOrderableDBInstanceOptionsResponse{
 		Xmlns: docdbXMLNS,
 		Result: describeOrderableDBInstanceOptionsResult{
+			Marker:                     nextMarker,
 			OrderableDBInstanceOptions: xmlOrderableDBInstanceOptionList{Members: members},
 		},
 	}, nil
@@ -170,6 +179,8 @@ func toXMLInstance(inst *DBInstance) xmlDBInstance {
 		CACertificateIdentifier:      inst.CACertificateIdentifier,
 		CopyTagsToSnapshot:           inst.CopyTagsToSnapshot,
 		InstanceCreateTime:           inst.InstanceCreateTime,
+		PerformanceInsightsKMSKeyID:  inst.PerformanceInsightsKMSKeyID,
+		PerformanceInsightsEnabled:   inst.PerformanceInsightsEnabled,
 		EnabledCloudwatchLogsExports: xmlLogTypeList{Members: logTypes},
 	}
 }
@@ -188,11 +199,13 @@ type xmlDBInstance struct {
 	PreferredMaintenanceWindow   string         `xml:"PreferredMaintenanceWindow,omitempty"`
 	CACertificateIdentifier      string         `xml:"CACertificateIdentifier,omitempty"`
 	InstanceCreateTime           string         `xml:"InstanceCreateTime,omitempty"`
+	PerformanceInsightsKMSKeyID  string         `xml:"PerformanceInsightsKMSKeyId,omitempty"`
 	EnabledCloudwatchLogsExports xmlLogTypeList `xml:"EnabledCloudwatchLogsExports"`
 	StorageEncrypted             bool           `xml:"StorageEncrypted"`
 	AutoMinorVersionUpgrade      bool           `xml:"AutoMinorVersionUpgrade"`
 	PubliclyAccessible           bool           `xml:"PubliclyAccessible"`
 	CopyTagsToSnapshot           bool           `xml:"CopyTagsToSnapshot"`
+	PerformanceInsightsEnabled   bool           `xml:"PerformanceInsightsEnabled"`
 	Port                         int            `xml:"Endpoint>Port"`
 	PromotionTier                int            `xml:"PromotionTier"`
 }
@@ -247,6 +260,7 @@ type xmlOrderableDBInstanceOptionList struct {
 }
 
 type describeOrderableDBInstanceOptionsResult struct {
+	Marker                     string                           `xml:"Marker,omitempty"`
 	OrderableDBInstanceOptions xmlOrderableDBInstanceOptionList `xml:"OrderableDBInstanceOptions"`
 }
 

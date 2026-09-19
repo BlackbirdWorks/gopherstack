@@ -52,7 +52,7 @@ func TestIntegration_CRUD(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, "OPENSEARCH", got.Type)
 
-				igs := b.ListIntegrations()
+				igs := b.ListIntegrations("", "", "")
 				require.Len(t, igs, 1)
 
 				err = b.DeleteIntegration("my-opensearch")
@@ -73,10 +73,39 @@ func TestIntegration_CRUD(t *testing.T) {
 			},
 			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
 				t.Helper()
-				igs := b.ListIntegrations()
+				igs := b.ListIntegrations("", "", "")
 				require.Len(t, igs, 2)
 				assert.Equal(t, "a-integration", igs[0].Name)
 				assert.Equal(t, "z-integration", igs[1].Name)
+			},
+		},
+		{
+			name: "list_filters_by_name_prefix_status_and_type",
+			setup: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+				_, err := b.PutIntegration("prod-search", "OPENSEARCH", validOpenSearchResourceConfig())
+				require.NoError(t, err)
+				_, err = b.PutIntegration("dev-search", "OPENSEARCH", validOpenSearchResourceConfig())
+				require.NoError(t, err)
+			},
+			verify: func(t *testing.T, b *cloudwatchlogs.InMemoryBackend) {
+				t.Helper()
+
+				byPrefix := b.ListIntegrations("prod-", "", "")
+				require.Len(t, byPrefix, 1)
+				assert.Equal(t, "prod-search", byPrefix[0].Name)
+
+				byStatus := b.ListIntegrations("", "ACTIVE", "")
+				assert.Len(t, byStatus, 2)
+
+				byWrongStatus := b.ListIntegrations("", "CREATING", "")
+				assert.Empty(t, byWrongStatus)
+
+				byType := b.ListIntegrations("", "", "OPENSEARCH")
+				assert.Len(t, byType, 2)
+
+				byWrongType := b.ListIntegrations("", "", "S3")
+				assert.Empty(t, byWrongType)
 			},
 		},
 		{

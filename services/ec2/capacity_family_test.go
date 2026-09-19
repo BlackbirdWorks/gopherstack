@@ -239,7 +239,7 @@ func TestCapacityReservationSplittingAndMove(t *testing.T) {
 
 	bk := newTestBackend()
 
-	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 10, nil)
+	src, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
 	dst, srcAfter, err := bk.CreateCapacityReservationBySplitting(src.CapacityReservationID, 4, nil)
@@ -275,7 +275,7 @@ func TestCapacityReservationBillingOwner_Lifecycle(t *testing.T) {
 
 	bk := newTestBackend()
 
-	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", 1, nil)
+	cr, err := bk.CreateCapacityReservation("m5.xlarge", "us-east-1a", "open", "default", 1, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, bk.AssociateCapacityReservationBillingOwner(cr.CapacityReservationID, "111111111111"))
@@ -426,10 +426,10 @@ func TestInterruptibleCapacityReservationAllocation(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
-	alloc, err := b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 4)
+	alloc, err := b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, "", 4)
 	require.NoError(t, err)
 	assert.Equal(t, int32(4), alloc.TargetInstanceCount)
 	assert.Equal(t, "active", alloc.Status)
@@ -438,7 +438,7 @@ func TestInterruptibleCapacityReservationAllocation(t *testing.T) {
 	require.Len(t, crs, 1)
 	assert.Equal(t, 6, crs[0].AvailableInstanceCount)
 
-	updated, err := b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 6)
+	updated, err := b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, "", 6)
 	require.NoError(t, err)
 	assert.Equal(t, int32(6), updated.TargetInstanceCount)
 
@@ -446,13 +446,13 @@ func TestInterruptibleCapacityReservationAllocation(t *testing.T) {
 	require.Len(t, crs, 1)
 	assert.Equal(t, 4, crs[0].AvailableInstanceCount)
 
-	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 100)
+	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, "", 100)
 	require.ErrorIs(t, err, ec2.ErrCapacityReservationFull)
 
-	_, err = b.UpdateInterruptibleCapacityReservationAllocation("cr-missing", 1)
+	_, err = b.UpdateInterruptibleCapacityReservationAllocation("cr-missing", "", 1)
 	require.ErrorIs(t, err, ec2.ErrCapacityReservationNotFound)
 
-	_, err = b.CreateInterruptibleCapacityReservationAllocation("cr-missing", 1)
+	_, err = b.CreateInterruptibleCapacityReservationAllocation("cr-missing", "", 1)
 	require.ErrorIs(t, err, ec2.ErrCapacityReservationNotFound)
 }
 
@@ -461,10 +461,10 @@ func TestUpdateInterruptibleAllocationNotFound(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
-	_, err = b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 5)
+	_, err = b.UpdateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, "", 5)
 	require.ErrorIs(t, err, ec2.ErrInterruptibleAllocationNotFound)
 }
 
@@ -473,7 +473,7 @@ func TestGetCapacityReservationUsage(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
 	instances, err := b.RunInstances("ami-test", "m5.large", "", 2)
@@ -491,7 +491,7 @@ func TestGetCapacityReservationUsage(t *testing.T) {
 	assert.Equal(t, int32(2), usage.InstanceUsages[0].UsedInstanceCount)
 	assert.False(t, usage.Interruptible)
 
-	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, 3)
+	_, err = b.CreateInterruptibleCapacityReservationAllocation(cr.CapacityReservationID, "", 3)
 	require.NoError(t, err)
 
 	usage, err = b.GetCapacityReservationUsage(cr.CapacityReservationID)
@@ -509,7 +509,7 @@ func TestDescribeCapacityReservationTopology(t *testing.T) {
 
 	b := newTestBackend()
 
-	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", 10, nil)
+	cr, err := b.CreateCapacityReservation("m5.large", "us-east-1a", "open", "default", 10, nil)
 	require.NoError(t, err)
 
 	topo := b.DescribeCapacityReservationTopology([]string{cr.CapacityReservationID})

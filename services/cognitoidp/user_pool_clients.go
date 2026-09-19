@@ -212,6 +212,11 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		tvu = maps.Clone(opts.TokenValidityUnits)
 	}
 
+	readAttrs := make([]string, len(opts.ReadAttributes))
+	copy(readAttrs, opts.ReadAttributes)
+	writeAttrs := make([]string, len(opts.WriteAttributes))
+	copy(writeAttrs, opts.WriteAttributes)
+
 	client := &UserPoolClient{
 		ClientID:                        randomAlphanumeric(clientIDLen),
 		ClientName:                      clientName,
@@ -223,7 +228,10 @@ func (b *InMemoryBackend) CreateUserPoolClientWithOpts(
 		CallbackURLs:                    callbackURLs,
 		LogoutURLs:                      logoutURLs,
 		SupportedIdentityProviders:      supportedIDPs,
+		ReadAttributes:                  readAttrs,
+		WriteAttributes:                 writeAttrs,
 		PreventUserExistenceErrors:      preventUserExistenceErrors,
+		DefaultRedirectURI:              opts.DefaultRedirectURI,
 		AccessTokenValidity:             opts.AccessTokenValidity,
 		IDTokenValidity:                 opts.IDTokenValidity,
 		RefreshTokenValidity:            opts.RefreshTokenValidity,
@@ -282,6 +290,18 @@ func applyUserPoolClientListOpts(client *UserPoolClient, opts UserPoolClientOpti
 		copy(idps, opts.SupportedIdentityProviders)
 		client.SupportedIdentityProviders = idps
 	}
+
+	if opts.ReadAttributes != nil {
+		ra := make([]string, len(opts.ReadAttributes))
+		copy(ra, opts.ReadAttributes)
+		client.ReadAttributes = ra
+	}
+
+	if opts.WriteAttributes != nil {
+		wa := make([]string, len(opts.WriteAttributes))
+		copy(wa, opts.WriteAttributes)
+		client.WriteAttributes = wa
+	}
 }
 
 // UpdateUserPoolClientWithOpts updates app client fields including OAuth flows and scopes.
@@ -307,6 +327,10 @@ func (b *InMemoryBackend) UpdateUserPoolClientWithOpts(
 
 	if clientName != "" {
 		client.ClientName = clientName
+	}
+
+	if opts.DefaultRedirectURI != "" {
+		client.DefaultRedirectURI = opts.DefaultRedirectURI
 	}
 
 	applyUserPoolClientListOpts(client, opts)

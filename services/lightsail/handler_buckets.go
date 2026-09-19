@@ -19,19 +19,20 @@ func (h *Handler) bucketOps() map[string]opFunc {
 }
 
 type bucketWire struct {
-	State                  *bucketStateWire      `json:"state,omitempty"`
-	CreatedAt              *float64              `json:"createdAt,omitempty"`
-	Location               *resourceLocationWire `json:"location,omitempty"`
-	Arn                    string                `json:"arn,omitempty"`
-	BundleID               string                `json:"bundleId,omitempty"`
-	Name                   string                `json:"name,omitempty"`
-	ObjectVersioning       string                `json:"objectVersioning,omitempty"`
-	ResourceType           string                `json:"resourceType,omitempty"`
-	SupportCode            string                `json:"supportCode,omitempty"`
-	URL                    string                `json:"url,omitempty"`
-	ReadonlyAccessAccounts []string              `json:"readonlyAccessAccounts,omitempty"`
-	Tags                   []tagWire             `json:"tags,omitempty"`
-	AbleToUpdateBundle     bool                  `json:"ableToUpdateBundle,omitempty"`
+	State                    *bucketStateWire              `json:"state,omitempty"`
+	CreatedAt                *float64                      `json:"createdAt,omitempty"`
+	Location                 *resourceLocationWire         `json:"location,omitempty"`
+	Arn                      string                        `json:"arn,omitempty"`
+	BundleID                 string                        `json:"bundleId,omitempty"`
+	Name                     string                        `json:"name,omitempty"`
+	ObjectVersioning         string                        `json:"objectVersioning,omitempty"`
+	ResourceType             string                        `json:"resourceType,omitempty"`
+	SupportCode              string                        `json:"supportCode,omitempty"`
+	URL                      string                        `json:"url,omitempty"`
+	ReadonlyAccessAccounts   []string                      `json:"readonlyAccessAccounts,omitempty"`
+	ResourcesReceivingAccess []resourceReceivingAccessWire `json:"resourcesReceivingAccess,omitempty"`
+	Tags                     []tagWire                     `json:"tags,omitempty"`
+	AbleToUpdateBundle       bool                          `json:"ableToUpdateBundle,omitempty"`
 }
 
 type bucketStateWire struct {
@@ -39,21 +40,41 @@ type bucketStateWire struct {
 	Message string `json:"message,omitempty"`
 }
 
+// resourceReceivingAccessWire mirrors types.ResourceReceivingAccess.
+type resourceReceivingAccessWire struct {
+	Name         string `json:"name,omitempty"`
+	ResourceType string `json:"resourceType,omitempty"`
+}
+
+func resourcesReceivingAccessToWire(in []ResourceReceivingAccess) []resourceReceivingAccessWire {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]resourceReceivingAccessWire, len(in))
+	for i, r := range in {
+		out[i] = resourceReceivingAccessWire(r)
+	}
+
+	return out
+}
+
 func bucketToWire(bk *Bucket) bucketWire {
 	return bucketWire{
-		AbleToUpdateBundle:     bk.AbleToUpdateBundle,
-		Arn:                    bk.Arn,
-		BundleID:               bk.BundleID,
-		CreatedAt:              epochPtr(bk.CreatedAt),
-		Location:               locationToWire(bk.Location),
-		Name:                   bk.Name,
-		ObjectVersioning:       bk.ObjectVersioning,
-		ReadonlyAccessAccounts: bk.ReadonlyAccessAccounts,
-		ResourceType:           "Bucket",
-		State:                  &bucketStateWire{Code: bk.State, Message: bk.StateMessage},
-		SupportCode:            bk.SupportCode,
-		Tags:                   mapFromTags(bk.Tags),
-		URL:                    bk.URL,
+		AbleToUpdateBundle:       bk.AbleToUpdateBundle,
+		Arn:                      bk.Arn,
+		BundleID:                 bk.BundleID,
+		CreatedAt:                epochPtr(bk.CreatedAt),
+		Location:                 locationToWire(bk.Location),
+		Name:                     bk.Name,
+		ObjectVersioning:         bk.ObjectVersioning,
+		ReadonlyAccessAccounts:   bk.ReadonlyAccessAccounts,
+		ResourcesReceivingAccess: resourcesReceivingAccessToWire(bk.ResourcesReceivingAccess),
+		ResourceType:             "Bucket",
+		State:                    &bucketStateWire{Code: bk.State, Message: bk.StateMessage},
+		SupportCode:              bk.SupportCode,
+		Tags:                     mapFromTags(bk.Tags),
+		URL:                      bk.URL,
 	}
 }
 

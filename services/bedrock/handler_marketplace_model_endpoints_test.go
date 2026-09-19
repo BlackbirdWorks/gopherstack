@@ -190,10 +190,17 @@ func TestAccuracy_MarketplaceEndpoint_ListResponseShape(t *testing.T) {
 	for _, raw := range endpoints {
 		ep := raw.(map[string]any)
 		assert.NotEmpty(t, ep["endpointArn"])
-		assert.NotEmpty(t, ep["endpointName"])
+		assert.NotEmpty(t, ep["modelSourceIdentifier"])
 		assert.Equal(t, "Creating", ep["status"])
 		assert.NotEmpty(t, ep["createdAt"])
 		assert.NotEmpty(t, ep["updatedAt"])
+		// endpointName/endpointConfig/endpointStatus are Get-only --
+		// MarketplaceModelEndpointSummary has neither (confirmed against
+		// awsRestjson1_deserializeDocumentMarketplaceModelEndpointSummary;
+		// endpointName isn't even a real member of the Get shape either).
+		assert.NotContains(t, ep, "endpointName")
+		assert.NotContains(t, ep, "endpointConfig")
+		assert.NotContains(t, ep, "endpointStatus")
 	}
 }
 
@@ -205,17 +212,17 @@ func TestAccuracy_MarketplaceEndpoint_ListModelSourceFilter(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		query     string
-		wantNames []string
+		name         string
+		query        string
+		wantSourceEq []string
 	}{
 		{
-			name:      "matches one source",
-			query:     "?modelSourceIdentifier=src-a",
-			wantNames: []string{"ep-a"},
+			name:         "matches one source",
+			query:        "?modelSourceIdentifier=src-a",
+			wantSourceEq: []string{"src-a"},
 		},
-		{name: "matches none", query: "?modelSourceIdentifier=nonexistent-src", wantNames: nil},
-		{name: "no filter matches all", query: "", wantNames: []string{"ep-a", "ep-b"}},
+		{name: "matches none", query: "?modelSourceIdentifier=nonexistent-src", wantSourceEq: nil},
+		{name: "no filter matches all", query: "", wantSourceEq: []string{"src-a", "src-b"}},
 	}
 
 	for _, tt := range tests {
@@ -237,12 +244,12 @@ func TestAccuracy_MarketplaceEndpoint_ListModelSourceFilter(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 			endpoints := out["marketplaceModelEndpoints"].([]any)
 
-			gotNames := make([]string, 0, len(endpoints))
+			gotSources := make([]string, 0, len(endpoints))
 			for _, raw := range endpoints {
-				gotNames = append(gotNames, raw.(map[string]any)["endpointName"].(string))
+				gotSources = append(gotSources, raw.(map[string]any)["modelSourceIdentifier"].(string))
 			}
 
-			assert.ElementsMatch(t, tt.wantNames, gotNames)
+			assert.ElementsMatch(t, tt.wantSourceEq, gotSources)
 		})
 	}
 }

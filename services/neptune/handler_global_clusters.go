@@ -7,18 +7,20 @@ import (
 	"net/url"
 )
 
-func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, _ url.Values) (any, error) {
+func (h *Handler) handleDescribeGlobalClusters(ctx context.Context, vals url.Values) (any, error) {
 	gcs := h.Backend.DescribeGlobalClusters(ctx)
 	members := make([]xmlGlobalCluster, 0, len(gcs))
 	for _, gc := range gcs {
 		cp := gc
 		members = append(members, toXMLGlobalCluster(&cp))
 	}
+	members, nextMarker := applyNeptuneMarker(members, vals.Get("Marker"), vals.Get("MaxRecords"))
 
 	return &describeGlobalClustersResponse{
 		Xmlns: neptuneXMLNS,
 		Result: describeGlobalClustersResult{
 			GlobalClusters: xmlGlobalClusterList{Members: members},
+			Marker:         nextMarker,
 		},
 	}, nil
 }
@@ -142,6 +144,7 @@ func toXMLGlobalCluster(gc *GlobalCluster) xmlGlobalCluster {
 }
 
 type describeGlobalClustersResult struct {
+	Marker         string               `xml:"Marker,omitempty"`
 	GlobalClusters xmlGlobalClusterList `xml:"GlobalClusters"`
 }
 

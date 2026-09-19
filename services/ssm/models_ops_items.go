@@ -192,12 +192,12 @@ type UpdateOpsItemInput struct {
 	OperationalData  map[string]OpsItemDataValue `json:"OperationalData,omitempty"`
 	Priority         *int32                      `json:"Priority,omitempty"`
 	OpsItemID        string                      `json:"OpsItemId"`
-	OpsItemArn       string                      `json:"OpsItemArn,omitempty"`
-	Title            string                      `json:"Title,omitempty"`
-	Description      string                      `json:"Description,omitempty"`
+	OpsItemArn       *string                     `json:"OpsItemArn,omitempty"`
+	Title            *string                     `json:"Title,omitempty"`
+	Description      *string                     `json:"Description,omitempty"`
 	Status           string                      `json:"Status,omitempty"`
-	Severity         string                      `json:"Severity,omitempty"`
-	Category         string                      `json:"Category,omitempty"`
+	Severity         *string                     `json:"Severity,omitempty"`
+	Category         *string                     `json:"Category,omitempty"`
 	ActualStartTime  *float64                    `json:"ActualStartTime,omitempty"`
 	ActualEndTime    *float64                    `json:"ActualEndTime,omitempty"`
 	Notifications    []OpsItemNotification       `json:"Notifications,omitempty"`
@@ -266,12 +266,18 @@ type OpsItem struct {
 	Priority         int32                       `json:"Priority,omitempty"`
 }
 
-// OpsItemRelatedItem represents an item related to an OpsItem.
+// OpsItemRelatedItem represents an item related to an OpsItem, field-diffed
+// against types.OpsItemRelatedItemSummary (ssm@v1.77.0). CreatedBy/
+// LastModifiedBy/LastModifiedTime are not modeled -- no caller-identity
+// infra (same disclosed gap as ServiceSetting.LastModifiedUser) and no
+// update path exists for a related item once associated.
 type OpsItemRelatedItem struct {
-	AssociationID   string `json:"AssociationId"`
-	AssociationType string `json:"AssociationType"`
-	ResourceType    string `json:"ResourceType"`
-	ResourceURI     string `json:"ResourceUri"`
+	AssociationID   string  `json:"AssociationId"`
+	AssociationType string  `json:"AssociationType"`
+	OpsItemID       string  `json:"OpsItemId,omitempty"`
+	ResourceType    string  `json:"ResourceType"`
+	ResourceURI     string  `json:"ResourceUri"`
+	CreatedTime     float64 `json:"CreatedTime,omitempty"`
 }
 
 // CreateOpsItemInput is the request payload for CreateOpsItem.
@@ -356,10 +362,25 @@ type OpsSummaryValue struct {
 	Count int    `json:"Count"`
 }
 
+// OpsMetadataListItem is the narrow shape ListOpsMetadata returns, field-
+// diffed against types.OpsMetadata (ssm@v1.77.0): CreationDate,
+// LastModifiedDate, LastModifiedUser, OpsMetadataArn, ResourceId. Unlike the
+// internal OpsMetadata record, it has no Metadata field at all -- that map
+// is Get/CreateOpsMetadata-only (see GetOpsMetadataOutput's own doc
+// comment); embedding the full record here would leak it onto the wire.
+// LastModifiedUser is not modeled -- no caller-identity infra, same
+// disclosed gap as ServiceSetting.LastModifiedUser.
+type OpsMetadataListItem struct {
+	OpsMetadataArn   string  `json:"OpsMetadataArn"`
+	ResourceID       string  `json:"ResourceId"`
+	CreationDate     float64 `json:"CreationDate"`
+	LastModifiedDate float64 `json:"LastModifiedDate"`
+}
+
 // ListOpsMetadataOutputFull extends the empty output.
 type ListOpsMetadataOutputFull struct {
-	NextToken       string        `json:"NextToken,omitempty"`
-	OpsMetadataList []OpsMetadata `json:"OpsMetadataList"`
+	NextToken       string                `json:"NextToken,omitempty"`
+	OpsMetadataList []OpsMetadataListItem `json:"OpsMetadataList"`
 }
 
 // DisassociateOpsItemRelatedItemInput is the request payload.

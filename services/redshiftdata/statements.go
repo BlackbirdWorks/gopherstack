@@ -82,7 +82,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	sqls []string, clusterIdentifier, workgroupName, database, dbUser, secretARN, statementName string,
 	withEvent bool, resultFormat string,
 	parameters []SQLParameter,
-	sessionID string,
+	sessionID, executionMode string,
 ) (*Statement, error) {
 	if len(sqls) == 0 {
 		return nil, fmt.Errorf("%w: Sqls is required", ErrValidation)
@@ -101,6 +101,11 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 	// comment; BatchExecuteStatementInput.Database has the identical
 	// conditional (not hard-required) doc comment and validator absence.
 	resultFormat, err := requestedResultFormat(resultFormat)
+	if err != nil {
+		return nil, err
+	}
+
+	executionMode, err = requestedExecutionMode(executionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +151,7 @@ func (b *InMemoryBackend) BatchExecuteStatement(
 		CreatedAt:         now,
 		UpdatedAt:         now,
 		DurationMs:        1,
+		ExecutionMode:     executionMode,
 	}
 	b.storeFor(region).addStatement(stmt)
 
@@ -282,6 +288,22 @@ func requestedResultFormat(format string) (string, error) {
 		return format, nil
 	default:
 		return "", fmt.Errorf("%w: ResultFormat must be JSON or CSV", ErrValidation)
+	}
+}
+
+// requestedExecutionMode validates BatchExecuteStatementInput.ExecutionMode,
+// defaulting to TRANSACTION per its doc comment ("By default, the SQL
+// statements are run as a single transaction").
+func requestedExecutionMode(mode string) (string, error) {
+	if mode == "" {
+		return executionModeTransaction, nil
+	}
+
+	switch mode {
+	case executionModeTransaction, executionModeAutoCommit:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("%w: ExecutionMode must be TRANSACTION or AUTO_COMMIT", ErrValidation)
 	}
 }
 

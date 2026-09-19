@@ -64,7 +64,7 @@ func TestInMemoryBackend_CancelInstanceRefresh(t *testing.T) {
 				tt.setup(b)
 			}
 
-			id, err := b.CancelInstanceRefresh(tt.group)
+			id, err := b.CancelInstanceRefresh(tt.group, true)
 			if tt.wantErr {
 				require.Error(t, err)
 

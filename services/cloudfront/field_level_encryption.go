@@ -3,6 +3,7 @@ package cloudfront
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -132,6 +133,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryption(
 		Name:             name,
 		Comment:          comment,
 		ETag:             uuid.NewString(),
+		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 		QueryArgProfiles: cloneQueryArgProfiles(queryArgProfiles),
 	}
 	b.fieldLevelEncryptions.Put(fle)
@@ -203,6 +205,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryption(
 	fle.Comment = comment
 	fle.QueryArgProfiles = cloneQueryArgProfiles(queryArgProfiles)
 	fle.ETag = uuid.NewString()
+	fle.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *fle
 	cp.QueryArgProfiles = cloneQueryArgProfiles(fle.QueryArgProfiles)
 
@@ -255,6 +258,7 @@ func (b *InMemoryBackend) CreateFieldLevelEncryptionProfile(
 		Name:               name,
 		Comment:            comment,
 		ETag:               uuid.NewString(),
+		LastModifiedTime:   time.Now().UTC().Format(time.RFC3339),
 		EncryptionEntities: cloneEncryptionEntities(entities),
 		CallerReference:    callerRef,
 	}
@@ -338,6 +342,7 @@ func (b *InMemoryBackend) UpdateFieldLevelEncryptionProfile(
 	p.Comment = comment
 	p.EncryptionEntities = cloneEncryptionEntities(entities)
 	p.ETag = uuid.NewString()
+	p.LastModifiedTime = time.Now().UTC().Format(time.RFC3339)
 	cp := *p
 	cp.EncryptionEntities = cloneEncryptionEntities(p.EncryptionEntities)
 

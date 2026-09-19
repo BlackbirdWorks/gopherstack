@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	bedrockagentsdk "github.com/aws/aws-sdk-go-v2/service/bedrockagent"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockagent/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -177,4 +180,198 @@ func TestHandleDeleteAgentVersion_ConflictOverHTTP(t *testing.T) {
 		"/agents/"+agentID+"/agentversions/"+version+"?skipResourceInUseCheck=true", nil,
 	)
 	require.Equal(t, http.StatusOK, skipRec.Code, skipRec.Body.String())
+}
+
+// TestDeleteAgent_BlockedWhileAliasExists guards api_op_DeleteAgent.go's
+// documented precondition (same SkipResourceInUseCheck contract as
+// DeleteAgentVersion above): an agent with any alias is "in use" because the
+// alias always routes to a numbered snapshot of this agent
+// (CreateAgentAlias), so deleting the agent out from under it would strand
+// that reference.
+func TestDeleteAgent_BlockedWhileAliasExists(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	cases := []struct {
+		name    string
+		skip    bool
+		wantErr bool
+	}{
+		{name: "blocked by default", skip: false, wantErr: true},
+		{name: "skip flag deletes anyway", skip: true, wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrockagent.NewTestBackend("us-east-1", "123456789012")
+
+			agent, err := b.CreateAgent(ctx, bedrockagent.AgentConfig{
+				AgentName:       "in-use-agent",
+				FoundationModel: "anthropic.claude-v2",
+				RoleARN:         "arn:aws:iam::123456789012:role/BedrockRole",
+			})
+			require.NoError(t, err)
+
+			_, err = b.CreateAgentAlias(ctx, agent.AgentID, bedrockagent.AliasConfig{
+				AliasName: "in-use-alias",
+			})
+			require.NoError(t, err)
+
+			err = b.DeleteAgent(ctx, agent.AgentID, tc.skip)
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+				_, getErr := b.GetAgent(ctx, agent.AgentID)
+				assert.ErrorIs(t, getErr, bedrockagent.ErrNotFound)
+
+				return
+			}
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, bedrockagent.ErrResourceInUse)
+
+			_, getErr := b.GetAgent(ctx, agent.AgentID)
+			assert.NoError(t, getErr, "agent must survive a blocked delete")
+		})
+	}
+}
+
+// TestDeleteFlow_BlockedWhileAliasExists mirrors
+// TestDeleteAgent_BlockedWhileAliasExists for api_op_DeleteFlow.go's
+// identical skipResourceInUseCheck precondition.
+func TestDeleteFlow_BlockedWhileAliasExists(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	cases := []struct {
+		name    string
+		skip    bool
+		wantErr bool
+	}{
+		{name: "blocked by default", skip: false, wantErr: true},
+		{name: "skip flag deletes anyway", skip: true, wantErr: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := bedrockagent.NewTestBackend("us-east-1", "123456789012")
+
+			flow, err := b.CreateFlow(ctx, bedrockagent.FlowConfig{
+				Name:    "in-use-flow",
+				RoleARN: "arn:aws:iam::123456789012:role/FlowRole",
+			})
+			require.NoError(t, err)
+
+			fv, err := b.CreateFlowVersion(ctx, flow.FlowID, "")
+			require.NoError(t, err)
+
+			_, err = b.CreateFlowAlias(ctx, flow.FlowID, bedrockagent.FlowAliasConfig{
+				Name:                 "in-use-alias",
+				RoutingConfiguration: []bedrockagent.FlowAliasRouting{{FlowVersion: fv.Version}},
+			})
+			require.NoError(t, err)
+
+			err = b.DeleteFlow(ctx, flow.FlowID, tc.skip)
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+				_, getErr := b.GetFlow(ctx, flow.FlowID)
+				assert.ErrorIs(t, getErr, bedrockagent.ErrNotFound)
+
+				return
+			}
+
+			require.Error(t, err)
+			require.ErrorIs(t, err, bedrockagent.ErrResourceInUse)
+
+			_, getErr := b.GetFlow(ctx, flow.FlowID)
+			assert.NoError(t, getErr, "flow must survive a blocked delete")
+		})
+	}
+}
+
+// TestDeleteAgent_ConflictIsTypedOverSDKClient drives DeleteAgent through the
+// real aws-sdk-go-v2 client and proves the "in use" rejection decodes as the
+// SDK's own typed types.ConflictException, not a generic smithy error --
+// the observable effect a real caller's error-handling code actually
+// branches on.
+func TestDeleteAgent_ConflictIsTypedOverSDKClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	created, err := client.CreateAgent(ctx, &bedrockagentsdk.CreateAgentInput{
+		AgentName:            aws.String("typed-conflict-agent"),
+		FoundationModel:      aws.String("anthropic.claude-v2"),
+		AgentResourceRoleArn: aws.String("arn:aws:iam::123456789012:role/BedrockRole"),
+	})
+	require.NoError(t, err)
+	agentID := aws.ToString(created.Agent.AgentId)
+
+	_, err = client.CreateAgentAlias(ctx, &bedrockagentsdk.CreateAgentAliasInput{
+		AgentId:        aws.String(agentID),
+		AgentAliasName: aws.String("typed-conflict-alias"),
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteAgent(ctx, &bedrockagentsdk.DeleteAgentInput{AgentId: aws.String(agentID)})
+	require.Error(t, err)
+
+	var conflict *types.ConflictException
+	require.ErrorAs(t, err, &conflict, "want a typed ConflictException, got %T: %v", err, err)
+
+	_, err = client.DeleteAgent(ctx, &bedrockagentsdk.DeleteAgentInput{
+		AgentId:                aws.String(agentID),
+		SkipResourceInUseCheck: true,
+	})
+	require.NoError(t, err)
+}
+
+// TestDeleteFlow_ConflictIsTypedOverSDKClient mirrors
+// TestDeleteAgent_ConflictIsTypedOverSDKClient for DeleteFlow.
+func TestDeleteFlow_ConflictIsTypedOverSDKClient(t *testing.T) {
+	t.Parallel()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	created, err := client.CreateFlow(ctx, &bedrockagentsdk.CreateFlowInput{
+		Name:             aws.String("typed-conflict-flow"),
+		ExecutionRoleArn: aws.String("arn:aws:iam::123456789012:role/FlowRole"),
+	})
+	require.NoError(t, err)
+	flowID := aws.ToString(created.Id)
+
+	fv, err := client.CreateFlowVersion(
+		ctx, &bedrockagentsdk.CreateFlowVersionInput{FlowIdentifier: aws.String(flowID)},
+	)
+	require.NoError(t, err)
+
+	_, err = client.CreateFlowAlias(ctx, &bedrockagentsdk.CreateFlowAliasInput{
+		FlowIdentifier: aws.String(flowID),
+		Name:           aws.String("typed-conflict-alias"),
+		RoutingConfiguration: []types.FlowAliasRoutingConfigurationListItem{
+			{FlowVersion: fv.Version},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = client.DeleteFlow(ctx, &bedrockagentsdk.DeleteFlowInput{FlowIdentifier: aws.String(flowID)})
+	require.Error(t, err)
+
+	var conflict *types.ConflictException
+	require.ErrorAs(t, err, &conflict, "want a typed ConflictException, got %T: %v", err, err)
+
+	_, err = client.DeleteFlow(ctx, &bedrockagentsdk.DeleteFlowInput{
+		FlowIdentifier:         aws.String(flowID),
+		SkipResourceInUseCheck: true,
+	})
+	require.NoError(t, err)
 }

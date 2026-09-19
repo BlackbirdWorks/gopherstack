@@ -295,3 +295,50 @@ func TestCloudWatchHandler_PutMetricStream_WithFilters(t *testing.T) {
 	assert.Equal(t, "AWS/EC2", stream.IncludeFilters[0].Namespace)
 	assert.Equal(t, []string{"CPUUtilization"}, stream.IncludeFilters[0].MetricNames)
 }
+
+// TestCloudWatchHandler_PutMetricStream_StatisticsConfigurations covers a
+// dropped-field bug on the awsquery/form wire path: PutMetricStreamInput's
+// StatisticsConfigurations (real, required-members-Additional
+// Statistics/IncludeMetrics field) was parsed correctly on the CBOR path but
+// never read from form values at all, and GetMetricStream's XML response
+// never echoed it either -- a query-protocol caller's requested additional
+// statistics were silently dropped end to end.
+func TestCloudWatchHandler_PutMetricStream_StatisticsConfigurations(t *testing.T) {
+	t.Parallel()
+
+	h := newCWHandler()
+
+	body := strings.Join([]string{
+		"Action=PutMetricStream",
+		"Name=stats-stream",
+		"FirehoseArn=arn%3Aaws%3Afirehose%3Aus-east-1%3A123%3Adeliverystream%2Fs",
+		"RoleArn=arn%3Aaws%3Aiam%3A%3A123%3Arole%2Frole",
+		"OutputFormat=json",
+		"StatisticsConfigurations.member.1.AdditionalStatistics.member.1=p99",
+		"StatisticsConfigurations.member.1.IncludeMetrics.member.1.Namespace=AWS%2FEC2",
+		"StatisticsConfigurations.member.1.IncludeMetrics.member.1.MetricName=CPUUtilization",
+	}, "&")
+	rec := postForm(t, h, body)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	getRec := postForm(t, h, "Action=GetMetricStream&Name=stats-stream")
+	require.Equal(t, http.StatusOK, getRec.Code)
+
+	var getResp struct {
+		Result struct {
+			StatisticsConfigurations []struct {
+				AdditionalStatistics []string `xml:"AdditionalStatistics>member"`
+				IncludeMetrics       []struct {
+					Namespace  string `xml:"Namespace"`
+					MetricName string `xml:"MetricName"`
+				} `xml:"IncludeMetrics>member"`
+			} `xml:"StatisticsConfigurations>member"`
+		} `xml:"GetMetricStreamResult"`
+	}
+	require.NoError(t, xml.Unmarshal(getRec.Body.Bytes(), &getResp))
+	require.Len(t, getResp.Result.StatisticsConfigurations, 1)
+	assert.Equal(t, []string{"p99"}, getResp.Result.StatisticsConfigurations[0].AdditionalStatistics)
+	require.Len(t, getResp.Result.StatisticsConfigurations[0].IncludeMetrics, 1)
+	assert.Equal(t, "AWS/EC2", getResp.Result.StatisticsConfigurations[0].IncludeMetrics[0].Namespace)
+	assert.Equal(t, "CPUUtilization", getResp.Result.StatisticsConfigurations[0].IncludeMetrics[0].MetricName)
+}

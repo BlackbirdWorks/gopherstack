@@ -22,6 +22,10 @@ import (
 	"github.com/blackbirdworks/gopherstack/services/cloudwatchlogs"
 )
 
+// ptrLeakLogStream is the single log stream name used by every
+// seedPtrLeakEvents caller in this file.
+const ptrLeakLogStream = "stream-1"
+
 // ptrLeakCaptureTransport records the raw bytes of the last HTTP response,
 // then replays them so the real SDK deserializer still sees the full body.
 type ptrLeakCaptureTransport struct {
@@ -96,7 +100,7 @@ func newCapturingWireTestCloudWatchLogsClient(
 
 // seedPtrLeakEvents puts n log events onto a fresh log group/stream through
 // the real SDK client and returns their names.
-func seedPtrLeakEvents(t *testing.T, client *cwlsdk.Client, logGroup, logStream string, n int) {
+func seedPtrLeakEvents(t *testing.T, client *cwlsdk.Client, logGroup string, n int) {
 	t.Helper()
 
 	ctx := t.Context()
@@ -104,7 +108,7 @@ func seedPtrLeakEvents(t *testing.T, client *cwlsdk.Client, logGroup, logStream 
 	_, err := client.CreateLogGroup(ctx, &cwlsdk.CreateLogGroupInput{LogGroupName: aws.String(logGroup)})
 	require.NoError(t, err)
 	_, err = client.CreateLogStream(ctx, &cwlsdk.CreateLogStreamInput{
-		LogGroupName: aws.String(logGroup), LogStreamName: aws.String(logStream),
+		LogGroupName: aws.String(logGroup), LogStreamName: aws.String(ptrLeakLogStream),
 	})
 	require.NoError(t, err)
 
@@ -120,7 +124,7 @@ func seedPtrLeakEvents(t *testing.T, client *cwlsdk.Client, logGroup, logStream 
 
 	_, err = client.PutLogEvents(ctx, &cwlsdk.PutLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
-		LogStreamName: aws.String(logStream),
+		LogStreamName: aws.String(ptrLeakLogStream),
 		LogEvents:     events,
 	})
 	require.NoError(t, err)
@@ -141,7 +145,7 @@ func TestGetLogEvents_PtrStripped(t *testing.T) {
 	const logGroup = "/ptr-leak/strip"
 	const logStream = "stream-1"
 
-	seedPtrLeakEvents(t, client, logGroup, logStream, 3)
+	seedPtrLeakEvents(t, client, logGroup, 3)
 
 	out, err := client.GetLogEvents(t.Context(), &cwlsdk.GetLogEventsInput{
 		LogGroupName:  aws.String(logGroup),
@@ -172,7 +176,7 @@ func TestGetLogEvents_Pagination_StillResumes(t *testing.T) {
 	const total = 25
 	const pageSize = 4
 
-	seedPtrLeakEvents(t, client, logGroup, logStream, total)
+	seedPtrLeakEvents(t, client, logGroup, total)
 
 	t.Run("forward", func(t *testing.T) {
 		t.Parallel()
@@ -299,9 +303,8 @@ func TestFilterLogEvents_EventIDStillOnWire(t *testing.T) {
 	client, capture := newCapturingWireTestCloudWatchLogsClient(t, h)
 
 	const logGroup = "/ptr-leak/filter"
-	const logStream = "stream-1"
 
-	seedPtrLeakEvents(t, client, logGroup, logStream, 2)
+	seedPtrLeakEvents(t, client, logGroup, 2)
 
 	out, err := client.FilterLogEvents(t.Context(), &cwlsdk.FilterLogEventsInput{
 		LogGroupName: aws.String(logGroup),

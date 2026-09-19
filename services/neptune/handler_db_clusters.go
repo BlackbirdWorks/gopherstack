@@ -152,8 +152,12 @@ func (h *Handler) handleModifyDBCluster(ctx context.Context, vals url.Values) (a
 		CopyTagsToSnapshot:              rawCopy == formTrue,
 		CopyTagsToSnapshotSet:           rawCopy != "",
 		// See handleCreateDBCluster for the wire-key citation.
-		VpcSecurityGroupIDs:       parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
-		ServerlessV2ScalingConfig: sv2,
+		VpcSecurityGroupIDs:          parseMemberList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId"),
+		ServerlessV2ScalingConfig:    sv2,
+		DBInstanceParameterGroupName: vals.Get("DBInstanceParameterGroupName"),
+		// ApplyImmediately is read for wire-declaration parity but this
+		// backend always applies modifications immediately.
+		ApplyImmediately: vals.Get("ApplyImmediately") == formTrue,
 	}
 	rawBRP := vals.Get("BackupRetentionPeriod")
 	if rawBRP != "" {
@@ -276,7 +280,11 @@ func (h *Handler) handleRestoreDBClusterToPointInTime(
 ) (any, error) {
 	srcClusterID := vals.Get("SourceDBClusterIdentifier")
 	targetClusterID := vals.Get("DBClusterIdentifier")
-	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, srcClusterID, targetClusterID)
+	opts := RestoreToPointInTimeOptions{
+		RestoreToTime:           vals.Get("RestoreToTime"),
+		UseLatestRestorableTime: vals.Get("UseLatestRestorableTime") == formTrue,
+	}
+	cluster, err := h.Backend.RestoreDBClusterToPointInTime(ctx, srcClusterID, targetClusterID, opts)
 	if err != nil {
 		return nil, err
 	}

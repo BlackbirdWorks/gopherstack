@@ -35,8 +35,29 @@ type StackOptions struct {
 	Capabilities                []string
 	NotificationARNs            []string
 	Tags                        []Tag
+	// ResourceTypes is the optional per-call allowlist of resource type
+	// wildcard patterns (CreateStackInput.ResourceTypes,
+	// api_op_CreateStack.go): when non-empty, every resource Type in the
+	// template must match one of its patterns or the operation fails. Not
+	// persisted on the stack -- each Create/UpdateStack call supplies its own.
+	ResourceTypes               []string
 	TimeoutInMinutes            int
 	DisableRollback             bool
+	EnableTerminationProtection bool
+	// DisableValidation skips the pre-deployment intrinsics validation pass
+	// (validateIntrinsics) this backend runs before provisioning/updating
+	// resources (CreateStackInput.DisableValidation, api_op_CreateStack.go:
+	// "Set to true to disable pre-deployment validations ... Default: false").
+	DisableValidation bool
+	// RetainExceptOnCreate, when true, forces rollbackCreateResources to
+	// delete newly-created resources during a CreateStack rollback even when
+	// they carry DeletionPolicy=Retain/Snapshot (CreateStackInput.
+	// RetainExceptOnCreate, api_op_CreateStack.go: "When set to true, newly
+	// created resources are deleted when the operation rolls back. This
+	// includes newly created resources marked with a deletion policy of
+	// Retain. Default: false" -- i.e. the default already honors
+	// DeletionPolicy on rollback).
+	RetainExceptOnCreate bool
 }
 
 // CreateNestedStack implements NestedStackCreator. Must be called while b.mu is held by caller.
@@ -104,7 +125,7 @@ func (b *InMemoryBackend) deleteStackLocked(ctx context.Context, nameOrID string
 			statusDeleteInProgress,
 			"",
 		)
-		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
 			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
 				failedLogicalIDs = append(failedLogicalIDs, fmt.Sprintf("%s: %v", logicalID, delErr))
 				b.addEvent(
@@ -268,20 +289,21 @@ func (b *InMemoryBackend) createStackLocked(
 	now := time.Now()
 
 	stack := &Stack{
-		StackID:               arn,
-		StackName:             name,
-		StackStatus:           statusCreateInProgress,
-		CreationTime:          now,
-		Parameters:            params,
-		Tags:                  opts.Tags,
-		TemplateBody:          templateBody,
-		Capabilities:          opts.Capabilities,
-		NotificationARNs:      opts.NotificationARNs,
-		RoleARN:               opts.RoleARN,
-		TimeoutInMinutes:      opts.TimeoutInMinutes,
-		DisableRollback:       opts.DisableRollback,
-		RollbackConfiguration: opts.RollbackConfiguration,
-		ParentID:              parentID,
+		StackID:                     arn,
+		StackName:                   name,
+		StackStatus:                 statusCreateInProgress,
+		CreationTime:                now,
+		Parameters:                  params,
+		Tags:                        opts.Tags,
+		TemplateBody:                templateBody,
+		Capabilities:                opts.Capabilities,
+		NotificationARNs:            opts.NotificationARNs,
+		RoleARN:                     opts.RoleARN,
+		TimeoutInMinutes:            opts.TimeoutInMinutes,
+		DisableRollback:             opts.DisableRollback,
+		EnableTerminationProtection: opts.EnableTerminationProtection,
+		RollbackConfiguration:       opts.RollbackConfiguration,
+		ParentID:                    parentID,
 	}
 
 	// RootId is the top of the parent chain, not the immediate parent: if the
@@ -306,7 +328,9 @@ func (b *InMemoryBackend) createStackLocked(
 
 	// Parse and provision resources.
 	if templateBody != "" {
-		b.createStackFromTemplate(ctx, stack, params)
+		b.createStackFromTemplate(
+			ctx, stack, params, opts.DisableValidation, opts.ResourceTypes, opts.RetainExceptOnCreate,
+		)
 	}
 
 	if !isFailedCreateStatus(stack.StackStatus) {
@@ -337,11 +361,18 @@ func (b *InMemoryBackend) createStackLocked(
 }
 
 // createStackFromTemplate parses and applies a template during CreateStack.
-// It updates stack.StackStatus on failure.
+// It updates stack.StackStatus on failure. disableValidation/resourceTypes/
+// retainExceptOnCreate mirror CreateStackInput's own DisableValidation/
+// ResourceTypes/RetainExceptOnCreate fields (see StackOptions);
+// stack.DisableRollback (already persisted on Stack) gates whether a
+// provisioning failure rolls back at all.
 func (b *InMemoryBackend) createStackFromTemplate(
 	ctx context.Context,
 	stack *Stack,
 	params []Parameter,
+	disableValidation bool,
+	allowedResourceTypes []string,
+	retainExceptOnCreate bool,
 ) {
 	arn := stack.StackID
 	name := stack.StackName
@@ -373,9 +404,18 @@ func (b *InMemoryBackend) createStackFromTemplate(
 	}
 
 	// Validate intrinsic references (Fn::GetAtt / Fn::Sub to undefined
-	// resources, unsupported resource types) before provisioning anything.
-	if intErr := validateIntrinsics(tmpl); intErr != nil {
-		b.failAndRollback(stack, intErr.Error())
+	// resources, unsupported resource types) before provisioning anything --
+	// skipped entirely when the caller set DisableValidation.
+	if !disableValidation {
+		if intErr := validateIntrinsics(tmpl); intErr != nil {
+			b.failAndRollback(stack, intErr.Error())
+
+			return
+		}
+	}
+
+	if rtErr := validateResourceTypesAllowed(tmpl, allowedResourceTypes); rtErr != nil {
+		b.failAndRollback(stack, rtErr.Error())
 
 		return
 	}
@@ -388,7 +428,7 @@ func (b *InMemoryBackend) createStackFromTemplate(
 		return
 	}
 
-	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams)
+	physicalIDs := b.provisionResources(ctx, stack, tmpl, resolvedParams, retainExceptOnCreate)
 	if isFailedCreateStatus(stack.StackStatus) {
 		return
 	}
@@ -431,12 +471,23 @@ func (b *InMemoryBackend) updateFailAndRollback(stack *Stack, reason string) {
 }
 
 // failAndRollback records a pre-flight CREATE_FAILED then immediately emits
-// ROLLBACK_IN_PROGRESS / ROLLBACK_COMPLETE (no resources to undo).
+// ROLLBACK_IN_PROGRESS / ROLLBACK_COMPLETE (no resources to undo) -- unless
+// stack.DisableRollback is set, matching provisionResources' own check:
+// real AWS's "Set to true to disable rollback of the stack if stack
+// creation failed" applies to every CreateStack failure, not only
+// resource-creation failures, so the stack is left CREATE_FAILED instead.
 func (b *InMemoryBackend) failAndRollback(stack *Stack, reason string) {
 	arn := stack.StackID
 	name := stack.StackName
 	stack.StackStatusReason = reason
 	b.addEvent(arn, name, name, arn, cfnStackType, statusCreateFailed, reason)
+
+	if stack.DisableRollback {
+		stack.StackStatus = statusCreateFailed
+
+		return
+	}
+
 	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, reason)
 	b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
 	stack.StackStatus = statusRollbackComplete
@@ -444,14 +495,19 @@ func (b *InMemoryBackend) failAndRollback(stack *Stack, reason string) {
 
 // provisionResources creates all resources defined in the template.
 // Returns the physicalIDs map. On resource creation failure, rollback is
-// performed in reverse order; stack.StackStatus is then set to
-// statusRollbackComplete (matching real AWS behaviour). If the creation failure
-// itself needs to be recorded separately, it is preserved in StackStatusReason.
+// performed in reverse order (unless stack.DisableRollback -- real AWS:
+// "Set to true to disable rollback of the stack if stack creation failed";
+// the stack is then left CREATE_FAILED with whatever it managed to create
+// intact); stack.StackStatus is then set to statusRollbackComplete (matching
+// real AWS behaviour). If the creation failure itself needs to be recorded
+// separately, it is preserved in StackStatusReason. retainExceptOnCreate
+// mirrors CreateStackInput.RetainExceptOnCreate (see StackOptions).
 func (b *InMemoryBackend) provisionResources(
 	ctx context.Context,
 	stack *Stack,
 	tmpl *Template,
 	resolvedParams map[string]string,
+	retainExceptOnCreate bool,
 ) map[string]string {
 	arn := stack.StackID
 	name := stack.StackName
@@ -484,9 +540,16 @@ func (b *InMemoryBackend) provisionResources(
 		if cerr != nil {
 			stack.StackStatusReason = fmt.Sprintf("resource %s: %v", logicalID, cerr)
 			b.addEvent(arn, name, logicalID, "", res.Type, statusCreateFailed, cerr.Error())
+
+			if stack.DisableRollback {
+				stack.StackStatus = statusCreateFailed
+
+				return physicalIDs
+			}
+
 			b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackInProgress, cerr.Error())
 
-			if b.rollbackCreateResources(ctx, stack, created) {
+			if b.rollbackCreateResources(ctx, stack, created, retainExceptOnCreate) {
 				b.addEvent(arn, name, name, arn, cfnStackType, statusRollbackComplete, "")
 				stack.StackStatus = statusRollbackComplete
 			} else {
@@ -522,10 +585,17 @@ func (b *InMemoryBackend) provisionResources(
 // every deletion succeeded; a resource that fails to delete is left in place
 // (matching real AWS, which leaves a ROLLBACK_FAILED stack's undeleted
 // resources describable for a retry) rather than being silently dropped.
+// retainExceptOnCreate mirrors CreateStackInput.RetainExceptOnCreate (see
+// StackOptions): by default a newly-created resource with
+// DeletionPolicy=Retain/Snapshot is left in place (not deleted) during
+// rollback, matching every other DeletionPolicy-honoring deletion path in
+// this backend (DeleteStack, deleteStaleResources); when true, it is force-
+// deleted anyway.
 func (b *InMemoryBackend) rollbackCreateResources(
 	ctx context.Context,
 	stack *Stack,
 	created []string,
+	retainExceptOnCreate bool,
 ) bool {
 	ok := true
 
@@ -546,14 +616,18 @@ func (b *InMemoryBackend) rollbackCreateResources(
 			"",
 		)
 
-		if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
-			ok = false
-			b.addEvent(
-				stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
-				statusDeleteFailed, delErr.Error(),
-			)
+		keepsPolicy := res.DeletionPolicy == deletionPolicyRetain || res.DeletionPolicy == deletionPolicySnapshot
+		retained := keepsPolicy && !retainExceptOnCreate
+		if !retained {
+			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
+				ok = false
+				b.addEvent(
+					stack.StackID, stack.StackName, logicalID, res.PhysicalID, res.Type,
+					statusDeleteFailed, delErr.Error(),
+				)
 
-			continue
+				continue
+			}
 		}
 
 		b.addEvent(
@@ -698,7 +772,7 @@ func (b *InMemoryBackend) UpdateStack(
 		cfnStackType, statusUpdateInProgress, reasonUserInitiated,
 	)
 
-	if !b.applyTemplateToStack(ctx, stack) {
+	if !b.applyTemplateToStack(ctx, stack, opts.DisableValidation, opts.ResourceTypes) {
 		return stack, nil
 	}
 
@@ -711,13 +785,20 @@ func (b *InMemoryBackend) UpdateStack(
 	return stack, nil
 }
 
-// applyTemplateToStack parses the stack's template and creates or updates resources.
-// Returns true on success; on failure it sets the stack status and returns false.
-func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack) bool {
-	if stack.TemplateBody == "" {
-		return true
-	}
-
+// applyTemplateToStack parses the stack's template and creates or updates
+// resources. Returns true on success; on failure it sets the stack status
+// and returns false. disableValidation/resourceTypes mirror UpdateStackInput's
+// own DisableValidation/ResourceTypes fields (see StackOptions).
+// parseAndValidateUpdateTemplate parses stack.TemplateBody and runs every
+// pre-provisioning validation UpdateStack's own path requires (dynamic refs,
+// parameters, intrinsics unless disableValidation, ResourceTypes allowlist,
+// Fn::ImportValue availability), split out of applyTemplateToStack to keep
+// it under this project's funlen ceiling (no //nolint:funlen, per repo
+// convention). On failure it marks the stack failed/rolled-back itself and
+// returns a nil template.
+func (b *InMemoryBackend) parseAndValidateUpdateTemplate(
+	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
+) (*Template, map[string]string) {
 	tmpl, err := ParseTemplate(stack.TemplateBody)
 	if err != nil {
 		stack.StackStatus = statusUpdateFailed
@@ -727,7 +808,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 			cfnStackType, statusUpdateFailed, err.Error(),
 		)
 
-		return false
+		return nil, nil
 	}
 
 	stack.Description = tmpl.Description
@@ -740,7 +821,7 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 			cfnStackType, statusUpdateFailed, dynErr.Error(),
 		)
 
-		return false
+		return nil, nil
 	}
 
 	resolvedParams := ResolveParameters(tmpl, stack.Parameters)
@@ -748,20 +829,23 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	if valErr := ValidateParameters(tmpl, resolvedParams); valErr != nil {
 		b.updateFailAndRollback(stack, valErr.Error())
 
-		return false
+		return nil, nil
 	}
 
-	// Validate intrinsic references before mutating any resource.
-	if intErr := validateIntrinsics(tmpl); intErr != nil {
-		b.updateFailAndRollback(stack, intErr.Error())
+	// Validate intrinsic references before mutating any resource -- skipped
+	// entirely when the caller set DisableValidation.
+	if !disableValidation {
+		if intErr := validateIntrinsics(tmpl); intErr != nil {
+			b.updateFailAndRollback(stack, intErr.Error())
 
-		return false
+			return nil, nil
+		}
 	}
 
-	// Pre-populate physicalIDs from existing resources.
-	physicalIDs := make(map[string]string, len(b.resources[stack.StackID]))
-	for logicalID, res := range b.resources[stack.StackID] {
-		physicalIDs[logicalID] = res.PhysicalID
+	if rtErr := validateResourceTypesAllowed(tmpl, resourceTypes); rtErr != nil {
+		b.updateFailAndRollback(stack, rtErr.Error())
+
+		return nil, nil
 	}
 
 	// Validate that all Fn::ImportValue references can be satisfied before
@@ -769,7 +853,28 @@ func (b *InMemoryBackend) applyTemplateToStack(ctx context.Context, stack *Stack
 	if impErr := validateImportValues(tmpl, resolvedParams, b.buildExportsMap()); impErr != nil {
 		b.updateFailAndRollback(stack, impErr.Error())
 
+		return nil, nil
+	}
+
+	return tmpl, resolvedParams
+}
+
+func (b *InMemoryBackend) applyTemplateToStack(
+	ctx context.Context, stack *Stack, disableValidation bool, resourceTypes []string,
+) bool {
+	if stack.TemplateBody == "" {
+		return true
+	}
+
+	tmpl, resolvedParams := b.parseAndValidateUpdateTemplate(ctx, stack, disableValidation, resourceTypes)
+	if tmpl == nil {
 		return false
+	}
+
+	// Pre-populate physicalIDs from existing resources.
+	physicalIDs := make(map[string]string, len(b.resources[stack.StackID]))
+	for logicalID, res := range b.resources[stack.StackID] {
+		physicalIDs[logicalID] = res.PhysicalID
 	}
 
 	// Validate that the update does not drop an export that another active
@@ -1031,7 +1136,7 @@ func (b *InMemoryBackend) deleteStaleResources(ctx context.Context, stack *Stack
 			statusDeleteInProgress,
 			"",
 		)
-		if res.DeletionPolicy != "Retain" && res.DeletionPolicy != "Snapshot" {
+		if res.DeletionPolicy != deletionPolicyRetain && res.DeletionPolicy != deletionPolicySnapshot {
 			if delErr := b.creator.Delete(ctx, res.Type, res.PhysicalID, res.Properties); delErr != nil {
 				ok = false
 				b.addEvent(

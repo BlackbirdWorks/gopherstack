@@ -72,15 +72,34 @@ func (h *Handler) handleDeleteDBClusterSnapshot(ctx context.Context, vals url.Va
 func (h *Handler) handleCopyDBClusterSnapshot(ctx context.Context, vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
+	copyTags := vals.Get("CopyTags") == formTrue
 	snap, err := h.Backend.CopyDBClusterSnapshot(ctx, sourceSnapshotID, targetSnapshotID)
 	if err != nil {
 		return nil, err
+	}
+	if copyTags {
+		h.copySnapshotTags(ctx, sourceSnapshotID, snap.DBClusterSnapshotArn)
 	}
 
 	return &copyDBClusterSnapshotResponse{
 		Xmlns:             neptuneXMLNS,
 		DBClusterSnapshot: toXMLClusterSnapshot(snap),
 	}, nil
+}
+
+// copySnapshotTags copies the source snapshot's tags onto targetARN, for
+// CopyDBClusterSnapshot's CopyTags request field ("Set to true to copy all
+// tags from the source cluster snapshot to the target").
+func (h *Handler) copySnapshotTags(ctx context.Context, sourceSnapshotID, targetARN string) {
+	srcs, err := h.Backend.DescribeDBClusterSnapshots(ctx, sourceSnapshotID, "", "")
+	if err != nil || len(srcs) == 0 {
+		return
+	}
+	tags, err := h.Backend.ListTagsForResource(ctx, srcs[0].DBClusterSnapshotArn)
+	if err != nil || len(tags) == 0 {
+		return
+	}
+	_ = h.Backend.AddTagsToResource(ctx, targetARN, tags)
 }
 
 // toXMLClusterSnapshotAttributesResult builds the DBClusterSnapshotAttributesResult

@@ -587,6 +587,12 @@ func (h *S3Handler) createBucket(
 	if lockHeader := r.Header.Get("X-Amz-Bucket-Object-Lock-Enabled"); lockHeader != "" {
 		input.ObjectLockEnabledForBucket = aws.Bool(strings.EqualFold(lockHeader, "true"))
 	}
+	// s3@v1.111.0 serializers.go:712-714: ObjectOwnership is bound to
+	// X-Amz-Object-Ownership -- sets the bucket's initial OwnershipControls,
+	// equivalent to a PutBucketOwnershipControls call right after creation.
+	if ownership := r.Header.Get("X-Amz-Object-Ownership"); ownership != "" {
+		input.ObjectOwnership = types.ObjectOwnership(ownership)
+	}
 	if region != defaultRegionName || len(tags) > 0 {
 		input.CreateBucketConfiguration = &types.CreateBucketConfiguration{
 			Tags: tags,

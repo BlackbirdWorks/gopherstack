@@ -57,13 +57,18 @@ const (
 )
 
 const (
-	snapshotSourceManual        = "manual"
-	snapshotSourceAutomated     = "automated"
-	dataTypeString              = "string"
-	dataTypeInteger             = "integer"
-	allowedValuesYesNo          = "yes,no"
-	allowedValuesMaxInt32       = "0-2147483647"
-	allowedValuesEvictionPolicy = "noeviction,allkeys-lru,volatile-lru,allkeys-random," +
+	snapshotSourceManual          = "manual"
+	snapshotSourceAutomated       = "automated"
+	sourceUser                    = "user"
+	sourceEngineDefault           = "engine-default"
+	authTokenUpdateStrategyDelete = "DELETE"
+	authTokenUpdateStrategySet    = "SET"
+	authTokenUpdateStrategyRotate = "ROTATE"
+	dataTypeString                = "string"
+	dataTypeInteger               = "integer"
+	allowedValuesYesNo            = "yes,no"
+	allowedValuesMaxInt32         = "0-2147483647"
+	allowedValuesEvictionPolicy   = "noeviction,allkeys-lru,volatile-lru,allkeys-random," +
 		"volatile-random,volatile-ttl,allkeys-lfu,volatile-lfu"
 )
 

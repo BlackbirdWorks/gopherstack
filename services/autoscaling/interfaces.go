@@ -29,12 +29,12 @@ type StorageBackend interface {
 		actions []ScheduledUpdateGroupAction,
 	) ([]FailedScheduledAction, error)
 
-	CancelInstanceRefresh(groupName string) (string, error)
+	CancelInstanceRefresh(groupName string, waitForTransitioningInstances bool) (string, error)
 	CompleteLifecycleAction(input CompleteLifecycleActionInput) error
 	CreateOrUpdateTags(tags []ResourceTag) error
 	DeleteLifecycleHook(groupName, hookName string) error
 
-	SetDesiredCapacity(groupName string, desiredCapacity int32) error
+	SetDesiredCapacity(groupName string, desiredCapacity int32, honorCooldown bool) error
 	TerminateInstanceInAutoScalingGroup(instanceID string, shouldDecrement bool) (*ScalingActivity, error)
 	PutLifecycleHook(hook LifecycleHook) error
 	DescribeLifecycleHooks(groupName string, hookNames []string) ([]LifecycleHook, error)

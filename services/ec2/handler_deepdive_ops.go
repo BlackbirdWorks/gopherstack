@@ -10,16 +10,19 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/page"
 )
 
-func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem {
+func (h *Handler) toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem {
 	item := vpcEndpointItem{
-		ID:              ep.ID,
-		VPCID:           ep.VPCID,
-		ServiceName:     ep.ServiceName,
-		State:           ep.State,
-		VpcEndpointType: ep.VpcEndpointType,
-		OwnerID:         ep.OwnerID,
-		CreateTime:      ep.CreateTime.Format(time.RFC3339),
-		TagSet:          tagItemsFromMap(tags),
+		ID:                ep.ID,
+		VPCID:             ep.VPCID,
+		ServiceName:       ep.ServiceName,
+		State:             ep.State,
+		VpcEndpointType:   ep.VpcEndpointType,
+		OwnerID:           ep.OwnerID,
+		CreateTime:        ep.CreateTime.Format(time.RFC3339),
+		TagSet:            tagItemsFromMap(tags),
+		PolicyDocument:    ep.PolicyDocument,
+		ServiceRegion:     ep.ServiceRegion,
+		PrivateDNSEnabled: ep.PrivateDNSEnabled,
 	}
 
 	item.SubnetIDs.Items = append(item.SubnetIDs.Items, ep.SubnetIDs...)
@@ -27,6 +30,15 @@ func toVpcEndpointItem(ep *VpcEndpoint, tags map[string]string) vpcEndpointItem 
 
 	for _, pr := range ep.PayerResponsibilities {
 		item.PayerResponsibilitySet = append(item.PayerResponsibilitySet, payerResponsibilityEntryItem(pr))
+	}
+
+	sgNames := make(map[string]string, len(ep.SecurityGroupIDs))
+	for _, sg := range h.Backend.DescribeSecurityGroups(ep.SecurityGroupIDs) {
+		sgNames[sg.ID] = sg.Name
+	}
+
+	for _, sgID := range ep.SecurityGroupIDs {
+		item.GroupSet.Items = append(item.GroupSet.Items, instanceGroupItem{GroupID: sgID, GroupName: sgNames[sgID]})
 	}
 
 	return item
@@ -151,12 +163,25 @@ func (h *Handler) handleCreateLaunchTemplate(vals url.Values, reqID string) (any
 func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, error) {
 	subnetIDs := parseMemberList(vals, "SubnetId")
 	routeTableIDs := parseMemberList(vals, "RouteTableId")
+
+	opts := VpcEndpointCreateOptions{
+		PolicyDocument:   vals.Get("PolicyDocument"),
+		ServiceRegion:    vals.Get("ServiceRegion"),
+		SecurityGroupIDs: parseMemberList(vals, "SecurityGroupId"),
+	}
+
+	if v := vals.Get("PrivateDnsEnabled"); v != "" {
+		enabled := v == ec2BooleanTrue
+		opts.PrivateDNSEnabled = &enabled
+	}
+
 	endpoint, err := h.Backend.CreateVpcEndpointWithRouteTableIDs(
 		vals.Get("VpcId"),
 		vals.Get("ServiceName"),
 		vals.Get("VpcEndpointType"),
 		subnetIDs,
 		routeTableIDs,
+		opts,
 	)
 	if err != nil {
 		return nil, err
@@ -175,7 +200,7 @@ func (h *Handler) handleCreateVpcEndpoint(vals url.Values, reqID string) (any, e
 	return &createVpcEndpointResponse{
 		Xmlns:     ec2XMLNS,
 		RequestID: reqID,
-		Endpoint:  toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)),
+		Endpoint:  h.toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)),
 	}, nil
 }
 
@@ -189,7 +214,7 @@ func (h *Handler) handleDescribeVpcEndpoints(vals url.Values, reqID string) (any
 
 	items := make([]vpcEndpointItem, 0, len(endpoints))
 	for _, endpoint := range endpoints {
-		items = append(items, toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))
+		items = append(items, h.toVpcEndpointItem(endpoint, h.Backend.TagsForResource(endpoint.ID)))
 	}
 
 	return &describeVpcEndpointsResponse{
@@ -380,17 +405,21 @@ type vpcEndpointRouteTableIDSet struct {
 }
 
 type vpcEndpointItem struct {
-	ID                     string                         `xml:"vpcEndpointId"`
-	VPCID                  string                         `xml:"vpcId"`
+	CreateTime             string                         `xml:"creationTimestamp"`
+	PolicyDocument         string                         `xml:"policyDocument,omitempty"`
 	ServiceName            string                         `xml:"serviceName"`
 	State                  string                         `xml:"state"`
 	VpcEndpointType        string                         `xml:"vpcEndpointType"`
 	OwnerID                string                         `xml:"ownerId,omitempty"`
-	CreateTime             string                         `xml:"creationTimestamp"`
-	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
-	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
-	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
+	VPCID                  string                         `xml:"vpcId"`
+	ServiceRegion          string                         `xml:"serviceRegion,omitempty"`
+	ID                     string                         `xml:"vpcEndpointId"`
 	TagSet                 []simpleTagItem                `xml:"tagSet>item"`
+	SubnetIDs              vpcEndpointSubnetIDSet         `xml:"subnetIdSet"`
+	PayerResponsibilitySet []payerResponsibilityEntryItem `xml:"payerResponsibilitySet>item,omitempty"`
+	RouteTableIDs          vpcEndpointRouteTableIDSet     `xml:"routeTableIdSet"`
+	GroupSet               instanceGroupSet               `xml:"groupSet"`
+	PrivateDNSEnabled      bool                           `xml:"privateDnsEnabled,omitempty"`
 }
 
 type vpcEndpointSet struct {

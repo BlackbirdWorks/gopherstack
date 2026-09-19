@@ -288,6 +288,31 @@ func (b *InMemoryBackend) CreateResource(
 	return cloneResource(resource), nil
 }
 
+// EndpointCustomEntityTypes resolves endpointArn (DetectEntitiesInput's
+// EndpointArn) to its backing entity recognizer's configured entity type
+// names (resourceEntityTypeNames, handler_resources.go), for DetectEntities'
+// custom-model detection path. Returns ErrNotFound if endpointArn does not
+// name a known endpoint (matching DetectEntities' declared error set); a
+// nil, no-error slice when the endpoint's model is not an entity recognizer
+// or the recognizer has no configured types, since real AWS only branches
+// detection behavior for a genuine custom recognizer endpoint.
+func (b *InMemoryBackend) EndpointCustomEntityTypes(endpointArn string) ([]string, error) {
+	b.mu.RLock("EndpointCustomEntityTypes")
+	defer b.mu.RUnlock()
+
+	endpoint, ok := b.resources.Get(endpointArn)
+	if !ok || endpoint.Type != resourceTypeEndpoint {
+		return nil, fmt.Errorf("%w: endpoint %q", ErrNotFound, endpointArn)
+	}
+
+	recognizer, ok := b.resources.Get(endpoint.ModelArn)
+	if !ok || recognizer.Type != resourceTypeEntityRecognizer {
+		return nil, nil
+	}
+
+	return resourceEntityTypeNames(recognizer), nil
+}
+
 // GetResource finds resource by ARN. For classifier and recognizer types, each
 // Describe call advances training lifecycle: SUBMITTED → IN_PROGRESS → TRAINED
 // (or FAILED when the name contains "[fail]"). This mirrors AWS async training.

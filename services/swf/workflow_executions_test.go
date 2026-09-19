@@ -199,7 +199,7 @@ func TestStartWorkflowExecution_EnqueuesInitialDecisionTask(t *testing.T) {
 
 	assert.Equal(t, 1, b.CountPendingDecisionTasks("dom", "default"))
 
-	task := b.PollForDecisionTask("dom", "default", 0, "")
+	task := b.PollForDecisionTask("dom", "default", 0, "", false)
 	require.NotNil(t, task, "expected an initial decision task without any other stimulus")
 	assert.Equal(t, "wf-1", task.WorkflowID)
 	assert.Equal(t, exec.RunID, task.RunID)

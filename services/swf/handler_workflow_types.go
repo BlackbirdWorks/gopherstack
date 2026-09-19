@@ -72,6 +72,7 @@ type handleListWorkflowTypesInput struct {
 	RegistrationStatus string `json:"registrationStatus,omitempty"`
 	NextPageToken      string `json:"nextPageToken,omitempty"`
 	MaximumPageSize    int    `json:"maximumPageSize,omitempty"`
+	ReverseOrder       bool   `json:"reverseOrder,omitempty"`
 }
 
 //nolint:dupl // WorkflowType and ActivityType have parallel list structure
@@ -94,6 +95,10 @@ func (h *Handler) handleListWorkflowTypes(
 		}
 	}
 	sort.Slice(infos, func(i, j int) bool {
+		if in.ReverseOrder {
+			return infos[i].WorkflowType.Name > infos[j].WorkflowType.Name
+		}
+
 		return infos[i].WorkflowType.Name < infos[j].WorkflowType.Name
 	})
 	infos, nextPageToken := applyPageTokenSlice(infos, in.NextPageToken, in.MaximumPageSize)

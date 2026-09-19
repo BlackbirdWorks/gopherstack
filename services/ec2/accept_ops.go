@@ -61,6 +61,8 @@ type CapacityReservation struct {
 	// for Capacity Block purchases; empty for plain CreateCapacityReservation
 	// calls that predate this field.
 	InstancePlatform       string `json:"instancePlatform,omitempty"`
+	InstanceMatchCriteria  string `json:"instanceMatchCriteria,omitempty"`
+	Tenancy                string `json:"tenancy,omitempty"`
 	AvailableInstanceCount int    `json:"availableInstanceCount,omitempty"`
 	TotalInstanceCount     int    `json:"totalInstanceCount,omitempty"`
 }
@@ -123,6 +125,8 @@ type VpcPeeringConnection struct {
 	VpcPeeringConnectionID string    `json:"vpcPeeringConnectionID,omitempty"`
 	RequesterVpcID         string    `json:"requesterVpcID,omitempty"`
 	AccepterVpcID          string    `json:"accepterVpcID,omitempty"`
+	AccepterOwnerID        string    `json:"accepterOwnerID,omitempty"`
+	AccepterRegion         string    `json:"accepterRegion,omitempty"`
 	State                  string    `json:"state,omitempty"`
 }
 
@@ -678,6 +682,7 @@ func (b *InMemoryBackend) DescribeByoipCidrs(state string) []*ByoipCidr {
 func (b *InMemoryBackend) AllocateHosts(
 	availabilityZone, instanceType string,
 	hostCount int,
+	autoPlacement, hostRecovery string,
 ) ([]*Host, error) {
 	if availabilityZone == "" {
 		return nil, fmt.Errorf("%w: AvailabilityZone is required", ErrInvalidParameter)
@@ -689,6 +694,14 @@ func (b *InMemoryBackend) AllocateHosts(
 
 	if hostCount < 1 {
 		hostCount = 1
+	}
+
+	if autoPlacement == "" {
+		autoPlacement = hostSettingOff
+	}
+
+	if hostRecovery == "" {
+		hostRecovery = hostSettingOff
 	}
 
 	b.mu.Lock("AllocateHosts")
@@ -705,8 +718,8 @@ func (b *InMemoryBackend) AllocateHosts(
 			State:            stateAvailable,
 			AllocationTime:   time.Now(),
 			OwnedBy:          b.AccountID,
-			AutoPlacement:    hostSettingOff,
-			HostRecovery:     hostSettingOff,
+			AutoPlacement:    autoPlacement,
+			HostRecovery:     hostRecovery,
 			HostMaintenance:  hostSettingOn,
 		}
 		b.dedicatedHosts.Put(host)

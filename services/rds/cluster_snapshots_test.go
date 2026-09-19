@@ -67,7 +67,7 @@ func TestClusterSnapshot_Copy(t *testing.T) {
 	_, err = b.CreateDBClusterSnapshot("src-snap", "cluster-b")
 	require.NoError(t, err)
 
-	dst, err := b.CopyDBClusterSnapshot("src-snap", "dst-snap")
+	dst, err := b.CopyDBClusterSnapshot("src-snap", "dst-snap", false)
 	require.NoError(t, err)
 	assert.Equal(t, "dst-snap", dst.DBClusterSnapshotIdentifier)
 

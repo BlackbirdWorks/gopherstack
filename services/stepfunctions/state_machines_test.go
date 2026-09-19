@@ -389,7 +389,7 @@ func TestStateMachineDeleting_BlocksClientCallableOps(t *testing.T) {
 	version, err := b.PublishStateMachineVersion(smARN, "v1", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(smARN, "live", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("live", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: version.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)
@@ -426,7 +426,7 @@ func TestStateMachineDeleting_BlocksClientCallableOps(t *testing.T) {
 		{
 			name: "create_alias",
 			call: func() error {
-				_, callErr := b.CreateStateMachineAlias(smARN, "second", "", []stepfunctions.AliasRoutingConfig{
+				_, callErr := b.CreateStateMachineAlias("second", "", []stepfunctions.AliasRoutingConfig{
 					{StateMachineVersionArn: version.StateMachineVersionArn, Weight: 100},
 				})
 

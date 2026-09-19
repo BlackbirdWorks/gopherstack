@@ -52,7 +52,15 @@ func (h *Handler) handleListConfigurations(c *echo.Context) error {
 		return h.mapError(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{keyItems: cfgs, keyNextToken: next})
+	// Real ListConfigurationsOutput's element (ConfigurationListItem) has no
+	// runConfigurations/tags/uuid member -- narrower than
+	// GetConfigurationOutput, so this doesn't marshal Configuration directly.
+	summaries := make([]ConfigurationSummary, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		summaries = append(summaries, newConfigurationSummary(cfg))
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{keyItems: summaries, keyNextToken: next})
 }
 
 func (h *Handler) handlePutS3AccessPolicy(c *echo.Context, arn string) error {

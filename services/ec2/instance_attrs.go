@@ -371,11 +371,11 @@ func (b *InMemoryBackend) ModifyInstanceNetworkPerformanceOptions(
 type ModifyInstancePlacementInput struct {
 	PartitionNumber      *int32
 	GroupName            *string
+	GroupID              *string
+	HostID               *string
+	HostResourceGroupArn *string
 	InstanceID           string
 	Affinity             string
-	GroupID              string
-	HostID               string
-	HostResourceGroupArn string
 	Tenancy              string
 }
 
@@ -400,9 +400,9 @@ func (b *InMemoryBackend) ModifyInstancePlacement(in ModifyInstancePlacementInpu
 		)
 	}
 
-	if in.HostID != "" {
-		if _, found := b.dedicatedHosts.Get(in.HostID); !found {
-			return false, fmt.Errorf("%w: %s", ErrHostNotFound, in.HostID)
+	if in.HostID != nil {
+		if _, found := b.dedicatedHosts.Get(*in.HostID); !found {
+			return false, fmt.Errorf("%w: %s", ErrHostNotFound, *in.HostID)
 		}
 	}
 
@@ -418,20 +418,20 @@ func applyInstancePlacement(inst *Instance, in ModifyInstancePlacementInput) {
 		inst.Placement.Affinity = in.Affinity
 	}
 
-	if in.GroupID != "" {
-		inst.Placement.GroupID = in.GroupID
+	if in.GroupID != nil {
+		inst.Placement.GroupID = *in.GroupID
 	}
 
 	if in.GroupName != nil {
 		inst.Placement.GroupName = *in.GroupName
 	}
 
-	if in.HostID != "" {
-		inst.Placement.HostID = in.HostID
+	if in.HostID != nil {
+		inst.Placement.HostID = *in.HostID
 	}
 
-	if in.HostResourceGroupArn != "" {
-		inst.Placement.HostResourceGroupArn = in.HostResourceGroupArn
+	if in.HostResourceGroupArn != nil {
+		inst.Placement.HostResourceGroupArn = *in.HostResourceGroupArn
 	}
 
 	if in.Tenancy != "" {
@@ -677,6 +677,30 @@ var stoppedRequiredAttrs = map[string]bool{
 	attrInstanceType: true,
 	attrKernel:       true,
 	attrRamdisk:      true,
+}
+
+// SetInstanceSecurityGroups replaces an instance's security group
+// membership (ModifyInstanceAttribute's Groups field, wire key GroupId.N).
+// All groupIDs must already exist, matching real AWS's InvalidGroup.NotFound
+// rejection.
+func (b *InMemoryBackend) SetInstanceSecurityGroups(instanceID string, groupIDs []string) error {
+	b.mu.Lock("SetInstanceSecurityGroups")
+	defer b.mu.Unlock()
+
+	inst, ok := b.instances.Get(instanceID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrInstanceNotFound, instanceID)
+	}
+
+	for _, gid := range groupIDs {
+		if !b.securityGroups.Has(gid) {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, gid)
+		}
+	}
+
+	inst.SecurityGroups = groupIDs
+
+	return nil
 }
 
 // SetInstanceAttribute persists a modifiable attribute on an instance.

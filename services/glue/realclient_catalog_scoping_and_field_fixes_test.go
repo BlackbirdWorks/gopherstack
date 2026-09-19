@@ -611,6 +611,12 @@ func testStartDataQualityRunsWorkersAndTimeout(t *testing.T) {
 		DataSource: &types.DataSource{
 			GlueTable: &types.GlueTable{DatabaseName: aws.String("d"), TableName: aws.String("t")},
 		},
+		AdditionalDataSources: map[string]types.DataSource{
+			"ref1": {GlueTable: &types.GlueTable{DatabaseName: aws.String("d2"), TableName: aws.String("t2")}},
+		},
+		AdditionalRunOptions: &types.DataQualityEvaluationRunAdditionalRunOptions{
+			ResultsS3Prefix: aws.String("s3://bucket/prefix"),
+		},
 		NumberOfWorkers: aws.Int32(33),
 		Timeout:         aws.Int32(44),
 	})
@@ -622,6 +628,16 @@ func testStartDataQualityRunsWorkersAndTimeout(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int32(33), aws.ToInt32(gotEval.NumberOfWorkers))
 	assert.Equal(t, int32(44), aws.ToInt32(gotEval.Timeout))
+	assert.Equal(t, "role1", aws.ToString(gotEval.Role))
+	require.NotNil(t, gotEval.DataSource)
+	require.NotNil(t, gotEval.DataSource.GlueTable)
+	assert.Equal(t, "d", aws.ToString(gotEval.DataSource.GlueTable.DatabaseName))
+	assert.Equal(t, "t", aws.ToString(gotEval.DataSource.GlueTable.TableName))
+	require.Contains(t, gotEval.AdditionalDataSources, "ref1")
+	require.NotNil(t, gotEval.AdditionalDataSources["ref1"].GlueTable)
+	assert.Equal(t, "d2", aws.ToString(gotEval.AdditionalDataSources["ref1"].GlueTable.DatabaseName))
+	require.NotNil(t, gotEval.AdditionalRunOptions)
+	assert.Equal(t, "s3://bucket/prefix", aws.ToString(gotEval.AdditionalRunOptions.ResultsS3Prefix))
 }
 
 // assertEntityNotFound asserts err is a real EntityNotFoundException as

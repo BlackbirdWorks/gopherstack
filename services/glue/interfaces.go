@@ -195,7 +195,7 @@ type StorageBackend interface {
 	ListDataQualityRulesets() []*DataQualityRuleset
 	StartDataQualityRulesetEvaluationRun(rulesetNames []string) (*DataQualityEvaluationRun, error)
 	StartDataQualityRulesetEvaluationRunWithOptions(
-		rulesetNames []string, opts DataQualityRunOptions,
+		rulesetNames []string, opts DataQualityEvaluationRunOptions,
 	) (*DataQualityEvaluationRun, error)
 	GetDataQualityRulesetEvaluationRun(runID string) (*DataQualityEvaluationRun, error)
 	BatchGetDataQualityRulesetEvaluationRun(runIDs []string) ([]*DataQualityEvaluationRun, []string)
@@ -440,6 +440,9 @@ type StorageBackend interface {
 	StartColumnStatisticsTaskRunSchedule(dbName, tableName string) error
 	StopColumnStatisticsTaskRunSchedule(dbName, tableName string) error
 	StartColumnStatisticsTaskRun(dbName, tableName, role string) (*ColumnStatisticsTaskRun, error)
+	StartColumnStatisticsTaskRunWithOptions(
+		dbName, tableName, role string, opts ColumnStatisticsRunOptions,
+	) (*ColumnStatisticsTaskRun, error)
 	StopColumnStatisticsTaskRun(dbName, tableName string) error
 	GetColumnStatisticsTaskRun(runID string) (*ColumnStatisticsTaskRun, error)
 	GetColumnStatisticsTaskRuns() []*ColumnStatisticsTaskRun

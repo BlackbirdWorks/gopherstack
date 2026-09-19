@@ -305,11 +305,68 @@ type restoreFromClusterSnapshotResponse struct {
 	Cluster xmlCluster `xml:"RestoreFromClusterSnapshotResult>Cluster"`
 }
 
+// parseRestoreFromClusterSnapshotOptions reads
+// RestoreFromClusterSnapshotInput's documented-default fields (confirmed
+// against redshift@v1.65.4 serializers.go's
+// awsAwsquery_serializeOpDocumentRestoreFromClusterSnapshotInput) that
+// RestoreFromClusterSnapshot previously dropped entirely.
+func parseRestoreFromClusterSnapshotOptions(vals url.Values) (RestoreFromClusterSnapshotOptions, error) {
+	opts := RestoreFromClusterSnapshotOptions{
+		AvailabilityZone:          vals.Get("AvailabilityZone"),
+		ClusterParameterGroupName: vals.Get("ClusterParameterGroupName"),
+		DefaultIamRoleArn:         vals.Get("DefaultIamRoleArn"),
+		VpcSecurityGroupIDs:       parseStringList(vals, "VpcSecurityGroupIds.VpcSecurityGroupId."),
+	}
+
+	if v := vals.Get("AllowVersionUpgrade"); v != "" {
+		b := v == paramValueTrue
+		opts.AllowVersionUpgrade = &b
+	}
+
+	if v := vals.Get("AutomatedSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return RestoreFromClusterSnapshotOptions{}, fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be an integer", ErrInvalidParameter,
+			)
+		}
+
+		opts.AutomatedSnapshotRetentionPeriod = &n
+	}
+
+	if v := vals.Get("ManualSnapshotRetentionPeriod"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return RestoreFromClusterSnapshotOptions{}, fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be an integer", ErrInvalidParameter,
+			)
+		}
+
+		opts.ManualSnapshotRetentionPeriod = &n
+	}
+
+	if v := vals.Get("Port"); v != "" {
+		p, err := strconv.Atoi(v)
+		if err != nil {
+			return RestoreFromClusterSnapshotOptions{}, fmt.Errorf("%w: Port must be an integer", ErrInvalidParameter)
+		}
+
+		opts.Port = p
+	}
+
+	return opts, nil
+}
+
 func (h *Handler) handleRestoreFromClusterSnapshot(vals url.Values) (any, error) {
 	clusterID := vals.Get("ClusterIdentifier")
 	snapshotID := vals.Get("SnapshotIdentifier")
 
-	cluster, err := h.Backend.RestoreFromClusterSnapshot(clusterID, snapshotID)
+	opts, err := parseRestoreFromClusterSnapshotOptions(vals)
+	if err != nil {
+		return nil, err
+	}
+
+	cluster, err := h.Backend.RestoreFromClusterSnapshot(clusterID, snapshotID, opts)
 	if err != nil {
 		return nil, err
 	}

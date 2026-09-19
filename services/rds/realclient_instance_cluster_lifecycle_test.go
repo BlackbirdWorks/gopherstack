@@ -142,7 +142,9 @@ func testReadReplicaRealClient(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	_, err = backend.CreateDBInstanceReadReplica("slice8-replica", "slice8-primary", "", "", "")
+	_, err = backend.CreateDBInstanceReadReplica(
+		"slice8-replica", "slice8-primary", "", "", "", rds.DBInstanceOptions{},
+	)
 	require.NoError(t, err)
 
 	promoteOut, err := client.PromoteReadReplica(
@@ -151,7 +153,9 @@ func testReadReplicaRealClient(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "slice8-replica", aws.ToString(promoteOut.DBInstance.DBInstanceIdentifier))
 
-	_, err = backend.CreateDBInstanceReadReplica("slice8-replica2", "slice8-primary", "", "", "")
+	_, err = backend.CreateDBInstanceReadReplica(
+		"slice8-replica2", "slice8-primary", "", "", "", rds.DBInstanceOptions{},
+	)
 	require.NoError(t, err)
 
 	switchoverOut, err := client.SwitchoverReadReplica(
@@ -478,6 +482,7 @@ func testGlobalClusterBlueGreenRealClient(t *testing.T) {
 		"slice8-globalcluster",
 		"aurora-mysql",
 		"8.0",
+		"",
 		true,
 		false,
 	)
@@ -797,8 +802,7 @@ func testCustomEngineVersionRealClient(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := backend.CreateCustomDBEngineVersion(
-		"custom-oracle-ee-cdb", "19.slice8", "slice8 custom engine version",
-	)
+		"custom-oracle-ee-cdb", "19.slice8", "slice8 custom engine version", "")
 	require.NoError(t, err)
 
 	modifyOut, err := client.ModifyCustomDBEngineVersion(

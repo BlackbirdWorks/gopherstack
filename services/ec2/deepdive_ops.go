@@ -32,6 +32,7 @@ func (b *InMemoryBackend) CreateImage(instanceID, name, description string) (*AM
 		Architecture:   archX8664,
 		RootDeviceName: "/dev/xvda",
 		State:          stateAvailable,
+		OwnerID:        b.AccountID,
 	}
 	b.images.Put(image)
 
@@ -174,10 +175,21 @@ func (b *InMemoryBackend) CreateVpcEndpoint(
 	return b.CreateVpcEndpointWithRouteTableIDs(vpcID, serviceName, endpointType, subnetIDs, nil)
 }
 
+// VpcEndpointCreateOptions carries CreateVpcEndpoint's remaining
+// declare+echo fields, added as a trailing variadic struct to stay
+// back-compatible with existing call sites.
+type VpcEndpointCreateOptions struct {
+	PolicyDocument    string
+	ServiceRegion     string
+	PrivateDNSEnabled *bool
+	SecurityGroupIDs  []string
+}
+
 // CreateVpcEndpointWithRouteTableIDs creates a VPC endpoint with optional route table associations.
 func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 	vpcID, serviceName, endpointType string,
 	subnetIDs, routeTableIDs []string,
+	opts ...VpcEndpointCreateOptions,
 ) (*VpcEndpoint, error) {
 	if vpcID == "" {
 		return nil, fmt.Errorf("%w: VpcId is required", ErrInvalidParameter)
@@ -220,21 +232,44 @@ func (b *InMemoryBackend) CreateVpcEndpointWithRouteTableIDs(
 		}
 	}
 
+	o := VpcEndpointCreateOptions{}
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+
+	// api_op_CreateVpcEndpoint.go PrivateDnsEnabled: "(Interface endpoint) ...";
+	// no documented default value stated for gateway endpoints, which don't
+	// support it at all -- only default true for interface endpoints.
+	privateDNSEnabled := endpointType == vpcEndpointTypeInterface
+	if o.PrivateDNSEnabled != nil {
+		privateDNSEnabled = *o.PrivateDNSEnabled
+	}
+
+	serviceRegion := o.ServiceRegion
+	if serviceRegion == "" {
+		serviceRegion = b.Region // "The Region where the service is hosted. The default is the current Region."
+	}
+
 	endpoint := &VpcEndpoint{
-		ID:              newVPCEndpointID(),
-		VPCID:           vpcID,
-		ServiceName:     serviceName,
-		State:           stateAvailable,
-		VpcEndpointType: endpointType,
-		OwnerID:         b.AccountID,
-		SubnetIDs:       append([]string(nil), subnetIDs...),
-		RouteTableIDs:   append([]string(nil), routeTableIDs...),
-		CreateTime:      time.Now().UTC(),
+		ID:                newVPCEndpointID(),
+		VPCID:             vpcID,
+		ServiceName:       serviceName,
+		State:             stateAvailable,
+		VpcEndpointType:   endpointType,
+		OwnerID:           b.AccountID,
+		SubnetIDs:         append([]string(nil), subnetIDs...),
+		RouteTableIDs:     append([]string(nil), routeTableIDs...),
+		CreateTime:        time.Now().UTC(),
+		PolicyDocument:    o.PolicyDocument,
+		ServiceRegion:     serviceRegion,
+		SecurityGroupIDs:  append([]string(nil), o.SecurityGroupIDs...),
+		PrivateDNSEnabled: privateDNSEnabled,
 	}
 	b.vpcEndpoints.Put(endpoint)
 	cp := *endpoint
 	cp.SubnetIDs = append([]string(nil), endpoint.SubnetIDs...)
 	cp.RouteTableIDs = append([]string(nil), endpoint.RouteTableIDs...)
+	cp.SecurityGroupIDs = append([]string(nil), endpoint.SecurityGroupIDs...)
 
 	return &cp, nil
 }
@@ -258,6 +293,7 @@ func (b *InMemoryBackend) DescribeVpcEndpoints(ids []string) []*VpcEndpoint {
 		cp := *ep
 		cp.SubnetIDs = append([]string(nil), ep.SubnetIDs...)
 		cp.RouteTableIDs = append([]string(nil), ep.RouteTableIDs...)
+		cp.SecurityGroupIDs = append([]string(nil), ep.SecurityGroupIDs...)
 		endpoints = append(endpoints, &cp)
 	}
 

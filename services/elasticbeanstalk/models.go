@@ -44,6 +44,8 @@ const (
 
 // Application represents an Elastic Beanstalk application.
 type Application struct {
+	VersionLifecycleMaxAgeRule   *MaxAgeRule       `json:"versionLifecycleMaxAgeRule,omitempty"`
+	VersionLifecycleMaxCountRule *MaxCountRule     `json:"versionLifecycleMaxCountRule,omitempty"`
 	Tags                         map[string]string `json:"tags,omitempty"`
 	ApplicationName              string            `json:"applicationName"`
 	ApplicationARN               string            `json:"applicationArn"`
@@ -56,6 +58,38 @@ type Application struct {
 	// json.Marshal(Application) and is instead carried through persistence
 	// via regionalDTO (see persistence.go).
 	region string
+}
+
+// MaxAgeRule mirrors types.MaxAgeRule (ApplicationVersionLifecycleConfig's
+// age-based retention rule): restricts the length of time that application
+// versions are retained for an application.
+type MaxAgeRule struct {
+	Enabled            bool  `json:"enabled"`
+	DeleteSourceFromS3 bool  `json:"deleteSourceFromS3,omitempty"`
+	MaxAgeInDays       int32 `json:"maxAgeInDays,omitempty"`
+}
+
+// MaxCountRule mirrors types.MaxCountRule (ApplicationVersionLifecycleConfig's
+// count-based retention rule): restricts the number of application versions
+// that are retained for an application.
+type MaxCountRule struct {
+	Enabled            bool  `json:"enabled"`
+	DeleteSourceFromS3 bool  `json:"deleteSourceFromS3,omitempty"`
+	MaxCount           int32 `json:"maxCount,omitempty"`
+}
+
+// ApplicationResourceLifecycleParams holds ResourceLifecycleConfig's fields
+// as parsed off the wire (CreateApplication and UpdateApplicationResourceLifecycle
+// share this exact shape -- api_op_CreateApplication.go and
+// api_op_UpdateApplicationResourceLifecycle.go both declare
+// ResourceLifecycleConfig *types.ApplicationResourceLifecycleConfig). A nil
+// MaxAgeRule/MaxCountRule means "not present in this request, leave whatever
+// is already stored unchanged" -- matching ServiceRole's own documented
+// leniency ("you don't need to specify it again in subsequent ... calls").
+type ApplicationResourceLifecycleParams struct {
+	MaxAgeRule   *MaxAgeRule
+	MaxCountRule *MaxCountRule
+	ServiceRole  string
 }
 
 // Environment represents an Elastic Beanstalk environment.
@@ -190,6 +224,16 @@ func nowISO8601() string {
 func cloneApplication(app *Application) *Application {
 	cp := *app
 	cp.Tags = copyTags(app.Tags)
+
+	if app.VersionLifecycleMaxAgeRule != nil {
+		rule := *app.VersionLifecycleMaxAgeRule
+		cp.VersionLifecycleMaxAgeRule = &rule
+	}
+
+	if app.VersionLifecycleMaxCountRule != nil {
+		rule := *app.VersionLifecycleMaxCountRule
+		cp.VersionLifecycleMaxCountRule = &rule
+	}
 
 	return &cp
 }

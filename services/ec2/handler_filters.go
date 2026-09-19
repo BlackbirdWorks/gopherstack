@@ -36,6 +36,7 @@ const (
 	filterKeySecondaryNetID   = "secondary-network-id"
 	filterKeyResourceType     = "resource-type"
 	filterKeyAttachInstanceID = "attachment.instance-id"
+	filterKeyImageID          = "image-id"
 )
 
 // tagMatch returns true when the resource's tag at tagKey equals any of values.
@@ -565,7 +566,7 @@ amiLoop:
 
 func imageMatchesFilter(a *AMIStub, filterName string, values []string, b Backend) bool {
 	switch filterName {
-	case "image-id":
+	case filterKeyImageID:
 		return anyEqual(a.ImageID, values)
 	case "name":
 		return anyEqual(a.Name, values)
@@ -860,7 +861,7 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, b
 	switch filterName {
 	case "instance-state-name":
 		return anyEqual(inst.State.Name, values)
-	case "image-id":
+	case filterKeyImageID:
 		return anyEqual(inst.ImageID, values)
 	case filterKeyVPCID:
 		return anyEqual(inst.VPCID, values)
@@ -2002,6 +2003,262 @@ func usageReportEntryMatchesFilter(e *UsageReportEntry, filterName string, value
 		}
 
 		return false
+	}
+
+	return true
+}
+
+// applyCapacityReservationFilters supports the DescribeCapacityReservations
+// filters this backend has data for: instance-type, owner-id,
+// availability-zone, instance-platform, instance-match-criteria, tenancy,
+// state (api_op_DescribeCapacityReservations.go doc comment). outpost-arn,
+// placement-group-arn, start-date, end-date, and end-date-type are
+// documented but unmodeled (no such fields on CapacityReservation).
+func applyCapacityReservationFilters(
+	reservations []*CapacityReservation, filters map[string][]string,
+) []*CapacityReservation {
+	if len(filters) == 0 {
+		return reservations
+	}
+
+	out := reservations[:0:0]
+
+crLoop:
+	for _, cr := range reservations {
+		for name, values := range filters {
+			if !capacityReservationMatchesFilter(cr, name, values) {
+				continue crLoop
+			}
+		}
+
+		out = append(out, cr)
+	}
+
+	return out
+}
+
+func capacityReservationMatchesFilter(cr *CapacityReservation, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyInstanceType:
+		return anyEqual(cr.InstanceType, values)
+	case filterKeyOwnerID:
+		return anyEqual(cr.OwnedBy, values)
+	case filterKeyAvailabilityZone:
+		return anyEqual(cr.AvailabilityZone, values)
+	case "instance-platform":
+		return anyEqual(cr.InstancePlatform, values)
+	case "instance-match-criteria":
+		return anyEqual(cr.InstanceMatchCriteria, values)
+	case "tenancy":
+		return anyEqual(cr.Tenancy, values)
+	case filterKeyState:
+		return anyEqual(cr.State, values)
+	}
+
+	return true
+}
+
+// applyTransitGatewayFilters supports the DescribeTransitGateways filters
+// this backend has data for: owner-id, state, transit-gateway-id, tag-key,
+// tag:<key>, and the options.* filters backed by TransitGatewayOptions
+// (api_op_DescribeTransitGateways.go doc comment). options.propagation-
+// default-route-table-id and options.association-default-route-table-id
+// are documented but unmodeled on TransitGateway.
+func applyTransitGatewayFilters(tgws []*TransitGateway, filters map[string][]string, b Backend) []*TransitGateway {
+	if len(filters) == 0 {
+		return tgws
+	}
+
+	out := tgws[:0:0]
+
+tgwLoop:
+	for _, tgw := range tgws {
+		for name, values := range filters {
+			if !transitGatewayMatchesFilter(tgw, name, values, b) {
+				continue tgwLoop
+			}
+		}
+
+		out = append(out, tgw)
+	}
+
+	return out
+}
+
+func transitGatewayMatchesFilter(tgw *TransitGateway, filterName string, values []string, b Backend) bool {
+	switch filterName {
+	case filterKeyOwnerID:
+		return anyEqual(tgw.OwnerID, values)
+	case filterKeyState:
+		return anyEqual(tgw.State, values)
+	case "transit-gateway-id":
+		return anyEqual(tgw.ID, values)
+	case "options.amazon-side-asn":
+		return anyEqual(strconv.FormatInt(tgw.Options.AmazonSideAsn, 10), values)
+	case "options.auto-accept-shared-attachments":
+		return anyEqual(tgw.Options.AutoAcceptSharedAttachments, values)
+	case "options.default-route-table-association":
+		return anyEqual(tgw.Options.DefaultRouteTableAssociation, values)
+	case "options.default-route-table-propagation":
+		return anyEqual(tgw.Options.DefaultRouteTablePropagation, values)
+	case "options.dns-support":
+		return anyEqual(tgw.Options.DNSSupport, values)
+	case "options.vpn-ecmp-support":
+		return anyEqual(tgw.Options.VpnEcmpSupport, values)
+	case "tag-key":
+		tags := b.TagsForResource(tgw.ID)
+		for _, v := range values {
+			if _, ok := tags[v]; ok {
+				return true
+			}
+		}
+
+		return false
+	default:
+		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
+			return tagMatch(tgw.ID, tagKey, values, b)
+		}
+	}
+
+	return true
+}
+
+// applyTGWRouteTableFilters supports the DescribeTransitGatewayRouteTables
+// filters (api_op_DescribeTransitGatewayRouteTables.go doc comment):
+// default-association-route-table, default-propagation-route-table, state,
+// transit-gateway-id, transit-gateway-route-table-id.
+func applyTGWRouteTableFilters(
+	rts []*TransitGatewayRouteTable, filters map[string][]string,
+) []*TransitGatewayRouteTable {
+	if len(filters) == 0 {
+		return rts
+	}
+
+	out := rts[:0:0]
+
+rtLoop:
+	for _, rt := range rts {
+		for name, values := range filters {
+			if !tgwRouteTableMatchesFilter(rt, name, values) {
+				continue rtLoop
+			}
+		}
+
+		out = append(out, rt)
+	}
+
+	return out
+}
+
+func tgwRouteTableMatchesFilter(rt *TransitGatewayRouteTable, filterName string, values []string) bool {
+	switch filterName {
+	case "default-association-route-table":
+		want := anyEqual("true", values)
+
+		return rt.DefaultAssociation == want
+	case "default-propagation-route-table":
+		want := anyEqual("true", values)
+
+		return rt.DefaultPropagation == want
+	case filterKeyState:
+		return anyEqual(rt.State, values)
+	case "transit-gateway-id":
+		return anyEqual(rt.TransitGatewayID, values)
+	case "transit-gateway-route-table-id":
+		return anyEqual(rt.RouteTableID, values)
+	}
+
+	return true
+}
+
+// applyLaunchTemplateVersionFilters supports the DescribeLaunchTemplateVersions
+// filters this backend has data for: image-id, instance-type, and
+// is-default-version (api_op_DescribeLaunchTemplateVersions.go doc comment).
+// The other documented filters (create-time, ebs-optimized, http-endpoint,
+// etc.) have no backing field on launchTemplateVersionItem.
+func applyLaunchTemplateVersionFilters(
+	items []launchTemplateVersionItem, filters map[string][]string,
+) []launchTemplateVersionItem {
+	if len(filters) == 0 {
+		return items
+	}
+
+	out := items[:0:0]
+
+itemLoop:
+	for _, item := range items {
+		for name, values := range filters {
+			if !launchTemplateVersionMatchesFilter(item, name, values) {
+				continue itemLoop
+			}
+		}
+
+		out = append(out, item)
+	}
+
+	return out
+}
+
+func launchTemplateVersionMatchesFilter(item launchTemplateVersionItem, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyImageID:
+		return anyEqual(item.LaunchTemplateData.ImageID, values)
+	case filterKeyInstanceType:
+		return anyEqual(item.LaunchTemplateData.InstanceType, values)
+	case "is-default-version":
+		want := anyEqual("true", values)
+
+		return item.DefaultVersion == want
+	}
+
+	return true
+}
+
+// applyReservedInstancesOfferingFilters supports the
+// DescribeReservedInstancesOfferings filters this backend has data for:
+// availability-zone, duration, fixed-price, instance-type,
+// product-description, reserved-instances-offering-id, usage-price
+// (api_op_DescribeReservedInstancesOfferings.go doc comment). marketplace,
+// availability-zone-id, and scope are documented but unmodeled.
+func applyReservedInstancesOfferingFilters(
+	offerings []*ReservedInstancesOffering, filters map[string][]string,
+) []*ReservedInstancesOffering {
+	if len(filters) == 0 {
+		return offerings
+	}
+
+	out := offerings[:0:0]
+
+offerLoop:
+	for _, o := range offerings {
+		for name, values := range filters {
+			if !reservedInstancesOfferingMatchesFilter(o, name, values) {
+				continue offerLoop
+			}
+		}
+
+		out = append(out, o)
+	}
+
+	return out
+}
+
+func reservedInstancesOfferingMatchesFilter(o *ReservedInstancesOffering, filterName string, values []string) bool {
+	switch filterName {
+	case filterKeyAvailabilityZone:
+		return anyEqual(o.AvailabilityZone, values)
+	case "duration":
+		return anyEqual(strconv.FormatInt(o.Duration, 10), values)
+	case "fixed-price":
+		return anyEqual(strconv.FormatFloat(o.FixedPrice, 'f', -1, 64), values)
+	case filterKeyInstanceType:
+		return anyEqual(o.InstanceType, values)
+	case "product-description":
+		return anyEqual(o.ProductDescription, values)
+	case "reserved-instances-offering-id":
+		return anyEqual(o.ReservedInstancesOfferingID, values)
+	case "usage-price":
+		return anyEqual(strconv.FormatFloat(o.UsagePrice, 'f', -1, 64), values)
 	}
 
 	return true

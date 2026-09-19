@@ -67,9 +67,17 @@ type associateWirelessDeviceWithFuotaRequest struct {
 	WirelessDeviceID string `json:"WirelessDeviceId"`
 }
 
+// multicastGroupByFuotaTaskEntry mirrors types.MulticastGroupByFuotaTask,
+// whose only member is Id -- unlike multicastGroupEntry (Arn/Id/Name), used
+// by ListMulticastGroups, a real client's MulticastGroupList here would
+// simply ignore an Arn/Name this type doesn't declare.
+type multicastGroupByFuotaTaskEntry struct {
+	ID string `json:"Id"`
+}
+
 type listMulticastGroupsByFuotaTaskResponse struct {
-	NextToken          string                `json:"NextToken"`
-	MulticastGroupList []multicastGroupEntry `json:"MulticastGroupList"`
+	NextToken          string                           `json:"NextToken"`
+	MulticastGroupList []multicastGroupByFuotaTaskEntry `json:"MulticastGroupList"`
 }
 
 // --- FUOTA Task handlers ---
@@ -264,14 +272,10 @@ func (h *Handler) listMulticastGroupsByFuotaTask(c *echo.Context, fuotaTaskID st
 	groups := h.Backend.ListMulticastGroupsByFuotaTask(h.AccountID, h.DefaultRegion, fuotaTaskID)
 	pg, next := paginateQuery(c, groups)
 
-	entries := make([]multicastGroupEntry, 0, len(pg))
+	entries := make([]multicastGroupByFuotaTaskEntry, 0, len(pg))
 
 	for _, mg := range pg {
-		entries = append(entries, multicastGroupEntry{
-			Arn:  mg.ARN,
-			ID:   mg.ID,
-			Name: mg.Name,
-		})
+		entries = append(entries, multicastGroupByFuotaTaskEntry{ID: mg.ID})
 	}
 
 	return writeJSON(c, http.StatusOK, listMulticastGroupsByFuotaTaskResponse{

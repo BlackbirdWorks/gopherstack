@@ -824,7 +824,7 @@ func (n *noopBackend) GetBasePathMappings(_ string) ([]apigateway.BasePathMappin
 
 func (n *noopBackend) DeleteBasePathMapping(_ string, _ string) error { return errNoopNotImplemented }
 
-func (n *noopBackend) GetModel(_ string, _ string) (*apigateway.Model, error) {
+func (n *noopBackend) GetModel(_ string, _ string, _ bool) (*apigateway.Model, error) {
 	return nil, errNoopNotImplemented
 }
 

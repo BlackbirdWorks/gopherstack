@@ -67,7 +67,8 @@ func (h *Handler) handleDeleteDBClusterSnapshot(vals url.Values) (any, error) {
 func (h *Handler) handleCopyDBClusterSnapshot(vals url.Values) (any, error) {
 	sourceSnapshotID := vals.Get("SourceDBClusterSnapshotIdentifier")
 	targetSnapshotID := vals.Get("TargetDBClusterSnapshotIdentifier")
-	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID)
+	copyTags := vals.Get("CopyTags") == formTrue
+	snap, err := h.Backend.CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID, copyTags)
 	if err != nil {
 		return nil, err
 	}

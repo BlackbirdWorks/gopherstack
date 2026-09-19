@@ -138,7 +138,7 @@ func (h *Handler) handleListModelCopyJobs(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(jobs))
 
 	for _, j := range jobs {
-		summaries = append(summaries, modelCopyJobToOutput(j))
+		summaries = append(summaries, modelCopyJobToSummaryOutput(j))
 	}
 
 	resp := map[string]any{"modelCopyJobSummaries": summaries}
@@ -157,6 +157,10 @@ func (h *Handler) handleGetModelCopyJob(c *echo.Context, jobARN string) error {
 
 	return c.JSON(http.StatusOK, modelCopyJobToOutput(job))
 }
+
+// arnFieldCount is the number of colon-separated fields in a well-formed
+// AWS ARN: "arn:partition:service:region:account:resource".
+const arnFieldCount = 6
 
 // accountIDFromARN extracts the account segment (index 4 of arnFieldCount)
 // from a well-formed ARN this backend built itself via pkgs/arn.Build --
@@ -187,6 +191,38 @@ func modelCopyJobToOutput(j *ModelCopyJob) map[string]any {
 
 	if len(j.Tags) > 0 {
 		out["tags"] = j.Tags
+	}
+
+	return out
+}
+
+// modelCopyJobToSummaryOutput is the real ListModelCopyJobsOutput element
+// shape (types.ModelCopyJobSummary, bedrock@v1.66.4 deserializers.go) -- no
+// lastModifiedTime (not a real member of this shape at all, unlike
+// modelCopyJobToOutput's Get-shaped map); Tags is wire key
+// "targetModelTags", not "tags". sourceModelName/targetModelKmsKeyArn have
+// no source on this backend (no cross-account naming or KMS-key modeling)
+// -- see PARITY.md items_still_open.
+func modelCopyJobToSummaryOutput(j *ModelCopyJob) map[string]any {
+	out := map[string]any{
+		keyJobArn:         j.JobArn,
+		"sourceModelArn":  j.SourceModelArn,
+		"sourceAccountId": accountIDFromARN(j.SourceModelArn),
+		"targetModelArn":  j.TargetModelArn,
+		keyStatus:         j.Status,
+		keyCreationTime:   j.CreationTime.Format(time.RFC3339),
+	}
+
+	if j.TargetModelName != "" {
+		out["targetModelName"] = j.TargetModelName
+	}
+
+	if j.FailureMessage != "" {
+		out["failureMessage"] = j.FailureMessage
+	}
+
+	if len(j.Tags) > 0 {
+		out["targetModelTags"] = j.Tags
 	}
 
 	return out

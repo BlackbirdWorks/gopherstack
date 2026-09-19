@@ -78,14 +78,21 @@ func clusterVpcConfigJSON(v *VpcConfig) map[string]any {
 
 // clusterToJSON converts a Cluster to a JSON-serializable map.
 func clusterToJSON(c *Cluster) map[string]any {
+	supportType := c.UpgradePolicySupportType
+	if supportType == "" {
+		supportType = "EXTENDED"
+	}
+
 	m := map[string]any{
-		keyName:           c.Name,
-		keyArn:            c.ARN,
-		keyStatusField:    c.Status,
-		keyVersion:        c.Version,
-		keyCreatedAt:      c.CreatedAt.Unix(),
-		"platformVersion": c.PlatformVersion,
-		keyTags:           clusterTagsMap(c),
+		keyName:              c.Name,
+		keyArn:               c.ARN,
+		keyStatusField:       c.Status,
+		keyVersion:           c.Version,
+		keyCreatedAt:         c.CreatedAt.Unix(),
+		"platformVersion":    c.PlatformVersion,
+		keyTags:              clusterTagsMap(c),
+		"deletionProtection": c.DeletionProtection,
+		"upgradePolicy":      map[string]any{"supportType": supportType},
 	}
 	appendClusterCoreFields(c, m)
 	appendClusterOptionalInfra(c, m)
@@ -266,6 +273,10 @@ type elasticLoadBalancingConfigJSON struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
+type createClusterUpgradePolicy struct {
+	SupportType string `json:"supportType"`
+}
+
 type createClusterBody struct {
 	Tags                    map[string]string            `json:"tags"`
 	ResourcesVpcConfig      *vpcConfigJSON               `json:"resourcesVpcConfig"`
@@ -273,6 +284,9 @@ type createClusterBody struct {
 	AccessConfig            *accessConfigJSON            `json:"accessConfig"`
 	ComputeConfig           *computeConfigJSON           `json:"computeConfig"`
 	StorageConfig           *storageConfigJSON           `json:"storageConfig"`
+	Logging                 *updateClusterConfigLogging  `json:"logging"`
+	UpgradePolicy           *createClusterUpgradePolicy  `json:"upgradePolicy"`
+	DeletionProtection      *bool                        `json:"deletionProtection"`
 	Name                    string                       `json:"name"`
 	Version                 string                       `json:"version"`
 	RoleArn                 string                       `json:"roleArn"`
@@ -366,6 +380,21 @@ func buildClusterOptConfig(in createClusterBody) ClusterOptionalConfig {
 		opt.StorageConfig = sc
 	}
 
+	if in.Logging != nil {
+		opt.LogEntries = make([]ClusterLogEntry, len(in.Logging.ClusterLogging))
+		for i, entry := range in.Logging.ClusterLogging {
+			opt.LogEntries[i] = ClusterLogEntry{Types: entry.Types, Enabled: entry.Enabled}
+		}
+	}
+
+	if in.UpgradePolicy != nil {
+		opt.UpgradePolicySupportType = in.UpgradePolicy.SupportType
+	}
+
+	if in.DeletionProtection != nil {
+		opt.DeletionProtection = *in.DeletionProtection
+	}
+
 	return opt
 }
 
@@ -451,7 +480,8 @@ func (h *Handler) handleDeregisterCluster(c *echo.Context, name string) error {
 }
 
 func (h *Handler) handleDescribeClusterVersions(c *echo.Context) error {
-	versions := h.Backend.DescribeClusterVersions()
+	defaultOnly := c.Request().URL.Query().Get("defaultOnly") == "true"
+	versions := h.Backend.DescribeClusterVersions(defaultOnly)
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"clusterVersions": versions,

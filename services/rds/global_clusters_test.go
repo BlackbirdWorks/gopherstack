@@ -18,7 +18,7 @@ func TestGlobalClusterPrimaryRegionAndMembers(t *testing.T) {
 
 	b := rds.NewInMemoryBackend("123456789012", config.DefaultRegion)
 
-	_, err := b.CreateGlobalCluster("test-global", "aurora-postgresql", "15.4", false, false)
+	_, err := b.CreateGlobalCluster("test-global", "aurora-postgresql", "15.4", "", false, false)
 	require.NoError(t, err)
 
 	clusters, err := b.DescribeGlobalClusters("")
@@ -32,7 +32,7 @@ func TestGlobalCluster_Failover(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.9", false, false)
+	_, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.9", "", false, false)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBCluster(
@@ -56,7 +56,7 @@ func TestGlobalCluster_Switchover(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateGlobalCluster("gc2", "aurora-mysql", "3.04.0", false, false)
+	_, err := b.CreateGlobalCluster("gc2", "aurora-mysql", "3.04.0", "", false, false)
 	require.NoError(t, err)
 
 	_, err = b.CreateDBCluster(
@@ -80,7 +80,7 @@ func TestGlobalCluster_RemoveMember(t *testing.T) {
 	t.Parallel()
 
 	b := newBatch2Backend()
-	_, err := b.CreateGlobalCluster("gc3", "aurora-postgresql", "14.9", false, false)
+	_, err := b.CreateGlobalCluster("gc3", "aurora-postgresql", "14.9", "", false, false)
 	require.NoError(t, err)
 
 	clusterARN := "arn:aws:rds:us-east-1:000000000000:cluster:member-to-remove"
@@ -153,7 +153,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			name:  "create_and_describe",
 			setup: func(_ *rds.InMemoryBackend) {},
 			run: func(b *rds.InMemoryBackend) error {
-				gc, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.3", true, false)
+				gc, err := b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.3", "", true, false)
 				if err != nil {
 					return err
 				}
@@ -173,7 +173,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 		{
 			name: "describe_specific",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateGlobalCluster("gc1", "aurora", "", false, false)
+				_, _ = b.CreateGlobalCluster("gc1", "aurora", "", "", false, false)
 			},
 			run: func(b *rds.InMemoryBackend) error {
 				clusters, err := b.DescribeGlobalClusters("gc1")
@@ -188,9 +188,9 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 		},
 		{
 			name:  "create_duplicate",
-			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", false, false) },
+			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", "", false, false) },
 			run: func(b *rds.InMemoryBackend) error {
-				_, err := b.CreateGlobalCluster("gc1", "", "", false, false)
+				_, err := b.CreateGlobalCluster("gc1", "", "", "", false, false)
 
 				return err
 			},
@@ -199,7 +199,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 		},
 		{
 			name:  "delete",
-			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", false, false) },
+			setup: func(b *rds.InMemoryBackend) { _, _ = b.CreateGlobalCluster("gc1", "", "", "", false, false) },
 			run: func(b *rds.InMemoryBackend) error {
 				gc, err := b.DeleteGlobalCluster("gc1")
 				if err != nil {
@@ -226,11 +226,11 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 		{
 			name: "modify_engine_version",
 			setup: func(b *rds.InMemoryBackend) {
-				_, _ = b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.0", false, false)
+				_, _ = b.CreateGlobalCluster("gc1", "aurora-postgresql", "14.0", "", false, false)
 			},
 			run: func(b *rds.InMemoryBackend) error {
 				dp := true
-				gc, err := b.ModifyGlobalCluster("gc1", "", "14.5", &dp)
+				gc, err := b.ModifyGlobalCluster("gc1", "", "14.5", &dp, false)
 				if err != nil {
 					return err
 				}
@@ -244,7 +244,7 @@ func TestRDSBackend_GlobalCluster(t *testing.T) {
 			name:  "create_empty_id",
 			setup: func(_ *rds.InMemoryBackend) {},
 			run: func(b *rds.InMemoryBackend) error {
-				_, err := b.CreateGlobalCluster("", "", "", false, false)
+				_, err := b.CreateGlobalCluster("", "", "", "", false, false)
 
 				return err
 			},
@@ -310,7 +310,7 @@ func TestRemoveFromGlobalCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", false, false)
+				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", "", false, false)
 				require.NoError(t, err)
 			}
 			got, err := b.RemoveFromGlobalCluster(tt.globalClusterID, tt.dbClusterARN)
@@ -353,7 +353,7 @@ func TestFailoverGlobalCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", false, false)
+				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", "", false, false)
 				require.NoError(t, err)
 			}
 			got, err := b.FailoverGlobalCluster(tt.globalClusterID, tt.target)
@@ -397,7 +397,7 @@ func TestSwitchoverGlobalCluster(t *testing.T) {
 			t.Parallel()
 			b := newTestBackend(t)
 			if !tt.wantErr {
-				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", false, false)
+				_, err := b.CreateGlobalCluster(tt.globalClusterID, "aurora-mysql", "", "", false, false)
 				require.NoError(t, err)
 			}
 			got, err := b.SwitchoverGlobalCluster(tt.globalClusterID, tt.target)

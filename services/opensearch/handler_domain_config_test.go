@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -200,7 +201,7 @@ func TestCancelDomainConfigChange_DryRunDoesNotMutate(t *testing.T) {
 
 	// Trigger a pending config change.
 	_, err = b.UpdateDomainConfig("dryrun-cancel-domain", opensearch.UpdateDomainConfigInput{
-		AccessPolicies: "{}",
+		AccessPolicies: aws.String("{}"),
 	})
 	require.NoError(t, err)
 

@@ -210,11 +210,11 @@ func (h *Handler) handleListConnectors(
 type updateConnectorInput struct {
 	SftpConfig         *connectorSftpConfigInput `json:"SftpConfig,omitempty"`
 	As2Config          *connectorAs2ConfigInput  `json:"As2Config,omitempty"`
+	URL                *string                   `json:"Url,omitempty"`
+	AccessRole         *string                   `json:"AccessRole,omitempty"`
+	LoggingRole        *string                   `json:"LoggingRole,omitempty"`
+	SecurityPolicyName *string                   `json:"SecurityPolicyName,omitempty"`
 	ConnectorID        string                    `json:"ConnectorId"`
-	URL                string                    `json:"Url"`
-	AccessRole         string                    `json:"AccessRole"`
-	LoggingRole        string                    `json:"LoggingRole,omitempty"`
-	SecurityPolicyName string                    `json:"SecurityPolicyName,omitempty"`
 	IPAddressType      string                    `json:"IpAddressType,omitempty"`
 }
 
@@ -231,17 +231,15 @@ func (h *Handler) handleUpdateConnector(
 	}
 
 	c, err := h.Backend.UpdateConnectorFull(&UpdateConnectorInput{
-		ConnectorID:           in.ConnectorID,
-		URL:                   in.URL,
-		AccessRole:            in.AccessRole,
-		SftpConfig:            toConnectorSftpConfig(in.SftpConfig),
-		As2Config:             toConnectorAs2Config(in.As2Config),
-		LoggingRole:           in.LoggingRole,
-		SetLoggingRole:        in.LoggingRole != "",
-		SecurityPolicyName:    in.SecurityPolicyName,
-		SetSecurityPolicyName: in.SecurityPolicyName != "",
-		IPAddressType:         in.IPAddressType,
-		SetIPAddressType:      in.IPAddressType != "",
+		ConnectorID:        in.ConnectorID,
+		URL:                in.URL,
+		AccessRole:         in.AccessRole,
+		SftpConfig:         toConnectorSftpConfig(in.SftpConfig),
+		As2Config:          toConnectorAs2Config(in.As2Config),
+		LoggingRole:        in.LoggingRole,
+		SecurityPolicyName: in.SecurityPolicyName,
+		IPAddressType:      in.IPAddressType,
+		SetIPAddressType:   in.IPAddressType != "",
 	})
 	if err != nil {
 		return nil, err

@@ -1,10 +1,12 @@
 package cloudfront
 
 import (
+	"encoding/xml"
 	"fmt"
 	"maps"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +14,94 @@ import (
 
 	"github.com/blackbirdworks/gopherstack/pkgs/arn"
 )
+
+// overrideRawConfigEnabled rewrites the raw DistributionConfig XML's top-level
+// Enabled element (the direct child of the root, depth 2 from the decoder's
+// perspective) to reflect an explicit CopyDistribution override, leaving
+// every other byte -- including a same-named but deeper element such as a
+// legacy TrustedSigners.Enabled -- untouched. Falls back to the untouched raw
+// bytes if no depth-2 Enabled element is found (malformed/unexpected shape).
+func overrideRawConfigEnabled(raw []byte, enabled bool) []byte {
+	dec := xml.NewDecoder(strings.NewReader(string(raw)))
+
+	depth := 0
+	for {
+		tok, err := dec.Token()
+		if err != nil {
+			return raw
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+
+			if depth != 2 || t.Name.Local != "Enabled" {
+				continue
+			}
+
+			startOffset := dec.InputOffset()
+
+			cdTok, cdErr := dec.Token()
+			if cdErr != nil {
+				return raw
+			}
+
+			if _, ok := cdTok.(xml.CharData); !ok {
+				return raw
+			}
+
+			endOffset := dec.InputOffset()
+
+			out := make([]byte, 0, len(raw))
+			out = append(out, raw[:startOffset]...)
+			out = append(out, []byte(strconv.FormatBool(enabled))...)
+			out = append(out, raw[endOffset:]...)
+
+			return out
+		case xml.EndElement:
+			depth--
+		}
+	}
+}
+
+// rawConfigChildElementXML extracts the complete raw XML blob (opening tag
+// through its matching closing tag, verbatim bytes) of the direct child
+// element of RawConfig's root with the given local name, or "" if absent or
+// malformed. Used to project a DistributionConfig sub-element (Origins,
+// DefaultCacheBehavior, CacheBehaviors, CustomErrorResponses) into
+// DistributionSummary verbatim -- the same byte-passthrough convention
+// GetDistributionConfig already uses for the whole config, extended to a
+// single named child instead of the whole document.
+func rawConfigChildElementXML(raw []byte, name string) string {
+	dec := xml.NewDecoder(strings.NewReader(string(raw)))
+
+	depth := 0
+	start := int64(-1)
+
+	for {
+		preOffset := dec.InputOffset()
+
+		tok, err := dec.Token()
+		if err != nil {
+			return ""
+		}
+
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+
+			if start < 0 && depth == 2 && t.Name.Local == name {
+				start = preOffset
+			}
+		case xml.EndElement:
+			if start >= 0 && depth == 2 {
+				return string(raw[start:dec.InputOffset()])
+			}
+
+			depth--
+		}
+	}
+}
 
 // distributionARN builds an ARN for a CloudFront distribution.
 // CloudFront ARNs have no region component.
@@ -242,8 +332,18 @@ func (b *InMemoryBackend) AssociateDistributionWebACL(distributionID, webACLID s
 	return nil
 }
 
+// DistributionWebACLID returns the WAF web ACL currently associated with a
+// distribution, or "" if none. Backs DistributionSummary.WebACLId
+// (cloudfront@v1.67.4 types.go, required-but-may-be-empty).
+func (b *InMemoryBackend) DistributionWebACLID(distributionID string) string {
+	b.mu.RLock("DistributionWebACLID")
+	defer b.mu.RUnlock()
+
+	return b.distributionWebACLs[distributionID]
+}
+
 // CopyDistribution creates a copy of an existing distribution.
-func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Distribution, error) {
+func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string, enabled *bool) (*Distribution, error) {
 	b.mu.Lock("CopyDistribution")
 	defer b.mu.Unlock()
 
@@ -267,6 +367,18 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 	rawCopy := make([]byte, len(src.RawConfig))
 	copy(rawCopy, src.RawConfig)
 
+	// CopyDistributionInput.Enabled (api_op_CopyDistribution.go:63-68): "If you omit
+	// this field, the default value is True" -- the new staging distribution's
+	// enabled state does not otherwise inherit from the source.
+	copyEnabled := true
+	if enabled != nil {
+		copyEnabled = *enabled
+	}
+
+	if copyEnabled != src.Enabled {
+		rawCopy = overrideRawConfigEnabled(rawCopy, copyEnabled)
+	}
+
 	d := &Distribution{
 		ID:               id,
 		ARN:              b.distributionARN(id),
@@ -275,10 +387,11 @@ func (b *InMemoryBackend) CopyDistribution(primaryDistID, callerRef string) (*Di
 		ETag:             uuid.NewString(),
 		CallerReference:  callerRef,
 		Comment:          src.Comment,
-		Enabled:          src.Enabled,
+		Enabled:          copyEnabled,
 		RawConfig:        rawCopy,
 		LastModifiedTime: time.Now().UTC().Format(time.RFC3339),
 		Tags:             make(map[string]string),
+		Staging:          true,
 	}
 
 	b.distributions.Put(d)

@@ -10,6 +10,34 @@ import (
 	"github.com/blackbirdworks/gopherstack/pkgs/tags"
 )
 
+// validateLBType validates CreateLoadBalancerInput.Type, defaulting to
+// "application" when omitted.
+func validateLBType(t string) (string, error) {
+	switch t {
+	case "", lbTypeApplication:
+		return lbTypeApplication, nil
+	case lbTypeNetwork, lbTypeGateway:
+		return t, nil
+	default:
+		return "", fmt.Errorf(
+			"%w: invalid Type %q; must be application, network, or gateway", ErrInvalidParameter, t,
+		)
+	}
+}
+
+// validateOnOffFlag validates an on/off-enum request field, returning
+// defaultVal when v is empty ("" means the caller omitted the field).
+func validateOnOffFlag(fieldName, v, defaultVal string) (string, error) {
+	switch v {
+	case "":
+		return defaultVal, nil
+	case onOffValueOn, onOffValueOff:
+		return v, nil
+	default:
+		return "", fmt.Errorf("%w: invalid %s %q; must be on or off", ErrInvalidParameter, fieldName, v)
+	}
+}
+
 // validateLBName applies load-balancer-specific name rules on top of validateResourceName:
 // underscores are not allowed, and the name must be at least 2 characters.
 func validateLBName(name string) error {
@@ -179,17 +207,9 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 
 	lbArn := b.lbARN(input.Name)
 
-	lbType := input.Type
-	switch lbType {
-	case "", lbTypeApplication:
-		lbType = lbTypeApplication
-	case "network", "gateway":
-		// valid as-is
-	default:
-		return nil, fmt.Errorf(
-			"%w: invalid Type %q; must be application, network, or gateway",
-			ErrInvalidParameter, lbType,
-		)
+	lbType, err := validateLBType(input.Type)
+	if err != nil {
+		return nil, err
 	}
 
 	scheme := input.Scheme
@@ -200,6 +220,13 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 	ipType := input.IPAddressType
 	if ipType == "" {
 		ipType = ipAddressTypeIPv4
+	}
+
+	sourceNat, sourceNatErr := validateOnOffFlag(
+		"EnablePrefixForIpv6SourceNat", input.EnablePrefixForIpv6SourceNat, onOffValueOff,
+	)
+	if sourceNatErr != nil {
+		return nil, sourceNatErr
 	}
 
 	t := tags.New("elbv2.lb." + input.Name + ".tags")
@@ -224,24 +251,25 @@ func (b *InMemoryBackend) CreateLoadBalancer(input CreateLoadBalancerInput) (*Lo
 		mappings = subnetsToMappings(input.Subnets)
 	}
 
-	if err := b.validateNetworkRefs(input.SecurityGroups, mappings); err != nil {
-		return nil, err
+	if netErr := b.validateNetworkRefs(input.SecurityGroups, mappings); netErr != nil {
+		return nil, netErr
 	}
 
 	azs := subnetMappingsToAZs(b.region, mappings)
 
 	lb := &LoadBalancer{
-		LoadBalancerArn:       lbArn,
-		LoadBalancerName:      input.Name,
-		DNSName:               lbDNSName(input.Name, lbType, b.region),
-		CanonicalHostedZoneID: canonicalHostedZoneIDForLB(lbType, b.region),
-		CreatedTime:           time.Now().UTC(),
-		Scheme:                scheme,
-		Type:                  lbType,
-		IPAddressType:         ipType,
-		VpcID:                 "vpc-00000000",
-		AvailabilityZones:     azs,
-		SecurityGroups:        input.SecurityGroups,
+		LoadBalancerArn:              lbArn,
+		LoadBalancerName:             input.Name,
+		DNSName:                      lbDNSName(input.Name, lbType, b.region),
+		CanonicalHostedZoneID:        canonicalHostedZoneIDForLB(lbType, b.region),
+		CreatedTime:                  time.Now().UTC(),
+		Scheme:                       scheme,
+		Type:                         lbType,
+		IPAddressType:                ipType,
+		EnablePrefixForIpv6SourceNat: sourceNat,
+		VpcID:                        "vpc-00000000",
+		AvailabilityZones:            azs,
+		SecurityGroups:               input.SecurityGroups,
 		State: LoadBalancerState{
 			Code:        "active",
 			Description: "",
@@ -448,7 +476,11 @@ func (b *InMemoryBackend) ModifyLoadBalancerAttributes(
 }
 
 // SetSecurityGroups updates the security groups associated with a load balancer.
-func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBalancer, error) {
+func (b *InMemoryBackend) SetSecurityGroups(
+	lbArn string,
+	sgs []string,
+	enforceInboundRulesOnPrivateLink string,
+) (*LoadBalancer, error) {
 	b.mu.Lock("SetSecurityGroups")
 	defer b.mu.Unlock()
 
@@ -464,6 +496,24 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 		)
 	}
 
+	// Real AWS default is "on" (SetSecurityGroupsInput.
+	// EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic doc comment); an
+	// omitted flag on a later call leaves the load balancer's current value
+	// (if already set) unchanged rather than resetting it.
+	keepOrDefault := lb.EnforceSGInboundRulesOnPrivateLink
+	if keepOrDefault == "" {
+		keepOrDefault = onOffValueOn
+	}
+
+	enforceVal, err := validateOnOffFlag(
+		"EnforceSecurityGroupInboundRulesOnPrivateLinkTraffic", enforceInboundRulesOnPrivateLink, keepOrDefault,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	lb.EnforceSGInboundRulesOnPrivateLink = enforceVal
+
 	lb.SecurityGroups = sgs
 	cp := *lb
 
@@ -474,6 +524,7 @@ func (b *InMemoryBackend) SetSecurityGroups(lbArn string, sgs []string) (*LoadBa
 func (b *InMemoryBackend) SetSubnets(
 	lbArn string,
 	mappings []SubnetMapping,
+	enablePrefixForIpv6SourceNat string,
 ) (*LoadBalancer, error) {
 	b.mu.Lock("SetSubnets")
 	defer b.mu.Unlock()
@@ -482,6 +533,16 @@ func (b *InMemoryBackend) SetSubnets(
 	if !ok {
 		return nil, ErrLoadBalancerNotFound
 	}
+
+	// An omitted flag leaves the load balancer's current value unchanged.
+	sourceNat, err := validateOnOffFlag(
+		"EnablePrefixForIpv6SourceNat", enablePrefixForIpv6SourceNat, lb.EnablePrefixForIpv6SourceNat,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	lb.EnablePrefixForIpv6SourceNat = sourceNat
 
 	lb.AvailabilityZones = subnetMappingsToAZs(b.region, mappings)
 	cp := *lb

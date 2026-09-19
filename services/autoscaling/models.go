@@ -23,6 +23,7 @@ type ScalingPolicy struct {
 	EstimatedWarmup                int32                           `json:"EstimatedWarmup,omitempty"`
 	ScalingAdjustment              int32                           `json:"ScalingAdjustment,omitempty"`
 	DisableScaleIn                 bool                            `json:"DisableScaleIn,omitempty"`
+	Enabled                        bool                            `json:"Enabled"`
 }
 
 // PredictiveScalingConfiguration mirrors AWS types.PredictiveScalingConfiguration
@@ -138,6 +139,7 @@ type StepAdjustment struct {
 type ScalingPolicyInput struct {
 	PredictiveScalingConfiguration *PredictiveScalingConfiguration
 	CustomizedMetricSpecification  *CustomizedMetricSpecification
+	Enabled                        *bool
 	PolicyName                     string
 	PolicyType                     string
 	AdjustmentType                 string
@@ -466,6 +468,7 @@ type AutoScalingGroup struct {
 	Context                          string                            `json:"Context,omitempty"`
 	PlacementGroup                   string                            `json:"PlacementGroup,omitempty"`
 	AutoScalingGroupName             string                            `json:"AutoScalingGroupName"`
+	ServiceLinkedRoleARN             string                            `json:"ServiceLinkedRoleARN,omitempty"`
 	Status                           string                            `json:"Status,omitempty"`
 	HealthCheckType                  string                            `json:"HealthCheckType"`
 	LaunchConfigurationName          string                            `json:"LaunchConfigurationName,omitempty"`
@@ -713,6 +716,7 @@ type CreateAutoScalingGroupInput struct {
 	InstanceLifecyclePolicy          *InstanceLifecyclePolicy
 	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	AutoScalingGroupName             string
+	ServiceLinkedRoleARN             string
 	LaunchConfigurationName          string
 	HealthCheckType                  string
 	VPCZoneIdentifier                string
@@ -759,11 +763,11 @@ type UpdateAutoScalingGroupInput struct {
 	InstanceMaintenancePolicy        *InstanceMaintenancePolicy
 	MinSize                          *int32
 	PlacementGroup                   *string
-	LaunchConfigurationName          string
-	VPCZoneIdentifier                string
-	Context                          string
-	DesiredCapacityType              string
-	HealthCheckType                  string
+	LaunchConfigurationName          *string
+	VPCZoneIdentifier                *string
+	Context                          *string
+	DesiredCapacityType              *string
+	HealthCheckType                  *string
 	AutoScalingGroupName             string
 	DeletionProtection               string
 	AvailabilityZones                []string

@@ -107,6 +107,19 @@ type Configuration struct {
 	EcrRescanDuration string `json:"ecrRescanDuration"`
 }
 
+// MemberConfiguration is a delegated administrator's per-member override of
+// GetConfiguration/UpdateConfiguration's AccountId-targeted scan settings
+// (api_op_UpdateConfiguration.go: "If you specify an accountId, this
+// operation updates that member account's configuration"). An empty field
+// means that scan type is not individually configured and inherits the
+// delegated admin's own Configuration -- see
+// UpdateConfigurationInheritance's INHERIT_FROM_ADMIN reset.
+type MemberConfiguration struct {
+	AccountID         string `json:"accountId"`
+	Ec2ScanMode       string `json:"ec2ScanMode"`
+	EcrRescanDuration string `json:"ecrRescanDuration"`
+}
+
 // AccountStatusResponse holds Enable/Disable/BatchGetAccountStatus output.
 type AccountStatusResponse struct {
 	AccountID    string `json:"accountId"`

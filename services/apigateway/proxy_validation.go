@@ -116,7 +116,7 @@ func (h *Handler) requestModelSchema(apiID string, method *Method, contentType s
 		return ""
 	}
 
-	model, err := h.Backend.GetModel(apiID, modelName)
+	model, err := h.Backend.GetModel(apiID, modelName, false)
 	if err != nil || model == nil {
 		return ""
 	}

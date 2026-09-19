@@ -373,8 +373,8 @@ func (b *InMemoryBackend) UpdateCertificateProvider(input *UpdateCertificateProv
 		return fmt.Errorf("%w: %s", ErrCertificateProviderNotFound, input.CertificateProviderName)
 	}
 
-	if input.LambdaFunctionARN != "" {
-		cp.LambdaFunctionARN = input.LambdaFunctionARN
+	if input.LambdaFunctionARN != nil {
+		cp.LambdaFunctionARN = *input.LambdaFunctionARN
 	}
 
 	if input.AccountDefaultForOperations != nil {

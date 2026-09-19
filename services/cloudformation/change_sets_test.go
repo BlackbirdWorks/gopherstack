@@ -38,7 +38,17 @@ func TestBackend_ChangeSet(t *testing.T) {
 			name: "already_exists",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateChangeSet(t.Context(), "cs-stack", "dup-cs", simpleTemplate, "", nil, nil, nil)
+				_, err := b.CreateChangeSet(
+					t.Context(),
+					"cs-stack",
+					"dup-cs",
+					simpleTemplate,
+					"",
+					nil,
+					nil,
+					nil,
+					cloudformation.CreateChangeSetOptions{},
+				)
 				require.NoError(t, err)
 			},
 			stackName: "cs-stack",
@@ -57,7 +67,17 @@ func TestBackend_ChangeSet(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			cs, err := b.CreateChangeSet(t.Context(), tt.stackName, tt.csName, tt.template, "desc", nil, nil, nil)
+			cs, err := b.CreateChangeSet(
+				t.Context(),
+				tt.stackName,
+				tt.csName,
+				tt.template,
+				"desc",
+				nil,
+				nil,
+				nil,
+				cloudformation.CreateChangeSetOptions{},
+			)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -97,7 +117,17 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 			name: "new_stack",
 			setup: func(t *testing.T, b *cloudformation.InMemoryBackend) {
 				t.Helper()
-				_, err := b.CreateChangeSet(t.Context(), "new-cs-stack", "exec-cs", simpleTemplate, "", nil, nil, nil)
+				_, err := b.CreateChangeSet(
+					t.Context(),
+					"new-cs-stack",
+					"exec-cs",
+					simpleTemplate,
+					"",
+					nil,
+					nil,
+					nil,
+					cloudformation.CreateChangeSetOptions{},
+				)
 				require.NoError(t, err)
 			},
 			stackName:  "new-cs-stack",
@@ -118,7 +148,17 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 					cloudformation.StackOptions{},
 				)
 				require.NoError(t, err)
-				_, err = b.CreateChangeSet(t.Context(), "existing-stack", "upd-cs", modifiedTemplate, "", nil, nil, nil)
+				_, err = b.CreateChangeSet(
+					t.Context(),
+					"existing-stack",
+					"upd-cs",
+					modifiedTemplate,
+					"",
+					nil,
+					nil,
+					nil,
+					cloudformation.CreateChangeSetOptions{},
+				)
 				require.NoError(t, err)
 			},
 			stackName: "existing-stack",
@@ -140,7 +180,17 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 					cloudformation.StackOptions{},
 				)
 				require.NoError(t, err)
-				_, err = b.CreateChangeSet(t.Context(), "nochange-stack", "noop-cs", simpleTemplate, "", nil, nil, nil)
+				_, err = b.CreateChangeSet(
+					t.Context(),
+					"nochange-stack",
+					"noop-cs",
+					simpleTemplate,
+					"",
+					nil,
+					nil,
+					nil,
+					cloudformation.CreateChangeSetOptions{},
+				)
 				require.NoError(t, err)
 			},
 			stackName: "nochange-stack",
@@ -164,7 +214,7 @@ func TestBackend_ExecuteChangeSet(t *testing.T) {
 				tt.setup(t, b)
 			}
 
-			err := b.ExecuteChangeSet(t.Context(), tt.stackName, tt.csName)
+			err := b.ExecuteChangeSet(t.Context(), tt.stackName, tt.csName, false, false)
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -200,16 +250,36 @@ func TestBackend_ExecuteChangeSet_DeletesOtherChangeSets(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "multi-cs-stack", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	_, err = b.CreateChangeSet(t.Context(), "multi-cs-stack", "cs-a", modifiedTemplate, "", nil, nil, nil)
+	_, err = b.CreateChangeSet(
+		t.Context(),
+		"multi-cs-stack",
+		"cs-a",
+		modifiedTemplate,
+		"",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
-	_, err = b.CreateChangeSet(t.Context(), "multi-cs-stack", "cs-b", templateWithTopic, "", nil, nil, nil)
+	_, err = b.CreateChangeSet(
+		t.Context(),
+		"multi-cs-stack",
+		"cs-b",
+		templateWithTopic,
+		"",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
 
 	list, err := b.ListChangeSets("multi-cs-stack", "")
 	require.NoError(t, err)
 	require.Len(t, list.Data, 2)
 
-	require.NoError(t, b.ExecuteChangeSet(t.Context(), "multi-cs-stack", "cs-a"))
+	require.NoError(t, b.ExecuteChangeSet(t.Context(), "multi-cs-stack", "cs-a", false, false))
 
 	_, err = b.DescribeChangeSet("multi-cs-stack", "cs-a")
 	require.ErrorIs(t, err, cloudformation.ErrChangeSetNotFound, "executed change set must be gone")
@@ -246,7 +316,17 @@ func TestBackend_ListChangeSets(t *testing.T) {
 
 			b := newBackend()
 			for _, cs := range tt.csNames {
-				_, err := b.CreateChangeSet(t.Context(), tt.stackName, cs, simpleTemplate, "", nil, nil, nil)
+				_, err := b.CreateChangeSet(
+					t.Context(),
+					tt.stackName,
+					cs,
+					simpleTemplate,
+					"",
+					nil,
+					nil,
+					nil,
+					cloudformation.CreateChangeSetOptions{},
+				)
 				require.NoError(t, err)
 			}
 
@@ -329,6 +409,7 @@ func TestCreateChangeSet_NoChanges(t *testing.T) {
 				nil,
 				nil,
 				nil,
+				cloudformation.CreateChangeSetOptions{},
 			)
 			require.NoError(t, err)
 
@@ -424,7 +505,17 @@ func TestComputeChanges_Actions(t *testing.T) {
 			_, err := b.CreateStack(t.Context(), "cs-actions", base, nil, cloudformation.StackOptions{})
 			require.NoError(t, err)
 
-			cs, err := b.CreateChangeSet(t.Context(), "cs-actions", "cs1", tc.newTemplate, "d", nil, nil, nil)
+			cs, err := b.CreateChangeSet(
+				t.Context(),
+				"cs-actions",
+				"cs1",
+				tc.newTemplate,
+				"d",
+				nil,
+				nil,
+				nil,
+				cloudformation.CreateChangeSetOptions{},
+			)
 			require.NoError(t, err)
 
 			idx := changeByLogicalID(cs)
@@ -461,7 +552,17 @@ func TestComputeChanges_RemoveCarriesPhysicalID(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "cs-remove", base, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	cs, err := b.CreateChangeSet(t.Context(), "cs-remove", "cs1", dropped, "d", nil, nil, nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"cs-remove",
+		"cs1",
+		dropped,
+		"d",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
 
 	idx := changeByLogicalID(cs)
@@ -481,7 +582,17 @@ func TestComputeChanges_ModifyDetails(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "cs-details", base, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	cs, err := b.CreateChangeSet(t.Context(), "cs-details", "cs1", renamed, "d", nil, nil, nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"cs-details",
+		"cs1",
+		renamed,
+		"d",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
 
 	idx := changeByLogicalID(cs)
@@ -501,7 +612,17 @@ func TestCreateChangeSet_NoChangesUnavailable(t *testing.T) {
 	_, err := b.CreateStack(t.Context(), "cs-noop", simpleTemplate, nil, cloudformation.StackOptions{})
 	require.NoError(t, err)
 
-	cs, err := b.CreateChangeSet(t.Context(), "cs-noop", "cs1", simpleTemplate, "d", nil, nil, nil)
+	cs, err := b.CreateChangeSet(
+		t.Context(),
+		"cs-noop",
+		"cs1",
+		simpleTemplate,
+		"d",
+		nil,
+		nil,
+		nil,
+		cloudformation.CreateChangeSetOptions{},
+	)
 	require.NoError(t, err)
 	assert.Empty(t, cs.Changes)
 	assert.Equal(t, "FAILED", cs.Status)

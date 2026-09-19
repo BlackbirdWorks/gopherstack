@@ -64,7 +64,7 @@ func TestBackend_DescribeCacheEngineVersions(t *testing.T) {
 
 			b := elasticache.NewInMemoryBackend(elasticache.EngineStub, "000000000000", "us-east-1", nil)
 
-			p, err := b.DescribeCacheEngineVersions(context.Background(), tt.engine, tt.family, "", "", 0)
+			p, err := b.DescribeCacheEngineVersions(context.Background(), tt.engine, tt.family, "", "", 0, false)
 			require.NoError(t, err)
 			assert.GreaterOrEqual(t, len(p.Data), tt.minResults)
 			for _, v := range p.Data {

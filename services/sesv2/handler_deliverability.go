@@ -230,11 +230,12 @@ func (h *Handler) handleListReputationEntities(c *echo.Context) (any, error) {
 	}, nil
 }
 
+// updateReputationEntityCustomerManagedStatusInput has no CustomerManagedStatus
+// member: the real UpdateReputationEntityCustomerManagedStatusInput
+// (sesv2@v1.66.4 api_op_UpdateReputationEntityCustomerManagedStatus.go) names
+// this field SendingStatus -- no real client ever sends CustomerManagedStatus.
 type updateReputationEntityCustomerManagedStatusInput struct {
-	// SendingStatus is the field name used by the AWS SDK.
 	SendingStatus string `json:"SendingStatus"`
-	// CustomerManagedStatus is accepted as an alias for callers that post it directly.
-	CustomerManagedStatus string `json:"CustomerManagedStatus"`
 }
 
 func (h *Handler) handleUpdateReputationEntityCustomerManagedStatus(
@@ -247,23 +248,19 @@ func (h *Handler) handleUpdateReputationEntityCustomerManagedStatus(
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	status := in.SendingStatus
-	if status == "" {
-		status = in.CustomerManagedStatus
-	}
-
-	if err := h.Backend.UpdateReputationEntityCustomerManagedStatus(entityID, status); err != nil {
+	if err := h.Backend.UpdateReputationEntityCustomerManagedStatus(entityID, in.SendingStatus); err != nil {
 		return nil, err
 	}
 
 	return &emptyDeleteOutput{}, nil
 }
 
+// updateReputationEntityPolicyInput has no Policy member: the real
+// UpdateReputationEntityPolicyInput (sesv2@v1.66.4
+// api_op_UpdateReputationEntityPolicy.go) names this field
+// ReputationEntityPolicy -- no real client ever sends Policy.
 type updateReputationEntityPolicyInput struct {
-	// ReputationEntityPolicy is the field name used by the AWS SDK.
 	ReputationEntityPolicy string `json:"ReputationEntityPolicy"`
-	// Policy is accepted as an alias for callers that post it directly.
-	Policy string `json:"Policy"`
 }
 
 func (h *Handler) handleUpdateReputationEntityPolicy(
@@ -276,12 +273,7 @@ func (h *Handler) handleUpdateReputationEntityPolicy(
 		return nil, fmt.Errorf("%w: invalid request body: %s", ErrInvalidInput, err.Error())
 	}
 
-	policy := in.ReputationEntityPolicy
-	if policy == "" {
-		policy = in.Policy
-	}
-
-	if err := h.Backend.UpdateReputationEntityPolicy(entityID, policy); err != nil {
+	if err := h.Backend.UpdateReputationEntityPolicy(entityID, in.ReputationEntityPolicy); err != nil {
 		return nil, err
 	}
 

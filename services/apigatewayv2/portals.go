@@ -516,11 +516,11 @@ func (b *InMemoryBackend) UpdatePortal(portalID string, input UpdatePortalInput)
 		maps.Copy(p.Tags, input.Tags)
 	}
 
-	if input.LogoURI != "" {
-		p.LogoURI = input.LogoURI
+	if input.LogoURI != nil {
+		p.LogoURI = *input.LogoURI
 	}
-	if input.RumAppMonitorName != "" {
-		p.RumAppMonitorName = input.RumAppMonitorName
+	if input.RumAppMonitorName != nil {
+		p.RumAppMonitorName = *input.RumAppMonitorName
 	}
 	if input.IncludedPortalProductArns != nil {
 		p.IncludedPortalProductArns = slices.Clone(input.IncludedPortalProductArns)
@@ -561,12 +561,12 @@ func (b *InMemoryBackend) UpdatePortalProduct(
 		maps.Copy(pp.Tags, input.Tags)
 	}
 
-	if input.DisplayName != "" {
-		pp.DisplayName = input.DisplayName
+	if input.DisplayName != nil {
+		pp.DisplayName = *input.DisplayName
 	}
 
-	if input.Description != "" {
-		pp.Description = input.Description
+	if input.Description != nil {
+		pp.Description = *input.Description
 	}
 
 	now := isoTime{time.Now()}

@@ -13,16 +13,20 @@ import (
 // ---------------------------------------------------------------------------
 
 type createTransformJobRequest struct {
-	Environment             map[string]string  `json:"Environment,omitempty"`
-	TransformInput          TransformInput     `json:"TransformInput"`
-	TransformOutput         TransformOutput    `json:"TransformOutput"`
-	TransformJobName        string             `json:"TransformJobName"`
-	ModelName               string             `json:"ModelName"`
-	BatchStrategy           string             `json:"BatchStrategy,omitempty"`
-	TransformResources      TransformResources `json:"TransformResources"`
-	Tags                    []tagObject        `json:"Tags,omitempty"`
-	MaxConcurrentTransforms int32              `json:"MaxConcurrentTransforms,omitempty"`
-	MaxPayloadInMB          int32              `json:"MaxPayloadInMB,omitempty"`
+	Environment             map[string]string           `json:"Environment,omitempty"`
+	TransformInput          TransformInput              `json:"TransformInput"`
+	TransformOutput         TransformOutput             `json:"TransformOutput"`
+	DataCaptureConfig       *TransformDataCaptureConfig `json:"DataCaptureConfig,omitempty"`
+	DataProcessing          *TransformDataProcessing    `json:"DataProcessing,omitempty"`
+	ExperimentConfig        *TransformExperimentConfig  `json:"ExperimentConfig,omitempty"`
+	ModelClientConfig       *TransformModelClientConfig `json:"ModelClientConfig,omitempty"`
+	TransformJobName        string                      `json:"TransformJobName"`
+	ModelName               string                      `json:"ModelName"`
+	BatchStrategy           string                      `json:"BatchStrategy,omitempty"`
+	TransformResources      TransformResources          `json:"TransformResources"`
+	Tags                    []tagObject                 `json:"Tags,omitempty"`
+	MaxConcurrentTransforms int32                       `json:"MaxConcurrentTransforms,omitempty"`
+	MaxPayloadInMB          int32                       `json:"MaxPayloadInMB,omitempty"`
 }
 
 func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]byte, error) {
@@ -56,6 +60,10 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		return nil, fmt.Errorf("%w: TransformResources.InstanceCount is required", errInvalidRequest)
 	}
 
+	if req.DataCaptureConfig != nil && req.DataCaptureConfig.DestinationS3URI == "" {
+		return nil, fmt.Errorf("%w: DataCaptureConfig.DestinationS3Uri is required", errInvalidRequest)
+	}
+
 	tj, err := h.Backend.CreateTransformJob(ctx, TransformJobOptions{
 		TransformJobName:        req.TransformJobName,
 		ModelName:               req.ModelName,
@@ -64,6 +72,10 @@ func (h *Handler) handleCreateTransformJob(ctx context.Context, body []byte) ([]
 		MaxPayloadInMB:          req.MaxPayloadInMB,
 		TransformInput:          req.TransformInput,
 		TransformOutput:         req.TransformOutput,
+		DataCaptureConfig:       req.DataCaptureConfig,
+		DataProcessing:          req.DataProcessing,
+		ExperimentConfig:        req.ExperimentConfig,
+		ModelClientConfig:       req.ModelClientConfig,
 		TransformResources:      req.TransformResources,
 		Environment:             req.Environment,
 		Tags:                    fromTagObjects(req.Tags),
@@ -123,6 +135,18 @@ func (h *Handler) handleDescribeTransformJob(ctx context.Context, body []byte) (
 	if len(tj.Environment) > 0 {
 		resp["Environment"] = tj.Environment
 	}
+	if tj.DataCaptureConfig != nil {
+		resp["DataCaptureConfig"] = tj.DataCaptureConfig
+	}
+	if tj.DataProcessing != nil {
+		resp["DataProcessing"] = tj.DataProcessing
+	}
+	if tj.ExperimentConfig != nil {
+		resp["ExperimentConfig"] = tj.ExperimentConfig
+	}
+	if tj.ModelClientConfig != nil {
+		resp["ModelClientConfig"] = tj.ModelClientConfig
+	}
 
 	return json.Marshal(resp)
 }
@@ -151,13 +175,17 @@ func (h *Handler) handleStopTransformJob(ctx context.Context, body []byte) error
 	return nil
 }
 
+// transformJobSummary mirrors types.TransformJobSummary
+// (types.go:22320-22355) -- ModelName is NOT a member of the real summary
+// (it's a TransformJob-only field), so it isn't emitted here.
 type transformJobSummary struct {
 	TransformJobName   string  `json:"TransformJobName"`
 	TransformJobArn    string  `json:"TransformJobArn"`
 	TransformJobStatus string  `json:"TransformJobStatus"`
-	ModelName          string  `json:"ModelName"`
+	FailureReason      string  `json:"FailureReason,omitempty"`
 	CreationTime       float64 `json:"CreationTime"`
 	LastModifiedTime   float64 `json:"LastModifiedTime"`
+	TransformEndTime   float64 `json:"TransformEndTime,omitempty"`
 }
 
 type listTransformJobsRequest struct {
@@ -196,14 +224,19 @@ func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]b
 	summaries := make([]transformJobSummary, 0, len(jobs))
 
 	for _, tj := range jobs {
-		summaries = append(summaries, transformJobSummary{
+		summary := transformJobSummary{
 			TransformJobName:   tj.TransformJobName,
 			TransformJobArn:    tj.TransformJobArn,
 			TransformJobStatus: tj.TransformJobStatus,
-			ModelName:          tj.ModelName,
+			FailureReason:      tj.FailureReason,
 			CreationTime:       epochSeconds(tj.CreationTime),
 			LastModifiedTime:   epochSeconds(tj.LastModifiedTime),
-		})
+		}
+		if tj.TransformEndTime != nil {
+			summary.TransformEndTime = epochSeconds(*tj.TransformEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"TransformJobSummaries": summaries}

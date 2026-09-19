@@ -216,9 +216,18 @@ func (h *Handler) handleListEvaluationJobs(c *echo.Context) error {
 			keyStatus:           j.Status,
 			keyCreationTime:     j.CreationTime.Format(time.RFC3339),
 			keyLastModifiedTime: j.LastModifiedTime.Format(time.RFC3339),
+			// jobType and evaluationTaskTypes are real required
+			// EvaluationSummary members (bedrock@v1.66.4 types.go) that
+			// GetEvaluationJobOutput doesn't share -- derived from the
+			// stored EvaluationConfig, never fabricated.
+			"jobType":             j.EvaluationConfig.JobType(),
+			"evaluationTaskTypes": j.EvaluationConfig.TaskTypes(),
 		}
 		if j.ApplicationType != "" {
 			summary["applicationType"] = j.ApplicationType
+		}
+		if ids := j.EvaluationConfig.EvaluatorModelIdentifiers(); len(ids) > 0 {
+			summary["evaluatorModelIdentifiers"] = ids
 		}
 
 		summaries = append(summaries, summary)

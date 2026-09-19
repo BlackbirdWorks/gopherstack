@@ -267,14 +267,12 @@ items_still_open:
   - "GetMalwareScan still doesn't emit scanConfiguration/scanResultDetails/scannedResources[] (the per-resource detail list, not just its count) -- this backend has no state model for individual scanned files/objects/volumes within a scan, so these three remain absent. All three are optional on the real output so a real client won't error, just gets nil/absent fields. scanStatusReason/scanCompletedAt are correctly absent for a RUNNING scan (this backend's scans never transition to SKIPPED/COMPLETED/FAILED, so those states -- and the fields real AWS would populate for them -- are unreachable)."
   - "GetOrganizationStatistics.organizationDetails.organizationStatistics.countByFeature is always [] -- this backend has no per-feature member-account enrollment tracking (which member accounts have S3_DATA_EVENTS vs EKS_AUDIT_LOGS etc. enabled), only OrgConfig.Features at the requesting-account level. Real types.OrganizationFeatureStatistics needs a name+enabledAccountsCount(+additionalConfiguration) per feature across the whole org, which would require a materially larger state model."
   - "GetRemainingFreeTrialDays' per-account features[] only ever reports the three always-on base sources (FLOW_LOGS/CLOUD_TRAIL/DNS_LOGS); it never reports an account's actually-enabled optional features (S3_DATA_EVENTS, EKS_AUDIT_LOGS, EBS_MALWARE_PROTECTION, etc.) because this backend tracks no per-member feature-enablement state, only Features on that member's own Detector. freeTrialDaysRemaining is a real computed value (30 minus days since the member was added, floored at 0), not a placeholder, but is necessarily an approximation since this backend has no true per-feature trial-start timestamp."
-  - "MaxResults/NextToken pagination is missing on exactly ten plain-GET List operations that have no filter concept at all: ListDetectors, ListFilters, ListIPSets, ListThreatIntelSets, ListThreatEntitySets, ListTrustedEntitySets, ListInvitations, ListMalwareProtectionPlans, ListOrganizationAdminAccounts, ListPublishingDestinations. Each accepts MaxResults/NextToken as real query params on the SDK's real Input shape (confirmed by reading api_op_*.go for each; ListMalwareProtectionPlans is the one exception with NextToken but no MaxResults on its real Input) and always returns its full, unpaginated result set with no NextToken in the response. Non-fatal to a real client (NextToken is an optional response field on all of these), but a real client that owns hundreds of filters/IP sets/etc. across many detectors gets one giant response instead of pages. FilterCriteria/SortCriteria/MaxResults/NextToken are handled for real on ListFindings, ListInvestigations, DescribeMalwareScans, and ListMalwareScans; ListMembers has a real onlyAssociated filter (not MaxResults/NextToken-based); ListCoverage's filter is a separate, deliberate non-implementation (see below), not an oversight."
   - "ListCoverage's FilterCriteria is not parsed or applied (handleListCoverage ignores the request body entirely) -- deliberately, not an oversight: this backend holds no coverage-resource state at all (see GetCoverageStatistics/ListCoverage ops above, always {}/[]), so a filter would only ever operate over a permanently-empty list. Implementing filter parsing/matching today would read as working filtering while actually being dead plumbing that can never filter anything real -- worse than the honest gap of not implementing it. Do not build this until coverage-resource state exists to filter over."
 structural_gaps:
   - "Investigation.status is always RUNNING; endTime/error never populate because no investigation this backend creates ever transitions to COMPLETED or FAILED -- those transitions require account-level finding correlation and Bedrock-backed analysis this emulator does not implement. This mirrors MalwareScan's identical, pre-existing RUNNING-forever limitation (see GetMalwareScan's gap above) rather than being a new bug class. Confidence/Risk/RiskLevel/Summary/Cloud/Metadata (Investigation) and Confidence/RiskLevel/Title (InvestigationSummary) are real optional members that only the (unimplemented) analysis engine would ever populate on AWS itself; they are correctly and permanently absent here, never fabricated. No AI/ML threat-analysis engine exists anywhere in this backend, so this data source cannot exist in an emulator, ever -- not a buildable state model. See TestWireShape_Investigation_NoFabricatedAnalysis."
 deferred:
   - "GetOrganizationStatistics.countByFeature per-feature org-wide enrollment tracking (would need a new state model, not just a wire-shape fix)"
   - "GetRemainingFreeTrialDays per-account optional-feature tracking (which member accounts have S3_DATA_EVENTS/EKS_AUDIT_LOGS/etc. enabled and when, vs. only the always-on base sources this backend currently reports)"
-  - "MaxResults/NextToken pagination for the ten plain-GET List ops named in gaps above (ListDetectors, ListFilters, ListIPSets, ListThreatIntelSets, ListThreatEntitySets, ListTrustedEntitySets, ListInvitations, ListMalwareProtectionPlans, ListOrganizationAdminAccounts, ListPublishingDestinations)"
   - "ListCoverage FilterCriteria/SortCriteria -- blocked on a coverage-resource state model existing first (see gaps above); implementing the filter before that state model exists would be worse than not implementing it"
   - "A real threat-analysis engine for investigations (finding correlation, Bedrock-backed risk/confidence scoring, natural-language summary) -- would require a materially larger feature (this emulator has no equivalent of any AI-scored analysis anywhere else in the service either), not a wire-shape fix"
 leaks: {status: clean, note: "no goroutines, timers, or background janitors introduced this pass or present previously; all state lives in InMemoryBackend's store.Table fields guarded by the single lockmetrics.RWMutex, reset via Reset()/Restore(). New finding_criteria.go/finding_statistics.go/usage.go/pagination.go code is pure computation over existing locked state, no new locking or background work. investigations.go/handler_investigations.go (this pass) follow the same pattern: the investigations store.Table is guarded by the same lockmetrics.RWMutex, no new locks or goroutines."}
@@ -875,3 +873,35 @@ Gates (no guardduty source changed): `go build ./...` clean; `go vet
 ./services/guardduty/...` clean; `go test -race -count=1
 ./services/guardduty/...` `ok`; `golangci-lint run --new-from-rev=HEAD
 ./services/guardduty/...` 0 issues; `go run ./cmd/paritylint` 0 FAIL.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 9 tier-1 fields. Eight were false positives: ListFilters/
+ListIPSets/ListInvitations/ListMembers/ListThreatEntitySets/ListThreatIntelSets/
+ListTrustedEntitySets.MaxResults and ListMalwareProtectionPlans.NextToken are all
+already read via the shared `paginationParamsFromQuery` helper (pagination.go) and
+applied through each op's own backend method -- a query-read blind spot the tool
+cannot see through a locally-defined parsing helper rather than a named decode
+struct (same class as gopherstack-99nj's other query/header-read shapes). The
+`items_still_open`/`deferred` entries claiming all ten plain-GET List ops lacked
+MaxResults/NextToken were themselves stale: nine of the ten were already correctly
+paginated (removed from both lists in this pass).
+
+The ninth, `ListDetectors.MaxResults`, was real: `handleListDetectors` took no
+query argument at all and `Backend.ListDetectors()` returned the full unpaginated
+ID list unconditionally, the one List op in this package that never threaded
+`query` through `dispatchDetectorOps`. Fixed: `ListDetectors` now takes
+`(maxResults int32, nextToken string)`, sorts and paginates like every sibling List
+op (`paginate`/`resolvePageSize`/`decodeToken`), and `dispatchDetectorOps` (and its
+caller in `handler.go`) now thread `query` through. GuardDuty caps an
+account/region to exactly one detector, so no fixture can ever produce a real
+second page; `TestListDetectors_SDKRoundTrip_HonoursNextToken` (new,
+pagination_sdk_roundtrip_test.go) proves the parameter is wired by checking a
+malformed NextToken is now rejected (BadRequestException) instead of silently
+ignored, which was the observable pre-fix behaviour.
+
+Gates: `go build ./...` clean; `go vet ./services/guardduty/...` clean; `go test
+-race -count=1 -p 2 ./services/guardduty/...` `ok`; `golangci-lint run
+--concurrency 2 --new-from-rev=HEAD ./services/guardduty/...` 0 issues; `go run
+./cmd/paritylint` 0 FAIL. No persisted-field changes, no inventory rows, no
+snapshot version bump (ListDetectors was never persisted state, just an accessor).

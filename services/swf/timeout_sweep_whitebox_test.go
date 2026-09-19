@@ -153,7 +153,7 @@ func TestTimeoutExecutionLocked_CascadesChildPolicy(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			parentTask := b.PollForDecisionTask("dom", "parent-tasks", 0, "")
+			parentTask := b.PollForDecisionTask("dom", "parent-tasks", 0, "", false)
 			require.NotNil(t, parentTask)
 			require.NoError(t, b.RespondDecisionTaskCompleted(parentTask.TaskToken, "", []Decision{{
 				DecisionType: decisionTypeStartChildWorkflowExecution,

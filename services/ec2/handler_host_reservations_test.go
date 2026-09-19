@@ -137,7 +137,7 @@ func TestSortedDescribeHosts(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	hosts, err := b.AllocateHosts("us-east-1a", "t3.micro", 2)
+	hosts, err := b.AllocateHosts("us-east-1a", "t3.micro", 2, "", "")
 	require.NoError(t, err)
 	require.Len(t, hosts, 2)
 
@@ -155,7 +155,7 @@ func TestDescribeHosts_Filter(t *testing.T) {
 
 	b := ec2.NewInMemoryBackend("123456789012", "us-east-1")
 
-	hosts, err := b.AllocateHosts("us-east-1a", "t3.micro", 2)
+	hosts, err := b.AllocateHosts("us-east-1a", "t3.micro", 2, "", "")
 	require.NoError(t, err)
 	require.Len(t, hosts, 2)
 

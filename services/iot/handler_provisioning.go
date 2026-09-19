@@ -225,10 +225,9 @@ func (h *Handler) handleListDomainConfigurations(c *echo.Context) error {
 			continue
 		}
 		summaries = append(summaries, map[string]any{
-			keyDomainConfigName:         dc.DomainConfigurationName,
-			keyDomainConfigARN:          dc.DomainConfigurationARN,
-			"domainConfigurationStatus": dc.DomainConfigurationStatus,
-			"serviceType":               dc.ServiceType,
+			keyDomainConfigName: dc.DomainConfigurationName,
+			keyDomainConfigARN:  dc.DomainConfigurationARN,
+			"serviceType":       dc.ServiceType,
 		})
 	}
 
@@ -379,7 +378,7 @@ func (h *Handler) handleCreateProvisioningTemplateVersion(c *echo.Context) error
 	return c.JSON(http.StatusOK, map[string]any{
 		keyTemplateName:    name,
 		keyTemplateArn:     pt.TemplateARN,
-		"versionId":        v.VersionID,
+		keyVersionID:       v.VersionID,
 		"isDefaultVersion": v.IsDefaultVersion,
 	})
 }
@@ -392,7 +391,18 @@ func (h *Handler) handleListProvisioningTemplateVersions(c *echo.Context) error 
 		return respondErr(c, err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{pathSegmentVersions: versions})
+	// types.ProvisioningTemplateVersionSummary (schemas.go:7113-7117) has no
+	// templateBody -- that's Describe-only. Narrow, don't leak it here.
+	summaries := make([]map[string]any, len(versions))
+	for i, v := range versions {
+		summaries[i] = map[string]any{
+			keyVersionID:       v.VersionID,
+			"creationDate":     v.CreationDate,
+			"isDefaultVersion": v.IsDefaultVersion,
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{pathSegmentVersions: summaries})
 }
 
 func (h *Handler) handleDeleteProvisioningTemplateVersion(c *echo.Context) error {

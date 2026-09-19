@@ -39,6 +39,7 @@ type StorageBackend interface {
 	RebootDBInstance(id string) (*DBInstance, error)
 	CreateDBInstanceReadReplica(
 		id, sourceID, sourceRegion, paramGroupName, optionGroupName string,
+		opts DBInstanceOptions,
 	) (*DBInstance, error)
 	PromoteReadReplica(id string) (*DBInstance, error)
 	DescribeDBInstanceAutomatedBackups(instanceID string) []DBInstanceAutomatedBackup
@@ -100,12 +101,13 @@ type StorageBackend interface {
 		id string,
 		skipFinalSnapshot bool,
 		finalSnapshotID string,
+		deleteAutomatedBackups bool,
 	) (*DBCluster, error)
 	ModifyDBCluster(id, paramGroupName string, opts DBClusterOptions) (*DBCluster, error)
 	StartDBCluster(id string) (*DBCluster, error)
 	StopDBCluster(id string) (*DBCluster, error)
-	RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string) (*DBCluster, error)
-	RestoreDBClusterToPointInTime(clusterID, sourceClusterID string) (*DBCluster, error)
+	RestoreDBClusterFromSnapshot(clusterID, snapshotID, engine string, opts DBClusterOptions) (*DBCluster, error)
+	RestoreDBClusterToPointInTime(clusterID, sourceClusterID string, opts DBClusterOptions) (*DBCluster, error)
 
 	// DB cluster parameter group operations
 	CreateDBClusterParameterGroup(name, family, description string) (*DBParameterGroup, error)
@@ -118,7 +120,7 @@ type StorageBackend interface {
 	CreateDBClusterSnapshot(snapshotID, clusterID string) (*DBClusterSnapshot, error)
 	DescribeDBClusterSnapshots(snapshotID, clusterID string) ([]DBClusterSnapshot, error)
 	DeleteDBClusterSnapshot(snapshotID string) (*DBClusterSnapshot, error)
-	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string) (*DBClusterSnapshot, error)
+	CopyDBClusterSnapshot(sourceSnapshotID, targetSnapshotID string, copyTags bool) (*DBClusterSnapshot, error)
 
 	// DB cluster endpoint operations
 	CreateDBClusterEndpoint(endpointID, clusterID, endpointType string) (*DBClusterEndpoint, error)
@@ -127,7 +129,7 @@ type StorageBackend interface {
 
 	// Global cluster operations
 	CreateGlobalCluster(
-		id, engine, engineVersion string,
+		id, engine, engineVersion, engineLifecycleSupport string,
 		storageEncrypted, deletionProtection bool,
 	) (*GlobalCluster, error)
 	DescribeGlobalClusters(id string) ([]GlobalCluster, error)
@@ -135,6 +137,7 @@ type StorageBackend interface {
 	ModifyGlobalCluster(
 		id, newID, engineVersion string,
 		deletionProtection *bool,
+		allowMajorVersionUpgrade bool,
 	) (*GlobalCluster, error)
 
 	// Export task operations
@@ -150,7 +153,7 @@ type StorageBackend interface {
 	// Engine and instance metadata
 	DescribeDBEngineVersions(engine, engineVersion string) []DBEngineVersion
 	CreateCustomDBEngineVersion(
-		engine, engineVersion, description string,
+		engine, engineVersion, description, imageID string,
 	) (*CustomDBEngineVersion, error)
 	DeleteCustomDBEngineVersion(engine, engineVersion string) (*CustomDBEngineVersion, error)
 	ModifyCustomDBEngineVersion(
@@ -203,7 +206,7 @@ type StorageBackend interface {
 	// Account and certificate operations
 	DescribeAccountAttributes() []AccountAttribute
 	DescribeCertificates(certID string) ([]Certificate, error)
-	ModifyCertificates(certID string) (*Certificate, error)
+	ModifyCertificates(certID string, removeCustomerOverride bool) (*Certificate, error)
 	DescribePendingMaintenanceActions(resourceARN string) []PendingMaintenanceAction
 	DescribeSourceRegions(regionName string) []SourceRegion
 	DescribeDBMajorEngineVersions(engine string) []DBMajorEngineVersion
@@ -235,9 +238,11 @@ type StorageBackend interface {
 	RestoreDBInstanceFromS3(
 		id, engine, dbInstanceClass, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
 		paramGroupName, optionGroupName string,
+		opts DBInstanceOptions,
 	) (*DBInstance, error)
 	RestoreDBClusterFromS3(
 		id, engine, masterUsername, s3Bucket, s3IngestionRoleArn, sourceEngine, sourceEngineVersion string,
+		opts DBClusterOptions,
 	) (*DBCluster, error)
 
 	// Recommendation operations
@@ -259,6 +264,7 @@ type StorageBackend interface {
 		name, engineFamily, roleARN string,
 		auth []UserAuthConfig,
 		vpcSubnetIDs, vpcSecurityGroupIDs []string,
+		defaultAuthScheme, endpointNetworkType, targetConnectionNetworkType string,
 	) (*DBProxy, error)
 	DeleteDBProxy(name string) (*DBProxy, error)
 	DescribeDBProxies(name string) ([]DBProxy, error)
@@ -267,6 +273,7 @@ type StorageBackend interface {
 		requireTLS *bool,
 		idleClientTimeout *int,
 		auth []UserAuthConfig,
+		defaultAuthScheme string,
 	) (*DBProxy, error)
 
 	// DB Proxy target operations
@@ -289,13 +296,14 @@ type StorageBackend interface {
 	CreateDBProxyEndpoint(
 		proxyName, endpointName, targetRole string,
 		vpcSubnetIDs, vpcSGIDs []string,
+		endpointNetworkType string,
 	) (*DBProxyEndpoint, error)
 	DeleteDBProxyEndpoint(endpointName string) (*DBProxyEndpoint, error)
 	DescribeDBProxyEndpoints(proxyName, endpointName string) ([]DBProxyEndpoint, error)
 	ModifyDBProxyEndpoint(endpointName string, vpcSGIDs []string) (*DBProxyEndpoint, error)
 
 	// Activity stream operations
-	StartActivityStream(clusterID, kmsKeyID, mode string) (*DBCluster, error)
+	StartActivityStream(clusterID, kmsKeyID, mode string, engineNativeAuditFieldsIncluded bool) (*DBCluster, error)
 	StopActivityStream(clusterID string) (*DBCluster, error)
 	ModifyActivityStream(clusterID string, auditPolicy string) (*DBCluster, error)
 

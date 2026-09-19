@@ -368,6 +368,21 @@ func marshalXML(v any) ([]byte, error) {
 	return append([]byte(xml.Header), raw...), nil
 }
 
+// parseIntOrZero parses a form int field, returning 0 when absent and an
+// ErrInvalidParameter when present but not a valid integer.
+func parseIntOrZero(vals url.Values, key string) (int, error) {
+	raw := vals.Get(key)
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%w: %s %q is not a valid integer", ErrInvalidParameter, key, raw)
+	}
+
+	return v, nil
+}
+
 // parseMemberList parses a form-encoded list with keys of the form "<prefix>.<N>".
 func parseMemberList(vals url.Values, prefix string) []string {
 	var result []string

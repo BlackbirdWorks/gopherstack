@@ -144,7 +144,7 @@ func TestApplyDueScheduledActions_OneTimeFiresOnceOnly(t *testing.T) {
 
 	// A second, later tick must not refire the one-time action even though a
 	// naive "StartTime has passed" check alone would still be true.
-	err = b.SetDesiredCapacity("sched-once-asg", 1)
+	err = b.SetDesiredCapacity("sched-once-asg", 1, false)
 	if err != nil {
 		t.Fatalf("SetDesiredCapacity: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestApplyDueScheduledActions_RecurringFiresEveryOccurrence(t *testing.T) {
 
 	// Reset capacity, then simulate the next minute's tick: a recurring "every
 	// minute" action must be due again.
-	if setErr := b.SetDesiredCapacity("sched-recurring-asg", 1); setErr != nil {
+	if setErr := b.SetDesiredCapacity("sched-recurring-asg", 1, false); setErr != nil {
 		t.Fatalf("SetDesiredCapacity: %v", setErr)
 	}
 

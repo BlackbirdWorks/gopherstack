@@ -16,16 +16,21 @@ import (
 // a setting (e.g. to decrypt a cluster). A plain bool cannot distinguish
 // "not sent" from "explicitly false".
 type ModifyClusterOptions struct {
-	Encrypted           *bool
-	EnhancedVpcRouting  *bool
-	PubliclyAccessible  *bool
-	NodeType            string
-	MasterUserPassword  string
-	ClusterVersion      string
-	VpcSecurityGroupIDs []string
-	NumberOfNodes       int
-	Port                int
-	ApplyImmediately    bool
+	Encrypted                            *bool
+	EnhancedVpcRouting                   *bool
+	PubliclyAccessible                   *bool
+	AllowVersionUpgrade                  *bool
+	ExtraComputeForAutomaticOptimization *bool
+	AutomatedSnapshotRetentionPeriod     *int
+	ManualSnapshotRetentionPeriod        *int
+	NodeType                             string
+	MasterUserPassword                   string
+	ClusterVersion                       string
+	ClusterParameterGroupName            string
+	VpcSecurityGroupIDs                  []string
+	NumberOfNodes                        int
+	Port                                 int
+	ApplyImmediately                     bool
 }
 
 // ModifyCluster modifies a cluster's attributes.
@@ -57,13 +62,11 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 		)
 	}
 
-	if opts.VpcSecurityGroupIDs != nil {
-		cluster.VpcSecurityGroupIDs = opts.VpcSecurityGroupIDs
+	if err := validateModifyClusterOpts(b, opts); err != nil {
+		return nil, err
 	}
 
-	if opts.Port > 0 {
-		cluster.Port = opts.Port
-	}
+	applyModifyClusterUnconditional(cluster, opts)
 
 	if !opts.ApplyImmediately {
 		cluster.PendingModifiedValues = pendingModifiedValuesFrom(opts)
@@ -79,6 +82,71 @@ func (b *InMemoryBackend) ModifyCluster(id string, opts ModifyClusterOptions) (*
 	return &cp, nil
 }
 
+// validateModifyClusterOpts checks the ModifyCluster fields that can be
+// rejected outright, before anything is applied to the cluster.
+func validateModifyClusterOpts(b *InMemoryBackend, opts ModifyClusterOptions) error {
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		v := *opts.ManualSnapshotRetentionPeriod
+		if v != indefiniteManualSnapshotRetentionPeriod &&
+			(v < minManualSnapshotRetentionPeriod || v > maxManualSnapshotRetentionPeriod) {
+			return fmt.Errorf(
+				"%w: ManualSnapshotRetentionPeriod must be -1 or between %d and %d",
+				ErrInvalidParameter, minManualSnapshotRetentionPeriod, maxManualSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		v := *opts.AutomatedSnapshotRetentionPeriod
+		if v < minAutomatedSnapshotRetentionPeriod || v > maxAutomatedSnapshotRetentionPeriod {
+			return fmt.Errorf(
+				"%w: AutomatedSnapshotRetentionPeriod must be between %d and %d",
+				ErrInvalidParameter, minAutomatedSnapshotRetentionPeriod, maxAutomatedSnapshotRetentionPeriod,
+			)
+		}
+	}
+
+	if opts.ClusterParameterGroupName != "" {
+		if _, pgExists := b.parameterGroups.Get(opts.ClusterParameterGroupName); !pgExists {
+			return fmt.Errorf(
+				"%w: parameter group %s not found", ErrParameterGroupNotFound, opts.ClusterParameterGroupName,
+			)
+		}
+	}
+
+	return nil
+}
+
+// applyModifyClusterUnconditional applies the ModifyCluster fields that are
+// never gated by ApplyImmediately -- real ModifyClusterInput documents
+// VpcSecurityGroupIds as "asynchronously applied as soon as possible" and
+// Port has no entry in PendingModifiedValues at all.
+func applyModifyClusterUnconditional(cluster *Cluster, opts ModifyClusterOptions) {
+	if opts.ClusterParameterGroupName != "" {
+		cluster.ClusterParameterGroupName = opts.ClusterParameterGroupName
+	}
+
+	if opts.VpcSecurityGroupIDs != nil {
+		cluster.VpcSecurityGroupIDs = opts.VpcSecurityGroupIDs
+	}
+
+	if opts.Port > 0 {
+		cluster.Port = opts.Port
+	}
+
+	if opts.AllowVersionUpgrade != nil {
+		cluster.AllowVersionUpgrade = *opts.AllowVersionUpgrade
+	}
+
+	if opts.ExtraComputeForAutomaticOptimization != nil {
+		cluster.ExtraComputeForAutomaticOptimization = *opts.ExtraComputeForAutomaticOptimization
+	}
+
+	if opts.ManualSnapshotRetentionPeriod != nil {
+		cluster.ManualSnapshotRetentionPeriod = *opts.ManualSnapshotRetentionPeriod
+	}
+}
+
 // pendingModifiedValuesFrom builds the PendingModifiedValues ModifyCluster
 // queues when ApplyImmediately is false -- exactly the fields real
 // types.PendingModifiedValues (types/types.go:1491) tracks.
@@ -90,6 +158,10 @@ func pendingModifiedValuesFrom(opts ModifyClusterOptions) *ClusterPendingModifie
 
 	if opts.NumberOfNodes > 0 {
 		pending.NumberOfNodes = opts.NumberOfNodes
+	}
+
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		pending.AutomatedSnapshotRetentionPeriod = *opts.AutomatedSnapshotRetentionPeriod
 	}
 
 	if opts.Encrypted != nil {
@@ -116,6 +188,10 @@ func applyModifyClusterImmediate(cluster *Cluster, opts ModifyClusterOptions) {
 
 	if opts.NumberOfNodes > 0 {
 		cluster.NumberOfNodes = opts.NumberOfNodes
+	}
+
+	if opts.AutomatedSnapshotRetentionPeriod != nil {
+		cluster.AutomatedSnapshotRetentionPeriod = *opts.AutomatedSnapshotRetentionPeriod
 	}
 
 	if opts.Encrypted != nil {
@@ -299,7 +375,11 @@ func (b *InMemoryBackend) RotateEncryptionKey(id string) (*Cluster, error) {
 }
 
 // ModifyClusterIamRoles adds and removes IAM roles on a cluster.
-func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles []string) (*Cluster, error) {
+func (b *InMemoryBackend) ModifyClusterIamRoles(
+	id string,
+	addRoles, removeRoles []string,
+	defaultIamRoleArn string,
+) (*Cluster, error) {
 	if id == "" {
 		return nil, fmt.Errorf("%w: ClusterIdentifier is required", ErrInvalidParameter)
 	}
@@ -340,6 +420,10 @@ func (b *InMemoryBackend) ModifyClusterIamRoles(id string, addRoles, removeRoles
 
 	sort.Strings(roles)
 	cluster.IamRoles = roles
+
+	if defaultIamRoleArn != "" {
+		cluster.DefaultIamRoleArn = defaultIamRoleArn
+	}
 
 	cp := cloneCluster(cluster)
 

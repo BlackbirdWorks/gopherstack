@@ -1,6 +1,7 @@
 package cloudwatchlogs
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strconv"
@@ -177,13 +178,25 @@ func (b *InMemoryBackend) DeleteResourcePolicy(policyName, resourceArn string, e
 }
 
 // PutIndexPolicy creates or updates an index policy for a log group.
-func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument string) (*IndexPolicy, error) {
+// ResourceNotFoundException is a real declared error for this op
+// (awsAwsjson11_deserializeOpErrorPutIndexPolicy), so the target log group
+// must actually exist, matching the sibling PutSyslogConfiguration.
+func (b *InMemoryBackend) PutIndexPolicy(
+	ctx context.Context, logGroupIdentifier, policyDocument string,
+) (*IndexPolicy, error) {
 	if logGroupIdentifier == "" {
 		return nil, fmt.Errorf("%w: logGroupIdentifier is required", ErrValidation)
 	}
 
+	name := normalizeLogGroupIdentifier(logGroupIdentifier)
+	region := getRegion(ctx, b.region)
+
 	b.mu.Lock("PutIndexPolicy")
 	defer b.mu.Unlock()
+
+	if _, ok := b.groupGet(region, name); !ok {
+		return nil, fmt.Errorf("%w: log group %s not found", ErrLogGroupNotFound, name)
+	}
 
 	p := IndexPolicy{
 		LogGroupIdentifier: logGroupIdentifier,
@@ -203,6 +216,13 @@ func (b *InMemoryBackend) PutIndexPolicy(logGroupIdentifier, policyDocument stri
 // identifier, with NextToken pagination (the real op has no documented
 // default/max page size, so this follows the same defaultDescribeLimit
 // fallback the rest of this package's undocumented-default ops use).
+// A requested log group with no log-group-level policy of its own falls
+// back to an ALL-scope account-wide FIELD_INDEX_POLICY when one exists, per
+// the doc comment: "If a specified log group doesn't have a log-group level
+// index policy, but an account-wide index policy applies to it, that
+// account-wide policy is returned." SELECTION_CRITERIA-scoped account
+// policies are not evaluated -- this backend has no selection-criteria
+// expression evaluator.
 func (b *InMemoryBackend) DescribeIndexPolicies(
 	logGroupIdentifiers []string, nextToken string, limit int,
 ) ([]IndexPolicy, string) {
@@ -214,11 +234,34 @@ func (b *InMemoryBackend) DescribeIndexPolicies(
 		want[id] = true
 	}
 
-	out := make([]IndexPolicy, 0, len(want))
+	byLogGroup := make(map[string]IndexPolicy, len(want))
 	for _, p := range b.indexPolicies.All() {
 		if want[p.LogGroupIdentifier] {
-			out = append(out, *p)
+			byLogGroup[p.LogGroupIdentifier] = *p
 		}
+	}
+
+	if len(byLogGroup) < len(want) {
+		if acct, ok := b.accountFieldIndexPolicy(); ok {
+			for id := range want {
+				if _, exists := byLogGroup[id]; exists {
+					continue
+				}
+
+				byLogGroup[id] = IndexPolicy{
+					LogGroupIdentifier: id,
+					PolicyDocument:     acct.PolicyDocument,
+					PolicyName:         acct.PolicyName,
+					Source:             indexSourceAccount,
+					LastUpdateTime:     acct.LastUpdatedTime,
+				}
+			}
+		}
+	}
+
+	out := make([]IndexPolicy, 0, len(byLogGroup))
+	for _, p := range byLogGroup {
+		out = append(out, p)
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].LogGroupIdentifier < out[j].LogGroupIdentifier })
@@ -226,6 +269,18 @@ func (b *InMemoryBackend) DescribeIndexPolicies(
 	start, end, outToken := paginateRange(len(out), nextToken, limit)
 
 	return out[start:end], outToken
+}
+
+// accountFieldIndexPolicy returns the account-wide FIELD_INDEX_POLICY with
+// scope ALL, if one exists. Caller must hold b.mu.
+func (b *InMemoryBackend) accountFieldIndexPolicy() (*AccountPolicy, bool) {
+	for _, p := range b.accountPolicies.All() {
+		if p.PolicyType == "FIELD_INDEX_POLICY" && p.Scope == accountPolicyScopeAll {
+			return p, true
+		}
+	}
+
+	return nil, false
 }
 
 // DeleteIndexPolicy removes the index policy for a log group.

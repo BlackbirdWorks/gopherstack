@@ -1,11 +1,25 @@
 package elasticsearch
 
-import "net/http"
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/page"
+)
+
+// defaultReservedInstancePageSize is elasticsearchservice@v1.45.4's documented
+// default for DescribeReservedElasticsearchInstanceOfferings/Instances.MaxResults
+// ("If not specified, defaults to 100.").
+const defaultReservedInstancePageSize = 100
 
 func (h *Handler) handleDescribeReservedElasticsearchInstanceOfferings(w http.ResponseWriter, r *http.Request) {
 	offerings := h.Backend.DescribeReservedElasticsearchInstanceOfferings()
-	result := make([]map[string]any, 0, len(offerings))
-	for _, offering := range offerings {
+
+	maxResults, _ := strconv.Atoi(r.URL.Query().Get("maxResults"))
+	pg := page.New(offerings, r.URL.Query().Get("nextToken"), maxResults, defaultReservedInstancePageSize)
+
+	result := make([]map[string]any, 0, len(pg.Data))
+	for _, offering := range pg.Data {
 		result = append(result, map[string]any{
 			"ReservedElasticsearchInstanceOfferingId": offering.OfferingID,
 			"ElasticsearchInstanceType":               offering.InstanceType,
@@ -17,15 +31,22 @@ func (h *Handler) handleDescribeReservedElasticsearchInstanceOfferings(w http.Re
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{
-		"ReservedElasticsearchInstanceOfferings": result,
-	})
+	resp := map[string]any{"ReservedElasticsearchInstanceOfferings": result}
+	if pg.Next != "" {
+		resp["NextToken"] = pg.Next
+	}
+
+	h.writeJSON(r, w, resp)
 }
 
 func (h *Handler) handleDescribeReservedElasticsearchInstances(w http.ResponseWriter, r *http.Request) {
 	instances := h.Backend.DescribeReservedElasticsearchInstances(h.reqContext(r))
-	result := make([]map[string]any, 0, len(instances))
-	for _, instance := range instances {
+
+	maxResults, _ := strconv.Atoi(r.URL.Query().Get("maxResults"))
+	pg := page.New(instances, r.URL.Query().Get("nextToken"), maxResults, defaultReservedInstancePageSize)
+
+	result := make([]map[string]any, 0, len(pg.Data))
+	for _, instance := range pg.Data {
 		result = append(result, map[string]any{
 			"ReservedElasticsearchInstanceId":         instance.ReservationID,
 			"ReservationName":                         instance.ReservationName,
@@ -36,9 +57,12 @@ func (h *Handler) handleDescribeReservedElasticsearchInstances(w http.ResponseWr
 		})
 	}
 
-	h.writeJSON(r, w, map[string]any{
-		"ReservedElasticsearchInstances": result,
-	})
+	resp := map[string]any{"ReservedElasticsearchInstances": result}
+	if pg.Next != "" {
+		resp["NextToken"] = pg.Next
+	}
+
+	h.writeJSON(r, w, resp)
 }
 
 func (h *Handler) handlePurchaseReservedElasticsearchInstanceOffering(w http.ResponseWriter, r *http.Request) {

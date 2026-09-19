@@ -264,27 +264,48 @@ func classifierMetadata() map[string]any {
 	}
 }
 
-// recognizerEntityTypes builds the EntityTypes list of an
-// EntityRecognizerMetadata from the InputDataConfig.EntityTypes the resource
-// was created with, so the returned types actually match what the caller
-// configured rather than a hardcoded placeholder list.
-func recognizerEntityTypes(resource *Resource) []map[string]any {
-	entityTypes := make([]map[string]any, 0)
+// resourceEntityTypeNames extracts the entity type names an entity
+// recognizer resource was created with from its stored
+// InputDataConfig.EntityTypes (real, user-supplied training configuration --
+// not a hardcoded placeholder list). Used both by recognizerEntityTypes
+// (DescribeEntityRecognizer's response) and DetectEntities' EndpointArn
+// custom-model path (store.go's EndpointCustomEntityTypes).
+func resourceEntityTypeNames(resource *Resource) []string {
 	inputConfig, ok := resource.Configuration["InputDataConfig"].(map[string]any)
 	if !ok {
-		return entityTypes
+		return nil
 	}
+
 	rawTypes, ok := inputConfig["EntityTypes"].([]any)
 	if !ok {
-		return entityTypes
+		return nil
 	}
+
+	names := make([]string, 0, len(rawTypes))
+
 	for _, rawType := range rawTypes {
 		entry, entryOK := rawType.(map[string]any)
 		if !entryOK {
 			continue
 		}
+
+		if name := stringValue(entry, "Type", ""); name != "" {
+			names = append(names, name)
+		}
+	}
+
+	return names
+}
+
+// recognizerEntityTypes builds the EntityTypes list of an
+// EntityRecognizerMetadata from the resource's configured entity type names.
+func recognizerEntityTypes(resource *Resource) []map[string]any {
+	names := resourceEntityTypeNames(resource)
+	entityTypes := make([]map[string]any, 0, len(names))
+
+	for _, name := range names {
 		entityTypes = append(entityTypes, map[string]any{
-			"Type":                  stringValue(entry, "Type", ""),
+			"Type":                  name,
 			"NumberOfTrainMentions": syntheticNumberOfTrainedDocuments,
 			fieldEvaluationMetrics:  recognizerEvaluationMetrics(),
 		})

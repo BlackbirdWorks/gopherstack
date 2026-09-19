@@ -732,13 +732,24 @@ func (h *Handler) handleListAutomatedReasoningPolicies(c *echo.Context) error {
 	summaries := make([]map[string]any, 0, len(policies))
 
 	for _, p := range policies {
-		summaries = append(summaries, map[string]any{
+		// Real AutomatedReasoningPolicySummary has no status member at all
+		// (confirmed against awsRestjson1_deserializeDocumentAutomatedReasoningPolicySummary,
+		// which has no "status" case) -- distinct from Get's shape, which also
+		// has no status either (see handleGetAutomatedReasoningPolicy above).
+		// policyId/version are real required members previously omitted.
+		summary := map[string]any{
 			keyPolicyArn: p.PolicyArn,
+			"policyId":   policyIDFromARN(p.PolicyArn),
 			keyName:      p.Name,
-			keyStatus:    p.Status,
+			keyVersion:   p.Version,
 			keyCreatedAt: isoTime{p.CreatedAt},
 			keyUpdatedAt: isoTime{p.UpdatedAt},
-		})
+		}
+		if p.Description != "" {
+			summary["description"] = p.Description
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	// Real key is automatedReasoningPolicySummaries (bedrock@v1.66.4

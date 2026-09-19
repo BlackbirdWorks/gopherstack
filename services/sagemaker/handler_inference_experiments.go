@@ -267,14 +267,30 @@ func (h *Handler) handleListInferenceExperiments(ctx context.Context, body []byt
 
 	items := make([]map[string]any, 0, len(exps))
 	for _, e := range exps {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyGenericName:      e.Name,
-			"Arn":               e.Arn,
 			keyStatus:           e.Status,
 			"Type":              e.Type,
 			keyCreationTime:     epochSeconds(e.CreationTime),
 			keyLastModifiedTime: epochSeconds(e.LastModifiedTime),
-		})
+		}
+		if e.RoleArn != "" {
+			item["RoleArn"] = e.RoleArn
+		}
+
+		if e.Description != "" {
+			item["Description"] = e.Description
+		}
+
+		if e.StatusReason != "" {
+			item["StatusReason"] = e.StatusReason
+		}
+
+		if e.Schedule != nil {
+			item["Schedule"] = e.Schedule
+		}
+
+		items = append(items, item)
 	}
 
 	return listResp("InferenceExperiments", items, nextToken)

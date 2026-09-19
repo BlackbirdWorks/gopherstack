@@ -1,7 +1,7 @@
 service: s3control
 sdk_module: aws-sdk-go-v2/service/s3control@v1.73.4
-last_audit_commit:                                # unknown: pass ran without git access at write time, never backfilled -- gopherstack-33in
-last_audit_date: 2026-08-07
+last_audit_commit: da97fccdb
+last_audit_date: 2026-09-18
                        # 2026-08-30: pagination-tie re-audit. Re-verified the 2026-08-28/29
                        # pagination_sweep entry below still holds: every List* backend method
                        # (ListAccessPoints/ListAccessPointsForDirectoryBuckets/ListJobs/
@@ -307,6 +307,7 @@ items_still_open:
   - STALE as of 2026-08-23 (manifest-harvest pass): `ListAccessPointsForObjectLambdaResult`'s per-item `types.ObjectLambdaAccessPoint` entries were missing the real `Alias` field per the original 2026-08-01 note below, but commit `fb80d66cd` (2026-08-17, #2425) closed the gap this note describes -- `ObjectLambdaAccessPoint` (models.go) now tracks `Alias`, synthesized with the real `"--ol-s3"` suffix convention (`object_lambda.go`'s `CreateAccessPointForObjectLambda`), and both `Get`/`ListAccessPointsForObjectLambda` already returned it. The one gap that commit left behind -- `CreateAccessPointForObjectLambda`'s own response never echoed the `Alias` it had just set, even though the backend now had it -- is FIXED this pass (`handler_object_lambda.go`). Proven via a real `aws-sdk-go-v2/service/s3control` client `CreateAccessPointForObjectLambda` call (`TestCreateAccessPointForObjectLambda_Alias_RealSDKClient`, `handler_object_lambda_real_client_test.go`), confirmed failing (`Alias` nil) against the unfixed handler, passing after, hand-reverted/restored/`md5sum`-verified byte-identical. Original note, now superseded, preserved for history: "`ListAccessPointsForObjectLambdaResult`'s per-item `types.ObjectLambdaAccessPoint` entries are missing the real `Alias` field (2026-08-01 sample audit, gopherstack-tir4): ObjectLambdaAccessPoint (models.go) tracks no alias data for these APs at all, and the real AWS alias-generation algorithm for Object Lambda APs is a distinct, undocumented "<random>-ol-s3alias"-style scheme (NOT the same "<name>-<accountid>-s3alias" formula regular access points use, confirmed by inspecting access_points.go's CreateAccessPoint) -- not synthesized to avoid inventing an unverified value. Now documented in-code (handler_object_lambda.go); not fixed."
   - (CLOSED 2026-07-30) Only a modestly larger sample of response XML shapes were spot-checked against deserializers.go this pass ... -- superseded: the remaining "types_not_reached" items were individually diffed this pass, see below and items_still_open.
   - (2026-07-31, gopherstack-eje5, CORRECTED same day) An earlier version of this entry claimed the c.String(http.StatusNoContent, "") -> c.NoContent(http.StatusNoContent) change (handler_bucket.go, 4 handlers) fixed a bug that "returns http.ErrBodyNotAllowed on every real call." That claim is false and was verified wrong against net/http's stdlib source: (*response).write in net/http/server.go no-ops a zero-length write (returns nil) BEFORE reaching the body-allowed check, so a real net/http server never returns that error for an empty body after a 204. Only httptest.ResponseRecorder.Write checks bodyAllowedForStatus unconditionally with no exemption for zero-length writes, so only handler-level tests dispatching through a ResponseRecorder would see the error -- meaning the real defect was a test-observability gap (no such test could exist and pass), not a client-facing bug, and c.String vs c.NoContent was never observable to a real SDK client. The identical c.String(204,"") pattern in 8 more handlers (handler_access_grants.go x4, handler_object_lambda.go x2, handler_jobs.go x1, handler_access_points.go x1) was converted to c.NoContent in a later pass this same day, with handler-level tests added to lock in the nil-error assertion that could not previously exist -- described there as a hygiene/testability change, not a bug fix, consistent with this correction.
+  - "2026-09-13 (gopherstack-xhu2t): ListAccessPoints.DataSourceType (real semantics: default lists only S3-bucket-backed access points, 'ALL' lists every data source type) has no observable effect in this backend -- AccessPoint (models.go) has no DataSourceType/DataSourceId field at all and every access point this backend can ever create is bucket-backed, so the default-filtered result and the DataSourceType=ALL result are always byte-identical. Not fixed: implementing a filter that can never change the output would be dead plumbing, not a real fix (same reasoning as the pre-existing ListCoverage precedent in other services). Would need a non-bucket data-source-type access point (e.g. S3 Tables) modeled first."
 deferred:
   - AccessGrantsInstance / IdentityCenter association flows (state machine correctness beyond basic CRUD). The delete-grants-and-locations-first precondition noted in a prior version of this bullet IS enforced -- see items_still_open.
   - Chaos fault-injection interaction with the fixed routes/leak (ChaosOperations() just echoes GetSupportedOperations(), unaffected by this pass).
@@ -1071,3 +1072,81 @@ Gates: `go build ./...` clean, `go vet ./services/s3control/...` clean,
 `./pkgs/persistence/...` pass, `golangci-lint run --new-from-rev=HEAD
 ./services/s3control/...` 0 issues, `go run ./cmd/paritylint` 0 FAIL. No
 persisted-struct fields changed; no version bump.
+
+## 2026-09-13 (gopherstack-xhu2t reqfielddiff campaign, non-query-protocol slice)
+
+`cmd/reqfielddiff` flagged 7 tier-1 fields. Five were false positives:
+`DeleteAccessGrantsLocation.AccessGrantsLocationId`, `GetAccessGrantsLocation.
+AccessGrantsLocationId`, `UpdateAccessGrantsLocation.AccessGrantsLocationId`
+are all `httpLabel`-bound (verified against `serializers.go`'s
+`awsRestxml_serializeOpHttpBindingsDelete/Get/UpdateAccessGrantsLocationInput`
+-- `encoder.SetURI("AccessGrantsLocationId")`, not a body member at all) and
+already read from the URL path via `strings.TrimPrefix(c.Request().URL.Path,
+pathAccessGrantsLocationPrefix)` in each handler
+(handler_access_grants.go:748-800) -- a URI-label blind spot the tool can't
+see through. `ListAccessGrantsLocations.LocationScope` is already read via
+`q.Get("locationscope")` (handler_access_grants.go:815) -- a query-read
+blind spot, same class as gopherstack-99nj.
+
+Two were real:
+
+- `GetDataAccess.DurationSeconds`/`GetDataAccess.Privilege`: neither query
+  param was decoded at all. This backend issues no real STS credentials and
+  resolves no matching grant for `GetDataAccess` (pre-existing, disclosed
+  gap -- see the op's own GAP comment), so there is no `Expiration`/scope
+  state for either field to actually govern. Fixed the reachable half
+  instead of leaving both fully unread: `DurationSeconds` is now validated
+  against the real 900-43200 second range (`api_op_GetDataAccess.go`'s doc
+  comment) and `Privilege` against its real `Default`/`Minimal` enum,
+  both rejecting with `InvalidRequest` when out of range/invalid --
+  matching `CreateAccessGrantsLocation`'s existing handler-level validation
+  pattern (`writeXMLErrorCode`, not a backend sentinel). Computing a real
+  bounded-duration/scoped credential remains out of scope (no STS
+  federation exists in this backend at all).
+- `ListAccessPoints.DataSourceType`: genuinely unread, but recorded as a
+  gap rather than fixed -- `AccessPoint` has no `DataSourceType`/
+  `DataSourceId` field and every access point this backend can create is
+  S3-bucket-backed, so the default-filtered and `DataSourceType=ALL`
+  results are always identical; wiring a filter that can never change the
+  output would be dead plumbing, not a real fix. See `items_still_open`.
+
+New `TestRealClient_GetDataAccessValidation` (table-driven,
+realclient_get_data_access_validation_test.go) drives the DurationSeconds/
+Privilege validation through the real `aws-sdk-go-v2/service/s3control`
+client: below-minimum, above-maximum, at-maximum, and an invalid Privilege
+enum.
+
+Gates: `go build ./...` (whole module) clean; `go vet
+./services/s3control/...` clean; `go test -race -count=1 -p 2
+./services/s3control/...` `ok`; `golangci-lint run --concurrency 2
+--new-from-rev=HEAD ./services/s3control/...` 0 issues; `go run
+./cmd/paritylint` 0 FAIL. No persisted fields changed, no inventory rows,
+no version bump.
+
+## 2026-09-18 (gopherstack-21my remaining-ops sweep)
+
+Checked ops not covered by prior 21my passes (CreateJob/DescribeJob/ListJobs,
+ListAccessPoints, MRAP, ListAccessGrants family, Storage Lens lists) via
+`structfielddiff` against s3control@v1.73.4: the three singular access-grants
+Gets (GetAccessGrant/GetAccessGrantsInstance/GetAccessGrantsLocation) and
+their Create/Update siblings. Found the sibling-trap class this campaign
+targets: `CreateAccessGrant`, `CreateAccessGrantsLocation`,
+`GetAccessGrantsLocation` and `UpdateAccessGrantsLocation` all dropped the
+required `CreatedAt` field their own domain records already carry (the List
+siblings and `GetAccessGrant`/`GetAccessGrantsInstance`/
+`CreateAccessGrantsInstance` were already correct -- inconsistent across
+handlers, not a service-wide gap). Fixed all 4 in
+`handler_access_grants.go`. `overwidecandidates` showed no new candidates
+beyond ones already fixed in prior passes.
+
+Test: `TestRealClient_AccessPointsAndJobs/access_grants`
+(sdk_roundtrip_access_points_and_jobs_test.go) extended with `CreatedAt`
+assertions on all 4 call sites; hand-verified failing pre-fix (3 nil-value
+failures), restored byte-identical after.
+
+Gates: `go build ./...` clean; `go vet ./services/s3control/...` clean;
+`go test -race -count=1 ./services/s3control/...` ok; `go test -count=1
+./pkgs/persistence/` ok; `golangci-lint run --new-from-rev=HEAD
+./services/s3control/...` 0 issues; `go run ./cmd/parityfmtcheck -dir
+services` clean; `git diff --stat go.mod go.sum` empty. No persisted-field
+change, no version bump.

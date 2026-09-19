@@ -57,7 +57,7 @@ func TestStartBackupJob_S3ResourceValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.StartBackupJob("vault-s3", tt.arn, "arn:aws:iam::123456789012:role/r", "S3")
+			_, err := b.StartBackupJob("vault-s3", tt.arn, "arn:aws:iam::123456789012:role/r", "S3", nil, 0)
 			if tt.wantErr {
 				require.ErrorIs(t, err, backup.ErrNotFound)
 
@@ -94,7 +94,7 @@ func TestStartBackupJob_UnclassifiableARNPermissive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := b.StartBackupJob("vault-permissive", tt.arn, "arn:aws:iam::123456789012:role/r", "")
+			_, err := b.StartBackupJob("vault-permissive", tt.arn, "arn:aws:iam::123456789012:role/r", "", nil, 0)
 			require.NoError(t, err)
 		})
 	}
@@ -114,6 +114,7 @@ func TestStartBackupJob_UnwiredS3Permissive(t *testing.T) {
 		"arn:aws:s3:::does-not-exist",
 		"arn:aws:iam::123456789012:role/r",
 		"S3",
+		nil, 0,
 	)
 	require.NoError(t, err)
 }

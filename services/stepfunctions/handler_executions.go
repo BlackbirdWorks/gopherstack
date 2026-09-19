@@ -41,10 +41,11 @@ type listExecutionsInput struct {
 }
 
 type getExecutionHistoryInput struct {
-	ExecutionArn string `json:"executionArn"`
-	NextToken    string `json:"nextToken"`
-	MaxResults   int    `json:"maxResults"`
-	ReverseOrder bool   `json:"reverseOrder"`
+	IncludeExecutionData *bool  `json:"includeExecutionData"`
+	ExecutionArn         string `json:"executionArn"`
+	NextToken            string `json:"nextToken"`
+	MaxResults           int    `json:"maxResults"`
+	ReverseOrder         bool   `json:"reverseOrder"`
 }
 
 type startExecutionOutput struct {
@@ -289,5 +290,44 @@ func (h *Handler) handleGetExecutionHistory(b []byte) (any, error) {
 		return nil, err
 	}
 
+	if input.IncludeExecutionData != nil && !*input.IncludeExecutionData {
+		events = stripHistoryEventExecutionData(events)
+	}
+
 	return &getExecutionHistoryOutput{Events: events, NextToken: next}, nil
+}
+
+// stripHistoryEventExecutionData clears the input/output payload strings on
+// a copy of each event's details, for GetExecutionHistory's
+// includeExecutionData=false (default true -- api_op_GetExecutionHistory.go:
+// "You can select whether execution data (input or output of a history
+// event) is returned"). Detail structs are shallow-copied before mutation so
+// the backend's stored history is never touched.
+func stripHistoryEventExecutionData(events []HistoryEvent) []HistoryEvent {
+	out := make([]HistoryEvent, len(events))
+	for i, e := range events {
+		if e.StateEnteredEventDetails != nil {
+			d := *e.StateEnteredEventDetails
+			d.Input = ""
+			e.StateEnteredEventDetails = &d
+		}
+		if e.StateExitedEventDetails != nil {
+			d := *e.StateExitedEventDetails
+			d.Output = ""
+			e.StateExitedEventDetails = &d
+		}
+		if e.TaskSubmittedEventDetails != nil {
+			d := *e.TaskSubmittedEventDetails
+			d.Output = ""
+			e.TaskSubmittedEventDetails = &d
+		}
+		if e.TaskSucceededEventDetails != nil {
+			d := *e.TaskSucceededEventDetails
+			d.Output = ""
+			e.TaskSucceededEventDetails = &d
+		}
+		out[i] = e
+	}
+
+	return out
 }

@@ -163,7 +163,7 @@ func TestLRUEvictionPurgesPendingDecisionTasks(t *testing.T) {
 	_, err := b.DescribeWorkflowExecution("dom", "wf-evict-0", "")
 	require.ErrorIs(t, err, swf.ErrNotFound, "the evicted run's execution row must be gone")
 
-	task := b.PollForDecisionTask("dom", "shared", 0, "")
+	task := b.PollForDecisionTask("dom", "shared", 0, "", false)
 	require.NotNil(t, task)
 	assert.NotEqual(t, "wf-evict-0", task.WorkflowID, "the evicted run's ghost task must not be pollable")
 }

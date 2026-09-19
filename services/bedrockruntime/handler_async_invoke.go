@@ -18,6 +18,11 @@ import (
 // the request (client-side required-member validation), so a raw HTTP
 // request that omits it is not a realistic scenario an SDK-driven caller can
 // produce.
+//
+// It has no InferenceProfileIdentifier member: the real StartAsyncInvokeInput
+// (bedrockruntime@v1.57.1 api_op_StartAsyncInvoke.go) names this member
+// ModelId only (an inference profile ARN is passed as ModelId's value) -- no
+// real client ever sends inferenceProfileIdentifier.
 type startAsyncInvokeInput struct {
 	Tags             map[string]string `json:"tags"`
 	OutputDataConfig struct {
@@ -25,9 +30,8 @@ type startAsyncInvokeInput struct {
 			S3URI string `json:"s3Uri"`
 		} `json:"s3OutputDataConfig"`
 	} `json:"outputDataConfig"`
-	ModelID                    string `json:"modelId"`
-	ClientRequestToken         string `json:"clientRequestToken"`
-	InferenceProfileIdentifier string `json:"inferenceProfileIdentifier,omitempty"`
+	ModelID            string `json:"modelId"`
+	ClientRequestToken string `json:"clientRequestToken"`
 }
 
 // handleStartAsyncInvoke handles POST /async-invoke.
@@ -46,13 +50,8 @@ func (h *Handler) handleStartAsyncInvoke(c *echo.Context, body []byte) error {
 		)
 	}
 
-	effectiveModelID := req.ModelID
-	if effectiveModelID == "" && req.InferenceProfileIdentifier != "" {
-		effectiveModelID = req.InferenceProfileIdentifier
-	}
-
 	inv, err := h.Backend.StartAsyncInvoke(
-		effectiveModelID,
+		req.ModelID,
 		s3URI,
 		req.ClientRequestToken,
 		req.Tags,

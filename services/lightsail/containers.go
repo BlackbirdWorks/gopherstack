@@ -113,7 +113,7 @@ var deploymentSteps = []containerServiceStep{
 // optionally with an initial Deployment.
 func (b *InMemoryBackend) CreateContainerService(
 	name, power string, scale int32, deployment *ContainerServiceDeployment,
-	publicDomainNames map[string][]string, userTags map[string]string,
+	publicDomainNames map[string][]string, userTags map[string]string, ecrImagePullerRoleActive bool,
 ) (*ContainerService, error) {
 	if !isValidContainerPower(power) {
 		return nil, validationError("unknown container service Power: " + power)
@@ -144,6 +144,11 @@ func (b *InMemoryBackend) CreateContainerService(
 		NextImageVersion:  make(map[string]int),
 		Tags:              tags.New("lightsail.containerservice." + name + ".tags"),
 	}
+	if ecrImagePullerRoleActive {
+		cs.ECRImagePullerRoleActive = true
+		cs.ECRImagePullerRolePrincipalArn = b.regionalARN(ResourceTypeContainerService, "ecr-puller-"+newUUID())
+	}
+
 	cs.Tags.Merge(userTags)
 	b.containerServices.Put(cs)
 
@@ -222,6 +227,7 @@ func (b *InMemoryBackend) startContainerServiceDeployment(name string) {
 // IsDisabled/PublicDomainNames.
 func (b *InMemoryBackend) UpdateContainerService(
 	name string, isDisabled *bool, power string, scale int32, publicDomainNames map[string][]string,
+	ecrImagePullerRoleActive *bool,
 ) (*ContainerService, error) {
 	b.mu.Lock("UpdateContainerService")
 	defer b.mu.Unlock()
@@ -233,6 +239,13 @@ func (b *InMemoryBackend) UpdateContainerService(
 
 	if isDisabled != nil {
 		cs.IsDisabled = *isDisabled
+	}
+
+	if ecrImagePullerRoleActive != nil {
+		cs.ECRImagePullerRoleActive = *ecrImagePullerRoleActive
+		if *ecrImagePullerRoleActive && cs.ECRImagePullerRolePrincipalArn == "" {
+			cs.ECRImagePullerRolePrincipalArn = b.regionalARN(ResourceTypeContainerService, "ecr-puller-"+newUUID())
+		}
 	}
 
 	if power != "" {

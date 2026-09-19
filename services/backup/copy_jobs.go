@@ -52,7 +52,11 @@ func (b *InMemoryBackend) DescribeCopyJob(copyJobID string) (*CopyJob, error) {
 
 // --- Restore Testing read/update/delete methods ---
 
-// ListCopyJobSummaries returns a summary of copy jobs.
+// ListCopyJobSummaries returns a summary of copy jobs grouped by State.
+// gopherstack-21my (2026-09-18): AccountId (real CopyJobSummary member,
+// backup@v1.64.0 types.go) was never emitted here, unlike every sibling
+// summary op (ListBackupJobSummaries/ListRestoreJobSummaries/
+// ListScanJobSummaries all include it) -- fixed.
 func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
 	b.mu.RLock("ListCopyJobSummaries")
 	defer b.mu.RUnlock()
@@ -68,6 +72,7 @@ func (b *InMemoryBackend) ListCopyJobSummaries() []map[string]any {
 			keyState:         state,
 			keySummaryCount:  count,
 			keySummaryRegion: b.region,
+			keyAccountID:     b.accountID,
 		})
 	}
 

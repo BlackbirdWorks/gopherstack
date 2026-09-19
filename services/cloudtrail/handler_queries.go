@@ -50,14 +50,14 @@ func (h *Handler) handleStartQuery(c *echo.Context, body []byte) error {
 
 	edsARN := extractQueryFromTarget(in.QueryStatement)
 
-	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI, in.QueryAlias)
-	if err != nil {
-		return h.handleError(c, err)
-	}
-
 	ownerID := in.EventDataStoreOwnerAccountID
 	if ownerID == "" {
 		ownerID = h.Backend.AccountID()
+	}
+
+	q, err := h.Backend.StartQuery(in.QueryStatement, edsARN, in.DeliveryS3URI, in.QueryAlias, ownerID)
+	if err != nil {
+		return h.handleError(c, err)
 	}
 
 	return c.JSON(http.StatusOK, map[string]any{

@@ -24,19 +24,24 @@ const (
 
 // NetworkInterface represents an EC2 Network Interface (ENI).
 type NetworkInterface struct {
-	ID                    string   `json:"id,omitempty"`
-	SubnetID              string   `json:"subnetID,omitempty"`
-	VPCID                 string   `json:"vpcID,omitempty"`
-	PrivateIP             string   `json:"privateIP,omitempty"`
-	Description           string   `json:"description,omitempty"`
-	InstanceID            string   `json:"instanceID,omitempty"`
-	AttachmentID          string   `json:"attachmentID,omitempty"`
-	Status                string   `json:"status,omitempty"`
-	OwnerID               string   `json:"ownerID,omitempty"`
-	PublicDNSHostnameType string   `json:"publicDnsHostnameType,omitempty"`
-	SecondaryPrivateIPs   []string `json:"secondaryPrivateIPs,omitempty"`
-	DeviceIndex           int      `json:"deviceIndex,omitempty"`
-	SourceDestCheck       bool     `json:"sourceDestCheck,omitempty"`
+	OwnerID               string `json:"ownerID,omitempty"`
+	PublicDNSHostnameType string `json:"publicDnsHostnameType,omitempty"`
+	VPCID                 string `json:"vpcID,omitempty"`
+	PrivateIP             string `json:"privateIP,omitempty"`
+	Description           string `json:"description,omitempty"`
+	InstanceID            string `json:"instanceID,omitempty"`
+	SubnetID              string `json:"subnetID,omitempty"`
+	AttachmentID          string `json:"attachmentID,omitempty"`
+	ID                    string `json:"id,omitempty"`
+	Status                string `json:"status,omitempty"`
+	// InterfaceType is CreateNetworkInterface's declare+echo-only type
+	// (default "interface"); this backend has no EFA/trunk network-card
+	// simulation to apply it against.
+	InterfaceType       string   `json:"interfaceType,omitempty"`
+	SecurityGroupIDs    []string `json:"securityGroupIDs,omitempty"`
+	SecondaryPrivateIPs []string `json:"secondaryPrivateIPs,omitempty"`
+	DeviceIndex         int      `json:"deviceIndex,omitempty"`
+	SourceDestCheck     bool     `json:"sourceDestCheck,omitempty"`
 	// DeleteOnTermination mirrors real AWS's per-attachment default: true for
 	// the primary interface auto-created at instance launch, false for any
 	// interface created separately (CreateNetworkInterface) and later attached
@@ -84,6 +89,7 @@ func (b *InMemoryBackend) DescribeNetworkInterfaces(ids []string) []*NetworkInte
 // CreateNetworkInterface creates a new ENI in the given subnet.
 func (b *InMemoryBackend) CreateNetworkInterface(
 	subnetID, description string,
+	interfaceType ...string,
 ) (*NetworkInterface, error) {
 	if subnetID == "" {
 		return nil, fmt.Errorf("%w: SubnetId is required", ErrInvalidParameter)
@@ -97,6 +103,11 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		return nil, fmt.Errorf("%w: %s", ErrSubnetNotFound, subnetID)
 	}
 
+	ifaceType := "interface" // api_op_CreateNetworkInterface.go: "The default is interface."
+	if len(interfaceType) > 0 && interfaceType[0] != "" {
+		ifaceType = interfaceType[0]
+	}
+
 	id := newENIID()
 	eni := &NetworkInterface{
 		ID:              id,
@@ -107,6 +118,7 @@ func (b *InMemoryBackend) CreateNetworkInterface(
 		Status:          stateAvailable,
 		OwnerID:         b.AccountID,
 		SourceDestCheck: true,
+		InterfaceType:   ifaceType,
 	}
 	b.networkInterfaces.Put(eni)
 	b.indexENILocked(id, eni)
@@ -311,6 +323,30 @@ func (b *InMemoryBackend) ModifyNetworkInterfaceAttribute(eniID, attr, value str
 	default:
 		return fmt.Errorf("%w: unsupported attribute %q", ErrInvalidParameter, attr)
 	}
+
+	return nil
+}
+
+// SetNetworkInterfaceSecurityGroups replaces an ENI's security group
+// membership (ModifyNetworkInterfaceAttribute's Groups field, wire key
+// SecurityGroupId.N). All groupIDs must already exist, matching real AWS's
+// InvalidGroup.NotFound rejection.
+func (b *InMemoryBackend) SetNetworkInterfaceSecurityGroups(eniID string, groupIDs []string) error {
+	b.mu.Lock("SetNetworkInterfaceSecurityGroups")
+	defer b.mu.Unlock()
+
+	eni, ok := b.networkInterfaces.Get(eniID)
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNetworkInterfaceNotFound, eniID)
+	}
+
+	for _, gid := range groupIDs {
+		if !b.securityGroups.Has(gid) {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, gid)
+		}
+	}
+
+	eni.SecurityGroupIDs = groupIDs
 
 	return nil
 }

@@ -62,7 +62,7 @@ func TestStartExecution_AliasQualifiedARN_SingleVersion(t *testing.T) {
 	v1, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "live", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("live", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v1.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)
@@ -93,7 +93,7 @@ func TestStartExecution_AliasQualifiedARN_WeightedRouting(t *testing.T) {
 	v2, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v2", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "canary", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("canary", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v1.StateMachineVersionArn, Weight: 0},
 		{StateMachineVersionArn: v2.StateMachineVersionArn, Weight: 100},
 	})
@@ -193,7 +193,7 @@ func TestUpdateStateMachineAlias_EmptyRoutingLeavesConfigUnchanged(t *testing.T)
 	v1, err := b.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
 	require.NoError(t, err)
 
-	alias, err := b.CreateStateMachineAlias(sm.StateMachineArn, "live", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := b.CreateStateMachineAlias("live", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v1.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)
@@ -231,7 +231,7 @@ func TestAliasRoutingConfiguration_NotPersistedAcrossRestore(t *testing.T) {
 	v1, err := original.PublishStateMachineVersion(sm.StateMachineArn, "v1", "")
 	require.NoError(t, err)
 
-	alias, err := original.CreateStateMachineAlias(sm.StateMachineArn, "live", "", []stepfunctions.AliasRoutingConfig{
+	alias, err := original.CreateStateMachineAlias("live", "", []stepfunctions.AliasRoutingConfig{
 		{StateMachineVersionArn: v1.StateMachineVersionArn, Weight: 100},
 	})
 	require.NoError(t, err)

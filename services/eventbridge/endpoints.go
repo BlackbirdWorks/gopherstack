@@ -132,11 +132,11 @@ func (b *InMemoryBackend) UpdateEndpoint(ctx context.Context, input UpdateEndpoi
 		return nil, fmt.Errorf("%w: endpoint %s not found", ErrNotFound, input.Name)
 	}
 
-	if input.Description != "" {
-		ep.Description = input.Description
+	if input.Description != nil {
+		ep.Description = *input.Description
 	}
-	if input.RoleArn != "" {
-		ep.RoleArn = input.RoleArn
+	if input.RoleArn != nil {
+		ep.RoleArn = *input.RoleArn
 	}
 	if input.RoutingConfig != nil {
 		ep.RoutingConfig = input.RoutingConfig

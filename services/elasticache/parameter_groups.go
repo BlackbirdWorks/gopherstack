@@ -219,11 +219,18 @@ func (b *InMemoryBackend) ResetParameterGroup(
 	return &cp, nil
 }
 
-// DescribeParameters lists parameters in a cache parameter group.
+// DescribeParameters lists parameters in a cache parameter group: the
+// family's engine-default catalog (builtinEngineDefaultParameters), with any
+// user override applied on top and Source set to "user" or "engine-default"
+// accordingly. source, when non-empty, restricts the result to that Source
+// value (DescribeCacheParametersInput's documented values: user | system |
+// engine-default -- this backend never produces a "system"-sourced
+// parameter, so that value legitimately returns an empty page).
 func (b *InMemoryBackend) DescribeParameters(
 	ctx context.Context,
 	name, marker string,
 	maxRecords int,
+	source string,
 ) (page.Page[CacheParameter], error) {
 	b.mu.RLock("DescribeParameters")
 	defer b.mu.RUnlock()
@@ -234,14 +241,40 @@ func (b *InMemoryBackend) DescribeParameters(
 		return page.Page[CacheParameter]{}, ErrParameterGroupNotFound
 	}
 
-	out := make([]CacheParameter, 0, len(pg.Parameters))
+	defaults := builtinEngineDefaultParameters(pg.Family)
+	out := make([]CacheParameter, 0, len(defaults))
+	seen := make(map[string]bool, len(defaults))
+	for _, def := range defaults {
+		p := def
+		p.Source = sourceEngineDefault
+		if v, overridden := pg.Parameters[def.Name]; overridden {
+			p.Value = v
+			p.Source = sourceUser
+		}
+		seen[def.Name] = true
+		out = append(out, p)
+	}
 	for k, v := range pg.Parameters {
+		if seen[k] {
+			continue
+		}
 		out = append(out, CacheParameter{
 			Name:         k,
 			Value:        v,
 			DataType:     dataTypeString,
+			Source:       sourceUser,
 			IsModifiable: true,
 		})
+	}
+
+	if source != "" {
+		filtered := out[:0]
+		for _, p := range out {
+			if p.Source == source {
+				filtered = append(filtered, p)
+			}
+		}
+		out = filtered
 	}
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

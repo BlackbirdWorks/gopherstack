@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -205,7 +206,7 @@ func Test_UpdateCloudConnector(t *testing.T) {
 
 	upd, err := b.UpdateCloudConnector(context.Background(), &ssm.UpdateCloudConnectorInput{
 		CloudConnectorID: created.CloudConnectorID,
-		DisplayName:      "new-name",
+		DisplayName:      aws.String("new-name"),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, created.CloudConnectorID, upd.CloudConnectorID)
@@ -222,7 +223,7 @@ func Test_UpdateCloudConnector(t *testing.T) {
 
 	_, err = b.UpdateCloudConnector(context.Background(), &ssm.UpdateCloudConnectorInput{
 		CloudConnectorID: "cc-nope",
-		DisplayName:      "x",
+		DisplayName:      aws.String("x"),
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ResourceNotFoundException")
