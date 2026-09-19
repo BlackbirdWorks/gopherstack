@@ -75,7 +75,13 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamDiscoveredResourceCidrs"] = h.handleGetIpamDiscoveredResourceCidrs
 	ops["GetIpamDiscoveredPublicAddresses"] = h.handleGetIpamDiscoveredPublicAddresses
 
-	// IPAM internet registry associations / routing policy registrations
+	registerIpamRegistryOps(h, ops)
+}
+
+// registerIpamRegistryOps registers the IPAM internet registry association
+// and routing policy registration ops, split out of
+// registerAdvancedNetworkingOps to keep it under the funlen limit.
+func registerIpamRegistryOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CreateIpamInternetRegistryAssociation"] = h.handleCreateIpamInternetRegistryAssociation
 	ops["DescribeIpamInternetRegistryAssociations"] = h.handleDescribeIpamInternetRegistryAssociations
 	ops["EnableIpamInternetRegistryAssociation"] = h.handleEnableIpamInternetRegistryAssociation

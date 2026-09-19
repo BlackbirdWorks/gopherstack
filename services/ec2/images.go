@@ -42,8 +42,8 @@ type AMIStub struct {
 // InstanceTypeSpecification holds the instance type compatibility rules for an AMI
 // (ec2@v1.329.0 types.InstanceTypeSpecification), set via ReplaceImageInstanceTypeSpecification.
 type InstanceTypeSpecification struct {
-	SupportedInstanceTypes   []string
-	UnsupportedInstanceTypes []string
+	SupportedInstanceTypes   []string `json:"supportedInstanceTypes,omitempty"`
+	UnsupportedInstanceTypes []string `json:"unsupportedInstanceTypes,omitempty"`
 }
 
 //nolint:gochecknoglobals // package-level stub data for describe operations
