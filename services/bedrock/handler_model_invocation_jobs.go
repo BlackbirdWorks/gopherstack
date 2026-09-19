@@ -94,11 +94,18 @@ func (h *Handler) handleCreateModelInvocationJob(c *echo.Context) error {
 // GetModelInvocationJobOutput shares field-for-field (bedrock@v1.66.4
 // types/types.go:5592-5722 vs api_op_GetModelInvocationJob.go): jobArn,
 // jobName, modelId, roleArn, inputDataConfig, outputDataConfig, submitTime,
-// status, lastModifiedTime, endTime. Neither shape carries tags -- job.Tags
-// is Create-only, surfaced through ListTagsForResource, and must not leak
-// here. submitTime has no dedicated domain field; job.CreationTime already
-// records submission time and is reused, since the real shape has no
-// separate creationTime key at all.
+// status, lastModifiedTime, endTime, clientRequestToken, message (real wire
+// key for this backend's FailureMessage field, confirmed against
+// awsRestjson1_deserializeDocumentModelInvocationJobSummary). Neither shape
+// carries tags -- job.Tags is Create-only, surfaced through
+// ListTagsForResource, and must not leak here. submitTime has no dedicated
+// domain field; job.CreationTime already records submission time and is
+// reused, since the real shape has no separate creationTime key at all.
+// errorRecordCount/jobExpirationTime/modelInvocationType/
+// processedRecordCount/successRecordCount/timeoutDurationInHours/
+// totalRecordCount/vpcConfig have no source -- this backend does not
+// execute real batch inference over records -- see PARITY.md
+// items_still_open.
 func modelInvocationJobToSummary(j *ModelInvocationJob) map[string]any {
 	out := map[string]any{
 		keyJobArn:           j.JobArn,
@@ -114,6 +121,14 @@ func modelInvocationJobToSummary(j *ModelInvocationJob) map[string]any {
 
 	if j.EndTime != nil {
 		out["endTime"] = j.EndTime.Format(time.RFC3339)
+	}
+
+	if j.ClientToken != "" {
+		out["clientRequestToken"] = j.ClientToken
+	}
+
+	if j.FailureMessage != "" {
+		out["message"] = j.FailureMessage
 	}
 
 	return out

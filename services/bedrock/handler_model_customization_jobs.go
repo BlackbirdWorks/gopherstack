@@ -287,10 +287,15 @@ func customizationJobToOutput(j *ModelCustomizationJob) modelCustomizationJobOut
 // modelCustomizationJobSummaryOutput is ListModelCustomizationJobs' per-item
 // shape (bedrock@v1.66.4 ModelCustomizationJobSummary via botocore
 // service-2.json): customModelArn/customModelName, distinct from Get's
-// outputModelArn/outputModelName.
+// outputModelArn/outputModelName. EndTime is a real member this backend
+// already tracks (set on job completion, model_customization_jobs.go) but
+// previously never surfaced. StatusDetails (per-phase data-processing/
+// training/validation status) has no source -- this backend models job
+// status as one flat field, not per-phase -- see PARITY.md items_still_open.
 type modelCustomizationJobSummaryOutput struct {
 	CreationTime      string `json:"creationTime"`
 	LastModifiedTime  string `json:"lastModifiedTime"`
+	EndTime           string `json:"endTime,omitempty"`
 	JobArn            string `json:"jobArn"`
 	JobName           string `json:"jobName"`
 	BaseModelArn      string `json:"baseModelArn"`
@@ -301,7 +306,7 @@ type modelCustomizationJobSummaryOutput struct {
 }
 
 func customizationJobToSummaryOutput(j *ModelCustomizationJob) modelCustomizationJobSummaryOutput {
-	return modelCustomizationJobSummaryOutput{
+	out := modelCustomizationJobSummaryOutput{
 		JobArn:            j.JobArn,
 		JobName:           j.JobName,
 		BaseModelArn:      j.BaseModelArn,
@@ -312,6 +317,12 @@ func customizationJobToSummaryOutput(j *ModelCustomizationJob) modelCustomizatio
 		CreationTime:      j.CreationTime.Format(time.RFC3339),
 		LastModifiedTime:  j.LastModifiedTime.Format(time.RFC3339),
 	}
+
+	if !j.EndTime.IsZero() {
+		out.EndTime = j.EndTime.Format(time.RFC3339)
+	}
+
+	return out
 }
 
 func (h *Handler) handleGetModelCustomizationJob(c *echo.Context, id string) error {

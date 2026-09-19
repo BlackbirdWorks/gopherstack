@@ -142,9 +142,39 @@ func (h *Handler) handleGetAdvancedPromptOptimizationJob(c *echo.Context, id str
 	return c.JSON(http.StatusOK, advancedPromptOptimizationJobToOutput(job))
 }
 
+// advancedPromptOptimizationJobSummaryOutput is the real
+// ListAdvancedPromptOptimizationJobsOutput element shape
+// (types.AdvancedPromptOptimizationJobSummary, bedrock@v1.66.4 types.go) --
+// narrower than GetAdvancedPromptOptimizationJobOutput: no jobDescription,
+// encryptionKeyArn, failureMessage, inputConfig, outputConfig or
+// modelConfigurations.
+type advancedPromptOptimizationJobSummaryOutput struct {
+	CreationTime     string `json:"creationTime"`
+	LastModifiedTime string `json:"lastModifiedTime,omitempty"`
+	JobArn           string `json:"jobArn"`
+	JobName          string `json:"jobName"`
+	JobStatus        string `json:"jobStatus"`
+}
+
+func advancedPromptOptimizationJobToSummaryOutput(
+	j *AdvancedPromptOptimizationJob,
+) advancedPromptOptimizationJobSummaryOutput {
+	out := advancedPromptOptimizationJobSummaryOutput{
+		JobArn:       j.JobArn,
+		JobName:      j.JobName,
+		JobStatus:    j.JobStatus,
+		CreationTime: j.CreationTime.Format(time.RFC3339),
+	}
+	if !j.LastModifiedTime.IsZero() {
+		out.LastModifiedTime = j.LastModifiedTime.Format(time.RFC3339)
+	}
+
+	return out
+}
+
 type listAdvancedPromptOptimizationJobsOutput struct {
-	NextToken    string                                `json:"nextToken,omitempty"`
-	JobSummaries []advancedPromptOptimizationJobOutput `json:"jobSummaries"`
+	NextToken    string                                       `json:"nextToken,omitempty"`
+	JobSummaries []advancedPromptOptimizationJobSummaryOutput `json:"jobSummaries"`
 }
 
 func parseListAdvancedPromptOptimizationJobsQuery(c *echo.Context) *ListAdvancedPromptOptimizationJobsInput {
@@ -165,9 +195,9 @@ func parseListAdvancedPromptOptimizationJobsQuery(c *echo.Context) *ListAdvanced
 func (h *Handler) handleListAdvancedPromptOptimizationJobs(c *echo.Context) error {
 	jobs, outToken := h.Backend.ListAdvancedPromptOptimizationJobs(parseListAdvancedPromptOptimizationJobsQuery(c))
 
-	summaries := make([]advancedPromptOptimizationJobOutput, 0, len(jobs))
+	summaries := make([]advancedPromptOptimizationJobSummaryOutput, 0, len(jobs))
 	for _, j := range jobs {
-		summaries = append(summaries, advancedPromptOptimizationJobToOutput(j))
+		summaries = append(summaries, advancedPromptOptimizationJobToSummaryOutput(j))
 	}
 
 	return c.JSON(http.StatusOK, listAdvancedPromptOptimizationJobsOutput{
