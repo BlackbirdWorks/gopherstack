@@ -22,15 +22,41 @@ type keyValuesPairInput struct {
 	Values []string `json:"values"`
 }
 
+// arrayPropertiesSummary mirrors aws-sdk-go-v2/service/batch/types.
+// ArrayPropertiesSummary. StatusSummaryLastUpdatedAt is unsourced -- the
+// Job model's ArrayProperties tracks no such timestamp (see PARITY.md).
+type arrayPropertiesSummary struct {
+	StatusSummary map[string]int32 `json:"statusSummary,omitempty"`
+	Size          int32            `json:"size,omitempty"`
+	Index         int32            `json:"index,omitempty"`
+}
+
 type jobSummary struct {
-	StartedAt    *int64 `json:"startedAt,omitempty"`
-	StoppedAt    *int64 `json:"stoppedAt,omitempty"`
-	JobID        string `json:"jobId"`
-	JobARN       string `json:"jobArn,omitempty"`
-	JobName      string `json:"jobName"`
-	Status       string `json:"status"`
-	StatusReason string `json:"statusReason,omitempty"`
-	CreatedAt    int64  `json:"createdAt"`
+	StartedAt       *int64                  `json:"startedAt,omitempty"`
+	StoppedAt       *int64                  `json:"stoppedAt,omitempty"`
+	ArrayProperties *arrayPropertiesSummary `json:"arrayProperties,omitempty"`
+	JobID           string                  `json:"jobId"`
+	JobARN          string                  `json:"jobArn,omitempty"`
+	JobName         string                  `json:"jobName"`
+	JobDefinition   string                  `json:"jobDefinition,omitempty"`
+	ShareIdentifier string                  `json:"shareIdentifier,omitempty"`
+	Status          string                  `json:"status"`
+	StatusReason    string                  `json:"statusReason,omitempty"`
+	CreatedAt       int64                   `json:"createdAt"`
+}
+
+// jobSummaryArrayProperties projects a Job's ArrayProperties onto the
+// narrower ArrayPropertiesSummary wire shape.
+func jobSummaryArrayProperties(j *Job) *arrayPropertiesSummary {
+	if j.ArrayProperties == nil {
+		return nil
+	}
+
+	return &arrayPropertiesSummary{
+		Index:         j.ArrayProperties.Index,
+		Size:          j.ArrayProperties.Size,
+		StatusSummary: j.ArrayProperties.StatusSummary,
+	}
 }
 
 type listJobsOutput struct {
@@ -82,14 +108,17 @@ func (h *Handler) handleListJobs(ctx context.Context, in *listJobsInput) (*listJ
 	summaries := make([]jobSummary, 0, len(jobs))
 	for _, j := range jobs {
 		summaries = append(summaries, jobSummary{
-			JobID:        j.JobID,
-			JobARN:       j.JobARN,
-			JobName:      j.JobName,
-			Status:       j.Status,
-			CreatedAt:    j.CreatedAt,
-			StartedAt:    j.StartedAt,
-			StoppedAt:    j.StoppedAt,
-			StatusReason: j.StatusReason,
+			JobID:           j.JobID,
+			JobARN:          j.JobARN,
+			JobName:         j.JobName,
+			JobDefinition:   j.JobDefinition,
+			ShareIdentifier: j.ShareIdentifier,
+			Status:          j.Status,
+			CreatedAt:       j.CreatedAt,
+			StartedAt:       j.StartedAt,
+			StoppedAt:       j.StoppedAt,
+			StatusReason:    j.StatusReason,
+			ArrayProperties: jobSummaryArrayProperties(j),
 		})
 	}
 
