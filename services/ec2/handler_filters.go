@@ -832,8 +832,13 @@ func parseEC2Filters(vals url.Values) map[string][]string {
 
 // applyInstanceFilters ANDs across filter names, ORs within each filter's values.
 // Supports instance-state-name, image-id, vpc-id, subnet-id, instance-type, key-name,
-// private-ip-address, ip-address, and tag:<key>.
-func applyInstanceFilters(instances []*Instance, filters map[string][]string, b Backend) []*Instance {
+// private-ip-address, ip-address, and tag:<key>. tagsByID is a pre-fetched
+// resourceID→tags snapshot (see Backend.TagsForResources) so filtering N
+// instances costs one backend lock instead of one TagsForResource call per
+// instance with a tag: filter.
+func applyInstanceFilters(
+	instances []*Instance, filters map[string][]string, tagsByID map[string]map[string]string,
+) []*Instance {
 	if len(filters) == 0 {
 		return instances
 	}
@@ -843,7 +848,7 @@ func applyInstanceFilters(instances []*Instance, filters map[string][]string, b 
 instanceLoop:
 	for _, inst := range instances {
 		for name, values := range filters {
-			if !instanceMatchesFilter(inst, name, values, b) {
+			if !instanceMatchesFilter(inst, name, values, tagsByID[inst.ID]) {
 				continue instanceLoop
 			}
 		}
@@ -855,9 +860,7 @@ instanceLoop:
 }
 
 // instanceMatchesFilter returns true if the instance matches any value in the filter.
-
-// instanceMatchesFilter returns true if the instance matches any value in the filter.
-func instanceMatchesFilter(inst *Instance, filterName string, values []string, b Backend) bool {
+func instanceMatchesFilter(inst *Instance, filterName string, values []string, tags map[string]string) bool {
 	switch filterName {
 	case "instance-state-name":
 		return anyEqual(inst.State.Name, values)
@@ -877,7 +880,6 @@ func instanceMatchesFilter(inst *Instance, filterName string, values []string, b
 		return anyEqual(inst.PublicIPAddress, values)
 	default:
 		if tagKey, ok := strings.CutPrefix(filterName, "tag:"); ok {
-			tags := b.TagsForResource(inst.ID)
 			tagVal, exists := tags[tagKey]
 
 			if !exists {

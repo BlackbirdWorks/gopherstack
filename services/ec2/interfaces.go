@@ -414,6 +414,11 @@ type Backend interface {
 	// resource. Returns an empty (non-nil) map when nothing is tagged.
 	TagsForResource(resourceID string) map[string]string
 
+	// TagsForResources returns a copy of the tags for each of resourceIDs
+	// under a single lock. Resources with no tags are omitted; a missing key
+	// means "no tags" (reading a nil map is safe).
+	TagsForResources(resourceIDs []string) map[string]map[string]string
+
 	// ---- accept / advertise / allocate operations ----
 
 	// AcceptAddressTransfer accepts a pending Elastic IP address transfer.

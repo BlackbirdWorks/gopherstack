@@ -1,7 +1,7 @@
 ---
 service: ec2
 sdk_module: aws-sdk-go-v2/service/ec2@v1.329.0   # version audited against (go.mod pin; previously recorded as "see go.mod", never a parseable pin)
-last_audit_commit: 49cff86c4
+last_audit_commit: 975764188
 last_audit_date: 2026-09-19
 overall: A   # unrecorded-Describe/List sweep, second pass (this pass, fix/wrapper-key-sweep
              # branch): regenerated the prior pass's "18 remaining" list from scratch --
@@ -528,6 +528,12 @@ leaks: {status: ok, note: FIXED the tag_cleanup class above (real, reachable lea
 ---
 
 ## Notes
+
+### 2026-09-19 perf: batched tag/security-group/IAM-profile lookups in DescribeInstances/RunInstances
+
+Replaced one backend lock per instance (TagsForResource, DescribeSecurityGroups,
+DescribeIamInstanceProfileAssociations) with one batched call per request; wire
+output unchanged (golden test `TestDescribeInstances_WireOutputUnchanged`).
 
 ### 2026-09-18 zeroguard: ModifyInstancePlacement omitted-member fix
 
