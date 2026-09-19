@@ -715,12 +715,13 @@ func (h *Handler) handleDeleteAction(ctx context.Context, body []byte) ([]byte, 
 }
 
 type actionSummary struct {
-	ActionName       string  `json:"ActionName"`
-	ActionArn        string  `json:"ActionArn"`
-	ActionType       string  `json:"ActionType"`
-	Status           string  `json:"Status,omitempty"`
-	CreationTime     float64 `json:"CreationTime"`
-	LastModifiedTime float64 `json:"LastModifiedTime"`
+	Source           ActionSource `json:"Source"`
+	ActionName       string       `json:"ActionName"`
+	ActionArn        string       `json:"ActionArn"`
+	ActionType       string       `json:"ActionType"`
+	Status           string       `json:"Status,omitempty"`
+	CreationTime     float64      `json:"CreationTime"`
+	LastModifiedTime float64      `json:"LastModifiedTime"`
 }
 
 // listActionsInput is the ListActions request shape (named, not inline —
@@ -765,6 +766,7 @@ func actionToSummary(a *Action) actionSummary {
 		Status:           a.Status,
 		CreationTime:     epochSeconds(a.CreationTime),
 		LastModifiedTime: epochSeconds(a.LastModifiedTime),
+		Source:           a.Source,
 	}
 }
 
@@ -804,6 +806,10 @@ func (h *Handler) handleDeleteAssociation(ctx context.Context, body []byte) ([]b
 	return json.Marshal(map[string]string{"SourceArn": req.SourceArn, "DestinationArn": req.DestinationArn})
 }
 
+// associationSummary mirrors types.AssociationSummary (types.go:157-188).
+// CreatedBy (types.UserContext) is not emitted: same class of gap as every
+// other CreatedBy/LastModifiedBy field in this service (no user-identity
+// concept modeled), and Association has no CreatedBy field to source it from.
 type associationSummary struct {
 	SourceArn       string  `json:"SourceArn"`
 	SourceType      string  `json:"SourceType,omitempty"`

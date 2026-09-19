@@ -175,13 +175,17 @@ func (h *Handler) handleStopTransformJob(ctx context.Context, body []byte) error
 	return nil
 }
 
+// transformJobSummary mirrors types.TransformJobSummary
+// (types.go:22320-22355) -- ModelName is NOT a member of the real summary
+// (it's a TransformJob-only field), so it isn't emitted here.
 type transformJobSummary struct {
 	TransformJobName   string  `json:"TransformJobName"`
 	TransformJobArn    string  `json:"TransformJobArn"`
 	TransformJobStatus string  `json:"TransformJobStatus"`
-	ModelName          string  `json:"ModelName"`
+	FailureReason      string  `json:"FailureReason,omitempty"`
 	CreationTime       float64 `json:"CreationTime"`
 	LastModifiedTime   float64 `json:"LastModifiedTime"`
+	TransformEndTime   float64 `json:"TransformEndTime,omitempty"`
 }
 
 type listTransformJobsRequest struct {
@@ -220,14 +224,19 @@ func (h *Handler) handleListTransformJobs(ctx context.Context, body []byte) ([]b
 	summaries := make([]transformJobSummary, 0, len(jobs))
 
 	for _, tj := range jobs {
-		summaries = append(summaries, transformJobSummary{
+		summary := transformJobSummary{
 			TransformJobName:   tj.TransformJobName,
 			TransformJobArn:    tj.TransformJobArn,
 			TransformJobStatus: tj.TransformJobStatus,
-			ModelName:          tj.ModelName,
+			FailureReason:      tj.FailureReason,
 			CreationTime:       epochSeconds(tj.CreationTime),
 			LastModifiedTime:   epochSeconds(tj.LastModifiedTime),
-		})
+		}
+		if tj.TransformEndTime != nil {
+			summary.TransformEndTime = epochSeconds(*tj.TransformEndTime)
+		}
+
+		summaries = append(summaries, summary)
 	}
 
 	resp := map[string]any{"TransformJobSummaries": summaries}

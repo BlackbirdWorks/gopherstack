@@ -296,12 +296,21 @@ func (h *Handler) handleListDevices(ctx context.Context, body []byte) ([]byte, e
 
 	items := make([]map[string]any, 0, len(devices))
 	for _, d := range devices {
-		items = append(items, map[string]any{
+		item := map[string]any{
 			keyDeviceName:      d.DeviceName,
 			keyDeviceFleetName: d.DeviceFleetName,
 			"DeviceArn":        d.DeviceArn,
 			"RegistrationTime": epochSeconds(d.RegistrationTime),
-		})
+		}
+		if d.Description != "" {
+			item["Description"] = d.Description
+		}
+
+		if d.IotThingName != "" {
+			item["IotThingName"] = d.IotThingName
+		}
+
+		items = append(items, item)
 	}
 
 	return listResp("DeviceSummaries", items, next)
