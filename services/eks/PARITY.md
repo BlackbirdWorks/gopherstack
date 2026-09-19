@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
-last_audit_commit: ed6ef1a53  # 2026-09-18 enumcheck census (no code changes; all 38 findings false positive)
-last_audit_date: 2026-09-19  # gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass) -- see Notes below
+last_audit_commit: 649ebb9aa
+last_audit_date: 2026-09-19  # route-audit not-found-code re-verification (see Notes below); gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass)
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -117,6 +117,11 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 ---
 
 ## Notes
+
+### 2026-09-19: route-audit not-found-code re-verification -- already correct
+
+Re-derived every op's declared not-found code from deserializers.go: only
+TagResource/UntagResource/ListTagsForResource model NotFoundException (handleTagError already emits it); all other 55 ops model ResourceNotFoundException (handleError already emits it). No mismatch found; added TestDescribeCluster_UnknownName_ResourceNotFoundException to error_sentinel_fixes_test.go to cover the untested representative of the larger family.
 
 ### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (amplify) -- false positive
 
