@@ -1,7 +1,7 @@
 ---
 service: backup
 sdk_module: aws-sdk-go-v2/service/backup@v1.64.0
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: ed6ef1a53
+last_audit_commit: 4a7682d1e  # 2026-09-19 required-output-members re-check (gopherstack-r80d); prior: d522d763f
 last_audit_date: 2026-09-19  # prior: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)
                       # 2026-09-19 (parity-sweep, notImplemented closure): implemented the 6 backup
@@ -208,6 +208,15 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-09-19 required-output-members re-check (gopherstack-r80d)
+
+Independently re-verified all 18 ops the census flags with >=1 required
+output member (54 fields) against handler success paths. All already fixed
+by prior batch-11/respsweep passes; the one remaining gap (ScanJobCreator's
+CreatedBy, no plan/rule lineage to source it from) is already recorded in
+items_still_open. No fixes needed this pass; no code changes to
+services/backup/.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

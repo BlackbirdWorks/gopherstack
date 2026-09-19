@@ -6,7 +6,7 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # of one entry per resource); policy simulation was already flagged as NOT
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
-last_audit_commit: a8b26ceaa
+last_audit_commit: 4a7682d1e
 last_audit_date: 2026-09-19
 overall: A   # parity-sweep (2026-09-19): implemented Role Manager (AcquireRole,
   # GetRoleTemplateVersion) and account properties (GetAccountProperties,
@@ -145,6 +145,14 @@ items_still_open:
 ---
 
 ## Notes
+- 2026-09-19 (required-output-members census, gopherstack-r80d): checked all
+  49 ops the census flags with >=1 SDK-required output member (63 fields
+  total) against handler success paths, wire-layer only (no check loosened).
+  All 63 already always populated: scalar IDs/ARNs from backend structs that
+  are never blank on the success path, and required lists (Tags/PolicyNames/
+  etc.) that marshal as an empty XML wrapper element even from a nil Go slice
+  (verified the `xml:"Tags>member"` wrapped-tag behavior directly). No fixes
+  needed; no code changes to services/iam/.
 - Sweep 14 (2026-09-11, gopherstack-n3zi): added typed real-SDK-client
   round-trip coverage for 74 previously-untyped-uncovered ops (see
   realclient_policies_credentials_and_organizations_test.go), grouped by family (inline policies,

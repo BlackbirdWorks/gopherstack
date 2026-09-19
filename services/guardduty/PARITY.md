@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: guardduty
 sdk_module: aws-sdk-go-v2/service/guardduty@v1.85.4
-last_audit_commit: 5ba338ed2
-last_audit_date: 2026-09-18
+last_audit_commit: 4a7682d1e
+last_audit_date: 2026-09-19
 overall: A            # 2026-09-08 (gopherstack-uu0n): DeleteMembers/DisassociateMembers/
                        # StopMonitoringMembers's autoEnableOrganizationMembers=ALL guard
                        # (gopherstack-krb1) rejected the whole call whenever the detector's org config was
@@ -274,6 +274,14 @@ leaks: {status: clean, note: "no goroutines, timers, or background janitors intr
 ---
 
 ## Notes
+
+### 2026-09-19 (required-output-members census, gopherstack-r80d)
+
+Checked all 44 ops the census flags with >=1 SDK-required output member
+(65 fields total) against their handler success paths. All 65 are already
+always populated (empty slices/maps via `orEmpty`/`orEmptyAny`/`tagsOrEmpty`
+where AWS allows empty, never a conditional/omitted required scalar). No
+fixes needed; no new gaps found. No code changes to services/guardduty/.
 
 ### 2026-09-18 (ledger burn-down)
 
