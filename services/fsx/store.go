@@ -1,6 +1,8 @@
 package fsx
 
 import (
+	"time"
+
 	"github.com/blackbirdworks/gopherstack/pkgs/lockmetrics"
 	"github.com/blackbirdworks/gopherstack/pkgs/store"
 )
@@ -59,6 +61,21 @@ const (
 	s3APTypeOpenZFS = "OPENZFS"
 
 	s3AccessPointAliasHexLen = 16
+
+	// DataRepositoryTaskLifecycle values (types/enums.go).
+	drtLifecycleExecuting = "EXECUTING"
+	drtLifecycleSucceeded = "SUCCEEDED"
+	drtLifecycleCanceling = "CANCELING"
+	drtLifecycleCanceled  = "CANCELED"
+
+	// dataRepositoryTaskCompletionDelay is the modeled duration a
+	// DataRepositoryTask spends EXECUTING before this backend settles it at
+	// SUCCEEDED. Real completion time depends on data volume/throughput
+	// this emulator has no engine to simulate; a short fixed delay reaches
+	// a terminal state deterministically instead of leaving the task
+	// EXECUTING forever, matching the lazy-sweep pattern already used by
+	// services/glue/reconciler.go and services/swf/timeout_sweep.go.
+	dataRepositoryTaskCompletionDelay = 2 * time.Second
 )
 
 // InMemoryBackend implements StorageBackend using in-memory maps.

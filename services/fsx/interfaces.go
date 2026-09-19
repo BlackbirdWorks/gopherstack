@@ -289,15 +289,27 @@ type CompletionReport struct {
 // CreationTime uses epochTime: the real FSx deserializer requires a JSON
 // number of epoch seconds here, not an RFC3339 string.
 type DataRepositoryTask struct {
-	CreationTime epochTime         `json:"CreationTime"`
-	Report       *CompletionReport `json:"Report,omitempty"`
-	TaskID       string            `json:"TaskId"`
-	FileSystemID string            `json:"FileSystemId"`
-	Type         string            `json:"Type"`
-	Lifecycle    string            `json:"Lifecycle"`
-	ResourceARN  string            `json:"ResourceARN"`
-	Paths        []string          `json:"Paths,omitempty"`
-	Tags         []Tag             `json:"Tags,omitempty"`
+	CreationTime epochTime                 `json:"CreationTime"`
+	EndTime      *epochTime                `json:"EndTime,omitempty"`
+	Report       *CompletionReport         `json:"Report,omitempty"`
+	Status       *DataRepositoryTaskStatus `json:"Status,omitempty"`
+	TaskID       string                    `json:"TaskId"`
+	FileSystemID string                    `json:"FileSystemId"`
+	Type         string                    `json:"Type"`
+	Lifecycle    string                    `json:"Lifecycle"`
+	ResourceARN  string                    `json:"ResourceARN"`
+	Paths        []string                  `json:"Paths,omitempty"`
+	Tags         []Tag                     `json:"Tags,omitempty"`
+}
+
+// DataRepositoryTaskStatus mirrors types.DataRepositoryTaskStatus
+// (types/types.go:2041). ReleasedCapacity (AUTO_RELEASE_DATA / File Cache
+// tasks only) is not modeled: this backend has no File Cache release engine.
+type DataRepositoryTaskStatus struct {
+	LastUpdatedTime epochTime `json:"LastUpdatedTime"`
+	TotalCount      int64     `json:"TotalCount"`
+	SucceededCount  int64     `json:"SucceededCount"`
+	FailedCount     int64     `json:"FailedCount"`
 }
 
 // FileCache represents an Amazon FSx file cache, in the shape used by

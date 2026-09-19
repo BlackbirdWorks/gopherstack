@@ -12333,6 +12333,8 @@
       "storedDataRepositoryAssoc.ResourceARN string `json:\"resourceArn\"`",
       "storedDataRepositoryAssoc.Tags map[string]string `json:\"tags\"`",
       "storedDataRepositoryTask.CreationTime time.Time `json:\"creationTime\"`",
+      "storedDataRepositoryTask.DeadlineAt time.Time `json:\"deadlineAt\"`",
+      "storedDataRepositoryTask.EndTime time.Time `json:\"endTime\"`",
       "storedDataRepositoryTask.FileSystemID string `json:\"fileSystemId\"`",
       "storedDataRepositoryTask.Lifecycle string `json:\"lifecycle\"`",
       "storedDataRepositoryTask.Paths []string `json:\"paths,omitempty\"`",

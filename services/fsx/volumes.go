@@ -290,7 +290,7 @@ func (b *InMemoryBackend) createOpenZFSRootVolumeLocked(fs *storedFileSystem) st
 // Real VolumeFilterName (aws-sdk-go-v2/service/fsx@v1.68.4 types/enums.go)
 // has 2 values: file-system-id, storage-virtual-machine-id -- both tracked
 // directly on storedVolume.
-func (b *InMemoryBackend) DescribeVolumes( //nolint:dupl // existing issue.
+func (b *InMemoryBackend) DescribeVolumes(
 	ids []string,
 	filters []wireFilter,
 	maxResults int32,
