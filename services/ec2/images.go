@@ -39,6 +39,13 @@ type AMIStub struct {
 	VirtualizationType string `json:"virtualizationType,omitempty"`
 }
 
+// InstanceTypeSpecification holds the instance type compatibility rules for an AMI
+// (ec2@v1.329.0 types.InstanceTypeSpecification), set via ReplaceImageInstanceTypeSpecification.
+type InstanceTypeSpecification struct {
+	SupportedInstanceTypes   []string
+	UnsupportedInstanceTypes []string
+}
+
 //nolint:gochecknoglobals // package-level stub data for describe operations
 var stubAMIs = []AMIStub{
 	{
@@ -234,6 +241,61 @@ func (b *InMemoryBackend) ModifyImageAttribute(imageID, attribute, value string)
 	b.imageAttributes[imageID][attribute] = value
 
 	return nil
+}
+
+// ReplaceImageInstanceTypeSpecification replaces (or, when both lists are empty, removes) the
+// instance type compatibility rules for an AMI this account owns. Real AWS restricts this to
+// the AMI owner (api_op_ReplaceImageInstanceTypeSpecification.go); this backend's only
+// non-owned images are the seeded public catalog (stubAMIs, OwnerID "amazon").
+func (b *InMemoryBackend) ReplaceImageInstanceTypeSpecification(
+	imageID string, supported, unsupported []string,
+) error {
+	if imageID == "" {
+		return fmt.Errorf("%w: ImageId is required", ErrInvalidParameter)
+	}
+
+	b.mu.Lock("ReplaceImageInstanceTypeSpecification")
+	defer b.mu.Unlock()
+
+	if _, ok := b.images.Get(imageID); !ok {
+		if b.lookupImageLocked(imageID) != nil {
+			return fmt.Errorf("%w: %s is not owned by this account", ErrImageNotOwner, imageID)
+		}
+
+		return fmt.Errorf("%w: %s", ErrImageNotFound, imageID)
+	}
+
+	if len(supported) == 0 && len(unsupported) == 0 {
+		delete(b.imageInstanceTypeSpecs, imageID)
+
+		return nil
+	}
+
+	b.imageInstanceTypeSpecs[imageID] = &InstanceTypeSpecification{
+		SupportedInstanceTypes:   append([]string(nil), supported...),
+		UnsupportedInstanceTypes: append([]string(nil), unsupported...),
+	}
+
+	return nil
+}
+
+// GetImageInstanceTypeSpecification returns the instance type compatibility rules previously
+// set by ReplaceImageInstanceTypeSpecification, or nil if none is set. Used by DescribeImages
+// to echo the instanceTypeSpecification wire field.
+func (b *InMemoryBackend) GetImageInstanceTypeSpecification(imageID string) *InstanceTypeSpecification {
+	b.mu.RLock("GetImageInstanceTypeSpecification")
+	defer b.mu.RUnlock()
+
+	spec, ok := b.imageInstanceTypeSpecs[imageID]
+	if !ok {
+		return nil
+	}
+
+	cp := *spec
+	cp.SupportedInstanceTypes = append([]string(nil), spec.SupportedInstanceTypes...)
+	cp.UnsupportedInstanceTypes = append([]string(nil), spec.UnsupportedInstanceTypes...)
+
+	return &cp
 }
 
 // GetImageAttribute returns a previously-set simple string AMI attribute

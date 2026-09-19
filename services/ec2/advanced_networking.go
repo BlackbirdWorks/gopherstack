@@ -2,6 +2,7 @@ package ec2
 
 import (
 	"errors"
+	"time"
 )
 
 // ---- Errors ----
@@ -32,6 +33,22 @@ var (
 	ErrIpamPoolCidrNotFound = errors.New("InvalidParameterValue")
 	// ErrIpamResourceDiscoveryNotFound is returned when an IPAM resource discovery ID does not exist.
 	ErrIpamResourceDiscoveryNotFound = errors.New("InvalidIpamResourceDiscoveryId.NotFound")
+	// ErrIpamInternetRegistryAssociationNotFound is returned when an IPAM internet registry
+	// association ID does not exist. Follows the "Invalid<Resource>Id.NotFound" naming this
+	// IPAM sub-API uses throughout (IpamPoolId, IpamScopeId, IpamResourceDiscoveryId, ...).
+	ErrIpamInternetRegistryAssociationNotFound = errors.New("InvalidIpamInternetRegistryAssociationId.NotFound")
+	// ErrIpamInternetRegistryAssociationState is returned when an internet registry
+	// association is not in the state a requested transition requires (e.g. Enable called on
+	// an association that isn't pending-enable).
+	ErrIpamInternetRegistryAssociationState = errors.New("IncorrectState")
+	// ErrIpamRoutingPolicyRegistrationNotFound is returned when no routing policy registration
+	// exists for the given (association, CIDR) pair. No dedicated typed exception is
+	// confirmed for this composite-key lookup (mirrors ErrIpamPoolCidrNotFound's reasoning),
+	// so this maps to the generic InvalidParameterValue code.
+	ErrIpamRoutingPolicyRegistrationNotFound = errors.New("InvalidParameterValue")
+	// ErrIpamRoutingPolicyRegistrationExists is returned by CreateIpamRoutingPolicyRegistration
+	// when a registration already exists for the given (association, CIDR) pair.
+	ErrIpamRoutingPolicyRegistrationExists = errors.New("IncorrectState")
 )
 
 // ---- Constants ----
@@ -92,7 +109,42 @@ const (
 
 	// ipamResourceDiscoveryAssocStatus is the steady-state ResourceDiscoveryAssociationStatus.
 	ipamResourceDiscoveryAssocStatus = "active"
+
+	// IPAM internet registry association lifecycle states
+	// (ec2@v1.329.0 types/enums.go IpamInternetRegistryAssociationState). This mock completes
+	// synchronously: Create lands directly on pending-enable (the real steady state while
+	// awaiting BPKI setup, not a transient create-in-progress), Enable completes immediately.
+	ipamIRAStatePendingEnable  = "pending-enable"
+	ipamIRAStateEnableComplete = "enable-complete"
+	ipamIRAStateDeleteComplete = "delete-complete"
+
+	// Regional Internet Registry values (ec2@v1.329.0 types/enums.go Rir). AFRINIC is not a
+	// member of this SDK's Rir enum -- only these four are real, valid values.
+	rirRipe   = "ripe"
+	rirApnic  = "apnic"
+	rirArin   = "arin"
+	rirLacnic = "lacnic"
+
+	// IPAM routing policy registration lifecycle states
+	// (ec2@v1.329.0 types/enums.go IpamRoutingPolicyRegistrationState).
+	ipamRoutingPolicyStateCreateComplete = "create-complete"
+	ipamRoutingPolicyStateUpdateComplete = "update-complete"
+
+	// IPAM routing policy registration delta state
+	// (ec2@v1.329.0 types/enums.go IpamRoutingPolicyRegistrationDeltaState). Deltas from this
+	// synchronous mock always land directly on "published".
+	ipamRoutingPolicyDeltaStatePublished = "published"
 )
+
+// ipamValidRirs is the set of real Rir enum values (ec2@v1.329.0 types/enums.go).
+//
+//nolint:gochecknoglobals // small immutable lookup set
+var ipamValidRirs = map[string]bool{
+	rirRipe:   true,
+	rirApnic:  true,
+	rirArin:   true,
+	rirLacnic: true,
+}
 
 // ---- Data types ----
 
@@ -345,6 +397,77 @@ type IpamResourceDiscoveryAssociation struct {
 	ResourceDiscoveryStatus             string `json:"resourceDiscoveryStatus,omitempty"`
 	State                               string `json:"state,omitempty"`
 	IsDefault                           bool   `json:"isDefault,omitempty"`
+}
+
+// IpamInternetRegistryAssociation represents an association between an IPAM and a Regional
+// Internet Registry (RIR) for RPKI/ROA management
+// (ec2@v1.329.0 types.IpamInternetRegistryAssociation).
+type IpamInternetRegistryAssociation struct {
+	IpamInternetRegistryAssociationID  string `json:"ipamInternetRegistryAssociationId,omitempty"`
+	IpamInternetRegistryAssociationARN string `json:"ipamInternetRegistryAssociationArn,omitempty"`
+	IpamID                             string `json:"ipamId,omitempty"`
+	IpamRegion                         string `json:"ipamRegion,omitempty"`
+	OrganizationHandle                 string `json:"organizationHandle,omitempty"`
+	Rir                                string `json:"rir,omitempty"`
+	Description                        string `json:"description,omitempty"`
+	OwnerID                            string `json:"ownerId,omitempty"`
+	State                              string `json:"state,omitempty"`
+	StateMessage                       string `json:"stateMessage,omitempty"`
+	ChildRequestXML                    string `json:"childRequestXml,omitempty"`
+}
+
+// IpamInternetRegistryAssociationAsn represents an ASN observed as registered at the internet
+// registry for an association (ec2@v1.329.0 types.IpamInternetRegistryAssociationAsn). Built
+// on the fly from the association's routing policy registrations -- never fabricated.
+type IpamInternetRegistryAssociationAsn struct {
+	LastObservedAt time.Time
+	Asn            string
+}
+
+// IpamInternetRegistryAssociationCidr represents a CIDR observed as registered at the internet
+// registry for an association (ec2@v1.329.0 types.IpamInternetRegistryAssociationCidr). Built
+// on the fly from the association's routing policy registrations -- never fabricated.
+type IpamInternetRegistryAssociationCidr struct {
+	LastObservedAt time.Time
+	Cidr           string
+}
+
+// IpamRoutingPolicyRegistration represents a Route Origin Authorization (ROA) managed through
+// IPAM for a CIDR prefix (ec2@v1.329.0 types.IpamRoutingPolicyRegistration). Registrations are
+// identified by the (IpamInternetRegistryAssociationID, Cidr) pair, not a standalone ID -- the
+// real CreateIpamRoutingPolicyRegistrationInput/DeleteIpamRoutingPolicyRegistrationInput/
+// ModifyIpamRoutingPolicyRegistrationInput all key off that pair.
+type IpamRoutingPolicyRegistration struct {
+	IpamInternetRegistryAssociationID string   `json:"ipamInternetRegistryAssociationId,omitempty"`
+	Cidr                              string   `json:"cidr,omitempty"`
+	Description                       string   `json:"description,omitempty"`
+	State                             string   `json:"state,omitempty"`
+	LatestDeltaID                     string   `json:"latestDeltaId,omitempty"`
+	Asns                              []string `json:"asns,omitempty"`
+	MaxLength                         int32    `json:"maxLength,omitempty"`
+	PermitMoreSpecificAnnouncements   bool     `json:"permitMoreSpecificAnnouncements,omitempty"`
+}
+
+// IpamRoutingPolicyRegistrationDelta represents a routing policy registration change
+// (ec2@v1.329.0 types.IpamRoutingPolicyRegistrationDelta), returned by every mutating routing
+// policy registration op and retrievable in bulk via GetIpamRoutingPolicyRegistrationDeltas.
+type IpamRoutingPolicyRegistrationDelta struct {
+	CreatedAt                         time.Time `json:"createdAt,omitzero"`
+	DeltaID                           string    `json:"deltaId,omitempty"`
+	IpamInternetRegistryAssociationID string    `json:"ipamInternetRegistryAssociationId,omitempty"`
+	DeltaJSON                         string    `json:"deltaJson,omitempty"`
+	State                             string    `json:"state,omitempty"`
+	StateMessage                      string    `json:"stateMessage,omitempty"`
+}
+
+// IpamRouteOriginAuthorization represents a Route Origin Authorization currently considered
+// published to the RPKI for an association (ec2@v1.329.0 types.IpamRouteOriginAuthorizationInfo).
+// Derived from the association's active (create-complete/update-complete) routing policy
+// registrations -- never fabricated.
+type IpamRouteOriginAuthorization struct {
+	Asn       string
+	Cidr      string
+	MaxLength int32
 }
 
 // ---- Reset helpers ----

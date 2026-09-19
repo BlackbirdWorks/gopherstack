@@ -315,72 +315,75 @@ type InMemoryBackend struct {
 	// Outposts backend on demand -- see cross_service.go's SetAppConfig doc
 	// comment for why this must be lazy rather than resolved at
 	// construction time.
-	appConfig                      any
-	addressTransfers               map[string]*AddressTransfer
-	capacityReservations           *store.Table[CapacityReservation]
-	vpcs                           *store.Table[VPC]
-	subnets                        *store.Table[Subnet]
-	keyPairs                       *store.Table[KeyPair]
-	reservedInstancesExchanges     *store.Table[ReservedInstancesExchange]
-	addresses                      *store.Table[Address]
-	internetGateways               *store.Table[InternetGateway]
-	natGateways                    *store.Table[NatGateway]
-	routeTables                    *store.Table[RouteTable]
-	placementGroups                *store.Table[PlacementGroup]
-	spotRequests                   *store.Table[SpotInstanceRequest]
-	instances                      *store.Table[Instance]
-	images                         *store.Table[AMIStub]
-	launchTemplates                *store.Table[LaunchTemplate]
-	vpcEndpoints                   *store.Table[VpcEndpoint]
-	tags                           map[string]map[string]string
-	securityGroups                 *store.Table[SecurityGroup]
-	networkInterfaces              *store.Table[NetworkInterface]
-	volumes                        *store.Table[Volume]
-	tgwMulticastDomainAssociations *store.Table[TransitGatewayMulticastDomainAssociation]
-	tgwPeeringAttachments          *store.Table[TransitGatewayPeeringAttachment]
-	tgwVpcAttachments              *store.Table[TransitGatewayVpcAttachment]
-	vpcEndpointConnections         *store.Table[VpcEndpointConnection]
-	vpcPeeringConnections          *store.Table[VpcPeeringConnection]
-	byoipCidrs                     *store.Table[ByoipCidr]
-	dedicatedHosts                 *store.Table[Host]
-	snapshots                      *store.Table[Snapshot]
-	networkACLs                    *store.Table[StoredNetworkACL]
-	transitGateways                *store.Table[TransitGateway]
-	flowLogs                       *store.Table[FlowLog]
-	dhcpOptionSets                 *store.Table[DhcpOptions]
-	egressOnlyIGWs                 *store.Table[EgressOnlyInternetGateway]
-	iamAssociations                *store.Table[IamInstanceProfileAssociation]
-	tgwRouteTables                 *store.Table[TransitGatewayRouteTable]
-	tgwRoutes                      *store.Table[TransitGatewayRoute]
-	tgwRTAssociations              *store.Table[TransitGatewayRouteTableAssociation]
-	tgwPolicyTables                *store.Table[TransitGatewayPolicyTable]
-	tgwPolicyTableAssociations     *store.Table[TransitGatewayPolicyTableAssociation]
-	tgwPolicyTableEntries          *store.Table[TransitGatewayPolicyTableEntry]
-	tgwRouteTableAnnouncements     *store.Table[TransitGatewayRouteTableAnnouncement]
-	vpcCidrAssociations            map[string]*VpcCidrBlockAssociation
-	vpnGateways                    *store.Table[VpnGateway]
-	customerGateways               *store.Table[CustomerGateway]
-	vpnConnections                 *store.Table[VpnConnection]
-	vpcEndpointServiceConfigs      *store.Table[VpcEndpointServiceConfig]
-	ipams                          *store.Table[Ipam]
-	ipamScopes                     *store.Table[IpamScope]
-	ipamPools                      *store.Table[IpamPool]
-	ipamPoolCidrs                  map[string][]*IpamPoolCidr
-	ipamPoolAllocations            *store.Table[IpamPoolAllocation]
-	ipamResourceDiscoveries        *store.Table[IpamResourceDiscovery]
-	ipamResourceDiscoveryAssocs    *store.Table[IpamResourceDiscoveryAssociation]
-	ipamByoasns                    *store.Table[IpamByoasn]
-	ipamAsnAssociations            *store.Table[IpamAsnAssociation]
-	ipamVerificationTokens         *store.Table[IpamExternalResourceVerificationToken]
-	ipamResourceCidrs              *store.Table[IpamResourceCidr]
-	ipamPrefixListResolvers        *store.Table[IpamPrefixListResolver]
-	ipamPrefixListResolverVersions map[string][]int64
-	ipamPrefixListResolverTargets  *store.Table[IpamPrefixListResolverTarget]
-	ipamPolicies                   *store.Table[IpamPolicy]
-	ipamPolicyEnabledTargets       map[string]string
-	ipamOrgAdminAccountID          string
-	spotFleets                     *store.Table[SpotFleetRequest]
-	spotFleetHistory               map[string][]SpotFleetHistoryRecord
+	appConfig                           any
+	addressTransfers                    map[string]*AddressTransfer
+	capacityReservations                *store.Table[CapacityReservation]
+	vpcs                                *store.Table[VPC]
+	subnets                             *store.Table[Subnet]
+	keyPairs                            *store.Table[KeyPair]
+	reservedInstancesExchanges          *store.Table[ReservedInstancesExchange]
+	addresses                           *store.Table[Address]
+	internetGateways                    *store.Table[InternetGateway]
+	natGateways                         *store.Table[NatGateway]
+	routeTables                         *store.Table[RouteTable]
+	placementGroups                     *store.Table[PlacementGroup]
+	spotRequests                        *store.Table[SpotInstanceRequest]
+	instances                           *store.Table[Instance]
+	images                              *store.Table[AMIStub]
+	launchTemplates                     *store.Table[LaunchTemplate]
+	vpcEndpoints                        *store.Table[VpcEndpoint]
+	tags                                map[string]map[string]string
+	securityGroups                      *store.Table[SecurityGroup]
+	networkInterfaces                   *store.Table[NetworkInterface]
+	volumes                             *store.Table[Volume]
+	tgwMulticastDomainAssociations      *store.Table[TransitGatewayMulticastDomainAssociation]
+	tgwPeeringAttachments               *store.Table[TransitGatewayPeeringAttachment]
+	tgwVpcAttachments                   *store.Table[TransitGatewayVpcAttachment]
+	vpcEndpointConnections              *store.Table[VpcEndpointConnection]
+	vpcPeeringConnections               *store.Table[VpcPeeringConnection]
+	byoipCidrs                          *store.Table[ByoipCidr]
+	dedicatedHosts                      *store.Table[Host]
+	snapshots                           *store.Table[Snapshot]
+	networkACLs                         *store.Table[StoredNetworkACL]
+	transitGateways                     *store.Table[TransitGateway]
+	flowLogs                            *store.Table[FlowLog]
+	dhcpOptionSets                      *store.Table[DhcpOptions]
+	egressOnlyIGWs                      *store.Table[EgressOnlyInternetGateway]
+	iamAssociations                     *store.Table[IamInstanceProfileAssociation]
+	tgwRouteTables                      *store.Table[TransitGatewayRouteTable]
+	tgwRoutes                           *store.Table[TransitGatewayRoute]
+	tgwRTAssociations                   *store.Table[TransitGatewayRouteTableAssociation]
+	tgwPolicyTables                     *store.Table[TransitGatewayPolicyTable]
+	tgwPolicyTableAssociations          *store.Table[TransitGatewayPolicyTableAssociation]
+	tgwPolicyTableEntries               *store.Table[TransitGatewayPolicyTableEntry]
+	tgwRouteTableAnnouncements          *store.Table[TransitGatewayRouteTableAnnouncement]
+	vpcCidrAssociations                 map[string]*VpcCidrBlockAssociation
+	vpnGateways                         *store.Table[VpnGateway]
+	customerGateways                    *store.Table[CustomerGateway]
+	vpnConnections                      *store.Table[VpnConnection]
+	vpcEndpointServiceConfigs           *store.Table[VpcEndpointServiceConfig]
+	ipams                               *store.Table[Ipam]
+	ipamScopes                          *store.Table[IpamScope]
+	ipamPools                           *store.Table[IpamPool]
+	ipamPoolCidrs                       map[string][]*IpamPoolCidr
+	ipamInternetRegistryAssociations    *store.Table[IpamInternetRegistryAssociation]
+	ipamRoutingPolicyRegistrations      *store.Table[IpamRoutingPolicyRegistration]
+	ipamRoutingPolicyRegistrationDeltas *store.Table[IpamRoutingPolicyRegistrationDelta]
+	ipamPoolAllocations                 *store.Table[IpamPoolAllocation]
+	ipamResourceDiscoveries             *store.Table[IpamResourceDiscovery]
+	ipamResourceDiscoveryAssocs         *store.Table[IpamResourceDiscoveryAssociation]
+	ipamByoasns                         *store.Table[IpamByoasn]
+	ipamAsnAssociations                 *store.Table[IpamAsnAssociation]
+	ipamVerificationTokens              *store.Table[IpamExternalResourceVerificationToken]
+	ipamResourceCidrs                   *store.Table[IpamResourceCidr]
+	ipamPrefixListResolvers             *store.Table[IpamPrefixListResolver]
+	ipamPrefixListResolverVersions      map[string][]int64
+	ipamPrefixListResolverTargets       *store.Table[IpamPrefixListResolverTarget]
+	ipamPolicies                        *store.Table[IpamPolicy]
+	ipamPolicyEnabledTargets            map[string]string
+	ipamOrgAdminAccountID               string
+	spotFleets                          *store.Table[SpotFleetRequest]
+	spotFleetHistory                    map[string][]SpotFleetHistoryRecord
 	// batch1 additions
 	volumeModifications      *store.Table[VolumeModification]
 	snapshotTiers            map[string]string
@@ -406,6 +409,7 @@ type InMemoryBackend struct {
 	imageDeprecated               map[string]string
 	imageDeregistrationProtection map[string]bool
 	imageAttributes               map[string]map[string]string
+	imageInstanceTypeSpecs        map[string]*InstanceTypeSpecification
 	vgwRoutePropagation           map[string]bool
 	// batch4 additions
 	managedPrefixLists           *store.Table[ManagedPrefixList]
@@ -637,6 +641,7 @@ func initCoreExtraMaps(b *InMemoryBackend) {
 	b.imageDeprecated = make(map[string]string)
 	b.imageDeregistrationProtection = make(map[string]bool)
 	b.imageAttributes = make(map[string]map[string]string)
+	b.imageInstanceTypeSpecs = make(map[string]*InstanceTypeSpecification)
 	b.vgwRoutePropagation = make(map[string]bool)
 }
 

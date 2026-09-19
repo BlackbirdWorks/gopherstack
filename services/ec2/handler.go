@@ -858,6 +858,11 @@ var errCodeLookup = []struct {
 	{ErrTGWMulticastDomainNotFound, "InvalidTransitGatewayMulticastDomainId.NotFound"},
 	{ErrTransitGatewayConnectNotFound, errCodeInvalidTGWAttachmentIDNotFound},
 	{ErrTransitGatewayConnectPeerNotFound, "InvalidTransitGatewayConnectPeerId.NotFound"},
+	{ErrIpamInternetRegistryAssociationNotFound, "InvalidIpamInternetRegistryAssociationId.NotFound"},
+	{ErrIpamInternetRegistryAssociationState, errCodeIncorrectState},
+	{ErrIpamRoutingPolicyRegistrationNotFound, errCodeInvalidParameterValue},
+	{ErrIpamRoutingPolicyRegistrationExists, errCodeIncorrectState},
+	{ErrImageNotOwner, errCodeInvalidParameterValue},
 }
 
 // opErrCode resolves an error to its EC2 API error code and HTTP status code.

@@ -74,6 +74,23 @@ func registerAdvancedNetworkingOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["GetIpamDiscoveredAccounts"] = h.handleGetIpamDiscoveredAccounts
 	ops["GetIpamDiscoveredResourceCidrs"] = h.handleGetIpamDiscoveredResourceCidrs
 	ops["GetIpamDiscoveredPublicAddresses"] = h.handleGetIpamDiscoveredPublicAddresses
+
+	// IPAM internet registry associations / routing policy registrations
+	ops["CreateIpamInternetRegistryAssociation"] = h.handleCreateIpamInternetRegistryAssociation
+	ops["DescribeIpamInternetRegistryAssociations"] = h.handleDescribeIpamInternetRegistryAssociations
+	ops["EnableIpamInternetRegistryAssociation"] = h.handleEnableIpamInternetRegistryAssociation
+	ops["DeleteIpamInternetRegistryAssociation"] = h.handleDeleteIpamInternetRegistryAssociation
+	ops["GetIpamInternetRegistryAssociationAsns"] = h.handleGetIpamInternetRegistryAssociationAsns
+	ops["GetIpamInternetRegistryAssociationCidrs"] = h.handleGetIpamInternetRegistryAssociationCidrs
+	ops["CreateIpamRoutingPolicyRegistration"] = h.handleCreateIpamRoutingPolicyRegistration
+	ops["ModifyIpamRoutingPolicyRegistration"] = h.handleModifyIpamRoutingPolicyRegistration
+	ops["DeleteIpamRoutingPolicyRegistration"] = h.handleDeleteIpamRoutingPolicyRegistration
+	ops["BatchModifyIpamRoutingPolicyRegistrations"] = h.handleBatchModifyIpamRoutingPolicyRegistrations
+	ops["GetIpamRoutingPolicyRegistrations"] = h.handleGetIpamRoutingPolicyRegistrations
+	ops["GetIpamRoutingPolicyRegistrationDeltas"] = h.handleGetIpamRoutingPolicyRegistrationDeltas
+	ops["GetIpamRouteOriginAuthorizations"] = h.handleGetIpamRouteOriginAuthorizations
+	ops["GetIpamDiscoveredRoutes"] = h.handleGetIpamDiscoveredRoutes
+	ops["GetIpamRouteProtectionFindings"] = h.handleGetIpamRouteProtectionFindings
 }
 
 func advancedNetworkingSupportedOperations() []string {
@@ -127,6 +144,21 @@ func advancedNetworkingSupportedOperations() []string {
 		"GetIpamDiscoveredAccounts",
 		"GetIpamDiscoveredResourceCidrs",
 		"GetIpamDiscoveredPublicAddresses",
+		"CreateIpamInternetRegistryAssociation",
+		"DescribeIpamInternetRegistryAssociations",
+		"EnableIpamInternetRegistryAssociation",
+		"DeleteIpamInternetRegistryAssociation",
+		"GetIpamInternetRegistryAssociationAsns",
+		"GetIpamInternetRegistryAssociationCidrs",
+		"CreateIpamRoutingPolicyRegistration",
+		"ModifyIpamRoutingPolicyRegistration",
+		"DeleteIpamRoutingPolicyRegistration",
+		"BatchModifyIpamRoutingPolicyRegistrations",
+		"GetIpamRoutingPolicyRegistrations",
+		"GetIpamRoutingPolicyRegistrationDeltas",
+		"GetIpamRouteOriginAuthorizations",
+		"GetIpamDiscoveredRoutes",
+		"GetIpamRouteProtectionFindings",
 	}
 }
 

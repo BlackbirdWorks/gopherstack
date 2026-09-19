@@ -46,6 +46,7 @@ type backendSnapshot struct {
 	SgVpcAssociations              map[string]map[string]string                `json:"sgVpcAssociations"`
 	ImageDeregistrationProtection  map[string]bool                             `json:"imageDeregProtect"`
 	ImageAttributes                map[string]map[string]string                `json:"imageAttributes"`
+	ImageInstanceTypeSpecs         map[string]*InstanceTypeSpecification       `json:"imageInstanceTypeSpecs,omitempty"`
 	VgwRoutePropagation            map[string]bool                             `json:"vgwRoutePropagation"`
 	TgwRTPropagations              map[string]map[string]*snapTGWRTProp        `json:"tgwRTPropagations,omitempty"`
 	FastLaunchImages               map[string]*FastLaunchImageItem             `json:"fastLaunchImages"`
@@ -133,6 +134,7 @@ func (b *InMemoryBackend) Snapshot(ctx context.Context) []byte {
 		ImageDeprecated:                b.imageDeprecated,
 		ImageDeregistrationProtection:  b.imageDeregistrationProtection,
 		ImageAttributes:                b.imageAttributes,
+		ImageInstanceTypeSpecs:         b.imageInstanceTypeSpecs,
 		VgwRoutePropagation:            b.vgwRoutePropagation,
 		FastLaunchImages:               b.fastLaunchImages,
 		FastSnapshotRestores:           b.fastSnapshotRestores,
@@ -254,6 +256,7 @@ func (b *InMemoryBackend) restoreMiscMapFields(snap *backendSnapshot) {
 	restoreMapField(&b.imageDeprecated, snap.ImageDeprecated)
 	restoreMapField(&b.imageDeregistrationProtection, snap.ImageDeregistrationProtection)
 	restoreMapField(&b.imageAttributes, snap.ImageAttributes)
+	restoreMapField(&b.imageInstanceTypeSpecs, snap.ImageInstanceTypeSpecs)
 	restoreMapField(&b.vgwRoutePropagation, snap.VgwRoutePropagation)
 	restoreMapField(&b.verifiedAccessEndpointPolicies, snap.VerifiedAccessEndpointPolicies)
 	restoreMapField(&b.verifiedAccessGroupPolicies, snap.VerifiedAccessGroupPolicies)
@@ -420,6 +423,7 @@ func (s *backendSnapshot) initImageAndPoolMaps() {
 	initMapIfNil(&s.UsageReportEntries)
 	initMapIfNil(&s.InstanceProductCodes)
 	initMapIfNil(&s.EnclaveCertIamRoles)
+	initMapIfNil(&s.ImageInstanceTypeSpecs)
 	initMapIfNil(&s.AvailabilityZoneGroupOptIns)
 	initMapIfNil(&s.SQLHaHistory)
 

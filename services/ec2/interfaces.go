@@ -78,6 +78,10 @@ type Backend interface {
 	// DeleteSecurityGroup removes a security group by ID.
 	DeleteSecurityGroup(id string) error
 
+	// ValidateSecurityGroupQuotasForInterface checks whether the given security groups can be
+	// associated with a single network interface without exceeding per-interface quotas.
+	ValidateSecurityGroupQuotasForInterface(groupIDs []string) error
+
 	// AuthorizeSecurityGroupIngress appends ingress rules to a security group.
 	AuthorizeSecurityGroupIngress(groupID string, rules []SecurityGroupRule) error
 
@@ -1160,6 +1164,72 @@ type Backend interface {
 	// MoveByoipCidrToIpam associates an existing BYOIP CIDR with an IPAM pool.
 	MoveByoipCidrToIpam(cidr, poolID, poolOwner string) (*ByoipCidr, error)
 
+	// ---- IPAM internet registry / routing policy ----
+
+	// CreateIpamInternetRegistryAssociation creates an association between an IPAM and an RIR.
+	CreateIpamInternetRegistryAssociation(
+		ipamID, organizationHandle, rir, description string,
+	) (*IpamInternetRegistryAssociation, error)
+
+	// DescribeIpamInternetRegistryAssociations returns internet registry associations,
+	// optionally filtered by ID and/or generic filters.
+	DescribeIpamInternetRegistryAssociations(
+		ids []string, filters map[string][]string,
+	) []*IpamInternetRegistryAssociation
+
+	// EnableIpamInternetRegistryAssociation completes BPKI setup for a pending association.
+	EnableIpamInternetRegistryAssociation(
+		id, childHandle, parentBpkiTa, parentHandle, rpkiVersion, serviceURI string,
+	) (*IpamInternetRegistryAssociation, error)
+
+	// DeleteIpamInternetRegistryAssociation removes an internet registry association.
+	DeleteIpamInternetRegistryAssociation(id string) (*IpamInternetRegistryAssociation, error)
+
+	// GetIpamInternetRegistryAssociationAsns returns ASNs registered via an association.
+	GetIpamInternetRegistryAssociationAsns(id string) ([]*IpamInternetRegistryAssociationAsn, error)
+
+	// GetIpamInternetRegistryAssociationCidrs returns CIDRs registered via an association.
+	GetIpamInternetRegistryAssociationCidrs(id string) ([]*IpamInternetRegistryAssociationCidr, error)
+
+	// CreateIpamRoutingPolicyRegistration creates a routing policy registration (ROA) for a CIDR.
+	CreateIpamRoutingPolicyRegistration(
+		assocID, cidr string, asns []string, description string, maxLength int32, permitMoreSpecific, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// ModifyIpamRoutingPolicyRegistration updates an existing routing policy registration.
+	ModifyIpamRoutingPolicyRegistration(
+		assocID, cidr string, asns []string, description string, maxLength int32, permitMoreSpecific, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// DeleteIpamRoutingPolicyRegistration removes a routing policy registration.
+	DeleteIpamRoutingPolicyRegistration(assocID, cidr string, force bool) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// BatchModifyIpamRoutingPolicyRegistrations applies a batch of routing policy registration
+	// changes described by deltaJSON.
+	BatchModifyIpamRoutingPolicyRegistrations(
+		assocID, deltaJSON string, force bool,
+	) (*IpamRoutingPolicyRegistrationDelta, error)
+
+	// GetIpamRoutingPolicyRegistrations returns routing policy registrations for an
+	// association, optionally filtered to a single CIDR.
+	GetIpamRoutingPolicyRegistrations(assocID, cidr string) ([]*IpamRoutingPolicyRegistration, error)
+
+	// GetIpamRoutingPolicyRegistrationDeltas returns the change history for an association.
+	GetIpamRoutingPolicyRegistrationDeltas(
+		assocID, deltaID, chronologicalOrder string, startTime, endTime *time.Time,
+	) ([]*IpamRoutingPolicyRegistrationDelta, error)
+
+	// GetIpamRouteOriginAuthorizations returns the ROAs currently published for an association.
+	GetIpamRouteOriginAuthorizations(assocID, cidr string) ([]*IpamRouteOriginAuthorization, error)
+
+	// GetIpamDiscoveredRoutes validates the resource discovery ID; this backend does not model
+	// BGP route discovery, so the caller always gets an empty (correctly-shaped) result.
+	GetIpamDiscoveredRoutes(resourceDiscoveryID string) error
+
+	// GetIpamRouteProtectionFindings validates the IPAM ID; this backend does not model RPKI
+	// route validation, so the caller always gets an empty (correctly-shaped) result.
+	GetIpamRouteProtectionFindings(ipamID string) error
+
 	// ---- spot fleet ----
 
 	// RequestSpotFleet creates a new Spot Fleet request and fulfills it.
@@ -2120,6 +2190,8 @@ type Backend interface {
 	CancelImageLaunchPermission(imageID string) error
 	DescribeImageReferences(imageIDs []string) []*ImageReferenceEntry
 	GetImageAncestry(imageID string) ([]*ImageAncestryEntry, error)
+	ReplaceImageInstanceTypeSpecification(imageID string, supported, unsupported []string) error
+	GetImageInstanceTypeSpecification(imageID string) *InstanceTypeSpecification
 	GetFlowLogsIntegrationTemplate(
 		flowLogID, s3DestinationArn, athenaResultS3DestinationArn, partitionLoadFrequency string,
 	) (string, error)

@@ -742,3 +742,64 @@ func (b *InMemoryBackend) DeleteSecurityGroup(id string) error {
 
 	return nil
 }
+
+// maxSecurityGroupsPerNetworkInterface and maxRulesPerSecurityGroupPerInterface are AWS's
+// default VPC quotas (docs.aws.amazon.com/vpc/latest/userguide/amazon-vpc-limits.html#vpc-limits-security-groups):
+// up to 5 security groups per network interface, and the sum of inbound + outbound rules
+// across all of them capped at 60.
+const (
+	maxSecurityGroupsPerNetworkInterface = 5
+	maxRulesPerSecurityGroupPerInterface = 60
+)
+
+// ValidateSecurityGroupQuotasForInterface checks whether the given security groups can be
+// associated with a single network interface without exceeding the per-interface quotas
+// (api_op_ValidateSecurityGroupQuotasForInterface.go). Returns nil if they fit; otherwise the
+// specific quota violation, mapped to the generic InvalidParameterValue code -- no dedicated
+// typed exception for either quota is confirmed in the pinned SDK.
+func (b *InMemoryBackend) ValidateSecurityGroupQuotasForInterface(groupIDs []string) error {
+	if len(groupIDs) == 0 {
+		return fmt.Errorf("%w: SecurityGroupId is required", ErrInvalidParameter)
+	}
+
+	seen := make(map[string]bool, len(groupIDs))
+	for _, id := range groupIDs {
+		if seen[id] {
+			return fmt.Errorf("%w: duplicate security group id %s", ErrInvalidParameter, id)
+		}
+
+		seen[id] = true
+	}
+
+	if len(groupIDs) > maxSecurityGroupsPerNetworkInterface {
+		return fmt.Errorf(
+			"%w: cannot associate more than %d security groups with a single network interface",
+			ErrInvalidParameter, maxSecurityGroupsPerNetworkInterface,
+		)
+	}
+
+	b.mu.RLock("ValidateSecurityGroupQuotasForInterface")
+	defer b.mu.RUnlock()
+
+	totalRules := 0
+
+	for _, id := range groupIDs {
+		sg, ok := b.securityGroups.Get(id)
+		if !ok {
+			return fmt.Errorf("%w: %s", ErrSecurityGroupNotFound, id)
+		}
+
+		totalRules += len(sg.IngressRules) + len(sg.EgressRules)
+	}
+
+	if totalRules > maxRulesPerSecurityGroupPerInterface {
+		return fmt.Errorf(
+			"%w: the %d combined rules across the specified security groups exceed the %d allowed per network interface",
+			ErrInvalidParameter,
+			totalRules,
+			maxRulesPerSecurityGroupPerInterface,
+		)
+	}
+
+	return nil
+}

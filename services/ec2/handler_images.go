@@ -854,6 +854,37 @@ func (h *Handler) handleGetImageAncestry(vals url.Values, reqID string) (any, er
 	return resp, nil
 }
 
+// replaceImageInstanceTypeSpecificationResponse mirrors the real
+// ReplaceImageInstanceTypeSpecificationOutput: the wire field is "returnValue", not "return"
+// (ec2@v1.329.0 deserializers.go, awsEc2query_deserializeOpDocumentReplaceImageInstanceTypeSpecificationOutput).
+type replaceImageInstanceTypeSpecificationResponse struct {
+	XMLName     xml.Name `xml:"ReplaceImageInstanceTypeSpecificationResponse"`
+	Xmlns       string   `xml:"xmlns,attr"`
+	RequestID   string   `xml:"requestId"`
+	ReturnValue bool     `xml:"returnValue"`
+}
+
+// handleReplaceImageInstanceTypeSpecification replaces or (given no
+// InstanceTypeSpecification member at all) removes an AMI's instance type
+// compatibility rules. Wire field names verified against ec2@v1.329.0
+// serializers.go's awsEc2query_serializeDocumentInstanceTypeSpecificationRequest:
+// InstanceTypeSpecification.SupportedInstanceType.N / .UnsupportedInstanceType.N
+// (FlatKey, no ".member." wrapper).
+func (h *Handler) handleReplaceImageInstanceTypeSpecification(vals url.Values, reqID string) (any, error) {
+	supported := parseMemberList(vals, "InstanceTypeSpecification.SupportedInstanceType")
+	unsupported := parseMemberList(vals, "InstanceTypeSpecification.UnsupportedInstanceType")
+
+	if err := h.Backend.ReplaceImageInstanceTypeSpecification(
+		vals.Get("ImageId"), supported, unsupported,
+	); err != nil {
+		return nil, err
+	}
+
+	return &replaceImageInstanceTypeSpecificationResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID, ReturnValue: true,
+	}, nil
+}
+
 // registerImagesOps registers the Images operation handlers.
 func registerImagesOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["DisableImage"] = h.handleDisableImage
@@ -883,6 +914,7 @@ func registerImagesOps(h *Handler, ops map[string]ec2ActionFn) {
 	ops["CancelImageLaunchPermission"] = h.handleCancelImageLaunchPermission
 	ops["DescribeImageReferences"] = h.handleDescribeImageReferences
 	ops["GetImageAncestry"] = h.handleGetImageAncestry
+	ops["ReplaceImageInstanceTypeSpecification"] = h.handleReplaceImageInstanceTypeSpecification
 }
 
 // imagesSupportedOperations lists the operation names registered by
@@ -916,27 +948,66 @@ func imagesSupportedOperations() []string {
 		"CancelImageLaunchPermission",
 		"DescribeImageReferences",
 		"GetImageAncestry",
+		"ReplaceImageInstanceTypeSpecification",
 	}
 }
 
+// instanceTypeItem wraps a single instance type/wildcard pattern entry
+// (ec2@v1.329.0 types.InstanceTypeItem: a struct with one InstanceType field, not a bare
+// string -- confirmed via deserializers.go's awsEc2query_deserializeDocumentInstanceTypeItem).
+type instanceTypeItem struct {
+	InstanceType string `xml:"instanceType"`
+}
+
+// instanceTypeSpecificationItem mirrors ec2@v1.329.0 types.InstanceTypeSpecification
+// (deserializers.go's awsEc2query_deserializeDocumentInstanceTypeSpecification):
+// supportedInstanceTypeSet/unsupportedInstanceTypeSet, each wrapping <item> entries.
+type instanceTypeSpecificationItem struct {
+	SupportedInstanceTypeSet struct {
+		Items []instanceTypeItem `xml:"item"`
+	} `xml:"supportedInstanceTypeSet"`
+	UnsupportedInstanceTypeSet struct {
+		Items []instanceTypeItem `xml:"item"`
+	} `xml:"unsupportedInstanceTypeSet"`
+}
+
+func toInstanceTypeSpecificationItem(spec *InstanceTypeSpecification) *instanceTypeSpecificationItem {
+	if spec == nil {
+		return nil
+	}
+
+	item := &instanceTypeSpecificationItem{}
+	for _, t := range spec.SupportedInstanceTypes {
+		item.SupportedInstanceTypeSet.Items = append(
+			item.SupportedInstanceTypeSet.Items,
+			instanceTypeItem{InstanceType: t},
+		)
+	}
+
+	for _, t := range spec.UnsupportedInstanceTypes {
+		item.UnsupportedInstanceTypeSet.Items = append(
+			item.UnsupportedInstanceTypeSet.Items, instanceTypeItem{InstanceType: t},
+		)
+	}
+
+	return item
+}
+
 type amiItem struct {
-	ImageID        string `xml:"imageId"`
-	Name           string `xml:"name"`
-	Description    string `xml:"description,omitempty"`
-	Architecture   string `xml:"architecture"`
-	Platform       string `xml:"platform,omitempty"`
-	State          string `xml:"imageState"`
-	RootDeviceName string `xml:"rootDeviceName,omitempty"`
-	// OwnerID/OwnerAlias are distinct real wire fields
-	// (deserializers.go's awsEc2query_deserializeDocumentImage: "imageOwnerId"
-	// is always the numeric account ID, "imageOwnerAlias" the well-known
-	// alias string e.g. "amazon" -- there is no plain "ownerId" key).
-	OwnerID            string          `xml:"imageOwnerId,omitempty"`
-	OwnerAlias         string          `xml:"imageOwnerAlias,omitempty"`
-	ImdsSupport        string          `xml:"imdsSupport,omitempty"`
-	VirtualizationType string          `xml:"virtualizationType,omitempty"`
-	DeprecationTime    string          `xml:"deprecationTime,omitempty"`
-	TagSet             []simpleTagItem `xml:"tagSet>item,omitempty"`
+	InstanceTypeSpecification *instanceTypeSpecificationItem `xml:"instanceTypeSpecification,omitempty"`
+	RootDeviceName            string                         `xml:"rootDeviceName,omitempty"`
+	Description               string                         `xml:"description,omitempty"`
+	Architecture              string                         `xml:"architecture"`
+	Platform                  string                         `xml:"platform,omitempty"`
+	State                     string                         `xml:"imageState"`
+	ImageID                   string                         `xml:"imageId"`
+	OwnerID                   string                         `xml:"imageOwnerId,omitempty"`
+	OwnerAlias                string                         `xml:"imageOwnerAlias,omitempty"`
+	ImdsSupport               string                         `xml:"imdsSupport,omitempty"`
+	VirtualizationType        string                         `xml:"virtualizationType,omitempty"`
+	DeprecationTime           string                         `xml:"deprecationTime,omitempty"`
+	Name                      string                         `xml:"name"`
+	TagSet                    []simpleTagItem                `xml:"tagSet>item,omitempty"`
 }
 
 // knownImageOwnerAliases holds this backend's well-known non-numeric AMIStub.OwnerID
@@ -1166,6 +1237,9 @@ func (h *Handler) handleDescribeImages(vals url.Values, reqID string) (any, erro
 			VirtualizationType: a.VirtualizationType,
 			DeprecationTime:    deprecation[a.ImageID],
 			TagSet:             tagItemsFromMap(h.Backend.TagsForResource(a.ImageID)),
+			InstanceTypeSpecification: toInstanceTypeSpecificationItem(
+				h.Backend.GetImageInstanceTypeSpecification(a.ImageID),
+			),
 		})
 	}
 

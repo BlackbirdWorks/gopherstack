@@ -324,6 +324,7 @@ func (b *InMemoryBackend) resourceExistsIpamLocked(id string) bool {
 	ok = ok || b.ipv4Pools.Has(id)
 	ok = ok || b.ipv6Pools.Has(id)
 	ok = ok || b.coipPools.Has(id)
+	ok = ok || b.ipamInternetRegistryAssociations.Has(id)
 
 	return ok
 }

@@ -409,8 +409,28 @@ type launchTemplateVersionSet struct {
 	Items []launchTemplateVersionItem `xml:"item"`
 }
 
+type validateSecurityGroupQuotasForInterfaceResponse struct {
+	XMLName   xml.Name `xml:"ValidateSecurityGroupQuotasForInterfaceResponse"`
+	Xmlns     string   `xml:"xmlns,attr"`
+	RequestID string   `xml:"requestId"`
+	Valid     bool     `xml:"valid"`
+}
+
+func (h *Handler) handleValidateSecurityGroupQuotasForInterface(vals url.Values, reqID string) (any, error) {
+	groupIDs := parseMemberList(vals, "SecurityGroupId")
+
+	if err := h.Backend.ValidateSecurityGroupQuotasForInterface(groupIDs); err != nil {
+		return nil, err
+	}
+
+	return &validateSecurityGroupQuotasForInterfaceResponse{
+		Xmlns: ec2XMLNS, RequestID: reqID, Valid: true,
+	}, nil
+}
+
 // registerSecurityGroupsOps registers the SecurityGroups operation handlers.
 func registerSecurityGroupsOps(h *Handler, ops map[string]ec2ActionFn) {
+	ops["ValidateSecurityGroupQuotasForInterface"] = h.handleValidateSecurityGroupQuotasForInterface
 	ops["AssociateSecurityGroupVpc"] = h.handleAssociateSecurityGroupVpc
 	ops["DisassociateSecurityGroupVpc"] = h.handleDisassociateSecurityGroupVpc
 	ops["DescribeSecurityGroupReferences"] = h.handleDescribeSecurityGroupReferences
@@ -427,6 +447,7 @@ func registerSecurityGroupsOps(h *Handler, ops map[string]ec2ActionFn) {
 // registerSecurityGroupsOps, for GetSupportedOperations().
 func securityGroupsSupportedOperations() []string {
 	return []string{
+		"ValidateSecurityGroupQuotasForInterface",
 		"AssociateSecurityGroupVpc",
 		"DisassociateSecurityGroupVpc",
 		"DescribeSecurityGroupReferences",

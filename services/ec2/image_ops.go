@@ -23,6 +23,13 @@ var ErrImageNotFound = errors.New("InvalidAMIID.NotFound")
 // ErrUsageReportNotFound is returned when an image usage report ID does not exist.
 var ErrUsageReportNotFound = errors.New("InvalidParameterValue")
 
+// ErrImageNotOwner is returned when an operation that requires AMI ownership (e.g.
+// ReplaceImageInstanceTypeSpecification) targets an AMI this account did not register --
+// the seeded public catalog (stubAMIs, OwnerID "amazon"). No dedicated typed exception is
+// confirmed for this in the pinned SDK, so this maps to the generic InvalidParameterValue
+// code (mirrors ErrOutpostArnNotFound's reasoning in advanced_networking.go).
+var ErrImageNotOwner = errors.New("InvalidParameterValue")
+
 // Allowed Images Settings states.
 const (
 	allowedImagesStateEnabled   = "enabled"
