@@ -1,7 +1,7 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
-last_audit_commit: 1ecd57d33
-last_audit_date: 2026-09-18
+last_audit_commit: ed6ef1a53
+last_audit_date: 2026-09-19
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
 # pass, creates the commit; see gopherstack-z31a). 1 bug found and fixed,
@@ -147,6 +147,14 @@ items_still_open:
     resource, same class as the pre-existing ResourceEndpointAssociation
     gap above)."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (accessanalyzer) -- false positive
+
+cmd/routecollisions flags accessanalyzer as an unguarded winner over
+vpc-lattice's "/tags" claim; accessanalyzer actually scopes by ARN
+service segment. Confirmed with a real vpclattice SDK client through a
+shared registry (tags_routing_cross_service_test.go): still succeeds via
+vpc-lattice's own handler. No code change.
 
 ### 2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s)
 

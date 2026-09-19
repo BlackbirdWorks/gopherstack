@@ -2,8 +2,8 @@
 # PARITY MANIFEST SCHEMA — see services/_PARITY_TEMPLATE.md for the schema doc.
 service: eks
 sdk_module: aws-sdk-go-v2/service/eks@v1.98.0
-last_audit_commit: b09a30f43  # 2026-09-18 enumcheck census (no code changes; all 38 findings false positive)
-last_audit_date: 2026-09-18  # gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass) -- see Notes below
+last_audit_commit: ed6ef1a53  # 2026-09-18 enumcheck census (no code changes; all 38 findings false positive)
+last_audit_date: 2026-09-19  # gopherstack-21my: per-item field sweep of every List/Describe op's item shape (wrapper keys were already checked by an earlier pass) -- see Notes below
 # ERROR path verified 2026-08-29 (wrapper-key-sweep pass): extracted every
 # op's deserializeOpError<Op> switch (eks@v1.90.4 deserializers.go, 65 ops
 # N-of-N). Handler.handleError is one global 4-sentinel table applied to all
@@ -117,6 +117,14 @@ leaks: {status: clean, note: "worker.Group timers (cluster/nodegroup/fargate/add
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/tags/" prefix shadow (amplify) -- false positive
+
+cmd/routecollisions flags amplify as an unguarded winner over eks's
+"/tags/" claim; amplify actually scopes by ARN service segment. Confirmed
+with a real eks SDK client through a shared registry
+(tags_routing_cross_service_test.go): still gets eks's own
+NotFoundException. No code change.
 
 ### 2026-09-18: enumcheck census
 

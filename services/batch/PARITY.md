@@ -9,8 +9,8 @@
 # this was a targeted required-output sweep, not a full re-audit.
 service: batch
 sdk_module: aws-sdk-go-v2/service/batch@v1.68.4
-last_audit_commit: d7f71c4cd  # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (ComputeEnvironment UnmanagedvCpus/ContainerOrchestrationType/Uuid); prior aad420594 was the 2026-07-25 full audit
-last_audit_date: 2026-08-29
+last_audit_commit: ed6ef1a53  # HEAD after the 2026-08-29 gopherstack-6flj/21my fresh sweep (ComputeEnvironment UnmanagedvCpus/ContainerOrchestrationType/Uuid); prior aad420594 was the 2026-07-25 full audit
+last_audit_date: 2026-09-19
 overall: A            # SDK bump (v1.61.1 -> v1.68.0) added 6 new ops (QuotaShare CRUD+List, UpdateServiceJob); all 6 implemented for real this pass, no regressions in previously-audited ops
                        # 2026-08-29 (constrain-not-honoured sweep, uncommitted at write time): ListJobs.Filters,
                        # ListConsumableResources.Filters, and ListServiceJobs.MaxResults/NextToken/Filters were all
@@ -77,6 +77,15 @@ leaks: {status: clean, note: "janitor.go's advanceJobs/sweep* all take/release t
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/v1/" prefix shadow (polly) -- false positive
+
+cmd/routecollisions flags polly's blanket "/v1/" claim as an unguarded
+winner over batch; polly's parseRoute is a closed 5-route whitelist that
+never matches batch's "/v1/describejobqueues" et al. Confirmed with a
+real batch SDK client through a shared registry
+(v1_routing_cross_service_test.go): still succeeds via batch's own
+handler. No code change.
 
 Protocol: restjson1. All paths are single-segment POST verbs under `/v1/` except
 the three tag operations, which are `/v1/tags/{resourceArn}` with GET (List) /

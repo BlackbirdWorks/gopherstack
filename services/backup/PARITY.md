@@ -1,7 +1,7 @@
 ---
 service: backup
 sdk_module: aws-sdk-go-v2/service/backup@v1.64.0
-last_audit_commit: a8b26ceaa
+last_audit_commit: ed6ef1a53
 last_audit_date: 2026-09-19
 overall: A            # all 4 prior gaps closed with real fixes + tests; all 4 prior deferred items field-diffed and closed; a service-wide error-code/HTTP-status bug found and fixed (see notes) + gopherstack-21my (per-item field sweep: copy-job-summary AccountId, recovery-point StorageClass leak, backup-vault list lock/creator fields, protected-resource last-vault/recovery-point ARNs)
                       # 2026-09-19 (parity-sweep, notImplemented closure): implemented the 6 backup
@@ -208,6 +208,15 @@ leaks: {status: clean, note: "Janitor's advanceCreatedJobs takes the backend RLo
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): resourcegroups "/resources/" shadow -- false positive
+
+cmd/routecollisions flags resourcegroups' isResourceTagsPath as a bare
+"/resources/" prefix; the real check also requires a "/tags" path suffix,
+which DescribeProtectedResource's path never has. Confirmed with a real
+backup SDK client through a shared registry
+(resources_routing_cross_service_test.go): still gets backup's own
+ResourceNotFoundException. No code change.
 
 ### gopherstack-21my (2026-09-18): per-item field sweep
 

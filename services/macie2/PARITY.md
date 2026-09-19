@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: macie2
 sdk_module: aws-sdk-go-v2/service/macie2@v1.54.4
-last_audit_commit: 7480cad08                    # HEAD after the 2026-09-19 list-summary-shapes sweep
+last_audit_commit: ed6ef1a53                    # HEAD after the 2026-09-19 list-summary-shapes sweep
 last_audit_date: 2026-09-19
 overall: A                # all 5 prior gaps + both deferred field audits closed this pass; zero gaps/deferred remain
                           # CORRECTED 2026-08-30 (gopherstack-3qg6): SearchResources' own row was `wire:
@@ -122,6 +122,13 @@ leaks: {status: clean, note: "no goroutines/janitors in this service; all state 
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (vpclattice/accessanalyzer) -- false positive
+
+Same census finding: vpclattice/accessanalyzer's "/tags" claims are gated
+by an ARN-service-segment check. Confirmed with a real macie2 SDK client
+through a shared registry (tags_routing_cross_service_test.go): still gets
+macie2's own ResourceNotFoundException. No code change.
 
 **2026-09-19 (list-summary-shapes sweep):** member-by-member diffed the 7
 census-flagged List ops (ListAllowLists, ListClassificationJobs,

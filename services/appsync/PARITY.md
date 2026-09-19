@@ -1,8 +1,8 @@
 ---
 service: appsync
 sdk_module: aws-sdk-go-v2/service/appsync@v1.60.0
-last_audit_commit: 198990e82
-last_audit_date: 2026-09-04
+last_audit_commit: ed6ef1a53
+last_audit_date: 2026-09-19
 overall: A            # 2026-09-04 (gopherstack-2yo): DeleteGraphqlApi's cascade-delete (issue #842) missed two ghost-row classes -- SourceAPIAssociation rows (either SourceAPIID or MergedAPIID matching the deleted API) and the APIAssociation/DomainName.APIID link created by AssociateApi -- both outlived the API indefinitely, so Get/ListSourceApiAssociations and GetApiAssociation kept returning associations pointing at a deleted API forever. Fixed for real (cascadeDeleteAPIAssociations); regression tests added. Also fixed: CreateApiKey's default expiry was wrong (365 days; real SDK doc says 7) and Create/UpdateApiKey's two AppSync-specific error codes (ApiKeyLimitExceededException, ApiKeyValidityOutOfBoundsException) were never actually surfaced -- both collapsed into a generic BadRequestException, and an out-of-bounds custom expiry was silently clamped into range instead of rejected. Also disclosed (not fixed, structural): GetIntrospectionSchema's format/includeDirectives were silently ignored, same missing-SDL<->JSON-converter class already disclosed for ListTypes/GetType/ListTypesByAssociation but not previously called out for this op. Grade held at A.
                       # 2026-07-24: systemic route-matcher/method bugs fixed across nearly every family; the two remaining gaps from the 2026-07-12 pass (StartSchemaMerge, Start/GetDataSourceIntrospection) are now implemented for real
                       # 2026-07-31: pkgs/sdkcheck reverse check found ExecuteGraphQL wrongly advertised/documented as a real SDK op (it isn't -- see its ops-block note); corrected, route left wired as internal data-plane scaffolding. Grade held at A: a documentation defect, not a served-client bug.
@@ -136,6 +136,18 @@ leaks: {status: bugs found, note: "janitor.go's background goroutine already tak
 ---
 
 ## Notes
+
+### 2026-09-19 (gopherstack-op3e census): "/v1/..." prefix shadow (polly/codeartifact) -- false positive
+
+cmd/routecollisions flags polly's blanket "/v1/" and codeartifact's
+"/v1/domain"/"/v1/tags" claims as unguarded winners over appsync's v1
+endpoints; polly's parseRoute is a closed 5-route whitelist that never
+matches appsync's paths, and codeartifact's checks have a "/" path
+boundary / exact-vs-prefix mismatch. Confirmed with real appsync SDK
+calls (ListDomainNames, ListTagsForResource) through a shared registry
+(v1_routing_cross_service_test.go); ecr's own "/v2/apis" shadow claim
+confirmed separately via appsync's ListApis in
+apigatewayv2/v2_routing_cross_service_test.go. No code change.
 
 **2026-09-12 (typed client coverage sweep, gopherstack-n3zi):** drove the
 39 previously-typed-client-uncovered ops (39/74 gap) through a real

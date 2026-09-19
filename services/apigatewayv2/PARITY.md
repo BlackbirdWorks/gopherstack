@@ -1,8 +1,8 @@
 ---
 service: apigatewayv2
 sdk_module: aws-sdk-go-v2/service/apigatewayv2@v1.37.4
-last_audit_commit: f66686eee
-last_audit_date: 2026-09-18
+last_audit_commit: ed6ef1a53
+last_audit_date: 2026-09-19
 overall: A            # 2026-09-11 (gopherstack-mven, required-OUTPUT-member sweep, apigatewayv2
                        # nested-candidate batch): hand-verified the 31 apigatewayv2 candidates
                        # from zero_nested_candidates.json (RoutingRule/List*/Portal family).
@@ -387,6 +387,16 @@ deferred:
   - apigateway (v1)'s identical live-routing-vs-deployment-snapshot bug (bd gopherstack-fum) -- deliberately not fixed alongside v2's; v1's resource-tree/routingTrie data plane and lack of an autoDeploy model make it a distinctly larger effort, not a copy of this fix
 leaks: {status: clean, note: "portalProductSharingPolicies cleanup on DeletePortalProduct already covered by leak_internal_test.go from a prior sweep; authorizerCache entries are now purged on DeleteAuthorizer/DeleteApi (bd gopherstack-wmh, fixed and closed this pass -- see Notes #11), not merely TTL-bounded; no goroutines/janitors in this package"}
 ---
+
+## Notes (2026-09-19 gopherstack-op3e census)
+
+cmd/routecollisions flags ecr (Docker Registry v2, registry enabled) and
+appsync (User-Agent-gated /v2/apis) as unguarded winners over
+apigatewayv2's "/v2/..." endpoints -- false positive. Both guards are
+real; confirmed with real apigatewayv2 SDK calls (apis/domainnames/
+vpclinks/portals/portalproducts) through a shared registry with ecr's
+local registry enabled (v2_routing_cross_service_test.go). No code
+change.
 
 ## Notes (2026-09-18 pass — zeroguard omitted-vs-zero sweep)
 
