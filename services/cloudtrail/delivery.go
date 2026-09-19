@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,17 +23,30 @@ type logFileRecords struct {
 	Records []json.RawMessage `json:"Records"`
 }
 
-// deliverLogFileLocked writes ev as a CloudTrail log file to every trail
-// that is currently logging and has S3BucketName set, when S3 is wired
+// deliveryTarget is a snapshot of the fields deliverLogFile needs from one
+// logging trail, copied out under b.mu so the marshal/gzip/PutObject work
+// below can run lock-free without racing a concurrent UpdateTrail.
+type deliveryTarget struct {
+	trail        *Trail
+	s3BucketName string
+	s3KeyPrefix  string
+}
+
+// deliverLogFile writes ev as a CloudTrail log file to every trail that is
+// currently logging and has S3BucketName set, when S3 is wired
 // (SetS3Backend). A no-op when S3 is unwired or ev carries no
 // CloudTrailEvent detail (e.g. a directly seeded test event bypassing
 // RecordManagementEvent) -- matching this repo's unwired-hook-stays-
-// permissive convention. Callers must hold b.mu.
+// permissive convention. Unlike the rest of this backend's mutators, this
+// runs the expensive part (gzip + S3 PutObject) WITHOUT b.mu held -- see
+// RecordEvent's caller comment -- and only re-takes it briefly to snapshot
+// trails and to mark a successful delivery, matching how DescribeTrails/
+// UpdateTrail already gate Trail field access on b.mu.
 //
 // Real AWS batches multiple events per file roughly every 5 minutes; this
 // backend delivers one file per recorded event instead of buffering, a
 // disclosed simplification (see PARITY.md).
-func (b *InMemoryBackend) deliverLogFileLocked(ev Event) {
+func (b *InMemoryBackend) deliverLogFile(ev Event) {
 	if b.s3 == nil || ev.CloudTrailEvent == "" {
 		return
 	}
@@ -42,22 +56,48 @@ func (b *InMemoryBackend) deliverLogFileLocked(ev Event) {
 		return
 	}
 
-	for _, t := range b.trails.All() {
-		if !t.IsLogging || t.S3BucketName == "" {
-			continue
-		}
+	b.mu.RLock("deliverLogFile:snapshot")
 
+	targets := make([]deliveryTarget, 0, b.trails.Len())
+
+	for _, t := range b.trails.All() {
+		if t.IsLogging && t.S3BucketName != "" {
+			targets = append(targets, deliveryTarget{
+				trail:        t,
+				s3BucketName: t.S3BucketName,
+				s3KeyPrefix:  t.S3KeyPrefix,
+			})
+		}
+	}
+
+	b.mu.RUnlock()
+
+	for _, target := range targets {
 		input := &sdk_s3.PutObjectInput{
-			Bucket: aws.String(t.S3BucketName),
-			Key:    aws.String(logFileKey(t, b.accountID, b.region, ev.EventTime)),
+			Bucket: aws.String(target.s3BucketName),
+			Key:    aws.String(logFileKey(target.s3KeyPrefix, b.accountID, b.region, ev.EventTime)),
 			Body:   bytes.NewReader(body),
 		}
 
-		if _, putErr := b.s3.PutObject(context.Background(), input); putErr == nil {
-			now := time.Now().UTC()
-			t.LatestDeliveryTime = &now
+		if _, putErr := b.s3.PutObject(context.Background(), input); putErr != nil {
+			continue
 		}
+
+		now := time.Now().UTC()
+
+		b.mu.Lock("deliverLogFile:markDelivered")
+		target.trail.LatestDeliveryTime = &now
+		b.mu.Unlock()
 	}
+}
+
+// gzipWriterPool reuses *gzip.Writer instances across logFileBody calls.
+// gzip.NewWriter allocates a full flate compressor (window + Huffman
+// tables) every call; RecordEvent invokes this on every mutating API call
+// across every registered service, so that allocation dominated both CPU
+// and heap in profiling. Reset avoids it.
+var gzipWriterPool = sync.Pool{ //nolint:gochecknoglobals // sync.Pool requires package-level allocation
+	New: func() any { return gzip.NewWriter(nil) },
 }
 
 // logFileBody gzip-compresses a single-record CloudTrail log file body.
@@ -71,7 +111,10 @@ func logFileBody(ev Event) ([]byte, error) {
 
 	var buf bytes.Buffer
 
-	gz := gzip.NewWriter(&buf)
+	gz, _ := gzipWriterPool.Get().(*gzip.Writer)
+	gz.Reset(&buf)
+
+	defer gzipWriterPool.Put(gz)
 
 	if _, writeErr := gz.Write(encoded); writeErr != nil {
 		return nil, writeErr
@@ -88,7 +131,7 @@ func logFileBody(ev Event) ([]byte, error) {
 // "AWSLogs/AccountID/CloudTrail/Region/YYYY/MM/DD/AccountID_CloudTrail_
 // Region_YYYYMMDDTHHmmZ_UniqueString.json.gz"), not part of the pinned SDK --
 // see PARITY.md.
-func logFileKey(t *Trail, accountID, region string, eventTime time.Time) string {
+func logFileKey(s3KeyPrefix, accountID, region string, eventTime time.Time) string {
 	ts := eventTime.UTC()
 	unique := strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
 
@@ -98,8 +141,8 @@ func logFileKey(t *Trail, accountID, region string, eventTime time.Time) string 
 		accountID, region, ts.Format("20060102T1504Z"), unique,
 	)
 
-	if t.S3KeyPrefix != "" {
-		key = strings.TrimSuffix(t.S3KeyPrefix, "/") + "/" + key
+	if s3KeyPrefix != "" {
+		key = strings.TrimSuffix(s3KeyPrefix, "/") + "/" + key
 	}
 
 	return key

@@ -34,7 +34,6 @@ const (
 // API call; it never synthesizes Insight events).
 func (b *InMemoryBackend) RecordEvent(ev Event) {
 	b.mu.Lock("RecordEvent")
-	defer b.mu.Unlock()
 
 	if ev.EventID == "" {
 		ev.EventID = uuid.NewString()
@@ -55,7 +54,15 @@ func (b *InMemoryBackend) RecordEvent(ev Event) {
 		b.trimEventsLocked()
 	}
 
-	b.deliverLogFileLocked(ev)
+	b.mu.Unlock()
+
+	// Delivery (gzip + S3 PutObject) runs without RecordEvent's lock held:
+	// this fires on every mutating API call across every registered service,
+	// so serializing all of them behind one expensive marshal+compress+I/O
+	// call under the backend's single coarse mutex throttled the whole
+	// emulator. deliverLogFile re-takes the lock only for the cheap
+	// snapshot-trails and mark-delivered steps.
+	b.deliverLogFile(ev)
 }
 
 // trimEventsLocked evicts events past eventHistoryRetention and, if the store

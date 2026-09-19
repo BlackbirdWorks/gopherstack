@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
-last_audit_commit: 49cff86c4
+last_audit_commit: d522d763f
 last_audit_date: 2026-09-19
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -90,6 +90,15 @@ leaks: {status: fixed, note: "no goroutines/janitors in this service; Reset() cl
 ---
 
 ## Notes
+
+### 2026-09-19: PGO-profile perf pass (no wire/behavior change)
+
+Profiling under load showed `RecordEvent`->`deliverLogFile` (every mutating call,
+system-wide) at 59% of heap allocs (`gzip.NewWriter` per event) and holding
+`b.mu` across the gzip+S3-PutObject. Pooled the `*gzip.Writer` and moved that
+work out of `RecordEvent`'s critical section (still one coarse `b.mu`, just a
+shorter hold); same one-file-per-event delivery, same tests. See
+`BenchmarkLogFileBody`/`BenchmarkRecordManagementEvent_Concurrent`.
 
 ### 2026-09-18: items_still_open ledger burn-down
 
