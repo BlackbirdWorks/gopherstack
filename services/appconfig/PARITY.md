@@ -1,7 +1,7 @@
 ---
 service: appconfig
 sdk_module: aws-sdk-go-v2/service/appconfig@v1.48.4    # version audited against (bumped from v1.43.11)
-last_audit_commit: 366fb4907  # HEAD after the 2026-09-18 reqfielddiff tier-1 sweep (0 code changes -- all 4 findings confirmed already handled, see Notes)
+last_audit_commit: 1d121bbad  # over-wide census re-check (0 code changes -- all 7 flagged List ops already exact)
 last_audit_date: 2026-09-18   # bd gopherstack-z4v1: corrected a false claim from the 2026-09-07 pass
                                # (bd gopherstack-kpvs) below. That pass concluded DeletionProtectionCheck
                                # enforcement was structurally blocked because "no cross-service backend-lookup
@@ -224,6 +224,18 @@ leaks: {status: clean, note: "FIXED — DeleteApplication/DeleteEnvironment/Dele
 ---
 
 ## Notes
+
+**2026-09-18 (over-wide response class census):** `cmd/overwidecandidates`
+flagged ListConfigurationProfiles, ListDeployments, ListExperimentDefinitions,
+ListExperimentRuns, ListExtensionAssociations, ListExtensions,
+ListHostedConfigurationVersions. Member-by-member diff against
+appconfig@v1.48.4 types.go's ConfigurationProfileSummary/DeploymentSummary/
+ExperimentDefinitionSummary/ExperimentRunSummary/ExtensionAssociationSummary/
+ExtensionSummary/HostedConfigurationVersionSummary: all 7 already emit a
+dedicated `*ToSummary` converter whose field set matches exactly, no leaks.
+HostedConfigurationVersionSummary's real `KmsKeyArn` member was already
+identified and left absent with a documented rationale (models.go, this
+backend never resolves a KMS key identifier to a real ARN). No code changed.
 
 **2026-08-13 (gopherstack-jqh2 pass 3):** re-extracted all 56 ops' real
 method+path directly from `appconfig@v1.48.4` serializers.go and drove them

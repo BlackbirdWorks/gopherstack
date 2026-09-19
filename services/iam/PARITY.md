@@ -6,8 +6,8 @@ sdk_module: aws-sdk-go-v2/service/iam@v1.63.0   # version audited against (go.mo
   # of one entry per resource); policy simulation was already flagged as NOT
   # re-verified this sweep (see items_still_open), so no live claim broke, but
   # its "already marked ok/PROVEN by sweeps 1-4" history is now stale too.
-last_audit_commit: 202a5afdf
-last_audit_date: 2026-08-29
+last_audit_commit: 1d121bbad
+last_audit_date: 2026-09-18
 overall: A   # sweep 13 (wrapper-key sweep, uncommitted as of this note): fixed
   # ListAttached{User,Role,Group}Policies dropping PathPrefix/Marker/MaxItems entirely
   # (silent unfiltered, unpaginated full list) and policyNameFromARN's wrong-separator
@@ -869,3 +869,16 @@ prefix/suffix/middle matches, multiple stars, and the empty-string edges.
 rejected guard's fail-open: a 5000-`*` pattern still matches a short value.
 Verified failing against the guard version (which compiled cleanly) and
 passing against the greedy matcher.
+
+## 2026-09-18 over-wide response class census re-check
+
+`cmd/overwidecandidates` flagged ListAccessKeys, ListOpenIDConnectProviders,
+ListPoliciesGrantingServiceAccess, ListSAMLProviders, ListSSHPublicKeys,
+ListServerCertificates, ListServiceSpecificCredentials. All 7 were already
+verified byte-for-byte against iam@v1.63.0's awsquery XML deserializers in
+prior sweeps (gopherstack-21my/lx5h, see the 2026-08-31 entries above):
+correct `<member>` wrapping, correct element casing, no Describe-shaped
+leaks. Documented, deliberate gaps stand unchanged: ServerCertificateMetadata
+`Expiration` (no certificate parsing) and
+ServiceSpecificCredentialMetadata `ExpirationDate`/`ServiceCredentialAlias`
+(no backend field). No code changed this pass.

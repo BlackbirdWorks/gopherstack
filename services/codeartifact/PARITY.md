@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: codeartifact
 sdk_module: aws-sdk-go-v2/service/codeartifact@v1.41.4   # version audited against
-last_audit_commit: b1905140e                      # gopherstack-xhu2t reqfielddiff tier-1 sweep
+last_audit_commit: 1d121bbad                      # over-wide census re-check, gopherstack-xhu2t work retained
 last_audit_date: 2026-09-18
 overall: A            # this pass: package-group "weak match" (casefold + dash/dot/underscore-run
                       # normalization, per AWS's documented dependency-confusion-protection
@@ -408,3 +408,17 @@ golines-flagged call to the new four-argument signature) -- all clean
 (`./services/codeartifact/...`). No `//nolint:cyclop/gocyclo/gocognit/funlen`
 added (repo-wide grep confirms 0 across all four services in this session's
 scope).
+
+## 2026-09-18 over-wide response class census re-check
+
+`cmd/overwidecandidates` flagged ListDomains, ListPackageGroups,
+ListPackageVersionAssets, ListPackageVersions, ListPackages,
+ListRepositories, ListRepositoriesInDomain, ListSubPackageGroups.
+Member-by-member diff against codeartifact@v1.41.4 types.go's
+DomainSummary/PackageGroupSummary/AssetSummary/PackageVersionSummary/
+PackageSummary/RepositorySummary: all 8 already emit the narrow Summary
+shape (domainSummaryToMap, packageGroupToMap == PackageGroupDescription
+field-for-field identical to PackageGroupSummary, assetSummaryToMap,
+packageVersionSummaryToMap, packageSummaryToMap, repositorySummaryToMap)
+per the gopherstack-tuh5/6flj work already recorded above. No leaks, no
+gaps, no code changed this pass.
