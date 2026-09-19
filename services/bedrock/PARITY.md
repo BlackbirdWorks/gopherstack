@@ -1,7 +1,7 @@
 service: bedrock
 sdk_module: aws-sdk-go-v2/service/bedrock@v1.66.4
-last_audit_commit: 3fd671fd6
-last_audit_date: 2026-09-18
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A            # RESTORED A-->A (parity-5, 2026-07-31, follow-up pass): the
                       # dispatchDocumentOps routing bug that caused the prior A->A- downgrade
                       # is fixed and proven. Re-verified both real wire shapes against the
@@ -1200,3 +1200,17 @@ Proof: `list_summary_shapes_test.go`. `go build ./...`/`go vet
 ./services/bedrock/...` `ok`; `golangci-lint run ./services/bedrock/...`
 0 issues; no `backendSnapshot` field changed (persistence guard
 unaffected).
+
+## 2026-09-19 (enumcheck sweep): MarketplaceModelEndpoint status/endpointStatus conflation
+
+MarketplaceModelEndpoint's wire "status" was set from the endpoint's
+lifecycle (Creating/Active/Deregistered) -- that's the real, distinct
+`endpointStatus` free-string member (required, previously duplicated onto
+both keys); the real `status` is `types.Status`
+(REGISTERED/INCOMPATIBLE_ENDPOINT). Fixed `marketplaceEndpointToOutput`/
+`marketplaceEndpointToSummaryOutput` to emit `status: "REGISTERED"`
+(constant -- no path here ever produces INCOMPATIBLE_ENDPOINT) and keep
+`endpointStatus` on the lifecycle value. Proof: typed assertion on
+`types.StatusRegistered` added to
+`TestRealClient_GuardrailsEvaluationAndModelGovernance`; existing wire
+tests updated to match.

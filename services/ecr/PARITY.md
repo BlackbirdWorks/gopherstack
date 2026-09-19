@@ -1,8 +1,8 @@
 ---
 service: ecr
 sdk_module: aws-sdk-go-v2/service/ecr@v1.64.0
-last_audit_commit: a2084957b
-last_audit_date: 2026-09-18
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A  # round 4 (gopherstack-6flj wrapper-key sweep) found and fixed 6 more real wire-shape bugs the round-3 "wire: ok" claims had missed -- see "Genuine fixes made this pass, round 4" below. Round 3 closed every remaining gap it found: item for real (not by weakening tests) -- see "Genuine fixes made this pass, round 3" below. All 6 previously-deferred error/behavior gaps now enforced with passing tests, plus the previously out-of-scope ListPullTimeUpdateExclusions pagination gap.
 ops:
   CreateRepository: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -923,3 +923,12 @@ build ./...` (whole module), `go vet`, `go test -race -count=1
 ./services/ecr/...`, `golangci-lint run --new-from-rev=HEAD` (0 issues) all
 clean. No persisted struct fields changed (PullThroughCacheRule.RegistryID
 already existed); no version bump.
+
+## 2026-09-19 (enumcheck sweep)
+
+BatchGetRepositoryScanningConfiguration's per-repo failure code was the
+free-text exception name `RepositoryNotFoundException` instead of the real
+`ScanningConfigurationFailureCode` enum member `REPOSITORY_NOT_FOUND`
+(ecr@v1.64.0 types/enums.go:423). Fixed; proof:
+`TestBatchGetRepositoryScanningConfiguration_MissingRepoFailureCode` asserts
+the typed constant via the real client.

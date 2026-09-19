@@ -134,6 +134,27 @@ func TestBatchGetRepositoryScanningConfiguration_NoRuleMatch_NoAppliedFilters(t 
 	require.Empty(t, out.ScanningConfigurations[0].AppliedScanFilters)
 }
 
+func TestBatchGetRepositoryScanningConfiguration_MissingRepoFailureCode(t *testing.T) {
+	t.Parallel()
+
+	h := newTestHandler(t)
+	client := newTestECRClient(t, h)
+
+	out, err := client.BatchGetRepositoryScanningConfiguration(
+		t.Context(),
+		&ecrsdk.BatchGetRepositoryScanningConfigurationInput{
+			RepositoryNames: []string{"nonexistent-repo"},
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, out.Failures, 1)
+	require.Equal(
+		t,
+		types.ScanningConfigurationFailureCodeRepositoryNotFound,
+		out.Failures[0].FailureCode,
+	)
+}
+
 func TestDescribeRepositoryCreationTemplates_Pagination(t *testing.T) {
 	t.Parallel()
 

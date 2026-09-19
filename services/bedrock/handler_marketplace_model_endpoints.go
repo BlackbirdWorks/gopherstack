@@ -166,6 +166,13 @@ type createMarketplaceModelEndpointOutput struct {
 	MarketplaceModelEndpoint marketplaceEndpointOutput `json:"marketplaceModelEndpoint"`
 }
 
+// marketplaceEndpointStatusRegistered is the only Status this backend ever
+// reports for a marketplace endpoint (bedrock@v1.66.4 types.Status has just
+// StatusRegistered/StatusIncompatibleEndpoint; gopherstack has no path that
+// makes a model source incompatible). Distinct from the endpoint's lifecycle
+// (Creating/Active/Deregistered), which is EndpointStatus.
+const marketplaceEndpointStatusRegistered = "REGISTERED"
+
 type marketplaceEndpointOutput struct {
 	EndpointConfig *endpointConfigWire `json:"endpointConfig,omitempty"`
 	CreatedAt      string              `json:"createdAt"`
@@ -185,7 +192,7 @@ func marketplaceEndpointToOutput(ep *MarketplaceModelEndpoint) marketplaceEndpoi
 		EndpointArn:           ep.EndpointArn,
 		EndpointName:          ep.EndpointName,
 		ModelSourceIdentifier: ep.ModelSourceID,
-		Status:                ep.Status,
+		Status:                marketplaceEndpointStatusRegistered,
 		EndpointStatus:        ep.Status,
 		EndpointConfig:        endpointConfigToWire(ep.EndpointConfig),
 		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
@@ -251,7 +258,7 @@ func marketplaceEndpointToSummaryOutput(ep *MarketplaceModelEndpoint) marketplac
 	return marketplaceEndpointSummaryOutput{
 		EndpointArn:           ep.EndpointArn,
 		ModelSourceIdentifier: ep.ModelSourceID,
-		Status:                ep.Status,
+		Status:                marketplaceEndpointStatusRegistered,
 		CreatedAt:             ep.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:             ep.UpdatedAt.Format(time.RFC3339),
 	}

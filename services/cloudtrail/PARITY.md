@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
-last_audit_commit: f51fca6ec
-last_audit_date: 2026-09-18   # ledger burn-down: adjudicated every items_still_open entry against the pinned SDK
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
@@ -543,3 +543,14 @@ Gates: `go build ./...`, `go vet ./services/cloudtrail/...`,
 (`backendSnapshot`) fields changed (`Trail.IsOrganizationTrail` and
 `EventDataStore.Status` both pre-existed); no `snapshot_inventory.json` rows
 needed, no version bump.
+
+## 2026-09-19 (enumcheck sweep)
+
+LookupEvents leaked the persisted `Event.EventCategory` bookkeeping field
+directly onto the wire under a top-level "EventCategory" key; the real
+`LookupEventsOutput` Event shape (cloudtrail@v1.58.4 types.go:283) has no
+such member at all (only nested inside the CloudTrailEvent JSON string).
+Added a `lookupEventsEventWire` response type that excludes it while
+leaving the persisted domain field and its internal EventCategory-filter
+logic untouched. Proof: `TestLookupEvents_WireHasNoEventCategory` asserts
+the key's absence from the raw response body.

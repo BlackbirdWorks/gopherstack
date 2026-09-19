@@ -90,12 +90,17 @@ func (s *storedFileSystem) toFileSystem() *FileSystem {
 // Lustre file systems. The terraform-provider-aws Read path treats a nil
 // LustreConfiguration as an empty result, so a Lustre file system must echo
 // this back even when the create request sent no LustreConfiguration.
+// DataRepositoryConfiguration.Lifecycle is a real, required-by-observation
+// field even with no linked S3 repository (fsx@v1.68.4 types.go:1858);
+// DataRepositoryLifecycle has no "no repository" member, so AVAILABLE (the
+// steady-state member) is the closest accurate value -- not the fabricated
+// "DISABLED" this used to send.
 func (s *storedFileSystem) toLustreConfiguration() *LustreConfiguration {
 	return &LustreConfiguration{
 		DeploymentType: s.DeploymentType,
 		MountName:      s.MountName,
 		DataRepositoryConfiguration: &DataRepositoryConfiguration{
-			Lifecycle: dataRepositoryLifecycleDisabled,
+			Lifecycle: lifecycleAvailable,
 		},
 	}
 }

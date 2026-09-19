@@ -52,7 +52,8 @@ func TestAccuracy_MarketplaceEndpoint_CreateStartsAsCreating(t *testing.T) {
 				var out map[string]any
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 				ep := out["marketplaceModelEndpoint"].(map[string]any)
-				assert.Equal(t, "Creating", ep["status"])
+				assert.Equal(t, "REGISTERED", ep["status"])
+				assert.Equal(t, "Creating", ep["endpointStatus"])
 				assert.NotEmpty(t, ep["endpointArn"])
 				assert.Equal(t, tt.endpointName, ep["endpointName"])
 				assert.Equal(t, tt.modelSourceID, ep["modelSourceIdentifier"])
@@ -80,7 +81,8 @@ func TestAccuracy_MarketplaceEndpoint_RegisterTransitionsToActive(t *testing.T) 
 	var out map[string]any
 	mustUnmarshal(t, rec, &out)
 	registered := out["marketplaceModelEndpoint"].(map[string]any)
-	assert.Equal(t, "Active", registered["status"])
+	assert.Equal(t, "REGISTERED", registered["status"])
+	assert.Equal(t, "Active", registered["endpointStatus"])
 	assert.Equal(t, "registered-src-id", registered["modelSourceIdentifier"])
 
 	got, err := b.GetMarketplaceModelEndpoint(ep.EndpointArn)
@@ -191,7 +193,7 @@ func TestAccuracy_MarketplaceEndpoint_ListResponseShape(t *testing.T) {
 		ep := raw.(map[string]any)
 		assert.NotEmpty(t, ep["endpointArn"])
 		assert.NotEmpty(t, ep["modelSourceIdentifier"])
-		assert.Equal(t, "Creating", ep["status"])
+		assert.Equal(t, "REGISTERED", ep["status"])
 		assert.NotEmpty(t, ep["createdAt"])
 		assert.NotEmpty(t, ep["updatedAt"])
 		// endpointName/endpointConfig/endpointStatus are Get-only --

@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+
+	"github.com/blackbirdworks/gopherstack/pkgs/awstime"
 )
 
 // --- LookupEvents ---
@@ -47,10 +49,45 @@ func (h *Handler) handleLookupEvents(c *echo.Context, body []byte) error {
 
 	out := h.Backend.LookupEvents(input)
 
-	resp := map[string]any{"Events": out.Events}
+	resp := map[string]any{"Events": toLookupEventsWire(out.Events)}
 	if out.NextToken != "" {
 		resp["NextToken"] = out.NextToken
 	}
 
 	return c.JSON(http.StatusOK, resp)
+}
+
+// lookupEventsEventWire is the real LookupEventsOutput Event shape
+// (cloudtrail@v1.58.4 types.go:283) -- unlike the persisted Event, it has no
+// top-level EventCategory field (that only appears nested in the
+// CloudTrailEvent JSON string).
+type lookupEventsEventWire struct {
+	EventID         string          `json:"EventId"`
+	EventName       string          `json:"EventName"`
+	EventSource     string          `json:"EventSource"`
+	Username        string          `json:"Username,omitempty"`
+	ReadOnly        string          `json:"ReadOnly,omitempty"`
+	AccessKeyID     string          `json:"AccessKeyId,omitempty"`
+	CloudTrailEvent string          `json:"CloudTrailEvent,omitempty"`
+	Resources       []EventResource `json:"Resources,omitempty"`
+	EventTime       float64         `json:"EventTime"`
+}
+
+func toLookupEventsWire(events []Event) []lookupEventsEventWire {
+	out := make([]lookupEventsEventWire, 0, len(events))
+	for _, ev := range events {
+		out = append(out, lookupEventsEventWire{
+			EventTime:       awstime.Epoch(ev.EventTime),
+			EventID:         ev.EventID,
+			EventName:       ev.EventName,
+			EventSource:     ev.EventSource,
+			Username:        ev.Username,
+			ReadOnly:        ev.ReadOnly,
+			AccessKeyID:     ev.AccessKeyID,
+			CloudTrailEvent: ev.CloudTrailEvent,
+			Resources:       ev.Resources,
+		})
+	}
+
+	return out
 }

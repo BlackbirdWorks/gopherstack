@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: fsx
 sdk_module: aws-sdk-go-v2/service/fsx@v1.68.4   # version audited against
-last_audit_commit: 7ece676b9
-last_audit_date: 2026-09-18
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A            # genuine wire-format + error-code bugs found and fixed
                       # 2026-08-29 (constraint-not-honoured sweep, wrapper-key-sweep-rds-cloudwatch-sqs-sns branch):
                       # every Describe* op whose real Input struct declares a Filters member had NO field for it
@@ -746,3 +746,15 @@ correctly not touched, `go test ./pkgs/persistence/...` not required.
 
 Gates: `go build ./services/fsx/...`, `go test -race -count=1 ./services/fsx/...` (pass,
 including the two new regression tests), `golangci-lint run ./services/fsx/...` (0 issues).
+
+## 2026-09-19 (enumcheck sweep)
+
+Lustre file systems' `DataRepositoryConfiguration.Lifecycle` was hardcoded
+to the fabricated value "DISABLED", not a `DataRepositoryLifecycle` member
+(fsx@v1.68.4 types/enums.go:219-229 has no such value). Real AWS returns
+this block with a Lifecycle even for a file system with no linked S3
+repository and the enum has no "none configured" member, so the closest
+accurate steady-state value is AVAILABLE; changed to reuse the existing
+`lifecycleAvailable` constant. Proof: new case in
+`TestRealClient_FileSystemAndStorageConfiguration` asserts
+`types.DataRepositoryLifecycleAvailable` via the real client.

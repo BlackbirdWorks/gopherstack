@@ -497,7 +497,7 @@ func (b *InMemoryBackend) CancelKeyDeletion(
 	key.Enabled = false
 	key.DeletionDate = 0
 
-	return &CancelKeyDeletionOutput{KeyID: key.KeyID, KeyState: key.KeyState}, nil
+	return &CancelKeyDeletionOutput{KeyID: key.KeyID}, nil
 }
 
 // keyToMetadata converts a Key to its KeyMetadata representation.

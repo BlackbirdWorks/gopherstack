@@ -16,14 +16,13 @@ const (
 	// sharedVpcDisabled is the default/reset value of sharedVpcEnabled.
 	sharedVpcDisabled = "false"
 
-	fileSystemTypeLustre            = "LUSTRE"
-	fileSystemTypeWindows           = "WINDOWS"
-	fileSystemTypeONTAP             = "ONTAP"
-	fileSystemTypeOpenZFS           = "OPENZFS"
-	dataRepositoryLifecycleDisabled = "DISABLED"
-	lustreDeploymentTypeScratch1    = "SCRATCH_1"
-	windowsDeploymentTypeSingleAZ1  = "SINGLE_AZ_1"
-	lustreMountNameLen              = 8
+	fileSystemTypeLustre           = "LUSTRE"
+	fileSystemTypeWindows          = "WINDOWS"
+	fileSystemTypeONTAP            = "ONTAP"
+	fileSystemTypeOpenZFS          = "OPENZFS"
+	lustreDeploymentTypeScratch1   = "SCRATCH_1"
+	windowsDeploymentTypeSingleAZ1 = "SINGLE_AZ_1"
+	lustreMountNameLen             = 8
 
 	// defaultAutomaticBackupRetentionDays is the real-AWS default backup
 	// retention for Windows/ONTAP/OpenZFS file systems when the create

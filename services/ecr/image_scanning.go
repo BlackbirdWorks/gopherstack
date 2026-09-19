@@ -24,7 +24,7 @@ func (b *InMemoryBackend) BatchGetRepositoryScanningConfiguration(
 		if !ok {
 			failures = append(failures, RepositoryScanningConfigurationFailure{
 				RepositoryName: name,
-				FailureCode:    "RepositoryNotFoundException",
+				FailureCode:    "REPOSITORY_NOT_FOUND",
 				FailureReason:  fmt.Sprintf("repository %s not found", name),
 			})
 

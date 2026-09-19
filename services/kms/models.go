@@ -393,9 +393,10 @@ type CancelKeyDeletionInput struct {
 }
 
 // CancelKeyDeletionOutput is the response payload for CancelKeyDeletion.
+// KeyState is intentionally absent: the real CancelKeyDeletionOutput has only
+// KeyId (kms@v1.59.0 api_op_CancelKeyDeletion.go:69).
 type CancelKeyDeletionOutput struct {
-	KeyID    string `json:"KeyId"`
-	KeyState string `json:"KeyState"`
+	KeyID string `json:"KeyId"`
 }
 
 // ErrorResponse is the KMS JSON error response format.

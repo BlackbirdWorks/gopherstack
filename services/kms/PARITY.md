@@ -1,8 +1,8 @@
 ---
 service: kms
 sdk_module: aws-sdk-go-v2/service/kms@v1.59.0
-last_audit_commit: 302aa4e3c  # zeroguard: UpdateCustomKeyStore.NewCustomKeyStoreName omitted-member fix
-last_audit_date: 2026-09-18
+last_audit_commit: d9715a7fd
+last_audit_date: 2026-09-19
 overall: A            # Full sweep of the 5 gaps/2 deferred items this file previously
                        # tracked, plus a dedicated leak hunt. Found + fixed 1 real leak
                        # (Handler.tags -- a side map keyed by KeyID, entirely outside
@@ -942,3 +942,12 @@ end) round-trips correctly. Gates: `go build ./...` (whole module), `go vet`,
 `go test -race -count=1`, `golangci-lint run --new-from-rev=HEAD` (0 issues)
 all clean. No persisted struct fields changed (a string field's value, not
 its shape); no version bump.
+
+## 2026-09-19 (enumcheck sweep)
+
+CancelKeyDeletionOutput fabricated a `KeyState` member; the real output
+(kms@v1.59.0 api_op_CancelKeyDeletion.go:69) has only `KeyId`. Removed the
+field from the wire struct and the backend constructor; call sites that
+asserted on it now verify the disabled state via a follow-up DescribeKey
+instead. Proof: `TestHandlerCancelKeyDeletionReturnsBody` asserts `KeyState`
+is absent from the raw response.

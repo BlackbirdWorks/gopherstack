@@ -135,10 +135,14 @@ func TestHandler_CancelKeyDeletion_ViaHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		KeyState string `json:"KeyState"`
+		KeyID string `json:"KeyId"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	assert.Equal(t, kms.KeyStateDisabled, resp.KeyState)
+	assert.Equal(t, keyID, resp.KeyID)
+
+	desc, err := b.DescribeKey(context.Background(), &kms.DescribeKeyInput{KeyID: keyID})
+	require.NoError(t, err)
+	assert.Equal(t, kms.KeyStateDisabled, desc.KeyMetadata.KeyState)
 }
 
 func TestHandlerReset(t *testing.T) {
@@ -418,7 +422,7 @@ func TestHandlerCancelKeyDeletionReturnsBody(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
 	assert.Equal(t, keyID, out["KeyId"])
-	assert.Equal(t, kms.KeyStateDisabled, out["KeyState"])
+	assert.NotContains(t, out, "KeyState", "real CancelKeyDeletionOutput has only KeyId")
 }
 
 func TestHandlerUpdateKeyDescriptionMaxLengthRejected(t *testing.T) {
