@@ -168,7 +168,7 @@ func (h *Handler) handleCreateService(_ context.Context, body []byte) ([]byte, e
 	}
 
 	return json.Marshal(map[string]any{
-		keyService: serviceToMap(svc),
+		keyService: serviceToMap(svc, h.Backend.AccountID()),
 	})
 }
 
@@ -214,7 +214,7 @@ func (h *Handler) handleGetService(_ context.Context, body []byte) ([]byte, erro
 	}
 
 	return json.Marshal(map[string]any{
-		keyService: serviceToMap(svc),
+		keyService: serviceToMap(svc, h.Backend.AccountID()),
 	})
 }
 
@@ -269,9 +269,11 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 
 	page, nextToken := applyPaginationServices(services, req.NextToken, maxResults)
 
+	accountID := h.Backend.AccountID()
+
 	items := make([]map[string]any, 0, len(page))
 	for i := range page {
-		items = append(items, serviceSummaryToMap(&page[i]))
+		items = append(items, serviceSummaryToMap(&page[i], accountID))
 	}
 
 	resp := map[string]any{
@@ -290,8 +292,8 @@ func (h *Handler) handleListServices(_ context.Context, body []byte) ([]byte, er
 // GetService). Tags are intentionally NOT included: real Cloud Map's
 // types.Service and types.ServiceSummary both omit Tags -- tags are only
 // retrievable via ListTagsForResource.
-func serviceToMap(svc *Service) map[string]any {
-	m := serviceSummaryToMap(svc)
+func serviceToMap(svc *Service, accountID string) map[string]any {
+	m := serviceSummaryToMap(svc, accountID)
 	m[keyNamespaceID] = svc.NamespaceID
 
 	return m
@@ -303,14 +305,16 @@ func serviceToMap(svc *Service) map[string]any {
 // awsAwsjson11_deserializeDocumentServiceSummary). The nested, deprecated
 // DnsConfig.NamespaceId is a distinct field shared by both shapes and is
 // unaffected.
-func serviceSummaryToMap(svc *Service) map[string]any {
+func serviceSummaryToMap(svc *Service, accountID string) map[string]any {
 	m := map[string]any{
-		"Id":            svc.ID,
-		keyArn:          svc.ARN,
-		"Name":          svc.Name,
-		"Description":   svc.Description,
-		keyCreateDate:   awstime.Epoch(svc.CreatedAt),
-		"InstanceCount": svc.InstanceCount,
+		"Id":                svc.ID,
+		keyArn:              svc.ARN,
+		"Name":              svc.Name,
+		"Description":       svc.Description,
+		keyCreateDate:       awstime.Epoch(svc.CreatedAt),
+		"InstanceCount":     svc.InstanceCount,
+		keyCreatedByAccount: accountID,
+		keyResourceOwner:    accountID,
 	}
 
 	if svc.Type != "" {

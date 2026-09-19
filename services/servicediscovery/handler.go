@@ -56,9 +56,11 @@ const (
 	serviceDiscoveryService      = "servicediscovery"
 	serviceDiscoveryTargetPrefix = "Route53AutoNaming_v20170314."
 
-	keyNamespaceID = "NamespaceId"
-	keyType        = "Type"
-	keyCreateDate  = "CreateDate"
+	keyNamespaceID      = "NamespaceId"
+	keyType             = "Type"
+	keyCreateDate       = "CreateDate"
+	keyResourceOwner    = "ResourceOwner"
+	keyCreatedByAccount = "CreatedByAccount"
 )
 
 var (

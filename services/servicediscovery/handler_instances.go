@@ -128,16 +128,20 @@ func (h *Handler) handleListInstances(_ context.Context, body []byte) ([]byte, e
 
 	page, nextToken := applyPaginationInstances(instances, req.NextToken, maxResults)
 
+	accountID := h.Backend.AccountID()
+
 	items := make([]map[string]any, 0, len(page))
 	for _, inst := range page {
 		items = append(items, map[string]any{
-			"Id":          inst.ID,
-			keyAttributes: inst.Attributes,
+			"Id":                inst.ID,
+			keyAttributes:       inst.Attributes,
+			keyCreatedByAccount: accountID,
 		})
 	}
 
 	resp := map[string]any{
-		"Instances": items,
+		"Instances":      items,
+		keyResourceOwner: accountID,
 	}
 
 	if nextToken != "" {
