@@ -8,11 +8,13 @@ import (
 
 // --- Network handlers ---
 
+// toNetworkOutput mirrors DescribeNetworkOutput/CreateNetworkOutput/
+// UpdateNetworkOutput/DescribeNetworkSummary (List reuses the Describe
+// shape) exactly: none of the four carries "tags" (verified against
+// aws-sdk-go-v2/service/medialive@v1.101.4's deserializers) even though
+// CreateNetworkInput accepts tags -- tags for a Network only surface via
+// ListTagsForResource, same pattern as Cluster (see clusterOutput).
 func toNetworkOutput(n *Network) map[string]any {
-	tags := n.Tags
-	if tags == nil {
-		tags = map[string]string{}
-	}
 	clusters := n.AssociatedClusterIDs
 	if clusters == nil {
 		clusters = []string{}
@@ -29,7 +31,6 @@ func toNetworkOutput(n *Network) map[string]any {
 	return map[string]any{
 		keyArn: n.ARN, keyID: n.ID, keyName: n.Name, keyState: n.State,
 		"associatedClusterIds": clusters, "ipPools": pools, "routes": routes,
-		keyTags: tags,
 	}
 }
 

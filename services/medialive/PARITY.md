@@ -1,7 +1,7 @@
 service: medialive
 sdk_module: aws-sdk-go-v2/service/medialive@v1.101.4   # version audited against
-last_audit_commit: 6c48ab50cb35a7b8834b7fea50407931c6df3119  # gopherstack-7ux2 (2026-08-13) fixed after this hash was recorded; hash not yet known at edit time
-last_audit_date: 2026-08-23
+last_audit_commit: 1ecd57d33
+last_audit_date: 2026-09-18
 overall: A            # Sweep 6 (gopherstack-jb9i): Channel now models all 17
                        # CreateChannelInput/UpdateChannelInput top-level members (was 5) --
                        # CdiInputSpecification/ChannelEngineVersion/ChannelSecurityGroups/
@@ -849,11 +849,38 @@ items_still_open:
     an unverified literal risks the wrong-vocabulary bug class more than
     leaving it a documented gap, since this backend has zero AWS-managed
     groups to ever wrongly include regardless."
+  - "2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s): 15
+    census-flagged List ops verified member by member against their real
+    Summary/Describe types. ListChannels' ChannelSummary was dropping
+    'tags' (sourced on storedChannel all along, never copied onto
+    ChannelSummary) -- fixed. ListNetworks leaked 'tags' onto
+    DescribeNetworkSummary/DescribeNetworkOutput/CreateNetworkOutput/
+    UpdateNetworkOutput, none of which carry it (same pattern as Cluster)
+    -- fixed via toNetworkOutput. The other 13 ops were already exact
+    matches. Members with no backing source, recorded rather than
+    fabricated: ChannelSummary.UsedChannelEngineVersions (no engine-version
+    history tracking); InputDeviceSummary.AvailabilityZone/
+    HdDeviceSettings/MedialiveInputArns/NetworkSettings/OutputType/
+    UhdDeviceSettings (InputDevice models only the fields InputDevice
+    struct already carried; devices are hardware-registered in real AWS,
+    not API-created here, so most of this shape has no natural source);
+    DescribeNodeSummary.InstanceArn/ManagedInstanceId/
+    NodeInterfaceMappings/SdiSourceMappings (NodeInterfaceMappings IS
+    accepted by CreateNodeInput but never threaded onto the stored Node --
+    same class as the pre-existing RunSummary.Priority gap in omics)."
 leaks: {status: clean, note: "No goroutines/janitors in this service (re-confirmed sweep 5: no `go func`/time.NewTicker/time.AfterFunc/context.WithCancel anywhere in non-test files). Two real leaks found and fixed this pass: (1) b.tags[ARN] rows were never removed on delete for every resource family outside the Channel/Input/InputSecurityGroup/Multiplex/InputDevice fast path (taggableResourceTags) -- Cluster/Node/SignalMap/CloudWatchAlarmTemplate(Group)/EventBridgeRuleTemplate(Group)/Reservation/Network/SdiSource/ChannelPlacementGroup all now clear their b.tags entry in their respective Delete method; regression-tested via TestTags_LegacyStoreClearedOnDelete. (2) DeleteCluster never cascade-deleted its ChannelPlacementGroups -- unlike Nodes (embedded in storedCluster.Nodes, removed automatically with their parent), ChannelPlacementGroup lives in its own top-level table keyed by \"clusterID/groupID\"; fixed via cascadeDeleteChannelPlacementGroups, regression-tested via TestChannelPlacementGroup_CascadeDeletedWithCluster. Every b.mu.Lock/RLock call site was re-verified this pass to have an immediately-following `defer b.mu.Unlock()`/`RUnlock()` (125 call sites, no exceptions)."}
 
 ---
 
 ## Notes
+
+**2026-09-18 (over-wide List-summary sweep, gopherstack-dv4s):** all 15
+census-flagged List ops verified member by member. 13 already exactly
+matched their Summary/Describe type. ListChannels was dropping
+ChannelSummary.Tags (added, with a real-client round-trip test);
+ListNetworks leaked "tags" onto a shape that has none (removed, with a
+raw-body absence test) -- see `list_summary_shapes_test.go`. Unsourced
+members recorded in items_still_open.
 
 **Wire protocol**: REST-JSON1 (`/prod/...` paths, JSON bodies, HTTP verbs GET/POST/PUT/DELETE/PATCH map 1:1 to List/Create/Update/Delete/Update-partial). No XML anywhere in this service.
 

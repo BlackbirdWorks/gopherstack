@@ -2563,6 +2563,7 @@ type Channel struct {
 // returns the (potentially huge) encoder configuration, verified against
 // types.ChannelSummary.
 type ChannelSummary struct {
+	Tags                  map[string]string
 	ARN                   string
 	ID                    string
 	Name                  string

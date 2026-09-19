@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: waf
 sdk_module: aws-sdk-go-v2/service/waf@v1.33.4   # WAF Classic (legacy WAF/WAF Regional), distinct from wafv2
-last_audit_commit: 8c56f4eb9
-last_audit_date: 2026-08-07
+last_audit_commit: 1ecd57d33
+last_audit_date: 2026-09-18
 overall: A            # 2026-08-29 (cursor-population sweep): all 16 List ops declare a real NextMarker
                       # (from the pinned SDK Output structs directly), and 15 of 16 already read
                       # NextMarker/Limit from the request and set NextMarker on the response through the
@@ -51,6 +51,15 @@ leaks: {status: clean, note: "no goroutines/timers/background workers in this se
 ---
 
 ## Notes
+
+- **2026-09-18 (over-wide List-summary sweep re-check, gopherstack-dv4s):**
+  re-verified all 13 census-flagged List ops member by member against
+  `cmd/structfielddiff`'s dump of the pinned SDK (independent of the
+  2026-08-14 pass below, same conclusion): every op already emits its
+  dedicated `*Summary`/`RateBasedRuleSummary` type exactly, field-for-field,
+  with no Get/Describe-only leak and no missing Summary member. Zero code
+  changes this pass. `last_audit_commit`/`last_audit_date` bumped to record
+  the re-confirmation.
 
 - **2026-08-14 (gopherstack-dv4s batch five): over-wide List-response audit, 13/13
   candidate ops verified clean, zero leaks.** All 13 List ops flagged by

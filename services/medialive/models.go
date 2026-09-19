@@ -71,7 +71,11 @@ func (c *storedChannel) toChannel() *Channel {
 // method). EncoderSettings is intentionally excluded -- see ChannelSummary's
 // doc comment.
 func (c *storedChannel) toSummary() *ChannelSummary {
+	tags := make(map[string]string, len(c.Tags))
+	maps.Copy(tags, c.Tags)
+
 	return &ChannelSummary{
+		Tags:                  tags,
 		ARN:                   c.ARN,
 		ID:                    c.ID,
 		Name:                  c.Name,
