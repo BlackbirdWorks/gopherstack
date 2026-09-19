@@ -1,6 +1,6 @@
 service: vpclattice
 sdk_module: aws-sdk-go-v2/service/vpclattice@v1.25.5
-last_audit_commit: ed6ef1a53
+last_audit_commit: a83673c4a
 last_audit_date: 2026-09-19
 # 2026-08-21 gopherstack-r80d batch 13 (required-output cut): last_audit_commit
 # left unchanged per this campaign's convention (the orchestrator, not this
@@ -147,6 +147,18 @@ items_still_open:
     resource, same class as the pre-existing ResourceEndpointAssociation
     gap above)."
 leaks: {status: clean, note: "no goroutines/timers/background workers in this backend; Reset()/Snapshot()/Restore() all take the single lockmetrics.RWMutex and touch only in-memory maps/store.Table instances. No janitor loop to check. DeleteService/DeleteServiceNetwork now also cascade-delete their dependent listeners/rules/resourcePolicy/authPolicy/accessLogSubscriptions/tags instead of leaving ghost rows behind (previously: only tags were cleaned up on these two deletes; DeleteListener/DeleteTargetGroup already cascaded correctly and are unchanged)."
+
+### 2026-09-19 (required-output-members reverification)
+
+Re-read all 37 required output fields across the 16 census ops
+(`cmd/requiredoutputfields`) end to end against the current handlers:
+CreateAccessLogSubscription/GetAccessLogSubscription/UpdateAccessLogSubscription
+(`alsToJSON`), StartDomainVerification/GetDomainVerification
+(`domainVerificationToJSON`), and all 9 `List*` ops' top-level `Items`. All
+37 already correctly populated on every path -- no regressions since the
+r80d batch-13 fix (ListAccessLogSubscriptions' `lastUpdatedAt`) or the
+2026-08-28 wrapper-key sweep. 0 fixed, 0 false positives this pass. No code
+changed.
 
 ### 2026-09-19 (gopherstack-op3e census): "/tags" prefix shadow (accessanalyzer) -- false positive
 

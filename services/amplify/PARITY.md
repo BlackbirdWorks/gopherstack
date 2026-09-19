@@ -1,7 +1,7 @@
 ---
 service: amplify
 sdk_module: aws-sdk-go-v2/service/amplify@v1.47.0
-last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0); prior: c9523cebb
+last_audit_commit: a83673c4a  # 2026-09-19 required-output-members reverification; prior: d522d763f
 last_audit_date: 2026-09-19  # prior: 2026-09-18
 overall: A            # 2026-08-29 write-only-state sweep: App.ComputeRoleArn/JobConfig,
                        # Branch.Backend/ComputeRoleArn/EnableSkewProtection, and
@@ -92,6 +92,17 @@ leaks: {status: clean, note: "janitor.Run blocks on <-ctx.Done() and calls worke
 ---
 
 ## Notes
+
+### 2026-09-19 required-output-members reverification
+
+Re-read all 35 required output fields across the 33 census ops
+(`cmd/requiredoutputfields`) end to end against the current handlers:
+App/Branch/DomainAssociation/Webhook/BackendEnvironment views, JobSummary
+(`toJobSummaryView`, CommitId/CommitMessage/CommitTime), GetArtifactUrl, and
+CreateDeployment's FileUploadUrls/ZipUploadUrl are all populated
+unconditionally on every Create/Get/List/Update/Delete/Start/Stop path.
+Confirms the gopherstack-r80d batch-14 sweep still holds; no regressions. 0
+fixed, 0 false positives this pass. No code changed.
 
 ### 2026-09-19 leak-audit follow-up (gopherstack-1x2u0 Part 2)
 

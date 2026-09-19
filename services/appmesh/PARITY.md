@@ -6,8 +6,8 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: appmesh
 sdk_module: aws-sdk-go-v2/service/appmesh@v1.38.4
-last_audit_commit: 1d121bbad
-last_audit_date: 2026-09-18
+last_audit_commit: a83673c4a
+last_audit_date: 2026-09-19
 overall: A            # zero wire bugs this pass (2026-08-19); every single-resource CRUD op's flat
                        # (unwrapped) body reconfirmed correct against the SDK's actually
                        # invoked per-op deserializer, not the dead OpDocument helper.
@@ -77,6 +77,15 @@ leaks: {status: clean, note: "single coarse lockmetrics.RWMutex per backend (mat
 ---
 
 ## Notes
+
+**2026-09-19 required-output-members reverification**: re-read all 36 required
+output fields across the 36 census ops (`cmd/requiredoutputfields`) end to
+end against the current handlers — every Create/Describe/Update/Delete op's
+`*ToWire` helper (`meshToWire`, `vnToWire`, etc.) is called unconditionally
+on every code path including Delete, and every `List*`/`ListTagsForResource`
+builds its array with `make(...)` so the key is always present even empty.
+Confirms the r80d batch-13 verdict still holds; no regressions. 0 fixed, 0
+false positives this pass. No code changed.
 
 **2026-08-19 sweep: corrected a false "wrapper-key bug" recorded by a prior pass — the
 flat (unwrapped) body is, and always was, correct.** This file previously claimed (with
