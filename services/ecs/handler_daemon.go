@@ -416,10 +416,11 @@ func (h *Handler) handleDescribeDaemonDeployments(
 // ----- Handler: ListDaemonDeployments -----
 
 type listDaemonDeploymentsInput struct {
-	DaemonArn  string   `json:"daemonArn"`
-	NextToken  string   `json:"nextToken,omitempty"`
-	Status     []string `json:"status,omitempty"`
-	MaxResults int      `json:"maxResults,omitempty"`
+	CreatedAt  *createdAtFilter `json:"createdAt,omitempty"`
+	DaemonArn  string           `json:"daemonArn"`
+	NextToken  string           `json:"nextToken,omitempty"`
+	Status     []string         `json:"status,omitempty"`
+	MaxResults int              `json:"maxResults,omitempty"`
 }
 
 type daemonDeploymentSummaryView struct {
@@ -450,6 +451,18 @@ func (h *Handler) handleListDaemonDeployments(
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if in.CreatedAt != nil {
+		filtered := make([]DaemonDeployment, 0, len(deps))
+
+		for _, dep := range deps {
+			if in.CreatedAt.matches(dep.CreatedAt) {
+				filtered = append(filtered, dep)
+			}
+		}
+
+		deps = filtered
 	}
 
 	views := make([]daemonDeploymentSummaryView, 0, len(deps))
