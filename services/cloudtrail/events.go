@@ -13,6 +13,21 @@ import (
 // backend records (it never synthesizes Insight-category events).
 const eventCategoryManagement = "Management"
 
+const (
+	// eventHistoryRetention matches CloudTrail Event history's default 90-day
+	// lookback window (docs.aws.amazon.com/awscloudtrail/latest/userguide/
+	// view-cloudtrail-events.html).
+	eventHistoryRetention = 90 * 24 * time.Hour
+	// maxStoredEvents bounds memory for a long-running emulator process even
+	// within the retention window (pkgs/service records one event per
+	// mutating API call across every registered service, so this store grows
+	// continuously in hours-long CI/dev sessions without a cap).
+	maxStoredEvents = 100_000
+	// trimEventsSweepEvery amortizes the O(n) trim scan across writes instead
+	// of running it on every RecordEvent call.
+	trimEventsSweepEvery = 500
+)
+
 // RecordEvent stores a management/data event so it can later be returned by
 // LookupEvents. The event is assigned an EventID, EventTime, and EventCategory
 // if not already set (every event this backend records is a management-plane
@@ -34,8 +49,34 @@ func (b *InMemoryBackend) RecordEvent(ev Event) {
 	}
 
 	b.events = append(b.events, ev)
+	b.eventWrites++
+
+	if b.eventWrites%trimEventsSweepEvery == 0 || len(b.events) > maxStoredEvents {
+		b.trimEventsLocked()
+	}
 
 	b.deliverLogFileLocked(ev)
+}
+
+// trimEventsLocked evicts events past eventHistoryRetention and, if the store
+// is still over maxStoredEvents, drops the oldest excess by insertion order.
+// Caller must hold b.mu.
+func (b *InMemoryBackend) trimEventsLocked() {
+	cutoff := time.Now().UTC().Add(-eventHistoryRetention)
+
+	kept := b.events[:0]
+
+	for _, ev := range b.events {
+		if ev.EventTime.After(cutoff) {
+			kept = append(kept, ev)
+		}
+	}
+
+	b.events = kept
+
+	if excess := len(b.events) - maxStoredEvents; excess > 0 {
+		b.events = append([]Event(nil), b.events[excess:]...)
+	}
 }
 
 // lookupAttrMatch reports whether an event matches a single lookup attribute.

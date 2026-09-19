@@ -29,6 +29,7 @@ type InMemoryBackend struct {
 	region           string
 	accountID        string
 	events           []Event
+	eventWrites      int
 	channelCounter   int
 	dashboardCounter int
 	edsCounter       int
@@ -79,6 +80,7 @@ func (b *InMemoryBackend) Reset() {
 
 	b.registry.ResetAll()
 	b.events = nil
+	b.eventWrites = 0
 	b.eventConfigs = make(map[string]*EventConfiguration)
 	b.channelCounter = 0
 	b.dashboardCounter = 0

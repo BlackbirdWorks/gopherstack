@@ -6,7 +6,7 @@
 # trust rows marked ok whose files are unchanged since last_audit_commit.
 service: cloudtrail
 sdk_module: aws-sdk-go-v2/service/cloudtrail@v1.58.4   # version audited against
-last_audit_commit: d9715a7fd
+last_audit_commit: 49cff86c4
 last_audit_date: 2026-09-19
 overall: A            # A = ~1k genuine fixes found; B = already-accurate, proven op-by-op
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
@@ -554,3 +554,12 @@ Added a `lookupEventsEventWire` response type that excludes it while
 leaving the persisted domain field and its internal EventCategory-filter
 logic untouched. Proof: `TestLookupEvents_WireHasNoEventCategory` asserts
 the key's absence from the raw response body.
+
+## 2026-09-19: unbounded event-history growth (gopherstack parity-sweep, Part B)
+
+`RecordEvent` (the pkgs/service CloudTrail-capture chokepoint, invoked
+after every mutating API call on any registered service) appended to
+`b.events` with no cap or retention — unbounded growth in hours-long
+CI/dev sessions. Added a lazy, amortized trim enforcing CloudTrail Event
+history's real 90-day window plus a 100k-entry safety cap; proved with
+`TestRecordEvent_TrimsPastRetention`.
