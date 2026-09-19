@@ -1,8 +1,8 @@
 ---
 service: swf
 sdk_module: aws-sdk-go-v2/service/swf@v1.37.4   # verified this pass; go.mod pin, was stale at v1.33.14
-last_audit_commit: 16aa469b2                     # HEAD at close of the 2026-09-18 ledger burn-down pass
-last_audit_date: 2026-09-18
+last_audit_commit: 49cff86c4                     # HEAD at close of the 2026-09-18 ledger burn-down pass
+last_audit_date: 2026-09-19
 overall: A            # genuine fixes found this pass, plus a wrapper-key/nested-shape sweep
                        # (2026-08-20) that found and fixed 2 more real bugs; see Notes.
                        # 2026-08-29: one more genuine bug found and fixed (ListOpen/
@@ -18,17 +18,17 @@ overall: A            # genuine fixes found this pass, plus a wrapper-key/nested
 ops:
   RegisterDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   DescribeDomain: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListDomains: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder (documented default: ascending) was parsed nowhere -- always sorted ascending regardless of the request."}
+  ListDomains: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder (documented default: ascending) was parsed nowhere -- always sorted ascending regardless of the request. Re-verified this pass (over-wide-response sweep, 2026-09-19): domainInfoOutput's four members match types.DomainInfo exactly -- no leaks, no gaps."}
   DeprecateDomain: {wire: ok, errors: ok, state: fixed, persist: ok, note: "was not cascading DEPRECATED onto the domain's registered workflow/activity types, see Notes"}
   UndeprecateDomain: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListWorkflowTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains."}
+  ListWorkflowTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains. Re-verified this pass (over-wide-response sweep, 2026-09-19): workflowTypeInfoOutput's five members match types.WorkflowTypeInfo exactly -- no leaks, no gaps."}
   DescribeWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
   DeprecateWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   UndeprecateWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   DeleteWorkflowType: {wire: ok, errors: ok, state: ok, persist: ok}
   RegisterActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
-  ListActivityTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains."}
+  ListActivityTypes: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps). FIXED 2026-09-18 (reqfielddiff tier-1): ReverseOrder was parsed nowhere -- same fix as ListDomains. Re-verified this pass (over-wide-response sweep, 2026-09-19): activityTypeInfoOutput's five members match types.ActivityTypeInfo exactly -- no leaks, no gaps."}
   DescribeActivityType: {wire: ok, errors: ok, state: ok, persist: ok, note: "2026-08-23: DeprecationDate now populated (see gaps)"}
   DeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
   UndeprecateActivityType: {wire: ok, errors: ok, state: ok, persist: ok}
@@ -37,8 +37,8 @@ ops:
   TerminateWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "childPolicy was parsed off the wire into handleTerminateWorkflowExecutionInput and then silently discarded -- the backend call took no such parameter, so a client's per-call override never applied and only the policy stored at StartWorkflowExecution time governed. Now threaded through and, combined with a new TERMINATE/REQUEST_CANCEL child-policy cascade onto open children, actually takes effect; also propagates ChildWorkflowExecutionTerminated to the parent execution, see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions first, same as StartWorkflowExecution above -- see Notes: timeout enforcement"}
   DescribeWorkflowExecution: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "openCounts.openTimers/openChildWorkflowExecutions were hardcoded 0; executionInfo.parent was entirely missing; ADDITIONALLY (gopherstack-jsi8, 2026-08-07): the wire's Execution.RunId (a real, required field per types.WorkflowExecution) was parsed off the request and then silently discarded -- the Go-level backend method took no runID parameter at all, so a client asking for a specific historical run always got whatever run currently occupied the domain+workflowId slot instead. Now threaded through end to end; see Notes. ADDITIONALLY (gopherstack-7gse, 2026-08-10): now sweeps expired executions (EXECUTION_START_TO_CLOSE only) before resolving, so a RUNNING execution whose timeout has elapsed reads back as TIMED_OUT instead of staying RUNNING forever -- see Notes: timeout enforcement"}
   GetWorkflowExecutionHistory: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "gopherstack-jsi8, 2026-08-07: same Execution.RunId-discarded bug as DescribeWorkflowExecution above, same fix -- see Notes. Also sweeps expired executions first, same as DescribeWorkflowExecution (gopherstack-7gse)"}
-  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement. 2026-08-29 wrapper-key/wire sweep: ReverseOrder (real, per-op input member) was dropped entirely and results had no default sort order at all (arbitrary index-insertion order) instead of real AWS's documented descending-start-time default -- see Notes"}
-  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above. 2026-08-29 wrapper-key/wire sweep: same ReverseOrder/default-order bug as ListOpenWorkflowExecutions, ordered by close time when closeTimeFilter selects the results, by start time when startTimeFilter does -- see Notes"}
+  ListOpenWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse) so a timed-out execution moves from the open list to the closed list on the next call instead of staying open forever -- see Notes: timeout enforcement. 2026-08-29 wrapper-key/wire sweep: ReverseOrder (real, per-op input member) was dropped entirely and results had no default sort order at all (arbitrary index-insertion order) instead of real AWS's documented descending-start-time default -- see Notes. Re-verified this pass (over-wide-response sweep, 2026-09-19): executionInfoOutput's nine members match types.WorkflowExecutionInfo exactly -- no leaks, no gaps."}
+  ListClosedWorkflowExecutions: {wire: fixed, errors: ok, state: fixed, persist: ok, note: "executionInfo.parent was missing, same fix as DescribeWorkflowExecution. Also sweeps expired executions first (gopherstack-7gse), same effect as ListOpenWorkflowExecutions above. 2026-08-29 wrapper-key/wire sweep: same ReverseOrder/default-order bug as ListOpenWorkflowExecutions, ordered by close time when closeTimeFilter selects the results, by start time when startTimeFilter does -- see Notes. Re-verified this pass (over-wide-response sweep, 2026-09-19): shares executionInfoOutput with ListOpenWorkflowExecutions, already confirmed exact above (real AWS also reuses one WorkflowExecutionInfo type for both ops)."}
   RequestCancelWorkflowExecution: {wire: fixed, errors: ok, state: ok, persist: ok, note: "2026-08-20 wire-parity sweep: WorkflowExecutionCancelRequestedEventAttributes.Cause was stamped OPERATOR_INITIATED for a direct call, a value the real WorkflowExecutionCancelRequestedCause enum does not define at all (its only value is CHILD_POLICY_APPLIED) -- see Notes. Also sweeps expired executions first (gopherstack-7gse), defense-in-depth consistency with the other execution-touching ops -- see Notes: timeout enforcement"}
   SignalWorkflowExecution: {wire: ok, errors: ok, state: ok, persist: ok, note: "now also sweeps expired executions first (gopherstack-7gse), same as RequestCancelWorkflowExecution"}
   CountOpenWorkflowExecutions: {wire: ok, errors: ok, state: fixed, persist: n/a, note: "now sweeps expired executions first (gopherstack-7gse) so a timed-out execution is no longer counted as open -- see Notes: timeout enforcement"}
@@ -70,6 +70,14 @@ leaks: {status: clean, note: "no goroutines/timers spawned by this service, incl
 ---
 
 ## Notes
+
+### 2026-09-19 over-wide-response sweep
+
+cmd/overwidecandidates flagged all 5 List ops. All 5 already emitted exactly
+their real Info-summary member set (verified against swf@v1.37.4) -- no
+leaks, no gaps. ListOpenWorkflowExecutions/ListClosedWorkflowExecutions
+share one executionInfoOutput builder, matching real AWS's own reuse of
+types.WorkflowExecutionInfo across both ops. See list_summary_shapes_test.go.
 
 ### 2026-09-18: ledger burn-down -- TimerFired implemented, 6 stale items_still_open entries removed
 
