@@ -25,6 +25,13 @@ func allowedWeakHashFiles() map[string]string {
 		// checksum echoed on the wire, never a credential. gopherstack-ziv9.
 		"services/ssm/document_hashes.go": "DocumentDescription.Sha1 parity, verified",
 
+		// Verified 2026-09-19: ChecksumAlgorithm SHA1 is one of the four
+		// algorithms the S3 SDK computes over the request body
+		// (service/internal/checksum@v1.11.2 algorithms.go), sent as
+		// X-Amz-Checksum-Sha1; the emulator must recompute it to verify the
+		// header. Content-integrity checksum, never a credential.
+		"services/s3/checksum.go": "S3 ChecksumAlgorithm SHA1 verification, verified",
+
 		// Pre-existing at the time this guard was added, and NOT individually
 		// audited. Each is presumed an AWS-protocol requirement -- S3 ETags are
 		// MD5 by specification, TOTP is HMAC-SHA1 by RFC 6238, key-pair
