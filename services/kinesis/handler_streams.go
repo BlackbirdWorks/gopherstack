@@ -88,10 +88,19 @@ type jsonDescribeStreamSummaryResp struct {
 	StreamDescriptionSummary jsonStreamDescriptionSummary `json:"StreamDescriptionSummary"`
 }
 
+type jsonStreamSummary struct {
+	StreamModeDetails       *jsonStreamModeDetails `json:"StreamModeDetails,omitempty"`
+	StreamName              string                 `json:"StreamName"`
+	StreamARN               string                 `json:"StreamARN"`
+	StreamStatus            string                 `json:"StreamStatus"`
+	StreamCreationTimestamp float64                `json:"StreamCreationTimestamp,omitempty"`
+}
+
 type jsonListStreamsResp struct {
-	NextToken      string   `json:"NextToken,omitempty"`
-	StreamNames    []string `json:"StreamNames"`
-	HasMoreStreams bool     `json:"HasMoreStreams"`
+	NextToken       string              `json:"NextToken,omitempty"`
+	StreamNames     []string            `json:"StreamNames"`
+	StreamSummaries []jsonStreamSummary `json:"StreamSummaries"`
+	HasMoreStreams  bool                `json:"HasMoreStreams"`
 }
 
 func (h *Handler) handleCreateStream(
@@ -352,9 +361,21 @@ func (h *Handler) handleListStreams(
 		names = []string{}
 	}
 
+	summaries := make([]jsonStreamSummary, len(out.StreamSummaries))
+	for i, s := range out.StreamSummaries {
+		summaries[i] = jsonStreamSummary{
+			StreamName:              s.StreamName,
+			StreamARN:               s.StreamARN,
+			StreamStatus:            s.StreamStatus,
+			StreamCreationTimestamp: float64(s.StreamCreationTimestamp.Unix()),
+			StreamModeDetails:       &jsonStreamModeDetails{StreamMode: s.StreamMode},
+		}
+	}
+
 	return jsonListStreamsResp{
-		StreamNames:    names,
-		HasMoreStreams: out.HasMoreStreams,
-		NextToken:      out.NextToken,
+		StreamNames:     names,
+		StreamSummaries: summaries,
+		HasMoreStreams:  out.HasMoreStreams,
+		NextToken:       out.NextToken,
 	}, nil
 }

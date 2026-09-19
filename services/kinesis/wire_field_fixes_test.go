@@ -305,6 +305,69 @@ func TestDescribeStreamSummary_MaxRecordSizeAndWarmThroughput(t *testing.T) {
 	assert.Equal(t, int32(5), aws.ToInt32(after.StreamDescriptionSummary.WarmThroughput.TargetMiBps))
 }
 
+// TestListStreams_StreamSummaries drives ListStreams through the real SDK
+// client and confirms StreamSummaries (optional, richer per-stream shape,
+// types.StreamSummary) is populated alongside the required StreamNames --
+// previously only StreamNames was ever returned.
+func TestListStreams_StreamSummaries(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "list-streams-summaries-stream"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(1),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+
+	out, err := client.ListStreams(t.Context(), &kinesissdk.ListStreamsInput{})
+	require.NoError(t, err)
+	require.Len(t, out.StreamSummaries, 1)
+
+	got := out.StreamSummaries[0]
+	assert.Equal(t, streamName, aws.ToString(got.StreamName))
+	assert.Equal(t, aws.ToString(desc.StreamDescription.StreamARN), aws.ToString(got.StreamARN))
+	assert.Equal(t, types.StreamStatusActive, got.StreamStatus)
+	require.NotNil(t, got.StreamModeDetails)
+	assert.Equal(t, types.StreamModeProvisioned, got.StreamModeDetails.StreamMode)
+}
+
+// TestUpdateShardCount_StreamARN drives UpdateShardCount through the real SDK
+// client and confirms the response carries StreamARN (optional
+// UpdateShardCountOutput member, api_op_UpdateShardCount.go:119-137) --
+// previously entirely absent from this backend's output.
+func TestUpdateShardCount_StreamARN(t *testing.T) {
+	t.Parallel()
+
+	backend := kinesis.NewInMemoryBackend()
+	client := newTestKinesisClient(t, kinesis.NewHandler(backend))
+
+	streamName := "update-shard-count-arn-stream"
+
+	_, err := client.CreateStream(t.Context(), &kinesissdk.CreateStreamInput{
+		StreamName: aws.String(streamName),
+		ShardCount: aws.Int32(2),
+	})
+	require.NoError(t, err)
+
+	desc, err := client.DescribeStream(t.Context(), &kinesissdk.DescribeStreamInput{StreamName: aws.String(streamName)})
+	require.NoError(t, err)
+
+	out, err := client.UpdateShardCount(t.Context(), &kinesissdk.UpdateShardCountInput{
+		StreamName:       aws.String(streamName),
+		TargetShardCount: aws.Int32(4),
+		ScalingType:      types.ScalingTypeUniformScaling,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, aws.ToString(desc.StreamDescription.StreamARN), aws.ToString(out.StreamARN))
+}
+
 // TestCreateStream_MaxRecordSizeAndWarmThroughput drives CreateStreamInput's
 // own MaxRecordSizeInKiB and WarmThroughputMiBps members (kinesis@v1.46.4
 // api_op_CreateStream.go:101-121) -- distinct from the same-named fields on

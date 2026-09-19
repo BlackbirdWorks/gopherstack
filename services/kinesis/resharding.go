@@ -86,6 +86,7 @@ func (b *InMemoryBackend) UpdateShardCount(
 
 	return &UpdateShardCountOutput{
 		StreamName:        input.StreamName,
+		StreamARN:         stream.ARN,
 		CurrentShardCount: currentCount,
 		TargetShardCount:  targetCount,
 	}, nil

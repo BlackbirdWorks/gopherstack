@@ -3,7 +3,6 @@ package kinesis
 import (
 	"context"
 	"regexp"
-	"slices"
 	"sort"
 	"time"
 
@@ -315,13 +314,9 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 	b.mu.RLock("ListStreams")
 	defer b.mu.RUnlock()
 
-	// AWS returns stream names in alphabetical order.
-	regionStreams := b.streamsByRegion.Get(region)
-	names := make([]string, len(regionStreams))
-	for i, s := range regionStreams {
-		names[i] = s.Name
-	}
-	slices.Sort(names)
+	// AWS returns streams in alphabetical order by name.
+	regionStreams := append([]*Stream{}, b.streamsByRegion.Get(region)...)
+	sort.Slice(regionStreams, func(i, j int) bool { return regionStreams[i].Name < regionStreams[j].Name })
 
 	// Apply pagination start point: prefer ExclusiveStartStreamName, then NextToken.
 	start := input.ExclusiveStartStreamName
@@ -330,14 +325,14 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 	}
 
 	if start != "" {
-		idx := sort.SearchStrings(names, start)
-		// Skip the matched name itself; SearchStrings returns the insertion point
-		// so equal entries land at idx — advance past it.
-		if idx < len(names) && names[idx] == start {
+		idx := sort.Search(len(regionStreams), func(i int) bool { return regionStreams[i].Name >= start })
+		// Skip the matched name itself; Search returns the insertion point so
+		// equal entries land at idx — advance past it.
+		if idx < len(regionStreams) && regionStreams[idx].Name == start {
 			idx++
 		}
 
-		names = names[idx:]
+		regionStreams = regionStreams[idx:]
 	}
 
 	const (
@@ -350,21 +345,35 @@ func (b *InMemoryBackend) ListStreams(ctx context.Context, input *ListStreamsInp
 		limit = defaultListStreamsLimit
 	}
 
-	if limit > len(names) {
-		limit = len(names)
+	if limit > len(regionStreams) {
+		limit = len(regionStreams)
 	}
 
-	page := names[:limit]
-	hasMore := len(names) > limit
+	page := regionStreams[:limit]
+	hasMore := len(regionStreams) > limit
+
+	names := make([]string, len(page))
+	summaries := make([]StreamSummary, len(page))
+	for i, s := range page {
+		names[i] = s.Name
+		summaries[i] = StreamSummary{
+			StreamName:              s.Name,
+			StreamARN:               s.ARN,
+			StreamStatus:            s.Status,
+			StreamMode:              s.StreamMode,
+			StreamCreationTimestamp: s.CreatedAt,
+		}
+	}
 
 	var nextToken string
 	if hasMore && len(page) > 0 {
-		nextToken = page[len(page)-1]
+		nextToken = page[len(page)-1].Name
 	}
 
 	return &ListStreamsOutput{
-		StreamNames:    page,
-		HasMoreStreams: hasMore,
-		NextToken:      nextToken,
+		StreamNames:     names,
+		StreamSummaries: summaries,
+		HasMoreStreams:  hasMore,
+		NextToken:       nextToken,
 	}, nil
 }

@@ -307,9 +307,20 @@ type ListStreamsInput struct {
 
 // ListStreamsOutput is the output for ListStreams.
 type ListStreamsOutput struct {
-	NextToken      string
-	StreamNames    []string
-	HasMoreStreams bool
+	NextToken       string
+	StreamNames     []string
+	StreamSummaries []StreamSummary
+	HasMoreStreams  bool
+}
+
+// StreamSummary is the optional, richer per-stream shape ListStreamsOutput
+// carries alongside the required StreamNames (types.StreamSummary).
+type StreamSummary struct {
+	StreamCreationTimestamp time.Time
+	StreamName              string
+	StreamARN               string
+	StreamStatus            string
+	StreamMode              string
 }
 
 // PutRecordInput is the input for PutRecord.
@@ -514,6 +525,7 @@ type UpdateShardCountInput struct {
 // UpdateShardCountOutput is the output for UpdateShardCount.
 type UpdateShardCountOutput struct {
 	StreamName        string
+	StreamARN         string
 	CurrentShardCount int
 	TargetShardCount  int
 }

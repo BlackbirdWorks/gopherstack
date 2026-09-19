@@ -373,6 +373,17 @@ func (h *Handler) parseSubscribeToShardRequest(
 // streaming loop.
 func (h *Handler) openSubscribeToShardStream(c *echo.Context) (http.Flusher, bool, error) {
 	c.Response().Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	// A SubscribeToShard response is a long-lived, minutes-long stream, unlike
+	// every other op on this connection's pool. Marking it non-reusable
+	// (rather than relying on every caller's client to disable keep-alives,
+	// as the internal test client does for gopherstack-i8q7) tells net/http's
+	// server to close the TCP connection once this response ends instead of
+	// returning it to the keep-alive pool, which is what let an unrelated
+	// short-lived call on the same reused connection race
+	// (*persistConn).writeLoop tearing it down while the SDK's event-stream
+	// reader was still mid-read here -- surfacing as "use of closed network
+	// connection" (gopherstack-i8q7, gopherstack-j60e).
+	c.Response().Header().Set("Connection", "close")
 	c.Response().WriteHeader(http.StatusOK)
 
 	flusher, canFlush := c.Response().(http.Flusher)
