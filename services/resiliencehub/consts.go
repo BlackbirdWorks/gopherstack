@@ -83,6 +83,18 @@ var disruptionTypes = []string{
 	DisruptionTypeSoftware, DisruptionTypeHardware, DisruptionTypeAZ, DisruptionTypeRegion,
 }
 
+// requiredDisruptionTypes lists the DisruptionType keys CreateResiliencyPolicy
+// rejects a request for omitting. Region is deliberately excluded: the
+// hashicorp/aws provider's aws_resiliencehub_resiliency_policy resource marks
+// policy.az/hardware/software as Required and policy.region as Optional
+// (registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/resiliencehub_resiliency_policy),
+// so a real client's minimal request omits Region.
+//
+//nolint:gochecknoglobals // static reference table, read-only, matches disruptionTypes above
+var requiredDisruptionTypes = []string{
+	DisruptionTypeSoftware, DisruptionTypeHardware, DisruptionTypeAZ,
+}
+
 // ResiliencyPolicyTier wire values (types.ResiliencyPolicyTier).
 const (
 	TierMissionCritical = "MissionCritical"

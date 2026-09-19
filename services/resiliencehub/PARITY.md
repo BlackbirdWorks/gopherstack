@@ -12,8 +12,8 @@
 # audit body (Sections 1-4 below) is kept as reference material.
 service: resiliencehub
 sdk_module: aws-sdk-go-v2/service/resiliencehub@v1.38.3
-last_audit_commit: 9bcb4b792
-last_audit_date: 2026-09-18
+last_audit_commit: fa93861fb
+last_audit_date: 2026-09-19
 # Grade A: 63/63 ops routed with real state/persistence, a Docker-backed
 # SDK-driven integration suite (test/integration/resiliencehub_test.go, 9
 # TestIntegration_ResilienceHub_* funcs / 27 subtests) proves wire
@@ -644,6 +644,13 @@ confirmed absent, not silently skipped.
    asserted here from general knowledge of the documented product behavior,
    not verified against generated code, and should be flagged as such if the
    implementer relies on it.
+
+## Notes
+
+**2026-09-19**: First terraform coverage (mega-batch-6) found `validatePolicyMap` wrongly
+required a `Region` FailurePolicy entry; hashicorp/aws's provider marks `policy.region`
+Optional. Fixed (`requiredDisruptionTypes` = Software/Hardware/AZ only); apply+destroy
+verified against real provider v5.100.0.
 
 ## Notes for the implementer
 

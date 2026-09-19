@@ -18,26 +18,24 @@ func (b *InMemoryBackend) resolvePolicyLocked(policyArn string) (*ResiliencyPoli
 	return b.policies.Get(id)
 }
 
-// validatePolicyMap requires a FailurePolicy entry for every DisruptionType
-// (Software/Hardware/AZ/Region) -- FailurePolicy.RtoInSecs/RpoInSecs are
+// validatePolicyMap requires a FailurePolicy entry for every required
+// DisruptionType (Software/Hardware/AZ; see requiredDisruptionTypes -- Region
+// is optional, matching the real API). FailurePolicy.RtoInSecs/RpoInSecs are
 // plain int32 (always present, never pointers) on the wire, so a policy that
-// is missing a disruption type has no well-formed zero value to fall back
-// to. The exact required-keys rule is not encoded in the Go SDK types
-// themselves (PARITY.md flags this as something "the implementer would need
-// to infer/decide") -- requiring all four is the most defensible reading of
-// "a resiliency policy for every disruption type", matching how
-// CreateResiliencyPolicyInput.Policy is documented as required in full.
+// is missing a required disruption type has no well-formed zero value to
+// fall back to. Any Region entry present is still validated below.
 func validatePolicyMap(m map[string]failurePolicyWire) error {
 	if len(m) == 0 {
 		return validationError("policy is required")
 	}
 
-	for _, dt := range disruptionTypes {
-		fp, ok := m[dt]
-		if !ok {
+	for _, dt := range requiredDisruptionTypes {
+		if _, ok := m[dt]; !ok {
 			return validationError("policy is missing required disruption type: " + dt)
 		}
+	}
 
+	for dt, fp := range m {
 		if fp.RtoInSecs < 0 || fp.RpoInSecs < 0 {
 			return validationError("policy RtoInSecs/RpoInSecs must be non-negative for disruption type: " + dt)
 		}
