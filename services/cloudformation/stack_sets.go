@@ -202,10 +202,13 @@ func (b *InMemoryBackend) ListStackSets(
 		}
 
 		result = append(result, StackSetSummary{
-			StackSetID:   ss.StackSetID,
-			StackSetName: ss.StackSetName,
-			Status:       ss.Status,
-			Description:  ss.Description,
+			StackSetID:       ss.StackSetID,
+			StackSetName:     ss.StackSetName,
+			Status:           ss.Status,
+			Description:      ss.Description,
+			AutoDeployment:   ss.AutoDeployment,
+			ManagedExecution: ss.ManagedExecution,
+			PermissionModel:  ss.PermissionModel,
 		})
 	}
 	sort.Slice(

@@ -82,13 +82,16 @@ type Tag struct {
 
 // StackSummary is a brief summary of a stack for ListStacks.
 type StackSummary struct {
-	CreationTime      time.Time  `xml:"CreationTime"                json:"creationTime"`
-	DeletionTime      *time.Time `xml:"DeletionTime,omitempty"      json:"deletionTime,omitempty"`
-	LastUpdatedTime   *time.Time `xml:"LastUpdatedTime,omitempty"   json:"lastUpdatedTime,omitempty"`
-	StackID           string     `xml:"StackId"                     json:"stackID"`
-	StackName         string     `xml:"StackName"                   json:"stackName"`
-	StackStatus       string     `xml:"StackStatus"                 json:"stackStatus"`
-	StackStatusReason string     `xml:"StackStatusReason,omitempty" json:"stackStatusReason,omitempty"`
+	CreationTime        time.Time  `xml:"CreationTime"                  json:"creationTime"`
+	DeletionTime        *time.Time `xml:"DeletionTime,omitempty"        json:"deletionTime,omitempty"`
+	LastUpdatedTime     *time.Time `xml:"LastUpdatedTime,omitempty"     json:"lastUpdatedTime,omitempty"`
+	StackID             string     `xml:"StackId"                       json:"stackID"`
+	StackName           string     `xml:"StackName"                     json:"stackName"`
+	StackStatus         string     `xml:"StackStatus"                   json:"stackStatus"`
+	StackStatusReason   string     `xml:"StackStatusReason,omitempty"   json:"stackStatusReason,omitempty"`
+	ParentID            string     `xml:"ParentId,omitempty"            json:"parentID,omitempty"`
+	RootID              string     `xml:"RootId,omitempty"              json:"rootID,omitempty"`
+	TemplateDescription string     `xml:"TemplateDescription,omitempty" json:"templateDescription,omitempty"` //nolint:lll // AWS-compatible JSON field name exceeds line limit
 }
 
 // StackEvent is a single event in a stack's history.
@@ -135,6 +138,12 @@ type ChangeSet struct {
 	Changes               []Change               `xml:"-"                               json:"changes,omitempty"`
 	Capabilities          []string               `xml:"-"                               json:"capabilities,omitempty"`
 	Tags                  []Tag                  `xml:"-"                               json:"tags,omitempty"`
+	// ResourceTypes/DisableValidation mirror CreateChangeSetInput's own
+	// fields (api_op_CreateChangeSet.go:192,254) -- not part of
+	// DescribeChangeSetOutput's wire shape, threaded through to Execute's
+	// internal CreateStack/UpdateStack call the same way Capabilities is.
+	ResourceTypes     []string `xml:"-" json:"resourceTypes,omitempty"`
+	DisableValidation bool     `xml:"-" json:"disableValidation,omitempty"`
 }
 
 // ChangeSetSummary is a brief summary of a change set.
@@ -278,10 +287,13 @@ type ManagedExecution struct {
 
 // StackSetSummary is a brief summary of a StackSet.
 type StackSetSummary struct {
-	StackSetID   string `xml:"StackSetId"`
-	StackSetName string `xml:"StackSetName"`
-	Status       string `xml:"Status"`
-	Description  string `xml:"Description,omitempty"`
+	AutoDeployment   *AutoDeployment   `xml:"-"`
+	ManagedExecution *ManagedExecution `xml:"-"`
+	StackSetID       string            `xml:"StackSetId"`
+	StackSetName     string            `xml:"StackSetName"`
+	Status           string            `xml:"Status"`
+	Description      string            `xml:"Description,omitempty"`
+	PermissionModel  string            `xml:"-"`
 }
 
 // StackInstance represents an instance of a StackSet in a specific account/region.

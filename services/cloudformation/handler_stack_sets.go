@@ -438,14 +438,33 @@ func (h *Handler) handleListStackSets(form url.Values, c *echo.Context) error {
 		return h.xmlError(c, "ValidationError", err.Error())
 	}
 	type summXML struct {
-		StackSetID   string `xml:"StackSetId"`
-		StackSetName string `xml:"StackSetName"`
-		Status       string `xml:"Status"`
-		Description  string `xml:"Description,omitempty"`
+		AutoDeployment   *stackSetAutoDeploymentXML   `xml:"AutoDeployment,omitempty"`
+		ManagedExecution *stackSetManagedExecutionXML `xml:"ManagedExecution,omitempty"`
+		StackSetID       string                       `xml:"StackSetId"`
+		StackSetName     string                       `xml:"StackSetName"`
+		Status           string                       `xml:"Status"`
+		Description      string                       `xml:"Description,omitempty"`
+		PermissionModel  string                       `xml:"PermissionModel,omitempty"`
 	}
 	members := make([]summXML, 0, len(p.Data))
 	for _, s := range p.Data {
-		members = append(members, summXML(s))
+		m := summXML{
+			StackSetID:      s.StackSetID,
+			StackSetName:    s.StackSetName,
+			Status:          s.Status,
+			Description:     s.Description,
+			PermissionModel: s.PermissionModel,
+		}
+		if s.AutoDeployment != nil {
+			m.AutoDeployment = &stackSetAutoDeploymentXML{
+				Enabled:                      s.AutoDeployment.Enabled,
+				RetainStacksOnAccountRemoval: s.AutoDeployment.RetainStacksOnAccountRemoval,
+			}
+		}
+		if s.ManagedExecution != nil {
+			m.ManagedExecution = &stackSetManagedExecutionXML{Active: s.ManagedExecution.Active}
+		}
+		members = append(members, m)
 	}
 	type result struct {
 		NextToken string    `xml:"NextToken,omitempty"`
@@ -951,8 +970,34 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 		form.Get("StackSetName"), form.Get("OperationId"),
 		form.Get("StackInstanceAccount"), form.Get("StackInstanceRegion"),
 	)
+	// Real wire type is StackInstanceResourceDriftsSummary
+	// (cloudformation@v1.76.1 types/types.go:1975), not the wider
+	// StackResourceDrift used by DetectStackResourceDrift/
+	// DescribeStackResourceDrifts -- it carries no ExpectedProperties/
+	// ActualProperties (those two exist only on StackResourceDrift).
+	type driftSummaryXML struct {
+		Timestamp                string               `xml:"Timestamp"`
+		StackID                  string               `xml:"StackId"`
+		LogicalResourceID        string               `xml:"LogicalResourceId"`
+		PhysicalResourceID       string               `xml:"PhysicalResourceId,omitempty"`
+		ResourceType             string               `xml:"ResourceType"`
+		StackResourceDriftStatus string               `xml:"StackResourceDriftStatus"`
+		PropertyDifferences      []PropertyDifference `xml:"PropertyDifferences>member,omitempty"`
+	}
+	members := make([]driftSummaryXML, 0, len(drifts))
+	for _, d := range drifts {
+		members = append(members, driftSummaryXML{
+			Timestamp:                d.Timestamp.UTC().Format("2006-01-02T15:04:05Z"),
+			StackID:                  d.StackID,
+			LogicalResourceID:        d.LogicalResourceID,
+			PhysicalResourceID:       d.PhysicalResourceID,
+			ResourceType:             d.ResourceType,
+			StackResourceDriftStatus: d.StackResourceDriftStatus,
+			PropertyDifferences:      d.PropertyDifferences,
+		})
+	}
 	type result struct {
-		Summaries []StackResourceDrift `xml:"Summaries>member"`
+		Summaries []driftSummaryXML `xml:"Summaries>member"`
 	}
 	type response struct {
 		XMLName   xml.Name `xml:"ListStackInstanceResourceDriftsResponse"`
@@ -963,7 +1008,7 @@ func (h *Handler) handleListStackInstanceResourceDrifts(form url.Values, c *echo
 
 	return writeXML(
 		c,
-		response{Xmlns: cfnNS, Result: result{Summaries: drifts}, RequestID: uuid.New().String()},
+		response{Xmlns: cfnNS, Result: result{Summaries: members}, RequestID: uuid.New().String()},
 	)
 }
 

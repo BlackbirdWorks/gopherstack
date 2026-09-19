@@ -44,6 +44,7 @@ func TestRealClient_StackOptions(t *testing.T) {
 		{testRegisterPublisherRequiresAcceptTerms, "register_publisher_requires_accept_terms"},
 		{testTestTypeVersionIDValidated, "test_type_version_id_validated"},
 		{testCreateStackRetainExceptOnCreate, "create_stack_retain_except_on_create"},
+		{testCreateChangeSetResourceTypesThreadedToExecute, "create_change_set_resource_types_threaded_to_execute"},
 	}
 
 	for _, tc := range cases {
@@ -584,4 +585,63 @@ func runRetainExceptOnCreate(t *testing.T, retainExceptOnCreate, wantBucketSurvi
 	} else {
 		assert.Error(t, headErr, "RetainExceptOnCreate=true must force-delete the Retain-policy bucket on rollback")
 	}
+}
+
+// testCreateChangeSetResourceTypesThreadedToExecute proves the fix for a
+// previously-dropped CreateChangeSetInput field: ResourceTypes (and
+// DisableValidation) were read nowhere by handleCreateChangeSet, unlike
+// CreateStack/UpdateStack which already honor them -- so a change set's own
+// resource-type allowlist had no effect once executed. ResourceTypes is now
+// stored on the ChangeSet and threaded into ExecuteChangeSet's internal
+// CreateStack/UpdateStack call, the same way Capabilities already is.
+func testCreateChangeSetResourceTypesThreadedToExecute(t *testing.T) {
+	t.Helper()
+
+	client := newTestHandlerAndClient(t)
+	ctx := t.Context()
+
+	// modifiedTemplate has an S3 bucket and an SQS queue; an S3-only
+	// allowlist must deny it once executed against a brand-new stack.
+	_, err := client.CreateChangeSet(ctx, &cfnsdk.CreateChangeSetInput{
+		StackName:     aws.String("changeset-resourcetypes-denied"),
+		ChangeSetName: aws.String("cs-resourcetypes-denied"),
+		TemplateBody:  aws.String(modifiedTemplate),
+		ResourceTypes: []string{"AWS::S3::*"},
+	})
+	require.NoError(t, err)
+
+	_, err = client.ExecuteChangeSet(ctx, &cfnsdk.ExecuteChangeSetInput{
+		StackName:     aws.String("changeset-resourcetypes-denied"),
+		ChangeSetName: aws.String("cs-resourcetypes-denied"),
+	})
+	require.NoError(t, err) // ExecuteChangeSet itself always succeeds synchronously; see status check below
+
+	descDenied, err := client.DescribeStacks(ctx, &cfnsdk.DescribeStacksInput{
+		StackName: aws.String("changeset-resourcetypes-denied"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descDenied.Stacks, 1)
+	assert.Equal(t, types.StackStatusRollbackComplete, descDenied.Stacks[0].StackStatus)
+
+	// Without the allowlist, the identical template succeeds -- proving the
+	// denial above came from ResourceTypes, not the template itself.
+	_, err = client.CreateChangeSet(ctx, &cfnsdk.CreateChangeSetInput{
+		StackName:     aws.String("changeset-resourcetypes-allowed"),
+		ChangeSetName: aws.String("cs-resourcetypes-allowed"),
+		TemplateBody:  aws.String(modifiedTemplate),
+	})
+	require.NoError(t, err)
+
+	_, err = client.ExecuteChangeSet(ctx, &cfnsdk.ExecuteChangeSetInput{
+		StackName:     aws.String("changeset-resourcetypes-allowed"),
+		ChangeSetName: aws.String("cs-resourcetypes-allowed"),
+	})
+	require.NoError(t, err)
+
+	descAllowed, err := client.DescribeStacks(ctx, &cfnsdk.DescribeStacksInput{
+		StackName: aws.String("changeset-resourcetypes-allowed"),
+	})
+	require.NoError(t, err)
+	require.Len(t, descAllowed.Stacks, 1)
+	assert.Equal(t, types.StackStatusCreateComplete, descAllowed.Stacks[0].StackStatus)
 }

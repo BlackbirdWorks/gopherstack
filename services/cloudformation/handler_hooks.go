@@ -68,12 +68,16 @@ func (h *Handler) handleListHookResults(form url.Values, c *echo.Context) error 
 	// Real HookResultSummary members are "Status" and "HookStatusReason", not
 	// "HookStatus"/"ErrorCode" (cloudformation@v1.76.1 types/types.go:422).
 	type hookXML struct {
+		HookResultID     string `xml:"HookResultId,omitempty"`
 		Status           string `xml:"Status,omitempty"`
 		HookStatusReason string `xml:"HookStatusReason,omitempty"`
 	}
 	members := make([]hookXML, 0, len(results))
 	for _, r := range results {
-		members = append(members, hookXML{Status: r.HookStatus, HookStatusReason: r.ErrorCode})
+		members = append(
+			members,
+			hookXML{HookResultID: r.Token, Status: r.HookStatus, HookStatusReason: r.ErrorCode},
+		)
 	}
 	type result struct {
 		HookResults []hookXML `xml:"HookResults>member"`
