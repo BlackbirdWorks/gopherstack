@@ -189,14 +189,14 @@ func TestBuildFaultRules(t *testing.T) {
 func TestBackend_SetFaultStore(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.SetFaultStore(nil)
 }
 
 func TestBackend_SetActionProviders(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.SetActionProviders(nil)
 
 	actions := b.ListActions()
@@ -515,7 +515,7 @@ func TestBackend_CloneTemplate_WithAllFields(t *testing.T) {
 func TestBackend_ListTargetResourceTypes_AllPresent(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	types := b.ListTargetResourceTypes()
 	require.NotEmpty(t, types)
 
@@ -536,7 +536,7 @@ func TestBackend_ListTargetResourceTypes_AllPresent(t *testing.T) {
 func TestBackend_GetTargetResourceType(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	rt, err := b.GetTargetResourceType("aws:ec2:instance")
 	require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestBackend_GetTargetResourceType(t *testing.T) {
 func TestBackend_ListActions_WithProviders(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.SetActionProviders(nil)
 
 	actions := b.ListActions()

@@ -405,7 +405,7 @@ func TestListActions_BuiltinCatalog(t *testing.T) {
 func TestSortedListActions(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	actions := b.ListActions()
 	require.NotEmpty(t, actions)
 
@@ -417,7 +417,7 @@ func TestSortedListActions(t *testing.T) {
 func TestSortedListTargetResourceTypes(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	types := b.ListTargetResourceTypes()
 	require.NotEmpty(t, types)
 

@@ -62,7 +62,7 @@ func newStopConditionExperiment(t *testing.T, h *fis.Handler, alarmArn string) s
 func newTestHandlerWithAlarm(t *testing.T) (*fis.Handler, *fis.InMemoryBackend, *cloudwatch.InMemoryBackend, string) {
 	t.Helper()
 
-	backend := fis.NewTestBackend()
+	backend := fis.NewTestBackend(t)
 	h := fis.NewHandler(backend)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"

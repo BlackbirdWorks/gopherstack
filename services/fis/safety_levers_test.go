@@ -228,7 +228,7 @@ func TestPersistenceRestoreNilSafetyLever(t *testing.T) {
 	raw := []byte(`{"templates":{},"experiments":{},"targetAccountConfigs":{},
 		"safetyLever":null,"accountID":"000000000000","region":"us-east-1"}`)
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	require.NoError(t, b.Restore(t.Context(), raw))
 
 	// GetSafetyLever should succeed (lever was auto-rebuilt).
@@ -262,7 +262,7 @@ func TestSafetyLever_PreservedAcrossPersistence(t *testing.T) {
 	snap := b.Snapshot(t.Context())
 	require.NotNil(t, snap)
 
-	b2 := fis.NewTestBackend()
+	b2 := fis.NewTestBackend(t)
 	require.NoError(t, b2.Restore(t.Context(), snap))
 
 	lever, err := b2.GetSafetyLever("000000000000")

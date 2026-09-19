@@ -327,7 +327,7 @@ func TestFISHandler_StartExperiment_TooManyExperiments(t *testing.T) {
 func TestErrTooManyExperiments_Returns429(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:             "EXT-quota1",
 		Arn:            "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-quota1",
@@ -396,7 +396,7 @@ func TestFISResolvedTargetsWireShape(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := fis.NewTestBackend()
+			b := fis.NewTestBackend(t)
 			h := fis.NewHandler(b)
 			h.DefaultRegion = "us-east-1"
 			h.AccountID = "000000000000"
@@ -440,7 +440,7 @@ func TestFISResolvedTargetsWireShape(t *testing.T) {
 func TestListExperimentResolvedTargets_Pagination(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	h := fis.NewHandler(b)
 	h.DefaultRegion = "us-east-1"
 	h.AccountID = "000000000000"

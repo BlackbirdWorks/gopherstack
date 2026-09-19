@@ -1,7 +1,7 @@
 ---
 service: fis
 sdk_module: aws-sdk-go-v2/service/fis@v1.40.4   # version audited against
-last_audit_commit: a5efc2c05                       # HEAD when this manifest was written
+last_audit_commit: d522d763f  # 2026-09-19 leak-audit follow-up (gopherstack-1x2u0)
 last_audit_date: 2026-09-19
 overall: A            # genuine wire/error-code fixes found and applied
 ops:
@@ -505,6 +505,16 @@ Gates: `go build ./...` (whole module, clean). `go vet` clean. `go test
 -race -count=1 ./services/fis/...` clean. `golangci-lint run
 --new-from-rev=HEAD` 0 issues. `go run ./cmd/paritylint` 0 FAIL
 throughout. No `snapshot_inventory.json` changes. No version bump.
+
+## Notes (2026-09-19 leak-audit follow-up — gopherstack-1x2u0 Part 2)
+
+`go b.runExperiment(...)` (experiments.go, StartExperiment) is a method-value
+launch the earlier "go func" grep missed. No `Close()` existed at all;
+`waitForCompletionOrStop` parked on its per-experiment ctx until process exit
+in ~42 test call sites. Added `InMemoryBackend.Close()` (cancels every running
+experiment's ctx, mirroring `Reset()`'s existing cancel-all logic), wired
+`t.Cleanup(b.Close)` into `NewTestBackend(t)` and the other constructors, added
+`leak_main_test.go`. `go test -race -count=1 ./services/fis/...` passes clean.
 
 ## Notes (2026-09-19 pass — gopherstack-dv4s over-wide-response census)
 

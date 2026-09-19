@@ -531,7 +531,7 @@ func TestDeleteTargetAccountConfig_ReturnsBody(t *testing.T) {
 func TestCreateTargetAccountConfig_RequiresRoleArn(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-role1",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-role1",
@@ -549,7 +549,7 @@ func TestCreateTargetAccountConfig_RequiresRoleArn(t *testing.T) {
 func TestSortedListTargetAccountConfigurations(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-sortcfg",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-sortcfg",

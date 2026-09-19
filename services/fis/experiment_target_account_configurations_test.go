@@ -281,7 +281,7 @@ func TestExperiment_TargetAccountConfigurationsCount(t *testing.T) {
 func TestDeleteTemplate_CascadesTargetAccountConfigs(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-cascade1",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-cascade1",
@@ -307,7 +307,7 @@ func TestDeleteTemplate_CascadesTargetAccountConfigs(t *testing.T) {
 func TestExperimentTargetAccountConfig_GetAndList(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:             "EXT-expacct1",

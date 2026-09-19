@@ -27,6 +27,7 @@ func TestListActions_SDKRoundTrip_StaleNextTokenDoesNotPanic(t *testing.T) {
 	t.Parallel()
 
 	backend := fis.NewInMemoryBackend("123456789012", "us-east-1")
+	t.Cleanup(backend.Close)
 	h := fis.NewHandler(backend)
 	client, _ := newTestFISClient(t, h)
 

@@ -81,7 +81,7 @@ func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			backend := fis.NewTestBackend()
+			backend := fis.NewTestBackend(t)
 			expID := "EXP" + tt.name
 
 			backend.InjectExperiment(newFakeExperiment(expID, tt.status, tt.endTime))
@@ -105,7 +105,7 @@ func TestFISJanitor_SweepCompletedExperiments(t *testing.T) {
 func TestFISHandler_Shutdown_CancelsRunningExperiments(t *testing.T) {
 	t.Parallel()
 
-	backend := fis.NewTestBackend()
+	backend := fis.NewTestBackend(t)
 	handler := fis.NewHandler(backend)
 
 	// Inject an experiment with a real cancel func so we can observe cancellation.
@@ -138,7 +138,7 @@ func TestFISHandler_Shutdown_CancelsRunningExperiments(t *testing.T) {
 func TestFISJanitor_RunContext(t *testing.T) {
 	t.Parallel()
 
-	backend := fis.NewTestBackend()
+	backend := fis.NewTestBackend(t)
 	janitor := fis.NewJanitor(backend, 10*time.Millisecond, time.Hour)
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -191,7 +191,7 @@ func TestFISJanitor_TaskTimeout_WithJanitor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			b := fis.NewTestBackend()
+			b := fis.NewTestBackend(t)
 			h := fis.NewHandler(b)
 
 			h.WithJanitor(time.Minute, tt.experimentTTL, tt.taskTimeout)
@@ -228,7 +228,9 @@ func TestFISJanitor_DefaultInterval(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			h := fis.NewHandler(fis.NewInMemoryBackend("123456789012", "us-east-1"))
+			backend := fis.NewInMemoryBackend("123456789012", "us-east-1")
+			t.Cleanup(backend.Close)
+			h := fis.NewHandler(backend)
 			h.WithJanitor(tt.interval, 0)
 
 			assert.Equal(t, tt.want, h.GetJanitorInterval())

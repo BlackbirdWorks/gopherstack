@@ -529,7 +529,7 @@ func TestRestore_MarksRunningExperimentsFailed(t *testing.T) {
 	require.NotNil(t, snap)
 
 	// Restore into a fresh backend.
-	fresh := fis.NewTestBackend()
+	fresh := fis.NewTestBackend(t)
 	err := fresh.Restore(t.Context(), snap)
 	require.NoError(t, err)
 

@@ -28,6 +28,7 @@ func TestListSummaryShapes(t *testing.T) {
 		t.Parallel()
 
 		backend := fis.NewInMemoryBackend("000000000000", "us-east-1")
+		t.Cleanup(backend.Close)
 		client, _ := newTestFISClient(t, fis.NewHandler(backend))
 		ctx := t.Context()
 
@@ -48,6 +49,7 @@ func TestListSummaryShapes(t *testing.T) {
 		t.Parallel()
 
 		backend := fis.NewInMemoryBackend("000000000000", "us-east-1")
+		t.Cleanup(backend.Close)
 		client, _ := newTestFISClient(t, fis.NewHandler(backend))
 		ctx := t.Context()
 
@@ -90,6 +92,7 @@ func TestListSummaryShapes(t *testing.T) {
 		t.Parallel()
 
 		backend := fis.NewInMemoryBackend("000000000000", "us-east-1")
+		t.Cleanup(backend.Close)
 		client, _ := newTestFISClient(t, fis.NewHandler(backend))
 		ctx := t.Context()
 

@@ -569,7 +569,7 @@ func TestListExperiments_FilterByTemplateID(t *testing.T) {
 func TestNonNilTags_Experiment(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.InjectExperiment(&fis.Experiment{
 		ID:     "EXP-notags1",
 		Arn:    "arn:aws:fis:us-east-1:000000000000:experiment/EXP-notags1",

@@ -773,7 +773,7 @@ func TestListExperimentTemplates_Pagination(t *testing.T) {
 func TestSortedListExperimentTemplates(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 
 	for _, id := range []string{"EXT-zzz", "EXT-aaa", "EXT-mmm"} {
 		b.AddTemplateInternal(&fis.ExperimentTemplate{
@@ -794,7 +794,7 @@ func TestSortedListExperimentTemplates(t *testing.T) {
 func TestNonNilTags_Template(t *testing.T) {
 	t.Parallel()
 
-	b := fis.NewTestBackend()
+	b := fis.NewTestBackend(t)
 	b.AddTemplateInternal(&fis.ExperimentTemplate{
 		ID:  "EXT-notags1",
 		Arn: "arn:aws:fis:us-east-1:000000000000:experiment-template/EXT-notags1",
