@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
 // encodeListKey URL-encodes v when the request asked for encoding-type=url, which
@@ -38,7 +40,38 @@ func parseUserMetadata(h http.Header) map[string]string {
 
 const (
 	crc32Len = 4
+
+	// preGrowCap bounds how far a client-declared Content-Length can pre-size
+	// a body buffer, so a spoofed huge header can't force a large allocation
+	// before any bytes are read.
+	preGrowCap = 8 * 1024 * 1024
 )
+
+// contentLengthPtr returns r.ContentLength as *int64, or nil when unknown
+// (chunked/streaming bodies report -1).
+func contentLengthPtr(r *http.Request) *int64 {
+	if r.ContentLength < 0 {
+		return nil
+	}
+
+	return aws.Int64(r.ContentLength)
+}
+
+// bufferGrowHint clamps a declared body size to preGrowCap, for pre-sizing a
+// pooled buffer once instead of paying repeated doubling reallocations as
+// io.Copy fills it (the pool only retains buffers up to 64KiB, so anything
+// larger starts from zero capacity every request).
+func bufferGrowHint(contentLength *int64) int {
+	n := aws.ToInt64(contentLength)
+	if n <= 0 {
+		return 0
+	}
+	if n > preGrowCap {
+		return preGrowCap
+	}
+
+	return int(n)
+}
 
 func CalculateChecksum(data []byte, algorithm string) string {
 	var sum []byte

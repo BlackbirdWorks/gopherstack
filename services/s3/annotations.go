@@ -155,7 +155,7 @@ func (b *InMemoryBackend) putAnnotation(
 	name string,
 	input *s3.PutObjectAnnotationInput,
 ) (*s3.PutObjectAnnotationOutput, error) {
-	_, data, etagHex, s3Hasher, err := b.computeObjectHashes(ctx, input.AnnotationPayload, input.ChecksumAlgorithm)
+	_, data, etagHex, s3Hasher, err := b.computeObjectHashes(ctx, input.AnnotationPayload, input.ChecksumAlgorithm, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -164,6 +164,7 @@ func buildPutObjectInput(
 		Bucket:             aws.String(bucketName),
 		Key:                aws.String(key),
 		Body:               body,
+		ContentLength:      contentLengthPtr(r),
 		Metadata:           userMeta,
 		ContentType:        aws.String(r.Header.Get("Content-Type")),
 		ContentEncoding:    ptrconv.NilIfEmpty(r.Header.Get("Content-Encoding")),

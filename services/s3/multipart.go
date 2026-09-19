@@ -132,6 +132,9 @@ func (b *InMemoryBackend) UploadPart(
 
 	buf := httputils.GetBuffer()
 	defer httputils.PutBuffer(buf)
+	if n := bufferGrowHint(input.ContentLength); n > 0 {
+		buf.Grow(n)
+	}
 
 	writers := []io.Writer{md5Hasher, buf}
 

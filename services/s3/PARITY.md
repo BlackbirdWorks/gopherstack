@@ -1,8 +1,8 @@
 ---
 service: s3
 sdk_module: aws-sdk-go-v2/service/s3@v1.111.0   # version audited against (go.mod pin)
-last_audit_commit: b4c2391e7
-last_audit_date: 2026-09-18
+last_audit_commit: 62e6a1538
+last_audit_date: 2026-09-19
 overall: A   # gopherstack-3dqa: found+fixed 4 real bugs incl. a race-detector-confirmed data race and a real (not disguised) over-replication bug. gopherstack-zi7k (2026-08-14): implemented the 5-op Object Annotations family that gopherstack-3dqa found entirely missing. gopherstack-3dqa follow-up (2026-08-14b): mechanical struct-field diff (the method that closed the dynamodb sibling pass) found 2 real absent-but-tracked wire bugs; a benchmark-verified ListObjectsV2 allocation fix closed the one axis (optimization) the prior four rounds left as "inspected, not profiled". gopherstack-6flj (2026-08-15): full List/Describe/Get wrapper-key sweep (45 ops), 2 more real bugs fixed (ListObjects/V2 Owner, GetBucketVersioning MFADelete), 1 severe wrong-response-shape finding flagged not fixed (GetBucketMetadataConfiguration/GetBucketMetadataTableConfiguration) -- see families/ops/gaps below.
 protocol: REST-XML
 families:
@@ -54,6 +54,13 @@ leaks: {status: clean, note: janitor ctx-parented w/ <-ctx.Done() stop; replicat
 ---
 
 ## Notes
+
+### 2026-09-19 (pgoload perf sweep)
+
+CompleteMultipartUpload/PutObject: GzipCompressor now compresses at BestSpeed
+(was DefaultCompression) and body-snapshot buffers pre-size from a capped
+Content-Length hint, cutting ~45%/~25% median latency on 5MiB-multipart/64KiB
+benchmarks (profile-driven; golden-verified byte-identical output).
 
 ### 2026-09-18 (ledger burn-down sweep)
 

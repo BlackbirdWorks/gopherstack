@@ -149,6 +149,7 @@ func (h *S3Handler) uploadPart(
 		UploadId:          aws.String(uploadID),
 		PartNumber:        aws.Int32(int32(partNumber)), // #nosec G109 G115
 		Body:              r.Body,
+		ContentLength:     contentLengthPtr(r),
 		ChecksumAlgorithm: types.ChecksumAlgorithm(algo),
 		ChecksumCRC32:     crc32p,
 		ChecksumCRC32C:    crc32cp,

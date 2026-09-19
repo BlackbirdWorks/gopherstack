@@ -456,7 +456,7 @@ func (b *InMemoryBackend) prepareObjectData(
 	ctx context.Context,
 	input *s3.PutObjectInput,
 ) (int64, []byte, bool, string, string, error) {
-	n, data, etag, s3Hasher, err := b.computeObjectHashes(ctx, input.Body, input.ChecksumAlgorithm)
+	n, data, etag, s3Hasher, err := b.computeObjectHashes(ctx, input.Body, input.ChecksumAlgorithm, input.ContentLength)
 	if err != nil {
 		return 0, nil, false, "", "", err
 	}
@@ -1116,16 +1116,23 @@ func (b *InMemoryBackend) saveObjectVersion(
 }
 
 // computeObjectHashes snapshots the body while computing MD5 and S3 checksums.
+// contentLength, when known, pre-sizes the snapshot buffer (see bufferGrowHint)
+// to avoid repeated doubling reallocation on bodies above the pool's 64KiB
+// retention cap.
 func (b *InMemoryBackend) computeObjectHashes(
 	_ context.Context,
 	body io.Reader,
 	algorithm types.ChecksumAlgorithm,
+	contentLength *int64,
 ) (int64, []byte, string, hash.Hash, error) {
 	md5Hasher := httputils.GetMD5()
 	defer httputils.PutMD5(md5Hasher)
 
 	buf := httputils.GetBuffer()
 	defer httputils.PutBuffer(buf)
+	if n := bufferGrowHint(contentLength); n > 0 {
+		buf.Grow(n)
+	}
 
 	writers := []io.Writer{md5Hasher, buf}
 
