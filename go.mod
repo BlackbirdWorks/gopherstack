@@ -189,6 +189,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/klauspost/compress v1.20.0
 	github.com/labstack/echo/v5 v5.3.1
 	github.com/miekg/dns v1.1.73
 	github.com/moby/moby/api v1.56.0
@@ -265,7 +266,6 @@ require (
 	github.com/hashicorp/golang-lru/arc/v2 v2.0.7 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.11 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
