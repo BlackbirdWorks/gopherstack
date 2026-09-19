@@ -1,8 +1,14 @@
 service: verifiedpermissions
 sdk_module: aws-sdk-go-v2/service/verifiedpermissions@v1.36.4
-last_audit_commit: 49cff86c4
+last_audit_commit: 5330e30da
 last_audit_date: 2026-09-19
-overall: A            # this pass (wrapper-key/nested-shape sweep, gopherstack-c733): field-diffed every response struct against the pinned SDK's types.go, with special attention to this service's union families (PolicyDefinition/Detail/Item, Configuration/Detail/Item, OpenIdConnectTokenSelection/Detail/Item, EntityReference) since this campaign hadn't yet stress-tested a union-heavy service. Found and fixed two real bugs: ListPolicyTemplates leaking a fabricated "statement" field (pattern: member generalized from GetPolicyTemplateOutput's wider sibling shape), and BatchGetPolicy mis-coding an unresolvable-alias failure as POLICY_STORE_NOT_FOUND instead of the real SDK's dedicated POLICY_STORE_ALIAS_NOT_FOUND value (right key, wrong value). Every union discriminator key/casing, every summary/full pair, and both three-way families verified correct against deserializers.go/serializers.go -- no other wire bugs found. No regressions in prior fixes (all 159 tests still pass).
+overall: A            # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
+                      # all 87 required members across 26 ops re-verified by direct code
+                      # reading (Results/Errors slices always non-nil on Batch*, Determining
+                      # Policies always non-nil on IsAuthorized*, PolicyItem/IdentitySourceItem
+                      # fields already field-diffed by the prior over-wide-response sweep) --
+                      # no new gaps found.
+                      # Prior pass (wrapper-key/nested-shape sweep, gopherstack-c733): field-diffed every response struct against the pinned SDK's types.go, with special attention to this service's union families (PolicyDefinition/Detail/Item, Configuration/Detail/Item, OpenIdConnectTokenSelection/Detail/Item, EntityReference) since this campaign hadn't yet stress-tested a union-heavy service. Found and fixed two real bugs: ListPolicyTemplates leaking a fabricated "statement" field (pattern: member generalized from GetPolicyTemplateOutput's wider sibling shape), and BatchGetPolicy mis-coding an unresolvable-alias failure as POLICY_STORE_NOT_FOUND instead of the real SDK's dedicated POLICY_STORE_ALIAS_NOT_FOUND value (right key, wrong value). Every union discriminator key/casing, every summary/full pair, and both three-way families verified correct against deserializers.go/serializers.go -- no other wire bugs found. No regressions in prior fixes (all 159 tests still pass).
 # Per-op or per-op-family status. Values: ok | partial | gap | deferred.
 # wire=response/request shape vs SDK; errors=code+HTTP status; state=real mutate/read; persist=in backendSnapshot.
 ops:
@@ -52,6 +58,14 @@ deferred: []              # the one item deferred last pass (CreatePolicyStore C
 leaks: {status: clean, note: "no goroutines/janitors in this service; InMemoryBackend uses a single lockmetrics.RWMutex. Prior pass fixed real ghost-row leaks: DeletePolicy/DeleteIdentitySource/DeletePolicyStore's cascade/DeletePolicyTemplate's cascade all clear resourceTags (previously only arnIndex was cleaned, so a tagged-then-deleted resource left its tag map entry behind forever); DeletePolicyStore also clears policySetCache/policySetDirty for the deleted store. This pass adds policyStoreAliases (a new store.Table registered on b.registry, keyed by AliasName) to that same cascade: DeletePolicyStore now also deletes every alias pointing at the store being deleted (see policy_stores.go's DeletePolicyStore -- the real API's docs are silent on this since DeletePolicyStore predates aliases entirely, so gopherstack picked cascade-delete per this campaign's documented-choice convention, proven by TestVPHandler_DeletePolicyStore_CascadesAliases/TestBackend_DeletePolicyStore_CascadesAliases). Aliases carry no arnIndex/resourceTags entries at all (not a taggable resource type in the real API -- TagResource's own doc says only policy stores can be tagged), so no ARN/tag cleanup was needed for them. clientTokens (ClientToken idempotency state) remains an ephemeral, never-persisted map; entries age out via the 8h idempotencyWindow check at lookup time (no janitor goroutine). Snapshot/Restore of the new policyStoreAliases table fully exercised by persistence_test.go's TestInMemoryBackend_SnapshotRestore_FullState (extended this pass) plus store_test.go's new alias tests."}
 
 ## Notes
+
+### 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up)
+
+Re-verified all 87 required members across 26 ops (cmd/requiredoutputfields census) by
+direct code reading: BatchGetPolicy/BatchIsAuthorized(WithToken) Results/Errors are
+always non-nil slices, IsAuthorized* DeterminingPolicies is always initialized, and
+PolicyItem/IdentitySourceItem were already field-diffed exactly by the prior
+over-wide-response sweep. No new gaps found; gates all clean.
 
 ### 2026-09-19 over-wide-response sweep
 

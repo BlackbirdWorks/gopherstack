@@ -1,9 +1,16 @@
 ---
 service: route53
 sdk_module: aws-sdk-go-v2/service/route53@v1.65.6
-last_audit_commit: 49cff86c4
+last_audit_commit: 5330e30da
 last_audit_date: 2026-09-19
-overall: A          # this pass: closed BOTH tracked gaps (AssociateVPCWithHostedZone
+overall: A          # 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up):
+                    # all 108 required members across 58 ops re-verified by direct code
+                    # reading, including the 7 handler-layer ops with no StorageBackend
+                    # method (GetAccountLimit, GetCheckerIpRanges, GetGeoLocation,
+                    # GetHostedZoneLimit, GetReusableDelegationSetLimit,
+                    # GetTrafficPolicyInstanceCount, ListGeoLocations) that a naive op-table
+                    # scan would miss -- all confirmed already always-populated, no new gaps.
+                    # Prior pass: this pass: closed BOTH tracked gaps (AssociateVPCWithHostedZone
                     # duplicate-VPC idempotency, CreateReusableDelegationSet HostedZoneId
                     # mode) and 3 of the 4 deferred items — CreateKeySigningKey InvalidKMSArn
                     # validation, alias-cycle depth-guard stress tests, and a genuine
@@ -103,6 +110,14 @@ leaks: {status: clean, note: "no goroutines, tickers, or background timers anywh
 ---
 
 ## Notes
+
+### 2026-09-19 required-output-member re-sweep (gopherstack-r80d follow-up)
+
+Re-verified all 108 required members across 58 ops (cmd/requiredoutputfields census) by
+direct code reading. The 7 ops with no StorageBackend method of the same name (account/
+delegation-set/traffic-policy-instance limits, checker IP ranges, geo location(s)) were
+re-traced by handler function name and confirmed always-populated. No new gaps found;
+gates (gofmt/build/vet/race-test/golangci-lint) all clean.
 
 ### 2026-09-19 over-wide-response sweep
 
